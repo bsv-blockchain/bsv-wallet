@@ -146,15 +146,26 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
 
   func changePin(oldPin: String, newPin: String) throws -> Promise<String> {
     let promise = Promise<String>()
+    let settled = SettleGuard()
     withSession(promise) { session in
       // Per the module spec, changePin is grouped with generateKey under the
       // management-key gate. (PIV's CHANGE REFERENCE DATA itself only needs the
       // old PIN; the management-key auth is here because the spec asks for it,
       // and it is what surfaces mgmt-key-custom on a personalised key.)
       self.authenticateManagementKey(session, promise) {
-        session.setPin(newPin, oldPin: oldPin) { error in
-          if let error { return promise.reject(withError: Self.mapError(error)) }
-          promise.resolve(withResult: "{\"ok\":true}")
+        // Verify the old PIN through the shared gate BEFORE setPin, so a wrong
+        // or locked PIN reports pin-invalid:retries=N / pin-locked here like
+        // ecdh and signEcdsa. setPin's own completion cannot do this: YubiKit
+        // 4.4.0's changeReference: drops the retry count (its public completion
+        // carries only the error), and for any NON-PIN fault never invokes the
+        // completion at all. The verify burns the same one retry a failed
+        // CHANGE REFERENCE would, and on success setPin below re-sends the
+        // just-verified value, so its swallowed PIN-failure path is unreachable.
+        Self.verifyPinGated(session, pin: oldPin, settled, promise) {
+          session.setPin(newPin, oldPin: oldPin) { error in
+            if let error { return settled.reject(promise, Self.mapError(error)) }
+            settled.resolve(promise, "{\"ok\":true}")
+          }
         }
       }
     }
@@ -266,31 +277,8 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     withSession(promise) { session in
       // pin-policy ONCE gate: neither YubiKit nor the card verifies for us, and
       // withSession may hand back a session on which nothing has been verified.
-      //
-      // The retry count MUST be read from the completion's first argument, not
-      // inferred from the error. YubiKit does not surface the card's 0x63Cx
-      // status word here — it swallows it and hands back its own NSError
-      // (YKFPIVErrorDomain, InvalidPin = 5 / PinLocked = 6), which `mapError`'s
-      // status-word cases cannot recognise and would fold into `wrong-key`,
-      // losing the count. What the block DOES carry (YKFPIVSession.m:594-619,
-      // and the header's "retries left or -1 if an error occured") is:
-      //   > 0  wrong PIN, that many attempts remain
-      //   == 0 PIN blocked
-      //   == -1 neither — a transport/APDU fault, which mapError does classify.
-      // The detail strings are byte-identical to the Android side's
-      // (`pin-invalid:retries=N` / `pin-locked:no attempts remaining`) so
-      // vaultErrorFromNative's /retries=(\d+)/ populates VaultError.retriesLeft
-      // identically on both platforms.
-      session.verifyPin(pin) { retries, error in
-        if let error {
-          if retries > 0 {
-            return settled.reject(promise, Self.vaultError("pin-invalid", "retries=\(retries)"))
-          }
-          if retries == 0 {
-            return settled.reject(promise, Self.vaultError("pin-locked", "no attempts remaining"))
-          }
-          return settled.reject(promise, Self.mapError(error))
-        }
+      // A wrong/locked PIN is classified by verifyPinGated.
+      Self.verifyPinGated(session, pin: pin, settled, promise) {
         // TOUCH-gated when the slot's key was generated with TouchPolicy.ALWAYS
         // (which is what generateVaultKey now uses): this blocks until the user
         // taps, and an unmet touch surfaces as touch-timeout via mapError.
@@ -337,8 +325,9 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     let settled = SettleGuard()
     withSession(promise) { session in
       // pin-policy ONCE gate: neither YubiKit nor the card verifies for us.
-      session.verifyPin(pin) { _, error in
-        if let error { return settled.reject(promise, Self.mapError(error)) }
+      // A wrong/locked PIN is classified by verifyPinGated (it used to fall
+      // through mapError and come out as wrong-key with no retry count).
+      Self.verifyPinGated(session, pin: pin, settled, promise) {
         // .ecdsaSignatureDigestX962SHA256 is the DIGEST variant — YKFPIVPadding
         // passes it through unhashed (`hash = [data mutableCopy]`). Never use the
         // ...MessageX962... variants: those hash locally with CommonCrypto and
@@ -397,6 +386,45 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     session.authenticate(withManagementKey: Self.defaultManagementKey, type: type) { error in
       if error != nil {
         return promise.reject(withError: Self.vaultError("mgmt-key-custom", "default management key rejected"))
+      }
+      next()
+    }
+  }
+
+  /// The PIN gate shared by every PIN-consuming operation (ecdh, signEcdsa,
+  /// changePin): verify `pin` on `session`, rejecting a failure through
+  /// `settled`, and run `next` only on success.
+  ///
+  /// The retry count MUST be read from the completion's first argument, not
+  /// inferred from the error. YubiKit does not surface the card's 0x63Cx
+  /// status word here — it swallows it and hands back its own NSError
+  /// (YKFPIVErrorDomain, InvalidPin = 5 / PinLocked = 6), which `mapError`'s
+  /// status-word cases cannot recognise and would fold into `wrong-key`,
+  /// losing the count. What the block DOES carry (YKFPIVSession.m:594-619,
+  /// and the header's "retries left or -1 if an error occured") is:
+  ///   > 0  wrong PIN, that many attempts remain
+  ///   == 0 PIN blocked
+  ///   == -1 neither — a transport/APDU fault, which mapError does classify.
+  /// The detail strings are byte-identical to the Android side's
+  /// (`pin-invalid:retries=N` / `pin-locked:no attempts remaining`) so
+  /// vaultErrorFromNative's /retries=(\d+)/ populates VaultError.retriesLeft
+  /// identically on both platforms.
+  private static func verifyPinGated(
+    _ session: YKFPIVSession,
+    pin: String,
+    _ settled: SettleGuard,
+    _ promise: Promise<String>,
+    _ next: @escaping () -> Void
+  ) {
+    session.verifyPin(pin) { retries, error in
+      if let error {
+        if retries > 0 {
+          return settled.reject(promise, vaultError("pin-invalid", "retries=\(retries)"))
+        }
+        if retries == 0 {
+          return settled.reject(promise, vaultError("pin-locked", "no attempts remaining"))
+        }
+        return settled.reject(promise, mapError(error))
       }
       next()
     }
