@@ -45,6 +45,30 @@ function fakeStorage (chunk: SyncChunk): { getSyncChunk: jest.Mock } {
   return { getSyncChunk: jest.fn().mockResolvedValue(chunk) }
 }
 
+/**
+ * A storage stub that answers `since` the way SQLite actually does.
+ *
+ * The real query is `updated_at >= ?` (storage/methods/findSql.ts) paged by a
+ * plain LIMIT/OFFSET ordered by primary key ascending, so a fake that just
+ * replays a fixed chunk cannot show what a cursor does across passes. This one
+ * holds a fixed set of records and filters them, which is what makes the
+ * boundary behaviour observable.
+ */
+function inclusiveSinceStorage (updatedAt: string[]): { getSyncChunk: jest.Mock } {
+  const rows = updatedAt.map((t, i) => ({ provenTxId: i, rawTx: [1, 2, 3], updated_at: t }))
+  return {
+    getSyncChunk: jest.fn(async (args: any) => {
+      const since = args.since != null ? new Date(args.since).toISOString() : undefined
+      const offsets = args.offsets as { name: string, offset: number }[]
+      const offset = offsets.find(o => o.name === 'provenTx')?.offset ?? 0
+      const c = emptyChunk('a', 'b', IDENTITY) as unknown as Record<string, unknown[]>
+      // `>=`, exactly as the column comparison does.
+      c.provenTxs = rows.filter(r => since == null || r.updated_at >= since).slice(offset)
+      return c as unknown as SyncChunk
+    })
+  }
+}
+
 function fakeClient (over: Partial<Record<'append' | 'manifest' | 'limits', jest.Mock>> = {}): any {
   return {
     append: over.append ?? jest.fn().mockResolvedValue({ seq: 1, sha256: 'newsha', size: 1 }),
@@ -154,8 +178,11 @@ describe('pushOnce', () => {
   })
 
   it('closes the window by advancing since and zeroing offsets', async () => {
-    // Mirrors EntitySyncState: when a chunk comes back empty the window is exhausted, so
-    // `since` jumps to the greatest updated_at seen and the offsets reset.
+    // As in EntitySyncState, an empty chunk means the window is exhausted: the offsets
+    // reset and `since` moves to the greatest updated_at seen — but one millisecond PAST
+    // it, not onto it. The column comparison is `>=`, and our writer is an append-only
+    // log rather than a merging storage, so landing on the mark re-uploaded the boundary
+    // record on every subsequent window.
     await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(),
       offsets: { ...zeroOffsets(), provenTx: 5 },
@@ -170,10 +197,97 @@ describe('pushOnce', () => {
     })
 
     const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
-    expect(cursor.since).toBe('2026-08-02T00:00:00.000Z')
+    expect(cursor.since).toBe('2026-08-02T00:00:00.001Z')
     expect(cursor.offsets.provenTx).toBe(0)
     expect(cursor.maxUpdatedAt).toBeUndefined()
     expect(cursor.seq).toBe(3)
+  })
+
+  it('stops uploading once an unchanged wallet has been backed up', async () => {
+    // The regression this guards: `since` used to advance to exactly the greatest
+    // updated_at seen, and the column comparison is `>=`, so the record sitting on
+    // the boundary came back on the very next window and was appended again. The
+    // cycle never converged — one duplicate blob every two passes, forever, each
+    // one counting toward the generation threshold that triggers a full re-upload.
+    const client = fakeClient()
+    const storage = inclusiveSinceStorage(['2026-08-01T00:00:00.000Z'])
+
+    for (let pass = 0; pass < 10; pass++) {
+      await pushOnce({
+        storage: storage as any,
+        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      })
+    }
+
+    // One record, so exactly one upload however many times the monitor ticks.
+    expect(client.append).toHaveBeenCalledTimes(1)
+  })
+
+  it('advances past the boundary so a settled window cannot reopen', async () => {
+    const client = fakeClient()
+    const storage = inclusiveSinceStorage(['2026-08-01T00:00:00.000Z'])
+
+    // Pass one uploads, pass two finds the window exhausted and closes it.
+    for (let pass = 0; pass < 2; pass++) {
+      await pushOnce({
+        storage: storage as any,
+        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      })
+    }
+
+    const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
+    // Strictly after the record, not equal to it.
+    expect(cursor.since).toBe('2026-08-01T00:00:00.001Z')
+    expect(client.append).toHaveBeenCalledTimes(1)
+  })
+
+  it('still collects a record written in the same millisecond as the boundary', async () => {
+    // The reason the advance is safe: a window only closes when nothing at or after
+    // `since` is left beyond the offsets, so anything sharing the boundary
+    // millisecond has already been uploaded within that window rather than skipped.
+    const client = fakeClient()
+    const storage = inclusiveSinceStorage([
+      '2026-08-01T00:00:00.000Z',
+      '2026-08-01T00:00:00.000Z',
+      '2026-08-01T00:00:00.000Z'
+    ])
+
+    for (let pass = 0; pass < 6; pass++) {
+      await pushOnce({
+        storage: storage as any,
+        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      })
+    }
+
+    // All three shared the boundary and all three went up, in one chunk, once.
+    expect(client.append).toHaveBeenCalledTimes(1)
+    const chunk = storage.getSyncChunk.mock.results[0].value
+    await expect(chunk.then((c: any) => c.provenTxs.length)).resolves.toBe(3)
+  })
+
+  it('settles a cursor left parked on the boundary by an older build', async () => {
+    // Every wallet already in the field has a cursor sitting exactly ON its high-water
+    // mark, which is the state the old code kept re-reading from. No migration handles
+    // this: the next window re-reads the boundary once more, and the close after it moves
+    // past. So each wallet pays at most one final duplicate and then goes quiet.
+    const client = fakeClient()
+    const storage = inclusiveSinceStorage(['2026-08-01T00:00:00.000Z'])
+    await saveCursor('main', PSEUDONYM, DEVICE, {
+      ...freshCursor(),
+      since: '2026-08-01T00:00:00.000Z',
+      seq: 7,
+      chunksInGeneration: 7
+    })
+
+    for (let pass = 0; pass < 10; pass++) {
+      await pushOnce({
+        storage: storage as any,
+        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      })
+    }
+
+    expect(client.append).toHaveBeenCalledTimes(1)
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).since).toBe('2026-08-01T00:00:00.001Z')
   })
 
   it('rotates to a new generation past the threshold, at a window boundary', async () => {

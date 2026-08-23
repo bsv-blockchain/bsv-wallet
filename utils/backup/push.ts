@@ -100,11 +100,12 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   })
 
   if (isEmptyChunk(chunk)) {
-    // Window exhausted. Advance `since` past everything seen and reset the offsets, exactly
-    // as EntitySyncState does when its merge reports done.
+    // Window exhausted. Advance `since` past everything seen and reset the offsets, as
+    // EntitySyncState does when its merge reports done — except that we advance PAST the
+    // high-water mark rather than onto it. See nextInstant.
     const advanced: PushCursor = {
       ...cursor,
-      since: cursor.maxUpdatedAt ?? cursor.since,
+      since: nextInstant(cursor.maxUpdatedAt) ?? cursor.since,
       maxUpdatedAt: undefined,
       offsets: zeroOffsets()
     }
@@ -194,6 +195,41 @@ function resolveClient (deps: PushDeps): BackupClient {
     cachedClient = { key, client: new BackupClient(deps.baseUrl, deps.primaryKey, deps.chain) }
   }
   return cachedClient.client
+}
+
+/**
+ * The instant after a closed window's high-water mark — where the next window starts.
+ *
+ * This is the one place our cursor deliberately DIVERGES from `EntitySyncState`, which
+ * sets `when = maxUpdated_at` exactly. The column comparison is `updated_at >= ?`
+ * (storage/methods/findSql.ts), so starting the next window ON the high-water mark
+ * re-reads every record sharing that timestamp. For the toolbox that is harmless: it
+ * syncs into a storage that merges, so a re-read record is merged again and nothing
+ * accumulates. Our writer is an append-only blob log, where the same re-read becomes a
+ * brand-new encrypted blob — so the boundary record was uploaded again on the very next
+ * window, forever, roughly one duplicate every two passes on a wallet that had gone
+ * quiet. Each duplicate also counted toward GENERATION_CHUNK_THRESHOLD, so an idle
+ * wallet re-uploaded its entire database about every 200 passes.
+ *
+ * Advancing by one millisecond is exact rather than approximate: SQLite stores these
+ * columns as `toISOString()` text, whose resolution IS one millisecond, so this is the
+ * next representable instant and no timestamp can hide in the gap.
+ *
+ * It cannot skip a record either. A window only closes when a chunk comes back empty,
+ * which means nothing at or after `since` remained beyond the offsets — so everything up
+ * to and including the high-water mark had already been read and appended. Anything
+ * written later necessarily carries a greater `updated_at`, because the closing pass runs
+ * at least MIN_PUSH_INTERVAL_MS after the pass that set the mark. (A device clock jumping
+ * backwards could still orphan a record, but that was equally true of `>=` and is not
+ * something a timestamp cursor can defend against.)
+ */
+function nextInstant (iso: string | undefined): string | undefined {
+  if (iso == null) return undefined
+  const t = Date.parse(iso)
+  // An unparseable timestamp must not silently reset the window to the epoch; leaving it
+  // alone means the caller falls back to the existing `since` and re-reads at worst.
+  if (Number.isNaN(t)) return undefined
+  return new Date(t + 1).toISOString()
 }
 
 /** Per-entity consumed counts grow by what this chunk carried. */
