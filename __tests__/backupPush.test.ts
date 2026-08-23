@@ -28,7 +28,7 @@ import { pushOnce } from '@/utils/backup/push'
 const PRIMARY = new PrivateKey(11).toArray('be', 32)
 const IDENTITY = '02' + 'ab'.repeat(32)
 const DEVICE = 'c'.repeat(32)
-const PSEUDONYM = backupPseudonym(PRIMARY)
+const PSEUDONYM = backupPseudonym(PRIMARY, 'main')
 
 function chunkWith (counts: { provenTxs?: number, outputs?: number }, updatedAt = '2026-08-01T00:00:00.000Z'): SyncChunk {
   const c = emptyChunk('a', 'b', IDENTITY) as unknown as Record<string, unknown[]>
@@ -68,7 +68,7 @@ describe('pushOnce', () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
     })
 
     expect(client.append).not.toHaveBeenCalled()
@@ -81,7 +81,7 @@ describe('pushOnce', () => {
     // block every storage read and write for the duration.
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
     await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, identityKey: IDENTITY,
+      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
       client: fakeClient(), deviceId: DEVICE
     })
 
@@ -95,7 +95,7 @@ describe('pushOnce', () => {
   it('never sends the real identity key as the log address', async () => {
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
     await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, identityKey: IDENTITY,
+      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
       client: fakeClient(), deviceId: DEVICE
     })
 
@@ -110,13 +110,13 @@ describe('pushOnce', () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 2, outputs: 3 })) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
     })
 
     expect(r.pushed).toBe(1)
     expect(client.append).toHaveBeenCalledWith(DEVICE, 1, 1, undefined, expect.any(Array))
 
-    const cursor = await loadCursor(PSEUDONYM, DEVICE)
+    const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
     expect(cursor.seq).toBe(1)
     expect(cursor.prevSha256).toBe('newsha')
     expect(cursor.offsets.provenTx).toBe(2)
@@ -130,33 +130,33 @@ describe('pushOnce', () => {
 
     await expect(pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
     })).rejects.toThrow('network down')
 
-    const cursor = await loadCursor(PSEUDONYM, DEVICE)
+    const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
     expect(cursor.seq).toBe(0)
     expect(cursor.offsets.provenTx).toBe(0)
   })
 
   it('chains prevSha256 from the previous append', async () => {
-    await saveCursor(PSEUDONYM, DEVICE, {
+    await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(), seq: 1, prevSha256: 'oldsha', chunksInGeneration: 1
     })
     const client = fakeClient({ append: jest.fn().mockResolvedValue({ seq: 2, sha256: 'secondsha' }) })
 
     await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
     })
 
     expect(client.append).toHaveBeenCalledWith(DEVICE, 1, 2, 'oldsha', expect.any(Array))
-    expect((await loadCursor(PSEUDONYM, DEVICE)).prevSha256).toBe('secondsha')
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).prevSha256).toBe('secondsha')
   })
 
   it('closes the window by advancing since and zeroing offsets', async () => {
     // Mirrors EntitySyncState: when a chunk comes back empty the window is exhausted, so
     // `since` jumps to the greatest updated_at seen and the offsets reset.
-    await saveCursor(PSEUDONYM, DEVICE, {
+    await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(),
       offsets: { ...zeroOffsets(), provenTx: 5 },
       maxUpdatedAt: '2026-08-02T00:00:00.000Z',
@@ -166,10 +166,10 @@ describe('pushOnce', () => {
 
     await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
     })
 
-    const cursor = await loadCursor(PSEUDONYM, DEVICE)
+    const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
     expect(cursor.since).toBe('2026-08-02T00:00:00.000Z')
     expect(cursor.offsets.provenTx).toBe(0)
     expect(cursor.maxUpdatedAt).toBeUndefined()
@@ -177,7 +177,7 @@ describe('pushOnce', () => {
   })
 
   it('rotates to a new generation past the threshold, at a window boundary', async () => {
-    await saveCursor(PSEUDONYM, DEVICE, {
+    await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(),
       since: '2026-01-01T00:00:00.000Z',
       seq: GENERATION_CHUNK_THRESHOLD,
@@ -186,13 +186,13 @@ describe('pushOnce', () => {
 
     const r = await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
     })
 
     expect(r.rotated).toBe(true)
 
     // A new generation is a full snapshot: no since filter, sequence restarts at one.
-    const cursor = await loadCursor(PSEUDONYM, DEVICE)
+    const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
     expect(cursor.generation).toBe(2)
     expect(cursor.seq).toBe(0)
     expect(cursor.since).toBeUndefined()
@@ -202,17 +202,17 @@ describe('pushOnce', () => {
   it('does not rotate mid-window', async () => {
     // Rotating with records still pending would leave a generation that is not a coherent
     // snapshot, which a restore could not trust.
-    await saveCursor(PSEUDONYM, DEVICE, {
+    await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(), seq: GENERATION_CHUNK_THRESHOLD, chunksInGeneration: GENERATION_CHUNK_THRESHOLD
     })
 
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
     })
 
     expect(r.rotated).toBe(false)
-    expect((await loadCursor(PSEUDONYM, DEVICE)).generation).toBe(1)
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).generation).toBe(1)
   })
 
   it('starts a fresh generation after a sequence conflict', async () => {
@@ -227,19 +227,43 @@ describe('pushOnce', () => {
 
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
     })
 
     expect(r.pushed).toBe(0)
-    const cursor = await loadCursor(PSEUDONYM, DEVICE)
+    const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
     expect(cursor.generation).toBe(5)
     expect(cursor.seq).toBe(0)
+  })
+
+  it('keeps each network on its own cursor and its own pseudonym', async () => {
+    // The network-separation property at the push layer: a mainnet pass must not consume
+    // or advance testnet bookkeeping, and each pass must address its own chain's account.
+    const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
+    await pushOnce({
+      storage: storage as any, primaryKey: PRIMARY, chain: 'main',
+      identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+    })
+
+    const testPseudonym = backupPseudonym(PRIMARY, 'test')
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).seq).toBe(1)
+    expect(await loadCursor('test', testPseudonym, DEVICE)).toEqual(freshCursor())
+
+    // And a testnet pass addresses the testnet pseudonym, never the mainnet one.
+    const testStorage = fakeStorage(chunkWith({ provenTxs: 1 }))
+    await pushOnce({
+      storage: testStorage as any, primaryKey: PRIMARY, chain: 'test',
+      identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+    })
+    expect(testStorage.getSyncChunk.mock.calls[0][0].toStorageIdentityKey).toBe(testPseudonym)
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).seq).toBe(1)
+    expect((await loadCursor('test', testPseudonym, DEVICE)).seq).toBe(1)
   })
 
   it('requires either a client or a baseUrl', async () => {
     await expect(pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, deviceId: DEVICE
     })).rejects.toThrow(/client or a baseUrl/)
   })
 })
@@ -270,7 +294,7 @@ describe('pushOnce oversize guard', () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(chunkWithBigTx(959_836)) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
     })
 
     expect(client.append).not.toHaveBeenCalled()
@@ -279,20 +303,20 @@ describe('pushOnce oversize guard', () => {
   })
 
   it('leaves the cursor untouched so an oversized chunk is never silently skipped', async () => {
-    const before = await loadCursor(PSEUDONYM, DEVICE)
+    const before = await loadCursor('main', PSEUDONYM, DEVICE)
     await pushOnce({
       storage: fakeStorage(chunkWithBigTx(959_836)) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
     })
 
-    expect(await loadCursor(PSEUDONYM, DEVICE)).toEqual(before)
+    expect(await loadCursor('main', PSEUDONYM, DEVICE)).toEqual(before)
   })
 
   it('still pushes a chunk that fits', async () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(chunkWithBigTx(1000)) as any,
-      primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
     })
 
     expect(client.append).toHaveBeenCalled()
@@ -307,7 +331,7 @@ describe('pushOnce opt-out', () => {
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
     const client = fakeClient()
 
-    const r = await pushOnce({ storage: storage as any, primaryKey: PRIMARY, identityKey: IDENTITY, client, deviceId: DEVICE })
+    const r = await pushOnce({ storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE })
 
     expect(r).toEqual({ pushed: 0, bytes: 0, windowClosed: false, rotated: false, optedOut: true })
     expect(storage.getSyncChunk).not.toHaveBeenCalled()
@@ -315,18 +339,19 @@ describe('pushOnce opt-out', () => {
   })
 
   it('leaves the cursor untouched while opted out, so opting back in resumes rather than skips', async () => {
-    const before = await loadCursor(PSEUDONYM, DEVICE)
+    const before = await loadCursor('main', PSEUDONYM, DEVICE)
     await setBackupPushEnabled(false)
 
     await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
       primaryKey: PRIMARY,
+      chain: 'main',
       identityKey: IDENTITY,
       client: fakeClient(),
       deviceId: DEVICE
     })
 
-    expect(await loadCursor(PSEUDONYM, DEVICE)).toEqual(before)
+    expect(await loadCursor('main', PSEUDONYM, DEVICE)).toEqual(before)
   })
 
   it('pushes again after opting back in', async () => {
@@ -337,6 +362,7 @@ describe('pushOnce opt-out', () => {
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
       primaryKey: PRIMARY,
+      chain: 'main',
       identityKey: IDENTITY,
       client,
       deviceId: DEVICE
