@@ -242,7 +242,7 @@ export async function generatePrintHTML(
             ? 'Any two of these pages rebuild your twelve-word recovery phrase, and therefore your entire wallet — everyday balance and vault alike. Treat two pages together as you would the phrase itself.'
             : 'These shares are an older format. They restore your everyday balance but cannot open a vault.'
         }</p>
-        <p>To recover: In BSV Browser, go to Enable Web3 &rarr; Import Existing Wallet &rarr; Scan Backup Shares.</p>
+        <p>To recover: In BSV Wallet, go to Import Existing Wallet &rarr; Scan Backup Shares.</p>
       </div>
     </div>
   `

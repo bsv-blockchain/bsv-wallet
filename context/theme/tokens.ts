@@ -1,5 +1,5 @@
 /**
- * Safari-inspired design tokens for the BSV Browser.
+ * Safari-inspired design tokens for BSV Wallet.
  *
  * Colors follow iOS Human Interface Guidelines.
  * Typography uses the iOS type scale (system font).

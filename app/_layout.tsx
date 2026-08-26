@@ -102,7 +102,7 @@ export default function RootLayout() {
       <ErrorBoundary>
         <LanguageProvider>
           <LocalStorageProvider>
-            <UserContextProvider nativeHandlers={nativeHandlers} appVersion={packageJson.version} appName="BSV Browser">
+            <UserContextProvider nativeHandlers={nativeHandlers} appVersion={packageJson.version} appName="BSV Wallet">
               <ExchangeRateContextProvider>
                 <WalletContextProvider>
                   <ThemeProvider>

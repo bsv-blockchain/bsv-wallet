@@ -377,7 +377,7 @@ export default function WalletScreen() {
             ? 'https://woc-ttn.bsvblockchain.tech'
             : 'https://test.whatsonchain.com'
       Linking.openURL(`${base}/tx/${txid}`).catch(() => {
-        showToast(t('explorer_open_failed', { defaultValue: 'Could not open block explorer' }), { type: 'error' })
+        showToast(t('explorer_open_failed'), { type: 'error' })
       })
     },
     [selectedNetwork, t]

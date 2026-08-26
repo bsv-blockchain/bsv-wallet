@@ -353,7 +353,7 @@ export function WalletConnectionProvider({ children }: { children: React.ReactNo
           id: crypto.randomUUID(), seq: 1, method: 'pairing_approved',
           params: {
             mobileIdentityKey,
-            walletMeta: { name: 'BSV Browser', platform: 'mobile' },
+            walletMeta: { name: 'BSV Wallet', platform: 'mobile' },
             permissions: Array.from(IMPLEMENTED_METHODS),
           },
         })
@@ -405,7 +405,7 @@ export function WalletConnectionProvider({ children }: { children: React.ReactNo
           id: crypto.randomUUID(), seq: initialSeq + 1, method: 'pairing_approved',
           params: {
             mobileIdentityKey: connection.mobileIdentityKey,
-            walletMeta: { name: 'BSV Browser', platform: 'mobile' },
+            walletMeta: { name: 'BSV Wallet', platform: 'mobile' },
             permissions: Array.from(IMPLEMENTED_METHODS),
           },
         })
