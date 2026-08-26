@@ -85,9 +85,9 @@ packages/*/android/.cxx
 expo-env.d.ts
 .expo
 *.aab
-/BSVBrowser.app
+/BSVWallet.app
 build-*.tar.gz
-/@bsvb__bsv-browser.jks
+/@bsvb__bsv-wallet.jks
 docs/marketing
 marketing.html
 Dev Builds.zip
