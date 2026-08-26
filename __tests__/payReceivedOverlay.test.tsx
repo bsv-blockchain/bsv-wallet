@@ -165,7 +165,7 @@ describe('ReceivedOverlay', () => {
     })
     expect(mockDismissTo).not.toHaveBeenCalled()
     fireEvent.press(screen.getByLabelText('done'))
-    expect(mockDismissTo).toHaveBeenCalledWith('/wallet')
+    expect(mockDismissTo).toHaveBeenCalledWith('/')
     // Not navigate: that would leave the finished flow on the stack beneath.
     expect(mockNavigate).not.toHaveBeenCalled()
   })
@@ -221,7 +221,7 @@ describe('PaymentSuccessOverlay (sent)', () => {
       mockMarkDone?.()
     })
     fireEvent.press(screen.getByLabelText('done'))
-    expect(mockDismissTo).toHaveBeenCalledWith('/wallet')
+    expect(mockDismissTo).toHaveBeenCalledWith('/')
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 })

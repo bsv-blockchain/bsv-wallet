@@ -223,7 +223,7 @@ export default function PayScreen() {
    * discarding them.
    */
   const goBack = useCallback(() => {
-    router.dismissTo('/wallet')
+    router.dismissTo('/')
   }, [])
 
   const grid = () => (

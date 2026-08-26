@@ -5,14 +5,16 @@ import { normalizeWalletByteFields, stringifyWalletPayload } from '../utils/webv
 const mangled = (bytes: number[]) => JSON.parse(JSON.stringify(new Uint8Array(bytes)))
 
 describe('WebView wallet byte JSON compatibility', () => {
-  it('keeps both directions of the CWI bridge on the compatibility boundary', () => {
-    // Outbound now flows through buildWalletResponseScript (the master refactor
-    // that replaced getInjectableJSMessage); inbound stays at the parse site.
-    const index = readFileSync(resolve(process.cwd(), 'app/index.tsx'), 'utf8')
+  it('keeps the outbound leg of the CWI bridge on the compatibility boundary', () => {
+    // Outbound flows through buildWalletResponseScript (the master refactor
+    // that replaced getInjectableJSMessage). The inbound leg lived in the
+    // Browser screen's WebView onMessage handler, which the wallet-first
+    // migration deleted along with app/index.tsx (see Task 1) — the rest of
+    // the browser subsystem, including this call's only consumer, is removed
+    // in a later task.
     const response = readFileSync(resolve(process.cwd(), 'utils/webview/walletResponseScript.ts'), 'utf8')
 
     expect(response).toContain('const messageString = stringifyWalletPayload(message)')
-    expect(index).toContain('msg = normalizeWalletByteFields(JSON.parse(eventData))')
   })
 
   it('keeps valid number arrays on the identity fast path', () => {

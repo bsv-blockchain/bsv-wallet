@@ -111,7 +111,7 @@ export default function PaymentSuccessOverlay({
    */
   const acknowledge = useCallback(() => {
     onDismiss()
-    router.dismissTo('/wallet')
+    router.dismissTo('/')
   }, [onDismiss])
 
   const settleIn = reducedMotion

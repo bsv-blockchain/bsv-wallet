@@ -1122,7 +1122,7 @@ export const AddressBar = observer(
               onNewTab={onNewTab}
               // Full-screen wallet, not a bottom sheet: balance, the three
               // destinations, and activity all live on one screen now.
-              onSettings={() => router.push('/wallet')}
+              onSettings={() => router.push('/')}
               onEnableWeb3={onEnableWeb3}
               onConnections={onConnections}
               onToggleDesktopMode={() => {

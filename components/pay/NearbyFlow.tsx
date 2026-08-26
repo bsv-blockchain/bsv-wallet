@@ -1786,7 +1786,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
               label={t('done')}
               onPress={() => {
                 goBack()
-                router.dismissTo('/wallet')
+                router.dismissTo('/')
               }}
             />
           </View>
