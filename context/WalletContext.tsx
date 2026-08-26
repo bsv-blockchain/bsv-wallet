@@ -2450,5 +2450,3 @@ export const useTxStatusVersion = (): number => {
   return ctx.txStatusVersion
 }
 
-/** Managers + storage, exposed as a narrow slice of the wallet context. */
-export const useWalletManagers = (): WalletManagersSlice => useContext(WalletManagersContext)
