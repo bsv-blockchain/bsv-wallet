@@ -271,10 +271,15 @@ export default function MnemonicScreen() {
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <Celebration
           onDone={() => {
-            // dismissAll() returns to the existing root /index (Browser). Do NOT push('/')
-            // after — that mounts a SECOND Browser on top, leaking a duplicate that
-            // re-renders forever (2x JS work on every nav/SSE tick).
-            router.dismissAll()
+            // dismissAll() targets a modally-presented navigator being dismissed
+            // back to whatever pushed it; this screen sits in the same flat,
+            // non-modal Stack as the Wallet (app/_layout.tsx), so React
+            // Navigation has no modal to dismiss and silently no-ops (logs
+            // "action 'POP_TO_TOP' was not handled"), stranding the user here.
+            // dismissTo('/'), the same idiom PaymentSuccessOverlay uses to
+            // return to the wallet, pops the stack back to the existing root
+            // `index` screen instead of pushing a second one on top of it.
+            router.dismissTo('/')
           }}
         />
       </View>

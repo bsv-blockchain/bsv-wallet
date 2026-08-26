@@ -53,6 +53,7 @@ import { exportTransactionsAsCsv } from '@/utils/exportTransactions'
 import { findOfflineActions, type OfflineActionRow } from '@/storage/methods/offlineActions'
 import { readWalletBalance } from '@/storage/methods/walletBalanceSql'
 import WalletLockNotice from '@/components/security/WalletLockNotice'
+import { useLocalStorage } from '@/context/LocalStorageProvider'
 
 const PAGE_SIZE = 30
 
@@ -108,10 +109,50 @@ export default function WalletScreen() {
     txStatusVersion,
     walletUserId,
     refreshProof,
-    settings
+    settings,
+    configStatus,
+    walletBuilding,
+    walletBuilt
   } = useWallet()
+  const { unlockState } = useLocalStorage()
   const { satoshisPerUSD } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
+
+  // ── onboarding gate ─────────────────────────────────────────────────
+  /**
+   * A fresh install has no mnemonic and no recovered key, so the auto-build
+   * effect in WalletContext finishes with walletBuilt=false and nothing to
+   * show — this screen would otherwise spin forever (no wallet, no error).
+   * WalletLockNotice already covers a RETURNING user whose key the OS
+   * destroyed or who cancelled the biometric prompt ('lost' / 'cancelled' /
+   * 'unavailable'); this covers the one case it doesn't: nothing was ever
+   * stored here at all.
+   *
+   * `unlockState.status` only becomes the literal 'absent' once an unlock has
+   * actually been attempted (services/secrets/kek.ts doUnlock) — and on a
+   * true fresh install that never happens, because getMnemonic/getRecoveredKey
+   * short-circuit on `hasSecret` before ever calling ensureUnlocked. So the
+   * status simply stays at its 'locked' module default forever. Once the
+   * build attempt has genuinely concluded (walletBuilding false, walletBuilt
+   * false), 'locked' and 'absent' both mean the same thing here: no secret
+   * was ever found. sawBuildAttemptRef guards against the single-render race
+   * where configStatus flips to 'configured' a tick before WalletContext's
+   * own effect sets walletBuilding=true — without it, that transient
+   * (false, false) reading would look identical to "settled, nothing found"
+   * and could bounce a normal returning user into onboarding.
+   */
+  const sawBuildAttemptRef = useRef(false)
+  const redirectedToOnboardingRef = useRef(false)
+  useEffect(() => {
+    if (walletBuilding) sawBuildAttemptRef.current = true
+    if (redirectedToOnboardingRef.current) return
+    if (!sawBuildAttemptRef.current) return
+    if (walletBuilding || walletBuilt) return
+    if (configStatus !== 'configured') return
+    if (unlockState.status !== 'absent' && unlockState.status !== 'locked') return
+    redirectedToOnboardingRef.current = true
+    router.replace('/auth/mnemonic')
+  }, [walletBuilding, walletBuilt, configStatus, unlockState.status])
 
   const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
   const [balance, setBalance] = useState<number | null>(null)

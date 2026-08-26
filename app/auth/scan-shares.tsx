@@ -229,7 +229,13 @@ export default function ScanSharesScreen() {
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <Celebration
           onDone={() => {
-            router.dismissAll()
+            // dismissAll() targets a modally-presented navigator being dismissed
+            // back to whatever pushed it; this screen sits in the same flat,
+            // non-modal Stack as the Wallet (app/_layout.tsx), so React
+            // Navigation has no modal to dismiss and silently no-ops, stranding
+            // the user here. dismissTo('/') pops the stack back to the existing
+            // root `index` screen instead — see app/auth/mnemonic.tsx.
+            router.dismissTo('/')
           }}
         />
       </View>
