@@ -55,7 +55,21 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   /// Begin an NFC session — the JS layer calls this only when a ceremony needs a
   /// key, NEVER at launch (it presents the system scan sheet). The session stays
   /// open across the whole ceremony until stopDiscovery().
+  ///
+  /// Throws (instead of YubiKit's silent YKFAssertReturn no-op) when NFC
+  /// reading is unavailable RIGHT NOW: `readingAvailable` goes false not just
+  /// on non-NFC hardware but transiently when the system NFC daemon (nfcd) is
+  /// wedged — a state only a device restart clears, observed in production
+  /// after interrupted scan sessions. Silence here was one of the "modal never
+  /// appears and nothing is reported" paths.
   func startDiscovery() throws {
+    if #available(iOS 13.0, *) {
+      guard NFCReaderSession.readingAvailable else {
+        throw Self.vaultError(
+          "driver-unavailable",
+          "NFC reading unavailable — NFC may be off, or the NFC service may need a device restart")
+      }
+    }
     YubiKitManager.shared.delegate = connDelegate
     YubiKitExternalLocalization.nfcScanAlertMessage =
       "Hold your YubiKey to the top of your phone to unlock the vault."
@@ -97,6 +111,18 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   fileprivate func handleDisconnect(_ connection: AnyObject, _ transport: String) {
     if (activeConnection as AnyObject?) === connection { activeConnection = nil }
     emit("removed", "", transport)
+  }
+
+  /// Called by the delegate when a session dies BEFORE any key connected —
+  /// the user cancelled the system NFC sheet (CoreNFC code 200), it timed out
+  /// (201), or the session failed outright (202/203). No connection ever
+  /// existed, so didDisconnect never fires for these; before this handler the
+  /// event was silently dropped and the JS ceremony hung in waiting-for-key
+  /// forever (the production hang). The CoreNFC code rides in the eventType
+  /// (`failed:<code>`) because the listener signature has no error channel;
+  /// the JS driver maps 200 → user-cancelled and everything else → no-key.
+  fileprivate func handleConnectFailure(_ error: Error, _ transport: String) {
+    emit("failed:\((error as NSError).code)", "", transport)
   }
 
   /// Opens a throwaway session just to read the serial for a connect event.
@@ -569,6 +595,15 @@ private final class ConnectionDelegate: NSObject, YKFManagerDelegate {
   }
   func didDisconnectSmartCard(_ connection: YKFSmartCardConnection, error: Error?) {
     owner?.handleDisconnect(connection, "usb")
+  }
+  // Optional in YKFManagerDelegate — but load-bearing: without these, a
+  // cancelled or timed-out scan sheet is silently swallowed (YubiKitManager
+  // guards the forward with respondsToSelector) and the ceremony hangs.
+  func didFailConnectingNFC(_ error: Error) {
+    owner?.handleConnectFailure(error, "nfc")
+  }
+  func didFailConnectingSmartCard(_ error: Error) {
+    owner?.handleConnectFailure(error, "usb")
   }
 }
 

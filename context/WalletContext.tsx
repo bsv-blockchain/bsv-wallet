@@ -1870,8 +1870,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     const off = driver.onKeyEvent(e => {
       if (e.type === 'detached') {
         vaultCeremony.notifyKeyDetached()
-      } else {
+      } else if (e.type === 'attached') {
         vaultCeremony.notifyKeyAttached()
+      } else {
+        // session-failed: the session died before any key connected. Never
+        // emitted by a persistent reader today, but must not read as attach.
+        vaultCeremony.notifySessionFailed(e.code)
       }
     })
     return () => {
