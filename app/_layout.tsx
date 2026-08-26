@@ -27,10 +27,7 @@ import { VaultProvider } from '@/context/VaultContext'
 import { VaultCeremonySheet } from '@/components/vault/VaultCeremonySheet'
 import { ToastHost, showToast } from '@/components/ui/Toast'
 import { useDeepLinking } from '@/hooks/useDeepLinking'
-import DefaultBrowserPrompt from '@/components/onboarding/DefaultBrowserPrompt'
 import { LanguageProvider } from '@/context/i18n/translations'
-import { BrowserModeProvider } from '@/context/BrowserModeContext'
-import Web3BenefitsModalHandler from '@/components/onboarding/Web3BenefitsModalHandler'
 import { WalletConnectionProvider } from '@/context/WalletConnectionContext'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -94,23 +91,6 @@ function LocalPayNotificationBridge() {
   return null
 }
 
-// const DebuggerDisplay = () => {
-//   const [toggle, setToggle] = React.useState(false);
-//   const v = useWallet()
-//   const b = useBrowserMode()
-//   if (!toggle) return <>
-//   <Text onPress={() => setToggle(true)} style={{ top: 100, backgroundColor: 'yellow', position: 'absolute', left: 0, padding: 10, zIndex: 1000,  }}>SHOW</Text>
-//   </>;
-//   return (
-//   <>
-//     <Text onPress={() => setToggle(false)} style={{ position: 'absolute', top: 100, left: 0, backgroundColor: 'red', padding: 10, zIndex: 1000 }}>HIDE</Text>
-//     <Text className="text-xs text-gray-500" style={{ position: 'absolute', top: 150, left: 0, zIndex: 1000, backgroundColor: 'white', padding: 10 }}>
-//       {JSON.stringify({ configStatus: v.configStatus, network: v.selectedNetwork, browserMode: b }, null, 2)}
-//     </Text>
-//   </>
-//   )
-// }
-
 export default function RootLayout() {
   const isDark = useColorScheme() === 'dark'
   // Root canvas — the colour every screen's own background sits on during
@@ -125,17 +105,13 @@ export default function RootLayout() {
             <UserContextProvider nativeHandlers={nativeHandlers} appVersion={packageJson.version} appName="BSV Browser">
               <ExchangeRateContextProvider>
                 <WalletContextProvider>
-                  <BrowserModeProvider>
-                    <ThemeProvider>
-                      <WalletConnectionProvider>
-                       <VaultProvider>
+                  <ThemeProvider>
+                    <WalletConnectionProvider>
+                      <VaultProvider>
                         <View style={{ flex: 1, backgroundColor }}>
-                          {/* <DebuggerDisplay /> */}
                           <FirstTouchRecorder />
                           <DeepLinkHandler />
-                          <Web3BenefitsModalHandler />
                           {/* <TranslationTester /> */}
-                          <DefaultBrowserPrompt />
                           <PermissionSheet />
                           <VaultCeremonySheet />
                           <LocalPayNotificationBridge />
@@ -173,10 +149,9 @@ export default function RootLayout() {
                           </Stack>
                           <ToastHost />
                         </View>
-                       </VaultProvider>
-                      </WalletConnectionProvider>
-                    </ThemeProvider>
-                  </BrowserModeProvider>
+                      </VaultProvider>
+                    </WalletConnectionProvider>
+                  </ThemeProvider>
                 </WalletContextProvider>
               </ExchangeRateContextProvider>
             </UserContextProvider>

@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '@/context/theme/ThemeContext'
 import { spacing, typography } from '@/context/theme/tokens'
 import { useWallet } from '@/context/WalletContext'
-import { useBrowserMode } from '@/context/BrowserModeContext'
 import { GroupedSection } from '@/components/ui/GroupedList'
 import { ListRow } from '@/components/ui/ListRow'
 import { router } from 'expo-router'
@@ -21,7 +20,6 @@ export default function SettingsScreen() {
 
   const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
   const balanceCacheTimestampKey = `cached_wallet_balance_ts_${selectedNetwork}`
-  const { isWeb2Mode } = useBrowserMode()
   const [accountBalance, setAccountBalance] = useState<number | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
 
@@ -91,17 +89,15 @@ export default function SettingsScreen() {
     <View style={{ backgroundColor: colors.backgroundSecondary }}>
       <ScrollView contentContainerStyle={{ paddingBottom: spacing.xxxl }}>
         {/* ── Balance ── */}
-        {!isWeb2Mode && (
-          <View style={localStyles.balanceContainer}>
-            <Text style={[localStyles.balanceLabel, { color: colors.textSecondary }]}>{t('you_have')}</Text>
-            <Text
-              onPress={refreshBalance}
-              style={[localStyles.balanceAmount, { color: colors.textPrimary, opacity: balanceLoading ? 0.4 : 1 }]}
-            >
-              {accountBalance !== null ? <AmountDisplay abbreviate>{accountBalance}</AmountDisplay> : '...'}
-            </Text>
-          </View>
-        )}
+        <View style={localStyles.balanceContainer}>
+          <Text style={[localStyles.balanceLabel, { color: colors.textSecondary }]}>{t('you_have')}</Text>
+          <Text
+            onPress={refreshBalance}
+            style={[localStyles.balanceAmount, { color: colors.textPrimary, opacity: balanceLoading ? 0.4 : 1 }]}
+          >
+            {accountBalance !== null ? <AmountDisplay abbreviate>{accountBalance}</AmountDisplay> : '...'}
+          </Text>
+        </View>
 
         {/* ── Activity ── */}
         <GroupedSection header={t('activity')}>

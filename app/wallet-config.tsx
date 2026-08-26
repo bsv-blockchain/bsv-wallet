@@ -6,7 +6,6 @@ import { spacing, typography } from '@/context/theme/tokens'
 import { Ionicons } from '@expo/vector-icons'
 import { useWallet } from '@/context/WalletContext'
 import type { AppChain } from '@/context/config'
-import { useBrowserMode } from '@/context/BrowserModeContext'
 import { useLocalStorage } from '@/context/LocalStorageProvider'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
@@ -53,7 +52,6 @@ export default function WalletConfigScreen() {
     settings,
     updateSettings
   } = useWallet()
-  const { isWeb2Mode } = useBrowserMode()
   const { getMnemonic, getRecoveredKey } = useLocalStorage()
   const insets = useSafeAreaInsets()
 
@@ -447,11 +445,11 @@ export default function WalletConfigScreen() {
             }
             icon="globe-outline"
             iconColor={NETWORKS.find(n => n.id === selectedNetwork)?.color ?? colors.success}
-            onPress={isWeb2Mode ? undefined : () => setNetworkExpanded(e => !e)}
+            onPress={() => setNetworkExpanded(e => !e)}
             showChevron={networkExpanded}
             chevronDown={networkExpanded}
           />
-          {networkExpanded && !isWeb2Mode && (
+          {networkExpanded && (
             <View style={localStyles.networkList}>
               {NETWORKS.map(net => {
                 const isActive = net.id === selectedNetwork
