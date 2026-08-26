@@ -683,15 +683,15 @@ export default function WalletScreen() {
 
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => router.push('/connections')}
           style={[
             styles.iconBtn,
             { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
           ]}
           accessibilityRole="button"
-          accessibilityLabel={t('back')}
+          accessibilityLabel={t('connections')}
         >
-          <Ionicons name="chevron-back" size={18} color={colors.textSecondary} />
+          <Ionicons name="link-outline" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>{t('wallet')}</Text>
         {/* Settings lives here rather than among the destinations below: it is
