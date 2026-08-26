@@ -3,7 +3,7 @@
  * screen shows, read the same two ways: the cached figure immediately (so the
  * line never opens empty), then straight to our own SQLite rather than through
  * WalletStorageManager's FIFO reader lock (see storage/methods/walletBalanceSql
- * and the storage-lock notes in app/wallet.tsx). The wallet's own listOutputs
+ * and the storage-lock notes in app/index.tsx). The wallet's own listOutputs
  * path stays as the fallback for the window before storage and the user id are
  * known. Refreshes on txStatusVersion bumps so a completed send updates it.
  */
@@ -50,7 +50,7 @@ export function useSpendableBalance(): number | null {
     return () => {
       cancelled = true
     }
-    // Data deps only — see app/wallet.tsx on why callback identity must not
+    // Data deps only — see app/index.tsx on why callback identity must not
     // be a dependency here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey, storage, walletUserId, managers?.permissionsManager, txStatusVersion])

@@ -1616,8 +1616,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   )
 
   // Auto-build wallet for returning users (mnemonic first, then recovered key).
-  // Sets walletBuilding=true eagerly so other parts of the app (BrowserModeContext,
-  // index.tsx navigation) know not to react as if no wallet exists.
+  // Sets walletBuilding=true eagerly so other parts of the app (index.tsx
+  // navigation) know not to react as if no wallet exists.
   useEffect(() => {
     if (configStatus !== 'configured' || walletBuilt) return
     // Signal that a build attempt is starting. buildWalletFromMnemonic /
@@ -2450,5 +2450,5 @@ export const useTxStatusVersion = (): number => {
   return ctx.txStatusVersion
 }
 
-/** Managers + storage — used by the WebView CWI message handler. */
+/** Managers + storage, exposed as a narrow slice of the wallet context. */
 export const useWalletManagers = (): WalletManagersSlice => useContext(WalletManagersContext)

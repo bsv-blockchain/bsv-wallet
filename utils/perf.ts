@@ -6,9 +6,8 @@
  * nothing — the exported functions become near-noops.
  *
  * Usage:
- *   perf.track('tab.switch', () => tabStore.setActiveTab(id))
  *   await perf.track('wallet.createAction', () => wallet.createAction(args))
- *   const end = perf.mark('render.browser'); ...; end()
+ *   const end = perf.mark('render.wallet'); ...; end()
  *   perf.dump() // print the ring buffer (e.g. from the dev menu / console)
  */
 

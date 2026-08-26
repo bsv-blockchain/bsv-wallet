@@ -147,9 +147,8 @@ export async function buildPaymentFrame(
   // With signAndProcess disabled, createAction returns an unsigned
   // `signableTransaction` rather than a final `tx`. We have no caller-supplied
   // inputs — all inputs are wallet-funded — so finalize by signing with empty
-  // `spends`, the same shape the 402 flow uses in
-  // utils/webview/bsvPaymentHandler.ts. noSend stays true: the payee
-  // internalizes and broadcasts, not the payer.
+  // `spends`. noSend stays true: the payee internalizes and broadcasts, not
+  // the payer.
   if (!result.tx && result.signableTransaction) {
     const signed = await wallet.signAction(
       {

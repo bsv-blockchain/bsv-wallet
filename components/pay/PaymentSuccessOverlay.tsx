@@ -106,8 +106,8 @@ export default function PaymentSuccessOverlay({
    * re-pushes it on top, so `[wallet, pay, address-send]` becomes
    * `[pay, address-send, wallet]` and the finished payment is still sitting
    * under the user's thumb: one edge-swipe back into a flow they completed.
-   * POP_TO (`dismissTo`) truncates at the target instead, leaving
-   * `[index, wallet]`, so back from here is the browser and nothing else.
+   * POP_TO (`dismissTo`) truncates at the target instead, leaving just
+   * `[wallet]`, so back from here is the wallet screen and nothing else.
    */
   const acknowledge = useCallback(() => {
     onDismiss()
