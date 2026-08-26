@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "BSVBrowser.app"
-               BlueprintName = "BSVBrowser"
-               ReferencedContainer = "container:BSVBrowser.xcodeproj">
+               BuildableName = "BSVWallet.app"
+               BlueprintName = "BSVWallet"
+               ReferencedContainer = "container:BSVWallet.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "BSVBrowserTests.xctest"
-               BlueprintName = "BSVBrowserTests"
-               ReferencedContainer = "container:BSVBrowser.xcodeproj">
+               BuildableName = "BSVWalletTests.xctest"
+               BlueprintName = "BSVWalletTests"
+               ReferencedContainer = "container:BSVWallet.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "BSVBrowser.app"
-            BlueprintName = "BSVBrowser"
-            ReferencedContainer = "container:BSVBrowser.xcodeproj">
+            BuildableName = "BSVWallet.app"
+            BlueprintName = "BSVWallet"
+            ReferencedContainer = "container:BSVWallet.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "BSVBrowser.app"
-            BlueprintName = "BSVBrowser"
-            ReferencedContainer = "container:BSVBrowser.xcodeproj">
+            BuildableName = "BSVWallet.app"
+            BlueprintName = "BSVWallet"
+            ReferencedContainer = "container:BSVWallet.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
