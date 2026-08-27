@@ -2,7 +2,7 @@ import {
   configureNewHeaderPolling,
   NEW_HEADER_FAILURE_BACKOFF_MS,
   NEW_HEADER_POLL_INTERVAL_MS
-} from '@/utils/walletMonitor'
+} from '../core/walletMonitor'
 import { Monitor, Services } from '@bsv/wallet-toolbox-mobile'
 import { TaskSendOffline } from '@/utils/monitor/TaskSendOffline'
 
