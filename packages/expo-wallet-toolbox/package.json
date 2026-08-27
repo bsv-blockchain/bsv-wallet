@@ -1,0 +1,26 @@
+{
+  "name": "@bsv/expo-wallet-toolbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
+  "main": "core/index.ts",
+  "types": "core/index.ts",
+  "files": ["core", "ui"],
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*",
+    "expo-router": "*",
+    "expo-sqlite": "*",
+    "@bsv/sdk": "*",
+    "@bsv/wallet-toolbox-mobile": "*",
+    "@bsv/btms-permission-module": "*",
+    "react-native-nitro-modules": "*",
+    "react-native-localpay-transport": "*",
+    "react-native-engine-native": "*",
+    "react-native-secp-native": "*",
+    "react-native-yubikey": "*"
+  },
+  "peerDependenciesMeta": {
+    "react-native-yubikey": { "optional": true }
+  }
+}
