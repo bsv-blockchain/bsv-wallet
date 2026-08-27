@@ -1,6 +1,6 @@
-import { OfflineFirstChaintracks } from '@/utils/headers/OfflineFirstChaintracks'
-import { HeaderStore } from '@/utils/headers/headerStore'
-import { memoryHeaderFs } from '@/utils/headers/fs'
+import { OfflineFirstChaintracks } from '../../core/headers/OfflineFirstChaintracks'
+import { HeaderStore } from '../../core/headers/headerStore'
+import { memoryHeaderFs } from '../../core/headers/fs'
 
 const ANCHOR = { height: 0, hash: '00'.repeat(32) }
 const ROOT = 'ab'.repeat(32)

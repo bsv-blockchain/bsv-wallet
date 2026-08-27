@@ -1,6 +1,6 @@
-import { prewarmOwnRoots } from '@/utils/headers/prewarm'
-import { HeaderStore } from '@/utils/headers/headerStore'
-import { memoryHeaderFs } from '@/utils/headers/fs'
+import { prewarmOwnRoots } from '../../core/headers/prewarm'
+import { HeaderStore } from '../../core/headers/headerStore'
+import { memoryHeaderFs } from '../../core/headers/fs'
 
 const ANCHOR = { height: 100, hash: '00'.repeat(32) }
 

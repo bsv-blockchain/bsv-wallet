@@ -107,3 +107,11 @@ export {
   unwatchAddress
 } from './pay/watchlist'
 export * from './parsePeerPayURI'
+
+// Blockchain header sync / checkpointing
+export * from './headers/checkpoints'
+export * from './headers/fs'
+export * from './headers/headerStore'
+export * from './headers/OfflineFirstChaintracks'
+export * from './headers/prewarm'
+export * from './headers/syncHeaders'
