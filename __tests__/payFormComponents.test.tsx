@@ -51,10 +51,11 @@ jest.mock('@/components/pay/AvailableBalance', () => {
   const { Text } = require('react-native')
   return { __esModule: true, default: () => <Text testID="available-balance">balance</Text> }
 })
-jest.mock('@/components/wallet/AmountInput', () => {
+jest.mock('@bsv/expo-wallet-toolbox/ui', () => {
   const { TextInput } = require('react-native')
   return {
     __esModule: true,
+    ...jest.requireActual('@bsv/expo-wallet-toolbox/ui'),
     SEND_MAX_VALUE: '2099999999999999',
     AmountInput: ({ value, onChangeText }: { value: string; onChangeText: (v: string) => void }) => (
       <TextInput testID="amount-input" value={value} onChangeText={onChangeText} />

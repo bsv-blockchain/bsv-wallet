@@ -1,7 +1,6 @@
 import React, { useContext, useState, useEffect, useRef } from 'react'
 import { View, TextInput, TouchableOpacity, Text, StyleSheet } from 'react-native'
 import Animated, { FadeInUp, FadeOutDown, useReducedMotion } from 'react-native-reanimated'
-import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 import {
   useTheme,
@@ -14,6 +13,23 @@ import {
   parseDisplayToSatoshis,
   formatAmount
 } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 export const SEND_MAX_VALUE = '2099999999999999'
 
@@ -55,6 +71,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const { settings } = useWallet()
   const { satoshisPerUSD } = useContext(ExchangeRateContext)
   const reducedMotion = useReducedMotion()
+  const Ionicons = loadIonicons()
 
   const currency = settings?.currency || 'BSV'
   const isUSD = currency === 'USD'

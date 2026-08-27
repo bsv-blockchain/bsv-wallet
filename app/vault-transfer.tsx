@@ -23,9 +23,8 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { AmountInput, SEND_MAX_VALUE } from '@/components/wallet/AmountInput'
 import { useVaultBalance } from '@/hooks/useVaultBalance'
-import { PressableScale, AmountDisplay, showToast, showAlert } from '@bsv/expo-wallet-toolbox/ui'
+import { AmountInput, SEND_MAX_VALUE, PressableScale, AmountDisplay, showToast, showAlert } from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   spacing,

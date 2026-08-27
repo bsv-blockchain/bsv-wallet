@@ -1,7 +1,21 @@
-import { Directory, File, Paths } from 'expo-file-system'
-import { shareAsync } from 'expo-sharing'
 import type { WalletInterface, WalletAction } from '@bsv/sdk'
 import type { StorageExpoSQLite } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * expo-file-system and expo-sharing both ship untransformed ESM/raw-TS
+ * entry points that Jest cannot parse when eagerly pulled in via the `ui`
+ * package barrel, so both are required lazily here rather than imported at
+ * module scope — same pattern as this package's other native-module-boundary
+ * fixes (expo-router, expo-blur, core/headers/fs.ts's expo-file-system use).
+ */
+function loadExpoFileSystem(): typeof import('expo-file-system') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-file-system') as typeof import('expo-file-system')
+}
+function loadExpoSharing(): typeof import('expo-sharing') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-sharing') as typeof import('expo-sharing')
+}
 
 const PAGE = 200
 
@@ -87,6 +101,9 @@ export async function exportTransactionsAsCsv(
   })
 
   const csv = [header, ...rows].join('\n') + '\n'
+
+  const { Directory, File, Paths } = loadExpoFileSystem()
+  const { shareAsync } = loadExpoSharing()
 
   const ts = Math.floor(Date.now() / 1000)
   const outName = `bsv-transactions-${ts}.csv`

@@ -10,12 +10,39 @@
  */
 import React, { memo, useContext } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 import type { WalletAction } from '@bsv/sdk'
 import { useTheme, spacing, radii, useWallet, ExchangeRateContext, formatAmount, formatAmountParts } from '@bsv/expo-wallet-toolbox'
-import { txStatusView, toneColor } from '@/utils/txStatus'
-import { PressableScale } from '@bsv/expo-wallet-toolbox/ui'
+import { txStatusView, toneColor } from '../../txStatus'
+import PressableScale from '../ui/PressableScale'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Both icon sets are loaded lazily, only when actually rendering, same
+ * pattern as this package's other native-module-boundary fixes (expo-router,
+ * expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+type MaterialCommunityIconsComponent = typeof import('@expo/vector-icons').MaterialCommunityIcons
+let ioniconsComponent: IoniconsComponent | undefined
+let materialCommunityIconsComponent: MaterialCommunityIconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
+  if (!materialCommunityIconsComponent) {
+    materialCommunityIconsComponent = require('@expo/vector-icons')
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      .MaterialCommunityIcons as MaterialCommunityIconsComponent
+  }
+  return materialCommunityIconsComponent
+}
 
 /** A row as storage actually returns it: `reference` and `created_at` are real
  * columns the SDK's WalletAction type does not declare. */
@@ -77,6 +104,7 @@ function ActivityRowBase({
   const { colors } = useTheme()
   const { settings } = useWallet()
   const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const MaterialCommunityIcons = loadMaterialCommunityIcons()
 
   const currency = settings?.currency || 'BSV'
   const view = txStatusView(action.status, offlineStatus)
@@ -238,7 +266,7 @@ function Chip({
   onPress,
   danger
 }: {
-  icon: keyof typeof Ionicons.glyphMap
+  icon: keyof IoniconsComponent['glyphMap']
   label: string
   accessibilityLabel: string
   onPress: () => void
@@ -246,6 +274,7 @@ function Chip({
 }) {
   const { colors } = useTheme()
   const color = danger ? colors.error : colors.textSecondary
+  const Ionicons = loadIonicons()
   return (
     <PressableScale
       onPress={onPress}

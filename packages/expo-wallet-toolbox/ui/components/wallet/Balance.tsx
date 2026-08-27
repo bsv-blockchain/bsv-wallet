@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
-import { AmountDisplay, AppLogo } from '@bsv/expo-wallet-toolbox/ui'
+import AmountDisplay from './AmountDisplay'
+import AppLogo from '../ui/AppLogo'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
