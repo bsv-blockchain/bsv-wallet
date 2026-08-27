@@ -7,8 +7,8 @@
  * classification a payment depends on is testable in isolation.
  */
 import { PublicKey, Utils } from '@bsv/sdk'
-import { decodeSession, type Session } from '@/utils/localpay/session'
-import { validatePeerPayURI } from '@/utils/parsePeerPayURI'
+import { decodeSession, type Session } from '../../localpay/session'
+import { validatePeerPayURI } from '../../parsePeerPayURI'
 
 export type RailId = 'nearby' | 'handle' | 'address'
 

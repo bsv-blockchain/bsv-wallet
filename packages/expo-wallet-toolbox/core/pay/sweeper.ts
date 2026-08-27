@@ -8,10 +8,10 @@
  * runs there.
  *
  * Every bound is deliberate and tested: see shouldSweepNow for when a pass may
- * run at all, and utils/pay/watchlist.ts for which addresses it may touch.
+ * run at all, and pay/watchlist.ts for which addresses it may touch.
  */
-import { sweepAddress, type AddressRailWallet, type WocConfig } from '@/utils/pay/rails/address'
-import { getWatchlist, touchWatched, type KVStorage } from '@/utils/pay/watchlist'
+import { sweepAddress, type AddressRailWallet, type WocConfig } from './rails/address'
+import { getWatchlist, touchWatched, type KVStorage } from './watchlist'
 
 /** One poll every 30s — an order of magnitude cheaper than the 3s screen poll it replaces. */
 export const SWEEP_INTERVAL_MS = 30_000

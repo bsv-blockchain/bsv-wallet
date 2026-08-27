@@ -1,4 +1,4 @@
-import { takeProofNudge, resetProofNudgeForTests, PROOF_NUDGE_MIN_INTERVAL_MS } from '@/utils/pay/proofNudge'
+import { takeProofNudge, resetProofNudgeForTests, PROOF_NUDGE_MIN_INTERVAL_MS } from '../../core/pay/proofNudge'
 
 describe('takeProofNudge', () => {
   beforeEach(resetProofNudgeForTests)

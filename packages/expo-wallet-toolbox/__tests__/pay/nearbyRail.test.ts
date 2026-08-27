@@ -1,11 +1,19 @@
-import * as nearby from '@/utils/pay/rails/nearby'
-import * as session from '@/utils/localpay/session'
-import * as verify from '@/utils/localpay/verify'
-import * as codec from '@/utils/localpay/codec'
-import * as pending from '@/utils/localpay/pending'
-import * as build from '@/utils/localpay/build'
-import { awdlTransport } from '@/utils/localpay/transport/awdl'
-import { localSupportsAwdl, selectTransport } from '@/utils/localpay/transport/select'
+// nearby.ts re-exports holdSentPaymentOffline from the package's own root
+// (@bsv/expo-wallet-toolbox), which pulls in the full core/index.ts surface —
+// including LocalStorageProvider's secrets stack, which touches these two
+// native modules at import time. Same mocking requirement as
+// packageResolution.test.ts and __tests__/secrets/*.
+jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
+jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake').fake)
+
+import * as nearby from '../../core/pay/rails/nearby'
+import * as session from '../../core/localpay/session'
+import * as verify from '../../core/localpay/verify'
+import * as codec from '../../core/localpay/codec'
+import * as pending from '../../core/localpay/pending'
+import * as build from '../../core/localpay/build'
+import { awdlTransport } from '../../core/localpay/transport/awdl'
+import { localSupportsAwdl, selectTransport } from '../../core/localpay/transport/select'
 
 describe('nearby rail adapter', () => {
   it('re-exports the localpay functions by identity, so nothing is reimplemented', () => {

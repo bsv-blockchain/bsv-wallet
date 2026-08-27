@@ -9,7 +9,7 @@ import {
   unwatchAddress,
   watchAddress,
   type WatchedAddress
-} from '@/utils/pay/watchlist'
+} from '../../core/pay/watchlist'
 
 function fakeStorage() {
   const map = new Map<string, string>()

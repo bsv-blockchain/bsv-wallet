@@ -37,7 +37,7 @@ export interface KVStorage {
   setKeyValue(k: string, v: string): Promise<void>
 }
 
-// Same discipline as utils/localpay/pending.ts: every read-modify-write on the
+// Same discipline as localpay/pending.ts: every read-modify-write on the
 // single storage key runs through one chain, or a write built from a stale read
 // silently drops entries.
 let queueLock: Promise<unknown> = Promise.resolve()

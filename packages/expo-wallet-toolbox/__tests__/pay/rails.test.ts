@@ -6,12 +6,12 @@ import {
   legacyRedirectTarget,
   PRECONDITION_KEYS,
   CONSEQUENCE_KEYS
-} from '@/utils/pay/rails'
-import { encodeSession, mintSession } from '@/utils/localpay/session'
+} from '../../core/pay/rails'
+import { encodeSession, mintSession } from '../../core/localpay/session'
 
 // secp256k1 generator point — a genuinely valid compressed pubkey.
 //
-// Lowercase is load-bearing, not cosmetic: utils/parsePeerPayURI's
+// Lowercase is load-bearing, not cosmetic: parsePeerPayURI's
 // COMPRESSED_PUBLIC_KEY_REGEX is /^0[23][0-9a-f]{64}$/ with no `i` flag, so a
 // `peerpay:` URI carrying uppercase hex is rejected as malformed. This constant
 // therefore has to be in the form a real peerpay link uses.

@@ -10,14 +10,14 @@
  */
 import type { IncomingPayment, PeerPayClient } from '@bsv/message-box-client'
 import { P2PKH, PublicKey, Random, Transaction, Utils } from '@bsv/sdk'
-import { BRC29_PROTOCOL_ID } from '@/utils/pay/rails/address'
+import { BRC29_PROTOCOL_ID } from './address'
 import {
   markOutboxSent,
   removeOutboxEntry,
   saveOutboxEntry,
   updateOutboxEntry,
   type OutboxEntry
-} from '@/utils/peerpay/outbox'
+} from '../../peerpay/outbox'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://gmb.bsvblockchain.tech'
@@ -43,8 +43,8 @@ interface InternalizingWallet {
  * A shareable payment link for a handle.
  *
  * Deliberately the same `peerpay:` form the app already parses
- * (utils/parsePeerPayURI.ts) and already routes (app/+native-intent.ts), so a
- * tapped link lands on /pay with the recipient filled in. A non-positive amount
+ * (parsePeerPayURI.ts) and already routes (app/+native-intent.ts in the host
+ * app), so a tapped link lands on /pay with the recipient filled in. A non-positive amount
  * emits no query at all — `sats=0` would be an invalid link, and an open
  * request is exactly the absence of a figure.
  */

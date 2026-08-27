@@ -21,8 +21,8 @@ import {
   type InternalizeOutput,
   type WalletProtocol
 } from '@bsv/sdk'
-import type { AppChain } from '@/context/config'
-import { isValidBsvAddress } from '@/utils/pay/rails'
+import type { AppChain } from '../../config'
+import { isValidBsvAddress } from './index'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
 
@@ -30,7 +30,7 @@ export const LEGACY_DERIVATION_SUFFIX = Utils.toBase64(Utils.toArray('legacy', '
 
 /**
  * How far back the manual recovery stepper may reach. The background sweeper
- * has its own, much tighter bound (see utils/pay/watchlist.ts): this one exists
+ * has its own, much tighter bound (see pay/watchlist.ts): this one exists
  * because an address a payer sat on for three weeks still holds real money.
  */
 export const MAX_RECOVERY_DAYS = 30

@@ -9,13 +9,13 @@ import {
   peerPayLinkFor,
   retryDelivery,
   sendViaHandle
-} from '@/utils/pay/rails/handle'
+} from '../../core/pay/rails/handle'
 import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
-import { getOutboxEntries } from '@/utils/peerpay/outbox'
-import { validatePeerPayURI } from '@/utils/parsePeerPayURI'
+import { getOutboxEntries } from '../../core/peerpay/outbox'
+import { validatePeerPayURI } from '../../core/parsePeerPayURI'
 
 // secp256k1 generator point, in the lowercase hex PublicKey.toString() emits —
-// which is also the only form utils/parsePeerPayURI.ts's identity-key regex accepts.
+// which is also the only form parsePeerPayURI.ts's identity-key regex accepts.
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 function fakeStorage() {

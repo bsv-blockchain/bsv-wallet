@@ -64,3 +64,46 @@ export type { NativeHandlers } from './context/UserContext'
 // Exchange rate context and service
 export { ExchangeRateContextProvider, ExchangeRateContext } from './context/ExchangeRateContext'
 export { getExchangeRate } from './services/exchangeRate'
+
+// Pay rails
+export * from './pay/rails'
+export * from './pay/rails/address'
+export * from './pay/rails/handle'
+// nearby.ts is a pure re-export barrel over localpay/* (already exported above)
+// and @bsv/air-gap; only its genuinely new names are re-exported here by hand —
+// a blanket `export *` would collide (TS2308) with the localpay/offline exports
+// above, since most of nearby.ts's surface is itself a re-export of those.
+export {
+  AIR_GAP_PREFIX,
+  AirGapDecoder,
+  AirGapEncoder,
+  MAX_MESSAGE_BYTES,
+  estimatePartCharLength,
+  isAirGapPart,
+  awdlTransport,
+  nearbyTransport,
+  localSupportsAwdl,
+  localSupportsNearby,
+  isDeclineReason,
+  type TransportKind,
+  type ConfirmDelivery,
+  type DeclineReason
+} from './pay/rails/nearby'
+export * from './pay/sweeper'
+export * from './pay/proofNudge'
+// watchlist.ts's own KVStorage is omitted: it is structurally identical to the
+// KVStorage already exported from './localpay/pending' above, and re-exporting
+// both would collide (TS2308) on the name.
+export {
+  WATCHLIST_KEY,
+  MAX_WATCHED,
+  WATCH_TTL_MS,
+  MAX_WATCH_DAYS,
+  type WatchedAddress,
+  pruneWatchlist,
+  watchAddress,
+  getWatchlist,
+  touchWatched,
+  unwatchAddress
+} from './pay/watchlist'
+export * from './parsePeerPayURI'

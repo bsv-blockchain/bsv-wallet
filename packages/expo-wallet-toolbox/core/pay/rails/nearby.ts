@@ -1,7 +1,7 @@
 /**
  * The nearby rail — in-person, device-to-device over AWDL or QR.
  *
- * A pass-through, on purpose. utils/localpay/* is device-proven with 210 tests
+ * A pass-through, on purpose. localpay/* is device-proven with 210 tests
  * behind it and its money-safety invariants were verified line by line, so this
  * rail adds NOTHING: no wrappers, no defaults, no convenience. Its only job is
  * to be the single import site for nearby, so a future change cannot quietly
@@ -10,7 +10,7 @@
  * If you find yourself wanting to add a function here, add it to the caller
  * instead.
  */
-export { decodeSession, encodeSession, mintSession, type Session } from '@/utils/localpay/session'
+export { decodeSession, encodeSession, mintSession, type Session } from '../../localpay/session'
 export {
   FRAME_BLOCK_BYTES,
   SEAL_VERSION,
@@ -20,7 +20,7 @@ export {
   sealFrame,
   unsealFrame,
   type PaymentFrame
-} from '@/utils/localpay/codec'
+} from '../../localpay/codec'
 /**
  * The animated-QR transport is `@bsv/air-gap` (BRC-141), not app code. It was
  * grown here first and upstreamed; the published library adds what a local
@@ -43,23 +43,23 @@ export {
   processPending,
   savePending,
   type PendingPayment
-} from '@/utils/localpay/pending'
-export { buildPaymentFrame, finalizeDelivery } from '@/utils/localpay/build'
+} from '../../localpay/pending'
+export { buildPaymentFrame, finalizeDelivery } from '../../localpay/build'
 export {
   FrameVerifyError,
   verifyFramePayment,
   type DerivingWallet,
   type FrameVerifyKind
-} from '@/utils/localpay/verify'
+} from '../../localpay/verify'
 export { holdSentPaymentOffline } from '@bsv/expo-wallet-toolbox'
-export { awdlTransport } from '@/utils/localpay/transport/awdl'
-export { nearbyTransport } from '@/utils/localpay/transport/nearby'
+export { awdlTransport } from '../../localpay/transport/awdl'
+export { nearbyTransport } from '../../localpay/transport/nearby'
 export {
   localSupportsAwdl,
   localSupportsNearby,
   selectTransport,
   type TransportKind
-} from '@/utils/localpay/transport/select'
-export { requestNearbyPermissions } from '@/utils/localpay/transport/nearbyPermissions'
-export { isDeclineReason, type Ack, type ConfirmDelivery, type DeclineReason } from '@/utils/localpay/transport/types'
-export { CAP_NEARBY } from '@/utils/localpay/session'
+} from '../../localpay/transport/select'
+export { requestNearbyPermissions } from '../../localpay/nearbyPermissions'
+export { isDeclineReason, type Ack, type ConfirmDelivery, type DeclineReason } from '../../localpay/types'
+export { CAP_NEARBY } from '../../localpay/session'
