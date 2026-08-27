@@ -2,7 +2,7 @@
  * Vault access guard — external origins must not reach privileged (vault) key
  * material. The load-bearing defense against the privilege-escalation finding.
  */
-import { guardVaultAccess, VaultAccessDenied } from '../../services/vault/guard'
+import { guardVaultAccess, VaultAccessDenied } from '../../core/services/vault/guard'
 
 const ADMIN = 'admin.com'
 

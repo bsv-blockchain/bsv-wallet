@@ -6,7 +6,7 @@
  * payload, because the whole purpose is to refuse before anything allocates.
  */
 import { capWalletArgs } from '../../core/services/capWalletArgs'
-import { guardVaultAccess } from '@/services/vault/guard'
+import { guardVaultAccess } from '../../core/services/vault/guard'
 import { limitsForTier } from '../../core/services/walletArgLimits'
 
 const L = limitsForTier('mid')

@@ -4,9 +4,23 @@
  * flag would survive Delete Wallet (wired straight to logout) and the next
  * wallet on the device would be born already backed up.
  */
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
-)
+// Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
+// suites install a different one and a global mapper makes the resolver
+// recurse between the two.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store: Record<string, string> = {}
+  return {
+    __esModule: true,
+    default: {
+      getItem: async (k: string) => store[k] ?? null,
+      setItem: async (k: string, v: string) => { store[k] = v },
+      removeItem: async (k: string) => { delete store[k] },
+      getAllKeys: async () => Object.keys(store),
+      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
+      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+    }
+  }
+})
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
@@ -15,7 +29,7 @@ import {
   resolveAttestationIdentity,
   readBackupAttestation,
   recordBackupAttestation
-} from '../../services/vault/backupAttestation'
+} from '../../core/services/vault/backupAttestation'
 
 const IDENTITY_A = '02' + 'a'.repeat(62)
 const IDENTITY_B = '02' + 'b'.repeat(62)

@@ -149,3 +149,31 @@ export * from './backup/push'
 export * from './backup/restore'
 export * from './backup/restoreOnImport'
 export { TaskBackupPush } from './monitor/TaskBackupPush'
+
+// Hardware vault: YubiKey PIV custody, ceremony state machine, K1 script,
+// sealing/session/derivation crypto, transfers (deposit/withdraw/sweep/
+// reclaim), persistence, passphrase policy, access guard, backup attestation.
+//
+// 'driver.ts' and 'random.ts' both reach for a native module
+// (react-native-yubikey, expo-crypto) with a `require(...)` INSIDE a
+// function body (loadNative() / randomBytes()), never at module top level —
+// unlike './deviceTier' (see the comment above), so re-exporting them here
+// does not force either native module to load eagerly; the require only
+// fires when a caller actually invokes getVaultDriver()/randomBytes().
+export * from './services/vault/types'
+export * from './services/vault/driver'
+export * from './services/vault/session'
+export * from './services/vault/random'
+export * from './services/vault/sealing'
+export * from './services/vault/k1'
+export * from './services/vault/vaultDerivation'
+export * from './services/vault/vaultPassphrase'
+export * from './services/vault/vaultStore'
+export * from './services/vault/mockYubiKey'
+export * from './services/vault/devMock'
+export * from './services/vault/guard'
+export * from './services/vault/backupAttestation'
+export * from './services/vault/ceremony'
+export * from './services/vault/ceremonyHost'
+export * from './services/vault/VaultKeyService'
+export * from './services/vault/transfers'

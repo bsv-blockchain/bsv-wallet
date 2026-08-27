@@ -16,11 +16,25 @@ import {
   buildVaultLockingScript,
   decodeVaultInstructions,
   encodeVaultInstructions
-} from '@/services/vault/k1'
+} from '../../core/services/vault/k1'
 
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
-)
+// Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
+// suites install a different one and a global mapper makes the resolver
+// recurse between the two.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store: Record<string, string> = {}
+  return {
+    __esModule: true,
+    default: {
+      getItem: async (k: string) => store[k] ?? null,
+      setItem: async (k: string, v: string) => { store[k] = v },
+      removeItem: async (k: string) => { delete store[k] },
+      getAllKeys: async () => Object.keys(store),
+      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
+      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+    }
+  }
+})
 const secureItems: Record<string, string> = {}
 jest.mock('expo-secure-store', () => ({
   AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
@@ -36,18 +50,18 @@ jest.mock('expo-secure-store', () => ({
 // Mocked lazily (see beforeEach) so the factory itself never touches
 // module-scope consts declared later in the file — avoids TDZ issues with
 // jest's hoisting of jest.mock() above imports.
-jest.mock('@/services/vault/ceremonyHost', () => ({
+jest.mock('../../core/services/vault/ceremonyHost', () => ({
   requestVaultKey: jest.fn(),
   noteVaultProgress: jest.fn()
 }))
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { vaultStore } from '@/services/vault/vaultStore'
-import { backupAttestation } from '@/services/vault/backupAttestation'
-import { bip32KeyID, depositPubKeyHash } from '@/services/vault/vaultDerivation'
-import { requestVaultKey, noteVaultProgress } from '@/services/vault/ceremonyHost'
-import type { VaultKeyHandle } from '@/services/vault/ceremony'
-import { VaultError } from '@/services/vault/types'
+import { vaultStore } from '../../core/services/vault/vaultStore'
+import { backupAttestation } from '../../core/services/vault/backupAttestation'
+import { bip32KeyID, depositPubKeyHash } from '../../core/services/vault/vaultDerivation'
+import { requestVaultKey, noteVaultProgress } from '../../core/services/vault/ceremonyHost'
+import type { VaultKeyHandle } from '../../core/services/vault/ceremony'
+import { VaultError } from '../../core/services/vault/types'
 import {
   VAULT_BASKET,
   VAULT_STAGING_BASKET,
@@ -60,7 +74,7 @@ import {
   VaultWallet,
   VAULT_MAX_INPUTS,
   VAULT_HARD_MAX_INPUTS
-} from '@/services/vault/transfers'
+} from '../../core/services/vault/transfers'
 
 const ADMIN = 'admin.com'
 const IDENTITY_KEY = '02' + 'f'.repeat(62)

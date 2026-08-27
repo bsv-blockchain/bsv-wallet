@@ -14,9 +14,23 @@
  * intentionally not exercised here; VaultKeyService no longer has anything
  * to do with it.
  */
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
-)
+// Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
+// suites install a different one and a global mapper makes the resolver
+// recurse between the two.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store: Record<string, string> = {}
+  return {
+    __esModule: true,
+    default: {
+      getItem: async (k: string) => store[k] ?? null,
+      setItem: async (k: string, v: string) => { store[k] = v },
+      removeItem: async (k: string) => { delete store[k] },
+      getAllKeys: async () => Object.keys(store),
+      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
+      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+    }
+  }
+})
 const secureItems: Record<string, string> = {}
 jest.mock('expo-secure-store', () => ({
   AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
@@ -31,9 +45,9 @@ jest.mock('expo-secure-store', () => ({
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { HD, Hash, Utils } from '@bsv/sdk'
-import { MockYubiKey } from '../../services/vault/mockYubiKey'
-import { setMockDriver } from '../../services/vault/driver'
-import { vaultStore } from '../../services/vault/vaultStore'
+import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
+import { setMockDriver } from '../../core/services/vault/driver'
+import { vaultStore } from '../../core/services/vault/vaultStore'
 import {
   enrollVault,
   finalizeEnrollment,
@@ -41,9 +55,9 @@ import {
   disableVault,
   resealToNewKey,
   VAULT_SLOT
-} from '../../services/vault/VaultKeyService'
-import { deriveVaultHD } from '../../services/vault/vaultDerivation'
-import { unsealVaultKey } from '../../services/vault/sealing'
+} from '../../core/services/vault/VaultKeyService'
+import { deriveVaultHD } from '../../core/services/vault/vaultDerivation'
+import { unsealVaultKey } from '../../core/services/vault/sealing'
 
 let mock: MockYubiKey
 

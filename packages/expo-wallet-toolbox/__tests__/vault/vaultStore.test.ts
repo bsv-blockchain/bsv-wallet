@@ -4,9 +4,23 @@
  * key. Those live only inside the sealed blob, opened through the YubiKey
  * ceremony.
  */
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
-)
+// Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
+// suites install a different one and a global mapper makes the resolver
+// recurse between the two.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store: Record<string, string> = {}
+  return {
+    __esModule: true,
+    default: {
+      getItem: async (k: string) => store[k] ?? null,
+      setItem: async (k: string, v: string) => { store[k] = v },
+      removeItem: async (k: string) => { delete store[k] },
+      getAllKeys: async () => Object.keys(store),
+      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
+      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+    }
+  }
+})
 
 const secureItems: Record<string, string> = {}
 jest.mock('expo-secure-store', () => ({
@@ -21,8 +35,8 @@ jest.mock('expo-secure-store', () => ({
 }))
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { vaultStore, VaultMetaV4 } from '@/services/vault/vaultStore'
-import { SealedBlob } from '@/services/vault/types'
+import { vaultStore, VaultMetaV4 } from '../../core/services/vault/vaultStore'
+import { SealedBlob } from '../../core/services/vault/types'
 
 const META: VaultMetaV4 = {
   v: 4,

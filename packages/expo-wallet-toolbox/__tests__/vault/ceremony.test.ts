@@ -7,10 +7,10 @@
  * key, so one tap really does have to unwrap something.
  */
 import { HD, Utils } from '@bsv/sdk'
-import { CeremonyController } from '../../services/vault/ceremony'
-import { MockYubiKey } from '../../services/vault/mockYubiKey'
-import { sealVaultKey } from '../../services/vault/sealing'
-import { SealedBlob, VaultError } from '../../services/vault/types'
+import { CeremonyController } from '../../core/services/vault/ceremony'
+import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
+import { sealVaultKey } from '../../core/services/vault/sealing'
+import { SealedBlob, VaultError } from '../../core/services/vault/types'
 
 const VAULT_SLOT = 0x82
 const RETENTION = 120_000
