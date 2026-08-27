@@ -1,5 +1,4 @@
 import React, { createContext, Dispatch, SetStateAction, useMemo, useState } from 'react'
-import packageJson from '../../../../package.json'
 
 // Define the NativeHandlers interface here to avoid circular dependency
 export interface NativeHandlers {
@@ -81,8 +80,8 @@ export const UserContext = createContext<UserContextValue>({} as UserContextValu
  * New users see the WalletConfig UI.
  */
 export const UserContextProvider: React.FC<UserContextProps> = ({
-  appVersion = packageJson.version,
-  appName = 'BSV Wallet',
+  appVersion = 'unknown',
+  appName = 'App',
   children,
   nativeHandlers = defaultNativeHandlers
 }) => {
