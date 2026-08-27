@@ -14,21 +14,25 @@ import React, { useEffect } from 'react'
 import { View, useColorScheme } from 'react-native'
 import { Stack } from 'expo-router'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
-import { UserContextProvider, NativeHandlers } from '../context/UserContext'
 import packageJson from '../package.json'
-import { WalletContextProvider, useWallet } from '@/context/WalletContext'
-import { ExchangeRateContextProvider } from '@/context/ExchangeRateContext'
-import { ThemeProvider } from '@/context/theme/ThemeContext'
+import {
+  UserContextProvider,
+  type NativeHandlers,
+  WalletContextProvider,
+  useWallet,
+  ExchangeRateContextProvider,
+  ThemeProvider,
+  LocalStorageProvider,
+  VaultProvider,
+  LanguageProvider,
+  WalletConnectionProvider
+} from '@bsv/expo-wallet-toolbox'
 // TODO: Re-add RecoveryKeySaver when WAB support returns
-import LocalStorageProvider from '@/context/LocalStorageProvider'
 import PermissionSheet from '@/components/ui/PermissionSheet'
 import { AlertHost } from '@/components/ui/AlertCard'
-import { VaultProvider } from '@/context/VaultContext'
 import { VaultCeremonySheet } from '@/components/vault/VaultCeremonySheet'
 import { ToastHost, showToast } from '@/components/ui/Toast'
 import { useDeepLinking } from '@/hooks/useDeepLinking'
-import { LanguageProvider } from '@/context/i18n/translations'
-import { WalletConnectionProvider } from '@/context/WalletConnectionContext'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
@@ -104,10 +108,10 @@ export default function RootLayout() {
           <LocalStorageProvider>
             <UserContextProvider nativeHandlers={nativeHandlers} appVersion={packageJson.version} appName="BSV Wallet">
               <ExchangeRateContextProvider>
-                <WalletContextProvider>
+                <WalletContextProvider onToast={showToast}>
                   <ThemeProvider>
-                    <WalletConnectionProvider>
-                      <VaultProvider>
+                    <WalletConnectionProvider walletName="BSV Wallet">
+                      <VaultProvider onToast={showToast}>
                         <View style={{ flex: 1, backgroundColor }}>
                           <FirstTouchRecorder />
                           <DeepLinkHandler />

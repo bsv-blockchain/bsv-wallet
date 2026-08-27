@@ -11,8 +11,7 @@ import { ActivityIndicator, Image, StyleSheet, Text, TextInput, TouchableOpacity
 import { Ionicons } from '@expo/vector-icons'
 import type { DisplayableIdentity } from '@bsv/sdk'
 import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated'
-import { spacing, typography, radii } from '@/context/theme/tokens'
-import { springs } from '@/context/theme/motion'
+import { spacing, typography, radii, springs } from '@bsv/expo-wallet-toolbox'
 
 interface RecipientFieldProps {
   readonly selectedIdentity: DisplayableIdentity | null
@@ -20,7 +19,7 @@ interface RecipientFieldProps {
   readonly recipientKey: string
   readonly isSearching: boolean
   readonly searchResults: DisplayableIdentity[]
-  readonly colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']
+  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onSearchChange: (v: string) => void
   readonly onSelectIdentity: (i: DisplayableIdentity) => void

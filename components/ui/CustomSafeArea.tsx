@@ -1,7 +1,7 @@
 import React from 'react'
 import { View, Platform, StyleSheet, StyleProp, ViewStyle } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useTheme } from '@/context/theme/ThemeContext'
+import { useTheme } from '@bsv/expo-wallet-toolbox'
 import { ANDROID_MIN_BOTTOM_INSET } from '@/shared/constants'
 
 interface CustomSafeAreaProps {

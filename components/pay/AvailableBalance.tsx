@@ -12,9 +12,8 @@ import { StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 import AmountDisplay from '@/components/wallet/AmountDisplay'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, typography } from '@/context/theme/tokens'
 import { useSpendableBalance } from '@/hooks/useSpendableBalance'
+import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
 
 export default function AvailableBalance() {
   const { t } = useTranslation()

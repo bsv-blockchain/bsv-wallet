@@ -1,8 +1,7 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, typography } from '@/context/theme/tokens'
+import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
 import PressableScale from '@/components/ui/PressableScale'
 
 interface ListRowProps {

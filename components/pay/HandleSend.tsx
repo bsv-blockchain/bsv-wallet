@@ -22,26 +22,30 @@ import ResultBanner from '@/components/pay/ResultBanner'
 import RecipientField from '@/components/pay/RecipientField'
 import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from '@/components/pay/MessageBoxConfig'
 import { useIdentitySearch } from '@/components/pay/useIdentitySearch'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, typography, radii } from '@/context/theme/tokens'
-import { useWallet } from '@/context/WalletContext'
-import { CONSEQUENCE_KEYS } from '@/utils/pay/rails'
 import {
+  useTheme,
+  spacing,
+  typography,
+  radii,
+  useWallet,
+  CONSEQUENCE_KEYS,
   NO_MESSAGE_BOX,
   cancelOutboxPayment,
   isMessageBoxNetworkError,
   retryDelivery,
-  sendViaHandle
-} from '@/utils/pay/rails/handle'
-import { getOutboxEntries, removeOutboxEntry, type OutboxEntry } from '@/utils/peerpay/outbox'
-import { haptics } from '@/hooks/useHaptics'
+  sendViaHandle,
+  getOutboxEntries,
+  removeOutboxEntry,
+  type OutboxEntry,
+  haptics
+} from '@bsv/expo-wallet-toolbox'
 
 // ── Outgoing Section ─────────────────────────────────────────────────────────
 
 interface OutgoingSectionProps {
   readonly entries: OutboxEntry[]
   readonly retryingId: string | null
-  readonly colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']
+  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onRetry: (entry: OutboxEntry) => void
   readonly onDismiss: (id: string) => void

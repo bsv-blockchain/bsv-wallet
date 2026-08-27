@@ -19,10 +19,7 @@ import Animated, {
   useReducedMotion,
 } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
-import { springs, durations } from '@/context/theme/motion'
-import { haptics } from '@/hooks/useHaptics'
+import { useTheme, spacing, radii, typography, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
 
 export type ToastType = 'info' | 'success' | 'error'
 interface ToastData { id: number; message: string; type: ToastType }

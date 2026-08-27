@@ -9,13 +9,17 @@ import {
 } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { WalletClient } from '@bsv/sdk'
-import { useWallet } from '@/context/WalletContext'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
-import { useWalletConnection } from '@/context/WalletConnectionContext'
-import { guardVaultAccess } from '@/services/vault/guard'
-import { capWalletArgs } from '@/services/capWalletArgs'
-import { ADMIN_ORIGINATOR } from '@/context/config'
+import {
+  useWallet,
+  useTheme,
+  spacing,
+  radii,
+  typography,
+  useWalletConnection,
+  guardVaultAccess,
+  capWalletArgs,
+  ADMIN_ORIGINATOR
+} from '@bsv/expo-wallet-toolbox'
 
 function domainFromOrigin(origin: string): string {
   try { return new URL(origin).hostname } catch { return origin }
@@ -206,7 +210,7 @@ export default function PairScreen() {
   )
 }
 
-function makeStyles(colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']) {
+function makeStyles(colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']) {
   return StyleSheet.create({
     container: {
       flex: 1,

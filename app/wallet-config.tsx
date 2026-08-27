@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
 import { ActivityIndicator, View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, typography } from '@/context/theme/tokens'
 import { Ionicons } from '@expo/vector-icons'
-import { useWallet } from '@/context/WalletContext'
-import type { AppChain } from '@/context/config'
-import { useLocalStorage } from '@/context/LocalStorageProvider'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
@@ -14,11 +9,27 @@ import {
   KNOWN_ARC_URLS,
   DEFAULT_ARC_URLS,
   arcUrlStorageKey,
-  arcApiTokenStorageKey
+  arcApiTokenStorageKey,
+  useTheme,
+  spacing,
+  typography,
+  useWallet,
+  type AppChain,
+  useLocalStorage,
+  formatAmount,
+  parseDisplayToSatoshis,
+  getUnitLabel,
+  ExchangeRateContext,
+  recordBackupAttestation,
+  isBackupPushEnabled,
+  setBackupPushEnabled,
+  BACKUP_CHAINS,
+  eraseRemoteBackup,
+  recoverMnemonicWallet,
+  TaskBackupPush,
+  DEFAULT_BACKUP_URL
 } from '@bsv/expo-wallet-toolbox'
 
-import { formatAmount, parseDisplayToSatoshis, getUnitLabel } from '@/utils/amountFormatHelpers'
-import { ExchangeRateContext } from '@/context/ExchangeRateContext'
 import { GroupedSection } from '@/components/ui/GroupedList'
 import { ListRow } from '@/components/ui/ListRow'
 import { showAlert } from '@/components/ui/AlertCard'
@@ -29,13 +40,6 @@ import { exportAllWalletDatabases } from '@/utils/exportDatabases'
 import { importWalletDatabase } from '@/utils/importDatabases'
 import { PrivateKey } from '@bsv/sdk'
 import { printRecoveryShares } from '@/utils/printRecoveryShares'
-import { recordBackupAttestation } from '@/services/vault/backupAttestation'
-import { isBackupPushEnabled, setBackupPushEnabled } from '@/utils/backup/preference'
-import { BACKUP_CHAINS } from '@/utils/backup/constants'
-import { eraseRemoteBackup } from '@/utils/backup/erase'
-import { recoverMnemonicWallet } from '@/utils/mnemonicWallet'
-import { TaskBackupPush } from '@/utils/monitor/TaskBackupPush'
-import { DEFAULT_BACKUP_URL } from '@/context/config'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function WalletConfigScreen() {

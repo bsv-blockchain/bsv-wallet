@@ -26,8 +26,7 @@ import Animated, {
   withSpring,
   useReducedMotion,
 } from 'react-native-reanimated'
-import { springs } from '@/context/theme/motion'
-import { haptics, HapticName } from '@/hooks/useHaptics'
+import { springs, haptics, type HapticName } from '@bsv/expo-wallet-toolbox'
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 

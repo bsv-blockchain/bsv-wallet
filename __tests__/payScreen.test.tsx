@@ -25,6 +25,26 @@ jest.mock('expo-haptics', () => ({
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }))
 
+// Pulled in as a side effect of requireActual-ing the barrel below: its
+// LocalStorageProvider chain reaches these native modules at module top level.
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false })),
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
+  AuthenticationType: { FINGERPRINT: 1, FACIAL_RECOGNITION: 2, IRIS: 3 }
+}))
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => {}),
+  deleteItemAsync: jest.fn(async () => {}),
+  WHEN_UNLOCKED: 'wu',
+  AFTER_FIRST_UNLOCK: 'afu',
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo'
+}))
+
 // The re-show modal renders <QRCode> directly (unlike the six cell components
 // below, which are mocked wholesale) — react-native-qrcode-svg ships ESM and
 // isn't in this repo's transformIgnorePatterns, so it needs the same
@@ -38,15 +58,22 @@ jest.mock('react-native-safe-area-context', () => ({
 
 // `t` returns the key, so every assertion below names the key it depends on.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } })
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
+  // Pulled in as a side effect of importing anything from the barrel: its
+  // i18n/translations module calls i18n.use(initReactI18next) at module load.
+  initReactI18next: { type: '3rdParty', init: () => {} }
 }))
 
 // `storage` starts undefined: the queue effect below reads `storage?.sqliteDb`
 // and returns early when it's absent, so most tests never touch the queue —
 // only the ones that explicitly set mockStorage exercise it.
+// Partial mock: app/pay.tsx pulls useWallet from the same package barrel as
+// useTheme/spacing/validatePeerPayURI/isPayCell/etc — which this test needs
+// REAL — so only useWallet is overridden, via requireActual for the rest.
 let mockStorage: { sqliteDb: unknown } | undefined
 const mockRunMonitorTask = jest.fn().mockResolvedValue('')
-jest.mock('@/context/WalletContext', () => ({
+jest.mock('@bsv/expo-wallet-toolbox', () => ({
+  ...jest.requireActual('@bsv/expo-wallet-toolbox'),
   useWallet: () => ({
     walletBuilding: false,
     walletBuilt: true,
@@ -86,9 +113,7 @@ jest.mock('@/components/pay/AddressReceive', () => 'AddressReceive')
 import React from 'react'
 import { render } from '@testing-library/react-native'
 import PayScreen from '@/app/pay'
-import { ThemeProvider } from '@/context/theme/ThemeContext'
-import { resetProofNudgeForTests } from '@/utils/pay/proofNudge'
-import type { OfflineActionRow } from '@/storage/methods/offlineActions'
+import { ThemeProvider, resetProofNudgeForTests, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
 
 // Lowercase hex: validatePeerPayURI's compressed-key regex is case-sensitive,
 // so an uppercase key is rejected as malformed.

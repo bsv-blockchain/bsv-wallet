@@ -35,9 +35,7 @@
  * jest assertion.
  */
 import { Hash, HD, Mnemonic, P2PKH, Spend, Transaction, Utils } from '@bsv/sdk'
-import { toWalletChain } from '../context/config'
-import { K1_LOCK_LEN, K1_UNLOCK_LEN, buildVaultLockingScript } from '../services/vault/k1'
-import { deriveVaultHD, depositPrivKey } from '../services/vault/vaultDerivation'
+import { toWalletChain, K1_LOCK_LEN, K1_UNLOCK_LEN, buildVaultLockingScript, deriveVaultHD, depositPrivKey } from '@bsv/expo-wallet-toolbox'
 
 const BROADCAST = process.argv.includes('--broadcast')
 

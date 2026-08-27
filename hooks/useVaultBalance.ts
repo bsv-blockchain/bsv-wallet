@@ -12,9 +12,7 @@
  * swallowed.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useWallet } from '@/context/WalletContext'
-import { useVault } from '@/context/VaultContext'
-import { getVaultBalance, VaultWallet } from '@/services/vault/transfers'
+import { useWallet, useVault, getVaultBalance, type VaultWallet } from '@bsv/expo-wallet-toolbox'
 
 export function useVaultBalance(): { balance: number | null; loading: boolean; refresh: () => void } {
   const { managers, adminOriginator, txStatusVersion } = useWallet()

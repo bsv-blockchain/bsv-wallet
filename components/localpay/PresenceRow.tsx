@@ -48,9 +48,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, typography } from '@/context/theme/tokens'
-import { durations, easings, springs } from '@/context/theme/motion'
+import { useTheme, spacing, typography, durations, easings, springs } from '@bsv/expo-wallet-toolbox'
 
 export type PresenceState =
   /** No live link on this path. The QR hand-off. */

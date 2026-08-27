@@ -4,8 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, run
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, typography } from '@/context/theme/tokens'
+import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
 import ScreenGradient from '@/components/ui/ScreenGradient'
 
 interface SheetProps {

@@ -13,23 +13,29 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
 import { GroupedSection } from '@/components/ui/GroupedList'
 import { ListRow } from '@/components/ui/ListRow'
 import PressableScale from '@/components/ui/PressableScale'
 import AmountDisplay from '@/components/wallet/AmountDisplay'
 import { EnrollWizard } from '@/components/vault/EnrollWizard'
 import { useVaultBalance } from '@/hooks/useVaultBalance'
-import { useWallet } from '@/context/WalletContext'
-import { reclaimStagingOutputs, type VaultWallet } from '@/services/vault/transfers'
-import { vaultStore, VaultMeta } from '@/services/vault/vaultStore'
-import { getVaultDriver } from '@/services/vault/driver'
-import { disableVault } from '@/services/vault/VaultKeyService'
 import { showAlert } from '@/components/ui/AlertCard'
 import { showToast } from '@/components/ui/Toast'
-import { haptics } from '@/hooks/useHaptics'
-import i18n from '@/context/i18n/translations'
+import {
+  useTheme,
+  spacing,
+  radii,
+  typography,
+  useWallet,
+  reclaimStagingOutputs,
+  type VaultWallet,
+  vaultStore,
+  type VaultMeta,
+  getVaultDriver,
+  disableVault,
+  haptics,
+  i18n
+} from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 

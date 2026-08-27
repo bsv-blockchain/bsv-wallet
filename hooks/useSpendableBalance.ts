@@ -10,8 +10,7 @@
 import { useEffect, useRef, useState } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
-import { useWallet } from '@/context/WalletContext'
-import { readWalletBalance } from '@/storage/methods/walletBalanceSql'
+import { useWallet, readWalletBalance } from '@bsv/expo-wallet-toolbox'
 
 export function useSpendableBalance(): number | null {
   const { managers, adminOriginator, selectedNetwork, storage, txStatusVersion, walletUserId } = useWallet()

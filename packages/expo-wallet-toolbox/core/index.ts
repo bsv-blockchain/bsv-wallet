@@ -1,7 +1,7 @@
 export const CANARY = 'core'
 
-export { recoverMnemonicWallet } from './mnemonicWallet'
-export { getRegisteredDbs, registerDb, selectLatestDb, parseDbFilename } from './walletDbRegistry'
+export { recoverMnemonicWallet, generateMnemonicWallet, validateMnemonic } from './mnemonicWallet'
+export { getRegisteredDbs, registerDb, selectLatestDb, parseDbFilename, parseTimestampFromFilename } from './walletDbRegistry'
 export { configureNewHeaderPolling } from './walletMonitor'
 export { TaskSendOffline } from './monitor/TaskSendOffline'
 export { getOnline, subscribeOnline } from './net/online'
@@ -21,6 +21,20 @@ export {
 // Theme tokens and providers
 export { ThemeProvider, useTheme } from './theme/ThemeContext'
 export { spacing, radii, typography, lightColors, darkColors, hitTargets } from './theme/tokens'
+export { easings, springs, durations } from './theme/motion'
+export { useThemeStyles } from './theme/useThemeStyles'
+
+// Amount formatting helpers
+export {
+  formatAmount,
+  formatAmountParts,
+  formatSatoshisAsFiat,
+  formatSatoshisAsBsv,
+  formatSatoshisAsBsvDecimal,
+  parseDisplayToSatoshis,
+  getUnitLabel,
+  formatSatoshis
+} from './amountFormatHelpers'
 
 // Internationalization
 export { LanguageProvider } from './i18n/translations'
@@ -47,12 +61,13 @@ export * from './offline/payerHold'
 // Local SQLite storage layer
 export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
 export type { StorageExpoSQLiteOptions } from './storage/StorageExpoSQLite'
-export { createTables } from './storage/schema/createTables'
+export { createTables, ensureOfflineActionsColumns } from './storage/schema/createTables'
 export { initializeLocalStorage, isLocalStorage, getStorageDisplayName } from './storage/LocalStorageAdapter'
 export type { LocalStorageConfig } from './storage/LocalStorageAdapter'
-export { findOfflineActions } from './storage/methods/offlineActions'
-export type { OfflineActionRow } from './storage/methods/offlineActions'
+export { findOfflineActions, updateOfflineAction } from './storage/methods/offlineActions'
+export type { OfflineActionRow, BindValue } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
+export { processOfflineActions } from './storage/methods/processOfflineActions'
 
 // Local secrets storage
 export { default as LocalStorageProvider, useLocalStorage, LocalStorageContext, type LocalStorageContextType } from './context/LocalStorageProvider'
@@ -211,5 +226,5 @@ export * from './hooks/useConfirmationSound'
 // onToast prop (see WalletContext.tsx's WalletContextToast type) rather than
 // importing a ui Toast component directly — core must never import from ui,
 // same boundary as VaultContext's onToast above.
-export { WalletContextProvider, useWallet } from './context/WalletContext'
+export { WalletContextProvider, useWallet, WalletContext } from './context/WalletContext'
 export { usePermissionQueue } from './hooks/usePermissionQueue'

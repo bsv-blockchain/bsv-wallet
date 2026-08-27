@@ -38,11 +38,13 @@ import ResultBanner from '@/components/pay/ResultBanner'
 import ReceivedOverlay from '@/components/pay/PaymentSuccessOverlay'
 import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from '@/components/pay/MessageBoxConfig'
 import { showToast } from '@/components/ui/Toast'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { radii, spacing, typography } from '@/context/theme/tokens'
-import { useWallet } from '@/context/WalletContext'
 import { makeIdentityClient, resolveIdentity } from '@/utils/identity/resolveIdentity'
 import {
+  useTheme,
+  radii,
+  spacing,
+  typography,
+  useWallet,
   NO_MESSAGE_BOX,
   acceptWithRetry,
   autoAcceptInbox,
@@ -51,7 +53,7 @@ import {
   needsAttention,
   peerPayLinkFor,
   type InboxAttempt
-} from '@/utils/pay/rails/handle'
+} from '@bsv/expo-wallet-toolbox'
 
 /**
  * How often the inbox is re-read while this screen is in front.
@@ -92,7 +94,7 @@ interface AttentionSectionProps {
   readonly senderIdentities: Record<string, DisplayableIdentity | null>
   readonly busyId: string | null
   readonly armedDiscardId: string | null
-  readonly colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']
+  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onRetry: (p: IncomingPayment) => void
   readonly onDiscard: (p: IncomingPayment) => void
@@ -152,7 +154,7 @@ interface AttentionRowProps {
   readonly isArmed: boolean
   readonly onRetry: () => void
   readonly onDiscard: () => void
-  readonly colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']
+  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
 }
 

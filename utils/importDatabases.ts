@@ -2,15 +2,15 @@ import { File, Paths } from 'expo-file-system'
 import { Platform } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import * as SQLite from 'expo-sqlite'
-import type { StorageExpoSQLite } from '@/storage'
 import {
+  type StorageExpoSQLite,
+  i18n,
   parseDbFilename,
   getRegisteredDbs,
   registerDb,
   selectLatestDb,
   parseTimestampFromFilename
-} from './walletDbRegistry'
-import i18n from '@/context/i18n/translations'
+} from '@bsv/expo-wallet-toolbox'
 import { showAlert } from '@/components/ui/AlertCard'
 import { showToast } from '@/components/ui/Toast'
 

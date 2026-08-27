@@ -15,9 +15,7 @@ import Animated, {
   withDelay,
   useReducedMotion,
 } from 'react-native-reanimated'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { springs, durations } from '@/context/theme/motion'
-import { haptics } from '@/hooks/useHaptics'
+import { useTheme, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
 
 const AnimatedPath = Animated.createAnimatedComponent(Path)
 // Path M26 45 L39 58 L62 32:

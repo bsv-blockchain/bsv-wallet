@@ -1,7 +1,7 @@
 import { Directory, File, Paths } from 'expo-file-system'
 import { shareAsync } from 'expo-sharing'
 import type { WalletInterface, WalletAction } from '@bsv/sdk'
-import type { StorageExpoSQLite } from '@/storage'
+import type { StorageExpoSQLite } from '@bsv/expo-wallet-toolbox'
 
 const PAGE = 200
 

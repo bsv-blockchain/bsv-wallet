@@ -1,7 +1,7 @@
 import React from 'react'
 import { StyleSheet, View, Platform } from 'react-native'
 import { BlurView } from 'expo-blur'
-import { useTheme } from '@/context/theme/ThemeContext'
+import { useTheme } from '@bsv/expo-wallet-toolbox'
 
 interface BlurChromeProps {
   children: React.ReactNode

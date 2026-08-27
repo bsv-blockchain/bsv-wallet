@@ -5,9 +5,25 @@
  * survive every failure mode, and must only be deleted after the envelope has
  * been written, read back and decrypted.
  */
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
-)
+// Own AsyncStorage mock, matching __tests__/backup/erase.test.ts and
+// __tests__/vault/vaultStore.test.ts: requiring the real jest/async-storage-mock
+// here collides with the root jest config's global moduleNameMapper for this
+// package (both resolve to the same file), which recurses the module resolver
+// into a stack overflow.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store: Record<string, string> = {}
+  return {
+    __esModule: true,
+    default: {
+      getItem: async (k: string) => store[k] ?? null,
+      setItem: async (k: string, v: string) => { store[k] = v },
+      removeItem: async (k: string) => { delete store[k] },
+      getAllKeys: async () => Object.keys(store),
+      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
+      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+    }
+  }
+})
 jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
 jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake').fake)
 

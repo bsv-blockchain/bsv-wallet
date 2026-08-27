@@ -8,19 +8,25 @@ import { WalletClient } from '@bsv/sdk'
 import type { WalletProtocol } from '@bsv/sdk'
 import * as SecureStore from 'expo-secure-store'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useTheme } from '@/context/theme/ThemeContext'
 import { useTranslation } from 'react-i18next'
-import { spacing, radii, typography } from '@/context/theme/tokens'
 import { GroupedSection } from '@/components/ui/GroupedList'
 import { ListRow } from '@/components/ui/ListRow'
-import { useWallet } from '@/context/WalletContext'
-import { guardVaultAccess } from '@/services/vault/guard'
-import { capWalletArgs } from '@/services/capWalletArgs'
-import { ADMIN_ORIGINATOR } from '@/context/config'
 import { showToast } from '@/components/ui/Toast'
-import connectionStore, { type Connection } from '@/stores/ConnectionStore'
 import QRScanner from '@/components/QRScanner'
-import { useWalletConnection, lastSeqKey } from '@/context/WalletConnectionContext'
+import {
+  useTheme,
+  spacing,
+  radii,
+  typography,
+  useWallet,
+  guardVaultAccess,
+  capWalletArgs,
+  ADMIN_ORIGINATOR,
+  connectionStore,
+  type Connection,
+  useWalletConnection,
+  lastSeqKey
+} from '@bsv/expo-wallet-toolbox'
 
 interface PairingParams {
   [key: string]: string // required by Expo Router's UnknownInputParams

@@ -9,7 +9,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react'
 import QRCode from 'react-native-qrcode-svg'
-import { AirGapEncoder, FRAME_BLOCK_BYTES, frameBytesFromQr } from '@/utils/pay/rails/nearby'
+import { AirGapEncoder, FRAME_BLOCK_BYTES, frameBytesFromQr } from '@bsv/expo-wallet-toolbox'
 
 /**
  * Sender cadence: five parts a second. Lives here, not in `@bsv/air-gap` —

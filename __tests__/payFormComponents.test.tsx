@@ -15,11 +15,34 @@ jest.mock('expo-haptics', () => ({
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }))
 
+// Pulled in as a side effect of importing anything from the barrel: its
+// LocalStorageProvider chain reaches these native modules at module top level.
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false })),
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
+  AuthenticationType: { FINGERPRINT: 1, FACIAL_RECOGNITION: 2, IRIS: 3 }
+}))
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => {}),
+  deleteItemAsync: jest.fn(async () => {}),
+  WHEN_UNLOCKED: 'wu',
+  AFTER_FIRST_UNLOCK: 'afu',
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo'
+}))
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
     i18n: { language: 'en' }
-  })
+  }),
+  // Pulled in as a side effect of importing anything from the barrel: its
+  // i18n/translations module calls i18n.use(initReactI18next) at module load.
+  initReactI18next: { type: '3rdParty', init: () => {} }
 }))
 
 // The pieces under test compose AvailableBalance and AmountInput; both reach
@@ -42,7 +65,7 @@ jest.mock('@/components/wallet/AmountInput', () => {
 import React from 'react'
 import { Text } from 'react-native'
 import { fireEvent, render } from '@testing-library/react-native'
-import { ThemeProvider } from '@/context/theme/ThemeContext'
+import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
 import { PayField, PayAmountField, ConsequenceNote, PayCta, RecipientSummary } from '@/components/pay/PayForm'
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>)

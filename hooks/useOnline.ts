@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getOnline, subscribeOnline } from '@/utils/net/online'
+import { getOnline, subscribeOnline } from '@bsv/expo-wallet-toolbox'
 
 /**
  * Starts optimistic. A first render that wrongly says "online" costs a failed

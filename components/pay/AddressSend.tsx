@@ -19,11 +19,17 @@ import QRScanner from '@/components/QRScanner'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from '@/components/pay/PayForm'
 import PaymentSuccessOverlay from '@/components/pay/PaymentSuccessOverlay'
 import { showToast } from '@/components/ui/Toast'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { radii, spacing, typography } from '@/context/theme/tokens'
-import { useWallet } from '@/context/WalletContext'
-import { CONSEQUENCE_KEYS, isValidBsvAddress, normalizeAddressInput } from '@/utils/pay/rails'
-import { sendToAddress } from '@/utils/pay/rails/address'
+import {
+  useTheme,
+  radii,
+  spacing,
+  typography,
+  useWallet,
+  CONSEQUENCE_KEYS,
+  isValidBsvAddress,
+  normalizeAddressInput,
+  sendToAddress
+} from '@bsv/expo-wallet-toolbox'
 
 export default function AddressSend({ initialAddress }: { initialAddress?: string }) {
   const { t } = useTranslation()

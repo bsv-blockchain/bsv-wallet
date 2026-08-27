@@ -114,15 +114,18 @@ import AvailableBalance from '@/components/pay/AvailableBalance'
 import { PayAmountField, RecipientSummary } from '@/components/pay/PayForm'
 import PaymentQrDisplay from '@/components/pay/PaymentQrDisplay'
 import ReceivedOverlay from '@/components/pay/PaymentSuccessOverlay'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { radii, spacing, typography } from '@/context/theme/tokens'
-import { durations, springs } from '@/context/theme/motion'
-import { useWallet } from '@/context/WalletContext'
-import { sounds } from '@/hooks/useConfirmationSound'
-import { updateOfflineAction } from '@/storage/methods/offlineActions'
 import { identityLabel, makeIdentityClient, resolveIdentity } from '@/utils/identity/resolveIdentity'
-import { getOnline } from '@/utils/net/online'
 import {
+  useTheme,
+  radii,
+  spacing,
+  typography,
+  durations,
+  springs,
+  useWallet,
+  sounds,
+  updateOfflineAction,
+  getOnline,
   AirGapDecoder,
   FRAME_BLOCK_BYTES,
   MAX_MESSAGE_BYTES,
@@ -152,9 +155,12 @@ import {
   type ConfirmDelivery,
   type DeclineReason,
   type PaymentFrame,
-  type Session
-} from '@/utils/pay/rails/nearby'
-import { FrameVerifyError, verifyFramePayment, type DerivingWallet, type VerifiedPayment } from '@/utils/localpay/verify'
+  type Session,
+  FrameVerifyError,
+  verifyFramePayment,
+  type DerivingWallet,
+  type VerifiedPayment
+} from '@bsv/expo-wallet-toolbox'
 
 // ── Types ──
 

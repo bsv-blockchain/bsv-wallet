@@ -3,17 +3,13 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
 import { useTranslation } from 'react-i18next'
-import { useWallet } from '@/context/WalletContext'
-import { useLocalStorage } from '@/context/LocalStorageProvider'
 import { parseShare, validateShareCompatibility, recoverSecretFromShares, ParsedShare } from '@/utils/backupShares'
 import { Mnemonic, PrivateKey } from '@bsv/sdk'
 import { showAlert } from '@/components/ui/AlertCard'
-import { haptics } from '@/hooks/useHaptics'
 import QRScanner from '@/components/QRScanner'
 import Celebration from '@/components/ui/Celebration'
+import { useTheme, spacing, radii, typography, useWallet, useLocalStorage, haptics } from '@bsv/expo-wallet-toolbox'
 
 export default function ScanSharesScreen() {
   const { t } = useTranslation()

@@ -32,9 +32,7 @@ import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { radii, spacing, typography } from '@/context/theme/tokens'
-import type { OfflineActionRow } from '@/storage/methods/offlineActions'
+import { useTheme, radii, spacing, typography, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
 
 export interface OfflineNoticeProps {
   online: boolean

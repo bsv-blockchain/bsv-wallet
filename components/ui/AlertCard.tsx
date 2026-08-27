@@ -24,10 +24,7 @@ import Animated, {
   withTiming,
   useReducedMotion,
 } from 'react-native-reanimated'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
-import { springs, durations } from '@/context/theme/motion'
-import { haptics } from '@/hooks/useHaptics'
+import { useTheme, spacing, radii, typography, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
 
 export interface AlertButton {
   text: string

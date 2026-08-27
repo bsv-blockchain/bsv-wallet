@@ -1,5 +1,5 @@
 import { useContext } from 'react'
-import { UserContext } from '../context/UserContext'
+import { UserContext } from '@bsv/expo-wallet-toolbox'
 
 /**
  * Interface for export data parameters

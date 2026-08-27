@@ -6,13 +6,13 @@
  * The optimistic initial `true` plus `subscribeOnline`'s updates are a perfectly
  * good answer without it.
  */
-jest.mock('@/utils/net/online', () => ({
+jest.mock('@bsv/expo-wallet-toolbox', () => ({
   getOnline: jest.fn(),
   subscribeOnline: jest.fn(() => () => {})
 }))
 
 import { act, renderHook } from '@testing-library/react-native'
-import { getOnline } from '@/utils/net/online'
+import { getOnline } from '@bsv/expo-wallet-toolbox'
 import { useOnline } from '@/hooks/useOnline'
 
 const probe = getOnline as jest.Mock

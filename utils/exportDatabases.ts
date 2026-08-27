@@ -1,8 +1,7 @@
 import { File, Directory, Paths } from 'expo-file-system'
 import { shareAsync } from 'expo-sharing'
 import { Platform } from 'react-native'
-import type { StorageExpoSQLite } from '@/storage'
-import { parseDbFilename } from './walletDbRegistry'
+import { type StorageExpoSQLite, parseDbFilename } from '@bsv/expo-wallet-toolbox'
 
 /**
  * Build an export filename with the current timestamp.

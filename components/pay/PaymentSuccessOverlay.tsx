@@ -27,10 +27,7 @@ import { useTranslation } from 'react-i18next'
 import AmountDisplay from '@/components/wallet/AmountDisplay'
 import Celebration from '@/components/ui/Celebration'
 import PressableScale from '@/components/ui/PressableScale'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { durations, springs } from '@/context/theme/motion'
-import { spacing, typography, radii } from '@/context/theme/tokens'
-import { sounds } from '@/hooks/useConfirmationSound'
+import { useTheme, durations, springs, spacing, typography, radii, sounds } from '@bsv/expo-wallet-toolbox'
 
 /** Beat two: the tone, just behind the mark. Sequencing, not animation. */
 const TONE_DELAY_MS = 120

@@ -18,18 +18,20 @@ import React, { useMemo, useState } from 'react'
 import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
 import PressableScale from '@/components/ui/PressableScale'
 import { showToast } from '@/components/ui/Toast'
 import {
+  useTheme,
+  spacing,
+  radii,
+  typography,
   passphraseStrength,
   generatePassphrase,
   normalizeVaultPassphrase,
   MINIMUM_WORD_COUNT,
   RECOMMENDED_WORD_COUNT,
   type PassphraseTier
-} from '@/services/vault/vaultPassphrase'
+} from '@bsv/expo-wallet-toolbox'
 
 export interface PassphraseFieldProps {
   value: string

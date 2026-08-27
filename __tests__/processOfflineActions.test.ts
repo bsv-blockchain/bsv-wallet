@@ -14,7 +14,29 @@
  * transaction by transaction into `this` — so a row whose stored `inputBEEF` is
  * unreadable is exactly how that happens.
  */
-jest.mock('@/utils/net/online', () => ({ getOnline: jest.fn(async () => true) }))
+// Mocked by its real resolved path inside the package: processOfflineActions.ts
+// imports it via a relative '../../net/online', not the app's old alias.
+jest.mock('../packages/expo-wallet-toolbox/core/net/online', () => ({ getOnline: jest.fn(async () => true) }))
+
+// Pulled in as a side effect of importing anything from the barrel: its
+// LocalStorageProvider chain reaches these native modules at module top level.
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false })),
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
+  AuthenticationType: { FINGERPRINT: 1, FACIAL_RECOGNITION: 2, IRIS: 3 }
+}))
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => {}),
+  deleteItemAsync: jest.fn(async () => {}),
+  WHEN_UNLOCKED: 'wu',
+  AFTER_FIRST_UNLOCK: 'afu',
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo'
+}))
 
 // `mock`-prefixed so jest's out-of-scope guard allows the factory to close over it.
 const mockPostReqs = jest.fn()
@@ -24,9 +46,12 @@ jest.mock('@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsT
 
 import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
 import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
-import { processOfflineActions } from '@/storage/methods/processOfflineActions'
-import type { BindValue, OfflineActionRow } from '@/storage/methods/offlineActions'
-import { ensureOfflineActionsColumns } from '@/storage/schema/createTables'
+import {
+  processOfflineActions,
+  type BindValue,
+  type OfflineActionRow,
+  ensureOfflineActionsColumns
+} from '@bsv/expo-wallet-toolbox'
 
 /** A spendable-looking transaction. Never signed: nothing here evaluates script. */
 function txSpending(sourceTXID: string): Transaction {

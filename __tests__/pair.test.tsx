@@ -19,13 +19,32 @@
  * is supposed to have wrapped the wallet in — so a regression that removes
  * or weakens the guard call fails this test for real, not just structurally.
  */
+// Pulled in as a side effect of requireActual-ing the barrel below (for the
+// real guardVaultAccess/capWalletArgs/ADMIN_ORIGINATOR): its LocalStorageProvider
+// chain reaches these native modules at module top level.
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false })),
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
+  AuthenticationType: { FINGERPRINT: 1, FACIAL_RECOGNITION: 2, IRIS: 3 }
+}))
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => {}),
+  deleteItemAsync: jest.fn(async () => {}),
+  WHEN_UNLOCKED: 'wu',
+  AFTER_FIRST_UNLOCK: 'afu',
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo'
+}))
+
 import React from 'react'
 import { render, fireEvent, waitFor } from '@testing-library/react-native'
 import { WalletClient } from '@bsv/sdk'
 import PairScreen from '@/app/pair'
-import { ThemeProvider } from '@/context/theme/ThemeContext'
-import { VaultAccessDenied } from '@/services/vault/guard'
-import type { ConnectParams } from '@/context/WalletConnectionContext'
+import { ThemeProvider, VaultAccessDenied, type ConnectParams } from '@bsv/expo-wallet-toolbox'
 
 // The wallet the screen is handed — a stand-in for the real
 // WalletPermissionsManager. Only `getPublicKey` needs to exist: guardVaultAccess's
@@ -35,12 +54,14 @@ const mockPermissionsManager = {
   getPublicKey: jest.fn(async () => ({ publicKey: '02' + '11'.repeat(32) }))
 }
 
-jest.mock('@/context/WalletContext', () => ({
-  useWallet: () => ({ managers: { permissionsManager: mockPermissionsManager } })
-}))
-
+// Partial mock: app/pair.tsx pulls useWallet/useWalletConnection from the same
+// package barrel as guardVaultAccess/capWalletArgs/ADMIN_ORIGINATOR — which
+// this test deliberately leaves REAL (see the file header) — so only the two
+// hooks are overridden here, via requireActual for everything else.
 const mockConnect = jest.fn(async (_params: ConnectParams, _wallet: WalletClient) => {})
-jest.mock('@/context/WalletConnectionContext', () => ({
+jest.mock('@bsv/expo-wallet-toolbox', () => ({
+  ...jest.requireActual('@bsv/expo-wallet-toolbox'),
+  useWallet: () => ({ managers: { permissionsManager: mockPermissionsManager } }),
   useWalletConnection: () => ({
     status: 'idle',
     sessionMeta: undefined,

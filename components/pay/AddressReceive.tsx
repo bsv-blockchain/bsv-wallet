@@ -19,11 +19,13 @@ import { formatDistanceToNow } from 'date-fns'
 
 import AmountDisplay from '@/components/wallet/AmountDisplay'
 import ReceivedOverlay from '@/components/pay/PaymentSuccessOverlay'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { radii, spacing, typography } from '@/context/theme/tokens'
-import { useWallet } from '@/context/WalletContext'
 import { showToast } from '@/components/ui/Toast'
 import {
+  useTheme,
+  radii,
+  spacing,
+  typography,
+  useWallet,
   MAX_RECOVERY_DAYS,
   derivationPrefixFor,
   getCurrentDate,
@@ -31,9 +33,9 @@ import {
   getProcessedTransactions,
   sweepAddress,
   wocConfigFor,
-  type ProcessedTx
-} from '@/utils/pay/rails/address'
-import { watchAddress } from '@/utils/pay/watchlist'
+  type ProcessedTx,
+  watchAddress
+} from '@bsv/expo-wallet-toolbox'
 
 /**
  * How often this screen re-reads its own imported history while it is in front.

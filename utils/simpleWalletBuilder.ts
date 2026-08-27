@@ -13,8 +13,7 @@ import {
   Services
 } from '@bsv/wallet-toolbox-mobile'
 import { KeyDeriver, PrivateKey, WalletInterface } from '@bsv/sdk'
-import type { AppChain } from '@/context/config'
-import { toWalletChain } from '@/context/config'
+import { type AppChain, toWalletChain } from '@bsv/expo-wallet-toolbox'
 
 export interface SimpleWalletBuilderConfig {
   chain: AppChain

@@ -11,8 +11,15 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View 
 import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { showToast } from '@/components/ui/Toast'
-import { spacing, typography, radii } from '@/context/theme/tokens'
-import { DEFAULT_MESSAGE_BOX_URL, LEGACY_MESSAGE_BOX_URL, MESSAGE_BOX_URL_KEY, NO_MESSAGE_BOX } from '@/utils/pay/rails/handle'
+import {
+  spacing,
+  typography,
+  radii,
+  DEFAULT_MESSAGE_BOX_URL,
+  LEGACY_MESSAGE_BOX_URL,
+  MESSAGE_BOX_URL_KEY,
+  NO_MESSAGE_BOX
+} from '@bsv/expo-wallet-toolbox'
 
 export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next').useTranslation>['t']) {
   const [messageBoxUrl, setMessageBoxUrl] = useState(DEFAULT_MESSAGE_BOX_URL)
@@ -99,7 +106,7 @@ interface MessageBoxBarProps {
   readonly url: string
   readonly open: boolean
   readonly onToggle: () => void
-  readonly colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']
+  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
 }
 
@@ -146,7 +153,7 @@ export function MessageBoxBar({ url, open, onToggle, colors, t }: MessageBoxBarP
 interface ConfigPanelProps {
   readonly urlInput: string
   readonly isSaving: boolean
-  readonly colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']
+  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onChangeUrl: (v: string) => void
   readonly onSave: () => void

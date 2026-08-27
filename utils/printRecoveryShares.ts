@@ -26,7 +26,7 @@ import {
   generateLegacyKeyShares,
   generatePrintHTML
 } from './backupShares'
-import { recoverMnemonicWallet } from './mnemonicWallet'
+import { recoverMnemonicWallet } from '@bsv/expo-wallet-toolbox'
 
 export interface PrintSharesSources {
   /** The wallet mnemonic, when the wallet has one. */

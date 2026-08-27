@@ -8,8 +8,7 @@ import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import PressableScale from '@/components/ui/PressableScale'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { radii, spacing, typography } from '@/context/theme/tokens'
+import { useTheme, radii, spacing, typography } from '@bsv/expo-wallet-toolbox'
 
 export interface PayCellRowProps {
   title: string

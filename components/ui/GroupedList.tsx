@@ -1,7 +1,6 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
+import { useTheme, spacing, radii, typography } from '@bsv/expo-wallet-toolbox'
 
 interface GroupedListSection {
   header?: string

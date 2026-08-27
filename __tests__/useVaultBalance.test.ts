@@ -12,18 +12,14 @@
 let mockWalletCtx: { managers: unknown; adminOriginator: string; txStatusVersion: number }
 let mockVaultPhase: string
 
-jest.mock('@/context/WalletContext', () => ({
-  useWallet: () => mockWalletCtx
-}))
-jest.mock('@/context/VaultContext', () => ({
-  useVault: () => ({ state: { phase: mockVaultPhase }, submitPin: () => {}, cancel: () => {}, retry: () => {} })
-}))
-jest.mock('@/services/vault/transfers', () => ({
+jest.mock('@bsv/expo-wallet-toolbox', () => ({
+  useWallet: () => mockWalletCtx,
+  useVault: () => ({ state: { phase: mockVaultPhase }, submitPin: () => {}, cancel: () => {}, retry: () => {} }),
   getVaultBalance: jest.fn()
 }))
 
 import { act, renderHook } from '@testing-library/react-native'
-import { getVaultBalance } from '@/services/vault/transfers'
+import { getVaultBalance } from '@bsv/expo-wallet-toolbox'
 import { useVaultBalance } from '@/hooks/useVaultBalance'
 
 const fetchBalance = getVaultBalance as jest.Mock

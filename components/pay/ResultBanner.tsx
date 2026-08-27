@@ -7,12 +7,12 @@
 import React from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { spacing, typography, radii } from '@/context/theme/tokens'
+import { spacing, typography, radii } from '@bsv/expo-wallet-toolbox'
 
 interface ResultBannerProps {
   readonly result: { type: 'success' | 'error'; message: string }
   readonly onDismiss: () => void
-  readonly colors: ReturnType<typeof import('@/context/theme/ThemeContext').useTheme>['colors']
+  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
 }
 
 export default function ResultBanner({ result, onDismiss, colors }: ResultBannerProps) {

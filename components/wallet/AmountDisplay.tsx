@@ -1,7 +1,5 @@
 import React, { ReactNode, useState, useEffect, useContext } from 'react'
-import { formatAmount } from '@/utils/amountFormatHelpers'
-import { ExchangeRateContext } from '@/context/ExchangeRateContext'
-import { useWallet } from '@/context/WalletContext'
+import { formatAmount, ExchangeRateContext, useWallet } from '@bsv/expo-wallet-toolbox'
 
 type Props = {
   abbreviate?: boolean

@@ -51,7 +51,7 @@ export {
   type DerivingWallet,
   type FrameVerifyKind
 } from '../../localpay/verify'
-export { holdSentPaymentOffline } from '@bsv/expo-wallet-toolbox'
+export { holdSentPaymentOffline } from '../../offline/payerHold'
 export { awdlTransport } from '../../localpay/transport/awdl'
 export { nearbyTransport } from '../../localpay/transport/nearby'
 export {

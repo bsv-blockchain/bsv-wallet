@@ -4,13 +4,33 @@
 // an Ionicons-using component mocks the module to a bare string component.
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }))
 
+// Pulled in as a side effect of the barrel import below: its LocalStorageProvider
+// chain reaches these native modules at module top level.
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false })),
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
+  AuthenticationType: { FINGERPRINT: 1, FACIAL_RECOGNITION: 2, IRIS: 3 }
+}))
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => {}),
+  deleteItemAsync: jest.fn(async () => {}),
+  WHEN_UNLOCKED: 'wu',
+  AFTER_FIRST_UNLOCK: 'afu',
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo'
+}))
+
 // Unlike payScreen.test.tsx and payReceivedOverlay.test.tsx, this file does NOT
 // mock react-i18next: the assertions below match on real English copy ("2",
 // "02cccc", "rejected"), not on translation keys, so the real i18n instance —
-// initialised as a side effect of importing translations.tsx — has to be
-// running. That module also detects a device locale; in this Jest environment
-// no locale is found, so it falls back to 'en', which is what these tests need.
-import '@/context/i18n/translations'
+// initialised as a side effect of importing the barrel — has to be running.
+// That module also detects a device locale; in this Jest environment no
+// locale is found, so it falls back to 'en', which is what these tests need.
+import '@bsv/expo-wallet-toolbox'
 
 import React from 'react'
 import { fireEvent, render } from '@testing-library/react-native'

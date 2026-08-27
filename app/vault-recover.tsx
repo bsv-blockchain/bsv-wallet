@@ -19,17 +19,23 @@ import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator, Touch
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
 import PressableScale from '@/components/ui/PressableScale'
 import { showToast } from '@/components/ui/Toast'
-import { haptics } from '@/hooks/useHaptics'
-import { useWallet } from '@/context/WalletContext'
-import { useLocalStorage } from '@/context/LocalStorageProvider'
-import { disableVault, recoverVaultHD } from '@/services/vault/VaultKeyService'
-import { sweepVaultWithHD, type VaultWallet } from '@/services/vault/transfers'
-import { VaultError } from '@/services/vault/types'
-import i18n from '@/context/i18n/translations'
+import {
+  useTheme,
+  spacing,
+  radii,
+  typography,
+  haptics,
+  useWallet,
+  useLocalStorage,
+  disableVault,
+  recoverVaultHD,
+  sweepVaultWithHD,
+  type VaultWallet,
+  VaultError,
+  i18n
+} from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 

@@ -10,7 +10,7 @@ import { Keyboard } from 'react-native'
 import { IdentityClient, PublicKey } from '@bsv/sdk'
 import type { DisplayableIdentity } from '@bsv/sdk'
 import { searchIdentities } from '@/utils/identity/resolveIdentity'
-import { type PeerPayValidationResult, validatePeerPayURI } from '@/utils/parsePeerPayURI'
+import { type PeerPayValidationResult, validatePeerPayURI } from '@bsv/expo-wallet-toolbox'
 
 export function peerPayValidationMessage(result: PeerPayValidationResult | null) {
   if (!result || !result.isPeerPay) return null

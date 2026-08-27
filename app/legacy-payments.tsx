@@ -7,7 +7,7 @@
  * mapping is tested in one place.
  */
 import { Redirect, useLocalSearchParams } from 'expo-router'
-import { legacyRedirectTarget } from '@/utils/pay/rails'
+import { legacyRedirectTarget } from '@bsv/expo-wallet-toolbox'
 
 export default function RetiredLegacyPaymentsRoute() {
   const params = useLocalSearchParams<Record<string, string | string[]>>()

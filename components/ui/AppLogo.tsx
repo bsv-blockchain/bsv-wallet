@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { View, StyleSheet, Animated, Easing } from 'react-native'
-import { useTheme } from '@/context/theme/ThemeContext'
+import { useTheme } from '@bsv/expo-wallet-toolbox'
 
 interface AppLogoProps {
   size?: number

@@ -21,24 +21,27 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native'
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import PressableScale from '@/components/ui/PressableScale'
-import { useTheme } from '@/context/theme/ThemeContext'
-import { spacing, radii, typography } from '@/context/theme/tokens'
-import { enrollVault, finalizeEnrollment } from '@/services/vault/VaultKeyService'
-import { VaultError } from '@/services/vault/types'
 import { PassphraseField } from './PassphraseField'
-import { useLocalStorage } from '@/context/LocalStorageProvider'
 import { printRecoveryShares } from '@/utils/printRecoveryShares'
-import { sounds } from '@/hooks/useConfirmationSound'
-import { haptics } from '@/hooks/useHaptics'
 import { showToast } from '@/components/ui/Toast'
-import i18n from '@/context/i18n/translations'
 import { PhraseBackupSheet } from './PhraseBackupSheet'
 import {
+  useTheme,
+  spacing,
+  radii,
+  typography,
+  enrollVault,
+  finalizeEnrollment,
+  VaultError,
+  useLocalStorage,
+  sounds,
+  haptics,
+  i18n,
   readBackupAttestation,
   recordBackupAttestation,
-  type BackupMedium
-} from '@/services/vault/backupAttestation'
-import { useWallet } from '@/context/WalletContext'
+  type BackupMedium,
+  useWallet
+} from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 

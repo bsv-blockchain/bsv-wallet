@@ -2,10 +2,8 @@ import React, { useRef, useCallback } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Linking } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { Ionicons } from '@expo/vector-icons'
-import { haptics } from '@/hooks/useHaptics'
-import { useTheme } from '@/context/theme/ThemeContext'
 import { useTranslation } from 'react-i18next'
-import { spacing, typography } from '@/context/theme/tokens'
+import { haptics, useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
 
 /* -------------------------------------------------------------------------- */
 /*                                   Types                                    */
