@@ -33,9 +33,9 @@ import { useMemo } from 'react'
 // Bundled tones. Static requires, not imports: Metro resolves these to asset
 // ids at build time, which is exactly the `number` shape expo-audio accepts.
 const TONES = {
-  confirmation: require('../assets/sounds/payment-confirmed.wav'),
-  vaultOpen: require('../assets/sounds/vault-open.wav'),
-  vaultClose: require('../assets/sounds/vault-close.wav'),
+  confirmation: require('../../assets/sounds/payment-confirmed.wav'),
+  vaultOpen: require('../../assets/sounds/vault-open.wav'),
+  vaultClose: require('../../assets/sounds/vault-close.wav'),
 } as const
 
 type ToneName = keyof typeof TONES

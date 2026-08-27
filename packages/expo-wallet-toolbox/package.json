@@ -5,7 +5,7 @@
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
   "main": "core/index.ts",
   "types": "core/index.ts",
-  "files": ["core", "ui"],
+  "files": ["core", "ui", "assets"],
   "peerDependencies": {
     "react": "*",
     "react-native": "*",

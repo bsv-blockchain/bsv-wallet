@@ -177,3 +177,23 @@ export * from './services/vault/ceremony'
 export * from './services/vault/ceremonyHost'
 export * from './services/vault/VaultKeyService'
 export * from './services/vault/transfers'
+
+// Connection/pairing state (QR-paired desktop sessions), the vault ceremony
+// context (React face of the ceremonyHost singleton), and the shared
+// device-feedback hooks (haptics + confirmation/vault tones) both contexts
+// depend on. VaultContext takes an `onToast` callback rather than importing
+// a ui Toast component directly — core must never import from ui.
+//
+// useHaptics.ts requires expo-haptics lazily (inside each haptics.* call),
+// not at module top level, for the same reason 'deviceTier' and
+// services/vault/driver.ts+random.ts stay lazy: a native module imported
+// statically at the top of a barrel-exported file loads eagerly for every
+// consumer of the package, including hosts (tests, non-native environments)
+// that never trigger a haptic. useConfirmationSound.ts already requires
+// expo-audio the same way.
+export { default as connectionStore } from './stores/ConnectionStore'
+export type { Connection } from './stores/ConnectionStore'
+export * from './context/WalletConnectionContext'
+export * from './context/VaultContext'
+export * from './hooks/useHaptics'
+export * from './hooks/useConfirmationSound'

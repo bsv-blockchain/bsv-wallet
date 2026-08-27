@@ -3,8 +3,8 @@ import { AppState } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
 import { WalletClient, PrivateKey, ProtoWallet, Utils } from '@bsv/sdk'
 import type { WalletProtocol } from '@bsv/sdk'
-import connectionStore from '@/stores/ConnectionStore'
-import type { Connection } from '@/stores/ConnectionStore'
+import connectionStore from '../stores/ConnectionStore'
+import type { Connection } from '../stores/ConnectionStore'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -118,7 +118,16 @@ export function useWalletConnection() {
   return ctx
 }
 
-export function WalletConnectionProvider({ children }: { children: React.ReactNode }) {
+interface WalletConnectionProviderProps {
+  children: React.ReactNode
+  /** Sent to the desktop session as `walletMeta.name` during pairing. Host
+   * apps should pass their own display name (see UserContext's `appName`
+   * for the equivalent pattern) — defaults to a generic value so this
+   * package makes no assumption about which app is embedding it. */
+  walletName?: string
+}
+
+export function WalletConnectionProvider({ children, walletName = 'App' }: WalletConnectionProviderProps) {
   const [status,        setStatus]        = useState<ConnectionStatus>('idle')
   const [sessionMeta,   setSessionMeta]   = useState<SessionMeta | null>(null)
   const [errorMsg,      setErrorMsg]      = useState<string | null>(null)
@@ -353,7 +362,7 @@ export function WalletConnectionProvider({ children }: { children: React.ReactNo
           id: crypto.randomUUID(), seq: 1, method: 'pairing_approved',
           params: {
             mobileIdentityKey,
-            walletMeta: { name: 'BSV Wallet', platform: 'mobile' },
+            walletMeta: { name: walletName, platform: 'mobile' },
             permissions: Array.from(IMPLEMENTED_METHODS),
           },
         })
@@ -374,7 +383,7 @@ export function WalletConnectionProvider({ children }: { children: React.ReactNo
       })
       setStatus('connected')
     })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [walletName]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── reconnect (resume from stored session) ────────────────────────────────
 
@@ -405,7 +414,7 @@ export function WalletConnectionProvider({ children }: { children: React.ReactNo
           id: crypto.randomUUID(), seq: initialSeq + 1, method: 'pairing_approved',
           params: {
             mobileIdentityKey: connection.mobileIdentityKey,
-            walletMeta: { name: 'BSV Wallet', platform: 'mobile' },
+            walletMeta: { name: walletName, platform: 'mobile' },
             permissions: Array.from(IMPLEMENTED_METHODS),
           },
         })
@@ -427,7 +436,7 @@ export function WalletConnectionProvider({ children }: { children: React.ReactNo
       connectionStore.setStatus(connection.sessionId, 'active')
       setStatus('connected')
     })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [walletName]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Provider ──────────────────────────────────────────────────────────────
 

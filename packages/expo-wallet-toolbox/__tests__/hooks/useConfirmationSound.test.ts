@@ -1,4 +1,4 @@
-import { sounds } from '@/hooks/useConfirmationSound'
+import { sounds } from '../../core/hooks/useConfirmationSound'
 
 // Routed here by moduleNameMapper — see __tests__/__mocks__/expo-audio.js.
 // eslint-disable-next-line @typescript-eslint/no-require-imports

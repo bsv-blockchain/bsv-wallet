@@ -11,12 +11,21 @@
  * hooks/useConfirmationSound.
  */
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
-import { ceremony } from '@/services/vault/ceremonyHost'
-import { CeremonyState } from '@/services/vault/ceremony'
-import { sounds } from '@/hooks/useConfirmationSound'
-import { haptics } from '@/hooks/useHaptics'
-import { showToast } from '@/components/ui/Toast'
-import i18n from '@/context/i18n/translations'
+import { ceremony } from '../services/vault/ceremonyHost'
+import { CeremonyState } from '../services/vault/ceremony'
+import { sounds } from '../hooks/useConfirmationSound'
+import { haptics } from '../hooks/useHaptics'
+import i18n from '../i18n/translations'
+
+/**
+ * Minimal shape of the app's toast function. `core` must never import a `ui`
+ * component (see the module doc above and hooks/useHaptics.ts /
+ * hooks/useConfirmationSound.ts for the same boundary), so VaultProvider
+ * takes an optional toast callback instead of importing one — the host app
+ * wires its own toast implementation (e.g. `components/ui/Toast`'s
+ * `showToast`) in via the `onToast` prop.
+ */
+export type VaultToast = (message: string, opts?: { type?: 'info' | 'success' | 'error' }) => void
 
 interface VaultContextValue {
   state: CeremonyState
@@ -32,7 +41,7 @@ const VaultContext = createContext<VaultContextValue>({
   retry: () => {}
 })
 
-export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const VaultProvider: React.FC<{ children: React.ReactNode; onToast?: VaultToast }> = ({ children, onToast }) => {
   const [state, setState] = useState<CeremonyState>(ceremony.state)
 
   useEffect(() => ceremony.subscribe(setState), [])
@@ -51,13 +60,13 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     ceremony.onRelock = () => {
       haptics.confirm()
       sounds.vaultClose()
-      showToast(i18n.t('vault_locked'), { type: 'info' })
+      onToast?.(i18n.t('vault_locked'), { type: 'info' })
     }
     return () => {
       ceremony.onArmed = undefined
       ceremony.onRelock = undefined
     }
-  }, [])
+  }, [onToast])
 
   const submitPin = useCallback((pin: string) => ceremony.submitPin(pin), [])
   const cancel = useCallback(() => ceremony.cancel(), [])
