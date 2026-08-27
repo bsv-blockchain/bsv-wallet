@@ -115,3 +115,6 @@ export * from './headers/headerStore'
 export * from './headers/OfflineFirstChaintracks'
 export * from './headers/prewarm'
 export * from './headers/syncHeaders'
+
+// Wallet-relevant constants (auto-approve thresholds, ARC broadcast URLs)
+export * from './constants'

@@ -61,7 +61,7 @@ const DEFAULT_SETTINGS: WalletSettings = {
 import { showToast } from '@/components/ui/Toast'
 import type { AppChain } from './config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, DEFAULT_BACKUP_URL, toWalletChain } from './config'
-import { DEFAULT_AUTO_APPROVE_THRESHOLD, AUTO_APPROVE_COOLDOWN_MS, AUTO_APPROVE_STORAGE_KEY } from '@/shared/constants'
+import { DEFAULT_AUTO_APPROVE_THRESHOLD, AUTO_APPROVE_COOLDOWN_MS, AUTO_APPROVE_STORAGE_KEY } from '@bsv/expo-wallet-toolbox'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { UserContext } from './UserContext'
 import { useLocalStorage } from '@/context/LocalStorageProvider'

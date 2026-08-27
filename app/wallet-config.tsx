@@ -15,7 +15,7 @@ import {
   DEFAULT_ARC_URLS,
   arcUrlStorageKey,
   arcApiTokenStorageKey
-} from '@/shared/constants'
+} from '@bsv/expo-wallet-toolbox'
 
 import { formatAmount, parseDisplayToSatoshis, getUnitLabel } from '@/utils/amountFormatHelpers'
 import { ExchangeRateContext } from '@/context/ExchangeRateContext'
