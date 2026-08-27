@@ -65,7 +65,7 @@
       }
     },
     "android": {
-      "package": "org.bsvassociation.wallet",
+      "package": "org.bsvblockchain.wallet",
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.SYSTEM_ALERT_WINDOW",
@@ -98,7 +98,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "org.bsvassociation.wallet",
+      "bundleIdentifier": "org.bsvblockchain.wallet",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs camera access to scan QR codes.",
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save images to your photo library.",
@@ -107,13 +107,13 @@
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleURLTypes": [
           {
-            "CFBundleURLName": "org.bsvassociation.wallet.peerpay",
+            "CFBundleURLName": "org.bsvblockchain.wallet.peerpay",
             "CFBundleURLSchemes": [
               "peerpay"
             ]
           },
           {
-            "CFBundleURLName": "org.bsvassociation.wallet.pair",
+            "CFBundleURLName": "org.bsvblockchain.wallet.pair",
             "CFBundleURLSchemes": [
               "bsv-wallet"
             ]

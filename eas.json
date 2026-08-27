@@ -37,7 +37,7 @@
         "credentialsSource": "remote"
       },
       "ios": {
-        "credentialsSource": "local"
+        "credentialsSource": "remote"
       },
       "env": {
         "EXPO_PUBLIC_DEFAULT_WAB_URL": "https://wab-us-1.bsvb.tech",
