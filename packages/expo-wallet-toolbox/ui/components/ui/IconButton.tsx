@@ -1,11 +1,27 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 import { useTheme, hitTargets } from '@bsv/expo-wallet-toolbox'
-import PressableScale from '@/components/ui/PressableScale'
+import PressableScale from './PressableScale'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 interface IconButtonProps {
-  name: keyof typeof Ionicons.glyphMap
+  name: keyof IoniconsComponent['glyphMap']
   onPress: () => void
   onLongPress?: () => void
   size?: number
@@ -31,6 +47,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
 }) => {
   const { colors } = useTheme()
   const iconColor = color ?? colors.accent
+  const Ionicons = loadIonicons()
 
   return (
     <PressableScale

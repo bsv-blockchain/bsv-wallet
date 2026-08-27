@@ -30,7 +30,7 @@ import React from 'react'
 import { Text } from 'react-native'
 import { render, fireEvent } from '@testing-library/react-native'
 import * as Haptics from 'expo-haptics'
-import PressableScale from '@/components/ui/PressableScale'
+import PressableScale from '../../ui/components/ui/PressableScale'
 
 describe('PressableScale', () => {
   it('renders children and fires onPress', () => {

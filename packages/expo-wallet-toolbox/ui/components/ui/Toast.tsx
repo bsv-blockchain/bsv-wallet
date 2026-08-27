@@ -18,8 +18,24 @@ import Animated, {
   withTiming,
   useReducedMotion,
 } from 'react-native-reanimated'
-import { Ionicons } from '@expo/vector-icons'
 import { useTheme, spacing, radii, typography, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Loaded lazily, only when actually rendering, same pattern as this
+ * package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 export type ToastType = 'info' | 'success' | 'error'
 interface ToastData { id: number; message: string; type: ToastType }
@@ -39,6 +55,7 @@ export function showToast(message: string, opts?: { type?: ToastType }) {
 
 export function ToastHost() {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   const insets = useSafeAreaInsets()
   const reducedMotion = useReducedMotion()
   const [toast, setToast] = useState<ToastData | null>(null)

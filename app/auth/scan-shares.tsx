@@ -6,10 +6,9 @@ import { StatusBar } from 'expo-status-bar'
 import { useTranslation } from 'react-i18next'
 import { parseShare, validateShareCompatibility, recoverSecretFromShares, ParsedShare } from '@/utils/backupShares'
 import { Mnemonic, PrivateKey } from '@bsv/sdk'
-import { showAlert } from '@/components/ui/AlertCard'
 import QRScanner from '@/components/QRScanner'
-import Celebration from '@/components/ui/Celebration'
 import { useTheme, spacing, radii, typography, useWallet, useLocalStorage, haptics } from '@bsv/expo-wallet-toolbox'
+import { showAlert, Celebration } from '@bsv/expo-wallet-toolbox/ui'
 
 export default function ScanSharesScreen() {
   const { t } = useTranslation()

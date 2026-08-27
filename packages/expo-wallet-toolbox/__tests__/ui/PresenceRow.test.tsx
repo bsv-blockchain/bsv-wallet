@@ -36,7 +36,7 @@ jest.mock('expo-secure-store', () => ({
 
 import React from 'react'
 import { render } from '@testing-library/react-native'
-import PresenceRow, { type PresenceState } from '@/components/localpay/PresenceRow'
+import PresenceRow, { type PresenceState } from '../../ui/components/ui/PresenceRow'
 import { ThemeProvider, lightColors } from '@bsv/expo-wallet-toolbox'
 
 const draw = (state: PresenceState, label = 'status', peer?: string | null) =>

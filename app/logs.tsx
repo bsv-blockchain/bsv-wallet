@@ -12,8 +12,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Clipboard from '@react-native-clipboard/clipboard'
-import { showToast } from '@/components/ui/Toast'
 import { useTheme, spacing, typography, radii, useWallet } from '@bsv/expo-wallet-toolbox'
+import { showToast } from '@bsv/expo-wallet-toolbox/ui'
 
 interface LogEntry {
   id: string

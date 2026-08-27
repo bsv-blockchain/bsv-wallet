@@ -18,8 +18,7 @@ import React, { useMemo, useState } from 'react'
 import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
-import PressableScale from '@/components/ui/PressableScale'
-import { showToast } from '@/components/ui/Toast'
+import { PressableScale, showToast } from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   spacing,

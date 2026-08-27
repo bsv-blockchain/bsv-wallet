@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { showToast } from '@/components/ui/Toast'
+import { showToast } from '@bsv/expo-wallet-toolbox/ui'
 import {
   spacing,
   typography,

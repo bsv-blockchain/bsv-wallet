@@ -1,15 +1,42 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
-import PressableScale from '@/components/ui/PressableScale'
+import PressableScale from './PressableScale'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Both icon sets are loaded lazily, only when actually rendering, same
+ * pattern as this package's other native-module-boundary fixes (expo-router,
+ * expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+type MaterialCommunityIconsComponent = typeof import('@expo/vector-icons').MaterialCommunityIcons
+let ioniconsComponent: IoniconsComponent | undefined
+let materialCommunityIconsComponent: MaterialCommunityIconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
+  if (!materialCommunityIconsComponent) {
+    materialCommunityIconsComponent = require('@expo/vector-icons')
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      .MaterialCommunityIcons as MaterialCommunityIconsComponent
+  }
+  return materialCommunityIconsComponent
+}
 
 interface ListRowProps {
   label: string
   value?: string
   /** Ionicons name by default; a MaterialCommunityIcons name when
    * `iconFamily="material-community"`. */
-  icon?: keyof typeof Ionicons.glyphMap | keyof typeof MaterialCommunityIcons.glyphMap
+  icon?: keyof IoniconsComponent['glyphMap'] | keyof MaterialCommunityIconsComponent['glyphMap']
   /** Ionicons covers almost everything here, but a few concepts have no glyph
    * in it (e.g. a bank vault — `lock-closed` reads as a generic padlock).
    * Opt into MaterialCommunityIcons per row for those. */
@@ -41,6 +68,8 @@ export const ListRow: React.FC<ListRowProps> = ({
   isLast = false
 }) => {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
+  const MaterialCommunityIcons = loadMaterialCommunityIcons()
 
   const content = (
     <View style={[styles.container, !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }]}>

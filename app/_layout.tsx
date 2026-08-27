@@ -28,14 +28,11 @@ import {
   WalletConnectionProvider
 } from '@bsv/expo-wallet-toolbox'
 // TODO: Re-add RecoveryKeySaver when WAB support returns
-import PermissionSheet from '@/components/ui/PermissionSheet'
-import { AlertHost } from '@/components/ui/AlertCard'
+import { PermissionSheet, AlertHost, ToastHost, showToast, ErrorBoundary } from '@bsv/expo-wallet-toolbox/ui'
 import { VaultCeremonySheet } from '@/components/vault/VaultCeremonySheet'
-import { ToastHost, showToast } from '@/components/ui/Toast'
 import { useDeepLinking } from '@/hooks/useDeepLinking'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 
 export const FIRST_TOUCH_DATE_KEY = 'firstTouchDate'
 

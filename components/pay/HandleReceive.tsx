@@ -33,11 +33,10 @@ import { useTranslation } from 'react-i18next'
 import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
 import type { DisplayableIdentity } from '@bsv/sdk'
 
-import AmountDisplay from '@/components/wallet/AmountDisplay'
 import ResultBanner from '@/components/pay/ResultBanner'
 import ReceivedOverlay from '@/components/pay/PaymentSuccessOverlay'
 import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from '@/components/pay/MessageBoxConfig'
-import { showToast } from '@/components/ui/Toast'
+import { AmountDisplay, showToast } from '@bsv/expo-wallet-toolbox/ui'
 import { makeIdentityClient, resolveIdentity } from '@/utils/identity/resolveIdentity'
 import {
   useTheme,

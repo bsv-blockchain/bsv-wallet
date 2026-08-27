@@ -49,22 +49,20 @@ jest.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} }
 }))
 
-// The amount is rendered by AmountDisplay, which reaches for wallet settings and
-// an exchange rate. Neither is what this file is about, so it becomes plain text.
-jest.mock('@/components/wallet/AmountDisplay', () => {
-  const { Text } = require('react-native')
-  return {
-    __esModule: true,
-    default: ({ children }: { children: number }) => <Text>{`sats:${children}`}</Text>
-  }
-})
-
+// Partial mock: PaymentSuccessOverlay.tsx pulls AmountDisplay/Celebration/
+// PressableScale from the `ui` package barrel. PressableScale needs to stay
+// REAL for rendering, so only AmountDisplay and Celebration are overridden,
+// via requireActual for the rest.
+//
+// AmountDisplay reaches for wallet settings and an exchange rate. Neither is
+// what this file is about, so it becomes plain text.
 let mockMarkDone: (() => void) | undefined
-jest.mock('@/components/ui/Celebration', () => {
-  const { View } = require('react-native')
+jest.mock('@bsv/expo-wallet-toolbox/ui', () => {
+  const { Text, View } = require('react-native')
   return {
-    __esModule: true,
-    default: ({ onDone }: { onDone?: () => void }) => {
+    ...jest.requireActual('@bsv/expo-wallet-toolbox/ui'),
+    AmountDisplay: ({ children }: { children: number }) => <Text>{`sats:${children}`}</Text>,
+    Celebration: ({ onDone }: { onDone?: () => void }) => {
       mockMarkDone = onDone
       return <View testID="celebration" />
     }

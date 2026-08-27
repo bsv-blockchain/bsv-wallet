@@ -28,7 +28,7 @@ jest.mock('expo-secure-store', () => ({
 
 import React from 'react'
 import { render, fireEvent, act } from '@testing-library/react-native'
-import { AlertHost, showAlert } from '@/components/ui/AlertCard'
+import { AlertHost, showAlert } from '../../ui/components/ui/AlertCard'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
 
 const host = () => render(<ThemeProvider><AlertHost /></ThemeProvider>)

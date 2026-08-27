@@ -17,9 +17,9 @@ import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 
 import AvailableBalance from '@/components/pay/AvailableBalance'
-import PressableScale from '@/components/ui/PressableScale'
 import { AmountInput } from '@/components/wallet/AmountInput'
 import { useTheme, radii, spacing, typography } from '@bsv/expo-wallet-toolbox'
+import { PressableScale } from '@bsv/expo-wallet-toolbox/ui'
 
 /** One field section: the uppercase caption, then whatever asks the question. */
 export function PayField({ labelKey, children }: { labelKey: string; children: React.ReactNode }) {

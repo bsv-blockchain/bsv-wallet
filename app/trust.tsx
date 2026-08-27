@@ -14,10 +14,9 @@ import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-import { GroupedSection } from '@/components/ui/GroupedList'
 import validateTrust from '@/utils/validateTrust'
-import { showAlert } from '@/components/ui/AlertCard'
 import { haptics, useTheme, spacing, radii, typography, useWallet } from '@bsv/expo-wallet-toolbox'
+import { GroupedSection, showAlert } from '@bsv/expo-wallet-toolbox/ui'
 
 // -------------------- Types --------------------
 export type Certifier = {

@@ -47,8 +47,24 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
-import { Ionicons } from '@expo/vector-icons'
 import { useTheme, spacing, typography, durations, easings, springs } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Loaded lazily, only when actually rendering, same pattern as this
+ * package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 export type PresenceState =
   /** No live link on this path. The QR hand-off. */
@@ -70,7 +86,7 @@ interface PresenceRowProps {
   peer?: string | null
 }
 
-const ICONS: Record<PresenceState, keyof typeof Ionicons.glyphMap> = {
+const ICONS: Record<PresenceState, keyof IoniconsComponent['glyphMap']> = {
   qr: 'qr-code-outline',
   ready: 'wifi',
   waiting: 'wifi',
@@ -82,6 +98,7 @@ const DOT = 8
 
 export default function PresenceRow({ state, label, peer }: PresenceRowProps) {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   const reducedMotion = useReducedMotion()
 
   // 0 → 1 on every state change. Re-run rather than cross-faded: the row is one

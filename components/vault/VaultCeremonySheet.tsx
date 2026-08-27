@@ -22,8 +22,7 @@ import Animated, {
   Easing
 } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
-import Sheet from '@/components/ui/Sheet'
-import PressableScale from '@/components/ui/PressableScale'
+import { Sheet, PressableScale } from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   spacing,

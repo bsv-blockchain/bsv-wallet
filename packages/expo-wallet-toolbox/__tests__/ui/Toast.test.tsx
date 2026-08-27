@@ -6,15 +6,14 @@ jest.mock('expo-haptics', () => ({
   NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
 }))
 
-jest.mock('react-native-svg', () => {
-  const React = require('react')
-  const { View } = require('react-native')
-  const Svg = ({ children }: { children?: React.ReactNode }) => React.createElement(View, null, children)
-  const Circle = () => null
-  const Path = React.forwardRef((_props: object, _ref: unknown) => null)
-  Path.displayName = 'Path'
-  return { __esModule: true, default: Svg, Svg, Circle, Path }
-})
+jest.mock('@expo/vector-icons', () => ({
+  Ionicons: 'Ionicons',
+}))
+
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+  SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
+}))
 
 // Pulled in as a side effect of importing anything from the barrel: its
 // LocalStorageProvider chain reaches these native modules at module top level.
@@ -38,40 +37,20 @@ jest.mock('expo-secure-store', () => ({
 
 import React from 'react'
 import { render, act } from '@testing-library/react-native'
-import * as Haptics from 'expo-haptics'
-import Celebration from '@/components/ui/Celebration'
+import { ToastHost, showToast } from '../../ui/components/ui/Toast'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
 
 jest.useFakeTimers()
 
-const wrapper = (onDone?: () => void) =>
-  render(
-    <ThemeProvider>
-      <Celebration onDone={onDone} />
-    </ThemeProvider>
-  )
-
-describe('Celebration', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-  })
-
-  it('renders without crashing', () => {
-    expect(() => wrapper()).not.toThrow()
-  })
-
-  it('fires success haptic on mount', () => {
-    wrapper()
-    expect(Haptics.notificationAsync).toHaveBeenCalledWith(
-      Haptics.NotificationFeedbackType.Success,
-    )
-  })
-
-  it('calls onDone after timers advance past 700ms', () => {
-    const onDone = jest.fn()
-    wrapper(onDone)
-    expect(onDone).not.toHaveBeenCalled()
-    act(() => { jest.advanceTimersByTime(700) })
-    expect(onDone).toHaveBeenCalledTimes(1)
+describe('showToast', () => {
+  it('renders message, newest wins, auto-dismisses after 2s', () => {
+    const screen = render(<ThemeProvider><ToastHost /></ThemeProvider>)
+    act(() => { showToast('Copied') })
+    expect(screen.getByText('Copied')).toBeTruthy()
+    act(() => { showToast('Exported', { type: 'success' }) })
+    expect(screen.queryByText('Copied')).toBeNull()
+    expect(screen.getByText('Exported')).toBeTruthy()
+    act(() => { jest.advanceTimersByTime(2600) })
+    expect(screen.queryByText('Exported')).toBeNull()
   })
 })

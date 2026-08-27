@@ -17,7 +17,7 @@ import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 
-import PressableScale from '@/components/ui/PressableScale'
+import { PressableScale } from '@bsv/expo-wallet-toolbox/ui'
 import PayCellRow from '@/components/pay/PayCellRow'
 import NearbyFlow from '@/components/pay/NearbyFlow'
 import PaymentQrDisplay from '@/components/pay/PaymentQrDisplay'

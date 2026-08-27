@@ -3,9 +3,25 @@ import { Dimensions, Keyboard, Platform, Pressable, StyleSheet, Text, TouchableO
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
 import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
-import ScreenGradient from '@/components/ui/ScreenGradient'
+import ScreenGradient from './ScreenGradient'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Loaded lazily, only when actually rendering, same pattern as this
+ * package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 interface SheetProps {
   visible: boolean
@@ -39,6 +55,7 @@ const Sheet: React.FC<SheetProps> = ({
   children
 }) => {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   const insets = useSafeAreaInsets()
   const { height: windowHeight } = Dimensions.get('window')
   const maxSheetHeight = fullPage ? windowHeight : Math.max(0, Math.min(1, heightPercent)) * windowHeight

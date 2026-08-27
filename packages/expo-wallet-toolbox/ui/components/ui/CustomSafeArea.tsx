@@ -2,7 +2,14 @@ import React from 'react'
 import { View, Platform, StyleSheet, StyleProp, ViewStyle } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@bsv/expo-wallet-toolbox'
-import { ANDROID_MIN_BOTTOM_INSET } from '@/shared/constants'
+
+// Default minimum bottom inset for Android (keeps content above OS
+// navigation). Was `ANDROID_MIN_BOTTOM_INSET` from the host app's
+// `shared/constants` — that file is deliberately app-root-only config, not
+// part of this package, so the value is now a plain default here instead of
+// a cross-boundary import. Callers that need the app's own value can pass it
+// explicitly via `minBottomInset`.
+const DEFAULT_MIN_BOTTOM_INSET = 24
 
 interface CustomSafeAreaProps {
   children: React.ReactNode
@@ -21,7 +28,7 @@ export default function CustomSafeArea({
   children,
   style,
   minTopInset = 30, // Default minimum top inset for Android
-  minBottomInset = ANDROID_MIN_BOTTOM_INSET, // Default minimum bottom inset for Android
+  minBottomInset = DEFAULT_MIN_BOTTOM_INSET, // Default minimum bottom inset for Android
   edges
 }: CustomSafeAreaProps) {
   const insets = useSafeAreaInsets()

@@ -13,14 +13,9 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { GroupedSection } from '@/components/ui/GroupedList'
-import { ListRow } from '@/components/ui/ListRow'
-import PressableScale from '@/components/ui/PressableScale'
-import AmountDisplay from '@/components/wallet/AmountDisplay'
+import { GroupedSection, ListRow, PressableScale, AmountDisplay, showAlert, showToast } from '@bsv/expo-wallet-toolbox/ui'
 import { EnrollWizard } from '@/components/vault/EnrollWizard'
 import { useVaultBalance } from '@/hooks/useVaultBalance'
-import { showAlert } from '@/components/ui/AlertCard'
-import { showToast } from '@/components/ui/Toast'
 import {
   useTheme,
   spacing,

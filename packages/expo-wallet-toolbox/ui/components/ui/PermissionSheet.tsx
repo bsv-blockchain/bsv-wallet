@@ -1,10 +1,9 @@
 import React, { useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import Sheet from '@/components/ui/Sheet'
-import PressableScale from '@/components/ui/PressableScale'
+import Sheet from './Sheet'
+import PressableScale from './PressableScale'
 import { useTranslation } from 'react-i18next'
-import AmountDisplay from '@/components/wallet/AmountDisplay'
+import AmountDisplay from '../wallet/AmountDisplay'
 import {
   spacing,
   radii,
@@ -21,6 +20,23 @@ import {
 // Dev preview — set to true to keep the BTMS spend sheet visible for design work
 // ---------------------------------------------------------------------------
 const DEV_BTMS_PREVIEW = false
+
+// ---------------------------------------------------------------------------
+// @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+// etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+// that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+// Loaded lazily, only when actually rendering, same pattern as this
+// package's other native-module-boundary fixes (expo-router, expo-blur).
+// ---------------------------------------------------------------------------
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -259,6 +275,7 @@ function truncate(str: string, max: number): string {
 const PermissionSheet: React.FC = () => {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
 
   const {
     protocolRequests,

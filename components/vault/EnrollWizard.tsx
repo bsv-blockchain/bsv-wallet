@@ -20,10 +20,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native'
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
-import PressableScale from '@/components/ui/PressableScale'
 import { PassphraseField } from './PassphraseField'
 import { printRecoveryShares } from '@/utils/printRecoveryShares'
-import { showToast } from '@/components/ui/Toast'
+import { PressableScale, showToast } from '@bsv/expo-wallet-toolbox/ui'
 import { PhraseBackupSheet } from './PhraseBackupSheet'
 import {
   useTheme,

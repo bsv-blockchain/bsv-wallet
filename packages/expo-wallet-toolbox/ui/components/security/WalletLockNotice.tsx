@@ -17,16 +17,51 @@
  */
 import React, { useCallback } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import { router } from 'expo-router'
-import PressableScale from '@/components/ui/PressableScale'
-import { showAlert } from '@/components/ui/AlertCard'
+import PressableScale from '../ui/PressableScale'
+import { showAlert } from '../ui/AlertCard'
 import { useTheme, spacing, radii, typography, useLocalStorage, i18n } from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Loaded lazily, only when actually rendering, same pattern as the
+ * expo-router load just below.
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+
+/**
+ * expo-router's `router` singleton is required lazily (on first call from
+ * onRestore()), rather than imported statically, because this file is
+ * barrel-exported from the package's `ui` entry point — a static top-level
+ * `import` of expo-router pulls in its own untransformed JSX source
+ * (Navigator.js etc.), which Jest cannot parse for any consumer of the
+ * barrel, even one that never navigates. Same pattern as
+ * core/context/WalletContext.tsx's lazy expo-router load.
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
+  }
+  return expoRouterMod
+}
+
 export default function WalletLockNotice() {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   const { unlockState, unlock, deleteAllWalletKeys } = useLocalStorage()
 
   const onRestore = useCallback(async () => {
@@ -42,7 +77,7 @@ export default function WalletLockNotice() {
     // The ciphertexts are already unopenable; clearing them is what lets
     // onboarding start clean instead of tripping over an orphan sentinel.
     await deleteAllWalletKeys()
-    router.replace('/auth/mnemonic')
+    loadExpoRouter().router.replace('/auth/mnemonic')
   }, [deleteAllWalletKeys])
 
   const status = unlockState.status

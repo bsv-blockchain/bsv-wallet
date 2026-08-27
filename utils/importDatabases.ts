@@ -11,8 +11,7 @@ import {
   selectLatestDb,
   parseTimestampFromFilename
 } from '@bsv/expo-wallet-toolbox'
-import { showAlert } from '@/components/ui/AlertCard'
-import { showToast } from '@/components/ui/Toast'
+import { showAlert, showToast } from '@bsv/expo-wallet-toolbox/ui'
 
 export interface ImportResult {
   imported: boolean

@@ -51,12 +51,9 @@ import {
   readWalletBalance,
   useLocalStorage
 } from '@bsv/expo-wallet-toolbox'
-import PressableScale from '@/components/ui/PressableScale'
-import ScreenGradient from '@/components/ui/ScreenGradient'
 import ActivityRow, { type ActivityAction } from '@/components/wallet/ActivityRow'
-import { showToast } from '@/components/ui/Toast'
 import { exportTransactionsAsCsv } from '@/utils/exportTransactions'
-import WalletLockNotice from '@/components/security/WalletLockNotice'
+import { PressableScale, ScreenGradient, showToast, WalletLockNotice } from '@bsv/expo-wallet-toolbox/ui'
 
 const PAGE_SIZE = 30
 

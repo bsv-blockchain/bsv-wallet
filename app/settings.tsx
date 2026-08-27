@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, ScrollView, StyleSheet } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { GroupedSection } from '@/components/ui/GroupedList'
-import { ListRow } from '@/components/ui/ListRow'
 import { useTheme, spacing, typography, useWallet } from '@bsv/expo-wallet-toolbox'
+import { GroupedSection, ListRow, AmountDisplay } from '@bsv/expo-wallet-toolbox/ui'
 import { router } from 'expo-router'
-import AmountDisplay from '@/components/wallet/AmountDisplay'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 

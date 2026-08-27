@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Linking
 } from 'react-native'
-import CustomSafeArea from '@/components/ui/CustomSafeArea'
 import { router } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
@@ -18,10 +17,7 @@ import { printRecoveryShares } from '@/utils/printRecoveryShares'
 import * as Clipboard from 'expo-clipboard'
 import { Paths, File as ExpoFile } from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
-import { showAlert } from '@/components/ui/AlertCard'
-import { showToast } from '@/components/ui/Toast'
-import Celebration from '@/components/ui/Celebration'
-import PressableScale from '@/components/ui/PressableScale'
+import { CustomSafeArea, showAlert, showToast, Celebration, PressableScale } from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   spacing,

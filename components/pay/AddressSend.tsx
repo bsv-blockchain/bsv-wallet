@@ -18,7 +18,7 @@ import { useTranslation } from 'react-i18next'
 import QRScanner from '@/components/QRScanner'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from '@/components/pay/PayForm'
 import PaymentSuccessOverlay from '@/components/pay/PaymentSuccessOverlay'
-import { showToast } from '@/components/ui/Toast'
+import { showToast } from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   radii,

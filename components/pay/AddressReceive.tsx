@@ -17,9 +17,8 @@ import QRCode from 'react-native-qrcode-svg'
 import { useTranslation } from 'react-i18next'
 import { formatDistanceToNow } from 'date-fns'
 
-import AmountDisplay from '@/components/wallet/AmountDisplay'
 import ReceivedOverlay from '@/components/pay/PaymentSuccessOverlay'
-import { showToast } from '@/components/ui/Toast'
+import { AmountDisplay, showToast } from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   radii,

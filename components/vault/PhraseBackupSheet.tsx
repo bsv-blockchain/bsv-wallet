@@ -14,9 +14,8 @@ import React, { useState } from 'react'
 import { View, Text, StyleSheet, ScrollView } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import Clipboard from '@react-native-clipboard/clipboard'
-import PressableScale from '@/components/ui/PressableScale'
-import { showToast } from '@/components/ui/Toast'
 import { useTheme, spacing, radii, typography, i18n } from '@bsv/expo-wallet-toolbox'
+import { PressableScale, showToast } from '@bsv/expo-wallet-toolbox/ui'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 

@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
+import { AmountDisplay, AppLogo } from '@bsv/expo-wallet-toolbox/ui'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
-import AmountDisplay from './AmountDisplay'
-import AppLogo from '../ui/AppLogo'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const BALANCE_CACHE_KEY = 'cached_wallet_balance'

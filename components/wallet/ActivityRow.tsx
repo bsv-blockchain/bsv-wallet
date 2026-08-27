@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next'
 import type { WalletAction } from '@bsv/sdk'
 import { useTheme, spacing, radii, useWallet, ExchangeRateContext, formatAmount, formatAmountParts } from '@bsv/expo-wallet-toolbox'
 import { txStatusView, toneColor } from '@/utils/txStatus'
-import PressableScale from '@/components/ui/PressableScale'
+import { PressableScale } from '@bsv/expo-wallet-toolbox/ui'
 
 /** A row as storage actually returns it: `reference` and `created_at` are real
  * columns the SDK's WalletAction type does not declare. */
