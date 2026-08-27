@@ -56,3 +56,11 @@ export { readWalletBalance } from './storage/methods/walletBalanceSql'
 
 // Local secrets storage
 export { default as LocalStorageProvider, useLocalStorage, LocalStorageContext, type LocalStorageContextType } from './context/LocalStorageProvider'
+
+// User context and native handlers
+export { UserContextProvider, UserContext } from './context/UserContext'
+export type { NativeHandlers } from './context/UserContext'
+
+// Exchange rate context and service
+export { ExchangeRateContextProvider, ExchangeRateContext } from './context/ExchangeRateContext'
+export { getExchangeRate } from './services/exchangeRate'

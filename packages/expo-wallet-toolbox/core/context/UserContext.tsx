@@ -1,5 +1,5 @@
 import React, { createContext, Dispatch, SetStateAction, useMemo, useState } from 'react'
-import packageJson from '../package.json'
+import packageJson from '../../../../package.json'
 
 // Define the NativeHandlers interface here to avoid circular dependency
 export interface NativeHandlers {
