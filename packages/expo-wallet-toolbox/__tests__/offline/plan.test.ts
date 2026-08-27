@@ -9,8 +9,8 @@ import {
   refusedReqStatuses,
   undecidedReqStatuses,
   type PostedResult
-} from '@/utils/offline/plan'
-import type { OrderableTx } from '@/utils/offline/order'
+} from '../../core/offline/plan'
+import type { OrderableTx } from '../../core/offline/order'
 import type { OfflineActionRow } from '@/storage/methods/offlineActions'
 
 const tx = (txid: string, inputTxids: string[] = [], extra: Partial<OrderableTx> = {}): OrderableTx => ({

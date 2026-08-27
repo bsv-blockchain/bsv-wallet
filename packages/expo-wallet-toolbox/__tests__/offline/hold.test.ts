@@ -1,4 +1,4 @@
-import { buildOfflineHoldResult, groupOfflineHolds, holdSafeTxStatuses, type HoldTx } from '@/utils/offline/hold'
+import { buildOfflineHoldResult, groupOfflineHolds, holdSafeTxStatuses, type HoldTx } from '../../core/offline/hold'
 
 describe('buildOfflineHoldResult', () => {
   it('reports every held request as accepted for later delivery', () => {

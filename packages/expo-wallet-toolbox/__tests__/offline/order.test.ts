@@ -1,4 +1,4 @@
-import { dependencyOrder, descendantsOf, releaseOrder, type OrderableTx } from '@/utils/offline/order'
+import { dependencyOrder, descendantsOf, releaseOrder, type OrderableTx } from '../../core/offline/order'
 
 const tx = (txid: string, inputTxids: string[] = [], extra: Partial<OrderableTx> = {}): OrderableTx => ({
   txid,

@@ -1,4 +1,4 @@
-import { holdSentPaymentOffline } from '@/utils/offline/payerHold'
+import { holdSentPaymentOffline } from '../../core/offline/payerHold'
 import { insertOfflineAction } from '@/storage/methods/offlineActions'
 import { TaskSendOffline } from '@/utils/monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '@/storage/StorageExpoSQLite'
