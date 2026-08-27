@@ -43,3 +43,13 @@ export * from './offline/hold'
 export * from './offline/order'
 export * from './offline/plan'
 export * from './offline/payerHold'
+
+// Local SQLite storage layer
+export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
+export type { StorageExpoSQLiteOptions } from './storage/StorageExpoSQLite'
+export { createTables } from './storage/schema/createTables'
+export { initializeLocalStorage, isLocalStorage, getStorageDisplayName } from './storage/LocalStorageAdapter'
+export type { LocalStorageConfig } from './storage/LocalStorageAdapter'
+export { findOfflineActions } from './storage/methods/offlineActions'
+export type { OfflineActionRow } from './storage/methods/offlineActions'
+export { readWalletBalance } from './storage/methods/walletBalanceSql'

@@ -31,10 +31,10 @@ import {
   planRelease,
   undecidedReqStatuses,
   type PostOutcome
-} from '../../utils/offline/plan'
-import { descendantsOf, type OrderableTx } from '../../utils/offline/order'
-import { devLog } from '../../utils/logging'
-import { getOnline } from '../../utils/net/online'
+} from '../../offline/plan'
+import { descendantsOf, type OrderableTx } from '../../offline/order'
+import { devLog } from '../../logging'
+import { getOnline } from '../../net/online'
 
 export interface ProcessOfflineActionsResult {
   /** Queue rows moved to 'sent'. A foreign ancestor's broadcast is logged, not counted. */

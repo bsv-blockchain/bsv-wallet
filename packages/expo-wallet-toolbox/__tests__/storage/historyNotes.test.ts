@@ -1,4 +1,4 @@
-import { NOTE_VALUE_MAX, scrubHistoryJson, scrubNoteValues } from '@/storage/methods/historyNotes'
+import { NOTE_VALUE_MAX, scrubHistoryJson, scrubNoteValues } from '../../core/storage/methods/historyNotes'
 
 describe('scrubNoteValues', () => {
   it('truncates a megabyte of broadcast hex to the cap', () => {

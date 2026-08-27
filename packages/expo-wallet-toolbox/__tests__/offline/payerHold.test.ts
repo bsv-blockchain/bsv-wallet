@@ -1,12 +1,12 @@
 import { holdSentPaymentOffline } from '../../core/offline/payerHold'
-import { insertOfflineAction } from '@/storage/methods/offlineActions'
+import { insertOfflineAction } from '../../core/storage/methods/offlineActions'
 import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
-import type { StorageExpoSQLite } from '@/storage/StorageExpoSQLite'
+import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 
-// The DB mapper is its own tested unit (`storage/methods/offlineActions.ts`);
+// The DB mapper is its own tested unit (`core/storage/methods/offlineActions.ts`);
 // here it's mocked so these tests pin exactly what `holdSentPaymentOffline`
 // hands it, without duplicating its own SQL coverage.
-jest.mock('@/storage/methods/offlineActions', () => ({
+jest.mock('../../core/storage/methods/offlineActions', () => ({
   insertOfflineAction: jest.fn().mockResolvedValue(undefined)
 }))
 

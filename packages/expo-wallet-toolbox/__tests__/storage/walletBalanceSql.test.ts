@@ -7,10 +7,10 @@
  * rather than showing the user the wrong money.
  */
 import { DatabaseSync } from 'node:sqlite'
-import { createTables } from '@/storage/schema/createTables'
-import { readWalletBalance, BALANCE_BASKET } from '@/storage/methods/walletBalanceSql'
-import { StorageExpoSQLite } from '@/storage/StorageExpoSQLite'
-import { listOutputsSql } from '@/storage/methods/listOutputsSql'
+import { createTables } from '../../core/storage/schema/createTables'
+import { readWalletBalance, BALANCE_BASKET } from '../../core/storage/methods/walletBalanceSql'
+import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
+import { listOutputsSql } from '../../core/storage/methods/listOutputsSql'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
 
 /** expo-sqlite's async surface over node:sqlite's sync one — only the handful of

@@ -11,7 +11,7 @@ import {
   type PostedResult
 } from '../../core/offline/plan'
 import type { OrderableTx } from '../../core/offline/order'
-import type { OfflineActionRow } from '@/storage/methods/offlineActions'
+import type { OfflineActionRow } from '../../core/storage/methods/offlineActions'
 
 const tx = (txid: string, inputTxids: string[] = [], extra: Partial<OrderableTx> = {}): OrderableTx => ({
   txid,

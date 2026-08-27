@@ -20,8 +20,8 @@ import {
   RECLAIM_SIZES_SQL,
   type ReclaimReport
 } from './methods/reclaim'
-import { availableDiskBytes, diskPressure } from '../utils/diskSpace'
-import { devLog } from '../utils/logging'
+import { availableDiskBytes, diskPressure } from '../diskSpace'
+import { devLog } from '../logging'
 import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
 import type { StorageProviderOptions } from '@bsv/wallet-toolbox-mobile'
 import type {
@@ -77,9 +77,9 @@ import type { PostReqsToNetworkResult } from '@bsv/wallet-toolbox-mobile/out/src
 import { listActionsSql } from './methods/listActionsSql'
 import { listOutputsSql } from './methods/listOutputsSql'
 import { insertOfflineAction, type OfflineActionRole } from './methods/offlineActions'
-import { buildOfflineHoldResult, groupOfflineHolds } from '../utils/offline/hold'
-import { getOnline } from '../utils/net/online'
-import { TaskSendOffline } from '../utils/monitor/TaskSendOffline'
+import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
+import { getOnline } from '../net/online'
+import { TaskSendOffline } from '../monitor/TaskSendOffline'
 
 export interface StorageExpoSQLiteOptions extends StorageProviderOptions {
   databaseName?: string
