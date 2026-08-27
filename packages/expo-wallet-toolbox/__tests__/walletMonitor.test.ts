@@ -4,7 +4,7 @@ import {
   NEW_HEADER_POLL_INTERVAL_MS
 } from '../core/walletMonitor'
 import { Monitor, Services } from '@bsv/wallet-toolbox-mobile'
-import { TaskSendOffline } from '@/utils/monitor/TaskSendOffline'
+import { TaskSendOffline } from '../core/monitor/TaskSendOffline'
 
 function createTask(runTask: () => Promise<string>) {
   return {

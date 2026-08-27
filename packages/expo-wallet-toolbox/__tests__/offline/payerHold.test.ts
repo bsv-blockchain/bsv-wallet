@@ -1,6 +1,6 @@
 import { holdSentPaymentOffline } from '../../core/offline/payerHold'
 import { insertOfflineAction } from '@/storage/methods/offlineActions'
-import { TaskSendOffline } from '@/utils/monitor/TaskSendOffline'
+import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '@/storage/StorageExpoSQLite'
 
 // The DB mapper is its own tested unit (`storage/methods/offlineActions.ts`);

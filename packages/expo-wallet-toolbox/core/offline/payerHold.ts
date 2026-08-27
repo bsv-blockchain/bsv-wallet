@@ -53,7 +53,7 @@
  * reused directly via `insertOfflineAction`.
  */
 import { insertOfflineAction } from '@/storage/methods/offlineActions'
-import { TaskSendOffline } from '@/utils/monitor/TaskSendOffline'
+import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '@/storage/StorageExpoSQLite'
 
 export async function holdSentPaymentOffline(args: {
