@@ -1,6 +1,6 @@
-import { broadcastPayment, buildPaymentFrame, finalizeDelivery } from '@/utils/localpay/build'
-import { mintSession } from '@/utils/localpay/session'
-import { PEERPAY_PROTOCOL_ID } from '@/utils/localpay/pending'
+import { broadcastPayment, buildPaymentFrame, finalizeDelivery } from '../../core/localpay/build'
+import { mintSession } from '../../core/localpay/session'
+import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
 
 const session = () => mintSession({
   identityKey: '02'.padEnd(66, 'e'),

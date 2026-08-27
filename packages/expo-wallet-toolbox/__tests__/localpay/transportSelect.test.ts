@@ -1,8 +1,8 @@
 import { PermissionsAndroid, Platform } from 'react-native'
 import type { Permission, PermissionStatus } from 'react-native'
-import { selectTransport } from '@/utils/localpay/transport/select'
-import { mintSession, CAP_AWDL, CAP_NEARBY, type Session } from '@/utils/localpay/session'
-import { requestNearbyPermissions } from '@/utils/localpay/transport/nearbyPermissions'
+import { selectTransport } from '../../core/localpay/transport/select'
+import { mintSession, CAP_AWDL, CAP_NEARBY, type Session } from '../../core/localpay/session'
+import { requestNearbyPermissions } from '../../core/localpay/nearbyPermissions'
 
 let mockIsSupported = true
 

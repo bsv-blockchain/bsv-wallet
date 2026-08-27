@@ -8,7 +8,7 @@ import {
   type DeclineReason,
   type LocalPaymentTransport,
   type ReceivedFrame
-} from './types'
+} from '../types'
 
 const SEND_TIMEOUT_MS = 20_000
 

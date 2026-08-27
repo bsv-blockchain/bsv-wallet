@@ -1,5 +1,5 @@
-import type { PaymentFrame } from '../codec'
-import type { Session } from '../session'
+import type { PaymentFrame } from './codec'
+import type { Session } from './session'
 
 export interface Ack {
   ok: boolean

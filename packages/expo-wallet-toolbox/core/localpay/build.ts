@@ -2,8 +2,8 @@ import { P2PKH, PublicKey } from '@bsv/sdk'
 import { FRAME_VERSION, type PaymentFrame } from './codec'
 import { isRequestableAmount, type Session } from './session'
 import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
-import type { Ack } from './transport/types'
-import { getOnline } from '@/utils/net/online'
+import type { Ack } from './types'
+import { getOnline } from '../net/online'
 
 /** The toolbox's per-txid verdict on a `sendWith` release. */
 type SendWithStatus = 'unproven' | 'sending' | 'failed'

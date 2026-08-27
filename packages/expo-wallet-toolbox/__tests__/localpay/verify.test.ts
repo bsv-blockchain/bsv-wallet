@@ -8,9 +8,9 @@
  * an output paying somebody else.
  */
 import { Beef, BigNumber, Curve, Hash, LockingScript, P2PKH, PrivateKey, PublicKey, Transaction, Utils } from '@bsv/sdk'
-import { FrameVerifyError, FT_PROTOCOL_ID, verifyFramePayment, verifyRecipientLinkage } from '@/utils/localpay/verify'
-import { PEERPAY_PROTOCOL_ID } from '@/utils/localpay/pending'
-import type { PaymentFrame } from '@/utils/localpay/codec'
+import { FrameVerifyError, FT_PROTOCOL_ID, verifyFramePayment, verifyRecipientLinkage } from '../../core/localpay/verify'
+import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
+import type { PaymentFrame } from '../../core/localpay/codec'
 import { MandalaToken } from '@bsv/templates'
 
 const payeeKey = PrivateKey.fromRandom().toPublicKey()

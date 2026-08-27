@@ -1,8 +1,8 @@
 import {
   savePending, getPending, getUnprocessed, updateStatus, processPending,
   markSessionSpent, isSessionSpent, PENDING_KEY, SPENT_KEY,
-} from '@/utils/localpay/pending'
-import { FRAME_VERSION, type PaymentFrame } from '@/utils/localpay/codec'
+} from '../../core/localpay/pending'
+import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import { Transaction, Beef, LockingScript } from '@bsv/sdk'
 
 function fakeStorage() {
