@@ -693,7 +693,6 @@ export default function WalletScreen() {
         >
           <Ionicons name="link-outline" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>{t('wallet')}</Text>
         {/* Settings lives here rather than among the destinations below: it is
             navigation chrome, not a money action, so it should not compete with
             Pay and Vault for the eye. */}
@@ -769,8 +768,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
-  headerTitle: { ...typography.headline, letterSpacing: -0.2 },
-
   balanceBlock: {
     alignItems: 'center',
     paddingTop: spacing.xxl,
