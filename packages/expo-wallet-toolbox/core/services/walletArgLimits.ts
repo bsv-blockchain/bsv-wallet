@@ -31,7 +31,7 @@
  * so it stays insulated from any future tightening of these limits. It is
  * paired with the vault's own input cap in services/vault/transfers.ts.
  */
-import type { DeviceTier } from '@/utils/deviceTier'
+import type { DeviceTier } from '../deviceTier'
 
 export interface WalletArgLimits {
   /** Total bytes across every field of one call. */

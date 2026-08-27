@@ -54,7 +54,7 @@ export class WalletArgTooLarge extends Error {
 function tierLimits(): WalletArgLimits {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getDeviceTier } = require('@/utils/deviceTier') as typeof import('@/utils/deviceTier')
+    const { getDeviceTier } = require('../deviceTier') as typeof import('../deviceTier')
     return limitsForTier(getDeviceTier())
   } catch {
     return limitsForTier('mid')

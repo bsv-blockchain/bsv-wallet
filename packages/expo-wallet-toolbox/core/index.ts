@@ -119,6 +119,22 @@ export * from './headers/syncHeaders'
 // Wallet-relevant constants (auto-approve thresholds, ARC broadcast URLs)
 export * from './constants'
 
+// Wallet service configuration, ARC broadcast providers, argument-size cap
+//
+// './deviceTier' is deliberately NOT re-exported here: capWalletArgs.ts loads
+// it with a lazy `require(...)` (not a static import) specifically so that
+// expo-device — a native module unavailable in Jest and any non-native host —
+// is never pulled in at module-load time. A barrel `export *` would undo that
+// by making every consumer of the package eagerly load it, which is exactly
+// what broke the packageResolution canary during this move. It stays an
+// internal implementation file, reached only via relative import from
+// services/capWalletArgs.ts and services/walletArgLimits.ts (the latter as a
+// type-only import, which is erased at compile time).
+export * from './services/walletServiceConfig'
+export * from './services/arcadeBroadcastProvider'
+export * from './services/walletArgLimits'
+export * from './services/capWalletArgs'
+
 // Encrypted wallet backup log
 export * from './backup/RemoteSyncReader'
 export * from './backup/client'

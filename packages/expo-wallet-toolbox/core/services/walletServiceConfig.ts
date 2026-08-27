@@ -1,5 +1,5 @@
-import type { AppChain } from '@/context/config'
-import { toWalletChain } from '@/context/config'
+import type { AppChain } from '../config'
+import { toWalletChain } from '../config'
 import {
   ChaintracksServiceClient,
   Services
