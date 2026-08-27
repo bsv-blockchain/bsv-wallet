@@ -1,9 +1,9 @@
 import { PrivateKey } from '@bsv/sdk'
 import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
-import type { LogEntry } from '@/utils/backup/client'
-import { encodeChunk, emptyChunk, isEmptyChunk } from '@/utils/backup/codec'
-import { deriveBackupWallet } from '@/utils/backup/derive'
-import { BackupChainError, RemoteSyncReader } from '@/utils/backup/RemoteSyncReader'
+import type { LogEntry } from '../../core/backup/client'
+import { encodeChunk, emptyChunk, isEmptyChunk } from '../../core/backup/codec'
+import { deriveBackupWallet } from '../../core/backup/derive'
+import { BackupChainError, RemoteSyncReader } from '../../core/backup/RemoteSyncReader'
 
 const PRIMARY = new PrivateKey(21).toArray('be', 32)
 const DEVICE = 'd'.repeat(32)

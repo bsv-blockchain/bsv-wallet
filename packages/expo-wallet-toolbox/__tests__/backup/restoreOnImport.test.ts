@@ -1,17 +1,17 @@
 /**
  * restoreOnImport — the one call the import flow makes before the wallet is usable.
  *
- * What matters here is not the replay itself (backupRestore.test.ts covers the reader)
+ * What matters here is not the replay itself (restore.test.ts covers the reader)
  * but the decisions around it: which device's log gets replayed, what happens when there
  * is nothing to replay, and that a broken log stops the import rather than producing a
  * wallet that looks healthy and is missing outputs.
  */
 import { PrivateKey } from '@bsv/sdk'
 import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
-import type { DeviceSummary, LogEntry } from '@/utils/backup/client'
-import { encodeChunk, emptyChunk } from '@/utils/backup/codec'
-import { deriveBackupWallet } from '@/utils/backup/derive'
-import { restoreOnImport } from '@/utils/backup/restoreOnImport'
+import type { DeviceSummary, LogEntry } from '../../core/backup/client'
+import { encodeChunk, emptyChunk } from '../../core/backup/codec'
+import { deriveBackupWallet } from '../../core/backup/derive'
+import { restoreOnImport } from '../../core/backup/restoreOnImport'
 
 const PRIMARY = new PrivateKey(21).toArray('be', 32)
 const OLD_DEVICE = 'a'.repeat(32)

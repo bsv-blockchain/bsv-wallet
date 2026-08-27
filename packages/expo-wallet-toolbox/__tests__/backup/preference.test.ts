@@ -1,3 +1,4 @@
+/* eslint-disable import/first -- jest.mock must be hoisted above the imports it affects */
 /**
  * The backup-push opt-out.
  *
@@ -5,16 +6,29 @@
  * was missing, or because a read failed, is the failure this feature exists to prevent.
  * Only an explicit opt-out written by the user turns pushing off.
  */
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
-)
+// Own AsyncStorage mock, matching erase.test.ts/push.test.ts: the vault suites install a
+// different one and a global mapper makes the resolver recurse between the two.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store: Record<string, string> = {}
+  return {
+    __esModule: true,
+    default: {
+      getItem: async (k: string) => store[k] ?? null,
+      setItem: async (k: string, v: string) => { store[k] = v },
+      removeItem: async (k: string) => { delete store[k] },
+      getAllKeys: async () => Object.keys(store),
+      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
+      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+    }
+  }
+})
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   BACKUP_PUSH_ENABLED_KEY,
   isBackupPushEnabled,
   setBackupPushEnabled
-} from '@/utils/backup/preference'
+} from '../../core/backup/preference'
 
 beforeEach(async () => {
   await AsyncStorage.clear()

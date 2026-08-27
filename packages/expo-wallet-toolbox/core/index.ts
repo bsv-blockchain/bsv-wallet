@@ -118,3 +118,18 @@ export * from './headers/syncHeaders'
 
 // Wallet-relevant constants (auto-approve thresholds, ARC broadcast URLs)
 export * from './constants'
+
+// Encrypted wallet backup log
+export * from './backup/RemoteSyncReader'
+export * from './backup/client'
+export * from './backup/codec'
+export * from './backup/constants'
+export * from './backup/cursor'
+export * from './backup/derive'
+export * from './backup/deviceId'
+export * from './backup/erase'
+export * from './backup/preference'
+export * from './backup/push'
+export * from './backup/restore'
+export * from './backup/restoreOnImport'
+export { TaskBackupPush } from './monitor/TaskBackupPush'
