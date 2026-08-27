@@ -197,3 +197,19 @@ export * from './context/WalletConnectionContext'
 export * from './context/VaultContext'
 export * from './hooks/useHaptics'
 export * from './hooks/useConfirmationSound'
+
+// WalletContext — the core hub wiring together storage, headers, localpay,
+// backup, vault-ceremony bridging, and monitor tasks. Only its two actually-
+// consumed exports are re-exported here (WalletContextProvider, useWallet) —
+// its narrow selector hooks (useWalletStatus, useWalletQueues,
+// useTxStatusVersion), WalletManagersContext, and the various *Value/*Slice
+// types have zero current consumers anywhere in the app, so they are left
+// off the barrel for now (same "only what's actually used" convention as
+// Task 3's motion.ts/useThemeStyles.tsx) — reachable via a relative import
+// from inside the package if a future task needs them, and easy to add here
+// once a real consumer exists. WalletContextProvider takes an optional
+// onToast prop (see WalletContext.tsx's WalletContextToast type) rather than
+// importing a ui Toast component directly — core must never import from ui,
+// same boundary as VaultContext's onToast above.
+export { WalletContextProvider, useWallet } from './context/WalletContext'
+export { usePermissionQueue } from './hooks/usePermissionQueue'

@@ -12,9 +12,9 @@ import {
   Monitor
 } from '@bsv/wallet-toolbox-mobile'
 import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk'
-import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '@/services/vault/ceremonyHost'
-import { getVaultDriver } from '@/services/vault/driver'
-import { backupAttestation } from '@/services/vault/backupAttestation'
+import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
+import { getVaultDriver } from '../services/vault/driver'
+import { backupAttestation } from '../services/vault/backupAttestation'
 import {
   DEFAULT_SETTINGS as LIB_DEFAULT_SETTINGS,
   WalletSettings,
@@ -42,6 +42,70 @@ async function stopMonitorAndDrain(monitor: Monitor): Promise<void> {
   }
 }
 
+/**
+ * expo-router's `router` singleton is required lazily (on first call from
+ * logout()), rather than imported statically, because this file is
+ * barrel-exported from the package root — a static top-level `import` of
+ * expo-router pulls in its own untransformed JSX source (Navigator.js etc.),
+ * which Jest cannot parse for any consumer of the barrel, even one that never
+ * navigates. Same class of issue as hooks/useHaptics.ts's lazy expo-haptics
+ * require and services/vault/driver.ts's lazy native require.
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
+  }
+  return expoRouterMod
+}
+
+/**
+ * @bsv/btms-permission-module (and its @bsv/btms dependency) ship ESM-only
+ * `exports` maps with no `require` condition, which Jest's default CJS
+ * resolver cannot follow — required lazily (on first buildWallet call), same
+ * reason and same pattern as loadExpoRouter above, so importing this barrel
+ * in a test that never builds a wallet never touches either package.
+ */
+type BtmsPermissionModule = typeof import('@bsv/btms-permission-module')
+let btmsPermissionMod: BtmsPermissionModule | undefined
+function loadBtmsPermissionModule(): BtmsPermissionModule {
+  if (!btmsPermissionMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    btmsPermissionMod = require('@bsv/btms-permission-module') as BtmsPermissionModule
+  }
+  return btmsPermissionMod
+}
+
+/**
+ * react-native-sse ships an untransformed ESM `export default`, same problem
+ * as expo-router/@bsv/btms-permission-module above — required lazily so it is
+ * only ever touched from inside buildWallet, never at barrel-import time.
+ * QuietEventSource itself must be built lazily too (not just the import):
+ * `class X extends Y` evaluates `Y` the moment the class declaration runs, so
+ * a top-level class extending RNEventSource would force the eager require
+ * right back in even with the import alone made lazy.
+ */
+type EventSourceCtor = new (url: any, options?: any) => any
+let quietEventSourceClass: EventSourceCtor | undefined
+function loadQuietEventSourceClass(): EventSourceCtor {
+  if (!quietEventSourceClass) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const RNEventSource = require('react-native-sse').default as EventSourceCtor
+    // The toolbox's ArcSSEClient constructs the EventSource with `{ debug: true }`,
+    // which makes react-native-sse `console.debug()` on EVERY readystate change of a
+    // long-lived SSE connection — a continuous flood over the Metro bridge that
+    // starves the JS thread and janks every interaction. Force debug off.
+    quietEventSourceClass = class QuietEventSource extends (RNEventSource as any) {
+      constructor(url: any, options: any = {}) {
+        super(url, { ...options, debug: false })
+      }
+    } as unknown as EventSourceCtor
+  }
+  return quietEventSourceClass
+}
+
 const DEFAULT_SETTINGS: WalletSettings = {
   ...LIB_DEFAULT_SETTINGS,
   trustSettings: {
@@ -58,61 +122,47 @@ const DEFAULT_SETTINGS: WalletSettings = {
     ]
   }
 }
-import { showToast } from '@/components/ui/Toast'
-import type { AppChain } from './config'
-import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, DEFAULT_BACKUP_URL, toWalletChain } from './config'
-import { DEFAULT_AUTO_APPROVE_THRESHOLD, AUTO_APPROVE_COOLDOWN_MS, AUTO_APPROVE_STORAGE_KEY } from '@bsv/expo-wallet-toolbox'
+import type { AppChain } from '../config'
+import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, DEFAULT_BACKUP_URL, toWalletChain } from '../config'
+import { DEFAULT_AUTO_APPROVE_THRESHOLD, AUTO_APPROVE_COOLDOWN_MS, AUTO_APPROVE_STORAGE_KEY } from '../constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { UserContext } from './UserContext'
-import { useLocalStorage } from '@/context/LocalStorageProvider'
-import { usePermissionQueue } from '@/hooks/usePermissionQueue'
-import { createServices, chaintracksUrlFor } from '@/services/walletServiceConfig'
-import { configureNewHeaderPolling } from '@/utils/walletMonitor'
+import { useLocalStorage } from './LocalStorageProvider'
+import { usePermissionQueue } from '../hooks/usePermissionQueue'
+import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
+import { configureNewHeaderPolling } from '../walletMonitor'
 import {
   createArcadeBroadcastService,
   createTaalBroadcastService,
   createGorillaPoolBroadcastService,
   createWocBroadcastService
-} from '@/services/arcadeBroadcastProvider'
-import { getExchangeRate } from '@/services/exchangeRate'
-import { router } from 'expo-router'
-import { logWithTimestamp } from '@/utils/logging'
-import { recoverMnemonicWallet } from '@/utils/mnemonicWallet'
+} from '../services/arcadeBroadcastProvider'
+import { getExchangeRate } from '../services/exchangeRate'
+import { logWithTimestamp } from '../logging'
+import { recoverMnemonicWallet } from '../mnemonicWallet'
 import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-mobile'
-import { StorageExpoSQLite } from '@/storage'
+import { StorageExpoSQLite } from '../storage'
 import * as SQLite from 'expo-sqlite'
-import { getRegisteredDbs, registerDb, selectLatestDb } from '@/utils/walletDbRegistry'
-import { createBtmsModule } from '@bsv/btms-permission-module'
+import { getRegisteredDbs, registerDb, selectLatestDb } from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
-import RNEventSource from 'react-native-sse'
-
-// The toolbox's ArcSSEClient constructs the EventSource with `{ debug: true }`,
-// which makes react-native-sse `console.debug()` on EVERY readystate change of a
-// long-lived SSE connection — a continuous flood over the Metro bridge that
-// starves the JS thread and janks every interaction. Force debug off.
-class QuietEventSource extends (RNEventSource as any) {
-  constructor(url: any, options: any = {}) {
-    super(url, { ...options, debug: false })
-  }
-}
-import { getOnline, subscribeOnline } from '@/utils/net/online'
-import { processPending } from '@/utils/localpay/pending'
-import { TaskSendOffline } from '@/utils/monitor/TaskSendOffline'
-import { TaskBackupPush } from '@/utils/monitor/TaskBackupPush'
-import { pushOnce } from '@/utils/backup/push'
-import { restoreOnImport } from '@/utils/backup/restoreOnImport'
-import { processOfflineActions } from '@/storage/methods/processOfflineActions'
-import { wocConfigFor } from '@/utils/pay/rails/address'
-import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '@/utils/pay/sweeper'
-import { formatAmount } from '@/utils/amountFormatHelpers'
+import { getOnline, subscribeOnline } from '../net/online'
+import { processPending } from '../localpay/pending'
+import { TaskSendOffline } from '../monitor/TaskSendOffline'
+import { TaskBackupPush } from '../monitor/TaskBackupPush'
+import { pushOnce } from '../backup/push'
+import { restoreOnImport } from '../backup/restoreOnImport'
+import { processOfflineActions } from '../storage/methods/processOfflineActions'
+import { wocConfigFor } from '../pay/rails/address'
+import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../pay/sweeper'
+import { formatAmount } from '../amountFormatHelpers'
 import { useTranslation } from 'react-i18next'
-import { HEADER_CHECKPOINTS } from '@/utils/headers/checkpoints'
-import { expoHeaderFs } from '@/utils/headers/fs'
-import { HeaderStore } from '@/utils/headers/headerStore'
-import { OfflineFirstChaintracks } from '@/utils/headers/OfflineFirstChaintracks'
-import { prewarmOwnRoots } from '@/utils/headers/prewarm'
-import { syncHeaders } from '@/utils/headers/syncHeaders'
-import type { HeaderSource } from '@/utils/headers/syncHeaders'
+import { HEADER_CHECKPOINTS } from '../headers/checkpoints'
+import { expoHeaderFs } from '../headers/fs'
+import { HeaderStore } from '../headers/headerStore'
+import { OfflineFirstChaintracks } from '../headers/OfflineFirstChaintracks'
+import { prewarmOwnRoots } from '../headers/prewarm'
+import { syncHeaders } from '../headers/syncHeaders'
+import type { HeaderSource } from '../headers/syncHeaders'
 
 // Global, origin-agnostic rate limit for auto-approved spending.
 // In-memory only — resets on app restart (intentional: more secure).
@@ -380,11 +430,21 @@ async function probeForLegacyDb(legacyName: string): Promise<boolean> {
   }
 }
 
+/**
+ * Minimal shape of the app's toast function. `core` must never import a `ui`
+ * component (see context/VaultContext.tsx's identical `VaultToast` for the
+ * same boundary), so WalletContextProvider takes an optional toast callback
+ * instead of importing one — the host app wires its own toast implementation
+ * (e.g. `components/ui/Toast`'s `showToast`) in via the `onToast` prop.
+ */
+export type WalletContextToast = (message: string, opts?: { type?: 'info' | 'success' | 'error' }) => void
+
 interface WalletContextProps {
   children: React.ReactNode
+  onToast?: WalletContextToast
 }
 
-export const WalletContextProvider: React.FC<WalletContextProps> = ({ children = <></> }) => {
+export const WalletContextProvider: React.FC<WalletContextProps> = ({ children = <></>, onToast }) => {
   const { t } = useTranslation()
   const [managers, setManagers] = useState<ManagerState>({})
   const [storage, setStorage] = useState<StorageExpoSQLite | null>(null)
@@ -1031,7 +1091,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // Create BTMS permission module, wiring in the prompt handler so that
         // "p btms" operations surface a UI modal rather than silently denying.
-        const btmsModule = createBtmsModule({ wallet, promptHandler: btmsPromptHandler })
+        const btmsModule = loadBtmsPermissionModule().createBtmsModule({ wallet, promptHandler: btmsPromptHandler })
 
         // Setup permissions with provided callbacks and BTMS module.
         const permissionsManager = new WalletPermissionsManager(wallet, adminOriginator, {
@@ -1092,7 +1152,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           }
           const monitorOptions = Monitor.createDefaultWalletMonitorOptions(walletChain, storageManager, services)
           monitorOptions.callbackToken = callbackToken
-          monitorOptions.EventSourceClass = QuietEventSource
+          monitorOptions.EventSourceClass = loadQuietEventSourceClass()
           monitorOptions.onTransactionStatusChanged = async (_txid: string, _newStatus: string) => {
             setTxStatusVersion(v => v + 1)
             // The database moved, so the backup log has something to catch up on.
@@ -1375,7 +1435,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         return permissionsManager
       } catch (error: any) {
         console.error('Error building wallet:', error)
-        showToast('Failed to build wallet: ' + error.message, { type: 'error' })
+        onToast?.('Failed to build wallet: ' + error.message, { type: 'error' })
         logWithTimestamp(F, 'Error building wallet', error.message)
         return null
       }
@@ -1391,7 +1451,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       certificateAccessCallback,
       btmsPromptHandler,
       runHeaderSync,
-      noteLedgerChanged
+      noteLedgerChanged,
+      onToast
     ]
   )
 
@@ -1951,6 +2012,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // dismissAll() leaves exactly one screen on the stack, so this has to
       // REPLACE it: push() would add a second /index on top of the one already
       // there and leave two Browsers mounted.
+      const { router } = loadExpoRouter()
       router.dismissAll()
       router.replace('/')
     })()
