@@ -2,19 +2,19 @@
  * Secret store: everything after the one unlock must be prompt-free, and
  * deletion must work without a key.
  */
-jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
-jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake').fake)
+jest.mock('expo-secure-store', () => require('../../../../__tests__/__mocks__/secureStoreFake').fake)
+jest.mock('expo-local-authentication', () => require('../../../../__tests__/__mocks__/localAuthFake').fake)
 
-import { fake as secureStore } from '../__mocks__/secureStoreFake'
-import { fake as localAuth } from '../__mocks__/localAuthFake'
-import { __resetForTests, readSentinel, unlockKek } from '../../services/secrets/kek'
+import { fake as secureStore } from '../../../../__tests__/__mocks__/secureStoreFake'
+import { fake as localAuth } from '../../../../__tests__/__mocks__/localAuthFake'
+import { __resetForTests, readSentinel, unlockKek } from '../../core/services/secrets/kek'
 import {
   deleteAllSecrets,
   deleteSecret,
   getSecret,
   hasSecret,
   putSecret
-} from '../../services/secrets/store'
+} from '../../core/services/secrets/store'
 
 const ENV_SERVICE = 'bsvb.secrets.v1'
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'

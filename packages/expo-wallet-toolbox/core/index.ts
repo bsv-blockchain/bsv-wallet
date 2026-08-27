@@ -53,3 +53,6 @@ export type { LocalStorageConfig } from './storage/LocalStorageAdapter'
 export { findOfflineActions } from './storage/methods/offlineActions'
 export type { OfflineActionRow } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
+
+// Local secrets storage
+export { default as LocalStorageProvider, useLocalStorage, LocalStorageContext, type LocalStorageContextType } from './context/LocalStorageProvider'
