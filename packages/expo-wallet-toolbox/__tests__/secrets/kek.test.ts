@@ -5,11 +5,11 @@
  * ceremony per process — and the actual security constraint — a missing key is
  * reported as lost, never replaced with a fresh one.
  */
-jest.mock('expo-secure-store', () => require('../../../../__tests__/__mocks__/secureStoreFake').fake)
-jest.mock('expo-local-authentication', () => require('../../../../__tests__/__mocks__/localAuthFake').fake)
+jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
+jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake').fake)
 
-import { fake as secureStore } from '../../../../__tests__/__mocks__/secureStoreFake'
-import { fake as localAuth } from '../../../../__tests__/__mocks__/localAuthFake'
+import { fake as secureStore } from '../__mocks__/secureStoreFake'
+import { fake as localAuth } from '../__mocks__/localAuthFake'
 import {
   __resetForTests,
   autoUnlockKek,

@@ -1,5 +1,5 @@
-jest.mock('expo-secure-store', () => require('../../../__tests__/__mocks__/secureStoreFake').fake)
-jest.mock('expo-local-authentication', () => require('../../../__tests__/__mocks__/localAuthFake').fake)
+jest.mock('expo-secure-store', () => require('./__mocks__/secureStoreFake').fake)
+jest.mock('expo-local-authentication', () => require('./__mocks__/localAuthFake').fake)
 
 import { CANARY } from '@bsv/expo-wallet-toolbox'
 import { CANARY_UI } from '@bsv/expo-wallet-toolbox/ui'

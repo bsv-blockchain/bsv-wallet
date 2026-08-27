@@ -8,12 +8,12 @@
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )
-jest.mock('expo-secure-store', () => require('../../../../__tests__/__mocks__/secureStoreFake').fake)
-jest.mock('expo-local-authentication', () => require('../../../../__tests__/__mocks__/localAuthFake').fake)
+jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
+jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake').fake)
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { fake as secureStore } from '../../../../__tests__/__mocks__/secureStoreFake'
-import { fake as localAuth } from '../../../../__tests__/__mocks__/localAuthFake'
+import { fake as secureStore } from '../__mocks__/secureStoreFake'
+import { fake as localAuth } from '../__mocks__/localAuthFake'
 import { __resetForTests, readSentinel, unlockKek } from '../../core/services/secrets/kek'
 import { migrateLegacySecrets } from '../../core/services/secrets/migration'
 import { getSecret, hasSecret } from '../../core/services/secrets/store'
