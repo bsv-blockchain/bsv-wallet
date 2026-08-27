@@ -66,6 +66,13 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascApiKeyPath": "/Users/personal/Certificates/AuthKey_23GZFDBWMS.p8",
+        "ascApiKeyId": "23GZFDBWMS",
+        "ascApiKeyIssuerId": "296a2a8a-ed8d-466f-967c-6c8e59100f5e",
+        "appleTeamId": "SV8SWTHA2H"
+      }
+    }
   }
 }
