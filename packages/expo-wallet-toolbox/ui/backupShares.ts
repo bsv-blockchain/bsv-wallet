@@ -193,7 +193,8 @@ async function generateQRCodeSVG(data: string, size: number = 180): Promise<stri
 export async function generatePrintHTML(
   shares: string[],
   identityKey: string,
-  format: 'entropy' | 'legacy' = 'entropy'
+  format: 'entropy' | 'legacy' = 'entropy',
+  appName: string = 'your wallet app'
 ): Promise<string> {
   const now = new Date()
   const date = now.toISOString().split('T')[0]
@@ -242,7 +243,7 @@ export async function generatePrintHTML(
             ? 'Any two of these pages rebuild your twelve-word recovery phrase, and therefore your entire wallet — everyday balance and vault alike. Treat two pages together as you would the phrase itself.'
             : 'These shares are an older format. They restore your everyday balance but cannot open a vault.'
         }</p>
-        <p>To recover: In BSV Wallet, go to Import Existing Wallet &rarr; Scan Backup Shares.</p>
+        <p>To recover: In ${appName}, go to Import Existing Wallet &rarr; Scan Backup Shares.</p>
       </div>
     </div>
   `

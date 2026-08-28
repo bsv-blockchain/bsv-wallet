@@ -74,7 +74,7 @@ const BASE: WalletArgLimits = {
 /**
  * Limits for a device tier.
  *
- * `low` is under 3.5 GB of RAM (see utils/deviceTier.ts), where the app has
+ * `low` is under 3.5 GB of RAM (see core/deviceTier.ts), where the app has
  * already been process-terminated for memory it considered normal — so the
  * aggregate is halved. The per-field limits do not change: they are sized to
  * observed traffic, not to the memory budget.

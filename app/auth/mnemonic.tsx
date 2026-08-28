@@ -125,7 +125,7 @@ export default function MnemonicScreen() {
     if (isPrinting) return
     setIsPrinting(true)
     try {
-      const result = await printRecoveryShares({ mnemonic, recoveredKeyWif: null })
+      const result = await printRecoveryShares({ mnemonic, recoveredKeyWif: null, appName: 'BSV Wallet' })
       if (!result.ok) {
         showToast(
           result.reason === 'unsupported-word-count'

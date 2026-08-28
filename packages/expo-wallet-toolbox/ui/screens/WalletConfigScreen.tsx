@@ -27,7 +27,8 @@ import {
   recoverMnemonicWallet,
   TaskBackupPush,
   DEFAULT_BACKUP_URL,
-  setMockDriverEnabled
+  setMockDriverEnabled,
+  UserContext
 } from '@bsv/expo-wallet-toolbox'
 
 import { GroupedSection } from '../components/ui/GroupedList'
@@ -133,6 +134,7 @@ export function WalletConfigScreen() {
   const [arcTokenInput, setArcTokenInput] = useState('')
   const [arcSaving, setArcSaving] = useState(false)
   const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { appName } = useContext(UserContext)
 
   const currentCurrency = settings?.currency || 'BSV'
 
@@ -347,7 +349,8 @@ export function WalletConfigScreen() {
     try {
       const result = await printRecoveryShares({
         mnemonic: await getMnemonic(),
-        recoveredKeyWif: await getRecoveredKey()
+        recoveredKeyWif: await getRecoveredKey(),
+        appName
       })
       if (result.ok) {
         // A resolved print sheet from Settings is the same genuine backup

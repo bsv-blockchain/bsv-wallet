@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
-  "license": "Open BSV",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "author": "BSV Association",
   "repository": {
     "type": "git",
@@ -24,8 +24,8 @@
   "types": "core/index.ts",
   "files": ["core", "ui", "assets"],
   "peerDependencies": {
-    "react": "19.2.0",
-    "react-native": "0.83.6",
+    "react": "^19.2.0",
+    "react-native": "^0.83.6",
     "expo-router": "~55.0.16",
 
     "@bsv/sdk": "^2.4.1",
@@ -56,15 +56,15 @@
     "expo-blur": "~55.0.14",
     "@expo/vector-icons": "^15.0.3",
 
-    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-clipboard/clipboard": "^1.16.2",
-    "@react-native-community/netinfo": "11.5.2",
+    "@react-native-community/netinfo": "^11.5.2",
     "react-native-gesture-handler": "~2.30.0",
     "react-native-localize": "^3.4.1",
     "react-native-qrcode-svg": "^6.3.15",
-    "react-native-reanimated": "4.2.1",
+    "react-native-reanimated": "^4.2.1",
     "react-native-safe-area-context": "~5.6.0",
-    "react-native-svg": "15.15.3",
+    "react-native-svg": "^15.15.3",
     "react-native-sse": "^1.2.1",
 
     "mobx": "^6.13.7",

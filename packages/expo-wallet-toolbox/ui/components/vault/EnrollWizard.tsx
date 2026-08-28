@@ -17,7 +17,7 @@
  * occupied case, which is what keeps the one-tap rule intact for the normal
  * one.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useContext, useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native'
 import { PassphraseField } from './PassphraseField'
 import PressableScale from '../ui/PressableScale'
@@ -39,7 +39,8 @@ import {
   readBackupAttestation,
   recordBackupAttestation,
   type BackupMedium,
-  useWallet
+  useWallet,
+  UserContext
 } from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
@@ -89,6 +90,7 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
   const Ionicons = loadIonicons()
   const MaterialCommunityIcons = loadMaterialCommunityIcons()
   const { getMnemonic, getRecoveredKey } = useLocalStorage()
+  const { appName } = useContext(UserContext)
   const [step, setStep] = useState<Step>('backup')
   const [medium, setMedium] = useState<BackupMedium | null>(null)
   const [wordCount, setWordCount] = useState<number | null>(null)
@@ -156,7 +158,8 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
     try {
       const result = await printRecoveryShares({
         mnemonic: await getMnemonic(),
-        recoveredKeyWif: await getRecoveredKey?.()
+        recoveredKeyWif: await getRecoveredKey?.(),
+        appName
       })
       if (result.ok) {
         // Only a resolved print sheet counts. A cancelled one produced no paper.

@@ -43,6 +43,14 @@ export interface PrintSharesSources {
   mnemonic: string | null
   /** WIF of a share-restored wallet, which has no mnemonic. */
   recoveredKeyWif?: string | null
+  /**
+   * Display name for the printed recovery instructions (e.g. "In BSV
+   * Wallet, go to..."). Host apps should pass their own display name (see
+   * UserContext's `appName` for the equivalent pattern) — defaults to a
+   * generic placeholder so this package makes no assumption about which
+   * app is embedding it.
+   */
+  appName?: string
 }
 
 export type PrintSharesResult =
@@ -80,6 +88,6 @@ export async function printRecoveryShares(
     return { ok: false, reason: 'no-material' }
   }
 
-  await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format) })
+  await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format, sources.appName) })
   return { ok: true, format }
 }

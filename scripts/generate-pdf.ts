@@ -30,7 +30,7 @@ async function main() {
   console.log(`  Identity key: ${identityKey}`)
 
   // Render the HTML using the same function the app uses
-  const html = await generatePrintHTML(shares, identityKey)
+  const html = await generatePrintHTML(shares, identityKey, 'entropy', 'BSV Wallet')
 
   // Write to a temp file and open in the default browser
   const outPath = path.join(os.tmpdir(), 'bsv-backup-shares.html')

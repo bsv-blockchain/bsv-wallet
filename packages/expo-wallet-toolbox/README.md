@@ -231,6 +231,13 @@ export { WalletHomeScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 | `TrustScreen` | `app/trust.tsx` |
 | `LogsScreen` | `app/logs.tsx` |
 
+> **Note:** `ConnectionsScreen`'s OS-level deep-link pairing (a desktop
+> session opening the app directly) currently assumes the `bsv-wallet://`
+> URL scheme is hardcoded into its parsing and link-building. A consuming
+> app that registers a different scheme would need that deep-link path
+> updated to match. In-app QR-code scanning of a pairing code is unaffected
+> and works regardless of the consumer's own scheme.
+
 Each route file is the one-line `export { XScreen as default } from '@bsv/expo-wallet-toolbox/ui'`
 pattern shown above — no other wiring needed per screen; navigation
 between them uses `expo-router`'s file-based routes, so your route file
@@ -473,9 +480,11 @@ This is a conscious choice, not an oversight: roughly 50 files under `ui/`
 import shared primitives (`useTheme`, `useWallet`, `spacing`, `haptics`,
 etc.) from the bare `@bsv/expo-wallet-toolbox` specifier — i.e. the
 package imports itself by name, relying on the workspace's self-referencing
-`node_modules/@bsv/expo-wallet-toolbox` symlink (or, once published, npm's
-own self-reference resolution). Node only honors package self-references
-when an `exports` map is present *and* includes a `"."` entry — adding an
+`node_modules/@bsv/expo-wallet-toolbox` symlink (or, once published, plain
+`node_modules` directory-walk resolution — the installed copy sits inside a
+consumer's `node_modules` and is found there like any other dependency, not
+through Node's dedicated package-self-reference feature). That feature only
+kicks in when an `exports` map is present *and* includes a `"."` entry — adding an
 `exports` map without one would silently break every one of those ~50
 imports at publish time, and adding one with only `"."` (no `"./ui"` entry)
 would break every consumer's `/ui` subpath import instead.
