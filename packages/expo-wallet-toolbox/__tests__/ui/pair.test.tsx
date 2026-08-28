@@ -1,8 +1,9 @@
 /**
- * app/pair.tsx — the desktop/browser pairing screen — must never hand the
- * peer an UNGUARDED WalletClient.
+ * PairScreen (ui/screens/PairScreen.tsx, rendered at app/pair.tsx) — the
+ * desktop/browser pairing screen — must never hand the peer an UNGUARDED
+ * WalletClient.
  *
- * B1 (critical, security): unlike every sibling call site (connections.tsx's
+ * B1 (critical, security): unlike every sibling call site (ConnectionsScreen's
  * handleScan/handleDisconnect/handleReconnect, index.tsx's CWI bridge), this
  * screen used to construct `new WalletClient(managers.permissionsManager,
  * originator)` directly — no guardVaultAccess. Once paired, the peer
@@ -43,7 +44,7 @@ jest.mock('expo-secure-store', () => ({
 import React from 'react'
 import { render, fireEvent, waitFor } from '@testing-library/react-native'
 import { WalletClient } from '@bsv/sdk'
-import PairScreen from '@/app/pair'
+import { PairScreen } from '../../ui/screens/PairScreen'
 import { ThemeProvider, VaultAccessDenied, type ConnectParams } from '@bsv/expo-wallet-toolbox'
 
 // The wallet the screen is handed — a stand-in for the real

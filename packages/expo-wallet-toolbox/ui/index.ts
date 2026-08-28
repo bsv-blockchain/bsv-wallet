@@ -102,3 +102,16 @@ export { useVaultBalance } from './hooks/useVaultBalance'
 export { VaultScreen } from './screens/VaultScreen'
 export { VaultRecoverScreen } from './screens/VaultRecoverScreen'
 export { VaultTransferScreen } from './screens/VaultTransferScreen'
+
+// Connections, pair, trust, and logs screens (Task 24 — extracted from
+// app/connections.tsx, app/pair.tsx, app/trust.tsx, app/logs.tsx).
+// validateTrust.ts/isImageUrl.ts moved alongside TrustScreen as its only
+// dependency in app-root utils/ (deterministicColor.ts/deterministicImage.ts
+// stayed put — nothing moving in this task references them). QRScanner was
+// already pulled forward in Task 21; see the components section above.
+export { ConnectionsScreen } from './screens/ConnectionsScreen'
+export { PairScreen } from './screens/PairScreen'
+export { TrustScreen } from './screens/TrustScreen'
+export { LogsScreen } from './screens/LogsScreen'
+export { default as validateTrust } from './validateTrust'
+export { default as isImageUrl } from './isImageUrl'
