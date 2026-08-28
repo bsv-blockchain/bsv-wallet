@@ -89,3 +89,16 @@ export {
   type ParsedShare,
   type RecoveredSecret
 } from './backupShares'
+
+// Vault UI (components/vault) + vault screens (Task 23 — extracted from
+// app/vault.tsx, app/vault-recover.tsx, app/vault-transfer.tsx). Also home
+// to VaultCeremonySheet, mounted at the app-shell level (app/_layout.tsx)
+// alongside PermissionSheet/ToastHost above.
+export { EnrollWizard } from './components/vault/EnrollWizard'
+export { PassphraseField, type PassphraseFieldProps } from './components/vault/PassphraseField'
+export { PhraseBackupSheet } from './components/vault/PhraseBackupSheet'
+export { VaultCeremonySheet } from './components/vault/VaultCeremonySheet'
+export { useVaultBalance } from './hooks/useVaultBalance'
+export { VaultScreen } from './screens/VaultScreen'
+export { VaultRecoverScreen } from './screens/VaultRecoverScreen'
+export { VaultTransferScreen } from './screens/VaultTransferScreen'

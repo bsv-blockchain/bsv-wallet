@@ -12,12 +12,46 @@
  */
 import React, { useState } from 'react'
 import { View, Text, StyleSheet, ScrollView } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import Clipboard from '@react-native-clipboard/clipboard'
 import { useTheme, spacing, radii, typography, i18n } from '@bsv/expo-wallet-toolbox'
-import { PressableScale, showToast } from '@bsv/expo-wallet-toolbox/ui'
+import PressableScale from '../ui/PressableScale'
+import { showToast } from '../ui/Toast'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+
+/**
+ * @react-native-clipboard/clipboard reaches for its native TurboModule at
+ * import time (`TurboModuleRegistry.getEnforcing`), which throws under Jest
+ * (no native binary registered there) even though the module itself
+ * transforms fine. Required lazily, only when a handler actually copies
+ * something, so importing the `ui` barrel never touches the native module.
+ * Same pattern as WalletHomeScreen.tsx's lazy clipboard load.
+ */
+type ClipboardModule = typeof import('@react-native-clipboard/clipboard').default
+let clipboardModule: ClipboardModule | undefined
+function loadClipboard(): ClipboardModule {
+  if (!clipboardModule) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    clipboardModule = require('@react-native-clipboard/clipboard').default as ClipboardModule
+  }
+  return clipboardModule
+}
 
 export const PhraseBackupSheet: React.FC<{
   mnemonic: string
@@ -27,6 +61,7 @@ export const PhraseBackupSheet: React.FC<{
   const { colors } = useTheme()
   const [acknowledged, setAcknowledged] = useState(false)
   const words = mnemonic.trim().split(/\s+/)
+  const Ionicons = loadIonicons()
 
   return (
     <ScrollView contentContainerStyle={styles.body}>
@@ -46,7 +81,7 @@ export const PhraseBackupSheet: React.FC<{
 
       <PressableScale
         onPress={() => {
-          Clipboard.setString(mnemonic)
+          loadClipboard().setString(mnemonic)
           showToast(t('vault_phrase_copied'), { type: 'success' })
         }}
         style={[styles.ghost, { borderColor: colors.separator }]}

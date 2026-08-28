@@ -21,8 +21,8 @@ import Animated, {
   useReducedMotion,
   Easing
 } from 'react-native-reanimated'
-import { Ionicons } from '@expo/vector-icons'
-import { Sheet, PressableScale } from '@bsv/expo-wallet-toolbox/ui'
+import Sheet from '../ui/Sheet'
+import PressableScale from '../ui/PressableScale'
 import {
   useTheme,
   spacing,
@@ -36,6 +36,23 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, opts?: Record<string, unknown>) => i18n.t(k, opts) as string
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 const ERROR_COPY: Record<string, string> = {
   'serial-mismatch': 'vault_err_wrong_key',
@@ -67,7 +84,7 @@ const RETRYABLE_ERRORS = new Set<string>(['touch-timeout', 'nfc-lost'])
  * onClose, and cancelling mid-operation is the thing we are preventing. */
 const noop = (): void => {}
 
-const PhaseIcon: Record<CeremonyPhase, keyof typeof Ionicons.glyphMap> = {
+const PhaseIcon: Record<CeremonyPhase, keyof IoniconsComponent['glyphMap']> = {
   idle: 'lock-closed',
   'waiting-for-key': 'hardware-chip-outline',
   connecting: 'sync-outline',
@@ -84,6 +101,7 @@ export const VaultCeremonySheet: React.FC = () => {
   const { state, submitPin, cancel, retry } = useVault()
   const reducedMotion = useReducedMotion()
   const [pin, setPin] = useState('')
+  const Ionicons = loadIonicons()
 
   const phase = state.phase
   // 'armed' stays hidden: it persists for the whole retention window, so

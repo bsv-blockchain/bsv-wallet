@@ -16,9 +16,8 @@
  */
 import React, { useMemo, useState } from 'react'
 import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import * as Clipboard from 'expo-clipboard'
-import { PressableScale, showToast } from '@bsv/expo-wallet-toolbox/ui'
+import PressableScale from '../ui/PressableScale'
+import { showToast } from '../ui/Toast'
 import {
   useTheme,
   spacing,
@@ -31,6 +30,41 @@ import {
   RECOMMENDED_WORD_COUNT,
   type PassphraseTier
 } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+
+/**
+ * expo-clipboard ships an untransformed ESM build (its Clipboard.js imports
+ * from expo-modules-core with a bare `import` statement) that Jest cannot
+ * parse when eagerly pulled in via the `ui` package barrel. Required lazily,
+ * only when a handler actually copies something, same pattern as this
+ * package's other native-module-boundary fixes (@react-native-clipboard,
+ * expo-router, expo-blur).
+ */
+type ExpoClipboardModule = typeof import('expo-clipboard')
+let expoClipboardModule: ExpoClipboardModule | undefined
+function loadExpoClipboard(): ExpoClipboardModule {
+  if (!expoClipboardModule) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoClipboardModule = require('expo-clipboard') as ExpoClipboardModule
+  }
+  return expoClipboardModule
+}
 
 export interface PassphraseFieldProps {
   value: string
@@ -72,6 +106,7 @@ export function PassphraseField({
 }: PassphraseFieldProps) {
   const { colors } = useTheme()
   const [reveal, setReveal] = useState(false)
+  const Ionicons = loadIonicons()
 
   const strength = useMemo(() => passphraseStrength(value), [value])
   // Compare normalised, so a stray trailing space is not reported as a
@@ -93,7 +128,7 @@ export function PassphraseField({
   }
 
   const onCopy = async () => {
-    await Clipboard.setStringAsync(value)
+    await loadExpoClipboard().setStringAsync(value)
     showToast('Passphrase copied', { type: 'info' })
   }
 

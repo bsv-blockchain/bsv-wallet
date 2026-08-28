@@ -19,9 +19,10 @@
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native'
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { PassphraseField } from './PassphraseField'
-import { PressableScale, showToast, printRecoveryShares } from '@bsv/expo-wallet-toolbox/ui'
+import PressableScale from '../ui/PressableScale'
+import { showToast } from '../ui/Toast'
+import { printRecoveryShares } from '../../printRecoveryShares'
 import { PhraseBackupSheet } from './PhraseBackupSheet'
 import {
   useTheme,
@@ -43,6 +44,34 @@ import {
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Both icon sets are loaded lazily, only when actually rendering, same
+ * pattern as this package's other native-module-boundary fixes (expo-router,
+ * expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+type MaterialCommunityIconsComponent = typeof import('@expo/vector-icons').MaterialCommunityIcons
+let ioniconsComponent: IoniconsComponent | undefined
+let materialCommunityIconsComponent: MaterialCommunityIconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
+  if (!materialCommunityIconsComponent) {
+    materialCommunityIconsComponent = require('@expo/vector-icons')
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      .MaterialCommunityIcons as MaterialCommunityIconsComponent
+  }
+  return materialCommunityIconsComponent
+}
+
 type Step = 'backup' | 'phrase' | 'intro' | 'passphrase' | 'adopt' | 'running' | 'done'
 
 interface PinRequest {
@@ -57,6 +86,8 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
   onCancel
 }) => {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
+  const MaterialCommunityIcons = loadMaterialCommunityIcons()
   const { getMnemonic, getRecoveredKey } = useLocalStorage()
   const [step, setStep] = useState<Step>('backup')
   const [medium, setMedium] = useState<BackupMedium | null>(null)
@@ -502,7 +533,7 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
 
 /** One backup route: tappable, ticks when satisfied, stays tappable after. */
 const BackupRow: React.FC<{
-  icon: React.ComponentProps<typeof Ionicons>['name']
+  icon: React.ComponentProps<IoniconsComponent>['name']
   title: string
   subtitle: string
   done: boolean
@@ -510,6 +541,7 @@ const BackupRow: React.FC<{
   onPress: () => void
 }> = ({ icon, title, subtitle, done, busy, onPress }) => {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   return (
     <PressableScale
       onPress={busy ? undefined : onPress}
@@ -538,6 +570,7 @@ const BackupRow: React.FC<{
  */
 const RecoveryPaths: React.FC = () => {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   return (
     <View style={[styles.paths, { borderColor: colors.separator }]}>
       <Text style={[styles.pathsTitle, { color: colors.textPrimary }]}>

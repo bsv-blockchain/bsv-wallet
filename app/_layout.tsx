@@ -29,7 +29,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 // TODO: Re-add RecoveryKeySaver when WAB support returns
 import { PermissionSheet, AlertHost, ToastHost, showToast, ErrorBoundary } from '@bsv/expo-wallet-toolbox/ui'
-import { VaultCeremonySheet } from '@/components/vault/VaultCeremonySheet'
+import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
 import { useDeepLinking } from '@/hooks/useDeepLinking'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'

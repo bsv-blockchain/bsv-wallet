@@ -20,7 +20,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 
 import { act, renderHook } from '@testing-library/react-native'
 import { getVaultBalance } from '@bsv/expo-wallet-toolbox'
-import { useVaultBalance } from '@/hooks/useVaultBalance'
+import { useVaultBalance } from '../../ui/hooks/useVaultBalance'
 
 const fetchBalance = getVaultBalance as jest.Mock
 
