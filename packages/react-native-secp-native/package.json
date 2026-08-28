@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Nitro module exposing the secp-native Rust crate (rust-secp256k1) to JS for BSV Browser. Bytes-only seam: ArrayBuffer in/out.",
+  "license": "Open BSV",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "files": [

@@ -32,10 +32,12 @@ YubiKey PIV custody support.
 **The command above is not the whole story.** `core`/`ui` import roughly
 four dozen packages beyond the four listed — Expo native modules
 (camera, clipboard, secure-store, haptics, ...), state/i18n libraries
-(mobx, i18next), and BSV SDK packages. This package's current
-`peerDependencies` manifest under-declares that list (tracked as a
-known gap); until it's fixed, treat the **[Peer dependencies](#peer-dependencies)**
-table below as authoritative, not npm's peer-dependency warnings.
+(mobx, i18next), and BSV SDK packages. The **[Peer dependencies](#peer-dependencies)**
+table below is the full, audited list — `package.json`'s `peerDependencies`
+now declares all 49 entries (46 directly imported + 3 required only for
+native linking — see the Nitro row below), so a plain `npm install
+@bsv/expo-wallet-toolbox` surfaces the rest as peer-dependency warnings
+instead of silently missing them.
 
 ## Peer dependencies
 
@@ -459,3 +461,43 @@ are required — both hard-won during this package's extraction:
    (`"preset": "jest-expo"` in `package.json`), which already covers most
    other Expo native modules — start from that preset before adding the
    overrides above.
+
+## Publishing notes
+
+This package deliberately ships **no `exports` map** in `package.json`.
+Resolution relies on plain `main`/`types` (root → `core/index.ts`) plus
+Node/Metro's default directory-index resolution for the `/ui` subpath
+(`@bsv/expo-wallet-toolbox/ui` → `ui/index.ts`).
+
+This is a conscious choice, not an oversight: roughly 50 files under `ui/`
+import shared primitives (`useTheme`, `useWallet`, `spacing`, `haptics`,
+etc.) from the bare `@bsv/expo-wallet-toolbox` specifier — i.e. the
+package imports itself by name, relying on the workspace's self-referencing
+`node_modules/@bsv/expo-wallet-toolbox` symlink (or, once published, npm's
+own self-reference resolution). Node only honors package self-references
+when an `exports` map is present *and* includes a `"."` entry — adding an
+`exports` map without one would silently break every one of those ~50
+imports at publish time, and adding one with only `"."` (no `"./ui"` entry)
+would break every consumer's `/ui` subpath import instead.
+
+If a future change adds an `exports` map, it must include at minimum:
+
+```json
+"exports": {
+  ".": "./core/index.ts",
+  "./ui": "./ui/index.ts"
+}
+```
+
+and must be re-verified against the full Jest suite, the
+`packageResolution.test.ts` canary (`CANARY_UI`/`CANARY_CORE` barrel-import
+check), and a real `npx expo export` Metro bundle — the self-reference
+resolution path is exactly what both currently exercise successfully
+without an `exports` map, and Metro's own `exports` support has its own
+quirks worth re-testing explicitly rather than assuming Node's behavior
+carries over.
+
+`files` is `["core", "ui", "assets"]`; npm always includes `package.json`
+and `README.md` regardless of `files`. `__tests__/` and `tsconfig.json`
+live at the package root, outside every `files` entry, so they are
+excluded from the published tarball — confirmed with `npm pack --dry-run`.

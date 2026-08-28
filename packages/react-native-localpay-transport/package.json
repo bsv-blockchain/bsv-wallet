@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Nitro module exposing Network.framework AWDL peer-to-peer TCP with TLS-PSK for BSV Browser local payments. iOS (AWDL) + Android (Nearby Connections).",
+  "license": "Open BSV",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "files": [
