@@ -9,8 +9,7 @@ import type { WalletProtocol } from '@bsv/sdk'
 import * as SecureStore from 'expo-secure-store'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-import { GroupedSection, ListRow, showToast } from '@bsv/expo-wallet-toolbox/ui'
-import QRScanner from '@/components/QRScanner'
+import { GroupedSection, ListRow, showToast, QRScanner } from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   spacing,

@@ -8,8 +8,32 @@
  * screen, re-show modal) behaves identically.
  */
 import React, { useEffect, useMemo, useState } from 'react'
-import QRCode from 'react-native-qrcode-svg'
 import { AirGapEncoder, FRAME_BLOCK_BYTES, frameBytesFromQr } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * react-native-qrcode-svg ships an untransformed ESM build that Jest cannot
+ * parse when eagerly pulled in via the `ui` package barrel, even for a
+ * consumer that never renders one (this repo's own tests mock it wholesale
+ * with `jest.mock('react-native-qrcode-svg', () => 'QRCode')` whenever they
+ * DO render one, precisely because the real module cannot load under Jest).
+ * Loaded lazily, only when actually rendering, same pattern as this
+ * package's other native/ESM-boundary fixes (expo-router, expo-blur).
+ *
+ * `mod?.default ?? mod` mirrors Babel's default-interop rather than a plain
+ * `.default` access: the existing bare-string test mock above has no
+ * `__esModule`/`default` shape, so a naked `require(...).default` would
+ * resolve to `undefined` against it.
+ */
+type QRCodeComponent = typeof import('react-native-qrcode-svg').default
+let qrCodeComponent: QRCodeComponent | undefined
+function loadQRCode(): QRCodeComponent {
+  if (!qrCodeComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('react-native-qrcode-svg')
+    qrCodeComponent = (mod?.default ?? mod) as QRCodeComponent
+  }
+  return qrCodeComponent
+}
 
 /**
  * Sender cadence: five parts a second. Lives here, not in `@bsv/air-gap` —
@@ -75,6 +99,7 @@ export default function PaymentQrDisplay({
     if (!encoder) onError?.()
   }, [encoder, onError])
 
+  const QRCode = loadQRCode()
   if (!part) return null
   return <QRCode value={part} size={size} ecl="M" color="#000" backgroundColor="#fff" onError={onError} />
 }

@@ -21,11 +21,31 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Modal, StyleSheet, Text, View } from 'react-native'
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated'
-import { router } from 'expo-router'
 import { useTranslation } from 'react-i18next'
 
 import { useTheme, durations, springs, spacing, typography, radii, sounds } from '@bsv/expo-wallet-toolbox'
-import { AmountDisplay, Celebration, PressableScale } from '@bsv/expo-wallet-toolbox/ui'
+import AmountDisplay from '../wallet/AmountDisplay'
+import Celebration from '../ui/Celebration'
+import PressableScale from '../ui/PressableScale'
+
+/**
+ * expo-router is required lazily rather than imported at module scope: this
+ * file is barrel-exported from the package's `ui` entry point, and a static
+ * top-level `import` of expo-router pulls in its own untransformed JSX
+ * source (Navigator.js etc.), which Jest cannot parse for any consumer of the
+ * barrel, even one that never navigates. Same pattern as
+ * core/context/WalletContext.tsx's and WalletHomeScreen.tsx's lazy
+ * expo-router load.
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
+  }
+  return expoRouterMod
+}
 
 /** Beat two: the tone, just behind the mark. Sequencing, not animation. */
 const TONE_DELAY_MS = 120
@@ -69,6 +89,7 @@ export default function PaymentSuccessOverlay({
   const sent = direction === 'sent'
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const { router } = loadExpoRouter()
   const reducedMotion = useReducedMotion()
 
   /**

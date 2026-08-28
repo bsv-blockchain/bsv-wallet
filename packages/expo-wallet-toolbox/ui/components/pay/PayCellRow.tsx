@@ -6,14 +6,30 @@
  */
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 import { useTheme, radii, spacing, typography } from '@bsv/expo-wallet-toolbox'
-import { PressableScale } from '@bsv/expo-wallet-toolbox/ui'
+import PressableScale from '../ui/PressableScale'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 export interface PayCellRowProps {
   title: string
   subtitle: string
-  icon: keyof typeof Ionicons.glyphMap
+  icon: keyof IoniconsComponent['glyphMap']
   onPress: () => void
   /** Dimmed and unpressable — used for rails that need internet. */
   disabled?: boolean
@@ -21,6 +37,7 @@ export interface PayCellRowProps {
 
 export default function PayCellRow({ title, subtitle, icon, onPress, disabled = false }: PayCellRowProps) {
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   return (
     <PressableScale
       onPress={disabled ? () => {} : onPress}

@@ -9,18 +9,18 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import { StatusBar } from 'expo-status-bar'
 import { useTranslation } from 'react-i18next'
 import { PeerPayClient } from '@bsv/message-box-client'
 
-import QRScanner from '@/components/QRScanner'
-import { AmountDisplay, showToast } from '@bsv/expo-wallet-toolbox/ui'
-import { ConsequenceNote, PayAmountField, PayCta, PayField } from '@/components/pay/PayForm'
-import PaymentSuccessOverlay from '@/components/pay/PaymentSuccessOverlay'
-import ResultBanner from '@/components/pay/ResultBanner'
-import RecipientField from '@/components/pay/RecipientField'
-import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from '@/components/pay/MessageBoxConfig'
-import { useIdentitySearch } from '@/components/pay/useIdentitySearch'
+import QRScanner from '../QRScanner'
+import AmountDisplay from '../wallet/AmountDisplay'
+import { showToast } from '../ui/Toast'
+import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
+import PaymentSuccessOverlay from './PaymentSuccessOverlay'
+import ResultBanner from './ResultBanner'
+import RecipientField from './RecipientField'
+import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from './MessageBoxConfig'
+import { useIdentitySearch } from './useIdentitySearch'
 import {
   useTheme,
   spacing,
@@ -38,6 +38,24 @@ import {
   type OutboxEntry,
   haptics
 } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * expo-status-bar's package.json `main` points straight at its raw
+ * TypeScript source (no compiled build output ships), and the unscoped,
+ * hyphenated package name is not in this repo's Jest transformIgnorePatterns
+ * allow-list, so a static top-level import fails to parse for any consumer
+ * of the `ui` package barrel. Loaded lazily, only when actually rendering,
+ * same pattern as this package's other native/ESM-boundary fixes.
+ */
+type StatusBarComponent = typeof import('expo-status-bar').StatusBar
+let statusBarComponent: StatusBarComponent | undefined
+function loadStatusBar(): StatusBarComponent {
+  if (!statusBarComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    statusBarComponent = require('expo-status-bar').StatusBar as StatusBarComponent
+  }
+  return statusBarComponent
+}
 
 // ── Outgoing Section ─────────────────────────────────────────────────────────
 
@@ -134,6 +152,7 @@ export interface HandleSendProps {
 export default function HandleSend({ initialIdentityKey, initialSats, initialNotice }: HandleSendProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const StatusBar = loadStatusBar()
   const { managers, adminOriginator, storage } = useWallet()
   const wallet = managers?.permissionsManager || null
 

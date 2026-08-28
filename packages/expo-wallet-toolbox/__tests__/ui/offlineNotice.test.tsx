@@ -34,7 +34,7 @@ import '@bsv/expo-wallet-toolbox'
 
 import React from 'react'
 import { fireEvent, render } from '@testing-library/react-native'
-import OfflineNotice from '@/components/pay/OfflineNotice'
+import OfflineNotice from '../../ui/components/pay/OfflineNotice'
 
 const row = (txid: string) => ({
   offlineActionId: 1,

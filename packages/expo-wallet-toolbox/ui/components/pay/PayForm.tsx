@@ -13,12 +13,29 @@
  */
 import React from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 
-import AvailableBalance from '@/components/pay/AvailableBalance'
+import AvailableBalance from './AvailableBalance'
 import { useTheme, radii, spacing, typography } from '@bsv/expo-wallet-toolbox'
-import { AmountInput, PressableScale } from '@bsv/expo-wallet-toolbox/ui'
+import { AmountInput } from '../wallet/AmountInput'
+import PressableScale from '../ui/PressableScale'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 /** One field section: the uppercase caption, then whatever asks the question. */
 export function PayField({ labelKey, children }: { labelKey: string; children: React.ReactNode }) {
@@ -62,6 +79,7 @@ export function PayAmountField({
 export function ConsequenceNote({ textKey }: { textKey: string }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   return (
     <View style={[styles.consequence, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
       <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
@@ -82,10 +100,11 @@ export function PayCta({
   disabled: boolean
   busy: boolean
   labelKey?: string
-  icon?: keyof typeof Ionicons.glyphMap
+  icon?: keyof IoniconsComponent['glyphMap']
 }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   const enabled = !disabled
   return (
     <PressableScale
@@ -123,10 +142,11 @@ export function RecipientSummary({
 }: {
   name: string
   detail?: string
-  icon?: keyof typeof Ionicons.glyphMap
+  icon?: keyof IoniconsComponent['glyphMap']
 }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
   return (
     <View style={[styles.idCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}>
       <View style={[styles.avatar, { backgroundColor: colors.fillTertiary }]}>

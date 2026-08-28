@@ -49,20 +49,23 @@ jest.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} }
 }))
 
-// Partial mock: PaymentSuccessOverlay.tsx pulls AmountDisplay/Celebration/
-// PressableScale from the `ui` package barrel. PressableScale needs to stay
-// REAL for rendering, so only AmountDisplay and Celebration are overridden,
-// via requireActual for the rest.
+// PaymentSuccessOverlay.tsx pulls AmountDisplay/Celebration/PressableScale
+// each via its own relative sibling import (intra-`ui` convention), so each
+// gets its own targeted mock rather than one combined barrel override.
+// PressableScale is left untouched and stays REAL for rendering.
 //
 // AmountDisplay reaches for wallet settings and an exchange rate. Neither is
 // what this file is about, so it becomes plain text.
+jest.mock('../../ui/components/wallet/AmountDisplay', () => {
+  const { Text } = require('react-native')
+  return { __esModule: true, default: ({ children }: { children: number }) => <Text>{`sats:${children}`}</Text> }
+})
 let mockMarkDone: (() => void) | undefined
-jest.mock('@bsv/expo-wallet-toolbox/ui', () => {
-  const { Text, View } = require('react-native')
+jest.mock('../../ui/components/ui/Celebration', () => {
+  const { View } = require('react-native')
   return {
-    ...jest.requireActual('@bsv/expo-wallet-toolbox/ui'),
-    AmountDisplay: ({ children }: { children: number }) => <Text>{`sats:${children}`}</Text>,
-    Celebration: ({ onDone }: { onDone?: () => void }) => {
+    __esModule: true,
+    default: ({ onDone }: { onDone?: () => void }) => {
       mockMarkDone = onDone
       return <View testID="celebration" />
     }
@@ -98,7 +101,7 @@ jest.mock('expo-router', () => ({
 import React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
-import ReceivedOverlay from '@/components/pay/PaymentSuccessOverlay'
+import ReceivedOverlay from '../../ui/components/pay/PaymentSuccessOverlay'
 
 function draw(props: {
   amount: number

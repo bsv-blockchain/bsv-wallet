@@ -13,7 +13,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 
 import { act, renderHook } from '@testing-library/react-native'
 import { getOnline } from '@bsv/expo-wallet-toolbox'
-import { useOnline } from '@/hooks/useOnline'
+import { useOnline } from '../../ui/hooks/useOnline'
 
 const probe = getOnline as jest.Mock
 

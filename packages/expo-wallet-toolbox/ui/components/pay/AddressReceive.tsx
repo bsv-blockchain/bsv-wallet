@@ -10,15 +10,12 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { useFocusEffect } from 'expo-router'
-import { Ionicons } from '@expo/vector-icons'
-import Clipboard from '@react-native-clipboard/clipboard'
-import QRCode from 'react-native-qrcode-svg'
 import { useTranslation } from 'react-i18next'
 import { formatDistanceToNow } from 'date-fns'
 
-import ReceivedOverlay from '@/components/pay/PaymentSuccessOverlay'
-import { AmountDisplay, showToast } from '@bsv/expo-wallet-toolbox/ui'
+import ReceivedOverlay from './PaymentSuccessOverlay'
+import AmountDisplay from '../wallet/AmountDisplay'
+import { showToast } from '../ui/Toast'
 import {
   useTheme,
   radii,
@@ -37,6 +34,85 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 
 /**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+
+/**
+ * expo-router is required lazily rather than imported at module scope: this
+ * file is barrel-exported from the package's `ui` entry point, and a static
+ * top-level `import` of expo-router pulls in its own untransformed JSX
+ * source (Navigator.js etc.), which Jest cannot parse for any consumer of the
+ * barrel, even one that never navigates. Same pattern as
+ * core/context/WalletContext.tsx's and WalletHomeScreen.tsx's lazy
+ * expo-router load. `useFocusEffect` is a hook, but calling it via
+ * `loadExpoRouter().useFocusEffect(...)` is equivalent to calling it directly
+ * — the module is cached after the first call, so it is the exact same
+ * function reference on every render, which is what the rules of hooks
+ * actually require (a stable, unconditional call per render).
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
+  }
+  return expoRouterMod
+}
+
+/**
+ * @react-native-clipboard/clipboard reaches for its native TurboModule at
+ * import time (`TurboModuleRegistry.getEnforcing`), which throws under Jest
+ * (no native binary registered there) even though the module itself
+ * transforms fine. Required lazily, only when a handler actually copies
+ * something, so importing the `ui` barrel never touches the native module.
+ * Same pattern as WalletHomeScreen.tsx's lazy clipboard load.
+ */
+type ClipboardModule = typeof import('@react-native-clipboard/clipboard').default
+let clipboardModule: ClipboardModule | undefined
+function loadClipboard(): ClipboardModule {
+  if (!clipboardModule) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    clipboardModule = require('@react-native-clipboard/clipboard').default as ClipboardModule
+  }
+  return clipboardModule
+}
+
+/**
+ * react-native-qrcode-svg ships an untransformed ESM build that Jest cannot
+ * parse when eagerly pulled in via the `ui` package barrel, even for a
+ * consumer that never renders one. Loaded lazily, only when actually
+ * rendering, same pattern as this package's other native/ESM-boundary fixes.
+ * `mod?.default ?? mod` mirrors Babel's default-interop rather than a plain
+ * `.default` access, since this repo's test mock for the module
+ * (`jest.mock('react-native-qrcode-svg', () => 'QRCode')`) has no
+ * `__esModule`/`default` shape.
+ */
+type QRCodeComponent = typeof import('react-native-qrcode-svg').default
+let qrCodeComponent: QRCodeComponent | undefined
+function loadQRCode(): QRCodeComponent {
+  if (!qrCodeComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('react-native-qrcode-svg')
+    qrCodeComponent = (mod?.default ?? mod) as QRCodeComponent
+  }
+  return qrCodeComponent
+}
+
+/**
  * How often this screen re-reads its own imported history while it is in front.
  *
  * The sweep itself lives in WalletContext and runs on its own 30s cycle whether
@@ -49,6 +125,9 @@ const HISTORY_POLL_MS = 5000
 export default function AddressReceive() {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
+  const QRCode = loadQRCode()
+  const { useFocusEffect } = loadExpoRouter()
   const { managers, adminOriginator, selectedNetwork, storage } = useWallet()
   const wallet = managers?.permissionsManager || null
   const woc = wocConfigFor(selectedNetwork)
@@ -121,7 +200,7 @@ export default function AddressReceive() {
 
   const handleCopy = useCallback(() => {
     if (!address) return
-    Clipboard.setString(address)
+    loadClipboard().setString(address)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }, [address])

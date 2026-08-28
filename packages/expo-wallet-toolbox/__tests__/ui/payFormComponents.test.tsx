@@ -47,15 +47,15 @@ jest.mock('react-i18next', () => ({
 
 // The pieces under test compose AvailableBalance and AmountInput; both reach
 // for the wallet context, which is not what this file is about.
-jest.mock('@/components/pay/AvailableBalance', () => {
+jest.mock('../../ui/components/pay/AvailableBalance', () => {
   const { Text } = require('react-native')
   return { __esModule: true, default: () => <Text testID="available-balance">balance</Text> }
 })
-jest.mock('@bsv/expo-wallet-toolbox/ui', () => {
+jest.mock('../../ui/components/wallet/AmountInput', () => {
   const { TextInput } = require('react-native')
   return {
     __esModule: true,
-    ...jest.requireActual('@bsv/expo-wallet-toolbox/ui'),
+    ...jest.requireActual('../../ui/components/wallet/AmountInput'),
     SEND_MAX_VALUE: '2099999999999999',
     AmountInput: ({ value, onChangeText }: { value: string; onChangeText: (v: string) => void }) => (
       <TextInput testID="amount-input" value={value} onChangeText={onChangeText} />
@@ -67,7 +67,7 @@ import React from 'react'
 import { Text } from 'react-native'
 import { fireEvent, render } from '@testing-library/react-native'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
-import { PayField, PayAmountField, ConsequenceNote, PayCta, RecipientSummary } from '@/components/pay/PayForm'
+import { PayField, PayAmountField, ConsequenceNote, PayCta, RecipientSummary } from '../../ui/components/pay/PayForm'
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>)
 

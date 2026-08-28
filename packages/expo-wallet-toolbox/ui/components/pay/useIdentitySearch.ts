@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Keyboard } from 'react-native'
 import { IdentityClient, PublicKey } from '@bsv/sdk'
 import type { DisplayableIdentity } from '@bsv/sdk'
-import { searchIdentities } from '@/utils/identity/resolveIdentity'
+import { searchIdentities } from '../../resolveIdentity'
 import { type PeerPayValidationResult, validatePeerPayURI } from '@bsv/expo-wallet-toolbox'
 
 export function peerPayValidationMessage(result: PeerPayValidationResult | null) {

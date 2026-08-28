@@ -87,7 +87,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 // Without this, the real hook pulls in NetInfo, which has no native module
 // under Jest and crashes the process with an unhandled rejection.
 let mockOnline = true
-jest.mock('@/hooks/useOnline', () => ({ useOnline: () => mockOnline }))
+jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => mockOnline }))
 
 const mockParams: Record<string, string> = {}
 jest.mock('expo-router', () => ({
@@ -104,15 +104,15 @@ jest.mock('expo-router', () => ({
   useFocusEffect: () => {}
 }))
 
-jest.mock('@/components/pay/NearbyFlow', () => 'NearbyFlow')
-jest.mock('@/components/pay/HandleSend', () => 'HandleSend')
-jest.mock('@/components/pay/HandleReceive', () => 'HandleReceive')
-jest.mock('@/components/pay/AddressSend', () => 'AddressSend')
-jest.mock('@/components/pay/AddressReceive', () => 'AddressReceive')
+jest.mock('../../ui/components/pay/NearbyFlow', () => 'NearbyFlow')
+jest.mock('../../ui/components/pay/HandleSend', () => 'HandleSend')
+jest.mock('../../ui/components/pay/HandleReceive', () => 'HandleReceive')
+jest.mock('../../ui/components/pay/AddressSend', () => 'AddressSend')
+jest.mock('../../ui/components/pay/AddressReceive', () => 'AddressReceive')
 
 import React from 'react'
 import { render } from '@testing-library/react-native'
-import PayScreen from '@/app/pay'
+import { PayScreen } from '../../ui/screens/PayScreen'
 import { ThemeProvider, resetProofNudgeForTests, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
 
 // Lowercase hex: validatePeerPayURI's compressed-key regex is case-sensitive,

@@ -11,14 +11,12 @@
  */
 import React, { useCallback, useState } from 'react'
 import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import { StatusBar } from 'expo-status-bar'
 import { useTranslation } from 'react-i18next'
 
-import QRScanner from '@/components/QRScanner'
-import { ConsequenceNote, PayAmountField, PayCta, PayField } from '@/components/pay/PayForm'
-import PaymentSuccessOverlay from '@/components/pay/PaymentSuccessOverlay'
-import { showToast } from '@bsv/expo-wallet-toolbox/ui'
+import QRScanner from '../QRScanner'
+import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
+import PaymentSuccessOverlay from './PaymentSuccessOverlay'
+import { showToast } from '../ui/Toast'
 import {
   useTheme,
   radii,
@@ -31,9 +29,46 @@ import {
   sendToAddress
 } from '@bsv/expo-wallet-toolbox'
 
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+
+/**
+ * expo-status-bar's package.json `main` points straight at its raw
+ * TypeScript source (no compiled build output ships), and the unscoped,
+ * hyphenated package name is not in this repo's Jest transformIgnorePatterns
+ * allow-list, so a static top-level import fails to parse for any consumer
+ * of the `ui` package barrel. Loaded lazily, only when actually rendering,
+ * same pattern as this package's other native/ESM-boundary fixes.
+ */
+type StatusBarComponent = typeof import('expo-status-bar').StatusBar
+let statusBarComponent: StatusBarComponent | undefined
+function loadStatusBar(): StatusBarComponent {
+  if (!statusBarComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    statusBarComponent = require('expo-status-bar').StatusBar as StatusBarComponent
+  }
+  return statusBarComponent
+}
+
 export default function AddressSend({ initialAddress }: { initialAddress?: string }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
+  const StatusBar = loadStatusBar()
   const { managers, adminOriginator } = useWallet()
   const wallet = managers?.permissionsManager || null
 

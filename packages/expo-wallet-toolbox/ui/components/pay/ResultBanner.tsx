@@ -6,8 +6,24 @@
  */
 import React from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 import { spacing, typography, radii } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 interface ResultBannerProps {
   readonly result: { type: 'success' | 'error'; message: string }
@@ -16,6 +32,7 @@ interface ResultBannerProps {
 }
 
 export default function ResultBanner({ result, onDismiss, colors }: ResultBannerProps) {
+  const Ionicons = loadIonicons()
   const isSuccess = result.type === 'success'
   const color = isSuccess ? colors.success : colors.error
   return (

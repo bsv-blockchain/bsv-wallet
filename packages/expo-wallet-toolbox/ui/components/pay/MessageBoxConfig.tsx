@@ -8,9 +8,8 @@
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { showToast } from '@bsv/expo-wallet-toolbox/ui'
+import { showToast } from '../ui/Toast'
 import {
   spacing,
   typography,
@@ -20,6 +19,23 @@ import {
   MESSAGE_BOX_URL_KEY,
   NO_MESSAGE_BOX
 } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next').useTranslation>['t']) {
   const [messageBoxUrl, setMessageBoxUrl] = useState(DEFAULT_MESSAGE_BOX_URL)
@@ -124,6 +140,7 @@ interface MessageBoxBarProps {
  * green server chip, which is two controls for one fact.
  */
 export function MessageBoxBar({ url, open, onToggle, colors, t }: MessageBoxBarProps) {
+  const Ionicons = loadIonicons()
   const isNone = url === NO_MESSAGE_BOX
   return (
     <TouchableOpacity
@@ -162,6 +179,7 @@ interface ConfigPanelProps {
 }
 
 export function ConfigPanel({ urlInput, isSaving, colors, t, onChangeUrl, onSave, onReset, onNone }: ConfigPanelProps) {
+  const Ionicons = loadIonicons()
   const hasUrl = !!urlInput.trim()
   const isNonDefault = urlInput.trim() !== DEFAULT_MESSAGE_BOX_URL && urlInput !== NO_MESSAGE_BOX
   return (

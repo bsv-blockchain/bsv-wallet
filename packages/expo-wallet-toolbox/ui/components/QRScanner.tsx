@@ -1,9 +1,46 @@
 import React, { useRef, useCallback } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Linking } from 'react-native'
-import { CameraView, useCameraPermissions } from 'expo-camera'
-import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 import { haptics, useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * expo-camera is a native module that this file is barrel-exported alongside
+ * (the `ui` package's index re-exports it for app-level consumers), so a
+ * static top-level import would pull its native bindings into every test that
+ * touches the barrel, even one that never renders a scanner. Loaded lazily,
+ * only when the component actually renders, same pattern as this package's
+ * other native-module-boundary fixes (expo-router, expo-blur). `useCameraPermissions`
+ * is a hook, but calling it via `loadExpoCamera().useCameraPermissions()` is
+ * rules-of-hooks-safe for the same reason `loadExpoRouter().useFocusEffect(...)`
+ * is in WalletHomeScreen.tsx: the module is cached after the first call, so
+ * every render calls the exact same function reference, unconditionally.
+ */
+type ExpoCameraModule = typeof import('expo-camera')
+let expoCameraMod: ExpoCameraModule | undefined
+function loadExpoCamera(): ExpoCameraModule {
+  if (!expoCameraMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoCameraMod = require('expo-camera') as ExpoCameraModule
+  }
+  return expoCameraMod
+}
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 /* -------------------------------------------------------------------------- */
 /*                                   Types                                    */
@@ -60,6 +97,8 @@ export default function QRScanner({
 }: QRScannerProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const Ionicons = loadIonicons()
+  const { CameraView, useCameraPermissions } = loadExpoCamera()
   const [permission, requestPermission] = useCameraPermissions()
 
   // Prevent rapid-fire duplicate scans
