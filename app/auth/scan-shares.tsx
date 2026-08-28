@@ -4,10 +4,17 @@ import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { useTranslation } from 'react-i18next'
-import { parseShare, validateShareCompatibility, recoverSecretFromShares, ParsedShare } from '@/utils/backupShares'
 import { Mnemonic, PrivateKey } from '@bsv/sdk'
 import { useTheme, spacing, radii, typography, useWallet, useLocalStorage, haptics } from '@bsv/expo-wallet-toolbox'
-import { showAlert, Celebration, QRScanner } from '@bsv/expo-wallet-toolbox/ui'
+import {
+  showAlert,
+  Celebration,
+  QRScanner,
+  parseShare,
+  validateShareCompatibility,
+  recoverSecretFromShares,
+  type ParsedShare
+} from '@bsv/expo-wallet-toolbox/ui'
 
 export default function ScanSharesScreen() {
   const { t } = useTranslation()

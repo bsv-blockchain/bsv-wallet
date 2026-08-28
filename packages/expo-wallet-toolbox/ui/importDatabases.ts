@@ -1,6 +1,4 @@
-import { File, Paths } from 'expo-file-system'
 import { Platform } from 'react-native'
-import * as DocumentPicker from 'expo-document-picker'
 import * as SQLite from 'expo-sqlite'
 import {
   type StorageExpoSQLite,
@@ -11,7 +9,27 @@ import {
   selectLatestDb,
   parseTimestampFromFilename
 } from '@bsv/expo-wallet-toolbox'
-import { showAlert, showToast } from '@bsv/expo-wallet-toolbox/ui'
+import { showAlert } from './components/ui/AlertCard'
+import { showToast } from './components/ui/Toast'
+
+/**
+ * expo-file-system and expo-document-picker both ship untransformed ESM/raw-TS
+ * entry points that Jest cannot parse when eagerly pulled in via the `ui`
+ * package barrel, so both are required lazily here rather than imported at
+ * module scope — same pattern as this package's other native-module-boundary
+ * fixes (expo-router, expo-blur, ui/exportTransactions.ts's expo-file-system
+ * use). expo-sqlite stays a static import: it is fully intercepted by this
+ * repo's Jest `moduleNameMapper` (`^expo-sqlite$`), so the real ESM entry
+ * point is never loaded under test regardless of import style.
+ */
+function loadExpoFileSystem(): typeof import('expo-file-system') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-file-system') as typeof import('expo-file-system')
+}
+function loadDocumentPicker(): typeof import('expo-document-picker') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-document-picker') as typeof import('expo-document-picker')
+}
 
 export interface ImportResult {
   imported: boolean
@@ -32,6 +50,9 @@ export interface ImportResult {
  *     filesystem permission issues on Android.
  */
 export async function importWalletDatabase(storage: StorageExpoSQLite | null): Promise<ImportResult> {
+  const { File } = loadExpoFileSystem()
+  const DocumentPicker = loadDocumentPicker()
+
   // ── 1. Pick file ──────────────────────────────────────────────────────────
   const result = await DocumentPicker.getDocumentAsync({
     type: '*/*',

@@ -13,11 +13,17 @@ import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 import { PrivateKey } from '@bsv/sdk'
-import { printRecoveryShares } from '@/utils/printRecoveryShares'
 import * as Clipboard from 'expo-clipboard'
 import { Paths, File as ExpoFile } from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
-import { CustomSafeArea, showAlert, showToast, Celebration, PressableScale } from '@bsv/expo-wallet-toolbox/ui'
+import {
+  CustomSafeArea,
+  showAlert,
+  showToast,
+  Celebration,
+  PressableScale,
+  printRecoveryShares
+} from '@bsv/expo-wallet-toolbox/ui'
 import {
   useTheme,
   spacing,

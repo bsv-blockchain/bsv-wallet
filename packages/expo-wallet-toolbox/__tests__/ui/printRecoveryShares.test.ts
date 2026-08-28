@@ -29,8 +29,8 @@ jest.mock('expo-secure-store', () => ({
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo'
 }))
 
-import { printRecoveryShares } from '../utils/printRecoveryShares'
-import { recoverSecretFromShares, parseShare } from '../utils/backupShares'
+import { printRecoveryShares } from '../../ui/printRecoveryShares'
+import { recoverSecretFromShares, parseShare } from '../../ui/backupShares'
 import * as Print from 'expo-print'
 
 const printAsync = Print.printAsync as jest.Mock

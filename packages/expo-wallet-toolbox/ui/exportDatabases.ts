@@ -1,7 +1,22 @@
-import { File, Directory, Paths } from 'expo-file-system'
-import { shareAsync } from 'expo-sharing'
 import { Platform } from 'react-native'
 import { type StorageExpoSQLite, parseDbFilename } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * expo-file-system and expo-sharing both ship untransformed ESM/raw-TS
+ * entry points that Jest cannot parse when eagerly pulled in via the `ui`
+ * package barrel, so both are required lazily here rather than imported at
+ * module scope — same pattern as this package's other native-module-boundary
+ * fixes (expo-router, expo-blur, ui/exportTransactions.ts's expo-file-system
+ * use).
+ */
+function loadExpoFileSystem(): typeof import('expo-file-system') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-file-system') as typeof import('expo-file-system')
+}
+function loadExpoSharing(): typeof import('expo-sharing') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-sharing') as typeof import('expo-sharing')
+}
 
 /**
  * Build an export filename with the current timestamp.
@@ -44,6 +59,9 @@ export async function exportAllWalletDatabases(storage: StorageExpoSQLite | null
 async function exportIOS(storage: StorageExpoSQLite | null): Promise<number> {
   if (!storage?.db?.databasePath) return 0
 
+  const { File, Directory, Paths } = loadExpoFileSystem()
+  const { shareAsync } = loadExpoSharing()
+
   const dbPath = storage.db.databasePath
   const sourceFile = new File(dbPath)
   if (!sourceFile.exists) return 0
@@ -70,6 +88,9 @@ async function exportIOS(storage: StorageExpoSQLite | null): Promise<number> {
 
 async function exportAndroid(storage: StorageExpoSQLite | null): Promise<number> {
   if (!storage?.db) return 0
+
+  const { File, Directory, Paths } = loadExpoFileSystem()
+  const { shareAsync } = loadExpoSharing()
 
   const outName = exportFilename(storage.dbName)
   const tempDir = new Directory(Paths.cache, 'bsv-wallet-export')

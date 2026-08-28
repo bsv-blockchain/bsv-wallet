@@ -97,7 +97,7 @@ jest.mock('expo-secure-store', () => ({
 }))
 
 import { Mnemonic } from '@bsv/sdk'
-import { recoverSecretFromShares } from '@/utils/backupShares'
+import { recoverSecretFromShares } from '@bsv/expo-wallet-toolbox/ui'
 import { recoverMnemonicWallet, restoreOnImport, StorageExpoSQLite } from '@bsv/expo-wallet-toolbox'
 import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
 

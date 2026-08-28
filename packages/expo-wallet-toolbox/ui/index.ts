@@ -69,3 +69,23 @@ export { peerPayValidationMessage, useIdentitySearch } from './components/pay/us
 // it, and several pay cells above, depend on.
 export { PayScreen } from './screens/PayScreen'
 export { useOnline } from './hooks/useOnline'
+
+// Settings + wallet-config screens (Task 22 — extracted from app/settings.tsx
+// and app/wallet-config.tsx), plus the recovery/backup utilities they, the
+// share-scanning route (app/auth/scan-shares.tsx) and scripts/generate-pdf.ts
+// depend on. backupShares.ts moved in alongside printRecoveryShares.ts
+// (rather than staying a `@/utils` import reaching outside the package) so
+// printRecoveryShares.ts never imports across the package boundary.
+export { SettingsScreen } from './screens/SettingsScreen'
+export { WalletConfigScreen } from './screens/WalletConfigScreen'
+export { exportAllWalletDatabases } from './exportDatabases'
+export { importWalletDatabase, type ImportResult } from './importDatabases'
+export { printRecoveryShares, type PrintSharesSources, type PrintSharesResult } from './printRecoveryShares'
+export {
+  parseShare,
+  validateShareCompatibility,
+  recoverSecretFromShares,
+  generatePrintHTML,
+  type ParsedShare,
+  type RecoveredSecret
+} from './backupShares'

@@ -17,7 +17,7 @@ import {
   generateEntropyShares,
   generateLegacyKeyShares,
   recoverSecretFromShares
-} from '../utils/backupShares'
+} from '../../ui/backupShares'
 
 const entropyOf = (m: Mnemonic): number[] => m.toEntropy()
 

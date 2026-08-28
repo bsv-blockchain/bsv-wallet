@@ -19,7 +19,6 @@
  * formats apart on recovery.
  */
 import { Mnemonic, PrivateKey } from '@bsv/sdk'
-import * as Print from 'expo-print'
 import {
   ENTROPY_BYTES,
   generateEntropyShares,
@@ -27,6 +26,17 @@ import {
   generatePrintHTML
 } from './backupShares'
 import { recoverMnemonicWallet } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * expo-print ships an untransformed ESM entry point that Jest cannot parse
+ * when eagerly pulled in via the `ui` package barrel, so it is required
+ * lazily here rather than imported at module scope — same pattern as this
+ * package's other native-module-boundary fixes (expo-router, expo-blur).
+ */
+function loadExpoPrint(): typeof import('expo-print') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-print') as typeof import('expo-print')
+}
 
 export interface PrintSharesSources {
   /** The wallet mnemonic, when the wallet has one. */
@@ -49,6 +59,7 @@ export type PrintSharesResult =
 export async function printRecoveryShares(
   sources: PrintSharesSources
 ): Promise<PrintSharesResult> {
+  const Print = loadExpoPrint()
   let shares: string[]
   let identityKey: string
   let format: 'entropy' | 'legacy'
