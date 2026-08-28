@@ -398,29 +398,55 @@ are required — both hard-won during this package's extraction:
 
 1. **`transformIgnorePatterns`** must include `@bsv/expo-wallet-toolbox`,
    because this package ships raw TypeScript, not precompiled JS — Jest's
-   default `node_modules` exclusion will otherwise fail to transform it:
+   default `node_modules` exclusion will otherwise fail to transform it.
+   This repo's own (proven-working) pattern, verbatim from `package.json`:
 
    ```
    transformIgnorePatterns: [
-     "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|...|@bsv/expo-wallet-toolbox)/)"
+     "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox)/)",
+     "/node_modules/react-native-reanimated/plugin/"
    ]
    ```
 
-2. **Native-module mocks** — anything the package touches that has no
-   pure-JS Jest-safe implementation needs a `moduleNameMapper` entry.
-   At minimum:
+   The second array entry excludes `react-native-reanimated`'s own babel
+   plugin directory from transformation — unrelated to this package
+   specifically, but part of the same reference config and needed
+   because `react-native-reanimated` is a required peer dependency.
+   You don't need every name in that big alternation — most come from
+   the `jest-expo` preset's own defaults or other-app concerns — but
+   `@bsv/expo-wallet-toolbox` itself and `@bsv/backup-cache-client` (see
+   below) must be in whatever pattern you end up with.
+
+2. **Native-module and ESM-only-package mocks** — anything the package
+   touches that has no pure-JS Jest-safe implementation, or that ships
+   as ESM-only with no `require` export condition, needs a
+   `moduleNameMapper` entry. This repo's full set, verbatim:
 
    ```js
    moduleNameMapper: {
-     '^@react-native-async-storage/async-storage$':
-       '<rootDir>/node_modules/@react-native-async-storage/async-storage/jest/async-storage-mock.js',
-     '^expo-sqlite$': '<rootDir>/__tests__/__mocks__/expo-sqlite.js',
-     '^expo-audio$': '<rootDir>/__tests__/__mocks__/expo-audio.js',
+     '^@bsv/backup-cache-client$':
+       '<rootDir>/node_modules/@bsv/backup-cache-client/dist/index.js',
      '^react-native-reanimated$': '<rootDir>/__tests__/__mocks__/reanimated.js',
      '^react-native-worklets$':
-       '<rootDir>/node_modules/react-native-worklets/lib/module/mock.js'
+       '<rootDir>/node_modules/react-native-worklets/lib/module/mock.js',
+     '^expo-audio$': '<rootDir>/__tests__/__mocks__/expo-audio.js',
+     '^expo-sqlite$': '<rootDir>/__tests__/__mocks__/expo-sqlite.js',
+     '^@react-native-async-storage/async-storage$':
+       '<rootDir>/node_modules/@react-native-async-storage/async-storage/jest/async-storage-mock.js'
    }
    ```
+
+   `@bsv/backup-cache-client` is the one entry every consumer needs even
+   before writing a single test that touches wallet behavior:
+   `core/backup/client.ts` statically imports it, and it's re-exported
+   through the core barrel (`core/index.ts`), so any test that imports
+   *anything* from `@bsv/expo-wallet-toolbox` pulls it in. The package
+   is `"type": "module"` (ESM-only, no CJS `require` export condition),
+   which Jest's default CJS-based resolver can't load — hence the
+   explicit redirect straight to its `dist/index.js` build. This bites
+   on the very first `jest` run in a consumer app, unlike the other
+   entries below, which only bite once a test actually exercises that
+   native API.
 
    `expo-sqlite`/`expo-audio` need hand-written mocks (see this repo's
    `__tests__/__mocks__/` for working examples) since they wrap native
