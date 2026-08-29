@@ -17,7 +17,7 @@
  * occupied case, which is what keeps the one-tap rule intact for the normal
  * one.
  */
-import React, { useCallback, useContext, useEffect, useState } from 'react'
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native'
 import { PassphraseField } from './PassphraseField'
 import PressableScale from '../ui/PressableScale'
@@ -100,6 +100,7 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
   const [passphraseOk, setPassphraseOk] = useState(false)
   const [phaseLabel, setPhaseLabel] = useState('')
   const [pinReq, setPinReq] = useState<PinRequest | null>(null)
+  const [pinError, setPinError] = useState<string | null>(null)
   const [pinInput, setPinInput] = useState('')
   const [newPinInput, setNewPinInput] = useState('')
   const [printing, setPrinting] = useState(false)
@@ -214,6 +215,9 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
     setStep('passphrase')
   }, [getMnemonic])
 
+  /** Set to `start` below; the wrong-PIN path re-enters the ceremony. */
+  const startRef = useRef<((adoptExisting?: boolean) => Promise<void>) | null>(null)
+
   const start = useCallback(async (adoptExisting = false) => {
     setStep('running')
     setError(null)
@@ -248,13 +252,32 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
         setStep('adopt')
         return
       }
+      haptics.error()
+
+      // A wrong PIN is feedback on the PIN, so it belongs on the PIN prompt.
+      // Dropping back to the passphrase screen with "Wrong PIN." underneath it
+      // asked the user to re-confirm a passphrase that was never the problem.
+      // Nothing has been written to the key at this point — verifyPin runs
+      // before generateVaultKey — so re-entering the ceremony is safe, and it
+      // is what puts the PIN sheet back on screen.
+      if (e instanceof VaultError && e.code === 'pin-invalid') {
+        setPinError(
+          e.retriesLeft !== undefined
+            ? `${t('vault_err_pin_invalid')} ${t('vault_pin_retries', { count: e.retriesLeft })}`
+            : t('vault_err_pin_invalid')
+        )
+        void startRef.current?.(adoptExisting)
+        return
+      }
+
       const msg =
         e instanceof VaultError ? t(`vault_err_${e.code.replace(/-/g, '_')}`, {}) : String(e)
       setError(msg || t('vault_err_generic'))
-      haptics.error()
       setStep('passphrase')
     }
   }, [passphrase, getMnemonic, requestPin, requestPinChange, onDone])
+
+  startRef.current = start
 
   const submitPin = useCallback(() => {
     if (!pinReq) return
@@ -451,13 +474,17 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
             <Text style={[styles.p, { color: colors.textSecondary }]}>
               {pinReq.kind === 'change' ? t('vault_default_pin_warning') : t('vault_enter_pin_sub')}
             </Text>
+            {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
             <TextInput
               style={[
                 styles.pin,
                 { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }
               ]}
               value={pinReq.kind === 'change' ? newPinInput : pinInput}
-              onChangeText={pinReq.kind === 'change' ? setNewPinInput : setPinInput}
+              onChangeText={text => {
+                setPinError(null)
+                ;(pinReq.kind === 'change' ? setNewPinInput : setPinInput)(text)
+              }}
               placeholder="••••••"
               placeholderTextColor={colors.textTertiary}
               keyboardType="number-pad"
