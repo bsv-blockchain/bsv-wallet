@@ -181,9 +181,17 @@ function loadNative(): VaultDriver | null {
   return nativeCache
 }
 
-/** The active driver: native if present, else an injected mock, else null. */
+/**
+ * The active driver: an injected mock if one is installed, else native, else
+ * null.
+ *
+ * The mock wins deliberately. It is only ever installed by the DEV-gated
+ * "Use mock YubiKey" toggle, and on a simulator the native module DOES
+ * resolve — it simply reports isSupported() === false. Native-first therefore
+ * made that toggle a no-op on exactly the device it exists for: the vault
+ * screen kept saying "needs a YubiKey" with the mock switched on.
+ */
 export function getVaultDriver(): VaultDriver | null {
-  const native = loadNative()
-  if (native) return native
-  return injectedMock
+  if (injectedMock) return injectedMock
+  return loadNative()
 }

@@ -70,36 +70,58 @@ export const PhraseBackupSheet: React.FC<{
         {t('vault_phrase_intro', { count: words.length })}
       </Text>
 
+      {/* Two fixed columns with the index in its own right-aligned gutter, so
+          every word starts on the same x. The old grid let each cell size to
+          its own content, which put the words on a ragged left edge and made a
+          list you have to hunt through rather than one you can read down. */}
       <View style={[styles.grid, { borderColor: colors.separator }]}>
         {words.map((word, i) => (
-          <View key={i} style={[styles.wordCell, { backgroundColor: colors.backgroundSecondary }]}>
+          <View key={i} style={styles.wordCell}>
             <Text style={[styles.wordIndex, { color: colors.textTertiary }]}>{i + 1}</Text>
             <Text style={[styles.word, { color: colors.textPrimary }]}>{word}</Text>
           </View>
         ))}
       </View>
 
+      {/* Copy is deliberately the quietest control on the screen. The screen is
+          asking for pen and paper; a full-width button offering the clipboard
+          instead argues against its own instruction. */}
       <PressableScale
         onPress={() => {
           loadClipboard().setString(mnemonic)
           showToast(t('vault_phrase_copied'), { type: 'success' })
         }}
-        style={[styles.ghost, { borderColor: colors.separator }]}
+        style={styles.copyRow}
       >
-        <Ionicons name="copy-outline" size={16} color={colors.info} />
-        <Text style={[styles.ghostLabel, { color: colors.info }]}>{t('vault_phrase_copy')}</Text>
+        <Ionicons name="copy-outline" size={15} color={colors.textSecondary} />
+        <Text style={[styles.copyLabel, { color: colors.textSecondary }]}>{t('vault_phrase_copy')}</Text>
       </PressableScale>
 
-      <View style={[styles.warnBox, { borderColor: colors.warning }]}>
+      {/* Tinted rather than outlined: the border box read as an error state on
+          a screen where nothing has gone wrong. */}
+      <View style={[styles.warnBox, { backgroundColor: colors.warning + '14' }]}>
         <Ionicons name="warning-outline" size={16} color={colors.warning} />
         <Text style={[styles.warnText, { color: colors.textSecondary }]}>
           {t('vault_phrase_warning')}
         </Text>
       </View>
 
-      <PressableScale onPress={() => setAcknowledged(a => !a)} style={styles.checkRow}>
+      <PressableScale
+        onPress={() => setAcknowledged(a => !a)}
+        style={[
+          styles.checkRow,
+          {
+            // colors.fill, not `colors.accent + '14'`: accent is the NAMED colour
+            // 'white' (dark) / 'black' (light), so appending hex alpha produced
+            // "white14" and Reanimated threw on the animated style. fill is the
+            // theme's own translucent overlay and is valid in both themes.
+            backgroundColor: acknowledged ? colors.fill : colors.backgroundSecondary,
+            borderColor: acknowledged ? colors.accent : colors.separator
+          }
+        ]}
+      >
         <Ionicons
-          name={acknowledged ? 'checkbox' : 'square-outline'}
+          name={acknowledged ? 'checkmark-circle' : 'ellipse-outline'}
           size={22}
           color={acknowledged ? colors.accent : colors.textTertiary}
         />
@@ -113,9 +135,12 @@ export const PhraseBackupSheet: React.FC<{
         onPress={acknowledged ? onAttest : undefined}
         style={[
           styles.primary,
+          // Outlined until the box is ticked, matching the enrolment gate: a
+          // disabled fill in the secondary background is invisible in dark mode.
           {
-            backgroundColor: acknowledged ? colors.accent : colors.backgroundSecondary,
-            opacity: acknowledged ? 1 : 0.6
+            backgroundColor: acknowledged ? colors.accent : 'transparent',
+            borderWidth: acknowledged ? 0 : StyleSheet.hairlineWidth,
+            borderColor: colors.separator
           }
         ]}
       >
@@ -145,43 +170,49 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
+    rowGap: spacing.md,
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md
   },
   wordCell: {
+    width: '50%',
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: spacing.xs,
-    borderRadius: radii.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    minWidth: '30%'
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm
   },
-  wordIndex: { ...typography.caption2 },
+  // Fixed gutter, right-aligned: 1 and 12 then occupy the same width and the
+  // words line up in two clean columns.
+  wordIndex: { ...typography.caption2, width: 20, textAlign: 'right' },
   word: { ...typography.body, fontWeight: '600' },
-  ghost: {
+  copyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    alignSelf: 'center',
     gap: spacing.xs,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: spacing.md
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm
   },
-  ghostLabel: { ...typography.footnote, fontWeight: '600' },
+  copyLabel: { ...typography.footnote },
   warnBox: {
     flexDirection: 'row',
     gap: spacing.sm,
     alignItems: 'flex-start',
     borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md
   },
   warnText: { ...typography.footnote, flex: 1 },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  checkLabel: { ...typography.footnote, flex: 1 },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.lg
+  },
+  checkLabel: { ...typography.subhead, flex: 1 },
   primary: {
     width: '100%',
     borderRadius: radii.md,

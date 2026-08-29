@@ -32,7 +32,9 @@ import {
   useWallet,
   generateMnemonicWallet,
   validateMnemonic,
-  useLocalStorage
+  useLocalStorage,
+  recordBackupAttestation,
+  type BackupMedium
 } from '@bsv/expo-wallet-toolbox'
 
 type MnemonicMode = 'choose' | 'generate' | 'import'
@@ -40,8 +42,14 @@ type MnemonicMode = 'choose' | 'generate' | 'import'
 export default function MnemonicScreen() {
   const { t } = useTranslation()
   const { colors, isDark } = useTheme()
-  const { buildWalletFromMnemonic, buildWalletFromRecoveredKey, backupRestore, getBackupRestore } =
-    useWallet()
+  const {
+    buildWalletFromMnemonic,
+    buildWalletFromRecoveredKey,
+    backupRestore,
+    getBackupRestore,
+    managers,
+    adminOriginator
+  } = useWallet()
   const { setMnemonic: storeMnemonic, setRecoveredKey } = useLocalStorage()
 
   const [mode, setMode] = useState<MnemonicMode>('choose')
@@ -49,6 +57,8 @@ export default function MnemonicScreen() {
   const [importedMnemonic, setImportedMnemonic] = useState<string>('')
 
   const [hasAcknowledged, setHasAcknowledged] = useState(false)
+  /** Which route this user actually took, so the attestation records the truth. */
+  const [backupMedium, setBackupMedium] = useState<BackupMedium | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isPrinting, setIsPrinting] = useState(false)
@@ -134,6 +144,7 @@ export default function MnemonicScreen() {
           { type: 'error' }
         )
       } else {
+        setBackupMedium('shares')
         setHasAcknowledged(true)
       }
     } catch (error: any) {
@@ -145,8 +156,20 @@ export default function MnemonicScreen() {
 
   // Continue with generated mnemonic after acknowledgment
   // Wallet was already built in handleGenerateNew, so just navigate.
-  const handleContinueWithGenerated = () => {
+  const handleContinueWithGenerated = async () => {
     if (!hasAcknowledged) return
+    // Record the backup HERE, where it actually happened. Without this, a user
+    // who wrote the phrase down thirty seconds ago meets the vault's backup
+    // gate and is told to go and back up — the app asking for something it
+    // just watched them do. Failure is logged, not surfaced: nothing on this
+    // screen promised an attestation, and the vault gate still offers both
+    // routes if the write did not land.
+    const recorded = await recordBackupAttestation(
+      managers?.permissionsManager,
+      adminOriginator,
+      backupMedium ?? 'phrase'
+    )
+    if (!recorded) console.warn('[Mnemonic] backup attestation not recorded')
     setCelebrating(true)
   }
 

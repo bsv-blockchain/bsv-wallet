@@ -146,8 +146,6 @@ export function PassphraseField({
         <TextInput
           value={value}
           onChangeText={onChangeText}
-          placeholder={`${MINIMUM_WORD_COUNT} or more random words`}
-          placeholderTextColor={colors.textTertiary}
           secureTextEntry={!reveal}
           autoCapitalize="none"
           autoCorrect={false}
@@ -159,6 +157,12 @@ export function PassphraseField({
           style={[styles.input, { color: colors.textPrimary }]}
           accessibilityLabel="Vault passphrase"
         />
+        {value.length === 0 && (
+          <Text
+            pointerEvents="none"
+            style={[styles.placeholder, { color: colors.textTertiary }]}
+          >{`${MINIMUM_WORD_COUNT} or more random words`}</Text>
+        )}
         <Pressable
           onPress={() => setReveal(r => !r)}
           hitSlop={8}
@@ -228,8 +232,6 @@ export function PassphraseField({
         <TextInput
           value={confirm}
           onChangeText={onChangeConfirm}
-          placeholder="Type it again"
-          placeholderTextColor={colors.textTertiary}
           secureTextEntry={!reveal}
           autoCapitalize="none"
           autoCorrect={false}
@@ -238,6 +240,11 @@ export function PassphraseField({
           style={[styles.input, { color: colors.textPrimary }]}
           accessibilityLabel="Confirm vault passphrase"
         />
+        {confirm.length === 0 && (
+          <Text pointerEvents="none" style={[styles.placeholder, { color: colors.textTertiary }]}>
+            Type it again
+          </Text>
+        )}
         {confirm.length > 0 && (
           <Ionicons
             name={confirmed ? 'checkmark-circle' : 'close-circle'}
@@ -268,6 +275,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md
   },
   input: { flex: 1, ...typography.body },
+  // Sits exactly where the input's own text starts, so swapping between them
+  // as the user types does not shift anything.
+  placeholder: {
+    ...typography.body,
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg
+  },
   meterBlock: { gap: spacing.xs },
   meterTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
   meterFill: { height: 4, borderRadius: 2 },

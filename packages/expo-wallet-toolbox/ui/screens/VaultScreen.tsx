@@ -18,6 +18,7 @@ import AmountDisplay from '../components/wallet/AmountDisplay'
 import { showAlert } from '../components/ui/AlertCard'
 import { showToast } from '../components/ui/Toast'
 import { EnrollWizard } from '../components/vault/EnrollWizard'
+import { VaultBackdrop } from '../components/vault/VaultBackdrop'
 import { useVaultBalance } from '../hooks/useVaultBalance'
 import {
   useTheme,
@@ -41,28 +42,17 @@ const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
  * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
  * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Both icon sets are loaded lazily, only when actually rendering, same
- * pattern as this package's other native-module-boundary fixes (expo-router,
- * expo-blur).
+ * Loaded lazily, only when actually rendering, same pattern as this
+ * package's other native-module-boundary fixes (expo-router, expo-blur).
  */
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-type MaterialCommunityIconsComponent = typeof import('@expo/vector-icons').MaterialCommunityIcons
 let ioniconsComponent: IoniconsComponent | undefined
-let materialCommunityIconsComponent: MaterialCommunityIconsComponent | undefined
 function loadIonicons(): IoniconsComponent {
   if (!ioniconsComponent) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
   }
   return ioniconsComponent
-}
-function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
-  if (!materialCommunityIconsComponent) {
-    materialCommunityIconsComponent = require('@expo/vector-icons')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      .MaterialCommunityIcons as MaterialCommunityIconsComponent
-  }
-  return materialCommunityIconsComponent
 }
 
 /**
@@ -89,7 +79,6 @@ export function VaultScreen() {
   const insets = useSafeAreaInsets()
   const { router } = loadExpoRouter()
   const Ionicons = loadIonicons()
-  const MaterialCommunityIcons = loadMaterialCommunityIcons()
   const { balance, loading, refresh } = useVaultBalance()
   const { managers, adminOriginator, storage } = useWallet()
   const [enrolled, setEnrolled] = useState<boolean | null>(null)
@@ -171,27 +160,19 @@ export function VaultScreen() {
 
   const Header = (
     <View style={[styles.header, { borderBottomColor: colors.separator }]}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+      {/* Mid-enrolment, back means "leave setup", not "leave the vault" — the
+          wizard's own Cancel button is gone, so this is the only way out and it
+          has to land on the screen the user came from inside this flow. */}
+      <TouchableOpacity
+        onPress={() => (enrolling ? setEnrolling(false) : router.back())}
+        style={styles.iconBtn}
+      >
         <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
       </TouchableOpacity>
       <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>{t('vault_title')}</Text>
       <View style={styles.iconBtn} />
     </View>
   )
-
-  // ── unsupported device ───────────────────────────────────────────────
-  if (!supported && !__DEV__) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
-        {Header}
-        <View style={styles.centered}>
-          <Ionicons name="hardware-chip-outline" size={48} color={colors.textTertiary} />
-          <Text style={[styles.h2, { color: colors.textPrimary }]}>{t('vault_unsupported_title')}</Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_unsupported_body')}</Text>
-        </View>
-      </View>
-    )
-  }
 
   if (enrolled === null) {
     return (
@@ -219,22 +200,65 @@ export function VaultScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
-        <ScrollView contentContainerStyle={styles.centered}>
-          {/* Quiet outline, not an accent fill: the CTA below is the only
-              accent-filled element on this screen, so it wins the eye. */}
-          <View style={[styles.heroBadge, { borderColor: colors.separator }]}>
-            <MaterialCommunityIcons name="safe" size={40} color={colors.textSecondary} />
+        {/* Backdrop is clipped to the area below the header rather than laid over
+            the whole screen, so the line work never crosses the title bar. */}
+        <View style={styles.heroArea}>
+          {/* Copy on top, drawing beneath it. They do not overlap: when they
+              did, the artwork had to be faded almost to nothing to keep the
+              body text readable, which wasted it. */}
+          <View style={styles.heroArt}>
+            <VaultBackdrop color={colors.textPrimary} />
           </View>
-          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_hero_title')}</Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_hero_body')}</Text>
-          <PressableScale
-            haptic="confirm"
-            onPress={() => setEnrolling(true)}
-            style={[styles.primary, { backgroundColor: colors.accent }]}
-          >
-            <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_enroll_begin')}</Text>
-          </PressableScale>
-        </ScrollView>
+          <ScrollView contentContainerStyle={styles.heroScroll}>
+            {/* 1:4 spacers sit the copy block high, just under the header,
+                clear of the drawing — a ratio rather than a magic padding, so
+                it holds on every screen height. */}
+            <View style={styles.heroSpacerTop} />
+            <View style={styles.heroCopy}>
+            <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_hero_title')}</Text>
+            <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_hero_body')}</Text>
+            <PressableScale
+              haptic="confirm"
+              onPress={supported ? () => setEnrolling(true) : undefined}
+              style={[
+                styles.primary,
+                supported
+                  ? { backgroundColor: colors.accent }
+                  : {
+                      backgroundColor: 'transparent',
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: colors.separator
+                    }
+              ]}
+            >
+              <Text
+                style={[
+                  styles.primaryLabel,
+                  { color: supported ? colors.textOnAccent : colors.textTertiary }
+                ]}
+              >
+                {t('vault_enroll_begin')}
+              </Text>
+            </PressableScale>
+            {/* Said here, before the user picks a passphrase — it used to
+                surface as a red line under that form at the end of the
+                ceremony, which is the app taking someone through setup before
+                mentioning their phone cannot do it. Turning on the DEV mock
+                YubiKey swaps the driver in, so this clears by itself. */}
+            {!supported && (
+              <View style={styles.heroNotice}>
+                <Text style={[styles.heroNoticeTitle, { color: colors.error }]}>
+                  {t('vault_unsupported_title')}
+                </Text>
+                <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                  {t('vault_unsupported_body')}
+                </Text>
+              </View>
+            )}
+            </View>
+            <View style={styles.heroSpacerBottom} />
+          </ScrollView>
+        </View>
       </View>
     )
   }
@@ -285,13 +309,6 @@ export function VaultScreen() {
 
         <GroupedSection header={t('vault_key_section')}>
           <ListRow
-            label={t('vault_key_nickname')}
-            value={meta?.nickname}
-            icon="hardware-chip"
-            iconColor={colors.accent}
-            showChevron={false}
-          />
-          <ListRow
             label={t('vault_key_serial')}
             value={meta?.yubiSerial}
             icon="finger-print"
@@ -335,6 +352,19 @@ const styles = StyleSheet.create({
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { ...typography.headline },
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
+  // Same centring as `centered`, biased up by half the extra bottom padding
+  // (~38pt). Geometric centre reads low here: the header is a solid band at the
+  // top, so an empty state centred in the remaining box looks like it sank.
+  // Optical centre sits above the true one. The spinner state keeps `centered`.
+  heroCentered: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxxl * 3,
+    gap: spacing.lg
+  },
   // NO horizontal padding here. GroupedSection insets itself (its card carries
   // marginHorizontal: spacing.lg, its header paddingHorizontal: spacing.xl), so
   // padding this container double-inset every grouped card to 32pt while the
@@ -343,13 +373,19 @@ const styles = StyleSheet.create({
   // house pattern in app/settings.tsx and app/wallet-config.tsx.
   content: { paddingTop: spacing.lg, paddingBottom: spacing.xxxl },
   gutter: { paddingHorizontal: spacing.lg },
-  heroBadge: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  heroArea: { flex: 1, overflow: 'hidden' },
+  heroArt: { position: 'absolute', bottom: '7%', left: 0, right: 0, height: '56%' },
+  heroScroll: { flexGrow: 1 },
+  heroNotice: { alignItems: 'center', gap: spacing.xs },
+  heroNoticeTitle: { ...typography.subhead, fontWeight: '600', textAlign: 'center' },
+  heroNoticeBody: { ...typography.footnote, textAlign: 'center' },
+  heroSpacerTop: { flex: 1 },
+  heroSpacerBottom: { flex: 4 },
+  heroCopy: {
+    alignSelf: 'stretch',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth
+    paddingHorizontal: spacing.xl,
+    gap: spacing.lg
   },
   h1: { ...typography.title1, textAlign: 'center' },
   h2: { ...typography.title3, textAlign: 'center' },

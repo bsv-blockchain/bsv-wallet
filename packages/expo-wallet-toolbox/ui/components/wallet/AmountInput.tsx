@@ -130,7 +130,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             if (isUSD) setUsdDisplayValue('')
             onChangeText('')
           }}
-          style={[styles.clearButton, { backgroundColor: colors.accent + '15' }]}
+          style={[styles.clearButton, { backgroundColor: colors.fill }]}
         >
           <Ionicons name="close" size={16} color={colors.accent} />
         </TouchableOpacity>
@@ -172,7 +172,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         {showMax && (
           <TouchableOpacity
             onPress={() => onChangeText(SEND_MAX_VALUE)}
-            style={[styles.maxButton, { backgroundColor: colors.accent + '15' }]}
+            style={[styles.maxButton, { backgroundColor: colors.fill }]}
           >
             <Text style={[styles.maxText, { color: colors.accent }]}>{t('send_max')}</Text>
           </TouchableOpacity>

@@ -1,5 +1,5 @@
 /**
- * Vault enrollment wizard — intro → passphrase → PIN → tap → done.
+ * Vault enrollment wizard — backup gate → passphrase → PIN → tap → done.
  *
  * The vault key is derived from the wallet's EXISTING mnemonic plus a vault
  * passphrase, so there is no second phrase to write down and no confirmation
@@ -73,7 +73,7 @@ function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   return materialCommunityIconsComponent
 }
 
-type Step = 'backup' | 'phrase' | 'intro' | 'passphrase' | 'adopt' | 'running' | 'done'
+type Step = 'backup' | 'phrase' | 'passphrase' | 'adopt' | 'running' | 'done'
 
 interface PinRequest {
   kind: 'pin' | 'change'
@@ -95,7 +95,6 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
   const [medium, setMedium] = useState<BackupMedium | null>(null)
   const [wordCount, setWordCount] = useState<number | null>(null)
   const [revealed, setRevealed] = useState<string | null>(null)
-  const [nickname, setNickname] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [confirm, setConfirm] = useState('')
   const [passphraseOk, setPassphraseOk] = useState(false)
@@ -110,12 +109,22 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
 
   const wallet = managers?.permissionsManager
 
-  // A user who already backed up on a previous visit should not be asked twice.
+  // A user who already backed up should not be asked twice — including the
+  // user who wrote their phrase down during wallet creation minutes ago, which
+  // now records an attestation of its own. Skipping the step outright rather
+  // than showing it pre-ticked: a screen full of green ticks is still a
+  // checkpoint to read and clear.
   useEffect(() => {
     let alive = true
     void (async () => {
       const existing = await readBackupAttestation(wallet, adminOriginator)
-      if (alive && existing) setMedium(existing.medium)
+      if (!alive || !existing) return
+      setMedium(existing.medium)
+      // Straight to the passphrase. The mnemonic guard that toPassphrase runs
+      // is skipped on this path on purpose — it calls getMnemonic(), which is
+      // biometric-gated, and prompting for Face ID on mount would be worse than
+      // surfacing 'requires mnemonic' when enrolment actually starts.
+      setStep(current => (current === 'backup' ? 'passphrase' : current))
     })()
     return () => {
       alive = false
@@ -212,7 +221,10 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
       const mnemonic = await getMnemonic()
       if (!mnemonic) throw new VaultError('bad-mnemonic', t('vault_requires_mnemonic'))
       const { pending } = await enrollVault({
-        nickname: nickname.trim() || t('vault_default_nickname'),
+        // Empty by design: the vault screen identifies the key by its serial,
+        // which the key itself reports. A nickname field was one more thing to
+        // fill in during setup and named nothing the user could not already see.
+        nickname: '',
         mnemonic,
         passphrase,
         adoptExisting,
@@ -242,7 +254,7 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
       haptics.error()
       setStep('passphrase')
     }
-  }, [nickname, passphrase, getMnemonic, requestPin, requestPinChange, onDone])
+  }, [passphrase, getMnemonic, requestPin, requestPinChange, onDone])
 
   const submitPin = useCallback(() => {
     if (!pinReq) return
@@ -261,13 +273,11 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
   // ── backup (prerequisite) ───────────────────────────────────────────
   if (step === 'backup') {
     return (
-      <ScrollView contentContainerStyle={styles.body}>
-        <Ionicons
-          name="shield-checkmark-outline"
-          size={48}
-          color={colors.textPrimary}
-          style={styles.hero}
-        />
+      <ScrollView contentContainerStyle={styles.gateBody}>
+        {/* No hero glyph here. A shield-with-a-tick says "you are protected",
+            which is the opposite of this screen's message — it is asking for
+            work, not confirming it is done. The two rows below are the
+            instruction, so nothing should out-shout them. */}
         <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_backup_title')}</Text>
         <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_backup_intro')}</Text>
 
@@ -293,19 +303,21 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
           onPress={onPrintShares}
         />
 
-        <Text style={[styles.fine, { color: colors.textTertiary }]}>
-          {t('vault_backup_either_note')}
-        </Text>
 
         {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
         <PressableScale
           haptic="confirm"
-          onPress={medium ? () => setStep('intro') : undefined}
+          onPress={medium ? toPassphrase : undefined}
           style={[
             styles.primary,
+            // Outlined while it is not yet armed. Filled with the secondary
+            // background it was indistinguishable from the page in dark mode,
+            // so the disabled CTA read as a stray line of grey text rather
+            // than as a button waiting on the rows above it.
             {
-              backgroundColor: medium ? colors.accent : colors.backgroundSecondary,
-              opacity: medium ? 1 : 0.6
+              backgroundColor: medium ? colors.accent : 'transparent',
+              borderWidth: medium ? 0 : StyleSheet.hairlineWidth,
+              borderColor: colors.separator
             }
           ]}
         >
@@ -316,11 +328,6 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
             ]}
           >
             {t('vault_continue')}
-          </Text>
-        </PressableScale>
-        <PressableScale onPress={onCancel} style={styles.secondary}>
-          <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
-            {t('vault_cancel')}
           </Text>
         </PressableScale>
       </ScrollView>
@@ -349,57 +356,12 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
     )
   }
 
-  // ── intro ───────────────────────────────────────────────────────────
-  if (step === 'intro') {
-    return (
-      <ScrollView contentContainerStyle={styles.body}>
-        <MaterialCommunityIcons name="safe" size={48} color={colors.textPrimary} style={styles.hero} />
-        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_enroll_title')}</Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_enroll_intro')}</Text>
-
-        <TextInput
-          style={[
-            styles.input,
-            { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }
-          ]}
-          value={nickname}
-          onChangeText={setNickname}
-          placeholder={t('vault_nickname_placeholder')}
-          placeholderTextColor={colors.textTertiary}
-          maxLength={24}
-        />
-
-        <RecoveryPaths />
-
-        {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
-        <PressableScale
-          haptic="confirm"
-          onPress={toPassphrase}
-          style={[styles.primary, { backgroundColor: colors.accent }]}
-        >
-          <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>
-            {t('vault_continue')}
-          </Text>
-        </PressableScale>
-        <PressableScale onPress={() => setStep('backup')} style={styles.secondary}>
-          <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
-            {t('vault_back')}
-          </Text>
-        </PressableScale>
-      </ScrollView>
-    )
-  }
-
   // ── passphrase ──────────────────────────────────────────────────────
   if (step === 'passphrase') {
     return (
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.h1, { color: colors.textPrimary }]}>
-          {t('vault_passphrase_title')}
-        </Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>
-          {t('vault_passphrase_intro')}
-        </Text>
+        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_enroll_title')}</Text>
+        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_enroll_intro')}</Text>
 
         <PassphraseField
           value={passphrase}
@@ -409,7 +371,7 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
           onValidityChange={setPassphraseOk}
         />
 
-        <View style={[styles.warnBox, { borderColor: colors.warning }]}>
+        <View style={[styles.warnBox, { backgroundColor: colors.warning + '14' }]}>
           <Ionicons name="warning-outline" size={16} color={colors.warning} />
           <Text style={[styles.warnText, { color: colors.textSecondary }]}>
             {t('vault_passphrase_no_reset')}
@@ -423,8 +385,9 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
           style={[
             styles.primary,
             {
-              backgroundColor: passphraseOk ? colors.accent : colors.backgroundSecondary,
-              opacity: passphraseOk ? 1 : 0.6
+              backgroundColor: passphraseOk ? colors.accent : 'transparent',
+              borderWidth: passphraseOk ? 0 : StyleSheet.hairlineWidth,
+              borderColor: colors.separator
             }
           ]}
         >
@@ -435,11 +398,6 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
             ]}
           >
             {t('vault_enroll_begin')}
-          </Text>
-        </PressableScale>
-        <PressableScale onPress={() => setStep('intro')} style={styles.secondary}>
-          <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
-            {t('vault_back')}
           </Text>
         </PressableScale>
       </ScrollView>
@@ -487,11 +445,12 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
             <Text style={[styles.h1, { color: colors.textPrimary }]}>
               {pinReq.kind === 'change' ? t('vault_set_new_pin') : t('vault_enter_pin')}
             </Text>
-            {pinReq.kind === 'change' && (
-              <Text style={[styles.p, { color: colors.textSecondary }]}>
-                {t('vault_default_pin_warning')}
-              </Text>
-            )}
+            {/* Which PIN, and what it is if they have never set one. Without
+                this the prompt is ambiguous with the phone's own passcode, and
+                a factory key's PIN is not something users know they have. */}
+            <Text style={[styles.p, { color: colors.textSecondary }]}>
+              {pinReq.kind === 'change' ? t('vault_default_pin_warning') : t('vault_enter_pin_sub')}
+            </Text>
             <TextInput
               style={[
                 styles.pin,
@@ -502,7 +461,10 @@ export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }
               placeholder="••••••"
               placeholderTextColor={colors.textTertiary}
               keyboardType="number-pad"
-              secureTextEntry
+              // Masking only once there is something to mask: iOS renders a
+              // secure field's PLACEHOLDER with masked-glyph metrics, which is
+              // what stretches the bullets apart before any digit is typed.
+              secureTextEntry={(pinReq.kind === 'change' ? newPinInput : pinInput).length > 0}
               maxLength={8}
               autoFocus
             />
@@ -564,42 +526,11 @@ const BackupRow: React.FC<{
   )
 }
 
-/**
- * The two ways to get vault funds back.
- *
- * Backup shares now split the mnemonic entropy (BRC-157), so paper reaches the
- * phrase path rather than being a dead end — the copy says "phrase or shares"
- * for that reason.
- */
-const RecoveryPaths: React.FC = () => {
-  const { colors } = useTheme()
-  const Ionicons = loadIonicons()
-  return (
-    <View style={[styles.paths, { borderColor: colors.separator }]}>
-      <Text style={[styles.pathsTitle, { color: colors.textPrimary }]}>
-        {t('vault_recovery_paths_title')}
-      </Text>
-      <View style={styles.pathRow}>
-        <Ionicons name="hardware-chip-outline" size={16} color={colors.textSecondary} />
-        <Text style={[styles.pathText, { color: colors.textSecondary }]}>
-          {t('vault_recovery_path_device')}
-        </Text>
-      </View>
-      <View style={styles.pathRow}>
-        <Ionicons name="document-text-outline" size={16} color={colors.textSecondary} />
-        <Text style={[styles.pathText, { color: colors.textSecondary }]}>
-          {t('vault_recovery_path_phrase')}
-        </Text>
-      </View>
-      <Text style={[styles.pathsFine, { color: colors.textTertiary }]}>
-        {t('vault_recovery_no_other')}
-      </Text>
-    </View>
-  )
-}
-
 const styles = StyleSheet.create({
   body: { padding: spacing.xl, gap: spacing.lg },
+  // The gate is three short blocks; top-aligned they sat in the upper third
+  // with half a screen of nothing under them.
+  gateBody: { padding: spacing.xl, gap: spacing.lg, flexGrow: 1, justifyContent: 'center' },
   hero: { marginTop: spacing.lg, alignSelf: 'center' },
   h1: { ...typography.title2, textAlign: 'center' },
   p: { ...typography.subhead, textAlign: 'center' },

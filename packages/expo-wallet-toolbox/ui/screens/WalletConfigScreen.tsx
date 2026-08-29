@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
   AUTO_APPROVE_STORAGE_KEY,
+  ADVANCED_SETTINGS_EXPANDED_KEY,
   KNOWN_ARC_URLS,
   DEFAULT_ARC_URLS,
   arcUrlStorageKey,
@@ -126,6 +127,7 @@ export function WalletConfigScreen() {
   const [erasingBackup, setErasingBackup] = useState(false)
   const [storageBusy, setStorageBusy] = useState(false)
   const [currencyExpanded, setCurrencyExpanded] = useState(false)
+  const [advancedExpanded, setAdvancedExpanded] = useState(false)
   const [thresholdExpanded, setThresholdExpanded] = useState(false)
   const [thresholdSats, setThresholdSats] = useState(DEFAULT_AUTO_APPROVE_THRESHOLD)
   const [thresholdInput, setThresholdInput] = useState('')
@@ -142,6 +144,15 @@ export function WalletConfigScreen() {
   useEffect(() => {
     AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY).then(v => {
       if (v !== null) setThresholdSats(Number(v) || 0)
+    })
+  }, [])
+
+  // Restore whether Advanced was left open. Deliberately not awaited before the
+  // first paint: the screen renders collapsed and expands a frame later, which
+  // is the right way round — a holder never sees the advanced rows flash past.
+  useEffect(() => {
+    AsyncStorage.getItem(ADVANCED_SETTINGS_EXPANDED_KEY).then(v => {
+      if (v === 'true') setAdvancedExpanded(true)
     })
   }, [])
 
@@ -325,6 +336,16 @@ export function WalletConfigScreen() {
     }, 600)
   }, [currentCurrency, satoshisPerUSD])
 
+  const handleToggleAdvanced = useCallback(() => {
+    setAdvancedExpanded(prev => {
+      const next = !prev
+      AsyncStorage.setItem(ADVANCED_SETTINGS_EXPANDED_KEY, String(next)).catch(err => {
+        console.warn('[advancedExpanded persist]', err)
+      })
+      return next
+    })
+  }, [])
+
   const handleCopyMnemonic = async () => {
     try {
       // Copy mnemonic if available, otherwise fall back to primary key hex
@@ -496,140 +517,12 @@ export function WalletConfigScreen() {
         <View style={localStyles.headerBack} />
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xxxl }}>
-        {/* ── Configuration ── */}
-        <GroupedSection header={t('configuration')}>
-          <ListRow
-            label={t('bsv_network')}
-            value={
-              switchingNetwork
-                ? t('switching')
-                : (NETWORKS.find(n => n.id === selectedNetwork)?.label ?? selectedNetwork)
-            }
-            icon="globe-outline"
-            iconColor={NETWORKS.find(n => n.id === selectedNetwork)?.color ?? colors.success}
-            onPress={() => setNetworkExpanded(e => !e)}
-            showChevron={networkExpanded}
-            chevronDown={networkExpanded}
-          />
-          {networkExpanded && (
-            <View style={localStyles.networkList}>
-              {NETWORKS.map(net => {
-                const isActive = net.id === selectedNetwork
-                return (
-                  <TouchableOpacity
-                    key={net.id}
-                    style={localStyles.networkOption}
-                    onPress={() => handleSelectNetwork(net.id)}
-                    activeOpacity={0.6}
-                  >
-                    <View style={[localStyles.networkDot, { backgroundColor: net.color }]} />
-                    <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{net.label}</Text>
-                    {isActive && (
-                      <Ionicons name="checkmark" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
-                    )}
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-          )}
-          <ListRow
-            label={t('arc_endpoint')}
-            value={(() => {
-              const known = KNOWN_ARC_URLS.find(k => arcUrlInput.startsWith(k.url))
-              return known ? known.label : arcUrlInput.replace('https://', '')
-            })()}
-            icon="radio-outline"
-            iconColor="#6E56CF"
-            onPress={() => setArcExpanded(e => !e)}
-            showChevron={arcExpanded}
-            chevronDown={arcExpanded}
-            isLast={arcExpanded}
-          />
-          {arcExpanded && (
-            <View style={[localStyles.networkList, { paddingTop: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }]}>
-              {KNOWN_ARC_URLS.map(preset => {
-                const isSelected = arcUrlInput.startsWith(preset.url)
-                return (
-                  <TouchableOpacity
-                    key={preset.url}
-                    style={localStyles.networkOption}
-                    onPress={() => setArcUrlInput(preset.url)}
-                    activeOpacity={0.6}
-                  >
-                    <View
-                      style={[
-                        localStyles.networkDot,
-                        { backgroundColor: isSelected ? colors.accent : colors.separator }
-                      ]}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>
-                        {preset.label}
-                      </Text>
-                      <Text style={{ ...typography.caption1, color: colors.textSecondary }} numberOfLines={1}>
-                        {preset.url.replace('https://', '')}
-                      </Text>
-                    </View>
-                    {preset.requiresToken && (
-                      <Text style={{ ...typography.caption1, color: colors.warning, marginLeft: spacing.sm }}>
-                        {t('arc_requires_token')}
-                      </Text>
-                    )}
-                    {isSelected && (
-                      <Ionicons name="checkmark" size={18} color={colors.accent} style={{ marginLeft: spacing.sm }} />
-                    )}
-                  </TouchableOpacity>
-                )
-              })}
-              <View style={localStyles.arcInputRow}>
-                <Text style={[localStyles.arcLabel, { color: colors.textSecondary }]}>{t('arc_custom_url')}</Text>
-                <TextInput
-                  style={[localStyles.arcInput, { color: colors.textPrimary, borderColor: colors.separator }]}
-                  value={arcUrlInput}
-                  onChangeText={setArcUrlInput}
-                  placeholder="https://..."
-                  placeholderTextColor={colors.textSecondary}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                  returnKeyType="next"
-                />
-              </View>
-              <View style={localStyles.arcInputRow}>
-                <Text style={[localStyles.arcLabel, { color: colors.textSecondary }]}>{t('arc_api_token')}</Text>
-                <TextInput
-                  style={[localStyles.arcInput, { color: colors.textPrimary, borderColor: colors.separator }]}
-                  value={arcTokenInput}
-                  onChangeText={setArcTokenInput}
-                  placeholder="Optional"
-                  placeholderTextColor={colors.textSecondary}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="done"
-                  secureTextEntry={false}
-                />
-              </View>
-              <View style={localStyles.arcButtonRow}>
-                <TouchableOpacity
-                  style={[localStyles.arcButton, { backgroundColor: colors.backgroundTertiary }]}
-                  onPress={handleResetArc}
-                  activeOpacity={0.7}
-                >
-                  <Text style={{ ...typography.body, color: colors.textSecondary }}>{t('arc_reset_default')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[localStyles.arcButton, { backgroundColor: colors.accent }]}
-                  onPress={handleApplyArc}
-                  activeOpacity={0.7}
-                >
-                  {arcSaving
-                    ? <ActivityIndicator size="small" color={colors.textOnAccent} />
-                    : <Text style={{ ...typography.body, color: colors.textOnAccent, fontWeight: '600' }}>{t('arc_apply')}</Text>
-                  }
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+        {/* ── Essentials ──
+            The rows a holder reaches for without being told to: what their money
+            is denominated in, how to hand an app access, and the two ways out of
+            a lost phone. Everything else is engine-room detail and sits behind
+            Advanced, collapsed, so this screen opens as four choices not twenty. */}
+        <GroupedSection>
           <ListRow
             label={t('display_currency')}
             value={CURRENCIES.find(c => c.id === currentCurrency)?.label ?? currentCurrency}
@@ -666,82 +559,13 @@ export function WalletConfigScreen() {
             </View>
           )}
           <ListRow
-            label="Auto Spend Up To"
-            value={thresholdSats === 0 ? 'Off'
-              : currentCurrency === 'USD' && satoshisPerUSD > 0
-                ? `$${(thresholdSats / satoshisPerUSD).toFixed(2)}`
-                : formatAmount(thresholdSats, currentCurrency, satoshisPerUSD)}
-            icon="flash-outline"
-            iconColor="#FF9F0A"
-            onPress={() => {
-              setThresholdExpanded(e => !e)
-              if (!thresholdExpanded) {
-                // Pre-fill input with current value in display currency
-                if (currentCurrency === 'USD' && satoshisPerUSD > 0) {
-                  setThresholdInput(thresholdSats === 0 ? '0' : (thresholdSats / satoshisPerUSD).toFixed(2))
-                } else {
-                  setThresholdInput(String(thresholdSats))
-                }
-              }
-            }}
-            showChevron={thresholdExpanded}
-            chevronDown={thresholdExpanded}
-            isLast={!thresholdExpanded}
-          />
-          {thresholdExpanded && (
-            <View style={localStyles.networkList}>
-              <View style={localStyles.thresholdRow}>
-                <TextInput
-                  style={[localStyles.thresholdInput, { color: colors.textPrimary, borderColor: colors.separator }]}
-                  value={thresholdInput}
-                  onChangeText={handleThresholdInput}
-                  keyboardType="numeric"
-                  placeholder={`0 ${getUnitLabel(currentCurrency)}`}
-                  placeholderTextColor={colors.textSecondary}
-                  returnKeyType="done"
-                />
-                <Text style={[localStyles.thresholdUnit, { color: colors.textSecondary }]}>
-                  {getUnitLabel(currentCurrency)}
-                </Text>
-              </View>
-            </View>
-          )}
-        </GroupedSection>
-
-        {/* ── Data & Security ── */}
-        <GroupedSection header={t('data_and_security')}>
-          {/* Vault's primary entry lives on the wallet menu (below Payments).
-              The DEV mock toggle stays here. */}
-          {__DEV__ && (
-            <ListRow
-              label={t('vault_mock_toggle')}
-              icon="bug-outline"
-              iconColor="#8E8E93"
-              showChevron={false}
-              value={vaultMockOn ? t('vault_on') : t('vault_off')}
-              onPress={() => {
-                const next = !vaultMockOn
-                setVaultMockOn(next)
-                setMockDriverEnabled(next)
-              }}
-            />
-          )}
-          <ListRow
-            label={t('storage_row')}
-            icon="server-outline"
-            iconColor="#8E8E93"
-            showChevron={false}
-            onPress={handleStorage}
-            trailing={storageBusy ? <ActivityIndicator size="small" /> : undefined}
+            label={t('connect_to_app')}
+            icon="qr-code-outline"
+            iconColor="#0A84FF"
+            onPress={() => router.push('/connections' as any)}
           />
           <ListRow
-            label={t('trust_network')}
-            icon="shield-checkmark-outline"
-            iconColor="#BF5AF2"
-            onPress={() => router.push('/trust' as any)}
-          />
-          <ListRow
-            label={t('recovery_phrase')}
+            label={t('copy_secret_words')}
             icon="key-outline"
             iconColor="#CC8400"
             onPress={handleCopyMnemonic}
@@ -757,73 +581,301 @@ export function WalletConfigScreen() {
             }
           />
           <ListRow
-            label={t('print_recovery_shares')}
+            label={t('print_recovery_keys')}
             icon="print-outline"
             iconColor="#5856D6"
             onPress={handlePrintRecoveryShares}
             showChevron={false}
             trailing={isPrinting ? <ActivityIndicator size="small" /> : undefined}
-          />
-          <ListRow
-            label={t('export_wallet_data')}
-            icon="share-outline"
-            iconColor="#32ADE6"
-            onPress={handleExportData}
-            showChevron={false}
-            trailing={isExporting ? <ActivityIndicator size="small" /> : undefined}
-          />
-          <ListRow
-            label={t('import_wallet_data')}
-            icon="download-outline"
-            iconColor="#30D158"
-            onPress={handleImportData}
-            showChevron={false}
-            trailing={isImporting ? <ActivityIndicator size="small" /> : undefined}
-          />
-          <ListRow
-            label="Debugging"
-            icon="terminal-outline"
-            iconColor="#8E8E93"
-            onPress={() => router.push('/logs' as any)}
             isLast
           />
         </GroupedSection>
 
-        {/* ── Private backup ──
-            Its own section purely so the footer can carry the disclosure: the app sends an
-            encrypted copy of the wallet database to a BSVA-operated server by default, and
-            that deserves saying out loud rather than burying in a row label. */}
-        {DEFAULT_BACKUP_URL !== '' && (
-          <GroupedSection header={t('backup_push_section')} footer={t('backup_push_disclosure')}>
+        {/* ── Advanced ── */}
+        <GroupedSection>
+          <ListRow
+            label={t('advanced')}
+            icon="construct-outline"
+            iconColor="#8E8E93"
+            onPress={handleToggleAdvanced}
+            chevronDown={advancedExpanded}
+            isLast
+          />
+        </GroupedSection>
+
+        {advancedExpanded && (
+          <>
+          {/* ── Configuration ── */}
+          <GroupedSection header={t('configuration')}>
             <ListRow
-              label={t('backup_push_toggle')}
-              icon="cloud-upload-outline"
-              iconColor="#0A84FF"
-              showChevron={false}
-              value={backupPushOn ? t('vault_on') : t('vault_off')}
-              onPress={handleToggleBackupPush}
+              label={t('bsv_network')}
+              value={
+                switchingNetwork
+                  ? t('switching')
+                  : (NETWORKS.find(n => n.id === selectedNetwork)?.label ?? selectedNetwork)
+              }
+              icon="globe-outline"
+              iconColor={NETWORKS.find(n => n.id === selectedNetwork)?.color ?? colors.success}
+              onPress={() => setNetworkExpanded(e => !e)}
+              showChevron={networkExpanded}
+              chevronDown={networkExpanded}
             />
-            {/* Erasure on request. Separate from the toggle because they are different
-                asks: the toggle stops sending anything new, this removes what is already
-                there. Turning the toggle off deliberately deletes nothing. */}
+            {networkExpanded && (
+              <View style={localStyles.networkList}>
+                {NETWORKS.map(net => {
+                  const isActive = net.id === selectedNetwork
+                  return (
+                    <TouchableOpacity
+                      key={net.id}
+                      style={localStyles.networkOption}
+                      onPress={() => handleSelectNetwork(net.id)}
+                      activeOpacity={0.6}
+                    >
+                      <View style={[localStyles.networkDot, { backgroundColor: net.color }]} />
+                      <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{net.label}</Text>
+                      {isActive && (
+                        <Ionicons name="checkmark" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
+                      )}
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            )}
             <ListRow
-              label={t('backup_erase_row')}
-              icon="trash-outline"
-              iconColor={colors.error}
-              destructive
-              showChevron={false}
-              onPress={handleEraseBackup}
-              trailing={erasingBackup ? <ActivityIndicator size="small" /> : undefined}
+              label={t('arc_endpoint')}
+              value={(() => {
+                const known = KNOWN_ARC_URLS.find(k => arcUrlInput.startsWith(k.url))
+                return known ? known.label : arcUrlInput.replace('https://', '')
+              })()}
+              icon="radio-outline"
+              iconColor="#6E56CF"
+              onPress={() => setArcExpanded(e => !e)}
+              showChevron={arcExpanded}
+              chevronDown={arcExpanded}
+              isLast={arcExpanded}
+            />
+            {arcExpanded && (
+              <View style={[localStyles.networkList, { paddingTop: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }]}>
+                {KNOWN_ARC_URLS.map(preset => {
+                  const isSelected = arcUrlInput.startsWith(preset.url)
+                  return (
+                    <TouchableOpacity
+                      key={preset.url}
+                      style={localStyles.networkOption}
+                      onPress={() => setArcUrlInput(preset.url)}
+                      activeOpacity={0.6}
+                    >
+                      <View
+                        style={[
+                          localStyles.networkDot,
+                          { backgroundColor: isSelected ? colors.accent : colors.separator }
+                        ]}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>
+                          {preset.label}
+                        </Text>
+                        <Text style={{ ...typography.caption1, color: colors.textSecondary }} numberOfLines={1}>
+                          {preset.url.replace('https://', '')}
+                        </Text>
+                      </View>
+                      {preset.requiresToken && (
+                        <Text style={{ ...typography.caption1, color: colors.warning, marginLeft: spacing.sm }}>
+                          {t('arc_requires_token')}
+                        </Text>
+                      )}
+                      {isSelected && (
+                        <Ionicons name="checkmark" size={18} color={colors.accent} style={{ marginLeft: spacing.sm }} />
+                      )}
+                    </TouchableOpacity>
+                  )
+                })}
+                <View style={localStyles.arcInputRow}>
+                  <Text style={[localStyles.arcLabel, { color: colors.textSecondary }]}>{t('arc_custom_url')}</Text>
+                  <TextInput
+                    style={[localStyles.arcInput, { color: colors.textPrimary, borderColor: colors.separator }]}
+                    value={arcUrlInput}
+                    onChangeText={setArcUrlInput}
+                    placeholder="https://..."
+                    placeholderTextColor={colors.textSecondary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                    returnKeyType="next"
+                  />
+                </View>
+                <View style={localStyles.arcInputRow}>
+                  <Text style={[localStyles.arcLabel, { color: colors.textSecondary }]}>{t('arc_api_token')}</Text>
+                  <TextInput
+                    style={[localStyles.arcInput, { color: colors.textPrimary, borderColor: colors.separator }]}
+                    value={arcTokenInput}
+                    onChangeText={setArcTokenInput}
+                    placeholder="Optional"
+                    placeholderTextColor={colors.textSecondary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    secureTextEntry={false}
+                  />
+                </View>
+                <View style={localStyles.arcButtonRow}>
+                  <TouchableOpacity
+                    style={[localStyles.arcButton, { backgroundColor: colors.backgroundTertiary }]}
+                    onPress={handleResetArc}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ ...typography.body, color: colors.textSecondary }}>{t('arc_reset_default')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[localStyles.arcButton, { backgroundColor: colors.accent }]}
+                    onPress={handleApplyArc}
+                    activeOpacity={0.7}
+                  >
+                    {arcSaving
+                      ? <ActivityIndicator size="small" color={colors.textOnAccent} />
+                      : <Text style={{ ...typography.body, color: colors.textOnAccent, fontWeight: '600' }}>{t('arc_apply')}</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            <ListRow
+              label="Auto Spend Up To"
+              value={thresholdSats === 0 ? 'Off'
+                : currentCurrency === 'USD' && satoshisPerUSD > 0
+                  ? `$${(thresholdSats / satoshisPerUSD).toFixed(2)}`
+                  : formatAmount(thresholdSats, currentCurrency, satoshisPerUSD)}
+              icon="flash-outline"
+              iconColor="#FF9F0A"
+              onPress={() => {
+                setThresholdExpanded(e => !e)
+                if (!thresholdExpanded) {
+                  // Pre-fill input with current value in display currency
+                  if (currentCurrency === 'USD' && satoshisPerUSD > 0) {
+                    setThresholdInput(thresholdSats === 0 ? '0' : (thresholdSats / satoshisPerUSD).toFixed(2))
+                  } else {
+                    setThresholdInput(String(thresholdSats))
+                  }
+                }
+              }}
+              showChevron={thresholdExpanded}
+              chevronDown={thresholdExpanded}
+            />
+            {thresholdExpanded && (
+              <View style={localStyles.networkList}>
+                <View style={localStyles.thresholdRow}>
+                  <TextInput
+                    style={[localStyles.thresholdInput, { color: colors.textPrimary, borderColor: colors.separator }]}
+                    value={thresholdInput}
+                    onChangeText={handleThresholdInput}
+                    keyboardType="numeric"
+                    placeholder={`0 ${getUnitLabel(currentCurrency)}`}
+                    placeholderTextColor={colors.textSecondary}
+                    returnKeyType="done"
+                  />
+                  <Text style={[localStyles.thresholdUnit, { color: colors.textSecondary }]}>
+                    {getUnitLabel(currentCurrency)}
+                  </Text>
+                </View>
+              </View>
+            )}
+            <ListRow
+              label={t('trust_network')}
+              icon="shield-checkmark-outline"
+              iconColor="#BF5AF2"
+              onPress={() => router.push('/trust' as any)}
               isLast
             />
           </GroupedSection>
+
+          {/* ── Data & Security ── */}
+          <GroupedSection header={t('data_and_security')}>
+            {/* Vault's primary entry lives on the wallet menu (below Payments).
+                The DEV mock toggle stays here. */}
+            {__DEV__ && (
+              <ListRow
+                label={t('vault_mock_toggle')}
+                icon="bug-outline"
+                iconColor="#8E8E93"
+                showChevron={false}
+                value={vaultMockOn ? t('vault_on') : t('vault_off')}
+                onPress={() => {
+                  const next = !vaultMockOn
+                  setVaultMockOn(next)
+                  setMockDriverEnabled(next)
+                }}
+              />
+            )}
+            <ListRow
+              label={t('storage_row')}
+              icon="server-outline"
+              iconColor="#8E8E93"
+              showChevron={false}
+              onPress={handleStorage}
+              trailing={storageBusy ? <ActivityIndicator size="small" /> : undefined}
+            />
+            <ListRow
+              label={t('export_wallet_data')}
+              icon="share-outline"
+              iconColor="#32ADE6"
+              onPress={handleExportData}
+              showChevron={false}
+              trailing={isExporting ? <ActivityIndicator size="small" /> : undefined}
+            />
+            <ListRow
+              label={t('import_wallet_data')}
+              icon="download-outline"
+              iconColor="#30D158"
+              onPress={handleImportData}
+              showChevron={false}
+              trailing={isImporting ? <ActivityIndicator size="small" /> : undefined}
+            />
+            <ListRow
+              label="Debugging"
+              icon="terminal-outline"
+              iconColor="#8E8E93"
+              onPress={() => router.push('/logs' as any)}
+              isLast
+            />
+          </GroupedSection>
+
+          {/* ── Private backup ──
+              Its own section purely so the footer can carry the disclosure: the app sends an
+              encrypted copy of the wallet database to a BSVA-operated server by default, and
+              that deserves saying out loud rather than burying in a row label. */}
+          {DEFAULT_BACKUP_URL !== '' && (
+            <GroupedSection header={t('backup_push_section')} footer={t('backup_push_disclosure')}>
+              <ListRow
+                label={t('backup_push_toggle')}
+                icon="cloud-upload-outline"
+                iconColor="#0A84FF"
+                showChevron={false}
+                value={backupPushOn ? t('vault_on') : t('vault_off')}
+                onPress={handleToggleBackupPush}
+              />
+              {/* Erasure on request. Separate from the toggle because they are different
+                  asks: the toggle stops sending anything new, this removes what is already
+                  there. Turning the toggle off deliberately deletes nothing. */}
+              <ListRow
+                label={t('backup_erase_row')}
+                icon="trash-outline"
+                iconColor={colors.error}
+                destructive
+                showChevron={false}
+                onPress={handleEraseBackup}
+                trailing={erasingBackup ? <ActivityIndicator size="small" /> : undefined}
+                isLast
+              />
+            </GroupedSection>
+          )}
+          </>
         )}
 
         {/* ── Account ── */}
         <GroupedSection>
           <ListRow
-            label={t('delete_wallet')}
-            icon="trash-outline"
+            label={t('log_out')}
+            icon="log-out-outline"
             iconColor={colors.error}
             onPress={async () => {
               const choice = await showAlert({

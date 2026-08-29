@@ -753,21 +753,11 @@ export function WalletHomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScreenGradient from={colors.canvasTop} to={colors.canvasBase} height={360} />
 
+      {/* Settings is the only thing up here: it is navigation chrome, not a
+          money action, so it should not compete with Pay and Vault for the eye.
+          Connections moved into Settings as "Connect to App" — pairing a desktop
+          app is a once-in-a-while errand, not a home-screen affordance. */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.push('/connections')}
-          style={[
-            styles.iconBtn,
-            { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={t('connections')}
-        >
-          <Ionicons name="link-outline" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
-        {/* Settings lives here rather than among the destinations below: it is
-            navigation chrome, not a money action, so it should not compete with
-            Pay and Vault for the eye. */}
         <TouchableOpacity
           onPress={() => router.push('/wallet-config')}
           style={[
@@ -777,7 +767,7 @@ export function WalletHomeScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('wallet_settings')}
         >
-          <Ionicons name="options-outline" size={17} color={colors.textSecondary} />
+          <Ionicons name="settings-outline" size={17} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -827,7 +817,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs

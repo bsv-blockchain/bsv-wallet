@@ -5,6 +5,15 @@ export const AUTO_APPROVE_COOLDOWN_MS = 10_000
 /** AsyncStorage key for persisted auto-approve threshold */
 export const AUTO_APPROVE_STORAGE_KEY = 'autoApproveThreshold'
 
+/**
+ * AsyncStorage key for whether Settings' Advanced group is expanded.
+ *
+ * Persisted so the split is a default, not a wall: a holder who never opens it
+ * gets a four-row screen forever, and an operator who lives in Network/ARC
+ * finds it open on every visit rather than re-tapping it each time.
+ */
+export const ADVANCED_SETTINGS_EXPANDED_KEY = 'settingsAdvancedExpanded'
+
 /** AsyncStorage key for custom ARC URL override (per network) */
 export const arcUrlStorageKey = (network: string) => `arc_custom_url_${network}`
 /** AsyncStorage key for custom ARC API token override (per network) */

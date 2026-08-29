@@ -158,7 +158,7 @@ export default function RecipientField({
                   </Text>
                 </View>
                 {identity.badgeLabel ? (
-                  <View style={[styles.badge, { backgroundColor: colors.accent + '20' }]}>
+                  <View style={[styles.badge, { backgroundColor: colors.fill }]}>
                     <Text style={[styles.badgeText, { color: colors.accent }]}>{identity.badgeLabel}</Text>
                   </View>
                 ) : null}

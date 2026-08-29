@@ -257,7 +257,7 @@ function AttentionRow({
       {identity?.avatarURL ? (
         <Image source={{ uri: identity.avatarURL }} style={styles.paymentAvatar} />
       ) : (
-        <View style={[styles.paymentAvatarPlaceholder, { backgroundColor: colors.accent + 'CC' }]}>
+        <View style={[styles.paymentAvatarPlaceholder, { backgroundColor: colors.accent }]}>
           <Ionicons name="person" size={24} color={colors.background} />
         </View>
       )}
