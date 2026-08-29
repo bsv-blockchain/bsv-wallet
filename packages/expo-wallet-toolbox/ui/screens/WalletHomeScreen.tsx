@@ -671,7 +671,7 @@ export function WalletHomeScreen() {
           )}
         </TouchableOpacity>
 
-        {/* The three destinations. Pay is the only accent-filled element on this
+        {/* The destinations. Pay is the only accent-filled element on this
             screen, so the eye lands on it first. */}
         <View style={styles.destinations}>
           <PressableScale
@@ -699,6 +699,7 @@ export function WalletHomeScreen() {
             </Text>
           </PressableScale>
 
+          {/* Vault — hidden for now; will release once R1-K1 research is complete.
           <PressableScale
             onPress={() => router.push('/vault')}
             style={[
@@ -711,6 +712,7 @@ export function WalletHomeScreen() {
               {t('wallet_vault')}
             </Text>
           </PressableScale>
+          */}
         </View>
 
         <View style={styles.activityHead}>
