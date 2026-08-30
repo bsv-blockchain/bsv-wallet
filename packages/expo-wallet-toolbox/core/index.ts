@@ -82,6 +82,7 @@ export { getExchangeRate } from './services/exchangeRate'
 
 // Pay rails
 export * from './pay/rails'
+export * from './pay/beefRepair'
 export * from './pay/rails/address'
 export * from './pay/rails/handle'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)
