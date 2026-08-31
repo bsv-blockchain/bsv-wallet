@@ -40,6 +40,13 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
     private readonly online: () => Promise<boolean>
   ) {}
 
+  /** Consume the most recent unresolved height, if any. */
+  takeLastMissHeight(): number | undefined {
+    const height = this.lastMissHeight
+    this.lastMissHeight = undefined
+    return height
+  }
+
   setStore(store: HeaderStore): void {
     this.store = store
   }

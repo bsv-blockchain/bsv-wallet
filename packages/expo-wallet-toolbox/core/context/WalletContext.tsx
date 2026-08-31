@@ -161,6 +161,7 @@ import { restoreOnImport } from '../backup/restoreOnImport'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
 import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
+import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { classifyCreditError } from '../pay/creditErrors'
 import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
 import { makeBeefRepair } from '../pay/beefRepair'
@@ -271,6 +272,8 @@ export interface WalletContextValue {
   storage: StorageExpoSQLite | null
   /** Fetch BUMP from WoC and store merkle proof, advancing tx status to completed */
   refreshProof: (txid: string) => Promise<'confirmed' | 'pending' | 'failed'>
+  /** Consume OfflineFirstChaintracks.lastMissHeight for credit-error classification. */
+  takeLastMissHeight: () => number | undefined
   /** Incremented when a transaction status changes via SSE, triggers UI refresh */
   txStatusVersion: number
   /** The active user's storage id, for scoping `offline_actions` reads. null if unknown. */
@@ -326,6 +329,7 @@ export const WalletContext = createContext<WalletContextValue>({
   rebuildWallet: async () => {},
   storage: null,
   refreshProof: async () => 'pending',
+  takeLastMissHeight: () => undefined,
   txStatusVersion: 0,
   walletUserId: null,
   walletBuilding: false,
@@ -1272,7 +1276,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   client,
                   messageBoxUrl,
                   storage: phoneStorage!,
-                  classify: e => classifyCreditError(e, { offline: !getOnline() }),
+                  classify: e =>
+                    classifyCreditError(e, {
+                      offline: !getOnline(),
+                      lastMissHeight: offlineChaintracks.takeLastMissHeight()
+                    }),
                   accept: payment =>
                     acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
                       internalizeIncoming(permissionsManager as never, client, adminOriginator, p, d, repairBeef)
@@ -2149,24 +2157,35 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const bumpHex = (await res.text()).trim()
         const merklePath = MerklePath.fromHex(bumpHex)
         const merkleRoot = merklePath.computeRoot(txid)
-        const leaf = merklePath.path[0].find(l => l.txid === true && l.hash === txid)
-        if (!leaf) throw new Error('txid not found in BUMP path')
+        const ct = offlineChaintracksRef.current
+        if (!ct || !(await ct.isValidRootForHeight(merkleRoot, merklePath.blockHeight))) {
+          return 'pending'
+        }
+
+        const store = headerStoreRef.current
+        let headerHash = store && store.tipHeight === merklePath.blockHeight ? store.tipHash : ''
+        if (!headerHash) {
+          try {
+            const header = await ct.findHeaderForHeight(merklePath.blockHeight)
+            headerHash = header?.hash ?? ''
+          } catch {
+            return 'pending'
+          }
+        }
+        if (!headerHash) return 'pending'
 
         const reqs = await storage.findProvenTxReqs({ partial: { txid } })
         if (!reqs.length) throw new Error('No pending record found for this transaction')
 
         const req = reqs[0]
+        const proof = provenTxFromBump({ merklePath, txid, headerHash })
         await storage.updateProvenTxReqWithNewProvenTx({
           provenTxReqId: req.provenTxReqId,
           status: req.status,
           txid,
           attempts: req.attempts,
           history: req.history,
-          index: leaf.offset,
-          height: merklePath.blockHeight,
-          blockHash: '',
-          merklePath: merklePath.toBinary(),
-          merkleRoot
+          ...proof
         })
         setTxStatusVersion(v => v + 1)
         return 'confirmed'
@@ -2215,6 +2234,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       return 'failed'
     },
     [storage, selectedNetwork]
+  )
+
+  const takeLastMissHeight = useCallback(
+    () => offlineChaintracksRef.current?.takeLastMissHeight(),
+    []
   )
 
   const runMonitorTask = useCallback(async (taskName: string): Promise<string> => {
@@ -2463,6 +2487,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       rebuildWallet,
       storage,
       refreshProof,
+      takeLastMissHeight,
       txStatusVersion,
       walletUserId,
       walletBuilding,
@@ -2504,6 +2529,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       rebuildWallet,
       storage,
       refreshProof,
+      takeLastMissHeight,
       txStatusVersion,
       walletUserId,
       walletBuilding,

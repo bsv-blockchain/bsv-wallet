@@ -333,7 +333,7 @@ export default function HandleReceive() {
   const Ionicons = loadIonicons()
   const QRCode = loadQRCode()
   const { useFocusEffect } = loadExpoRouter()
-  const { managers, adminOriginator, selectedNetwork, storage } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, takeLastMissHeight } = useWallet()
   const wallet = managers?.permissionsManager || null
   const online = useOnline()
 
@@ -477,15 +477,14 @@ export default function HandleReceive() {
         messageBoxUrl,
         storage: storage ?? undefined,
         force,
-        // OfflineFirstChaintracks is not on WalletContext; AtomicBEEF while
-        // offline is environmental (headers / chaintracks cannot be consulted).
-        classify: e => classifyCreditError(e, { offline: !online }),
+        classify: e =>
+          classifyCreditError(e, { offline: !online, lastMissHeight: takeLastMissHeight() }),
         accept: payment => acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, internalize)
       })
       applyCreditResult(outcome)
       return outcome
     },
-    [peerPayClient, messageBoxUrl, storage, online, internalize, applyCreditResult]
+    [peerPayClient, messageBoxUrl, storage, online, takeLastMissHeight, internalize, applyCreditResult]
   )
 
   const fetchPayments = useCallback(

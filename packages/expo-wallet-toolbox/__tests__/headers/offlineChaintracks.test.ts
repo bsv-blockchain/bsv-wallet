@@ -81,6 +81,15 @@ describe('OfflineFirstChaintracks', () => {
     expect((r as never as { findHeaderForHeight: jest.Mock }).findHeaderForHeight).not.toHaveBeenCalled()
   })
 
+  it('takeLastMissHeight returns a recorded miss and then clears it', async () => {
+    const ct = new OfflineFirstChaintracks(remote(), async () => false)
+    ct.setStore(await HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR))
+    expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(false)
+    expect(ct.takeLastMissHeight()).toBe(5)
+    expect(ct.takeLastMissHeight()).toBeUndefined()
+    expect(ct.lastMissHeight).toBeUndefined()
+  })
+
   it('refuses on a miss with no store at all', async () => {
     const ct = new OfflineFirstChaintracks(remote(), async () => false)
     expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(false)

@@ -130,7 +130,8 @@ function useWalletCheckPorts(): WalletCheckPorts {
     selectedNetwork,
     checkUtxoSpendability,
     releaseStuckReservations,
-    runMonitorTask
+    runMonitorTask,
+    takeLastMissHeight
   } = useWallet()
   const wallet = managers?.permissionsManager
 
@@ -205,7 +206,8 @@ function useWalletCheckPorts(): WalletCheckPorts {
           const outcome = await autoAcceptInbox({
             payments: list,
             attempts: {},
-            classify: (e: unknown) => classifyCreditError(e, { offline: !getOnline() }),
+            classify: (e: unknown) =>
+              classifyCreditError(e, { offline: !getOnline(), lastMissHeight: takeLastMissHeight() }),
             accept: payment =>
               acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
                 internalizeIncoming(wallet as never, client, adminOriginator, p, d, repairBeef)
@@ -246,6 +248,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
       runMonitorTask,
       selectedNetwork,
       storage,
+      takeLastMissHeight,
       wallet
     ]
   )
