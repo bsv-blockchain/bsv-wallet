@@ -747,6 +747,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'Show code again'
     }
   },
@@ -1247,6 +1248,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: '再次显示付款码'
     }
   },
@@ -1753,6 +1755,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'कोड फिर दिखाएँ'
     }
   },
@@ -2260,6 +2263,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'Mostrar el código otra vez'
     }
   },
@@ -2760,6 +2764,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'Réafficher le code'
     }
   },
@@ -3256,6 +3261,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'إظهار الرمز مرة أخرى'
     }
   },
@@ -3756,6 +3762,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'Mostrar o código novamente'
     }
   },
@@ -4256,6 +4263,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'কোড আবার দেখান'
     }
   },
@@ -4757,6 +4765,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'Показать код снова'
     }
   },
@@ -5258,6 +5267,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'Tampilkan kode lagi'
     }
   },
@@ -5772,6 +5782,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'コードをもう一度表示'
     }
   },
@@ -6289,6 +6300,7 @@ const resources = {
       offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
       offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
       pay_offline_show_code: 'Pokaż kod ponownie'
     }
   }

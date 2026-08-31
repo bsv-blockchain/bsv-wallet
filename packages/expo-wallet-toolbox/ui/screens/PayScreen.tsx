@@ -39,7 +39,7 @@ import {
   type OfflineActionRow,
   TaskSendOffline
 } from '@bsv/expo-wallet-toolbox'
-import { getUnprocessed } from '../../core/localpay/pending'
+import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -163,6 +163,7 @@ export function PayScreen() {
   const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [pendingCount, setPendingCount] = useState(0)
+  const [pendingCorrupt, setPendingCorrupt] = useState(false)
   const [showCode, setShowCode] = useState<OfflineActionRow | null>(null)
   const [queueNonce, setQueueNonce] = useState(0)
 
@@ -217,9 +218,12 @@ export function PayScreen() {
       try {
         if (storage) {
           try {
-            setPendingCount((await getUnprocessed(storage)).length)
+            const pending = await readUnprocessedPending(storage)
+            setPendingCount(pending.count)
+            setPendingCorrupt(pending.corrupt)
           } catch {
             setPendingCount(0)
+            setPendingCorrupt(getPendingCorruptNotice())
           }
         }
         const db = storage?.sqliteDb
@@ -322,6 +326,7 @@ export function PayScreen() {
         onSendNow={() => TaskSendOffline.requestNow()}
         stalled={stalled}
         pendingCount={pendingCount}
+        pendingCorrupt={pendingCorrupt}
         queuedSent={queuedSentRows}
         onShowCode={setShowCode}
         onRequestAgain={row => void onRequestAgain(row)}

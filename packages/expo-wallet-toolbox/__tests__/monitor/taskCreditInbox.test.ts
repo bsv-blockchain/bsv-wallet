@@ -49,7 +49,7 @@ describe('TaskCreditInbox trigger', () => {
     expect(t.trigger(0).run).toBe(true)
   })
 
-  it('does not fire periodically with nothing pending', () => {
+  it('does not fire periodically before the first run has scheduled a backoff', () => {
     TaskCreditInbox.noteConnectivity(true)
     TaskCreditInbox.checkNow = false
     const { t } = task([], { t: 0 })
@@ -92,15 +92,25 @@ describe('TaskCreditInbox backoff', () => {
     expect(TaskCreditInbox.backoffMs).toBeLessThanOrEqual(TaskCreditInbox.MAX_BACKOFF_MS)
   })
 
-  it('a clean run clears pending and resets backoff', async () => {
+  it('a clean run clears pending and keeps 10s→5min idle backoff while online', async () => {
     const nowRef = { t: 0 }
     TaskCreditInbox.noteConnectivity(true)
     TaskCreditInbox.noteEnqueued()
-    const { t } = task([idle], nowRef)
+    const { t } = task([idle, idle, idle], nowRef)
     await t.runTask()
     expect(TaskCreditInbox.hasPending).toBe(false)
-    expect(TaskCreditInbox.backoffMs).toBe(TaskCreditInbox.BASE_BACKOFF_MS)
-    expect(t.trigger(1_000_000).run).toBe(false)
+    expect(t.trigger(9_999).run).toBe(false)
+    expect(t.trigger(10_000).run).toBe(true)
+
+    nowRef.t = 10_000
+    await t.runTask()
+    expect(TaskCreditInbox.hasPending).toBe(false)
+    expect(t.trigger(29_999).run).toBe(false)
+    expect(t.trigger(30_000).run).toBe(true)
+
+    nowRef.t = 30_000
+    await t.runTask()
+    expect(TaskCreditInbox.backoffMs).toBe(80_000)
   })
 
   it('a throwing credit is a stopped run, not a dead task', async () => {

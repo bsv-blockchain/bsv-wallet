@@ -39,7 +39,7 @@ import { showToast } from '../ui/Toast'
 import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
 import { makeBeefRepair } from '../../../core/pay/beefRepair'
 import { wocConfigFor } from '../../../core/pay/rails/address'
-import { classifyCreditError } from '../../../core/pay/creditErrors'
+import { makeCreditClassifier } from '../../../core/pay/creditErrors'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
 import { userFacingPayError } from '../../../core/pay/userError'
 import { creditInboxOnce, INBOX_DESCRIPTION, type CreditInboxResult } from '../../../core/pay/creditInbox'
@@ -491,12 +491,16 @@ export default function HandleReceive() {
     async (force?: string[]) => {
       const client = peerPayClient
       if (!client || !messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return undefined
+      const classify = await makeCreditClassifier({
+        getOnline: () => online,
+        takeLastMissHeight
+      })
       const outcome = await creditInboxOnce({
         client,
         messageBoxUrl,
         storage: storage ?? undefined,
         force,
-        classify: e => classifyCreditError(e, { offline: !online, lastMissHeight: takeLastMissHeight() }),
+        classify,
         accept: payment => acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, internalize)
       })
       applyCreditResult(outcome)

@@ -1,7 +1,7 @@
 import {
   savePending, getPending, getUnprocessed, updateStatus, processPending,
   markSessionSpent, isSessionSpent, PENDING_KEY, SPENT_KEY,
-  PendingCorruptError, getPendingCorruptNotice,
+  PendingCorruptError, getPendingCorruptNotice, readUnprocessedPending,
 } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import { Transaction, Beef, LockingScript } from '@bsv/sdk'
@@ -79,6 +79,18 @@ describe('localpay pending queue', () => {
     const s = fakeStorage()
     s.map.set(PENDING_KEY, '{not json')
     await expect(getUnprocessed(s)).rejects.toThrow(PendingCorruptError)
+  })
+
+  it('readUnprocessedPending reports corrupt instead of an empty queue', async () => {
+    const s = fakeStorage()
+    s.map.set(PENDING_KEY, '{not json')
+    expect(await readUnprocessedPending(s)).toEqual({ count: 0, corrupt: true })
+  })
+
+  it('readUnprocessedPending counts unprocessed entries', async () => {
+    const s = fakeStorage()
+    await savePending(s, frame())
+    expect(await readUnprocessedPending(s)).toEqual({ count: 1, corrupt: false })
   })
 
   it('surfaces a corrupt-pending notice until a successful parse', async () => {

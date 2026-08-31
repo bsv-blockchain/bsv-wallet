@@ -22,3 +22,19 @@ export function classifyCreditError(
   if (/network request failed|timed? ?out|chaintracks/i.test(message)) return 'environmental'
   return 'structural'
 }
+
+/**
+ * Snapshot online + last-miss once for a credit pass.
+ *
+ * `getOnline()` is async: `offline: !getOnline()` is always false because a
+ * Promise is truthy. `takeLastMissHeight()` consumes; calling it from classify
+ * would give only the first payment the miss.
+ */
+export async function makeCreditClassifier(args: {
+  getOnline: () => boolean | Promise<boolean>
+  takeLastMissHeight: () => number | undefined
+}): Promise<(e: unknown) => CreditFailureKind> {
+  const offline = !(await args.getOnline())
+  const lastMissHeight = args.takeLastMissHeight()
+  return e => classifyCreditError(e, { offline, lastMissHeight })
+}

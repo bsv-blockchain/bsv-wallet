@@ -55,7 +55,8 @@ beforeAll(() => {
       offline_stall_foreign_ancestor:
         'A queued payment is waiting on a parent transaction another wallet never broadcast.',
       pay_offline_stalled_body: 'Some queued payments can’t be sent automatically: {{detail}}',
-      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.'
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
+      pay_offline_kv_corrupt: 'Damaged payment data was found on this device.'
     },
     true,
     true
@@ -169,6 +170,14 @@ describe('OfflineNotice', () => {
   it('reports unprocessed nearby pending count', () => {
     const { getByText } = render(<OfflineNotice online queued={0} rejected={[]} pendingCount={2} />)
     expect(getByText(/2 nearby payment/i)).toBeTruthy()
+  })
+
+  it('surfaces damaged nearby payment data instead of going blank', () => {
+    const { getByText, toJSON } = render(
+      <OfflineNotice online queued={0} rejected={[]} pendingCount={0} pendingCorrupt />
+    )
+    expect(toJSON()).not.toBeNull()
+    expect(getByText(/damaged payment data/i)).toBeTruthy()
   })
 
   it('offers show-code only for queued sent rows that carry a frame', () => {

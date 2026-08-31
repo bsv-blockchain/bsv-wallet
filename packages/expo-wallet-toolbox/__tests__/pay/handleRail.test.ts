@@ -3,7 +3,9 @@ import {
   MESSAGE_BOX_URL_KEY,
   NO_MESSAGE_BOX,
   acceptWithRetry,
+  autoAcceptInbox,
   internalizeIncoming,
+  resetCreditAckQueueForTests,
   cancelOutboxPayment,
   isMessageBoxNetworkError,
   peerPayLinkFor,
@@ -59,6 +61,8 @@ describe('message box constants', () => {
 })
 
 describe('internalizeIncoming', () => {
+  beforeEach(() => resetCreditAckQueueForTests())
+
   const payment = {
     messageId: 'm1',
     sender: KEY,
@@ -110,6 +114,28 @@ describe('internalizeIncoming', () => {
     const client = { acknowledgeMessage: jest.fn() }
     await expect(internalizeIncoming(wallet as never, client as never, 'admin.com', payment, 'x')).rejects.toThrow()
     expect(client.acknowledgeMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not fail the credit when acknowledgeMessage throws after internalizeAction succeeds', async () => {
+    const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
+    const client = { acknowledgeMessage: jest.fn().mockRejectedValue(new Error('offline')) }
+    await expect(
+      internalizeIncoming(wallet as never, client as never, 'admin.com', payment, 'x')
+    ).resolves.toBeUndefined()
+    expect(wallet.internalizeAction).toHaveBeenCalled()
+    expect(client.acknowledgeMessage).toHaveBeenCalled()
+  })
+
+  it('counts an ack-failed internalize as accepted, not a failed credit', async () => {
+    const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
+    const client = { acknowledgeMessage: jest.fn().mockRejectedValue(new Error('offline')) }
+    const result = await autoAcceptInbox({
+      payments: [payment],
+      attempts: {},
+      accept: p => internalizeIncoming(wallet as never, client as never, 'admin.com', p, 'x')
+    })
+    expect(result.accepted).toBe(1)
+    expect(result.attempts).toEqual({})
   })
 })
 

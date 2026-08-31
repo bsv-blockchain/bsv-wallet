@@ -12,11 +12,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PeerPayClient } from '@bsv/message-box-client'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
 import { showAlert } from '../components/ui/AlertCard'
-import { classifyCreditError } from '../../core/pay/creditErrors'
+import { makeCreditClassifier } from '../../core/pay/creditErrors'
+import { creditInboxOnce, INBOX_DESCRIPTION } from '../../core/pay/creditInbox'
 import { makeBeefRepair } from '../../core/pay/beefRepair'
 import {
   acceptWithRetry,
-  autoAcceptInbox,
   DEFAULT_MESSAGE_BOX_URL,
   internalizeIncoming,
   LEGACY_MESSAGE_BOX_URL,
@@ -75,8 +75,6 @@ const STEPS: { id: WalletCheckStepId; labelKey: string }[] = [
   { id: 'proofs', labelKey: 'wallet_check_step_proofs' },
   { id: 'missed_payments', labelKey: 'wallet_check_step_missed' }
 ]
-
-const INBOX_DESCRIPTION = 'Identity Payment'
 
 export function isReviewActionsError(error: unknown): boolean {
   return userFacingPayError(error).offerWalletCheck
@@ -188,13 +186,13 @@ function useWalletCheckPorts(): WalletCheckPorts {
             walletClient: wallet as never,
             originator: adminOriginator
           })
-          const list = await client.listIncomingPayments(messageBoxUrl)
           const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
-          const outcome = await autoAcceptInbox({
-            payments: list,
-            attempts: {},
-            classify: (e: unknown) =>
-              classifyCreditError(e, { offline: !getOnline(), lastMissHeight: takeLastMissHeight() }),
+          const classify = await makeCreditClassifier({ getOnline, takeLastMissHeight })
+          const outcome = await creditInboxOnce({
+            client,
+            messageBoxUrl,
+            storage: storage ?? undefined,
+            classify,
             accept: payment =>
               acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
                 internalizeIncoming(wallet as never, client, adminOriginator, p, d, repairBeef)

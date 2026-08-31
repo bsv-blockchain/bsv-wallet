@@ -164,7 +164,7 @@ import { findOfflineActions } from '../storage/methods/offlineActions'
 import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
 import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueuedAncestors'
 import { provenTxFromBump } from '../pay/provenTxFromBump'
-import { classifyCreditError } from '../pay/creditErrors'
+import { makeCreditClassifier } from '../pay/creditErrors'
 import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
 import { makeBeefRepair } from '../pay/beefRepair'
 import {
@@ -1276,15 +1276,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   return { accepted: 0, attention: 0, pending: false }
                 }
                 const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+                const classify = await makeCreditClassifier({
+                  getOnline,
+                  takeLastMissHeight: () => offlineChaintracks.takeLastMissHeight()
+                })
                 const r = await creditInboxOnce({
                   client,
                   messageBoxUrl,
                   storage: phoneStorage!,
-                  classify: e =>
-                    classifyCreditError(e, {
-                      offline: !getOnline(),
-                      lastMissHeight: offlineChaintracks.takeLastMissHeight()
-                    }),
+                  classify,
                   accept: payment =>
                     acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
                       internalizeIncoming(permissionsManager as never, client, adminOriginator, p, d, repairBeef)

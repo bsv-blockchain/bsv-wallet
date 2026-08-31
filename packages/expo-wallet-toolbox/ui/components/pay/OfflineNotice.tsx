@@ -90,6 +90,8 @@ export interface OfflineNoticeProps {
   compact?: boolean
   /** Unprocessed `localpay_pending` KV entries waiting to internalize. */
   pendingCount?: number
+  /** Corrupt `localpay_pending` blob was quarantined, not treated as empty. */
+  pendingCorrupt?: boolean
 }
 
 export default function OfflineNotice({
@@ -106,7 +108,8 @@ export default function OfflineNotice({
   onCopyDetails,
   onDismiss,
   compact = false,
-  pendingCount = 0
+  pendingCount = 0,
+  pendingCorrupt = false
 }: OfflineNoticeProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -117,7 +120,8 @@ export default function OfflineNotice({
     rejected.length === 0 &&
     sentRejected.length === 0 &&
     (queuedSent ?? []).length === 0 &&
-    pendingCount === 0
+    pendingCount === 0 &&
+    !pendingCorrupt
   )
     return null
 
@@ -204,6 +208,14 @@ export default function OfflineNotice({
             <Text style={[styles.body, { color: colors.textSecondary }]}>
               {t('pay_offline_kv_pending', { count: pendingCount })}
             </Text>
+          </View>
+        </View>
+      )}
+      {pendingCorrupt && (
+        <View style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
+          <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />
+          <View style={styles.text}>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>{t('pay_offline_kv_corrupt')}</Text>
           </View>
         </View>
       )}

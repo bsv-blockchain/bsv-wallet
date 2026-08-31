@@ -3,7 +3,9 @@
  *
  * Triggering mirrors TaskSendOffline: gated on the app's single online signal,
  * with an immediate pass on reconnect / foreground / requestNow and exponential
- * backoff (10s → 5min) while auto-accept still has retryable work.
+ * backoff (10s → 5min) while auto-accept still has retryable work — and the
+ * same idle backoff after a clean pass so sitting on Home still credits new
+ * mail.
  *
  * All state is static and process-global BY DESIGN: the monitor is torn down
  * and rebuilt on network switches and wallet rebuilds, and a pending inbox
@@ -76,13 +78,16 @@ export class TaskCreditInbox extends WalletMonitorTask {
 
   trigger(nowMsecsSinceEpoch: number): { run: boolean } {
     if (!TaskCreditInbox.onlineNow) return { run: false }
-    return {
-      run: TaskCreditInbox.checkNow || (TaskCreditInbox.hasPending && nowMsecsSinceEpoch >= TaskCreditInbox.nextDueAt)
-    }
+    if (TaskCreditInbox.checkNow) return { run: true }
+    const due = nowMsecsSinceEpoch >= TaskCreditInbox.nextDueAt
+    if (TaskCreditInbox.hasPending && due) return { run: true }
+    // Idle poll after a clean pass: nextDueAt > 0 means a backoff was scheduled.
+    if (TaskCreditInbox.nextDueAt > 0 && due) return { run: true }
+    return { run: false }
   }
 
-  private scheduleRetry(): void {
-    TaskCreditInbox.hasPending = true
+  private scheduleNext(pending: boolean): void {
+    TaskCreditInbox.hasPending = pending
     TaskCreditInbox.nextDueAt = this.now() + TaskCreditInbox.backoffMs
     TaskCreditInbox.backoffMs = Math.min(TaskCreditInbox.backoffMs * 2, TaskCreditInbox.MAX_BACKOFF_MS)
   }
@@ -92,16 +97,11 @@ export class TaskCreditInbox extends WalletMonitorTask {
     try {
       const r = await this.credit()
       TaskCreditInbox.lastAttentionCount = r.attention
-      if (r.pending) {
-        this.scheduleRetry()
-      } else {
-        TaskCreditInbox.hasPending = false
-        TaskCreditInbox.backoffMs = TaskCreditInbox.BASE_BACKOFF_MS
-      }
+      this.scheduleNext(!!r.pending)
       if (r.accepted === 0 && r.attention === 0) return ''
       return `credited ${r.accepted}, attention ${r.attention}${r.pending ? ', pending' : ''}\n`
     } catch (e) {
-      this.scheduleRetry()
+      this.scheduleNext(true)
       return `CreditInbox failed: ${e instanceof Error ? e.message : String(e)}\n`
     }
   }

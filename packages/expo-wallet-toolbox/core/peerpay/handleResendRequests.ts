@@ -24,12 +24,71 @@ export type PeerPayActionLike = {
 
 export type PendingResend = { txid: string; sender: string }
 
-type ResendClient = {
+type ListAckClient = {
   listMessages(args: { messageBox: string; host?: string; acceptPayments?: boolean }): Promise<
     { messageId: string; sender: string; body: unknown }[]
   >
-  sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<unknown>
   acknowledgeMessage(args: { messageIds: string[] }): Promise<unknown>
+}
+
+type ResendClient = ListAckClient & {
+  sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<unknown>
+}
+
+function txidFromInboxBody(body: unknown): string | undefined {
+  let value: unknown = body
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return undefined
+    }
+  }
+  if (!value || typeof value !== 'object') return undefined
+  const obj = value as { transaction?: unknown; token?: { transaction?: unknown } }
+  const tx = Array.isArray(obj.transaction)
+    ? obj.transaction
+    : Array.isArray(obj.token?.transaction)
+      ? obj.token.transaction
+      : undefined
+  if (!tx) return undefined
+  try {
+    const txid = Beef.fromBinary(Array.from(tx as number[])).atomicTxid
+    return typeof txid === 'string' && txid.length > 0 ? txid : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Drop a still-uncredited token for `txid`. Already-internalized txs are left
+ * alone — a cancel after broadcast cannot un-mine.
+ */
+async function dropInboxTokenForTxid(client: ListAckClient, txid: string): Promise<void> {
+  const listed = await client.listMessages({
+    messageBox: PAYMENT_INBOX,
+    acceptPayments: false
+  })
+  const ids = (Array.isArray(listed) ? listed : [])
+    .filter(m => txidFromInboxBody(m.body) === txid)
+    .map(m => String(m.messageId))
+  if (ids.length === 0) return
+  await client.acknowledgeMessage({ messageIds: ids })
+}
+
+/** Ack/drop matching inbox tokens, then ack the control message. */
+async function consumePaymentCancelled(
+  client: ListAckClient,
+  msg: { messageId: string },
+  txid: string
+): Promise<void> {
+  try {
+    await dropInboxTokenForTxid(client, txid)
+  } catch {
+    // Leave the control message so a later poll retries the inbox drop.
+    return
+  }
+  await ackControlMessages(client, [msg.messageId])
 }
 
 function recipientFromLabels(labels: string[] | undefined): string | undefined {
@@ -116,19 +175,22 @@ async function storeUnansweredResends(storage: StorageLike, pending: PendingRese
  * only the Resend tap (`handleResendRequests`) and the activity chip do that.
  */
 export async function listPendingResendRequests(args: {
-  client: {
-    listMessages(args: {
-      messageBox: string
-      host?: string
-      acceptPayments?: boolean
-    }): Promise<{ messageId: string; sender: string; body: unknown }[]>
-  }
+  client: ListAckClient
   storage: StorageLike
 }): Promise<{ pending: PendingResend[] }> {
   const messages = await listControlMessages(args.client)
   const pending: PendingResend[] = []
   for (const msg of messages) {
     const parsed = parseControlMessage(msg.body)
+    if (parsed?.type === 'payment_cancelled') {
+      try {
+        await consumePaymentCancelled(args.client, msg, parsed.txid)
+      } catch {
+        // Inbox drop already retried inside consume; a failed control ack is
+        // retried on the next poll. Do not skip remaining resend rows.
+      }
+      continue
+    }
     if (!parsed || parsed.type !== 'resend_request') continue
     pending.push({
       txid: parsed.txid,
@@ -200,6 +262,14 @@ export async function handleResendRequests(args: {
 
   for (const msg of messages) {
     const parsed = parseControlMessage(msg.body)
+    if (parsed?.type === 'payment_cancelled') {
+      try {
+        await consumePaymentCancelled(client, msg, parsed.txid)
+      } catch {
+        // Same as listPendingResendRequests: one cancel must not skip resends.
+      }
+      continue
+    }
     if (!parsed || parsed.type !== 'resend_request') continue
     const sender = typeof msg.sender === 'string' ? msg.sender : ''
     try {

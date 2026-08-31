@@ -129,6 +129,20 @@ export async function getUnprocessed(storage: KVStorage): Promise<PendingPayment
   return (await readAll(storage)).filter(p => p.status !== 'completed')
 }
 
+/** Home/Pay overlay: never treat a corrupt blob as an empty queue. */
+export async function readUnprocessedPending(
+  storage: KVStorage
+): Promise<{ count: number; corrupt: boolean }> {
+  try {
+    return { count: (await getUnprocessed(storage)).length, corrupt: false }
+  } catch (e) {
+    if (e instanceof PendingCorruptError || getPendingCorruptNotice()) {
+      return { count: 0, corrupt: true }
+    }
+    throw e
+  }
+}
+
 /**
  * Nearby pending can internalize while offline: `internalizeAction` parks the
  * broadcast via the storage hold. Connectivity no longer gates the queue.

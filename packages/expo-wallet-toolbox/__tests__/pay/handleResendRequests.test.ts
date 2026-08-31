@@ -1,3 +1,4 @@
+import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { saveOutboxEntry } from '../../core/peerpay/outbox'
 import {
   handleResendRequests,
@@ -5,6 +6,25 @@ import {
   loadUnansweredResends
 } from '../../core/peerpay/handleResendRequests'
 import { PAYMENT_CONTROL_BOX } from '../../core/peerpay/control'
+
+function atomicInboxToken() {
+  const tx = new Transaction()
+  tx.addOutput({
+    satoshis: 1000,
+    lockingScript: LockingScript.fromHex('76a914000000000000000000000000000000000000000088ac')
+  })
+  const txid = tx.id('hex')
+  const beef = new Beef()
+  beef.mergeTransaction(tx)
+  return {
+    txid,
+    token: {
+      customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' },
+      transaction: Array.from(beef.toBinaryAtomic(txid)),
+      amount: 1000
+    }
+  }
+}
 
 function fakeStorage() {
   const map = new Map<string, string>()
@@ -188,15 +208,12 @@ describe('handleResendRequests', () => {
     expect(await loadUnansweredResends(storage)).toEqual([{ txid: 'aa', sender: '02bb' }])
   })
 
-  it('leaves non-resend control messages untouched', async () => {
+  it('leaves unparseable control messages untouched', async () => {
     const sendMessage = jest.fn()
     const acknowledgeMessage = jest.fn()
     const r = await handleResendRequests({
       client: {
-        listMessages: jest.fn().mockResolvedValue([
-          { messageId: 'x', sender: '02aa', body: { type: 'payment_cancelled', txid: 'zz' } },
-          { messageId: 'y', sender: '02aa', body: 'not json' }
-        ]),
+        listMessages: jest.fn().mockResolvedValue([{ messageId: 'y', sender: '02aa', body: 'not json' }]),
         sendMessage,
         acknowledgeMessage
       } as never,
@@ -207,5 +224,59 @@ describe('handleResendRequests', () => {
     expect(r).toEqual({ resent: 0, pending: [] })
     expect(sendMessage).not.toHaveBeenCalled()
     expect(acknowledgeMessage).not.toHaveBeenCalled()
+  })
+
+  it('drops a matching payment_inbox token for payment_cancelled and acks the control message', async () => {
+    const { txid, token } = atomicInboxToken()
+    const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
+    const listMessages = jest.fn(async ({ messageBox }: { messageBox: string }) => {
+      if (messageBox === PAYMENT_CONTROL_BOX) {
+        return [{ messageId: 'c1', sender: '02aa', body: { type: 'payment_cancelled', txid } }]
+      }
+      return [{ messageId: 'p1', sender: '02aa', body: token }]
+    })
+    const r = await listPendingResendRequests({
+      client: { listMessages, acknowledgeMessage } as never,
+      storage: fakeStorage()
+    })
+    expect(r.pending).toEqual([])
+    expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['p1'] })
+    expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c1'] })
+    expect(acknowledgeMessage.mock.invocationCallOrder[0]).toBeLessThan(acknowledgeMessage.mock.invocationCallOrder[1])
+  })
+
+  it('acks payment_cancelled even when the token is already gone from the inbox', async () => {
+    const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
+    const listMessages = jest.fn(async ({ messageBox }: { messageBox: string }) => {
+      if (messageBox === PAYMENT_CONTROL_BOX) {
+        return [{ messageId: 'c1', sender: '02aa', body: { type: 'payment_cancelled', txid: 'aa'.repeat(32) } }]
+      }
+      return []
+    })
+    await listPendingResendRequests({
+      client: { listMessages, acknowledgeMessage } as never,
+      storage: fakeStorage()
+    })
+    expect(acknowledgeMessage).toHaveBeenCalledTimes(1)
+    expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c1'] })
+  })
+
+  it('does not ack payment_cancelled when dropping the inbox token fails', async () => {
+    const { txid, token } = atomicInboxToken()
+    const acknowledgeMessage = jest.fn(async ({ messageIds }: { messageIds: string[] }) => {
+      if (messageIds.includes('p1')) throw new Error('offline')
+    })
+    const listMessages = jest.fn(async ({ messageBox }: { messageBox: string }) => {
+      if (messageBox === PAYMENT_CONTROL_BOX) {
+        return [{ messageId: 'c1', sender: '02aa', body: { type: 'payment_cancelled', txid } }]
+      }
+      return [{ messageId: 'p1', sender: '02aa', body: token }]
+    })
+    await listPendingResendRequests({
+      client: { listMessages, acknowledgeMessage } as never,
+      storage: fakeStorage()
+    })
+    expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['p1'] })
+    expect(acknowledgeMessage).not.toHaveBeenCalledWith({ messageIds: ['c1'] })
   })
 })

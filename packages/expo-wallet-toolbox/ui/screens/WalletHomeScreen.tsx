@@ -72,7 +72,7 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
-import { getUnprocessed } from '../../core/localpay/pending'
+import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
@@ -276,6 +276,7 @@ export function WalletHomeScreen() {
   const [unsentCount, setUnsentCount] = useState(0)
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [pendingCount, setPendingCount] = useState(0)
+  const [pendingCorrupt, setPendingCorrupt] = useState(false)
   // Per-row in-flight action, keyed by txid (or reference for abort) so only
   // the tapped row shows a spinner rather than the whole list.
   const [busyRow, setBusyRow] = useState<string | null>(null)
@@ -470,9 +471,12 @@ export function WalletHomeScreen() {
     try {
       if (storage) {
         try {
-          setPendingCount((await getUnprocessed(storage)).length)
+          const pending = await readUnprocessedPending(storage)
+          setPendingCount(pending.count)
+          setPendingCorrupt(pending.corrupt)
         } catch {
           setPendingCount(0)
+          setPendingCorrupt(getPendingCorruptNotice())
         }
       }
       const db = storage?.sqliteDb
@@ -1025,6 +1029,7 @@ export function WalletHomeScreen() {
           onSendNow={() => TaskSendOffline.requestNow()}
           stalled={stalled}
           pendingCount={pendingCount}
+          pendingCorrupt={pendingCorrupt}
           queuedSent={queuedSent}
           onShowCode={() => router.push('/pay')}
           onRequestAgain={row => void onRequestAgain(row)}
@@ -1081,6 +1086,7 @@ export function WalletHomeScreen() {
       queuedSent,
       stalled,
       pendingCount,
+      pendingCorrupt,
       onRequestAgain,
       onCopyDetails,
       onDismiss,

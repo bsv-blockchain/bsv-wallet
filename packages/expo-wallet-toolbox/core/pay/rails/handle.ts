@@ -162,7 +162,33 @@ export async function internalizeIncoming(
     await wallet.internalizeAction(argsFor(repaired), adminOriginator)
   }
 
-  await client.acknowledgeMessage({ messageIds: [payment.messageId] })
+  await acknowledgeCredited(client, String(payment.messageId))
+}
+
+/** Inbox ids whose credit succeeded but whose ack did not. Retry, do not NACK. */
+const pendingCreditAcks = new Set<string>()
+
+export function resetCreditAckQueueForTests(): void {
+  pendingCreditAcks.clear()
+}
+
+/**
+ * Ack after a successful internalize. A throw here is not a credit failure —
+ * the wallet already owns the payment.
+ */
+async function acknowledgeCredited(
+  client: Pick<PeerPayClient, 'acknowledgeMessage'>,
+  messageId: string
+): Promise<void> {
+  pendingCreditAcks.add(messageId)
+  const ids = [...pendingCreditAcks]
+  try {
+    await client.acknowledgeMessage({ messageIds: ids })
+    for (const id of ids) pendingCreditAcks.delete(id)
+  } catch {
+    // Leave ids queued for a later successful credit. Do not throw: auto-accept
+    // would record a failed attempt and eventually NACK money this wallet holds.
+  }
 }
 
 /** The AtomicBEEF subject txid, or undefined if the bytes will not parse. */
