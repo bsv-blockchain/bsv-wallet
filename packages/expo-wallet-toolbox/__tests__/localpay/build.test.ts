@@ -380,6 +380,22 @@ describe('finalizeDelivery when offline', () => {
     expect(order).toEqual(['hold', 'broadcast'])
   })
 
+  it('does not sendWith when the hold is rejected, even online', async () => {
+    const wallet = {
+      createAction: jest.fn().mockResolvedValue({ sendWithResults: [{ txid: built.txid, status: 'sending' }] }),
+      abortAction: jest.fn(),
+      getPublicKey: jest.fn(),
+      signAction: jest.fn()
+    }
+    const hold = jest.fn().mockRejectedValue(new Error('db locked'))
+    const r = await finalizeDelivery(wallet as never, built, { ok: true }, 'admin.com', {
+      online: async () => true,
+      hold
+    })
+    expect(r).toEqual({ kind: 'sent', broadcast: 'pending', detail: 'db locked' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
   it('still aborts on a negative ack while offline', async () => {
     const wallet = {
       createAction: jest.fn(),

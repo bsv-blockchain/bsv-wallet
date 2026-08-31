@@ -320,22 +320,13 @@ export async function finalizeDelivery(
     try {
       await deps.hold(built.txid)
     } catch (e) {
-      if (!isOnline) {
-        // The payee holds a copy and will internalize it, so this is still a sent
-        // payment — never a failure. But be honest about what a failed hold
-        // actually costs: nothing re-drives it. No monitor task sweeps a plain
-        // `nosend` transaction to broadcast it (`TaskSendWaiting` selects only
-        // `['unsent','sending']`; `TaskCheckNoSends`, the only task that even
-        // reads `nosend` rows, only checks whether one got mined by some OTHER
-        // means — it never calls `sendWith`), and `processOfflineActions`'s
-        // drain only ever looks at `offline_actions` rows, so a hold that threw
-        // before its own writes landed is invisible to it too. See
-        // `holdSentPaymentOffline` for why its queue-row insert runs before its
-        // status promotion, which is what keeps a partial failure recoverable.
-        return { kind: 'sent', broadcast: 'pending', detail: messageOf(e) }
-      }
-      // Online: still try sendWith so a nosend tx is not stranded; the
-      // re-showable frame may be missing.
+      // The payee holds a copy and will internalize it, so this is still a sent
+      // payment — never a failure. sendWith runs only after the queue row
+      // exists: broadcasting here would drop the only sealed-frame copy.
+      // Nothing re-drives a hold that threw before its writes landed. See
+      // `holdSentPaymentOffline` for why its queue-row insert runs before its
+      // status promotion, which is what keeps a partial failure recoverable.
+      return { kind: 'sent', broadcast: 'pending', detail: messageOf(e) }
     }
   } else if (!isOnline) {
     // The signature requires `hold`; this catches a JS caller or a cast that
