@@ -11,7 +11,7 @@ import {
   sendViaHandle
 } from '../../core/pay/rails/handle'
 import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
-import { getOutboxEntries } from '../../core/peerpay/outbox'
+import { getOutboxEntries, saveOutboxEntry, updateOutboxEntry } from '../../core/peerpay/outbox'
 import { validatePeerPayURI } from '../../core/parsePeerPayURI'
 
 // secp256k1 generator point, in the lowercase hex PublicKey.toString() emits —
@@ -252,6 +252,22 @@ describe('sendViaHandle', () => {
     expect(entry.lastAttemptAt).toBeTruthy()
   })
 
+  it('sets delivering before sendMessage so a crash cannot look undelivered', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const client = {
+      sendMessage: jest.fn(async () => {
+        const entry = (await getOutboxEntries(s))[0]
+        expect(entry.delivering).toBe(true)
+        expect(entry.delivered).not.toBe(true)
+        throw new Error('lost response')
+      })
+    }
+    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('lost response')
+    const entry = (await getOutboxEntries(s))[0]
+    expect(entry.delivering).toBe(true)
+  })
+
   it('records delivered=true when the broadcast fails, so retry does not re-deliver', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
@@ -436,16 +452,20 @@ describe('retryDelivery', () => {
 })
 
 describe('cancelOutboxPayment', () => {
-  const stuckEntry = async (s: ReturnType<typeof fakeStorage>, w: ReturnType<typeof fakeWallet>) => {
-    const client = { sendMessage: jest.fn().mockRejectedValueOnce(new Error('offline')) }
-    await expect(sendViaHandle(sendArgs(w, client, s, 5))).rejects.toThrow()
-    return (await getOutboxEntries(s))[0]
+  const undeliveredEntry = async (s: ReturnType<typeof fakeStorage>) => {
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    return (await getOutboxEntries(s)).find(e => e.id === id)!
   }
 
   it('aborts the noSend action for an undelivered entry and removes it', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
-    const entry = await stuckEntry(s, w)
+    const entry = await undeliveredEntry(s)
     w.listActions.mockResolvedValue({ actions: [{ txid: entry.txid, reference: 'ref-1' }] })
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(true)
@@ -456,17 +476,37 @@ describe('cancelOutboxPayment', () => {
   it('never aborts once the token was delivered — the recipient holds it', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
-    const entry = { ...(await stuckEntry(s, w)), delivered: true }
+    const entry = { ...(await undeliveredEntry(s)), delivered: true }
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(false)
+    expect(result.needsAbandon).toBe(true)
     expect(w.abortAction).not.toHaveBeenCalled()
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    expect(await getOutboxEntries(s)).toHaveLength(1)
+  })
+
+  it('cancel of a delivering entry does not abort the noSend action', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    w.abortAction = jest.fn()
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    await updateOutboxEntry(s, id, { delivering: true })
+    const entry = (await getOutboxEntries(s))[0]
+    const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
+    expect(result.aborted).toBe(false)
+    expect(result.needsAbandon).toBe(true)
+    expect(w.abortAction).not.toHaveBeenCalled()
+    expect(await getOutboxEntries(s)).toHaveLength(1)
   })
 
   it('still removes the entry when the abort itself fails', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
-    const entry = await stuckEntry(s, w)
+    const entry = await undeliveredEntry(s)
     w.listActions.mockRejectedValue(new Error('storage busy'))
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(false)

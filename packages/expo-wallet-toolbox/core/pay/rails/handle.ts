@@ -372,6 +372,9 @@ export async function sendViaHandle(args: {
     throw e
   }
   try {
+    // Checkpoint before the box round-trip: if we crash after the box accepted
+    // the token, cancel must not abort a payment the recipient may already hold.
+    await updateOutboxEntry(storage, outboxId, { delivering: true })
     await client.sendMessage({
       recipient,
       messageBox: PAYMENT_INBOX,
@@ -398,23 +401,23 @@ export async function sendViaHandle(args: {
  * Cancel an undelivered outbox entry: abort the noSend action (freeing its
  * inputs — nothing was ever broadcast) and remove the entry.
  *
- * Once `delivered` is set the token is in the recipient's message box and the
- * transaction must not be aborted out from under them, so only the entry is
- * removed; the transaction remains in the wallet's activity, where the nosend
- * row still offers a manual abort if the user truly wants it.
- *
- * Legacy entries (no txid) were broadcast at creation; there is nothing to
- * abort for them either.
+ * Once `delivering` or `delivered` is set the token may already be in the
+ * recipient's message box, so Cancel refuses to abort and leaves the entry —
+ * the caller must use Abandon (P1: payment_cancelled). Legacy entries (no
+ * txid) were broadcast at creation; there is nothing to abort for them either.
  */
 export async function cancelOutboxPayment(args: {
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>
   adminOriginator: string
   storage: StorageLike
-  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered'>
-}): Promise<{ aborted: boolean }> {
+  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering'>
+}): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
   const { wallet, adminOriginator, storage, entry } = args
+  if (entry.delivered === true || entry.delivering === true) {
+    return { aborted: false, needsAbandon: true }
+  }
   let aborted = false
-  if (entry.txid && entry.delivered !== true) {
+  if (entry.txid) {
     try {
       aborted = await abortPeerPayNosend(wallet, adminOriginator, entry.txid)
     } catch {
@@ -457,6 +460,7 @@ export async function retryDelivery(args: {
   await updateOutboxEntry(storage, entry.id, { lastAttemptAt: new Date().toISOString() })
   try {
     if (entry.delivered !== true) {
+      await updateOutboxEntry(storage, entry.id, { delivering: true })
       await client.sendMessage({
         recipient: entry.recipient,
         messageBox: PAYMENT_INBOX,

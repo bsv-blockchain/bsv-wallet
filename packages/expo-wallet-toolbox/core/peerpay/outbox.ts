@@ -53,6 +53,12 @@ export interface OutboxEntry {
    * broadcast, and cancel no longer aborts the transaction.
    */
   delivered?: boolean
+  /**
+   * Set immediately before sendMessage. A crash after the box accepted the
+   * token can leave delivering without delivered — cancel must not abort;
+   * retry re-sends (HMAC message id is idempotent).
+   */
+  delivering?: boolean
 }
 
 interface StorageLike {
