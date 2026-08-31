@@ -264,6 +264,21 @@ async function broadcastNoSend(
   if (failed) throw new Error('broadcast_failed')
 }
 
+/** Abort a PeerPay noSend by recovering its reference from listActions. */
+async function abortPeerPayNosend(
+  wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>,
+  adminOriginator: string,
+  txid: string
+): Promise<boolean> {
+  // createAction returns no reference for a completed noSend action, so the
+  // abort handle is recovered from listActions by txid.
+  const { actions } = await wallet.listActions({ labels: ['peerpay'], limit: 1000 }, adminOriginator)
+  const match = actions.find(a => a.txid === txid)
+  if (!match?.reference) return false
+  await wallet.abortAction({ reference: match.reference }, adminOriginator)
+  return true
+}
+
 /**
  * Pay a handle. Five steps, in this order:
  *   1 mint the token with noSend (nothing hits the network yet)
@@ -345,18 +360,37 @@ export async function sendViaHandle(args: {
     // ignore it — and this app's receive side shows it as the description.
     ...(note ? { note } : {})
   }
-  const outboxId = await saveOutboxEntry(storage, { recipient, token, messageBoxUrl, txid: car.txid })
-  await client.sendMessage({
-    recipient,
-    messageBox: PAYMENT_INBOX,
-    body: JSON.stringify(token)
-  })
-  // Delivered is persisted before the broadcast is attempted: from here the
-  // recipient holds the token, so a retry must never re-mint or cancel-abort —
-  // only the broadcast is still outstanding.
-  await updateOutboxEntry(storage, outboxId, { delivered: true })
-  await broadcastNoSend(wallet, adminOriginator, car.txid)
-  await markOutboxSent(storage, outboxId)
+  let outboxId: string | undefined
+  try {
+    outboxId = await saveOutboxEntry(storage, { recipient, token, messageBoxUrl, txid: car.txid })
+  } catch (e) {
+    try {
+      await abortPeerPayNosend(wallet, adminOriginator, car.txid)
+    } catch (abortErr) {
+      console.warn('[peerpay] abortPeerPayNosend failed:', abortErr instanceof Error ? abortErr.message : abortErr)
+    }
+    throw e
+  }
+  try {
+    await client.sendMessage({
+      recipient,
+      messageBox: PAYMENT_INBOX,
+      body: JSON.stringify(token)
+    })
+    // Delivered is persisted before the broadcast is attempted: from here the
+    // recipient holds the token, so a retry must never re-mint or cancel-abort —
+    // only the broadcast is still outstanding.
+    await updateOutboxEntry(storage, outboxId, { delivered: true })
+    await broadcastNoSend(wallet, adminOriginator, car.txid)
+    await markOutboxSent(storage, outboxId)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    await updateOutboxEntry(storage, outboxId, {
+      lastAttemptAt: new Date().toISOString(),
+      lastError: message
+    })
+    throw e
+  }
   return { outboxId, satoshis: paid }
 }
 
@@ -382,14 +416,7 @@ export async function cancelOutboxPayment(args: {
   let aborted = false
   if (entry.txid && entry.delivered !== true) {
     try {
-      // createAction returns no reference for a completed noSend action, so the
-      // abort handle is recovered from listActions by txid.
-      const { actions } = await wallet.listActions({ labels: ['peerpay'], limit: 1000 }, adminOriginator)
-      const match = actions.find(a => a.txid === entry.txid)
-      if (match?.reference) {
-        await wallet.abortAction({ reference: match.reference }, adminOriginator)
-        aborted = true
-      }
+      aborted = await abortPeerPayNosend(wallet, adminOriginator, entry.txid)
     } catch {
       // The entry is still removed: the nosend row remains visible in wallet
       // activity with its own abort control, so the money is never stranded

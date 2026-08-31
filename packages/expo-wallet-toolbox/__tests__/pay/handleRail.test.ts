@@ -222,6 +222,36 @@ describe('sendViaHandle', () => {
     expect(sendWithCalls).toHaveLength(0)
   })
 
+  it('aborts the minted action when the outbox write fails', async () => {
+    const s = fakeStorage()
+    s.setKeyValue = async () => {
+      throw new Error('disk full')
+    }
+    const w = fakeWallet({
+      abortAction: jest.fn().mockResolvedValue({ aborted: true }),
+      listActions: jest.fn()
+    })
+    w.listActions.mockImplementation(async () => {
+      const mint = w.createAction.mock.results[0]?.value as { txid?: string } | undefined
+      const txid = mint && 'then' in (mint as object) ? await mint : mint
+      return { actions: [{ txid: (txid as { txid: string }).txid, reference: 'ref-1' }] }
+    })
+    const client = { sendMessage: jest.fn() }
+    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow(/disk full/)
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+  })
+
+  it('records lastError on the first delivery failure, not only on retry', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const client = { sendMessage: jest.fn().mockRejectedValue(new Error('offline')) }
+    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('offline')
+    const entry = (await getOutboxEntries(s))[0]
+    expect(entry.lastError).toBe('offline')
+    expect(entry.lastAttemptAt).toBeTruthy()
+  })
+
   it('records delivered=true when the broadcast fails, so retry does not re-deliver', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
