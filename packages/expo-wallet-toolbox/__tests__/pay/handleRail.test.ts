@@ -237,6 +237,23 @@ describe('sendViaHandle', () => {
     expect(entry.delivered).toBe(true)
   })
 
+  it('does not mark the entry sent when sendWithReports a failed delayed broadcast', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const inner = w.createAction.getMockImplementation()!
+    w.createAction.mockImplementation(async (args: any) => {
+      if (args?.options?.sendWith) {
+        return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'failed' }] }
+      }
+      return await inner(args)
+    })
+    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow(/broadcast_failed/)
+    const entry = (await getOutboxEntries(s))[0]
+    expect(entry.status).toBe('unsent')
+    expect(entry.delivered).toBe(true)
+  })
+
   it('sends to the payment_inbox message box as JSON', async () => {
     const s = fakeStorage()
     const w = fakeWallet()

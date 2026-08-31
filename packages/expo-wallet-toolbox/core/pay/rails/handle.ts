@@ -241,7 +241,10 @@ export async function discardIncoming(
  * broadcast it later with sendWith, and abort it if the payment is cancelled. */
 export interface HandleRailWallet {
   getPublicKey(args: unknown, originator?: string): Promise<{ publicKey: string }>
-  createAction(args: unknown, originator?: string): Promise<{ txid?: string; tx?: number[] }>
+  createAction(
+    args: unknown,
+    originator?: string
+  ): Promise<{ txid?: string; tx?: number[]; sendWithResults?: { txid?: string; status?: string }[] }>
   listActions(args: unknown, originator?: string): Promise<{ actions: { txid?: string; reference?: string }[] }>
   abortAction(args: unknown, originator?: string): Promise<unknown>
 }
@@ -253,10 +256,12 @@ async function broadcastNoSend(
   adminOriginator: string,
   txid: string
 ): Promise<void> {
-  await wallet.createAction(
+  const result = (await wallet.createAction(
     { description: 'PeerPay payment broadcast', options: { sendWith: [txid] } },
     adminOriginator
-  )
+  )) as { sendWithResults?: { txid?: string; status?: string }[] }
+  const failed = result.sendWithResults?.find(o => o.txid === txid && o.status === 'failed')
+  if (failed) throw new Error('broadcast_failed')
 }
 
 /**
