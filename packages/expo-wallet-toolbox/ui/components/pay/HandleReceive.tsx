@@ -37,6 +37,7 @@ import { showToast } from '../ui/Toast'
 import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
 import { makeBeefRepair } from '../../../core/pay/beefRepair'
 import { wocConfigFor } from '../../../core/pay/rails/address'
+import { satoshisFromToken } from '../../../core/pay/tokenAmount'
 import { getOnline } from '../../../core/net/online'
 import {
   useTheme,
@@ -250,6 +251,7 @@ function AttentionRow({
 }: AttentionRowProps) {
   const Ionicons = loadIonicons()
   const senderKey = payment.sender ?? ''
+  const satoshis = satoshisFromToken(payment.token)?.satoshis
   return (
     <View
       style={[
@@ -309,11 +311,13 @@ function AttentionRow({
         </View>
       </View>
 
-      <View style={styles.paymentActions}>
-        <Text style={[styles.paymentAmount, { color: colors.textSecondary }]}>
-          <AmountDisplay>{payment.token.amount}</AmountDisplay>
-        </Text>
-      </View>
+      {typeof satoshis === 'number' && (
+        <View style={styles.paymentActions}>
+          <Text style={[styles.paymentAmount, { color: colors.textSecondary }]}>
+            <AmountDisplay>{satoshis}</AmountDisplay>
+          </Text>
+        </View>
+      )}
     </View>
   )
 }
@@ -558,7 +562,7 @@ export default function HandleReceive() {
           // credited, so that is what the figure sums.
           const credited = list.filter(p => !outcome.attempts[String(p.messageId)])
           setReceived({
-            amount: credited.reduce((sum, p) => sum + (p.token?.amount ?? 0), 0),
+            amount: credited.reduce((sum, p) => sum + (satoshisFromToken(p.token)?.satoshis ?? 0), 0),
             count: outcome.accepted
           })
         }
