@@ -33,6 +33,7 @@ import { useTranslation } from 'react-i18next'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Utils } from '@bsv/sdk'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
+import { PeerPayClient } from '@bsv/message-box-client'
 import {
   useTheme,
   spacing,
@@ -46,14 +47,36 @@ import {
   findOfflineActions,
   type OfflineActionRow,
   readWalletBalance,
-  useLocalStorage
+  useLocalStorage,
+  handleResendRequests,
+  loadUnansweredResends,
+  resendPaymentDetails,
+  makeListPeerPayAction,
+  makeBeefRepair,
+  wocConfigFor,
+  getOnline,
+  haptics,
+  DEFAULT_MESSAGE_BOX_URL,
+  MESSAGE_BOX_URL_KEY,
+  NO_MESSAGE_BOX,
+  LEGACY_MESSAGE_BOX_URL,
+  type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
 import { showToast } from '../components/ui/Toast'
+import { ListRow } from '../components/ui/ListRow'
+import { GroupedSection } from '../components/ui/GroupedList'
 import WalletLockNotice from '../components/security/WalletLockNotice'
+
+async function readMessageBoxUrl(): Promise<string | undefined> {
+  const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+  if (saved === NO_MESSAGE_BOX) return undefined
+  if (!saved || saved === LEGACY_MESSAGE_BOX_URL) return DEFAULT_MESSAGE_BOX_URL
+  return saved
+}
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -240,6 +263,8 @@ export function WalletHomeScreen() {
   /** The one row whose utility chips are open. One at a time: two open rows and
    * the chips stop obviously belonging to a transaction. */
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
+  const [pendingResends, setPendingResends] = useState<PendingResend[]>([])
+  const [resending, setResending] = useState(false)
   const offsetRef = useRef(0)
   /** Set once the server has no more rows, so onEndReached stops re-querying at
    * the bottom of the list. Cleared whenever the list is refetched from 0. */
@@ -349,6 +374,45 @@ export function WalletHomeScreen() {
    */
   const [focusVersion, setFocusVersion] = useState(0)
   const firstFocusRef = useRef(true)
+
+  const pollResendRequests = useCallback(async () => {
+    const pm = managers.permissionsManager
+    if (!pm || !storage) return
+    try {
+      const url = await readMessageBoxUrl()
+      if (!url) return
+      const client = new PeerPayClient({
+        messageBoxHost: url,
+        walletClient: pm as never,
+        originator: adminOriginator
+      })
+      const r = await handleResendRequests({
+        client,
+        storage,
+        listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
+        refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+      })
+      setPendingResends(r.pending)
+    } catch {
+      // Silent: an unreachable box must not alert on focus. The stored
+      // unanswered count (if any) keeps the inline row visible.
+    }
+  }, [managers.permissionsManager, storage, adminOriginator, selectedNetwork])
+
+  useEffect(() => {
+    if (!storage) return
+    let cancelled = false
+    ;(async () => {
+      const stored = await loadUnansweredResends(storage)
+      if (cancelled) return
+      setPendingResends(stored)
+      await pollResendRequests()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [storage, pollResendRequests])
+
   useFocusEffect(
     useCallback(() => {
       if (firstFocusRef.current) {
@@ -356,7 +420,8 @@ export function WalletHomeScreen() {
         return
       }
       setFocusVersion(v => v + 1)
-    }, [])
+      void pollResendRequests()
+    }, [pollResendRequests])
   )
 
   // Re-read the figure whenever the transaction tables move — a payment sent, a
@@ -376,7 +441,7 @@ export function WalletHomeScreen() {
     async (offset: number) => {
       if (!managers.permissionsManager) return null
       return managers.permissionsManager.listActions(
-        { labels: [], limit: PAGE_SIZE, offset },
+        { labels: [], includeLabels: true, limit: PAGE_SIZE, offset },
         adminOriginator
       )
     },
@@ -570,6 +635,82 @@ export function WalletHomeScreen() {
     [managers.permissionsManager, adminOriginator, busyRow, onRefresh, t]
   )
 
+  const onResendPending = useCallback(async () => {
+    if (resending) return
+    setResending(true)
+    try {
+      const pm = managers.permissionsManager
+      if (!pm || !storage) throw new Error(t('unknown_error'))
+      const url = await readMessageBoxUrl()
+      if (!url) {
+        showToast(t('message_box_unreachable'), { type: 'error' })
+        return
+      }
+      const client = new PeerPayClient({
+        messageBoxHost: url,
+        walletClient: pm as never,
+        originator: adminOriginator
+      })
+      const r = await handleResendRequests({
+        client,
+        storage,
+        listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
+        refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+      })
+      setPendingResends(r.pending)
+      if (r.pending.length === 0) haptics.success()
+      else showToast(t('unknown_error'), { type: 'error' })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : t('unknown_error')
+      showToast(message, { type: 'error' })
+    } finally {
+      setResending(false)
+    }
+  }, [
+    resending,
+    managers.permissionsManager,
+    storage,
+    adminOriginator,
+    selectedNetwork,
+    t
+  ])
+
+  const onSendPaymentDetails = useCallback(
+    async (txid: string) => {
+      if (busyRow) return
+      setBusyRow(txid)
+      try {
+        const pm = managers.permissionsManager
+        if (!pm || !storage) throw new Error(t('unknown_error'))
+        const url = await readMessageBoxUrl()
+        if (!url) {
+          showToast(t('message_box_unreachable'), { type: 'error' })
+          return
+        }
+        const client = new PeerPayClient({
+          messageBoxHost: url,
+          walletClient: pm as never,
+          originator: adminOriginator
+        })
+        const ok = await resendPaymentDetails({
+          client,
+          storage,
+          txid,
+          listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
+          refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+        })
+        if (ok) haptics.success()
+        else showToast(t('unknown_error'), { type: 'error' })
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : t('unknown_error')
+        showToast(message, { type: 'error' })
+      } finally {
+        setBusyRow(null)
+      }
+    },
+    [busyRow, managers.permissionsManager, storage, adminOriginator, selectedNetwork, t]
+  )
+
   const toggleRow = useCallback((key: string) => {
     setExpandedRow(prev => (prev === key ? null : key))
   }, [])
@@ -602,6 +743,7 @@ export function WalletHomeScreen() {
           onCopyTxid={onCopyTxid}
           onRefreshTx={onRefreshTx}
           onAbort={onAbort}
+          onSendPaymentDetails={onSendPaymentDetails}
         />
       )
     },
@@ -615,7 +757,8 @@ export function WalletHomeScreen() {
       onCopyBeef,
       onCopyTxid,
       onRefreshTx,
-      onAbort
+      onAbort,
+      onSendPaymentDetails
     ]
   )
 
@@ -715,6 +858,35 @@ export function WalletHomeScreen() {
           */}
         </View>
 
+        {pendingResends.length > 0 ? (
+          <View style={styles.resendBanner}>
+            <GroupedSection>
+              <ListRow
+                label={t('resend_requested')}
+                icon="refresh-outline"
+                iconColor={colors.warning}
+                showChevron={false}
+                isLast
+                onPress={resending ? undefined : () => void onResendPending()}
+                trailing={
+                  resending ? (
+                    <View style={styles.resendTrailing}>
+                      <ActivityIndicator size="small" color={colors.accent} />
+                      <Text style={[styles.resendAction, { color: colors.accent }]}>
+                        {t('resending')}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.resendAction, { color: colors.accent }]}>
+                      {t('resend')}
+                    </Text>
+                  )
+                }
+              />
+            </GroupedSection>
+          </View>
+        ) : null}
+
         <View style={styles.activityHead}>
           <Text style={[styles.activityTitle, { color: colors.textPrimary }]}>
             {t('wallet_activity')}
@@ -748,7 +920,19 @@ export function WalletHomeScreen() {
         </View>
       </View>
     ),
-    [balanceParts, balanceContext, colors, t, refreshBalance, onExport, exporting, actions.length]
+    [
+      balanceParts,
+      balanceContext,
+      colors,
+      t,
+      refreshBalance,
+      onExport,
+      exporting,
+      actions.length,
+      pendingResends.length,
+      resending,
+      onResendPending
+    ]
   )
 
   return (
@@ -888,6 +1072,9 @@ const styles = StyleSheet.create({
   },
   destLabel: { fontSize: 13, fontWeight: '600' },
   destLabelPrimary: { fontWeight: '700' },
+  resendBanner: { paddingTop: spacing.xl },
+  resendTrailing: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  resendAction: { fontSize: 15, fontWeight: '600' },
 
   activityHead: {
     flexDirection: 'row',

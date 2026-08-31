@@ -67,6 +67,8 @@ interface Props {
   onCopyTxid: (txid: string) => void
   onRefreshTx: (txid: string) => void
   onAbort: (reference: string) => void
+  /** Rebuild and re-deliver a PeerPay token without waiting for a NACK. */
+  onSendPaymentDetails?: (txid: string) => void
 }
 
 /** Statuses whose transaction is still local and therefore abortable: nothing
@@ -98,7 +100,8 @@ function ActivityRowBase({
   onCopyBeef,
   onCopyTxid,
   onRefreshTx,
-  onAbort
+  onAbort,
+  onSendPaymentDetails
 }: Props) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -129,7 +132,10 @@ function ActivityRowBase({
   const unitColor = incoming ? colors.successAmount : colors.textSecondary
 
   const canAbort = ABORTABLE_STATUSES.has(action.status) && !!action.reference
-  const hasUtilities = !!action.txid || canAbort
+  const peerPayOutbound =
+    !!action.txid && (action.isOutgoing ?? !incoming) && !!action.labels?.includes('peerpay')
+  const canResendDetails = peerPayOutbound && !!onSendPaymentDetails
+  const hasUtilities = !!action.txid || canAbort || canResendDetails
 
   return (
     <View
@@ -242,6 +248,14 @@ function ActivityRowBase({
                   accessibilityLabel={t('tx_action_abort')}
                   danger
                   onPress={() => onAbort(action.reference!)}
+                />
+              ) : null}
+              {canResendDetails ? (
+                <Chip
+                  icon="send-outline"
+                  label={t('send_payment_details_again')}
+                  accessibilityLabel={t('send_payment_details_again')}
+                  onPress={() => onSendPaymentDetails!(action.txid)}
                 />
               ) : null}
             </>

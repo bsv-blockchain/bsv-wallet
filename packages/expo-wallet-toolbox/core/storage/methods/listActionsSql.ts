@@ -161,6 +161,7 @@ export async function listActionsSql(
             outputDescription: (o as any).outputDescription || '',
             basket: ox.basket?.name || ''
           }
+          if (o.customInstructions) wo.customInstructions = o.customInstructions
           if (vargs.includeOutputLockingScripts && o.lockingScript) {
             wo.lockingScript = typeof o.lockingScript === 'string'
               ? o.lockingScript

@@ -62,3 +62,30 @@ export async function sendControlMessage(
     body: JSON.stringify(args.message)
   })
 }
+
+export type ControlBoxMessage = { messageId: string; sender: string; body: unknown }
+
+/** Raw `payment_control` messages. `acceptPayments: false` avoids fee auto-internalize. */
+export async function listControlMessages(
+  client: {
+    listMessages(args: {
+      messageBox: string
+      host?: string
+      acceptPayments?: boolean
+    }): Promise<ControlBoxMessage[]>
+  }
+): Promise<ControlBoxMessage[]> {
+  const listed = await client.listMessages({
+    messageBox: PAYMENT_CONTROL_BOX,
+    acceptPayments: false
+  })
+  return Array.isArray(listed) ? listed : []
+}
+
+export async function ackControlMessages(
+  client: { acknowledgeMessage(args: { messageIds: string[] }): Promise<unknown> },
+  messageIds: string[]
+): Promise<void> {
+  if (messageIds.length === 0) return
+  await client.acknowledgeMessage({ messageIds })
+}

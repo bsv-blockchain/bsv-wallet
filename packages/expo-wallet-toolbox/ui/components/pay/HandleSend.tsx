@@ -37,7 +37,12 @@ import {
   pruneExpiredSent,
   unsentEntries,
   type OutboxEntry,
-  haptics
+  haptics,
+  handleResendRequests,
+  makeListPeerPayAction,
+  makeBeefRepair,
+  wocConfigFor,
+  getOnline
 } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -154,7 +159,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
   const { t } = useTranslation()
   const { colors } = useTheme()
   const StatusBar = loadStatusBar()
-  const { managers, adminOriginator, storage } = useWallet()
+  const { managers, adminOriginator, storage, selectedNetwork } = useWallet()
   const wallet = managers?.permissionsManager || null
 
   const config = useMessageBoxConfig(t)
@@ -208,6 +213,25 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
   useEffect(() => {
     void loadOutbox()
   }, [loadOutbox])
+
+  const pollResendRequests = useCallback(async () => {
+    const client = peerPayClient
+    if (!client || !storage) return
+    try {
+      await handleResendRequests({
+        client,
+        storage,
+        listPeerPayAction: makeListPeerPayAction(wallet, adminOriginator),
+        refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+      })
+    } catch {
+      // Home owns the unanswered-resend banner; a failed poll here is retryable.
+    }
+  }, [peerPayClient, storage, wallet, adminOriginator, selectedNetwork])
+
+  useEffect(() => {
+    void pollResendRequests()
+  }, [pollResendRequests])
 
   const handleSend = useCallback(async () => {
     const client = peerPayClient
