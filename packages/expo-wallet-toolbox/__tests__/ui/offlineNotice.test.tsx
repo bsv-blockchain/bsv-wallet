@@ -49,7 +49,13 @@ beforeAll(() => {
       send_again: 'Send again',
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
-      dismiss_rejected_payment: 'Dismissed this rejected payment'
+      dismiss_rejected_payment: 'Dismissed this rejected payment',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor:
+        'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_stalled_body: 'Some queued payments can’t be sent automatically: {{detail}}',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.'
     },
     true,
     true
@@ -152,8 +158,17 @@ describe('OfflineNotice', () => {
   })
 
   it('renders the stall detail when one exists', () => {
-    const { getByText } = render(<OfflineNotice online queued={1} rejected={[]} stalled="txA has no request" />)
-    expect(getByText(/txA has no request/)).toBeTruthy()
+    const { getByText, queryByText } = render(
+      <OfflineNotice online queued={1} rejected={[]} stalled="offline_stall_no_request" />
+    )
+    expect(getByText(/missing its send record/i)).toBeTruthy()
+    expect(queryByText(/offline_stall_no_request/)).toBeNull()
+    expect(queryByText(/txA/)).toBeNull()
+  })
+
+  it('reports unprocessed nearby pending count', () => {
+    const { getByText } = render(<OfflineNotice online queued={0} rejected={[]} pendingCount={2} />)
+    expect(getByText(/2 nearby payment/i)).toBeTruthy()
   })
 
   it('offers show-code only for queued sent rows that carry a frame', () => {
@@ -208,7 +223,14 @@ describe('OfflineNotice', () => {
     const onSendAgain = jest.fn()
     const onDismiss = jest.fn()
     const { getByText, queryByText } = render(
-      <OfflineNotice online queued={0} rejected={[]} sentRejected={[sent]} onSendAgain={onSendAgain} onDismiss={onDismiss} />
+      <OfflineNotice
+        online
+        queued={0}
+        rejected={[]}
+        sentRejected={[sent]}
+        onSendAgain={onSendAgain}
+        onDismiss={onDismiss}
+      />
     )
     expect(queryByText(/request again/i)).toBeNull()
     fireEvent.press(getByText(/send again/i))

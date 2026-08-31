@@ -39,6 +39,7 @@ import {
   type OfflineActionRow,
   TaskSendOffline
 } from '@bsv/expo-wallet-toolbox'
+import { getUnprocessed } from '../../core/localpay/pending'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -161,6 +162,7 @@ export function PayScreen() {
   const [sentRejected, setSentRejected] = useState<OfflineActionRow[]>([])
   const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
   const [stalled, setStalled] = useState<string | undefined>(undefined)
+  const [pendingCount, setPendingCount] = useState(0)
   const [showCode, setShowCode] = useState<OfflineActionRow | null>(null)
   const [queueNonce, setQueueNonce] = useState(0)
 
@@ -192,8 +194,13 @@ export function PayScreen() {
   // implies its own direction, and `?direction=get` opens the receive side on
   // its CHOOSER (no cell), which is what the wallet's "Get paid" button wants —
   // the transport is still the user's to pick.
-  const direction: Direction =
-    openingCell ? (openingCell.startsWith('get') ? 'get' : 'pay') : firstParam(params.direction) === 'get' ? 'get' : 'pay'
+  const direction: Direction = openingCell
+    ? openingCell.startsWith('get')
+      ? 'get'
+      : 'pay'
+    : firstParam(params.direction) === 'get'
+      ? 'get'
+      : 'pay'
   const [cell, setCell] = useState<PayCell | null>(openingCell)
 
   // Refreshed whenever the wallet finishes building, connectivity changes, or
@@ -208,6 +215,13 @@ export function PayScreen() {
     let cancelled = false
     void (async () => {
       try {
+        if (storage) {
+          try {
+            setPendingCount((await getUnprocessed(storage)).length)
+          } catch {
+            setPendingCount(0)
+          }
+        }
         const db = storage?.sqliteDb
         if (!db) return
         const rows = await findOfflineActions(db, {
@@ -307,6 +321,7 @@ export function PayScreen() {
         sentRejected={sentRejected}
         onSendNow={() => TaskSendOffline.requestNow()}
         stalled={stalled}
+        pendingCount={pendingCount}
         queuedSent={queuedSentRows}
         onShowCode={setShowCode}
         onRequestAgain={row => void onRequestAgain(row)}
@@ -370,14 +385,16 @@ export function PayScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('go_back')}
         >
-          <Ionicons name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color={colors.textSecondary} />
+          <Ionicons
+            name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'}
+            size={24}
+            color={colors.textSecondary}
+          />
         </PressableScale>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {/* Inside a rail, the rail names itself. Otherwise the title carries
               the direction, since the switcher that used to show it is gone. */}
-          {cell
-            ? t(CELL_TITLE_KEYS[cell])
-            : t(direction === 'pay' ? 'pay_direction_pay' : 'pay_direction_receive')}
+          {cell ? t(CELL_TITLE_KEYS[cell]) : t(direction === 'pay' ? 'pay_direction_pay' : 'pay_direction_receive')}
         </Text>
         <View style={styles.headerBtn} />
       </View>

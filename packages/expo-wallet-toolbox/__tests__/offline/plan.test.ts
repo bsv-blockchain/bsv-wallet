@@ -1,6 +1,7 @@
 import {
   allReqStatuses,
   alreadySentStatuses,
+  receiptBroadcastFromReqStatus,
   applyOutcome,
   outcomeFromReqStatus,
   outcomeOfForeignPost,
@@ -175,6 +176,13 @@ describe('request status classification', () => {
 
   it('reads only the already-sent statuses as delivered', () => {
     expect([...alreadySentStatuses].sort()).toEqual(['callback', 'completed', 'unconfirmed', 'unmined'])
+  })
+
+  it('sets the receipt broadcast flag from req status, not connectivity', () => {
+    for (const status of alreadySentStatuses) expect(receiptBroadcastFromReqStatus(status)).toBe(true)
+    expect(receiptBroadcastFromReqStatus('nosend')).toBe(false)
+    expect(receiptBroadcastFromReqStatus('unsent')).toBe(false)
+    expect(receiptBroadcastFromReqStatus(undefined)).toBe(false)
   })
 
   it('counts every non-terminal status as still poisonable, including unfail', () => {

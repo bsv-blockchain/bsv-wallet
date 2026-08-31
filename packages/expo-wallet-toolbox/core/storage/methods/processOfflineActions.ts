@@ -36,6 +36,11 @@ import { descendantsOf, type OrderableTx } from '../../offline/order'
 import { devLog } from '../../logging'
 import { getOnline } from '../../net/online'
 
+/** i18n keys for `stalledOn` — OfflineNotice translates these, never raw txids. */
+export const STALL_NO_REQUEST = 'offline_stall_no_request'
+export const STALL_BAD_BEEF = 'offline_stall_bad_beef'
+export const STALL_FOREIGN_ANCESTOR = 'offline_stall_foreign_ancestor'
+
 export interface ProcessOfflineActionsResult {
   /** Queue rows moved to 'sent'. A foreign ancestor's broadcast is logged, not counted. */
   sent: number
@@ -70,8 +75,10 @@ interface HeldAction {
 
 export async function processOfflineActions(args: {
   storage: StorageExpoSQLite
+  /** Injected so tests can supply a missing ancestor without hitting the network. */
+  refetchBeef?: (txid: string) => Promise<number[] | undefined>
 }): Promise<ProcessOfflineActionsResult> {
-  const { storage } = args
+  const { storage, refetchBeef } = args
   const db = storage.sqliteDb
   if (!db) return { sent: 0, rejected: 0, stopped: true, stalledOn: 'the database is not open' }
 
@@ -97,7 +104,7 @@ export async function processOfflineActions(args: {
     const api = await findReq(storage, row.txid)
     if (!api) {
       devLog(`[processOfflineActions] queued txid has no request, cannot release it: ${row.txid}`)
-      blocked.push(`${row.txid} has no request to release it with`)
+      blocked.push(STALL_NO_REQUEST)
       continue
     }
     // The request is remembered whatever happens below. Being in `held` does not
@@ -133,10 +140,20 @@ export async function processOfflineActions(args: {
     } catch (e) {
       // Without its whole beef this transaction has no place in the graph, so it
       // is simply not planned and stays queued. Never guess at an order.
+      // Before stalling, try a network refetch — a missing ancestor that is
+      // already on chain can rebuild the graph.
       devLog(`[processOfflineActions] could not merge the beef of ${row.txid}:`, e)
-      blocked.push(`the beef of ${row.txid} could not be read`)
+      const repaired = refetchBeef ? await tryMergeRefetchedBeef(merged, row.txid, refetchBeef) : false
+      if (!repaired) blocked.push(STALL_BAD_BEEF)
     }
   }
+
+  if (refetchBeef) {
+    for (const t of [...merged.txs]) {
+      if (t.isTxidOnly) await tryMergeRefetchedBeef(merged, t.txid, refetchBeef)
+    }
+  }
+
   const txs: OrderableTx[] = merged.txs
   const plan = planRelease({ rows, txs })
 
@@ -163,7 +180,7 @@ export async function processOfflineActions(args: {
       // network verdict, and 'failed' is not reversible.
       skip.add(step.txid)
       for (const d of descendantsOf(step.txid, txs)) skip.add(d)
-      stallNotes.push(`${step.txid} has no request to release it with`)
+      stallNotes.push(STALL_NO_REQUEST)
       continue
     }
     if (action) await updateOfflineAction(db, step.txid, { status: 'posting' })
@@ -202,16 +219,35 @@ export async function processOfflineActions(args: {
       // A foreign ancestor no service would take blocks everything behind it and
       // retrying will not change that, whereas our own failed post is the
       // ordinary "signal went away" case the next run picks up.
-      stallNotes.push(`${step.txid} is an ancestor from another wallet's beef that no service would accept`)
+      stallNotes.push(STALL_FOREIGN_ANCESTOR)
     }
   }
 
   await requeue(db, plan, resolved)
+  const uniqueStalls = [...new Set(stallNotes)]
   return {
     sent,
     rejected,
     stopped: skip.size > 0,
-    stalledOn: stallNotes.length > 0 ? stallNotes.join('; ') : undefined
+    stalledOn: uniqueStalls.length > 0 ? uniqueStalls.join('; ') : undefined
+  }
+}
+
+async function tryMergeRefetchedBeef(
+  target: Beef,
+  txid: string,
+  refetch: (txid: string) => Promise<number[] | undefined>
+): Promise<boolean> {
+  try {
+    const bytes = await refetch(txid)
+    if (!bytes) return false
+    const scratch = new Beef()
+    scratch.mergeBeef(bytes)
+    target.mergeBeef(scratch)
+    return true
+  } catch (e) {
+    devLog(`[processOfflineActions] refetch of ${txid} could not be merged:`, e)
+    return false
   }
 }
 

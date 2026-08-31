@@ -166,6 +166,11 @@ export const allReqStatuses: readonly ProvenTxReqStatus[] = Object.keys(reqStatu
 /** Statuses that mean the transaction has already been handed to the network. */
 export const alreadySentStatuses: readonly ProvenTxReqStatus[] = statusesVerdicted('success')
 
+/** Receipt overlay: true only when storage already records a network hand-off. */
+export function receiptBroadcastFromReqStatus(status: string | undefined): boolean {
+  return status !== undefined && (alreadySentStatuses as readonly string[]).includes(status)
+}
+
 /** Statuses that already carry a recorded refusal. */
 export const refusedReqStatuses: readonly ProvenTxReqStatus[] = statusesVerdicted('doubleSpend', 'invalidTx')
 

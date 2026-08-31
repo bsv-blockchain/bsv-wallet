@@ -32,14 +32,8 @@ import {
   wocConfigFor
 } from '../../core/pay/rails/address'
 import { runWalletCheck, type WalletCheckPorts, type WalletCheckStepId } from '../../core/walletRepair/runWalletCheck'
-import {
-  getOnline,
-  haptics,
-  spacing,
-  typography,
-  useTheme,
-  useWallet
-} from '@bsv/expo-wallet-toolbox'
+import { userFacingPayError } from '../../core/pay/userError'
+import { getOnline, haptics, spacing, typography, useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -85,13 +79,7 @@ const STEPS: { id: WalletCheckStepId; labelKey: string }[] = [
 const INBOX_DESCRIPTION = 'Identity Payment'
 
 export function isReviewActionsError(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : String((error as { message?: unknown } | undefined)?.message ?? '')
-  return /WERR_REVIEW_ACTIONS|review actions/i.test(message)
+  return userFacingPayError(error).offerWalletCheck
 }
 
 export async function promptCheckWallet(t: (key: string) => string): Promise<'check_wallet' | 'cancel'> {
@@ -193,8 +181,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
         if (!wallet) return { accepted: 0 }
         try {
           const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
-          const messageBoxUrl =
-            !saved || saved === LEGACY_MESSAGE_BOX_URL ? DEFAULT_MESSAGE_BOX_URL : saved
+          const messageBoxUrl = !saved || saved === LEGACY_MESSAGE_BOX_URL ? DEFAULT_MESSAGE_BOX_URL : saved
           if (!messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return { accepted: 0 }
           const client = new PeerPayClient({
             messageBoxHost: messageBoxUrl,
@@ -291,7 +278,10 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     void run()
   }, [run])
 
-  const stepIndex = Math.max(0, STEPS.findIndex(s => s.id === step))
+  const stepIndex = Math.max(
+    0,
+    STEPS.findIndex(s => s.id === step)
+  )
   const current = stepIndex + 1
   const stepLabel = t(STEPS[stepIndex]?.labelKey ?? 'wallet_check_step_records')
   const doneCopy =
@@ -333,9 +323,7 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
             </View>
           </View>
         )}
-        {!running && doneCopy && (
-          <Text style={[styles.done, { color: colors.textPrimary }]}>{doneCopy}</Text>
-        )}
+        {!running && doneCopy && <Text style={[styles.done, { color: colors.textPrimary }]}>{doneCopy}</Text>}
         {!running && error && (
           <View style={styles.errorBlock}>
             <Text style={[styles.done, { color: colors.textPrimary }]}>{error}</Text>

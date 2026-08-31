@@ -108,14 +108,12 @@ export async function buildPaymentFrame(
       protocolID: PEERPAY_PROTOCOL_ID,
       keyID: `${session.derivationPrefix} ${session.derivationSuffix}`,
       counterparty: session.identityKey,
-      forSelf: false,
+      forSelf: false
     },
     originator
   )
 
-  const lockingScript = new P2PKH()
-    .lock(PublicKey.fromString(derived).toAddress())
-    .toHex()
+  const lockingScript = new P2PKH().lock(PublicKey.fromString(derived).toAddress()).toHex()
 
   let result = await wallet.createAction(
     {
@@ -125,8 +123,8 @@ export async function buildPaymentFrame(
         {
           lockingScript,
           satoshis: amount,
-          outputDescription: 'Nearby payment',
-        },
+          outputDescription: 'Nearby payment'
+        }
       ],
       // `signAndProcess: false` is what makes the action abortable.
       //
@@ -137,7 +135,7 @@ export async function buildPaymentFrame(
       // discarding the only reference the wallet ever emits. Asking for the
       // deferred result keeps that reference, so an abandoned build can release
       // its inputs instead of locking them forever.
-      options: { randomizeOutputs: false, noSend: true, signAndProcess: false },
+      options: { randomizeOutputs: false, noSend: true, signAndProcess: false }
     },
     originator
   )
@@ -154,7 +152,7 @@ export async function buildPaymentFrame(
       {
         reference: result.signableTransaction.reference,
         spends: {},
-        options: { noSend: true },
+        options: { noSend: true }
       },
       originator
     )
@@ -171,10 +169,10 @@ export async function buildPaymentFrame(
       outputIndex: 0,
       derivationPrefix: session.derivationPrefix,
       derivationSuffix: session.derivationSuffix,
-      transaction: new Uint8Array(result.tx),
+      transaction: new Uint8Array(result.tx)
     },
     reference,
-    txid: result.txid,
+    txid: result.txid
   }
 }
 
@@ -218,7 +216,7 @@ export async function broadcastPayment(
     {
       // Mandatory even though this creates nothing; must be 5–2000 bytes.
       description: 'Broadcast a nearby payment',
-      options: { sendWith: [txid] },
+      options: { sendWith: [txid] }
     },
     originator
   )
@@ -281,15 +279,24 @@ export async function finalizeDelivery(
     online?: () => Promise<boolean>
     /** Promotes the transaction to `unproven` and queues the txid for release. */
     hold: (txid: string) => Promise<void>
+    /** Persist a failed decline-abort so wallet build can retry it. */
+    queueFailedAbort?: (reference: string) => Promise<void>
   }
 ): Promise<DeliveryOutcome> {
   if (!ack.ok) {
     if (built.reference) {
-      // Fire and forget: a failed abort is a stuck UTXO, not a lost payment,
-      // and must not displace the decline reason the caller is about to show.
-      await wallet
-        .abortAction({ reference: built.reference }, originator)
-        .catch((e: unknown) => console.warn('[localpay] abortAction failed:', messageOf(e)))
+      // A failed abort is a stuck UTXO, not a lost payment, and must not
+      // displace the decline reason the caller is about to show. `{ aborted:
+      // false }` is a failure too — queue it for replay on the next wallet build.
+      try {
+        const result = await wallet.abortAction({ reference: built.reference }, originator)
+        if (result?.aborted === false) throw new Error('abortAction returned aborted:false')
+      } catch (e: unknown) {
+        console.warn('[localpay] abortAction failed:', messageOf(e))
+        if (deps.queueFailedAbort) {
+          await deps.queueFailedAbort(built.reference).catch(() => undefined)
+        }
+      }
     }
     return { kind: 'declined', reason: ack.error }
   }

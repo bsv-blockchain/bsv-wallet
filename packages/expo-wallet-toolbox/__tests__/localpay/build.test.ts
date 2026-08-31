@@ -2,13 +2,14 @@ import { broadcastPayment, buildPaymentFrame, finalizeDelivery } from '../../cor
 import { mintSession } from '../../core/localpay/session'
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
 
-const session = () => mintSession({
-  identityKey: '02'.padEnd(66, 'e'),
-  amount: 777,
-  derivationPrefix: 'cHJlZml4',
-  derivationSuffix: 'c3VmZml4',
-  supportsAwdl: true,
-})
+const session = () =>
+  mintSession({
+    identityKey: '02'.padEnd(66, 'e'),
+    amount: 777,
+    derivationPrefix: 'cHJlZml4',
+    derivationSuffix: 'c3VmZml4',
+    supportsAwdl: true
+  })
 
 // Mirrors WalletPermissionsManager with `signAndProcess: false`: createAction
 // returns a signableTransaction (carrying the reference) rather than a final tx,
@@ -18,7 +19,7 @@ function walletStub() {
     getPublicKey: jest.fn().mockResolvedValue({ publicKey: '03'.padEnd(66, 'f') }),
     createAction: jest.fn().mockResolvedValue({ signableTransaction: { reference: 'ref-123' } }),
     signAction: jest.fn().mockResolvedValue({ tx: [1, 2, 3], txid: 'finalized' }),
-    abortAction: jest.fn().mockResolvedValue({ aborted: true }),
+    abortAction: jest.fn().mockResolvedValue({ aborted: true })
   }
 }
 
@@ -43,8 +44,7 @@ describe('buildPaymentFrame', () => {
   it('propagates a createAction failure', async () => {
     const w = walletStub()
     w.createAction.mockRejectedValue(new Error('insufficient funds'))
-    await expect(buildPaymentFrame(w as never, session(), 'admin.com', 777))
-      .rejects.toThrow('insufficient funds')
+    await expect(buildPaymentFrame(w as never, session(), 'admin.com', 777)).rejects.toThrow('insufficient funds')
   })
 
   // Money-safety: a wrong protocolID, malformed keyID, wrong counterparty, or
@@ -61,7 +61,7 @@ describe('buildPaymentFrame', () => {
       protocolID: PEERPAY_PROTOCOL_ID,
       keyID: `${s.derivationPrefix} ${s.derivationSuffix}`,
       counterparty: s.identityKey,
-      forSelf: false,
+      forSelf: false
     })
   })
 
@@ -71,7 +71,7 @@ describe('buildPaymentFrame', () => {
       amount: 555,
       derivationPrefix: 'uniquePrefix123',
       derivationSuffix: 'uniqueSuffix456',
-      supportsAwdl: true,
+      supportsAwdl: true
     })
     const w = walletStub()
     await buildPaymentFrame(w as never, s, 'admin.com', s.amount as number)
@@ -153,13 +153,14 @@ describe('buildPaymentFrame', () => {
   // carries no figure of its own to disagree with it: the payee reads the
   // output's satoshis (see utils/localpay/verify.ts).
 
-  const openSession = () => mintSession({
-    identityKey: '02'.padEnd(66, 'e'),
-    amount: undefined,
-    derivationPrefix: 'cHJlZml4',
-    derivationSuffix: 'c3VmZml4',
-    supportsAwdl: true,
-  })
+  const openSession = () =>
+    mintSession({
+      identityKey: '02'.padEnd(66, 'e'),
+      amount: undefined,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: true
+    })
 
   it('uses the payer’s amount for the output on an open session', async () => {
     const w = walletStub()
@@ -198,7 +199,7 @@ describe('broadcastPayment', () => {
       getPublicKey: jest.fn(),
       createAction: jest.fn().mockResolvedValue({ sendWithResults }),
       signAction: jest.fn(),
-      abortAction: jest.fn().mockResolvedValue({ aborted: true }),
+      abortAction: jest.fn().mockResolvedValue({ aborted: true })
     }
   }
 
@@ -220,7 +221,7 @@ describe('broadcastPayment', () => {
   it('returns the toolbox status for this txid', async () => {
     const w = releaseStub([
       { txid: 'other', status: 'failed' },
-      { txid: 'abc', status: 'unproven' },
+      { txid: 'abc', status: 'unproven' }
     ])
     await expect(broadcastPayment(w as never, 'abc', 'admin.com')).resolves.toBe('unproven')
   })
@@ -239,7 +240,7 @@ describe('finalizeDelivery', () => {
       getPublicKey: jest.fn(),
       createAction: jest.fn().mockResolvedValue({ sendWithResults: [{ txid: 'tx-1', status: 'sending' }] }),
       signAction: jest.fn(),
-      abortAction: jest.fn().mockResolvedValue({ aborted: true }),
+      abortAction: jest.fn().mockResolvedValue({ aborted: true })
     }
   }
 
@@ -411,6 +412,44 @@ describe('finalizeDelivery when offline', () => {
     expect(r).toEqual({ kind: 'declined', reason: 'declined' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
     expect(hold).not.toHaveBeenCalled()
+  })
+
+  it('queues a failed decline abort for replay', async () => {
+    const wallet = {
+      createAction: jest.fn(),
+      abortAction: jest.fn().mockRejectedValue(new Error('busy')),
+      getPublicKey: jest.fn(),
+      signAction: jest.fn()
+    }
+    const hold = jest.fn()
+    const queueFailedAbort = jest.fn().mockResolvedValue(undefined)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const r = await finalizeDelivery(wallet as never, built, { ok: false, error: 'declined' }, 'admin.com', {
+      online: async () => true,
+      hold,
+      queueFailedAbort
+    })
+    expect(r).toEqual({ kind: 'declined', reason: 'declined' })
+    expect(queueFailedAbort).toHaveBeenCalledWith('ref-1')
+    warn.mockRestore()
+  })
+
+  it('queues abortAction aborted:false after a decline', async () => {
+    const wallet = {
+      createAction: jest.fn(),
+      abortAction: jest.fn().mockResolvedValue({ aborted: false }),
+      getPublicKey: jest.fn(),
+      signAction: jest.fn()
+    }
+    const queueFailedAbort = jest.fn().mockResolvedValue(undefined)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    await finalizeDelivery(wallet as never, built, { ok: false, error: 'declined' }, 'admin.com', {
+      online: async () => true,
+      hold: jest.fn(),
+      queueFailedAbort
+    })
+    expect(queueFailedAbort).toHaveBeenCalledWith('ref-1')
+    warn.mockRestore()
   })
 
   it('reports pending when the enqueue itself fails', async () => {

@@ -41,6 +41,7 @@ import { makeBeefRepair } from '../../../core/pay/beefRepair'
 import { wocConfigFor } from '../../../core/pay/rails/address'
 import { classifyCreditError } from '../../../core/pay/creditErrors'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
+import { userFacingPayError } from '../../../core/pay/userError'
 import { creditInboxOnce, INBOX_DESCRIPTION, type CreditInboxResult } from '../../../core/pay/creditInbox'
 import { TaskCreditInbox } from '../../../core/monitor/TaskCreditInbox'
 import { useOnline } from '../../hooks/useOnline'
@@ -201,17 +202,21 @@ function AttentionSection({
           const id = String(payment.messageId)
           const isDamaged = damagedIds.has(id)
           const kind = attempts[id]?.kind
+          const facing = userFacingPayError(attempts[id]?.error)
           const error = isDamaged
             ? t('payment_arrived_damaged')
             : kind === 'environmental'
               ? t('waiting_network_confirm')
-              : attempts[id]?.error ?? ''
+              : facing.offerWalletCheck
+                ? t(facing.key)
+                : (attempts[id]?.error ?? '')
           return (
             <AttentionRow
               key={id}
               payment={payment}
               identity={senderIdentities[payment.sender ?? '']}
               error={error}
+              offerWalletCheck={!isDamaged && kind !== 'environmental' && facing.offerWalletCheck}
               isDamaged={isDamaged}
               isLast={idx === payments.length - 1}
               isBusy={busyId === id}
@@ -231,6 +236,7 @@ interface AttentionRowProps {
   readonly payment: IncomingPayment
   readonly identity: DisplayableIdentity | null | undefined
   readonly error: string
+  readonly offerWalletCheck?: boolean
   readonly isDamaged: boolean
   readonly isLast: boolean
   readonly isBusy: boolean
@@ -244,6 +250,7 @@ function AttentionRow({
   payment,
   identity,
   error,
+  offerWalletCheck,
   isDamaged,
   isLast,
   isBusy,
@@ -313,6 +320,17 @@ function AttentionRow({
               {t('dismiss')}
             </Text>
           </TouchableOpacity>
+          {offerWalletCheck && (
+            <TouchableOpacity
+              onPress={() => loadExpoRouter().router.push('/wallet-check' as never)}
+              disabled={isBusy}
+              style={styles.attentionButton}
+            >
+              <Text style={[styles.attentionButtonText, { color: colors.accent }]} numberOfLines={1}>
+                {t('check_wallet')}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -435,9 +453,10 @@ export default function HandleReceive() {
    * consulted after internalizeAction has already failed, and it declines while
    * offline — see core/pay/beefRepair.ts.
    */
-  const repairBeef = useMemo(() => makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline }), [
-    selectedNetwork
-  ])
+  const repairBeef = useMemo(
+    () => makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline }),
+    [selectedNetwork]
+  )
 
   const internalize = useCallback(
     async (payment: IncomingPayment, description: string) => {
@@ -477,8 +496,7 @@ export default function HandleReceive() {
         messageBoxUrl,
         storage: storage ?? undefined,
         force,
-        classify: e =>
-          classifyCreditError(e, { offline: !online, lastMissHeight: takeLastMissHeight() }),
+        classify: e => classifyCreditError(e, { offline: !online, lastMissHeight: takeLastMissHeight() }),
         accept: payment => acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, internalize)
       })
       applyCreditResult(outcome)
@@ -643,11 +661,7 @@ export default function HandleReceive() {
     () =>
       payments.filter(p => {
         const id = String(p.messageId)
-        return (
-          damagedIds.has(id) ||
-          needsAttention(attempts[id]) ||
-          attempts[id]?.kind === 'environmental'
-        )
+        return damagedIds.has(id) || needsAttention(attempts[id]) || attempts[id]?.kind === 'environmental'
       }),
     [payments, attempts, damagedIds]
   )
@@ -798,7 +812,13 @@ const styles = StyleSheet.create({
   },
   identityError: { alignItems: 'center', gap: spacing.md, padding: spacing.xl },
   identityErrorText: { ...typography.subhead, textAlign: 'center' },
-  identityRetry: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg },
+  identityRetry: {
+    minHeight: 44,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg
+  },
   identityRetryLabel: { ...typography.subhead, fontWeight: '600' },
   keyText: {
     ...typography.caption1,

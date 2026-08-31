@@ -151,7 +151,8 @@ import * as SQLite from 'expo-sqlite'
 import { getRegisteredDbs, registerDb, selectLatestDb } from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import { getOnline, subscribeOnline } from '../net/online'
-import { processPending } from '../localpay/pending'
+import { canInternalizePending, processPending } from '../localpay/pending'
+import { replayPendingAborts } from '../localpay/pendingAborts'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import { TaskCreditInbox } from '../monitor/TaskCreditInbox'
 import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
@@ -161,6 +162,7 @@ import { restoreOnImport } from '../backup/restoreOnImport'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
 import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
+import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueuedAncestors'
 import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { classifyCreditError } from '../pay/creditErrors'
 import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
@@ -598,14 +600,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     })
   }, [])
 
-  const {
-    getItem,
-    setItem,
-    getMnemonic,
-    getRecoveredKey,
-    deleteAllWalletKeys,
-    secretsReady
-  } = useLocalStorage()
+  const { getItem, setItem, getMnemonic, getRecoveredKey, deleteAllWalletKeys, secretsReady } = useLocalStorage()
 
   const {
     isFocused,
@@ -873,7 +868,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const walletChain = toWalletChain(selectedNetwork)
         // The backup log's network name. Distinct from walletChain ('ttn' for teratest):
         // the backup derivation is frozen on the app-level names.
-        const backupChain = chain === 'main' ? 'main' as const : chain === 'test' ? 'test' as const : 'teratest' as const
+        const backupChain =
+          chain === 'main' ? ('main' as const) : chain === 'test' ? ('test' as const) : ('teratest' as const)
         const keyDeriver = new KeyDeriver(new PrivateKey(primaryKey))
         const storageManager = new WalletStorageManager(keyDeriver.identityKey)
         const signer = new WalletSigner(walletChain, keyDeriver, storageManager)
@@ -994,7 +990,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // Wrapped on the Wallet itself — below the permissions manager and
         // below every originator — so one hook covers in-app payments, vault
         // transfers, and BRC-100 calls coming out of a page's WebView alike.
-        for (const method of ['createAction', 'signAction', 'internalizeAction', 'abortAction', 'relinquishOutput'] as const) {
+        for (const method of [
+          'createAction',
+          'signAction',
+          'internalizeAction',
+          'abortAction',
+          'relinquishOutput'
+        ] as const) {
           const original = (wallet as any)[method]
           if (typeof original !== 'function') continue
           const bound = original.bind(wallet)
@@ -1219,14 +1221,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // window would be topped up first. It is not needed: posting Extended
           // Format uses no headers at all.)
           //
-          // This is the cheap half of the ordering fix. It does not cover a
-          // TaskSendWaiting pass that picks up an undecided request of its own
-          // whose ancestor is still sitting in the queue; that is tracked
-          // separately.
+          // Registration order is the cheap half of the ordering fix. After
+          // addDefaultTasks we also patch TaskSendWaiting.processUnsent so a
+          // child whose parent is still queued/posting is deferred.
           if (phoneStorage) {
             monitor.addTask(
               new TaskSendOffline(monitor, async () => {
-                const r = await processOfflineActions({ storage: phoneStorage! })
+                const r = await processOfflineActions({
+                  storage: phoneStorage!,
+                  refetchBeef: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+                })
                 // The drain writes transaction statuses directly, below the
                 // monitor's onTransactionStatusChanged callback — bump the
                 // version ourselves so the transactions screen re-fetches.
@@ -1340,6 +1344,42 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             }
           }
           monitor.addDefaultTasks()
+
+          // TaskSendWaiting calls attemptToPostReqsToNetwork as a module
+          // function, so the storage hold override never sees it. Skip any req
+          // whose inputs still sit in queued/posting offline_actions, and kick
+          // the drain so the parent goes out first.
+          if (phoneStorage) {
+            const sendWaiting = monitor._tasks.find(t => t.name === 'SendWaiting') as
+              | { processUnsent?: (reqApis: Array<{ rawTx?: number[] }>, indent?: number) => Promise<string> }
+              | undefined
+            if (sendWaiting?.processUnsent) {
+              const orig = sendWaiting.processUnsent.bind(sendWaiting)
+              sendWaiting.processUnsent = async (reqApis, indent) => {
+                let queuedTxids = new Set<string>()
+                try {
+                  const db = phoneStorage.sqliteDb
+                  if (db) {
+                    const rows = await findOfflineActions(db, { status: ['queued', 'posting'] })
+                    queuedTxids = new Set(rows.map(r => r.txid))
+                  }
+                } catch {
+                  // A queue read failure must not freeze ordinary broadcasts.
+                }
+                const ready: typeof reqApis = []
+                let deferred = 0
+                for (const req of reqApis) {
+                  if (shouldDeferSendWaiting(inputTxidsFromRawTx(req.rawTx), queuedTxids)) deferred++
+                  else ready.push(req)
+                }
+                if (deferred > 0) TaskSendOffline.requestNow()
+                if (ready.length === 0) {
+                  return deferred > 0 ? `deferred ${deferred} req(s) behind queued ancestors\n` : ''
+                }
+                return orig(ready, indent)
+              }
+            }
+          }
 
           const newHeaderTask = monitor._tasks.find((t: any) => t.name === 'NewHeader') as any
           if (newHeaderTask) {
@@ -1765,7 +1805,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // Tear down current wallet state (but keep mnemonic)
       setManagers({})
       walletBuiltRef.current = false
-    setWalletBuilt(false)
+      setWalletBuilt(false)
       walletBuildingRef.current = false
       setWalletBuilding(false)
 
@@ -1815,14 +1855,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
       }
     })()
-  }, [
-    configStatus,
-    walletBuilt,
-    secretsReady,
-    buildWalletFromMnemonic,
-    buildWalletFromRecoveredKey,
-    getRecoveredKey
-  ])
+  }, [configStatus, walletBuilt, secretsReady, buildWalletFromMnemonic, buildWalletFromRecoveredKey, getRecoveredKey])
 
   // Settings are AsyncStorage-only — no on-chain sync needed
 
@@ -1839,7 +1872,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       if (localPayProcessingRef.current) return
       localPayProcessingRef.current = true
       try {
-        if (!(await getOnline())) return
+        let online = false
+        try {
+          online = await getOnline()
+        } catch {
+          online = false
+        }
+        if (!canInternalizePending(online)) return
         const results = await processPending(managers.permissionsManager as any, storage, adminOriginator)
         const successes = results.filter(r => r.success)
         if (successes.length > 0) {
@@ -1860,6 +1899,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
     // Run immediately after wallet build
     tryProcess()
+    void replayPendingAborts({
+      wallet: managers.permissionsManager as {
+        abortAction: (args: { reference: string }, originator?: string) => Promise<{ aborted?: boolean } | void>
+      },
+      storage
+    })
 
     // Also run when connectivity is restored
     const unsubscribe = subscribeOnline(online => {
@@ -2099,7 +2144,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       setManagers({})
       setConfigStatus('initial')
       walletBuiltRef.current = false
-    setWalletBuilt(false)
+      setWalletBuilt(false)
       walletBuildingRef.current = false
       setWalletBuilding(false)
       setWalletUserId(null)
@@ -2236,10 +2281,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     [storage, selectedNetwork]
   )
 
-  const takeLastMissHeight = useCallback(
-    () => offlineChaintracksRef.current?.takeLastMissHeight(),
-    []
-  )
+  const takeLastMissHeight = useCallback(() => offlineChaintracksRef.current?.takeLastMissHeight(), [])
 
   const runMonitorTask = useCallback(async (taskName: string): Promise<string> => {
     const monitor = monitorRef.current
@@ -2647,4 +2689,3 @@ export const useTxStatusVersion = (): number => {
   const ctx = useContext(WalletContext)
   return ctx.txStatusVersion
 }
-

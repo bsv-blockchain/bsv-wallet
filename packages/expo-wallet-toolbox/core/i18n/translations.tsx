@@ -671,6 +671,7 @@ const resources = {
       pay_address_swept: 'Received {{amount}}',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -742,6 +743,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'The network refused a payment you sent on {{when}}.',
       pay_offline_send_now: 'Send now',
       pay_offline_stalled_body: 'Some queued payments can’t be sent automatically: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'Show code again'
     }
   },
@@ -1167,6 +1172,7 @@ const resources = {
       pay_address_swept: '已收到 {{amount}}',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -1237,6 +1243,10 @@ const resources = {
       pay_offline_sent_rejected_body: '网络拒绝了您于 {{when}} 发送的付款。',
       pay_offline_send_now: '立即发送',
       pay_offline_stalled_body: '部分排队付款无法自动发送：{{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: '再次显示付款码'
     }
   },
@@ -1665,6 +1675,7 @@ const resources = {
       pay_address_swept: '{{amount}} प्राप्त हुआ',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -1738,6 +1749,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'नेटवर्क ने {{when}} को आपके द्वारा भेजा गया भुगतान अस्वीकार कर दिया।',
       pay_offline_send_now: 'अभी भेजें',
       pay_offline_stalled_body: 'कुछ कतारबद्ध भुगतान स्वतः नहीं भेजे जा सकते: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'कोड फिर दिखाएँ'
     }
   },
@@ -2167,6 +2182,7 @@ const resources = {
       pay_address_swept: 'Recibido {{amount}}',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -2240,6 +2256,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'La red rechazó un pago que enviaste el {{when}}.',
       pay_offline_send_now: 'Enviar ahora',
       pay_offline_stalled_body: 'Algunos pagos en cola no se pueden enviar automáticamente: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'Mostrar el código otra vez'
     }
   },
@@ -2663,6 +2683,7 @@ const resources = {
       pay_address_swept: '{{amount}} reçu',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -2735,6 +2756,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'Le réseau a refusé un paiement que vous avez envoyé le {{when}}.',
       pay_offline_send_now: 'Envoyer maintenant',
       pay_offline_stalled_body: 'Certains paiements en attente ne peuvent pas être envoyés automatiquement : {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'Réafficher le code'
     }
   },
@@ -3155,6 +3180,7 @@ const resources = {
       pay_address_swept: 'تم استلام {{amount}}',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -3226,6 +3252,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'رفضت الشبكة دفعة أرسلتها في {{when}}.',
       pay_offline_send_now: 'أرسل الآن',
       pay_offline_stalled_body: 'تعذّر إرسال بعض المدفوعات في قائمة الانتظار تلقائيًا: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'إظهار الرمز مرة أخرى'
     }
   },
@@ -3649,6 +3679,7 @@ const resources = {
       pay_address_swept: '{{amount}} recebido',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -3721,6 +3752,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'A rede rejeitou um pagamento que você enviou em {{when}}.',
       pay_offline_send_now: 'Enviar agora',
       pay_offline_stalled_body: 'Alguns pagamentos na fila não podem ser enviados automaticamente: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'Mostrar o código novamente'
     }
   },
@@ -4143,6 +4178,7 @@ const resources = {
       pay_address_swept: '{{amount}} পাওয়া গেছে',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -4216,6 +4252,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'নেটওয়ার্ক {{when}}-এ আপনার পাঠানো একটি পেমেন্ট প্রত্যাখ্যান করেছে।',
       pay_offline_send_now: 'এখনই পাঠান',
       pay_offline_stalled_body: 'সারিতে থাকা কিছু পেমেন্ট স্বয়ংক্রিয়ভাবে পাঠানো যাচ্ছে না: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'কোড আবার দেখান'
     }
   },
@@ -4639,6 +4679,7 @@ const resources = {
       pay_address_swept: 'Получено {{amount}}',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -4712,6 +4753,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'Сеть отклонила платёж, который вы отправили {{when}}.',
       pay_offline_send_now: 'Отправить сейчас',
       pay_offline_stalled_body: 'Некоторые платежи в очереди не удаётся отправить автоматически: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'Показать код снова'
     }
   },
@@ -5134,6 +5179,7 @@ const resources = {
       pay_address_swept: 'Diterima {{amount}}',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -5208,6 +5254,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'Jaringan menolak pembayaran yang Anda kirim pada {{when}}.',
       pay_offline_send_now: 'Kirim sekarang',
       pay_offline_stalled_body: 'Beberapa pembayaran dalam antrean tidak dapat dikirim secara otomatis: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'Tampilkan kode lagi'
     }
   },
@@ -5645,6 +5695,7 @@ const resources = {
       pay_address_swept: '{{amount}} を受け取りました',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -5717,6 +5768,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'ネットワークは、あなたが{{when}}に送った支払いを拒否しました。',
       pay_offline_send_now: '今すぐ送信',
       pay_offline_stalled_body: '一部のキュー内の支払いは自動的に送信できません: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'コードをもう一度表示'
     }
   },
@@ -6155,6 +6210,7 @@ const resources = {
       pay_address_swept: 'Otrzymano {{amount}}',
 
       check_wallet: 'Check Wallet',
+      error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
@@ -6229,6 +6285,10 @@ const resources = {
       pay_offline_sent_rejected_body: 'Sieć odrzuciła płatność wysłaną przez Ciebie w dniu {{when}}.',
       pay_offline_send_now: 'Wyślij teraz',
       pay_offline_stalled_body: 'Niektórych oczekujących płatności nie można wysłać automatycznie: {{detail}}',
+      offline_stall_no_request: 'A queued payment is missing its send record.',
+      offline_stall_bad_beef: "A queued payment's transaction data couldn't be read.",
+      offline_stall_foreign_ancestor: 'A queued payment is waiting on a parent transaction another wallet never broadcast.',
+      pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_show_code: 'Pokaż kod ponownie'
     }
   }

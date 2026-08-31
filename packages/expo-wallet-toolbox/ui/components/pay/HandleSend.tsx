@@ -15,7 +15,8 @@ import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
 import { showAlert } from '../ui/AlertCard'
 import { showChoiceSheet } from '../ui/ChoiceSheet'
-import { isReviewActionsError, promptCheckWallet } from '../../screens/WalletCheckScreen'
+import { promptCheckWallet } from '../../screens/WalletCheckScreen'
+import { userFacingPayError } from '../../../core/pay/userError'
 import PressableScale from '../ui/PressableScale'
 import { showToast } from '../ui/Toast'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
@@ -275,7 +276,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
       setNote('')
       search.clearRecipient()
     } catch (error: any) {
-      if (isReviewActionsError(error)) {
+      if (userFacingPayError(error).offerWalletCheck) {
         const choice = await promptCheckWallet(t)
         if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
         return
@@ -320,7 +321,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
         // that worked first time — held until Done, then back to the wallet.
         setSent({ amount: entry.token.amount })
       } catch (e: any) {
-        if (isReviewActionsError(e)) {
+        if (userFacingPayError(e).offerWalletCheck) {
           const choice = await promptCheckWallet(t)
           if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
           return
@@ -419,8 +420,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
    * unreachable would mint another noSend action and another stuck entry, so
    * the only ways forward are Retry and Cancel on what is already queued.
    */
-  const formOtherwiseValid =
-    search.recipientKey.length > 0 && Number(sendAmount) > 0 && !isSending && isConfigured
+  const formOtherwiseValid = search.recipientKey.length > 0 && Number(sendAmount) > 0 && !isSending && isConfigured
   const canSend = formOtherwiseValid && outbox.length === 0
 
   return (
@@ -496,9 +496,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
       <ConsequenceNote textKey={CONSEQUENCE_KEYS.handle} />
 
       {formOtherwiseValid && outbox.length > 0 && (
-        <Text style={[styles.consequence, { color: colors.textSecondary }]}>
-          {t('finish_or_cancel_outgoing')}
-        </Text>
+        <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('finish_or_cancel_outgoing')}</Text>
       )}
 
       <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} />

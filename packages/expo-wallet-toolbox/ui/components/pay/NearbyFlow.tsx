@@ -85,21 +85,15 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Linking,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View
-} from 'react-native'
+import { ActivityIndicator, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-import { createNonce } from '@bsv/sdk'
-import type { WalletInterface } from '@bsv/sdk'
+import { Beef, createNonce, type WalletInterface } from '@bsv/sdk'
+import { finalizeDelivery } from '../../../core/localpay/build'
+import { queuePendingAbort } from '../../../core/localpay/pendingAborts'
+import { receiptBroadcastFromReqStatus } from '../../../core/offline/plan'
+import { userFacingPayError } from '../../../core/pay/userError'
 
 import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
@@ -122,7 +116,6 @@ import {
   useWallet,
   sounds,
   updateOfflineAction,
-  getOnline,
   AirGapDecoder,
   FRAME_BLOCK_BYTES,
   MAX_MESSAGE_BYTES,
@@ -131,7 +124,6 @@ import {
   decodeSession,
   encodeSession,
   exitSendQrChoice,
-  finalizeDelivery,
   frameBytesFromQr,
   holdSentPaymentOffline,
   isAirGapPart,
@@ -264,6 +256,8 @@ interface Failure {
   detail: string
   /** Local Network access is off — offer a route to Settings. */
   settings: boolean
+  /** Offer Check Wallet for WERR_REVIEW_ACTIONS. */
+  offerWalletCheck?: boolean
 }
 
 /**
@@ -431,12 +425,10 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
    * once funds are provably in the wallet — see settleReceived, where a merely
    * queued payment deliberately does NOT raise it.
    *
-   * `broadcast` is whether this device was online at the moment the frame was
-   * durably queued (see the `broadcastCheck` probe below) — NOT a claim that
-   * anyone has actually broadcast it yet. It only tells the payee whether
-   * their own device could see the network; the payer's device still has to
-   * reconnect and post the transaction before this money is safe from a
-   * double-spend, and no read of this device's own state can promise that.
+   * `broadcast` is whether storage already records a network hand-off for this
+   * tx (`alreadySentStatuses`) — NOT whether this device was online at settle
+   * time. An offline hold parks the req at `nosend`, so the receipt must not
+   * claim broadcast just because NetInfo was up.
    */
   const [receivedOverlay, setReceivedOverlay] = useState<{ amount: number; broadcast: boolean } | null>(null)
 
@@ -578,11 +570,15 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   }, [initialRole, openScanner])
 
   const fail = useCallback(
-    (kind: 'network' | 'generic', detail?: string) => {
+    (kind: 'network' | 'generic', detail?: string, offerWalletCheck = false) => {
       setFailure(
         kind === 'network'
           ? { detail: t('local_pay_network_denied'), settings: true }
-          : { detail: detail && detail.length > 0 ? detail : t('local_pay_failed'), settings: false }
+          : {
+              detail: detail && detail.length > 0 ? detail : t('local_pay_failed'),
+              settings: false,
+              offerWalletCheck
+            }
       )
       setPhase('failed')
     },
@@ -763,16 +759,6 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         return
       }
 
-      // Started here, alongside the durable write, and not awaited until the
-      // receipt is raised below: whatever `processPending` costs (1) overlaps
-      // with this probe, so it adds no latency to the settle path, and (2)
-      // never touches the durable-write section's own try/catch — a probe
-      // failure must not be mistaken for the frame being unpersisted. Caught
-      // inline for the same reason: this is advisory copy, not a money path,
-      // so a failed check reads as "not yet broadcast" rather than crashing
-      // the settle.
-      const broadcastCheck = getOnline().catch(() => false)
-
       // ── Durable-write section ──
       // Everything that can legitimately be reported as a payment failure lives
       // in here, and only in here. Past the closing brace the money is safe.
@@ -890,7 +876,19 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         // spendable, and a receipt claiming otherwise is the one thing the tone
         // rule above exists to prevent. A queued settle keeps the neutral notice
         // on the done screen instead.
-        if (credited) setReceivedOverlay({ amount: satoshis, broadcast: await broadcastCheck })
+        if (credited) {
+          let broadcast = false
+          try {
+            const txid = Beef.fromBinary(frame.transaction).atomicTxid
+            if (txid) {
+              const reqs = await storage.findProvenTxReqs({ partial: { txid } })
+              broadcast = receiptBroadcastFromReqStatus(reqs[0]?.status)
+            }
+          } catch {
+            broadcast = false
+          }
+          setReceivedOverlay({ amount: satoshis, broadcast })
+        }
       } catch (e) {
         console.warn('[localpay] processPending failed:', messageOf(e))
         setNotice({ text: t('local_pay_queued'), tone: 'info' })
@@ -1074,10 +1072,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
    * Declared above executeSend on purpose — a useCallback dependency array is
    * evaluated at render time, so referencing it from below would hit the TDZ.
    */
-  const sendKind = useMemo(
-    () => (scannedSession ? selectTransport(scannedSession) : null),
-    [scannedSession]
-  )
+  const sendKind = useMemo(() => (scannedSession ? selectTransport(scannedSession) : null), [scannedSession])
 
   /**
    * The figure this payment will actually carry.
@@ -1108,11 +1103,19 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   const abortBuild = useCallback(
     (reference: string | undefined) => {
       if (!reference || !wallet) return
-      void (wallet as unknown as PayingWalletArg)
-        .abortAction({ reference }, adminOriginator)
-        .catch(e => console.warn('[localpay] abortAction failed:', messageOf(e)))
+      void (async () => {
+        try {
+          const result = await (wallet as unknown as PayingWalletArg).abortAction({ reference }, adminOriginator)
+          if (result?.aborted === false) throw new Error('abortAction returned aborted:false')
+        } catch (e) {
+          console.warn('[localpay] abortAction failed:', messageOf(e))
+          if (storage) {
+            await queuePendingAbort(storage, { reference, originator: adminOriginator }).catch(() => undefined)
+          }
+        }
+      })()
     },
-    [wallet, adminOriginator]
+    [wallet, adminOriginator, storage]
   )
 
   /**
@@ -1154,19 +1157,17 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         // `number[]`, while the SDK's `AtomicBEEF` is `Byte[] | Uint8Array`. The
         // manager satisfies the contract at runtime — build.ts wraps the result in
         // `new Uint8Array(...)`, which accepts either — so this is nominal only.
-        built = await buildPaymentFrame(
-          wallet as unknown as PayingWalletArg,
-          session,
-          adminOriginator,
-          payAmount
-        )
+        built = await buildPaymentFrame(wallet as unknown as PayingWalletArg, session, adminOriginator, payAmount)
       } catch (e) {
         // Build errors are wallet errors and must keep their own message. A
         // declined spending prompt reads "Permission denied", which the Local
         // Network heuristic would otherwise misread into an Open Settings button
         // for the wrong permission, discarding the real reason. Nothing was
         // built, so there is nothing to abort.
-        if (!controller.signal.aborted) fail('generic', messageOf(e))
+        if (!controller.signal.aborted) {
+          const facing = userFacingPayError(e)
+          fail('generic', facing.offerWalletCheck ? t(facing.key) : messageOf(e), facing.offerWalletCheck)
+        }
         return
       }
       if (controller.signal.aborted) {
@@ -1244,6 +1245,10 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
           // instead — same outward outcome, an honest cause.
           if (!storage) throw new Error('no local storage to queue this payment in')
           await holdSentPaymentOffline({ storage, txid })
+        },
+        queueFailedAbort: async reference => {
+          if (!storage) return
+          await queuePendingAbort(storage, { reference, originator: adminOriginator })
         }
       })
       if (controller.signal.aborted) return
@@ -1316,6 +1321,10 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
       hold: async txid => {
         if (!storage) throw new Error('no local storage to queue this payment in')
         await holdSentPaymentOffline({ storage, txid, framePayload })
+      },
+      queueFailedAbort: async reference => {
+        if (!storage) return
+        await queuePendingAbort(storage, { reference, originator: adminOriginator })
       }
     })
     if (outcome.kind === 'sent' && outcome.broadcast === 'pending') {
@@ -1587,8 +1596,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   )
 
   const noticeBlock = (n: Notice) => {
-    const tint =
-      n.tone === 'success' ? colors.success : n.tone === 'warning' ? colors.warning : colors.textSecondary
+    const tint = n.tone === 'success' ? colors.success : n.tone === 'warning' ? colors.warning : colors.textSecondary
     return (
       <Animated.View
         entering={fadeIn}
@@ -1602,9 +1610,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         accessibilityRole="text"
       >
         <Ionicons name={NOTICE_ICONS[n.tone]} size={16} color={tint} />
-        <Text style={[styles.noticeText, { color: n.tone === 'info' ? colors.textSecondary : tint }]}>
-          {n.text}
-        </Text>
+        <Text style={[styles.noticeText, { color: n.tone === 'info' ? colors.textSecondary : tint }]}>{n.text}</Text>
       </Animated.View>
     )
   }
@@ -1662,8 +1668,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
                         mintSession({
                           // secp256k1 generator point: a genuinely valid
                           // compressed pubkey, so key derivation won't throw.
-                          identityKey:
-                            '0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798',
+                          identityKey: '0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798',
                           derivationPrefix: 'ZGV2LXByZWZpeA==',
                           derivationSuffix: 'ZGV2LXN1ZmZpeA==',
                           supportsAwdl: false
@@ -2006,6 +2011,18 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
               </>
             )}
 
+            {failure?.offerWalletCheck && (
+              <>
+                <SecondaryButton
+                  styles={styles}
+                  colors={colors}
+                  label={t('check_wallet')}
+                  onPress={() => router.push('/wallet-check' as never)}
+                />
+                <View style={styles.gapMd} />
+              </>
+            )}
+
             {paymentQr && (
               <>
                 <SecondaryButton
@@ -2121,9 +2138,7 @@ function PrimaryButton({
       accessibilityState={{ disabled: !!disabled }}
     >
       {!!icon && <Ionicons name={icon} size={20} color={disabled ? colors.textTertiary : colors.textOnAccent} />}
-      <Text style={[styles.buttonText, { color: disabled ? colors.textTertiary : colors.textOnAccent }]}>
-        {label}
-      </Text>
+      <Text style={[styles.buttonText, { color: disabled ? colors.textTertiary : colors.textOnAccent }]}>{label}</Text>
     </PressableScale>
   )
 }

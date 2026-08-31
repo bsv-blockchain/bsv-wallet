@@ -72,6 +72,7 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import { getUnprocessed } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
@@ -112,9 +113,8 @@ function loadIonicons(): IoniconsComponent {
 }
 function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   if (!materialCommunityIconsComponent) {
-    materialCommunityIconsComponent = require('@expo/vector-icons')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      .MaterialCommunityIcons as MaterialCommunityIconsComponent
+    materialCommunityIconsComponent = // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
   }
   return materialCommunityIconsComponent
 }
@@ -275,6 +275,7 @@ export function WalletHomeScreen() {
   const [attentionCount, setAttentionCount] = useState(0)
   const [unsentCount, setUnsentCount] = useState(0)
   const [stalled, setStalled] = useState<string | undefined>(undefined)
+  const [pendingCount, setPendingCount] = useState(0)
   // Per-row in-flight action, keyed by txid (or reference for abort) so only
   // the tapped row shows a spinner rather than the whole list.
   const [busyRow, setBusyRow] = useState<string | null>(null)
@@ -316,10 +317,7 @@ export function WalletHomeScreen() {
         if (total == null) {
           const pm = managers.permissionsManager
           if (!pm) return
-          const { totalOutputs } = await pm.listOutputs(
-            { basket: sdk.specOpWalletBalance },
-            adminOriginator
-          )
+          const { totalOutputs } = await pm.listOutputs({ basket: sdk.specOpWalletBalance }, adminOriginator)
           total = totalOutputs ?? 0
         }
         setBalance(total)
@@ -470,6 +468,13 @@ export function WalletHomeScreen() {
 
   const fetchOfflineRows = useCallback(async () => {
     try {
+      if (storage) {
+        try {
+          setPendingCount((await getUnprocessed(storage)).length)
+        } catch {
+          setPendingCount(0)
+        }
+      }
       const db = storage?.sqliteDb
       if (!db) return
       const rows = await findOfflineActions(db, {
@@ -493,8 +498,7 @@ export function WalletHomeScreen() {
         setActions(result.actions as ActivityAction[])
         offsetRef.current = result.actions.length
         // A fresh first page may have more behind it again.
-        exhaustedRef.current =
-          result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
+        exhaustedRef.current = result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
         setLoading(false)
       } catch {
         if (cancelled) return
@@ -558,8 +562,7 @@ export function WalletHomeScreen() {
       if (result) {
         setActions(result.actions as ActivityAction[])
         offsetRef.current = result.actions.length
-        exhaustedRef.current =
-          result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
+        exhaustedRef.current = result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
       }
       setAttentionCount(TaskCreditInbox.lastAttentionCount)
       setUnsentCount(unsentEntries(entries).length)
@@ -574,11 +577,7 @@ export function WalletHomeScreen() {
     if (exporting || actions.length === 0 || !managers.permissionsManager) return
     setExporting(true)
     try {
-      const count = await exportTransactionsAsCsv(
-        managers.permissionsManager,
-        storage,
-        adminOriginator
-      )
+      const count = await exportTransactionsAsCsv(managers.permissionsManager, storage, adminOriginator)
       if (count === 0) showToast(t('no_transactions'), { type: 'info' })
     } catch {
       showToast(t('tx_export_failed'), { type: 'error' })
@@ -667,10 +666,9 @@ export function WalletHomeScreen() {
       if (!managers.permissionsManager || busyRow) return
       setBusyRow(reference)
       try {
-        const r = (await managers.permissionsManager.abortAction(
-          { reference },
-          adminOriginator
-        )) as { aborted?: boolean } | undefined
+        const r = (await managers.permissionsManager.abortAction({ reference }, adminOriginator)) as
+          | { aborted?: boolean }
+          | undefined
         if (!r || r.aborted === false) {
           showToast(t('tx_abort_failed'), { type: 'error' })
         } else {
@@ -717,14 +715,7 @@ export function WalletHomeScreen() {
     } finally {
       setResending(false)
     }
-  }, [
-    resending,
-    managers.permissionsManager,
-    storage,
-    adminOriginator,
-    selectedNetwork,
-    t
-  ])
+  }, [resending, managers.permissionsManager, storage, adminOriginator, selectedNetwork, t])
 
   const onSendPaymentDetails = useCallback(
     async (txid: string) => {
@@ -823,10 +814,7 @@ export function WalletHomeScreen() {
     [offlineRows]
   )
   const queuedCount = useMemo(() => offlineRows.filter(r => r.status !== 'rejected').length, [offlineRows])
-  const queuedSent = useMemo(
-    () => offlineRows.filter(r => r.status !== 'rejected' && r.role === 'sent'),
-    [offlineRows]
-  )
+  const queuedSent = useMemo(() => offlineRows.filter(r => r.status !== 'rejected' && r.role === 'sent'), [offlineRows])
   const stuckBadges = useMemo(
     () =>
       homeBadges({
@@ -860,14 +848,11 @@ export function WalletHomeScreen() {
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item, index }) => {
       if (item.kind === 'day') {
-        return (
-          <Text style={[styles.dayHeader, { color: colors.textTertiary }]}>{item.label}</Text>
-        )
+        return <Text style={[styles.dayHeader, { color: colors.textTertiary }]}>{item.label}</Text>
       }
       const key = item.txid || item.reference || `row-${index}`
       const offline = item.txid ? offlineByTxid.get(item.txid) : undefined
-      const busy =
-        busyRow === item.txid || (!!item.reference && busyRow === item.reference)
+      const busy = busyRow === item.txid || (!!item.reference && busyRow === item.reference)
 
       return (
         <ActivityRow
@@ -905,10 +890,7 @@ export function WalletHomeScreen() {
 
   // ── header (balance + the three destinations + activity heading) ─────
   const balanceParts = useMemo(
-    () =>
-      balance === null
-        ? null
-        : formatAmountParts(balance, currency, satoshisPerUSD, { abbreviate: true }),
+    () => (balance === null ? null : formatAmountParts(balance, currency, satoshisPerUSD, { abbreviate: true })),
     [balance, currency, satoshisPerUSD]
   )
 
@@ -932,9 +914,7 @@ export function WalletHomeScreen() {
           style={styles.balanceBlock}
           accessibilityLabel={t('wallet_balance_refresh')}
         >
-          <Text style={[styles.balanceLabel, { color: colors.textTertiary }]}>
-            {t('wallet_balance_you_have')}
-          </Text>
+          <Text style={[styles.balanceLabel, { color: colors.textTertiary }]}>{t('wallet_balance_you_have')}</Text>
           {balanceParts === null ? (
             <ActivityIndicator color={colors.textSecondary} style={styles.balanceSpinner} />
           ) : (
@@ -942,15 +922,10 @@ export function WalletHomeScreen() {
               <Text style={[styles.balance, { color: colors.textPrimary }]}>
                 {balanceParts.value}
                 {balanceParts.unit ? (
-                  <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}>
-                    {' '}
-                    {balanceParts.unit}
-                  </Text>
+                  <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}> {balanceParts.unit}</Text>
                 ) : null}
               </Text>
-              <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>
-                {balanceContext}
-              </Text>
+              <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>{balanceContext}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -972,15 +947,10 @@ export function WalletHomeScreen() {
           <PressableScale
             haptic="confirm"
             onPress={() => router.push('/pay?direction=get')}
-            style={[
-              styles.dest,
-              { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
-            ]}
+            style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
           >
             <MaterialCommunityIcons name="arrow-bottom-left" size={19} color={colors.textPrimary} />
-            <Text style={[styles.destLabel, { color: colors.textPrimary }]}>
-              {t('pay_direction_receive')}
-            </Text>
+            <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('pay_direction_receive')}</Text>
           </PressableScale>
 
           {/* Vault — hidden for now; will release once R1-K1 research is complete.
@@ -1014,14 +984,10 @@ export function WalletHomeScreen() {
                     resending ? (
                       <View style={styles.resendTrailing}>
                         <ActivityIndicator size="small" color={colors.accent} />
-                        <Text style={[styles.resendAction, { color: colors.accent }]}>
-                          {t('resending')}
-                        </Text>
+                        <Text style={[styles.resendAction, { color: colors.accent }]}>{t('resending')}</Text>
                       </View>
                     ) : (
-                      <Text style={[styles.resendAction, { color: colors.accent }]}>
-                        {t('resend')}
-                      </Text>
+                      <Text style={[styles.resendAction, { color: colors.accent }]}>{t('resend')}</Text>
                     )
                   }
                 />
@@ -1058,6 +1024,7 @@ export function WalletHomeScreen() {
           sentRejected={sentRejected}
           onSendNow={() => TaskSendOffline.requestNow()}
           stalled={stalled}
+          pendingCount={pendingCount}
           queuedSent={queuedSent}
           onShowCode={() => router.push('/pay')}
           onRequestAgain={row => void onRequestAgain(row)}
@@ -1067,9 +1034,7 @@ export function WalletHomeScreen() {
         />
 
         <View style={styles.activityHead}>
-          <Text style={[styles.activityTitle, { color: colors.textPrimary }]}>
-            {t('wallet_activity')}
-          </Text>
+          <Text style={[styles.activityTitle, { color: colors.textPrimary }]}>{t('wallet_activity')}</Text>
           <TouchableOpacity
             onPress={onExport}
             disabled={exporting || actions.length === 0}
@@ -1088,10 +1053,7 @@ export function WalletHomeScreen() {
               />
             )}
             <Text
-              style={[
-                styles.exportLabel,
-                { color: actions.length === 0 ? colors.textTertiary : colors.textSecondary }
-              ]}
+              style={[styles.exportLabel, { color: actions.length === 0 ? colors.textTertiary : colors.textSecondary }]}
             >
               {t('tx_export_csv')}
             </Text>
@@ -1118,6 +1080,7 @@ export function WalletHomeScreen() {
       sentRejected,
       queuedSent,
       stalled,
+      pendingCount,
       onRequestAgain,
       onCopyDetails,
       onDismiss,
@@ -1136,10 +1099,7 @@ export function WalletHomeScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.push('/wallet-config')}
-          style={[
-            styles.iconBtn,
-            { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
-          ]}
+          style={[styles.iconBtn, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
           accessibilityRole="button"
           accessibilityLabel={t('wallet_settings')}
         >
@@ -1154,9 +1114,7 @@ export function WalletHomeScreen() {
 
       <FlatList
         data={rows}
-        keyExtractor={(item, index) =>
-          item.kind === 'day' ? item.id : `${item.txid || index}-${index}`
-        }
+        keyExtractor={(item, index) => (item.kind === 'day' ? item.id : `${item.txid || index}-${index}`)}
         renderItem={renderItem}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
@@ -1177,15 +1135,11 @@ export function WalletHomeScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={t('activity_load_retry')}
               >
-                <Text style={[styles.emptyRetryLabel, { color: colors.accent }]}>
-                  {t('activity_load_retry')}
-                </Text>
+                <Text style={[styles.emptyRetryLabel, { color: colors.accent }]}>{t('activity_load_retry')}</Text>
               </PressableScale>
             </View>
           ) : (
-            <Text style={[styles.empty, { color: colors.textSecondary }]}>
-              {t('no_transactions')}
-            </Text>
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('no_transactions')}</Text>
           )
         }
         onEndReached={loadMore}

@@ -88,6 +88,8 @@ export interface OfflineNoticeProps {
   onDismiss?: (row: OfflineActionRow) => void
   /** Tighter padding when mounted above the home activity list. */
   compact?: boolean
+  /** Unprocessed `localpay_pending` KV entries waiting to internalize. */
+  pendingCount?: number
 }
 
 export default function OfflineNotice({
@@ -103,13 +105,36 @@ export default function OfflineNotice({
   onSendAgain,
   onCopyDetails,
   onDismiss,
-  compact = false
+  compact = false,
+  pendingCount = 0
 }: OfflineNoticeProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
-  if (online && queued === 0 && rejected.length === 0 && sentRejected.length === 0 && (queuedSent ?? []).length === 0)
+  if (
+    online &&
+    queued === 0 &&
+    rejected.length === 0 &&
+    sentRejected.length === 0 &&
+    (queuedSent ?? []).length === 0 &&
+    pendingCount === 0
+  )
     return null
+
+  const stallDetail = stalled
+    ? stalled
+        .split(';')
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(part =>
+          part === 'offline_stall_no_request' ||
+          part === 'offline_stall_bad_beef' ||
+          part === 'offline_stall_foreign_ancestor'
+            ? t(part)
+            : part
+        )
+        .join('; ')
+    : ''
 
   const actionBtn = (label: string, onPress?: () => void) => (
     <PressableScale
@@ -133,6 +158,11 @@ export default function OfflineNotice({
             <Text style={[styles.body, { color: colors.textSecondary }]}>
               {queued > 0 ? t('pay_offline_queued', { count: queued }) : t('pay_offline_body')}
             </Text>
+            {pendingCount > 0 && (
+              <Text style={[styles.body, { color: colors.textSecondary }]}>
+                {t('pay_offline_kv_pending', { count: pendingCount })}
+              </Text>
+            )}
           </View>
         </View>
       )}
@@ -149,9 +179,14 @@ export default function OfflineNotice({
             <Text style={[styles.body, { color: colors.textSecondary }]}>
               {t('pay_offline_pending_body', { count: queued })}
             </Text>
-            {!!stalled && (
+            {pendingCount > 0 && (
+              <Text style={[styles.body, { color: colors.textSecondary }]}>
+                {t('pay_offline_kv_pending', { count: pendingCount })}
+              </Text>
+            )}
+            {!!stallDetail && (
               <Text style={[styles.body, { color: colors.warning }]}>
-                {t('pay_offline_stalled_body', { detail: stalled })}
+                {t('pay_offline_stalled_body', { detail: stallDetail })}
               </Text>
             )}
             {onSendNow && (
@@ -159,6 +194,16 @@ export default function OfflineNotice({
                 {t('pay_offline_send_now')}
               </Text>
             )}
+          </View>
+        </View>
+      )}
+      {online && pendingCount > 0 && queued === 0 && (
+        <View style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
+          <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
+          <View style={styles.text}>
+            <Text style={[styles.body, { color: colors.textSecondary }]}>
+              {t('pay_offline_kv_pending', { count: pendingCount })}
+            </Text>
           </View>
         </View>
       )}

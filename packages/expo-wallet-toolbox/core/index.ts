@@ -1,7 +1,13 @@
 export const CANARY = 'core'
 
 export { recoverMnemonicWallet, generateMnemonicWallet, validateMnemonic } from './mnemonicWallet'
-export { getRegisteredDbs, registerDb, selectLatestDb, parseDbFilename, parseTimestampFromFilename } from './walletDbRegistry'
+export {
+  getRegisteredDbs,
+  registerDb,
+  selectLatestDb,
+  parseDbFilename,
+  parseTimestampFromFilename
+} from './walletDbRegistry'
 export { configureNewHeaderPolling } from './walletMonitor'
 export { TaskSendOffline } from './monitor/TaskSendOffline'
 export { TaskCreditInbox } from './monitor/TaskCreditInbox'
@@ -47,6 +53,7 @@ export * from './localpay/codec'
 export * from './localpay/session'
 export * from './localpay/build'
 export * from './localpay/pending'
+export * from './localpay/pendingAborts'
 export * from './localpay/sessionPolicy'
 export * from './localpay/verify'
 export * from './localpay/qr'
@@ -75,9 +82,15 @@ export { findOfflineActions, updateOfflineAction } from './storage/methods/offli
 export type { OfflineActionRow, OfflineActionStatus, BindValue } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
 export { processOfflineActions } from './storage/methods/processOfflineActions'
+export * from './storage/skipQueuedAncestors'
 
 // Local secrets storage
-export { default as LocalStorageProvider, useLocalStorage, LocalStorageContext, type LocalStorageContextType } from './context/LocalStorageProvider'
+export {
+  default as LocalStorageProvider,
+  useLocalStorage,
+  LocalStorageContext,
+  type LocalStorageContextType
+} from './context/LocalStorageProvider'
 
 // User context and native handlers
 export { UserContextProvider, UserContext } from './context/UserContext'
@@ -92,6 +105,7 @@ export * from './pay/rails'
 export * from './pay/beefRepair'
 export * from './pay/creditErrors'
 export * from './pay/creditInbox'
+export * from './pay/userError'
 export * from './pay/rails/address'
 export * from './pay/rails/handle'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)

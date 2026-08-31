@@ -17,7 +17,8 @@ import QRScanner from '../QRScanner'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
 import PaymentSuccessOverlay from './PaymentSuccessOverlay'
 import { showToast } from '../ui/Toast'
-import { isReviewActionsError, promptCheckWallet } from '../../screens/WalletCheckScreen'
+import { promptCheckWallet } from '../../screens/WalletCheckScreen'
+import { userFacingPayError } from '../../../core/pay/userError'
 import {
   useTheme,
   radii,
@@ -127,12 +128,13 @@ export default function AddressSend({ initialAddress }: { initialAddress?: strin
       setAmount('')
       setError(null)
     } catch (e: any) {
-      if (isReviewActionsError(e)) {
+      const facing = userFacingPayError(e)
+      if (facing.offerWalletCheck) {
         const choice = await promptCheckWallet(t)
         if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
         return
       }
-      showToast(e?.message || t('unknown_error'), { type: 'error' })
+      showToast(e?.message || t(facing.key), { type: 'error' })
     } finally {
       setIsSending(false)
     }

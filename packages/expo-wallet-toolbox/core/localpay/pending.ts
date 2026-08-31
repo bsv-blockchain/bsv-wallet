@@ -129,6 +129,14 @@ export async function getUnprocessed(storage: KVStorage): Promise<PendingPayment
   return (await readAll(storage)).filter(p => p.status !== 'completed')
 }
 
+/**
+ * Nearby pending can internalize while offline: `internalizeAction` parks the
+ * broadcast via the storage hold. Connectivity no longer gates the queue.
+ */
+export function canInternalizePending(_online: boolean): boolean {
+  return true
+}
+
 export async function updateStatus(
   storage: KVStorage,
   id: string,
@@ -185,12 +193,12 @@ export async function processPending(
               paymentRemittance: {
                 derivationPrefix: p.frame.derivationPrefix,
                 derivationSuffix: p.frame.derivationSuffix,
-                senderIdentityKey: p.frame.senderIdentityKey,
-              },
-            },
+                senderIdentityKey: p.frame.senderIdentityKey
+              }
+            }
           ],
           description: PEERPAY_DESCRIPTION,
-          labels: [PEERPAY_LABEL],
+          labels: [PEERPAY_LABEL]
         },
         originator
       )
