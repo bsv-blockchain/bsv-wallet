@@ -38,6 +38,11 @@ import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
 import { makeBeefRepair } from '../../../core/pay/beefRepair'
 import { wocConfigFor } from '../../../core/pay/rails/address'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
+import {
+  isPaymentTokenShape,
+  listDamagedInboxMessages,
+  type DamagedInboxMessage
+} from '../../../core/pay/damagedInbox'
 import { getOnline } from '../../../core/net/online'
 import {
   useTheme,
@@ -167,9 +172,17 @@ const DISCARD_ARM_MS = 5000
 // absent entirely — an inbox that is always visible and always empty trains
 // people to ignore it, and this is the one place that must be noticed.
 
+/** Placeholder token so unparseable inbox rows can share the IncomingPayment row UI. */
+const DAMAGED_TOKEN_PLACEHOLDER: IncomingPayment['token'] = {
+  customInstructions: { derivationPrefix: '', derivationSuffix: '' },
+  transaction: [],
+  amount: 0
+}
+
 interface AttentionSectionProps {
   readonly payments: IncomingPayment[]
   readonly attempts: Record<string, InboxAttempt>
+  readonly damagedIds: ReadonlySet<string>
   readonly senderIdentities: Record<string, DisplayableIdentity | null>
   readonly busyId: string | null
   readonly armedDiscardId: string | null
@@ -182,6 +195,7 @@ interface AttentionSectionProps {
 function AttentionSection({
   payments,
   attempts,
+  damagedIds,
   senderIdentities,
   busyId,
   armedDiscardId,
@@ -203,12 +217,14 @@ function AttentionSection({
       >
         {payments.map((payment, idx) => {
           const id = String(payment.messageId)
+          const isDamaged = damagedIds.has(id)
           return (
             <AttentionRow
               key={id}
               payment={payment}
               identity={senderIdentities[payment.sender ?? '']}
-              error={attempts[id]?.error ?? ''}
+              error={isDamaged ? t('payment_arrived_damaged') : attempts[id]?.error ?? ''}
+              isDamaged={isDamaged}
               isLast={idx === payments.length - 1}
               isBusy={busyId === id}
               isArmed={armedDiscardId === id}
@@ -228,6 +244,7 @@ interface AttentionRowProps {
   readonly payment: IncomingPayment
   readonly identity: DisplayableIdentity | null | undefined
   readonly error: string
+  readonly isDamaged: boolean
   readonly isLast: boolean
   readonly isBusy: boolean
   readonly isArmed: boolean
@@ -241,6 +258,7 @@ function AttentionRow({
   payment,
   identity,
   error,
+  isDamaged,
   isLast,
   isBusy,
   isArmed,
@@ -251,7 +269,7 @@ function AttentionRow({
 }: AttentionRowProps) {
   const Ionicons = loadIonicons()
   const senderKey = payment.sender ?? ''
-  const satoshis = satoshisFromToken(payment.token)?.satoshis
+  const satoshis = isDamaged ? undefined : satoshisFromToken(payment.token)?.satoshis
   return (
     <View
       style={[
@@ -285,16 +303,23 @@ function AttentionRow({
         <View style={[styles.attentionActions, { borderTopColor: colors.separator }]}>
           <TouchableOpacity
             onPress={onRetry}
-            disabled={isBusy}
+            disabled={isBusy || isDamaged}
             style={[
               styles.attentionButton,
               { borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.separator }
             ]}
           >
-            {isBusy ? (
+            {isBusy && !isDamaged ? (
               <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <Text style={[styles.attentionButtonText, { color: colors.accent }]}>{t('retry')}</Text>
+              <Text
+                style={[
+                  styles.attentionButtonText,
+                  { color: isDamaged ? colors.textSecondary : colors.accent, opacity: isDamaged ? 0.4 : 1 }
+                ]}
+              >
+                {t('retry')}
+              </Text>
             )}
           </TouchableOpacity>
           {/* Two taps, because this one is irreversible: discarding acknowledges
@@ -338,6 +363,8 @@ export default function HandleReceive() {
   const isConfigured = !!messageBoxUrl && messageBoxUrl !== NO_MESSAGE_BOX
 
   const [payments, setPayments] = useState<IncomingPayment[]>([])
+  /** Inbox rows listIncomingPayments dropped or that fail token shape. */
+  const [damaged, setDamaged] = useState<DamagedInboxMessage[]>([])
   const [senderIdentities, setSenderIdentities] = useState<Record<string, DisplayableIdentity | null>>({})
   const [result, setResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -439,14 +466,52 @@ export default function HandleReceive() {
       fetchingRef.current = true
       try {
         const list = await client.listIncomingPayments(messageBoxUrl)
-        setPayments(list)
+        // listIncomingPayments safeParse-filters corrupt bodies; re-list raw so
+        // those still appear as attention rows. acceptPayments:false avoids the
+        // listMessages fee-auto-internalize footgun.
+        let raw: { messageId: string; sender: string; body: unknown }[] = []
+        try {
+          raw =
+            (await (client as { listMessages?: (a: {
+              messageBox: string
+              host?: string
+              acceptPayments?: boolean
+            }) => Promise<{ messageId: string; sender: string; body: unknown }[]> }).listMessages?.({
+              messageBox: 'payment_inbox',
+              host: messageBoxUrl,
+              acceptPayments: false
+            })) ?? []
+        } catch {
+          raw = []
+        }
+        const fromDiff = listDamagedInboxMessages({ raw, parsed: list })
+        const byId = new Map(fromDiff.map(d => [d.messageId, d]))
+        for (const p of list) {
+          const id = String(p.messageId)
+          if (!isPaymentTokenShape(p.token) && !byId.has(id)) {
+            byId.set(id, { messageId: id, sender: p.sender ?? '', reason: 'bad_shape' })
+          }
+        }
+        const damagedList = [...byId.values()]
+        const damagedIdSet = new Set(damagedList.map(d => d.messageId))
+        const extras: IncomingPayment[] = damagedList
+          .filter(d => !list.some(p => String(p.messageId) === d.messageId))
+          .map(d => ({
+            messageId: d.messageId,
+            sender: d.sender,
+            token: DAMAGED_TOKEN_PLACEHOLDER
+          }))
+        const displayList = [...list, ...extras]
+        setPayments(displayList)
+        setDamaged(damagedList)
         // Credit before resolving identities: the money matters and the names are
         // decorative, so nothing about a payment landing waits on an overlay
-        // lookup that may never return.
-        await creditRef.current(list)
+        // lookup that may never return. Never internalize damaged rows.
+        const creditable = list.filter(p => !damagedIdSet.has(String(p.messageId)))
+        await creditRef.current(creditable)
         const idClient = makeIdentityClient(wallet as any, adminOriginator)
         if (idClient) {
-          const senders = [...new Set(list.map(p => p.sender).filter(Boolean))] as string[]
+          const senders = [...new Set(displayList.map(p => p.sender).filter(Boolean))] as string[]
           const entries = await Promise.all(senders.map(s => resolveIdentity(idClient, s)))
           setSenderIdentities(Object.fromEntries(entries))
         }
@@ -584,15 +649,19 @@ export default function HandleReceive() {
   const handleRetry = useCallback(
     async (payment: IncomingPayment) => {
       const id = String(payment.messageId)
+      if (damaged.some(d => d.messageId === id)) return
       setArmedDiscardId(null)
       setBusyId(id)
       try {
-        await creditInbox(payments, [id])
+        await creditInbox(
+          payments.filter(p => !damaged.some(d => d.messageId === String(p.messageId))),
+          [id]
+        )
       } finally {
         setBusyId(null)
       }
     },
-    [creditInbox, payments]
+    [creditInbox, payments, damaged]
   )
 
   /**
@@ -631,6 +700,7 @@ export default function HandleReceive() {
           attemptsRef.current = next
           return next
         })
+        setDamaged(prev => prev.filter(d => d.messageId !== id))
         setPayments(prev => prev.filter(p => String(p.messageId) !== id))
         setResult({ type: 'success', message: t('pay_dismissed') })
       } catch (e: any) {
@@ -643,13 +713,18 @@ export default function HandleReceive() {
     [peerPayClient, armedDiscardId, t]
   )
 
+  const damagedIds = useMemo(() => new Set(damaged.map(d => d.messageId)), [damaged])
+
   /**
-   * The rows worth showing: only payments the wallet has given up on. Everything
-   * else was credited and acknowledged, so it is gone.
+   * The rows worth showing: payments the wallet has given up on, plus inbox
+   * bodies that never parsed into tokens. Everything else was credited.
    */
   const attention = useMemo(
-    () => payments.filter(p => needsAttention(attempts[String(p.messageId)])),
-    [payments, attempts]
+    () =>
+      payments.filter(
+        p => damagedIds.has(String(p.messageId)) || needsAttention(attempts[String(p.messageId)])
+      ),
+    [payments, attempts, damagedIds]
   )
 
   return (
@@ -723,6 +798,7 @@ export default function HandleReceive() {
         <AttentionSection
           payments={attention}
           attempts={attempts}
+          damagedIds={damagedIds}
           senderIdentities={senderIdentities}
           busyId={busyId}
           armedDiscardId={armedDiscardId}
