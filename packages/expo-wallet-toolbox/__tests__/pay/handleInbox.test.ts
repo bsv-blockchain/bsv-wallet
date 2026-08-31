@@ -5,6 +5,7 @@ import {
   needsAttention,
   type InboxAttempt
 } from '../../core/pay/rails/handle'
+import { PAYMENT_CONTROL_BOX } from '../../core/peerpay/control'
 
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
@@ -32,6 +33,7 @@ function harness(options: { failIds?: string[] } = {}) {
   }
   const client = {
     acknowledgeMessage: jest.fn().mockResolvedValue(undefined),
+    sendMessage: jest.fn().mockResolvedValue(undefined),
     listIncomingPayments: jest.fn().mockResolvedValue([])
   }
   return { wallet, client }
@@ -177,7 +179,49 @@ describe('discardIncoming', () => {
   })
 
   it('propagates a failed acknowledge so the row stays on screen', async () => {
-    const client = { acknowledgeMessage: jest.fn().mockRejectedValue(new Error('offline')) }
+    const client = {
+      acknowledgeMessage: jest.fn().mockRejectedValue(new Error('offline')),
+      sendMessage: jest.fn().mockResolvedValue(undefined)
+    }
     await expect(discardIncoming(client as never, payment('a'))).rejects.toThrow('offline')
+  })
+
+  it('sends a resend_request before acknowledging', async () => {
+    const client = {
+      acknowledgeMessage: jest.fn().mockResolvedValue(undefined),
+      sendMessage: jest.fn().mockResolvedValue(undefined)
+    }
+    await discardIncoming(client as never, { ...payment('a'), sender: KEY })
+    expect(client.sendMessage).toHaveBeenCalled()
+    expect(client.sendMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      client.acknowledgeMessage.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('does not ack if the NACK fails', async () => {
+    const client = {
+      acknowledgeMessage: jest.fn(),
+      sendMessage: jest.fn().mockRejectedValue(new Error('offline'))
+    }
+    await expect(discardIncoming(client as never, { ...payment('a'), sender: KEY })).rejects.toThrow('offline')
+    expect(client.acknowledgeMessage).not.toHaveBeenCalled()
+  })
+
+  it('uses the message id as txid when the token bytes will not parse', async () => {
+    const client = {
+      acknowledgeMessage: jest.fn().mockResolvedValue(undefined),
+      sendMessage: jest.fn().mockResolvedValue(undefined)
+    }
+    await discardIncoming(client as never, { ...payment('a'), sender: KEY })
+    expect(client.sendMessage).toHaveBeenCalledWith({
+      recipient: KEY,
+      messageBox: PAYMENT_CONTROL_BOX,
+      body: JSON.stringify({
+        type: 'resend_request',
+        txid: 'a',
+        reason: 'uncreditible',
+        messageId: 'a'
+      })
+    })
   })
 })

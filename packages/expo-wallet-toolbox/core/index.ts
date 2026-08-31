@@ -51,6 +51,7 @@ export * from './localpay/nearbyPermissions'
 export type { Ack } from './localpay/types'
 export { selectTransport } from './localpay/transport/select'
 export * from './peerpay/outbox'
+export * from './peerpay/control'
 
 // Offline-payment queueing
 export * from './offline/hold'

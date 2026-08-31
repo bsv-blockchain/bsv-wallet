@@ -18,6 +18,7 @@ import {
   updateOutboxEntry,
   type OutboxEntry
 } from '../../peerpay/outbox'
+import { sendControlMessage, type ResendReason } from '../../peerpay/control'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://gmb.bsvblockchain.tech'
@@ -222,18 +223,30 @@ export async function autoAcceptInbox<T extends { messageId: string | number }>(
 }
 
 /**
- * Give up on a payment: acknowledge it without crediting it.
+ * Give up on a payment: NACK the sender, then acknowledge without crediting.
  *
- * This ABANDONS money. The acknowledge removes the message from the box, so the
- * payment will never be listed again and this wallet can never credit it — the
- * only recovery is asking the sender to send again. It exists because a
- * structurally corrupt payment would otherwise sit in the list for good, and it
- * must never be one tap away.
+ * Acknowledge-only discard deleted the only derivation data the receiver would
+ * ever see. The resend_request goes first so a failed NACK leaves the inbox
+ * row in place. `txid` on the wire is required; unparseable tokens use the
+ * message id so the sender can still match an outbox row later.
  */
 export async function discardIncoming(
-  client: Pick<PeerPayClient, 'acknowledgeMessage'>,
-  payment: { messageId: string }
+  client: Pick<PeerPayClient, 'acknowledgeMessage' | 'sendMessage'>,
+  payment: { messageId: string; sender?: string; token?: { transaction?: number[] } },
+  reason: ResendReason = 'uncreditible'
 ): Promise<void> {
+  const txid = payment.token?.transaction ? safeAtomicTxid(payment.token.transaction) : undefined
+  if (payment.sender) {
+    await sendControlMessage(client, {
+      recipient: payment.sender,
+      message: {
+        type: 'resend_request',
+        txid: txid ?? String(payment.messageId),
+        reason,
+        messageId: String(payment.messageId)
+      }
+    })
+  }
   await client.acknowledgeMessage({ messageIds: [payment.messageId] })
 }
 

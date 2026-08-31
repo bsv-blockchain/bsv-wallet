@@ -33,6 +33,7 @@ import ResultBanner from './ResultBanner'
 import ReceivedOverlay from './PaymentSuccessOverlay'
 import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from './MessageBoxConfig'
 import AmountDisplay from '../wallet/AmountDisplay'
+import { showAlert } from '../ui/AlertCard'
 import { showToast } from '../ui/Toast'
 import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
 import { makeBeefRepair } from '../../../core/pay/beefRepair'
@@ -157,9 +158,6 @@ const INBOX_POLL_MS = 5000
  */
 const INBOX_DESCRIPTION = 'Identity Payment'
 
-/** How long a tapped Discard stays armed before it disarms itself. */
-const DISCARD_ARM_MS = 5000
-
 // ── Needs attention ──────────────────────────────────────────────────────────
 //
 // Replaces the old accept list. An arriving payment is credited automatically
@@ -185,7 +183,6 @@ interface AttentionSectionProps {
   readonly damagedIds: ReadonlySet<string>
   readonly senderIdentities: Record<string, DisplayableIdentity | null>
   readonly busyId: string | null
-  readonly armedDiscardId: string | null
   readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onRetry: (p: IncomingPayment) => void
@@ -198,7 +195,6 @@ function AttentionSection({
   damagedIds,
   senderIdentities,
   busyId,
-  armedDiscardId,
   colors,
   t,
   onRetry,
@@ -227,7 +223,6 @@ function AttentionSection({
               isDamaged={isDamaged}
               isLast={idx === payments.length - 1}
               isBusy={busyId === id}
-              isArmed={armedDiscardId === id}
               onRetry={() => onRetry(payment)}
               onDiscard={() => onDiscard(payment)}
               colors={colors}
@@ -247,7 +242,6 @@ interface AttentionRowProps {
   readonly isDamaged: boolean
   readonly isLast: boolean
   readonly isBusy: boolean
-  readonly isArmed: boolean
   readonly onRetry: () => void
   readonly onDiscard: () => void
   readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
@@ -261,7 +255,6 @@ function AttentionRow({
   isDamaged,
   isLast,
   isBusy,
-  isArmed,
   onRetry,
   onDiscard,
   colors,
@@ -322,15 +315,10 @@ function AttentionRow({
               </Text>
             )}
           </TouchableOpacity>
-          {/* Two taps, because this one is irreversible: discarding acknowledges
-              the message, which removes it from the box for good. A single
-              mis-tap next to Retry would throw the payment away. */}
+          {/* One tap opens a confirmation alert — uncommon irreversible action. */}
           <TouchableOpacity onPress={onDiscard} disabled={isBusy} style={styles.attentionButton}>
-            <Text
-              style={[styles.attentionButtonText, { color: isArmed ? colors.error : colors.textSecondary }]}
-              numberOfLines={1}
-            >
-              {isArmed ? t('pay_dismiss_confirm') : t('dismiss')}
+            <Text style={[styles.attentionButtonText, { color: colors.textSecondary }]} numberOfLines={1}>
+              {t('dismiss')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -378,15 +366,6 @@ export default function HandleReceive() {
   const [attempts, setAttempts] = useState<Record<string, InboxAttempt>>({})
   /** The row whose retry or discard is running. */
   const [busyId, setBusyId] = useState<string | null>(null)
-  /**
-   * The row whose Discard has been tapped once and is waiting for a second tap.
-   *
-   * Discarding is irreversible — it acknowledges the message, so the payment
-   * leaves the box for good and can never be credited. It sits next to Retry,
-   * so one tap must not be enough.
-   */
-  const [armedDiscardId, setArmedDiscardId] = useState<string | null>(null)
-  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /** One inbox read at a time — see fetchPayments. */
   const fetchingRef = useRef(false)
@@ -400,14 +379,6 @@ export default function HandleReceive() {
     attemptsRef.current = attempts
   }, [attempts])
 
-  // An armed discard must not stay armed across a screen the user walked away
-  // from and came back to.
-  useEffect(
-    () => () => {
-      if (armTimerRef.current) clearTimeout(armTimerRef.current)
-    },
-    []
-  )
   /**
    * Whether this screen is the one on top. Pushing another route leaves this
    * component mounted, so mount alone is not "the user is looking at it".
@@ -650,7 +621,6 @@ export default function HandleReceive() {
     async (payment: IncomingPayment) => {
       const id = String(payment.messageId)
       if (damaged.some(d => d.messageId === id)) return
-      setArmedDiscardId(null)
       setBusyId(id)
       try {
         await creditInbox(
@@ -665,33 +635,27 @@ export default function HandleReceive() {
   )
 
   /**
-   * Give up on a row. TWO TAPS, and the second one abandons money.
-   *
-   * The first tap only arms the button and starts a timer, so a mis-tap next to
-   * Retry costs nothing. The second acknowledges the message on the MessageBox,
-   * which removes it from every future listing — this wallet can never credit
-   * that payment again, and the only recovery is asking the sender to resend.
+   * Give up on a row. One tap opens a confirmation alert; confirming NACKs the
+   * sender then acks. If the NACK fails the row stays.
    */
   const handleDiscard = useCallback(
     async (payment: IncomingPayment) => {
       const client = peerPayClient
       if (!client) return
       const id = String(payment.messageId)
-
-      if (armedDiscardId !== id) {
-        setArmedDiscardId(id)
-        if (armTimerRef.current) clearTimeout(armTimerRef.current)
-        // Disarms itself, so a button left armed does not become a one-tap
-        // discard for whoever picks the phone up next.
-        armTimerRef.current = setTimeout(() => setArmedDiscardId(null), DISCARD_ARM_MS)
-        return
-      }
-
-      if (armTimerRef.current) clearTimeout(armTimerRef.current)
-      setArmedDiscardId(null)
+      const choice = await showAlert({
+        title: t('discard_payment_title'),
+        message: t('discard_payment_body'),
+        buttons: [
+          { text: t('cancel'), style: 'cancel', key: 'cancel' },
+          { text: t('discard'), style: 'destructive', key: 'discard' }
+        ]
+      })
+      if (choice !== 'discard') return
       setBusyId(id)
       try {
-        await discardIncoming(client, payment)
+        const reason = damaged.some(d => d.messageId === id) ? 'corrupt' : 'uncreditible'
+        await discardIncoming(client, payment, reason)
         // Drop it locally too: it will never be listed again, so waiting for the
         // next poll would leave a row on screen that no longer exists.
         setAttempts(prev => {
@@ -704,13 +668,13 @@ export default function HandleReceive() {
         setPayments(prev => prev.filter(p => String(p.messageId) !== id))
         setResult({ type: 'success', message: t('pay_dismissed') })
       } catch (e: any) {
-        setResult({ type: 'error', message: e?.message || t('unknown_error') })
+        showToast(e?.message || t('unknown_error'), { type: 'error' })
       } finally {
         setBusyId(null)
         setTimeout(() => setResult(null), 5000)
       }
     },
-    [peerPayClient, armedDiscardId, t]
+    [peerPayClient, damaged, t]
   )
 
   const damagedIds = useMemo(() => new Set(damaged.map(d => d.messageId)), [damaged])
@@ -801,7 +765,6 @@ export default function HandleReceive() {
           damagedIds={damagedIds}
           senderIdentities={senderIdentities}
           busyId={busyId}
-          armedDiscardId={armedDiscardId}
           colors={colors}
           t={t}
           onRetry={handleRetry}
