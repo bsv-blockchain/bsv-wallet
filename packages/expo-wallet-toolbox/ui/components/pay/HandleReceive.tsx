@@ -35,6 +35,9 @@ import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from './MessageBoxCon
 import AmountDisplay from '../wallet/AmountDisplay'
 import { showToast } from '../ui/Toast'
 import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
+import { makeBeefRepair } from '../../../core/pay/beefRepair'
+import { wocConfigFor } from '../../../core/pay/rails/address'
+import { getOnline } from '../../../core/net/online'
 import {
   useTheme,
   radii,
@@ -321,7 +324,7 @@ export default function HandleReceive() {
   const Ionicons = loadIonicons()
   const QRCode = loadQRCode()
   const { useFocusEffect } = loadExpoRouter()
-  const { managers, adminOriginator } = useWallet()
+  const { managers, adminOriginator, selectedNetwork } = useWallet()
   const wallet = managers?.permissionsManager || null
 
   const [identityKey, setIdentityKey] = useState('')
@@ -502,13 +505,24 @@ export default function HandleReceive() {
     }
   }, [peerPayClient])
 
+  /**
+   * Second chance for a payment whose proof no longer verifies. The token's
+   * merkle path was minted at send time and a reorg since then invalidates it
+   * without changing the transaction, so the proof is re-fetched by txid. Only
+   * consulted after internalizeAction has already failed, and it declines while
+   * offline — see core/pay/beefRepair.ts.
+   */
+  const repairBeef = useMemo(() => makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline }), [
+    selectedNetwork
+  ])
+
   const internalize = useCallback(
     async (payment: IncomingPayment, description: string) => {
       const client = peerPayClient
       if (!client || !wallet) throw new Error(t('wallet_not_ready'))
-      await internalizeIncoming(wallet as any, client, adminOriginator, payment, description)
+      await internalizeIncoming(wallet as any, client, adminOriginator, payment, description, repairBeef)
     },
-    [peerPayClient, wallet, adminOriginator, t]
+    [peerPayClient, wallet, adminOriginator, t, repairBeef]
   )
 
   /**
