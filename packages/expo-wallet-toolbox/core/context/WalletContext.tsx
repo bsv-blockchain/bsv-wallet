@@ -130,7 +130,12 @@ import { UserContext } from './UserContext'
 import { useLocalStorage } from './LocalStorageProvider'
 import { usePermissionQueue } from '../hooks/usePermissionQueue'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
-import { configureNewHeaderPolling } from '../walletMonitor'
+import {
+  boundReviewProvenTxs,
+  configureNewHeaderPolling,
+  createWalletMonitor,
+  createWalletMonitorOptions
+} from '../walletMonitor'
 import {
   createArcadeBroadcastService,
   createTaalBroadcastService,
@@ -1182,7 +1187,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             } catch {}
             console.warn('[WalletContext] Stopped a leftover monitor from a previous wallet build')
           }
-          const monitorOptions = Monitor.createDefaultWalletMonitorOptions(walletChain, storageManager, services)
+          const monitorOptions = createWalletMonitorOptions(walletChain, storageManager, services, offlineChaintracks)
           monitorOptions.callbackToken = callbackToken
           monitorOptions.EventSourceClass = loadQuietEventSourceClass()
           monitorOptions.onTransactionStatusChanged = async (_txid: string, _newStatus: string) => {
@@ -1195,7 +1200,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             monitorOptions.loadLastSSEEventId = () => phoneStorage!.getKeyValue(SSE_KEY)
             monitorOptions.saveLastSSEEventId = (id: string) => phoneStorage!.setKeyValue(SSE_KEY, id)
           }
-          const monitor = new Monitor(monitorOptions)
+          const monitor = await createWalletMonitor(monitorOptions)
 
           // Release held offline transactions when signal returns — registered
           // BEFORE the defaults, and the order matters. Monitor.runOnce collects
@@ -1361,11 +1366,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             }
           }
 
-          // TaskReviewProvenTxs crawls all block heights looking for merkle root mismatches.
-          // TaskReorg handles reorgs in real-time via SSE; ChaintracksChainTracker does
-          // on-demand remote lookups during beef.verify(). The crawl is redundant on mobile.
-          const reviewProvenTxsIdx = monitor._tasks.findIndex((t: any) => t.name === 'ReviewProvenTxs')
-          if (reviewProvenTxsIdx !== -1) monitor._tasks.splice(reviewProvenTxsIdx, 1)
+          // TaskReviewProvenTxs is the backup audit when live reorg SSE is missing.
+          // Bound it to the last 100 eligible heights so it cannot crawl from genesis.
+          const reviewProvenTxsTask = monitor._tasks.find((t: any) => t.name === 'ReviewProvenTxs') as any
+          if (reviewProvenTxsTask) boundReviewProvenTxs(reviewProvenTxsTask)
 
           // TaskCheckForProofs.trigger() only fires when checkNow=true (set by TaskNewHeader).
           // The periodic triggerMsecs fallback is commented out in the library. Patch it back in
