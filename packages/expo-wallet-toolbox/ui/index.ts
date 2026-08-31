@@ -64,7 +64,11 @@ export { default as PaymentQrDisplay } from './components/pay/PaymentQrDisplay'
 export { default as PaymentSuccessOverlay, type ReceivedOverlayProps } from './components/pay/PaymentSuccessOverlay'
 export { default as RecipientField } from './components/pay/RecipientField'
 export { default as ResultBanner } from './components/pay/ResultBanner'
-export { peerPayValidationMessage, useIdentitySearch } from './components/pay/useIdentitySearch'
+export {
+  peerPayValidationMessage,
+  classifyIdentitySearchError,
+  useIdentitySearch
+} from './components/pay/useIdentitySearch'
 
 // Pay screen (Task 21 — extracted from app/pay.tsx) and the online-status hook
 // it, and several pay cells above, depend on.

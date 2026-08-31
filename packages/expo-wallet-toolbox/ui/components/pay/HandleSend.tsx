@@ -158,7 +158,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
   const wallet = managers?.permissionsManager || null
 
   const config = useMessageBoxConfig(t)
-  const { messageBoxUrl } = config
+  const { messageBoxUrl, setShowConfig } = config
   const isConfigured = !!messageBoxUrl && messageBoxUrl !== NO_MESSAGE_BOX
 
   const [sendAmount, setSendAmount] = useState(initialSats && initialSats > 0 ? String(initialSats) : '')
@@ -264,7 +264,11 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
   const handleRetry = useCallback(
     async (entry: OutboxEntry) => {
       const client = peerPayClient
-      if (!client || !storage) return
+      if (!client || !storage) {
+        setShowConfig(true)
+        showToast(t('message_box_unreachable'), { type: 'error' })
+        return
+      }
       setRetryingId(entry.id)
       try {
         await retryDelivery({ wallet: wallet as any, adminOriginator, client, storage, entry })
@@ -279,7 +283,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
         await loadOutbox()
       }
     },
-    [peerPayClient, storage, loadOutbox, wallet, adminOriginator, t]
+    [peerPayClient, storage, loadOutbox, wallet, adminOriginator, t, setShowConfig]
   )
 
   /**
@@ -302,8 +306,9 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
    * unreachable would mint another noSend action and another stuck entry, so
    * the only ways forward are Retry and Cancel on what is already queued.
    */
-  const canSend =
-    search.recipientKey.length > 0 && Number(sendAmount) > 0 && !isSending && isConfigured && outbox.length === 0
+  const formOtherwiseValid =
+    search.recipientKey.length > 0 && Number(sendAmount) > 0 && !isSending && isConfigured
+  const canSend = formOtherwiseValid && outbox.length === 0
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -334,6 +339,13 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
         />
       )}
       {notice && <ResultBanner result={notice} onDismiss={() => setNotice(null)} colors={colors} />}
+      {search.searchError && (
+        <ResultBanner
+          result={{ type: 'error', message: t('identity_search_unavailable') }}
+          onDismiss={search.clearSearchError}
+          colors={colors}
+        />
+      )}
 
       <PayField labelKey="recipient">
         <RecipientField
@@ -369,6 +381,12 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
 
       {/* The consequence, before the button — not after. */}
       <ConsequenceNote textKey={CONSEQUENCE_KEYS.handle} />
+
+      {formOtherwiseValid && outbox.length > 0 && (
+        <Text style={[styles.consequence, { color: colors.textSecondary }]}>
+          {t('finish_or_cancel_outgoing')}
+        </Text>
+      )}
 
       <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} />
 

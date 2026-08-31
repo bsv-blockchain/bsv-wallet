@@ -18,6 +18,11 @@ export function peerPayValidationMessage(result: PeerPayValidationResult | null)
   return messages.length ? messages.join('. ') : null
 }
 
+/** Any throw from the overlay lookup is an outage, not “no such person”. */
+export function classifyIdentitySearchError(_e: unknown): boolean {
+  return true
+}
+
 export function useIdentitySearch(
   wallet: any,
   adminOriginator: string | undefined,
@@ -36,6 +41,7 @@ export function useIdentitySearch(
   const [searchQuery, setSearchQuery] = useState(initialIdentityKey ?? '')
   const [searchResults, setSearchResults] = useState<DisplayableIdentity[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState(false)
   const [selectedIdentity, setSelectedIdentity] = useState<DisplayableIdentity | null>(null)
   const [recipientKey, setRecipientKey] = useState(initialIdentityKey ?? '')
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -45,6 +51,7 @@ export function useIdentitySearch(
     setRecipientKey(identityKey)
     setSelectedIdentity(null)
     setSearchResults([])
+    setSearchError(false)
   }, [])
 
   useEffect(() => {
@@ -59,6 +66,7 @@ export function useIdentitySearch(
       setSearchQuery(text)
       setSelectedIdentity(null)
       setRecipientKey('')
+      setSearchError(false)
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
       if (!text.trim()) {
         setSearchResults([])
@@ -81,8 +89,10 @@ export function useIdentitySearch(
         }
         try {
           setSearchResults(await searchIdentities(client, text))
+          setSearchError(false)
         } catch (error) {
           console.error('Identity search error:', error)
+          if (classifyIdentitySearchError(error)) setSearchError(true)
           setSearchResults([])
         } finally {
           setIsSearching(false)
@@ -97,6 +107,7 @@ export function useIdentitySearch(
     setRecipientKey(identity.identityKey)
     setSearchQuery(identity.name || identity.abbreviatedKey)
     setSearchResults([])
+    setSearchError(false)
     Keyboard.dismiss()
   }, [])
 
@@ -105,7 +116,10 @@ export function useIdentitySearch(
     setRecipientKey('')
     setSearchQuery('')
     setSearchResults([])
+    setSearchError(false)
   }, [])
+
+  const clearSearchError = useCallback(() => setSearchError(false), [])
 
   // ── QR scanner handlers ─────────────────────────────────────────────────────
   const handleQRScanned = useCallback(
@@ -149,6 +163,8 @@ export function useIdentitySearch(
     searchQuery,
     searchResults,
     isSearching,
+    searchError,
+    clearSearchError,
     selectedIdentity,
     recipientKey,
     handleSearchChange,
