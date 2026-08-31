@@ -155,6 +155,38 @@ describe('HeaderStore', () => {
     })
   })
 
+  it('writeBytes replaces existing bytes rather than appending', async () => {
+    const fs = memoryHeaderFs()
+    await fs.appendBytes('x.bin', new Uint8Array([1, 2, 3]))
+    await fs.writeBytes('x.bin', new Uint8Array([9]))
+    expect(Array.from((await fs.readBytes('x.bin'))!)).toEqual([9])
+  })
+
+  it('truncates a too-long bin to meta.count on open', async () => {
+    const fs = memoryHeaderFs()
+    const first = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
+    await first.append(bytes(), 1)
+    const bin = await fs.readBytes('ttn.bin')
+    // Crash-mid-append: extra header bytes after meta.count was already written.
+    await fs.appendBytes('ttn.bin', bin!.subarray(0, 80))
+    expect((await fs.readBytes('ttn.bin'))!.length).toBe(3 * 80)
+    const second = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
+    expect(second.count).toBe(2)
+    expect((await fs.readBytes('ttn.bin'))!.length).toBe(2 * 80)
+  })
+
+  it('rewind drops the orphaned tip so a new canonical header can append', async () => {
+    const fs = memoryHeaderFs()
+    const store = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
+    await store.append(bytes(), 1)
+    await store.truncateToCount(1)
+    expect(store.count).toBe(1)
+    expect(store.tipHeight).toBe(1)
+    expect(await store.append(bytes().subarray(80), 2)).toBe(1)
+    expect(store.count).toBe(2)
+    expect(store.tipHeight).toBe(2)
+  })
+
   it('serves and persists extra roots below the window', async () => {
     const fs = memoryHeaderFs()
     const store = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
@@ -162,6 +194,21 @@ describe('HeaderStore', () => {
     expect(store.rootForHeight(7)).toBe('aa'.repeat(32))
     const reopened = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
     expect(reopened.rootForHeight(7)).toBe('aa'.repeat(32))
+  })
+
+  it('skips putExtraRoot for a height in the last 6 of the stored chain', async () => {
+    const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', TTN_ANCHOR)
+    await store.append(bytes(), 1)
+    const windowRoot = store.rootForHeight(2)
+    await store.putExtraRoot(2, 'aa'.repeat(32))
+    expect(store.rootForHeight(2)).toBe(windowRoot)
+  })
+
+  it('prefers an extra root over the window for an in-window height', async () => {
+    const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', TTN_ANCHOR)
+    await store.putExtraRoot(1, 'aa'.repeat(32))
+    await store.append(bytes(), 1)
+    expect(store.rootForHeight(1)).toBe('aa'.repeat(32))
   })
 
   describe('putExtraRoots (batch)', () => {

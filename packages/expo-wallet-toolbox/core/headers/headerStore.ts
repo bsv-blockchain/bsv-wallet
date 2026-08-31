@@ -119,10 +119,17 @@ export class HeaderStore {
       return empty
     }
 
-    const bin = await fs.readBytes(`${chain}.bin`)
-    if (!bin || bin.length < meta.count * HEADER_BYTES) {
+    let bin = await fs.readBytes(`${chain}.bin`)
+    const expected = meta.count * HEADER_BYTES
+    if (!bin || bin.length < expected) {
       await empty.reset()
       return empty
+    }
+    // Crash-mid-append: extra bytes past meta.count are not indexed and would
+    // sit in front of the next append. Truncate to the committed prefix.
+    if (bin.length > expected) {
+      bin = bin.subarray(0, expected)
+      await fs.writeBytes(`${chain}.bin`, bin)
     }
 
     const roots = new Uint8Array(meta.count * ROOT_BYTES)
@@ -137,11 +144,15 @@ export class HeaderStore {
   }
 
   rootForHeight(height: number): string | undefined {
+    // A heal written to extra is the value to consult, even for a height the
+    // window also covers — otherwise a logged heal is stored and then ignored.
+    const extra = this.extra[String(height)]
+    if (extra !== undefined) return extra
     const index = height - this.baseHeight
     if (index >= 0 && index < this.headerCount) {
       return Utils.toHex(Array.from(this.roots.subarray(index * ROOT_BYTES, (index + 1) * ROOT_BYTES)))
     }
-    return this.extra[String(height)]
+    return undefined
   }
 
   /**
@@ -195,7 +206,35 @@ export class HeaderStore {
     return added
   }
 
+  /**
+   * Drops headers after `count`. Rewinds an orphaned tip so the next canonical
+   * header can link. Rebuilds the on-disk `.bin` and the in-memory root index.
+   */
+  async truncateToCount(count: number): Promise<void> {
+    if (count === this.headerCount) return
+    if (count < 0 || count > this.headerCount) {
+      throw new Error(`truncateToCount(${count}) out of range 0..${this.headerCount}`)
+    }
+    if (count === 0) {
+      await this.reset()
+      return
+    }
+    const keep = count * HEADER_BYTES
+    const bin = await this.fs.readBytes(this.binPath)
+    if (!bin || bin.length < keep) {
+      await this.reset()
+      return
+    }
+    const sliced = bin.subarray(0, keep)
+    await this.fs.writeBytes(this.binPath, sliced)
+    this.roots = new Uint8Array(this.roots.subarray(0, count * ROOT_BYTES))
+    this.headerCount = count
+    this.currentTipHash = blockHash(sliced.subarray(keep - HEADER_BYTES, keep))
+    await this.writeMeta()
+  }
+
   async putExtraRoot(height: number, root: string): Promise<void> {
+    if (this.inReorgWindow(height)) return
     if (this.extra[String(height)] === root) return
     this.extra = { ...this.extra, [String(height)]: root }
     await this.fs.writeText(this.extraPath, JSON.stringify(this.extra))
@@ -216,6 +255,7 @@ export class HeaderStore {
     const merged = { ...this.extra }
     let added = 0
     for (const { height, root } of entries) {
+      if (this.inReorgWindow(height)) continue
       const key = String(height)
       if (merged[key] === root) continue
       merged[key] = root
@@ -249,10 +289,21 @@ export class HeaderStore {
    * `<chain>-extra.json` is deliberately kept: those entries are height ->
    * merkle root facts, true whichever checkpoint the window happens to be
    * anchored to, and re-earning them costs a full prewarm over `proven_txs`.
+   *
+   * Public so a sync that cannot rewind onto the remote chain (cap 144) can
+   * start over from the checkpoint.
    */
-  private async reset(): Promise<void> {
+  async reset(): Promise<void> {
     await this.fs.deleteFile(this.binPath)
+    this.roots = new Uint8Array(0)
+    this.headerCount = 0
+    this.currentTipHash = this.anchor.hash
     await this.writeMeta()
+  }
+
+  /** Last 6 stored heights can reorg; an extra root there would hide the window. */
+  private inReorgWindow(height: number): boolean {
+    return height <= this.tipHeight && height > this.tipHeight - 6
   }
 
   private async writeMeta(): Promise<void> {

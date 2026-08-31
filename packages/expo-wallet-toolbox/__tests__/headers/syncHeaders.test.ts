@@ -1,3 +1,4 @@
+import { Utils } from '@bsv/sdk'
 import { syncHeaders } from '../../core/headers/syncHeaders'
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
@@ -76,5 +77,24 @@ describe('syncHeaders', () => {
     const client = { getPresentHeight: async () => 2, getHeaders: async () => H2 }
     const s = await store()
     await expect(syncHeaders({ store: s, client, chunkSize: 1 })).rejects.toThrow(/previous hash/i)
+  })
+
+  it('rewinds an orphaned tip and retries from the new height', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    let first = true
+    const client = {
+      getPresentHeight: async () => 2,
+      getHeaders: async (height: number) => {
+        if (height === 2 && first) {
+          first = false
+          return H1
+        }
+        return height === 1 ? H1 : H2
+      }
+    }
+    const r = await syncHeaders({ store: s, client, chunkSize: 1 })
+    expect(r.tipHeight).toBe(2)
+    expect(s.count).toBe(2)
   })
 })

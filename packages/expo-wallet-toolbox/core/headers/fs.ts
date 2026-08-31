@@ -1,5 +1,5 @@
 /**
- * The five filesystem operations the header store needs, behind an interface.
+ * The filesystem operations the header store needs, behind an interface.
  *
  * expo-file-system's binary API is native-only, so the store would be
  * untestable in jest without this seam. It is deliberately tiny: no seeking, no
@@ -15,6 +15,12 @@
 export interface HeaderFs {
   readBytes(path: string): Promise<Uint8Array | undefined>
   appendBytes(path: string, bytes: Uint8Array): Promise<void>
+  /**
+   * Replaces the file's entire contents. `appendBytes` cannot shrink a file, so
+   * a crash-torn `.bin` (bytes past `meta.count`) can only be healed by writing
+   * a prefix.
+   */
+  writeBytes(path: string, bytes: Uint8Array): Promise<void>
   readText(path: string): Promise<string | undefined>
   writeText(path: string, text: string): Promise<void>
   /**
@@ -49,6 +55,12 @@ export function expoHeaderFs(): HeaderFs {
       const f = file(path)
       if (!f.exists) f.create()
       f.write(bytes, { append: true })
+    },
+    async writeBytes(path, bytes) {
+      ensureDir()
+      const f = file(path)
+      if (!f.exists) f.create()
+      f.write(bytes)
     },
     async readText(path) {
       const f = file(path)
@@ -87,6 +99,9 @@ export function memoryHeaderFs(): HeaderFs {
       next.set(existing, 0)
       next.set(bytes, existing.length)
       files.set(path, next)
+    },
+    async writeBytes(path, bytes) {
+      files.set(path, bytes.slice())
     },
     async readText(path) {
       return text.get(path)

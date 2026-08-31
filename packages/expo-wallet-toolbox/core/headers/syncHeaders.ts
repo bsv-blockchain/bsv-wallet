@@ -23,6 +23,14 @@ export interface SyncHeadersResult {
   presentHeight: number
 }
 
+/** Walk back at most this many headers before giving up and resetting. */
+const REWIND_CAP = 144
+
+function isFirstHeaderPrevHashError(err: unknown, firstHeight: number): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /previous hash/i.test(msg) && msg.includes(`header at height ${firstHeight} `)
+}
+
 export async function syncHeaders(args: {
   store: HeaderStore
   client: HeaderSource
@@ -33,6 +41,7 @@ export async function syncHeaders(args: {
   const { store, client, chunkSize = 2000, onProgress, shouldStop } = args
   const presentHeight = await client.getPresentHeight()
   let added = 0
+  let rewinds = 0
 
   while (store.tipHeight < presentHeight) {
     if (shouldStop?.()) break
@@ -42,10 +51,22 @@ export async function syncHeaders(args: {
     if (!hex) break
     const bytes = new Uint8Array(Utils.toArray(hex, 'hex'))
     if (bytes.length === 0) break
-    // A validation failure must propagate. A truncated-but-silent sync would
-    // leave a window that looks complete and quietly refuses real payments.
-    added += await store.append(bytes, from)
-    onProgress?.(store.tipHeight, presentHeight)
+    try {
+      added += await store.append(bytes, from)
+      onProgress?.(store.tipHeight, presentHeight)
+    } catch (err) {
+      // First-header previous-hash miss is a tip reorg: drop the orphan and
+      // refetch. A later header in the chunk, or any other validation failure,
+      // still propagates — a silent truncated window would look complete.
+      if (!isFirstHeaderPrevHashError(err, from)) throw err
+      if (store.count > 0 && rewinds < REWIND_CAP) {
+        await store.truncateToCount(store.count - 1)
+        rewinds++
+        continue
+      }
+      await store.reset()
+      throw err
+    }
   }
 
   return { added, tipHeight: store.tipHeight, presentHeight }
