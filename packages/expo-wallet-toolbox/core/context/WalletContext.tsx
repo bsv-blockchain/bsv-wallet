@@ -148,13 +148,29 @@ import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import { getOnline, subscribeOnline } from '../net/online'
 import { processPending } from '../localpay/pending'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
+import { TaskCreditInbox } from '../monitor/TaskCreditInbox'
+import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
 import { restoreOnImport } from '../backup/restoreOnImport'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
 import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
+import { classifyCreditError } from '../pay/creditErrors'
+import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
+import { makeBeefRepair } from '../pay/beefRepair'
+import {
+  acceptWithRetry,
+  DEFAULT_MESSAGE_BOX_URL,
+  internalizeIncoming,
+  LEGACY_MESSAGE_BOX_URL,
+  MESSAGE_BOX_URL_KEY,
+  NO_MESSAGE_BOX,
+  retryDelivery
+} from '../pay/rails/handle'
+import { getOutboxEntries, unsentEntries } from '../peerpay/outbox'
 import { wocConfigFor } from '../pay/rails/address'
+import { PeerPayClient } from '@bsv/message-box-client'
 import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../pay/sweeper'
 import { formatAmount } from '../amountFormatHelpers'
 import { useTranslation } from 'react-i18next'
@@ -1226,6 +1242,66 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             // Pessimistic: one idle drain clears it the first time we are online.
             TaskSendOffline.noteEnqueued()
 
+            monitor.addTask(
+              new TaskCreditInbox(monitor, async () => {
+                const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+                const messageBoxUrl =
+                  saved === NO_MESSAGE_BOX
+                    ? undefined
+                    : !saved || saved === LEGACY_MESSAGE_BOX_URL
+                      ? DEFAULT_MESSAGE_BOX_URL
+                      : saved
+                if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
+                let client: PeerPayClient
+                try {
+                  client = new PeerPayClient({
+                    messageBoxHost: messageBoxUrl,
+                    walletClient: permissionsManager as never,
+                    originator: adminOriginator
+                  })
+                } catch {
+                  return { accepted: 0, attention: 0, pending: false }
+                }
+                const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+                const r = await creditInboxOnce({
+                  client,
+                  messageBoxUrl,
+                  storage: phoneStorage!,
+                  classify: e => classifyCreditError(e, { offline: !getOnline() }),
+                  accept: payment =>
+                    acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
+                      internalizeIncoming(permissionsManager as never, client, adminOriginator, p, d, repairBeef)
+                    )
+                })
+                return { accepted: r.accepted, attention: r.attentionCount, pending: r.pending }
+              })
+            )
+            TaskCreditInbox.noteEnqueued()
+
+            monitor.addTask(
+              new TaskDrainOutbox(monitor, async () => {
+                const entries = unsentEntries(await getOutboxEntries(phoneStorage!))
+                return drainUnsentEntries({
+                  entries,
+                  retry: async entry => {
+                    const client = new PeerPayClient({
+                      messageBoxHost: entry.messageBoxUrl,
+                      walletClient: permissionsManager as never,
+                      originator: adminOriginator
+                    })
+                    await retryDelivery({
+                      wallet: permissionsManager as never,
+                      adminOriginator,
+                      client,
+                      storage: phoneStorage!,
+                      entry
+                    })
+                  }
+                })
+              })
+            )
+            TaskDrainOutbox.noteEnqueued()
+
             // Encrypted backup log. The database is required to spend — change outputs
             // carry a random derivation suffix and BRC-29 receipts carry sender-chosen
             // derivation data, none of it on-chain and none of it recoverable from the
@@ -1900,6 +1976,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     if (!walletBuilt) return
     return subscribeOnline(online => {
       TaskSendOffline.noteConnectivity(online)
+      TaskCreditInbox.noteConnectivity(online)
+      TaskDrainOutbox.noteConnectivity(online)
       TaskBackupPush.noteConnectivity(online)
     })
   }, [walletBuilt])
@@ -1922,6 +2000,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // NetInfo event on resume; if work is pending, ask for a pass and let
         // the trigger's online gate decide.
         if (TaskSendOffline.hasPending) TaskSendOffline.requestNow()
+        TaskCreditInbox.requestNow()
+        if (TaskDrainOutbox.hasPending) TaskDrainOutbox.requestNow()
       }
 
       appStateRef.current = nextAppState

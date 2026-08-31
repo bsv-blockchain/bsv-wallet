@@ -20,6 +20,7 @@ import {
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
 import { sendControlMessage, type ResendReason } from '../../peerpay/control'
+import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://gmb.bsvblockchain.tech'
@@ -426,6 +427,7 @@ export async function sendViaHandle(args: {
       lastAttemptAt: new Date().toISOString(),
       lastError: message
     })
+    TaskDrainOutbox.noteEnqueued()
     throw e
   }
   return { outboxId, satoshis: paid }

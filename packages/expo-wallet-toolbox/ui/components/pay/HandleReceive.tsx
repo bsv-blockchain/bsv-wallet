@@ -27,7 +27,7 @@ import {
 } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
-import { Beef, type DisplayableIdentity } from '@bsv/sdk'
+import { type DisplayableIdentity } from '@bsv/sdk'
 
 import ResultBanner from './ResultBanner'
 import ReceivedOverlay from './PaymentSuccessOverlay'
@@ -40,13 +40,12 @@ import { makeBeefRepair } from '../../../core/pay/beefRepair'
 import { wocConfigFor } from '../../../core/pay/rails/address'
 import { classifyCreditError } from '../../../core/pay/creditErrors'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
+import { creditInboxOnce, INBOX_DESCRIPTION, type CreditInboxResult } from '../../../core/pay/creditInbox'
+import { TaskCreditInbox } from '../../../core/monitor/TaskCreditInbox'
 import { useOnline } from '../../hooks/useOnline'
-import {
-  isPaymentTokenShape,
-  listDamagedInboxMessages,
-  type DamagedInboxMessage
-} from '../../../core/pay/damagedInbox'
+import { type DamagedInboxMessage } from '../../../core/pay/damagedInbox'
 import { getOnline } from '../../../core/net/online'
+import { saveInboxAttempts } from '../../../core/peerpay/inboxAttempts'
 import {
   useTheme,
   radii,
@@ -55,12 +54,10 @@ import {
   useWallet,
   NO_MESSAGE_BOX,
   acceptWithRetry,
-  autoAcceptInbox,
   discardIncoming,
   internalizeIncoming,
   needsAttention,
   peerPayLinkFor,
-  sendControlMessage,
   type InboxAttempt
 } from '@bsv/expo-wallet-toolbox'
 
@@ -152,26 +149,6 @@ function loadQRCode(): QRCodeComponent {
  */
 const INBOX_POLL_MS = 5000
 
-/**
- * The description every auto-credited payment carries into the wallet's history.
- *
- * Fixed, because nobody is present to type one: the old screen let the user add
- * a note before accepting, and automatic crediting removes that moment. Same
- * default the old screen used when the note was left blank.
- */
-const INBOX_DESCRIPTION = 'Identity Payment'
-
-/** Outbox-matching txid when the token parses; otherwise the inbox message id. */
-function paymentTxid(payment: IncomingPayment): string {
-  try {
-    const txid = Beef.fromBinary(Array.from(payment.token.transaction ?? [])).atomicTxid
-    if (txid) return txid
-  } catch {
-    // Unparseable AtomicBEEF: the inbox id still identifies the row.
-  }
-  return String(payment.messageId)
-}
-
 // ── Needs attention ──────────────────────────────────────────────────────────
 //
 // Replaces the old accept list. An arriving payment is credited automatically
@@ -184,13 +161,6 @@ function paymentTxid(payment: IncomingPayment): string {
 // There is deliberately no empty state. When nothing is wrong the section is
 // absent entirely — an inbox that is always visible and always empty trains
 // people to ignore it, and this is the one place that must be noticed.
-
-/** Placeholder token so unparseable inbox rows can share the IncomingPayment row UI. */
-const DAMAGED_TOKEN_PLACEHOLDER: IncomingPayment['token'] = {
-  customInstructions: { derivationPrefix: '', derivationSuffix: '' },
-  transaction: [],
-  amount: 0
-}
 
 interface AttentionSectionProps {
   readonly payments: IncomingPayment[]
@@ -362,7 +332,7 @@ export default function HandleReceive() {
   const Ionicons = loadIonicons()
   const QRCode = loadQRCode()
   const { useFocusEffect } = loadExpoRouter()
-  const { managers, adminOriginator, selectedNetwork } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage } = useWallet()
   const wallet = managers?.permissionsManager || null
   const online = useOnline()
 
@@ -391,12 +361,8 @@ export default function HandleReceive() {
 
   /** One inbox read at a time — see fetchPayments. */
   const fetchingRef = useRef(false)
-  /** A credit pass is running; it refreshes the list itself, so the poll stands off. */
-  const acceptingRef = useRef(false)
-  /** The live attempt map, for the async credit pass that must not close over stale state. */
+  /** The live attempt map, for discard copy that must not close over stale state. */
   const attemptsRef = useRef<Record<string, InboxAttempt>>({})
-  /** Set below to the credit pass; called by fetchPayments, which is declared first. */
-  const creditRef = useRef<(list: IncomingPayment[], force?: string[]) => Promise<void>>(async () => {})
   useEffect(() => {
     attemptsRef.current = attempts
   }, [attempts])
@@ -448,125 +414,6 @@ export default function HandleReceive() {
     void Share.share({ message: link }).catch(() => {})
   }, [link])
 
-  const fetchPayments = useCallback(
-    async (options: { silent?: boolean } = {}) => {
-      const client = peerPayClient
-      if (!client || !messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return
-      // One read at a time. The poll, the refresh button and every accept all
-      // reach this, and two overlapping reads can land out of order — the older
-      // response winning would resurrect a row that was just internalized.
-      if (fetchingRef.current) return
-      fetchingRef.current = true
-      try {
-        const list = await client.listIncomingPayments(messageBoxUrl)
-        // listIncomingPayments safeParse-filters corrupt bodies; re-list raw so
-        // those still appear as attention rows. acceptPayments:false avoids the
-        // listMessages fee-auto-internalize footgun.
-        let raw: { messageId: string; sender: string; body: unknown }[] = []
-        try {
-          raw =
-            (await (client as { listMessages?: (a: {
-              messageBox: string
-              host?: string
-              acceptPayments?: boolean
-            }) => Promise<{ messageId: string; sender: string; body: unknown }[]> }).listMessages?.({
-              messageBox: 'payment_inbox',
-              host: messageBoxUrl,
-              acceptPayments: false
-            })) ?? []
-        } catch {
-          raw = []
-        }
-        const fromDiff = listDamagedInboxMessages({ raw, parsed: list })
-        const byId = new Map(fromDiff.map(d => [d.messageId, d]))
-        for (const p of list) {
-          const id = String(p.messageId)
-          if (!isPaymentTokenShape(p.token) && !byId.has(id)) {
-            byId.set(id, { messageId: id, sender: p.sender ?? '', reason: 'bad_shape' })
-          }
-        }
-        const damagedList = [...byId.values()]
-        const damagedIdSet = new Set(damagedList.map(d => d.messageId))
-        const extras: IncomingPayment[] = damagedList
-          .filter(d => !list.some(p => String(p.messageId) === d.messageId))
-          .map(d => ({
-            messageId: d.messageId,
-            sender: d.sender,
-            token: DAMAGED_TOKEN_PLACEHOLDER
-          }))
-        const displayList = [...list, ...extras]
-        setPayments(displayList)
-        setDamaged(damagedList)
-        // Credit before resolving identities: the money matters and the names are
-        // decorative, so nothing about a payment landing waits on an overlay
-        // lookup that may never return. Never internalize damaged rows.
-        const creditable = list.filter(p => !damagedIdSet.has(String(p.messageId)))
-        await creditRef.current(creditable)
-        const idClient = makeIdentityClient(wallet as any, adminOriginator)
-        if (idClient) {
-          const senders = [...new Set(displayList.map(p => p.sender).filter(Boolean))] as string[]
-          const entries = await Promise.all(senders.map(s => resolveIdentity(idClient, s)))
-          setSenderIdentities(Object.fromEntries(entries))
-        }
-      } catch (error: any) {
-        // A silent read is a poll the user did not ask for, so it fails quietly:
-        // at one read every few seconds, a dead network would otherwise raise a
-        // toast per tick. Only a read the user triggered reports failure.
-        if (!options.silent) {
-          showToast(`${t('connection_failed')}: ${error?.message || t('unknown_error')}`, { type: 'error' })
-        }
-      } finally {
-        fetchingRef.current = false
-      }
-    },
-    [peerPayClient, messageBoxUrl, wallet, adminOriginator, t]
-  )
-
-  useEffect(() => {
-    void fetchPayments()
-  }, [fetchPayments])
-
-  // Read through a ref so the poll below depends only on the client, and is
-  // never torn down and restarted by an unrelated re-render.
-  const fetchRef = useRef(fetchPayments)
-  useEffect(() => {
-    fetchRef.current = fetchPayments
-  }, [fetchPayments])
-
-  // ── Poll the inbox ──
-  //
-  // A payment arrives whenever the sender's wallet delivers it and MessageBox has
-  // no push channel here, so "it appears on its own" means polling — but only
-  // while someone is actually looking at this screen. Three gates, each for its
-  // own reason: unmount and blur stop it because a poll nobody can see spends
-  // battery to update a screen that is not on; a backgrounded app stops it for
-  // the same reason and because iOS will suspend the timer anyway; and an accept
-  // in flight stops it because that path refreshes the list itself.
-  useEffect(() => {
-    if (!peerPayClient) return
-    let cancelled = false
-
-    const tick = () => {
-      if (cancelled || !focusedRef.current) return
-      if (AppState.currentState !== 'active') return
-      if (acceptingRef.current) return
-      void fetchRef.current({ silent: true })
-    }
-
-    const interval = setInterval(tick, INBOX_POLL_MS)
-    // Returning to the app should show what arrived while it was away, rather
-    // than waiting out the rest of an interval.
-    const appSubscription = AppState.addEventListener('change', next => {
-      if (next === 'active') tick()
-    })
-
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-      appSubscription.remove()
-    }
-  }, [peerPayClient])
-
   /**
    * Second chance for a payment whose proof no longer verifies. The token's
    * merkle path was minted at send time and a reorg since then invalidates it
@@ -587,72 +434,120 @@ export default function HandleReceive() {
     [peerPayClient, wallet, adminOriginator, t, repairBeef]
   )
 
-  /**
-   * Credit everything creditable, automatically.
-   *
-   * Accepting was never a decision: the money is already the user's and the
-   * token is already in their box, so the tap only delayed it. This runs after
-   * every list read, and again with `force` when a user retries a row that had
-   * given up. autoAcceptInbox holds the policy and its tests; this wires it to
-   * the wallet and the screen.
-   */
-  const creditInbox = useCallback(
-    async (list: IncomingPayment[], force?: string[]) => {
+  const applyCreditResult = useCallback((outcome: CreditInboxResult) => {
+    TaskCreditInbox.lastAttentionCount = outcome.attentionCount
+    attemptsRef.current = outcome.attempts
+    setAttempts(outcome.attempts)
+    setPayments(outcome.displayPayments)
+    setDamaged(outcome.damaged)
+    if (outcome.accepted > 0) {
+      // Full screen and held until acknowledged, not a toast. Money arriving
+      // can be missed entirely — phone face down, in a pocket, not being
+      // looked at — and whether it landed is the one thing a payee must never
+      // be left unsure about. Everything not left in the attempt map was
+      // credited, so that is what the figure sums.
+      const credited = outcome.payments.filter(p => !outcome.attempts[String(p.messageId)])
+      setReceived({
+        amount: credited.reduce((sum, p) => sum + (satoshisFromToken(p.token)?.satoshis ?? 0), 0),
+        count: outcome.accepted
+      })
+    }
+  }, [])
+
+  const runCredit = useCallback(
+    async (force?: string[]) => {
       const client = peerPayClient
-      if (!client || list.length === 0) return
-      acceptingRef.current = true
-      try {
-        const outcome = await autoAcceptInbox({
-          payments: list,
-          attempts: attemptsRef.current,
-          force,
-          // OfflineFirstChaintracks is not on WalletContext; AtomicBEEF while
-          // offline is environmental (headers / chaintracks cannot be consulted).
-          classify: e => classifyCreditError(e, { offline: !online }),
-          onGiveUp: async (payment, kind) => {
-            if (!payment.sender) return
-            const reason = kind === 'double_spend' ? 'double_spent' : 'uncreditible'
-            await sendControlMessage(client, {
-              recipient: payment.sender,
-              message: {
-                type: 'resend_request',
-                txid: paymentTxid(payment),
-                reason,
-                messageId: String(payment.messageId)
-              }
-            })
-          },
-          // acceptWithRetry re-lists once on failure, which clears the common
-          // stale-token case before it is ever counted as an attempt.
-          accept: payment => acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, internalize)
-        })
-        attemptsRef.current = outcome.attempts
-        setAttempts(outcome.attempts)
-        if (outcome.accepted > 0) {
-          // Full screen and held until acknowledged, not a toast. Money arriving
-          // can be missed entirely — phone face down, in a pocket, not being
-          // looked at — and whether it landed is the one thing a payee must never
-          // be left unsure about. Everything not left in the attempt map was
-          // credited, so that is what the figure sums.
-          const credited = list.filter(p => !outcome.attempts[String(p.messageId)])
-          setReceived({
-            amount: credited.reduce((sum, p) => sum + (satoshisFromToken(p.token)?.satoshis ?? 0), 0),
-            count: outcome.accepted
-          })
-        }
-      } finally {
-        acceptingRef.current = false
-      }
+      if (!client || !messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return undefined
+      const outcome = await creditInboxOnce({
+        client,
+        messageBoxUrl,
+        storage: storage ?? undefined,
+        force,
+        // OfflineFirstChaintracks is not on WalletContext; AtomicBEEF while
+        // offline is environmental (headers / chaintracks cannot be consulted).
+        classify: e => classifyCreditError(e, { offline: !online }),
+        accept: payment => acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, internalize)
+      })
+      applyCreditResult(outcome)
+      return outcome
     },
-    // No `t`: the copy moved into ReceivedOverlay, which translates it itself.
-    [peerPayClient, messageBoxUrl, internalize, online]
+    [peerPayClient, messageBoxUrl, storage, online, internalize, applyCreditResult]
   )
 
-  // The credit pass is invoked from fetchPayments, which is declared above it —
-  // reached through a ref so neither has to depend on the other.
+  const fetchPayments = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      const client = peerPayClient
+      if (!client || !messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return
+      // One read at a time. The poll, the refresh button and every accept all
+      // reach this, and two overlapping reads can land out of order — the older
+      // response winning would resurrect a row that was just internalized.
+      if (fetchingRef.current) return
+      fetchingRef.current = true
+      try {
+        const outcome = await runCredit()
+        const displayList = outcome?.displayPayments ?? []
+        const idClient = makeIdentityClient(wallet as any, adminOriginator)
+        if (idClient) {
+          const senders = [...new Set(displayList.map(p => p.sender).filter(Boolean))] as string[]
+          const entries = await Promise.all(senders.map(s => resolveIdentity(idClient, s)))
+          setSenderIdentities(Object.fromEntries(entries))
+        }
+      } catch (error: any) {
+        // A silent read is a poll the user did not ask for, so it fails quietly:
+        // at one read every few seconds, a dead network would otherwise raise a
+        // toast per tick. Only a read the user triggered reports failure.
+        if (!options.silent) {
+          showToast(`${t('connection_failed')}: ${error?.message || t('unknown_error')}`, { type: 'error' })
+        }
+      } finally {
+        fetchingRef.current = false
+      }
+    },
+    [peerPayClient, messageBoxUrl, wallet, adminOriginator, t, runCredit]
+  )
+
   useEffect(() => {
-    creditRef.current = creditInbox
-  }, [creditInbox])
+    void fetchPayments()
+  }, [fetchPayments])
+
+  // Read through a ref so the poll below depends only on the client, and is
+  // never torn down and restarted by an unrelated re-render.
+  const fetchRef = useRef(fetchPayments)
+  useEffect(() => {
+    fetchRef.current = fetchPayments
+  }, [fetchPayments])
+
+  // ── Poll the inbox ──
+  //
+  // A payment arrives whenever the sender's wallet delivers it and MessageBox has
+  // no push channel here, so "it appears on its own" means polling — but only
+  // while someone is actually looking at this screen. Unmount and blur stop it
+  // because a poll nobody can see spends battery; a backgrounded app stops it
+  // for the same reason and because iOS will suspend the timer anyway. The
+  // shared creditInboxOnce mutex serializes with TaskCreditInbox.
+  useEffect(() => {
+    if (!peerPayClient) return
+    let cancelled = false
+
+    const tick = () => {
+      if (cancelled || !focusedRef.current) return
+      if (AppState.currentState !== 'active') return
+      void fetchRef.current({ silent: true })
+    }
+
+    const interval = setInterval(tick, INBOX_POLL_MS)
+    // Returning to the app should show what arrived while it was away, rather
+    // than waiting out the rest of an interval.
+    const appSubscription = AppState.addEventListener('change', next => {
+      if (next === 'active') tick()
+    })
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      appSubscription.remove()
+    }
+  }, [peerPayClient])
 
   /** Retry one row that had given up. Runs the whole pass, forcing this id. */
   const handleRetry = useCallback(
@@ -661,15 +556,12 @@ export default function HandleReceive() {
       if (damaged.some(d => d.messageId === id)) return
       setBusyId(id)
       try {
-        await creditInbox(
-          payments.filter(p => !damaged.some(d => d.messageId === String(p.messageId))),
-          [id]
-        )
+        await runCredit([id])
       } finally {
         setBusyId(null)
       }
     },
-    [creditInbox, payments, damaged]
+    [runCredit, damaged]
   )
 
   /**
@@ -710,10 +602,12 @@ export default function HandleReceive() {
           const next = { ...prev }
           delete next[id]
           attemptsRef.current = next
+          if (storage) void saveInboxAttempts(storage, next)
           return next
         })
         setDamaged(prev => prev.filter(d => d.messageId !== id))
         setPayments(prev => prev.filter(p => String(p.messageId) !== id))
+        TaskCreditInbox.lastAttentionCount = Math.max(0, TaskCreditInbox.lastAttentionCount - 1)
         setResult({ type: 'success', message: t('pay_dismissed') })
       } catch (e: any) {
         showToast(e?.message || t('unknown_error'), { type: 'error' })
@@ -722,7 +616,7 @@ export default function HandleReceive() {
         setTimeout(() => setResult(null), 5000)
       }
     },
-    [peerPayClient, damaged, t]
+    [peerPayClient, damaged, t, storage]
   )
 
   const damagedIds = useMemo(() => new Set(damaged.map(d => d.messageId)), [damaged])
