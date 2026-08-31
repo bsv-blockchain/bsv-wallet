@@ -249,8 +249,13 @@ export async function broadcastPayment(
  * a failure. The money is safe at the payee; what is stuck is this device's
  * copy of the transaction, which is a retryable notice, not a failed payment.
  *
+ * A positive ack always persists first (`deps.hold`) — including when online.
+ * Online Done used to `sendWith` with no queue row and no `framePayload`, which
+ * discarded the only copy of the derivation nonces. The drain already posts
+ * when online; `sendWith` below runs only after that row exists.
+ *
  * OFFLINE: with no network there is nothing to broadcast to, so a positive ack
- * enqueues instead. The transaction is promoted from `nosend` to `unproven` by
+ * enqueues and returns. The transaction is promoted from `nosend` to `unproven` by
  * the hold, which is what lets the payer fund a SECOND offline payment from this
  * one's change — `allocateChangeInput` excludes `nosend`
  * (storage/StorageExpoSQLite.ts:1284). The outcome is the existing
@@ -308,32 +313,45 @@ export async function finalizeDelivery(
   } catch (e) {
     console.warn('[localpay] connectivity probe failed, assuming online:', messageOf(e))
   }
-  if (!isOnline) {
+
+  // Persist before any sendWith, online or off. Skipping this on the online
+  // path discarded the sealed frame after Done.
+  if (typeof deps?.hold === 'function') {
     try {
-      // The signature requires `hold`; this catches a JS caller or a cast that
-      // got past it. Reported rather than ignored, and deliberately NOT fallen
-      // through to the broadcast: offline, a delayed `sendWith` comes back
-      // 'sending', which this function reports as `broadcast: 'ok'` — green on
-      // the payer's screen for a transaction nothing has.
-      if (typeof deps?.hold !== 'function') {
-        throw new Error('offline, and no hold was supplied to queue this payment with')
-      }
       await deps.hold(built.txid)
-      return { kind: 'sent', broadcast: 'pending', detail: 'offline — queued until this device reconnects' }
     } catch (e) {
-      // The payee holds a copy and will internalize it, so this is still a sent
-      // payment — never a failure. But be honest about what a failed hold
-      // actually costs: nothing re-drives it. No monitor task sweeps a plain
-      // `nosend` transaction to broadcast it (`TaskSendWaiting` selects only
-      // `['unsent','sending']`; `TaskCheckNoSends`, the only task that even
-      // reads `nosend` rows, only checks whether one got mined by some OTHER
-      // means — it never calls `sendWith`), and `processOfflineActions`'s
-      // drain only ever looks at `offline_actions` rows, so a hold that threw
-      // before its own writes landed is invisible to it too. See
-      // `holdSentPaymentOffline` for why its queue-row insert runs before its
-      // status promotion, which is what keeps a partial failure recoverable.
-      return { kind: 'sent', broadcast: 'pending', detail: messageOf(e) }
+      if (!isOnline) {
+        // The payee holds a copy and will internalize it, so this is still a sent
+        // payment — never a failure. But be honest about what a failed hold
+        // actually costs: nothing re-drives it. No monitor task sweeps a plain
+        // `nosend` transaction to broadcast it (`TaskSendWaiting` selects only
+        // `['unsent','sending']`; `TaskCheckNoSends`, the only task that even
+        // reads `nosend` rows, only checks whether one got mined by some OTHER
+        // means — it never calls `sendWith`), and `processOfflineActions`'s
+        // drain only ever looks at `offline_actions` rows, so a hold that threw
+        // before its own writes landed is invisible to it too. See
+        // `holdSentPaymentOffline` for why its queue-row insert runs before its
+        // status promotion, which is what keeps a partial failure recoverable.
+        return { kind: 'sent', broadcast: 'pending', detail: messageOf(e) }
+      }
+      // Online: still try sendWith so a nosend tx is not stranded; the
+      // re-showable frame may be missing.
     }
+  } else if (!isOnline) {
+    // The signature requires `hold`; this catches a JS caller or a cast that
+    // got past it. Reported rather than ignored, and deliberately NOT fallen
+    // through to the broadcast: offline, a delayed `sendWith` comes back
+    // 'sending', which this function reports as `broadcast: 'ok'` — green on
+    // the payer's screen for a transaction nothing has.
+    return {
+      kind: 'sent',
+      broadcast: 'pending',
+      detail: 'offline, and no hold was supplied to queue this payment with'
+    }
+  }
+
+  if (!isOnline) {
+    return { kind: 'sent', broadcast: 'pending', detail: 'offline — queued until this device reconnects' }
   }
 
   try {

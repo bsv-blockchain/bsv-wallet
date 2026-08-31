@@ -28,6 +28,21 @@ export interface KVStorage {
   setKeyValue(k: string, v: string): Promise<void>
 }
 
+/** Thrown after a corrupt `PENDING_KEY` blob has been copied aside, never treated as empty. */
+export class PendingCorruptError extends Error {
+  constructor(message = 'pending queue JSON is corrupt') {
+    super(message)
+    this.name = 'PendingCorruptError'
+  }
+}
+
+let pendingCorruptNotice = false
+
+/** True after a quarantine until a later successful parse of `PENDING_KEY`. */
+export function getPendingCorruptNotice(): boolean {
+  return pendingCorruptNotice
+}
+
 interface Serialised extends Omit<PendingPayment, 'frame'> {
   frame: Omit<PaymentFrame, 'transaction'> & { transaction: number[] }
 }
@@ -55,12 +70,23 @@ async function readAll(storage: KVStorage): Promise<PendingPayment[]> {
   // A storage failure must NOT be reported as "empty" — callers write back
   // what they read, so swallowing it here destroys the queue.
   const raw = await storage.getKeyValue(PENDING_KEY)
-  if (!raw) return []
+  if (!raw) {
+    pendingCorruptNotice = false
+    return []
+  }
   try {
     const parsed = JSON.parse(raw) as unknown
+    pendingCorruptNotice = false
     return Array.isArray(parsed) ? (parsed as Serialised[]).map(fromWire) : []
   } catch {
-    return []
+    pendingCorruptNotice = true
+    try {
+      await storage.setKeyValue(`localpay_pending_corrupt_${Date.now()}`, raw)
+    } catch {
+      // Quarantine copy is best-effort; the original blob must still not be
+      // treated as empty, or a later writeAll([]) would destroy it.
+    }
+    throw new PendingCorruptError()
   }
 }
 
@@ -81,7 +107,15 @@ export async function savePending(
       status: 'pending',
       receivedVia
     }
-    await writeAll(storage, [...(await readAll(storage)), entry])
+    let existing: PendingPayment[]
+    try {
+      existing = await readAll(storage)
+    } catch (e) {
+      // Skip writeAll — replacing a corrupt blob with [] destroys the original.
+      if (e instanceof PendingCorruptError) throw e
+      throw e
+    }
+    await writeAll(storage, [...existing, entry])
     return entry
   })
 }
@@ -102,7 +136,13 @@ export async function updateStatus(
   failureReason?: string
 ): Promise<void> {
   return withQueueLock(async () => {
-    const all = await readAll(storage)
+    let all: PendingPayment[]
+    try {
+      all = await readAll(storage)
+    } catch (e) {
+      if (e instanceof PendingCorruptError) throw e
+      throw e
+    }
     const next = all.map(p =>
       p.id === id ? { ...p, status, failureReason, lastAttemptAt: new Date().toISOString() } : p
     )

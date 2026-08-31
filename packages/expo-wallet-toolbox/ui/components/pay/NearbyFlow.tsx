@@ -110,6 +110,7 @@ import AvailableBalance from './AvailableBalance'
 import { PayAmountField, RecipientSummary } from './PayForm'
 import PaymentQrDisplay from './PaymentQrDisplay'
 import ReceivedOverlay from './PaymentSuccessOverlay'
+import { showChoiceSheet } from '../ui/ChoiceSheet'
 import { identityLabel, makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
 import {
   useTheme,
@@ -129,6 +130,7 @@ import {
   buildPaymentFrame,
   decodeSession,
   encodeSession,
+  exitSendQrChoice,
   finalizeDelivery,
   frameBytesFromQr,
   holdSentPaymentOffline,
@@ -140,6 +142,7 @@ import {
   markSessionSpent,
   mintSession,
   nearbyTransport,
+  nextPhaseAfterUnsealFailure,
   processPending,
   requestNearbyPermissions,
   savePending,
@@ -376,7 +379,8 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   const Ionicons = loadIonicons()
   const QRCode = loadQRCode()
   const StatusBar = loadStatusBar()
-  const { router, useFocusEffect } = loadExpoRouter()
+  const { router, useFocusEffect, useNavigation } = loadExpoRouter()
+  const navigation = useNavigation()
   const insets = useSafeAreaInsets()
   const reducedMotion = useReducedMotion()
   const { managers, adminOriginator, storage } = useWallet()
@@ -489,6 +493,8 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
    * reset() and consumed (nulled) by completeQrDelivery.
    */
   const builtRef = useRef<Awaited<ReturnType<typeof buildPaymentFrame>> | null>(null)
+  /** Lets the next `beforeRemove` through after the send_qr exit sheet chooses abort. */
+  const sendQrAllowLeaveRef = useRef(false)
 
   /**
    * Whether this device can be an AWDL peer. Resolved ONCE per mount.
@@ -1021,12 +1027,19 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         // something else — and must still land here, not crash the screen.
         frame = unsealFrame(message, session.psk)
       } catch {
-        fail('generic', t('invalid_qr_code'))
+        // Same posture as settleReceived's mismatch path: keep hostedSession,
+        // re-arm the scanner, return to receive_wait. A new session would
+        // orphan the live request the real payer is still holding.
+        scanLatchRef.current = false
+        airGapDecoderRef.current = null
+        setScanProgress(null)
+        setPhase(nextPhaseAfterUnsealFailure())
+        setListenerEpoch(n => n + 1)
         return
       }
       void settleRef.current(frame, session)
     },
-    [hostedSession, fail, t]
+    [hostedSession]
   )
 
   // ── Send: scan the payee's session ──
@@ -1271,9 +1284,9 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   //
   // The QR path has no ack channel, so "the payee has it" is the user's claim,
   // made by tapping Done. Acting on that claim mirrors a positive AWDL ack:
-  // broadcast when online, hold + queue when offline. This replaces the old
-  // do-nothing Done, which stranded the transaction at nosend with no queue
-  // row — nothing in the system would ever broadcast it. The risk of a wrong
+  // persist the frame (same hold as offline), then broadcast when online.
+  // This replaces the old do-nothing Done, which stranded the transaction at
+  // nosend with no queue row. The risk of a wrong
   // claim is bounded: the frame is persisted on the queue row and the code can
   // be re-shown from /pay — but, sealed as it is, only for as long as the
   // payee's session PSK is still live; once that session ends a re-shown code
@@ -1313,6 +1326,57 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     setRole('payer')
     setPhase('done')
   }, [wallet, storage, adminOriginator, payAmount, scannedSession, paymentQr, t])
+
+  // ── Send: leave send_qr without Done ──
+  //
+  // The QR path has no ack, so backing out is not a proven non-delivery. Ask
+  // whether the other person scanned; abort only when the payer is sure they
+  // did not. Yes / Not sure uses the same hold path as Done.
+  const handleSendQrExit = useCallback(
+    async (leavingScreen: boolean): Promise<boolean> => {
+      const key = await showChoiceSheet({
+        title: t('did_they_scan_title'),
+        options: [
+          { key: 'no', label: t('did_they_scan_no'), destructive: true },
+          { key: 'yes', label: t('did_they_scan_yes') },
+          { key: 'unsure', label: t('did_they_scan_unsure') }
+        ],
+        cancelLabel: t('cancel')
+      })
+      if (key === 'cancel') return false
+      const scanned = key === 'yes' || key === 'no' || key === 'unsure' ? key : 'unsure'
+      if (exitSendQrChoice(scanned) === 'abort') {
+        abortBuild(builtRef.current?.reference)
+        builtRef.current = null
+        setPaymentQr(null)
+        if (!leavingScreen) reset()
+        return leavingScreen
+      }
+      await completeQrDelivery()
+      return false
+    },
+    [t, abortBuild, reset, completeQrDelivery]
+  )
+
+  useEffect(() => {
+    if (phase !== 'send_qr') {
+      sendQrAllowLeaveRef.current = false
+      return
+    }
+    const unsub = navigation.addListener(
+      'beforeRemove',
+      (e: { preventDefault: () => void; data: { action: object } }) => {
+        if (sendQrAllowLeaveRef.current) return
+        e.preventDefault()
+        void handleSendQrExit(true).then(allow => {
+          if (!allow) return
+          sendQrAllowLeaveRef.current = true
+          navigation.dispatch(e.data.action)
+        })
+      }
+    )
+    return unsub
+  }, [phase, navigation, handleSendQrExit])
 
   // ── The success moment ──
   //
@@ -1829,15 +1893,21 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
               </>
             )}
             <View style={styles.gapXl} />
-            {/* Done asserts delivery: broadcast when online, hold + queue when
-                offline (see completeQrDelivery). Never an abort — the payee may
-                be about to broadcast this frame, and freeing its inputs would
-                let this wallet respend them into a conflict. */}
+            {/* Done asserts delivery: persist the frame, then broadcast when
+                online (see completeQrDelivery / finalizeDelivery). Never an
+                abort — the payee may be about to broadcast this frame, and
+                freeing its inputs would let this wallet respend them. */}
             <PrimaryButton
               styles={styles}
               colors={colors}
               label={t('done')}
               onPress={() => void completeQrDelivery()}
+            />
+            <CancelButton
+              styles={styles}
+              colors={colors}
+              label={t('cancel')}
+              onPress={() => void handleSendQrExit(false)}
             />
           </Animated.View>
         )}

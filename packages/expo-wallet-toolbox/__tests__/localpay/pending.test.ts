@@ -1,6 +1,7 @@
 import {
   savePending, getPending, getUnprocessed, updateStatus, processPending,
   markSessionSpent, isSessionSpent, PENDING_KEY, SPENT_KEY,
+  PendingCorruptError, getPendingCorruptNotice,
 } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import { Transaction, Beef, LockingScript } from '@bsv/sdk'
@@ -56,10 +57,38 @@ describe('localpay pending queue', () => {
     expect(all[0].frame.outputIndex).toBe(0)
   })
 
-  it('treats corrupt storage as empty rather than throwing', async () => {
+  it('quarantines corrupt JSON instead of treating the queue as empty', async () => {
     const s = fakeStorage()
-    s.map.set(PENDING_KEY, 'not json')
-    await expect(getPending(s)).resolves.toEqual([])
+    s.map.set(PENDING_KEY, '{not json')
+    await expect(getPending(s)).rejects.toThrow(/corrupt/i)
+    const keys = [...s.map.keys()]
+    expect(keys.some(k => k.startsWith('localpay_pending_corrupt_'))).toBe(true)
+    expect(s.map.get(PENDING_KEY)).toBe('{not json')
+  })
+
+  it('does not overwrite the original pending key when saving over corrupt JSON', async () => {
+    const s = fakeStorage()
+    s.map.set(PENDING_KEY, '{not json')
+    await expect(savePending(s, frame())).rejects.toThrow(/corrupt/i)
+    expect(s.map.get(PENDING_KEY)).toBe('{not json')
+    const stored = [...s.map.entries()].filter(([k]) => k === PENDING_KEY).map(([, v]) => v)
+    expect(stored).toEqual(['{not json'])
+  })
+
+  it('propagates PendingCorruptError from getUnprocessed', async () => {
+    const s = fakeStorage()
+    s.map.set(PENDING_KEY, '{not json')
+    await expect(getUnprocessed(s)).rejects.toThrow(PendingCorruptError)
+  })
+
+  it('surfaces a corrupt-pending notice until a successful parse', async () => {
+    const s = fakeStorage()
+    s.map.set(PENDING_KEY, '{not json')
+    await expect(getPending(s)).rejects.toThrow(PendingCorruptError)
+    expect(getPendingCorruptNotice()).toBe(true)
+    const clean = fakeStorage()
+    await savePending(clean, frame())
+    expect(getPendingCorruptNotice()).toBe(false)
   })
 
   it('excludes completed entries from unprocessed', async () => {

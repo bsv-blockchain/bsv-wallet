@@ -3,6 +3,7 @@ export const CANARY_UI = 'ui'
 // Shared UI primitives (components/ui)
 export { showAlert, AlertHost } from './components/ui/AlertCard'
 export type { AlertButton, AlertOptions } from './components/ui/AlertCard'
+export { showChoiceSheet, choiceSheetOrder } from './components/ui/ChoiceSheet'
 export { default as AppLogo } from './components/ui/AppLogo'
 export { BlurChrome } from './components/ui/BlurChrome'
 export { default as Celebration } from './components/ui/Celebration'

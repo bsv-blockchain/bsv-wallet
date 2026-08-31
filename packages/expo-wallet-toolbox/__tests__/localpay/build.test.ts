@@ -247,20 +247,22 @@ describe('finalizeDelivery', () => {
   // These tests are pinning the ONLINE path, so connectivity is injected rather
   // than left to the real default (`@/utils/net/online`'s `getOnline`, which
   // calls the native NetInfo module and has nothing to answer with under Jest).
-  // `hold` is required by the signature and doubles as a guard here: nothing on
-  // the online path, and nothing before the probe, may queue anything.
+  // Hold runs on every positive ack (the frame must be persisted before sendWith).
   const online = {
     online: async () => true,
-    hold: async () => {
-      throw new Error('the online path must not queue anything')
-    }
+    hold: jest.fn().mockResolvedValue(undefined)
   }
+
+  beforeEach(() => {
+    ;(online.hold as jest.Mock).mockClear()
+  })
 
   it('broadcasts on a positive ack', async () => {
     const w = payerStub()
     const outcome = await finalizeDelivery(w as never, built, { ok: true }, 'admin.com', online)
 
     expect(outcome).toEqual({ kind: 'sent', broadcast: 'ok' })
+    expect(online.hold).toHaveBeenCalledWith('tx-1')
     expect(w.createAction).toHaveBeenCalledTimes(1)
     expect(w.createAction.mock.calls[0][0].options).toEqual({ sendWith: ['tx-1'] })
     // Aborting after a positive ack frees inputs the payee is about to spend.
@@ -354,20 +356,28 @@ describe('finalizeDelivery when offline', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
 
-  it('still broadcasts when online', async () => {
+  it('holds the frame before broadcasting when online', async () => {
+    const order: string[] = []
     const wallet = {
-      createAction: jest.fn().mockResolvedValue({ sendWithResults: [{ txid: built.txid, status: 'sending' }] }),
+      createAction: jest.fn().mockImplementation(async () => {
+        order.push('broadcast')
+        return { sendWithResults: [{ txid: built.txid, status: 'sending' }] }
+      }),
       abortAction: jest.fn(),
       getPublicKey: jest.fn(),
       signAction: jest.fn()
     }
-    const hold = jest.fn()
+    const hold = jest.fn().mockImplementation(async () => {
+      order.push('hold')
+    })
     const r = await finalizeDelivery(wallet as never, built, { ok: true }, 'admin.com', {
       online: async () => true,
       hold
     })
     expect(r).toEqual({ kind: 'sent', broadcast: 'ok' })
-    expect(hold).not.toHaveBeenCalled()
+    expect(hold).toHaveBeenCalledWith(built.txid)
+    expect(wallet.createAction).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['hold', 'broadcast'])
   })
 
   it('still aborts on a negative ack while offline', async () => {
@@ -422,7 +432,7 @@ describe('finalizeDelivery when offline', () => {
       hold
     })
     expect(r).toEqual({ kind: 'sent', broadcast: 'ok' })
-    expect(hold).not.toHaveBeenCalled()
+    expect(hold).toHaveBeenCalledWith(built.txid)
     expect(wallet.createAction).toHaveBeenCalledTimes(1)
     warn.mockRestore()
   })
