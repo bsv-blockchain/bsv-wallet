@@ -3,6 +3,7 @@ import {
   MAX_WATCH_DAYS,
   WATCHLIST_KEY,
   WATCH_TTL_MS,
+  WATCH_UNSWEPT_TTL_MS,
   getWatchlist,
   pruneWatchlist,
   touchWatched,
@@ -41,9 +42,18 @@ describe('pruneWatchlist', () => {
     expect(pruneWatchlist([entry()], NOW)).toHaveLength(1)
   })
 
-  it('drops an entry with no activity for longer than the TTL', () => {
-    const stale = entry({ lastActivityAt: new Date(NOW - WATCH_TTL_MS - 1).toISOString() })
+  it('drops an entry with no activity for longer than the unswept TTL', () => {
+    const stale = entry({ lastActivityAt: new Date(NOW - WATCH_UNSWEPT_TTL_MS - 1).toISOString() })
     expect(pruneWatchlist([stale], NOW)).toHaveLength(0)
+  })
+
+  it('keeps a never-swept address past 24h until MAX_WATCH_DAYS', () => {
+    const neverSwept = entry({
+      address: 'never-swept',
+      date: '2026-07-22',
+      lastActivityAt: new Date(NOW - WATCH_TTL_MS - 1).toISOString()
+    })
+    expect(pruneWatchlist([neverSwept], NOW).map(e => e.address)).toEqual(['never-swept'])
   })
 
   it('drops an entry whose date is older than the look-back cap', () => {
@@ -67,10 +77,11 @@ describe('pruneWatchlist', () => {
   })
 
   it('pins the bounds so a future edit has to be deliberate', () => {
-    expect({ MAX_WATCHED, MAX_WATCH_DAYS, WATCH_TTL_MS }).toEqual({
+    expect({ MAX_WATCHED, MAX_WATCH_DAYS, WATCH_TTL_MS, WATCH_UNSWEPT_TTL_MS }).toEqual({
       MAX_WATCHED: 8,
       MAX_WATCH_DAYS: 7,
-      WATCH_TTL_MS: 86_400_000
+      WATCH_TTL_MS: 86_400_000,
+      WATCH_UNSWEPT_TTL_MS: 7 * 86_400_000
     })
   })
 })

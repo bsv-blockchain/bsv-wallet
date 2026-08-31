@@ -199,6 +199,23 @@ export async function getProcessedTransactions(
 }
 
 /**
+ * Bytes of a WhatsOnChain `/tx/{txid}/beef` body, or undefined if the
+ * response is not a usable even-length hex payload. A 404 body is prose;
+ * feeding it to `Utils.toArray(..., 'hex')` throws and would abort the rest
+ * of an address's UTXOs.
+ */
+export function parseWocBeefBody(resp: { ok: boolean; text: string }): number[] | undefined {
+  if (!resp.ok) return undefined
+  const hex = resp.text.trim()
+  if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) return undefined
+  try {
+    return Utils.toArray(hex, 'hex')
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * The sweep. Ported from legacy-payments.tsx's handleImportFunds with one
  * change and one only: the trigger. Nothing about what it writes moves.
  *
@@ -206,6 +223,9 @@ export async function getProcessedTransactions(
  * both load-bearing: the labels are how getInternalizedUtxos recognises what
  * has already been imported, and the address label in particular is what makes
  * a second sweep a no-op instead of a double credit.
+ *
+ * Each UTXO is fetched and internalized in its own try/catch so one bad BEEF
+ * cannot skip the rest of the address.
  */
 export async function sweepAddress(args: {
   wallet: AddressRailWallet
@@ -214,30 +234,38 @@ export async function sweepAddress(args: {
   address: string
   derivationPrefix: string
   nowSeconds?: number
-}): Promise<{ importedSatoshis: number; failureCount: number }> {
+}): Promise<{ importedSatoshis: number; failureCount: number; foundOnChain: boolean }> {
   const { wallet, adminOriginator, woc, address, derivationPrefix } = args
   const nowSeconds = args.nowSeconds ?? Math.floor(Date.now() / 1000)
 
   const all = await getUtxosForAddress(woc, address)
   const internalized = await getInternalizedUtxos(wallet, adminOriginator, address)
   const utxos = availableUtxos(all, internalized)
-  if (utxos.length === 0) return { importedSatoshis: 0, failureCount: 0 }
-
-  const beef = new Beef()
-  for (const utxo of utxos) {
-    if (!beef.findTxid(utxo.txid)) {
-      const resp = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${utxo.txid}/beef`)
-      const beefHex = await resp.text()
-      beef.mergeBeef(Utils.toArray(beefHex, 'hex'))
-    }
-  }
+  if (utxos.length === 0) return { importedSatoshis: 0, failureCount: 0, foundOnChain: false }
 
   const senderIdentityKey = new PrivateKey(1).toPublicKey().toString()
-  const txs = beef.txs
-    .map(beefTx => {
-      const tx = beef.findAtomicTransaction(beefTx.txid)
-      const relevant = utxos.filter(o => o.txid === beefTx.txid)
-      if (relevant.length === 0) return null
+  let importedSatoshis = 0
+  let failureCount = 0
+  const seen = new Set<string>()
+
+  for (const utxo of utxos) {
+    if (seen.has(utxo.txid)) continue
+    seen.add(utxo.txid)
+    const relevant = utxos.filter(o => o.txid === utxo.txid)
+    try {
+      const resp = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${utxo.txid}/beef`)
+      const bytes = parseWocBeefBody({ ok: resp.ok, text: await resp.text() })
+      if (!bytes) {
+        failureCount++
+        continue
+      }
+      const beef = new Beef()
+      beef.mergeBeef(bytes)
+      const tx = beef.findAtomicTransaction(utxo.txid)
+      if (!tx) {
+        failureCount++
+        continue
+      }
       const outputs: InternalizeOutput[] = relevant.map(o => ({
         outputIndex: o.vout,
         protocol: 'wallet payment' as const,
@@ -248,27 +276,19 @@ export async function sweepAddress(args: {
         }
       }))
       const internalizeArgs: InternalizeActionArgs = {
-        tx: tx!.toAtomicBEEF(),
+        tx: tx.toAtomicBEEF(),
         description: 'Payment to your address',
         outputs,
         labels: ['legacy', 'inbound', 'bsvbrowser', address, `ts:${nowSeconds}`]
       }
-      return { args: internalizeArgs, satoshis: relevant.reduce((sum, o) => sum + o.satoshis, 0) }
-    })
-    .filter(Boolean) as { args: InternalizeActionArgs; satoshis: number }[]
-
-  let importedSatoshis = 0
-  let failureCount = 0
-  for (const { args: internalizeArgs, satoshis } of txs) {
-    try {
       const response = await wallet.internalizeAction(internalizeArgs, adminOriginator)
-      if (response?.accepted) importedSatoshis += satoshis
+      if (response?.accepted) importedSatoshis += relevant.reduce((sum, o) => sum + o.satoshis, 0)
       else failureCount++
     } catch {
       failureCount++
     }
   }
-  return { importedSatoshis, failureCount }
+  return { importedSatoshis, failureCount, foundOnChain: true }
 }
 
 /**

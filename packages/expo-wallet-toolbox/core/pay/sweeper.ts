@@ -49,7 +49,7 @@ export async function runSweep(args: {
 
   for (const watched of await getWatchlist(storage)) {
     try {
-      const { importedSatoshis, failureCount } = await sweepAddress({
+      const { importedSatoshis, failureCount, foundOnChain } = await sweepAddress({
         wallet,
         adminOriginator,
         woc,
@@ -58,8 +58,9 @@ export async function runSweep(args: {
       })
       outcomes.push({ address: watched.address, importedSatoshis, failureCount })
       // Money arrived here once, so it may again: keep this address alive
-      // rather than retiring it the moment it pays out.
-      if (importedSatoshis > 0) await touchWatched(storage, watched.address)
+      // rather than retiring it the moment it pays out. A funded address whose
+      // import failed must stay watched too, or a bad BEEF fetch TTL-drops it.
+      if (importedSatoshis > 0 || foundOnChain) await touchWatched(storage, watched.address)
     } catch {
       // A dead WoC host or a locked wallet must not stop the rest of the pass.
       // The entry stays watched and the next pass retries it.

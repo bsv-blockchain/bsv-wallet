@@ -113,6 +113,18 @@ describe('runSweep', () => {
     expect((await getWatchlist(s))[0].lastActivityAt).toBe(before)
   })
 
+  it('keeps an address alive when on-chain UTXOs were found even if import failed', async () => {
+    const s = fakeStorage()
+    await watchAddress(s, { address: 'addr-a', date: TODAY, derivationPrefix: 'p' })
+    const before = (await getWatchlist(s))[0].lastActivityAt
+    await new Promise(r => setTimeout(r, 5))
+    sweepAddress.mockResolvedValue({ importedSatoshis: 0, failureCount: 1, foundOnChain: true })
+
+    await runSweep({ wallet, storage: s, adminOriginator: 'admin.com', woc })
+
+    expect((await getWatchlist(s))[0].lastActivityAt >= before).toBe(true)
+  })
+
   it('carries on to the next address when one throws', async () => {
     const s = fakeStorage()
     await watchAddress(s, { address: 'addr-a', date: TODAY, derivationPrefix: 'p' })

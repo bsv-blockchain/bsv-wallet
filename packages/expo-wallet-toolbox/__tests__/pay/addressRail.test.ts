@@ -5,6 +5,7 @@ import {
   getInternalizedUtxos,
   getProcessedTransactions,
   getUtxosForAddress,
+  parseWocBeefBody,
   sendToAddress,
   sweepAddress,
   wocConfigFor
@@ -13,18 +14,50 @@ import {
 const woc = wocConfigFor('main')
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
 
-function mockFetchOnce(handler: (url: string) => { json?: unknown; text?: string }) {
+function mockFetchOnce(handler: (url: string) => { json?: unknown; text?: string; ok?: boolean }) {
   global.fetch = jest.fn(async (url: string) => {
     const r = handler(String(url))
     return {
+      ok: r.ok ?? true,
       json: async () => r.json,
       text: async () => r.text ?? ''
     } as unknown as Response
   }) as unknown as typeof fetch
 }
 
+function paymentBeef(satoshis: number) {
+  const { Beef, Transaction, P2PKH } = require('@bsv/sdk')
+  const tx = new Transaction()
+  tx.addOutput({ lockingScript: new P2PKH().lock(ADDRESS), satoshis })
+  const beef = new Beef()
+  beef.mergeRawTx(tx.toBinary())
+  return {
+    txid: tx.id('hex') as string,
+    hex: Buffer.from(beef.toBinary()).toString('hex'),
+    satoshis
+  }
+}
+
 afterEach(() => {
   jest.restoreAllMocks()
+})
+
+describe('parseWocBeefBody', () => {
+  it('returns undefined when the response is not ok', () => {
+    expect(parseWocBeefBody({ ok: false, text: 'deadbeef' })).toBeUndefined()
+  })
+
+  it('returns undefined for a prose body', () => {
+    expect(parseWocBeefBody({ ok: true, text: 'Transaction not found' })).toBeUndefined()
+  })
+
+  it('returns bytes for even-length hex', () => {
+    expect(parseWocBeefBody({ ok: true, text: '0a0b' })).toEqual([0x0a, 0x0b])
+  })
+
+  it('returns undefined for odd-length hex', () => {
+    expect(parseWocBeefBody({ ok: true, text: 'abc' })).toBeUndefined()
+  })
 })
 
 describe('getUtxosForAddress', () => {
@@ -148,7 +181,7 @@ describe('sweepAddress', () => {
         address: ADDRESS,
         derivationPrefix: prefix
       })
-    ).resolves.toEqual({ importedSatoshis: 0, failureCount: 0 })
+    ).resolves.toEqual({ importedSatoshis: 0, failureCount: 0, foundOnChain: false })
     expect(wallet.internalizeAction).not.toHaveBeenCalled()
   })
 
@@ -182,6 +215,7 @@ describe('sweepAddress', () => {
     })
 
     expect(result.importedSatoshis).toBe(1000)
+    expect(result.foundOnChain).toBe(true)
     const [args, originator] = wallet.internalizeAction.mock.calls[0]
     expect(originator).toBe('admin.com')
     expect(args.description).toBe('Payment to your address')
@@ -224,7 +258,37 @@ describe('sweepAddress', () => {
         address: ADDRESS,
         derivationPrefix: prefix
       })
-    ).resolves.toEqual({ importedSatoshis: 0, failureCount: 1 })
+    ).resolves.toEqual({ importedSatoshis: 0, failureCount: 1, foundOnChain: true })
+  })
+
+  it('imports a sibling UTXO when one BEEF fetch fails', async () => {
+    const bad = paymentBeef(1000)
+    const good = paymentBeef(2000)
+    mockFetchOnce(url => {
+      if (url.includes('/unspent/all')) {
+        return {
+          json: {
+            result: [
+              { tx_hash: bad.txid, tx_pos: 0, value: bad.satoshis, isSpentInMempoolTx: false },
+              { tx_hash: good.txid, tx_pos: 0, value: good.satoshis, isSpentInMempoolTx: false }
+            ]
+          }
+        }
+      }
+      if (url.includes(bad.txid)) return { ok: false, text: 'Transaction not found' }
+      return { text: good.hex }
+    })
+    const wallet = walletWithNothingImported()
+    await expect(
+      sweepAddress({
+        wallet: wallet as never,
+        adminOriginator: 'admin.com',
+        woc,
+        address: ADDRESS,
+        derivationPrefix: prefix
+      })
+    ).resolves.toEqual({ importedSatoshis: good.satoshis, failureCount: 1, foundOnChain: true })
+    expect(wallet.internalizeAction).toHaveBeenCalledTimes(1)
   })
 
   it('skips outputs already internalized, so a second sweep is a no-op', async () => {
@@ -243,7 +307,7 @@ describe('sweepAddress', () => {
         address: ADDRESS,
         derivationPrefix: prefix
       })
-    ).resolves.toEqual({ importedSatoshis: 0, failureCount: 0 })
+    ).resolves.toEqual({ importedSatoshis: 0, failureCount: 0, foundOnChain: false })
     expect(wallet.internalizeAction).not.toHaveBeenCalled()
   })
 })

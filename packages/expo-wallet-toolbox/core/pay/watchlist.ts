@@ -9,7 +9,8 @@
  *
  * Bounds (spec open question 5):
  *   · at most MAX_WATCHED addresses, most-recently-active kept
- *   · dropped after WATCH_TTL_MS with no activity (issue or successful sweep)
+ *   · never-swept addresses live WATCH_UNSWEPT_TTL_MS (MAX_WATCH_DAYS)
+ *   · WATCH_TTL_MS still names the 24h imported-activity window
  *   · never older than MAX_WATCH_DAYS by its issue date
  *
  * A dropped address is not lost money: the Get paid → conventional wallet view
@@ -21,6 +22,7 @@ export const WATCHLIST_KEY = 'pay_address_watchlist'
 export const MAX_WATCHED = 8
 export const WATCH_TTL_MS = 86_400_000
 export const MAX_WATCH_DAYS = 7
+export const WATCH_UNSWEPT_TTL_MS = MAX_WATCH_DAYS * 86_400_000
 
 export interface WatchedAddress {
   address: string
@@ -63,7 +65,7 @@ export function pruneWatchlist(list: WatchedAddress[], nowMs: number): WatchedAd
   return list
     .filter(e => {
       const activity = Date.parse(e.lastActivityAt)
-      if (!Number.isFinite(activity) || nowMs - activity > WATCH_TTL_MS) return false
+      if (!Number.isFinite(activity) || nowMs - activity > WATCH_UNSWEPT_TTL_MS) return false
       const issued = Date.parse(`${e.date}T00:00:00Z`)
       if (!Number.isFinite(issued) || issued < oldestAllowed) return false
       return true

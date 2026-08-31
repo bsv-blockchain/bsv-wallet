@@ -119,6 +119,7 @@ export {
   WATCHLIST_KEY,
   MAX_WATCHED,
   WATCH_TTL_MS,
+  WATCH_UNSWEPT_TTL_MS,
   MAX_WATCH_DAYS,
   type WatchedAddress,
   pruneWatchlist,
