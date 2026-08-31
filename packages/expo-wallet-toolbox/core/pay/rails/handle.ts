@@ -18,6 +18,7 @@ import {
   updateOutboxEntry,
   type OutboxEntry
 } from '../../peerpay/outbox'
+import type { CreditFailureKind } from '../creditErrors'
 import { sendControlMessage, type ResendReason } from '../../peerpay/control'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
@@ -157,6 +158,8 @@ export async function acceptWithRetry(
 export interface InboxAttempt {
   attempts: number
   error: string
+  /** Set when `autoAcceptInbox` was given a classifier. */
+  kind?: CreditFailureKind
 }
 
 /**
@@ -189,8 +192,12 @@ export async function autoAcceptInbox<T extends { messageId: string | number }>(
   accept: (payment: T) => Promise<void>
   /** Message ids to attempt even though they had given up — a user pressed Retry. */
   force?: string[]
+  /** When omitted, every failure counts as structural (increments attempts). */
+  classify?: (e: unknown) => CreditFailureKind
+  /** Fired the first time a payment crosses into needsAttention. Do not ack. */
+  onGiveUp?: (payment: T, kind: CreditFailureKind) => void | Promise<void>
 }): Promise<{ accepted: number; attempts: Record<string, InboxAttempt> }> {
-  const { payments, attempts, accept } = args
+  const { payments, attempts, accept, classify, onGiveUp } = args
   const forced = new Set(args.force ?? [])
   const next: Record<string, InboxAttempt> = {}
   let accepted = 0
@@ -212,9 +219,23 @@ export async function autoAcceptInbox<T extends { messageId: string | number }>(
       // Success clears the history: the payment is credited and acknowledged, so
       // there is nothing left to show or retry.
     } catch (e) {
-      next[id] = {
-        attempts: (state?.attempts ?? 0) + 1,
-        error: e instanceof Error && e.message ? e.message : String(e)
+      const classified = classify?.(e)
+      const kind: CreditFailureKind = classified ?? 'structural'
+      const error = e instanceof Error && e.message ? e.message : String(e)
+      const counted = kind !== 'environmental'
+      const recorded: InboxAttempt = {
+        attempts: (state?.attempts ?? 0) + (counted ? 1 : 0),
+        error,
+        ...(classified ? { kind: classified } : {})
+      }
+      next[id] = recorded
+      if (counted && !needsAttention(state) && needsAttention(recorded) && onGiveUp) {
+        try {
+          await onGiveUp(payment, kind)
+        } catch {
+          // NACK is best-effort here; Discard will try again. The attempt is
+          // already recorded so a throw must not rewind the ceiling.
+        }
       }
     }
   }

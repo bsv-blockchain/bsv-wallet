@@ -168,6 +168,49 @@ describe('autoAcceptInbox', () => {
     expect(result.attempts.a.attempts).toBe(MAX_AUTO_ATTEMPTS + 1)
     expect(needsAttention(result.attempts.a)).toBe(true)
   })
+
+  it('does not count environmental failures toward MAX_AUTO_ATTEMPTS across two polls', async () => {
+    const classify = () => 'environmental' as const
+    const first = await autoAcceptInbox({
+      payments: [payment('a')],
+      attempts: {},
+      accept: accepter(['a']),
+      classify
+    })
+    expect(first.attempts.a.attempts).toBe(0)
+    expect(needsAttention(first.attempts.a)).toBe(false)
+    const second = await autoAcceptInbox({
+      payments: [payment('a')],
+      attempts: first.attempts,
+      accept: accepter(['a']),
+      classify
+    })
+    expect(second.attempts.a.attempts).toBe(0)
+    expect(needsAttention(second.attempts.a)).toBe(false)
+  })
+
+  it('fires onGiveUp when a structural failure reaches the ceiling, not before', async () => {
+    const classify = () => 'structural' as const
+    const onGiveUp = jest.fn()
+    const first = await autoAcceptInbox({
+      payments: [payment('a')],
+      attempts: {},
+      accept: accepter(['a']),
+      classify,
+      onGiveUp
+    })
+    expect(onGiveUp).not.toHaveBeenCalled()
+    expect(needsAttention(first.attempts.a)).toBe(false)
+    await autoAcceptInbox({
+      payments: [payment('a')],
+      attempts: first.attempts,
+      accept: accepter(['a']),
+      classify,
+      onGiveUp
+    })
+    expect(onGiveUp).toHaveBeenCalledTimes(1)
+    expect(onGiveUp.mock.calls[0][1]).toBe('structural')
+  })
 })
 
 describe('discardIncoming', () => {

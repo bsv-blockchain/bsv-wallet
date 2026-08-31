@@ -27,7 +27,7 @@ import {
 } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
-import type { DisplayableIdentity } from '@bsv/sdk'
+import { Beef, type DisplayableIdentity } from '@bsv/sdk'
 
 import ResultBanner from './ResultBanner'
 import ReceivedOverlay from './PaymentSuccessOverlay'
@@ -38,7 +38,9 @@ import { showToast } from '../ui/Toast'
 import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
 import { makeBeefRepair } from '../../../core/pay/beefRepair'
 import { wocConfigFor } from '../../../core/pay/rails/address'
+import { classifyCreditError } from '../../../core/pay/creditErrors'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
+import { useOnline } from '../../hooks/useOnline'
 import {
   isPaymentTokenShape,
   listDamagedInboxMessages,
@@ -58,6 +60,7 @@ import {
   internalizeIncoming,
   needsAttention,
   peerPayLinkFor,
+  sendControlMessage,
   type InboxAttempt
 } from '@bsv/expo-wallet-toolbox'
 
@@ -158,13 +161,25 @@ const INBOX_POLL_MS = 5000
  */
 const INBOX_DESCRIPTION = 'Identity Payment'
 
+/** Outbox-matching txid when the token parses; otherwise the inbox message id. */
+function paymentTxid(payment: IncomingPayment): string {
+  try {
+    const txid = Beef.fromBinary(Array.from(payment.token.transaction ?? [])).atomicTxid
+    if (txid) return txid
+  } catch {
+    // Unparseable AtomicBEEF: the inbox id still identifies the row.
+  }
+  return String(payment.messageId)
+}
+
 // ── Needs attention ──────────────────────────────────────────────────────────
 //
 // Replaces the old accept list. An arriving payment is credited automatically
 // (see autoAcceptInbox in the handle rail), so the only rows here are the ones
-// the wallet could NOT credit after MAX_AUTO_ATTEMPTS tries. That makes this a
-// problem queue, not an inbox: every row offers a retry, and a discard for the
-// structurally broken ones that will never succeed.
+// the wallet could NOT credit after MAX_AUTO_ATTEMPTS tries, plus environmental
+// failures still waiting on the network. That makes this a problem queue, not
+// an inbox: every row offers a retry, and a discard for the structurally
+// broken ones that will never succeed.
 //
 // There is deliberately no empty state. When nothing is wrong the section is
 // absent entirely — an inbox that is always visible and always empty trains
@@ -214,12 +229,18 @@ function AttentionSection({
         {payments.map((payment, idx) => {
           const id = String(payment.messageId)
           const isDamaged = damagedIds.has(id)
+          const kind = attempts[id]?.kind
+          const error = isDamaged
+            ? t('payment_arrived_damaged')
+            : kind === 'environmental'
+              ? t('waiting_network_confirm')
+              : attempts[id]?.error ?? ''
           return (
             <AttentionRow
               key={id}
               payment={payment}
               identity={senderIdentities[payment.sender ?? '']}
-              error={isDamaged ? t('payment_arrived_damaged') : attempts[id]?.error ?? ''}
+              error={error}
               isDamaged={isDamaged}
               isLast={idx === payments.length - 1}
               isBusy={busyId === id}
@@ -343,6 +364,7 @@ export default function HandleReceive() {
   const { useFocusEffect } = loadExpoRouter()
   const { managers, adminOriginator, selectedNetwork } = useWallet()
   const wallet = managers?.permissionsManager || null
+  const online = useOnline()
 
   const [identityKey, setIdentityKey] = useState('')
   const [copied, setCopied] = useState(false)
@@ -584,6 +606,22 @@ export default function HandleReceive() {
           payments: list,
           attempts: attemptsRef.current,
           force,
+          // OfflineFirstChaintracks is not on WalletContext; AtomicBEEF while
+          // offline is environmental (headers / chaintracks cannot be consulted).
+          classify: e => classifyCreditError(e, { offline: !online }),
+          onGiveUp: async (payment, kind) => {
+            if (!payment.sender) return
+            const reason = kind === 'double_spend' ? 'double_spent' : 'uncreditible'
+            await sendControlMessage(client, {
+              recipient: payment.sender,
+              message: {
+                type: 'resend_request',
+                txid: paymentTxid(payment),
+                reason,
+                messageId: String(payment.messageId)
+              }
+            })
+          },
           // acceptWithRetry re-lists once on failure, which clears the common
           // stale-token case before it is ever counted as an attempt.
           accept: payment => acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, internalize)
@@ -607,7 +645,7 @@ export default function HandleReceive() {
       }
     },
     // No `t`: the copy moved into ReceivedOverlay, which translates it itself.
-    [peerPayClient, messageBoxUrl, internalize]
+    [peerPayClient, messageBoxUrl, internalize, online]
   )
 
   // The credit pass is invoked from fetchPayments, which is declared above it —
@@ -643,18 +681,28 @@ export default function HandleReceive() {
       const client = peerPayClient
       if (!client) return
       const id = String(payment.messageId)
-      const choice = await showAlert({
-        title: t('discard_payment_title'),
-        message: t('discard_payment_body'),
-        buttons: [
-          { text: t('cancel'), style: 'cancel', key: 'cancel' },
-          { text: t('discard'), style: 'destructive', key: 'discard' }
-        ]
-      })
-      if (choice !== 'discard') return
+      const isDamaged = damaged.some(d => d.messageId === id)
+      const voided = !isDamaged && attemptsRef.current[id]?.kind === 'double_spend'
+      const choice = await showAlert(
+        voided
+          ? {
+              title: t('discard_void_title'),
+              message: t('discard_void_body'),
+              buttons: [{ text: t('done'), key: 'done' }]
+            }
+          : {
+              title: t('discard_payment_title'),
+              message: t('discard_payment_body'),
+              buttons: [
+                { text: t('cancel'), style: 'cancel', key: 'cancel' },
+                { text: t('discard'), style: 'destructive', key: 'discard' }
+              ]
+            }
+      )
+      if (voided ? choice !== 'done' : choice !== 'discard') return
       setBusyId(id)
       try {
-        const reason = damaged.some(d => d.messageId === id) ? 'corrupt' : 'uncreditible'
+        const reason = isDamaged ? 'corrupt' : voided ? 'double_spent' : 'uncreditible'
         await discardIncoming(client, payment, reason)
         // Drop it locally too: it will never be listed again, so waiting for the
         // next poll would leave a row on screen that no longer exists.
@@ -680,14 +728,20 @@ export default function HandleReceive() {
   const damagedIds = useMemo(() => new Set(damaged.map(d => d.messageId)), [damaged])
 
   /**
-   * The rows worth showing: payments the wallet has given up on, plus inbox
-   * bodies that never parsed into tokens. Everything else was credited.
+   * The rows worth showing: payments the wallet has given up on, environmental
+   * failures still waiting on the network, plus inbox bodies that never parsed
+   * into tokens. Everything else was credited.
    */
   const attention = useMemo(
     () =>
-      payments.filter(
-        p => damagedIds.has(String(p.messageId)) || needsAttention(attempts[String(p.messageId)])
-      ),
+      payments.filter(p => {
+        const id = String(p.messageId)
+        return (
+          damagedIds.has(id) ||
+          needsAttention(attempts[id]) ||
+          attempts[id]?.kind === 'environmental'
+        )
+      }),
     [payments, attempts, damagedIds]
   )
 
