@@ -10,7 +10,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { PeerPayClient } from '@bsv/message-box-client'
 
 import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
@@ -36,6 +35,8 @@ import {
   NO_MESSAGE_BOX,
   cancelOutboxPayment,
   isMessageBoxNetworkError,
+  isRecipientHostUnknown,
+  makePeerPayClient,
   retryDelivery,
   sendViaHandle,
   getOutboxEntries,
@@ -208,21 +209,10 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
     message => setNotice({ type: 'error', message })
   )
 
-  const peerPayClient = useMemo<PeerPayClient | null>(() => {
-    if (!isConfigured || !messageBoxUrl || !wallet) return null
-    try {
-      return new PeerPayClient({
-        messageBoxHost: messageBoxUrl,
-        walletClient: wallet as any,
-        originator: adminOriginator
-      })
-    } catch {
-      return null
-    }
-    // Intentionally no eager init: the library anoints lazily on first use, and
-    // anointing needs a funded wallet — an init() on mount would fail silently
-    // with no balance, latch initialized=true, and prevent any later retry.
-  }, [isConfigured, messageBoxUrl, wallet, adminOriginator])
+  const peerPayClient = useMemo(
+    () => makePeerPayClient({ wallet: wallet as never, messageBoxUrl, originator: adminOriginator }),
+    [messageBoxUrl, wallet, adminOriginator]
+  )
 
   const loadOutbox = useCallback(async () => {
     if (!storage) return
@@ -295,9 +285,11 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
       const message =
         error instanceof RangeError
           ? t('enter_valid_amount')
-          : isMessageBoxNetworkError(error)
-            ? t('message_box_unreachable')
-            : error?.message || t('unknown_error')
+          : isRecipientHostUnknown(error)
+            ? t('recipient_message_box_unknown')
+            : isMessageBoxNetworkError(error)
+              ? t('message_box_unreachable')
+              : error?.message || t('unknown_error')
       setSendResult({ type: 'error', message })
       // The outbox entry stays 'unsent' and is offered for retry below.
       await loadOutbox()
@@ -309,7 +301,13 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
 
   const handleRetry = useCallback(
     async (entry: OutboxEntry) => {
-      const client = peerPayClient
+      const client =
+        peerPayClient ??
+        makePeerPayClient({
+          wallet: wallet as never,
+          messageBoxUrl: entry.messageBoxUrl,
+          originator: adminOriginator
+        })
       if (!client || !storage) {
         setShowConfig(true)
         showToast(t('message_box_unreachable'), { type: 'error' })
@@ -327,7 +325,11 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
           if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
           return
         }
-        const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
+        const reason = isRecipientHostUnknown(e)
+          ? t('recipient_message_box_unknown')
+          : isMessageBoxNetworkError(e)
+            ? t('message_box_unreachable')
+            : e?.message || t('unknown_error')
         showToast(`${t('retry_failed')}: ${reason}`, { type: 'error' })
       } finally {
         setRetryingId(null)

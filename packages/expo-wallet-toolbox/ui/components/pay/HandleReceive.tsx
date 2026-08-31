@@ -33,6 +33,7 @@ import ResultBanner from './ResultBanner'
 import ReceivedOverlay from './PaymentSuccessOverlay'
 import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from './MessageBoxConfig'
 import AmountDisplay from '../wallet/AmountDisplay'
+import PressableScale from '../ui/PressableScale'
 import { showAlert } from '../ui/AlertCard'
 import { showToast } from '../ui/Toast'
 import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
@@ -337,6 +338,7 @@ export default function HandleReceive() {
   const online = useOnline()
 
   const [identityKey, setIdentityKey] = useState('')
+  const [identityError, setIdentityError] = useState(false)
   const [copied, setCopied] = useState(false)
   const config = useMessageBoxConfig(t)
   const { messageBoxUrl } = config
@@ -372,18 +374,30 @@ export default function HandleReceive() {
    * component mounted, so mount alone is not "the user is looking at it".
    */
   const focusedRef = useRef(true)
+  const identityInFlightRef = useRef(false)
+  const loadIdentityKey = useCallback(async () => {
+    if (!wallet || identityInFlightRef.current) return
+    identityInFlightRef.current = true
+    setIdentityError(false)
+    try {
+      const r = await wallet.getPublicKey({ identityKey: true }, adminOriginator)
+      if (r?.publicKey) setIdentityKey(r.publicKey)
+    } catch {
+      setIdentityError(true)
+    } finally {
+      identityInFlightRef.current = false
+    }
+  }, [wallet, adminOriginator])
+
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true
+      if (!identityKey) void loadIdentityKey()
       return () => {
         focusedRef.current = false
       }
-    }, [])
+    }, [identityKey, loadIdentityKey])
   )
-
-  useEffect(() => {
-    wallet?.getPublicKey({ identityKey: true }, adminOriginator).then(r => r && setIdentityKey(r.publicKey))
-  }, [wallet, adminOriginator])
 
   const peerPayClient = useMemo<PeerPayClient | null>(() => {
     if (!isConfigured || !messageBoxUrl || !wallet) return null
@@ -674,6 +688,19 @@ export default function HandleReceive() {
           <View style={styles.qrPlate}>
             <QRCode value={identityKey} size={240} color="#000" backgroundColor="#fff" />
           </View>
+        ) : identityError ? (
+          <View style={styles.identityError}>
+            <Text style={[styles.identityErrorText, { color: colors.error }]}>{t('unknown_error')}</Text>
+            <PressableScale
+              onPress={() => void loadIdentityKey()}
+              haptic="tap"
+              style={styles.identityRetry}
+              accessibilityRole="button"
+              accessibilityLabel={t('activity_load_retry')}
+            >
+              <Text style={[styles.identityRetryLabel, { color: colors.accent }]}>{t('activity_load_retry')}</Text>
+            </PressableScale>
+          </View>
         ) : (
           <ActivityIndicator size="large" color={colors.textSecondary} />
         )}
@@ -770,6 +797,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.xl,
     backgroundColor: '#fff'
   },
+  identityError: { alignItems: 'center', gap: spacing.md, padding: spacing.xl },
+  identityErrorText: { ...typography.subhead, textAlign: 'center' },
+  identityRetry: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg },
+  identityRetryLabel: { ...typography.subhead, fontWeight: '600' },
   keyText: {
     ...typography.caption1,
     fontFamily: 'monospace',

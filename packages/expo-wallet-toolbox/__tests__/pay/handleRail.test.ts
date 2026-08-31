@@ -222,6 +222,35 @@ describe('sendViaHandle', () => {
     expect(sendWithCalls).toHaveLength(0)
   })
 
+  it('throws recipient_host_unknown and does not mint when the recipient inbox is unknown', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const client = {
+      host: 'https://sender.example',
+      sendMessage: jest.fn(),
+      resolveHostForRecipient: jest.fn().mockResolvedValue('https://sender.example'),
+      queryAdvertisements: jest.fn().mockResolvedValue([])
+    }
+    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('recipient_host_unknown')
+    expect(w.createAction).not.toHaveBeenCalled()
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    expect(await getOutboxEntries(s)).toHaveLength(0)
+  })
+
+  it('still sends when the recipient advertised a host, even if it matches the sender host', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const client = {
+      host: 'https://sender.example',
+      sendMessage: jest.fn().mockResolvedValue(undefined),
+      resolveHostForRecipient: jest.fn().mockResolvedValue('https://sender.example'),
+      queryAdvertisements: jest.fn().mockResolvedValue([{ host: 'https://sender.example' }])
+    }
+    await sendViaHandle(sendArgs(w, client, s))
+    expect(client.sendMessage).toHaveBeenCalled()
+    expect((await getOutboxEntries(s))[0].status).toBe('sent')
+  })
+
   it('aborts the minted action when the outbox write fails', async () => {
     const s = fakeStorage()
     s.setKeyValue = async () => {

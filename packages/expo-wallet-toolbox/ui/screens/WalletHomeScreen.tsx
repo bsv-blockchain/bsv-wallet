@@ -47,6 +47,7 @@ import {
   findOfflineActions,
   type OfflineActionRow,
   TaskSendOffline,
+  TaskCreditInbox,
   readWalletBalance,
   useLocalStorage,
   handleResendRequests,
@@ -62,9 +63,16 @@ import {
   MESSAGE_BOX_URL_KEY,
   NO_MESSAGE_BOX,
   LEGACY_MESSAGE_BOX_URL,
+  getOutboxEntries,
+  unsentEntries,
+  retryDelivery,
+  makePeerPayClient,
+  isRecipientHostUnknown,
+  isMessageBoxNetworkError,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import { homeBadges } from './homeBadges'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
@@ -259,10 +267,13 @@ export function WalletHomeScreen() {
   const [balance, setBalance] = useState<number | null>(null)
   const [actions, setActions] = useState<ActivityAction[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
+  const [attentionCount, setAttentionCount] = useState(0)
+  const [unsentCount, setUnsentCount] = useState(0)
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   // Per-row in-flight action, keyed by txid (or reference for abort) so only
   // the tapped row shows a spinner rather than the whole list.
@@ -442,10 +453,17 @@ export function WalletHomeScreen() {
   const fetchActions = useCallback(
     async (offset: number) => {
       if (!managers.permissionsManager) return null
-      return managers.permissionsManager.listActions(
-        { labels: [], includeLabels: true, limit: PAGE_SIZE, offset },
-        adminOriginator
-      )
+      try {
+        const result = await managers.permissionsManager.listActions(
+          { labels: [], includeLabels: true, limit: PAGE_SIZE, offset },
+          adminOriginator
+        )
+        if (offset === 0) setLoadError(false)
+        return result
+      } catch (e) {
+        if (offset === 0) setLoadError(true)
+        throw e
+      }
     },
     [managers.permissionsManager, adminOriginator]
   )
@@ -469,21 +487,33 @@ export function WalletHomeScreen() {
     let cancelled = false
     ;(async () => {
       if (actions.length === 0) setLoading(true)
-      const result = await fetchActions(0)
-      if (cancelled || !result) return
-      setActions(result.actions as ActivityAction[])
-      offsetRef.current = result.actions.length
-      // A fresh first page may have more behind it again.
-      exhaustedRef.current =
-        result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
-      setLoading(false)
+      try {
+        const result = await fetchActions(0)
+        if (cancelled || !result) return
+        setActions(result.actions as ActivityAction[])
+        offsetRef.current = result.actions.length
+        // A fresh first page may have more behind it again.
+        exhaustedRef.current =
+          result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
+        setLoading(false)
+      } catch {
+        if (cancelled) return
+        setLoadError(true)
+        setLoading(false)
+      }
     })()
     void fetchOfflineRows()
+    setAttentionCount(TaskCreditInbox.lastAttentionCount)
+    if (storage) {
+      void getOutboxEntries(storage).then(entries => {
+        if (!cancelled) setUnsentCount(unsentEntries(entries).length)
+      })
+    }
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchActions, txStatusVersion, focusVersion, fetchOfflineRows])
+  }, [fetchActions, txStatusVersion, focusVersion, fetchOfflineRows, storage])
 
   const loadMore = useCallback(async () => {
     // Three guards, all load-bearing:
@@ -508,6 +538,8 @@ export function WalletHomeScreen() {
       if (page.length < PAGE_SIZE || offsetRef.current >= (result?.totalActions ?? 0)) {
         exhaustedRef.current = true
       }
+    } catch {
+      // Keep existing rows; a failed page is not the end of the list.
     } finally {
       inFlightRef.current = false
       setLoadingMore(false)
@@ -517,17 +549,26 @@ export function WalletHomeScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      const [result] = await Promise.all([fetchActions(0), refreshBalance(), fetchOfflineRows()])
+      const [result, , , entries] = await Promise.all([
+        fetchActions(0),
+        refreshBalance(),
+        fetchOfflineRows(),
+        storage ? getOutboxEntries(storage) : Promise.resolve([])
+      ])
       if (result) {
         setActions(result.actions as ActivityAction[])
         offsetRef.current = result.actions.length
         exhaustedRef.current =
           result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
       }
+      setAttentionCount(TaskCreditInbox.lastAttentionCount)
+      setUnsentCount(unsentEntries(entries).length)
+    } catch {
+      // loadError is set by fetchActions for a first-page failure.
     } finally {
       setRefreshing(false)
     }
-  }, [fetchActions, refreshBalance, fetchOfflineRows])
+  }, [fetchActions, refreshBalance, fetchOfflineRows, storage])
 
   const onExport = useCallback(async () => {
     if (exporting || actions.length === 0 || !managers.permissionsManager) return
@@ -626,9 +667,16 @@ export function WalletHomeScreen() {
       if (!managers.permissionsManager || busyRow) return
       setBusyRow(reference)
       try {
-        await managers.permissionsManager.abortAction({ reference }, adminOriginator)
-        showToast(t('tx_abort_success'), { type: 'success' })
-        await onRefresh()
+        const r = (await managers.permissionsManager.abortAction(
+          { reference },
+          adminOriginator
+        )) as { aborted?: boolean } | undefined
+        if (!r || r.aborted === false) {
+          showToast(t('tx_abort_failed'), { type: 'error' })
+        } else {
+          showToast(t('tx_abort_success'), { type: 'success' })
+          await onRefresh()
+        }
       } catch {
         showToast(t('tx_abort_failed'), { type: 'error' })
       } finally {
@@ -714,6 +762,53 @@ export function WalletHomeScreen() {
     [busyRow, managers.permissionsManager, storage, adminOriginator, selectedNetwork, t]
   )
 
+  const onFailedSendAgain = useCallback(
+    async (action: ActivityAction) => {
+      if (busyRow) return
+      if (action.txid && storage && managers.permissionsManager) {
+        const entry = unsentEntries(await getOutboxEntries(storage)).find(e => e.txid === action.txid)
+        if (entry) {
+          setBusyRow(action.txid)
+          try {
+            const client = makePeerPayClient({
+              wallet: managers.permissionsManager as never,
+              messageBoxUrl: entry.messageBoxUrl,
+              originator: adminOriginator
+            })
+            if (!client) {
+              showToast(t('message_box_unreachable'), { type: 'error' })
+              return
+            }
+            await retryDelivery({
+              wallet: managers.permissionsManager as never,
+              adminOriginator,
+              client,
+              storage,
+              entry
+            })
+            haptics.success()
+            await onRefresh()
+          } catch (e: unknown) {
+            const message = isRecipientHostUnknown(e)
+              ? t('recipient_message_box_unknown')
+              : isMessageBoxNetworkError(e)
+                ? t('message_box_unreachable')
+                : e instanceof Error
+                  ? e.message
+                  : t('unknown_error')
+            showToast(message, { type: 'error' })
+          } finally {
+            setBusyRow(null)
+          }
+          return
+        }
+      }
+      const sats = Math.abs(action.satoshis)
+      router.push(sats > 0 ? `/pay?sats=${sats}` : '/pay')
+    },
+    [busyRow, storage, managers.permissionsManager, adminOriginator, onRefresh, t]
+  )
+
   const toggleRow = useCallback((key: string) => {
     setExpandedRow(prev => (prev === key ? null : key))
   }, [])
@@ -731,6 +826,16 @@ export function WalletHomeScreen() {
   const queuedSent = useMemo(
     () => offlineRows.filter(r => r.status !== 'rejected' && r.role === 'sent'),
     [offlineRows]
+  )
+  const stuckBadges = useMemo(
+    () =>
+      homeBadges({
+        attention: attentionCount,
+        unsent: unsentCount,
+        offlineQueued: queuedCount,
+        offlineRejected: rejected.length + sentRejected.length
+      }).filter(b => b.kind !== 'offline'),
+    [attentionCount, unsentCount, queuedCount, rejected.length, sentRejected.length]
   )
   const reloadOffline = useCallback(() => {
     void fetchOfflineRows()
@@ -778,6 +883,7 @@ export function WalletHomeScreen() {
           onRefreshTx={onRefreshTx}
           onAbort={onAbort}
           onSendPaymentDetails={onSendPaymentDetails}
+          onSendAgain={onFailedSendAgain}
         />
       )
     },
@@ -792,7 +898,8 @@ export function WalletHomeScreen() {
       onCopyTxid,
       onRefreshTx,
       onAbort,
-      onSendPaymentDetails
+      onSendPaymentDetails,
+      onFailedSendAgain
     ]
   )
 
@@ -892,32 +999,54 @@ export function WalletHomeScreen() {
           */}
         </View>
 
-        {pendingResends.length > 0 ? (
+        {pendingResends.length > 0 || stuckBadges.length > 0 ? (
           <View style={styles.resendBanner}>
-            <GroupedSection>
-              <ListRow
-                label={t('resend_requested')}
-                icon="refresh-outline"
-                iconColor={colors.warning}
-                showChevron={false}
-                isLast
-                onPress={resending ? undefined : () => void onResendPending()}
-                trailing={
-                  resending ? (
-                    <View style={styles.resendTrailing}>
-                      <ActivityIndicator size="small" color={colors.accent} />
+            {pendingResends.length > 0 ? (
+              <GroupedSection>
+                <ListRow
+                  label={t('resend_requested')}
+                  icon="refresh-outline"
+                  iconColor={colors.warning}
+                  showChevron={false}
+                  isLast
+                  onPress={resending ? undefined : () => void onResendPending()}
+                  trailing={
+                    resending ? (
+                      <View style={styles.resendTrailing}>
+                        <ActivityIndicator size="small" color={colors.accent} />
+                        <Text style={[styles.resendAction, { color: colors.accent }]}>
+                          {t('resending')}
+                        </Text>
+                      </View>
+                    ) : (
                       <Text style={[styles.resendAction, { color: colors.accent }]}>
-                        {t('resending')}
+                        {t('resend')}
                       </Text>
-                    </View>
-                  ) : (
-                    <Text style={[styles.resendAction, { color: colors.accent }]}>
-                      {t('resend')}
-                    </Text>
-                  )
-                }
-              />
-            </GroupedSection>
+                    )
+                  }
+                />
+              </GroupedSection>
+            ) : null}
+            {stuckBadges.length > 0 ? (
+              <GroupedSection>
+                {stuckBadges.map((badge, i) => (
+                  <ListRow
+                    key={badge.kind}
+                    label={
+                      badge.kind === 'attention'
+                        ? t('home_payments_need_attention', { count: badge.count })
+                        : t('home_payments_unsent', { count: badge.count })
+                    }
+                    icon={badge.kind === 'attention' ? 'alert-circle-outline' : 'send-outline'}
+                    iconColor={colors.warning}
+                    isLast={i === stuckBadges.length - 1}
+                    onPress={() =>
+                      router.push(badge.kind === 'attention' ? '/pay?cell=get-handle' : '/pay?cell=pay-handle')
+                    }
+                  />
+                ))}
+              </GroupedSection>
+            ) : null}
           </View>
         ) : null}
 
@@ -980,6 +1109,7 @@ export function WalletHomeScreen() {
       exporting,
       actions.length,
       pendingResends.length,
+      stuckBadges,
       resending,
       onResendPending,
       online,
@@ -1032,6 +1162,26 @@ export function WalletHomeScreen() {
         ListEmptyComponent={
           loading ? (
             <ActivityIndicator style={styles.pad} color={colors.textSecondary} />
+          ) : loadError ? (
+            <View style={styles.emptyError}>
+              <Text style={[styles.empty, { color: colors.textSecondary, padding: 0 }]}>
+                {t('activity_load_failed')}
+              </Text>
+              <PressableScale
+                onPress={() => {
+                  setLoadError(false)
+                  setFocusVersion(v => v + 1)
+                }}
+                haptic="tap"
+                style={styles.emptyRetry}
+                accessibilityRole="button"
+                accessibilityLabel={t('activity_load_retry')}
+              >
+                <Text style={[styles.emptyRetryLabel, { color: colors.accent }]}>
+                  {t('activity_load_retry')}
+                </Text>
+              </PressableScale>
+            </View>
           ) : (
             <Text style={[styles.empty, { color: colors.textSecondary }]}>
               {t('no_transactions')}
@@ -1168,5 +1318,14 @@ const styles = StyleSheet.create({
 
   pad: { padding: spacing.xl },
   footer: { alignItems: 'center', justifyContent: 'center' },
-  empty: { ...typography.subhead, textAlign: 'center', padding: spacing.xxxl }
+  empty: { ...typography.subhead, textAlign: 'center', padding: spacing.xxxl },
+  emptyError: { alignItems: 'center', padding: spacing.xxxl, gap: spacing.md },
+  emptyRetry: {
+    minHeight: 44,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg
+  },
+  emptyRetryLabel: { fontSize: 15, fontWeight: '600' }
 })

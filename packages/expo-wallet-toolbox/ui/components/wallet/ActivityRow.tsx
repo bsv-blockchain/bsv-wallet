@@ -69,6 +69,8 @@ interface Props {
   onAbort: (reference: string) => void
   /** Rebuild and re-deliver a PeerPay token without waiting for a NACK. */
   onSendPaymentDetails?: (txid: string) => void
+  /** Start a new payment (or retryDelivery) for a failed outbound row. */
+  onSendAgain?: (action: ActivityAction) => void
 }
 
 /** Statuses whose transaction is still local and therefore abortable: nothing
@@ -101,7 +103,8 @@ function ActivityRowBase({
   onCopyTxid,
   onRefreshTx,
   onAbort,
-  onSendPaymentDetails
+  onSendPaymentDetails,
+  onSendAgain
 }: Props) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -135,7 +138,8 @@ function ActivityRowBase({
   const peerPayOutbound =
     !!action.txid && (action.isOutgoing ?? !incoming) && !!action.labels?.includes('peerpay')
   const canResendDetails = peerPayOutbound && !!onSendPaymentDetails
-  const hasUtilities = !!action.txid || canAbort || canResendDetails
+  const canSendAgain = !incoming && action.status === 'failed' && !!onSendAgain
+  const hasUtilities = !!action.txid || canAbort || canResendDetails || canSendAgain
 
   return (
     <View
@@ -256,6 +260,14 @@ function ActivityRowBase({
                   label={t('send_payment_details_again')}
                   accessibilityLabel={t('send_payment_details_again')}
                   onPress={() => onSendPaymentDetails!(action.txid)}
+                />
+              ) : null}
+              {canSendAgain ? (
+                <Chip
+                  icon="arrow-redo-outline"
+                  label={t('send_again')}
+                  accessibilityLabel={t('send_again')}
+                  onPress={() => onSendAgain!(action)}
                 />
               ) : null}
             </>
