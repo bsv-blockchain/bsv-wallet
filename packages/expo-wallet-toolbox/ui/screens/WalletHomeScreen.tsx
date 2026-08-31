@@ -46,6 +46,7 @@ import {
   formatSatoshisAsBsvDecimal,
   findOfflineActions,
   type OfflineActionRow,
+  TaskSendOffline,
   readWalletBalance,
   useLocalStorage,
   handleResendRequests,
@@ -71,6 +72,9 @@ import { showToast } from '../components/ui/Toast'
 import { ListRow } from '../components/ui/ListRow'
 import { GroupedSection } from '../components/ui/GroupedList'
 import WalletLockNotice from '../components/security/WalletLockNotice'
+import OfflineNotice from '../components/pay/OfflineNotice'
+import { useOnline } from '../hooks/useOnline'
+import { useOfflineNoticeActions } from '../hooks/useOfflineNoticeActions'
 
 async function readMessageBoxUrl(): Promise<string | undefined> {
   const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
@@ -213,6 +217,7 @@ export function WalletHomeScreen() {
   const { unlockState } = useLocalStorage()
   const { satoshisPerUSD } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
+  const online = useOnline()
 
   // ── onboarding gate ─────────────────────────────────────────────────
   /**
@@ -258,6 +263,7 @@ export function WalletHomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
+  const [stalled, setStalled] = useState<string | undefined>(undefined)
   // Per-row in-flight action, keyed by txid (or reference for abort) so only
   // the tapped row shows a spinner rather than the whole list.
   const [busyRow, setBusyRow] = useState<string | null>(null)
@@ -453,6 +459,7 @@ export function WalletHomeScreen() {
         ...(walletUserId === null ? {} : { userId: walletUserId })
       })
       setOfflineByTxid(new Map(rows.map(r => [r.txid, r])))
+      setStalled(TaskSendOffline.lastStall)
     } catch {
       // Advisory overlay only — a read failure must not break the list.
     }
@@ -711,6 +718,37 @@ export function WalletHomeScreen() {
     setExpandedRow(prev => (prev === key ? null : key))
   }, [])
 
+  const offlineRows = useMemo(() => [...offlineByTxid.values()], [offlineByTxid])
+  const rejected = useMemo(
+    () => offlineRows.filter(r => r.status === 'rejected' && r.role === 'received'),
+    [offlineRows]
+  )
+  const sentRejected = useMemo(
+    () => offlineRows.filter(r => r.status === 'rejected' && r.role === 'sent'),
+    [offlineRows]
+  )
+  const queuedCount = useMemo(() => offlineRows.filter(r => r.status !== 'rejected').length, [offlineRows])
+  const queuedSent = useMemo(
+    () => offlineRows.filter(r => r.status !== 'rejected' && r.role === 'sent'),
+    [offlineRows]
+  )
+  const reloadOffline = useCallback(() => {
+    void fetchOfflineRows()
+  }, [fetchOfflineRows])
+  const pushPay = useCallback((sats?: number) => {
+    router.push(sats && sats > 0 ? `/pay?sats=${sats}` : '/pay')
+  }, [])
+  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain } = useOfflineNoticeActions({
+    storage,
+    permissionsManager: managers.permissionsManager,
+    adminOriginator,
+    online,
+    rejected,
+    t,
+    reload: reloadOffline,
+    pushPay
+  })
+
   // ── rows ────────────────────────────────────────────────────────────
   const rows = useMemo(() => withDayHeaders(actions, t), [actions, t])
 
@@ -883,6 +921,22 @@ export function WalletHomeScreen() {
           </View>
         ) : null}
 
+        <OfflineNotice
+          compact
+          online={online}
+          queued={queuedCount}
+          rejected={rejected}
+          sentRejected={sentRejected}
+          onSendNow={() => TaskSendOffline.requestNow()}
+          stalled={stalled}
+          queuedSent={queuedSent}
+          onShowCode={() => router.push('/pay')}
+          onRequestAgain={row => void onRequestAgain(row)}
+          onCopyDetails={onCopyDetails}
+          onDismiss={row => void onDismiss(row)}
+          onSendAgain={row => void onSendAgain(row)}
+        />
+
         <View style={styles.activityHead}>
           <Text style={[styles.activityTitle, { color: colors.textPrimary }]}>
             {t('wallet_activity')}
@@ -927,7 +981,17 @@ export function WalletHomeScreen() {
       actions.length,
       pendingResends.length,
       resending,
-      onResendPending
+      onResendPending,
+      online,
+      queuedCount,
+      rejected,
+      sentRejected,
+      queuedSent,
+      stalled,
+      onRequestAgain,
+      onCopyDetails,
+      onDismiss,
+      onSendAgain
     ]
   )
 

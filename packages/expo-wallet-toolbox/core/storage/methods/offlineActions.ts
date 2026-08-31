@@ -4,7 +4,7 @@
  * `utils/offline/order.ts` and `utils/offline/plan.ts`, which are unit-tested.
  * This file is validated on device.
  */
-export type OfflineActionStatus = 'queued' | 'posting' | 'sent' | 'rejected'
+export type OfflineActionStatus = 'queued' | 'posting' | 'sent' | 'rejected' | 'acknowledged'
 export type OfflineActionRole = 'received' | 'sent'
 
 export interface OfflineActionRow {

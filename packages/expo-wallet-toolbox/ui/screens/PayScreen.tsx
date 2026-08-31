@@ -25,6 +25,7 @@ import AddressSend from '../components/pay/AddressSend'
 import AddressReceive from '../components/pay/AddressReceive'
 import OfflineNotice from '../components/pay/OfflineNotice'
 import { useOnline } from '../hooks/useOnline'
+import { useOfflineNoticeActions } from '../hooks/useOfflineNoticeActions'
 import {
   useTheme,
   spacing,
@@ -145,13 +146,23 @@ export function PayScreen() {
   const { router, useLocalSearchParams } = loadExpoRouter()
   const insets = useSafeAreaInsets()
   const online = useOnline()
-  const { walletBuilding, walletBuilt, storage, txStatusVersion, walletUserId, runMonitorTask } = useWallet()
+  const {
+    walletBuilding,
+    walletBuilt,
+    storage,
+    txStatusVersion,
+    walletUserId,
+    runMonitorTask,
+    managers,
+    adminOriginator
+  } = useWallet()
   const [queued, setQueued] = useState(0)
   const [rejected, setRejected] = useState<OfflineActionRow[]>([])
   const [sentRejected, setSentRejected] = useState<OfflineActionRow[]>([])
   const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [showCode, setShowCode] = useState<OfflineActionRow | null>(null)
+  const [queueNonce, setQueueNonce] = useState(0)
 
   const params = useLocalSearchParams<{
     cell?: string | string[]
@@ -225,7 +236,27 @@ export function PayScreen() {
     return () => {
       cancelled = true
     }
-  }, [walletBuilt, storage, online, txStatusVersion, walletUserId, cell])
+  }, [walletBuilt, storage, online, txStatusVersion, walletUserId, cell, queueNonce])
+
+  const reloadQueue = useCallback(() => setQueueNonce(n => n + 1), [])
+  const pushPay = useCallback((sats?: number) => {
+    const { router: r } = loadExpoRouter()
+    if (typeof r.setParams === 'function') {
+      r.setParams(sats && sats > 0 ? { sats: String(sats) } : { sats: undefined })
+      return
+    }
+    r.push(sats && sats > 0 ? `/pay?sats=${sats}` : '/pay')
+  }, [])
+  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain } = useOfflineNoticeActions({
+    storage,
+    permissionsManager: managers?.permissionsManager,
+    adminOriginator: adminOriginator ?? '',
+    online,
+    rejected,
+    t,
+    reload: reloadQueue,
+    pushPay
+  })
 
   // Auth failed while this screen was open (the wallet finished building and
   // there is no wallet) — same guard the old payments screen carried.
@@ -278,6 +309,10 @@ export function PayScreen() {
         stalled={stalled}
         queuedSent={queuedSentRows}
         onShowCode={setShowCode}
+        onRequestAgain={row => void onRequestAgain(row)}
+        onCopyDetails={onCopyDetails}
+        onDismiss={row => void onDismiss(row)}
+        onSendAgain={row => void onSendAgain(row)}
       />
       {/* No direction switcher here: the user already chose Pay or Get paid to
           get to this screen, and the header title says which one they are in.

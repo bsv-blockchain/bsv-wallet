@@ -31,10 +31,30 @@ jest.mock('expo-secure-store', () => ({
 // That module also detects a device locale; in this Jest environment no
 // locale is found, so it falls back to 'en', which is what these tests need.
 import '@bsv/expo-wallet-toolbox'
+import i18n from 'i18next'
 
 import React from 'react'
+import { StyleSheet } from 'react-native'
 import { fireEvent, render } from '@testing-library/react-native'
 import OfflineNotice from '../../ui/components/pay/OfflineNotice'
+
+// Jest in this worktree resolves `@bsv/expo-wallet-toolbox` to the main
+// checkout's package, whose i18n init does not include this task's keys.
+beforeAll(() => {
+  i18n.addResourceBundle(
+    'en',
+    'translation',
+    {
+      request_again: 'Request again',
+      send_again: 'Send again',
+      copy_details: 'Copy details',
+      payment_bounced_resend: 'Asked them to send this payment again',
+      dismiss_rejected_payment: 'Dismissed this rejected payment'
+    },
+    true,
+    true
+  )
+})
 
 const row = (txid: string) => ({
   offlineActionId: 1,
@@ -149,5 +169,51 @@ describe('OfflineNotice', () => {
       <OfflineNotice online queued={0} rejected={[]} queuedSent={[withFrame, without]} onShowCode={onShowCode} />
     )
     expect(getAllByText(/show code again/i)).toHaveLength(1)
+  })
+
+  it('exposes Request again, Copy details and Cancel on a rejected received card', () => {
+    const received = row('aa'.repeat(32))
+    const onRequestAgain = jest.fn()
+    const onCopyDetails = jest.fn()
+    const onDismiss = jest.fn()
+    const { getByText, getByLabelText } = render(
+      <OfflineNotice
+        online
+        queued={0}
+        rejected={[received]}
+        onRequestAgain={onRequestAgain}
+        onCopyDetails={onCopyDetails}
+        onDismiss={onDismiss}
+      />
+    )
+    const request = getByLabelText(/request again/i)
+    expect(request).toBeTruthy()
+    expect(getByText(/request again/i)).toBeTruthy()
+    const requestStyle = StyleSheet.flatten(request.props.style)
+    expect(requestStyle?.minHeight).toBeGreaterThanOrEqual(44)
+    expect(requestStyle?.minWidth).toBeGreaterThanOrEqual(44)
+
+    fireEvent.press(getByText(/request again/i))
+    expect(onRequestAgain).toHaveBeenCalledWith(received)
+
+    fireEvent.press(getByText(/copy details/i))
+    expect(onCopyDetails).toHaveBeenCalledWith(received)
+
+    fireEvent.press(getByText(/^cancel$/i))
+    expect(onDismiss).toHaveBeenCalledWith(received)
+  })
+
+  it('exposes Send again and Cancel on a rejected sent card, not Request again', () => {
+    const sent = sentRow('bb'.repeat(32))
+    const onSendAgain = jest.fn()
+    const onDismiss = jest.fn()
+    const { getByText, queryByText } = render(
+      <OfflineNotice online queued={0} rejected={[]} sentRejected={[sent]} onSendAgain={onSendAgain} onDismiss={onDismiss} />
+    )
+    expect(queryByText(/request again/i)).toBeNull()
+    fireEvent.press(getByText(/send again/i))
+    expect(onSendAgain).toHaveBeenCalledWith(sent)
+    fireEvent.press(getByText(/^cancel$/i))
+    expect(onDismiss).toHaveBeenCalledWith(sent)
   })
 })

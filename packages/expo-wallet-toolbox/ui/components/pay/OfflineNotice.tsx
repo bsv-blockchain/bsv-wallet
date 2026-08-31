@@ -31,7 +31,8 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { useTheme, radii, spacing, typography, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
+import { useTheme, radii, spacing, typography, hitTargets, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
+import PressableScale from '../ui/PressableScale'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -48,6 +49,15 @@ function loadIonicons(): IoniconsComponent {
     ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
   }
   return ioniconsComponent
+}
+
+export function offlineActionDetails(row: OfflineActionRow): string {
+  const lines = [`txid: ${row.txid}`]
+  if (row.senderIdentityKey) lines.push(`sender: ${row.senderIdentityKey}`)
+  if (row.receivedVia) lines.push(`via: ${row.receivedVia}`)
+  if (row.rejectedReason) lines.push(`reason: ${row.rejectedReason}`)
+  if (row.created_at) lines.push(`when: ${row.created_at}`)
+  return lines.join('\n')
 }
 
 export interface OfflineNoticeProps {
@@ -69,6 +79,15 @@ export interface OfflineNoticeProps {
   /** Queued/posting rows the user sent. Rows with a framePayload get a re-show affordance. */
   queuedSent?: OfflineActionRow[]
   onShowCode?: (row: OfflineActionRow) => void
+  /** Re-send `resend_request` for a rejected received payment. */
+  onRequestAgain?: (row: OfflineActionRow) => void
+  /** Prefill `/pay` with the rejected sent amount. */
+  onSendAgain?: (row: OfflineActionRow) => void
+  onCopyDetails?: (row: OfflineActionRow) => void
+  /** Archive a rejected row as `acknowledged`. Not destructive. */
+  onDismiss?: (row: OfflineActionRow) => void
+  /** Tighter padding when mounted above the home activity list. */
+  compact?: boolean
 }
 
 export default function OfflineNotice({
@@ -79,7 +98,12 @@ export default function OfflineNotice({
   onSendNow,
   stalled,
   queuedSent,
-  onShowCode
+  onShowCode,
+  onRequestAgain,
+  onSendAgain,
+  onCopyDetails,
+  onDismiss,
+  compact = false
 }: OfflineNoticeProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -87,8 +111,20 @@ export default function OfflineNotice({
   if (online && queued === 0 && rejected.length === 0 && sentRejected.length === 0 && (queuedSent ?? []).length === 0)
     return null
 
+  const actionBtn = (label: string, onPress?: () => void) => (
+    <PressableScale
+      onPress={onPress}
+      haptic="tap"
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={styles.actionBtn}
+    >
+      <Text style={[styles.actionBtnLabel, { color: colors.info }]}>{label}</Text>
+    </PressableScale>
+  )
+
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, compact && styles.wrapCompact]}>
       {!online && (
         <View style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
           <Ionicons name="cloud-offline-outline" size={18} color={colors.textSecondary} />
@@ -141,6 +177,11 @@ export default function OfflineNotice({
                 when: r.created_at.slice(0, 10)
               })}
             </Text>
+            <View style={styles.actions}>
+              {!!r.senderIdentityKey && actionBtn(t('request_again'), () => onRequestAgain?.(r))}
+              {actionBtn(t('copy_details'), () => onCopyDetails?.(r))}
+              {actionBtn(t('cancel'), () => onDismiss?.(r))}
+            </View>
           </View>
         </View>
       ))}
@@ -155,6 +196,11 @@ export default function OfflineNotice({
             <Text style={[styles.body, { color: colors.textSecondary }]}>
               {t('pay_offline_sent_rejected_body', { when: r.created_at.slice(0, 10) })}
             </Text>
+            <View style={styles.actions}>
+              {actionBtn(t('send_again'), () => onSendAgain?.(r))}
+              {actionBtn(t('copy_details'), () => onCopyDetails?.(r))}
+              {actionBtn(t('cancel'), () => onDismiss?.(r))}
+            </View>
           </View>
         </View>
       ))}
@@ -187,6 +233,12 @@ const styles = StyleSheet.create({
   // spacing.lg on both sides. Adding it here would double-indent the cards
   // relative to the cell rows below them.
   wrap: { paddingBottom: spacing.md, gap: spacing.sm },
+  wrapCompact: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+    gap: spacing.xs
+  },
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -198,5 +250,13 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: 2 },
   title: { ...typography.subhead, fontWeight: '600' },
   body: { ...typography.footnote },
-  action: { ...typography.subhead, fontWeight: '600', marginTop: 4 }
+  action: { ...typography.subhead, fontWeight: '600', marginTop: 4 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.xs },
+  actionBtn: {
+    minHeight: hitTargets.minimum,
+    minWidth: hitTargets.minimum,
+    justifyContent: 'center',
+    paddingRight: spacing.md
+  },
+  actionBtnLabel: { ...typography.subhead, fontWeight: '600' }
 })

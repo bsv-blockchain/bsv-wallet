@@ -54,6 +54,7 @@ export { selectTransport } from './localpay/transport/select'
 export * from './peerpay/outbox'
 export * from './peerpay/control'
 export * from './peerpay/handleResendRequests'
+export * from './peerpay/offlineNacks'
 
 // Offline-payment queueing
 export * from './offline/hold'
@@ -68,7 +69,7 @@ export { createTables, ensureOfflineActionsColumns } from './storage/schema/crea
 export { initializeLocalStorage, isLocalStorage, getStorageDisplayName } from './storage/LocalStorageAdapter'
 export type { LocalStorageConfig } from './storage/LocalStorageAdapter'
 export { findOfflineActions, updateOfflineAction } from './storage/methods/offlineActions'
-export type { OfflineActionRow, BindValue } from './storage/methods/offlineActions'
+export type { OfflineActionRow, OfflineActionStatus, BindValue } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
 export { processOfflineActions } from './storage/methods/processOfflineActions'
 
