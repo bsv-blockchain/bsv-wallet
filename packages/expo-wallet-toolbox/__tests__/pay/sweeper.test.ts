@@ -122,7 +122,7 @@ describe('runSweep', () => {
 
     await runSweep({ wallet, storage: s, adminOriginator: 'admin.com', woc })
 
-    expect((await getWatchlist(s))[0].lastActivityAt >= before).toBe(true)
+    expect((await getWatchlist(s))[0].lastActivityAt).not.toBe(before)
   })
 
   it('carries on to the next address when one throws', async () => {
