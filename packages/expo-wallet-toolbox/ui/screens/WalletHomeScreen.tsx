@@ -49,6 +49,7 @@ import {
   readWalletBalance,
   useLocalStorage,
   handleResendRequests,
+  listPendingResendRequests,
   loadUnansweredResends,
   resendPaymentDetails,
   makeListPeerPayAction,
@@ -386,18 +387,13 @@ export function WalletHomeScreen() {
         walletClient: pm as never,
         originator: adminOriginator
       })
-      const r = await handleResendRequests({
-        client,
-        storage,
-        listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
-        refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
-      })
+      const r = await listPendingResendRequests({ client, storage })
       setPendingResends(r.pending)
     } catch {
       // Silent: an unreachable box must not alert on focus. The stored
       // unanswered count (if any) keeps the inline row visible.
     }
-  }, [managers.permissionsManager, storage, adminOriginator, selectedNetwork])
+  }, [managers.permissionsManager, storage, adminOriginator])
 
   useEffect(() => {
     if (!storage) return

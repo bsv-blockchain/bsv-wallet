@@ -1,5 +1,9 @@
 import { saveOutboxEntry } from '../../core/peerpay/outbox'
-import { handleResendRequests, loadUnansweredResends } from '../../core/peerpay/handleResendRequests'
+import {
+  handleResendRequests,
+  listPendingResendRequests,
+  loadUnansweredResends
+} from '../../core/peerpay/handleResendRequests'
 import { PAYMENT_CONTROL_BOX } from '../../core/peerpay/control'
 
 function fakeStorage() {
@@ -158,6 +162,30 @@ describe('handleResendRequests', () => {
       refetch: async () => [8, 8, 8]
     })
     expect(order).toEqual(['send', 'ack'])
+  })
+
+  it('listPendingResendRequests persists rows without sending or acking', async () => {
+    const sendMessage = jest.fn()
+    const acknowledgeMessage = jest.fn()
+    const storage = fakeStorage()
+    const r = await listPendingResendRequests({
+      client: {
+        listMessages: jest.fn().mockResolvedValue([
+          {
+            messageId: 'c1',
+            sender: '02bb',
+            body: { type: 'resend_request', txid: 'aa', reason: 'corrupt' }
+          }
+        ]),
+        sendMessage,
+        acknowledgeMessage
+      } as never,
+      storage
+    })
+    expect(r.pending).toEqual([{ txid: 'aa', sender: '02bb' }])
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(acknowledgeMessage).not.toHaveBeenCalled()
+    expect(await loadUnansweredResends(storage)).toEqual([{ txid: 'aa', sender: '02bb' }])
   })
 
   it('leaves non-resend control messages untouched', async () => {

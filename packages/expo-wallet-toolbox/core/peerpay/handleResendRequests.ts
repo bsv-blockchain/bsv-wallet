@@ -112,8 +112,36 @@ async function storeUnansweredResends(storage: StorageLike, pending: PendingRese
 }
 
 /**
+ * List `resend_request`s and persist them. Does not rebuild or send —
+ * only the Resend tap (`handleResendRequests`) and the activity chip do that.
+ */
+export async function listPendingResendRequests(args: {
+  client: {
+    listMessages(args: {
+      messageBox: string
+      host?: string
+      acceptPayments?: boolean
+    }): Promise<{ messageId: string; sender: string; body: unknown }[]>
+  }
+  storage: StorageLike
+}): Promise<{ pending: PendingResend[] }> {
+  const messages = await listControlMessages(args.client)
+  const pending: PendingResend[] = []
+  for (const msg of messages) {
+    const parsed = parseControlMessage(msg.body)
+    if (!parsed || parsed.type !== 'resend_request') continue
+    pending.push({
+      txid: parsed.txid,
+      sender: typeof msg.sender === 'string' ? msg.sender : ''
+    })
+  }
+  await storeUnansweredResends(args.storage, pending)
+  return { pending }
+}
+
+/**
  * Rebuild a token for `txid` and drop it in the recipient's payment inbox.
- * Used by a NACK poll and by the activity-row "Send details again" chip.
+ * Used by the Resend tap and the activity-row "Send details again" chip.
  */
 export async function resendPaymentDetails(args: {
   client: { sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<unknown> }
