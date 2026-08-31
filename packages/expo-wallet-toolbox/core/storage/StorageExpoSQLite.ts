@@ -78,6 +78,17 @@ import type { PostReqsToNetworkResult } from '@bsv/wallet-toolbox-mobile/out/src
 import { listActionsSql } from './methods/listActionsSql'
 import { listOutputsSql } from './methods/listOutputsSql'
 import { insertOfflineAction, type OfflineActionRole } from './methods/offlineActions'
+import {
+  LIVE_OFFLINE_SKIP_TXIDS_SQL,
+  REVIEW_FAILED_TXS_SQL,
+  REVIEW_INVALID_REQ_TXS_SQL,
+  REVIEW_OUTPUTS_SQL,
+  REVIEW_REQ_STATUSES_SQL,
+  collectFailedTransactionIds,
+  outputReviewAction,
+  type ReviewFailedTx,
+  type ReviewOutput
+} from './methods/reviewStatusSql'
 import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
 import { getOnline } from '../net/online'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
@@ -1644,9 +1655,57 @@ export class StorageExpoSQLite extends StorageProvider {
     return await listOutputsSql(this, auth, vargs)
   }
 
-  // Stubs
-  async reviewStatus(_args: { agedLimit: Date; trx?: TrxToken }): Promise<{ log: string }> {
-    return { log: '' }
+  async reviewStatus(args: { agedLimit: Date; trx?: TrxToken }): Promise<{ log: string }> {
+    return await this.transaction(async trx => {
+      const db = this.getDB()
+      const skipRows = (await db.getAllAsync(LIVE_OFFLINE_SKIP_TXIDS_SQL, [])) as { txid: string }[]
+      const skipTxids = new Set(skipRows.map(row => row.txid))
+      let log = ''
+
+      const invalid = (await db.getAllAsync(REVIEW_INVALID_REQ_TXS_SQL, [])) as {
+        transactionId: number
+        txid: string | null
+        status: string
+      }[]
+      const seenFail = new Set<number>()
+      for (const tx of invalid) {
+        if (seenFail.has(tx.transactionId)) continue
+        seenFail.add(tx.transactionId)
+        if (tx.txid && skipTxids.has(tx.txid)) continue
+        log += `transaction ${tx.transactionId} updated to status of 'failed' was ${tx.status}\n`
+        await this.updateTransactionStatus('failed', tx.transactionId, undefined, undefined, trx)
+      }
+
+      const failedTxs = (await db.getAllAsync(REVIEW_FAILED_TXS_SQL, [])) as ReviewFailedTx[]
+      const reqStatusesByTxid = new Map<string, string[]>()
+      for (const tx of failedTxs) {
+        if (tx.txid == null || tx.txid === '' || reqStatusesByTxid.has(tx.txid)) continue
+        const reqs = (await db.getAllAsync(REVIEW_REQ_STATUSES_SQL, [tx.txid])) as { status: string }[]
+        reqStatusesByTxid.set(
+          tx.txid,
+          reqs.map(row => row.status)
+        )
+      }
+      const { failedTransactionIds, safeFailedTransactionIds } = collectFailedTransactionIds(
+        failedTxs,
+        reqStatusesByTxid,
+        skipTxids
+      )
+
+      const outputs = (await db.getAllAsync(REVIEW_OUTPUTS_SQL, [])) as ReviewOutput[]
+      for (const output of outputs) {
+        const action = outputReviewAction(output, failedTransactionIds, safeFailedTransactionIds)
+        if (action === 'restore') {
+          await this.updateOutput(output.outputId, { spendable: true, spentBy: undefined }, trx)
+          log += `output ${output.outputId} updated to spendable because spentBy is failed\n`
+        } else if (action === 'unspend') {
+          await this.updateOutput(output.outputId, { spendable: false, spentBy: undefined }, trx)
+          log += `output ${output.outputId} updated to not spendable because transaction is failed\n`
+        }
+      }
+
+      return { log }
+    }, args.trx)
   }
 
   async purgeData(_params: PurgeParams, _trx?: TrxToken): Promise<PurgeResults> {
