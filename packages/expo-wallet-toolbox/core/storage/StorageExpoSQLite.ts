@@ -12,6 +12,7 @@ import {
   splitOutpoint
 } from './methods/findSql'
 import { scrubHistoryJson } from './methods/historyNotes'
+import { sqlBindValue } from './sqlUpdateValue'
 import { StorageError, storageErrorFromSqlite } from './errors'
 import {
   RECLAIM_CANDIDATES_SQL,
@@ -510,10 +511,11 @@ export class StorageExpoSQLite extends StorageProvider {
     const setClauses: string[] = []
     const vals: any[] = []
     for (const [key, value] of Object.entries(update)) {
-      if (value !== undefined && key !== pkCol) {
-        setClauses.push(`"${key}" = ?`)
-        vals.push(value instanceof Date ? this.validateDateForWhere(value) : value)
-      }
+      if (key === pkCol) continue
+      const bind = sqlBindValue(table, key, value)
+      if (bind.omit) continue
+      setClauses.push(`"${key}" = ?`)
+      vals.push(bind.value instanceof Date ? this.validateDateForWhere(bind.value) : bind.value)
     }
     if (setClauses.length === 0) return 0
     const idArr = Array.isArray(ids) ? ids : [ids]
@@ -535,10 +537,11 @@ export class StorageExpoSQLite extends StorageProvider {
     const setClauses: string[] = []
     const vals: any[] = []
     for (const [key, value] of Object.entries(update)) {
-      if (value !== undefined && !(key in keyMap)) {
-        setClauses.push(`"${key}" = ?`)
-        vals.push(value)
-      }
+      if (key in keyMap) continue
+      const bind = sqlBindValue(table, key, value)
+      if (bind.omit) continue
+      setClauses.push(`"${key}" = ?`)
+      vals.push(bind.value)
     }
     if (setClauses.length === 0) return 0
     const whereClauses: string[] = []
