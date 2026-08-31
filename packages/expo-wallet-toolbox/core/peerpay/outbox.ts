@@ -10,8 +10,8 @@
  * Storage format: a JSON array stored under the key "peerpay_outbox".
  * Each entry includes the full PaymentToken plus metadata for tracking delivery state.
  *
- * Entries persist indefinitely until explicitly dismissed by the user.
- * Retry is manual — the UI surfaces unsent entries with a Retry button.
+ * Unsent entries persist until dismissed; sent entries are retained for
+ * SENT_RETENTION_MS then pruned. Retry is manual — the UI lists unsent only.
  */
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -63,6 +63,9 @@ interface StorageLike {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const OUTBOX_KEY = 'peerpay_outbox'
+
+/** How long sent entries are kept as a sender-side token copy before pruning. */
+export const SENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -155,4 +158,32 @@ export async function removeOutboxEntry(storage: StorageLike, id: string): Promi
     storage,
     all.filter(e => e.id !== id)
   )
+}
+
+/**
+ * True when a sent entry is past SENT_RETENTION_MS.
+ * Missing createdAt on a sent entry expires immediately (legacy).
+ */
+export function isSentExpired(entry: OutboxEntry, now: number = Date.now()): boolean {
+  if (entry.status !== 'sent') return false
+  if (!entry.createdAt) return true
+  const created = Date.parse(entry.createdAt)
+  if (Number.isNaN(created)) return true
+  return now - created > SENT_RETENTION_MS
+}
+
+/**
+ * Remove only expired sent rows. Returns how many were removed.
+ */
+export async function pruneExpiredSent(storage: StorageLike, now: number = Date.now()): Promise<number> {
+  const all = await readEntries(storage)
+  const kept = all.filter(e => !isSentExpired(e, now))
+  const removed = all.length - kept.length
+  if (removed > 0) await writeEntries(storage, kept)
+  return removed
+}
+
+/** Entries that still need Retry/Cancel — everything not yet marked sent. */
+export function unsentEntries(entries: OutboxEntry[]): OutboxEntry[] {
+  return entries.filter(e => e.status !== 'sent')
 }

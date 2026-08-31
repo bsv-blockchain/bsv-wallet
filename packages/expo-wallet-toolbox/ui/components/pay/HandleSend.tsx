@@ -34,7 +34,8 @@ import {
   retryDelivery,
   sendViaHandle,
   getOutboxEntries,
-  removeOutboxEntry,
+  pruneExpiredSent,
+  unsentEntries,
   type OutboxEntry,
   haptics
 } from '@bsv/expo-wallet-toolbox'
@@ -198,15 +199,10 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
 
   const loadOutbox = useCallback(async () => {
     if (!storage) return
-    // Only failed deliveries surface here: a delivered payment already had its
-    // success moment, and this list exists for the retry, not as a history.
-    // Delivered entries are pruned rather than merely hidden — nothing would
-    // ever remove them otherwise, and the transaction itself lives in the
-    // wallet's own activity, not in this delivery bookkeeping.
-    const entries = await getOutboxEntries(storage)
-    const delivered = entries.filter(e => e.status === 'sent')
-    for (const e of delivered) await removeOutboxEntry(storage, e.id)
-    setOutbox(entries.filter(e => e.status !== 'sent'))
+    // Sent entries are kept as the sender-side token copy for resend, then
+    // pruned after 30 days. Only unsent entries surface in Retry/Cancel.
+    await pruneExpiredSent(storage)
+    setOutbox(unsentEntries(await getOutboxEntries(storage)))
   }, [storage])
 
   useEffect(() => {
