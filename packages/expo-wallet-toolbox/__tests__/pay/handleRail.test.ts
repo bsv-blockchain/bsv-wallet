@@ -512,4 +512,87 @@ describe('cancelOutboxPayment', () => {
     expect(result.aborted).toBe(false)
     expect(await getOutboxEntries(s)).toHaveLength(0)
   })
+
+  it('abandon of a delivered entry sends payment_cancelled', async () => {
+    const s = fakeStorage()
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    const w = fakeWallet()
+    w.abortAction = jest.fn().mockResolvedValue({ aborted: true })
+    w.listActions = jest.fn().mockResolvedValue({ actions: [{ txid: 'aa', reference: 'r' }] })
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    await updateOutboxEntry(s, id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
+    await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: { sendMessage } as never,
+      mode: 'abandon'
+    })
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      messageBox: 'payment_control',
+      recipient: KEY
+    }))
+    expect(JSON.parse(sendMessage.mock.calls[0][0].body).type).toBe('payment_cancelled')
+  })
+
+  it('abandon of a delivered entry aborts if still nosend and removes it', async () => {
+    const s = fakeStorage()
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    const w = fakeWallet()
+    w.abortAction = jest.fn().mockResolvedValue({ aborted: true })
+    w.listActions = jest.fn().mockResolvedValue({ actions: [{ txid: 'aa', reference: 'r' }] })
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    await updateOutboxEntry(s, id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
+    const result = await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: { sendMessage } as never,
+      mode: 'abandon'
+    })
+    expect(result.aborted).toBe(true)
+    expect(w.abortAction).toHaveBeenCalledWith({ reference: 'r' }, 'admin.com')
+    expect(await getOutboxEntries(s)).toHaveLength(0)
+  })
+
+  it('abandon does not remove the entry when payment_cancelled cannot be sent', async () => {
+    const s = fakeStorage()
+    const sendMessage = jest.fn().mockRejectedValue(new Error('offline'))
+    const w = fakeWallet()
+    w.abortAction = jest.fn()
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    await updateOutboxEntry(s, id, { delivering: true })
+    const entry = (await getOutboxEntries(s))[0]
+    await expect(
+      cancelOutboxPayment({
+        wallet: w as never,
+        adminOriginator: 'admin.com',
+        storage: s,
+        entry,
+        client: { sendMessage } as never,
+        mode: 'abandon'
+      })
+    ).rejects.toThrow('offline')
+    expect(w.abortAction).not.toHaveBeenCalled()
+    expect(await getOutboxEntries(s)).toHaveLength(1)
+  })
 })

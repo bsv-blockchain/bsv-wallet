@@ -8,12 +8,15 @@
  * after.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { PeerPayClient } from '@bsv/message-box-client'
 
 import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
+import { showAlert } from '../ui/AlertCard'
+import { showChoiceSheet } from '../ui/ChoiceSheet'
+import PressableScale from '../ui/PressableScale'
 import { showToast } from '../ui/Toast'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
 import PaymentSuccessOverlay from './PaymentSuccessOverlay'
@@ -26,6 +29,7 @@ import {
   spacing,
   typography,
   radii,
+  hitTargets,
   useWallet,
   CONSEQUENCE_KEYS,
   NO_MESSAGE_BOX,
@@ -67,10 +71,10 @@ interface OutgoingSectionProps {
   readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onRetry: (entry: OutboxEntry) => void
-  readonly onDismiss: (id: string) => void
+  readonly onCancel: (entry: OutboxEntry) => void
 }
 
-function OutgoingSection({ entries, retryingId, colors, t, onRetry, onDismiss }: OutgoingSectionProps) {
+function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: OutgoingSectionProps) {
   if (entries.length === 0) return null
 
   return (
@@ -79,8 +83,7 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onDismiss }:
         {entries.map((entry, idx) => {
           const isRetrying = retryingId === entry.id
           const isLast = idx === entries.length - 1
-          // Everything in this list failed to deliver — delivered entries are
-          // filtered out before render, so the accent is always the warning.
+          // Unsent rows: delivery and/or broadcast still outstanding.
           const accentColor = colors.warning
           const truncated = `${entry.recipient.slice(0, 8)}…${entry.recipient.slice(-4)}`
           return (
@@ -114,24 +117,29 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onDismiss }:
 
                 {/* Action buttons — full-width row, easy tap targets */}
                 <View style={[styles.outgoingButtons, { borderTopColor: colors.separator }]}>
-                  <TouchableOpacity
-                    onPress={() => onDismiss(entry.id)}
+                  <PressableScale
+                    onPress={() => onCancel(entry)}
                     disabled={isRetrying}
+                    haptic="tap"
                     style={[styles.outgoingDismissButton, { borderRightColor: colors.separator }]}
                   >
                     <Text style={[styles.outgoingDismissText, { color: colors.textSecondary }]}>{t('cancel')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </PressableScale>
+                  <PressableScale
                     onPress={() => onRetry(entry)}
                     disabled={isRetrying}
+                    haptic="tap"
                     style={styles.outgoingRetryButton}
                   >
                     {isRetrying ? (
-                      <ActivityIndicator size="small" color={colors.accent} />
+                      <View style={styles.outgoingRetryBusy}>
+                        <ActivityIndicator size="small" color={colors.accent} />
+                        <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>{t('resending')}</Text>
+                      </View>
                     ) : (
                       <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>{t('retry')}</Text>
                     )}
-                  </TouchableOpacity>
+                  </PressableScale>
                 </View>
               </View>
             </View>
@@ -302,18 +310,78 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
   )
 
   /**
-   * Cancel a stuck payment. For a not-yet-delivered noSend entry this aborts
-   * the underlying action, freeing its inputs — nothing was ever broadcast.
+   * Cancel a stuck payment. Undelivered: one confirm, then abort. Delivered or
+   * delivering: Abandon (payment_cancelled) or Finish (retry) — the sheet is
+   * the confirmation.
    */
-  const handleDismiss = useCallback(
-    async (id: string) => {
+  const handleCancel = useCallback(
+    async (entry: OutboxEntry) => {
       if (!storage || !wallet) return
-      const entry = outbox.find(e => e.id === id)
-      if (!entry) return
-      await cancelOutboxPayment({ wallet: wallet as any, adminOriginator, storage, entry })
-      await loadOutbox()
+      const deliveredOrUncertain = entry.delivered === true || entry.delivering === true
+      if (deliveredOrUncertain) {
+        const key = await showChoiceSheet({
+          title: t('cancel_this_payment'),
+          options: [
+            { key: 'abandon', label: t('abandon_payment'), destructive: true },
+            { key: 'finish', label: t('finish_payment') }
+          ],
+          cancelLabel: t('cancel')
+        })
+        if (key === 'finish') {
+          await handleRetry(entry)
+          return
+        }
+        if (key !== 'abandon') return
+        const client = peerPayClient
+        if (!client) {
+          setShowConfig(true)
+          showToast(t('message_box_unreachable'), { type: 'error' })
+          return
+        }
+        setRetryingId(entry.id)
+        try {
+          await cancelOutboxPayment({
+            wallet: wallet as any,
+            adminOriginator,
+            storage,
+            entry,
+            client,
+            mode: 'abandon'
+          })
+        } catch (e: any) {
+          const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
+          showToast(reason, { type: 'error' })
+        } finally {
+          setRetryingId(null)
+          await loadOutbox()
+        }
+        return
+      }
+      const choice = await showAlert({
+        title: t('cancel_this_payment'),
+        buttons: [
+          { text: t('cancel'), style: 'cancel', key: 'cancel' },
+          { text: t('cancel_payment'), style: 'destructive', key: 'cancel_payment' }
+        ]
+      })
+      if (choice !== 'cancel_payment') return
+      setRetryingId(entry.id)
+      try {
+        await cancelOutboxPayment({
+          wallet: wallet as any,
+          adminOriginator,
+          storage,
+          entry,
+          mode: 'undelivered'
+        })
+      } catch (e: any) {
+        showToast(e?.message || t('unknown_error'), { type: 'error' })
+      } finally {
+        setRetryingId(null)
+        await loadOutbox()
+      }
     },
-    [storage, wallet, adminOriginator, outbox, loadOutbox]
+    [storage, wallet, adminOriginator, peerPayClient, handleRetry, loadOutbox, t, setShowConfig]
   )
 
   /**
@@ -415,7 +483,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
           colors={colors}
           t={t}
           onRetry={handleRetry}
-          onDismiss={handleDismiss}
+          onCancel={handleCancel}
         />
       )}
 
@@ -519,14 +587,25 @@ const styles = StyleSheet.create({
   },
   outgoingDismissButton: {
     flex: 1,
+    minHeight: hitTargets.minimum,
+    minWidth: hitTargets.minimum,
     paddingVertical: 13,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRightWidth: StyleSheet.hairlineWidth
   },
   outgoingRetryButton: {
     flex: 1,
+    minHeight: hitTargets.minimum,
+    minWidth: hitTargets.minimum,
     paddingVertical: 13,
-    alignItems: 'center'
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  outgoingRetryBusy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm
   },
   outgoingRetryText: {
     ...typography.subhead,

@@ -432,23 +432,38 @@ export async function sendViaHandle(args: {
 }
 
 /**
- * Cancel an undelivered outbox entry: abort the noSend action (freeing its
- * inputs — nothing was ever broadcast) and remove the entry.
+ * Cancel or abandon an outbox entry.
  *
- * Once `delivering` or `delivered` is set the token may already be in the
- * recipient's message box, so Cancel refuses to abort and leaves the entry —
- * the caller must use Abandon (P1: payment_cancelled). Legacy entries (no
- * txid) were broadcast at creation; there is nothing to abort for them either.
+ * `undelivered` (default): abort the noSend action and remove the row. Once
+ * `delivering` or `delivered` is set the token may already be in the
+ * recipient's box, so this mode refuses to abort and returns `needsAbandon`.
+ *
+ * `abandon` (delivered or delivering): tell the recipient via
+ * `payment_cancelled`, then abort if the action is still nosend, then remove.
+ * A failed control send leaves the row — the recipient would otherwise keep
+ * waiting. Legacy entries (no txid) were broadcast at creation; there is
+ * nothing to abort for them.
  */
 export async function cancelOutboxPayment(args: {
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>
   adminOriginator: string
   storage: StorageLike
-  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering'>
+  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient'>
+  client?: Pick<PeerPayClient, 'sendMessage'>
+  mode?: 'undelivered' | 'abandon'
 }): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
-  const { wallet, adminOriginator, storage, entry } = args
-  if (entry.delivered === true || entry.delivering === true) {
+  const { wallet, adminOriginator, storage, entry, client, mode = 'undelivered' } = args
+  if (mode !== 'abandon' && (entry.delivered === true || entry.delivering === true)) {
     return { aborted: false, needsAbandon: true }
+  }
+  if (mode === 'abandon') {
+    if (!client) throw new Error('client required to abandon')
+    if (entry.txid) {
+      await sendControlMessage(client, {
+        recipient: entry.recipient,
+        message: { type: 'payment_cancelled', txid: entry.txid }
+      })
+    }
   }
   let aborted = false
   if (entry.txid) {
