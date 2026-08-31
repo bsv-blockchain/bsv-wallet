@@ -1041,6 +1041,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // A failure throws, which aborts the whole build: the import screen reports it
           // and lets the user retry or continue without history. Presenting a
           // half-replayed database as a working wallet is the one outcome to avoid.
+          let localStorageAdded = false
+          const addLocalStorage = async () => {
+            if (localStorageAdded) return
+            await storageManager.addWalletStorageProvider(phoneStorage as any)
+            localStorageAdded = true
+          }
+
           if (restoreIntentRef.current) {
             restoreIntentRef.current = false
             setBackupRestore({ phase: 'checking', chunks: 0, total: 0 })
@@ -1051,7 +1058,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 chain: chainStr,
                 identityKey,
                 baseUrl: DEFAULT_BACKUP_URL,
-                onProgress: (chunks, total) => setBackupRestore({ phase: 'restoring', chunks, total })
+                onProgress: (chunks, total) => setBackupRestore({ phase: 'restoring', chunks, total }),
+                // reviewSpendableOutputs talks to Services through the Wallet, which
+                // needs this storage attached first. Attach here (idempotent with the
+                // call below) so the post-restore pass actually sees the replayed coins.
+                validateRestoredCoins: async () => {
+                  await addLocalStorage()
+                  await wallet.reviewSpendableOutputs(false, true)
+                }
               })
               console.log(
                 `[WalletContext] backup restore · restored=${String(restored.restored)} · ` +
@@ -1074,7 +1088,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
           // addWalletStorageProvider calls makeAvailable internally
           try {
-            await storageManager.addWalletStorageProvider(phoneStorage as any)
+            await addLocalStorage()
             console.log('[WalletContext] Local storage provider added to wallet')
           } catch (error) {
             console.error('[WalletContext] Failed to add local storage provider:', error)

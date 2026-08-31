@@ -17,6 +17,7 @@ import QRScanner from '../QRScanner'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
 import PaymentSuccessOverlay from './PaymentSuccessOverlay'
 import { showToast } from '../ui/Toast'
+import { isReviewActionsError, promptCheckWallet } from '../../screens/WalletCheckScreen'
 import {
   useTheme,
   radii,
@@ -64,6 +65,23 @@ function loadStatusBar(): StatusBarComponent {
   return statusBarComponent
 }
 
+/**
+ * expo-router is required lazily rather than imported at module scope: this
+ * file is barrel-exported from the package's `ui` entry point, and a static
+ * top-level `import` of expo-router pulls in its own untransformed JSX
+ * source (Navigator.js etc.), which Jest cannot parse for any consumer of the
+ * barrel, even one that never navigates.
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
+  }
+  return expoRouterMod
+}
+
 export default function AddressSend({ initialAddress }: { initialAddress?: string }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -109,6 +127,11 @@ export default function AddressSend({ initialAddress }: { initialAddress?: strin
       setAmount('')
       setError(null)
     } catch (e: any) {
+      if (isReviewActionsError(e)) {
+        const choice = await promptCheckWallet(t)
+        if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
+        return
+      }
       showToast(e?.message || t('unknown_error'), { type: 'error' })
     } finally {
       setIsSending(false)

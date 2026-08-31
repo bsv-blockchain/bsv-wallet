@@ -83,6 +83,7 @@ export { useOnline } from './hooks/useOnline'
 // printRecoveryShares.ts never imports across the package boundary.
 export { SettingsScreen } from './screens/SettingsScreen'
 export { WalletConfigScreen } from './screens/WalletConfigScreen'
+export { WalletCheckScreen, isReviewActionsError, promptCheckWallet } from './screens/WalletCheckScreen'
 export { exportAllWalletDatabases } from './exportDatabases'
 export { importWalletDatabase, type ImportResult } from './importDatabases'
 export { printRecoveryShares, type PrintSharesSources, type PrintSharesResult } from './printRecoveryShares'

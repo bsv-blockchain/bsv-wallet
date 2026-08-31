@@ -33,6 +33,8 @@ function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
 
 interface ListRowProps {
   label: string
+  /** Secondary line under the label. Settings rows use this for the explaining copy. */
+  subtitle?: string
   value?: string
   /** Ionicons name by default; a MaterialCommunityIcons name when
    * `iconFamily="material-community"`. */
@@ -56,6 +58,7 @@ interface ListRowProps {
  */
 export const ListRow: React.FC<ListRowProps> = ({
   label,
+  subtitle,
   value,
   icon,
   iconFamily = 'ionicons',
@@ -97,15 +100,22 @@ export const ListRow: React.FC<ListRowProps> = ({
           )}
         </View>
       )}
-      <Text
-        style={[
-          styles.label,
-          { color: destructive ? colors.error : colors.textPrimary }
-        ]}
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
+      <View style={styles.textColumn}>
+        <Text
+          style={[
+            styles.label,
+            { color: destructive ? colors.error : colors.textPrimary }
+          ]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+        {subtitle ? (
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={2}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
       <View style={styles.trailing}>
         {trailing}
         {value && !trailing && (
@@ -161,9 +171,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: spacing.md,
   },
+  textColumn: {
+    flex: 1,
+  },
   label: {
     ...typography.body,
-    flex: 1,
+  },
+  subtitle: {
+    ...typography.footnote,
+    marginTop: 1,
   },
   trailing: {
     flexDirection: 'row',

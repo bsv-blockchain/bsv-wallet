@@ -169,6 +169,7 @@ export * from './backup/preference'
 export * from './backup/push'
 export * from './backup/restore'
 export * from './backup/restoreOnImport'
+export * from './walletRepair/runWalletCheck'
 export { TaskBackupPush } from './monitor/TaskBackupPush'
 
 // Hardware vault: YubiKey PIV custody, ceremony state machine, K1 script,

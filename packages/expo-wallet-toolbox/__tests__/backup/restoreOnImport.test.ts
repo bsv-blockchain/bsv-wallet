@@ -194,4 +194,33 @@ describe('restoreOnImport', () => {
 
     await expect(restoreOnImport(deps({ storage: fakeStorage(1), client }))).rejects.toThrow(/gap/)
   })
+
+  it('does not validate coins when there is nothing to restore', async () => {
+    const validateRestoredCoins = jest.fn()
+    const result = await restoreOnImport(
+      deps({ storage: fakeStorage(0), client: fakeClient([]), validateRestoredCoins })
+    )
+    expect(result.reason).toBe('no-backup')
+    expect(validateRestoredCoins).not.toHaveBeenCalled()
+  })
+
+  it('awaits validateRestoredCoins before resolving a successful restore', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const client = fakeClient([summary({ deviceId: NEW_DEVICE, generation: 1 })], {
+      [`${NEW_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('only'), 'main')]
+    })
+    const storage = fakeStorage(1)
+    const order: string[] = []
+    const validateRestoredCoins = jest.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 30))
+      order.push('validate')
+    })
+
+    const result = await restoreOnImport(deps({ storage, client, validateRestoredCoins }))
+    order.push('returned')
+
+    expect(validateRestoredCoins).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['validate', 'returned'])
+    expect(result.restored).toBe(true)
+  })
 })

@@ -16,6 +16,7 @@ import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
 import { showAlert } from '../ui/AlertCard'
 import { showChoiceSheet } from '../ui/ChoiceSheet'
+import { isReviewActionsError, promptCheckWallet } from '../../screens/WalletCheckScreen'
 import PressableScale from '../ui/PressableScale'
 import { showToast } from '../ui/Toast'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
@@ -61,6 +62,23 @@ function loadStatusBar(): StatusBarComponent {
     statusBarComponent = require('expo-status-bar').StatusBar as StatusBarComponent
   }
   return statusBarComponent
+}
+
+/**
+ * expo-router is required lazily rather than imported at module scope: this
+ * file is barrel-exported from the package's `ui` entry point, and a static
+ * top-level `import` of expo-router pulls in its own untransformed JSX
+ * source (Navigator.js etc.), which Jest cannot parse for any consumer of the
+ * barrel, even one that never navigates.
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
+  }
+  return expoRouterMod
 }
 
 // ── Outgoing Section ─────────────────────────────────────────────────────────
@@ -267,6 +285,11 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
       setNote('')
       search.clearRecipient()
     } catch (error: any) {
+      if (isReviewActionsError(error)) {
+        const choice = await promptCheckWallet(t)
+        if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
+        return
+      }
       // An unreachable message box is a configuration problem, not a payment
       // one — point at the fix rather than echoing the raw fetch error.
       const message =
@@ -299,6 +322,11 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
         // that worked first time — held until Done, then back to the wallet.
         setSent({ amount: entry.token.amount })
       } catch (e: any) {
+        if (isReviewActionsError(e)) {
+          const choice = await promptCheckWallet(t)
+          if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
+          return
+        }
         const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
         showToast(`${t('retry_failed')}: ${reason}`, { type: 'error' })
       } finally {

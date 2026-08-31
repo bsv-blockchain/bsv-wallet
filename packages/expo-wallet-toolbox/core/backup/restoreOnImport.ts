@@ -44,6 +44,12 @@ export interface RestoreOnImportDeps {
   client?: BackupClient
   /** Chunks replayed so far, and how many this generation holds. */
   onProgress?: (chunks: number, total: number) => void
+  /**
+   * After a successful replay, check that restored coins are still spendable.
+   * Awaited before this function resolves. Absent on a no-backup / unconfigured
+   * import, which has nothing to validate.
+   */
+  validateRestoredCoins?: () => Promise<void>
 }
 
 export interface RestoreOnImportResult {
@@ -80,6 +86,10 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
     generation: target.generation,
     onProgress: deps.onProgress
   })
+
+  if (deps.validateRestoredCoins) {
+    await deps.validateRestoredCoins()
+  }
 
   return {
     restored: true,

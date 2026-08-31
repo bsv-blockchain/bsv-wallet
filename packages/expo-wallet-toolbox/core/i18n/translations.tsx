@@ -664,6 +664,19 @@ const resources = {
       pay_address_sweep_now: 'Check this address now',
       pay_address_swept: 'Received {{amount}}',
 
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
+
       // Local payments
       local_pay_request: 'Request Payment',
       local_pay_send: 'Send Payment',
@@ -1140,6 +1153,19 @@ const resources = {
       pay_address_earlier_day: '回到更早的日期',
       pay_address_sweep_now: '立即检查此地址',
       pay_address_swept: '已收到 {{amount}}',
+
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
 
       // Local payments
       local_pay_request: '请求付款',
@@ -1619,6 +1645,19 @@ const resources = {
       pay_address_earlier_day: 'किसी पिछले दिन तक जाएं',
       pay_address_sweep_now: 'यह पता अभी जांचें',
       pay_address_swept: '{{amount}} प्राप्त हुआ',
+
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
 
       // Local payments
       local_pay_request: 'भुगतान का अनुरोध करें',
@@ -2103,6 +2142,19 @@ const resources = {
       pay_address_sweep_now: 'Comprobar esta dirección ahora',
       pay_address_swept: 'Recibido {{amount}}',
 
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
+
       // Local payments
       local_pay_request: 'Solicitar pago',
       local_pay_send: 'Enviar pago',
@@ -2580,6 +2632,19 @@ const resources = {
       pay_address_sweep_now: 'Vérifier cette adresse maintenant',
       pay_address_swept: '{{amount}} reçu',
 
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
+
       // Local payments
       local_pay_request: 'Demander un paiement',
       local_pay_send: 'Envoyer un paiement',
@@ -3052,6 +3117,19 @@ const resources = {
       pay_address_earlier_day: 'الانتقال إلى يوم أسبق',
       pay_address_sweep_now: 'تحقق من هذا العنوان الآن',
       pay_address_swept: 'تم استلام {{amount}}',
+
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
 
       // Local payments
       local_pay_request: 'طلب دفعة',
@@ -3528,6 +3606,19 @@ const resources = {
       pay_address_sweep_now: 'Verificar este endereço agora',
       pay_address_swept: '{{amount}} recebido',
 
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
+
       // Local payments
       local_pay_request: 'Solicitar pagamento',
       local_pay_send: 'Enviar pagamento',
@@ -4002,6 +4093,19 @@ const resources = {
       pay_address_earlier_day: 'আগের কোনো দিনে যান',
       pay_address_sweep_now: 'এই ঠিকানাটি এখনই যাচাই করুন',
       pay_address_swept: '{{amount}} পাওয়া গেছে',
+
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
 
       // Local payments
       local_pay_request: 'পেমেন্টের অনুরোধ করুন',
@@ -4480,6 +4584,19 @@ const resources = {
       pay_address_sweep_now: 'Проверить этот адрес сейчас',
       pay_address_swept: 'Получено {{amount}}',
 
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
+
       // Local payments
       local_pay_request: 'Запросить платёж',
       local_pay_send: 'Отправить платёж',
@@ -4955,6 +5072,19 @@ const resources = {
       pay_address_earlier_day: 'Buka hari sebelumnya',
       pay_address_sweep_now: 'Periksa alamat ini sekarang',
       pay_address_swept: 'Diterima {{amount}}',
+
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
 
       // Local payments
       local_pay_request: 'Minta Pembayaran',
@@ -5448,6 +5578,19 @@ const resources = {
       pay_address_sweep_now: 'このアドレスを今すぐ確認',
       pay_address_swept: '{{amount}} を受け取りました',
 
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
+
       // Local payments
       local_pay_request: '支払いをリクエスト',
       local_pay_send: '支払いを送信',
@@ -5938,6 +6081,19 @@ const resources = {
       pay_address_earlier_day: 'Wróć do wcześniejszego dnia',
       pay_address_sweep_now: 'Sprawdź ten adres teraz',
       pay_address_swept: 'Otrzymano {{amount}}',
+
+      check_wallet: 'Check Wallet',
+      check_wallet_subtitle: "Run this if something doesn't look right",
+      wallet_check_ok: 'Everything looks good',
+      wallet_check_summary: 'Freed {{freed}} stuck coins · Recovered {{recovered}} payments',
+      wallet_check_step_coins: 'Checking coins…',
+      wallet_check_step_proofs: 'Checking proofs…',
+      wallet_check_step_records: 'Repairing records…',
+      wallet_check_step_missed: 'Looking for missed payments…',
+      wallet_check_progress: '{{current}} of {{total}}',
+      wallet_check_stuck_title: "Couldn't send this payment",
+      wallet_check_stuck_message: 'Some coins look stuck. Check Wallet can free them.',
+      wallet_check_failed: "Couldn't finish checking. Try again.",
 
       // Local payments
       local_pay_request: 'Poproś o płatność',

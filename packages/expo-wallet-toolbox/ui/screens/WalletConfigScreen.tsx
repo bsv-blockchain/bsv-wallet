@@ -831,6 +831,13 @@ export function WalletConfigScreen() {
               trailing={isImporting ? <ActivityIndicator size="small" /> : undefined}
             />
             <ListRow
+              label={t('check_wallet')}
+              subtitle={t('check_wallet_subtitle')}
+              icon="checkmark-done-circle-outline"
+              iconColor="#0A84FF"
+              onPress={() => router.push('/wallet-check' as any)}
+            />
+            <ListRow
               label="Debugging"
               icon="terminal-outline"
               iconColor="#8E8E93"
