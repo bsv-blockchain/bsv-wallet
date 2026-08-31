@@ -152,6 +152,8 @@ import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
 import { restoreOnImport } from '../backup/restoreOnImport'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
+import { findOfflineActions } from '../storage/methods/offlineActions'
+import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
 import { wocConfigFor } from '../pay/rails/address'
 import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../pay/sweeper'
 import { formatAmount } from '../amountFormatHelpers'
@@ -2091,12 +2093,22 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const tx = txs[0]
       if (!tx || tx.status === 'failed' || tx.status === 'completed') return 'pending'
 
-      const IN_FLIGHT: string[] = ['sending', 'unproven', 'nosend', 'unprocessed', 'unsigned', 'nonfinal']
-      if (!IN_FLIGHT.includes(tx.status)) return 'pending'
-
-      const STUCK_AFTER_MS = 5 * 60 * 1000 // matches the monitor's own abandonedMsecs
-      const updatedAt = tx.updated_at ? new Date(tx.updated_at).getTime() : 0
-      if (updatedAt && Date.now() - updatedAt < STUCK_AFTER_MS) return 'pending'
+      // A queued/posting offline payment is expected not to be on chain yet —
+      // failing it would release inputs the payee still holds.
+      const db = storage.sqliteDb
+      const rows = db ? await findOfflineActions(db, { status: ['queued', 'posting'] }) : []
+      const offlineStatus = rows.find(r => r.txid === txid)?.status
+      if (
+        shouldFailUnprovenTx({
+          offlineStatus,
+          txStatus: tx.status,
+          updatedAtMs: tx.updated_at ? new Date(tx.updated_at).getTime() : 0,
+          nowMs: Date.now()
+        }) === 'pending'
+      ) {
+        if (offlineStatus === 'queued' || offlineStatus === 'posting') TaskSendOffline.requestNow()
+        return 'pending'
+      }
 
       // Releases the inputs this transaction had reserved and marks its outputs
       // unspendable — the same repair the monitor performs for abandoned rows.

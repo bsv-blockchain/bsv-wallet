@@ -203,7 +203,7 @@ function ActivityRowBase({
             <ActivityIndicator size="small" color={colors.textSecondary} style={styles.chipBusy} />
           ) : (
             <>
-              {action.txid ? (
+              {action.txid && offlineStatus !== 'queued' && offlineStatus !== 'posting' ? (
                 <Chip
                   icon="refresh-outline"
                   label={t('tx_action_refresh_short')}
