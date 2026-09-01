@@ -4,7 +4,15 @@
  * `utils/offline/order.ts` and `utils/offline/plan.ts`, which are unit-tested.
  * This file is validated on device.
  */
-export type OfflineActionStatus = 'queued' | 'posting' | 'sent' | 'rejected' | 'acknowledged'
+/**
+ * `parked` is a payment held back deliberately: built and handed over as a code,
+ * but NOT released for broadcast, because the payer walked away rather than
+ * confirming the hand-over. Every query that drives the drain asks for
+ * 'queued'/'posting', so a parked row is inert by construction — it exists to
+ * keep the frame (for re-showing the code) and to keep the transaction
+ * cancellable.
+ */
+export type OfflineActionStatus = 'queued' | 'posting' | 'sent' | 'rejected' | 'acknowledged' | 'parked'
 export type OfflineActionRole = 'received' | 'sent'
 
 export interface OfflineActionRow {
@@ -60,12 +68,16 @@ export interface NewOfflineAction {
  * SQLite's single-writer lock covers both — two interleaved inserts cannot
  * read the same max and land the same seq.
  */
-export async function insertOfflineAction(db: OfflineDb, entry: NewOfflineAction): Promise<void> {
+export async function insertOfflineAction(
+  db: OfflineDb,
+  entry: NewOfflineAction,
+  status: OfflineActionStatus = 'queued'
+): Promise<void> {
   const now = new Date().toISOString()
   await db.runAsync(
     `INSERT OR IGNORE INTO offline_actions
        (created_at, updated_at, userId, txid, seq, role, senderIdentityKey, receivedVia, status, framePayload)
-     VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM offline_actions), ?, ?, ?, 'queued', ?)`,
+     VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM offline_actions), ?, ?, ?, ?, ?)`,
     [
       now,
       now,
@@ -74,6 +86,7 @@ export async function insertOfflineAction(db: OfflineDb, entry: NewOfflineAction
       entry.role,
       entry.senderIdentityKey ?? null,
       entry.receivedVia ?? null,
+      status,
       entry.framePayload ?? null
     ]
   )

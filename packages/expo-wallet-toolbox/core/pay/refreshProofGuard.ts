@@ -9,7 +9,15 @@ const IN_FLIGHT = new Set(['sending', 'unproven', 'nosend', 'unprocessed', 'unsi
 /** Matches the monitor's abandonedMsecs. */
 const STUCK_AFTER_MS = 5 * 60 * 1000
 
-export type OfflineRefreshStatus = 'queued' | 'posting' | 'sent' | 'rejected' | 'acknowledged'
+export type OfflineRefreshStatus =
+  | 'queued'
+  | 'posting'
+  | 'sent'
+  | 'rejected'
+  | 'acknowledged'
+  // Held back deliberately, never released for broadcast. Like queued and
+  // posting, a Refresh must not decide such a transaction has failed.
+  | 'parked'
 
 export function shouldFailUnprovenTx(args: {
   offlineStatus?: OfflineRefreshStatus
@@ -17,7 +25,9 @@ export function shouldFailUnprovenTx(args: {
   updatedAtMs: number
   nowMs: number
 }): 'pending' | 'failed' {
-  if (args.offlineStatus === 'queued' || args.offlineStatus === 'posting') return 'pending'
+  if (args.offlineStatus === 'queued' || args.offlineStatus === 'posting' || args.offlineStatus === 'parked') {
+    return 'pending'
+  }
   if (!IN_FLIGHT.has(args.txStatus)) return 'pending'
   if (args.updatedAtMs && args.nowMs - args.updatedAtMs < STUCK_AFTER_MS) return 'pending'
   return 'failed'

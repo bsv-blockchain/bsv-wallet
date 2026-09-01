@@ -161,6 +161,7 @@ export function PayScreen() {
   const [rejected, setRejected] = useState<OfflineActionRow[]>([])
   const [sentRejected, setSentRejected] = useState<OfflineActionRow[]>([])
   const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
+  const [parkedRows, setParkedRows] = useState<OfflineActionRow[]>([])
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [pendingCount, setPendingCount] = useState(0)
   const [pendingStuck, setPendingStuck] = useState(0)
@@ -232,11 +233,13 @@ export function PayScreen() {
         const db = storage?.sqliteDb
         if (!db) return
         const rows = await findOfflineActions(db, {
-          status: ['queued', 'posting', 'rejected'],
+          status: ['queued', 'posting', 'rejected', 'parked'],
           ...(walletUserId === null ? {} : { userId: walletUserId })
         })
         if (cancelled) return
-        setQueued(rows.filter(r => r.status !== 'rejected').length)
+        // Parked rows are held back on purpose: no task will broadcast them,
+        // so they must not swell the "waiting to send" count.
+        setQueued(rows.filter(r => r.status !== 'rejected' && r.status !== 'parked').length)
         // 'sent'-role rows can be rejected too (a payer's own held payment can be
         // poisoned), but they carry no senderIdentityKey or receivedVia — those
         // are only ever recorded on the receiving side (see
@@ -247,7 +250,8 @@ export function PayScreen() {
         // else's fraud against them, so it gets its own unattributed notice.
         setRejected(rows.filter(r => r.status === 'rejected' && r.role === 'received'))
         setSentRejected(rows.filter(r => r.status === 'rejected' && r.role === 'sent'))
-        setQueuedSentRows(rows.filter(r => r.status !== 'rejected' && r.role === 'sent'))
+        setQueuedSentRows(rows.filter(r => r.status !== 'rejected' && r.status !== 'parked' && r.role === 'sent'))
+        setParkedRows(rows.filter(r => r.status === 'parked'))
         setStalled(TaskSendOffline.lastStall)
       } catch {
         // This banner is advisory, never load-bearing. A read failure here must
@@ -268,7 +272,7 @@ export function PayScreen() {
     }
     r.push(sats && sats > 0 ? `/pay?sats=${sats}` : '/pay')
   }, [])
-  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain } = useOfflineNoticeActions({
+  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain, onCancelParked } = useOfflineNoticeActions({
     storage,
     permissionsManager: managers?.permissionsManager,
     adminOriginator: adminOriginator ?? '',
@@ -332,7 +336,9 @@ export function PayScreen() {
         pendingStuck={pendingStuck}
         pendingCorrupt={pendingCorrupt}
         queuedSent={queuedSentRows}
+        parkedSent={parkedRows}
         onShowCode={setShowCode}
+        onCancelParked={row => void onCancelParked(row)}
         onRequestAgain={row => void onRequestAgain(row)}
         onCopyDetails={onCopyDetails}
         onDismiss={row => void onDismiss(row)}

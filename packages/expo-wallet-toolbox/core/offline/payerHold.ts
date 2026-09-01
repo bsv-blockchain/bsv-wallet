@@ -85,3 +85,36 @@ export async function holdSentPaymentOffline(args: {
   TaskSendOffline.noteEnqueued()
   await storage.updateTransactionStatus('unproven', tx.transactionId)
 }
+
+
+/**
+ * Keep a handed-over payment WITHOUT releasing it for broadcast.
+ *
+ * The payer left the code screen instead of confirming the hand-over, so
+ * nothing is known about whether the payee scanned. Holding it would post it —
+ * `holdSentPaymentOffline` promotes the transaction and wakes the drain, which
+ * is how backing out came to send the payment outright. Parking keeps both
+ * possibilities open instead: the frame is stored so the code can be shown
+ * again, and the transaction stays `nosend`, so its inputs are still reserved
+ * and it can still be aborted.
+ *
+ * If the payee did scan and broadcasts their copy, the payment settles from
+ * their side and this device sees it confirm. If they did not, the payer can
+ * cancel and nothing was ever spent.
+ */
+export async function parkSentPaymentOffline(args: {
+  storage: StorageExpoSQLite
+  txid: string
+  framePayload?: string
+}): Promise<void> {
+  const { storage, txid, framePayload } = args
+  const db = storage.sqliteDb
+  if (!db) throw new Error('the database is not open, cannot park this payment')
+
+  const tx = (await storage.findTransactions({ partial: { txid }, noRawTx: true }))[0]
+  if (!tx) throw new Error(`no transaction record for ${txid}, cannot park it`)
+
+  // No promote, and no TaskSendOffline.noteEnqueued(): both are what turn a
+  // stored frame into a broadcast.
+  await insertOfflineAction(db, { userId: tx.userId, txid, role: 'sent', framePayload }, 'parked')
+}

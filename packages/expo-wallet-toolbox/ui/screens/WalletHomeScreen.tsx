@@ -489,7 +489,7 @@ export function WalletHomeScreen() {
       const db = storage?.sqliteDb
       if (!db) return
       const rows = await findOfflineActions(db, {
-        status: ['queued', 'posting', 'rejected'],
+        status: ['queued', 'posting', 'rejected', 'parked'],
         ...(walletUserId === null ? {} : { userId: walletUserId })
       })
       setOfflineByTxid(new Map(rows.map(r => [r.txid, r])))
@@ -808,8 +808,18 @@ export function WalletHomeScreen() {
     () => offlineRows.filter(r => r.status === 'rejected' && r.role === 'sent'),
     [offlineRows]
   )
-  const queuedCount = useMemo(() => offlineRows.filter(r => r.status !== 'rejected').length, [offlineRows])
-  const queuedSent = useMemo(() => offlineRows.filter(r => r.status !== 'rejected' && r.role === 'sent'), [offlineRows])
+  // Parked payments are counted apart from queued ones: nothing is waiting to
+  // broadcast them, so folding them into "waiting to be broadcast" would say
+  // something untrue about both.
+  const queuedCount = useMemo(
+    () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked').length,
+    [offlineRows]
+  )
+  const queuedSent = useMemo(
+    () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked' && r.role === 'sent'),
+    [offlineRows]
+  )
+  const parkedSent = useMemo(() => offlineRows.filter(r => r.status === 'parked'), [offlineRows])
   const stuckBadges = useMemo(
     () =>
       homeBadges({
@@ -826,7 +836,7 @@ export function WalletHomeScreen() {
   const pushPay = useCallback((sats?: number) => {
     router.push(sats && sats > 0 ? `/pay?sats=${sats}` : '/pay')
   }, [])
-  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain } = useOfflineNoticeActions({
+  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain, onCancelParked } = useOfflineNoticeActions({
     storage,
     permissionsManager: managers.permissionsManager,
     adminOriginator,
@@ -1034,11 +1044,13 @@ export function WalletHomeScreen() {
           pendingStuck={pendingStuck}
           pendingCorrupt={pendingCorrupt}
           queuedSent={queuedSent}
+          parkedSent={parkedSent}
           onShowCode={() => router.push('/pay')}
           onRequestAgain={row => void onRequestAgain(row)}
           onCopyDetails={onCopyDetails}
           onDismiss={row => void onDismiss(row)}
           onSendAgain={row => void onSendAgain(row)}
+          onCancelParked={row => void onCancelParked(row)}
         />
 
         <View style={styles.activityHead}>
@@ -1084,6 +1096,7 @@ export function WalletHomeScreen() {
       rejected,
       sentRejected,
       queuedSent,
+      parkedSent,
       stalled,
       pendingCount,
       pendingStuck,
@@ -1091,6 +1104,7 @@ export function WalletHomeScreen() {
       onRequestAgain,
       onCopyDetails,
       onDismiss,
+      onCancelParked,
       onSendAgain
     ]
   )

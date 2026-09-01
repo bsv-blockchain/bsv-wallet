@@ -1,4 +1,4 @@
-import { holdSentPaymentOffline } from '../../core/offline/payerHold'
+import { holdSentPaymentOffline, parkSentPaymentOffline } from '../../core/offline/payerHold'
 import { insertOfflineAction } from '../../core/storage/methods/offlineActions'
 import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
@@ -113,5 +113,46 @@ describe('holdSentPaymentOffline', () => {
     // ran first), so the drain can still find and post this txid even though
     // this call reports failure to its caller.
     expect(mockedInsert).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('parkSentPaymentOffline', () => {
+  beforeEach(() => {
+    mockedInsert.mockClear()
+    mockedInsert.mockResolvedValue(undefined)
+    TaskSendOffline.resetForTests()
+  })
+
+  it('records the payment without promoting it or waking the send task', async () => {
+    const storage = storageStub({ tx: { transactionId: 99, userId: 5 } })
+
+    await parkSentPaymentOffline({
+      storage: storage as unknown as StorageExpoSQLite,
+      txid: TXID,
+      framePayload: 'bsvpayf1:abc'
+    })
+
+    // The whole point of parking: nothing is released for broadcast.
+    expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
+    expect(mockedInsert).toHaveBeenCalledWith(
+      storage.sqliteDb,
+      { userId: 5, txid: TXID, framePayload: 'bsvpayf1:abc', role: 'sent' },
+      'parked'
+    )
+  })
+
+  it('refuses when there is no transaction to park', async () => {
+    const storage = storageStub({ tx: null })
+    await expect(
+      parkSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+    ).rejects.toThrow(/no transaction record/)
+    expect(mockedInsert).not.toHaveBeenCalled()
+  })
+
+  it('refuses when the database is closed', async () => {
+    const storage = storageStub({ sqliteDb: undefined })
+    await expect(
+      parkSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+    ).rejects.toThrow(/database is not open/)
   })
 })

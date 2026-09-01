@@ -124,6 +124,7 @@ import {
   encodeSession,
   frameBytesFromQr,
   holdSentPaymentOffline,
+  parkSentPaymentOffline,
   isAirGapPart,
   isDeclineReason,
   isSessionSpent,
@@ -1296,8 +1297,13 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   // and once that session is gone, the action's payee label and derivation
   // customInstructions still let the payment be re-sent through the message box
   // from its own row in the activity list.
-  const completeQrDelivery = useCallback(async (opts?: { celebrate?: boolean }) => {
+  const completeQrDelivery = useCallback(async (opts?: { celebrate?: boolean; release?: boolean }) => {
     const celebrate = opts?.celebrate !== false
+    // Done means "they have it" — the payment is released and the drain posts
+    // it. Backing out means nothing of the kind, so the frame is kept and the
+    // transaction stays cancellable instead. Releasing on the way out is what
+    // made Back send the payment outright.
+    const release = opts?.release !== false
     const built = builtRef.current
     const session = scannedSession
     // `paymentQr` is this exact frame already sealed for display — the Done
@@ -1321,6 +1327,21 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
       setPhase('send_working')
       setNotice(null)
     }
+
+    // Backing out never goes through finalizeDelivery: that path broadcasts
+    // after the hold whenever the device is online, so parking inside it would
+    // still have sent the payment. Park and stop.
+    if (!release) {
+      try {
+        if (storage && built.txid) {
+          await parkSentPaymentOffline({ storage, txid: built.txid, framePayload })
+        }
+      } catch (e) {
+        console.warn('[localpay] could not park the payment:', e instanceof Error ? e.message : e)
+      }
+      return
+    }
+
     const outcome = await finalizeDelivery(wallet as unknown as PayingWalletArg, built, { ok: true }, adminOriginator, {
       hold: async txid => {
         if (!storage) throw new Error('no local storage to queue this payment in')
@@ -1355,9 +1376,10 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   // from — but the money is treated identically.
   const handleSendQrExit = useCallback(
     async (leavingScreen: boolean): Promise<boolean> => {
-      // Never celebrates: the payer walked away rather than confirming the
-      // hand-over, and a success screen would claim something they did not say.
-      await completeQrDelivery({ celebrate: false })
+      // Never celebrates, and never releases: the payer walked away rather than
+      // confirming the hand-over. A success screen would claim something they
+      // did not say, and broadcasting would do something they did not ask for.
+      await completeQrDelivery({ celebrate: false, release: false })
       if (!leavingScreen) reset()
       return leavingScreen
     },

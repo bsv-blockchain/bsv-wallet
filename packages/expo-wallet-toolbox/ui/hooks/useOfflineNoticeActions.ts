@@ -9,6 +9,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 import { nackRejectedReceived, sendBouncedOfflineNack } from '../../core/peerpay/offlineNacks'
 import { updateOfflineAction, type OfflineActionRow } from '../../core/storage/methods/offlineActions'
+import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { showToast } from '../components/ui/Toast'
 import { offlineActionDetails } from '../components/pay/OfflineNotice'
@@ -117,6 +118,36 @@ export function useOfflineNoticeActions(args: {
     [storage, t, reload]
   )
 
+  /** "Cancel payment" on a parked hand-over: give the money back. */
+  const onCancelParked = useCallback(
+    async (row: OfflineActionRow) => {
+      const pm = permissionsManager
+      if (!storage || !pm) return
+      try {
+        const outcome = await cancelParkedPayment({
+          storage,
+          wallet: pm as CancelParkedWallet,
+          originator: adminOriginator,
+          txid: row.txid
+        })
+        if (outcome === 'cancelled') {
+          showToast(t('tx_abort_success'), { type: 'success' })
+        } else if (outcome === 'already-sent') {
+          // The counterparty did broadcast after all. Nothing to cancel, and
+          // saying so beats a silent no-op.
+          showToast(t('pay_parked_already_sent'), { type: 'info' })
+        } else {
+          showToast(t('tx_abort_failed'), { type: 'error' })
+        }
+        reload()
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : t('unknown_error')
+        showToast(message, { type: 'error' })
+      }
+    },
+    [storage, permissionsManager, adminOriginator, t, reload]
+  )
+
   const onSendAgain = useCallback(
     async (row: OfflineActionRow) => {
       let sats: number | undefined
@@ -132,5 +163,5 @@ export function useOfflineNoticeActions(args: {
     [storage, pushPay]
   )
 
-  return { onRequestAgain, onCopyDetails, onDismiss, onSendAgain }
+  return { onRequestAgain, onCopyDetails, onDismiss, onSendAgain, onCancelParked }
 }

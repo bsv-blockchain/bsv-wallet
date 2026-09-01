@@ -753,7 +753,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: '{{count}} nearby payment(s) could not be added. Ask the sender to send again.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'Show code again'
+      pay_offline_show_code: 'Show code again',
+      pay_parked_title: 'Payment not handed over yet',
+      pay_parked_body: 'Nothing has been sent. If they scanned your code it will still arrive; if not, cancel to get the money back.',
+      pay_parked_cancel: 'Cancel payment',
+      pay_parked_already_sent: 'This payment was already sent',
     }
   },
   zh: {
@@ -1263,7 +1267,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: '有 {{count}} 笔附近付款无法添加。请让付款方重新发送。',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: '再次显示付款码'
+      pay_offline_show_code: '再次显示付款码',
+      pay_parked_title: '付款尚未交付',
+      pay_parked_body: '尚未发送任何款项。如果对方已扫描你的二维码，款项仍会到账；如果没有，请取消以取回资金。',
+      pay_parked_cancel: '取消付款',
+      pay_parked_already_sent: '此付款已发送',
     }
   },
   hi: {
@@ -1779,7 +1787,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: '{{count}} नज़दीकी भुगतान जोड़े नहीं जा सके। भेजने वाले से दोबारा भेजने को कहें।',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'कोड फिर दिखाएँ'
+      pay_offline_show_code: 'कोड फिर दिखाएँ',
+      pay_parked_title: 'भुगतान अभी सौंपा नहीं गया',
+      pay_parked_body: 'कुछ भी नहीं भेजा गया। अगर उन्होंने आपका कोड स्कैन किया है तो यह पहुँच जाएगा; नहीं तो रद्द करके पैसे वापस लें।',
+      pay_parked_cancel: 'भुगतान रद्द करें',
+      pay_parked_already_sent: 'यह भुगतान पहले ही भेज दिया गया है',
     }
   },
   es: {
@@ -2296,7 +2308,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: 'No se pudieron añadir {{count}} pago(s) cercano(s). Pide a quien pagó que lo envíe otra vez.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'Mostrar el código otra vez'
+      pay_offline_show_code: 'Mostrar el código otra vez',
+      pay_parked_title: 'El pago aún no se ha entregado',
+      pay_parked_body: 'No se ha enviado nada. Si escanearon tu código, llegará igualmente; si no, cancela para recuperar el dinero.',
+      pay_parked_cancel: 'Cancelar el pago',
+      pay_parked_already_sent: 'Este pago ya se envió',
     }
   },
   fr: {
@@ -2807,7 +2823,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: 'Impossible d’ajouter {{count}} paiement(s) à proximité. Demandez à l’expéditeur de renvoyer.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'Réafficher le code'
+      pay_offline_show_code: 'Réafficher le code',
+      pay_parked_title: 'Paiement pas encore remis',
+      pay_parked_body: 'Rien n’a été envoyé. S’ils ont scanné votre code, le paiement arrivera ; sinon, annulez pour récupérer l’argent.',
+      pay_parked_cancel: 'Annuler le paiement',
+      pay_parked_already_sent: 'Ce paiement a déjà été envoyé',
     }
   },
   ar: {
@@ -3313,7 +3333,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: 'تعذّرت إضافة {{count}} دفعة قريبة. اطلب من المُرسِل الإرسال مرة أخرى.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'إظهار الرمز مرة أخرى'
+      pay_offline_show_code: 'إظهار الرمز مرة أخرى',
+      pay_parked_title: 'لم يتم تسليم الدفعة بعد',
+      pay_parked_body: 'لم يُرسَل أي شيء. إن كانوا قد مسحوا الرمز فسيصل؛ وإن لم يفعلوا، ألغِ لاستعادة المال.',
+      pay_parked_cancel: 'إلغاء الدفعة',
+      pay_parked_already_sent: 'تم إرسال هذه الدفعة بالفعل',
     }
   },
   pt: {
@@ -3823,7 +3847,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: 'Não foi possível adicionar {{count}} pagamento(s) próximo(s). Peça para enviarem de novo.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'Mostrar o código novamente'
+      pay_offline_show_code: 'Mostrar o código novamente',
+      pay_parked_title: 'Pagamento ainda não entregue',
+      pay_parked_body: 'Nada foi enviado. Se escanearam seu código, ainda vai chegar; se não, cancele para recuperar o dinheiro.',
+      pay_parked_cancel: 'Cancelar pagamento',
+      pay_parked_already_sent: 'Este pagamento já foi enviado',
     }
   },
   bn: {
@@ -4333,7 +4361,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: '{{count}}টি কাছাকাছি পেমেন্ট যোগ করা যায়নি। প্রেরককে আবার পাঠাতে বলুন।',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'কোড আবার দেখান'
+      pay_offline_show_code: 'কোড আবার দেখান',
+      pay_parked_title: 'পেমেন্ট এখনো হস্তান্তর হয়নি',
+      pay_parked_body: 'কিছুই পাঠানো হয়নি। তাঁরা কোড স্ক্যান করলে এটি পৌঁছাবে; না হলে বাতিল করে টাকা ফেরত নিন।',
+      pay_parked_cancel: 'পেমেন্ট বাতিল করুন',
+      pay_parked_already_sent: 'এই পেমেন্ট ইতিমধ্যে পাঠানো হয়েছে',
     }
   },
   ru: {
@@ -4844,7 +4876,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: 'Не удалось добавить {{count}} ближайших платежей. Попросите отправителя отправить снова.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'Показать код снова'
+      pay_offline_show_code: 'Показать код снова',
+      pay_parked_title: 'Платёж ещё не передан',
+      pay_parked_body: 'Ничего не отправлено. Если код отсканировали, платёж дойдёт; если нет — отмените и верните деньги.',
+      pay_parked_cancel: 'Отменить платёж',
+      pay_parked_already_sent: 'Этот платёж уже отправлен',
     }
   },
   id: {
@@ -5355,7 +5391,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: '{{count}} pembayaran terdekat tidak bisa ditambahkan. Minta pengirim mengirim ulang.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'Tampilkan kode lagi'
+      pay_offline_show_code: 'Tampilkan kode lagi',
+      pay_parked_title: 'Pembayaran belum diserahkan',
+      pay_parked_body: 'Belum ada yang dikirim. Jika mereka memindai kode Anda, pembayaran tetap tiba; jika tidak, batalkan untuk mengambil kembali dananya.',
+      pay_parked_cancel: 'Batalkan pembayaran',
+      pay_parked_already_sent: 'Pembayaran ini sudah terkirim',
     }
   },
   ja: {
@@ -5878,7 +5918,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: '{{count}} 件の近くの支払いを追加できませんでした。送り主に再送を依頼してください。',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'コードをもう一度表示'
+      pay_offline_show_code: 'コードをもう一度表示',
+      pay_parked_title: '支払いはまだ渡されていません',
+      pay_parked_body: 'まだ何も送信されていません。相手がコードを読み取っていれば届きます。読み取っていなければ、キャンセルして資金を戻してください。',
+      pay_parked_cancel: '支払いをキャンセル',
+      pay_parked_already_sent: 'この支払いはすでに送信されました',
     }
   },
   pl: {
@@ -6405,7 +6449,11 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: 'Nie udało się dodać {{count}} płatności w pobliżu. Poproś nadawcę o ponowne wysłanie.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_show_code: 'Pokaż kod ponownie'
+      pay_offline_show_code: 'Pokaż kod ponownie',
+      pay_parked_title: 'Płatność nie została jeszcze przekazana',
+      pay_parked_body: 'Nic nie zostało wysłane. Jeśli zeskanowali kod, płatność dotrze; jeśli nie, anuluj i odzyskaj pieniądze.',
+      pay_parked_cancel: 'Anuluj płatność',
+      pay_parked_already_sent: 'Ta płatność została już wysłana',
     }
   }
 }
