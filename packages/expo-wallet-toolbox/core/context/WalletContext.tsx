@@ -1787,6 +1787,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         await storage.destroy()
       } catch {}
     }
+    // And drop the handle with it. Leaving a destroyed storage in state kept
+    // the screens reading the OLD chain's database until the new build
+    // replaced it — which is how a testnet wallet displayed mainnet money.
+    setStorage(null)
 
     // Tear down current wallet state (but keep mnemonic / config)
     setManagers({})
@@ -1827,6 +1831,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           await storage.destroy()
         } catch {}
       }
+      setStorage(null)
 
       // Tear down current wallet state (but keep mnemonic)
       setManagers({})

@@ -75,6 +75,7 @@ import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityR
 import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
+import { storageMatchesNetwork } from '../../core/net/chainMatch'
 import { makeMetadataDecryptor } from '../../core/peerpay/metadataDecryptor'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
@@ -269,6 +270,14 @@ export function WalletHomeScreen() {
   }, [walletBuilding, walletBuilt, configStatus, unlockState.status])
 
   const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
+  /**
+   * Whether what is mounted is this network's wallet.
+   *
+   * A switch tears the wallet down and rebuilds it; until that finishes there
+   * is either no storage or the old chain's. Reading either one is how a
+   * testnet wallet came to show a mainnet balance and a mainnet activity list.
+   */
+  const onThisNetwork = storageMatchesNetwork(storage, selectedNetwork)
   const [balance, setBalance] = useState<number | null>(null)
   const [actions, setActions] = useState<ActivityAction[]>([])
   const [loading, setLoading] = useState(true)
@@ -324,6 +333,9 @@ export function WalletHomeScreen() {
         // doing rather than on the database. See storage/methods/walletBalanceSql.
         // The wallet's own path stays as the fallback for the window before
         // storage and the user id are known.
+        // Mid-switch the previous chain's storage is still mounted, and its
+        // figure is not this network's money.
+        if (!onThisNetwork) return
         let total: number | null = null
         if (storage && walletUserId != null) {
           total = await readWalletBalance(storage, walletUserId)
@@ -349,7 +361,7 @@ export function WalletHomeScreen() {
       if (inFlightBalanceRef.current === read) inFlightBalanceRef.current = null
     })
     return await read
-  }, [storage, walletUserId, managers.permissionsManager, adminOriginator, balanceCacheKey])
+  }, [storage, walletUserId, managers.permissionsManager, adminOriginator, balanceCacheKey, onThisNetwork])
 
   /**
    * The effects below key off DATA changes, never off `refreshBalance`'s
@@ -369,6 +381,17 @@ export function WalletHomeScreen() {
   // Either route to a figure counts: the direct read needs storage and the user
   // id, the fallback needs the permissions manager.
   const hasWallet = (storage != null && walletUserId != null) || managers.permissionsManager != null
+
+  // The old chain's figures must not outlive the switch that ended them. The
+  // cached read below refills the balance from THIS network's key a moment
+  // later; the list refills once its own storage is mounted.
+  useEffect(() => {
+    setBalance(null)
+    setActions([])
+    setOfflineByTxid(new Map())
+    offsetRef.current = 0
+    exhaustedRef.current = false
+  }, [selectedNetwork])
 
   useEffect(() => {
     let cancelled = false
