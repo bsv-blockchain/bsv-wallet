@@ -658,8 +658,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -1163,8 +1161,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -1670,8 +1666,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -2181,8 +2175,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -2686,8 +2678,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -3187,8 +3177,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -3690,8 +3678,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -4193,8 +4179,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -4698,8 +4682,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -5202,8 +5184,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -5722,8 +5702,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',
@@ -6241,8 +6219,6 @@ const resources = {
       copy_details: 'Copy details',
       payment_bounced_resend: 'Asked them to send this payment again',
       dismiss_rejected_payment: 'Dismissed this rejected payment',
-      recipient_message_box_unknown:
-        "Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.",
       activity_load_failed: "Couldn't load activity",
       activity_load_retry: 'Tap to retry',
       home_payments_need_attention: '{{count}} payments need attention',

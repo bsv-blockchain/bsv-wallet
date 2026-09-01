@@ -252,19 +252,21 @@ describe('sendViaHandle', () => {
     expect(sendWithCalls).toHaveLength(0)
   })
 
-  it('throws recipient_host_unknown and does not mint when the recipient inbox is unknown', async () => {
+  // Anointing a host costs a transaction, so a first-time receiver has no
+  // advertisement. Sending must still work: the token goes to the configured
+  // message box, which is where the recipient's app polls by default.
+  it('sends to the configured message box when the recipient has never advertised a host', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
     const client = {
       host: 'https://sender.example',
-      sendMessage: jest.fn(),
+      sendMessage: jest.fn().mockResolvedValue(undefined),
       resolveHostForRecipient: jest.fn().mockResolvedValue('https://sender.example'),
       queryAdvertisements: jest.fn().mockResolvedValue([])
     }
-    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('recipient_host_unknown')
-    expect(w.createAction).not.toHaveBeenCalled()
-    expect(client.sendMessage).not.toHaveBeenCalled()
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    await sendViaHandle(sendArgs(w, client, s))
+    expect(client.sendMessage).toHaveBeenCalled()
+    expect((await getOutboxEntries(s))[0].status).toBe('sent')
   })
 
   it('still sends when the recipient advertised a host, even if it matches the sender host', async () => {

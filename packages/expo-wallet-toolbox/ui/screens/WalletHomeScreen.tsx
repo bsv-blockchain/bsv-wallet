@@ -67,7 +67,6 @@ import {
   unsentEntries,
   retryDelivery,
   makePeerPayClient,
-  isRecipientHostUnknown,
   isMessageBoxNetworkError,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
@@ -784,13 +783,11 @@ export function WalletHomeScreen() {
             haptics.success()
             await onRefresh()
           } catch (e: unknown) {
-            const message = isRecipientHostUnknown(e)
-              ? t('recipient_message_box_unknown')
-              : isMessageBoxNetworkError(e)
-                ? t('message_box_unreachable')
-                : e instanceof Error
-                  ? e.message
-                  : t('unknown_error')
+            const message = isMessageBoxNetworkError(e)
+              ? t('message_box_unreachable')
+              : e instanceof Error
+                ? e.message
+                : t('unknown_error')
             showToast(message, { type: 'error' })
           } finally {
             setBusyRow(null)

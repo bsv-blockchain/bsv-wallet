@@ -34,14 +34,6 @@ export const NO_MESSAGE_BOX = 'noMessageBox'
 /** The message box outbound payments are delivered into. */
 const PAYMENT_INBOX = 'payment_inbox'
 
-export const RECIPIENT_HOST_UNKNOWN = 'recipient_host_unknown'
-
-type HostAwareClient = Pick<PeerPayClient, 'sendMessage'> & {
-  host?: string
-  resolveHostForRecipient?(identityKey: string): Promise<string>
-  queryAdvertisements?(identityKey?: string): Promise<unknown[]>
-}
-
 /** Build a PeerPay client, or null when the host/wallet cannot be used. */
 export function makePeerPayClient(args: {
   wallet: ConstructorParameters<typeof PeerPayClient>[0]['walletClient'] | null | undefined
@@ -59,28 +51,6 @@ export function makePeerPayClient(args: {
   } catch {
     return null
   }
-}
-
-/**
- * Block a send that would drop the token on the sender's own host because the
- * recipient has never advertised an inbox. Overlay-down lookups that return []
- * look the same as "never anointed" — that is the case the copy asks them to
- * open the app once.
- */
-export async function assertRecipientHostKnown(client: HostAwareClient, recipient: string): Promise<void> {
-  if (typeof client.resolveHostForRecipient !== 'function' || typeof client.queryAdvertisements !== 'function') {
-    return
-  }
-  const [resolved, ads] = await Promise.all([
-    client.resolveHostForRecipient(recipient),
-    client.queryAdvertisements(recipient)
-  ])
-  const empty = !Array.isArray(ads) || ads.length === 0
-  if (empty && resolved === client.host) throw new Error(RECIPIENT_HOST_UNKNOWN)
-}
-
-export function isRecipientHostUnknown(e: unknown): boolean {
-  return e instanceof Error && e.message === RECIPIENT_HOST_UNKNOWN
 }
 
 interface StorageLike {
@@ -401,7 +371,7 @@ async function abortPeerPayNosend(
 export async function sendViaHandle(args: {
   wallet: HandleRailWallet
   adminOriginator: string
-  client: HostAwareClient
+  client: Pick<PeerPayClient, 'sendMessage'>
   storage: StorageLike
   recipient: string
   satoshis: number
@@ -415,9 +385,11 @@ export async function sendViaHandle(args: {
   const { wallet, adminOriginator, client, storage, recipient, messageBoxUrl, recipientName } = args
   const sats = Math.round(Number(args.satoshis))
   if (!Number.isFinite(sats) || sats <= 0) throw new Error('Invalid amount')
-  // Before minting: a fallback to our own host with no overlay advert would
-  // broadcast a payment nobody can find. Do not sendMessage; do not broadcast.
-  await assertRecipientHostKnown(client, recipient)
+  // No advertisement check. Anointing a host costs a transaction, so someone
+  // receiving BSV for the first time cannot have one — refusing to send to them
+  // would make an empty wallet unpayable. The client resolves the recipient's
+  // advertised host when there is one and otherwise falls back to the host this
+  // wallet is configured for, which is where both parties' apps look by default.
 
   // The note IS the description when one was given — verbatim; otherwise
   // "Pay <who>". BRC-100 requires 5–2000 bytes and the validator does not

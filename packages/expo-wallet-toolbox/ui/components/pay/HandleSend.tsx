@@ -36,7 +36,6 @@ import {
   NO_MESSAGE_BOX,
   cancelOutboxPayment,
   isMessageBoxNetworkError,
-  isRecipientHostUnknown,
   makePeerPayClient,
   retryDelivery,
   sendViaHandle,
@@ -286,11 +285,9 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
       const message =
         error instanceof RangeError
           ? t('enter_valid_amount')
-          : isRecipientHostUnknown(error)
-            ? t('recipient_message_box_unknown')
-            : isMessageBoxNetworkError(error)
-              ? t('message_box_unreachable')
-              : error?.message || t('unknown_error')
+          : isMessageBoxNetworkError(error)
+            ? t('message_box_unreachable')
+            : error?.message || t('unknown_error')
       setSendResult({ type: 'error', message })
       // The outbox entry stays 'unsent' and is offered for retry below.
       await loadOutbox()
@@ -326,11 +323,9 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
           if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
           return
         }
-        const reason = isRecipientHostUnknown(e)
-          ? t('recipient_message_box_unknown')
-          : isMessageBoxNetworkError(e)
-            ? t('message_box_unreachable')
-            : e?.message || t('unknown_error')
+        const reason = isMessageBoxNetworkError(e)
+          ? t('message_box_unreachable')
+          : e?.message || t('unknown_error')
         showToast(`${t('retry_failed')}: ${reason}`, { type: 'error' })
       } finally {
         setRetryingId(null)
