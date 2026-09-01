@@ -52,7 +52,7 @@
  * shares nothing. What genuinely is shared — the `offline_actions` insert — is
  * reused directly via `insertOfflineAction`.
  */
-import { insertOfflineAction } from '../storage/methods/offlineActions'
+import { insertOfflineAction, updateOfflineAction } from '../storage/methods/offlineActions'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 
@@ -117,4 +117,28 @@ export async function parkSentPaymentOffline(args: {
   // No promote, and no TaskSendOffline.noteEnqueued(): both are what turn a
   // stored frame into a broadcast.
   await insertOfflineAction(db, { userId: tx.userId, txid, role: 'sent', framePayload }, 'parked')
+}
+
+
+/**
+ * Release a parked payment: the payer showed the code again and this time
+ * confirmed the hand-over.
+ *
+ * The same two writes `holdSentPaymentOffline` makes, minus the insert — the
+ * row already exists from parking, so it is flipped to 'queued' instead. Same
+ * order for the same reason: the durable row moves first, the promotion after.
+ */
+export async function releaseParkedPayment(args: { storage: StorageExpoSQLite; txid: string }): Promise<void> {
+  const { storage, txid } = args
+  const db = storage.sqliteDb
+  if (!db) throw new Error('the database is not open, cannot release this payment')
+
+  const tx = (await storage.findTransactions({ partial: { txid }, noRawTx: true }))[0]
+  if (!tx) throw new Error(`no transaction record for ${txid}, cannot release it`)
+
+  await updateOfflineAction(db, txid, { status: 'queued' })
+  TaskSendOffline.noteEnqueued()
+  // Already promoted if the payee broadcast and this device saw it; the write
+  // is only correct while the transaction is still being withheld.
+  if (tx.status === 'nosend') await storage.updateTransactionStatus('unproven', tx.transactionId)
 }

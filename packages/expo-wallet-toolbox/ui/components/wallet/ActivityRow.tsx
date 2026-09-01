@@ -73,8 +73,6 @@ interface Props {
   onSendPaymentDetails?: (txid: string) => void
   /** Start a new payment (or retryDelivery) for a failed outbound row. */
   onSendAgain?: (action: ActivityAction) => void
-  /** Re-display the sealed nearby frame for a parked payment. */
-  onShowCode?: (txid: string) => void
   /** Cancel a parked payment: abort the action and retire its queue row. */
   onCancelParked?: (txid: string) => void
 }
@@ -109,7 +107,6 @@ function ActivityRowBase({
   onAbort,
   onSendPaymentDetails,
   onSendAgain,
-  onShowCode,
   onCancelParked
 }: Props) {
   const { t } = useTranslation()
@@ -143,10 +140,11 @@ function ActivityRowBase({
   // A parked payment was built and shown as a code, but never released: it is
   // not on chain and no task will put it there. An explorer link would 404 and
   // a Refresh would ask the network about a transaction it has never seen, so
-  // this row offers the two things that actually apply — show the code again,
-  // or cancel and take the money back.
+  // the row offers only the two things that apply. Resend goes out over the
+  // message box rather than re-showing the code: if the payee is still standing
+  // there, cancelling and starting again is both quicker and honest, and if
+  // they are not, the remote rail is the only one that can still reach them.
   const parked = offlineStatus === 'parked'
-  const canShowCode = parked && !!action.txid && !!onShowCode
   const canCancelParked = parked && !!action.txid && !!onCancelParked
   const canAbort = !parked && ABORTABLE_STATUSES.has(action.status) && !!action.reference
   // Any outgoing payment this wallet can rebuild: both rails write the payee's
@@ -157,10 +155,10 @@ function ActivityRowBase({
     !!action.txid &&
     (action.isOutgoing ?? !incoming) &&
     !!action.labels?.some(l => l === 'peerpay' || l === 'localpay')
-  const canResendDetails = !parked && resendableOutbound && !!onSendPaymentDetails
+  const canResendDetails = resendableOutbound && !!onSendPaymentDetails
   const canSendAgain = !parked && !incoming && action.status === 'failed' && !!onSendAgain
   const hasUtilities = parked
-    ? canShowCode || canCancelParked
+    ? canResendDetails || canCancelParked
     : !!action.txid || canAbort || canResendDetails || canSendAgain
 
   return (
@@ -266,14 +264,6 @@ function ActivityRowBase({
                   label={t('tx_action_resend_short')}
                   accessibilityLabel={t('send_payment_details_again')}
                   onPress={() => onSendPaymentDetails!(action.txid)}
-                />
-              ) : null}
-              {canShowCode ? (
-                <Chip
-                  icon="send-outline"
-                  label={t('tx_action_resend_short')}
-                  accessibilityLabel={t('pay_offline_show_code')}
-                  onPress={() => onShowCode!(action.txid)}
                 />
               ) : null}
               {canCancelParked ? (

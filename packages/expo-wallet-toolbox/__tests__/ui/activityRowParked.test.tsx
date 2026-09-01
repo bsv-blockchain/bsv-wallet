@@ -49,20 +49,19 @@ function chips(offlineStatus?: string, over: Partial<ActivityAction> = {}) {
       onAbort={noop}
       onSendPaymentDetails={noop}
       onSendAgain={noop}
-      onShowCode={noop}
       onCancelParked={noop}
     />
   )
 }
 
-it('offers only show-code and cancel on a parked payment', () => {
+it('offers only a remote resend and cancel on a parked payment', () => {
   const r = chips('parked')
   // A parked payment is not on chain: an explorer link would 404 and a Refresh
   // would ask the network about a transaction it has never seen.
   expect(r.queryByText('WoC')).toBeNull()
   expect(r.queryByText('tx_action_refresh_short')).toBeNull()
-  expect(r.getByText('tx_action_resend_short')).toBeTruthy()
-  expect(r.getByLabelText('pay_offline_show_code')).toBeTruthy()
+  // Resend is the message-box rail, not a re-run of the nearby hand-over.
+  expect(r.getByLabelText('send_payment_details_again')).toBeTruthy()
   expect(r.getByLabelText('pay_parked_cancel')).toBeTruthy()
 })
 

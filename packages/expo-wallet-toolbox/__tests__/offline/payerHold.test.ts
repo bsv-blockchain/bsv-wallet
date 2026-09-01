@@ -1,5 +1,5 @@
-import { holdSentPaymentOffline, parkSentPaymentOffline } from '../../core/offline/payerHold'
-import { insertOfflineAction } from '../../core/storage/methods/offlineActions'
+import { holdSentPaymentOffline, parkSentPaymentOffline, releaseParkedPayment } from '../../core/offline/payerHold'
+import { insertOfflineAction, updateOfflineAction } from '../../core/storage/methods/offlineActions'
 import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 
@@ -7,17 +7,19 @@ import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 // here it's mocked so these tests pin exactly what `holdSentPaymentOffline`
 // hands it, without duplicating its own SQL coverage.
 jest.mock('../../core/storage/methods/offlineActions', () => ({
-  insertOfflineAction: jest.fn().mockResolvedValue(undefined)
+  insertOfflineAction: jest.fn().mockResolvedValue(undefined),
+  updateOfflineAction: jest.fn().mockResolvedValue(undefined)
 }))
 
 const mockedInsert = insertOfflineAction as jest.Mock
+const mockedUpdate = updateOfflineAction as jest.Mock
 
 const TXID = 'aa'.repeat(32)
 
 function storageStub(
   opts: {
     sqliteDb?: unknown
-    tx?: { transactionId: number; userId: number } | null
+    tx?: { transactionId: number; userId: number; status?: string } | null
     updateTransactionStatus?: jest.Mock
   } = {}
 ) {
@@ -154,5 +156,31 @@ describe('parkSentPaymentOffline', () => {
     await expect(
       parkSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
     ).rejects.toThrow(/database is not open/)
+  })
+})
+
+describe('releaseParkedPayment', () => {
+  beforeEach(() => {
+    mockedUpdate.mockClear()
+    mockedUpdate.mockResolvedValue(undefined)
+    TaskSendOffline.resetForTests()
+  })
+
+  it('flips the parked row to queued and promotes the withheld transaction', async () => {
+    const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
+
+    await releaseParkedPayment({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+
+    expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
+    expect(storage.updateTransactionStatus).toHaveBeenCalledWith('unproven', 99)
+  })
+
+  it('leaves an already-promoted transaction alone', async () => {
+    const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'unproven' } })
+
+    await releaseParkedPayment({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+
+    expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
+    expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
   })
 })
