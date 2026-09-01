@@ -527,7 +527,7 @@ export function WalletConfigScreen() {
             label={t('display_currency')}
             value={CURRENCIES.find(c => c.id === currentCurrency)?.label ?? currentCurrency}
             icon="cash-outline"
-            iconColor="#00C7BE"
+            iconColor="#F5B300"
             onPress={() => setCurrencyExpanded(e => !e)}
             showChevron={currencyExpanded}
             chevronDown={currencyExpanded}
@@ -576,7 +576,7 @@ export function WalletConfigScreen() {
             label={t('check_wallet')}
             subtitle={t('check_wallet_subtitle')}
             icon="checkmark-done-circle-outline"
-            iconColor="#0A84FF"
+            iconColor="#30D158"
             onPress={() => router.push('/wallet-check' as any)}
             isLast
           />

@@ -42,6 +42,8 @@ import {
   type WalletCheckStepStatus
 } from '../../core/walletRepair/runWalletCheck'
 import { userFacingPayError } from '../../core/pay/userError'
+import { backupAttestation } from '../../core/services/vault/backupAttestation'
+import { getBackupUploadState } from '../../core/backup/status'
 import { getOnline, haptics, spacing, typography, useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -79,10 +81,13 @@ function loadExpoRouter(): ExpoRouterModule {
 }
 
 const STEPS: { id: WalletCheckStepId; labelKey: string }[] = [
+  { id: 'online', labelKey: 'wallet_check_step_online' },
   { id: 'records', labelKey: 'wallet_check_step_records' },
   { id: 'coins', labelKey: 'wallet_check_step_coins' },
   { id: 'proofs', labelKey: 'wallet_check_step_proofs' },
-  { id: 'missed_payments', labelKey: 'wallet_check_step_missed' }
+  { id: 'missed_payments', labelKey: 'wallet_check_step_missed' },
+  { id: 'backup', labelKey: 'wallet_check_step_backup' },
+  { id: 'phrase_backup', labelKey: 'wallet_check_step_phrase' }
 ]
 
 export function isReviewActionsError(error: unknown): boolean {
@@ -132,6 +137,16 @@ function useWalletCheckPorts(): WalletCheckPorts {
 
   return useMemo<WalletCheckPorts>(
     () => ({
+      checkOnline: async () => ({ online: await getOnline() }),
+      checkBackup: async () => await getBackupUploadState(),
+      checkPhraseBackup: async () => {
+        // Advisory: it records that someone pressed "I have written these
+        // down" or completed a print. Nothing verifies the paper exists — but
+        // the absence of the record does mean nobody ever said they had.
+        if (!wallet) return { backedUp: false }
+        const { publicKey } = await wallet.getPublicKey({ identityKey: true }, adminOriginator)
+        return { backedUp: (await backupAttestation.get(publicKey)) !== null }
+      },
       reviewSpendable: async () => {
         const log = await checkUtxoSpendability()
         // Stuck-reservation releases are counted by releaseStuck, not here.
@@ -235,6 +250,7 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     freedCoins: number
     recoveredPayments: number
     allOk: boolean
+    allClear: boolean
   } | null>(null)
 
   const run = useCallback(async () => {
@@ -253,9 +269,10 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
       setSummary({
         freedCoins: result.freedCoins,
         recoveredPayments: result.recoveredPayments,
-        allOk: result.allOk
+        allOk: result.allOk,
+        allClear: result.allClear
       })
-      if (result.allOk) haptics.success()
+      if (result.allClear) haptics.success()
       else haptics.error()
     } catch {
       setError(t('wallet_check_failed'))
@@ -274,14 +291,17 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     STEPS.findIndex(s => s.id === step)
   )
   const done = STEPS.filter(x => statuses[x.id] !== undefined).length
-  // Counts finished steps, not the one in flight: "3 of 4" beside three ticks.
-  const current = running ? done : STEPS.length
   const doneCopy =
     summary == null || !summary.allOk
       ? null
-      : summary.freedCoins === 0 && summary.recoveredPayments === 0
-        ? t('wallet_check_ok')
-        : t('wallet_check_summary', { freed: summary.freedCoins, recovered: summary.recoveredPayments })
+      : !summary.allClear
+        ? // Ran end to end, but something is worth seeing: offline, no backup,
+          // no phrase written down. Saying "everything looks good" over an
+          // amber row would be the screen contradicting itself.
+          t('wallet_check_attention')
+        : summary.freedCoins === 0 && summary.recoveredPayments === 0
+          ? t('wallet_check_ok')
+          : t('wallet_check_summary', { freed: summary.freedCoins, recovered: summary.recoveredPayments })
   const couldntCheck = Boolean(summary && !summary.allOk)
 
   return (
@@ -298,9 +318,6 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
       >
         <Text style={[styles.title, { color: colors.textPrimary }]}>{t('check_wallet')}</Text>
         <View style={styles.progressBlock}>
-          <Text style={[styles.progressCount, { color: colors.textSecondary }]}>
-            {t('wallet_check_progress', { current, total: STEPS.length })}
-          </Text>
           {/* Every step is listed from the first frame, so the list never
               reflows as it fills and a finished check stays on screen as its
               own evidence. */}
@@ -314,7 +331,7 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
                     <ActivityIndicator size="small" color={colors.textSecondary} />
                   ) : status === 'ok' ? (
                     <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-                  ) : status === 'error' ? (
+                  ) : status === 'attention' || status === 'error' ? (
                     <Ionicons name="alert-circle" size={22} color={colors.warning} />
                   ) : (
                     <Ionicons name="ellipse-outline" size={22} color={colors.textQuaternary} />
@@ -346,21 +363,39 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
             </View>
           )}
         </View>
-        {!running && doneCopy && <Text style={[styles.done, { color: colors.textPrimary }]}>{doneCopy}</Text>}
-        {!running && (couldntCheck || error) && (
-          <View style={styles.errorBlock}>
-            <Text style={[styles.done, { color: colors.textPrimary }]}>
-              {couldntCheck ? t('wallet_check_couldnt') : error}
+        {/* The verdict sits under the list it summarises, not above it: the
+            checklist is the evidence, and this is what it adds up to. */}
+        {!running && (doneCopy || couldntCheck || error) && (
+          <View style={styles.resultBlock}>
+            <Text style={[styles.done, styles.centered, { color: colors.textPrimary }]}>
+              {couldntCheck ? t('wallet_check_couldnt') : error ? error : doneCopy}
             </Text>
             {couldntCheck && (
-              <Text style={[styles.body, { color: colors.textSecondary }]}>{t('wallet_check_couldnt_body')}</Text>
+              <Text style={[styles.body, styles.centered, { color: colors.textSecondary }]}>
+                {t('wallet_check_couldnt_body')}
+              </Text>
             )}
+            {(couldntCheck || error) && (
+              // Outlined, because Done below is filled: two accent-filled
+              // full-width buttons would read as equally weighted, and Done is
+              // the one that ends the task.
+              <TouchableOpacity
+                onPress={() => void run()}
+                style={[styles.retry, { borderColor: colors.separator }]}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.retryLabel, { color: colors.accent }]}>{t('retry')}</Text>
+              </TouchableOpacity>
+            )}
+            {/* The way out, and the only thing on this screen the user still
+                has to do — so it carries the accent and the full width rather
+                than competing with Retry as an equal. */}
             <TouchableOpacity
-              onPress={() => void run()}
-              style={[styles.retry, { backgroundColor: colors.accent }]}
+              onPress={() => router.replace('/' as any)}
+              style={[styles.doneButton, { backgroundColor: colors.accent }]}
               accessibilityRole="button"
             >
-              <Text style={[styles.retryLabel, { color: colors.textOnAccent }]}>{t('retry')}</Text>
+              <Text style={[styles.retryLabel, { color: colors.textOnAccent }]}>{t('done')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -390,9 +425,6 @@ const styles = StyleSheet.create({
   },
   progressBlock: {
     gap: spacing.sm
-  },
-  progressCount: {
-    ...typography.subhead
   },
   checkRow: {
     flexDirection: 'row',
@@ -426,13 +458,26 @@ const styles = StyleSheet.create({
   body: {
     ...typography.body
   },
-  errorBlock: {
-    gap: spacing.lg
+  resultBlock: {
+    gap: spacing.lg,
+    alignItems: 'center',
+    marginTop: spacing.xxl
+  },
+  centered: {
+    textAlign: 'center'
+  },
+  doneButton: {
+    alignSelf: 'stretch',
+    minHeight: 50,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   retry: {
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
+    borderWidth: StyleSheet.hairlineWidth,
     minHeight: 44,
-    minWidth: 44,
     paddingHorizontal: spacing.lg,
     borderRadius: 12,
     alignItems: 'center',
