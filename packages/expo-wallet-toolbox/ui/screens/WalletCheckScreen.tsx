@@ -38,6 +38,7 @@ import {
 import {
   runWalletCheck,
   type WalletCheckPorts,
+  type WalletCheckSkips,
   type WalletCheckStepId,
   type WalletCheckStepStatus
 } from '../../core/walletRepair/runWalletCheck'
@@ -80,14 +81,16 @@ function loadExpoRouter(): ExpoRouterModule {
   return expoRouterMod
 }
 
+/** Display order, and the order runWalletCheck runs them in. Coins last: it is
+ *  the only step that can take minutes. */
 const STEPS: { id: WalletCheckStepId; labelKey: string }[] = [
   { id: 'online', labelKey: 'wallet_check_step_online' },
   { id: 'records', labelKey: 'wallet_check_step_records' },
-  { id: 'coins', labelKey: 'wallet_check_step_coins' },
   { id: 'proofs', labelKey: 'wallet_check_step_proofs' },
   { id: 'missed_payments', labelKey: 'wallet_check_step_missed' },
   { id: 'backup', labelKey: 'wallet_check_step_backup' },
-  { id: 'phrase_backup', labelKey: 'wallet_check_step_phrase' }
+  { id: 'phrase_backup', labelKey: 'wallet_check_step_phrase' },
+  { id: 'coins', labelKey: 'wallet_check_step_coins' }
 ]
 
 export function isReviewActionsError(error: unknown): boolean {
@@ -242,8 +245,40 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
   const portsRef = useRef(ports)
   portsRef.current = ports
 
-  const [step, setStep] = useState<WalletCheckStepId>('records')
   const [statuses, setStatuses] = useState<Partial<Record<WalletCheckStepId, WalletCheckStepStatus>>>({})
+  /**
+   * Skip state lives in refs, not state: the running pass reads it through
+   * closures the runner already holds, and a re-render must not hand it a
+   * different Set. Each id gets a promise the runner can race, resolved by the
+   * Skip button.
+   */
+  const skippedRef = useRef<Set<WalletCheckStepId>>(new Set())
+  const waitersRef = useRef<Map<WalletCheckStepId, { promise: Promise<void>; resolve: () => void }>>(new Map())
+  const waiterFor = useCallback((id: WalletCheckStepId) => {
+    const existing = waitersRef.current.get(id)
+    if (existing) return existing
+    let resolve: () => void = () => {}
+    const promise = new Promise<void>(r => {
+      resolve = r
+    })
+    const entry = { promise, resolve }
+    waitersRef.current.set(id, entry)
+    return entry
+  }, [])
+  const skips = useMemo<WalletCheckSkips>(
+    () => ({
+      isSkipped: id => skippedRef.current.has(id),
+      whenSkipped: id => waiterFor(id).promise
+    }),
+    [waiterFor]
+  )
+  const skipCurrent = useCallback(
+    (id: WalletCheckStepId) => {
+      skippedRef.current.add(id)
+      waiterFor(id).resolve()
+    },
+    [waiterFor]
+  )
   const [running, setRunning] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<{
@@ -256,15 +291,19 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
   const run = useCallback(async () => {
     setError(null)
     setSummary(null)
-    setStep('records')
     setStatuses({})
+    skippedRef.current = new Set()
+    waitersRef.current = new Map()
     setRunning(true)
     try {
       const result = await runWalletCheck(
         portsRef.current,
-        (id: WalletCheckStepId) => setStep(id),
+        // Start-of-step is not tracked: activeStep is derived from what has
+        // settled, which cannot disagree with the ticks beside it.
+        () => {},
         (id: WalletCheckStepId, status: WalletCheckStepStatus) =>
-          setStatuses(prev => ({ ...prev, [id]: status }))
+          setStatuses(prev => ({ ...prev, [id]: status })),
+        skips
       )
       setSummary({
         freedCoins: result.freedCoins,
@@ -280,17 +319,15 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     } finally {
       setRunning(false)
     }
-  }, [t])
+  }, [t, skips])
 
   useEffect(() => {
     void run()
   }, [run])
 
-  const stepIndex = Math.max(
-    0,
-    STEPS.findIndex(s => s.id === step)
-  )
-  const done = STEPS.filter(x => statuses[x.id] !== undefined).length
+  // The first step with no status yet is the one in flight: steps settle in
+  // order, so this needs no separate "which step started" state to drift from.
+  const activeStep = running ? STEPS.find(x => statuses[x.id] === undefined) : undefined
   const doneCopy =
     summary == null || !summary.allOk
       ? null
@@ -323,7 +360,7 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
               own evidence. */}
           {STEPS.map((s, i) => {
             const status = statuses[s.id]
-            const active = running && status === undefined && i === stepIndex
+            const active = activeStep?.id === s.id
             return (
               <View key={s.id} style={styles.checkRow}>
                 <View style={styles.checkIcon}>
@@ -333,6 +370,8 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
                     <Ionicons name="checkmark-circle" size={22} color={colors.success} />
                   ) : status === 'attention' || status === 'error' ? (
                     <Ionicons name="alert-circle" size={22} color={colors.warning} />
+                  ) : status === 'skipped' ? (
+                    <Ionicons name="remove-circle-outline" size={22} color={colors.textTertiary} />
                   ) : (
                     <Ionicons name="ellipse-outline" size={22} color={colors.textQuaternary} />
                   )}
@@ -340,27 +379,36 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
                 <Text
                   style={[
                     styles.checkLabel,
-                    { color: status === undefined && !active ? colors.textTertiary : colors.textPrimary }
+                    {
+                      color:
+                        status === 'skipped' || (status === undefined && !active)
+                          ? colors.textTertiary
+                          : colors.textPrimary
+                    }
                   ]}
                   accessibilityLabel={`${t(s.labelKey)}${status === 'ok' ? ' ✓' : ''}`}
                 >
                   {t(s.labelKey)}
                 </Text>
+                {status === 'skipped' && (
+                  <Text style={[styles.skippedTag, { color: colors.textTertiary }]}>{t('wallet_check_skipped')}</Text>
+                )}
               </View>
             )
           })}
-          {running && (
-            <View style={[styles.track, { backgroundColor: colors.fillTertiary }]}>
-              <View
-                style={[
-                  styles.fill,
-                  {
-                    width: `${(done / STEPS.length) * 100}%`,
-                    backgroundColor: colors.accent
-                  }
-                ]}
-              />
-            </View>
+          {/* Where the progress bar used to be. A bar only told the user to
+              keep waiting; this lets them stop waiting on the step that is
+              holding them up — which, once coins runs last, is the only step
+              that ever does. */}
+          {activeStep && (
+            <TouchableOpacity
+              onPress={() => skipCurrent(activeStep.id)}
+              style={[styles.skip, { borderColor: colors.separator }]}
+              accessibilityRole="button"
+              accessibilityLabel={t('wallet_check_skip')}
+            >
+              <Text style={[styles.retryLabel, { color: colors.accent }]}>{t('wallet_check_skip')}</Text>
+            </TouchableOpacity>
           )}
         </View>
         {/* The verdict sits under the list it summarises, not above it: the
@@ -442,15 +490,17 @@ const styles = StyleSheet.create({
     ...typography.body,
     flex: 1
   },
-  track: {
-    height: 4,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginTop: spacing.sm
+  skip: {
+    alignSelf: 'stretch',
+    marginTop: spacing.md,
+    minHeight: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  fill: {
-    height: 4,
-    borderRadius: 2
+  skippedTag: {
+    ...typography.footnote
   },
   done: {
     ...typography.title3
