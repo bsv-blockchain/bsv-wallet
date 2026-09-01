@@ -43,6 +43,7 @@ import { makeCreditClassifier } from '../../../core/pay/creditErrors'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
 import { userFacingPayError } from '../../../core/pay/userError'
 import { creditInboxOnce, INBOX_DESCRIPTION, type CreditInboxResult } from '../../../core/pay/creditInbox'
+import { setReceiveInboxFocused } from '../../../core/pay/receiveFocus'
 import { TaskCreditInbox } from '../../../core/monitor/TaskCreditInbox'
 import { useOnline } from '../../hooks/useOnline'
 import { type DamagedInboxMessage } from '../../../core/pay/damagedInbox'
@@ -410,9 +411,11 @@ export default function HandleReceive() {
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true
+      setReceiveInboxFocused(true)
       if (!identityKey) void loadIdentityKey()
       return () => {
         focusedRef.current = false
+        setReceiveInboxFocused(false)
       }
     }, [identityKey, loadIdentityKey])
   )

@@ -151,6 +151,20 @@ describe('TaskCreditInbox backoff', () => {
     await t.runTask()
     expect(TaskCreditInbox.lastAttentionCount).toBe(2)
   })
+
+  it('notifies once when a pass accepts payments', async () => {
+    const onAccepted = jest.fn()
+    const task = new TaskCreditInbox(monitor, async () => ({ accepted: 2, attention: 0 }), Date.now, onAccepted)
+    await task.runTask()
+    expect(onAccepted).toHaveBeenCalledWith(2)
+  })
+
+  it('does not notify when accepted is 0', async () => {
+    const onAccepted = jest.fn()
+    const task = new TaskCreditInbox(monitor, async () => ({ accepted: 0, attention: 1 }), Date.now, onAccepted)
+    await task.runTask()
+    expect(onAccepted).not.toHaveBeenCalled()
+  })
 })
 
 describe('inbox attempts KV', () => {

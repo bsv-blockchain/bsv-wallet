@@ -71,7 +71,8 @@ export class TaskCreditInbox extends WalletMonitorTask {
   constructor(
     monitor: Monitor,
     private readonly credit: () => Promise<CreditInboxTaskResult>,
-    private readonly now: () => number = () => Date.now()
+    private readonly now: () => number = () => Date.now(),
+    private readonly onAccepted?: (count: number) => void
   ) {
     super(monitor, TaskCreditInbox.taskName)
   }
@@ -98,6 +99,13 @@ export class TaskCreditInbox extends WalletMonitorTask {
       const r = await this.credit()
       TaskCreditInbox.lastAttentionCount = r.attention
       this.scheduleNext(!!r.pending)
+      if (r.accepted > 0) {
+        try {
+          this.onAccepted?.(r.accepted)
+        } catch {
+          // A toast/sound failure must not turn a successful credit into a retry.
+        }
+      }
       if (r.accepted === 0 && r.attention === 0) return ''
       return `credited ${r.accepted}, attention ${r.attention}${r.pending ? ', pending' : ''}\n`
     } catch (e) {

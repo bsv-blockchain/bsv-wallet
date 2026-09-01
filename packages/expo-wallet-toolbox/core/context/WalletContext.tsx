@@ -166,6 +166,9 @@ import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueu
 import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { makeCreditClassifier } from '../pay/creditErrors'
 import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
+import { isReceiveInboxFocused } from '../pay/receiveFocus'
+import { sounds } from '../hooks/useConfirmationSound'
+import i18n from '../i18n/translations'
 import { makeBeefRepair } from '../pay/beefRepair'
 import { shouldReleaseUtxo, type UtxoProbe } from '../walletRepair/shouldReleaseUtxo'
 import {
@@ -1257,42 +1260,51 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             TaskSendOffline.noteEnqueued()
 
             monitor.addTask(
-              new TaskCreditInbox(monitor, async () => {
-                const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
-                const messageBoxUrl =
-                  saved === NO_MESSAGE_BOX
-                    ? undefined
-                    : !saved || saved === LEGACY_MESSAGE_BOX_URL
-                      ? DEFAULT_MESSAGE_BOX_URL
-                      : saved
-                if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
-                let client: PeerPayClient
-                try {
-                  client = new PeerPayClient({
-                    messageBoxHost: messageBoxUrl,
-                    walletClient: permissionsManager as never,
-                    originator: adminOriginator
+              new TaskCreditInbox(
+                monitor,
+                async () => {
+                  const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+                  const messageBoxUrl =
+                    saved === NO_MESSAGE_BOX
+                      ? undefined
+                      : !saved || saved === LEGACY_MESSAGE_BOX_URL
+                        ? DEFAULT_MESSAGE_BOX_URL
+                        : saved
+                  if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
+                  let client: PeerPayClient
+                  try {
+                    client = new PeerPayClient({
+                      messageBoxHost: messageBoxUrl,
+                      walletClient: permissionsManager as never,
+                      originator: adminOriginator
+                    })
+                  } catch {
+                    return { accepted: 0, attention: 0, pending: false }
+                  }
+                  const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+                  const classify = await makeCreditClassifier({
+                    getOnline,
+                    peekLastMissHeight: () => offlineChaintracks.peekLastMissHeight()
                   })
-                } catch {
-                  return { accepted: 0, attention: 0, pending: false }
+                  const r = await creditInboxOnce({
+                    client,
+                    messageBoxUrl,
+                    storage: phoneStorage!,
+                    classify,
+                    accept: payment =>
+                      acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
+                        internalizeIncoming(permissionsManager as never, client, adminOriginator, p, d, repairBeef)
+                      )
+                  })
+                  return { accepted: r.accepted, attention: r.attentionCount, pending: r.pending }
+                },
+                Date.now,
+                () => {
+                  if (isReceiveInboxFocused()) return
+                  sounds.confirmation()
+                  onToast?.(i18n.t('payment_arrived'), { type: 'success' })
                 }
-                const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
-                const classify = await makeCreditClassifier({
-                  getOnline,
-                  peekLastMissHeight: () => offlineChaintracks.peekLastMissHeight()
-                })
-                const r = await creditInboxOnce({
-                  client,
-                  messageBoxUrl,
-                  storage: phoneStorage!,
-                  classify,
-                  accept: payment =>
-                    acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
-                      internalizeIncoming(permissionsManager as never, client, adminOriginator, p, d, repairBeef)
-                    )
-                })
-                return { accepted: r.accepted, attention: r.attentionCount, pending: r.pending }
-              })
+              )
             )
             TaskCreditInbox.noteEnqueued()
 
