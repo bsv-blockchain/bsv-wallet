@@ -44,19 +44,27 @@ describe('makeCreditClassifier', () => {
   it('awaits getOnline so a resolved-false Promise is offline, not treated as online', async () => {
     const getOnline = jest.fn(async () => false)
     expect(!getOnline()).toBe(false)
-    const classify = await makeCreditClassifier({ getOnline, takeLastMissHeight: () => undefined })
+    const classify = await makeCreditClassifier({ getOnline, peekLastMissHeight: () => undefined })
     expect(classify(beefErr)).toBe('environmental')
   })
 
-  it('takes lastMissHeight once for the pass and reuses it for every payment', async () => {
-    const take = jest.fn().mockReturnValue(900000)
+  it('reads lastMissHeight at failure time so a miss during the pass is environmental', async () => {
+    let miss: number | undefined
     const classify = await makeCreditClassifier({
       getOnline: async () => true,
-      takeLastMissHeight: take
+      peekLastMissHeight: () => miss
     })
-    expect(take).toHaveBeenCalledTimes(1)
+    const beefErr = new Error('The tx parameter must be valid AtomicBEEF')
+    expect(classify(beefErr)).toBe('structural')
+    miss = 900000
     expect(classify(beefErr)).toBe('environmental')
-    expect(classify(beefErr)).toBe('environmental')
-    expect(take).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not consume the miss marker', async () => {
+    const peek = jest.fn().mockReturnValue(7)
+    const classify = await makeCreditClassifier({ getOnline: async () => true, peekLastMissHeight: peek })
+    classify(new Error('The tx parameter must be valid AtomicBEEF'))
+    classify(new Error('The tx parameter must be valid AtomicBEEF'))
+    expect(peek).toHaveBeenCalledTimes(2)
   })
 })

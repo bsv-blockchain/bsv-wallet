@@ -275,8 +275,8 @@ export interface WalletContextValue {
   storage: StorageExpoSQLite | null
   /** Fetch BUMP from WoC and store merkle proof, advancing tx status to completed */
   refreshProof: (txid: string) => Promise<'confirmed' | 'pending' | 'failed'>
-  /** Consume OfflineFirstChaintracks.lastMissHeight for credit-error classification. */
-  takeLastMissHeight: () => number | undefined
+  /** Peek OfflineFirstChaintracks.lastMissHeight for credit-error classification. Does not clear. */
+  peekLastMissHeight: () => number | undefined
   /** Incremented when a transaction status changes via SSE, triggers UI refresh */
   txStatusVersion: number
   /** The active user's storage id, for scoping `offline_actions` reads. null if unknown. */
@@ -332,7 +332,7 @@ export const WalletContext = createContext<WalletContextValue>({
   rebuildWallet: async () => {},
   storage: null,
   refreshProof: async () => 'pending',
-  takeLastMissHeight: () => undefined,
+  peekLastMissHeight: () => undefined,
   txStatusVersion: 0,
   walletUserId: null,
   walletBuilding: false,
@@ -1279,7 +1279,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
                 const classify = await makeCreditClassifier({
                   getOnline,
-                  takeLastMissHeight: () => offlineChaintracks.takeLastMissHeight()
+                  peekLastMissHeight: () => offlineChaintracks.peekLastMissHeight()
                 })
                 const r = await creditInboxOnce({
                   client,
@@ -2282,7 +2282,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     [storage, selectedNetwork]
   )
 
-  const takeLastMissHeight = useCallback(() => offlineChaintracksRef.current?.takeLastMissHeight(), [])
+  const peekLastMissHeight = useCallback(() => offlineChaintracksRef.current?.peekLastMissHeight(), [])
 
   const runMonitorTask = useCallback(async (taskName: string): Promise<string> => {
     const monitor = monitorRef.current
@@ -2554,7 +2554,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       rebuildWallet,
       storage,
       refreshProof,
-      takeLastMissHeight,
+      peekLastMissHeight,
       txStatusVersion,
       walletUserId,
       walletBuilding,
@@ -2596,7 +2596,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       rebuildWallet,
       storage,
       refreshProof,
-      takeLastMissHeight,
+      peekLastMissHeight,
       txStatusVersion,
       walletUserId,
       walletBuilding,

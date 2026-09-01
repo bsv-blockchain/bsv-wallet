@@ -116,7 +116,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
     checkUtxoSpendability,
     releaseStuckReservations,
     runMonitorTask,
-    takeLastMissHeight
+    peekLastMissHeight
   } = useWallet()
   const wallet = managers?.permissionsManager
 
@@ -175,7 +175,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
             originator: adminOriginator
           })
           const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
-          const classify = await makeCreditClassifier({ getOnline, takeLastMissHeight })
+          const classify = await makeCreditClassifier({ getOnline, peekLastMissHeight })
           const outcome = await creditInboxOnce({
             client,
             messageBoxUrl,
@@ -221,7 +221,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
       runMonitorTask,
       selectedNetwork,
       storage,
-      takeLastMissHeight,
+      peekLastMissHeight,
       wallet
     ]
   )

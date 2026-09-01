@@ -40,11 +40,16 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
     private readonly online: () => Promise<boolean>
   ) {}
 
-  /** Consume the most recent unresolved height, if any. */
+  /** Consume the most recent unresolved height, if any. Kept for tests; classifiers must peek. */
   takeLastMissHeight(): number | undefined {
     const height = this.lastMissHeight
     this.lastMissHeight = undefined
     return height
+  }
+
+  /** Read the most recent unresolved height without clearing it. */
+  peekLastMissHeight(): number | undefined {
+    return this.lastMissHeight
   }
 
   setStore(store: HeaderStore): void {

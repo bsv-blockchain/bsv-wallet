@@ -351,7 +351,7 @@ export default function HandleReceive() {
   const Ionicons = loadIonicons()
   const QRCode = loadQRCode()
   const { useFocusEffect } = loadExpoRouter()
-  const { managers, adminOriginator, selectedNetwork, storage, takeLastMissHeight } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, peekLastMissHeight } = useWallet()
   const wallet = managers?.permissionsManager || null
   const online = useOnline()
 
@@ -493,7 +493,7 @@ export default function HandleReceive() {
       if (!client || !messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return undefined
       const classify = await makeCreditClassifier({
         getOnline: () => online,
-        takeLastMissHeight
+        peekLastMissHeight
       })
       const outcome = await creditInboxOnce({
         client,
@@ -506,7 +506,7 @@ export default function HandleReceive() {
       applyCreditResult(outcome)
       return outcome
     },
-    [peerPayClient, messageBoxUrl, storage, online, takeLastMissHeight, internalize, applyCreditResult]
+    [peerPayClient, messageBoxUrl, storage, online, peekLastMissHeight, internalize, applyCreditResult]
   )
 
   const fetchPayments = useCallback(

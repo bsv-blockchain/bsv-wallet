@@ -90,6 +90,16 @@ describe('OfflineFirstChaintracks', () => {
     expect(ct.lastMissHeight).toBeUndefined()
   })
 
+  it('peekLastMissHeight returns the miss without clearing it', async () => {
+    const ct = new OfflineFirstChaintracks(remote(), async () => false)
+    ct.setStore(await HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR))
+    expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(false)
+    // after a recorded miss:
+    expect(ct.peekLastMissHeight()).toBe(5)
+    expect(ct.peekLastMissHeight()).toBe(5)
+    expect(ct.lastMissHeight).toBe(5)
+  })
+
   it('refuses on a miss with no store at all', async () => {
     const ct = new OfflineFirstChaintracks(remote(), async () => false)
     expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(false)

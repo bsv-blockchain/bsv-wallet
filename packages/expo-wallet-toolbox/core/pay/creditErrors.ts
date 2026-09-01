@@ -18,23 +18,24 @@ export function classifyCreditError(
   // environmental, including "valid AtomicBEEF" which the chain tracker reports
   // for a missing root. AtomicBEEF while online with no lastMissHeight is
   // structural (bad ancestry) and falls through below.
-  if (ctx?.lastMissHeight != null || ctx?.offline) return 'environmental'
+  if (ctx?.offline) return 'environmental'
+  if (ctx?.lastMissHeight != null) return 'environmental'
   if (/network request failed|timed? ?out|chaintracks/i.test(message)) return 'environmental'
   return 'structural'
 }
 
 /**
- * Snapshot online + last-miss once for a credit pass.
+ * Await getOnline once per pass. Peek last-miss at each failure, not at build.
  *
  * `getOnline()` is async: `offline: !getOnline()` is always false because a
- * Promise is truthy. `takeLastMissHeight()` consumes; calling it from classify
- * would give only the first payment the miss.
+ * Promise is truthy. Peeking (not taking) last-miss lets a miss recorded
+ * during the pass classify the payment that failed because of it, and does
+ * not let a joining caller steal the marker.
  */
 export async function makeCreditClassifier(args: {
   getOnline: () => boolean | Promise<boolean>
-  takeLastMissHeight: () => number | undefined
+  peekLastMissHeight: () => number | undefined
 }): Promise<(e: unknown) => CreditFailureKind> {
   const offline = !(await args.getOnline())
-  const lastMissHeight = args.takeLastMissHeight()
-  return e => classifyCreditError(e, { offline, lastMissHeight })
+  return e => classifyCreditError(e, { offline, lastMissHeight: args.peekLastMissHeight() })
 }
