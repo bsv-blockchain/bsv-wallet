@@ -1,75 +1,68 @@
 #!/usr/bin/env bash
 #
-# Cut every icon, favicon and splash asset out of the brand reference.
+# Cut every icon, favicon and splash asset out of the brand master.
 #
 #   ./scripts/generate-brand-assets.sh
 #
-# assets/brand/reference.jpg IS the artwork — the plate, the lighting and the
-# relief of the cords all come from it. Nothing here redraws the mark: earlier
-# versions of this script rebuilt it from icon.svg and spent a long time failing
-# to match the reference's material, which the reference simply has.
+# assets/brand/reference.png IS the artwork — plate, lighting and the relief of
+# the cords all come from it. Nothing here draws anything: earlier versions
+# rebuilt the mark from icon.svg and spent a long time failing to reproduce what
+# the master simply has.
 #
-# Two shapes of crop, both taken straight from the source with no invented pixels:
+# The splash is the master, copied verbatim rather than resampled, so what was
+# approved is byte-for-byte what ships.
 #
-#   SPLASH targets are narrower than the reference, so they cover on height and
-#   centre-crop the width.
-#
-#   ICONS are square, so they crop a square window centred on the figure
-#   (fx 0.499, fy 0.521 of the frame, spanning 0.44 of its width) and scale that
-#   down. ICON_WINDOW sets how much plate surrounds the mark: at 1.0 the figure
-#   fills the icon edge to edge, so it sits wider than that.
+# Icons take a square window centred on the graph and scale it down. The centre
+# and span are measured from the LIT cords only: including the cast shadow, which
+# sits down and to the right, drags the centre off by a tenth of the frame.
 #
 # Needs ffmpeg. `notification-icon.png` is not generated — Android tints it as a
 # silhouette, so it stays a black-on-transparent mark.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REF="$ROOT/assets/brand/reference.jpg"
+REF="$ROOT/assets/brand/reference.png"
 OUT="$ROOT/assets/images"
 IOS="$ROOT/ios/BSVWallet/Images.xcassets"
 
 command -v ffmpeg >/dev/null || { echo "ffmpeg not found" >&2; exit 1; }
 [[ -f "$REF" ]] || { echo "missing $REF" >&2; exit 1; }
 
-# Figure geometry within the reference, measured from it.
-FIG_CX=0.4990
-FIG_CY=0.5206
-FIG_SPAN=0.4400
-# Figure : icon width. 0.62 leaves a comfortable margin of plate around the mark.
-ICON_WINDOW=0.62
+# Graph geometry within the master, measured from it.
+FIG_CX=0.4996
+FIG_CY=0.5188
+FIG_SPAN=0.4902
+# The mark's share of an icon's width. Icons are seen small, so the mark carries
+# them; leaving it at 0.62 had it swimming in plate.
+ICON_WINDOW=0.80
+# Android's splash icon reads smaller, closer to how the mark sits on the plate.
+SPLASH_WINDOW=0.52
+# Must equal the android splash backgroundColor in app.json.
+ANDROID_SPLASH_BG="#dba132"
 
 REF_W=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$REF")
 REF_H=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$REF")
 
-# The square window in source pixels, and its top-left corner.
-WIN=$(python3 -c "print(round($REF_W*$FIG_SPAN/$ICON_WINDOW))")
-WIN_X=$(python3 -c "print(max(0, round($REF_W*$FIG_CX - $WIN/2)))")
-WIN_Y=$(python3 -c "print(max(0, round($REF_H*$FIG_CY - $WIN/2)))")
+win() { python3 -c "print(min($REF_W, round($REF_W*$FIG_SPAN/$1)))"; }
+win_x() { python3 -c "print(max(0, round($REF_W*$FIG_CX - $1/2)))"; }
+win_y() { python3 -c "print(max(0, round($REF_H*$FIG_CY - $1/2)))"; }
 
-# A wider window for Android's centred splash icon: the mark reads smaller there,
-# closer to how it sits on the full plate.
-SPLASH_WINDOW=0.46
-# Must equal the android splash backgroundColor in app.json.
-ANDROID_SPLASH_BG="#dba132"
-WIN_WIDE=$(python3 -c "print(min($REF_W, round($REF_W*$FIG_SPAN/$SPLASH_WINDOW)))")
-WIN_WIDE_X=$(python3 -c "print(max(0, round($REF_W*$FIG_CX - $WIN_WIDE/2)))")
-WIN_WIDE_Y=$(python3 -c "print(max(0, round($REF_H*$FIG_CY - $WIN_WIDE/2)))")
+WIN=$(win "$ICON_WINDOW");        WIN_X=$(win_x "$WIN");        WIN_Y=$(win_y "$WIN")
+WIN_S=$(win "$SPLASH_WINDOW");    WIN_S_X=$(win_x "$WIN_S");    WIN_S_Y=$(win_y "$WIN_S")
 
-cover() { # cover+centre-crop to WxH
-  ffmpeg -y -loglevel error -i "$REF" \
-    -vf "scale=$2:$3:force_original_aspect_ratio=increase,crop=$2:$3" "$OUT/$1"
-  echo "  $1  ${2}x${3}"
-}
-
-square() { # the figure window, scaled to NxN
+square() { # the graph window, scaled to NxN
   ffmpeg -y -loglevel error -i "$REF" \
     -vf "crop=$WIN:$WIN:$WIN_X:$WIN_Y,scale=$2:$2:flags=lanczos" "$OUT/$1"
   echo "  $1  ${2}x${2}"
 }
 
 echo "splash:"
-cover splash.png 1179 2556
-cover splash-orig.png 512 1007
+# Verbatim. Re-encoding the master through ffmpeg would resample the very pixels
+# that were signed off on.
+cp "$REF" "$OUT/splash.png"
+echo "  splash.png  ${REF_W}x${REF_H} (master, copied)"
+ffmpeg -y -loglevel error -i "$REF" -vf "scale=512:-1:flags=lanczos" "$OUT/splash-orig.png"
+echo "  splash-orig.png  512x$(python3 -c "print(round(512*$REF_H/$REF_W))")"
 
 echo "icons:"
 square icon.png 1024
@@ -81,42 +74,33 @@ square favicon.png 64
 square favicon-32x32.png 32
 square favicon-16x16.png 16
 
-# Android's splash is not full-bleed and cannot be: since Android 12 the system
-# splash is a centred icon over a background colour, so handing it the tall plate
-# squeezed the whole picture into a small box. It gets a square crop instead —
-# the same window the icons use, a little wider so the mark sits smaller — over a
-# background colour matched to that crop's edge, which hides the tile's boundary.
+# Android's splash cannot be full-bleed and cannot carry alpha: since Android 12
+# the system splash is a centred icon over a background colour, and expo's
+# pipeline flattens transparency (a feathered tile came back as a dark ring). So
+# it gets an opaque square crop whose edges converge on the background colour.
 ffmpeg -y -loglevel error -i "$REF" \
-  -vf "crop=$WIN_WIDE:$WIN_WIDE:$WIN_WIDE_X:$WIN_WIDE_Y,scale=1024:1024:flags=lanczos" \
+  -vf "crop=$WIN_S:$WIN_S:$WIN_S_X:$WIN_S_Y,scale=1024:1024:flags=lanczos" \
   "$OUT/splash-logo.png"
-# Blend its edges into the background colour - OPAQUE, no alpha.
-#
-# The crop carries its own share of the plate's gradient, so against one flat
-# background colour its straight edges showed as a square patch of slightly
-# different gold. Fading them to transparent instead looked right locally and
-# came out of the bundle as a dark ring: expo's Android pipeline flattens the
-# alpha, and the semi-transparent halo composited against black. Converging the
-# edges to the background colour itself cannot be broken that way - whatever the
-# pipeline does with it, the tile already ends in the colour behind it.
 python3 "$ROOT/scripts/blend-splash-edges.py" "$OUT/splash-logo.png" "$ANDROID_SPLASH_BG"
 
 echo "favicon.ico:"
-python3 - "$OUT" <<'PY'
+python3 - "$OUT" <<'INNER'
 import sys
 from PIL import Image
 out = sys.argv[1]
-src = Image.open(f"{out}/favicon.png").convert("RGB")
-src.save(f"{out}/favicon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
+Image.open(f"{out}/favicon.png").convert("RGB").save(
+    f"{out}/favicon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64)]
+)
 print("  favicon.ico  16/32/48/64")
-PY
+INNER
 
 if [[ -d "$IOS/AppIcon.appiconset" ]]; then
   echo "ios (checked-in native project):"
-  # iOS app icons must be fully opaque; ffmpeg writes RGB here already.
+  # iOS app icons must be fully opaque; an alpha channel is rejected at submission.
   cp "$OUT/icon.png" "$IOS/AppIcon.appiconset/App-Icon-1024x1024@1x.png"
   echo "  AppIcon 1024"
-  # One image per scale factor, sized for it. Copying the full-resolution plate
-  # into all three slots cost 5.4MB to ship the same picture three times.
+  # One image per scale factor. Copying the full-resolution plate into all three
+  # shipped the same picture three times.
   for spec in "image.png:393:852" "image@2x.png:786:1704" "image@3x.png:1179:2556"; do
     name="${spec%%:*}"; rest="${spec#*:}"; iw="${rest%%:*}"; ih="${rest##*:}"
     ffmpeg -y -loglevel error -i "$OUT/splash.png" \
