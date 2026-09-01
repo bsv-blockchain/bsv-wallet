@@ -46,6 +46,13 @@ WIN=$(python3 -c "print(round($REF_W*$FIG_SPAN/$ICON_WINDOW))")
 WIN_X=$(python3 -c "print(max(0, round($REF_W*$FIG_CX - $WIN/2)))")
 WIN_Y=$(python3 -c "print(max(0, round($REF_H*$FIG_CY - $WIN/2)))")
 
+# A wider window for Android's centred splash icon: the mark reads smaller there,
+# closer to how it sits on the full plate.
+SPLASH_WINDOW=0.46
+WIN_WIDE=$(python3 -c "print(min($REF_W, round($REF_W*$FIG_SPAN/$SPLASH_WINDOW)))")
+WIN_WIDE_X=$(python3 -c "print(max(0, round($REF_W*$FIG_CX - $WIN_WIDE/2)))")
+WIN_WIDE_Y=$(python3 -c "print(max(0, round($REF_H*$FIG_CY - $WIN_WIDE/2)))")
+
 cover() { # cover+centre-crop to WxH
   ffmpeg -y -loglevel error -i "$REF" \
     -vf "scale=$2:$3:force_original_aspect_ratio=increase,crop=$2:$3" "$OUT/$1"
@@ -72,8 +79,15 @@ square favicon.png 64
 square favicon-32x32.png 32
 square favicon-16x16.png 16
 
-# No splash-logo.png: with resizeMode cover the splash IS the plate, so that
-# asset was a byte-identical 1.8MB copy of splash.png that nothing referenced.
+# Android's splash is not full-bleed and cannot be: since Android 12 the system
+# splash is a centred icon over a background colour, so handing it the tall plate
+# squeezed the whole picture into a small box. It gets a square crop instead —
+# the same window the icons use, a little wider so the mark sits smaller — over a
+# background colour matched to that crop's edge, which hides the tile's boundary.
+ffmpeg -y -loglevel error -i "$REF" \
+  -vf "crop=$WIN_WIDE:$WIN_WIDE:$WIN_WIDE_X:$WIN_WIDE_Y,scale=1024:1024:flags=lanczos" \
+  "$OUT/splash-logo.png"
+echo "  splash-logo.png  1024x1024 (android centred splash icon)"
 
 echo "favicon.ico:"
 python3 - "$OUT" <<'PY'
