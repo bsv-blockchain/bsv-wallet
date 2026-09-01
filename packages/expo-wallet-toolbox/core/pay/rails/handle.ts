@@ -12,6 +12,7 @@ import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
 import { Beef, P2PKH, PublicKey, Random, Transaction, Utils } from '@bsv/sdk'
 import { BRC29_PROTOCOL_ID } from './address'
 import {
+  getOutboxEntries,
   markOutboxSent,
   removeOutboxEntry,
   saveOutboxEntry,
@@ -514,9 +515,11 @@ export async function sendViaHandle(args: {
 /**
  * Cancel or abandon an outbox entry.
  *
- * `undelivered` (default): abort the noSend action and remove the row. Once
- * `delivering` or `delivered` is set the token may already be in the
- * recipient's box, so this mode refuses to abort and returns `needsAbandon`.
+ * `undelivered` (default): abort the noSend action and remove the row. The
+ * stored row is re-read by `entry.id` before that abort — a stale snapshot
+ * is not authority. Missing row → no abort. Once `delivering` or `delivered`
+ * is set the token may already be in the recipient's box, so this mode
+ * refuses to abort and returns `needsAbandon`.
  *
  * `abandon` (delivered or delivering): tell the recipient via
  * `payment_cancelled`, then abort if the action is still nosend, then remove.
@@ -533,8 +536,12 @@ export async function cancelOutboxPayment(args: {
   mode?: 'undelivered' | 'abandon'
 }): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
   const { wallet, adminOriginator, storage, entry, client, mode = 'undelivered' } = args
-  if (mode !== 'abandon' && (entry.delivered === true || entry.delivering === true)) {
-    return { aborted: false, needsAbandon: true }
+  if (mode !== 'abandon') {
+    const stored = (await getOutboxEntries(storage)).find(e => e.id === entry.id)
+    if (!stored) return { aborted: false }
+    if (stored.delivered === true || stored.delivering === true) {
+      return { aborted: false, needsAbandon: true }
+    }
   }
   if (mode === 'abandon') {
     if (!client) throw new Error('client required to abandon')

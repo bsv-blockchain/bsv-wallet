@@ -531,12 +531,37 @@ describe('cancelOutboxPayment', () => {
   it('never aborts once the token was delivered — the recipient holds it', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
-    const entry = { ...(await undeliveredEntry(s)), delivered: true }
+    const id = (await undeliveredEntry(s)).id
+    await updateOutboxEntry(s, id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(false)
     expect(result.needsAbandon).toBe(true)
     expect(w.abortAction).not.toHaveBeenCalled()
     expect(await getOutboxEntries(s)).toHaveLength(1)
+  })
+
+  it('re-reads storage and does not abort if the row became delivered after the snapshot', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const entry = await undeliveredEntry(s)
+    await updateOutboxEntry(s, entry.id, { delivered: true })
+    const stale = { ...entry, delivered: false, delivering: false }
+    const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry: stale })
+    expect(result.aborted).toBe(false)
+    expect(result.needsAbandon).toBe(true)
+    expect(w.abortAction).not.toHaveBeenCalled()
+  })
+
+  it('does not abort when the stored row is already gone', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const entry = await undeliveredEntry(s)
+    s.map.clear()
+    const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
+    expect(result.aborted).toBe(false)
+    expect(result.needsAbandon).toBeUndefined()
+    expect(w.abortAction).not.toHaveBeenCalled()
   })
 
   it('cancel of a delivering entry does not abort the noSend action', async () => {

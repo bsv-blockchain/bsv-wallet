@@ -20,7 +20,12 @@ export function classifyCreditError(
   // structural (bad ancestry) and falls through below.
   if (ctx?.offline) return 'environmental'
   if (ctx?.lastMissHeight != null) return 'environmental'
-  if (/network request failed|timed? ?out|chaintracks/i.test(message)) return 'environmental'
+  if (
+    /network request failed|timed? ?out|chaintracks|database-locked|failed to retrieve messages|not found on refresh/i.test(
+      message
+    )
+  )
+    return 'environmental'
   return 'structural'
 }
 
