@@ -136,6 +136,7 @@ import {
   createWalletMonitor,
   createWalletMonitorOptions
 } from '../walletMonitor'
+import { selectRetryableInvalidReqs, type TxStatusesByTxid } from '../monitor/unfailRetry'
 import {
   createArcadeBroadcastService,
   createTaalBroadcastService,
@@ -1478,8 +1479,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
           // TaskUnFail only processes 'unfail' status — nothing promotes 'invalid' → 'unfail'.
           // Patch to also process 'invalid' reqs so transactions stuck due to service failures
-          // (e.g. WoC 401, chaintracks down) get retried. Attempts are NOT reset so reqs that
-          // are genuinely invalid accumulate attempts and stay invalid after repeated failures.
+          // (e.g. WoC 401, chaintracks down) get retried.
+          //
+          // Bounded, because the first version of this was not: it took every
+          // invalid req on every pass. A transaction that will never be mined —
+          // one reviewStatus has already failed and released the inputs of —
+          // was asked about for the rest of the wallet's life, ten minutes
+          // apart, a network call each. See `selectRetryableInvalidReqs`.
           const unFailTask = monitor._tasks.find((t: any) => t.name === 'UnFail') as any
           if (unFailTask) {
             const origRunTask = unFailTask.runTask.bind(unFailTask)
@@ -1490,10 +1496,44 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 status: ['invalid'],
                 paged: { limit: 100, offset: 0 }
               })
-              if (invalidReqs.length > 0) {
-                log += `\n${invalidReqs.length} invalid reqs — retrying proof lookup\n`
-                const r = await unFailTask.unfail(invalidReqs, 2)
-                log += r.log
+              if (invalidReqs.length === 0) return log
+
+              const byTxid: TxStatusesByTxid = new Map()
+              for (const req of invalidReqs) {
+                if (byTxid.has(req.txid)) continue
+                const rows = await unFailTask.storage.findTransactions({
+                  partial: { txid: req.txid },
+                  noRawTx: true
+                })
+                byTxid.set(
+                  req.txid,
+                  rows.map((r: { status: string }) => r.status)
+                )
+              }
+              const retryable = selectRetryableInvalidReqs(invalidReqs, byTxid)
+              if (retryable.length === 0) return log
+
+              log += `\n${retryable.length} invalid reqs — retrying proof lookup\n`
+              const r = await unFailTask.unfail(retryable, 2)
+              log += r.log
+
+              // The library's failure path leaves `attempts` untouched (only its
+              // success path writes it, resetting to 0), so without this nothing
+              // ages out and the bound above could never be reached.
+              const stillInvalid = await unFailTask.storage.findProvenTxReqs({
+                partial: {},
+                status: ['invalid'],
+                paged: { limit: 100, offset: 0 }
+              })
+              const stillById = new Map(
+                stillInvalid.map((q: { provenTxReqId: number; attempts?: number }) => [q.provenTxReqId, q])
+              )
+              for (const req of retryable) {
+                const current = stillById.get(req.provenTxReqId) as { attempts?: number } | undefined
+                if (!current) continue
+                await unFailTask.storage.updateProvenTxReq(req.provenTxReqId, {
+                  attempts: (current.attempts ?? 0) + 1
+                })
               }
               return log
             }

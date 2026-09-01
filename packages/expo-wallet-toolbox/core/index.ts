@@ -65,6 +65,7 @@ export * from './peerpay/control'
 export * from './peerpay/handleResendRequests'
 export * from './peerpay/resendBeef'
 export * from './backup/status'
+export * from './monitor/unfailRetry'
 export * from './peerpay/offlineNacks'
 export * from './peerpay/inboxAttempts'
 
