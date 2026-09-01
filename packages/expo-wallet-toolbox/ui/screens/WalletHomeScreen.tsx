@@ -277,6 +277,8 @@ export function WalletHomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
+  /** What the row's spinner is currently waiting on. */
+  const [busyLabel, setBusyLabel] = useState<string | undefined>(undefined)
   /** Bumped when a queued payment outlives its grace, so the banner can appear. */
   const [graceNonce, setGraceNonce] = useState(0)
   const [attentionCount, setAttentionCount] = useState(0)
@@ -637,6 +639,7 @@ export function WalletHomeScreen() {
         showToast(t('tx_proof_refresh_failed'), { type: 'error' })
       } finally {
         setBusyRow(null)
+        setBusyLabel(undefined)
       }
     },
     [busyRow, refreshProof, t]
@@ -661,6 +664,7 @@ export function WalletHomeScreen() {
         showToast(t('tx_abort_failed'), { type: 'error' })
       } finally {
         setBusyRow(null)
+        setBusyLabel(undefined)
       }
     },
     [managers.permissionsManager, adminOriginator, busyRow, onRefresh, t]
@@ -704,6 +708,7 @@ export function WalletHomeScreen() {
     async (txid: string) => {
       if (busyRow) return
       setBusyRow(txid)
+      setBusyLabel(t('resend_sending'))
       try {
         const pm = managers.permissionsManager
         if (!pm || !storage) throw new Error(t('unknown_error'))
@@ -757,6 +762,7 @@ export function WalletHomeScreen() {
         showToast(message, { type: 'error' })
       } finally {
         setBusyRow(null)
+        setBusyLabel(undefined)
       }
     },
     [busyRow, managers.permissionsManager, storage, adminOriginator, selectedNetwork, offlineByTxid, onRefresh, t]
@@ -891,6 +897,7 @@ export function WalletHomeScreen() {
       const pm = managers.permissionsManager
       if (!storage || !pm || busyRow) return
       setBusyRow(txid)
+      setBusyLabel(t('cancelling_payment'))
       try {
         const outcome = await cancelParkedPayment({
           storage,
@@ -906,6 +913,7 @@ export function WalletHomeScreen() {
         showToast(e instanceof Error ? e.message : t('unknown_error'), { type: 'error' })
       } finally {
         setBusyRow(null)
+        setBusyLabel(undefined)
       }
     },
     [storage, managers.permissionsManager, adminOriginator, busyRow, onRefresh, t]
@@ -927,6 +935,7 @@ export function WalletHomeScreen() {
           offlineStatus={offline?.status}
           expanded={expandedRow === key}
           busy={busy}
+          busyLabel={busyLabel}
           onToggle={toggleRow}
           onExplorer={onExplorer}
           onRefreshTx={onRefreshTx}
@@ -941,6 +950,7 @@ export function WalletHomeScreen() {
       colors,
       offlineByTxid,
       busyRow,
+      busyLabel,
       expandedRow,
       toggleRow,
       onExplorer,

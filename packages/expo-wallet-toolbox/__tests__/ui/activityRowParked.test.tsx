@@ -3,6 +3,7 @@
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', MaterialCommunityIcons: 'MaterialCommunityIcons' }))
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
+  typography: { subhead: {}, footnote: {} },
   useTheme: () => ({ colors: new Proxy({}, { get: (_t, k) => String(k) }) }),
   useWallet: () => ({ settings: { currency: 'BSV' } }),
   // useContext needs a real context object, not a stand-in.
@@ -74,4 +75,28 @@ it('keeps the usual chips on a payment that was actually sent', () => {
 
 it('labels a parked row for what it is, not just "not sent"', () => {
   expect(txStatusView('nosend', 'parked')).toEqual({ key: 'tx_status_parked', tone: 'attention' })
+})
+
+it('says what the spinner is waiting on', () => {
+  const noop = () => {}
+  const r = render(
+    <ActivityRow
+      action={action()}
+      rowKey="k"
+      offlineStatus="parked"
+      expanded
+      busy
+      busyLabel="Sending via message box"
+      onToggle={noop}
+      onExplorer={noop}
+      onRefreshTx={noop}
+      onAbort={noop}
+      onSendPaymentDetails={noop}
+      onSendAgain={noop}
+      onCancelParked={noop}
+    />
+  )
+  expect(r.getByText('Sending via message box')).toBeTruthy()
+  // The chips are replaced by the spinner while it runs.
+  expect(r.queryByLabelText('pay_parked_cancel')).toBeNull()
 })

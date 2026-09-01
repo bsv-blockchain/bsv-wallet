@@ -757,6 +757,8 @@ const resources = {
       pay_parked_cancel: 'Cancel payment',
       pay_parked_already_sent: 'This payment was already sent',
       tx_status_parked: 'Not handed over',
+      resend_sending: 'Sending via message box',
+      cancelling_payment: 'Cancelling the payment',
     }
   },
   zh: {
@@ -1270,6 +1272,8 @@ const resources = {
       pay_parked_cancel: '取消付款',
       pay_parked_already_sent: '此付款已发送',
       tx_status_parked: '尚未交付',
+      resend_sending: '正在通过消息盒发送',
+      cancelling_payment: '正在取消付款',
     }
   },
   hi: {
@@ -1789,6 +1793,8 @@ const resources = {
       pay_parked_cancel: 'भुगतान रद्द करें',
       pay_parked_already_sent: 'यह भुगतान पहले ही भेज दिया गया है',
       tx_status_parked: 'सौंपा नहीं गया',
+      resend_sending: 'मैसेज बॉक्स से भेजा जा रहा है',
+      cancelling_payment: 'भुगतान रद्द किया जा रहा है',
     }
   },
   es: {
@@ -2309,6 +2315,8 @@ const resources = {
       pay_parked_cancel: 'Cancelar el pago',
       pay_parked_already_sent: 'Este pago ya se envió',
       tx_status_parked: 'No entregado',
+      resend_sending: 'Enviando por el buzón de mensajes',
+      cancelling_payment: 'Cancelando el pago',
     }
   },
   fr: {
@@ -2823,6 +2831,8 @@ const resources = {
       pay_parked_cancel: 'Annuler le paiement',
       pay_parked_already_sent: 'Ce paiement a déjà été envoyé',
       tx_status_parked: 'Non remis',
+      resend_sending: 'Envoi via la boîte à messages',
+      cancelling_payment: 'Annulation du paiement',
     }
   },
   ar: {
@@ -3332,6 +3342,8 @@ const resources = {
       pay_parked_cancel: 'إلغاء الدفعة',
       pay_parked_already_sent: 'تم إرسال هذه الدفعة بالفعل',
       tx_status_parked: 'لم يُسلَّم',
+      resend_sending: 'جارٍ الإرسال عبر صندوق الرسائل',
+      cancelling_payment: 'جارٍ إلغاء الدفعة',
     }
   },
   pt: {
@@ -3845,6 +3857,8 @@ const resources = {
       pay_parked_cancel: 'Cancelar pagamento',
       pay_parked_already_sent: 'Este pagamento já foi enviado',
       tx_status_parked: 'Não entregue',
+      resend_sending: 'Enviando pela caixa de mensagens',
+      cancelling_payment: 'Cancelando o pagamento',
     }
   },
   bn: {
@@ -4358,6 +4372,8 @@ const resources = {
       pay_parked_cancel: 'পেমেন্ট বাতিল করুন',
       pay_parked_already_sent: 'এই পেমেন্ট ইতিমধ্যে পাঠানো হয়েছে',
       tx_status_parked: 'হস্তান্তর হয়নি',
+      resend_sending: 'মেসেজ বক্সের মাধ্যমে পাঠানো হচ্ছে',
+      cancelling_payment: 'পেমেন্ট বাতিল করা হচ্ছে',
     }
   },
   ru: {
@@ -4872,6 +4888,8 @@ const resources = {
       pay_parked_cancel: 'Отменить платёж',
       pay_parked_already_sent: 'Этот платёж уже отправлен',
       tx_status_parked: 'Не передан',
+      resend_sending: 'Отправка через почтовый ящик',
+      cancelling_payment: 'Отмена платежа',
     }
   },
   id: {
@@ -5386,6 +5404,8 @@ const resources = {
       pay_parked_cancel: 'Batalkan pembayaran',
       pay_parked_already_sent: 'Pembayaran ini sudah terkirim',
       tx_status_parked: 'Belum diserahkan',
+      resend_sending: 'Mengirim lewat kotak pesan',
+      cancelling_payment: 'Membatalkan pembayaran',
     }
   },
   ja: {
@@ -5912,6 +5932,8 @@ const resources = {
       pay_parked_cancel: '支払いをキャンセル',
       pay_parked_already_sent: 'この支払いはすでに送信されました',
       tx_status_parked: '未受け渡し',
+      resend_sending: 'メッセージボックス経由で送信中',
+      cancelling_payment: '支払いをキャンセル中',
     }
   },
   pl: {
@@ -6442,6 +6464,8 @@ const resources = {
       pay_parked_cancel: 'Anuluj płatność',
       pay_parked_already_sent: 'Ta płatność została już wysłana',
       tx_status_parked: 'Nie przekazano',
+      resend_sending: 'Wysyłanie przez skrzynkę wiadomości',
+      cancelling_payment: 'Anulowanie płatności',
     }
   }
 }

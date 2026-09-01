@@ -16,7 +16,7 @@ import React, { memo, useContext } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import type { WalletAction } from '@bsv/sdk'
-import { useTheme, spacing, radii, useWallet, ExchangeRateContext, formatAmount, formatAmountParts } from '@bsv/expo-wallet-toolbox'
+import { useTheme, spacing, radii, typography, useWallet, ExchangeRateContext, formatAmount, formatAmountParts } from '@bsv/expo-wallet-toolbox'
 import { txStatusView, toneColor } from '../../txStatus'
 import PressableScale from '../ui/PressableScale'
 
@@ -65,6 +65,9 @@ interface Props {
   offlineStatus?: string
   expanded: boolean
   busy: boolean
+  /** What the spinner is waiting on. A bare spinner on a money row is a
+   * question ("is it sending? cancelling?") the row can answer. */
+  busyLabel?: string
   onToggle: (rowKey: string) => void
   onExplorer: (txid: string) => void
   onRefreshTx: (txid: string) => void
@@ -101,6 +104,7 @@ function ActivityRowBase({
   offlineStatus,
   expanded,
   busy,
+  busyLabel,
   onToggle,
   onExplorer,
   onRefreshTx,
@@ -230,7 +234,14 @@ function ActivityRowBase({
       {expanded && hasUtilities ? (
         <View style={styles.chips}>
           {busy ? (
-            <ActivityIndicator size="small" color={colors.textSecondary} style={styles.chipBusy} />
+            <View style={styles.busyRow}>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              {busyLabel ? (
+                <Text style={[styles.busyLabel, { color: colors.textSecondary }]} numberOfLines={1}>
+                  {busyLabel}
+                </Text>
+              ) : null}
+            </View>
           ) : (
             <>
               {action.txid && !parked && offlineStatus !== 'queued' && offlineStatus !== 'posting' ? (
@@ -368,7 +379,8 @@ const styles = StyleSheet.create({
     paddingTop: 2,
     paddingBottom: 14
   },
-  chipBusy: { marginBottom: 8 },
+  busyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 8 },
+  busyLabel: { ...typography.subhead },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 70 },
   chip: {
     flexDirection: 'row',
