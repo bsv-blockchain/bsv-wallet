@@ -28,10 +28,13 @@ IOS="$ROOT/ios/BSVWallet/Images.xcassets"
 command -v ffmpeg >/dev/null || { echo "ffmpeg not found" >&2; exit 1; }
 [[ -f "$REF" ]] || { echo "missing $REF" >&2; exit 1; }
 
-# Graph geometry within the master, measured from it.
+# Graph geometry within the master. Measured with a small-radius high pass,
+# which isolates the thin cords from the smooth cast shadow: a brightness
+# threshold missed the figure's top edge entirely and put the centre 0.016 too
+# low, which is what left the mark sitting high in every crop.
 FIG_CX=0.4996
-FIG_CY=0.5188
-FIG_SPAN=0.4902
+FIG_CY=0.5027
+FIG_SPAN=0.4980
 # The mark's share of an icon's width. Icons are seen small, so the mark carries
 # them; leaving it at 0.62 had it swimming in plate.
 ICON_WINDOW=0.80
@@ -74,14 +77,8 @@ square favicon.png 64
 square favicon-32x32.png 32
 square favicon-16x16.png 16
 
-# Android's splash cannot be full-bleed and cannot carry alpha: since Android 12
-# the system splash is a centred icon over a background colour, and expo's
-# pipeline flattens transparency (a feathered tile came back as a dark ring). So
-# it gets an opaque square crop whose edges converge on the background colour.
-ffmpeg -y -loglevel error -i "$REF" \
-  -vf "crop=$WIN_S:$WIN_S:$WIN_S_X:$WIN_S_Y,scale=1024:1024:flags=lanczos" \
-  "$OUT/splash-logo.png"
-python3 "$ROOT/scripts/blend-splash-edges.py" "$OUT/splash-logo.png" "$ANDROID_SPLASH_BG"
+# Android's splash: the flat vector mark on the flat background colour.
+python3 "$ROOT/scripts/render-svg-mark.py" "$OUT/splash-logo.png" 1024 "$ANDROID_SPLASH_BG" "#ffd133" 0.62
 
 echo "favicon.ico:"
 python3 - "$OUT" <<'INNER'
