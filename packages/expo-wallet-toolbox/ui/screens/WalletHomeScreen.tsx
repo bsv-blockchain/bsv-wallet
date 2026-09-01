@@ -74,6 +74,7 @@ import {
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
 import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
+import { makeMetadataDecryptor } from '../../core/peerpay/metadataDecryptor'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
 import { exportTransactionsAsCsv } from '../exportTransactions'
@@ -682,6 +683,7 @@ export function WalletHomeScreen() {
         client,
         storage,
         listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
+        decryptMetadata: makeMetadataDecryptor(pm, adminOriginator),
         refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
       })
       setPendingResends(r.pending)
@@ -721,6 +723,7 @@ export function WalletHomeScreen() {
           // network has never heard of the transaction — a nearby payment whose
           // code was never scanned is `nosend`, and that is the case a resend
           // most needs to cover.
+          decryptMetadata: makeMetadataDecryptor(pm, adminOriginator),
           refetch: makeResendBeef({
             refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline }),
             storage

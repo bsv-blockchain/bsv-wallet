@@ -95,3 +95,47 @@ it('leaves a good listActions answer alone', async () => {
   expect(outcome).toEqual({ ok: true })
   expect(storage.findOutputs).not.toHaveBeenCalled()
 })
+
+// The permissions manager encrypts wallet metadata on the way into storage, so
+// a direct read of the column returns base64 ciphertext, not JSON.
+it('decrypts customInstructions the permissions manager encrypted', async () => {
+  const { beef, txid } = signedTx()
+  const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+  const sealed = Buffer.from(INSTRUCTIONS, 'utf8').toString('base64')
+  const storage = storageWithOutputs([{ vout: 0, satoshis: 1000, customInstructions: sealed, basketId: null }])
+
+  const outcome = await resendPaymentDetails({
+    client,
+    storage,
+    txid,
+    listPeerPayAction: async () => ({ txid, labels: ['localpay', RECIPIENT], outputs: [] }),
+    refetch: async () => beef,
+    decryptMetadata: async value => Buffer.from(value, 'base64').toString('utf8')
+  })
+
+  expect(outcome).toEqual({ ok: true })
+  const body = JSON.parse(client.sendMessage.mock.calls[0][0].body)
+  expect(body.customInstructions).toEqual({
+    derivationPrefix: 'ZGV2LXByZWZpeA==',
+    derivationSuffix: 'ZGV2LXN1ZmZpeA=='
+  })
+})
+
+it('keeps plaintext instructions untouched when a decryptor is supplied', async () => {
+  const { beef, txid } = signedTx()
+  const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+  const decryptMetadata = jest.fn()
+  const storage = storageWithOutputs([{ vout: 0, satoshis: 1000, customInstructions: INSTRUCTIONS, basketId: null }])
+
+  const outcome = await resendPaymentDetails({
+    client,
+    storage,
+    txid,
+    listPeerPayAction: async () => ({ txid, labels: ['localpay', RECIPIENT], outputs: [] }),
+    refetch: async () => beef,
+    decryptMetadata
+  })
+
+  expect(outcome).toEqual({ ok: true })
+  expect(decryptMetadata).not.toHaveBeenCalled()
+})

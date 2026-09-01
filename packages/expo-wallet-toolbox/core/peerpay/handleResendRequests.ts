@@ -74,6 +74,43 @@ function hasDerivationData(outputs: PeerPayActionLike['outputs']): boolean {
   return !!outputs?.some(o => instructionsFromOutput(o.customInstructions))
 }
 
+/**
+ * `customInstructions` as stored is not necessarily what was written.
+ *
+ * WalletPermissionsManager encrypts wallet metadata on the way into storage
+ * (`maybeEncryptMetadata`) and decrypts it again on the way out of listActions.
+ * Read the column directly and what comes back is base64 ciphertext, which
+ * parses as no JSON at all — so a rebuild that reached past listActions to the
+ * table would conclude the payment carries no derivation data.
+ *
+ * Anything that already parses is left untouched: metadata written before
+ * encryption was turned on is plaintext, and so is every value on a wallet
+ * that never had it on.
+ */
+async function decodeInstructions(
+  value: string | object | undefined,
+  decrypt?: (value: string) => Promise<string>
+): Promise<string | object | undefined> {
+  if (instructionsFromOutput(value)) return value
+  if (typeof value !== 'string' || !decrypt) return value
+  try {
+    const plain = await decrypt(value)
+    return instructionsFromOutput(plain) ? plain : value
+  } catch {
+    return value
+  }
+}
+
+async function decodeOutputs(
+  outputs: PeerPayActionLike['outputs'],
+  decrypt?: (value: string) => Promise<string>
+): Promise<PeerPayActionLike['outputs']> {
+  if (!outputs || !decrypt) return outputs
+  return await Promise.all(
+    outputs.map(async o => ({ ...o, customInstructions: await decodeInstructions(o.customInstructions, decrypt) }))
+  )
+}
+
 export type PeerPayActionLike = {
   txid?: string
   labels?: string[]
@@ -312,6 +349,8 @@ export async function resendPaymentDetails(args: {
   txid: string
   listPeerPayAction: (txid: string) => Promise<PeerPayActionLike | undefined>
   refetch: (txid: string) => Promise<number[] | undefined>
+  /** Unwraps metadata the permissions manager encrypted on its way to storage. */
+  decryptMetadata?: (value: string) => Promise<string>
 }): Promise<ResendOutcome> {
   return await rebuildAndDeliver(args)
 }
@@ -322,6 +361,8 @@ async function rebuildAndDeliver(args: {
   txid: string
   listPeerPayAction: (txid: string) => Promise<PeerPayActionLike | undefined>
   refetch: (txid: string) => Promise<number[] | undefined>
+  /** Unwraps metadata the permissions manager encrypted on its way to storage. */
+  decryptMetadata?: (value: string) => Promise<string>
 }): Promise<ResendOutcome> {
   const entries = await getOutboxEntries(args.storage)
   const entry = entries.find(e => outboxTxid(e) === args.txid)
@@ -338,8 +379,12 @@ async function rebuildAndDeliver(args: {
   // this payment's data" about data it never went looking for.
   let withOutputs = action
   if (!hasDerivationData(action.outputs)) {
-    const outputs = await outputsFromStorage(args.storage, args.txid)
-    if (outputs) withOutputs = { ...action, outputs }
+    withOutputs = { ...action, outputs: await decodeOutputs(action.outputs, args.decryptMetadata) }
+    let outputs: PeerPayActionLike['outputs']
+    if (!hasDerivationData(withOutputs.outputs)) {
+      outputs = await decodeOutputs(await outputsFromStorage(args.storage, args.txid), args.decryptMetadata)
+      if (outputs) withOutputs = { ...action, outputs }
+    }
     if (!hasDerivationData(withOutputs.outputs)) {
       // Say what was actually seen. "No derivation data" is true of an action
       // with no outputs, of outputs whose customInstructions never made it to
@@ -386,8 +431,9 @@ export async function handleResendRequests(args: {
   storage: StorageLike
   listPeerPayAction: (txid: string) => Promise<PeerPayActionLike | undefined>
   refetch: (txid: string) => Promise<number[] | undefined>
+  decryptMetadata?: (value: string) => Promise<string>
 }): Promise<{ resent: number; pending: PendingResend[] }> {
-  const { client, storage, listPeerPayAction, refetch } = args
+  const { client, storage, listPeerPayAction, refetch, decryptMetadata } = args
   const messages = await listControlMessages(client)
   let resent = 0
   const pending: PendingResend[] = []
@@ -410,7 +456,8 @@ export async function handleResendRequests(args: {
         storage,
         txid: parsed.txid,
         listPeerPayAction,
-        refetch
+        refetch,
+        decryptMetadata
       })
       if (!deliveredTo.ok) {
         pending.push({ txid: parsed.txid, sender })
