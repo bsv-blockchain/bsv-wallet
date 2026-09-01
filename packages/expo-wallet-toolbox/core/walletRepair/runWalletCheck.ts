@@ -110,7 +110,16 @@ export async function runWalletCheck(
   steps: WalletCheckStepResult[]
   /** Every step ran. Governs whether Retry is worth offering. */
   allOk: boolean
-  /** Every step ran AND had nothing to flag. Governs the reassuring copy. */
+  /**
+   * Nothing was flagged, and something was actually checked. Governs the
+   * reassuring copy.
+   *
+   * A skipped step does not count against it: the user chose to move past that
+   * one, and answering their choice with "some checks need your attention"
+   * treats their own decision as a problem to be fixed. It does not count
+   * FOR it either — a run where everything was skipped verified nothing, and
+   * has no business claiming the wallet looks fine.
+   */
   allClear: boolean
 }> {
   const steps: WalletCheckStepResult[] = []
@@ -141,14 +150,6 @@ export async function runWalletCheck(
   )
   record('proofs', proofs, () => ((proofs as { ok?: boolean }).ok === true ? 'ok' : 'error'))
 
-  onStep('missed_payments')
-  const missed = await guard(skips, 'missed_payments', { accepted: 0, imported: 0 }, async () => {
-    const inbox = await settle(() => ports.creditInbox(), { accepted: 0 })
-    const sweep = await settle(() => ports.sweepAddresses(), { imported: 0 })
-    return { ok: inbox.ok && sweep.ok, value: { accepted: inbox.value.accepted, imported: sweep.value.imported } }
-  })
-  record('missed_payments', missed, () => ((missed as { ok?: boolean }).ok === true ? 'ok' : 'error'))
-
   onStep('backup')
   const backup = await guard(skips, 'backup', { enabled: false, uploaded: false }, () =>
     settle(() => ports.checkBackup(), { enabled: false, uploaded: false })
@@ -164,6 +165,14 @@ export async function runWalletCheck(
   record('phrase_backup', phrase, () =>
     !(phrase as { ok?: boolean }).ok ? 'error' : phrase.value.backedUp ? 'ok' : 'attention'
   )
+
+  onStep('missed_payments')
+  const missed = await guard(skips, 'missed_payments', { accepted: 0, imported: 0 }, async () => {
+    const inbox = await settle(() => ports.creditInbox(), { accepted: 0 })
+    const sweep = await settle(() => ports.sweepAddresses(), { imported: 0 })
+    return { ok: inbox.ok && sweep.ok, value: { accepted: inbox.value.accepted, imported: sweep.value.imported } }
+  })
+  record('missed_payments', missed, () => ((missed as { ok?: boolean }).ok === true ? 'ok' : 'error'))
 
   // Last on purpose: it is the only step that can take minutes (one network
   // call per output), so everything quick has already reported by the time the
@@ -181,6 +190,6 @@ export async function runWalletCheck(
     repairedProofs: proofs.value.repaired,
     steps,
     allOk: steps.every(s => s.status !== 'error'),
-    allClear: steps.every(s => s.status === 'ok')
+    allClear: steps.some(s => s.status === 'ok') && steps.every(s => s.status === 'ok' || s.status === 'skipped')
   }
 }

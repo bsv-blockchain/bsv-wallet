@@ -87,9 +87,9 @@ const STEPS: { id: WalletCheckStepId; labelKey: string }[] = [
   { id: 'online', labelKey: 'wallet_check_step_online' },
   { id: 'records', labelKey: 'wallet_check_step_records' },
   { id: 'proofs', labelKey: 'wallet_check_step_proofs' },
-  { id: 'missed_payments', labelKey: 'wallet_check_step_missed' },
   { id: 'backup', labelKey: 'wallet_check_step_backup' },
   { id: 'phrase_backup', labelKey: 'wallet_check_step_phrase' },
+  { id: 'missed_payments', labelKey: 'wallet_check_step_missed' },
   { id: 'coins', labelKey: 'wallet_check_step_coins' }
 ]
 

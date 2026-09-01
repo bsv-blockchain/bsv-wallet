@@ -19,7 +19,7 @@ describe('runWalletCheck', () => {
     // Coins last: it is the only step that can take minutes, so everything
     // quick has reported before the user is left waiting on anything.
     expect(order).toEqual(['records-status', 'records-release', 'proofs', 'inbox', 'sweep', 'coins'])
-    expect(steps).toEqual(['online', 'records', 'proofs', 'missed_payments', 'backup', 'phrase_backup', 'coins'])
+    expect(steps).toEqual(['online', 'records', 'proofs', 'backup', 'phrase_backup', 'missed_payments', 'coins'])
     expect(summary.freedCoins).toBe(3) // 2 released UTXOs + 1 restored input
     expect(summary.recoveredPayments).toBe(1)
     expect(summary.repairedProofs).toBe(1)
@@ -201,11 +201,35 @@ describe('skipping a check', () => {
     expect(r.freedCoins).toBe(0)
   })
 
-  it('leaves a skipped run neither failed nor clear', async () => {
+  // Skipping is the user's own choice; answering it with "some checks need
+  // your attention" treats their decision as a fault.
+  it('still reads as clear when the only non-ok steps were skipped', async () => {
     const c = controller()
     c.skip('coins')
     const r = await runWalletCheck(base, () => {}, () => {}, c.skips)
     expect(r.allOk).toBe(true)
+    expect(r.allClear).toBe(true)
+  })
+
+  it('does not call a run clear when nothing was actually checked', async () => {
+    const c = controller()
+    for (const id of ['online', 'records', 'proofs', 'missed_payments', 'backup', 'phrase_backup', 'coins']) {
+      c.skip(id)
+    }
+    const r = await runWalletCheck(base, () => {}, () => {}, c.skips)
+    expect(r.steps.every(s => s.status === 'skipped')).toBe(true)
+    expect(r.allClear).toBe(false)
+  })
+
+  it('a real finding still outweighs a skip', async () => {
+    const c = controller()
+    c.skip('coins')
+    const r = await runWalletCheck(
+      { ...base, checkPhraseBackup: async () => ({ backedUp: false }) },
+      () => {},
+      () => {},
+      c.skips
+    )
     expect(r.allClear).toBe(false)
   })
 
