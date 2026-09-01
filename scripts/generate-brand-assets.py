@@ -23,7 +23,7 @@ import math
 import re
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGES = ROOT / "assets" / "images"
@@ -31,27 +31,44 @@ SVG = IMAGES / "icon.svg"
 
 # Two grounds, on purpose.
 #
-# ICONS are gold cords on charcoal: an icon is seen at 16-180px against whatever
-# the OS puts behind it, and a dark plate with a bright mark holds its shape
-# there. Gold-on-gold does not — it turned to texture below about 32px.
+# SPLASH is the gold plate: the brand image, only ever seen full screen, where a
+# warm wash and a figure lit from the upper left have room to show their shading.
 #
-# SPLASH is the gold plate, which is the brand image and is only ever seen full
-# screen, where a light figure on a warm wash has room to breathe.
+# ICON is that same figure on a very dark ground tinted toward the gold, so the
+# mark keeps its own colour at 16-180px instead of competing with whatever the OS
+# puts behind it.
 #
-# Both grounds are a shallow wash rather than a flat fill — one step of value,
-# lit from above the mark — so the plate reads as lit without looking like a
-# gradient. #EAB300 is the brand gold the source SVG already uses.
+# The cords are drawn as raised cord rather than flat stroke — a contact shadow
+# under them, a body, a highlight along the lit edge, and spherical nodes. Flat
+# strokes rendered the same topology but read as a diagram; the shading is what
+# makes it an object.
 class Palette:
-    def __init__(self, light, deep, figure, shadow, shadow_alpha):
+    def __init__(self, light, deep, cord, highlight, shade):
         self.light = light
         self.deep = deep
-        self.figure = figure
-        self.shadow = shadow
-        self.shadow_alpha = shadow_alpha
+        self.cord = cord
+        self.highlight = highlight
+        self.shade = shade
 
 
-CHARCOAL = Palette((58, 58, 63), (22, 22, 25), (234, 179, 0), (0, 0, 0), 120)
-GOLD = Palette((238, 190, 56), (196, 134, 12), (255, 231, 146), (150, 100, 6), 90)
+# #EAB300 is the BSV gold the source SVG uses; the plate is that hue lit and
+# shaded around it.
+GOLD = Palette(
+    light=(236, 192, 62),
+    deep=(199, 141, 20),
+    cord=(244, 199, 58),
+    highlight=(255, 230, 150),
+    shade=(140, 92, 4),
+)
+# #171614 sits between these two: very dark, warmed a step toward the gold so the
+# plate never reads as neutral grey behind a gold mark.
+DARK = Palette(
+    light=(30, 28, 24),
+    deep=(19, 18, 16),
+    cord=(234, 179, 0),
+    highlight=(255, 216, 96),
+    shade=(0, 0, 0),
+)
 
 SS = 4  # supersample factor; every edge here is a diagonal
 
@@ -99,7 +116,39 @@ def perimeter(nodes, size):
     ]
 
 
-def draw_figure(img, inset, palette, chords=True, weight=1.0):
+def _stroke(draw, lines, nodes, place, width, dot, fill):
+    for x1, y1, x2, y2 in lines:
+        draw.line([place(x1, y1), place(x2, y2)], fill=fill, width=width)
+    for cx, cy, _ in nodes:
+        px, py = place(cx, cy)
+        draw.ellipse([px - dot, py - dot, px + dot, py + dot], fill=fill)
+
+
+def _sphere(radius, palette):
+    """A node as a lit bead: highlight up-left, the cord colour turning to shade."""
+    d = radius * 2
+    img = Image.new("RGBA", (d, d), (0, 0, 0, 0))
+    px = img.load()
+    for y in range(d):
+        for x in range(d):
+            nx, ny = (x - radius + 0.5) / radius, (y - radius + 0.5) / radius
+            r2 = nx * nx + ny * ny
+            if r2 > 1:
+                continue
+            # Lambert-ish falloff from a light up and to the left.
+            lit = max(0.0, min(1.0, 0.5 - (nx + ny) * 0.5))
+            edge = min(1.0, (1 - r2) * 6)  # soften the rim rather than clip it
+            mix = lambda a, b: int(a + (b - a) * lit)
+            px[x, y] = (
+                mix(palette.shade[0], palette.highlight[0]),
+                mix(palette.shade[1], palette.highlight[1]),
+                mix(palette.shade[2], palette.highlight[2]),
+                int(255 * edge),
+            )
+    return img
+
+
+def draw_figure(img, inset, palette, chords=True, weight=1.0, shaded=True):
     """
     The figure, centred, at `inset` of the shorter side.
 
@@ -110,39 +159,65 @@ def draw_figure(img, inset, palette, chords=True, weight=1.0):
     size, lines, nodes = parse_svg()
     if not chords:
         lines = perimeter(nodes, size)
+
     w, h = img.size
     span = min(w, h) * inset
     k = span / size
     ox, oy = (w - span) / 2, (h - span) / 2
-    big = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
-    d = ImageDraw.Draw(big)
+    W, H = w * SS, h * SS
 
-    stroke = max(1, round(size * 0.0045 * k * SS * weight))
-    dot = max(stroke, round(8 * k * SS * 0.9))
-    drop = max(1, round(k * SS * 2))
-
-    def place(x, y, dx=0, dy=0):
+    def place(x, y, dx=0.0, dy=0.0):
         return ((ox + x * k) * SS + dx, (oy + y * k) * SS + dy)
 
-    # Shadow first, one step down-right, so the mark reads as raised on a ground
-    # of almost its own colour.
-    for shade, dx, dy in (
-        (palette.shadow + (palette.shadow_alpha,), drop, drop),
-        (palette.figure + (255,), 0, 0)
-    ):
-        for x1, y1, x2, y2 in lines:
-            d.line([place(x1, y1, dx, dy), place(x2, y2, dx, dy)], fill=shade, width=stroke)
-        for cx, cy, _ in nodes:
-            px, py = place(cx, cy, dx, dy)
-            d.ellipse([px - dot, py - dot, px + dot, py + dot], fill=shade)
+    body = max(2, round(size * 0.0052 * k * SS * weight))
+    lit = max(1, round(body * 0.34))
+    dot = max(body, round(8.5 * k * SS * weight))
+    lift = max(1, round(body * 0.30))
+    drop = max(2, round(body * 0.85))
 
-    img.paste(big.resize((w, h), Image.LANCZOS), (0, 0), big.resize((w, h), Image.LANCZOS))
+    # 1. Contact shadow: the same geometry, offset and blurred, so the cords sit
+    #    ON the plate instead of being painted into it. Skipped on the small
+    #    favicons, where a blur wider than a pixel only muddies the silhouette
+    #    and the shading it would carry is invisible anyway.
+    shadow = None
+    if shaded:
+        shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        sd = ImageDraw.Draw(shadow)
+        _stroke(
+            sd, lines, nodes,
+            lambda x, y: place(x, y, drop, drop),
+            body, dot, palette.shade + (150,),
+        )
+        shadow = shadow.filter(ImageFilter.GaussianBlur(body * 0.9))
+
+    # 2. Body, then 3. the highlight along the lit edge, offset up-left and
+    #    thinner, which is what turns a stroke into a round cord.
+    figure = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(figure)
+    _stroke(fd, lines, nodes, place, body, dot, palette.cord + (255,))
+    if shaded:
+        _stroke(
+            fd, lines, [],
+            lambda x, y: place(x, y, -lift, -lift),
+            lit, dot, palette.highlight + (165,),
+        )
+        # _sphere takes a radius and returns a 2r sprite, so this is pasted from
+        # its top-left corner at (centre - r).
+        bead = _sphere(dot, palette)
+        for cx, cy, _ in nodes:
+            px, py = place(cx, cy)
+            figure.alpha_composite(bead, (int(px - dot), int(py - dot)))
+
+    for layer in (shadow, figure):
+        if layer is None:
+            continue
+        img.alpha_composite(layer.resize((w, h), Image.LANCZOS))
     return img
 
 
-def solid(size, inset=0.62, palette=CHARCOAL, chords=True, weight=1.0):
+def solid(size, inset=0.62, palette=DARK, chords=True, weight=1.0, shaded=True):
     img = gradient(size, palette.light, palette.deep).convert("RGBA")
-    return draw_figure(img, inset, palette, chords=chords, weight=weight)
+    return draw_figure(img, inset, palette, chords=chords, weight=weight, shaded=shaded)
 
 
 def transparent(size, inset=0.86, palette=GOLD):
@@ -227,8 +302,8 @@ def main():
     save(solid((192, 192)), "android-chrome-192x192.png")
     save(solid((180, 180)), "apple-touch-icon.png")
     save(solid((64, 64), inset=0.66, chords=False, weight=1.6), "favicon.png")
-    save(solid((32, 32), inset=0.70, chords=False, weight=2.4), "favicon-32x32.png")
-    save(solid((16, 16), inset=0.74, chords=False, weight=4.0), "favicon-16x16.png")
+    save(solid((32, 32), inset=0.70, chords=False, weight=2.4, shaded=False), "favicon-32x32.png")
+    save(solid((16, 16), inset=0.74, chords=False, weight=4.0, shaded=False), "favicon-16x16.png")
     # Full-bleed phone art: the mark sits at roughly a third of the width, the
     # proportion the brand reference uses, not the near-filling one an icon wants.
     save(solid((512, 1007), inset=0.44, palette=GOLD), "splash-orig.png")
