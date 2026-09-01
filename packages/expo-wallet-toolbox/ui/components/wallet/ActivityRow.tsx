@@ -2,11 +2,15 @@
  * One row of the wallet's activity list.
  *
  * Reading order is direction → what it was → how much, then status and time
- * underneath. The per-transaction utilities (explorer, BEEF, txid, refresh,
- * cancel) are NOT on the row: they used to sit permanently on the right, four
- * icons deep, which made every row look equally busy whether or not anything
- * needed doing. They now live behind a tap, and the expanded row lifts onto its
- * own surface so it is obvious which transaction the chips belong to.
+ * underneath. The per-transaction utilities (status, explorer, resend, cancel)
+ * are NOT on the row: they used to sit permanently on the right, four icons
+ * deep, which made every row look equally busy whether or not anything needed
+ * doing. They now live behind a tap, and the expanded row lifts onto its own
+ * surface so it is obvious which transaction the chips belong to.
+ *
+ * The chips are what someone can DO about a payment. Copying raw BEEF or a
+ * txid to a clipboard is not that — it is debugging, and it used to crowd out
+ * the two chips that actually resolve a stuck payment.
  */
 import React, { memo, useContext } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
@@ -63,8 +67,6 @@ interface Props {
   busy: boolean
   onToggle: (rowKey: string) => void
   onExplorer: (txid: string) => void
-  onCopyBeef: (txid: string) => void
-  onCopyTxid: (txid: string) => void
   onRefreshTx: (txid: string) => void
   onAbort: (reference: string) => void
   /** Rebuild and re-deliver a PeerPay token without waiting for a NACK. */
@@ -99,8 +101,6 @@ function ActivityRowBase({
   busy,
   onToggle,
   onExplorer,
-  onCopyBeef,
-  onCopyTxid,
   onRefreshTx,
   onAbort,
   onSendPaymentDetails,
@@ -229,26 +229,10 @@ function ActivityRowBase({
               ) : null}
               {action.txid ? (
                 <Chip
-                  icon="copy-outline"
-                  label="BEEF"
-                  accessibilityLabel={t('tx_action_copy_beef')}
-                  onPress={() => onCopyBeef(action.txid)}
-                />
-              ) : null}
-              {action.txid ? (
-                <Chip
                   icon="link-outline"
                   label="WoC"
                   accessibilityLabel={t('tx_action_explorer')}
                   onPress={() => onExplorer(action.txid)}
-                />
-              ) : null}
-              {action.txid ? (
-                <Chip
-                  icon="copy-outline"
-                  label="TXID"
-                  accessibilityLabel={t('tx_action_copy_txid')}
-                  onPress={() => onCopyTxid(action.txid)}
                 />
               ) : null}
               {canAbort ? (
@@ -263,7 +247,7 @@ function ActivityRowBase({
               {canResendDetails ? (
                 <Chip
                   icon="send-outline"
-                  label={t('send_payment_details_again')}
+                  label={t('tx_action_resend_short')}
                   accessibilityLabel={t('send_payment_details_again')}
                   onPress={() => onSendPaymentDetails!(action.txid)}
                 />

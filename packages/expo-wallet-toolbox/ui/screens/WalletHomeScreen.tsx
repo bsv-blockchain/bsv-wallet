@@ -610,41 +610,6 @@ export function WalletHomeScreen() {
   /** Copy the transaction's full BEEF (raw tx + the proofs/ancestry that make
    * it independently verifiable) as hex — what you paste into a tool or hand to
    * support, unlike a bare txid. */
-  const onCopyBeef = useCallback(
-    async (txid: string) => {
-      if (!storage || busyRow) return
-      setBusyRow(txid)
-      try {
-        const beef = await storage.getValidBeefForKnownTxid(txid)
-        loadClipboard().setString(Utils.toHex(beef.toBinary()))
-        showToast(t('tx_beef_copied'), { type: 'success' })
-      } catch {
-        // Falls here when the BEEF cannot be assembled (e.g. ancestry not yet
-        // known for a still-unconfirmed tx) — not a crash, just unavailable.
-        showToast(t('tx_beef_not_available'), { type: 'error' })
-      } finally {
-        setBusyRow(null)
-      }
-    },
-    [storage, busyRow, t]
-  )
-
-  /** The bare txid — what you paste into someone else's explorer or a support
-   * thread, where a full BEEF would be unusable. */
-  const onCopyTxid = useCallback(
-    (txid: string) => {
-      loadClipboard().setString(txid)
-      showToast(t('tx_txid_copied'), { type: 'success' })
-    },
-    [t]
-  )
-
-  /** Reconcile this one transaction against the network now, rather than
-   * waiting for the background monitor's next sweep. It either confirms it,
-   * leaves it alone as genuinely in-flight, or — when the network does not have
-   * it and the local record is stale — marks it failed and frees the inputs it
-   * was holding. refreshProof bumps txStatusVersion on any change, which
-   * re-runs the list fetch, so there is nothing to refetch here. */
   const onRefreshTx = useCallback(
     async (txid: string) => {
       if (busyRow) return
@@ -864,8 +829,6 @@ export function WalletHomeScreen() {
           busy={busy}
           onToggle={toggleRow}
           onExplorer={onExplorer}
-          onCopyBeef={onCopyBeef}
-          onCopyTxid={onCopyTxid}
           onRefreshTx={onRefreshTx}
           onAbort={onAbort}
           onSendPaymentDetails={onSendPaymentDetails}
@@ -880,8 +843,6 @@ export function WalletHomeScreen() {
       expandedRow,
       toggleRow,
       onExplorer,
-      onCopyBeef,
-      onCopyTxid,
       onRefreshTx,
       onAbort,
       onSendPaymentDetails,
