@@ -41,3 +41,76 @@ export function isResolved(statuses: string[] | undefined): boolean {
 export function selectRetryableInvalidReqs<T extends InvalidReq>(reqs: T[], statuses: TxStatusesByTxid): T[] {
   return reqs.filter(r => !isResolved(statuses.get(r.txid)) && (r.attempts ?? 0) < MAX_UNFAIL_RETRIES)
 }
+
+/**
+ * The two storage surfaces this needs, named apart on purpose.
+ *
+ * A monitor task's `storage` is the WalletStorageManager, which exposes only a
+ * narrow slice: `findProvenTxReqs` is there, `findTransactions` and
+ * `updateProvenTxReq` are not. Reaching for one of the missing ones threw at
+ * runtime and took the whole UnFail task down with it — including the
+ * library's own handling. Declaring both surfaces means the compiler now
+ * refuses that mistake instead of the device finding it.
+ */
+export interface UnfailProvider {
+  findTransactions(args: { partial: { txid: string }; noRawTx?: boolean }): Promise<{ status: string }[]>
+  updateProvenTxReq(id: number, update: { attempts: number }): Promise<unknown>
+}
+
+export interface UnfailStorage {
+  findProvenTxReqs(args: {
+    partial: Record<string, unknown>
+    status: string[]
+    paged: { limit: number; offset: number }
+  }): Promise<InvalidReq[]>
+  runAsStorageProvider<T>(fn: (sp: UnfailProvider) => Promise<T>): Promise<T>
+}
+
+const PAGE = { limit: 100, offset: 0 }
+
+/**
+ * One bounded pass over the `invalid` reqs, returning what to append to the
+ * task's log. Empty when there was nothing worth asking about — which, once a
+ * wallet's dead transactions have been failed, is every pass.
+ */
+export async function runBoundedUnfail(args: {
+  storage: UnfailStorage
+  unfail: (reqs: InvalidReq[], indent: number) => Promise<{ log: string }>
+}): Promise<string> {
+  const { storage, unfail } = args
+  const invalidReqs = await storage.findProvenTxReqs({ partial: {}, status: ['invalid'], paged: PAGE })
+  if (invalidReqs.length === 0) return ''
+
+  const byTxid = await storage.runAsStorageProvider(async sp => {
+    const map: TxStatusesByTxid = new Map()
+    for (const req of invalidReqs) {
+      if (map.has(req.txid)) continue
+      const rows = await sp.findTransactions({ partial: { txid: req.txid }, noRawTx: true })
+      map.set(
+        req.txid,
+        rows.map(r => r.status)
+      )
+    }
+    return map
+  })
+
+  const retryable = selectRetryableInvalidReqs(invalidReqs, byTxid)
+  if (retryable.length === 0) return ''
+
+  let log = `\n${retryable.length} invalid reqs — retrying proof lookup\n`
+  log += (await unfail(retryable, 2)).log
+
+  // The library's failure path leaves `attempts` untouched (only its success
+  // path writes it, resetting to 0), so without this nothing ages out and the
+  // bound could never be reached.
+  const stillInvalid = await storage.findProvenTxReqs({ partial: {}, status: ['invalid'], paged: PAGE })
+  const stillById = new Map(stillInvalid.map(q => [q.provenTxReqId, q]))
+  await storage.runAsStorageProvider(async sp => {
+    for (const req of retryable) {
+      const current = stillById.get(req.provenTxReqId)
+      if (!current) continue
+      await sp.updateProvenTxReq(req.provenTxReqId, { attempts: (current.attempts ?? 0) + 1 })
+    }
+  })
+  return log
+}
