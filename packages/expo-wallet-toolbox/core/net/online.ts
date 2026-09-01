@@ -1,10 +1,17 @@
 /**
  * The single definition of "online" for the whole app.
  *
- * `isInternetReachable` is tri-state: NetInfo reports `null` while it has not
- * finished probing. Treating `null` as offline would make every cold start look
- * offline for a beat, so only an explicit `false` counts against us — which is
- * the same rule the three call sites this replaces already used.
+ * BOTH fields are tri-state: NetInfo reports `null` for each while it has not
+ * finished probing, and at cold start `isConnected` is routinely `null` for a
+ * beat. Only an explicit `false` counts against us — anything else is "not
+ * known yet", which must not read as offline.
+ *
+ * Requiring `isConnected === true` here (the old rule) is what put the offline
+ * banner on the home screen of phones that were online the whole time: the
+ * first NetInfo emission arrives before the native probe has an answer, so the
+ * app announced a state it had not established. Unknown is optimistic for the
+ * same reason it is everywhere else in this codebase — a wrong "online" costs a
+ * retry, a wrong "offline" hides the online rails from someone who has signal.
  */
 import NetInfo from '@react-native-community/netinfo'
 
@@ -14,7 +21,7 @@ export interface OnlineState {
 }
 
 export function isOnlineState(state: OnlineState): boolean {
-  return state.isConnected === true && state.isInternetReachable !== false
+  return state.isConnected !== false && state.isInternetReachable !== false
 }
 
 export async function getOnline(): Promise<boolean> {

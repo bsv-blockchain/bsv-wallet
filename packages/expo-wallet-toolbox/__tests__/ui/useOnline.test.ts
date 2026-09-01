@@ -12,7 +12,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 }))
 
 import { act, renderHook } from '@testing-library/react-native'
-import { getOnline } from '@bsv/expo-wallet-toolbox'
+import { getOnline, subscribeOnline } from '@bsv/expo-wallet-toolbox'
 import { useOnline } from '../../ui/hooks/useOnline'
 
 const probe = getOnline as jest.Mock
@@ -44,10 +44,60 @@ describe('useOnline', () => {
     }
   })
 
-  it('adopts what the probe resolves to', async () => {
-    probe.mockResolvedValue(false)
-    const { result } = renderHook(() => useOnline())
+  it('adopts an online probe result immediately', async () => {
+    probe.mockResolvedValue(true)
+    const { result } = renderHook(() => useOnline(10))
     await settle()
-    expect(result.current).toBe(false)
+    expect(result.current).toBe(true)
+  })
+
+  // The home screen showed an offline banner to phones that were online the
+  // whole time, because the first connectivity report arrives before anything
+  // has been established. Offline is now claimed only once it has held.
+  it('does not claim offline until the state has held for the confirm window', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    try {
+      probe.mockResolvedValue(false)
+      const { result } = renderHook(() => useOnline(2500))
+      await settle()
+      expect(result.current).toBe(true)
+
+      await act(async () => {
+        jest.advanceTimersByTime(2499)
+      })
+      expect(result.current).toBe(true)
+
+      await act(async () => {
+        jest.advanceTimersByTime(1)
+      })
+      expect(result.current).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('cancels a pending offline claim when connectivity comes back first', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+    try {
+      probe.mockResolvedValue(false)
+      let emit: ((v: boolean) => void) | undefined
+      ;(subscribeOnline as jest.Mock).mockImplementation((cb: (v: boolean) => void) => {
+        emit = cb
+        return () => {}
+      })
+      const { result } = renderHook(() => useOnline(2500))
+      await settle()
+
+      await act(async () => {
+        jest.advanceTimersByTime(1000)
+        emit?.(true)
+        jest.advanceTimersByTime(5000)
+      })
+      // A blip that resolved before the window elapsed never reaches the user.
+      expect(result.current).toBe(true)
+    } finally {
+      jest.useRealTimers()
+      ;(subscribeOnline as jest.Mock).mockImplementation(() => () => {})
+    }
   })
 })
