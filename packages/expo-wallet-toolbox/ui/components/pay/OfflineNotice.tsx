@@ -90,6 +90,8 @@ export interface OfflineNoticeProps {
   compact?: boolean
   /** Unprocessed `localpay_pending` KV entries waiting to internalize. */
   pendingCount?: number
+  /** Nearby payments this device tried and gave up on. */
+  pendingStuck?: number
   /** Corrupt `localpay_pending` blob was quarantined, not treated as empty. */
   pendingCorrupt?: boolean
 }
@@ -109,6 +111,7 @@ export default function OfflineNotice({
   onDismiss,
   compact = false,
   pendingCount = 0,
+  pendingStuck = 0,
   pendingCorrupt = false
 }: OfflineNoticeProps) {
   const { t } = useTranslation()
@@ -121,6 +124,7 @@ export default function OfflineNotice({
     sentRejected.length === 0 &&
     (queuedSent ?? []).length === 0 &&
     pendingCount === 0 &&
+    pendingStuck === 0 &&
     !pendingCorrupt
   )
     return null
@@ -207,6 +211,20 @@ export default function OfflineNotice({
           <View style={styles.text}>
             <Text style={[styles.body, { color: colors.textSecondary }]}>
               {t('pay_offline_kv_pending', { count: pendingCount })}
+            </Text>
+          </View>
+        </View>
+      )}
+      {/* Given up on, so it is not "waiting" and must not be counted as such —
+          but it is still money this device holds a copy of and could not
+          credit, which the user has to be told rather than left to infer from
+          a number that quietly went down. */}
+      {pendingStuck > 0 && (
+        <View style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
+          <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />
+          <View style={styles.text}>
+            <Text style={[styles.body, { color: colors.textSecondary }]}>
+              {t('pay_offline_kv_stuck', { count: pendingStuck })}
             </Text>
           </View>
         </View>

@@ -2,6 +2,13 @@ import { Beef } from '@bsv/sdk'
 import type { PaymentFrame } from './codec'
 
 export const PENDING_KEY = 'localpay_pending'
+/**
+ * Counts written beside the queue so the home and pay screens can render their
+ * badge without parsing the queue itself. Every entry carries a full AtomicBEEF,
+ * and the badge was re-parsing all of them — on the JS thread, on both screens,
+ * on every status change — to learn a number.
+ */
+export const PENDING_SUMMARY_KEY = 'localpay_pending_summary'
 export const PEERPAY_PROTOCOL_ID: [number, string] = [2, '3241645161d8']
 export const PEERPAY_LABEL = 'localpay'
 export const PEERPAY_DESCRIPTION = 'Payment received from a nearby device'
@@ -21,6 +28,27 @@ export interface PendingPayment {
    * `offline_actions` row this internalize may create — see `attribute`.
    */
   receivedVia?: string
+  /** Failed internalize attempts. Absent on entries written before the ceiling. */
+  attempts?: number
+}
+
+/**
+ * How many times a received frame is re-internalized before the queue stops
+ * trying. Structurally bad frames used to be retried on every wallet build and
+ * every nearby settle, forever, each one re-validating a full BEEF — and the
+ * badge went on calling them "waiting", which they were not.
+ */
+export const MAX_PENDING_ATTEMPTS = 3
+
+export function isPendingExhausted(p: PendingPayment): boolean {
+  return p.status === 'failed' && (p.attempts ?? 0) >= MAX_PENDING_ATTEMPTS
+}
+
+export interface PendingSummary {
+  /** Still worth retrying. */
+  waiting: number
+  /** Out of attempts: real money this device could not credit. */
+  stuck: number
 }
 
 export interface KVStorage {
@@ -89,6 +117,10 @@ async function readAll(storage: KVStorage): Promise<PendingPayment[]> {
       const still = await storage.getKeyValue(PENDING_KEY)
       if (still === raw) {
         await storage.setKeyValue(PENDING_KEY, '[]')
+        // The summary describes the queue, so it must not outlive it: a stale
+        // count beside a quarantined blob would keep promising payments that
+        // are no longer in the live key.
+        await storage.setKeyValue(PENDING_SUMMARY_KEY, JSON.stringify({ waiting: 0, stuck: 0 }))
       }
     } catch {
       // Quarantine/repair is best-effort; if copy or CAS fails, leave live key.
@@ -97,9 +129,23 @@ async function readAll(storage: KVStorage): Promise<PendingPayment[]> {
   }
 }
 
+function summarise(list: PendingPayment[]): PendingSummary {
+  let waiting = 0
+  let stuck = 0
+  for (const p of list) {
+    if (p.status === 'completed') continue
+    if (isPendingExhausted(p)) stuck++
+    else waiting++
+  }
+  return { waiting, stuck }
+}
+
 async function writeAll(storage: KVStorage, list: PendingPayment[]): Promise<void> {
   const keep = list.filter(p => p.status !== 'completed')
   await storage.setKeyValue(PENDING_KEY, JSON.stringify(keep.map(toWire)))
+  // Written after the queue, never before: a summary that ran ahead of the data
+  // would promise a payment the queue does not hold.
+  await storage.setKeyValue(PENDING_SUMMARY_KEY, JSON.stringify(summarise(keep)))
 }
 
 export async function savePending(
@@ -138,15 +184,47 @@ export async function getUnprocessed(storage: KVStorage): Promise<PendingPayment
   return (await readAll(storage)).filter(p => p.status !== 'completed')
 }
 
-/** Home/Pay overlay: never treat a corrupt blob as an empty queue. */
+/** What `processPending` should attempt: unprocessed, minus what has given up. */
+export async function getRetryable(storage: KVStorage): Promise<PendingPayment[]> {
+  return (await getUnprocessed(storage)).filter(p => !isPendingExhausted(p))
+}
+
+/**
+ * Home/Pay overlay: never treat a corrupt blob as an empty queue.
+ *
+ * Reads the summary key when there is one, so the common case costs a single
+ * small read instead of parsing every queued AtomicBEEF. Falls back to the
+ * queue itself — and writes the summary — for a store written before the
+ * summary existed.
+ */
 export async function readUnprocessedPending(
   storage: KVStorage
-): Promise<{ count: number; corrupt: boolean }> {
+): Promise<{ count: number; stuck: number; corrupt: boolean }> {
+  // Never let the cheap path answer for a queue already known to be corrupt:
+  // the notice is what puts the repair prompt in front of the user.
   try {
-    return { count: (await getUnprocessed(storage)).length, corrupt: false }
+    const raw = getPendingCorruptNotice() ? undefined : await storage.getKeyValue(PENDING_SUMMARY_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PendingSummary>
+      if (typeof parsed.waiting === 'number' && typeof parsed.stuck === 'number') {
+        return { count: parsed.waiting, stuck: parsed.stuck, corrupt: false }
+      }
+    }
+  } catch {
+    // Unreadable summary: fall through and rebuild it from the queue.
+  }
+  try {
+    const all = await getUnprocessed(storage)
+    const summary = summarise(all)
+    try {
+      await storage.setKeyValue(PENDING_SUMMARY_KEY, JSON.stringify(summary))
+    } catch {
+      // A summary that cannot be cached still answers this call.
+    }
+    return { count: summary.waiting, stuck: summary.stuck, corrupt: false }
   } catch (e) {
     if (e instanceof PendingCorruptError || getPendingCorruptNotice()) {
-      return { count: 0, corrupt: true }
+      return { count: 0, stuck: 0, corrupt: true }
     }
     throw e
   }
@@ -175,7 +253,18 @@ export async function updateStatus(
       throw e
     }
     const next = all.map(p =>
-      p.id === id ? { ...p, status, failureReason, lastAttemptAt: new Date().toISOString() } : p
+      p.id === id
+        ? {
+            ...p,
+            status,
+            failureReason,
+            lastAttemptAt: new Date().toISOString(),
+            // Counted on failure only: 'processing' is set on the way in to
+            // every attempt, so counting there would burn the ceiling without
+            // anything having gone wrong.
+            attempts: status === 'failed' ? (p.attempts ?? 0) + 1 : p.attempts
+          }
+        : p
     )
     await writeAll(storage, next)
   })
@@ -203,7 +292,7 @@ export async function processPending(
   attribute?: AttributePayment
 ): Promise<{ id: string; success: boolean; error?: string }[]> {
   const results: { id: string; success: boolean; error?: string }[] = []
-  for (const p of await getUnprocessed(storage)) {
+  for (const p of await getRetryable(storage)) {
     await updateStatus(storage, p.id, 'processing')
     try {
       await wallet.internalizeAction(

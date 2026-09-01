@@ -1,7 +1,19 @@
 import {
-  savePending, getPending, getUnprocessed, updateStatus, processPending,
-  markSessionSpent, isSessionSpent, PENDING_KEY, SPENT_KEY,
-  PendingCorruptError, getPendingCorruptNotice, readUnprocessedPending,
+  MAX_PENDING_ATTEMPTS,
+  PENDING_KEY,
+  PENDING_SUMMARY_KEY,
+  PendingCorruptError,
+  SPENT_KEY,
+  getPending,
+  getPendingCorruptNotice,
+  getRetryable,
+  getUnprocessed,
+  isSessionSpent,
+  markSessionSpent,
+  processPending,
+  readUnprocessedPending,
+  savePending,
+  updateStatus
 } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import { Transaction, Beef, LockingScript } from '@bsv/sdk'
@@ -161,13 +173,13 @@ describe('localpay pending queue', () => {
   it('readUnprocessedPending reports corrupt instead of an empty queue', async () => {
     const s = fakeStorage()
     s.map.set(PENDING_KEY, '{not json')
-    expect(await readUnprocessedPending(s)).toEqual({ count: 0, corrupt: true })
+    expect(await readUnprocessedPending(s)).toEqual({ count: 0, stuck: 0, corrupt: true })
   })
 
   it('readUnprocessedPending counts unprocessed entries', async () => {
     const s = fakeStorage()
     await savePending(s, frame())
-    expect(await readUnprocessedPending(s)).toEqual({ count: 1, corrupt: false })
+    expect(await readUnprocessedPending(s)).toEqual({ count: 1, stuck: 0, corrupt: false })
   })
 
   it('surfaces a corrupt-pending notice until a successful parse', async () => {
@@ -369,5 +381,110 @@ describe('spent session guard', () => {
     const s = fakeStorage()
     s.map.set(SPENT_KEY, 'not json')
     await expect(isSessionSpent(s, sid())).resolves.toBe(false)
+  })
+})
+
+// A queue that retries a hopeless frame forever re-validates a full BEEF on
+// every wallet build and every nearby settle, and keeps calling it "waiting".
+describe('pending queue attempt ceiling', () => {
+  const frame = (id = 'a') =>
+    ({
+      version: 1,
+      kind: 'bsv' as const,
+      senderIdentityKey: '02' + id.repeat(64).slice(0, 64),
+      outputIndex: 0,
+      derivationPrefix: 'p',
+      derivationSuffix: 's',
+      transaction: new Uint8Array([1, 2, 3])
+    })
+
+  function store() {
+    const kv = new Map<string, string>()
+    return {
+      kv,
+      getKeyValue: async (k: string) => kv.get(k),
+      setKeyValue: async (k: string, v: string) => void kv.set(k, v)
+    }
+  }
+
+  it('stops retrying a frame after MAX_PENDING_ATTEMPTS failures', async () => {
+    const s = store()
+    const entry = await savePending(s, frame())
+    for (let i = 0; i < MAX_PENDING_ATTEMPTS; i++) {
+      await updateStatus(s, entry.id, 'failed', 'nope')
+    }
+    expect(await getRetryable(s)).toHaveLength(0)
+    // Still held: it is money this device could not credit, not rubbish.
+    expect(await getUnprocessed(s)).toHaveLength(1)
+  })
+
+  it('keeps retrying while attempts remain', async () => {
+    const s = store()
+    const entry = await savePending(s, frame())
+    await updateStatus(s, entry.id, 'failed', 'nope')
+    expect(await getRetryable(s)).toHaveLength(1)
+  })
+
+  it('does not count a given-up payment as waiting', async () => {
+    const s = store()
+    const entry = await savePending(s, frame())
+    for (let i = 0; i < MAX_PENDING_ATTEMPTS; i++) {
+      await updateStatus(s, entry.id, 'failed', 'nope')
+    }
+    expect(await readUnprocessedPending(s)).toEqual({ count: 0, stuck: 1, corrupt: false })
+  })
+
+  it('does not burn an attempt merely for starting one', async () => {
+    const s = store()
+    const entry = await savePending(s, frame())
+    await updateStatus(s, entry.id, 'processing')
+    await updateStatus(s, entry.id, 'processing')
+    expect(await getRetryable(s)).toHaveLength(1)
+  })
+})
+
+describe('pending summary key', () => {
+  function store() {
+    const kv = new Map<string, string>()
+    const reads: string[] = []
+    return {
+      kv,
+      reads,
+      getKeyValue: async (k: string) => (reads.push(k), kv.get(k)),
+      setKeyValue: async (k: string, v: string) => void kv.set(k, v)
+    }
+  }
+  const frame = {
+    version: 1,
+    kind: 'bsv' as const,
+    senderIdentityKey: '02'.padEnd(66, 'a'),
+    outputIndex: 0,
+    derivationPrefix: 'p',
+    derivationSuffix: 's',
+    transaction: new Uint8Array([1, 2, 3])
+  }
+
+  it('answers the badge without reading the queue itself', async () => {
+    const s = store()
+    await savePending(s, frame)
+    s.reads.length = 0
+    expect(await readUnprocessedPending(s)).toEqual({ count: 1, stuck: 0, corrupt: false })
+    expect(s.reads).toEqual([PENDING_SUMMARY_KEY])
+  })
+
+  it('rebuilds and caches the summary for a store written before it existed', async () => {
+    const s = store()
+    await savePending(s, frame)
+    s.kv.delete(PENDING_SUMMARY_KEY)
+    expect(await readUnprocessedPending(s)).toEqual({ count: 1, stuck: 0, corrupt: false })
+    expect(s.kv.get(PENDING_SUMMARY_KEY)).toBe(JSON.stringify({ waiting: 1, stuck: 0 }))
+  })
+
+  it('does not let a stale summary outlive a quarantined queue', async () => {
+    const s = store()
+    await savePending(s, frame)
+    s.kv.set(PENDING_KEY, '{not json')
+    await expect(getPending(s)).rejects.toBeInstanceOf(PendingCorruptError)
+    expect(s.kv.get(PENDING_SUMMARY_KEY)).toBe(JSON.stringify({ waiting: 0, stuck: 0 }))
   })
 })

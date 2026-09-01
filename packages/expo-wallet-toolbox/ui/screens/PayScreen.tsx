@@ -163,6 +163,7 @@ export function PayScreen() {
   const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [pendingCount, setPendingCount] = useState(0)
+  const [pendingStuck, setPendingStuck] = useState(0)
   const [pendingCorrupt, setPendingCorrupt] = useState(false)
   const [showCode, setShowCode] = useState<OfflineActionRow | null>(null)
   const [queueNonce, setQueueNonce] = useState(0)
@@ -220,9 +221,11 @@ export function PayScreen() {
           try {
             const pending = await readUnprocessedPending(storage)
             setPendingCount(pending.count)
+            setPendingStuck(pending.stuck)
             setPendingCorrupt(pending.corrupt)
           } catch {
             setPendingCount(0)
+            setPendingStuck(0)
             setPendingCorrupt(getPendingCorruptNotice())
           }
         }
@@ -326,6 +329,7 @@ export function PayScreen() {
         onSendNow={() => TaskSendOffline.requestNow()}
         stalled={stalled}
         pendingCount={pendingCount}
+        pendingStuck={pendingStuck}
         pendingCorrupt={pendingCorrupt}
         queuedSent={queuedSentRows}
         onShowCode={setShowCode}

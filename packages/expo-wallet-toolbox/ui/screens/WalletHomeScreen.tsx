@@ -276,6 +276,7 @@ export function WalletHomeScreen() {
   const [unsentCount, setUnsentCount] = useState(0)
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [pendingCount, setPendingCount] = useState(0)
+  const [pendingStuck, setPendingStuck] = useState(0)
   const [pendingCorrupt, setPendingCorrupt] = useState(false)
   // Per-row in-flight action, keyed by txid (or reference for abort) so only
   // the tapped row shows a spinner rather than the whole list.
@@ -473,9 +474,11 @@ export function WalletHomeScreen() {
         try {
           const pending = await readUnprocessedPending(storage)
           setPendingCount(pending.count)
+          setPendingStuck(pending.stuck)
           setPendingCorrupt(pending.corrupt)
         } catch {
           setPendingCount(0)
+          setPendingStuck(0)
           setPendingCorrupt(getPendingCorruptNotice())
         }
       }
@@ -1009,6 +1012,7 @@ export function WalletHomeScreen() {
           onSendNow={() => TaskSendOffline.requestNow()}
           stalled={stalled}
           pendingCount={pendingCount}
+          pendingStuck={pendingStuck}
           pendingCorrupt={pendingCorrupt}
           queuedSent={queuedSent}
           onShowCode={() => router.push('/pay')}
@@ -1066,6 +1070,7 @@ export function WalletHomeScreen() {
       queuedSent,
       stalled,
       pendingCount,
+      pendingStuck,
       pendingCorrupt,
       onRequestAgain,
       onCopyDetails,
