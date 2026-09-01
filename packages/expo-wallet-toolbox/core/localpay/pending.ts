@@ -82,16 +82,19 @@ async function readAll(storage: KVStorage): Promise<PendingPayment[]> {
     pendingCorruptNotice = true
     try {
       await storage.setKeyValue(`localpay_pending_corrupt_${Date.now()}`, raw)
+      // Repair only after a successful quarantine copy so later saves are not
+      // permanently blocked; still throw so this read can surface the notice.
+      await storage.setKeyValue(PENDING_KEY, '[]')
     } catch {
-      // Quarantine copy is best-effort; the original blob must still not be
-      // treated as empty, or a later writeAll([]) would destroy it.
+      // Quarantine/repair is best-effort; without a copy, leave the original.
     }
     throw new PendingCorruptError()
   }
 }
 
 async function writeAll(storage: KVStorage, list: PendingPayment[]): Promise<void> {
-  await storage.setKeyValue(PENDING_KEY, JSON.stringify(list.map(toWire)))
+  const keep = list.filter(p => p.status !== 'completed')
+  await storage.setKeyValue(PENDING_KEY, JSON.stringify(keep.map(toWire)))
 }
 
 export async function savePending(
@@ -111,7 +114,8 @@ export async function savePending(
     try {
       existing = await readAll(storage)
     } catch (e) {
-      // Skip writeAll — replacing a corrupt blob with [] destroys the original.
+      // readAll already repaired PENDING_KEY to []; still throw so this call
+      // does not silently succeed while the notice should show.
       if (e instanceof PendingCorruptError) throw e
       throw e
     }

@@ -63,16 +63,34 @@ describe('localpay pending queue', () => {
     await expect(getPending(s)).rejects.toThrow(/corrupt/i)
     const keys = [...s.map.keys()]
     expect(keys.some(k => k.startsWith('localpay_pending_corrupt_'))).toBe(true)
-    expect(s.map.get(PENDING_KEY)).toBe('{not json')
+    expect(JSON.parse(s.map.get(PENDING_KEY)!)).toEqual([])
   })
 
-  it('does not overwrite the original pending key when saving over corrupt JSON', async () => {
+  it('replaces PENDING_KEY with [] after quarantining corrupt JSON so a later save can proceed', async () => {
+    const s = fakeStorage()
+    s.map.set(PENDING_KEY, '{not json')
+    await expect(getPending(s)).rejects.toBeInstanceOf(PendingCorruptError)
+    expect(JSON.parse(s.map.get(PENDING_KEY)!)).toEqual([])
+    expect([...s.map.keys()].some(k => k.startsWith('localpay_pending_corrupt_'))).toBe(true)
+    const saved = await savePending(s, frame())
+    expect(saved.status).toBe('pending')
+  })
+
+  it('still throws on save over corrupt JSON after repairing PENDING_KEY to []', async () => {
     const s = fakeStorage()
     s.map.set(PENDING_KEY, '{not json')
     await expect(savePending(s, frame())).rejects.toThrow(/corrupt/i)
-    expect(s.map.get(PENDING_KEY)).toBe('{not json')
-    const stored = [...s.map.entries()].filter(([k]) => k === PENDING_KEY).map(([, v]) => v)
-    expect(stored).toEqual(['{not json'])
+    expect(JSON.parse(s.map.get(PENDING_KEY)!)).toEqual([])
+    expect([...s.map.keys()].some(k => k.startsWith('localpay_pending_corrupt_'))).toBe(true)
+  })
+
+  it('drops completed entries on write', async () => {
+    const s = fakeStorage()
+    const a = await savePending(s, frame())
+    await updateStatus(s, a.id, 'completed')
+    const b = await savePending(s, frame())
+    const all = JSON.parse(s.map.get(PENDING_KEY)!) as { id: string; status: string }[]
+    expect(all.map(e => e.id)).toEqual([b.id])
   })
 
   it('propagates PendingCorruptError from getUnprocessed', async () => {
@@ -130,7 +148,8 @@ describe('localpay pending queue', () => {
     const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
     const results = await processPending(wallet as never, s, 'admin.com')
     expect(results).toEqual([expect.objectContaining({ success: true })])
-    expect((await getPending(s))[0].status).toBe('completed')
+    // completed entries are pruned on write
+    expect(await getPending(s)).toEqual([])
   })
 
   it('marks failed and keeps the entry when internalizeAction throws', async () => {
@@ -170,7 +189,7 @@ describe('localpay pending queue', () => {
     const results = await processPending(wallet as never, s, 'admin.com')
     expect(wallet.internalizeAction).toHaveBeenCalledTimes(1)
     expect(results).toEqual([expect.objectContaining({ success: true })])
-    expect((await getPending(s))[0].status).toBe('completed')
+    expect(await getPending(s)).toEqual([])
   })
 
   it('records the transport a payment arrived over, when the caller knows it', async () => {
@@ -206,7 +225,7 @@ describe('localpay pending queue', () => {
     const attribute = jest.fn().mockRejectedValue(new Error('database is locked'))
     const results = await processPending(wallet as never, s, 'admin.com', attribute)
     expect(results).toEqual([expect.objectContaining({ success: true })])
-    expect((await getPending(s))[0].status).toBe('completed')
+    expect(await getPending(s)).toEqual([])
   })
 
   it("does not stop the loop when one entry's attribution throws and another follows", async () => {
