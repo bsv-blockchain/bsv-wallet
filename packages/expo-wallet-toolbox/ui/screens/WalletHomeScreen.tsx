@@ -74,6 +74,7 @@ import {
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
 import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
+import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import { makeMetadataDecryptor } from '../../core/peerpay/metadataDecryptor'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
@@ -276,6 +277,8 @@ export function WalletHomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
+  /** Bumped when a queued payment outlives its grace, so the banner can appear. */
+  const [graceNonce, setGraceNonce] = useState(0)
   const [attentionCount, setAttentionCount] = useState(0)
   const [unsentCount, setUnsentCount] = useState(0)
   const [stalled, setStalled] = useState<string | undefined>(undefined)
@@ -827,14 +830,30 @@ export function WalletHomeScreen() {
   // Parked payments are counted apart from queued ones: nothing is waiting to
   // broadcast them, so folding them into "waiting to be broadcast" would say
   // something untrue about both.
-  const queuedCount = useMemo(
-    () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked').length,
+  //
+  // The rest pass through the grace filter: online, a payment the drain is
+  // about to post says nothing worth reading, and the banner appearing for the
+  // half second before it lands reads as a fault that is not there.
+  const queued = useMemo(
+    () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked'),
     [offlineRows]
   )
-  const queuedSent = useMemo(
-    () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked' && r.role === 'sent'),
-    [offlineRows]
+  const { shown: queuedShown, nextCheckMs } = useMemo(
+    // graceNonce is a dependency only: it carries no value into the call, it
+    // just re-runs it once a young row has aged past the grace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () => partitionQueueByGrace(queued, { online, nowMs: Date.now() }),
+    [queued, online, graceNonce]
   )
+  // A row that is merely young becomes newsworthy by the passage of time alone,
+  // and nothing else would wake this screen to notice.
+  useEffect(() => {
+    if (nextCheckMs === undefined) return
+    const t = setTimeout(() => setGraceNonce(n => n + 1), nextCheckMs + 100)
+    return () => clearTimeout(t)
+  }, [nextCheckMs])
+  const queuedCount = queuedShown.length
+  const queuedSent = useMemo(() => queuedShown.filter(r => r.role === 'sent'), [queuedShown])
   const stuckBadges = useMemo(
     () =>
       homeBadges({

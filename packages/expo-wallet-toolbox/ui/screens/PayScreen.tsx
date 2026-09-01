@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next'
 import PressableScale from '../components/ui/PressableScale'
 import PayCellRow from '../components/pay/PayCellRow'
 import NearbyFlow from '../components/pay/NearbyFlow'
+import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import PaymentQrDisplay from '../components/pay/PaymentQrDisplay'
 import HandleSend from '../components/pay/HandleSend'
 import HandleReceive from '../components/pay/HandleReceive'
@@ -161,6 +162,8 @@ export function PayScreen() {
   const [rejected, setRejected] = useState<OfflineActionRow[]>([])
   const [sentRejected, setSentRejected] = useState<OfflineActionRow[]>([])
   const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
+  /** When to re-read the queue because a young row will have aged past its grace. */
+  const [graceDelay, setGraceDelay] = useState<number | undefined>(undefined)
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [pendingCount, setPendingCount] = useState(0)
   const [pendingStuck, setPendingStuck] = useState(0)
@@ -236,7 +239,15 @@ export function PayScreen() {
           ...(walletUserId === null ? {} : { userId: walletUserId })
         })
         if (cancelled) return
-        setQueued(rows.filter(r => r.status !== 'rejected').length)
+        // Same grace as the wallet screen: online, a payment the drain is about
+        // to post is not news, and the banner flashing up for the half second
+        // before it lands reads as a fault that is not there.
+        const live = partitionQueueByGrace(
+          rows.filter(r => r.status !== 'rejected'),
+          { online, nowMs: Date.now() }
+        )
+        setQueued(live.shown.length)
+        setGraceDelay(live.nextCheckMs)
         // 'sent'-role rows can be rejected too (a payer's own held payment can be
         // poisoned), but they carry no senderIdentityKey or receivedVia — those
         // are only ever recorded on the receiving side (see
@@ -247,7 +258,7 @@ export function PayScreen() {
         // else's fraud against them, so it gets its own unattributed notice.
         setRejected(rows.filter(r => r.status === 'rejected' && r.role === 'received'))
         setSentRejected(rows.filter(r => r.status === 'rejected' && r.role === 'sent'))
-        setQueuedSentRows(rows.filter(r => r.status !== 'rejected' && r.role === 'sent'))
+        setQueuedSentRows(live.shown.filter(r => r.role === 'sent'))
         setStalled(TaskSendOffline.lastStall)
       } catch {
         // This banner is advisory, never load-bearing. A read failure here must
@@ -260,6 +271,13 @@ export function PayScreen() {
   }, [walletBuilt, storage, online, txStatusVersion, walletUserId, cell, queueNonce])
 
   const reloadQueue = useCallback(() => setQueueNonce(n => n + 1), [])
+
+  // A row that is merely young becomes newsworthy by the passage of time alone.
+  useEffect(() => {
+    if (graceDelay === undefined) return
+    const t = setTimeout(reloadQueue, graceDelay + 100)
+    return () => clearTimeout(t)
+  }, [graceDelay, reloadQueue])
   const pushPay = useCallback((sats?: number) => {
     const { router: r } = loadExpoRouter()
     if (typeof r.setParams === 'function') {
