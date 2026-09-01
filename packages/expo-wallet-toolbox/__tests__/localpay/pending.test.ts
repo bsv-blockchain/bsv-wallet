@@ -76,6 +76,65 @@ describe('localpay pending queue', () => {
     expect(saved.status).toBe('pending')
   })
 
+  it('does not let a stale corrupt-repair wipe a later save', async () => {
+    const corrupt = '{not json'
+    const map = new Map<string, string>()
+    map.set(PENDING_KEY, corrupt)
+
+    let initialReaders = 0
+    let releaseInitial!: () => void
+    const initialBarrier = new Promise<void>(r => { releaseInitial = r })
+    let bothStarted!: () => void
+    const bothInitialReads = new Promise<void>(r => { bothStarted = r })
+
+    let casPasses = 0
+    let releaseStaleCas!: () => void
+    const staleCasHold = new Promise<void>(r => { releaseStaleCas = r })
+    let staleCasPending!: () => void
+    const staleCasReached = new Promise<void>(r => { staleCasPending = r })
+
+    const storage = {
+      map,
+      getKeyValue: async (k: string) => {
+        if (k === PENDING_KEY) {
+          const quarantines = [...map.keys()].filter(x => x.startsWith('localpay_pending_corrupt_')).length
+          if (quarantines > 0) {
+            casPasses++
+            if (casPasses === 2) {
+              staleCasPending()
+              await staleCasHold
+            }
+            return map.get(k)
+          }
+          if (map.get(k) === corrupt) {
+            initialReaders++
+            if (initialReaders === 2) bothStarted()
+            await initialBarrier
+            return corrupt
+          }
+        }
+        return map.get(k)
+      },
+      setKeyValue: async (k: string, v: string) => {
+        map.set(k, v)
+      },
+    }
+
+    const first = getPending(storage as never)
+    const stale = getPending(storage as never)
+    await bothInitialReads
+    releaseInitial()
+
+    await staleCasReached
+    await expect(first).rejects.toBeInstanceOf(PendingCorruptError)
+    const saved = await savePending(storage as never, frame())
+    releaseStaleCas()
+    await expect(stale).rejects.toBeInstanceOf(PendingCorruptError)
+
+    const all = JSON.parse(map.get(PENDING_KEY)!) as { id: string }[]
+    expect(all.map(e => e.id)).toEqual([saved.id])
+  })
+
   it('still throws on save over corrupt JSON after repairing PENDING_KEY to []', async () => {
     const s = fakeStorage()
     s.map.set(PENDING_KEY, '{not json')

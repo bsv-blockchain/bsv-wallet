@@ -82,11 +82,16 @@ async function readAll(storage: KVStorage): Promise<PendingPayment[]> {
     pendingCorruptNotice = true
     try {
       await storage.setKeyValue(`localpay_pending_corrupt_${Date.now()}`, raw)
-      // Repair only after a successful quarantine copy so later saves are not
-      // permanently blocked; still throw so this read can surface the notice.
-      await storage.setKeyValue(PENDING_KEY, '[]')
+      // Repair only after a successful quarantine copy. Compare-and-swap: this
+      // path is not under withQueueLock (nesting would deadlock writers that
+      // already hold it), so only write [] while PENDING_KEY still equals the
+      // corrupt blob we observed — a stale peer must not wipe a later save.
+      const still = await storage.getKeyValue(PENDING_KEY)
+      if (still === raw) {
+        await storage.setKeyValue(PENDING_KEY, '[]')
+      }
     } catch {
-      // Quarantine/repair is best-effort; without a copy, leave the original.
+      // Quarantine/repair is best-effort; if copy or CAS fails, leave live key.
     }
     throw new PendingCorruptError()
   }
