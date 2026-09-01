@@ -138,6 +138,14 @@ describe('TaskDrainOutbox backoff', () => {
     expect(TaskDrainOutbox.backoffMs).toBe(TaskDrainOutbox.BASE_BACKOFF_MS)
     expect(TaskDrainOutbox.nextDueAt).toBe(0)
   })
+
+  it('prunes expired sent entries after a successful drain', async () => {
+    const prune = jest.fn().mockResolvedValue(undefined)
+    TaskDrainOutbox.noteConnectivity(true)
+    const t = new TaskDrainOutbox(monitor, async () => idle, () => 0, prune)
+    await t.runTask()
+    expect(prune).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('drainUnsentEntries', () => {

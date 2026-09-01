@@ -82,7 +82,8 @@ export class TaskDrainOutbox extends WalletMonitorTask {
   constructor(
     monitor: Monitor,
     private readonly drain: () => Promise<DrainOutboxResult>,
-    private readonly now: () => number = () => Date.now()
+    private readonly now: () => number = () => Date.now(),
+    private readonly prune?: () => Promise<void>
   ) {
     super(monitor, TaskDrainOutbox.taskName)
   }
@@ -110,6 +111,7 @@ export class TaskDrainOutbox extends WalletMonitorTask {
         TaskDrainOutbox.hasPending = false
         TaskDrainOutbox.backoffMs = TaskDrainOutbox.BASE_BACKOFF_MS
       }
+      await this.prune?.()
       if (r.retried === 0 && !r.stopped && r.remaining === 0) return ''
       return `drained ${r.retried}, remaining ${r.remaining}${r.stopped ? ', stopped early' : ''}\n`
     } catch (e) {

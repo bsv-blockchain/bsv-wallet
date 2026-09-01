@@ -177,7 +177,7 @@ import {
   NO_MESSAGE_BOX,
   retryDelivery
 } from '../pay/rails/handle'
-import { getOutboxEntries, unsentEntries } from '../peerpay/outbox'
+import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
 import { wocConfigFor } from '../pay/rails/address'
 import { PeerPayClient } from '@bsv/message-box-client'
 import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../pay/sweeper'
@@ -1297,26 +1297,33 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             TaskCreditInbox.noteEnqueued()
 
             monitor.addTask(
-              new TaskDrainOutbox(monitor, async () => {
-                const entries = unsentEntries(await getOutboxEntries(phoneStorage!))
-                return drainUnsentEntries({
-                  entries,
-                  retry: async entry => {
-                    const client = new PeerPayClient({
-                      messageBoxHost: entry.messageBoxUrl,
-                      walletClient: permissionsManager as never,
-                      originator: adminOriginator
-                    })
-                    await retryDelivery({
-                      wallet: permissionsManager as never,
-                      adminOriginator,
-                      client,
-                      storage: phoneStorage!,
-                      entry
-                    })
-                  }
-                })
-              })
+              new TaskDrainOutbox(
+                monitor,
+                async () => {
+                  const entries = unsentEntries(await getOutboxEntries(phoneStorage!))
+                  return drainUnsentEntries({
+                    entries,
+                    retry: async entry => {
+                      const client = new PeerPayClient({
+                        messageBoxHost: entry.messageBoxUrl,
+                        walletClient: permissionsManager as never,
+                        originator: adminOriginator
+                      })
+                      await retryDelivery({
+                        wallet: permissionsManager as never,
+                        adminOriginator,
+                        client,
+                        storage: phoneStorage!,
+                        entry
+                      })
+                    }
+                  })
+                },
+                Date.now,
+                async () => {
+                  await pruneExpiredSent(phoneStorage!)
+                }
+              )
             )
             TaskDrainOutbox.noteEnqueued()
 
@@ -1417,8 +1424,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
           // TaskReviewProvenTxs is the backup audit when live reorg SSE is missing.
           // Bound it to the last 100 eligible heights so it cannot crawl from genesis.
+          // getOnline() is async; trigger is sync — TaskSendOffline.onlineNow is the
+          // app's single online signal (same subscribeOnline feed as the drain).
           const reviewProvenTxsTask = monitor._tasks.find((t: any) => t.name === 'ReviewProvenTxs') as any
-          if (reviewProvenTxsTask) boundReviewProvenTxs(reviewProvenTxsTask)
+          if (reviewProvenTxsTask) {
+            boundReviewProvenTxs(reviewProvenTxsTask, { getOnline: () => TaskSendOffline.onlineNow })
+          }
 
           // TaskCheckForProofs.trigger() only fires when checkNow=true (set by TaskNewHeader).
           // The periodic triggerMsecs fallback is commented out in the library. Patch it back in

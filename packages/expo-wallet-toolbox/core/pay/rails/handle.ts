@@ -202,9 +202,8 @@ function safeAtomicTxid(tx: number[]): string | undefined {
 }
 
 /**
- * One retry against a re-listed payment. A token can go stale between listing
- * and accepting (the sender re-sent, the box re-issued the message id), and the
- * fresh copy usually internalizes cleanly.
+ * Retry the same payment object once. Do not relist the inbox — a pass of N
+ * failures would otherwise listIncomingPayments per payment.
  */
 export async function acceptWithRetry(
   client: Pick<PeerPayClient, 'listIncomingPayments'>,
@@ -213,13 +212,12 @@ export async function acceptWithRetry(
   description: string,
   internalize: (p: IncomingPayment, d: string) => Promise<void>
 ): Promise<void> {
+  void client
+  void messageBoxUrl
   try {
     await internalize(payment, description)
   } catch {
-    const list = await client.listIncomingPayments(messageBoxUrl)
-    const fresh = list.find(x => String(x.messageId) === String(payment.messageId))
-    if (!fresh) throw new Error('Payment not found on refresh')
-    await internalize(fresh, description)
+    await internalize(payment, description)
   }
 }
 

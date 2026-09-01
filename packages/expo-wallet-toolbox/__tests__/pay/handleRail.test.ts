@@ -150,20 +150,24 @@ describe('acceptWithRetry', () => {
     expect(client.listIncomingPayments).not.toHaveBeenCalled()
   })
 
-  it('re-lists and retries with the fresh payment when the first attempt fails', async () => {
-    const fresh = { messageId: 'm1', fresh: true }
-    const internalize = jest.fn().mockRejectedValueOnce(new Error('stale')).mockResolvedValueOnce(undefined)
-    const client = { listIncomingPayments: jest.fn().mockResolvedValue([fresh]) }
-    await acceptWithRetry(client as never, 'https://mb', payment, 'note', internalize)
-    expect(internalize).toHaveBeenNthCalledWith(2, fresh, 'note')
+  it('rethrows if the retry also fails', async () => {
+    const internalize = jest.fn().mockRejectedValue(new Error('stale'))
+    const client = { listIncomingPayments: jest.fn() }
+    await expect(acceptWithRetry(client as never, 'https://mb', payment, 'n', internalize)).rejects.toThrow('stale')
+    expect(internalize).toHaveBeenCalledTimes(2)
+    expect(internalize).toHaveBeenNthCalledWith(2, payment, 'n')
+    expect(client.listIncomingPayments).not.toHaveBeenCalled()
   })
 
-  it('throws when the payment is gone on refresh', async () => {
-    const internalize = jest.fn().mockRejectedValue(new Error('stale'))
-    const client = { listIncomingPayments: jest.fn().mockResolvedValue([]) }
-    await expect(acceptWithRetry(client as never, 'https://mb', payment, 'n', internalize)).rejects.toThrow(
-      /not found/i
-    )
+  it('retries the same payment without relisting the inbox', async () => {
+    const listIncomingPayments = jest.fn()
+    let n = 0
+    await acceptWithRetry({ listIncomingPayments } as never, 'https://mb', payment, 'd', async () => {
+      n++
+      if (n === 1) throw new Error('stale')
+    })
+    expect(n).toBe(2)
+    expect(listIncomingPayments).not.toHaveBeenCalled()
   })
 })
 

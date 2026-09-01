@@ -36,7 +36,7 @@ export const REVIEW_FAILED_TXS_SQL = `SELECT transactionId, txid FROM transactio
 
 export const REVIEW_REQ_STATUSES_SQL = `SELECT status FROM proven_tx_reqs WHERE txid = ?`
 
-export const REVIEW_OUTPUTS_SQL = `SELECT outputId, transactionId, spendable, spentBy FROM outputs`
+export const REVIEW_OUTPUTS_SQL = `SELECT outputId, transactionId, spendable, spentBy FROM outputs WHERE NOT (spendable = 0 AND spentBy IS NULL)`
 
 const FAIL_TX_SQL = `UPDATE transactions SET status = 'failed' WHERE transactionId = ?`
 const RESTORE_INPUT_SQL = `UPDATE outputs SET spendable = 1, spentBy = NULL WHERE outputId = ?`

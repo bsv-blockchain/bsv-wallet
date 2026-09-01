@@ -3,6 +3,7 @@ import { Monitor } from '@bsv/wallet-toolbox-mobile'
 export const NEW_HEADER_POLL_INTERVAL_MS = 60_000
 export const NEW_HEADER_FAILURE_BACKOFF_MS = 5 * 60_000
 export const REVIEW_PROVEN_TXS_MAX_SPAN = 100
+export const REVIEW_PROVEN_TXS_MIN_INTERVAL_MS = 600_000
 
 interface NewHeaderTask {
   lastRunMsecsSinceEpoch: number
@@ -102,20 +103,31 @@ interface ReviewProvenTxsLike {
   }
 }
 
+export interface BoundReviewProvenTxsOptions {
+  getOnline?: () => boolean
+  now?: () => number
+}
+
 /**
  * Keep TaskReviewProvenTxs, but do not let it crawl the whole chain: skip a
  * trigger whose remaining span is over 100, and if last-reviewed is far
- * behind the tip, start at the last 100 eligible heights.
+ * behind the tip, start at the last 100 eligible heights. Do not run offline,
+ * and run at most every REVIEW_PROVEN_TXS_MIN_INTERVAL_MS.
  */
-export function boundReviewProvenTxs(task: ReviewProvenTxsLike): void {
+export function boundReviewProvenTxs(task: ReviewProvenTxsLike, opts?: BoundReviewProvenTxsOptions): void {
   if (typeof task.maxHeightsPerRun === 'number') {
     task.maxHeightsPerRun = Math.min(task.maxHeightsPerRun, REVIEW_PROVEN_TXS_MAX_SPAN)
   }
   const originalTrigger = task.trigger.bind(task)
+  let lastRunAt: number | undefined
   task.trigger = (nowMsecsSinceEpoch: number) => {
+    if (opts?.getOnline && !opts.getOnline()) return { run: false }
     const base = originalTrigger(nowMsecsSinceEpoch)
     if (!base.run) return base
     if ((task.remainingHeightSpan ?? 0) > REVIEW_PROVEN_TXS_MAX_SPAN) return { run: false }
+    const t = opts?.now?.() ?? nowMsecsSinceEpoch
+    if (lastRunAt != null && t - lastRunAt < REVIEW_PROVEN_TXS_MIN_INTERVAL_MS) return { run: false }
+    lastRunAt = t
     return base
   }
 

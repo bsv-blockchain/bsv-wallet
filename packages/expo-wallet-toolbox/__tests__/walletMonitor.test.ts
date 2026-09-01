@@ -6,6 +6,7 @@ import {
   NEW_HEADER_FAILURE_BACKOFF_MS,
   NEW_HEADER_POLL_INTERVAL_MS,
   REVIEW_PROVEN_TXS_MAX_SPAN,
+  REVIEW_PROVEN_TXS_MIN_INTERVAL_MS,
   reviewProvenTxsStartHeight
 } from '../core/walletMonitor'
 import { Monitor, Services } from '@bsv/wallet-toolbox-mobile'
@@ -204,5 +205,31 @@ describe('boundReviewProvenTxs', () => {
     boundReviewProvenTxs(task)
     expect(task.maxHeightsPerRun).toBe(REVIEW_PROVEN_TXS_MAX_SPAN)
     expect(await task.getLastReviewedHeight()).toBe(900_000 - REVIEW_PROVEN_TXS_MAX_SPAN)
+  })
+
+  it('does not run when getOnline returns false', () => {
+    const task = {
+      lastRunMsecsSinceEpoch: 0,
+      trigger: (_now: number) => ({ run: true }),
+      remainingHeightSpan: 1
+    }
+    boundReviewProvenTxs(task, { getOnline: () => false, now: () => 0 })
+    expect(task.trigger(0).run).toBe(false)
+  })
+
+  it('runs at most every 10 minutes when online', () => {
+    expect(REVIEW_PROVEN_TXS_MIN_INTERVAL_MS).toBe(600_000)
+    let t = 1_000
+    const task = {
+      lastRunMsecsSinceEpoch: 0,
+      trigger: (_now: number) => ({ run: true }),
+      remainingHeightSpan: 1
+    }
+    boundReviewProvenTxs(task, { getOnline: () => true, now: () => t })
+    expect(task.trigger(t).run).toBe(true)
+    t = 1_000 + 60_000
+    expect(task.trigger(t).run).toBe(false)
+    t = 1_000 + REVIEW_PROVEN_TXS_MIN_INTERVAL_MS
+    expect(task.trigger(t).run).toBe(true)
   })
 })

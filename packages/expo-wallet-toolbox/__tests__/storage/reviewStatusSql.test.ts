@@ -6,6 +6,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import {
   LIVE_OFFLINE_SKIP_TXIDS_SQL,
+  REVIEW_OUTPUTS_SQL,
   failInvalidReqTxs,
   reviewStatusOnDb
 } from '../../core/storage/methods/reviewStatusSql'
@@ -97,6 +98,17 @@ describe('reviewStatusOnDb', () => {
     d.prepare('INSERT INTO proven_tx_reqs VALUES (1, ?, ?)').run(TX1, 'invalid')
     reviewStatusOnDb(d, { skipTxids: new Set() })
     expect(txStatus(d, 1)).toBe('completed')
+  })
+})
+
+describe('REVIEW_OUTPUTS_SQL', () => {
+  it('excludes outputs that cannot change', () => {
+    const d = seeded()
+    d.exec('INSERT INTO outputs VALUES (1, 1, 0, NULL)')
+    d.exec('INSERT INTO outputs VALUES (2, 1, 1, NULL)')
+    d.exec('INSERT INTO outputs VALUES (3, 1, 0, 9)')
+    const rows = d.prepare(REVIEW_OUTPUTS_SQL).all() as { outputId: number }[]
+    expect(rows.map(r => r.outputId)).toEqual([2, 3])
   })
 })
 
