@@ -2,7 +2,7 @@
  * Check Wallet — a pushed, determinate repair destination.
  *
  * Four labeled steps, a bar plus "N of 4", never an unlabeled spinner.
- * Back always works. Done is quiet copy and a success haptic, not Celebration.
+ * Back always works. Done is quiet copy and a haptic, not Celebration.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
@@ -123,73 +123,52 @@ function useWalletCheckPorts(): WalletCheckPorts {
   return useMemo<WalletCheckPorts>(
     () => ({
       reviewSpendable: async () => {
-        let released = 0
-        let recovered = 0
-        try {
-          const log = await checkUtxoSpendability()
-          // Stuck-reservation releases are counted by releaseStuck, not here.
-          released += parseCount(log, /(\d+) stale output\(s\) marked unspendable/)
-          recovered += parseCount(log, /(\d+) spending tx\(s\) internalized/)
-        } catch {
-          // Port stays structured even when WoC is unreachable.
+        const log = await checkUtxoSpendability()
+        // Stuck-reservation releases are counted by releaseStuck, not here.
+        return {
+          released: parseCount(log, /(\d+) stale output\(s\) marked unspendable/),
+          recovered: parseCount(log, /(\d+) spending tx\(s\) internalized/)
         }
-        return { released, recovered }
       },
       checkProofs: async () => {
-        try {
-          await runMonitorTask('CheckForProofs')
-        } catch {
-          // Proof repair is optional for the Done copy.
-        }
+        await runMonitorTask('CheckForProofs')
         return { repaired: 0 }
       },
       reviewStatus: async () => {
         if (!storage?.reviewStatus) return { failedTxs: 0, restoredInputs: 0 }
-        try {
-          const { log } = await storage.reviewStatus({ agedLimit: new Date() })
-          return {
-            failedTxs: countNeedle(log, "updated to status of 'failed'"),
-            restoredInputs: countNeedle(log, 'updated to spendable because spentBy is failed')
-          }
-        } catch {
-          return { failedTxs: 0, restoredInputs: 0 }
+        const { log } = await storage.reviewStatus({ agedLimit: new Date() })
+        return {
+          failedTxs: countNeedle(log, "updated to status of 'failed'"),
+          restoredInputs: countNeedle(log, 'updated to spendable because spentBy is failed')
         }
       },
       releaseStuck: async () => {
-        try {
-          const log = await releaseStuckReservations()
-          return { released: parseCount(log, /Released (\d+) stuck/) }
-        } catch {
-          return { released: 0 }
-        }
+        const log = await releaseStuckReservations()
+        return { released: parseCount(log, /Released (\d+) stuck/) }
       },
       creditInbox: async () => {
         if (!wallet) return { accepted: 0 }
-        try {
-          const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
-          const messageBoxUrl = !saved || saved === LEGACY_MESSAGE_BOX_URL ? DEFAULT_MESSAGE_BOX_URL : saved
-          if (!messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return { accepted: 0 }
-          const client = new PeerPayClient({
-            messageBoxHost: messageBoxUrl,
-            walletClient: wallet as never,
-            originator: adminOriginator
-          })
-          const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
-          const classify = await makeCreditClassifier({ getOnline, peekLastMissHeight })
-          const outcome = await creditInboxOnce({
-            client,
-            messageBoxUrl,
-            storage: storage ?? undefined,
-            classify,
-            accept: payment =>
-              acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
-                internalizeIncoming(wallet as never, client, adminOriginator, p, d, repairBeef)
-              )
-          })
-          return { accepted: outcome.accepted }
-        } catch {
-          return { accepted: 0 }
-        }
+        const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+        const messageBoxUrl = !saved || saved === LEGACY_MESSAGE_BOX_URL ? DEFAULT_MESSAGE_BOX_URL : saved
+        if (!messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return { accepted: 0 }
+        const client = new PeerPayClient({
+          messageBoxHost: messageBoxUrl,
+          walletClient: wallet as never,
+          originator: adminOriginator
+        })
+        const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+        const classify = await makeCreditClassifier({ getOnline, peekLastMissHeight })
+        const outcome = await creditInboxOnce({
+          client,
+          messageBoxUrl,
+          storage: storage ?? undefined,
+          classify,
+          accept: payment =>
+            acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
+              internalizeIncoming(wallet as never, client, adminOriginator, p, d, repairBeef)
+            )
+        })
+        return { accepted: outcome.accepted }
       },
       sweepAddresses: async () => {
         if (!wallet) return { imported: 0 }
@@ -241,7 +220,11 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
   const [step, setStep] = useState<WalletCheckStepId>('records')
   const [running, setRunning] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [summary, setSummary] = useState<{ freedCoins: number; recoveredPayments: number } | null>(null)
+  const [summary, setSummary] = useState<{
+    freedCoins: number
+    recoveredPayments: number
+    allOk: boolean
+  } | null>(null)
 
   const run = useCallback(async () => {
     setError(null)
@@ -250,8 +233,13 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     setRunning(true)
     try {
       const result = await runWalletCheck(portsRef.current, (id: WalletCheckStepId) => setStep(id))
-      setSummary({ freedCoins: result.freedCoins, recoveredPayments: result.recoveredPayments })
-      haptics.success()
+      setSummary({
+        freedCoins: result.freedCoins,
+        recoveredPayments: result.recoveredPayments,
+        allOk: result.allOk
+      })
+      if (result.allOk) haptics.success()
+      else haptics.error()
     } catch {
       setError(t('wallet_check_failed'))
       haptics.error()
@@ -271,11 +259,12 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
   const current = stepIndex + 1
   const stepLabel = t(STEPS[stepIndex]?.labelKey ?? 'wallet_check_step_records')
   const doneCopy =
-    summary == null
+    summary == null || !summary.allOk
       ? null
       : summary.freedCoins === 0 && summary.recoveredPayments === 0
         ? t('wallet_check_ok')
         : t('wallet_check_summary', { freed: summary.freedCoins, recovered: summary.recoveredPayments })
+  const couldntCheck = Boolean(summary && !summary.allOk)
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }}>
@@ -310,9 +299,14 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
           </View>
         )}
         {!running && doneCopy && <Text style={[styles.done, { color: colors.textPrimary }]}>{doneCopy}</Text>}
-        {!running && error && (
+        {!running && (couldntCheck || error) && (
           <View style={styles.errorBlock}>
-            <Text style={[styles.done, { color: colors.textPrimary }]}>{error}</Text>
+            <Text style={[styles.done, { color: colors.textPrimary }]}>
+              {couldntCheck ? t('wallet_check_couldnt') : error}
+            </Text>
+            {couldntCheck && (
+              <Text style={[styles.body, { color: colors.textSecondary }]}>{t('wallet_check_couldnt_body')}</Text>
+            )}
             <TouchableOpacity
               onPress={() => void run()}
               style={[styles.retry, { backgroundColor: colors.accent }]}
@@ -367,6 +361,9 @@ const styles = StyleSheet.create({
   },
   done: {
     ...typography.title3
+  },
+  body: {
+    ...typography.body
   },
   errorBlock: {
     gap: spacing.lg
