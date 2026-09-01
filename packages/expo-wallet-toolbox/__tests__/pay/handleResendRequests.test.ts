@@ -104,13 +104,14 @@ describe('handleResendRequests', () => {
   })
 
   it('rebuilds from listPeerPayAction when the outbox has no match', async () => {
+    const recipient = '02' + 'c'.repeat(64)
     const sendMessage = jest.fn().mockResolvedValue(undefined)
     const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
     const client = {
       listMessages: jest.fn().mockResolvedValue([
         {
           messageId: 'c2',
-          sender: '02cc',
+          sender: recipient,
           body: { type: 'resend_request', txid: 'dd', reason: 'uncreditible' }
         }
       ]),
@@ -124,7 +125,7 @@ describe('handleResendRequests', () => {
         txid === 'dd'
           ? {
               txid: 'dd',
-              labels: ['peerpay', '02cc'],
+              labels: ['peerpay', recipient],
               outputs: [
                 {
                   customInstructions: { derivationPrefix: 'x', derivationSuffix: 'y' },
@@ -140,7 +141,7 @@ describe('handleResendRequests', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageBox: 'payment_inbox',
-        recipient: '02cc',
+        recipient,
         body: JSON.stringify({
           customInstructions: { derivationPrefix: 'x', derivationSuffix: 'y' },
           transaction: [3, 3],
@@ -149,6 +150,32 @@ describe('handleResendRequests', () => {
       })
     )
     expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c2'] })
+  })
+
+  it('does not deliver a rebuilt token to the resend requester when the outbox and labels are missing', async () => {
+    const sendMessage = jest.fn()
+    const r = await handleResendRequests({
+      client: {
+        listMessages: async () => [
+          {
+            messageId: 'c1',
+            sender: '02attacker',
+            body: { type: 'resend_request', txid: 'aa'.repeat(32), reason: 'corrupt' }
+          }
+        ],
+        acknowledgeMessage: jest.fn(),
+        sendMessage
+      } as never,
+      storage: fakeStorage(),
+      listPeerPayAction: async () => ({
+        txid: 'aa'.repeat(32),
+        labels: ['peerpay'],
+        outputs: [{ customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, satoshis: 1 }]
+      }),
+      refetch: async () => [1]
+    })
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(r.pending).toEqual([{ txid: 'aa'.repeat(32), sender: '02attacker' }])
   })
 
   it('acks only after send succeeds', async () => {

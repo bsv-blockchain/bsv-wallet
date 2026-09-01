@@ -214,7 +214,7 @@ describe('sendViaHandle', () => {
     await sendViaHandle(sendArgs(w, client, s))
     const mint = w.createAction.mock.calls[0][0] as any
     expect(mint.options).toMatchObject({ noSend: true, randomizeOutputs: false })
-    expect(mint.labels).toEqual(['peerpay'])
+    expect(w.createAction.mock.calls[0][0].labels).toEqual(['peerpay', KEY])
   })
 
   it('broadcasts (sendWith) only AFTER delivery succeeds, then marks the entry sent', async () => {

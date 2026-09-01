@@ -223,7 +223,6 @@ export async function resendPaymentDetails(args: {
   txid: string
   listPeerPayAction: (txid: string) => Promise<PeerPayActionLike | undefined>
   refetch: (txid: string) => Promise<number[] | undefined>
-  recipient?: string
 }): Promise<boolean> {
   const delivered = await rebuildAndDeliver(args)
   return delivered !== undefined
@@ -235,14 +234,12 @@ async function rebuildAndDeliver(args: {
   txid: string
   listPeerPayAction: (txid: string) => Promise<PeerPayActionLike | undefined>
   refetch: (txid: string) => Promise<number[] | undefined>
-  recipient?: string
 }): Promise<string | undefined> {
   const entries = await getOutboxEntries(args.storage)
   const entry = entries.find(e => outboxTxid(e) === args.txid)
   const listed = entry ? undefined : await args.listPeerPayAction(args.txid)
   const action = entry ? actionFromOutbox(entry, args.txid) : listed
-  const recipient =
-    entry?.recipient || recipientFromLabels(listed?.labels) || args.recipient
+  const recipient = entry?.recipient || recipientFromLabels(listed?.labels)
   if (!action || !recipient) return undefined
 
   const rebuilt = await rebuildPeerPayToken({
@@ -290,8 +287,7 @@ export async function handleResendRequests(args: {
         storage,
         txid: parsed.txid,
         listPeerPayAction,
-        refetch,
-        recipient: sender
+        refetch
       })
       if (!deliveredTo) {
         pending.push({ txid: parsed.txid, sender })

@@ -443,7 +443,7 @@ export async function sendViaHandle(args: {
   const car = await wallet.createAction(
     {
       description,
-      labels: ['peerpay'],
+      labels: ['peerpay', recipient],
       outputs: [
         {
           lockingScript,
