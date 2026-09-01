@@ -591,6 +591,21 @@ export function WalletConfigScreen() {
           />
         </GroupedSection>
 
+        {/* ── Check Wallet ──
+            Outside Advanced on purpose: this is the row a user reaches for when
+            something looks wrong, and they must not have to open a section
+            labelled "Advanced" to find it. */}
+        <GroupedSection>
+          <ListRow
+            label={t('check_wallet')}
+            subtitle={t('check_wallet_subtitle')}
+            icon="checkmark-done-circle-outline"
+            iconColor="#0A84FF"
+            onPress={() => router.push('/wallet-check' as any)}
+            isLast
+          />
+        </GroupedSection>
+
         {/* ── Advanced ── */}
         <GroupedSection>
           <ListRow
@@ -829,13 +844,6 @@ export function WalletConfigScreen() {
               onPress={handleImportData}
               showChevron={false}
               trailing={isImporting ? <ActivityIndicator size="small" /> : undefined}
-            />
-            <ListRow
-              label={t('check_wallet')}
-              subtitle={t('check_wallet_subtitle')}
-              icon="checkmark-done-circle-outline"
-              iconColor="#0A84FF"
-              onPress={() => router.push('/wallet-check' as any)}
             />
             <ListRow
               label="Debugging"
