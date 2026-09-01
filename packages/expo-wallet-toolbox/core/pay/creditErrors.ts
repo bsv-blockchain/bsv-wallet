@@ -21,7 +21,7 @@ export function classifyCreditError(
   if (ctx?.offline) return 'environmental'
   if (ctx?.lastMissHeight != null) return 'environmental'
   if (
-    /network request failed|timed? ?out|chaintracks|database-locked|failed to retrieve messages|not found on refresh/i.test(
+    /network request failed|timed? ?out|chaintracks|database is locked|database table is locked|database-locked|failed to retrieve messages|not found on refresh/i.test(
       message
     )
   )

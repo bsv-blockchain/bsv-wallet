@@ -37,7 +37,13 @@ describe('classifyCreditError', () => {
     expect(classifyCreditError(new Error('chaintracks has no header for height'))).toBe('environmental')
   })
 
-  it.each(['database-locked', 'failed to retrieve messages', 'Payment not found on refresh'])(
+  it.each([
+    'database is locked',
+    'database table is locked',
+    'database-locked',
+    'failed to retrieve messages',
+    'Payment not found on refresh'
+  ])(
     'classifies %s as environmental',
     msg => {
       expect(classifyCreditError(new Error(msg))).toBe('environmental')
