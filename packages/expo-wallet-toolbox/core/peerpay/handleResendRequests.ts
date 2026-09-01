@@ -6,7 +6,7 @@ import {
   parseControlMessage
 } from './control'
 import { getOutboxEntries, type OutboxEntry } from './outbox'
-import { rebuildPeerPayToken } from './rebuildToken'
+import { instructionsFromOutput, rebuildPeerPayToken } from './rebuildToken'
 
 /** The message box outbound payments are delivered into. Same name as handle.ts. */
 const PAYMENT_INBOX = 'payment_inbox'
@@ -27,6 +27,51 @@ const RESENDABLE_LABELS = ['peerpay', 'localpay']
 interface StorageLike {
   getKeyValue: (key: string) => Promise<string | undefined>
   setKeyValue: (key: string, value: string) => Promise<void>
+  /** Optional, and only used to recover derivation data listActions did not
+   * hand back — see `outputsFromStorage`. */
+  findTransactions?: (args: {
+    partial: { txid: string }
+    noRawTx?: boolean
+  }) => Promise<{ transactionId?: number }[]>
+  findOutputs?: (args: {
+    partial: { transactionId: number }
+    noScript?: boolean
+  }) => Promise<{ vout?: number; satoshis?: number | null; customInstructions?: string | null; basketId?: number | null }[]>
+}
+
+/**
+ * The action's outputs read straight from this device's own tables.
+ *
+ * `listActions` is the normal source, but it is a long way from the data: the
+ * permissions manager sits in front of it, the query is a capped window over
+ * two labels, and `includeOutputs` is the caller's to remember. When it comes
+ * back without derivation data the payment looks unrebuildable even though
+ * every byte needed is in `outputs.customInstructions` locally. This is the
+ * short way to the same facts.
+ *
+ * `basketId` stands in for the basket name: what `paymentOutput` needs to know
+ * is only whether an output landed in a basket of ours (change) or in none
+ * (the payee's).
+ */
+async function outputsFromStorage(storage: StorageLike, txid: string): Promise<PeerPayActionLike['outputs']> {
+  try {
+    const tx = (await storage.findTransactions?.({ partial: { txid }, noRawTx: true }))?.[0]
+    if (typeof tx?.transactionId !== 'number') return undefined
+    const rows = await storage.findOutputs?.({ partial: { transactionId: tx.transactionId }, noScript: true })
+    if (!rows?.length) return undefined
+    return rows.map(o => ({
+      customInstructions: o.customInstructions ?? undefined,
+      satoshis: typeof o.satoshis === 'number' ? o.satoshis : 0,
+      outputIndex: o.vout,
+      basket: o.basketId ? 'own' : undefined
+    }))
+  } catch {
+    return undefined
+  }
+}
+
+function hasDerivationData(outputs: PeerPayActionLike['outputs']): boolean {
+  return !!outputs?.some(o => instructionsFromOutput(o.customInstructions))
 }
 
 export type PeerPayActionLike = {
@@ -288,8 +333,32 @@ async function rebuildAndDeliver(args: {
   const recipient = entry?.recipient || recipientFromLabels(listed?.labels)
   if (!recipient) return { ok: false, reason: 'no_recipient' }
 
+  // Without derivation data there is no token to build, and the rebuild would
+  // bail before it ever reached for the transaction — reporting "couldn't get
+  // this payment's data" about data it never went looking for.
+  let withOutputs = action
+  if (!hasDerivationData(action.outputs)) {
+    const outputs = await outputsFromStorage(args.storage, args.txid)
+    if (outputs) withOutputs = { ...action, outputs }
+    if (!hasDerivationData(withOutputs.outputs)) {
+      // Say what was actually seen. "No derivation data" is true of an action
+      // with no outputs, of outputs whose customInstructions never made it to
+      // storage, and of ones holding something that is not the expected JSON —
+      // three different faults that need three different fixes.
+      console.warn(
+        `[resend] no output with BRC-29 derivation data for ${args.txid};` +
+          ` listActions gave ${action.outputs?.length ?? 0} output(s), storage gave ${outputs?.length ?? 0};` +
+          ` customInstructions seen: ${JSON.stringify(
+            [...(action.outputs ?? []), ...(outputs ?? [])].map(o =>
+              typeof o.customInstructions === 'string' ? o.customInstructions.slice(0, 120) : o.customInstructions
+            )
+          )}`
+      )
+    }
+  }
+
   const rebuilt = await rebuildPeerPayToken({
-    action,
+    action: withOutputs,
     recipient,
     refetch: args.refetch
   })
