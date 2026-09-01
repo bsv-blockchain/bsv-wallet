@@ -9,6 +9,8 @@
  * still-in-flight offline send is not failed out from under the queue.
  */
 
+import { devLog } from '../../logging'
+
 const SAFE_REQ_STATUSES = new Set(['invalid', 'doubleSpend'])
 
 export type ReviewStatusDb = {
@@ -27,7 +29,7 @@ export const REVIEW_INVALID_REQ_TXS_SQL = `
   SELECT t.transactionId, t.txid, t.status
   FROM transactions t
   JOIN proven_tx_reqs r ON r.txid = t.txid
-  WHERE r.status = 'invalid' AND t.status <> 'failed'
+  WHERE r.status = 'invalid' AND t.status <> 'failed' AND t.provenTxId IS NULL AND t.status <> 'completed'
 `.trim()
 
 export const REVIEW_FAILED_TXS_SQL = `SELECT transactionId, txid FROM transactions WHERE status = 'failed'`
@@ -46,6 +48,35 @@ export type ReviewOutput = {
   transactionId: number
   spendable: number | boolean
   spentBy?: number | null
+}
+
+export async function failInvalidReqTxs(args: {
+  rows: { transactionId: number; txid: string | null }[]
+  skipTxids: Set<string>
+  fail: (transactionId: number) => Promise<void>
+}): Promise<{ failed: number; skipped: number }> {
+  let failed = 0
+  let skipped = 0
+  const seen = new Set<number>()
+  for (const row of args.rows) {
+    if (seen.has(row.transactionId)) continue
+    seen.add(row.transactionId)
+    if (row.txid && args.skipTxids.has(row.txid)) {
+      skipped++
+      continue
+    }
+    try {
+      await args.fail(row.transactionId)
+      failed++
+    } catch (e) {
+      skipped++
+      devLog(
+        `[reviewStatus] could not fail transaction ${row.transactionId}:`,
+        e instanceof Error ? e.message : e
+      )
+    }
+  }
+  return { failed, skipped }
 }
 
 /** Failed txs whose reqs are all invalid/doubleSpend (or missing) are safe to restore against. */

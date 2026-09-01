@@ -85,6 +85,7 @@ import {
   REVIEW_OUTPUTS_SQL,
   REVIEW_REQ_STATUSES_SQL,
   collectFailedTransactionIds,
+  failInvalidReqTxs,
   outputReviewAction,
   type ReviewFailedTx,
   type ReviewOutput
@@ -1667,14 +1668,15 @@ export class StorageExpoSQLite extends StorageProvider {
         txid: string | null
         status: string
       }[]
-      const seenFail = new Set<number>()
-      for (const tx of invalid) {
-        if (seenFail.has(tx.transactionId)) continue
-        seenFail.add(tx.transactionId)
-        if (tx.txid && skipTxids.has(tx.txid)) continue
-        log += `transaction ${tx.transactionId} updated to status of 'failed' was ${tx.status}\n`
-        await this.updateTransactionStatus('failed', tx.transactionId, undefined, undefined, trx)
-      }
+      const statusById = new Map(invalid.map(tx => [tx.transactionId, tx.status]))
+      await failInvalidReqTxs({
+        rows: invalid,
+        skipTxids,
+        fail: async transactionId => {
+          await this.updateTransactionStatus('failed', transactionId, undefined, undefined, trx)
+          log += `transaction ${transactionId} updated to status of 'failed' was ${statusById.get(transactionId)}\n`
+        }
+      })
 
       const failedTxs = (await db.getAllAsync(REVIEW_FAILED_TXS_SQL, [])) as ReviewFailedTx[]
       const reqStatusesByTxid = new Map<string, string[]>()
