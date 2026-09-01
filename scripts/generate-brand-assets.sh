@@ -87,7 +87,26 @@ square favicon-16x16.png 16
 ffmpeg -y -loglevel error -i "$REF" \
   -vf "crop=$WIN_WIDE:$WIN_WIDE:$WIN_WIDE_X:$WIN_WIDE_Y,scale=1024:1024:flags=lanczos" \
   "$OUT/splash-logo.png"
-echo "  splash-logo.png  1024x1024 (android centred splash icon)"
+# Feather it to transparent. The crop carries its own share of the plate's
+# gradient, so against one flat background colour its straight edges showed as a
+# square patch of slightly different gold. Fading the edges out lets it sit on
+# the background invisibly, leaving just the mark.
+python3 - "$OUT/splash-logo.png" <<'PY'
+import sys
+from PIL import Image, ImageDraw, ImageFilter
+
+path = sys.argv[1]
+img = Image.open(path).convert("RGBA")
+w, h = img.size
+mask = Image.new("L", (w, h), 0)
+# Opaque well inside the tile, then a wide soft falloff to the edges.
+inset = int(w * 0.17)
+ImageDraw.Draw(mask).ellipse([inset, inset, w - inset, h - inset], fill=255)
+mask = mask.filter(ImageFilter.GaussianBlur(w * 0.055))
+img.putalpha(mask)
+img.save(path)
+print("  splash-logo.png  1024x1024 (android centred splash icon, feathered)")
+PY
 
 echo "favicon.ico:"
 python3 - "$OUT" <<'PY'
