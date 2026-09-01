@@ -23,7 +23,7 @@ import math
 import re
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGES = ROOT / "assets" / "images"
@@ -148,6 +148,74 @@ def _sphere(radius, palette):
     return img
 
 
+GRAIN = ROOT / "assets" / "brand" / "plate-grain.png"
+
+
+def _grain_sheet(size):
+    """
+    The grain asset, mirror-tiled to cover `size`.
+
+    Mirrored rather than repeated: a straight tile of a photographic texture
+    shows its seams as a grid, which is more visible than the grain itself.
+    Returns None when the asset is missing, so the script still runs for anyone
+    who has not got it — they get clean gradients instead of a hard failure.
+    """
+    if not GRAIN.is_file():
+        return None
+    tile = Image.open(GRAIN).convert("L")
+    # Scale the tooth to the target rather than cropping the tile into it: at
+    # 1:1 the 1024px grain landed on a 180px icon five times too coarse, which
+    # read as speckle instead of surface.
+    edge = min(tile.size[0], max(size))
+    if edge != tile.size[0]:
+        tile = tile.resize((edge, edge), Image.LANCZOS)
+    tw, th = tile.size
+    flip_x = tile.transpose(Image.FLIP_LEFT_RIGHT)
+    flip_y = tile.transpose(Image.FLIP_TOP_BOTTOM)
+    flip_xy = flip_x.transpose(Image.FLIP_TOP_BOTTOM)
+    w, h = size
+    sheet = Image.new("L", (w, h), 128)
+    for j, y in enumerate(range(0, h, th)):
+        for i, x in enumerate(range(0, w, tw)):
+            sheet.paste((tile, flip_x, flip_y, flip_xy)[(i % 2) + 2 * (j % 2)], (x, y))
+    return sheet
+
+
+def texture(img, strength=1.6, vignette=0.14):
+    """
+    Surface and falloff, so the plate reads as a lit object rather than a ramp.
+
+    The grain comes from `assets/brand/plate-grain.png` — the high-passed
+    surface of a rendered gold panel, so it is real paint tooth rather than
+    synthetic speckle, and it is tone-free, which is why the same asset serves
+    both the gold plate and the near-black one.
+
+    Both effects sit close to the threshold of visibility on purpose: a large
+    flat area should stop looking computed, not start looking textured.
+    """
+    w, h = img.size
+    sheet = _grain_sheet((w, h))
+    if sheet is not None:
+        # ADDITIVE, not overlay. Overlay is multiplicative in the shadows, so on
+        # the near-black plate — whose entire range is about thirteen of 255
+        # levels — it moved nothing and left the gradient's quantisation visible
+        # as rings. Adding the grain's deviation from mid grey dithers those
+        # steps away and costs the same on both plates.
+        dev = sheet.point(lambda v: int(round((v - 128) * strength)) + 128)
+        r, g, b, a = img.split()
+        # c + dev - 128, in one clipped pass. Reaching for ImageChops.subtract
+        # here instead clips at zero first, which flattened the dark plate to
+        # mid grey — the channel has to keep its sign through the addition.
+        chans = [ImageChops.add(c, dev, 1.0, -128) for c in (r, g, b)]
+        img = Image.merge("RGBA", (*chans, a))
+
+    if vignette > 0:
+        mask = Image.radial_gradient("L").resize((w, h), Image.LANCZOS)
+        dark = Image.new("RGBA", (w, h), (0, 0, 0, 255))
+        img = Image.composite(Image.blend(img, dark, vignette), img, mask.point(lambda v: int(v * 0.8)))
+    return img
+
+
 def draw_figure(img, inset, palette, chords=True, weight=1.0, shaded=True):
     """
     The figure, centred, at `inset` of the shorter side.
@@ -217,6 +285,10 @@ def draw_figure(img, inset, palette, chords=True, weight=1.0, shaded=True):
 
 def solid(size, inset=0.62, palette=DARK, chords=True, weight=1.0, shaded=True):
     img = gradient(size, palette.light, palette.deep).convert("RGBA")
+    # Only where there is room to see it. Under about 64px the grain is one
+    # pixel of dirt on a mark that needs every pixel it has.
+    if shaded and min(size) >= 128:
+        img = texture(img)
     return draw_figure(img, inset, palette, chords=chords, weight=weight, shaded=shaded)
 
 
@@ -289,12 +361,16 @@ def write_ios(written):
 def main():
     written = []
 
-    def save(img, name, **kw):
+    def save(img, name, alpha=False, **kw):
+        # Opaque plates go out as RGB. The grain is high-frequency by nature and
+        # already costs PNG most of its compression, so carrying an alpha channel
+        # nothing reads was adding a quarter again on top of that.
+        out = img if alpha else img.convert("RGB")
         path = IMAGES / name
-        img.save(path, **kw)
-        written.append(f"{name} {img.size[0]}x{img.size[1]}")
+        out.save(path, optimize=True, **kw)
+        written.append(f"{name} {out.size[0]}x{out.size[1]} {out.mode}")
 
-    save(solid((1024, 1024)).convert("RGB"), "icon.png")
+    save(solid((1024, 1024)), "icon.png")
     # Adaptive icons are masked to a circle and can be cropped further, so the
     # figure sits well inside the safe area.
     save(solid((1006, 1007), inset=0.46), "adaptive-icon.png")
@@ -308,7 +384,7 @@ def main():
     # proportion the brand reference uses, not the near-filling one an icon wants.
     save(solid((512, 1007), inset=0.44, palette=GOLD), "splash-orig.png")
     save(solid((1179, 2556), inset=0.42, palette=GOLD), "splash.png")
-    save(transparent((1024, 1024)), "splash-logo.png")
+    save(transparent((1024, 1024)), "splash-logo.png", alpha=True)
 
     ico = solid((256, 256), inset=0.70, chords=False, weight=1.4)
     ico.save(IMAGES / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
