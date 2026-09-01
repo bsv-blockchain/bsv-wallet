@@ -563,18 +563,12 @@ export function WalletConfigScreen() {
             icon="qr-code-outline"
             iconColor="#0A84FF"
             onPress={() => router.push('/connections' as any)}
-            isLast
           />
-        </GroupedSection>
-
-        {/* ── Troubleshooting ──
-            Outside Advanced on purpose: this is the row a user reaches for when
-            something looks wrong, and they must not have to open a section
-            labelled "Advanced" to find it. */}
-        <GroupedSection>
+          {/* In the main group, not behind Advanced: this is the row a user
+              reaches for when something looks wrong, and they must not have to
+              open a section labelled "Advanced" to find it. */}
           <ListRow
             label={t('check_wallet')}
-            subtitle={t('check_wallet_subtitle')}
             icon="checkmark-done-circle-outline"
             iconColor="#30D158"
             onPress={() => router.push('/wallet-check' as any)}

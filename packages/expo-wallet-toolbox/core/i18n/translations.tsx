@@ -667,7 +667,6 @@ const resources = {
 
       check_wallet: 'Troubleshooting',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Some checks need your attention',
       wallet_check_couldnt: "Couldn't check",
@@ -1179,7 +1178,6 @@ const resources = {
 
       check_wallet: '疑难解答',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: '有些检查需要你处理',
       wallet_check_couldnt: "Couldn't check",
@@ -1692,7 +1690,6 @@ const resources = {
 
       check_wallet: 'समस्या निवारण',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'कुछ जाँचों पर ध्यान दें',
       wallet_check_couldnt: "Couldn't check",
@@ -2209,7 +2206,6 @@ const resources = {
 
       check_wallet: 'Solución de problemas',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Algunas comprobaciones necesitan tu atención',
       wallet_check_couldnt: "Couldn't check",
@@ -2720,7 +2716,6 @@ const resources = {
 
       check_wallet: 'Dépannage',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Certaines vérifications demandent votre attention',
       wallet_check_couldnt: "Couldn't check",
@@ -3228,7 +3223,6 @@ const resources = {
 
       check_wallet: 'استكشاف الأخطاء',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'بعض الفحوصات تحتاج انتباهك',
       wallet_check_couldnt: "Couldn't check",
@@ -3737,7 +3731,6 @@ const resources = {
 
       check_wallet: 'Solução de problemas',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Algumas verificações precisam da sua atenção',
       wallet_check_couldnt: "Couldn't check",
@@ -4246,7 +4239,6 @@ const resources = {
 
       check_wallet: 'সমস্যা সমাধান',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'কিছু চেক আপনার নজর প্রয়োজন',
       wallet_check_couldnt: "Couldn't check",
@@ -4757,7 +4749,6 @@ const resources = {
 
       check_wallet: 'Диагностика',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Некоторые проверки требуют внимания',
       wallet_check_couldnt: "Couldn't check",
@@ -5267,7 +5258,6 @@ const resources = {
 
       check_wallet: 'Pemecahan masalah',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Beberapa pemeriksaan perlu perhatian Anda',
       wallet_check_couldnt: "Couldn't check",
@@ -5793,7 +5783,6 @@ const resources = {
 
       check_wallet: 'トラブルシューティング',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'いくつかの項目に確認が必要です',
       wallet_check_couldnt: "Couldn't check",
@@ -6317,7 +6306,6 @@ const resources = {
 
       check_wallet: 'Rozwiązywanie problemów',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
-      check_wallet_subtitle: "Run this if something doesn't look right",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Niektóre sprawdzenia wymagają uwagi',
       wallet_check_couldnt: "Couldn't check",
