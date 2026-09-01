@@ -77,6 +77,7 @@ import { homeBadges } from './homeBadges'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
+import ScrollFade, { sampleScreenGradient } from '../components/ui/ScrollFade'
 import { showToast } from '../components/ui/Toast'
 import { ListRow } from '../components/ui/ListRow'
 import { GroupedSection } from '../components/ui/GroupedList'
@@ -114,7 +115,7 @@ function loadIonicons(): IoniconsComponent {
 function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   if (!materialCommunityIconsComponent) {
     materialCommunityIconsComponent = // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
+      require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
   }
   return materialCommunityIconsComponent
 }
@@ -277,6 +278,9 @@ export function WalletHomeScreen() {
   const [stalled, setStalled] = useState<string | undefined>(undefined)
   const [pendingCount, setPendingCount] = useState(0)
   const [pendingStuck, setPendingStuck] = useState(0)
+  /** Where the pinned block ends, so the fade below it can be painted in the
+   *  backdrop's colour at exactly that point rather than a guess. */
+  const [pinnedHeight, setPinnedHeight] = useState(0)
   const [pendingCorrupt, setPendingCorrupt] = useState(false)
   // Per-row in-flight action, keyed by txid (or reference for abort) so only
   // the tapped row shows a spinner rather than the whole list.
@@ -1115,52 +1119,57 @@ export function WalletHomeScreen() {
           identical to "you have no wallet". */}
       <WalletLockNotice />
 
-      {pinnedHeader}
+      <View onLayout={e => setPinnedHeight(e.nativeEvent.layout.height)}>{pinnedHeader}</View>
 
-      <FlatList
-        data={rows}
-        keyExtractor={(item, index) => (item.kind === 'day' ? item.id : `${item.txid || index}-${index}`)}
-        renderItem={renderItem}
-        ListHeaderComponent={listHeader}
-        ListEmptyComponent={
-          loading ? (
-            <ActivityIndicator style={styles.pad} color={colors.textSecondary} />
-          ) : loadError ? (
-            <View style={styles.emptyError}>
-              <Text style={[styles.empty, { color: colors.textSecondary, padding: 0 }]}>
-                {t('activity_load_failed')}
-              </Text>
-              <PressableScale
-                onPress={() => {
-                  setLoadError(false)
-                  setFocusVersion(v => v + 1)
-                }}
-                haptic="tap"
-                style={styles.emptyRetry}
-                accessibilityRole="button"
-                accessibilityLabel={t('activity_load_retry')}
-              >
-                <Text style={[styles.emptyRetryLabel, { color: colors.accent }]}>{t('activity_load_retry')}</Text>
-              </PressableScale>
+      {/* The list scrolls under this edge. The fade makes a row dissolve into
+          the backdrop as it goes rather than being cut off mid-glyph. */}
+      <View style={styles.listWrap}>
+        <ScrollFade color={sampleScreenGradient(colors.canvasTop, colors.canvasBase, insets.top + pinnedHeight, 360)} />
+        <FlatList
+          data={rows}
+          keyExtractor={(item, index) => (item.kind === 'day' ? item.id : `${item.txid || index}-${index}`)}
+          renderItem={renderItem}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={
+            loading ? (
+              <ActivityIndicator style={styles.pad} color={colors.textSecondary} />
+            ) : loadError ? (
+              <View style={styles.emptyError}>
+                <Text style={[styles.empty, { color: colors.textSecondary, padding: 0 }]}>
+                  {t('activity_load_failed')}
+                </Text>
+                <PressableScale
+                  onPress={() => {
+                    setLoadError(false)
+                    setFocusVersion(v => v + 1)
+                  }}
+                  haptic="tap"
+                  style={styles.emptyRetry}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('activity_load_retry')}
+                >
+                  <Text style={[styles.emptyRetryLabel, { color: colors.accent }]}>{t('activity_load_retry')}</Text>
+                </PressableScale>
+              </View>
+            ) : (
+              <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('no_transactions')}</Text>
+            )
+          }
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.3}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          ListFooterComponent={
+            // One container of FIXED height in both states. Swapping a short
+            // spinner for a tall spacer changed the content height every time a
+            // page load started/ended, which made FlatList re-evaluate and re-fire
+            // onEndReached — feeding the loop the guards above now break.
+            <View style={[styles.footer, { height: insets.bottom + spacing.xxxl }]}>
+              {loadingMore ? <ActivityIndicator color={colors.textSecondary} /> : null}
             </View>
-          ) : (
-            <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('no_transactions')}</Text>
-          )
-        }
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.3}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        ListFooterComponent={
-          // One container of FIXED height in both states. Swapping a short
-          // spinner for a tall spacer changed the content height every time a
-          // page load started/ended, which made FlatList re-evaluate and re-fire
-          // onEndReached — feeding the loop the guards above now break.
-          <View style={[styles.footer, { height: insets.bottom + spacing.xxxl }]}>
-            {loadingMore ? <ActivityIndicator color={colors.textSecondary} /> : null}
-          </View>
-        }
-      />
+          }
+        />
+      </View>
     </View>
   )
 }
@@ -1216,8 +1225,12 @@ const styles = StyleSheet.create({
   destinations: {
     flexDirection: 'row',
     gap: 10,
-    paddingHorizontal: spacing.xl
+    paddingHorizontal: spacing.xl,
+    // Breathing room under the buttons, so the first activity row fades in
+    // below them instead of arriving hard against their edge.
+    paddingBottom: spacing.lg
   },
+  listWrap: { flex: 1 },
   dest: {
     flex: 1,
     alignItems: 'center',
