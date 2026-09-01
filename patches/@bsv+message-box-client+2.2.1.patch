@@ -1,0 +1,39 @@
+diff --git a/node_modules/@bsv/message-box-client/dist/cjs/src/MessageBoxClient.js b/node_modules/@bsv/message-box-client/dist/cjs/src/MessageBoxClient.js
+index f834870..7eddda6 100644
+--- a/node_modules/@bsv/message-box-client/dist/cjs/src/MessageBoxClient.js
++++ b/node_modules/@bsv/message-box-client/dist/cjs/src/MessageBoxClient.js
+@@ -894,7 +894,7 @@ class MessageBoxClient {
+             Logger.log('[MB CLIENT] Raw Response Body:', parsedResponse);
+             if (!response.ok) {
+                 Logger.error(`[MB CLIENT ERROR] Failed to send message. HTTP ${response.status}: ${response.statusText}`);
+-                throw new Error(`Message sending failed: HTTP ${response.status} - ${response.statusText}`);
++                throw new Error(`Message sending failed: HTTP ${response.status} - ${[parsedResponse?.code, parsedResponse?.description ?? parsedResponse?.message ?? response.statusText].filter(Boolean).join(' ')}`);
+             }
+             if (parsedResponse.status !== 'success') {
+                 Logger.error(`[MB CLIENT ERROR] Server returned an error: ${String(parsedResponse.description)}`);
+diff --git a/node_modules/@bsv/message-box-client/dist/esm/src/MessageBoxClient.js b/node_modules/@bsv/message-box-client/dist/esm/src/MessageBoxClient.js
+index a42f3c9..06aa62f 100644
+--- a/node_modules/@bsv/message-box-client/dist/esm/src/MessageBoxClient.js
++++ b/node_modules/@bsv/message-box-client/dist/esm/src/MessageBoxClient.js
+@@ -860,7 +860,7 @@ export class MessageBoxClient {
+             Logger.log('[MB CLIENT] Raw Response Body:', parsedResponse);
+             if (!response.ok) {
+                 Logger.error(`[MB CLIENT ERROR] Failed to send message. HTTP ${response.status}: ${response.statusText}`);
+-                throw new Error(`Message sending failed: HTTP ${response.status} - ${response.statusText}`);
++                throw new Error(`Message sending failed: HTTP ${response.status} - ${[parsedResponse?.code, parsedResponse?.description ?? parsedResponse?.message ?? response.statusText].filter(Boolean).join(' ')}`);
+             }
+             if (parsedResponse.status !== 'success') {
+                 Logger.error(`[MB CLIENT ERROR] Server returned an error: ${String(parsedResponse.description)}`);
+diff --git a/node_modules/@bsv/message-box-client/src/MessageBoxClient.ts b/node_modules/@bsv/message-box-client/src/MessageBoxClient.ts
+index 807ded7..09490b8 100644
+--- a/node_modules/@bsv/message-box-client/src/MessageBoxClient.ts
++++ b/node_modules/@bsv/message-box-client/src/MessageBoxClient.ts
+@@ -1006,7 +1006,7 @@ export class MessageBoxClient {
+ 
+       if (!response.ok) {
+         Logger.error(`[MB CLIENT ERROR] Failed to send message. HTTP ${response.status}: ${response.statusText}`)
+-        throw new Error(`Message sending failed: HTTP ${response.status} - ${response.statusText}`)
++        throw new Error(`Message sending failed: HTTP ${response.status} - ${[parsedResponse?.code, parsedResponse?.description ?? parsedResponse?.message ?? response.statusText].filter(Boolean).join(' ')}`)
+       }
+       if (parsedResponse.status !== 'success') {
+         Logger.error(`[MB CLIENT ERROR] Server returned an error: ${String(parsedResponse.description)}`)

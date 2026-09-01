@@ -89,3 +89,24 @@ export async function ackControlMessages(
   if (messageIds.length === 0) return
   await client.acknowledgeMessage({ messageIds })
 }
+
+/**
+ * Whether a failed delivery means the message box already holds this message.
+ *
+ * The box keys a message by an HMAC of its body against the recipient, so
+ * re-delivering an unchanged payment token collides with the copy already
+ * sitting in the recipient's box and the server refuses the write with a 400.
+ *
+ * That refusal is the outcome the caller wanted: the recipient HAS the message.
+ * Reporting it as a failure sent the user back to a Resend button that could
+ * never succeed — and the alternative, perturbing the body so it earns a fresh
+ * id, would plant a second copy of a payment the recipient already holds.
+ *
+ * Matched on the server's own words rather than the bare status, so a 400 for
+ * any other reason still surfaces as the failure it is.
+ */
+export function isDuplicateMessageError(e: unknown): boolean {
+  const text = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
+  if (!/\b400\b/.test(text)) return false
+  return /duplicate|already[ _-]?(exists|sent|delivered|present|received)|ERR_DUPLICATE/i.test(text)
+}

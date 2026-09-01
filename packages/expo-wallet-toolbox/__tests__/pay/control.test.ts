@@ -1,4 +1,6 @@
-import { PAYMENT_CONTROL_BOX, parseControlMessage, sendControlMessage } from '../../core/peerpay/control'
+import { PAYMENT_CONTROL_BOX, parseControlMessage, sendControlMessage,
+  isDuplicateMessageError
+} from '../../core/peerpay/control'
 
 describe('parseControlMessage', () => {
   it('accepts a resend_request', () => {
@@ -44,5 +46,30 @@ describe('sendControlMessage', () => {
       messageBox: PAYMENT_CONTROL_BOX,
       body: JSON.stringify({ type: 'resend_request', txid: 'aa', reason: 'uncreditible' })
     })
+  })
+})
+
+// The box keys a message by an HMAC of its body against the recipient, so
+// re-delivering an unchanged token collides with the copy already there.
+describe('isDuplicateMessageError', () => {
+  it('recognises the box refusing a message it already holds', () => {
+    expect(
+      isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - Message already exists'))
+    ).toBe(true)
+    expect(
+      isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - ERR_DUPLICATE_MESSAGE duplicate'))
+    ).toBe(true)
+  })
+
+  it('leaves any other 400 as the failure it is', () => {
+    expect(isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - body too large'))).toBe(false)
+    // A bare 400 says nothing about why, so it must not be read as delivered.
+    expect(isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - 400'))).toBe(false)
+  })
+
+  it('does not swallow other statuses or plain network failures', () => {
+    expect(isDuplicateMessageError(new Error('HTTP 500 - duplicate'))).toBe(false)
+    expect(isDuplicateMessageError(new Error('Network request failed'))).toBe(false)
+    expect(isDuplicateMessageError(undefined)).toBe(false)
   })
 })

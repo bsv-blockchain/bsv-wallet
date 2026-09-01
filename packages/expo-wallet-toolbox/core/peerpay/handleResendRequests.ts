@@ -1,5 +1,10 @@
 import { Beef } from '@bsv/sdk'
-import { ackControlMessages, listControlMessages, parseControlMessage } from './control'
+import {
+  ackControlMessages,
+  isDuplicateMessageError,
+  listControlMessages,
+  parseControlMessage
+} from './control'
 import { getOutboxEntries, type OutboxEntry } from './outbox'
 import { rebuildPeerPayToken } from './rebuildToken'
 
@@ -233,15 +238,27 @@ export async function listPendingResendRequests(args: {
  * Rebuild a token for `txid` and drop it in the recipient's payment inbox.
  * Used by the Resend tap and the activity-row "Send details again" chip.
  */
+/**
+ * Why a resend could not happen.
+ *
+ * A single boolean was indistinguishable from a crash at the call site, so
+ * every failure reached the user as "Unknown error" — the dead end this
+ * feature exists to remove, reproduced inside it. `no_record` and
+ * `no_recipient` are the honest answers for a payment made before its rail
+ * recorded the payee's key and derivation data: nothing on this device can
+ * rebuild it, and retrying will never change that.
+ */
+export type ResendFailure = 'no_record' | 'no_recipient' | 'no_transaction'
+export type ResendOutcome = { ok: true } | { ok: false; reason: ResendFailure }
+
 export async function resendPaymentDetails(args: {
   client: { sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<unknown> }
   storage: StorageLike
   txid: string
   listPeerPayAction: (txid: string) => Promise<PeerPayActionLike | undefined>
   refetch: (txid: string) => Promise<number[] | undefined>
-}): Promise<boolean> {
-  const delivered = await rebuildAndDeliver(args)
-  return delivered !== undefined
+}): Promise<ResendOutcome> {
+  return await rebuildAndDeliver(args)
 }
 
 async function rebuildAndDeliver(args: {
@@ -250,28 +267,39 @@ async function rebuildAndDeliver(args: {
   txid: string
   listPeerPayAction: (txid: string) => Promise<PeerPayActionLike | undefined>
   refetch: (txid: string) => Promise<number[] | undefined>
-}): Promise<string | undefined> {
+}): Promise<ResendOutcome> {
   const entries = await getOutboxEntries(args.storage)
   const entry = entries.find(e => outboxTxid(e) === args.txid)
   const listed = entry ? undefined : await args.listPeerPayAction(args.txid)
   const action = entry ? actionFromOutbox(entry, args.txid) : listed
+  // No outbox row and no labelled action: this payment predates the rail
+  // recording who it was for, so it cannot be rebuilt from this device.
+  if (!action) return { ok: false, reason: 'no_record' }
   const recipient = entry?.recipient || recipientFromLabels(listed?.labels)
-  if (!action || !recipient) return undefined
+  if (!recipient) return { ok: false, reason: 'no_recipient' }
 
   const rebuilt = await rebuildPeerPayToken({
     action,
     recipient,
     refetch: args.refetch
   })
-  if (!rebuilt) return undefined
+  // The recipient and derivation data resolved, so what is missing is the
+  // transaction itself — no proof from the network and no local copy.
+  if (!rebuilt) return { ok: false, reason: 'no_transaction' }
   if (entry?.token.note) rebuilt.token.note = entry.token.note
 
-  await args.client.sendMessage({
-    recipient: rebuilt.recipient,
-    messageBox: PAYMENT_INBOX,
-    body: JSON.stringify(rebuilt.token)
-  })
-  return rebuilt.recipient
+  try {
+    await args.client.sendMessage({
+      recipient: rebuilt.recipient,
+      messageBox: PAYMENT_INBOX,
+      body: JSON.stringify(rebuilt.token)
+    })
+  } catch (e) {
+    // The box already holds this exact token: the recipient has what the
+    // resend was trying to give them, so this is the wanted end state.
+    if (!isDuplicateMessageError(e)) throw e
+  }
+  return { ok: true }
 }
 
 export async function handleResendRequests(args: {
@@ -305,7 +333,7 @@ export async function handleResendRequests(args: {
         listPeerPayAction,
         refetch
       })
-      if (!deliveredTo) {
+      if (!deliveredTo.ok) {
         pending.push({ txid: parsed.txid, sender })
         continue
       }

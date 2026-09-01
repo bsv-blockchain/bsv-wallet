@@ -299,6 +299,11 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
 
   const handleRetry = useCallback(
     async (entry: OutboxEntry) => {
+      // `peerPayClient` is built from the CURRENT setting, so it wins: the
+      // configured host may have changed since this entry was minted, and the
+      // client re-resolves the recipient's advertised inbox on every send
+      // anyway. The entry's own host is the last resort, for when the user has
+      // since opted out of a server entirely.
       const client =
         peerPayClient ??
         makePeerPayClient({

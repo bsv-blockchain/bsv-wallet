@@ -3,7 +3,8 @@ import { saveOutboxEntry } from '../../core/peerpay/outbox'
 import {
   handleResendRequests,
   listPendingResendRequests,
-  loadUnansweredResends
+  loadUnansweredResends,
+  resendPaymentDetails
 } from '../../core/peerpay/handleResendRequests'
 import { PAYMENT_CONTROL_BOX } from '../../core/peerpay/control'
 
@@ -139,17 +140,65 @@ describe('handleResendRequests', () => {
     expect(r.resent).toBe(1)
     expect(r.pending).toEqual([])
     expect(sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageBox: 'payment_inbox',
-        recipient,
-        body: JSON.stringify({
-          customInstructions: { derivationPrefix: 'x', derivationSuffix: 'y' },
-          transaction: [3, 3],
-          amount: 9
-        })
-      })
+      expect.objectContaining({ messageBox: 'payment_inbox', recipient })
     )
+    expect(JSON.parse(sendMessage.mock.calls[0][0].body)).toMatchObject({
+      customInstructions: { derivationPrefix: 'x', derivationSuffix: 'y' },
+      transaction: [3, 3],
+      amount: 9
+    })
     expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c2'] })
+  })
+
+  // A nearby payment carries the same BRC-29 derivation data and the payee's
+  // identity key, so it re-delivers through the message box exactly like a
+  // handle payment — which is the only way to reach a payee whose session (and
+  // therefore the sealed frame's key) is long gone.
+  it('rebuilds a nearby (localpay) payment the same way as a handle payment', async () => {
+    const recipient = '02' + 'd'.repeat(64)
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    const client = {
+      listMessages: jest.fn().mockResolvedValue([
+        {
+          messageId: 'c9',
+          sender: recipient,
+          body: { type: 'resend_request', txid: 'near1', reason: 'uncreditible' }
+        }
+      ]),
+      sendMessage,
+      acknowledgeMessage: jest.fn().mockResolvedValue(undefined)
+    }
+    const r = await handleResendRequests({
+      client: client as never,
+      storage: fakeStorage(),
+      listPeerPayAction: async txid =>
+        txid === 'near1'
+          ? {
+              txid: 'near1',
+              labels: ['localpay', recipient],
+              outputs: [
+                {
+                  customInstructions: JSON.stringify({
+                    derivationPrefix: 'np',
+                    derivationSuffix: 'ns',
+                    type: 'BRC29'
+                  }),
+                  satoshis: 777
+                }
+              ]
+            }
+          : undefined,
+      refetch: async () => [7, 7]
+    })
+    expect(r.resent).toBe(1)
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageBox: 'payment_inbox', recipient })
+    )
+    expect(JSON.parse(sendMessage.mock.calls[0][0].body)).toMatchObject({
+      customInstructions: { derivationPrefix: 'np', derivationSuffix: 'ns' },
+      transaction: [7, 7],
+      amount: 777
+    })
   })
 
   it('does not deliver a rebuilt token to the resend requester when the outbox and labels are missing', async () => {
@@ -322,5 +371,59 @@ describe('handleResendRequests', () => {
     })
     expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['p1'] })
     expect(acknowledgeMessage).not.toHaveBeenCalledWith({ messageIds: ['c1'] })
+  })
+})
+
+// Every failure used to reach the user as "Unknown error", which told someone
+// whose payment can never be rebuilt to keep tapping a button that cannot work.
+describe('resendPaymentDetails reasons', () => {
+  const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+  const base = {
+    client: client as never,
+    storage: fakeStorage(),
+    txid: 'zz',
+    refetch: async () => [1, 1] as number[]
+  }
+
+  it('reports no_record when nothing on this device knows the payment', async () => {
+    const r = await resendPaymentDetails({ ...base, listPeerPayAction: async () => undefined })
+    expect(r).toEqual({ ok: false, reason: 'no_record' })
+  })
+
+  it('reports no_recipient when the action never recorded who it was for', async () => {
+    const r = await resendPaymentDetails({
+      ...base,
+      listPeerPayAction: async () => ({
+        txid: 'zz',
+        labels: ['peerpay'],
+        outputs: [{ customInstructions: { derivationPrefix: 'a', derivationSuffix: 'b' }, satoshis: 5 }]
+      })
+    })
+    expect(r).toEqual({ ok: false, reason: 'no_recipient' })
+  })
+
+  it('reports no_transaction when neither the network nor storage has the bytes', async () => {
+    const r = await resendPaymentDetails({
+      ...base,
+      refetch: async () => undefined,
+      listPeerPayAction: async () => ({
+        txid: 'zz',
+        labels: ['peerpay', '02' + 'a'.repeat(64)],
+        outputs: [{ customInstructions: { derivationPrefix: 'a', derivationSuffix: 'b' }, satoshis: 5 }]
+      })
+    })
+    expect(r).toEqual({ ok: false, reason: 'no_transaction' })
+  })
+
+  it('reports ok when the token is rebuilt and delivered', async () => {
+    const r = await resendPaymentDetails({
+      ...base,
+      listPeerPayAction: async () => ({
+        txid: 'zz',
+        labels: ['peerpay', '02' + 'a'.repeat(64)],
+        outputs: [{ customInstructions: { derivationPrefix: 'a', derivationSuffix: 'b' }, satoshis: 5 }]
+      })
+    })
+    expect(r).toEqual({ ok: true })
   })
 })

@@ -20,7 +20,7 @@ import {
   type OutboxEntry
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
-import { sendControlMessage, type ResendReason } from '../../peerpay/control'
+import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
@@ -567,11 +567,18 @@ export async function retryDelivery(args: {
   try {
     if (entry.delivered !== true) {
       await updateOutboxEntry(storage, entry.id, { delivering: true })
-      await client.sendMessage({
-        recipient: entry.recipient,
-        messageBox: PAYMENT_INBOX,
-        body: JSON.stringify(entry.token)
-      })
+      try {
+        await client.sendMessage({
+          recipient: entry.recipient,
+          messageBox: PAYMENT_INBOX,
+          body: JSON.stringify(entry.token)
+        })
+      } catch (e) {
+        // The box already holds this token — the first attempt landed and only
+        // its response was lost. That is delivered, not failed: retrying it
+        // forever would strand a payment the recipient can already see.
+        if (!isDuplicateMessageError(e)) throw e
+      }
       await updateOutboxEntry(storage, entry.id, { delivered: true })
     }
     if (entry.txid) {

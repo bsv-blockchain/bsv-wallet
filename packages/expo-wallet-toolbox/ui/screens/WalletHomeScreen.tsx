@@ -56,6 +56,7 @@ import {
   resendPaymentDetails,
   makeListPeerPayAction,
   makeBeefRepair,
+  makeResendBeef,
   wocConfigFor,
   getOnline,
   haptics,
@@ -702,15 +703,29 @@ export function WalletHomeScreen() {
           walletClient: pm as never,
           originator: adminOriginator
         })
-        const ok = await resendPaymentDetails({
+        const outcome = await resendPaymentDetails({
           client,
           storage,
           txid,
           listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
-          refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+          // Network first for a fresh proof; this device's own copy when the
+          // network has never heard of the transaction — a nearby payment whose
+          // code was never scanned is `nosend`, and that is the case a resend
+          // most needs to cover.
+          refetch: makeResendBeef({
+            refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline }),
+            storage
+          })
         })
-        if (ok) haptics.success()
-        else showToast(t('unknown_error'), { type: 'error' })
+        if (outcome.ok) {
+          haptics.success()
+          showToast(t('resend_sent'), { type: 'success' })
+        } else {
+          // Each reason is a different thing for the user to do — or not do.
+          // Collapsing them into "Unknown error" told someone whose payment can
+          // never be rebuilt to keep tapping a button that cannot work.
+          showToast(t(`resend_failed_${outcome.reason}`), { type: 'error' })
+        }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : t('unknown_error')
         showToast(message, { type: 'error' })
@@ -729,9 +744,16 @@ export function WalletHomeScreen() {
         if (entry) {
           setBusyRow(action.txid)
           try {
+            // Host order on any re-delivery: the recipient's advertised inbox
+            // (the client re-resolves it per send, so a host anointed since the
+            // original attempt is picked up), then whatever this wallet is
+            // configured for NOW — the setting may have changed since the
+            // payment was minted — and only then the host recorded at send
+            // time, which is the last thing still worth trying if the user has
+            // since opted out of a server.
             const client = makePeerPayClient({
               wallet: managers.permissionsManager as never,
-              messageBoxUrl: entry.messageBoxUrl,
+              messageBoxUrl: (await readMessageBoxUrl()) ?? entry.messageBoxUrl,
               originator: adminOriginator
             })
             if (!client) {
