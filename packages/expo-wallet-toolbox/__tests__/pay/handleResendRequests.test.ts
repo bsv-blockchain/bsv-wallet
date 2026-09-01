@@ -245,6 +245,23 @@ describe('handleResendRequests', () => {
     expect(acknowledgeMessage.mock.invocationCallOrder[0]).toBeLessThan(acknowledgeMessage.mock.invocationCallOrder[1])
   })
 
+  it('does not drop an inbox token when payment_cancelled sender does not match the token sender', async () => {
+    const { txid, token } = atomicInboxToken()
+    const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
+    const listMessages = jest.fn(async ({ messageBox }: { messageBox: string }) => {
+      if (messageBox === PAYMENT_CONTROL_BOX) {
+        return [{ messageId: 'c1', sender: '02ff', body: { type: 'payment_cancelled', txid } }]
+      }
+      return [{ messageId: 'p1', sender: '02aa', body: token }]
+    })
+    await listPendingResendRequests({
+      client: { listMessages, acknowledgeMessage } as never,
+      storage: fakeStorage()
+    })
+    expect(acknowledgeMessage).not.toHaveBeenCalledWith({ messageIds: ['p1'] })
+    expect(acknowledgeMessage).not.toHaveBeenCalledWith({ messageIds: ['c1'] })
+  })
+
   it('acks payment_cancelled even when the token is already gone from the inbox', async () => {
     const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
     const listMessages = jest.fn(async ({ messageBox }: { messageBox: string }) => {

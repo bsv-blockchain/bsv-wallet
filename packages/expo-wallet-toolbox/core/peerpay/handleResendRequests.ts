@@ -61,29 +61,41 @@ function txidFromInboxBody(body: unknown): string | undefined {
 }
 
 /**
- * Drop a still-uncredited token for `txid`. Already-internalized txs are left
- * alone — a cancel after broadcast cannot un-mine.
+ * Drop a still-uncredited token for `txid` from `sender`. Already-internalized
+ * txs are left alone — a cancel after broadcast cannot un-mine.
+ * Empty `sender` matches nothing (fail closed).
  */
-async function dropInboxTokenForTxid(client: ListAckClient, txid: string): Promise<void> {
+async function dropInboxTokenForTxid(
+  client: ListAckClient,
+  txid: string,
+  sender: string
+): Promise<'dropped' | 'gone' | 'refused'> {
   const listed = await client.listMessages({
     messageBox: PAYMENT_INBOX,
     acceptPayments: false
   })
-  const ids = (Array.isArray(listed) ? listed : [])
-    .filter(m => txidFromInboxBody(m.body) === txid)
+  const rows = Array.isArray(listed) ? listed : []
+  const ids = rows
+    .filter(m => m.sender === sender && sender !== '' && txidFromInboxBody(m.body) === txid)
     .map(m => String(m.messageId))
-  if (ids.length === 0) return
-  await client.acknowledgeMessage({ messageIds: ids })
+  if (ids.length > 0) {
+    await client.acknowledgeMessage({ messageIds: ids })
+    return 'dropped'
+  }
+  if (rows.some(m => txidFromInboxBody(m.body) === txid)) return 'refused'
+  return 'gone'
 }
 
-/** Ack/drop matching inbox tokens, then ack the control message. */
+/** Drop authenticated inbox tokens, then ack the control message. */
 async function consumePaymentCancelled(
   client: ListAckClient,
-  msg: { messageId: string },
+  msg: { messageId: string; sender?: unknown },
   txid: string
 ): Promise<void> {
+  const sender = typeof msg.sender === 'string' ? msg.sender : ''
   try {
-    await dropInboxTokenForTxid(client, txid)
+    const result = await dropInboxTokenForTxid(client, txid, sender)
+    if (result === 'refused') return
   } catch {
     // Leave the control message so a later poll retries the inbox drop.
     return
