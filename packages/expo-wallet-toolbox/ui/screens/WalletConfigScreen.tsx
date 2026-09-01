@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react'
 import { ActivityIndicator, View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -31,6 +31,29 @@ import {
   setMockDriverEnabled,
   UserContext
 } from '@bsv/expo-wallet-toolbox'
+
+/**
+ * expo-constants reaches native config; required lazily so a consumer of the
+ * `ui` barrel that never renders this screen does not pull it in, matching the
+ * pattern used for expo-router and the icon sets here.
+ */
+function appVersionLabel(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Constants = require('expo-constants').default
+    const version = Constants?.expoConfig?.version ?? Constants?.nativeAppVersion
+    const build =
+      Constants?.expoConfig?.ios?.buildNumber ??
+      Constants?.expoConfig?.android?.versionCode ??
+      Constants?.nativeBuildVersion
+    if (!version) return ''
+    return build ? `${version} (${build})` : `${version}`
+  } catch {
+    // A missing native module must not take the settings screen down; the
+    // footer is a support aid, not a control.
+    return ''
+  }
+}
 
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
@@ -98,6 +121,7 @@ function loadClipboard(): ClipboardModule {
 }
 
 export function WalletConfigScreen() {
+  const versionLabel = useMemo(() => appVersionLabel(), [])
   const { t } = useTranslation()
   const { colors } = useTheme()
   const { router } = loadExpoRouter()
@@ -904,12 +928,27 @@ export function WalletConfigScreen() {
             isLast
           />
         </GroupedSection>
+
+        {/* The number we ask people to quote when something goes wrong, so it is
+            always to hand without being something to read. Quiet on purpose:
+            selectable, because the point is that it can be copied out. */}
+        {versionLabel ? (
+          <Text selectable style={[localStyles.version, { color: colors.textTertiary }]}>
+            {t('settings_version', { version: versionLabel })}
+          </Text>
+        ) : null}
       </ScrollView>
     </View>
   )
 }
 
 const localStyles = StyleSheet.create({
+  version: {
+    ...typography.caption1,
+    textAlign: 'center',
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.lg
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

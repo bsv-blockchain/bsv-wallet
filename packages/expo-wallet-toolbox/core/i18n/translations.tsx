@@ -666,6 +666,7 @@ const resources = {
       pay_address_swept: 'Received {{amount}}',
 
       check_wallet: 'Troubleshooting',
+      settings_version: 'Version {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Some checks need your attention',
@@ -1177,6 +1178,7 @@ const resources = {
       pay_address_swept: '已收到 {{amount}}',
 
       check_wallet: '疑难解答',
+      settings_version: '版本 {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: '有些检查需要你处理',
@@ -1689,6 +1691,7 @@ const resources = {
       pay_address_swept: '{{amount}} प्राप्त हुआ',
 
       check_wallet: 'समस्या निवारण',
+      settings_version: 'संस्करण {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'कुछ जाँचों पर ध्यान दें',
@@ -2205,6 +2208,7 @@ const resources = {
       pay_address_swept: 'Recibido {{amount}}',
 
       check_wallet: 'Solución de problemas',
+      settings_version: 'Versión {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Algunas comprobaciones necesitan tu atención',
@@ -2715,6 +2719,7 @@ const resources = {
       pay_address_swept: '{{amount}} reçu',
 
       check_wallet: 'Dépannage',
+      settings_version: 'Version {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Certaines vérifications demandent votre attention',
@@ -3222,6 +3227,7 @@ const resources = {
       pay_address_swept: 'تم استلام {{amount}}',
 
       check_wallet: 'استكشاف الأخطاء',
+      settings_version: 'الإصدار {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'بعض الفحوصات تحتاج انتباهك',
@@ -3730,6 +3736,7 @@ const resources = {
       pay_address_swept: '{{amount}} recebido',
 
       check_wallet: 'Solução de problemas',
+      settings_version: 'Versão {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Algumas verificações precisam da sua atenção',
@@ -4238,6 +4245,7 @@ const resources = {
       pay_address_swept: '{{amount}} পাওয়া গেছে',
 
       check_wallet: 'সমস্যা সমাধান',
+      settings_version: 'সংস্করণ {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'কিছু চেক আপনার নজর প্রয়োজন',
@@ -4748,6 +4756,7 @@ const resources = {
       pay_address_swept: 'Получено {{amount}}',
 
       check_wallet: 'Диагностика',
+      settings_version: 'Версия {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Некоторые проверки требуют внимания',
@@ -5257,6 +5266,7 @@ const resources = {
       pay_address_swept: 'Diterima {{amount}}',
 
       check_wallet: 'Pemecahan masalah',
+      settings_version: 'Versi {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Beberapa pemeriksaan perlu perhatian Anda',
@@ -5782,6 +5792,7 @@ const resources = {
       pay_address_swept: '{{amount}} を受け取りました',
 
       check_wallet: 'トラブルシューティング',
+      settings_version: 'バージョン {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'いくつかの項目に確認が必要です',
@@ -6305,6 +6316,7 @@ const resources = {
       pay_address_swept: 'Otrzymano {{amount}}',
 
       check_wallet: 'Rozwiązywanie problemów',
+      settings_version: 'Wersja {{version}}',
       error_review_actions: "This payment is stuck. Check Wallet can try to free it.",
       wallet_check_ok: 'Everything looks good',
       wallet_check_attention: 'Niektóre sprawdzenia wymagają uwagi',
