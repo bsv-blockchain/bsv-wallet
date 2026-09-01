@@ -78,8 +78,6 @@ export interface OfflineNoticeProps {
   stalled?: string
   /** Queued/posting rows the user sent. Rows with a framePayload get a re-show affordance. */
   queuedSent?: OfflineActionRow[]
-  /** Handed over as a code but deliberately not released for broadcast. */
-  parkedSent?: OfflineActionRow[]
   onShowCode?: (row: OfflineActionRow) => void
   /** Re-send `resend_request` for a rejected received payment. */
   onRequestAgain?: (row: OfflineActionRow) => void
@@ -88,8 +86,6 @@ export interface OfflineNoticeProps {
   onCopyDetails?: (row: OfflineActionRow) => void
   /** Archive a rejected row as `acknowledged`. Not destructive. */
   onDismiss?: (row: OfflineActionRow) => void
-  /** Abort a parked payment, releasing the inputs it reserved. */
-  onCancelParked?: (row: OfflineActionRow) => void
   /** Tighter padding when mounted above the home activity list. */
   compact?: boolean
   /** Unprocessed `localpay_pending` KV entries waiting to internalize. */
@@ -108,13 +104,11 @@ export default function OfflineNotice({
   onSendNow,
   stalled,
   queuedSent,
-  parkedSent = [],
   onShowCode,
   onRequestAgain,
   onSendAgain,
   onCopyDetails,
   onDismiss,
-  onCancelParked,
   compact = false,
   pendingCount = 0,
   pendingStuck = 0,
@@ -129,7 +123,6 @@ export default function OfflineNotice({
     rejected.length === 0 &&
     sentRejected.length === 0 &&
     (queuedSent ?? []).length === 0 &&
-    parkedSent.length === 0 &&
     pendingCount === 0 &&
     pendingStuck === 0 &&
     !pendingCorrupt
@@ -236,26 +229,6 @@ export default function OfflineNotice({
           </View>
         </View>
       )}
-      {/* Built, shown as a code, and held back: the payer left the code screen
-          without saying the other person had it, so nothing has been sent. Two
-          ways forward, and the wording has to be honest that we cannot tell
-          which applies — show the code again, or cancel and get the money back. */}
-      {parkedSent.map(r => (
-        <View
-          key={`parked-${r.txid}`}
-          style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
-        >
-          <Ionicons name="pause-circle-outline" size={18} color={colors.textSecondary} />
-          <View style={styles.text}>
-            <Text style={[styles.title, { color: colors.textPrimary }]}>{t('pay_parked_title')}</Text>
-            <Text style={[styles.body, { color: colors.textSecondary }]}>{t('pay_parked_body')}</Text>
-            <View style={styles.actions}>
-              {r.framePayload ? actionBtn(t('pay_offline_show_code'), () => onShowCode?.(r)) : null}
-              {actionBtn(t('pay_parked_cancel'), () => onCancelParked?.(r))}
-            </View>
-          </View>
-        </View>
-      ))}
       {pendingCorrupt && (
         <View style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
           <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />

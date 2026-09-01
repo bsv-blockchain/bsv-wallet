@@ -73,6 +73,10 @@ interface Props {
   onSendPaymentDetails?: (txid: string) => void
   /** Start a new payment (or retryDelivery) for a failed outbound row. */
   onSendAgain?: (action: ActivityAction) => void
+  /** Re-display the sealed nearby frame for a parked payment. */
+  onShowCode?: (txid: string) => void
+  /** Cancel a parked payment: abort the action and retire its queue row. */
+  onCancelParked?: (txid: string) => void
 }
 
 /** Statuses whose transaction is still local and therefore abortable: nothing
@@ -104,7 +108,9 @@ function ActivityRowBase({
   onRefreshTx,
   onAbort,
   onSendPaymentDetails,
-  onSendAgain
+  onSendAgain,
+  onShowCode,
+  onCancelParked
 }: Props) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -134,7 +140,15 @@ function ActivityRowBase({
   const amountColor = incoming ? colors.successAmount : colors.textPrimary
   const unitColor = incoming ? colors.successAmount : colors.textSecondary
 
-  const canAbort = ABORTABLE_STATUSES.has(action.status) && !!action.reference
+  // A parked payment was built and shown as a code, but never released: it is
+  // not on chain and no task will put it there. An explorer link would 404 and
+  // a Refresh would ask the network about a transaction it has never seen, so
+  // this row offers the two things that actually apply — show the code again,
+  // or cancel and take the money back.
+  const parked = offlineStatus === 'parked'
+  const canShowCode = parked && !!action.txid && !!onShowCode
+  const canCancelParked = parked && !!action.txid && !!onCancelParked
+  const canAbort = !parked && ABORTABLE_STATUSES.has(action.status) && !!action.reference
   // Any outgoing payment this wallet can rebuild: both rails write the payee's
   // identity key as a label and the derivation data as customInstructions, so
   // the details can be re-delivered whether the payment went out through a
@@ -143,9 +157,11 @@ function ActivityRowBase({
     !!action.txid &&
     (action.isOutgoing ?? !incoming) &&
     !!action.labels?.some(l => l === 'peerpay' || l === 'localpay')
-  const canResendDetails = resendableOutbound && !!onSendPaymentDetails
-  const canSendAgain = !incoming && action.status === 'failed' && !!onSendAgain
-  const hasUtilities = !!action.txid || canAbort || canResendDetails || canSendAgain
+  const canResendDetails = !parked && resendableOutbound && !!onSendPaymentDetails
+  const canSendAgain = !parked && !incoming && action.status === 'failed' && !!onSendAgain
+  const hasUtilities = parked
+    ? canShowCode || canCancelParked
+    : !!action.txid || canAbort || canResendDetails || canSendAgain
 
   return (
     <View
@@ -219,7 +235,7 @@ function ActivityRowBase({
             <ActivityIndicator size="small" color={colors.textSecondary} style={styles.chipBusy} />
           ) : (
             <>
-              {action.txid && offlineStatus !== 'queued' && offlineStatus !== 'posting' ? (
+              {action.txid && !parked && offlineStatus !== 'queued' && offlineStatus !== 'posting' ? (
                 <Chip
                   icon="refresh-outline"
                   label={t('tx_action_refresh_short')}
@@ -227,7 +243,7 @@ function ActivityRowBase({
                   onPress={() => onRefreshTx(action.txid)}
                 />
               ) : null}
-              {action.txid ? (
+              {action.txid && !parked ? (
                 <Chip
                   icon="link-outline"
                   label="WoC"
@@ -250,6 +266,23 @@ function ActivityRowBase({
                   label={t('tx_action_resend_short')}
                   accessibilityLabel={t('send_payment_details_again')}
                   onPress={() => onSendPaymentDetails!(action.txid)}
+                />
+              ) : null}
+              {canShowCode ? (
+                <Chip
+                  icon="send-outline"
+                  label={t('tx_action_resend_short')}
+                  accessibilityLabel={t('pay_offline_show_code')}
+                  onPress={() => onShowCode!(action.txid)}
+                />
+              ) : null}
+              {canCancelParked ? (
+                <Chip
+                  icon="close-circle-outline"
+                  label={t('cancel')}
+                  accessibilityLabel={t('pay_parked_cancel')}
+                  danger
+                  onPress={() => onCancelParked!(action.txid)}
                 />
               ) : null}
               {canSendAgain ? (

@@ -26,6 +26,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Linking,
+  Modal,
   type ListRenderItem
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -72,6 +73,8 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import PaymentQrDisplay from '../components/pay/PaymentQrDisplay'
+import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
 import { exportTransactionsAsCsv } from '../exportTransactions'
@@ -273,6 +276,8 @@ export function WalletHomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
+  /** The parked payment whose sealed frame is being shown again, if any. */
+  const [showCode, setShowCode] = useState<OfflineActionRow | null>(null)
   const [attentionCount, setAttentionCount] = useState(0)
   const [unsentCount, setUnsentCount] = useState(0)
   const [stalled, setStalled] = useState<string | undefined>(undefined)
@@ -819,7 +824,6 @@ export function WalletHomeScreen() {
     () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked' && r.role === 'sent'),
     [offlineRows]
   )
-  const parkedSent = useMemo(() => offlineRows.filter(r => r.status === 'parked'), [offlineRows])
   const stuckBadges = useMemo(
     () =>
       homeBadges({
@@ -836,7 +840,7 @@ export function WalletHomeScreen() {
   const pushPay = useCallback((sats?: number) => {
     router.push(sats && sats > 0 ? `/pay?sats=${sats}` : '/pay')
   }, [])
-  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain, onCancelParked } = useOfflineNoticeActions({
+  const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain } = useOfflineNoticeActions({
     storage,
     permissionsManager: managers.permissionsManager,
     adminOriginator,
@@ -849,6 +853,44 @@ export function WalletHomeScreen() {
 
   // ── rows ────────────────────────────────────────────────────────────
   const rows = useMemo(() => withDayHeaders(actions, t), [actions, t])
+
+  /** Re-display the sealed frame of a parked payment: the payee can still
+   * scan it, and this is the only copy of it that exists. */
+  const onShowCode = useCallback(
+    (txid: string) => {
+      const row = offlineByTxid.get(txid)
+      if (row?.framePayload) setShowCode(row)
+      else showToast(t('local_pay_too_large'), { type: 'error' })
+    },
+    [offlineByTxid, t]
+  )
+
+  /** Cancel a parked payment: abort the action so the inputs come back, and
+   * retire its queue row. Refuses once the counterparty has broadcast. */
+  const onCancelParked = useCallback(
+    async (txid: string) => {
+      const pm = managers.permissionsManager
+      if (!storage || !pm || busyRow) return
+      setBusyRow(txid)
+      try {
+        const outcome = await cancelParkedPayment({
+          storage,
+          wallet: pm as unknown as CancelParkedWallet,
+          originator: adminOriginator,
+          txid
+        })
+        if (outcome === 'cancelled') showToast(t('tx_abort_success'), { type: 'success' })
+        else if (outcome === 'already-sent') showToast(t('pay_parked_already_sent'), { type: 'info' })
+        else showToast(t('tx_abort_failed'), { type: 'error' })
+        await onRefresh()
+      } catch (e: unknown) {
+        showToast(e instanceof Error ? e.message : t('unknown_error'), { type: 'error' })
+      } finally {
+        setBusyRow(null)
+      }
+    },
+    [storage, managers.permissionsManager, adminOriginator, busyRow, onRefresh, t]
+  )
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item, index }) => {
@@ -872,6 +914,8 @@ export function WalletHomeScreen() {
           onAbort={onAbort}
           onSendPaymentDetails={onSendPaymentDetails}
           onSendAgain={onFailedSendAgain}
+          onShowCode={onShowCode}
+          onCancelParked={txid => void onCancelParked(txid)}
         />
       )
     },
@@ -885,7 +929,9 @@ export function WalletHomeScreen() {
       onRefreshTx,
       onAbort,
       onSendPaymentDetails,
-      onFailedSendAgain
+      onFailedSendAgain,
+      onShowCode,
+      onCancelParked
     ]
   )
 
@@ -1044,13 +1090,11 @@ export function WalletHomeScreen() {
           pendingStuck={pendingStuck}
           pendingCorrupt={pendingCorrupt}
           queuedSent={queuedSent}
-          parkedSent={parkedSent}
           onShowCode={() => router.push('/pay')}
           onRequestAgain={row => void onRequestAgain(row)}
           onCopyDetails={onCopyDetails}
           onDismiss={row => void onDismiss(row)}
           onSendAgain={row => void onSendAgain(row)}
-          onCancelParked={row => void onCancelParked(row)}
         />
 
         <View style={styles.activityHead}>
@@ -1096,7 +1140,6 @@ export function WalletHomeScreen() {
       rejected,
       sentRejected,
       queuedSent,
-      parkedSent,
       stalled,
       pendingCount,
       pendingStuck,
@@ -1104,7 +1147,6 @@ export function WalletHomeScreen() {
       onRequestAgain,
       onCopyDetails,
       onDismiss,
-      onCancelParked,
       onSendAgain
     ]
   )
@@ -1184,11 +1226,37 @@ export function WalletHomeScreen() {
           }
         />
       </View>
+      <Modal visible={!!showCode} animationType="slide" transparent onRequestClose={() => setShowCode(null)}>
+        <View style={styles.codeOverlay}>
+          <View style={[styles.codeCard, { backgroundColor: colors.backgroundElevated }]}>
+            {showCode?.framePayload ? <PaymentQrDisplay frameQr={showCode.framePayload} size={288} /> : null}
+            <Text style={[styles.codeHint, { color: colors.textSecondary }]}>{t('pay_parked_body')}</Text>
+            <TouchableOpacity onPress={() => setShowCode(null)} style={styles.codeClose}>
+              <Text style={{ color: colors.info }}>{t('done')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
+  codeOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)'
+  },
+  codeCard: {
+    padding: spacing.xl,
+    borderRadius: 16,
+    alignItems: 'center',
+    gap: spacing.lg,
+    maxWidth: 360
+  },
+  codeHint: { ...typography.footnote, textAlign: 'center' },
+  codeClose: { padding: spacing.md },
   container: { flex: 1 },
   // No bottom rule: the gradient already separates the chrome from the balance,
   // and a hairline there cut the screen in half above the focal figure.

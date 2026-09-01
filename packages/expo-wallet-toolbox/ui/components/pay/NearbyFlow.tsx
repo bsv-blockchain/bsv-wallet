@@ -1380,10 +1380,16 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
       // confirming the hand-over. A success screen would claim something they
       // did not say, and broadcasting would do something they did not ask for.
       await completeQrDelivery({ celebrate: false, release: false })
-      if (!leavingScreen) reset()
+      // Back means "out of this payment", not "one step up it". Landing on the
+      // Pay chooser leaves the payer inside a flow they just left, one tap from
+      // rebuilding the payment they parked; the wallet is where the parked row
+      // — and its Resend and Cancel — actually is.
+      reset()
+      onExit()
+      router.dismissTo('/')
       return leavingScreen
     },
-    [completeQrDelivery, reset]
+    [completeQrDelivery, reset, onExit, router]
   )
 
   useEffect(() => {
@@ -1396,11 +1402,8 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
       (e: { preventDefault: () => void; data: { action: object } }) => {
         if (sendQrAllowLeaveRef.current) return
         e.preventDefault()
-        void handleSendQrExit(true).then(allow => {
-          if (!allow) return
-          sendQrAllowLeaveRef.current = true
-          navigation.dispatch(e.data.action)
-        })
+        sendQrAllowLeaveRef.current = true
+        void handleSendQrExit(true)
       }
     )
     return unsub

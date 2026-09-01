@@ -34,6 +34,11 @@ export function txStatusView(status: string, offlineStatus?: string): TxStatusVi
       return { key: 'tx_status_offline_sending', tone: 'inflight' }
     case 'rejected':
       return { key: 'tx_status_offline_rejected', tone: 'failed' }
+    // Built and shown as a code, never released. The underlying status is
+    // 'nosend' ("Not sent"), which is true but says nothing about why; this
+    // says the payment is waiting on a hand-over that may not have happened.
+    case 'parked':
+      return { key: 'tx_status_parked', tone: 'attention' }
   }
 
   switch (status) {
