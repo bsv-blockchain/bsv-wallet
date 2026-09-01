@@ -31,6 +31,29 @@ describe('buildPaymentFrame', () => {
     expect(frame.derivationSuffix).toBe(s.derivationSuffix)
   })
 
+  // A nearby payment must stay resendable after its session dies: the sealed
+  // frame needs the payee's PSK to read, so the payee's key and the derivation
+  // data have to live on the action itself.
+  it('labels the action with the payee identity key so a resend knows the recipient', async () => {
+    const w = walletStub()
+    const s = session()
+    await buildPaymentFrame(w as never, s, 'admin.com', 777)
+    const args = w.createAction.mock.calls[0][0]
+    expect(args.labels).toContain(s.identityKey)
+  })
+
+  it('writes the derivation data as customInstructions so a resend can rebuild the token', async () => {
+    const w = walletStub()
+    const s = session()
+    await buildPaymentFrame(w as never, s, 'admin.com', 777)
+    const args = w.createAction.mock.calls[0][0]
+    expect(JSON.parse(args.outputs[0].customInstructions)).toEqual({
+      derivationPrefix: s.derivationPrefix,
+      derivationSuffix: s.derivationSuffix,
+      type: 'BRC29'
+    })
+  })
+
   it('uses the local identity key as sender', async () => {
     const { frame } = await buildPaymentFrame(walletStub() as never, session(), 'admin.com', 777)
     expect(frame.senderIdentityKey).toBe('03'.padEnd(66, 'f'))

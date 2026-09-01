@@ -118,12 +118,25 @@ export async function buildPaymentFrame(
   let result = await wallet.createAction(
     {
       description: 'Payment to a nearby device',
-      labels: [PEERPAY_LABEL],
+      // The payee's identity key rides as a label, and the derivation data as
+      // the output's customInstructions — exactly what the handle rail writes.
+      // Both rails derive to BRC-29 (`counterparty: identityKey`, keyID
+      // `prefix suffix`), so a nearby payment whose code was never scanned can
+      // be rebuilt and re-delivered through the message box later, from the
+      // transaction's own row. Without these two fields nothing on this device
+      // remembers who the payment was for: the sealed frame needs the payee's
+      // session PSK to read, and that dies with the session.
+      labels: [PEERPAY_LABEL, session.identityKey],
       outputs: [
         {
           lockingScript,
           satoshis: amount,
-          outputDescription: 'Nearby payment'
+          outputDescription: 'Nearby payment',
+          customInstructions: JSON.stringify({
+            derivationPrefix: session.derivationPrefix,
+            derivationSuffix: session.derivationSuffix,
+            type: 'BRC29'
+          })
         }
       ],
       // `signAndProcess: false` is what makes the action abortable.

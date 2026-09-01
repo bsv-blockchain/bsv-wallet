@@ -63,6 +63,7 @@ export { selectTransport } from './localpay/transport/select'
 export * from './peerpay/outbox'
 export * from './peerpay/control'
 export * from './peerpay/handleResendRequests'
+export * from './peerpay/resendBeef'
 export * from './peerpay/offlineNacks'
 export * from './peerpay/inboxAttempts'
 

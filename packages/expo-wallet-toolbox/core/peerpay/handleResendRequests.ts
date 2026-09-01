@@ -11,6 +11,14 @@ export const UNANSWERED_RESENDS_KEY = 'peerpay_unanswered_resends'
 
 const PUBKEY_LABEL = /^(02|03)[0-9a-fA-F]{64}$/
 
+/**
+ * Rail labels an outbound payment can carry. Both are resendable: each writes
+ * the payee's identity key as a label and BRC-29 derivation data as the
+ * output's customInstructions. Not exported — `localpay/pending` already
+ * exports a (differently-valued) PEERPAY_LABEL through the same barrel.
+ */
+const RESENDABLE_LABELS = ['peerpay', 'localpay']
+
 interface StorageLike {
   getKeyValue: (key: string) => Promise<string | undefined>
   setKeyValue: (key: string, value: string) => Promise<void>
@@ -148,7 +156,15 @@ export function makeListPeerPayAction(
     if (!cache) {
       cache = wallet
         .listActions(
-          { labels: ['peerpay'], includeOutputs: true, includeLabels: true, limit: 1000 },
+          // Both rails, because both are resendable: a nearby payment carries
+          // the same BRC-29 derivation data and the payee's identity key.
+          // labelQueryMode defaults to 'any', so this is peerpay OR localpay.
+          {
+            labels: RESENDABLE_LABELS,
+            includeOutputs: true,
+            includeLabels: true,
+            limit: 1000
+          },
           adminOriginator
         )
         .then(r => r.actions ?? [])

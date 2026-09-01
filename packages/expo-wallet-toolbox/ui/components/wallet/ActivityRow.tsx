@@ -135,9 +135,15 @@ function ActivityRowBase({
   const unitColor = incoming ? colors.successAmount : colors.textSecondary
 
   const canAbort = ABORTABLE_STATUSES.has(action.status) && !!action.reference
-  const peerPayOutbound =
-    !!action.txid && (action.isOutgoing ?? !incoming) && !!action.labels?.includes('peerpay')
-  const canResendDetails = peerPayOutbound && !!onSendPaymentDetails
+  // Any outgoing payment this wallet can rebuild: both rails write the payee's
+  // identity key as a label and the derivation data as customInstructions, so
+  // the details can be re-delivered whether the payment went out through a
+  // message box or a nearby code that may never have been scanned.
+  const resendableOutbound =
+    !!action.txid &&
+    (action.isOutgoing ?? !incoming) &&
+    !!action.labels?.some(l => l === 'peerpay' || l === 'localpay')
+  const canResendDetails = resendableOutbound && !!onSendPaymentDetails
   const canSendAgain = !incoming && action.status === 'failed' && !!onSendAgain
   const hasUtilities = !!action.txid || canAbort || canResendDetails || canSendAgain
 
