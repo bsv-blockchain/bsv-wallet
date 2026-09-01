@@ -1,49 +1,70 @@
-import { makeResendBeef } from '../../core/peerpay/resendBeef'
+import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
+import { atomicFromLocalBeef, makeResendBeef } from '../../core/peerpay/resendBeef'
+
+/** A signed transaction with its source, as an unbroadcast nosend payment would be. */
+function localBeef(): { beef: { toBinary(): number[] }; txid: string } {
+  const key = PrivateKey.fromRandom()
+  const source = new Transaction()
+  source.addOutput({ satoshis: 5000, lockingScript: new P2PKH().lock(key.toPublicKey().toHash()) })
+  const tx = new Transaction()
+  tx.addInput({ sourceTransaction: source, sourceOutputIndex: 0, unlockingScript: new P2PKH().lock(key.toPublicKey().toHash()) })
+  tx.addOutput({ satoshis: 1000, lockingScript: new P2PKH().lock(key.toPublicKey().toHash()) })
+  return { beef: { toBinary: () => tx.toBEEF() }, txid: tx.id('hex') }
+}
+
+describe('atomicFromLocalBeef', () => {
+  // The payment this whole path exists for has no merkle proof: it was never
+  // broadcast. Requiring one rejected it and told an online user their data
+  // could not be fetched.
+  it('accepts an unbroadcast transaction that carries its ancestry', () => {
+    const { beef, txid } = localBeef()
+    expect(atomicFromLocalBeef(beef, txid)).toBeTruthy()
+  })
+
+  it('refuses bytes that are not a beef', () => {
+    expect(atomicFromLocalBeef({ toBinary: () => [1, 2, 3] }, 'aa')).toBeUndefined()
+  })
+
+  it('refuses a beef that does not name this txid', () => {
+    const { beef } = localBeef()
+    expect(atomicFromLocalBeef(beef, 'b'.repeat(64))).toBeUndefined()
+  })
+})
 
 describe('makeResendBeef', () => {
   it('prefers the network answer, which carries a current proof', async () => {
-    const storage = { getValidBeefForKnownTxid: jest.fn() }
-    const refetch = jest.fn().mockResolvedValue([9, 9, 9])
-    const beef = await makeResendBeef({ refetch, storage })('abc')
+    const storage = { getBeefForTransaction: jest.fn(), getValidBeefForKnownTxid: jest.fn() }
+    const beef = await makeResendBeef({ refetch: async () => [9, 9, 9], storage })('abc')
     expect(beef).toEqual([9, 9, 9])
-    expect(storage.getValidBeefForKnownTxid).not.toHaveBeenCalled()
+    expect(storage.getBeefForTransaction).not.toHaveBeenCalled()
   })
 
-  // The payment a resend most needs to cover: a nearby code that was never
-  // scanned was never broadcast, so no service has heard of the transaction.
   it('falls back to local storage when the network has never seen the txid', async () => {
-    const storage = {
-      getValidBeefForKnownTxid: jest.fn().mockResolvedValue({ toBinary: () => [1, 2, 3] })
-    }
-    const beef = await makeResendBeef({ refetch: async () => undefined, storage })('abc')
-    // [1,2,3] is not a parseable Beef, so the structural bar rejects it rather
-    // than shipping bytes the payee's wallet would refuse.
-    expect(beef).toBeUndefined()
-    expect(storage.getValidBeefForKnownTxid).toHaveBeenCalledWith('abc')
+    const { beef, txid } = localBeef()
+    const storage = { getBeefForTransaction: jest.fn().mockResolvedValue(beef) }
+    expect(await makeResendBeef({ refetch: async () => undefined, storage })(txid)).toBeTruthy()
   })
 
-  it('is undefined when there is no network answer and no local copy', async () => {
-    const beef = await makeResendBeef({ refetch: async () => undefined, storage: null })('abc')
-    expect(beef).toBeUndefined()
+  it('tries the known-txid lookup when the ancestry lookup throws', async () => {
+    const { beef, txid } = localBeef()
+    const storage = {
+      getBeefForTransaction: jest.fn().mockRejectedValue(new Error('not known')),
+      getValidBeefForKnownTxid: jest.fn().mockResolvedValue(beef)
+    }
+    expect(await makeResendBeef({ refetch: async () => undefined, storage })(txid)).toBeTruthy()
+    expect(storage.getValidBeefForKnownTxid).toHaveBeenCalledWith(txid)
   })
 
   it('does not let a throwing network lookup skip the local fallback', async () => {
-    const storage = {
-      getValidBeefForKnownTxid: jest.fn().mockResolvedValue({ toBinary: () => [] })
+    const { beef, txid } = localBeef()
+    const storage = { getBeefForTransaction: jest.fn().mockResolvedValue(beef) }
+    const refetch = async () => {
+      throw new Error('woc down')
     }
-    await makeResendBeef({
-      refetch: async () => {
-        throw new Error('woc down')
-      },
-      storage
-    })('abc')
-    expect(storage.getValidBeefForKnownTxid).toHaveBeenCalled()
+    expect(await makeResendBeef({ refetch, storage })(txid)).toBeTruthy()
   })
 
-  it('survives a storage read that throws', async () => {
-    const storage = {
-      getValidBeefForKnownTxid: jest.fn().mockRejectedValue(new Error('no beef'))
-    }
-    await expect(makeResendBeef({ refetch: async () => undefined, storage })('abc')).resolves.toBeUndefined()
+  it('is undefined when there is no network answer and no local copy', async () => {
+    expect(await makeResendBeef({ refetch: async () => undefined, storage: null })('abc')).toBeUndefined()
   })
 })

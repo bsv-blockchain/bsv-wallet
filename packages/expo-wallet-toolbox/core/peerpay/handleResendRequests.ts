@@ -32,7 +32,14 @@ interface StorageLike {
 export type PeerPayActionLike = {
   txid?: string
   labels?: string[]
-  outputs?: { customInstructions?: string | object; satoshis?: number }[]
+  // `outputIndex` and `basket` are what let the rebuild tell the payment apart
+  // from this wallet's own change, which carries derivation data of its own.
+  outputs?: {
+    customInstructions?: string | object
+    satoshis?: number
+    outputIndex?: number
+    basket?: string
+  }[]
 }
 
 export type PendingResend = { txid: string; sender: string }
@@ -134,10 +141,13 @@ function actionFromOutbox(entry: OutboxEntry, txid: string): PeerPayActionLike {
   return {
     txid,
     labels: ['peerpay'],
+    // The entry already names the payment output, so there is no change to tell
+    // it apart from — an unbasketed single output is exactly that statement.
     outputs: [
       {
         customInstructions: entry.token.customInstructions,
-        satoshis: entry.token.amount
+        satoshis: entry.token.amount,
+        ...(typeof entry.token.outputIndex === 'number' ? { outputIndex: entry.token.outputIndex } : {})
       }
     ]
   }

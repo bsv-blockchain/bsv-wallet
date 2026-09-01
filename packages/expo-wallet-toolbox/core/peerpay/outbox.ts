@@ -33,6 +33,12 @@ export interface OutboxEntry {
     amount: number
     /** User's note; delivered inside the token and shown by the recipient. */
     note?: string
+    /**
+     * Which output pays the recipient. Omitted on a fresh send, where the rail
+     * pins the payment to output 0; carried on a rebuild, where the index is
+     * read back from the action rather than assumed.
+     */
+    outputIndex?: number
   }
   /** The MessageBox host URL used at creation time */
   messageBoxUrl: string

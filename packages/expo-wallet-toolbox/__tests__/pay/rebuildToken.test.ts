@@ -33,3 +33,39 @@ describe('rebuildPeerPayToken', () => {
     expect(result).toBeUndefined()
   })
 })
+
+// Change outputs carry derivation data too. Rebuilding from the first output
+// that has any would describe the sender's own change: wrong amount, and keys
+// the recipient cannot derive.
+describe('choosing the output that paid the recipient', () => {
+  const action = {
+    txid: 'aa',
+    outputs: [
+      {
+        customInstructions: JSON.stringify({ derivationPrefix: 'chg', derivationSuffix: 'chg' }),
+        satoshis: 4242,
+        outputIndex: 1,
+        basket: 'default'
+      },
+      {
+        customInstructions: JSON.stringify({ derivationPrefix: 'pay', derivationSuffix: 'pay' }),
+        satoshis: 777,
+        outputIndex: 0,
+        basket: ''
+      }
+    ]
+  }
+
+  it('skips wallet change and takes the output paying someone else', async () => {
+    const r = await rebuildPeerPayToken({ action, recipient: '02'.padEnd(66, 'a'), refetch: async () => [1] })
+    expect(r!.token.customInstructions).toEqual({ derivationPrefix: 'pay', derivationSuffix: 'pay' })
+    expect(r!.token.amount).toBe(777)
+    expect(r!.token.outputIndex).toBe(0)
+  })
+
+  it('falls back to the first output with derivation data when nothing is basketed', async () => {
+    const unmarked = { txid: 'aa', outputs: [{ customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, satoshis: 5 }] }
+    const r = await rebuildPeerPayToken({ action: unmarked, recipient: '02'.padEnd(66, 'a'), refetch: async () => [1] })
+    expect(r!.token.customInstructions).toEqual({ derivationPrefix: 'p', derivationSuffix: 's' })
+  })
+})

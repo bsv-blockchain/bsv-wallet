@@ -1,29 +1,36 @@
 /**
  * The transaction bytes a resend ships.
  *
- * Two sources, in this order:
+ * Three sources, in this order:
  *
  *   NETWORK first, by txid. A mined transaction comes back with whatever proof
  *   is current, which is what repairs a merkle path staled by a reorg — the
- *   whole reason `refetchAtomicBeef` exists.
+ *   reason `refetchAtomicBeef` exists.
  *
- *   LOCAL storage second. A nearby payment whose code was never scanned was
- *   never broadcast: it is `nosend` and no service has heard of it, so the
- *   network answer is empty and the only copy is this device's. That is exactly
- *   the payment a resend is for, so falling back is not a nicety — without it
- *   the feature misses its main case. The payee internalizes and broadcasts it,
- *   which is the nearby rail's normal settlement path anyway.
+ *   STORAGE second, assembled with ancestry (`getBeefForTransaction`), then the
+ *   plain known-txid lookup. A nearby payment whose code was never scanned was
+ *   never broadcast: it is `nosend`, no service has heard of it, and the only
+ *   copy is this device's. That is exactly the payment a resend is for, so a
+ *   local source is not a nicety — without it the feature misses its main case.
+ *   The payee internalizes and broadcasts, which is the nearby rail's normal
+ *   settlement path anyway.
  *
- * A local answer is held to the same structural bar as a fetched one: it must
- * parse, name this txid, and carry its ancestry. Anything less would hand the
- * payee bytes their wallet will reject, replacing one dead end with another.
+ * What the bar is, and is not: the bytes must parse, name this txid, and carry
+ * their ancestry (`toAtomicBEEF` throws when an input has no source
+ * transaction) — enough that the payee's wallet is not handed something it will
+ * refuse. It deliberately does NOT require a verified merkle proof. A
+ * never-broadcast transaction has none by construction, so demanding one
+ * rejected precisely the payment this path exists to rescue, and reported it as
+ * "couldn't get this payment's data" to someone who was online the whole time.
+ * The receiving wallet validates independently, as it does for any payment.
  */
 import { Beef } from '@bsv/sdk'
 
 type BeefLike = { toBinary(): number[] }
 
 export type LocalBeefStorage = {
-  getValidBeefForKnownTxid(txid: string): Promise<BeefLike>
+  getValidBeefForKnownTxid?(txid: string): Promise<BeefLike>
+  getBeefForTransaction?(txid: string, options: Record<string, unknown>): Promise<BeefLike>
 }
 
 /** AtomicBEEF for `txid` from a local Beef, or undefined if it cannot be made. */
@@ -35,13 +42,31 @@ export function atomicFromLocalBeef(beef: BeefLike, txid: string): number[] | un
     // Throws rather than emitting a partial beef when an input has no source
     // transaction — the ancestry gap we must not hand onward.
     const atomic = tx.toAtomicBEEF()
-    const check = Beef.fromBinary(atomic)
-    if (check.atomicTxid !== txid) return undefined
-    if (!check.verifyValid(false).valid) return undefined
+    if (Beef.fromBinary(atomic).atomicTxid !== txid) return undefined
     return atomic
   } catch {
     return undefined
   }
+}
+
+async function fromStorage(storage: LocalBeefStorage, txid: string): Promise<number[] | undefined> {
+  // Ancestry-assembling lookup first: it merges input beefs (and reaches for
+  // services when storage is short a link), which is what makes toAtomicBEEF
+  // able to emit a self-contained proof for an unbroadcast transaction.
+  for (const read of [
+    async () => await storage.getBeefForTransaction?.(txid, {}),
+    async () => await storage.getValidBeefForKnownTxid?.(txid)
+  ]) {
+    try {
+      const beef = await read()
+      if (!beef) continue
+      const atomic = atomicFromLocalBeef(beef, txid)
+      if (atomic) return atomic
+    } catch {
+      // Either lookup throws for a txid it does not hold. Try the next.
+    }
+  }
+  return undefined
 }
 
 export function makeResendBeef(args: {
@@ -53,11 +78,6 @@ export function makeResendBeef(args: {
     const fetched = await args.refetch(txid).catch(() => undefined)
     if (fetched) return fetched
     if (!args.storage) return undefined
-    try {
-      const local = await args.storage.getValidBeefForKnownTxid(txid)
-      return atomicFromLocalBeef(local, txid)
-    } catch {
-      return undefined
-    }
+    return await fromStorage(args.storage, txid)
   }
 }
