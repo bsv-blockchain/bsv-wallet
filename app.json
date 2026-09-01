@@ -3,7 +3,7 @@
     "name": "BSV Wallet",
     "slug": "bsv-wallet",
     "scheme": "bsv-wallet",
-    "version": "1.6.0",
+    "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",

@@ -3,7 +3,7 @@
   "description": "BSV Wallet - Enabling identity and micropayments on mobile devices",
   "author": "BSV Association",
   "main": "index.js",
-  "version": "1.6.0",
+  "version": "1.0.0",
   "license": "Open BSV",
   "scripts": {
     "start": "expo start --dev-client",
