@@ -892,7 +892,15 @@ export function WalletHomeScreen() {
     return `${bsv}   ·   ${other}`
   }, [balance, currency, satoshisPerUSD])
 
-  const listHeader = useMemo(
+  /**
+   * Pinned above the list, not part of it.
+   *
+   * The balance and the two destinations are what someone opens this screen
+   * for; scrolling a long history used to carry them off the top, so the
+   * answer to "how much do I have" and the way to pay were both a scroll back
+   * up. Everything below them still scrolls with the activity it describes.
+   */
+  const pinnedHeader = useMemo(
     () => (
       <View>
         <TouchableOpacity
@@ -955,7 +963,14 @@ export function WalletHomeScreen() {
           </PressableScale>
           */}
         </View>
+      </View>
+    ),
+    [balanceParts, balanceContext, colors, t, refreshBalance, router]
+  )
 
+  const listHeader = useMemo(
+    () => (
+      <View>
         {pendingResends.length > 0 || stuckBadges.length > 0 ? (
           <View style={styles.resendBanner}>
             {pendingResends.length > 0 ? (
@@ -1051,11 +1066,8 @@ export function WalletHomeScreen() {
       </View>
     ),
     [
-      balanceParts,
-      balanceContext,
       colors,
       t,
-      refreshBalance,
       onExport,
       exporting,
       actions.length,
@@ -1102,6 +1114,8 @@ export function WalletHomeScreen() {
           dismissed prompt, or biometric lockout. Previously all three looked
           identical to "you have no wallet". */}
       <WalletLockNotice />
+
+      {pinnedHeader}
 
       <FlatList
         data={rows}
