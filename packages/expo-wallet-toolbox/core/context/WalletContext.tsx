@@ -167,6 +167,7 @@ import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { makeCreditClassifier } from '../pay/creditErrors'
 import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
 import { makeBeefRepair } from '../pay/beefRepair'
+import { shouldReleaseUtxo, type UtxoProbe } from '../walletRepair/shouldReleaseUtxo'
 import {
   acceptWithRetry,
   DEFAULT_MESSAGE_BOX_URL,
@@ -2341,6 +2342,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   }, [storage])
 
   const checkUtxoSpendability = useCallback(async (): Promise<string> => {
+    if (!(await getOnline())) throw new Error('offline')
     if (!storage) return 'Storage not available'
     const wallet = managers?.permissionsManager
     if (!wallet) return 'Wallet not ready'
@@ -2371,9 +2373,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const outputs = await storage.findOutputs({
         partial: { spendable: true as any },
         noScript: true,
-        txStatus: ['completed', 'unproven', 'nosend'] as any
+        txStatus: ['completed'] as any
       })
       if (outputs.length === 0) return releasedNote + 'No spendable outputs found.'
+
+      const db = storage.sqliteDb
+      const liveRows = db ? await findOfflineActions(db, { status: ['queued', 'posting'] }) : []
+      const liveOfflineTxids = new Set(liveRows.map(r => r.txid).filter(Boolean))
 
       const lines: string[] = [`Found ${outputs.length} spendable output(s). Checking WoC...\n`]
       let spentCount = 0
@@ -2386,6 +2392,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           lines.push(`  outputId=${o.outputId} — no txid, skipped`)
           continue
         }
+        let probe: UtxoProbe = { status: 'error' }
+        let spendingTxid: string | undefined
         try {
           const controller = new AbortController()
           const timeout = setTimeout(() => controller.abort(), 10_000)
@@ -2398,88 +2406,105 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             clearTimeout(timeout)
           }
           if (resp.status === 404) {
-            unspentCount++
-            continue
-          }
-          if (!resp.ok) {
+            probe = { status: 'success', isUtxo: true }
+          } else if (!resp.ok) {
             errorCount++
             lines.push(`  ERROR: ${o.txid}:${o.vout} — HTTP ${resp.status}`)
-            continue
-          }
-
-          const spentData = await resp.json()
-          const spendingTxid = spentData.txid
-          spentCount++
-          lines.push(`  SPENT: ${o.txid}:${o.vout} (${o.satoshis} sat) → by ${spendingTxid}`)
-
-          // Try to fetch BEEF for spending tx and internalize change outputs
-          try {
-            const beefResp = await throttledFetch(`${wocBase}/tx/${spendingTxid}/beef`)
-            if (!beefResp.ok) {
-              lines.push(`    ↳ BEEF fetch failed (HTTP ${beefResp.status}), marking unspendable`)
-              await storage.updateOutput(o.outputId, { spendable: false as any })
-              continue
-            }
-            const beefHex = await beefResp.text()
-            const beefBytes = Utils.toArray(beefHex, 'hex')
-            const tx = Transaction.fromBEEF(beefBytes)
-            const atomicBeef = tx.toAtomicBEEF()
-
-            // Find change outputs we created for this spending tx
-            const changeOutputs = await storage.findOutputs({
-              partial: { change: true as any, spendable: false as any },
-              noScript: true
-            })
-            // Match by looking up which of our change outputs belong to the spending tx
-            // via the transactions table (our tx with this on-chain txid)
-            // Only transactionId is used below; noRawTx keeps rawTx/inputBEEF
-            // (and their JS-array expansion) out of the read entirely.
-            const txRows = await storage.findTransactions({ partial: { txid: spendingTxid }, noRawTx: true })
-            const matchingTxId = txRows.length > 0 ? txRows[0].transactionId : undefined
-
-            const outputsToInternalize: any[] = []
-            if (matchingTxId) {
-              const txChangeOutputs = changeOutputs.filter(co => co.transactionId === matchingTxId)
-              for (const co of txChangeOutputs) {
-                if (co.derivationPrefix && co.derivationSuffix) {
-                  outputsToInternalize.push({
-                    outputIndex: co.vout,
-                    protocol: 'wallet payment',
-                    paymentRemittance: {
-                      derivationPrefix: co.derivationPrefix,
-                      derivationSuffix: co.derivationSuffix,
-                      senderIdentityKey:
-                        co.senderIdentityKey ||
-                        (await wallet.getPublicKey({ identityKey: true }, adminOriginator)).publicKey
-                    }
-                  })
-                }
-              }
-            }
-
-            if (outputsToInternalize.length > 0) {
-              await wallet.internalizeAction(
-                {
-                  tx: atomicBeef,
-                  outputs: outputsToInternalize,
-                  description: 'Recovered from stale UTXO check'
-                },
-                adminOriginator
-              )
-              internalizedCount++
-              lines.push(`    ↳ INTERNALIZED: ${outputsToInternalize.length} change output(s) recovered`)
+          } else {
+            const spentData = await resp.json()
+            const txid = spentData?.txid
+            if (typeof txid === 'string' && txid) {
+              spendingTxid = txid
+              probe = { status: 'success', isUtxo: false }
             } else {
-              // No change outputs to recover, just mark input as unspendable
-              await storage.updateOutput(o.outputId, { spendable: false as any })
-              lines.push(`    ↳ No recoverable change outputs, marked unspendable`)
+              errorCount++
+              lines.push(`  ERROR: ${o.txid}:${o.vout} — HTTP 200 with no spending txid`)
             }
-          } catch (e: any) {
-            lines.push(`    ↳ Internalize failed: ${e.message}, marking unspendable`)
-            await storage.updateOutput(o.outputId, { spendable: false as any })
           }
         } catch (e: any) {
           errorCount++
           lines.push(`  ERROR: ${o.txid}:${o.vout} — ${e.message}`)
+        }
+
+        if (probe.status === 'error') continue
+        if (probe.isUtxo === true) {
+          unspentCount++
+          continue
+        }
+
+        const release = shouldReleaseUtxo({
+          online: true,
+          txStatus: 'completed',
+          txid: o.txid,
+          liveOfflineTxids,
+          probe
+        })
+        if (!release) {
+          lines.push(`  SPENT: ${o.txid}:${o.vout} (${o.satoshis} sat) — not released (live offline_action)`)
+          continue
+        }
+
+        spentCount++
+        lines.push(`  SPENT: ${o.txid}:${o.vout} (${o.satoshis} sat) → by ${spendingTxid}`)
+        await storage.updateOutput(o.outputId, { spendable: false as any })
+
+        if (!spendingTxid) continue
+        try {
+          const beefResp = await throttledFetch(`${wocBase}/tx/${spendingTxid}/beef`)
+          if (!beefResp.ok) {
+            lines.push(`    ↳ BEEF fetch failed (HTTP ${beefResp.status}), skipping change recovery`)
+            continue
+          }
+          const beefHex = await beefResp.text()
+          const beefBytes = Utils.toArray(beefHex, 'hex')
+          const tx = Transaction.fromBEEF(beefBytes)
+          const atomicBeef = tx.toAtomicBEEF()
+
+          const changeOutputs = await storage.findOutputs({
+            partial: { change: true as any, spendable: false as any },
+            noScript: true
+          })
+          // Only transactionId is used below; noRawTx keeps rawTx/inputBEEF
+          // (and their JS-array expansion) out of the read entirely.
+          const txRows = await storage.findTransactions({ partial: { txid: spendingTxid }, noRawTx: true })
+          const matchingTxId = txRows.length > 0 ? txRows[0].transactionId : undefined
+
+          const outputsToInternalize: any[] = []
+          if (matchingTxId) {
+            const txChangeOutputs = changeOutputs.filter(co => co.transactionId === matchingTxId)
+            for (const co of txChangeOutputs) {
+              if (co.derivationPrefix && co.derivationSuffix) {
+                outputsToInternalize.push({
+                  outputIndex: co.vout,
+                  protocol: 'wallet payment',
+                  paymentRemittance: {
+                    derivationPrefix: co.derivationPrefix,
+                    derivationSuffix: co.derivationSuffix,
+                    senderIdentityKey:
+                      co.senderIdentityKey ||
+                      (await wallet.getPublicKey({ identityKey: true }, adminOriginator)).publicKey
+                  }
+                })
+              }
+            }
+          }
+
+          if (outputsToInternalize.length > 0) {
+            await wallet.internalizeAction(
+              {
+                tx: atomicBeef,
+                outputs: outputsToInternalize,
+                description: 'Recovered from stale UTXO check'
+              },
+              adminOriginator
+            )
+            internalizedCount++
+            lines.push(`    ↳ INTERNALIZED: ${outputsToInternalize.length} change output(s) recovered`)
+          } else {
+            lines.push(`    ↳ No recoverable change outputs`)
+          }
+        } catch (e: any) {
+          lines.push(`    ↳ Internalize failed: ${e.message}`)
         }
       }
 

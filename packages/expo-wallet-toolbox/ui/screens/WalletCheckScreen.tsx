@@ -10,7 +10,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PeerPayClient } from '@bsv/message-box-client'
-import { sdk } from '@bsv/wallet-toolbox-mobile'
 import { showAlert } from '../components/ui/AlertCard'
 import { makeCreditClassifier } from '../../core/pay/creditErrors'
 import { creditInboxOnce, INBOX_DESCRIPTION } from '../../core/pay/creditInbox'
@@ -126,17 +125,6 @@ function useWalletCheckPorts(): WalletCheckPorts {
       reviewSpendable: async () => {
         let released = 0
         let recovered = 0
-        if (wallet) {
-          try {
-            const listed = await wallet.listOutputs(
-              { basket: sdk.specOpInvalidChange, tags: ['all', 'release'] },
-              adminOriginator
-            )
-            released += listed.outputs?.length ?? 0
-          } catch {
-            // Spec-op is best-effort; the WoC pass below still runs.
-          }
-        }
         try {
           const log = await checkUtxoSpendability()
           // Stuck-reservation releases are counted by releaseStuck, not here.
