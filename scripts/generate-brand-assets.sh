@@ -49,6 +49,8 @@ WIN_Y=$(python3 -c "print(max(0, round($REF_H*$FIG_CY - $WIN/2)))")
 # A wider window for Android's centred splash icon: the mark reads smaller there,
 # closer to how it sits on the full plate.
 SPLASH_WINDOW=0.46
+# Must equal the android splash backgroundColor in app.json.
+ANDROID_SPLASH_BG="#dba132"
 WIN_WIDE=$(python3 -c "print(min($REF_W, round($REF_W*$FIG_SPAN/$SPLASH_WINDOW)))")
 WIN_WIDE_X=$(python3 -c "print(max(0, round($REF_W*$FIG_CX - $WIN_WIDE/2)))")
 WIN_WIDE_Y=$(python3 -c "print(max(0, round($REF_H*$FIG_CY - $WIN_WIDE/2)))")
@@ -87,26 +89,16 @@ square favicon-16x16.png 16
 ffmpeg -y -loglevel error -i "$REF" \
   -vf "crop=$WIN_WIDE:$WIN_WIDE:$WIN_WIDE_X:$WIN_WIDE_Y,scale=1024:1024:flags=lanczos" \
   "$OUT/splash-logo.png"
-# Feather it to transparent. The crop carries its own share of the plate's
-# gradient, so against one flat background colour its straight edges showed as a
-# square patch of slightly different gold. Fading the edges out lets it sit on
-# the background invisibly, leaving just the mark.
-python3 - "$OUT/splash-logo.png" <<'PY'
-import sys
-from PIL import Image, ImageDraw, ImageFilter
-
-path = sys.argv[1]
-img = Image.open(path).convert("RGBA")
-w, h = img.size
-mask = Image.new("L", (w, h), 0)
-# Opaque well inside the tile, then a wide soft falloff to the edges.
-inset = int(w * 0.17)
-ImageDraw.Draw(mask).ellipse([inset, inset, w - inset, h - inset], fill=255)
-mask = mask.filter(ImageFilter.GaussianBlur(w * 0.055))
-img.putalpha(mask)
-img.save(path)
-print("  splash-logo.png  1024x1024 (android centred splash icon, feathered)")
-PY
+# Blend its edges into the background colour - OPAQUE, no alpha.
+#
+# The crop carries its own share of the plate's gradient, so against one flat
+# background colour its straight edges showed as a square patch of slightly
+# different gold. Fading them to transparent instead looked right locally and
+# came out of the bundle as a dark ring: expo's Android pipeline flattens the
+# alpha, and the semi-transparent halo composited against black. Converging the
+# edges to the background colour itself cannot be broken that way - whatever the
+# pipeline does with it, the tile already ends in the colour behind it.
+python3 "$ROOT/scripts/blend-splash-edges.py" "$OUT/splash-logo.png" "$ANDROID_SPLASH_BG"
 
 echo "favicon.ico:"
 python3 - "$OUT" <<'PY'
