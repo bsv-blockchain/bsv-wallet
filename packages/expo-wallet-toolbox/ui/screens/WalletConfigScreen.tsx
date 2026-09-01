@@ -563,35 +563,11 @@ export function WalletConfigScreen() {
             icon="qr-code-outline"
             iconColor="#0A84FF"
             onPress={() => router.push('/connections' as any)}
-          />
-          <ListRow
-            label={t('copy_secret_words')}
-            icon="key-outline"
-            iconColor="#CC8400"
-            onPress={handleCopyMnemonic}
-            showChevron={false}
-            trailing={
-              <TouchableOpacity onPress={handleCopyMnemonic} style={{ padding: spacing.xs }}>
-                <Ionicons
-                  name={copiedMnemonic ? 'checkmark' : 'copy-outline'}
-                  size={18}
-                  color={copiedMnemonic ? colors.success : colors.textSecondary}
-                />
-              </TouchableOpacity>
-            }
-          />
-          <ListRow
-            label={t('print_recovery_keys')}
-            icon="print-outline"
-            iconColor="#5856D6"
-            onPress={handlePrintRecoveryShares}
-            showChevron={false}
-            trailing={isPrinting ? <ActivityIndicator size="small" /> : undefined}
             isLast
           />
         </GroupedSection>
 
-        {/* ── Check Wallet ──
+        {/* ── Troubleshooting ──
             Outside Advanced on purpose: this is the row a user reaches for when
             something looks wrong, and they must not have to open a section
             labelled "Advanced" to find it. */}
@@ -821,6 +797,32 @@ export function WalletConfigScreen() {
                 }}
               />
             )}
+            {/* Both are recovery material rather than everyday controls, so
+                they sit with the rest of the data-and-security rows. */}
+            <ListRow
+              label={t('copy_secret_words')}
+              icon="key-outline"
+              iconColor="#CC8400"
+              onPress={handleCopyMnemonic}
+              showChevron={false}
+              trailing={
+                <TouchableOpacity onPress={handleCopyMnemonic} style={{ padding: spacing.xs }}>
+                  <Ionicons
+                    name={copiedMnemonic ? 'checkmark' : 'copy-outline'}
+                    size={18}
+                    color={copiedMnemonic ? colors.success : colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              }
+            />
+            <ListRow
+              label={t('print_recovery_keys')}
+              icon="print-outline"
+              iconColor="#5856D6"
+              onPress={handlePrintRecoveryShares}
+              showChevron={false}
+              trailing={isPrinting ? <ActivityIndicator size="small" /> : undefined}
+            />
             <ListRow
               label={t('storage_row')}
               icon="server-outline"

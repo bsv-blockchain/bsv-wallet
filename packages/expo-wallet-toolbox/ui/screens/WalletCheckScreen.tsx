@@ -1,11 +1,16 @@
 /**
- * Check Wallet — a pushed, determinate repair destination.
+ * Troubleshooting — a pushed, determinate repair destination.
  *
- * Four labeled steps, a bar plus "N of 4", never an unlabeled spinner.
+ * All four steps are on screen from the first frame as a checklist, each
+ * ticking as it settles. A single in-progress line could not be trusted: on a
+ * healthy wallet the steps resolve in one frame, so the user saw a flicker and
+ * had no way to tell what had actually been checked. A list that fills in
+ * leaves the evidence standing after the run.
+ *
  * Back always works. Done is quiet copy and a haptic, not Celebration.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -30,7 +35,12 @@ import {
   sweepAddress,
   wocConfigFor
 } from '../../core/pay/rails/address'
-import { runWalletCheck, type WalletCheckPorts, type WalletCheckStepId } from '../../core/walletRepair/runWalletCheck'
+import {
+  runWalletCheck,
+  type WalletCheckPorts,
+  type WalletCheckStepId,
+  type WalletCheckStepStatus
+} from '../../core/walletRepair/runWalletCheck'
 import { userFacingPayError } from '../../core/pay/userError'
 import { getOnline, haptics, spacing, typography, useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
 
@@ -218,6 +228,7 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
   portsRef.current = ports
 
   const [step, setStep] = useState<WalletCheckStepId>('records')
+  const [statuses, setStatuses] = useState<Partial<Record<WalletCheckStepId, WalletCheckStepStatus>>>({})
   const [running, setRunning] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<{
@@ -230,9 +241,15 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     setError(null)
     setSummary(null)
     setStep('records')
+    setStatuses({})
     setRunning(true)
     try {
-      const result = await runWalletCheck(portsRef.current, (id: WalletCheckStepId) => setStep(id))
+      const result = await runWalletCheck(
+        portsRef.current,
+        (id: WalletCheckStepId) => setStep(id),
+        (id: WalletCheckStepId, status: WalletCheckStepStatus) =>
+          setStatuses(prev => ({ ...prev, [id]: status }))
+      )
       setSummary({
         freedCoins: result.freedCoins,
         recoveredPayments: result.recoveredPayments,
@@ -256,8 +273,9 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     0,
     STEPS.findIndex(s => s.id === step)
   )
-  const current = stepIndex + 1
-  const stepLabel = t(STEPS[stepIndex]?.labelKey ?? 'wallet_check_step_records')
+  const done = STEPS.filter(x => statuses[x.id] !== undefined).length
+  // Counts finished steps, not the one in flight: "3 of 4" beside three ticks.
+  const current = running ? done : STEPS.length
   const doneCopy =
     summary == null || !summary.allOk
       ? null
@@ -279,25 +297,55 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
         contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxxl }}
       >
         <Text style={[styles.title, { color: colors.textPrimary }]}>{t('check_wallet')}</Text>
-        {running && (
-          <View style={styles.progressBlock}>
-            <Text style={[styles.progressCount, { color: colors.textSecondary }]}>
-              {t('wallet_check_progress', { current, total: STEPS.length })}
-            </Text>
-            <Text style={[styles.stepLabel, { color: colors.textPrimary }]}>{stepLabel}</Text>
+        <View style={styles.progressBlock}>
+          <Text style={[styles.progressCount, { color: colors.textSecondary }]}>
+            {t('wallet_check_progress', { current, total: STEPS.length })}
+          </Text>
+          {/* Every step is listed from the first frame, so the list never
+              reflows as it fills and a finished check stays on screen as its
+              own evidence. */}
+          {STEPS.map((s, i) => {
+            const status = statuses[s.id]
+            const active = running && status === undefined && i === stepIndex
+            return (
+              <View key={s.id} style={styles.checkRow}>
+                <View style={styles.checkIcon}>
+                  {active ? (
+                    <ActivityIndicator size="small" color={colors.textSecondary} />
+                  ) : status === 'ok' ? (
+                    <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                  ) : status === 'error' ? (
+                    <Ionicons name="alert-circle" size={22} color={colors.warning} />
+                  ) : (
+                    <Ionicons name="ellipse-outline" size={22} color={colors.textQuaternary} />
+                  )}
+                </View>
+                <Text
+                  style={[
+                    styles.checkLabel,
+                    { color: status === undefined && !active ? colors.textTertiary : colors.textPrimary }
+                  ]}
+                  accessibilityLabel={`${t(s.labelKey)}${status === 'ok' ? ' ✓' : ''}`}
+                >
+                  {t(s.labelKey)}
+                </Text>
+              </View>
+            )
+          })}
+          {running && (
             <View style={[styles.track, { backgroundColor: colors.fillTertiary }]}>
               <View
                 style={[
                   styles.fill,
                   {
-                    width: `${(current / STEPS.length) * 100}%`,
+                    width: `${(done / STEPS.length) * 100}%`,
                     backgroundColor: colors.accent
                   }
                 ]}
               />
             </View>
-          </View>
-        )}
+          )}
+        </View>
         {!running && doneCopy && <Text style={[styles.done, { color: colors.textPrimary }]}>{doneCopy}</Text>}
         {!running && (couldntCheck || error) && (
           <View style={styles.errorBlock}>
@@ -346,8 +394,21 @@ const styles = StyleSheet.create({
   progressCount: {
     ...typography.subhead
   },
-  stepLabel: {
-    ...typography.title3
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  checkIcon: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  checkLabel: {
+    ...typography.body,
+    flex: 1
   },
   track: {
     height: 4,

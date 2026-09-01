@@ -28,9 +28,28 @@ async function settle<T>(fn: () => Promise<T>, fallback: T): Promise<{ ok: boole
   }
 }
 
+function pushStep(
+  steps: WalletCheckStepResult[],
+  onStepDone: ((id: WalletCheckStepId, status: WalletCheckStepStatus) => void) | undefined,
+  id: WalletCheckStepId,
+  ok: boolean
+): void {
+  const status: WalletCheckStepStatus = ok ? 'ok' : 'error'
+  steps.push({ id, status })
+  onStepDone?.(id, status)
+}
+
 export async function runWalletCheck(
   ports: WalletCheckPorts,
-  onStep: (id: WalletCheckStepId) => void
+  onStep: (id: WalletCheckStepId) => void,
+  /**
+   * Fired as each step settles, so a checklist can tick an item the moment it
+   * finishes. Without it the per-step outcome is only knowable from the return
+   * value — by which point every step has already run, and a user watching a
+   * fast wallet would see four steps resolve in one frame with no record of
+   * which ones actually happened.
+   */
+  onStepDone?: (id: WalletCheckStepId, status: WalletCheckStepStatus) => void
 ): Promise<{
   freedCoins: number
   recoveredPayments: number
@@ -43,20 +62,20 @@ export async function runWalletCheck(
   onStep('records')
   const status = await settle(() => ports.reviewStatus(), { failedTxs: 0, restoredInputs: 0 })
   const stuck = await settle(() => ports.releaseStuck(), { released: 0 })
-  steps.push({ id: 'records', status: status.ok && stuck.ok ? 'ok' : 'error' })
+  pushStep(steps, onStepDone, 'records', status.ok && stuck.ok)
 
   onStep('coins')
   const spendable = await settle(() => ports.reviewSpendable(), { released: 0, recovered: 0 })
-  steps.push({ id: 'coins', status: spendable.ok ? 'ok' : 'error' })
+  pushStep(steps, onStepDone, 'coins', spendable.ok)
 
   onStep('proofs')
   const proofs = await settle(() => ports.checkProofs(), { repaired: 0 })
-  steps.push({ id: 'proofs', status: proofs.ok ? 'ok' : 'error' })
+  pushStep(steps, onStepDone, 'proofs', proofs.ok)
 
   onStep('missed_payments')
   const inbox = await settle(() => ports.creditInbox(), { accepted: 0 })
   const sweep = await settle(() => ports.sweepAddresses(), { imported: 0 })
-  steps.push({ id: 'missed_payments', status: inbox.ok && sweep.ok ? 'ok' : 'error' })
+  pushStep(steps, onStepDone, 'missed_payments', inbox.ok && sweep.ok)
 
   return {
     freedCoins: spendable.value.released + stuck.value.released + status.value.restoredInputs,
