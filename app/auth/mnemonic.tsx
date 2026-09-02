@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Linking
 } from 'react-native'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
@@ -45,14 +45,23 @@ export default function MnemonicScreen() {
   const {
     buildWalletFromMnemonic,
     buildWalletFromRecoveredKey,
+    rebuildWallet,
     backupRestore,
     getBackupRestore,
     managers,
-    adminOriginator
+    adminOriginator,
+    walletBuilt
   } = useWallet()
-  const { setMnemonic: storeMnemonic, setRecoveredKey } = useLocalStorage()
+  const { setMnemonic: storeMnemonic, setRecoveredKey, getMnemonic: readStoredMnemonic } = useLocalStorage()
 
-  const [mode, setMode] = useState<MnemonicMode>('choose')
+  /** 'backup': onboarding's reminder sheet, over an already-built (auto-created)
+   *  wallet — show the existing phrase rather than generating a new one.
+   *  'import': same reminder sheet's other button — open straight into import,
+   *  replacing the auto-created wallet on completion. */
+  const { flow } = useLocalSearchParams<{ flow?: 'backup' | 'import' }>()
+
+  const initialMode: MnemonicMode = flow === 'import' ? 'import' : flow === 'backup' ? 'generate' : 'choose'
+  const [mode, setMode] = useState<MnemonicMode>(initialMode)
   const [mnemonic, setMnemonic] = useState<string>('')
   const [importedMnemonic, setImportedMnemonic] = useState<string>('')
 
@@ -63,6 +72,23 @@ export default function MnemonicScreen() {
   const [copied, setCopied] = useState(false)
   const [isPrinting, setIsPrinting] = useState(false)
   const [celebrating, setCelebrating] = useState(false)
+
+  // Onboarding's backup reminder: the wallet already exists (auto-created at
+  // root mount), so show its real phrase instead of generating a new one.
+  useEffect(() => {
+    if (flow !== 'backup') return
+    ;(async () => {
+      const existing = await readStoredMnemonic()
+      if (!existing) {
+        showToast('Failed to load recovery phrase. Please try again.', { type: 'error' })
+        router.back()
+        return
+      }
+      setMnemonic(existing)
+      setMode('generate')
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flow])
 
   // Generate a new mnemonic and immediately build the wallet
   const handleGenerateNew = async () => {
@@ -195,7 +221,14 @@ export default function MnemonicScreen() {
           if (choice === 'retry') await handleContinueWithImported()
           return
         }
-        await buildWalletFromRecoveredKey(wif, { restoreFromBackup: true })
+        if (walletBuilt) {
+          // Replacing the auto-created wallet from onboarding's backup
+          // reminder — buildWalletFromRecoveredKey no-ops once a wallet is
+          // already built, so tear it down and re-trigger the build instead.
+          await rebuildWallet({ restoreFromBackup: true })
+        } else {
+          await buildWalletFromRecoveredKey(wif, { restoreFromBackup: true })
+        }
         if (await handledRestoreFailure(() => handleContinueWithImported())) return
         setCelebrating(true)
       } catch (error: any) {
@@ -281,7 +314,14 @@ export default function MnemonicScreen() {
       // usable — the phrase alone cannot rebuild change-output derivation data. A freshly
       // generated wallet passes no options and skips this entirely, since there is
       // nothing on the server under a brand-new seed.
-      await buildWalletFromMnemonic(mnemonicPhrase, { restoreFromBackup: opts?.restore === true })
+      if (walletBuilt) {
+        // Replacing the auto-created wallet from onboarding's backup reminder —
+        // buildWalletFromMnemonic no-ops once a wallet is already built, so tear
+        // it down and re-trigger the build instead.
+        await rebuildWallet({ restoreFromBackup: opts?.restore === true })
+      } else {
+        await buildWalletFromMnemonic(mnemonicPhrase, { restoreFromBackup: opts?.restore === true })
+      }
       if (opts?.restore === true && (await handledRestoreFailure(() => initializeWallet(mnemonicPhrase, opts)))) {
         return
       }
@@ -557,10 +597,15 @@ export default function MnemonicScreen() {
             )}
           </PressableScale>
 
-          {/* Back link */}
+          {/* Back link. flow === 'backup' means the wallet already exists —
+              there is no "choose" step to return to, only the root screen. */}
           <PressableScale
             style={s.textButton}
             onPress={() => {
+              if (flow === 'backup') {
+                router.back()
+                return
+              }
               setMode('choose')
               setHasAcknowledged(false)
             }}
@@ -682,7 +727,11 @@ export default function MnemonicScreen() {
           </View>
         </PressableScale>
 
-        <PressableScale style={s.textButton} onPress={() => setMode('choose')} haptic="tap">
+        <PressableScale
+          style={s.textButton}
+          onPress={() => (flow === 'import' ? router.back() : setMode('choose'))}
+          haptic="tap"
+        >
           <Text style={[s.textButtonLabel, { color: colors.textSecondary }]}>Go Back</Text>
         </PressableScale>
       </ScrollView>

@@ -69,9 +69,12 @@ import {
   retryDelivery,
   makePeerPayClient,
   isMessageBoxNetworkError,
+  generateMnemonicWallet,
+  backupAttestation,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
 import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
@@ -226,9 +229,10 @@ export function WalletHomeScreen() {
     settings,
     configStatus,
     walletBuilding,
-    walletBuilt
+    walletBuilt,
+    buildWalletFromMnemonic
   } = useWallet()
-  const { unlockState } = useLocalStorage()
+  const { unlockState, setMnemonic: storeMnemonic } = useLocalStorage()
   const { satoshisPerUSD } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
   const online = useOnline()
@@ -255,19 +259,66 @@ export function WalletHomeScreen() {
    * own effect sets walletBuilding=true — without it, that transient
    * (false, false) reading would look identical to "settled, nothing found"
    * and could bounce a normal returning user into onboarding.
+   *
+   * On a true fresh install there is no returning identity to protect, so
+   * rather than sending the user to the onboarding chooser this silently
+   * creates a wallet for them (same calls `/auth/mnemonic`'s "create new"
+   * button makes) and lets them land straight on the Wallet screen with a
+   * zero balance. The backup-reminder sheet below is what asks them to
+   * secure it, once there's a screen worth showing.
    */
   const sawBuildAttemptRef = useRef(false)
-  const redirectedToOnboardingRef = useRef(false)
+  const autoCreateAttemptedRef = useRef(false)
   useEffect(() => {
     if (walletBuilding) sawBuildAttemptRef.current = true
-    if (redirectedToOnboardingRef.current) return
+    if (autoCreateAttemptedRef.current) return
     if (!sawBuildAttemptRef.current) return
     if (walletBuilding || walletBuilt) return
     if (configStatus !== 'configured') return
     if (unlockState.status !== 'absent' && unlockState.status !== 'locked') return
-    redirectedToOnboardingRef.current = true
-    router.replace('/auth/mnemonic')
+    autoCreateAttemptedRef.current = true
+    ;(async () => {
+      const wallet = generateMnemonicWallet()
+      const stored = await storeMnemonic(wallet.mnemonic)
+      if (!stored) {
+        // Biometric access was needed and unavailable/declined — same dead
+        // end onboarding's own generate flow hits. Fall back to the chooser
+        // screen, where the user can retry generation explicitly.
+        autoCreateAttemptedRef.current = false
+        router.replace('/auth/mnemonic')
+        return
+      }
+      await buildWalletFromMnemonic(wallet.mnemonic)
+    })()
   }, [walletBuilding, walletBuilt, configStatus, unlockState.status])
+
+  // ── backup reminder ─────────────────────────────────────────────────
+  /**
+   * Once a wallet exists, ask whether this identity has ever attested a
+   * backup. Reopens on every mount (app restart included) until the user
+   * backs up or imports — same advisory attestation the vault gate reads.
+   */
+  const [showBackupReminder, setShowBackupReminder] = useState(false)
+  useEffect(() => {
+    if (!walletBuilt) return
+    const wallet = managers.permissionsManager
+    if (!wallet) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { publicKey } = await wallet.getPublicKey({ identityKey: true }, adminOriginator)
+        const attested = await backupAttestation.get(publicKey)
+        if (!cancelled) setShowBackupReminder(attested === null)
+      } catch {
+        // Advisory only — if the check fails, err toward reminding rather
+        // than silently skipping it.
+        if (!cancelled) setShowBackupReminder(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [walletBuilt, managers.permissionsManager, adminOriginator])
 
   const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
   /**
@@ -1280,6 +1331,19 @@ export function WalletHomeScreen() {
           }
         />
       </View>
+
+      <BackupReminderSheet
+        visible={showBackupReminder}
+        onClose={() => setShowBackupReminder(false)}
+        onBackupNow={() => {
+          setShowBackupReminder(false)
+          router.push('/auth/mnemonic?flow=backup')
+        }}
+        onImportFromBackup={() => {
+          setShowBackupReminder(false)
+          router.push('/auth/mnemonic?flow=import')
+        }}
+      />
     </View>
   )
 }

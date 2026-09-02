@@ -103,6 +103,7 @@ export {
 export { EnrollWizard } from './components/vault/EnrollWizard'
 export { PassphraseField, type PassphraseFieldProps } from './components/vault/PassphraseField'
 export { PhraseBackupSheet } from './components/vault/PhraseBackupSheet'
+export { BackupReminderSheet } from './components/wallet/BackupReminderSheet'
 export { VaultCeremonySheet } from './components/vault/VaultCeremonySheet'
 export { useVaultBalance } from './hooks/useVaultBalance'
 export { VaultScreen } from './screens/VaultScreen'
