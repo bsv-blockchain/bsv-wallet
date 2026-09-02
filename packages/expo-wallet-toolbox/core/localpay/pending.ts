@@ -23,9 +23,10 @@ export interface PendingPayment {
   failureReason?: string
   lastAttemptAt?: string
   /**
-   * Which transport this frame arrived over ('awdl' | 'qr'), when the caller
-   * knows it. Threaded through so `processPending` can back-attribute the
-   * `offline_actions` row this internalize may create — see `attribute`.
+   * Which transport this frame arrived over ('awdl' | 'nearby' | 'ble' | 'qr'),
+   * when the caller knows it. Threaded through so `processPending` can
+   * back-attribute the `offline_actions` row this internalize may create —
+   * see `attribute`.
    */
   receivedVia?: string
   /** Failed internalize attempts. Absent on entries written before the ceiling. */

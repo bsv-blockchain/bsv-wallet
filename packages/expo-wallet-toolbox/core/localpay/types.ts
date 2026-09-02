@@ -61,7 +61,7 @@ export interface ReceivedFrame {
 }
 
 export interface LocalPaymentTransport {
-  readonly kind: 'awdl' | 'nearby' | 'qr'
+  readonly kind: 'awdl' | 'nearby' | 'ble' | 'qr'
   receive(session: Session, signal: AbortSignal): Promise<ReceivedFrame>
   send(session: Session, frame: PaymentFrame, signal: AbortSignal): Promise<Ack>
 }
