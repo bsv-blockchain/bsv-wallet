@@ -108,3 +108,44 @@ describe('PresenceRow', () => {
     expect(weightOf('waiting')).toBe('400')
   })
 })
+
+// The rendered tree, flattened to the Ionicons glyph names in it. The mock at
+// the top of this file spreads `name` onto a plain View, so no host node other
+// than a mocked icon carries that prop.
+function iconNames(node: unknown): string[] {
+  if (!node || typeof node !== 'object') return []
+  if (Array.isArray(node)) return node.flatMap(iconNames)
+  const { props, children } = node as { props?: { name?: unknown }; children?: unknown }
+  const own = typeof props?.name === 'string' ? [props.name] : []
+  return own.concat(iconNames(children))
+}
+
+const drawWith = (props: { state: PresenceState; medium?: 'wifi' | 'bluetooth' }) =>
+  render(
+    <ThemeProvider>
+      <PresenceRow state={props.state} label="x" medium={props.medium} />
+    </ThemeProvider>
+  )
+
+// BLE is the cross-OS rung. A Bluetooth link wearing a Wi-Fi glyph would tell
+// the person paying to look at the wrong radio when it fails.
+describe('PresenceRow medium', () => {
+  it('defaults the ready glyph to wi-fi', () => {
+    expect(iconNames(drawWith({ state: 'ready' }).toJSON())).toEqual(['wifi'])
+  })
+
+  it('shows the bluetooth glyph when the ready link is BLE', () => {
+    expect(iconNames(drawWith({ state: 'ready', medium: 'bluetooth' }).toJSON())).toEqual(['bluetooth'])
+  })
+
+  it('leaves the non-radio states untouched by the medium', () => {
+    expect(iconNames(drawWith({ state: 'qr', medium: 'bluetooth' }).toJSON())).toEqual(['qr-code-outline'])
+    expect(iconNames(drawWith({ state: 'linked', medium: 'bluetooth' }).toJSON())).toEqual(['lock-closed'])
+    expect(iconNames(drawWith({ state: 'paid', medium: 'bluetooth' }).toJSON())).toEqual(['checkmark-circle'])
+  })
+
+  it('keeps the breathing dot, not a glyph, while waiting on either medium', () => {
+    expect(iconNames(drawWith({ state: 'waiting' }).toJSON())).toEqual([])
+    expect(iconNames(drawWith({ state: 'waiting', medium: 'bluetooth' }).toJSON())).toEqual([])
+  })
+})

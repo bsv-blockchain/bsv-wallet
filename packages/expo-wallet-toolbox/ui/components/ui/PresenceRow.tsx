@@ -84,19 +84,35 @@ interface PresenceRowProps {
   label: string
   /** The peer's resolved display name, when identity lookup found one. */
   peer?: string | null
+  /**
+   * Which radio the `ready`/`waiting` states are about. BLE is the only rung
+   * that crosses iOS↔Android, so a Bluetooth link must not wear a Wi-Fi glyph:
+   * the glyph is what tells the person paying which radio to look at when the
+   * link does not come up. Every other state ignores this — `qr` has no radio,
+   * and `linked`/`paid` are claims about the payment, not the pipe.
+   */
+  medium?: 'wifi' | 'bluetooth'
 }
 
-const ICONS: Record<PresenceState, keyof IoniconsComponent['glyphMap']> = {
-  qr: 'qr-code-outline',
-  ready: 'wifi',
-  waiting: 'wifi',
-  linked: 'lock-closed',
-  paid: 'checkmark-circle',
+type IconName = keyof IoniconsComponent['glyphMap']
+
+function iconFor(state: PresenceState, medium: 'wifi' | 'bluetooth'): IconName {
+  switch (state) {
+    case 'qr':
+      return 'qr-code-outline'
+    case 'ready':
+    case 'waiting':
+      return medium === 'bluetooth' ? 'bluetooth' : 'wifi'
+    case 'linked':
+      return 'lock-closed'
+    case 'paid':
+      return 'checkmark-circle'
+  }
 }
 
 const DOT = 8
 
-export default function PresenceRow({ state, label, peer }: PresenceRowProps) {
+export default function PresenceRow({ state, label, peer, medium = 'wifi' }: PresenceRowProps) {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   const reducedMotion = useReducedMotion()
@@ -164,7 +180,7 @@ export default function PresenceRow({ state, label, peer }: PresenceRowProps) {
         {state === 'waiting' ? (
           <View style={[styles.dot, { backgroundColor: dotColor }]} />
         ) : (
-          <Ionicons name={ICONS[state]} size={13} color={dotColor} />
+          <Ionicons name={iconFor(state, medium)} size={13} color={dotColor} />
         )}
       </Animated.View>
       <Text style={[styles.label, { color: labelColor }, strong && styles.labelStrong]} numberOfLines={1}>
