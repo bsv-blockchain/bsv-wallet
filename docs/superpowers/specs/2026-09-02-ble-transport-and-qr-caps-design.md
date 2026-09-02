@@ -1,7 +1,7 @@
 # BLE Transport Rung and Session QR Capability Flags — Design
 
 **Date:** 2026-09-02
-**Status:** Approved (product owner, 2026-09-02); ready for planning
+**Status:** Implemented (plan 2026-09-02-ble-transport-and-qr-caps.md) — hardware checklist and ITMS-90683 pre-flight pending (see docs/superpowers/2026-09-02-ble-hardware-log.md)
 **Amends:** `2026-07-27-local-payments-awdl-design.md` (§"Why not BLE", "Bluetooth, in any form" non-goal), `2026-07-29-offline-transport-fixes-design.md:427`, `2026-07-31-token-payment-frame-v3-design.md` (§3 `CAP_BLE`), `docs/superpowers/plans/2026-07-27-local-payments-awdl.md:16`, `docs/superpowers/2026-08-20-morning-handoff.md:16,21`
 **Research:** eleven-agent sweep of `5fc72a7` (last BLE commit), HEAD `0ad5521`, and the 2026 RN BLE landscape; 15 load-bearing claims re-verified by an independent pass.
 

@@ -213,8 +213,10 @@ that changes the meaning of money on a *deployed* format must bump `v`.)
 
 Capability bits (`session.ts:5-6`): add `CAP_BLE = 0x04`. Wire format
 already accommodates it (caps is a plain number; `selectTransport` masks
-specific bits). No local BLE support — the bit exists so a Blitz session
-can advertise it and so our builds ignore it cleanly.
+specific bits). ~~No local BLE support — the bit exists so a Blitz session
+can advertise it and so our builds ignore it cleanly.~~ **Superseded
+2026-09-02:** this app now advertises and honours `CAP_BLE` itself, and a
+Blitz session that sets `0x04` will be selected for BLE by a new payer and must therefore implement the `bsvpay-ble/1` GATT profile — `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` §2–§3 and §"Compatibility". The same spec adds device-hint bits above `RUNG_MASK = 0x00ff` (`HINT_ONLINE` … `HINT_NFC`) to `c`, still under `v:1`.
 
 ### 4. Payer — building a token frame
 

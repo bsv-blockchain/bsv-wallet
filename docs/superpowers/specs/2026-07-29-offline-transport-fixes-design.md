@@ -424,7 +424,7 @@ One spec, three independently landable phases, in order:
 - LAN/mDNS infrastructure-Wi-Fi transport (viable — the wire protocol is
   platform-neutral — but out of scope).
 - iOS Nearby Connections interop: no iOS SDK exists.
-- BLE anywhere: CoreBluetooth is banned from BSVBrowser.app (ITMS-90683).
+- ~~BLE anywhere: CoreBluetooth is banned from BSVBrowser.app (ITMS-90683).~~ **Superseded 2026-09-02:** the ban came from `com.apple.developer.web-browser`, removed 2026-08-26; BLE is now the third rung of this spec's ladder (AWDL → Nearby → BLE → fountain QR). See `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md`.
 - A reverse-ack QR for the fountain path (payee→payer). The QR transport
   stays one-way; `Unsettled` mechanics stand in.
 - Any cryptographic defence against double-spending offline payments beyond

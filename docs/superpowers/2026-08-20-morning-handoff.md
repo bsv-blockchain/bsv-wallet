@@ -13,12 +13,12 @@ Both were verified after building, not just reported as "successful", because on
 |---|---|---|
 | YubiKey native module linked | `HybridYubiKeyPiv` + `YubiKitManager` present in the binary; pods `YubiKeyPiv`, `YubiKit` | `libYubiKeyPiv.so` in all four ABIs |
 | Localpay transport linked | `HybridLocalPayTransport` present | `libLocalPayTransport.so` in all four ABIs |
-| No banned Bluetooth key | no `NSBluetooth*` key at all | n/a |
+| Bluetooth usage key | build 165: no `NSBluetooth*` key at all (correct at the time). **Superseded 2026-09-02:** `NSBluetoothAlwaysUsageDescription` is now REQUIRED and expected in every build — `LocalPayTransport.podspec` links `CoreBluetooth`; check the key is **present** | n/a |
 | NFC kept | `com.apple.developer.nfc.readersession.formats` entitlement + `NFCReaderUsageDescription` present | n/a |
 | Release signing | `get-task-allow = false`, distribution-signed | n/a |
 | 16 KB page alignment | n/a | first LOAD segment `2**14` on every lib |
 
-**Transporter, not Deliver.** Past experience on this project: `ITMS-90683` appears at Deliver and demands a `NSBluetoothAlwaysUsageDescription` key that must NOT be added, and Transporter's own Verify step does not catch it. If it appears again, the answer is still not to add the key.
+**Transporter, not Deliver.** ~~Past experience on this project: `ITMS-90683` appears at Deliver and demands a `NSBluetoothAlwaysUsageDescription` key that must NOT be added, and Transporter's own Verify step does not catch it. If it appears again, the answer is still not to add the key.~~ **Superseded 2026-09-02.** `ITMS-90683` fires at Deliver (not at Transporter's Verify) whenever CoreBluetooth is linked without `NSBluetoothAlwaysUsageDescription`. The key could not be added while the app carried `com.apple.developer.web-browser`; that entitlement was removed on 2026-08-26, and the key is now set in `app.json` `ios.infoPlist` and REQUIRED — `packages/react-native-localpay-transport` links `CoreBluetooth` for the BLE rung. If `ITMS-90683` appears again, the key has gone missing from the built `Info.plist`: re-run `npx expo prebuild --clean --platform ios`, confirm the key with `plutil -p ios/*/Info.plist | grep NSBluetooth`, and rebuild. See `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` §"Why now" and §8.
 
 ## What these builds are for
 

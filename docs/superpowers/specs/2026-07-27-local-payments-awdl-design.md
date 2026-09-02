@@ -23,11 +23,13 @@ See `memory/project_web_browser_entitlement.md` for the full record.
 
 AWDL carries no such exposure. `NSLocalNetworkUsageDescription` and `NSBonjourServices` are not on the prohibited list, and no entitlement is required.
 
+**Superseded 2026-09-02.** The analysis above was correct for the app as it stood on 2026-07-27. The blocker was the entitlement, not Bluetooth: `com.apple.developer.web-browser`, its config plugin and the http/https URL types were removed in `de13669`/`1dc1d92` (2026-08-26, wallet-first pivot), so `NSBluetoothAlwaysUsageDescription` can now be set and ITMS-90683 is satisfied rather than avoided. BLE has returned as the **third** rung of the ladder (AWDL → Nearby → BLE → QR), implemented as a second Nitro HybridObject `LocalPayBleTransport` behind the same `LocalPaymentTransport` interface this document defines, using the same per-session PSK from the QR to derive the GATT service UUID. AWDL and the QR fallback are unchanged. Design: `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` (§"Why now", §2 `bsvpay-ble/1`, §5 ladder).
+
 ## Non-goals
 
 - **Android as an AWDL peer.** AWDL is Apple-proprietary. Android participates via QR only.
 - **Offline / chained unconfirmed spends.** Separate tech spike. This design assumes both devices have connectivity.
-- **Bluetooth, in any form.**
+- ~~**Bluetooth, in any form.**~~ **Superseded 2026-09-02:** BLE is now the third rung — see the note under "Why not BLE" and `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md`.
 - **Background operation.** Foreground only.
 
 ## Architecture
