@@ -375,14 +375,14 @@ export default function MnemonicScreen() {
             By continuing, you agree to our{' '}
             <Text
               style={[s.legalLink, { color: colors.textTertiary }]}
-              onPress={() => Linking.openURL('https://mobile.bsvb.tech/privacy.html')}
+              onPress={() => Linking.openURL('https://bsv-blockchain.github.io/bsv-wallet/privacy.html')}
             >
               privacy
             </Text>{' '}
             and{' '}
             <Text
               style={[s.legalLink, { color: colors.textTertiary }]}
-              onPress={() => Linking.openURL('https://mobile.bsvb.tech/usage.html')}
+              onPress={() => Linking.openURL('https://bsv-blockchain.github.io/bsv-wallet/usage.html')}
             >
               usage
             </Text>{' '}
