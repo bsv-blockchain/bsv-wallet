@@ -1,4 +1,4 @@
-import { getLocalPayTransport, type LocalPayTransport } from 'react-native-localpay-transport'
+import type { LocalPayTransport } from 'react-native-localpay-transport'
 import { sealFrame, unsealFrame, type PaymentFrame } from '../codec'
 import { instanceName, type Session } from '../session'
 import {
@@ -10,7 +10,22 @@ import {
   type ReceivedFrame
 } from '../types'
 
+/**
+ * Whole-exchange budget: connect + transfer + the payee's save + ack. Shared
+ * by every socketed rung — only the connect-phase budget is radio-specific,
+ * and that one is the caller's `connectTimeoutMs`.
+ */
 const SEND_TIMEOUT_MS = 20_000
+
+/**
+ * The four methods this wrapper drives. `LocalPayTransport` (AWDL on iOS,
+ * Nearby Connections on Android) and `LocalPayBleTransport` (GATT on both)
+ * are separate Nitro HybridObjects with no common base in the specs; they
+ * share these four signatures exactly, and that structural overlap is what
+ * lets one wrapper serve both. A Pick, so the BLE object's extra prompt-free
+ * probes (bluetoothState, nfcAvailable, prepare) never leak into the wrapper.
+ */
+export type LocalPayNative = Pick<LocalPayTransport, 'startListening' | 'stopListening' | 'confirmFrame' | 'sendFrame'>
 
 function toBase64(b: Uint8Array): string {
   let s = ''
@@ -58,7 +73,7 @@ function parseAck(ackBase64: string): Ack {
  * positive ack is sent — a socket error here is a payer-side retry problem,
  * not a reason to tell the payee its payment failed.
  */
-function makeConfirm(native: LocalPayTransport): ConfirmDelivery {
+function makeConfirm(native: LocalPayNative): ConfirmDelivery {
   let acked = false
   return (accepted, reason) => {
     if (acked) return Promise.resolve()
@@ -81,7 +96,7 @@ function warnAckFailure(e: unknown): void {
  * throw here would unwind into Swift's `onFrame` invocation rather than into
  * any JS caller.
  */
-function declineQuietly(native: LocalPayTransport, reason: DeclineReason): void {
+function declineQuietly(native: LocalPayNative, reason: DeclineReason): void {
   try {
     void native.confirmFrame(false, reason).catch(warnAckFailure)
   } catch (e) {
@@ -90,28 +105,34 @@ function declineQuietly(native: LocalPayTransport, reason: DeclineReason): void 
 }
 
 /**
- * The socketed transport wrapper, shared by both radio backends. The native
- * surface is identical on both platforms (one Nitro spec): iOS implements it
- * over AWDL/Network.framework, Android over Google Nearby Connections. Which
- * one getLocalPayTransport() returns is decided by the platform at build
- * time, so `kind` here is attribution, not dispatch.
+ * The socketed transport wrapper, shared by every radio backend. The native
+ * surface is identical across them (two Nitro specs, same four transport
+ * methods): iOS implements LocalPayTransport over AWDL/Network.framework,
+ * Android over Google Nearby Connections, and both implement
+ * LocalPayBleTransport over GATT. `native` is the cached accessor for the
+ * HybridObject this rung drives (getLocalPayTransport or
+ * getLocalPayBleTransport); which backend it returns is decided by the
+ * platform at build time, so `kind` here is attribution, not dispatch.
+ *
+ * `connectTimeoutMs` is the connect-phase budget before the payer gives up and
+ * falls back to the QR. Radio-specific, so each rung owns its constant: AWDL's
+ * Bonjour discovery over an already-established Wi-Fi link resolves (or
+ * doesn't) inside ~4s, but Nearby has to do BLE discovery and then a
+ * Wi-Fi/hotspot upgrade before a connection even exists — 4s there would
+ * false-positive "no route to peer" on a link that just needed more time to
+ * come up. BLE sits between the two: scan + connect + MTU + discovery in ~6s.
  */
-export function makeSocketTransport(kind: 'awdl' | 'nearby'): LocalPaymentTransport {
-  /**
-   * Connect-phase budget before the payer gives up and falls back to the QR.
-   * Radio-specific: AWDL's Bonjour discovery over an already-established
-   * Wi-Fi link resolves (or doesn't) inside ~4s, but Nearby has to do BLE
-   * discovery and then a Wi-Fi/hotspot upgrade before a connection even
-   * exists — 4s there would false-positive "no route to peer" on a link
-   * that just needed more time to come up.
-   */
-  const CONNECT_TIMEOUT_MS = kind === 'awdl' ? 4_000 : 10_000
+export function makeSocketTransport(
+  kind: 'awdl' | 'nearby' | 'ble',
+  native: () => LocalPayNative | null,
+  connectTimeoutMs: number
+): LocalPaymentTransport {
   return {
     kind,
 
     receive(session: Session, signal: AbortSignal): Promise<ReceivedFrame> {
-      const native = getLocalPayTransport()
-      if (!native) return Promise.reject(new Error(`${kind} transport unavailable`))
+      const backend = native()
+      if (!backend) return Promise.reject(new Error(`${kind} transport unavailable`))
       if (signal.aborted) return Promise.reject(new Error('cancelled'))
       const name = instanceName(session.sessionId)
 
@@ -130,13 +151,13 @@ export function makeSocketTransport(kind: 'awdl' | 'nearby'): LocalPaymentTransp
           if (settled) return
           settled = true
           signal.removeEventListener('abort', onAbort)
-          if (teardown) void native.stopListening().catch(() => {})
+          if (teardown) void backend.stopListening().catch(() => {})
           fn()
         }
         const onAbort = () => finish(true, () => reject(new Error('cancelled')))
         signal.addEventListener('abort', onAbort)
 
-        native
+        backend
           .startListening(
             name,
             toBase64(session.psk),
@@ -162,10 +183,10 @@ export function makeSocketTransport(kind: 'awdl' | 'nearby'): LocalPaymentTransp
                 // stopListening() would cancel the connection the decline has
                 // to go out on. confirmFrame does the full teardown itself, and
                 // the native listener was already cancelled at accept time.
-                declineQuietly(native, 'decode_failed')
+                declineQuietly(backend, 'decode_failed')
                 return finish(false, () => reject(e))
               }
-              finish(false, () => resolve({ frame, confirm: makeConfirm(native) }))
+              finish(false, () => resolve({ frame, confirm: makeConfirm(backend) }))
             },
             message => finish(true, () => reject(new Error(message)))
           )
@@ -174,8 +195,8 @@ export function makeSocketTransport(kind: 'awdl' | 'nearby'): LocalPaymentTransp
     },
 
     send(session: Session, frame: PaymentFrame, signal: AbortSignal): Promise<Ack> {
-      const native = getLocalPayTransport()
-      if (!native) return Promise.reject(new Error(`${kind} transport unavailable`))
+      const backend = native()
+      if (!backend) return Promise.reject(new Error(`${kind} transport unavailable`))
       if (signal.aborted) return Promise.reject(new Error('cancelled'))
 
       return new Promise<Ack>((resolve, reject) => {
@@ -189,13 +210,13 @@ export function makeSocketTransport(kind: 'awdl' | 'nearby'): LocalPaymentTransp
         }
         signal.addEventListener('abort', onAbort)
 
-        native
+        backend
           .sendFrame(
             instanceName(session.sessionId),
             toBase64(session.psk),
             toBase64(sealFrame(frame, session.psk)),
             SEND_TIMEOUT_MS,
-            CONNECT_TIMEOUT_MS
+            connectTimeoutMs
           )
           .then(
             ackBase64 => {
