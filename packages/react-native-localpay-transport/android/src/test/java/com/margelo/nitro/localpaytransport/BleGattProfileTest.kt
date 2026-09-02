@@ -1,0 +1,168 @@
+package com.margelo.nitro.localpaytransport
+
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+import java.util.UUID
+
+/**
+ * Known-answer vectors for the bsvpay-ble/1 wire helpers. The same vectors
+ * are the cross-platform check against ios/BleGattProfile.swift: psk is the
+ * bytes 0x00..0x1f, instanceName "bsvpay-test".
+ */
+class BleGattProfileTest {
+  private val psk = ByteArray(32) { it.toByte() }
+  private val name = "bsvpay-test"
+
+  private fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
+
+  @Test
+  fun serviceUuidMatchesVectorWithRfc4122Bits() {
+    assertEquals(
+      UUID.fromString("7becac61-7070-45cf-95a5-314d9399c021"),
+      BleGattProfile.serviceUuid(psk, name)
+    )
+  }
+
+  @Test
+  fun serviceUuidIsAlwaysVersion4Variant10() {
+    for (i in 0 until 64) {
+      val u = BleGattProfile.serviceUuid(ByteArray(32) { (i * 7 + it).toByte() }, "bsvpay-$i")
+      assertEquals("version nibble for $i", 4, u.version())
+      assertEquals("variant bits for $i", 2, u.variant())
+    }
+  }
+
+  @Test
+  fun proofsMatchVectors() {
+    assertEquals(
+      "522519c14d7bec479e05717e68a3a4776c76b03dc88cda933272c6d7183a2089",
+      hex(BleGattProfile.proof(psk, name, BleGattProfile.TYPE_HELLO_A))
+    )
+    assertEquals(
+      "a635eb3a5ad34e27a525a7698627bdf01e1981da7f55d8868f7dcd4901530852",
+      hex(BleGattProfile.proof(psk, name, BleGattProfile.TYPE_HELLO_B))
+    )
+  }
+
+  @Test
+  fun helloMessagesAreTypeByteThenProof() {
+    val a = BleGattProfile.helloA(psk, name)
+    val b = BleGattProfile.helloB(psk, name)
+    assertEquals(33, a.size)
+    assertEquals(33, b.size)
+    assertEquals(BleGattProfile.TYPE_HELLO_A, a[0])
+    assertEquals(BleGattProfile.TYPE_HELLO_B, b[0])
+    assertArrayEquals(BleGattProfile.proof(psk, name, BleGattProfile.TYPE_HELLO_A), a.copyOfRange(1, 33))
+  }
+
+  @Test
+  fun frameMessageIsTypeByteThenSealedBytes() {
+    val sealed = byteArrayOf(9, 8, 7)
+    assertArrayEquals(byteArrayOf(BleGattProfile.TYPE_FRAME, 9, 8, 7), BleGattProfile.frameMessage(sealed))
+  }
+
+  @Test
+  fun ackMessageRoundTripsAndDetectsTampering() {
+    val json = BleGattProfile.ackJson(true, "").toByteArray(Charsets.UTF_8)
+    val msg = BleGattProfile.ackMessage(psk, name, json)
+    assertEquals(1 + json.size + BleGattProfile.MAC_BYTES, msg.size)
+    assertEquals(BleGattProfile.TYPE_ACK, msg[0])
+    assertEquals(
+      "abfa75aca5117e8f499ee2751e75afee50e4a0ace0510d96fabeadbc117559d3",
+      hex(msg.copyOfRange(msg.size - BleGattProfile.MAC_BYTES, msg.size))
+    )
+    assertArrayEquals(json, BleGattProfile.verifyAck(psk, name, msg))
+
+    val flippedJson = msg.copyOf()
+    flippedJson[3] = (flippedJson[3].toInt() xor 1).toByte()
+    assertNull("tampered json must fail", BleGattProfile.verifyAck(psk, name, flippedJson))
+
+    val flippedMac = msg.copyOf()
+    flippedMac[msg.size - 1] = (flippedMac[msg.size - 1].toInt() xor 1).toByte()
+    assertNull("tampered mac must fail", BleGattProfile.verifyAck(psk, name, flippedMac))
+
+    assertNull("truncated message must fail", BleGattProfile.verifyAck(psk, name, msg.copyOfRange(0, 20)))
+    assertNull("wrong psk must fail", BleGattProfile.verifyAck(ByteArray(32) { 0x7f }, name, msg))
+    assertNull("wrong type byte must fail", BleGattProfile.verifyAck(psk, name, byteArrayOf(BleGattProfile.TYPE_FRAME) + msg.copyOfRange(1, msg.size)))
+  }
+
+  @Test
+  fun ackJsonMatchesTheOtherBackendsByteForByte() {
+    assertEquals("{\"ok\":true}", BleGattProfile.ackJson(true, "ignored"))
+    assertEquals("{\"ok\":false,\"error\":\"declined\"}", BleGattProfile.ackJson(false, ""))
+    assertEquals("{\"ok\":false,\"error\":\"already_paid\"}", BleGattProfile.ackJson(false, "already_paid"))
+    assertEquals(
+      "{\"ok\":false,\"error\":\"a \\\"b\\\"\\\\\\n\"}",
+      BleGattProfile.ackJson(false, "a \"b\"\\\n")
+    )
+    assertEquals("\"\\u0001\"", BleGattProfile.jsonString("\u0001"))
+  }
+
+  @Test
+  fun lengthPrefixIsBigEndianU32() {
+    val body = ByteArray(0x010203) { 1 }
+    val framed = BleGattProfile.lengthPrefixed(body)
+    assertEquals(4 + 0x010203, framed.size)
+    assertEquals(0, framed[0].toInt())
+    assertEquals(1, framed[1].toInt())
+    assertEquals(2, framed[2].toInt())
+    assertEquals(3, framed[3].toInt())
+    assertEquals(1, framed[4].toInt())
+  }
+
+  @Test
+  fun chunksNeverExceedMtuMinusThree() {
+    assertEquals(20, BleGattProfile.chunkSize(23))
+    assertEquals(514, BleGattProfile.chunkSize(517))
+    assertEquals(1, BleGattProfile.chunkSize(0))
+    val framed = BleGattProfile.lengthPrefixed(ByteArray(1000) { it.toByte() })
+    val small = BleGattProfile.chunk(framed, 23)
+    assertTrue(small.all { it.size <= 20 })
+    assertEquals(20, small.first().size)
+    assertEquals(1004, small.sumOf { it.size })
+    val large = BleGattProfile.chunk(framed, 517)
+    assertEquals(2, large.size)
+    assertEquals(514, large.first().size)
+    assertEquals(490, large.last().size)
+  }
+
+  @Test
+  fun reassemblerRebuildsAcrossChunkBoundaries() {
+    val message = ByteArray(5000) { (it * 3).toByte() }
+    val r = BleGattProfile.Reassembler()
+    val out = mutableListOf<ByteArray>()
+    for (c in BleGattProfile.chunk(BleGattProfile.lengthPrefixed(message), 23)) out += r.feed(c)
+    assertEquals(1, out.size)
+    assertArrayEquals(message, out[0])
+
+    val a = byteArrayOf(1, 2, 3)
+    val b = byteArrayOf(4)
+    val both = r.feed(BleGattProfile.lengthPrefixed(a) + BleGattProfile.lengthPrefixed(b))
+    assertEquals(2, both.size)
+    assertArrayEquals(a, both[0])
+    assertArrayEquals(b, both[1])
+  }
+
+  @Test
+  fun reassemblerRejectsOversizeAndZeroLength() {
+    try {
+      BleGattProfile.Reassembler().feed(BleGattProfile.lengthPrefixed(ByteArray(BleGattProfile.MAX_BLE_FRAME_BYTES + 1)))
+      fail("expected IllegalArgumentException for 32769 bytes")
+    } catch (e: IllegalArgumentException) {
+      assertTrue(e.message!!.contains("32769"))
+    }
+    try {
+      BleGattProfile.Reassembler().feed(byteArrayOf(0, 0, 0, 0))
+      fail("expected IllegalArgumentException for a zero-length message")
+    } catch (e: IllegalArgumentException) {
+      // expected
+    }
+    // Exactly the ceiling is accepted: only the header is fed, so nothing completes and nothing throws.
+    val atCap = BleGattProfile.Reassembler().feed(byteArrayOf(0, 0, 0x80.toByte(), 0))
+    assertEquals(0, atCap.size)
+  }
+}
