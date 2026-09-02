@@ -64,6 +64,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>BSV Wallet uses Bluetooth to send and receive payments directly between nearby devices.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>BSV Wallet uses Bluetooth to send and receive payments directly between nearby devices.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_bsvpay._tcp</string>
