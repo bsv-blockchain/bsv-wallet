@@ -106,7 +106,10 @@ describe('raceReceivers', () => {
     nearby.fail(new Error('connect timeout: no route to peer'))
     await expect(settledOrPending(race)).resolves.toBe('pending')
     expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError).toHaveBeenCalledWith('nearby', expect.objectContaining({ message: 'connect timeout: no route to peer' }))
+    expect(onError).toHaveBeenCalledWith(
+      'nearby',
+      expect.objectContaining({ message: 'connect timeout: no route to peer' })
+    )
     expect(ble.aborted()).toBe(false)
 
     ble.deliver()
