@@ -7,19 +7,22 @@
  *
  *   AWDL    iOS↔iOS peer-to-peer Wi-Fi, TLS-PSK. Fast path.
  *   Nearby  Android↔Android over Google Nearby Connections, same Nitro surface.
+ *   BLE     any platform pair, over a second Nitro object (bsvpay-ble/1). The only
+ *           radio that crosses iOS↔Android; the session QR is its pairing step.
  *   QR      any platform pair. The payer renders the signed frame; the payee scans it.
  *
  * Phase machine
  *
  *   entry
  *    ├─ receive_amount → receive_minting → receive_wait
- *    │      receive_wait always renders the pairing QR, and additionally runs a
- *    │      radio listener (AWDL or Nearby) when this device supports one. Either
- *    │      arrival lands in:
+ *    │      receive_wait always renders the pairing QR, and additionally runs one
+ *    │      listener per radio this device can offer (AWDL or Nearby, plus BLE);
+ *    │      the first frame to arrive wins and the other listeners are aborted
+ *    │      (raceReceivers). Either arrival lands in:
  *    │        · radio listener resolves ─┐
  *    │        · receive_scan (payer QR) ─┴→ receive_settling → done | already_paid
  *    └─ send_scan → send_confirm → send_working
- *           ├─ selectTransport() === 'awdl' | 'nearby' → radio.send → done
+ *           ├─ selectTransport() === 'awdl' | 'nearby' | 'ble' → radio.send → done
  *           └─ selectTransport() === 'qr'              → send_qr → done
  *
  *   already_paid is a SUCCESS terminal, not an error: the session was settled by
@@ -119,8 +122,11 @@ import {
   FRAME_BLOCK_BYTES,
   MAX_MESSAGE_BYTES,
   awdlTransport,
+  bleTransport,
   buildPaymentFrame,
+  capsFromProbe,
   decodeSession,
+  describeFloor,
   encodeSession,
   frameBytesFromQr,
   holdSentPaymentOffline,
@@ -129,12 +135,18 @@ import {
   isDeclineReason,
   isSessionSpent,
   localSupportsAwdl,
+  localSupportsBle,
   localSupportsNearby,
   markSessionSpent,
   mintSession,
   nearbyTransport,
   nextPhaseAfterUnsealFailure,
+  prepareBle,
+  probeDeviceCaps,
   processPending,
+  raceReceivers,
+  readBluetoothState,
+  requestBlePermissions,
   requestNearbyPermissions,
   savePending,
   sealedToQr,
@@ -142,9 +154,13 @@ import {
   selectTransport,
   unsealFrame,
   type Ack,
+  type BluetoothState,
   type ConfirmDelivery,
   type DeclineReason,
+  type FloorReason,
+  type LocalPaymentTransport,
   type PaymentFrame,
+  type RadioKind,
   type Session,
   FrameVerifyError,
   verifyFramePayment,
@@ -315,6 +331,20 @@ const DECLINE_KEYS: Record<DeclineReason, string> = {
   decode_failed: 'local_pay_declined_decode'
 }
 
+/**
+ * Why the payer is on the fountain, as one sentence they can act on. Only ever
+ * rendered when selectTransport() chose QR (spec §5) — this is what the hint
+ * bits in the payee's code buy: the person paying is told what to switch on
+ * instead of watching a slow fountain in silence.
+ */
+const FLOOR_KEYS: Record<Exclude<FloorReason, 'none'>, string> = {
+  peer_no_radio: 'local_pay_floor_peer_no_radio',
+  peer_bt_off: 'local_pay_floor_peer_bt_off',
+  local_ble_denied: 'local_pay_floor_local_ble_denied',
+  local_bt_off: 'local_pay_floor_local_bt_off',
+  cross_os_no_ble: 'local_pay_floor_cross_os'
+}
+
 const NOTICE_ICONS: Record<NoticeTone, keyof IoniconsComponent['glyphMap']> = {
   success: 'wallet',
   info: 'time-outline',
@@ -440,11 +470,27 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   const [unsettled, setUnsettled] = useState<Unsettled | null>(null)
 
   /**
-   * The AWDL fast path gave up. Non-fatal by design — the pairing QR is still on
-   * screen and a QR-path payer can still complete, so this only downgrades the
-   * request to QR-only.
+   * A radio listener gave up, per radio. Non-fatal by design — the pairing QR
+   * is still on screen and a QR-path payer can still complete, and any OTHER
+   * radio still listening keeps the request live on that rung. Keyed by kind so
+   * the presence row can say "waiting" while one radio is alive and the notice
+   * can name the one that is not.
    */
-  const [nearbyError, setNearbyError] = useState<{ networkDenied: boolean } | null>(null)
+  const [radioErrors, setRadioErrors] = useState<Partial<Record<RadioKind, { networkDenied: boolean }>>>({})
+
+  /**
+   * What this device's Bluetooth radio reported. The payee learns it from
+   * prepareBle() at minting (the one call that may show the iOS prompt); the
+   * payer reads it prompt-free on scanning a session, so describeFloor can say
+   * "your Bluetooth is off" without ever prompting someone about to pay by code.
+   */
+  const [bleState, setBleState] = useState<BluetoothState>('unknown')
+  /**
+   * Android's runtime grants for BLE landed (or are not needed: iOS gates BLE
+   * through prepare() instead). Nearby's grant set is a superset of BLE's on
+   * every API level, so on a GMS device the one Nearby prompt answers both.
+   */
+  const [blePermitted, setBlePermitted] = useState(Platform.OS !== 'android')
 
   /** The encoder rejected the pairing payload. Should be unreachable at ~170 chars. */
   const [sessionQrBroken, setSessionQrBroken] = useState(false)
@@ -503,24 +549,52 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
    * and the runtime grants landed. Resolved async on mount, Android only; a
    * denial leaves this false and the flow QR-only, silently — same posture as
    * a GMS-less device.
+   *
+   * Spec §7: at flow entry the payee asks for Nearby's grants where GMS is
+   * present (that set covers BLE too), and otherwise for BLE's alone. The payer
+   * is never prompted for BLE here — executeSend asks lazily, only once BLE has
+   * actually been selected, so a payer landing on QR sees no prompt.
    */
   const [nearbyReady, setNearbyReady] = useState(false)
   useEffect(() => {
-    if (Platform.OS !== 'android' || !localSupportsNearby()) return
+    if (Platform.OS !== 'android') return
     let live = true
-    void requestNearbyPermissions().then(granted => {
-      if (live) setNearbyReady(granted)
-    })
+    if (localSupportsNearby()) {
+      void requestNearbyPermissions().then(granted => {
+        if (!live) return
+        setNearbyReady(granted)
+        setBlePermitted(granted)
+      })
+    } else if (initialRole === 'payee' && localSupportsBle()) {
+      // localSupportsBle() is false while the radio is off (Task 9's isSupported
+      // reads BluetoothAdapter.isEnabled), so a GMS-less payee who enters with
+      // Bluetooth off stays QR-only until the screen is re-entered — the same
+      // posture as a Nearby denial.
+      void requestBlePermissions().then(granted => {
+        if (live) setBlePermitted(granted)
+      })
+    }
     return () => {
       live = false
     }
-  }, [])
+  }, [initialRole])
 
-  /** The radio this device listens on as payee, if any. */
-  const radioTransport = useMemo(
-    () => (supportsAwdl ? awdlTransport : nearbyReady ? nearbyTransport : null),
-    [supportsAwdl, nearbyReady]
-  )
+  /** BLE can be listened on: radio powered on and (on Android) the grants landed. */
+  const bleReady = bleState === 'poweredOn' && blePermitted
+
+  /**
+   * Every radio this device listens on as payee. The platform socket radio
+   * (AWDL on iOS, Nearby on Android — they share one native object, so never
+   * both) plus BLE when it is ready. Empty means QR-only. Order is irrelevant:
+   * raceReceivers starts all of them and the first frame wins (spec §6).
+   */
+  const radioTransports = useMemo<LocalPaymentTransport[]>(() => {
+    const list: LocalPaymentTransport[] = []
+    if (supportsAwdl) list.push(awdlTransport)
+    else if (nearbyReady) list.push(nearbyTransport)
+    if (bleReady) list.push(bleTransport)
+    return list
+  }, [supportsAwdl, nearbyReady, bleReady])
 
   const abortAll = useCallback(() => {
     for (const controller of abortsRef.current) {
@@ -602,7 +676,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     setFailure(null)
     setNotice(null)
     setUnsettled(null)
-    setNearbyError(null)
+    setRadioErrors({})
     setSessionQrBroken(false)
     setSessionMismatch(false)
     setPeerKey(null)
@@ -642,7 +716,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   // with whichever Session is live at that moment.
 
   const settleReceived = useCallback(
-    async (frame: PaymentFrame, session: Session, confirm?: ConfirmDelivery) => {
+    async (frame: PaymentFrame, session: Session, confirm?: ConfirmDelivery, via?: RadioKind) => {
       // `confirm` is how the payer learns what happened. It is undefined on the
       // QR path, which has no socket to ack over. On the AWDL path it MUST be
       // called on every exit below: with `true` only once savePending has
@@ -780,14 +854,14 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         // (2) Persist before anything else. Once this resolves the money cannot
         //     be lost to a crash, a dead network or a closed app.
         //
-        //     `confirm` is only ever supplied by a radio receive path (see
-        //     radioTransport.receive's callers above and the QR/retry callers
-        //     below, which omit it) — the same signal `Unsettled` already keys
-        //     off of, reused here to attribute the queue row to a transport.
-        //     `radioTransport?.kind` names which radio, falling back to 'awdl'
-        //     only for the (unreachable in practice) case confirm exists but
-        //     the listener that produced it has since gone.
-        await savePending(storage, frame, confirm ? (radioTransport?.kind ?? 'awdl') : 'qr')
+        //     `confirm` is only ever supplied by a radio receive path (the
+        //     listener effect above; the QR/retry callers below omit it) — the
+        //     same signal `Unsettled` already keys off of, reused here to
+        //     attribute the queue row to a transport. `via` is the radio
+        //     raceReceivers reported as the winner; the 'awdl' fallback covers
+        //     only the (unreachable in practice) case of a confirm handle with
+        //     no winner attached.
+        await savePending(storage, frame, confirm ? (via ?? 'awdl') : 'qr')
 
         // (3) Only now is it safe to burn the session. Doing this first would
         //     mean a crash in between marks the session handled while nothing
@@ -893,7 +967,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         setNotice({ text: t('local_pay_queued'), tone: 'info' })
       }
     },
-    [storage, wallet, adminOriginator, radioTransport, fail, t]
+    [storage, wallet, adminOriginator, fail, t]
   )
 
   // Read through refs so the listener effect below depends only on the session
@@ -903,25 +977,38 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     settleRef.current = settleReceived
   }, [settleReceived])
 
-  // ── Receive: AWDL listener ──
+  // ── Receive: radio listeners ──
   //
-  // Started only when this device can be an AWDL peer. The pairing QR is rendered
-  // regardless, so a QR-path payer can always complete against the same session.
+  // One listener per radio this device offers, all started together; the first
+  // frame wins and the rest are aborted before settle (raceReceivers, spec §6).
+  // The pairing QR is rendered regardless, so a QR-path payer can always
+  // complete against the same session.
 
   useEffect(() => {
     if (!hostedSession || !focused) return
-    if (!radioTransport) return
+    if (radioTransports.length === 0) return
 
     // The Set identity is stable for the component's lifetime, but capture it so
     // the cleanup never reaches through a ref that may have been reassigned.
     const registry = abortsRef.current
     const controller = new AbortController()
     registry.add(controller)
-    setNearbyError(null)
+    setRadioErrors({})
 
-    radioTransport
-      .receive(hostedSession, controller.signal)
-      .then(({ frame, confirm }) => {
+    raceReceivers(radioTransports, hostedSession, controller.signal, (kind, e) => {
+      if (controller.signal.aborted) return
+      // Never terminal. Every radio is an optional fast path; one failing must
+      // not unmount the pairing QR a QR-path payer is relying on, nor stop the
+      // other radios. One native error site also fires on a failed ack AFTER
+      // the frame reached JS, so flipping to a failure screen here could
+      // contradict a settle already in flight. The Local Network heuristic is
+      // about Wi-Fi radios only — a BLE failure never offers that Settings route.
+      setRadioErrors(prev => ({
+        ...prev,
+        [kind]: { networkDenied: kind !== 'ble' && looksLikeLocalNetworkDenial(messageOf(e)) }
+      }))
+    })
+      .then(({ kind, frame, confirm }) => {
         if (controller.signal.aborted) {
           // The screen went away between delivery and here. The payer is
           // holding an un-acked connection and nothing was written, so tell it
@@ -929,29 +1016,22 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
           void confirm(false, 'save_failed')
           return
         }
-        void settleRef.current(frame, hostedSession, confirm)
+        void settleRef.current(frame, hostedSession, confirm, kind)
       })
-      .catch(e => {
-        if (controller.signal.aborted) return
-        // Never terminal. AWDL is the optional fast path; failing it must not
-        // unmount the pairing QR a QR-path payer is relying on. One native error
-        // site also fires on a failed ack AFTER the frame reached JS, so flipping
-        // to a failure screen here could contradict a settle already in flight.
-        setNearbyError({ networkDenied: looksLikeLocalNetworkDenial(messageOf(e)) })
+      .catch(() => {
+        // Every radio has already been reported through onError above (or the
+        // effect was torn down). Nothing further to show.
       })
 
     return () => {
       controller.abort()
       registry.delete(controller)
     }
-  }, [hostedSession, focused, radioTransport, listenerEpoch])
+  }, [hostedSession, focused, radioTransports, listenerEpoch])
 
   // ── Receive: mint the request ──
 
   const startRequest = useCallback(async () => {
-    // An open request carries no figure at all. Undefined, never 0 — the codec
-    // refuses a non-positive amount precisely so a corrupt zero can never be
-    // read back as "any amount".
     // Zero (or blank) is the user asking the payer to choose, so it becomes an
     // open session rather than a rejected input. Undefined, never 0 — the codec
     // refuses a non-positive amount precisely so a corrupt zero can never be
@@ -966,13 +1046,35 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
       return
     }
     setPhase('receive_minting')
-    setNearbyError(null)
+    setRadioErrors({})
     setSessionQrBroken(false)
     setSessionMismatch(false)
     try {
-      const { publicKey: identityKey } = await wallet.getPublicKey({ identityKey: true }, adminOriginator)
-      const derivationPrefix = await createNonce(wallet, 'self', adminOriginator)
-      const derivationSuffix = await createNonce(wallet, 'self', adminOriginator)
+      // Prompt-free and re-read on every mint, unlike supportsAwdl (whose probe
+      // can raise the Local Network prompt): a radio switched on since the last
+      // request must be picked up without leaving the screen. `notDetermined`
+      // on iOS counts as supported so the prompt can follow inside prepareBle.
+      const bleHere = localSupportsBle()
+      // Everything the request needs, in parallel (spec §4): the identity key,
+      // the two wallet nonces, the prompt-free device probe and — only where
+      // this device has a BLE radio — the one call that may show the iOS
+      // Bluetooth prompt. It appears here, at the moment the user has asked to
+      // receive a nearby payment, the same moment the Local Network prompt
+      // already can. Minting is never slower than the slowest of these, and
+      // both probes are bounded (BLE_PREPARE_TIMEOUT_MS, DEFAULT_NET_BUDGET_MS).
+      const [{ publicKey: identityKey }, derivationPrefix, derivationSuffix, probe, bleNow] = await Promise.all([
+        wallet.getPublicKey({ identityKey: true }, adminOriginator),
+        createNonce(wallet, 'self', adminOriginator),
+        createNonce(wallet, 'self', adminOriginator),
+        probeDeviceCaps(),
+        bleHere ? prepareBle() : Promise.resolve<BluetoothState>('unsupported')
+      ])
+      setBleState(bleNow)
+      // Advertise BLE only where this device will actually listen on it: radio
+      // powered on AND (Android) the runtime grants landed. A CAP_BLE bit with
+      // no advertiser behind it would walk every cross-OS payer into a 6 s
+      // connect timeout before the fountain.
+      const bleLive = bleNow === 'poweredOn' && blePermitted
       const session = mintSession({
         identityKey,
         amount: sats,
@@ -982,6 +1084,11 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         // highest rung both sides share, QR being the floor.
         supportsAwdl,
         supportsNearby: nearbyReady,
+        supportsBle: bleLive,
+        // prepare() settles the Bluetooth answer the prompt-free probe may have
+        // read as 'unknown' a moment earlier, so where it ran it overrides the
+        // probe's field. The hint bits are copy for the payer, not dispatch.
+        hints: capsFromProbe({ ...probe, bluetooth: bleHere ? bleNow : probe.bluetooth }),
         os: Platform.OS === 'ios' ? 'ios' : 'android'
       })
       setRole('payee')
@@ -990,7 +1097,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     } catch (e) {
       fail('generic', messageOf(e))
     }
-  }, [requestAmount, wallet, storage, adminOriginator, supportsAwdl, nearbyReady, fail, t])
+  }, [requestAmount, wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t])
 
   // ── Receive: scan the payer's frame ──
 
@@ -1053,6 +1160,9 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         return
       }
       setScannedSession(session)
+      // Prompt-free read of this device's Bluetooth state for describeFloor.
+      // Never prepare() here: a payer who lands on QR must never be prompted.
+      setBleState(readBluetoothState())
       // Who is being paid. Best-effort lookup for the presence row and the
       // recipient card; nothing waits on it.
       setPeerKey(session.identityKey)
@@ -1072,6 +1182,19 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
    * evaluated at render time, so referencing it from below would hit the TDZ.
    */
   const sendKind = useMemo(() => (scannedSession ? selectTransport(scannedSession) : null), [scannedSession])
+
+  /**
+   * Why this payer is on the fountain, if it is. Evaluated only once
+   * selectTransport() chose QR (spec §5); 'none' otherwise, and 'none' when the
+   * hint bits explain nothing — the confirm screen then says nothing extra.
+   */
+  const floorReason = useMemo<FloorReason>(
+    () =>
+      sendKind === 'qr' && scannedSession
+        ? describeFloor(scannedSession, { os: Platform.OS === 'ios' ? 'ios' : 'android', bluetooth: bleState })
+        : 'none',
+    [sendKind, scannedSession, bleState]
+  )
 
   /**
    * The figure this payment will actually carry.
@@ -1196,11 +1319,19 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
       }
 
       // sendKind is neither 'qr' (returned above) nor null (guarded at the top
-      // of this callback), so it names one of the two radios here.
-      const radio = sendKind === 'awdl' ? awdlTransport : nearbyTransport
+      // of this callback), so it names one of the three radios here.
+      const radio = sendKind === 'awdl' ? awdlTransport : sendKind === 'nearby' ? nearbyTransport : bleTransport
 
       let ack: Ack
       try {
+        // Android asks for the BLE runtime grants lazily, here, so a payer who
+        // lands on QR is never prompted (spec §7). A refusal is treated exactly
+        // like a radio failure — the catch below falls to the fountain with
+        // local_pay_radio_fallback — so its wording deliberately avoids every
+        // word looksLikeLocalNetworkDenial matches (no "denied").
+        if (sendKind === 'ble' && Platform.OS === 'android' && !(await requestBlePermissions())) {
+          throw new Error('bluetooth permission not granted')
+        }
         ack = await radio.send(session, built.frame, controller.signal)
       } catch (e) {
         if (controller.signal.aborted) return
@@ -1493,8 +1624,16 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     }
   }, [hostedSession])
 
-  /** Listening over a radio link right now. Goes false once the fast path gives up. */
-  const radioActive = hostedSession !== null && radioTransport !== null && nearbyError === null
+  /** Radios that have given up, in a render-friendly shape. */
+  const radioFailures = useMemo(
+    () =>
+      (Object.entries(radioErrors) as [RadioKind, { networkDenied: boolean } | undefined][]).filter(
+        (entry): entry is [RadioKind, { networkDenied: boolean }] => entry[1] !== undefined
+      ),
+    [radioErrors]
+  )
+  /** Listening over at least one radio link right now. Goes false once every fast path gives up. */
+  const radioActive = hostedSession !== null && radioTransports.some(tr => !radioErrors[tr.kind as RadioKind])
   const canSend = payAmount > 0
   const scannerOpen = phase === 'send_scan' || phase === 'receive_scan'
 
@@ -1530,10 +1669,9 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 
     if (role === 'payer') {
       // Every payer branch degrades to `qr` when the QR transport was selected,
-      // because on that path the two devices genuinely never speak. `awdl` and
-      // `nearby` are both live radio links (iOS and Android respectively), so
-      // either counts here.
-      const onRadio = sendKind === 'awdl' || sendKind === 'nearby'
+      // because on that path the two devices genuinely never speak. `awdl`,
+      // `nearby` and `ble` are all live radio links, so any of them counts here.
+      const onRadio = sendKind === 'awdl' || sendKind === 'nearby' || sendKind === 'ble'
       if (phase === 'send_working') {
         return onRadio ? at('waiting', 'local_pay_presence_waiting_payer') : qr()
       }
@@ -1546,6 +1684,18 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 
     return null
   }, [phase, role, linked, radioActive, sendKind, t])
+
+  /**
+   * Which radio the presence row's glyph names. The payee shows Bluetooth only
+   * when BLE is the ONLY radio still listening — while Wi-Fi is alive it is the
+   * faster rung and the one a same-OS payer will land on. The payer shows the
+   * rung the ladder actually picked (spec §6).
+   */
+  const presenceMedium = useMemo<'wifi' | 'bluetooth'>(() => {
+    if (role === 'payer') return sendKind === 'ble' ? 'bluetooth' : 'wifi'
+    const live = radioTransports.filter(tr => !radioErrors[tr.kind as RadioKind])
+    return live.length > 0 && live.every(tr => tr.kind === 'ble') ? 'bluetooth' : 'wifi'
+  }, [role, sendKind, radioTransports, radioErrors])
 
   // Dismissing the camera returns to whatever raised it. A payee's request must
   // survive this: closing the scanner is not cancelling the payment.
@@ -1585,7 +1735,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 
   const presenceBlock = presence ? (
     <View style={styles.presenceSlot}>
-      <PresenceRow state={presence.state} label={presence.label} peer={peerName} />
+      <PresenceRow state={presence.state} label={presence.label} peer={peerName} medium={presenceMedium} />
     </View>
   ) : null
 
@@ -1804,10 +1954,11 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
               </>
             )}
 
-            {/* The fast path gave up. The request is still live over QR, so this
-                is an advisory, not a failure — the pairing QR above still works. */}
-            {nearbyError && (
-              <>
+            {/* A radio gave up. The request is still live over QR — and over
+                any other radio still listening — so each of these is an
+                advisory, not a failure: the pairing QR above still works. */}
+            {radioFailures.map(([kind, err]) => (
+              <React.Fragment key={kind}>
                 <View style={styles.gapLg} />
                 <Animated.View
                   entering={fadeIn}
@@ -1815,14 +1966,18 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
                 >
                   <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
                   <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                    {nearbyError.networkDenied ? t('local_pay_network_denied') : t('local_pay_nearby_unavailable')}
+                    {err.networkDenied
+                      ? t('local_pay_network_denied')
+                      : kind === 'ble'
+                        ? t('local_pay_ble_unavailable')
+                        : t('local_pay_nearby_unavailable')}
                   </Text>
                 </Animated.View>
-              </>
-            )}
+              </React.Fragment>
+            ))}
 
             <View style={styles.gapXl} />
-            {nearbyError?.networkDenied && (
+            {radioFailures.some(([, err]) => err.networkDenied) && (
               <>
                 <SecondaryButton
                   styles={styles}
@@ -1873,6 +2028,24 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 
             <View style={styles.gapLg} />
             {presenceBlock}
+            {floorReason !== 'none' && (
+              <>
+                <View style={styles.gapLg} />
+                {supportText(t(FLOOR_KEYS[floorReason]))}
+                {floorReason === 'local_ble_denied' && (
+                  <>
+                    <View style={styles.gapMd} />
+                    <SecondaryButton
+                      styles={styles}
+                      colors={colors}
+                      icon="settings-outline"
+                      label={t('open_settings')}
+                      onPress={() => void Linking.openSettings()}
+                    />
+                  </>
+                )}
+              </>
+            )}
 
             <View style={styles.gapXl} />
             <PrimaryButton
