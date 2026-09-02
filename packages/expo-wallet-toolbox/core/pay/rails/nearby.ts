@@ -1,5 +1,5 @@
 /**
- * The nearby rail — in-person, device-to-device over AWDL or QR.
+ * The nearby rail — in-person, device-to-device over AWDL, Nearby, BLE or QR.
  *
  * A pass-through, on purpose. localpay/* is device-proven with 210 tests
  * behind it and its money-safety invariants were verified line by line, so this
@@ -54,12 +54,24 @@ export {
 export { holdSentPaymentOffline } from '../../offline/payerHold'
 export { awdlTransport } from '../../localpay/transport/awdl'
 export { nearbyTransport } from '../../localpay/transport/nearby'
+export { bleTransport } from '../../localpay/transport/ble'
 export {
+  describeFloor,
   localSupportsAwdl,
+  localSupportsBle,
   localSupportsNearby,
   selectTransport,
+  type FloorReason,
   type TransportKind
 } from '../../localpay/transport/select'
 export { requestNearbyPermissions } from '../../localpay/nearbyPermissions'
+export { requestBlePermissions } from '../../localpay/blePermissions'
+export {
+  capsFromProbe,
+  probeDeviceCaps,
+  readBluetoothState,
+  type BluetoothState,
+  type DeviceProbe
+} from '../../localpay/deviceCaps'
 export { isDeclineReason, type Ack, type ConfirmDelivery, type DeclineReason } from '../../localpay/types'
-export { CAP_NEARBY } from '../../localpay/session'
+export { CAP_BLE, CAP_NEARBY } from '../../localpay/session'

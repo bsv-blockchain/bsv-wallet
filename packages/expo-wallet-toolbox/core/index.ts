@@ -58,7 +58,10 @@ export * from './localpay/sessionPolicy'
 export * from './localpay/verify'
 export * from './localpay/qr'
 export * from './localpay/nearbyPermissions'
-export type { Ack } from './localpay/types'
+// The transport interface and its two error classes are part of the public
+// surface now that the screen holds LocalPaymentTransport[] (spec §6) and
+// callers need to tell an AckError (radio failure → fountain) from a decline.
+export { AckError, QrHandoffRequired, type Ack, type LocalPaymentTransport, type ReceivedFrame } from './localpay/types'
 export { selectTransport } from './localpay/transport/select'
 export * from './peerpay/outbox'
 export * from './peerpay/control'
@@ -115,6 +118,9 @@ export * from './pay/rails/handle'
 // and @bsv/air-gap; only its genuinely new names are re-exported here by hand —
 // a blanket `export *` would collide (TS2308) with the localpay/offline exports
 // above, since most of nearby.ts's surface is itself a re-export of those.
+// CAP_BLE is listed although `export * from './localpay/session'` already
+// carries it: an explicit re-export takes precedence over a star export, so
+// this is legal, and it keeps the block a faithful mirror of nearby.ts.
 export {
   AIR_GAP_PREFIX,
   AirGapDecoder,
@@ -124,10 +130,21 @@ export {
   isAirGapPart,
   awdlTransport,
   nearbyTransport,
+  bleTransport,
   localSupportsAwdl,
   localSupportsNearby,
+  localSupportsBle,
+  describeFloor,
+  requestBlePermissions,
+  probeDeviceCaps,
+  capsFromProbe,
+  readBluetoothState,
+  CAP_BLE,
   isDeclineReason,
   type TransportKind,
+  type FloorReason,
+  type DeviceProbe,
+  type BluetoothState,
   type ConfirmDelivery,
   type DeclineReason
 } from './pay/rails/nearby'
