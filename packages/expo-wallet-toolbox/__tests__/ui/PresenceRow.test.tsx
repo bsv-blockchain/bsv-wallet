@@ -144,8 +144,11 @@ describe('PresenceRow medium', () => {
     expect(iconNames(drawWith({ state: 'paid', medium: 'bluetooth' }).toJSON())).toEqual(['checkmark-circle'])
   })
 
-  it('keeps the breathing dot, not a glyph, while waiting on either medium', () => {
-    expect(iconNames(drawWith({ state: 'waiting' }).toJSON())).toEqual([])
-    expect(iconNames(drawWith({ state: 'waiting', medium: 'bluetooth' }).toJSON())).toEqual([])
+  // The payee's only radio-live state is `waiting`, so this is the one that has
+  // to be able to say Bluetooth: if `waiting` drew a bare dot, the medium prop
+  // could never reach a pixel on the receiving side.
+  it('names the radio in the waiting state too', () => {
+    expect(iconNames(drawWith({ state: 'waiting' }).toJSON())).toEqual(['wifi'])
+    expect(iconNames(drawWith({ state: 'waiting', medium: 'bluetooth' }).toJSON())).toEqual(['bluetooth'])
   })
 })

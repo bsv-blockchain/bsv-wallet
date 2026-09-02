@@ -60,10 +60,35 @@ export function raceReceivers(
       })
     signal.addEventListener('abort', onAbort)
 
+    // One radio going down, however it goes down. Shared by the rejection path
+    // and by the synchronous-throw path below so the two are indistinguishable.
+    const failed = (kind: RadioKind, controller: AbortController, error: unknown) => {
+      if (settled || controller.signal.aborted) return
+      failures += 1
+      lastError = error
+      onError(kind, error)
+      if (failures === radios.length) finish(() => reject(lastError))
+    }
+
     radios.forEach((transport, i) => {
       const controller = controllers[i]
       const kind = transport.kind as RadioKind
-      transport.receive(session, controller.signal).then(
+
+      // receive() may THROW rather than reject — a missing native accessor does
+      // exactly that. Unguarded, the throw escapes this executor, rejects the
+      // whole race, and leaves the siblings listening with nobody waiting on
+      // them: the payee would sit on a dead screen while a working radio held
+      // an open listener. Treated as that one radio failing instead, so the
+      // others keep the request live.
+      let listening: Promise<ReceivedFrame>
+      try {
+        listening = transport.receive(session, controller.signal)
+      } catch (e) {
+        failed(kind, controller, e)
+        return
+      }
+
+      listening.then(
         received => {
           if (settled) {
             // The race was already decided (or aborted) when this frame landed.
@@ -78,13 +103,7 @@ export function raceReceivers(
             resolve({ kind, frame: received.frame, confirm: received.confirm })
           })
         },
-        error => {
-          if (settled || controller.signal.aborted) return
-          failures += 1
-          lastError = error
-          onError(kind, error)
-          if (failures === radios.length) finish(() => reject(lastError))
-        }
+        error => failed(kind, controller, error)
       )
     })
   })

@@ -37,7 +37,7 @@
  * colour instead, never from the accent.
  */
 import React, { useEffect } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text } from 'react-native'
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -110,8 +110,6 @@ function iconFor(state: PresenceState, medium: 'wifi' | 'bluetooth'): IconName {
   }
 }
 
-const DOT = 8
-
 export default function PresenceRow({ state, label, peer, medium = 'wifi' }: PresenceRowProps) {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -122,7 +120,7 @@ export default function PresenceRow({ state, label, peer, medium = 'wifi' }: Pre
   // reads as a rendering artifact.
   const enter = useSharedValue(1)
   // Ambient breathing while genuinely waiting. Never runs in any other state —
-  // a pulsing dot beside "Paid" would imply something is still in flight.
+  // a pulsing glyph beside "Paid" would imply something is still in flight.
   const pulse = useSharedValue(1)
 
   useEffect(() => {
@@ -176,12 +174,13 @@ export default function PresenceRow({ state, label, peer, medium = 'wifi' }: Pre
       accessibilityLabel={peer ? `${label}. ${peer}` : label}
       style={[styles.row, rowStyle]}
     >
+      {/* One glyph for every state, breathing only while `waiting` — the pulse
+          effect above pins the opacity at 1 in every other state. `waiting`
+          used to draw a bare dot, which meant the `medium` prop could not
+          reach the one state where naming the radio matters most: the payee
+          waiting on a link that may be Bluetooth. */}
       <Animated.View style={dotStyle}>
-        {state === 'waiting' ? (
-          <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        ) : (
-          <Ionicons name={iconFor(state, medium)} size={13} color={dotColor} />
-        )}
+        <Ionicons name={iconFor(state, medium)} size={13} color={dotColor} />
       </Animated.View>
       <Text style={[styles.label, { color: labelColor }, strong && styles.labelStrong]} numberOfLines={1}>
         {label}
@@ -209,7 +208,6 @@ const styles = StyleSheet.create({
     minHeight: 20,
     paddingHorizontal: spacing.sm,
   },
-  dot: { width: DOT, height: DOT, borderRadius: DOT / 2 },
   label: { ...typography.footnote, flexShrink: 1 },
   labelStrong: { fontWeight: '600' },
   sep: { ...typography.footnote },

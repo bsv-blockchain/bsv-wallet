@@ -24,16 +24,8 @@ const frame: PaymentFrame = {
 /**
  * A transport whose receive() is settled by the test, and which records the
  * signal it was given so the test can see whether the race aborted it.
- *
- * `rejectOnAbort` mirrors socket.ts, where an aborted listener rejects
- * 'cancelled', and is what every test but the late-frame one wants. That one
- * needs a transport whose already-decoded frame can still land AFTER the JS
- * abort — stopListening() is best-effort on the native side — which a fake
- * that rejects itself on abort can never model: its promise is already
- * settled, so a later resolve is a no-op and the arbitration never sees the
- * frame at all.
  */
-function fakeRadio(kind: RadioKind, opts: { rejectOnAbort?: boolean } = {}) {
+function fakeRadio(kind: RadioKind) {
   let resolveFn: ((r: ReceivedFrame) => void) | undefined
   let rejectFn: ((e: unknown) => void) | undefined
   let signal: AbortSignal | undefined
@@ -46,7 +38,7 @@ function fakeRadio(kind: RadioKind, opts: { rejectOnAbort?: boolean } = {}) {
         resolveFn = resolve
         rejectFn = reject
         // Mirror socket.ts: an aborted listener rejects 'cancelled'.
-        if (opts.rejectOnAbort !== false) s.addEventListener('abort', () => reject(new Error('cancelled')))
+        s.addEventListener('abort', () => reject(new Error('cancelled')))
       })
     }),
     send: jest.fn(() => Promise.reject(new Error('not under test')))
@@ -164,19 +156,51 @@ describe('raceReceivers', () => {
     expect(onError).not.toHaveBeenCalled()
   })
 
-  it('declines a frame a second radio delivers after the race is already decided', async () => {
+  it('declines the loser when two radios deliver before the arbitration drains', async () => {
     const awdl = fakeRadio('awdl')
-    const ble = fakeRadio('ble', { rejectOnAbort: false })
+    const ble = fakeRadio('ble')
     const race = raceReceivers([awdl.transport, ble.transport], session, new AbortController().signal, jest.fn())
 
+    // Two payers inside one tick. Both listeners resolve BEFORE either of the
+    // race's own handlers runs, so the loser's frame really does reach
+    // arbitration — the abort that follows cannot un-resolve an already
+    // resolved promise. This is the reachable path to the late-frame decline:
+    // exactly one payment is written, and the second payer is told, rather
+    // than being left on a green "Sent" until its own timeout.
     awdl.deliver()
-    await race
-    // A resolve after abort cannot happen through socket.ts, but the arbitration
-    // must still tell such a payer that nothing was written for its frame.
     ble.deliver()
-    await Promise.resolve()
+
+    const winner = await race
+    expect(winner.kind).toBe('awdl')
     expect(ble.confirm).toHaveBeenCalledWith(false, 'save_failed')
     expect(awdl.confirm).not.toHaveBeenCalled()
+  })
+
+  it('treats a synchronous throw from receive() as that radio failing, not as the race failing', async () => {
+    // A native accessor that is not there throws rather than rejecting. If that
+    // escaped the executor it would reject the whole race and leave the sibling
+    // listening with nobody waiting on it — the payee would sit on a dead
+    // screen while a perfectly good radio held an open listener.
+    const boom: LocalPaymentTransport = {
+      kind: 'nearby',
+      receive: jest.fn(() => {
+        throw new Error('no native module')
+      }),
+      send: jest.fn(() => Promise.reject(new Error('not under test')))
+    }
+    const ble = fakeRadio('ble')
+    const onError = jest.fn()
+    const race = raceReceivers([boom, ble.transport], session, new AbortController().signal, onError)
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith('nearby', expect.objectContaining({ message: 'no native module' }))
+    // Non-terminal: the sibling was still started, and was not aborted.
+    expect(ble.started()).toBe(1)
+    expect(ble.aborted()).toBe(false)
+    await expect(settledOrPending(race)).resolves.toBe('pending')
+
+    ble.deliver()
+    await expect(race).resolves.toEqual(expect.objectContaining({ kind: 'ble' }))
   })
 
   it('rejects immediately with nothing to listen on', async () => {
