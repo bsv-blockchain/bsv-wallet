@@ -498,6 +498,11 @@ const resources = {
         'I have saved my recovery key and understand that losing it will result in total and permanent loss of all associated funds, tokens, and certificates.',
       enter_recovery_words: 'Enter recovery words or private key hex...',
       restore_wallet_description: 'Enter your recovery key to restore your wallet',
+      backup_reminder_title: 'Back up your wallet',
+      backup_reminder_body:
+        'Your wallet is ready. Back up your recovery key now so you never lose access to your funds.',
+      backup_reminder_now: 'Back up keys now',
+      backup_reminder_import: 'Import from backup',
       restore_backup_checking: 'Looking for your encrypted backup…',
       restore_backup_progress: 'Restoring your wallet history — {{chunks}} of {{total}}…',
       restore_backup_failed_title: 'Could not restore your history',

@@ -275,8 +275,11 @@ export interface WalletContextValue {
    */
   getBackupRestore: () => BackupRestoreState
   switchNetwork: (network: AppChain) => Promise<void>
-  /** Tear down the current wallet and re-trigger auto-build (e.g. after DB import). */
-  rebuildWallet: () => Promise<void>
+  /** Tear down the current wallet and re-trigger auto-build (e.g. after DB import).
+   * `restoreFromBackup` threads through to the auto-build's replay, for replacing
+   * an already-built wallet with an imported one (e.g. onboarding's backup-reminder
+   * "import from backup" over an auto-created wallet). */
+  rebuildWallet: (opts?: { restoreFromBackup?: boolean }) => Promise<void>
   storage: StorageExpoSQLite | null
   /** Fetch BUMP from WoC and store merkle proof, advancing tx status to completed */
   refreshProof: (txid: string) => Promise<'confirmed' | 'pending' | 'failed'>
@@ -1825,8 +1828,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   // Tear down the current wallet and re-trigger auto-build.
   // Used after DB import and internally by switchNetwork.
-  const rebuildWallet = useCallback(async () => {
+  const rebuildWallet = useCallback(async (opts?: { restoreFromBackup?: boolean }) => {
     logWithTimestamp(F, 'Rebuilding wallet')
+    // Armed before teardown so the auto-build effect this triggers (via
+    // finalizeConfig below) replays the backup log the same way an explicit
+    // buildWalletFromMnemonic({ restoreFromBackup: true }) would.
+    restoreIntentRef.current = opts?.restoreFromBackup === true
     // Any build already in flight belongs to the configuration being replaced.
     buildGenRef.current.bump()
 
