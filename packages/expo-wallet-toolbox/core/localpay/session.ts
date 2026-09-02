@@ -2,9 +2,37 @@ import { Random } from '@bsv/sdk'
 import { CodecError } from './codec'
 
 export const SESSION_VERSION = 1
+
+/**
+ * The capability word `c` in the session QR.
+ *
+ * LOW BYTE — rungs the payee is LISTENING ON right now. The payer's ladder
+ * (transport/select.ts) reads only these bits: a set rung is a promise that a
+ * listener for it is live behind this QR.
+ */
 export const CAP_AWDL = 0x01
 export const CAP_NEARBY = 0x02
-export const CAP_BLE = 0x04 // allocated for BLE transports (e.g. Blitz); this app never advertises it
+/** Payee is advertising bsvpay-ble/1 — now advertised by this app, and the profile Blitz adopts. */
+export const CAP_BLE = 0x04
+// 0x08..0x80 reserved for future rungs (L2CAP, NFC, Wi-Fi Aware).
+
+/**
+ * HIGH BITS — device hints. Never read for transport selection; they feed one
+ * line of copy on the payer's confirm screen (why this pair is on the QR
+ * floor) and are available to future rungs.
+ *
+ * A CLEAR bit means "false OR unknown". Only ONLINE gets a companion KNOWN
+ * bit, because reachability is the one probe that can time out inside the
+ * minting budget; every other hint is a synchronous, prompt-free read.
+ */
+export const HINT_ONLINE = 0x0100 // internet reachable
+export const HINT_ONLINE_KNOWN = 0x0200 // HINT_ONLINE is meaningful (the probe answered within budget)
+export const HINT_NET = 0x0400 // any connectivity
+export const HINT_WIFI = 0x0800 // Android: Wi-Fi radio on. iOS: associated with a Wi-Fi network (no radio API)
+export const HINT_BT = 0x1000 // Bluetooth authorized and powered on
+export const HINT_NFC = 0x2000 // NFC reader available
+/** Selects the rung byte; `~RUNG_MASK` selects the hints. */
+export const RUNG_MASK = 0x00ff
 
 export type SessionOs = 'ios' | 'android'
 
@@ -64,6 +92,13 @@ export function mintSession(args: {
   derivationSuffix: string
   supportsAwdl: boolean
   supportsNearby?: boolean
+  /** True only while a bsvpay-ble/1 listener is actually advertising for this session. */
+  supportsBle?: boolean
+  /**
+   * HINT_* bits from deviceCaps.capsFromProbe. Masked to `~RUNG_MASK` here, so
+   * a hint word can never advertise a listener that was not started.
+   */
+  hints?: number
   os?: SessionOs
 }): Session {
   if (args.identityKey.length !== 66) throw new CodecError('identityKey must be 66 hex chars')
@@ -78,7 +113,11 @@ export function mintSession(args: {
   }
   return {
     version: SESSION_VERSION,
-    caps: (args.supportsAwdl ? CAP_AWDL : 0) | (args.supportsNearby ? CAP_NEARBY : 0),
+    caps:
+      (args.supportsAwdl ? CAP_AWDL : 0) |
+      (args.supportsNearby ? CAP_NEARBY : 0) |
+      (args.supportsBle ? CAP_BLE : 0) |
+      ((args.hints ?? 0) & ~RUNG_MASK),
     sessionId: new Uint8Array(Random(16)),
     psk: new Uint8Array(Random(32)),
     identityKey: args.identityKey,

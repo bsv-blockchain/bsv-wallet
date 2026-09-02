@@ -1,5 +1,7 @@
+import QRCode from 'qrcode'
 import {
-  mintSession, encodeSession, decodeSession, instanceName, CAP_AWDL, CAP_NEARBY, SESSION_VERSION, CAP_BLE, type SessionAsset,
+  mintSession, encodeSession, decodeSession, instanceName, CAP_AWDL, CAP_NEARBY, SESSION_VERSION, CAP_BLE,
+  HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC, RUNG_MASK, type SessionAsset,
 } from '../../core/localpay/session'
 import { CodecError } from '../../core/localpay/codec'
 
@@ -42,6 +44,76 @@ describe('localpay session', () => {
     expect(mintSession({ ...args, supportsAwdl: false }).caps & CAP_AWDL).toBe(0)
   })
 
+  // ── Capability word layout (spec §4) ──
+  //
+  // Low byte: rungs the payee is LISTENING ON right now; the payer's ladder
+  // reads only these. High bits: device hints for copy and future rungs. A
+  // clear bit means "false or unknown"; only ONLINE gets a companion KNOWN bit
+  // because it is the one probe that can time out.
+
+  it('defines the rung and hint bits from spec §4', () => {
+    expect(CAP_AWDL).toBe(0x01)
+    expect(CAP_NEARBY).toBe(0x02)
+    expect(CAP_BLE).toBe(0x04)
+    expect(HINT_ONLINE).toBe(0x0100)
+    expect(HINT_ONLINE_KNOWN).toBe(0x0200)
+    expect(HINT_NET).toBe(0x0400)
+    expect(HINT_WIFI).toBe(0x0800)
+    expect(HINT_BT).toBe(0x1000)
+    expect(HINT_NFC).toBe(0x2000)
+    expect(RUNG_MASK).toBe(0x00ff)
+    // Every hint lives above the rung byte; no hint can be mistaken for a rung.
+    for (const hint of [HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC]) {
+      expect(hint & RUNG_MASK).toBe(0)
+    }
+  })
+
+  it('sets the BLE capability bit only when advertised', () => {
+    expect(mintSession({ ...args, supportsBle: true }).caps & CAP_BLE).toBe(CAP_BLE)
+    expect(mintSession({ ...args, supportsBle: false }).caps & CAP_BLE).toBe(0)
+    // Omitted means not advertised: the existing caller in NearbyFlow does not
+    // pass it yet and must keep minting exactly what it mints today.
+    expect(mintSession(args).caps & CAP_BLE).toBe(0)
+    // The BLE rung does not disturb the other rungs.
+    expect(mintSession({ ...args, supportsBle: true }).caps & CAP_AWDL).toBe(CAP_AWDL)
+  })
+
+  it('masks hints to the non-rung bits and ORs them into caps', () => {
+    // A caller that smuggles a rung bit inside `hints` must not be able to
+    // advertise a listener it never started: rungs come from supports* only.
+    const hints = HINT_ONLINE | HINT_BT | CAP_AWDL
+    const withAwdl = mintSession({ ...args, supportsAwdl: true, hints })
+    expect(withAwdl.caps & HINT_ONLINE).toBe(HINT_ONLINE)
+    expect(withAwdl.caps & HINT_BT).toBe(HINT_BT)
+    expect(withAwdl.caps & CAP_AWDL).toBe(CAP_AWDL)
+    expect(withAwdl.caps & HINT_NET).toBe(0)
+    const withoutAwdl = mintSession({ ...args, supportsAwdl: false, hints })
+    expect(withoutAwdl.caps & HINT_ONLINE).toBe(HINT_ONLINE)
+    expect(withoutAwdl.caps & HINT_BT).toBe(HINT_BT)
+    expect(withoutAwdl.caps & CAP_AWDL).toBe(0)
+    expect(withoutAwdl.caps & RUNG_MASK).toBe(0)
+    // No hints at all is the same word as today.
+    expect(mintSession(args).caps).toBe(CAP_AWDL)
+    expect(mintSession({ ...args, hints: 0 }).caps).toBe(CAP_AWDL)
+  })
+
+  it('round-trips every defined bit through the QR', () => {
+    const s = mintSession({
+      ...args,
+      supportsAwdl: true,
+      supportsNearby: true,
+      supportsBle: true,
+      hints: HINT_ONLINE | HINT_ONLINE_KNOWN | HINT_NET | HINT_WIFI | HINT_BT | HINT_NFC,
+    })
+    expect(s.caps).toBe(0x3f07)
+    // decodeSession is untouched by this change: `c` was already "any number",
+    // so the new bits survive the wire with no decoder work (spec §4).
+    const back = decodeSession(encodeSession(s))
+    expect(back.caps).toBe(s.caps)
+    expect(back.caps & RUNG_MASK).toBe(CAP_AWDL | CAP_NEARBY | CAP_BLE)
+    expect(back.caps & ~RUNG_MASK).toBe(0x3f00)
+  })
+
   it('mints distinct sessions', () => {
     const a = mintSession(args)
     const b = mintSession(args)
@@ -55,7 +127,29 @@ describe('localpay session', () => {
   })
 
   it('stays small enough for one static QR', () => {
-    expect(encodeSession(mintSession(args)).length).toBeLessThan(300)
+    // A real createNonce is base64 of 48 bytes (16 random ‖ 32-byte HMAC) =
+    // 64 chars; the short fixture nonces above understate the QR by ~150
+    // chars. Mint what the payee actually mints: two 64-char nonces, an OS
+    // hint, an amount, and every hint bit lit (`c` = 0x3f01, 5 JSON chars).
+    const nonce = () => Buffer.alloc(48, 7).toString('base64')
+    expect(nonce().length).toBe(64)
+    const s = mintSession({
+      ...args,
+      derivationPrefix: nonce(),
+      derivationSuffix: nonce(),
+      os: 'ios',
+      hints: 0x3f00,
+    })
+    expect(s.caps).toBe(0x3f01)
+    const text = encodeSession(s)
+    // Measured 446 chars (spec §4 cites 428-450 for open/amount requests).
+    // base64url of fixed-length random bytes has a fixed length, so this is
+    // deterministic; the band leaves room for a 1-2 digit amount change.
+    expect(text.length).toBeGreaterThanOrEqual(400)
+    expect(text.length).toBeLessThanOrEqual(470)
+    // The size class that matters is the QR version at error level M: v16-M
+    // is what the 288 px session QR renders today and must not regress.
+    expect(QRCode.create(text, { errorCorrectionLevel: 'M' }).version).toBeLessThanOrEqual(16)
   })
 
   it('rejects malformed QR text', () => {
