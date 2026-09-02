@@ -321,6 +321,11 @@ final class BleEngine: NSObject {
       // Self-reset (spec §3 step 2): a previous session that was never
       // explicitly stopped must not leak its latch, centrals or reapers.
       self.resetListening()
+      // Defensive, and normally a no-op: the payee flow calls prepare() at
+      // minting, which is where the iOS Bluetooth prompt appears. Without this
+      // call a caller that skipped prepare() would hang forever on
+      // advertiseIfPowered's silent "no manager yet" guard -- so on a build
+      // that does not call prepare() first, the prompt appears here instead.
       self.ensureManagers()
       let session = ListenSession(
         instanceName: instanceName, psk: psk,
@@ -509,9 +514,37 @@ final class BleEngine: NSObject {
     dispatchPrecondition(condition: .onQueue(queue))
     entry.idleReaper?.cancel()
     entry.idleReaper = nil
+    // A forgotten central has no ack route left, so the flags that describe
+    // that route must go with it. Without this, `forget` on the held central
+    // left `pendingAck` pointing at an untracked entry whose `subscribed` was
+    // still true: `confirmFrame` would then queue the ACK to a departed
+    // central, `updateValue` would accept it, and the completion would resolve
+    // with `ack sent ok=1` logged for a payment the payer never heard about.
+    // Releasing the hold here makes that path reject "peer disconnected before
+    // acking" instead -- the payer's inputs stay locked, which is the safe
+    // failure (see HybridLocalPayTransport.pendingAckConfirmTimeout).
+    entry.subscribed = false
+    if session.pendingAck === entry {
+      session.pendingAck = nil
+      session.pendingAckTimeout?.cancel()
+      session.pendingAckTimeout = nil
+    }
     session.centrals.removeValue(forKey: entry.central.identifier)
     let id = entry.central.identifier
     indicationQueue.removeAll { $0.central.identifier == id }
+  }
+
+  /// Refuses one message from one central. The central being held for the ack
+  /// is deliberately NOT forgotten: a stray or malformed write from the payer
+  /// after its FRAME was accepted (a duplicate, a retry, a truncated record)
+  /// must not cost it the ack route it is waiting on. Everything else is
+  /// dropped outright, exactly as before.
+  private func refuse(_ entry: InboundCentral, in session: ListenSession, reason: String) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    os_log("frame refused reason=%{public}@ id=%{public}@", log: bleLog, type: .default,
+           reason, entry.central.identifier.uuidString)
+    guard session.pendingAck !== entry else { return }
+    forget(entry, in: session)
   }
 
   /// 60 s ack reaper (spec §3 step 7). Tears down SILENTLY -- never a
@@ -526,6 +559,7 @@ final class BleEngine: NSObject {
       session.pendingAck = nil
       session.pendingAckTimeout = nil
       self.forget(entry, in: session)
+      os_log("ack reaper fired; connection released", log: bleLog, type: .default)
       session.onError("payee never confirmed the payment; connection released")
     }
     session.pendingAckTimeout = item
@@ -561,7 +595,7 @@ final class BleEngine: NSObject {
       // First-success-wins as a native invariant: a second PSK-holder reaching
       // FRAME after we accepted one is refused outright, never raced.
       guard !session.hasAccepted, !body.isEmpty else {
-        forget(entry, in: session)
+        refuse(entry, in: session, reason: session.hasAccepted ? "already accepted" : "empty frame")
         return
       }
       session.hasAccepted = true
@@ -579,7 +613,8 @@ final class BleEngine: NSObject {
 
     default:
       // FRAME before HELLO, a second HELLO, or an unknown type: protocol violation.
-      forget(entry, in: session)
+      refuse(entry, in: session,
+             reason: type == BleGattProfile.typeFrame ? "not bound" : "unexpected type")
     }
   }
 
@@ -784,7 +819,7 @@ extension BleEngine: CBPeripheralManagerDelegate {
           handle(message: message, from: entry, in: session)
         }
       } catch {
-        forget(entry, in: session)
+        refuse(entry, in: session, reason: "oversize or bad frame length")
         result = .invalidAttributeValueLength
       }
     }
@@ -919,7 +954,11 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     isScanning = false
     switch result {
     case .success(let ack): promise.resolve(withResult: ack)
-    case .failure(let error): promise.reject(withError: error)
+    case .failure(let error):
+      // Every terminal failure of a send says so in the log, so the hardware
+      // rows are positive checks rather than inferences from a missing line.
+      os_log("send failed reason=%{public}@", log: bleLog, type: .default, error.localizedDescription)
+      promise.reject(withError: error)
     }
   }
 
@@ -1048,6 +1087,13 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     if let error { return settle(.failure(error)) }
     if stage == .sendingHello, let frame = frameChar {
       writeNextHelloChunk(p, frame)
+      return
+    }
+    if stage == .writingFrame {
+      // The FRAME's first chunk landed: this is the guaranteed kick that
+      // starts the withoutResponse pump for the remaining chunks (and, for a
+      // single-chunk frame, moves straight to awaitingAck).
+      pumpWrites()
     }
   }
 
@@ -1085,7 +1131,7 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
       frameChunks = BleGattProfile.chunks(framed, size: p.maximumWriteValueLength(for: .withoutResponse))
       frameStartedAt = DispatchTime.now()
       stage = .writingFrame
-      pumpWrites()
+      writeFirstFrameChunk()
 
     case (BleGattProfile.typeAck, .awaitingAck):
       guard body.count > BleGattProfile.macLength else {
@@ -1102,8 +1148,35 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
       settle(.success(json.base64EncodedString()))
 
     default:
+      // Once the FRAME is on the wire the payee may already have queued the
+      // payment, so nothing unexpected here may reject: doing so would drop a
+      // paid session onto the fountain. Only a bad ACK MAC (above) or a
+      // timeout settles a failure from these two stages.
+      if stage == .writingFrame || stage == .awaitingAck {
+        os_log("unexpected message ignored type=%d bytes=%ld", log: bleLog, type: .default,
+               Int32(type), body.count)
+        return
+      }
       settle(.failure(BleGattProfile.error("peer failed the session proof", code: 22)))
     }
+  }
+
+  /// The FRAME's first chunk, written WITH response. `canSendWriteWithoutResponse`
+  /// may be false the instant HELLO_B lands, and CoreBluetooth's contract for
+  /// `peripheralIsReady(toSendWriteWithoutResponse:)` is "ready *again*" -- it
+  /// is not guaranteed to fire when the flag was never observed true, so a
+  /// withoutResponse pump can make no progress at all until the 20 s whole-send
+  /// timeout. The write response to this one chunk is that guaranteed
+  /// continuation; every remaining chunk stays withoutResponse under the
+  /// existing backpressure, so the cost is one round trip per send.
+  private func writeFirstFrameChunk() {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard !settled, stage == .writingFrame, let p = peripheral, let frame = frameChar,
+          !frameChunks.isEmpty else { return }
+    let chunk = frameChunks.removeFirst()
+    os_log("frame first chunk bytes=%ld remaining=%ld", log: bleLog, type: .default,
+           chunk.count, frameChunks.count)
+    p.writeValue(chunk, for: frame, type: .withResponse)
   }
 
   /// Write-without-response with real backpressure (spec §3 step 6): stop

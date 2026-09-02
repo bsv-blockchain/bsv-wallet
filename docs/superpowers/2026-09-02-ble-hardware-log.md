@@ -49,9 +49,9 @@ Open Console.app, select iPhone A (payee), set the filter to `subsystem:org.bsvb
    - `prepare resolved state=poweredOn`
    - `advertising started service=<UUID> name=bsvpay-<base32>`
 
-   The first launch also shows the iOS "BSV Wallet Would Like to Use Bluetooth" prompt at this moment and nowhere else; tap Allow.
+   The first launch also shows the iOS "BSV Wallet Would Like to Use Bluetooth" prompt at this moment; tap Allow. The prompt fires when the CoreBluetooth managers are first created, which on the payee is `prepare()` — the call Task 10 makes at minting, i.e. as the QR appears. Note that `startListening` also creates the managers defensively (a caller that skipped `prepare()` would otherwise hang instead of advertising), so on a build **without** Task 10's wiring the prompt appears at `startListening` instead — a moment later, as the listener starts, rather than at minting. Either way it is one prompt per install, on the payee side only, and nowhere else in the flow.
 2. Payer (B): scan A's QR and confirm. **Expected UI:** `ready` with the Bluetooth icon on the confirm screen, `waiting` on send, then the done screen within 5 s. **Expected B log, in order:**
-   - `central manager state=poweredOn` (first launch: the Bluetooth prompt appears here; tap Allow)
+   - `central manager state=poweredOn` (first launch: the Bluetooth prompt appears here, when `sendFrame` creates the central manager; tap Allow. A payer that lands on QR instead of BLE is never prompted.)
    - `scanning service=<same UUID as A>`
    - `scan hit rssi=-NN id=<A's identifier> ms=<n>`
    - `connected id=... maxWriteLen=<N> ms=<n>` (expect `maxWriteLen` 182 or 244 on modern iPhones; 20 means the MTU stayed at 23)
@@ -75,7 +75,9 @@ Open Console.app, select iPhone A (payee), set the filter to `subsystem:org.bsvb
 - **Payee locked mid-wait**: on A, lock the screen once `advertising started` appears, then scan on B. iOS moves a backgrounded peripheral's UUIDs to the overflow area (spec "Verified facts"); B logs `scanning ...` and then, within 6 s, no `scan hit` and JS reports `connect timeout: no route to peer`, falling to the fountain. Row 4 result: `fallback`. (With a third iPhone, this is a good place to confirm a foreground iPhone central *does* still find it — it is Android centrals that cannot.)
 - **Second payer, same QR**: photograph A's QR with B, complete the payment, then scan the same photo with a third iPhone (or B again after the done screen if the session survived). A never logs a second `frame accepted`: the second central is refused at FRAME with no ack (`hasAccepted` latch) and the second payer falls to its fountain, where the payee's JS answers `already_paid`. Row 5 result: `refused`.
 
-Also confirm, in A's log after each completed payment, that no `payee never confirmed the payment` line ever appears on the happy path, and that `idle central forgotten` appears only in the lock/stranger cases.
+Every terminal failure logs its own line, so each failure row is a positive check rather than an inference from a missing line. On the payer: `send failed reason=<message>` (the message is the contract string JS receives — e.g. `connect timeout: no route to peer`, `bluetooth unavailable`, `peer disconnected before acking`). On the payee: `frame refused reason=<why> id=<central>` for a FRAME that was not bound, already accepted, empty, or oversize, and `ack reaper fired; connection released` if the 60 s hold expired. Record the exact line you saw in the Notes column.
+
+Also confirm, in A's log after each completed payment, that no `payee never confirmed the payment` / `ack reaper fired` line ever appears on the happy path, and that `idle central forgotten` appears only in the lock/stranger cases.
 
 Revert the temporary `select.ts` edit when done:
 
