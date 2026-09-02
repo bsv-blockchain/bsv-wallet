@@ -148,6 +148,7 @@ import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
 import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-mobile'
 import { StorageExpoSQLite } from '../storage'
+import { makeBuildGeneration } from './buildGeneration'
 import * as SQLite from 'expo-sqlite'
 import { getRegisteredDbs, registerDb, selectLatestDb } from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
@@ -482,6 +483,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const { t } = useTranslation()
   const [managers, setManagers] = useState<ManagerState>({})
   const [storage, setStorage] = useState<StorageExpoSQLite | null>(null)
+  /**
+   * Which build may publish itself. Bumped by every teardown (network switch,
+   * rebuild, delete); a build captures it at the start and checks it before
+   * handing anything to React. See core/context/buildGeneration.ts.
+   */
+  const buildGenRef = useRef(makeBuildGeneration())
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [txStatusVersion, setTxStatusVersion] = useState(0)
   // The active user's storage id, for scoping `offline_actions` reads (see
@@ -797,6 +804,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   // ---- WAB + network + storage configuration ----
   const [selectedMethod, setSelectedMethod] = useState<string>('')
   const [selectedNetwork, setSelectedNetwork] = useState<AppChain>(DEFAULT_CHAIN)
+  /**
+   * The network a build should use, readable without a closure.
+   *
+   * `buildWallet` runs inside a SimpleWalletManager callback that a render
+   * captured, and a build in flight when the user switches keeps the network
+   * that render saw: after switching back to mainnet the app rebuilt TESTNET
+   * and published it, leaving a mainnet label over a testnet wallet. The state
+   * is what the UI renders; this ref is what the build reads.
+   */
+  const selectedNetworkRef = useRef<AppChain>(DEFAULT_CHAIN)
+  selectedNetworkRef.current = selectedNetwork
   const [selectedStorageUrl, setSelectedStorageUrl] = useState<string>(DEFAULT_STORAGE_URL)
 
   // Flag that indicates configuration is complete. For returning users,
@@ -865,12 +883,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   // Build wallet function
   const buildWallet = useCallback(
     async (primaryKey: number[], privilegedKeyManager: PrivilegedKeyManager): Promise<any> => {
+      // Captured before anything is opened: everything this build publishes is
+      // conditional on the app still wanting THIS build by the time it gets there.
+      const buildToken = buildGenRef.current.current()
+      const stillWanted = () => buildGenRef.current.isCurrent(buildToken)
       try {
         logWithTimestamp(F, 'Building wallet')
         const newManagers = {} as any
-        const chain = selectedNetwork
+        // Deliberately the ref, not the state: see selectedNetworkRef.
+        const chain = selectedNetworkRef.current
         // Toolbox chain id ('teratest' -> 'ttn'). App keeps 'teratest' for AsyncStorage keys / env / UI.
-        const walletChain = toWalletChain(selectedNetwork)
+        const walletChain = toWalletChain(chain)
         // The backup log's network name. Distinct from walletChain ('ttn' for teratest):
         // the backup derivation is frozen on the app-level names.
         const backupChain =
@@ -892,7 +915,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // for root misses and the source for header sync. chaintracksUrlFor is
         // the single source of truth for these URLs — createServiceOptions
         // calls the same function, so there is exactly one table to edit.
-        const remoteChaintracks = new ChaintracksServiceClient(walletChain, chaintracksUrlFor(selectedNetwork))
+        const remoteChaintracks = new ChaintracksServiceClient(walletChain, chaintracksUrlFor(chain))
         const offlineChaintracks = new OfflineFirstChaintracks(remoteChaintracks, getOnline)
         offlineChaintracksRef.current = offlineChaintracks
 
@@ -906,7 +929,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // offline verification dead with nothing to say so. See
         // installOfflineChainTracker's doc comment for the full story.
         const { services, serviceOptions } = createServices(
-          selectedNetwork,
+          chain,
           callbackToken,
           bsvExchangeRate,
           arcUrlOverride || undefined,
@@ -1116,6 +1139,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             }
           }
 
+          // A switch landed while this build was opening its database. Publishing
+          // now would put the old chain's storage under the new chain's wallet.
+          if (!stillWanted()) {
+            logWithTimestamp(F, 'Discarding a build the network switch overtook')
+            try {
+              await phoneStorage.destroy()
+            } catch {}
+            return null
+          }
           setStorage(phoneStorage)
 
           // addWalletStorageProvider calls makeAvailable internally
@@ -1234,7 +1266,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               new TaskSendOffline(monitor, async () => {
                 const r = await processOfflineActions({
                   storage: phoneStorage!,
-                  refetchBeef: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+                  refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
                 })
                 // The drain writes transaction statuses directly, below the
                 // monitor's onTransactionStatusChanged callback — bump the
@@ -1282,7 +1314,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   } catch {
                     return { accepted: 0, attention: 0, pending: false }
                   }
-                  const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
+                  const repairBeef = makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
                   const classify = await makeCreditClassifier({
                     getOnline,
                     peekLastMissHeight: () => offlineChaintracks.peekLastMissHeight()
@@ -1535,6 +1567,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // fragile moment of cold start. Deferring it costs nothing (background sync is
           // not needed for first paint or CWI page interaction) and eases launch
           // contention that contributes to watchdog/OOM kills on real devices.
+          if (!stillWanted()) {
+            try {
+              await stopMonitorAndDrain(monitor)
+            } catch {}
+            return null
+          }
           monitorRef.current = monitor
           InteractionManager.runAfterInteractions(() => {
             // Re-check identity: stopTasks() before startTasks() is a no-op
@@ -1599,6 +1637,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           })()
         })
 
+        if (!stillWanted()) {
+          logWithTimestamp(F, 'Discarding a build the network switch overtook')
+          return null
+        }
         setManagers(m => ({ ...m, ...newManagers }))
         logWithTimestamp(F, 'Wallet build completed successfully')
 
@@ -1633,12 +1675,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   // TODO: Re-add WAB (WalletAuthenticationManager) support in future version
 
+  /** Lets a build that finished on a stale configuration re-enter this same
+   * callback, which cannot name itself inside its own definition. */
+  const buildFromMnemonicRef = useRef<((m?: string, o?: WalletBuildOptions) => Promise<void>) | null>(null)
+
   const buildWalletFromMnemonic = useCallback(
     async (providedMnemonic?: string, opts?: WalletBuildOptions) => {
       // Skip if wallet already built or a build is already in progress
       if (walletBuiltRef.current || walletBuildingRef.current) {
         return
       }
+      const buildToken = buildGenRef.current.current()
 
       // Only build if wallet is properly configured
       if (configStatus !== 'configured') {
@@ -1692,9 +1739,23 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           ...m,
           walletManager: swm
         }))
+        walletBuildingRef.current = false
+
+        // The configuration changed while this build ran, so what it produced
+        // (if anything — buildWallet refuses to publish a stale build) is not
+        // the wallet the app is now asking for. The request that carried the
+        // new chain was refused by the in-progress guard at the top of this
+        // function, so nothing else will retry: do it here.
+        if (!buildGenRef.current.isCurrent(buildToken)) {
+          logWithTimestamp(F, 'Configuration changed mid-build, rebuilding')
+          walletBuiltRef.current = false
+          setWalletBuilt(false)
+          await buildFromMnemonicRef.current?.(providedMnemonic, opts)
+          return
+        }
+
         walletBuiltRef.current = true
         setWalletBuilt(true)
-        walletBuildingRef.current = false
         setWalletBuilding(false)
 
         logWithTimestamp(F, 'Mnemonic wallet build completed')
@@ -1711,6 +1772,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // walletBuiltRef, so the callback identity no longer needs to churn on it.
     [configStatus, getMnemonic, buildWallet]
   )
+
+  buildFromMnemonicRef.current = buildWalletFromMnemonic
 
   // Build wallet from a recovered PrivateKey (WIF) obtained via backup share scanning
   const buildWalletFromRecoveredKey = useCallback(
@@ -1764,6 +1827,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   // Used after DB import and internally by switchNetwork.
   const rebuildWallet = useCallback(async () => {
     logWithTimestamp(F, 'Rebuilding wallet')
+    // Any build already in flight belongs to the configuration being replaced.
+    buildGenRef.current.bump()
 
     // Stop any running monitor and let its current pass drain before the
     // storage teardown below closes the connection under it.
@@ -1810,6 +1875,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     async (network: AppChain) => {
       if (network === selectedNetwork) return
       logWithTimestamp(F, `Switching network from ${selectedNetwork} to ${network}`)
+      buildGenRef.current.bump()
 
       // Stop any running monitor and let its current pass drain before the
       // storage teardown below closes the connection under it.

@@ -533,6 +533,10 @@ export function WalletHomeScreen() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      // Same gate as the balance: until the mounted storage belongs to the
+      // network on screen, the wallet answering listActions is still the
+      // previous chain's, and its payments are not this network's.
+      if (!onThisNetwork) return
       if (actions.length === 0) setLoading(true)
       try {
         const result = await fetchActions(0)
@@ -559,7 +563,7 @@ export function WalletHomeScreen() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchActions, txStatusVersion, focusVersion, fetchOfflineRows, storage])
+  }, [fetchActions, txStatusVersion, focusVersion, fetchOfflineRows, storage, onThisNetwork])
 
   const loadMore = useCallback(async () => {
     // Three guards, all load-bearing:
