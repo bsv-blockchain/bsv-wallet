@@ -156,3 +156,20 @@ export async function probeDeviceCaps(opts?: { netBudgetMs?: number }): Promise<
     nfc: readNfcAvailable(),
   }
 }
+
+/**
+ * Instantiate the BLE managers and wait for them to settle. THE ONE CALL THAT
+ * MAY SHOW THE iOS BLUETOOTH PROMPT, so the payee's minting step is the only
+ * caller (spec §4). Never rejects: minting must not fail because a radio did
+ * not answer — the request simply advertises without CAP_BLE. 'unsupported'
+ * when there is no BLE HybridObject at all.
+ */
+export async function prepareBle(timeoutMs: number = BLE_PREPARE_TIMEOUT_MS): Promise<BluetoothState> {
+  const ble = getLocalPayBleTransport()
+  if (!ble) return 'unsupported'
+  try {
+    return asBluetoothState(await ble.prepare(timeoutMs))
+  } catch {
+    return 'unknown'
+  }
+}

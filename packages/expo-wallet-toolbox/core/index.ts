@@ -139,12 +139,16 @@ export {
   probeDeviceCaps,
   capsFromProbe,
   readBluetoothState,
+  prepareBle,
+  raceReceivers,
   CAP_BLE,
   isDeclineReason,
   type TransportKind,
   type FloorReason,
   type DeviceProbe,
   type BluetoothState,
+  type RaceWinner,
+  type RadioKind,
   type ConfirmDelivery,
   type DeclineReason
 } from './pay/rails/nearby'

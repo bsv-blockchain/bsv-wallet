@@ -55,6 +55,7 @@ export { holdSentPaymentOffline } from '../../offline/payerHold'
 export { awdlTransport } from '../../localpay/transport/awdl'
 export { nearbyTransport } from '../../localpay/transport/nearby'
 export { bleTransport } from '../../localpay/transport/ble'
+export { raceReceivers, type RaceWinner, type RadioKind } from '../../localpay/transport/race'
 export {
   describeFloor,
   localSupportsAwdl,
@@ -68,6 +69,7 @@ export { requestNearbyPermissions } from '../../localpay/nearbyPermissions'
 export { requestBlePermissions } from '../../localpay/blePermissions'
 export {
   capsFromProbe,
+  prepareBle,
   probeDeviceCaps,
   readBluetoothState,
   type BluetoothState,

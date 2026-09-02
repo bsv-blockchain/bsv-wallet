@@ -18,7 +18,8 @@ import { awdlTransport } from '../../core/localpay/transport/awdl'
 import { bleTransport } from '../../core/localpay/transport/ble'
 import { describeFloor, localSupportsAwdl, localSupportsBle, selectTransport } from '../../core/localpay/transport/select'
 import { requestBlePermissions } from '../../core/localpay/blePermissions'
-import { capsFromProbe, probeDeviceCaps, readBluetoothState } from '../../core/localpay/deviceCaps'
+import { capsFromProbe, prepareBle, probeDeviceCaps, readBluetoothState } from '../../core/localpay/deviceCaps'
+import { raceReceivers } from '../../core/localpay/transport/race'
 
 describe('nearby rail adapter', () => {
   it('re-exports the localpay functions by identity, so nothing is reimplemented', () => {
@@ -49,6 +50,8 @@ describe('nearby rail adapter', () => {
     expect(nearby.probeDeviceCaps).toBe(probeDeviceCaps)
     expect(nearby.capsFromProbe).toBe(capsFromProbe)
     expect(nearby.readBluetoothState).toBe(readBluetoothState)
+    expect(nearby.prepareBle).toBe(prepareBle)
+    expect(nearby.raceReceivers).toBe(raceReceivers)
     expect(nearby.CAP_BLE).toBe(session.CAP_BLE)
   })
 
@@ -62,6 +65,8 @@ describe('nearby rail adapter', () => {
     expect(root.probeDeviceCaps).toBe(probeDeviceCaps)
     expect(root.capsFromProbe).toBe(capsFromProbe)
     expect(root.readBluetoothState).toBe(readBluetoothState)
+    expect(root.prepareBle).toBe(prepareBle)
+    expect(root.raceReceivers).toBe(raceReceivers)
     expect(root.QrHandoffRequired).toBe(types.QrHandoffRequired)
     expect(root.AckError).toBe(types.AckError)
   })
