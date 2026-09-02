@@ -272,8 +272,17 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     }
     // ACTION_STATE_CHANGED is a protected system broadcast, so the API 33+
     // RECEIVER_EXPORTED / RECEIVER_NOT_EXPORTED flag requirement does not apply.
-    ctx.registerReceiver(receiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
-    adapterReceiver = receiver
+    try {
+      ctx.registerReceiver(receiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+      adapterReceiver = receiver
+    } catch (e: RuntimeException) {
+      // A strict OEM build that demands the export flag anyway (or any
+      // SecurityException from a hardened ROM) must not take prepare() down
+      // with it. Without the receiver the adapter-off path is simply not
+      // reported early; the next radio call fails with the usual
+      // "bluetooth unavailable" instead.
+      Log.d(TAG, "payee: could not register the adapter-state receiver: ${e.message}")
+    }
   }
 
   /** Runs on main. */
@@ -545,8 +554,28 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
           BluetoothProfile.STATE_CONNECTED -> {
             if (!listening) return@post
             Log.d(TAG, "payee: central connected ${device.address} (status $status)")
+            if (centrals.containsKey(device.address)) {
+              // Keep the entry we already have. A FRAME or CCCD write can
+              // outrun this callback and register the central lazily; replacing
+              // it here would throw away a mid-record reassembler and the
+              // subscription flag, and re-arm a second idle reaper for the
+              // same address.
+              return@post
+            }
+            if (hasAccepted &&
+              device.address != pendingAckDevice?.address &&
+              device.address != ackTargetDevice?.address
+            ) {
+              // The session already has its payer: no new state for anyone
+              // else (same guard as the two lazy-registration sites below).
+              Log.d(TAG, "payee: ignoring ${device.address}; session already has its payer")
+              return@post
+            }
             centrals[device.address] = Central(device)
-            armIdleReaper(device)
+            // Never arm the 30 s idle reaper once a frame is accepted: it
+            // would outlive nothing useful and could fire inside the 60 s ack
+            // hold on the very link the ack has to cross.
+            if (!hasAccepted) armIdleReaper(device)
           }
           BluetoothProfile.STATE_DISCONNECTED -> {
             Log.d(TAG, "payee: central disconnected ${device.address} (status $status)")
@@ -594,6 +623,18 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         // anything that could follow from JS's confirmFrame. onFrame is
         // invoked further down this same main-thread hop, so an indication
         // can never overtake the response to the write that carried the FRAME.
+        //
+        // Prepared (long) writes are answered before anything else and NOT
+        // with GATT_SUCCESS: the profile never uses them (chunks are ≤ MTU − 3
+        // by construction, §3), and telling a peer its queued write was
+        // accepted and then refusing it is worse than refusing it outright.
+        if (preparedWrite) {
+          if (responseNeeded) {
+            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+          }
+          if (characteristic.uuid == FRAME_CHAR_UUID && listening) refuse(device, "prepared write")
+          return@post
+        }
         if (responseNeeded) {
           gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
         }
@@ -610,16 +651,17 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
           armIdleReaper(device)
           fresh
         }
-        if (preparedWrite) {
-          // The profile never uses long (prepared) writes: chunks are ≤ MTU − 3 by construction (§3).
-          refuse(device, "prepared write")
-          return@post
-        }
         if (value == null || value.isEmpty()) return@post
         val messages = try {
           central.reassembler.feed(value)
-        } catch (e: IllegalArgumentException) {
+        } catch (e: RuntimeException) {
+          // RuntimeException, not just IllegalArgumentException: this runnable
+          // is the top of the stack for a binder-delivered write, so anything
+          // that escapes it kills the process. The held central survives a
+          // framing refusal by design, so its reassembler is resynchronised
+          // here as well as inside feed().
           Log.d(TAG, "payee: bad framing from ${device.address}: ${e.message}; dropping")
+          central.reassembler.reset()
           refuse(device, "oversize or bad frame length")
           return@post
         }
@@ -877,12 +919,22 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       if (device == null || psk == null || name == null || gattServer == null ||
         central == null || !central.subscribed
       ) {
-        if (hasAccepted) {
+        if (ackTargetDevice != null) {
+          // A second confirmFrame while the first call's ACK is still on the
+          // wire (or has just been delivered). The first call owns that send
+          // and its own promise; resetSession here would fail the in-flight
+          // indication and reject BOTH promises for a peer that was still
+          // there. Idempotent no-op instead, per the spec's confirmFrame
+          // contract.
+          Log.d(TAG, "payee: confirmFrame ignored; an ack is already in flight to ${ackTargetDevice?.address}")
+          promise.resolve(Unit)
+        } else if (hasAccepted) {
           // A frame WAS accepted in this session but the route back is gone
           // (the payer disconnected or unsubscribed, or the ack reaper already
-          // released the hold). Reject rather than resolve: resolving would
-          // tell JS the payer was informed when it was not, and the payer's
-          // inputs staying locked is the safe failure (Swift hardening 2).
+          // released the hold) and no ack ever went out. Reject rather than
+          // resolve: resolving would tell JS the payer was informed when it was
+          // not, and the payer's inputs staying locked is the safe failure
+          // (Swift hardening 2).
           Log.d(TAG, "payee: confirmFrame with no ack route; peer is gone")
           resetSession(null)
           promise.reject(Error("peer disconnected before acking"))
@@ -1071,7 +1123,9 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         if (settled) return
         val messages = try {
           reassembler.feed(value)
-        } catch (e: IllegalArgumentException) {
+        } catch (e: RuntimeException) {
+          // As on the payee side: this runs at the top of a main.post runnable
+          // for a binder-delivered indication, so nothing may escape it.
           fail("bad frame from peer: ${e.message}")
           return
         }
@@ -1096,7 +1150,14 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
               }
             }
 
-            message[0] == TYPE_ACK -> {
+            // Type paired with stage, exactly as the Swift twin's
+            // `case (typeAck, .awaitingAck)`: an ACK that arrives before our
+            // FRAME was ever written cannot be an ack for this payment, so it
+            // falls through to the else branch below and fails there (its own
+            // MAC would only prove the peer holds the PSK, not that it received
+            // anything). Resolving it would release the payer's inputs against
+            // a payment the payee never saw.
+            message[0] == TYPE_ACK && frameOnWire -> {
               // The one failure still allowed past frameOnWire: a MAC that does
               // not verify is not our payee, and resolving it would release the
               // payer's inputs on an unauthenticated {"ok":true}.

@@ -165,4 +165,47 @@ class BleGattProfileTest {
     val atCap = BleGattProfile.Reassembler().feed(byteArrayOf(0, 0, 0x80.toByte(), 0))
     assertEquals(0, atCap.size)
   }
+
+  /**
+   * A rejected length prefix must not leave the instance mid-header. The
+   * payee keeps the central it is holding for the ack alive across a framing
+   * refusal, so that same Reassembler sees the peer's next write: with
+   * headerFilled stuck at 4 and a null body, that byte used to be written to
+   * header[4] and the ArrayIndexOutOfBoundsException escaped the GATT
+   * callback's main.post runnable and killed the process.
+   */
+  @Test
+  fun reassemblerResynchronisesAfterARejectedLengthPrefix() {
+    val message = byteArrayOf(7, 7, 7)
+
+    val oversize = BleGattProfile.Reassembler()
+    try {
+      oversize.feed(byteArrayOf(0, 1, 0, 0)) // declared 65536 > MAX_BLE_FRAME_BYTES
+      fail("expected IllegalArgumentException for an oversize length prefix")
+    } catch (e: IllegalArgumentException) {
+      assertTrue(e.message!!.contains("65536"))
+    }
+    val afterOversize = oversize.feed(BleGattProfile.lengthPrefixed(message))
+    assertEquals(1, afterOversize.size)
+    assertArrayEquals(message, afterOversize[0])
+
+    val zero = BleGattProfile.Reassembler()
+    try {
+      zero.feed(byteArrayOf(0, 0, 0, 0))
+      fail("expected IllegalArgumentException for a zero-length prefix")
+    } catch (e: IllegalArgumentException) {
+      // expected
+    }
+    val afterZero = zero.feed(BleGattProfile.lengthPrefixed(message))
+    assertEquals(1, afterZero.size)
+    assertArrayEquals(message, afterZero[0])
+
+    // reset() is also callable directly, mid-record, by a caller keeping the peer alive.
+    val partial = BleGattProfile.Reassembler()
+    assertEquals(0, partial.feed(byteArrayOf(0, 0, 0, 9, 1, 2)).size)
+    partial.reset()
+    val afterReset = partial.feed(BleGattProfile.lengthPrefixed(message))
+    assertEquals(1, afterReset.size)
+    assertArrayEquals(message, afterReset[0])
+  }
 }

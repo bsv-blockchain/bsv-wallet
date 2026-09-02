@@ -175,6 +175,24 @@ object BleGattProfile {
     private var body: ByteArray? = null
     private var bodyFilled = 0
 
+    /**
+     * Discards any half-read record.
+     *
+     * `feed` calls this before every throw, which is load-bearing rather than
+     * tidy: the rejected length prefix is diagnosed with `headerFilled`
+     * already at LENGTH_PREFIX_BYTES and `body` still null, so an instance
+     * left in that state would take the header branch on its very next byte
+     * and write `header[4]` — an ArrayIndexOutOfBoundsException raised inside
+     * a GATT callback, i.e. a process kill. A caller that keeps a peer alive
+     * after a framing refusal (the payee holding the ack route open) can also
+     * call it directly to resynchronise.
+     */
+    fun reset() {
+      headerFilled = 0
+      body = null
+      bodyFilled = 0
+    }
+
     fun feed(chunk: ByteArray): List<ByteArray> {
       val done = mutableListOf<ByteArray>()
       var i = 0
@@ -188,6 +206,10 @@ object BleGattProfile {
               ((header[2].toInt() and 0xff) shl 8) or
               (header[3].toInt() and 0xff)
             if (declared <= 0 || declared > MAX_BLE_FRAME_BYTES) {
+              // Reset BEFORE throwing: see `reset`'s doc comment — leaving
+              // headerFilled at 4 with a null body turns the next byte from
+              // this peer into an ArrayIndexOutOfBoundsException.
+              reset()
               throw IllegalArgumentException("declared message length $declared outside 1..$MAX_BLE_FRAME_BYTES")
             }
             body = ByteArray(declared)
