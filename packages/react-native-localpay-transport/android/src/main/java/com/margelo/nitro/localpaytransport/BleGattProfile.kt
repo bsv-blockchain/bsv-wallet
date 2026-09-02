@@ -98,7 +98,10 @@ object BleGattProfile {
    */
   fun verifyAck(psk: ByteArray, instanceName: String, message: ByteArray): ByteArray? {
     if (message.isEmpty() || message[0] != TYPE_ACK) return null
-    if (message.size < 1 + MAC_BYTES) return null
+    // Strictly greater: a 33-byte ACK is a MAC over an EMPTY ackJson, which the
+    // Swift twin also rejects (`body.count > macLength`) and which JS's
+    // parseAck could not parse anyway.
+    if (message.size <= 1 + MAC_BYTES) return null
     val json = message.copyOfRange(1, message.size - MAC_BYTES)
     val mac = message.copyOfRange(message.size - MAC_BYTES, message.size)
     return if (constantTimeEquals(mac, ackMac(psk, instanceName, json))) json else null

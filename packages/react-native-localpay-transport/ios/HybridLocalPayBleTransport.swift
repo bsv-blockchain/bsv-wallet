@@ -577,6 +577,14 @@ final class BleEngine: NSObject {
 
     switch (type, entry.stage) {
     case (BleGattProfile.typeHelloA, .awaitingHello):
+      // The session already has its payer: nobody else gets HELLO_B, and a
+      // stray HELLO_A from the held central must not cost it the ack route
+      // (`refuse` keeps that one central). Mirrors Kotlin's
+      // `TYPE_HELLO_A -> if (hasAccepted) refuse(device, "already accepted")`.
+      guard !session.hasAccepted else {
+        refuse(entry, in: session, reason: "already accepted")
+        return
+      }
       let expected = BleGattProfile.proof(psk: session.psk, instanceName: session.instanceName, type: BleGattProfile.typeHelloA)
       guard entry.subscribed, BleGattProfile.constantTimeEquals(body, expected) else {
         // Wrong PSK, or no route back for HELLO_B: forget it, keep advertising.
@@ -920,6 +928,22 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
   }
 
+  /// One chunk size for every write on this connection: the SMALLER of the two
+  /// CoreBluetooth ceilings.
+  ///
+  /// `.withoutResponse` is `ATT_MTU − 3` (514 against an Android peripheral
+  /// that negotiated 517), but HELLO_A's chunks and the FRAME's first chunk are
+  /// written `.withResponse`, whose own ceiling is 512. Handing CoreBluetooth a
+  /// 514-byte with-response write invites it to satisfy the request as a
+  /// prepare/execute long write -- and the Kotlin peripheral answers a prepared
+  /// write `GATT_REQUEST_NOT_SUPPORTED` and calls `refuse(device, "prepared
+  /// write")`, which drops the link (the profile never uses long writes; chunks
+  /// are <= MTU − 3 by construction, spec §3). Sizing everything by the min
+  /// costs 2 bytes per chunk at MTU 517 and nothing at any smaller MTU.
+  private static func writeChunkSize(for p: CBPeripheral) -> Int {
+    min(p.maximumWriteValueLength(for: .withoutResponse), p.maximumWriteValueLength(for: .withResponse))
+  }
+
   /// Runs on `queue`. `connectTimeoutMs` covers scan + connect + discovery +
   /// subscribe (spec §3 step 8); `timeoutMs` covers the whole exchange.
   func start(timeoutMs: Double, connectTimeoutMs: Double) {
@@ -1000,8 +1024,10 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     dispatchPrecondition(condition: .onQueue(queue))
     guard !settled, p === peripheral, stage == .connecting else { return }
     stage = .discoveringServices
-    os_log("connected id=%{public}@ maxWriteLen=%ld ms=%ld", log: bleLog, type: .default,
-           p.identifier.uuidString, p.maximumWriteValueLength(for: .withoutResponse), elapsedMs(since: startedAt))
+    os_log("connected id=%{public}@ maxWriteLen=%ld withResponse=%ld chunk=%ld ms=%ld", log: bleLog, type: .default,
+           p.identifier.uuidString, p.maximumWriteValueLength(for: .withoutResponse),
+           p.maximumWriteValueLength(for: .withResponse), Self.writeChunkSize(for: p),
+           elapsedMs(since: startedAt))
     p.discoverServices([serviceUuid])
   }
 
@@ -1063,9 +1089,10 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     os_log("subscribed ms=%ld", log: bleLog, type: .default, elapsedMs(since: startedAt))
 
     // HELLO_A, chunked like everything else and written WITH response so the
-    // peripheral's reply to the last chunk doubles as delivery confirmation.
+    // peripheral's reply to the last chunk doubles as delivery confirmation --
+    // hence `writeChunkSize`, which respects the with-response ceiling too.
     let framed = BleGattProfile.lengthPrefixed(BleGattProfile.helloA(psk: psk, instanceName: instanceName))
-    helloChunks = BleGattProfile.chunks(framed, size: p.maximumWriteValueLength(for: .withoutResponse))
+    helloChunks = BleGattProfile.chunks(framed, size: Self.writeChunkSize(for: p))
     stage = .sendingHello
     writeNextHelloChunk(p, frame)
   }
@@ -1128,12 +1155,23 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
       os_log("hello verified ms=%ld", log: bleLog, type: .default, elapsedMs(since: startedAt))
       let framed = BleGattProfile.lengthPrefixed(BleGattProfile.frameMessage(sealed: sealed))
       frameBytes = framed.count
-      frameChunks = BleGattProfile.chunks(framed, size: p.maximumWriteValueLength(for: .withoutResponse))
+      // `writeChunkSize`, not the withoutResponse ceiling: chunk 0 goes
+      // `.withResponse` (see writeFirstFrameChunk) and must stay within the
+      // with-response limit or the peer sees a prepared write.
+      frameChunks = BleGattProfile.chunks(framed, size: Self.writeChunkSize(for: p))
       frameStartedAt = DispatchTime.now()
       stage = .writingFrame
       writeFirstFrameChunk()
 
-    case (BleGattProfile.typeAck, .awaitingAck):
+    // Both stages accept the ACK, as the Kotlin twin's `frameOnWire` gate does:
+    // the payee may indicate its ack before the last withoutResponse chunk's
+    // completion has walked us to `.awaitingAck`, and dropping it there would
+    // strand a payment the payee has already queued (the whole-send timeout
+    // would then reject and JS would fall to the fountain). An ACK that
+    // arrives BEFORE the FRAME was written still falls through to `default`:
+    // its MAC proves only that the peer holds the PSK, not that it received
+    // anything.
+    case (BleGattProfile.typeAck, .awaitingAck), (BleGattProfile.typeAck, .writingFrame):
       guard body.count > BleGattProfile.macLength else {
         return settle(.failure(BleGattProfile.error("peer failed the session proof", code: 22)))
       }

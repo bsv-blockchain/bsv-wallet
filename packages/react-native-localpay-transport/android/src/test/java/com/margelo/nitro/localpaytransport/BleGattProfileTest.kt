@@ -90,6 +90,25 @@ class BleGattProfileTest {
     assertNull("wrong type byte must fail", BleGattProfile.verifyAck(psk, name, byteArrayOf(BleGattProfile.TYPE_FRAME) + msg.copyOfRange(1, msg.size)))
   }
 
+  /**
+   * A 33-byte ACK — type byte plus a MAC that verifies over an EMPTY ackJson —
+   * must be rejected, exactly as the Swift payer rejects it (`body.count >
+   * macLength`). An empty body carries no `{"ok":…}` for JS's parseAck, and
+   * accepting one on Android only was a cross-platform asymmetry in what the
+   * two payers treat as a valid ack.
+   */
+  @Test
+  fun verifyAckRejectsAnEmptyAckJson() {
+    val emptyBodied = byteArrayOf(BleGattProfile.TYPE_ACK) +
+      BleGattProfile.ackMac(psk, name, ByteArray(0))
+    assertEquals(1 + BleGattProfile.MAC_BYTES, emptyBodied.size)
+    assertNull("an ack with no json must fail", BleGattProfile.verifyAck(psk, name, emptyBodied))
+    // One byte of json is the smallest ack that may pass.
+    val oneByte = BleGattProfile.ackMessage(psk, name, byteArrayOf('{'.code.toByte()))
+    assertEquals(2 + BleGattProfile.MAC_BYTES, oneByte.size)
+    assertArrayEquals(byteArrayOf('{'.code.toByte()), BleGattProfile.verifyAck(psk, name, oneByte))
+  }
+
   @Test
   fun ackJsonMatchesTheOtherBackendsByteForByte() {
     assertEquals("{\"ok\":true}", BleGattProfile.ackJson(true, "ignored"))

@@ -144,15 +144,24 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     return hasBleHardware() && a.isEnabled
   }
 
+  /**
+   * Order matters, and it is power BEFORE permissions: reading `state` needs no
+   * runtime permission, so a fresh payer whose radio is simply off can be told
+   * to turn Bluetooth on (`local_bt_off`, §5) instead of being sent to Settings
+   * by the "Allow it in Settings" copy that `unauthorized` (`local_ble_denied`)
+   * selects. STATE_TURNING_ON / STATE_TURNING_OFF stay "unknown" — that is what
+   * prepare() polls on. Prompt-free throughout.
+   */
   override fun bluetoothState(): String {
     val a = adapter() ?: return "unsupported"
     if (!hasBleHardware()) return "unsupported"
-    if (!(canScan() && canConnect() && canAdvertise())) return "unauthorized"
-    return when (a.state) {
-      BluetoothAdapter.STATE_ON -> "poweredOn"
-      BluetoothAdapter.STATE_OFF -> "poweredOff"
-      else -> "unknown" // STATE_TURNING_ON / STATE_TURNING_OFF
+    when (a.state) {
+      BluetoothAdapter.STATE_ON -> Unit
+      BluetoothAdapter.STATE_OFF -> return "poweredOff"
+      else -> return "unknown" // STATE_TURNING_ON / STATE_TURNING_OFF
     }
+    if (!(canScan() && canConnect() && canAdvertise())) return "unauthorized"
+    return "poweredOn"
   }
 
   override fun nfcAvailable(): Boolean {

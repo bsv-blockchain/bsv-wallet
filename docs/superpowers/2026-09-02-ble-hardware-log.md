@@ -54,7 +54,7 @@ Open Console.app, select iPhone A (payee), set the filter to `subsystem:org.bsvb
    - `central manager state=poweredOn` (first launch: the Bluetooth prompt appears here, when `sendFrame` creates the central manager; tap Allow. A payer that lands on QR instead of BLE is never prompted.)
    - `scanning service=<same UUID as A>`
    - `scan hit rssi=-NN id=<A's identifier> ms=<n>`
-   - `connected id=... maxWriteLen=<N> ms=<n>` (expect `maxWriteLen` 182 or 244 on modern iPhones; 20 means the MTU stayed at 23)
+   - `connected id=... maxWriteLen=<N> withResponse=<W> chunk=<C> ms=<n>` (expect `maxWriteLen` 182 or 244 on modern iPhones; 20 means the MTU stayed at 23. `withResponse` is CoreBluetooth's separate with-response ceiling, 512 at any MTU that allows it, and `chunk=min(maxWriteLen, withResponse)` is the size every write on this connection is cut to — see the iOS→Android first check in the Android section.)
    - `subscribed ms=<n>` (must be < 6000, the connect budget)
    - `hello verified ms=<n>`
    - `frame written bytes=<N> ms=<n>`
@@ -195,7 +195,11 @@ Pass criteria (Android ↔ Android, Step 10.2): `<M>` ≥ 185 on both sides and 
 ### Cross-OS specifics
 
 - **Android (payer B) → iOS (payee), Step 11 — run this first.** iPhone: Receive → Nearby (Task 8 build, Console.app filtered on `LocalPayBle`). Phone B: Pay → scan the iPhone's QR → confirm. B shows the same nine `payer:` lines; the iOS default MTU means `<M>` is typically 185 or 527 — record whichever appears. Also confirm on the iPhone: Task 8's `hello verified id=…`, `frame accepted bytes=… id=…` and `ack sent ok=1 bytes=44`. If B stalls at `connected … requesting mtu 517` for 2 s and then logs `mtu negotiation timed out; discovering with mtu 23`, the transfer must STILL complete (at ~2.5 KB/s) — record it as a finding, not a failure, and note the iPhone model / iOS version.
-- **iOS (payer) → Android (payee A), Step 12.** Phone A: Receive → Nearby. iPhone: Pay → scan A's QR → confirm. A shows the same payee lines with the iPhone's MAC (a random resolvable address — it changes per connection, that is normal). Pass criteria: `payee: mtu <M> for <mac>` appears BEFORE `subscribed to ACK` (iOS initiates the MTU exchange itself), `<M>` ≥ 185, `ack ok=true delivered=true`, iPhone shows the sent state. Then the lock-screen case: A listening, lock A's screen, iPhone pays — expect the iPhone to fall to the fountain within its connect budget and A's logcat to show either nothing or `central connected` followed by `idle reaper dropped` 30 s later; no `frame accepted`.
+- **iOS (payer) → Android (payee A), Step 12.** Phone A: Receive → Nearby. iPhone: Pay → scan A's QR → confirm. A shows the same payee lines with the iPhone's MAC (a random resolvable address — it changes per connection, that is normal).
+
+  **First check, before any timing — the with-response chunk ceiling.** Watch the FIRST FRAME write. The iPhone must log `frame first chunk bytes=<n>` with **n ≤ 512**, and A must **NOT** log `payee: frame refused reason=prepared write`. A refusal there means the with-response chunk exceeded 512 bytes (`maximumWriteValueLength(for: .withResponse)`), CoreBluetooth satisfied the write as a prepare/execute long write, and the Kotlin peripheral answered `GATT_REQUEST_NOT_SUPPORTED` and dropped the link — every iOS→Android payment with a framed FRAME over ~514 bytes would die at the first FRAME write and fall to the fountain. Cross-check the iPhone's `connected … maxWriteLen=<N> withResponse=<W> chunk=<C>` line: against an Android peripheral that granted MTU 517, expect `maxWriteLen=514 withResponse=512 chunk=512`, and `bytes=<n>` on the first chunk must equal `<C>` whenever the framed FRAME is larger than one chunk. Record `<C>` and `<n>` in the Notes column even when the row passes.
+
+  Then the rest of the pass criteria: `payee: mtu <M> for <mac>` appears BEFORE `subscribed to ACK` (iOS initiates the MTU exchange itself), `<M>` ≥ 185, `ack ok=true delivered=true`, iPhone shows the sent state. Then the lock-screen case: A listening, lock A's screen, iPhone pays — expect the iPhone to fall to the fountain within its connect budget and A's logcat to show either nothing or `central connected` followed by `idle reaper dropped` 30 s later; no `frame accepted`.
 
 ### Negative-case procedures
 

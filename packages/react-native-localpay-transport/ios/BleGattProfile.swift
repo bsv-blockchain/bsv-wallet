@@ -143,14 +143,28 @@ enum BleGattProfile {
   /// reasoning as `HybridLocalPayTransport.declineJson`: `reason` comes from JS
   /// and is serialized, never interpolated, because an unparseable ack is an
   /// AckError on the payer (inputs stay locked) rather than a clean decline.
+  ///
+  /// The object is assembled by hand because key ORDER is part of this wire
+  /// format: Kotlin's `ackJson` emits `{"ok":false,"error":…}`, and
+  /// `JSONSerialization` over a dictionary neither preserves insertion order
+  /// nor -- with `.sortedKeys` -- produces this one (`error` would sort before
+  /// `ok`). Only the reason's ESCAPING is delegated, by serializing it as a
+  /// one-element array and stripping the `[`/`]`, so no hand-rolled escaper
+  /// decides how a quote, a backslash or a control character is encoded.
+  /// `.withoutEscapingSlashes` matches Kotlin's `jsonString`, which passes `/`
+  /// through; with everything else the two agree byte for byte (`"` `\` `\n`
+  /// `\r` `\t` `\b` `\f`, `\u00xx` lowercase for the rest of C0, raw UTF-8
+  /// above it).
   static func declineJson(reason: String) -> String {
     let fallback = "{\"ok\":false,\"error\":\"declined\"}"
     let text = reason.isEmpty ? "declined" : reason
-    guard let data = try? JSONSerialization.data(withJSONObject: ["ok": false, "error": text]),
-          let json = String(data: data, encoding: .utf8) else {
+    guard let data = try? JSONSerialization.data(withJSONObject: [text],
+                                                 options: [.withoutEscapingSlashes]),
+          let array = String(data: data, encoding: .utf8),
+          array.hasPrefix("["), array.hasSuffix("]"), array.count > 2 else {
       return fallback
     }
-    return json
+    return "{\"ok\":false,\"error\":" + String(array.dropFirst().dropLast()) + "}"
   }
 
   // MARK: - Stream framing
@@ -167,6 +181,11 @@ enum BleGattProfile {
   /// Split into ATT-sized pieces. `size` is `ATT_MTU - 3`, which CoreBluetooth
   /// exposes as `CBCentral.maximumUpdateValueLength` (indications) and
   /// `CBPeripheral.maximumWriteValueLength(for: .withoutResponse)` (writes).
+  /// A chunk that may be written `.withResponse` must additionally respect
+  /// `maximumWriteValueLength(for: .withResponse)` (512), or CoreBluetooth may
+  /// turn the write into a prepare/execute long write, which the profile does
+  /// not use and the Kotlin peripheral refuses -- see
+  /// `OutboundSend.writeChunkSize`.
   static func chunks(_ data: Data, size: Int) -> [Data] {
     let n = max(1, size)
     var out: [Data] = []
