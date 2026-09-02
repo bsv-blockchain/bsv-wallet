@@ -222,6 +222,14 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
   private var boundDevice: BluetoothDevice? = null
   /** Central holding an undelivered ack — the one confirmFrame answers. */
   private var pendingAckDevice: BluetoothDevice? = null
+  /**
+   * Central the ACK is being indicated to right now (Swift's
+   * `session.ackTarget`). confirmFrame clears `pendingAckDevice` the moment it
+   * commits, so without this the ack route would be unprotected for the few ms
+   * the indication is on the wire and one stray write from the payer could
+   * drop the link out from under it. Cleared by resetSession.
+   */
+  private var ackTargetDevice: BluetoothDevice? = null
   /** First-success-wins latch; see HybridLocalPayTransport.hasAccepted. */
   private var hasAccepted = false
   private val idleReapers = mutableMapOf<String, Runnable>()
@@ -373,7 +381,10 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
    */
   private fun refuse(device: BluetoothDevice, reason: String) {
     Log.d(TAG, "payee: frame refused reason=$reason id=${device.address}")
-    if (device.address == pendingAckDevice?.address) return
+    // Held for the ack, or being acked right now: keep the link either way.
+    // Only a real disconnect (dropCentral from onConnectionStateChange) is
+    // allowed to take the ack route down.
+    if (device.address == pendingAckDevice?.address || device.address == ackTargetDevice?.address) return
     dropCentral(device)
   }
 
@@ -760,6 +771,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     hasAccepted = false
     boundDevice = null
     pendingAckDevice = null
+    ackTargetDevice = null
     listening = false
     val orphaned = indicationJobs.toList() + listOfNotNull(indicationInFlight)
     indicationJobs.clear()
@@ -890,6 +902,9 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       centrals.values.filter { it.device.address != device.address }.toList().forEach { dropCentral(it.device) }
       val json = BleGattProfile.ackJson(accepted, reason).toByteArray(Charsets.UTF_8)
       val t0 = SystemClock.elapsedRealtime()
+      // Protects this link while the indication is on the wire; resetSession
+      // clears it once the ack is through (or the send failed).
+      ackTargetDevice = device
       sendIndication(central, BleGattProfile.ackMessage(psk, name, json)) { ok ->
         Log.d(TAG, "payee: ack ok=$accepted delivered=$ok to ${device.address} in ${SystemClock.elapsedRealtime() - t0} ms")
         gattServer?.cancelConnection(device)
@@ -913,20 +928,28 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     main.post {
       val ctx = context()
       val a = adapter()
+      // Pre-flight rejections happen before any radio work, so there is no
+      // `settle` yet — but they are still terminal failures of a send, and the
+      // hardware checklist reads every one of them off a `send failed
+      // reason=` line rather than inferring it from a missing line.
+      fun rejectEarly(message: String) {
+        Log.d(TAG, "payer: send failed reason=$message")
+        promise.reject(Error(message))
+      }
       val psk = try { Base64.decode(pskBase64, Base64.DEFAULT) } catch (e: Exception) { null }
       val sealed = try { Base64.decode(frameBase64, Base64.DEFAULT) } catch (e: Exception) { null }
       if (psk == null || psk.isEmpty() || sealed == null || instanceName.isEmpty()) {
-        promise.reject(Error("bad psk or frame"))
+        rejectEarly("bad psk or frame")
         return@post
       }
       if (sealed.size + 1 > MAX_BLE_FRAME_BYTES) {
         // The profile's ceiling, not a GATT limit: JS falls back to the fountain, which has none below 64 KiB (§3).
-        promise.reject(Error("frame too large for a BLE payload"))
+        rejectEarly("frame too large for a BLE payload")
         return@post
       }
       val scanner = a?.bluetoothLeScanner
       if (ctx == null || a == null || !hasBleHardware() || !a.isEnabled || scanner == null || !canScan() || !canConnect()) {
-        promise.reject(Error("bluetooth unavailable"))
+        rejectEarly("bluetooth unavailable")
         return@post
       }
 
