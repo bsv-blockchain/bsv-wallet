@@ -294,6 +294,7 @@ No builds with BLE are in the field. Older `bsvpay1:` decoders (the current app)
 ## Deferred (recorded todos)
 
 - Session TTL and the PSK-in-QR exposure (cross-rung; `codec.ts:215-217`).
+- ACK/HELLO_B replay to a second payer of the same QR: the `proof`/`ackMac` inputs carry no payer nonce, so a recorder in radio range can re-advertise the session UUID and replay a MAC-valid `{"ok":true}` to a second payer of an already-paid QR. Narrow (same QR paid twice, attacker in range) and adjacent to the session-TTL item; fix after the hardware run by carrying a payer nonce in HELLO_A and binding it into `proof(0x02)` and `ackMac`.
 - L2CAP CoC if hardware timings for > 16 KiB frames disappoint.
 - BLE background advertising (would need `UIBackgroundModes bluetooth-peripheral`; invisible to Android centrals anyway).
 - Reply to Blitz (from the v3 spec's deferred list), now pointing at §2–§3 here.
