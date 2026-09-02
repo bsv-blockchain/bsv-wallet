@@ -86,3 +86,129 @@ cd /Users/personal/git/bsv-wallet && git checkout -- packages/expo-wallet-toolbo
 ```
 
 Expected: empty output from `git status --short`.
+
+---
+
+## Android (Task 9) — not yet run, phones: A = _pending_ (payee), B = _pending_ (payer), iPhone = _pending_
+
+Logcat filter used on each Android phone (Task 9 brief, Step 9):
+
+```bash
+adb -s <SERIAL> logcat -c && adb -s <SERIAL> logcat -s LocalPayBle:D ReactNativeJS:W
+```
+
+The first `D LocalPayBle:` line on each phone is `prepare: poweredOn` when its Receive flow mints. iPhone side keeps the same Console.app filter as the iOS section above (`subsystem:org.bsvblockchain.wallet category:LocalPayBle`).
+
+**Run order.** `Android (payer) → iOS (payee)` is the FIRST row to run: that direction was never confirmed in the `5fc72a7` era (spec "Verified facts"), so it is the one with real discovery risk. `Android ↔ Android` and `iOS (payer) → Android (payee)` follow.
+
+| Pairing | Negotiated MTU (`mtu <M>`) | Advertising latency (`advertising … (<n> ms`) | Subscribed at (`subscribed to ACK at <t5> ms`) | Frame bytes | Frame write (`frame written in <tf> ms`) | Ack indication (`ack … in <ta> ms`) | Total (`ack verified; total <T> ms`) | Result |
+|---|---|---|---|---|---|---|---|---|
+| Android B → iOS (payer B) — **run first** | — | n/a (iOS payee) | — | — | — | n/a | — | pending — requires devices; not run in the implementation session |
+| Android A → Android B (payer B) | — | — | — | — | — | — | — | pending — requires devices; not run in the implementation session |
+| iOS → Android A (payee A) | — | — | n/a (iOS payer) | — | n/a | — | n/a | pending — requires devices; not run in the implementation session |
+
+### Negative cases
+
+| Case | Expected | Observed (ms / log line) |
+|---|---|---|
+| Payee Bluetooth off (Step 10.3) | `connect timeout: no route to peer` at ~6000 ms, fountain shown | pending — requires devices; not run in the implementation session |
+| Second device, same QR (Step 10.4) | second payer times out; payee logs one `frame accepted` only | pending — requires devices; not run in the implementation session |
+| Wrong-PSK sender (Step 10.5) | `connect timeout: no route to peer` (UUID never matches) | pending — requires devices; not run in the implementation session |
+| Garbage write to FRAME (Step 10.5, nRF Connect) | `bad framing from` or `HELLO_A proof failed from`; next real payment still succeeds | pending — requires devices; not run in the implementation session |
+| Payee screen locked, iOS payer (Step 12) | payer falls to fountain; payee logs no `frame accepted` | pending — requires devices; not run in the implementation session |
+
+### Findings
+
+- MTU negotiation against iOS: pending — requires devices; not run in the implementation session
+- Anything that deviated from spec §3 "Expected performance" (0.5–2.5 s connect, 1–3 s end to end for 3–8 KB): pending — requires devices; not run in the implementation session
+
+## Status: Android rows not yet run
+
+Every Android row above is `pending — requires devices; not run in the implementation session`. The Kotlin backend compiles (`:react-native-localpay-transport:compileDebugKotlin`) and the eleven `BleGattProfileTest` known-answer vectors pass on the plain JVM, which pins the wire format against `ios/BleGattProfile.swift`; nothing below can be checked without two Android phones and an iPhone, and none were attached when it was written.
+
+## How to run the Android rows (Task 9 brief, Steps 9–12)
+
+Prerequisites: two Android phones on API 31+ with Bluetooth on (A = payee, B = payer), the iPhone carrying Task 8's build, and Task 10's NearbyFlow wiring present in the branch being built (until it is, the payee never advertises on BLE and none of this is reachable).
+
+Build and install one APK on both phones, from the repo root:
+
+```bash
+npm run android-dev-physical
+adb devices
+adb -s <SERIAL_A> install -r "$(ls -t build-*.apk | head -1)"
+adb -s <SERIAL_B> install -r "$(ls -t build-*.apk | head -1)"
+unzip -l "$(ls -t build-*.apk | head -1)" | grep -c libLocalPayTransport.so   # must print 4
+npx expo start --dev-client
+```
+
+The `grep -c` guard is the historical silent-QR-fallback failure mode: without the native library in the APK the JS layer floors to QR and every row below would read as "BLE not selected" rather than a real result.
+
+Grant the runtime permissions on first entry to the receive flow (Task 10's `requestBlePermissions`). If Task 10 is not merged, grant them by hand:
+
+```bash
+for p in BLUETOOTH_SCAN BLUETOOTH_CONNECT BLUETOOTH_ADVERTISE; do
+  adb -s <SERIAL> shell pm grant org.bsvblockchain.wallet android.permission.$p
+done
+```
+
+**Forcing the BLE rung between two Android phones.** The payer's ladder (§5) takes Nearby whenever the payee advertised `CAP_NEARBY`, so make the payee mint without it: `NearbyFlow`'s `nearbyReady` requires every Nearby permission, and on API 33+ one of them is `NEARBY_WIFI_DEVICES`, which BLE does not need.
+
+```bash
+adb -s <SERIAL_A> shell pm revoke org.bsvblockchain.wallet android.permission.NEARBY_WIFI_DEVICES
+# API 31–32: revoke android.permission.ACCESS_FINE_LOCATION instead
+```
+
+Relaunch the app on A and deny Nearby permission when the receive flow asks. The proof that BLE is in play is in the logs: A must print `payee: advertising` and B must print `payer: scanning`. If B shows no `LocalPayBle` lines at all, Nearby won the ladder — check A's minted `c` bits in the Metro console (`decodeSession` from `core/localpay/session`) and repeat. Cross-OS pairings need no such edit.
+
+### Expected line sequence — payee (phone A)
+
+```
+D LocalPayBle: prepare: poweredOn
+D LocalPayBle: payee: adding service <uuid> for bsvpay-<base32>
+D LocalPayBle: payee: service added <uuid>; starting advertising
+D LocalPayBle: payee: advertising <uuid> (<n> ms after startListening)
+D LocalPayBle: payee: central connected <B mac> (status 0)
+D LocalPayBle: payee: mtu <M> for <B mac>
+D LocalPayBle: payee: <B mac> subscribed to ACK
+D LocalPayBle: payee: HELLO_A verified from <B mac> at <a1> ms; sending HELLO_B
+D LocalPayBle: payee: frame accepted (<bytes> bytes, mtu <M>) from <B mac> at <a2> ms; advertising stopped
+D LocalPayBle: payee: ack ok=true delivered=true to <B mac> in <ta> ms
+D LocalPayBle: payee: central disconnected <B mac> (status 0)
+```
+
+### Expected line sequence — payer (phone B)
+
+```
+D LocalPayBle: payer: scanning for <uuid>              ← same uuid as A printed
+D LocalPayBle: payer: found <A mac> (rssi -NN) at <t1> ms; connecting
+D LocalPayBle: payer: connected to <A mac> at <t2> ms; requesting mtu 517
+D LocalPayBle: payer: mtu <M> (status 0) at <t3> ms; discovering services
+D LocalPayBle: payer: services discovered at <t4> ms; subscribing to ACK
+D LocalPayBle: payer: subscribed to ACK at <t5> ms; sending HELLO_A
+D LocalPayBle: payer: HELLO_B verified at <t6> ms; sending frame (<bytes> bytes, <k> chunks at mtu <M>)
+D LocalPayBle: payer: frame written in <tf> ms; awaiting ack
+D LocalPayBle: payer: ack verified; total <T> ms
+```
+
+Pass criteria (Android ↔ Android, Step 10.2): `<M>` ≥ 185 on both sides and identical; `<t5>` < 6000 (inside `BLE_CONNECT_TIMEOUT_MS`); `<T>` < 20000; B's screen shows the sent state and A's shows the received payment; no `ReactNativeJS` warning containing `radio_fallback`.
+
+### Cross-OS specifics
+
+- **Android (payer B) → iOS (payee), Step 11 — run this first.** iPhone: Receive → Nearby (Task 8 build, Console.app filtered on `LocalPayBle`). Phone B: Pay → scan the iPhone's QR → confirm. B shows the same nine `payer:` lines; the iOS default MTU means `<M>` is typically 185 or 527 — record whichever appears. Also confirm on the iPhone: Task 8's `hello verified id=…`, `frame accepted bytes=… id=…` and `ack sent ok=1 bytes=44`. If B stalls at `connected … requesting mtu 517` for 2 s and then logs `mtu negotiation timed out; discovering with mtu 23`, the transfer must STILL complete (at ~2.5 KB/s) — record it as a finding, not a failure, and note the iPhone model / iOS version.
+- **iOS (payer) → Android (payee A), Step 12.** Phone A: Receive → Nearby. iPhone: Pay → scan A's QR → confirm. A shows the same payee lines with the iPhone's MAC (a random resolvable address — it changes per connection, that is normal). Pass criteria: `payee: mtu <M> for <mac>` appears BEFORE `subscribed to ACK` (iOS initiates the MTU exchange itself), `<M>` ≥ 185, `ack ok=true delivered=true`, iPhone shows the sent state. Then the lock-screen case: A listening, lock A's screen, iPhone pays — expect the iPhone to fall to the fountain within its connect budget and A's logcat to show either nothing or `central connected` followed by `idle reaper dropped` 30 s later; no `frame accepted`.
+
+### Negative-case procedures
+
+3. **Radios off** — turn Bluetooth OFF on A, repeat the happy path. Expect B: `payer: scanning for <uuid>` then, at 6000 ± 100 ms, the JS radio-fallback path (fountain QR appears); no `found` line. Record the elapsed ms from the JS `[localpay]` warning.
+4. **Second device, same QR** — with A listening, pay from B (succeeds), then immediately scan the same QR from a third phone or from B again. Expect the second payer to see `connect timeout: no route to peer` (A stopped advertising) and the fountain; A's logcat shows no second `frame accepted`.
+5. **Stranger / garbage** — with A listening and B NOT paying, run in B's Metro console:
+
+   ```js
+   require('react-native-localpay-transport').getLocalPayBleTransport()
+     .sendFrame('<A instanceName>', btoa(String.fromCharCode(...new Uint8Array(32))), btoa('xx'), 20000, 6000)
+     .catch(e => console.warn('stranger:', e.message))
+   ```
+
+   The wrong PSK derives a different service UUID, so scanning simply times out: expect `stranger: connect timeout: no route to peer`. Then point an off-the-shelf BLE tool (nRF Connect) at A's service and write 37 arbitrary bytes to `B5A1E001-7374-4F6E-8E2D-425356504159`: expect A's logcat to show `payee: bad framing from <mac>` or `payee: HELLO_A proof failed from <mac>; dropping`, and A to keep advertising (a fresh payment from B still succeeds afterwards).
+
+Every terminal failure logs its own line on Android too, so each failure row is a positive check rather than an inference from a missing line: payer `payer: send failed reason=<message>` (the message is the contract string JS receives), payee `payee: frame refused reason=<why> id=<mac>` for a FRAME that was not bound, already accepted, empty or oversize, and `payee: ack reaper fired; connection released (<mac>)` if the 60 s hold expired. Record the exact line seen in the Observed column.
