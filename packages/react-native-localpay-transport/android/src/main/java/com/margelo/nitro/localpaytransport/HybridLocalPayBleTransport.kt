@@ -397,6 +397,176 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
 
   private var payer: PayerAdvertise? = null
 
+  // ── reversed role: payee as central (spec 2026-09-03 §5, Android twin) — main thread only ──
+
+  private inner class InboundScan(
+    val instanceName: String,
+    val psk: ByteArray,
+    val onFrame: (String) -> Unit,
+    val onError: (String) -> Unit
+  ) {
+    val serviceUuid: UUID = BleGattProfile.serviceUuid(psk, instanceName)
+    var scanning = false
+    var gatt: BluetoothGatt? = null
+    var mtu = DEFAULT_ATT_MTU
+    var frameCharacteristic: BluetoothGattCharacteristic? = null
+    val reassembler = BleGattProfile.Reassembler()
+    var helloVerified = false
+    /** Set when a FRAME from this link was handed to JS; confirmFrame writes the ACK here. */
+    var pendingAck = false
+    /** confirmFrame's promise while the ACK write is in flight; a write failure rejects it. */
+    var ackPromise: Promise<Unit>? = null
+    var writeQueue = ArrayDeque<ByteArray>()
+    var onWriteQueueDrained: (() -> Unit)? = null
+    var idleReaper: Runnable? = null
+    lateinit var scanCallback: ScanCallback
+    lateinit var gattCallback: BluetoothGattCallback
+
+    fun disconnectAndRescan(reason: String) {
+      Log.d(TAG, "payee(scan): $reason; rescanning")
+      idleReaper?.let { main.removeCallbacks(it) }
+      idleReaper = null
+      gatt?.let { try { it.disconnect(); it.close() } catch (e: Exception) { /* gone */ } }
+      gatt = null
+      frameCharacteristic = null
+      helloVerified = false
+      pendingAck = false
+      writeQueue = ArrayDeque()
+      onWriteQueueDrained = null
+      startScan()
+    }
+
+    fun startScan() {
+      val scanner = adapter()?.bluetoothLeScanner ?: return onError("bluetooth unavailable")
+      if (scanning) return
+      val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(serviceUuid)).build()
+      val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+      scanning = true
+      try {
+        scanner.startScan(listOf(filter), settings, scanCallback)
+        Log.d(TAG, "payee(scan): scanning for $serviceUuid")
+      } catch (e: Exception) {
+        scanning = false
+        onError("bluetooth unavailable")
+      }
+    }
+
+    fun stopScan() {
+      if (!scanning) return
+      scanning = false
+      try { adapter()?.bluetoothLeScanner?.stopScan(scanCallback) } catch (e: Exception) { /* adapter off */ }
+    }
+
+    fun tearDown() {
+      stopScan()
+      idleReaper?.let { main.removeCallbacks(it) }
+      idleReaper = null
+      gatt?.let { try { it.disconnect(); it.close() } catch (e: Exception) { /* gone */ } }
+      gatt = null
+    }
+
+    fun writeMessage(message: ByteArray, onDrained: () -> Unit) {
+      writeQueue = BleGattProfile.chunk(BleGattProfile.lengthPrefixed(message), mtu)
+      onWriteQueueDrained = onDrained
+      writeNextChunk()
+    }
+
+    fun writeNextChunk() {
+      val g = gatt ?: return
+      val characteristic = frameCharacteristic ?: return
+      val chunk = writeQueue.firstOrNull()
+      if (chunk == null) {
+        val drained = onWriteQueueDrained
+        onWriteQueueDrained = null
+        drained?.invoke()
+        return
+      }
+      val status = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          g.writeCharacteristic(characteristic, chunk, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        } else {
+          characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+          characteristic.value = chunk
+          if (g.writeCharacteristic(characteristic)) BluetoothStatusCodes.SUCCESS else WRITE_REJECTED_LEGACY
+        }
+      } catch (e: Exception) {
+        WRITE_REJECTED_LEGACY
+      }
+      if (status == BluetoothStatusCodes.SUCCESS) {
+        writeQueue.removeFirst()
+      } else if (status == BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY) {
+        main.postDelayed({ writeNextChunk() }, WRITE_BUSY_RETRY_MS)
+      } else {
+        disconnectAndRescan("write rejected by the stack (status $status)")
+      }
+    }
+
+    fun onIndication(value: ByteArray) {
+      val messages = try {
+        reassembler.feed(value)
+      } catch (e: RuntimeException) {
+        reassembler.reset()
+        disconnectAndRescan("bad framing from peer: ${e.message}")
+        return
+      }
+      for (message in messages) onMessage(message)
+    }
+
+    private fun onMessage(message: ByteArray) {
+      if (message.isEmpty()) return
+      when {
+        message[0] == TYPE_HELLO_A && !helloVerified -> {
+          val proof = message.copyOfRange(1, message.size)
+          if (!BleGattProfile.constantTimeEquals(proof, BleGattProfile.proof(psk, instanceName, TYPE_HELLO_A))) {
+            disconnectAndRescan("HELLO_A proof failed")
+            return
+          }
+          helloVerified = true
+          Log.d(TAG, "payee(scan): HELLO_A verified; writing HELLO_B (mtu $mtu)")
+          writeMessage(BleGattProfile.helloB(psk, instanceName)) {}
+        }
+        message[0] == TYPE_FRAME && helloVerified && !pendingAck -> {
+          val sealed = message.copyOfRange(1, message.size)
+          if (sealed.isEmpty()) {
+            disconnectAndRescan("empty frame")
+            return
+          }
+          if (hasAccepted) {
+            // The advertised link already delivered a frame: refuse silently, this payer times out to its fountain.
+            disconnectAndRescan("already accepted on the other link")
+            return
+          }
+          hasAccepted = true
+          pendingAck = true
+          idleReaper?.let { main.removeCallbacks(it) }
+          idleReaper = null
+          stopAdvertising()
+          armAckReaperForScan()
+          Log.d(TAG, "payee(scan): frame accepted (${sealed.size} bytes, mtu $mtu); advertising and scanning stopped")
+          onFrame(Base64.encodeToString(sealed, Base64.NO_WRAP))
+        }
+        else -> Log.d(TAG, "payee(scan): unexpected message type=${message[0].toInt() and 0xff} ignored")
+      }
+    }
+
+    private fun armAckReaperForScan() {
+      cancelAckReaper()
+      lateinit var reaper: Runnable
+      reaper = Runnable {
+        if (ackReaper !== reaper || !pendingAck) return@Runnable
+        ackReaper = null
+        pendingAck = false
+        Log.d(TAG, "payee(scan): ack reaper fired; connection released")
+        tearDown()
+        onError("payee never confirmed the payment; connection released")
+      }
+      ackReaper = reaper
+      main.postDelayed(reaper, PENDING_ACK_TIMEOUT_MS)
+    }
+  }
+
+  private var scan: InboundScan? = null
+
   private fun ensureGattServer(): BluetoothGattServer? {
     gattServer?.let { return it }
     val ctx = context() ?: return null
@@ -696,6 +866,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         hasAccepted = true
         pendingAckDevice = device
         stopAdvertising()
+        scan?.tearDown()
         // Arm the hold BEFORE handing the frame to JS: confirmFrame may come
         // back synchronously from the callback (see Nearby's acceptConnection).
         armAckReaper(device)
@@ -1087,6 +1258,8 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       // Cancels a link still held for confirmFrame, so JS must never call
       // this on the success path — see the `teardown` flag in socket.ts.
       Log.d(TAG, "payee: listening stopped by JS")
+      scan?.tearDown()
+      scan = null
       resetSession("listening stopped")
       listenPsk = null
       listenName = null
@@ -1100,6 +1273,27 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
   override fun confirmFrame(accepted: Boolean, reason: String): Promise<Unit> {
     val promise = Promise<Unit>()
     main.post {
+      val s = scan
+      if (s != null && s.pendingAck) {
+        cancelAckReaper()
+        s.pendingAck = false
+        val json = BleGattProfile.ackJson(accepted, reason).toByteArray(Charsets.UTF_8)
+        val t0 = SystemClock.elapsedRealtime()
+        if (s.gatt == null || s.frameCharacteristic == null) {
+          Log.d(TAG, "payee(scan): confirmFrame with no ack route; peer is gone")
+          s.tearDown()
+          promise.reject(Error("peer disconnected before acking"))
+          return@post
+        }
+        s.ackPromise = promise
+        s.writeMessage(BleGattProfile.ackMessage(s.psk, s.instanceName, json)) {
+          Log.d(TAG, "payee(scan): ack ok=$accepted written in ${SystemClock.elapsedRealtime() - t0} ms")
+          s.tearDown()
+          s.ackPromise?.resolve(Unit)
+          s.ackPromise = null
+        }
+        return@post
+      }
       cancelAckReaper()
       val device = pendingAckDevice
       val psk = listenPsk
@@ -1165,7 +1359,140 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     onError: (String) -> Unit
   ): Promise<Unit> {
     val promise = Promise<Unit>()
-    promise.reject(Error("bluetooth unavailable"))
+    main.post {
+      val psk = try { Base64.decode(pskBase64, Base64.DEFAULT) } catch (e: Exception) { null }
+      if (psk == null || psk.isEmpty() || instanceName.isEmpty()) {
+        promise.reject(Error("bad psk or instance name"))
+        return@post
+      }
+      val ctx = context()
+      val a = adapter()
+      if (ctx == null || a == null || !hasBleHardware() || !a.isEnabled || a.bluetoothLeScanner == null || !canScan() || !canConnect()) {
+        promise.reject(Error("bluetooth unavailable"))
+        return@post
+      }
+      scan?.tearDown()
+      val s = InboundScan(instanceName, psk, onFrame, onError)
+      scan = s
+      s.gattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+          main.post {
+            if (scan !== s) return@post
+            if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
+              Log.d(TAG, "payee(scan): connected to ${g.device.address}; requesting mtu $REQUESTED_MTU")
+              val reaper = Runnable { if (scan === s && !s.pendingAck) s.disconnectAndRescan("idle central reaper") }
+              s.idleReaper = reaper
+              main.postDelayed(reaper, IDLE_CONNECTION_TIMEOUT_MS)
+              if (!g.requestMtu(REQUESTED_MTU)) g.discoverServices()
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+              if (s.pendingAck) {
+                // The payer left before the ack: the hold goes with it so confirmFrame reports the failure.
+                s.pendingAck = false
+                cancelAckReaper()
+                s.tearDown()
+                s.onError("peer disconnected before acking")
+              } else {
+                s.disconnectAndRescan("central disconnected (status $status)")
+              }
+            }
+          }
+        }
+        override fun onMtuChanged(g: BluetoothGatt, newMtu: Int, status: Int) {
+          main.post {
+            if (scan !== s) return@post
+            if (status == BluetoothGatt.GATT_SUCCESS) s.mtu = newMtu
+            if (!g.discoverServices()) s.disconnectAndRescan("service discovery could not start")
+          }
+        }
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+          main.post {
+            if (scan !== s) return@post
+            val svc = if (status == BluetoothGatt.GATT_SUCCESS) g.getService(s.serviceUuid) else null
+            val frame = svc?.getCharacteristic(FRAME_CHAR_UUID)
+            val ack = svc?.getCharacteristic(ACK_CHAR_UUID)
+            val cccd = ack?.getDescriptor(CCCD_UUID)
+            if (frame == null || ack == null || cccd == null) {
+              s.disconnectAndRescan("session service not found on peer")
+              return@post
+            }
+            s.frameCharacteristic = frame
+            g.setCharacteristicNotification(ack, true)
+            val ok = try {
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_INDICATION_VALUE) == BluetoothStatusCodes.SUCCESS
+              } else {
+                cccd.value = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+                g.writeDescriptor(cccd)
+              }
+            } catch (e: Exception) { false }
+            if (!ok) s.disconnectAndRescan("could not subscribe to the peer's ACK characteristic")
+          }
+        }
+        override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+          main.post {
+            if (scan !== s || descriptor.uuid != CCCD_UUID) return@post
+            if (status != BluetoothGatt.GATT_SUCCESS) s.disconnectAndRescan("subscribe failed: status $status")
+            else Log.d(TAG, "payee(scan): subscribed to ACK; awaiting HELLO_A")
+          }
+        }
+        override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+          main.post {
+            if (scan !== s || characteristic.uuid != FRAME_CHAR_UUID) return@post
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+              if (s.pendingAck) {
+                s.pendingAck = false
+                cancelAckReaper()
+                s.tearDown()
+                s.onError("peer disconnected before acking")
+              } else {
+                s.ackPromise?.let {
+                  it.reject(Error("peer disconnected before acking"))
+                  s.ackPromise = null
+                  s.tearDown()
+                  return@post
+                }
+                s.disconnectAndRescan("write failed: gatt status $status")
+              }
+              return@post
+            }
+            s.writeNextChunk()
+          }
+        }
+        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+          if (characteristic.uuid != ACK_CHAR_UUID) return
+          val copy = value.copyOf()
+          main.post { if (scan === s) s.onIndication(copy) }
+        }
+        @Deprecated("Deprecated in Java")
+        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
+          if (characteristic.uuid != ACK_CHAR_UUID) return
+          val copy = characteristic.value?.copyOf() ?: return
+          main.post { if (scan === s) s.onIndication(copy) }
+        }
+      }
+      s.scanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+          main.post {
+            if (scan !== s || s.gatt != null) return@post
+            s.stopScan()
+            Log.d(TAG, "payee(scan): found ${result.device.address} (rssi ${result.rssi}); connecting")
+            val g = result.device.connectGatt(ctx, false, s.gattCallback, BluetoothDevice.TRANSPORT_LE)
+            s.gatt = g
+            if (g == null) s.startScan()
+          }
+        }
+        override fun onScanFailed(errorCode: Int) {
+          main.post {
+            if (scan !== s) return@post
+            s.scanning = false
+            s.onError("scan failed: code $errorCode")
+          }
+        }
+      }
+      s.startScan()
+      if (s.scanning) promise.resolve(Unit) else promise.reject(Error("bluetooth unavailable"))
+    }
     return promise
   }
 
