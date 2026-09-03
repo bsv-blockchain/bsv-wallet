@@ -132,6 +132,22 @@ namespace margelo::nitro::localpaytransport {
       auto __value = std::move(__result.value());
       return __value;
     }
+    inline std::shared_ptr<Promise<void>> startScanning(const std::string& instanceName, const std::string& pskBase64, const std::function<void(const std::string& /* frameBase64 */)>& onFrame, const std::function<void(const std::string& /* message */)>& onError) override {
+      auto __result = _swiftPart.startScanning(instanceName, pskBase64, onFrame, onError);
+      if (__result.hasError()) [[unlikely]] {
+        std::rethrow_exception(__result.error());
+      }
+      auto __value = std::move(__result.value());
+      return __value;
+    }
+    inline std::shared_ptr<Promise<std::string>> sendFrameAdvertising(const std::string& instanceName, const std::string& pskBase64, const std::string& frameBase64, double timeoutMs, double connectTimeoutMs) override {
+      auto __result = _swiftPart.sendFrameAdvertising(instanceName, pskBase64, frameBase64, std::forward<decltype(timeoutMs)>(timeoutMs), std::forward<decltype(connectTimeoutMs)>(connectTimeoutMs));
+      if (__result.hasError()) [[unlikely]] {
+        std::rethrow_exception(__result.error());
+      }
+      auto __value = std::move(__result.value());
+      return __value;
+    }
 
   private:
     LocalPayTransport::HybridLocalPayBleTransportSpec_cxx _swiftPart;

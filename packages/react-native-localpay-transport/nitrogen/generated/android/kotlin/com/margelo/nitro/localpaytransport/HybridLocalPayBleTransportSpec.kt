@@ -65,6 +65,19 @@ abstract class HybridLocalPayBleTransportSpec: HybridObject() {
   @DoNotStrip
   @Keep
   abstract fun sendFrame(instanceName: String, pskBase64: String, frameBase64: String, timeoutMs: Double, connectTimeoutMs: Double): Promise<String>
+  
+  abstract fun startScanning(instanceName: String, pskBase64: String, onFrame: (frameBase64: String) -> Unit, onError: (message: String) -> Unit): Promise<Unit>
+  
+  @DoNotStrip
+  @Keep
+  private fun startScanning_cxx(instanceName: String, pskBase64: String, onFrame: Func_void_std__string, onError: Func_void_std__string): Promise<Unit> {
+    val __result = startScanning(instanceName, pskBase64, onFrame, onError)
+    return __result
+  }
+  
+  @DoNotStrip
+  @Keep
+  abstract fun sendFrameAdvertising(instanceName: String, pskBase64: String, frameBase64: String, timeoutMs: Double, connectTimeoutMs: Double): Promise<String>
 
   // Default implementation of `HybridObject.toString()`
   override fun toString(): String {

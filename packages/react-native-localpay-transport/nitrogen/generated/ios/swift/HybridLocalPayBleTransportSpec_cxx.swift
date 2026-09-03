@@ -264,4 +264,52 @@ open class HybridLocalPayBleTransportSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
+  
+  @inline(__always)
+  public final func startScanning(instanceName: std.string, pskBase64: std.string, onFrame: bridge.Func_void_std__string, onError: bridge.Func_void_std__string) -> bridge.Result_std__shared_ptr_Promise_void___ {
+    do {
+      let __result = try self.__implementation.startScanning(instanceName: String(instanceName), pskBase64: String(pskBase64), onFrame: { () -> (String) -> Void in
+        let __wrappedFunction = bridge.wrap_Func_void_std__string(onFrame)
+        return { (__frameBase64: String) -> Void in
+          __wrappedFunction.call(std.string(__frameBase64))
+        }
+      }(), onError: { () -> (String) -> Void in
+        let __wrappedFunction = bridge.wrap_Func_void_std__string(onError)
+        return { (__message: String) -> Void in
+          __wrappedFunction.call(std.string(__message))
+        }
+      }())
+      let __resultCpp = { () -> bridge.std__shared_ptr_Promise_void__ in
+        let __promise = bridge.create_std__shared_ptr_Promise_void__()
+        let __promiseHolder = bridge.wrap_std__shared_ptr_Promise_void__(__promise)
+        __result
+          .then({ __result in __promiseHolder.resolve() })
+          .catch({ __error in __promiseHolder.reject(__error.toCpp()) })
+        return __promise
+      }()
+      return bridge.create_Result_std__shared_ptr_Promise_void___(__resultCpp)
+    } catch (let __error) {
+      let __exceptionPtr = __error.toCpp()
+      return bridge.create_Result_std__shared_ptr_Promise_void___(__exceptionPtr)
+    }
+  }
+  
+  @inline(__always)
+  public final func sendFrameAdvertising(instanceName: std.string, pskBase64: std.string, frameBase64: std.string, timeoutMs: Double, connectTimeoutMs: Double) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
+    do {
+      let __result = try self.__implementation.sendFrameAdvertising(instanceName: String(instanceName), pskBase64: String(pskBase64), frameBase64: String(frameBase64), timeoutMs: timeoutMs, connectTimeoutMs: connectTimeoutMs)
+      let __resultCpp = { () -> bridge.std__shared_ptr_Promise_std__string__ in
+        let __promise = bridge.create_std__shared_ptr_Promise_std__string__()
+        let __promiseHolder = bridge.wrap_std__shared_ptr_Promise_std__string__(__promise)
+        __result
+          .then({ __result in __promiseHolder.resolve(std.string(__result)) })
+          .catch({ __error in __promiseHolder.reject(__error.toCpp()) })
+        return __promise
+      }()
+      return bridge.create_Result_std__shared_ptr_Promise_std__string___(__resultCpp)
+    } catch (let __error) {
+      let __exceptionPtr = __error.toCpp()
+      return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
+    }
+  }
 }

@@ -982,6 +982,31 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     return promise
   }
 
+  // ── reversed role (spec 2026-09-03) — filled in by the PayerAdvertise / startScanning tasks ──
+
+  override fun startScanning(
+    instanceName: String,
+    pskBase64: String,
+    onFrame: (String) -> Unit,
+    onError: (String) -> Unit
+  ): Promise<Unit> {
+    val promise = Promise<Unit>()
+    promise.reject(Error("bluetooth unavailable"))
+    return promise
+  }
+
+  override fun sendFrameAdvertising(
+    instanceName: String,
+    pskBase64: String,
+    frameBase64: String,
+    timeoutMs: Double,
+    connectTimeoutMs: Double
+  ): Promise<String> {
+    val promise = Promise<String>()
+    promise.reject(Error("bluetooth unavailable"))
+    return promise
+  }
+
   // ── payer (central) ──
 
   override fun sendFrame(

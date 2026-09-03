@@ -142,5 +142,36 @@ namespace margelo::nitro::localpaytransport {
       return __promise;
     }();
   }
+  std::shared_ptr<Promise<void>> JHybridLocalPayBleTransportSpec::startScanning(const std::string& instanceName, const std::string& pskBase64, const std::function<void(const std::string& /* frameBase64 */)>& onFrame, const std::function<void(const std::string& /* message */)>& onError) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* instanceName */, jni::alias_ref<jni::JString> /* pskBase64 */, jni::alias_ref<JFunc_void_std__string::javaobject> /* onFrame */, jni::alias_ref<JFunc_void_std__string::javaobject> /* onError */)>("startScanning_cxx");
+    auto __result = method(_javaPart, jni::make_jstring(instanceName), jni::make_jstring(pskBase64), JFunc_void_std__string_cxx::fromCpp(onFrame), JFunc_void_std__string_cxx::fromCpp(onError));
+    return [&]() {
+      auto __promise = Promise<void>::create();
+      __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& /* unit */) {
+        __promise->resolve();
+      });
+      __result->cthis()->addOnRejectedListener([=](const jni::alias_ref<jni::JThrowable>& __throwable) {
+        jni::JniException __jniError(__throwable);
+        __promise->reject(std::make_exception_ptr(__jniError));
+      });
+      return __promise;
+    }();
+  }
+  std::shared_ptr<Promise<std::string>> JHybridLocalPayBleTransportSpec::sendFrameAdvertising(const std::string& instanceName, const std::string& pskBase64, const std::string& frameBase64, double timeoutMs, double connectTimeoutMs) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* instanceName */, jni::alias_ref<jni::JString> /* pskBase64 */, jni::alias_ref<jni::JString> /* frameBase64 */, double /* timeoutMs */, double /* connectTimeoutMs */)>("sendFrameAdvertising");
+    auto __result = method(_javaPart, jni::make_jstring(instanceName), jni::make_jstring(pskBase64), jni::make_jstring(frameBase64), timeoutMs, connectTimeoutMs);
+    return [&]() {
+      auto __promise = Promise<std::string>::create();
+      __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
+        auto __result = jni::static_ref_cast<jni::JString>(__boxedResult);
+        __promise->resolve(__result->toStdString());
+      });
+      __result->cthis()->addOnRejectedListener([=](const jni::alias_ref<jni::JThrowable>& __throwable) {
+        jni::JniException __jniError(__throwable);
+        __promise->reject(std::make_exception_ptr(__jniError));
+      });
+      return __promise;
+    }();
+  }
 
 } // namespace margelo::nitro::localpaytransport

@@ -21,6 +21,8 @@ public protocol HybridLocalPayBleTransportSpec_protocol: HybridObject {
   func stopListening() throws -> Promise<Void>
   func confirmFrame(accepted: Bool, reason: String) throws -> Promise<Void>
   func sendFrame(instanceName: String, pskBase64: String, frameBase64: String, timeoutMs: Double, connectTimeoutMs: Double) throws -> Promise<String>
+  func startScanning(instanceName: String, pskBase64: String, onFrame: @escaping (_ frameBase64: String) -> Void, onError: @escaping (_ message: String) -> Void) throws -> Promise<Void>
+  func sendFrameAdvertising(instanceName: String, pskBase64: String, frameBase64: String, timeoutMs: Double, connectTimeoutMs: Double) throws -> Promise<String>
 }
 
 public extension HybridLocalPayBleTransportSpec_protocol {

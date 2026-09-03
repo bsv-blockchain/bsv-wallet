@@ -50,4 +50,36 @@ export interface LocalPayBleTransport extends HybridObject<{ ios: 'swift'; andro
      */
     connectTimeoutMs: number
   ): Promise<string>
+  /**
+   * Reversed role, payee side (spec 2026-09-03): scan for a payer advertising
+   * this session's service UUID, connect, subscribe to ACK, expect the payer's
+   * HELLO_A as an indication, write HELLO_B, receive FRAME indications. Runs
+   * alongside startListening() on the same object: one first-success-wins
+   * latch covers both links, and the loser is torn down the instant a FRAME is
+   * accepted on either. confirmFrame() and stopListening() are unchanged and
+   * act on whichever link holds the frame. Resolves once scanning is on;
+   * rejects only if scanning cannot start ("bluetooth unavailable"). A scan
+   * that never hits is not an error.
+   */
+  startScanning(
+    instanceName: string,
+    pskBase64: string,
+    onFrame: (frameBase64: string) => void,
+    onError: (message: string) => void
+  ): Promise<void>
+  /**
+   * Reversed role, payer side: advertise this session's service UUID and serve
+   * GATT; when a central subscribes to ACK, indicate HELLO_A, expect a HELLO_B
+   * write, indicate FRAME, resolve with the bare ackJson of a MAC-verified ACK
+   * write. Same budgets and rejection strings as sendFrame(): "connect timeout:
+   * no route to peer" if no central subscribed within connectTimeoutMs, "timed
+   * out waiting for peer" at timeoutMs.
+   */
+  sendFrameAdvertising(
+    instanceName: string,
+    pskBase64: string,
+    frameBase64: string,
+    timeoutMs: number,
+    connectTimeoutMs: number
+  ): Promise<string>
 }

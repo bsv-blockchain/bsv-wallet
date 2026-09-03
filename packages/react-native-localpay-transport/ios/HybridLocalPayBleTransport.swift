@@ -65,6 +65,28 @@ final class HybridLocalPayBleTransport: HybridLocalPayBleTransportSpec {
       timeoutMs: timeoutMs, connectTimeoutMs: connectTimeoutMs
     )
   }
+
+  func startScanning(
+    instanceName: String,
+    pskBase64: String,
+    onFrame: @escaping (String) -> Void,
+    onError: @escaping (String) -> Void
+  ) throws -> Promise<Void> {
+    engine.startScanning(instanceName: instanceName, pskBase64: pskBase64, onFrame: onFrame, onError: onError)
+  }
+
+  func sendFrameAdvertising(
+    instanceName: String,
+    pskBase64: String,
+    frameBase64: String,
+    timeoutMs: Double,
+    connectTimeoutMs: Double
+  ) throws -> Promise<String> {
+    engine.sendFrameAdvertising(
+      instanceName: instanceName, pskBase64: pskBase64, frameBase64: frameBase64,
+      timeoutMs: timeoutMs, connectTimeoutMs: connectTimeoutMs
+    )
+  }
 }
 
 // MARK: - Peripheral-side bookkeeping
@@ -698,6 +720,26 @@ final class BleEngine: NSObject {
     guard let cm = centralManager else { return }
     if send.isScanning { cm.stopScan() }
     if let p = send.peripheral, p.state != .disconnected { cm.cancelPeripheralConnection(p) }
+  }
+
+  // MARK: Reversed role (spec 2026-09-03) — filled in by the InboundScan / PayerAdvertise tasks
+
+  func startScanning(
+    instanceName: String, pskBase64: String,
+    onFrame: @escaping (String) -> Void, onError: @escaping (String) -> Void
+  ) -> Promise<Void> {
+    let promise = Promise<Void>()
+    promise.reject(withError: BleGattProfile.error("bluetooth unavailable", code: 16))
+    return promise
+  }
+
+  func sendFrameAdvertising(
+    instanceName: String, pskBase64: String, frameBase64: String,
+    timeoutMs: Double, connectTimeoutMs: Double
+  ) -> Promise<String> {
+    let promise = Promise<String>()
+    promise.reject(withError: BleGattProfile.error("bluetooth unavailable", code: 16))
+    return promise
   }
 }
 

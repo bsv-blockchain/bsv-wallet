@@ -62,6 +62,8 @@ namespace margelo::nitro::localpaytransport {
     std::shared_ptr<Promise<void>> stopListening() override;
     std::shared_ptr<Promise<void>> confirmFrame(bool accepted, const std::string& reason) override;
     std::shared_ptr<Promise<std::string>> sendFrame(const std::string& instanceName, const std::string& pskBase64, const std::string& frameBase64, double timeoutMs, double connectTimeoutMs) override;
+    std::shared_ptr<Promise<void>> startScanning(const std::string& instanceName, const std::string& pskBase64, const std::function<void(const std::string& /* frameBase64 */)>& onFrame, const std::function<void(const std::string& /* message */)>& onError) override;
+    std::shared_ptr<Promise<std::string>> sendFrameAdvertising(const std::string& instanceName, const std::string& pskBase64, const std::string& frameBase64, double timeoutMs, double connectTimeoutMs) override;
 
   private:
     jni::global_ref<JHybridLocalPayBleTransportSpec::JavaPart> _javaPart;

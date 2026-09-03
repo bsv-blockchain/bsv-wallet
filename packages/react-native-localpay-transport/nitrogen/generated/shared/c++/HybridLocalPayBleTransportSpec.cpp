@@ -22,6 +22,8 @@ namespace margelo::nitro::localpaytransport {
       prototype.registerHybridMethod("stopListening", &HybridLocalPayBleTransportSpec::stopListening);
       prototype.registerHybridMethod("confirmFrame", &HybridLocalPayBleTransportSpec::confirmFrame);
       prototype.registerHybridMethod("sendFrame", &HybridLocalPayBleTransportSpec::sendFrame);
+      prototype.registerHybridMethod("startScanning", &HybridLocalPayBleTransportSpec::startScanning);
+      prototype.registerHybridMethod("sendFrameAdvertising", &HybridLocalPayBleTransportSpec::sendFrameAdvertising);
     });
   }
 
