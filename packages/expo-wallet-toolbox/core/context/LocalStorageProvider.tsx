@@ -15,6 +15,7 @@ import {
   deleteSecret,
   getSecret,
   getUnlockState,
+  hasAnySecret,
   hasSecret,
   isUnlocked,
   migrateLegacySecrets,
@@ -46,6 +47,10 @@ export interface LocalStorageContextType {
   getRecoveredKey: () => Promise<string | null>
   deleteRecoveredKey: () => Promise<void>
   deleteAllWalletKeys: () => Promise<void>
+  /** Prompt-free existence check (mnemonic or recovered key) — no biometric,
+   * no wallet build. For UI gating that must never wait on the wallet build,
+   * e.g. "is there already a wallet on this device" before offering import. */
+  hasStoredIdentity: () => Promise<boolean>
 
   /* unlock */
   /** False until the legacy migration has settled. Reading a secret before
@@ -71,6 +76,7 @@ export const LocalStorageContext = createContext<LocalStorageContextType>({
   getRecoveredKey: async () => null,
   deleteRecoveredKey: async () => {},
   deleteAllWalletKeys: async () => {},
+  hasStoredIdentity: async () => false,
 
   /* unlock */
   secretsReady: false,
@@ -170,6 +176,13 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
    * Works while locked or lost — deleting ciphertext needs no key. */
   const deleteAllWalletKeys = useCallback(() => deleteAllSecrets(), [])
 
+  const hasStoredIdentity = useCallback(async (): Promise<boolean> => {
+    if (legacyFallback.current) {
+      return (await readLegacySecret('mnemonic')) != null || (await readLegacySecret('recoveredKey')) != null
+    }
+    return hasAnySecret()
+  }, [])
+
   /* -------------------------------- output --------------------------------- */
 
   const value: LocalStorageContextType = useMemo(
@@ -181,6 +194,7 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
       getRecoveredKey,
       deleteRecoveredKey,
       deleteAllWalletKeys,
+      hasStoredIdentity,
 
       secretsReady,
       unlockState,
@@ -199,6 +213,7 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
       getRecoveredKey,
       deleteRecoveredKey,
       deleteAllWalletKeys,
+      hasStoredIdentity,
       secretsReady,
       unlockState,
       unlock,

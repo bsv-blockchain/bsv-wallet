@@ -101,14 +101,15 @@ describe('awdlTransport.send', () => {
 
   // Pins the connect budget through the makeSocketTransport(kind, native,
   // connectTimeoutMs) refactor: AWDL's Bonjour discovery over an existing
-  // Wi-Fi link resolves inside ~4s, and the whole-send budget stays 20s.
-  it('passes the 4 s AWDL connect budget and the 20 s send budget to sendFrame', async () => {
+  // Wi-Fi link resolves inside ~4s, and the whole-send budget stays 30s
+  // (widened for BLE's 15 s connect budget, see ble.ts).
+  it('passes the 4 s AWDL connect budget and the 30 s send budget to sendFrame', async () => {
     const native = fakeNative({ sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) })
     getLocalPayTransport.mockReturnValue(native)
 
     await awdlTransport.send(session, frame, new AbortController().signal)
     const call = (native.sendFrame as jest.Mock).mock.calls[0]
-    expect(call[3]).toBe(20_000)
+    expect(call[3]).toBe(30_000)
     expect(call[4]).toBe(4_000)
   })
 })

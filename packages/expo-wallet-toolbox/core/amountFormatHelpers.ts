@@ -12,16 +12,59 @@ const getLocaleDefault = (): string => {
 const localeDefault = getLocaleDefault()
 
 const SATS_PER_BSV = 100_000_000
-const CENTS_PER_USD = 100
 const CENT_THRESHOLD = 0.01
 
+export type UsdToFiat = Record<string, number>
+
+export type AmountFormatOptions = {
+  showPlus?: boolean
+  abbreviate?: boolean
+  showFiatAsInteger?: boolean
+  usdToFiat?: UsdToFiat
+}
+
+export const isFiatCurrency = (currency: string): boolean => Boolean(currency) && currency !== 'BSV'
+
+/**
+ * Satoshis per 1 unit of `currency`. USD is the WhatsOnChain rate; other fiat
+ * is that rate divided by the USD→fiat cross (1 USD = `usdToFiat[code]` units).
+ */
+export const satoshisPerFiatUnit = (
+  currency: string,
+  satoshisPerUSD: number,
+  usdToFiat: UsdToFiat = {}
+): number => {
+  if (currency === 'USD') return satoshisPerUSD
+  const fx = usdToFiat[currency]
+  if (!(satoshisPerUSD > 0) || !(fx > 0)) return 0
+  return satoshisPerUSD / fx
+}
+
+export const fiatFractionDigits = (currency: string): number => {
+  try {
+    const digits = new Intl.NumberFormat(localeDefault, {
+      style: 'currency',
+      currency
+    }).resolvedOptions().maximumFractionDigits
+    return typeof digits === 'number' ? digits : 2
+  } catch {
+    return 2
+  }
+}
+
 // Format number as currency with fallback for platforms where Intl is not fully supported
-const formatCurrency = (value: number, locale: string, minDigits: number, maxDigits?: number): string => {
+const formatCurrency = (
+  value: number,
+  locale: string,
+  currency: string,
+  minDigits: number,
+  maxDigits?: number
+): string => {
   const abs = Math.abs(value)
   let formatted: string
   try {
     const options: Intl.NumberFormatOptions = {
-      currency: 'USD',
+      currency,
       style: 'currency',
       minimumFractionDigits: minDigits
     }
@@ -33,8 +76,7 @@ const formatCurrency = (value: number, locale: string, minDigits: number, maxDig
     const formatter = new Intl.NumberFormat(locale, options)
     formatted = formatter.format(abs)
   } catch {
-    // Fallback formatting if Intl is not supported
-    formatted = `$${abs.toFixed(minDigits)}`
+    formatted = `${currency} ${abs.toFixed(minDigits)}`
   }
   return value < 0 ? `(${formatted})` : formatted
 }
@@ -94,33 +136,40 @@ const formatCents = (cents: number): string => {
 }
 
 /**
- * Format a satoshi amount as USD using exchange rate.
- * - >= $0.01: standard dollar formatting with dynamic precision
- * - < $0.01: micro-dollar formatting (μ$) where $1 = μ$1,000,000
+ * Format a satoshi amount as fiat using satoshis-per-unit of that currency.
+ * Values below one minor unit (1 cent, 1 yen, …) display as "< {smallest}".
+ * Otherwise rounds up to the currency's minor unit.
  */
-export const formatSatoshisAsFiat = (satoshis: number, satoshisPerUSD: number, showFiatAsInteger = false): string => {
-  if (!Number.isInteger(Number(satoshis)) || !satoshisPerUSD || satoshisPerUSD <= 0) {
+export const formatSatoshisAsFiat = (
+  satoshis: number,
+  satoshisPerUnit: number,
+  showFiatAsInteger = false,
+  currency = 'USD'
+): string => {
+  if (!Number.isInteger(Number(satoshis)) || !satoshisPerUnit || satoshisPerUnit <= 0) {
     return '...'
   }
 
-  const rawUsd = satoshis / satoshisPerUSD
-  if (isNaN(rawUsd)) return '...'
+  const raw = satoshis / satoshisPerUnit
+  if (isNaN(raw)) return '...'
 
-  const v = Math.abs(rawUsd)
+  const v = Math.abs(raw)
+  const digits = showFiatAsInteger ? 0 : fiatFractionDigits(currency)
+  const factor = 10 ** digits
+  const threshold = digits === 0 ? 1 : 1 / factor
 
-  // Sub-cent values: display as "< $0.01" or "< -$0.01"
-  if (v > 0 && v < CENT_THRESHOLD && !showFiatAsInteger) {
-    return rawUsd < 0 ? '< ($0.01)' : '< $0.01'
+  if (v > 0 && v < threshold && !showFiatAsInteger) {
+    const smallest = formatCurrency(threshold, localeDefault, currency, digits, digits)
+    return raw < 0 ? `< (${smallest})` : `< ${smallest}`
   }
 
-  // Round up to nearest cent for display (e.g. $0.031 -> $0.04)
-  const sign = rawUsd < 0 ? -1 : 1
-  const usd = sign * Math.ceil(Math.abs(rawUsd) * CENTS_PER_USD) / CENTS_PER_USD
+  const sign = raw < 0 ? -1 : 1
+  const rounded = (sign * Math.ceil(Math.abs(raw) * factor)) / factor
 
-  const minDigits = showFiatAsInteger ? 0 : 2
-  const maxDigits = showFiatAsInteger ? 0 : 2
+  const minDigits = showFiatAsInteger ? 0 : digits
+  const maxDigits = showFiatAsInteger ? 0 : digits
 
-  return formatCurrency(usd, localeDefault, minDigits, maxDigits)
+  return formatCurrency(rounded, localeDefault, currency, minDigits, maxDigits)
 }
 
 /**
@@ -150,19 +199,20 @@ export const formatSatoshisAsBsv = (satoshis: number, showPlus = false, abbrevia
 
 /**
  * Smart format function: formats a satoshi amount based on the currency setting.
- * - 'USD': converts to USD using exchange rate
- * - 'BSV' (default): uses smart threshold (satoshis for < 1 BSV, BSV for >= 1 BSV)
+ * - fiat codes: convert using WhatsOnChain USD and optional USD→fiat crosses
+ * - 'BSV' (default): smart threshold (satoshis for < 1 BSV, BSV for >= 1 BSV)
  */
 export const formatAmount = (
   satoshis: number,
   currency: string = 'BSV',
   satoshisPerUSD: number = 0,
-  options: { showPlus?: boolean; abbreviate?: boolean; showFiatAsInteger?: boolean } = {}
+  options: AmountFormatOptions = {}
 ): string => {
-  const { showPlus = false, abbreviate = false, showFiatAsInteger = false } = options
+  const { showPlus = false, abbreviate = false, showFiatAsInteger = false, usdToFiat = {} } = options
 
-  if (currency === 'USD') {
-    return formatSatoshisAsFiat(satoshis, satoshisPerUSD, showFiatAsInteger)
+  if (isFiatCurrency(currency)) {
+    const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
+    return formatSatoshisAsFiat(satoshis, per, showFiatAsInteger, currency)
   }
 
   return formatSatoshisAsBsv(satoshis, showPlus, abbreviate)
@@ -186,10 +236,10 @@ export const formatAmountParts = (
   satoshis: number,
   currency: string = 'BSV',
   satoshisPerUSD: number = 0,
-  options: { showPlus?: boolean; abbreviate?: boolean; showFiatAsInteger?: boolean } = {}
+  options: AmountFormatOptions = {}
 ): { value: string; unit: string } => {
   const text = formatAmount(satoshis, currency, satoshisPerUSD, options)
-  if (currency === 'USD') return { value: text, unit: '' }
+  if (isFiatCurrency(currency)) return { value: text, unit: '' }
   const split = text.lastIndexOf(' ')
   if (split < 0) return { value: text, unit: '' }
   return { value: text.slice(0, split), unit: text.slice(split + 1) }
@@ -198,20 +248,30 @@ export const formatAmountParts = (
 /**
  * The spendable figure in the unit AmountInput is asking for RIGHT NOW, with
  * no symbol and no unit word: the input's own suffix already says "satoshis"
- * or "USD", and repeating it beside the balance reads twice. BSV mode never
+ * or "EUR", and repeating it beside the balance reads twice. BSV mode never
  * switches to whole BSV for this reason — the field beside it takes satoshis.
- * Empty when there is nothing honest to show (no rate in USD mode, NaN).
+ * Empty when there is nothing honest to show (no rate in fiat mode, NaN).
  */
-export const formatAmountInInputUnit = (satoshis: number, currency: string, satoshisPerUSD: number): string => {
+export const formatAmountInInputUnit = (
+  satoshis: number,
+  currency: string,
+  satoshisPerUSD: number,
+  usdToFiat: UsdToFiat = {}
+): string => {
   const n = Number(satoshis)
   if (!Number.isFinite(n)) return ''
-  if (currency === 'USD') {
-    if (!(satoshisPerUSD > 0)) return ''
-    const usd = Math.abs(n) / satoshisPerUSD
+  if (isFiatCurrency(currency)) {
+    const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
+    if (!(per > 0)) return ''
+    const amount = Math.abs(n) / per
+    const digits = fiatFractionDigits(currency)
     try {
-      return new Intl.NumberFormat(localeDefault, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(usd)
+      return new Intl.NumberFormat(localeDefault, {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      }).format(amount)
     } catch {
-      return usd.toFixed(2)
+      return amount.toFixed(digits)
     }
   }
   return formatSatoshisLocale(Math.abs(Math.round(n)))
@@ -220,16 +280,23 @@ export const formatAmountInInputUnit = (satoshis: number, currency: string, sato
 /**
  * Convert a user-entered display value back to integer satoshis.
  * - BSV mode: input is satoshi integers, passthrough
- * - USD mode: input is dollar amount, multiply by satoshisPerUSD
+ * - fiat mode: input is a decimal amount in that currency
  */
-export const parseDisplayToSatoshis = (displayValue: string, currency: string, satoshisPerUSD: number): number => {
+export const parseDisplayToSatoshis = (
+  displayValue: string,
+  currency: string,
+  satoshisPerUSD: number,
+  usdToFiat: UsdToFiat = {}
+): number => {
   const cleaned = displayValue.trim()
   if (!cleaned) return 0
 
-  if (currency === 'USD') {
-    const usdAmount = parseFloat(cleaned)
-    if (isNaN(usdAmount)) return 0
-    return Math.round(usdAmount * satoshisPerUSD)
+  if (isFiatCurrency(currency)) {
+    const amount = parseFloat(cleaned)
+    if (isNaN(amount)) return 0
+    const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
+    if (!(per > 0)) return 0
+    return Math.round(amount * per)
   }
 
   // BSV mode: input is always integer satoshis
@@ -243,12 +310,12 @@ export const parseDisplayToSatoshis = (displayValue: string, currency: string, s
  * If no satoshi value is provided, returns "satoshis" (the input label for BSV mode).
  */
 export const getUnitLabel = (currency: string, satoshis?: number, abbreviate = false, satoshisPerUSD?: number): string => {
-  if (currency === 'USD') {
-    if (satoshis !== undefined && satoshisPerUSD && satoshisPerUSD > 0) {
+  if (isFiatCurrency(currency)) {
+    if (currency === 'USD' && satoshis !== undefined && satoshisPerUSD && satoshisPerUSD > 0) {
       const usd = Math.abs(satoshis / satoshisPerUSD)
       if (usd > 0 && usd < CENT_THRESHOLD) return '¢'
     }
-    return 'USD'
+    return currency
   }
 
   // BSV mode: if an amount is provided, use threshold to pick label

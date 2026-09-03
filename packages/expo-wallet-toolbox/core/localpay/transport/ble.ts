@@ -7,10 +7,17 @@ import { makeSocketTransport } from './socket'
  * Android) + service discovery + ACK subscription. The native central rejects
  * "connect timeout: no route to peer" if that has not completed inside this
  * budget — the string NearbyFlow already treats as radios-off / peer-gone —
- * so the payer drops to the fountain instead of waiting out the 20 s
- * whole-send budget.
+ * so the payer drops to the fountain instead of waiting out the whole-send
+ * budget (SEND_TIMEOUT_MS in socket.ts).
+ *
+ * 6 s was too tight against a real device: a captured Android(central)↔iOS
+ * (peripheral) failure showed the LE link physically connect, then iOS's
+ * radio hit a PHY-update collision (HCI status 0x2A "Instant Passed") that
+ * held up service discovery past the old budget — Android's own MTU request
+ * got no answer within 2 s either. Widened to give a slow link-layer
+ * renegotiation room to finish before conceding to the fountain.
  */
-export const BLE_CONNECT_TIMEOUT_MS = 6_000
+export const BLE_CONNECT_TIMEOUT_MS = 15_000
 
 /**
  * A separate HybridObject from the AWDL/Nearby one. That is load-bearing for

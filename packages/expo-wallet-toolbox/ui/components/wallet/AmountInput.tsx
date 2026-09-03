@@ -11,7 +11,10 @@ import {
   useWallet,
   ExchangeRateContext,
   parseDisplayToSatoshis,
-  formatAmount
+  formatAmount,
+  isFiatCurrency,
+  fiatFractionDigits,
+  satoshisPerFiatUnit
 } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -54,8 +57,8 @@ interface AmountInputProps {
  * Unit-aware amount input component.
  *
  * In BSV mode (default): accepts integer satoshis via number-pad.
- * In USD mode: accepts dollar amounts with up to 2 decimals via decimal-pad,
- * converts to satoshis internally.
+ * In fiat mode: accepts a decimal amount in the selected currency (0 decimals
+ * for JPY, 2 for EUR, etc.) via decimal-pad, converts to satoshis internally.
  *
  * The `onChangeText` callback always emits satoshi integer strings.
  * The `value` prop is always satoshi integer strings.
@@ -69,51 +72,58 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const { t } = useTranslation()
   const { colors } = useTheme()
   const { settings } = useWallet()
-  const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const reducedMotion = useReducedMotion()
   const Ionicons = loadIonicons()
 
   const currency = settings?.currency || 'BSV'
-  const isUSD = currency === 'USD'
+  const isFiat = isFiatCurrency(currency)
+  const fractionDigits = isFiat ? fiatFractionDigits(currency) : 0
   const isSendMax = value === SEND_MAX_VALUE
 
-  // In USD mode, we maintain a separate display value (dollars) from the satoshi value
-  const [usdDisplayValue, setUsdDisplayValue] = useState('')
+  // In fiat mode, we maintain a separate display value from the satoshi value
+  const [fiatDisplayValue, setFiatDisplayValue] = useState('')
   const lastEmittedSats = useRef('')
 
-  // Sync USD display value when the satoshi value changes externally (e.g., cleared by parent)
+  // Sync fiat display value when the satoshi value changes externally (e.g., cleared by parent)
   useEffect(() => {
-    if (!isUSD) return
+    if (!isFiat) return
     // Avoid re-syncing when we caused the change ourselves
     if (value === lastEmittedSats.current) return
 
     if (!value || value === '0') {
-      setUsdDisplayValue('')
+      setFiatDisplayValue('')
     } else if (value === SEND_MAX_VALUE) {
-      // Don't try to convert SEND_MAX_VALUE to USD
+      // Don't try to convert SEND_MAX_VALUE to fiat
     } else {
-      // Convert satoshis back to USD for display
       const sats = parseInt(value, 10)
-      if (!isNaN(sats) && satoshisPerUSD > 0) {
-        const usd = sats / satoshisPerUSD
-        // Show up to 2 decimal places, trimming trailing zeros
-        setUsdDisplayValue(usd % 1 === 0 ? usd.toFixed(0) : usd.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''))
+      const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
+      if (!isNaN(sats) && per > 0) {
+        const amount = sats / per
+        if (fractionDigits === 0) {
+          setFiatDisplayValue(String(Math.round(amount)))
+        } else {
+          setFiatDisplayValue(
+            amount % 1 === 0
+              ? amount.toFixed(0)
+              : amount.toFixed(fractionDigits).replace(/0+$/, '').replace(/\.$/, '')
+          )
+        }
       }
     }
     lastEmittedSats.current = value
-  }, [value, isUSD, satoshisPerUSD])
+  }, [value, isFiat, currency, satoshisPerUSD, usdToFiat, fractionDigits])
 
   const handleChangeText = (text: string) => {
-    if (isUSD) {
-      // Validate USD input: allow digits, one decimal point, up to 2 decimal places
-      if (text && !/^\d*\.?\d{0,2}$/.test(text)) return
-      setUsdDisplayValue(text)
-      const sats = parseDisplayToSatoshis(text, 'USD', satoshisPerUSD)
+    if (isFiat) {
+      const allowed = fractionDigits === 0 ? /^\d*$/ : new RegExp(`^\\d*\\.?\\d{0,${fractionDigits}}$`)
+      if (text && !allowed.test(text)) return
+      setFiatDisplayValue(text)
+      const sats = parseDisplayToSatoshis(text, currency, satoshisPerUSD, usdToFiat)
       const satsStr = text ? String(sats) : ''
       lastEmittedSats.current = satsStr
       onChangeText(satsStr)
     } else {
-      // BSV mode: integer satoshis passthrough
       onChangeText(text)
     }
   }
@@ -127,7 +137,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         </View>
         <TouchableOpacity
           onPress={() => {
-            if (isUSD) setUsdDisplayValue('')
+            if (isFiat) setFiatDisplayValue('')
             onChangeText('')
           }}
           style={[styles.clearButton, { backgroundColor: colors.fill }]}
@@ -138,14 +148,14 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     )
   }
 
-  const displayValue = isUSD ? usdDisplayValue : value
-  const placeholder = isUSD ? '0.00' : '0'
-  const keyboardType = isUSD ? ('decimal-pad' as const) : ('number-pad' as const)
-  const unitLabel = isUSD ? 'USD' : 'satoshis'
+  const displayValue = isFiat ? fiatDisplayValue : value
+  const placeholder = isFiat ? (fractionDigits === 0 ? '0' : '0.00') : '0'
+  const keyboardType = isFiat && fractionDigits > 0 ? ('decimal-pad' as const) : ('number-pad' as const)
+  const unitLabel = isFiat ? currency : 'satoshis'
 
-  // Secondary converted-currency line
+  // Secondary converted-currency line: BSV when showing fiat, USD when showing BSV
   const satsForConversion = value ? parseInt(value, 10) : 0
-  const secondaryText = isUSD
+  const secondaryText = isFiat
     ? (satsForConversion > 0 ? formatAmount(satsForConversion, 'BSV', satoshisPerUSD) : null)
     : (satsForConversion > 0 && satoshisPerUSD > 0 ? formatAmount(satsForConversion, 'USD', satoshisPerUSD) : null)
 

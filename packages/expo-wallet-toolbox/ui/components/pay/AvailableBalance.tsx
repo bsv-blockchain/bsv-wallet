@@ -2,9 +2,9 @@
  * The "what can I actually send?" line under the amount input.
  *
  * One footnote: the spendable figure, then "available". By default, the figure
- * is in the unit the input above it is taking (satoshis or USD) with no symbol
+ * is in the unit the input above it is taking (satoshis or EUR) with no symbol
  * or unit word, because the input's own suffix already names it. Renders nothing
- * until a figure exists rather than flashing "0", and nothing in USD mode until
+ * until a figure exists rather than flashing "0", and nothing in fiat mode until
  * a rate exists rather than inventing one.
  *
  * When `withUnit` is true, render as a unit-labelled figure via AmountDisplay
@@ -29,7 +29,7 @@ export default function AvailableBalance({ withUnit = false }: { withUnit?: bool
   const { t } = useTranslation()
   const { colors } = useTheme()
   const { settings } = useWallet()
-  const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const balance = useSpendableBalance()
 
   if (balance == null) return null
@@ -45,7 +45,7 @@ export default function AvailableBalance({ withUnit = false }: { withUnit?: bool
     )
   }
 
-  const figure = formatAmountInInputUnit(balance, settings?.currency || 'BSV', satoshisPerUSD)
+  const figure = formatAmountInInputUnit(balance, settings?.currency || 'BSV', satoshisPerUSD, usdToFiat)
   if (!figure) return null
 
   return (

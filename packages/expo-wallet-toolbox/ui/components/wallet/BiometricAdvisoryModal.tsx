@@ -13,7 +13,7 @@
  * as consent, not interruption.
  */
 import React from 'react'
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme, spacing, radii, typography, i18n } from '@bsv/expo-wallet-toolbox'
 import PressableScale from '../ui/PressableScale'
 
@@ -37,9 +37,15 @@ function loadIonicons(): IoniconsComponent {
 
 export const BiometricAdvisoryModal: React.FC<{
   visible: boolean
+  /** Wallet creation (mnemonic generation + biometric-gated storage write) is
+   * running. The PBKDF2/BIP32 math alone is real, blocking JS-thread work —
+   * dismissing the modal the instant Continue is tapped left the screen
+   * looking frozen for that whole stretch, with nothing on screen explaining
+   * why. Keeping the modal up with a spinner in place of the label instead. */
+  loading?: boolean
   onCancel: () => void
   onContinue: () => void
-}> = ({ visible, onCancel, onContinue }) => {
+}> = ({ visible, loading = false, onCancel, onContinue }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
 
@@ -50,14 +56,14 @@ export const BiometricAdvisoryModal: React.FC<{
       transparent
       visible
       animationType="fade"
-      onRequestClose={onCancel}
+      onRequestClose={loading ? undefined : onCancel}
       statusBarTranslucent={Platform.OS === 'android'}
       navigationBarTranslucent={Platform.OS === 'android'}
     >
       <View style={[styles.backdrop, { backgroundColor: colors.scrim }]}>
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={onCancel}
+          onPress={loading ? undefined : onCancel}
           accessible={true}
           accessibilityRole="button"
           accessibilityLabel="Close"
@@ -72,14 +78,21 @@ export const BiometricAdvisoryModal: React.FC<{
 
           <PressableScale
             haptic="confirm"
-            onPress={onContinue}
-            style={[styles.primary, { backgroundColor: colors.accent }]}
+            onPress={loading ? undefined : onContinue}
+            disabled={loading}
+            style={[styles.primary, { backgroundColor: colors.accent, opacity: loading ? 0.7 : 1 }]}
           >
-            <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('continue')}</Text>
+            {loading ? (
+              <ActivityIndicator color={colors.textOnAccent} />
+            ) : (
+              <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('continue')}</Text>
+            )}
           </PressableScale>
 
-          <PressableScale haptic="tap" onPress={onCancel} style={styles.secondary}>
-            <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('cancel')}</Text>
+          <PressableScale haptic="tap" onPress={loading ? undefined : onCancel} disabled={loading} style={styles.secondary}>
+            <Text style={[styles.secondaryLabel, { color: loading ? colors.textTertiary : colors.textSecondary }]}>
+              {t('cancel')}
+            </Text>
           </PressableScale>
         </View>
       </View>

@@ -13,9 +13,11 @@ import {
 /**
  * Whole-exchange budget: connect + transfer + the payee's save + ack. Shared
  * by every socketed rung — only the connect-phase budget is radio-specific,
- * and that one is the caller's `connectTimeoutMs`.
+ * and that one is the caller's `connectTimeoutMs`. Must clear the widest
+ * connectTimeoutMs (BLE's 15 s, see ble.ts) with margin left for the actual
+ * transfer.
  */
-const SEND_TIMEOUT_MS = 20_000
+const SEND_TIMEOUT_MS = 30_000
 
 /**
  * The four methods this wrapper drives. `LocalPayTransport` (AWDL on iOS,

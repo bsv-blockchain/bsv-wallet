@@ -292,11 +292,11 @@ const PermissionSheet: React.FC = () => {
     settings
   } = useContext(WalletContext)
 
-  const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
   const formatSats = useCallback(
-    (satoshis: number) => formatAmountParts(satoshis, currency, satoshisPerUSD, { abbreviate: true }),
-    [currency, satoshisPerUSD]
+    (satoshis: number) => formatAmountParts(satoshis, currency, satoshisPerUSD, { abbreviate: true, usdToFiat }),
+    [currency, satoshisPerUSD, usdToFiat]
   )
 
   const {
@@ -369,9 +369,9 @@ const PermissionSheet: React.FC = () => {
   const amountParts = useMemo(
     () =>
       active?.kind === 'spending' && active.amount != null
-        ? formatAmountParts(active.amount, currency, satoshisPerUSD, { abbreviate: true })
+        ? formatAmountParts(active.amount, currency, satoshisPerUSD, { abbreviate: true, usdToFiat })
         : { value: '', unit: '' },
-    [active, currency, satoshisPerUSD]
+    [active, currency, satoshisPerUSD, usdToFiat]
   )
 
   // Reset granted morph whenever a new permission request arrives.

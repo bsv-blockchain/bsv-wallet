@@ -232,8 +232,8 @@ export function WalletHomeScreen() {
     walletBuilt,
     buildWalletFromMnemonic
   } = useWallet()
-  const { setMnemonic: storeMnemonic } = useLocalStorage()
-  const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { setMnemonic: storeMnemonic, hasStoredIdentity } = useLocalStorage()
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
   const online = useOnline()
 
@@ -279,6 +279,7 @@ export function WalletHomeScreen() {
 
   const [pendingDestination, setPendingDestination] = useState<string | null>(null)
   const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
+  const [creatingWalletFromAdvisory, setCreatingWalletFromAdvisory] = useState(false)
 
   const destinationPress = useCallback(
     (destination: string) => {
@@ -369,6 +370,34 @@ export function WalletHomeScreen() {
   /** Synchronous in-flight latch for loadMore (state updates are async). */
   const inFlightRef = useRef(false)
 
+  /**
+   * Whether a wallet is already stored on this device, checked prompt-free
+   * (no biometric, no wallet build) so it settles well before the wallet
+   * itself finishes building. That build gap is briefly indistinguishable
+   * from "no wallet at all" — both show no permissions manager — and two
+   * things key off telling them apart: ImportFromBackupPrompt below (must
+   * not flash "import" over an existing user's already-populated screen)
+   * and refreshBalance (must not blank a freshly-painted cached figure while
+   * an existing wallet is still mid-build). Defaults to false (assume a
+   * wallet exists) until the check resolves, so it can only suppress an
+   * incorrect flash, never cause one.
+   */
+  const [knownNoStoredIdentity, setKnownNoStoredIdentity] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const exists = await hasStoredIdentity()
+        if (!cancelled) setKnownNoStoredIdentity(!exists)
+      } catch {
+        // Unknown: err toward not showing the import prompt.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hasStoredIdentity])
+
   // ── balance ─────────────────────────────────────────────────────────
   /**
    * One balance read at a time, shared by every caller.
@@ -389,15 +418,29 @@ export function WalletHomeScreen() {
         // The wallet's own path stays as the fallback for the window before
         // storage and the user id are known.
         // Mid-switch the previous chain's storage is still mounted, and its
-        // figure is not this network's money.
-        if (!onThisNetwork) return
+        // figure is not this network's money. Only bails when storage is
+        // mounted for the WRONG chain — storageMatchesNetwork returns false
+        // for a null storage too (no `.chain` to compare), which is also the
+        // no-wallet-at-all case, and that one must fall through to the
+        // zero-settle below rather than being swallowed here.
+        if (storage && !onThisNetwork) return
         let total: number | null = null
         if (storage && walletUserId != null) {
           total = await readWalletBalance(storage, walletUserId)
         }
         if (total == null) {
           const pm = managers.permissionsManager
-          if (!pm) return
+          if (!pm) {
+            // Genuinely no wallet on this device (freshly logged out /
+            // deleted) rather than an existing wallet still mid-build: settle
+            // on zero so the spinner does not spin forever. Gated on the
+            // confirmed, prompt-free identity check rather than merely "no
+            // permissions manager yet" — that condition is also true for a
+            // split second at every cold start, and would otherwise blank
+            // the cached figure this same mount just painted.
+            if (knownNoStoredIdentity) setBalance(0)
+            return
+          }
           const { totalOutputs } = await pm.listOutputs({ basket: sdk.specOpWalletBalance }, adminOriginator)
           total = totalOutputs ?? 0
         }
@@ -416,7 +459,15 @@ export function WalletHomeScreen() {
       if (inFlightBalanceRef.current === read) inFlightBalanceRef.current = null
     })
     return await read
-  }, [storage, walletUserId, managers.permissionsManager, adminOriginator, balanceCacheKey, onThisNetwork])
+  }, [
+    storage,
+    walletUserId,
+    managers.permissionsManager,
+    adminOriginator,
+    balanceCacheKey,
+    onThisNetwork,
+    knownNoStoredIdentity
+  ])
 
   /**
    * The effects below key off DATA changes, never off `refreshBalance`'s
@@ -462,7 +513,12 @@ export function WalletHomeScreen() {
     }
     // `hasWallet` covers the cold start where this screen mounts before the
     // wallet finishes building; `balanceCacheKey` covers a network switch.
-  }, [balanceCacheKey, hasWallet])
+    // `knownNoStoredIdentity` re-fires this once the prompt-free identity
+    // check resolves — it starts false, so a genuinely wallet-less mount's
+    // first pass through refreshBalance skips the zero-settle (see there) and
+    // would otherwise leave the spinner with no wallet build left to finish
+    // and no further balance read ever queued.
+  }, [balanceCacheKey, hasWallet, knownNoStoredIdentity])
 
   /**
    * Returning to this screen refetches the balance and the activity list once.
@@ -1059,8 +1115,8 @@ export function WalletHomeScreen() {
 
   // ── header (balance + the three destinations + activity heading) ─────
   const balanceParts = useMemo(
-    () => (balance === null ? null : formatAmountParts(balance, currency, satoshisPerUSD, { abbreviate: true })),
-    [balance, currency, satoshisPerUSD]
+    () => (balance === null ? null : formatAmountParts(balance, currency, satoshisPerUSD, { abbreviate: true, usdToFiat })),
+    [balance, currency, satoshisPerUSD, usdToFiat]
   )
 
   /** The line under the figure: the same money in the denominations the figure
@@ -1068,11 +1124,12 @@ export function WalletHomeScreen() {
   const balanceContext = useMemo(() => {
     if (balance === null) return ''
     const bsv = `${formatSatoshisAsBsvDecimal(balance)} BSV`
-    const other = formatAmount(balance, currency === 'USD' ? 'BSV' : 'USD', satoshisPerUSD, {
-      abbreviate: true
+    const other = formatAmount(balance, currency === 'BSV' ? 'USD' : 'BSV', satoshisPerUSD, {
+      abbreviate: true,
+      usdToFiat
     })
     return `${bsv}   ·   ${other}`
-  }, [balance, currency, satoshisPerUSD])
+  }, [balance, currency, satoshisPerUSD, usdToFiat])
 
   /**
    * Pinned above the list, not part of it.
@@ -1360,23 +1417,40 @@ export function WalletHomeScreen() {
 
       <BiometricAdvisoryModal
         visible={showBiometricAdvisory}
+        loading={creatingWalletFromAdvisory}
         onCancel={() => {
           setShowBiometricAdvisory(false)
           setPendingDestination(null)
         }}
         onContinue={() => {
-          setShowBiometricAdvisory(false)
+          // Kept up (with a spinner in place of the label) until wallet
+          // creation actually settles: recoverMnemonicWallet's PBKDF2/BIP32
+          // math is real, blocking JS-thread work, and dismissing the modal
+          // immediately here left the screen looking frozen for that whole
+          // stretch, with nothing on screen explaining why.
+          setCreatingWalletFromAdvisory(true)
           const destination = pendingDestination
-          setPendingDestination(null)
           ;(async () => {
-            const created = await ensureWalletExists()
-            if (created && destination) router.push(destination as Parameters<typeof router.push>[0])
+            try {
+              // ensureWalletExists' generateMnemonicWallet/recoverMnemonicWallet
+              // math starts running synchronously on this same tick — without
+              // yielding first, that blocking work could start before React
+              // ever got to paint the spinner just requested above, making the
+              // tap look like it did nothing.
+              await new Promise(resolve => setTimeout(resolve, 0))
+              const created = await ensureWalletExists()
+              setShowBiometricAdvisory(false)
+              setPendingDestination(null)
+              if (created && destination) router.push(destination as Parameters<typeof router.push>[0])
+            } finally {
+              setCreatingWalletFromAdvisory(false)
+            }
           })()
         }}
       />
 
       <ImportFromBackupPrompt
-        visible={!hasWallet}
+        visible={!hasWallet && knownNoStoredIdentity}
         onImport={() => router.push('/auth/mnemonic?flow=import')}
       />
     </View>

@@ -19,7 +19,11 @@ import {
   formatAmount,
   parseDisplayToSatoshis,
   getUnitLabel,
+  isFiatCurrency,
+  fiatFractionDigits,
+  satoshisPerFiatUnit,
   ExchangeRateContext,
+  DISPLAY_CURRENCY_OPTIONS,
   recordBackupAttestation,
   isBackupPushEnabled,
   setBackupPushEnabled,
@@ -151,6 +155,7 @@ export function WalletConfigScreen() {
   const [vaultMockOn, setVaultMockOn] = useState(false)
   const [backupPushOn, setBackupPushOn] = useState(true)
   const [erasingBackup, setErasingBackup] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const [storageBusy, setStorageBusy] = useState(false)
   const [currencyExpanded, setCurrencyExpanded] = useState(false)
   const [advancedExpanded, setAdvancedExpanded] = useState(false)
@@ -161,7 +166,7 @@ export function WalletConfigScreen() {
   const [arcUrlInput, setArcUrlInput] = useState('')
   const [arcTokenInput, setArcTokenInput] = useState('')
   const [arcSaving, setArcSaving] = useState(false)
-  const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const { appName } = useContext(UserContext)
 
   const currentCurrency = settings?.currency || 'BSV'
@@ -356,12 +361,12 @@ export function WalletConfigScreen() {
     setThresholdInput(text)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      const sats = parseDisplayToSatoshis(text, currentCurrency, satoshisPerUSD)
+      const sats = parseDisplayToSatoshis(text, currentCurrency, satoshisPerUSD, usdToFiat)
       const clamped = Math.max(0, Math.round(sats))
       setThresholdSats(clamped)
       AsyncStorage.setItem(AUTO_APPROVE_STORAGE_KEY, String(clamped))
     }, 600)
-  }, [currentCurrency, satoshisPerUSD])
+  }, [currentCurrency, satoshisPerUSD, usdToFiat])
 
   const handleToggleAdvanced = useCallback(() => {
     setAdvancedExpanded(prev => {
@@ -456,10 +461,7 @@ export function WalletConfigScreen() {
     }
   }
 
-  const CURRENCIES: { id: string; label: string; icon: string }[] = [
-    { id: 'BSV', label: 'BSV', icon: 'logo-bitcoin' },
-    { id: 'USD', label: 'USD', icon: 'cash-outline' }
-  ]
+  const CURRENCIES = DISPLAY_CURRENCY_OPTIONS
 
   const handleSelectCurrency = async (target: string) => {
     if (target === currentCurrency) {
@@ -787,17 +789,22 @@ export function WalletConfigScreen() {
             <ListRow
               label="Auto Spend Up To"
               value={thresholdSats === 0 ? 'Off'
-                : currentCurrency === 'USD' && satoshisPerUSD > 0
-                  ? `$${(thresholdSats / satoshisPerUSD).toFixed(2)}`
-                  : formatAmount(thresholdSats, currentCurrency, satoshisPerUSD)}
+                : formatAmount(thresholdSats, currentCurrency, satoshisPerUSD, { usdToFiat })}
               icon="flash-outline"
               iconColor="#FF9F0A"
               onPress={() => {
                 setThresholdExpanded(e => !e)
                 if (!thresholdExpanded) {
                   // Pre-fill input with current value in display currency
-                  if (currentCurrency === 'USD' && satoshisPerUSD > 0) {
-                    setThresholdInput(thresholdSats === 0 ? '0' : (thresholdSats / satoshisPerUSD).toFixed(2))
+                  if (thresholdSats === 0) {
+                    setThresholdInput('0')
+                  } else if (isFiatCurrency(currentCurrency)) {
+                    const per = satoshisPerFiatUnit(currentCurrency, satoshisPerUSD, usdToFiat)
+                    if (per > 0) {
+                      setThresholdInput((thresholdSats / per).toFixed(fiatFractionDigits(currentCurrency)))
+                    } else {
+                      setThresholdInput(String(thresholdSats))
+                    }
                   } else {
                     setThresholdInput(String(thresholdSats))
                   }
@@ -813,7 +820,11 @@ export function WalletConfigScreen() {
                     style={[localStyles.thresholdInput, { color: colors.textPrimary, borderColor: colors.separator }]}
                     value={thresholdInput}
                     onChangeText={handleThresholdInput}
-                    keyboardType="numeric"
+                    keyboardType={
+                      isFiatCurrency(currentCurrency) && fiatFractionDigits(currentCurrency) > 0
+                        ? 'decimal-pad'
+                        : 'numeric'
+                    }
                     placeholder={`0 ${getUnitLabel(currentCurrency)}`}
                     placeholderTextColor={colors.textSecondary}
                     returnKeyType="done"
@@ -949,6 +960,7 @@ export function WalletConfigScreen() {
             icon="log-out-outline"
             iconColor={colors.error}
             onPress={async () => {
+              if (loggingOut) return
               const choice = await showAlert({
                 title: t('delete_wallet_warning_title'),
                 message: t('delete_wallet_warning_body'),
@@ -957,10 +969,22 @@ export function WalletConfigScreen() {
                   { text: t('delete_wallet_confirm'), style: 'destructive', key: 'delete' },
                 ],
               })
-              if (choice === 'delete') logout()
+              if (choice !== 'delete') return
+              setLoggingOut(true)
+              // No artificial yield before this call, unlike the wallet-creation
+              // spinner: logout() itself is a fire-and-forget kickoff (its first
+              // real work is behind an await inside its own async IIFE), so it
+              // returns to let React paint the spinner on its own. Deliberately
+              // NOT delayed further — logout's very first synchronous step stops
+              // the background monitor's task loop, and a gap here let the
+              // monitor's own pending tick sneak in a fresh task run against
+              // storage that was about to be torn down (WERR_UNKNOWN "Database
+              // not initialized" from a task caught mid-flight).
+              logout()
             }}
             destructive
             showChevron={false}
+            trailing={loggingOut ? <ActivityIndicator size="small" color={colors.error} /> : undefined}
             isLast
           />
         </GroupedSection>

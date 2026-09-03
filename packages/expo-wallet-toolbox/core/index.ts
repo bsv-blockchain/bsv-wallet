@@ -42,8 +42,12 @@ export {
   formatSatoshisAsBsvDecimal,
   parseDisplayToSatoshis,
   getUnitLabel,
-  formatSatoshis
+  formatSatoshis,
+  isFiatCurrency,
+  satoshisPerFiatUnit,
+  fiatFractionDigits
 } from './amountFormatHelpers'
+export type { UsdToFiat, AmountFormatOptions } from './amountFormatHelpers'
 
 // Internationalization
 export { LanguageProvider } from './i18n/translations'
@@ -106,6 +110,16 @@ export type { NativeHandlers } from './context/UserContext'
 // Exchange rate context and service
 export { ExchangeRateContextProvider, ExchangeRateContext } from './context/ExchangeRateContext'
 export { getExchangeRate } from './services/exchangeRate'
+export { loadUsdFxRates, FX_CACHE_KEY, FX_TTL_MS } from './services/usdFxRates'
+export {
+  FIAT_CURRENCIES,
+  DISPLAY_CURRENCIES,
+  DISPLAY_CURRENCY_OPTIONS,
+  FALLBACK_USD_FX,
+  FRANKFURTER_RATES_URL,
+  fallbackUsdToFiat
+} from './displayCurrencies'
+export type { FiatCurrency } from './displayCurrencies'
 
 // Pay rails
 export * from './pay/rails'

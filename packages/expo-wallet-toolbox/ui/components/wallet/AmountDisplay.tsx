@@ -17,7 +17,8 @@ type Props = {
  *   - < 1 BSV: displays as satoshis (e.g., "50,000 satoshis")
  *   - >= 1 BSV: displays as BSV (e.g., "1.5 BSV")
  *
- * In USD mode: displays the USD equivalent using the current exchange rate.
+ * In a fiat mode: displays the equivalent using WhatsOnChain USD and, for
+ * non-USD currencies, a cached USD cross.
  *
  * All formatting is locale-aware (respects device locale for separators).
  *
@@ -29,7 +30,7 @@ const AmountDisplay: React.FC<Props> = ({ abbreviate, showPlus, children, showFi
   const { settings } = useWallet()
   const currency = settings?.currency || 'BSV'
 
-  const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
 
   useEffect(() => {
     const numValue = Number(children)
@@ -38,8 +39,8 @@ const AmountDisplay: React.FC<Props> = ({ abbreviate, showPlus, children, showFi
       return
     }
 
-    setFormatted(formatAmount(numValue, currency, satoshisPerUSD, { showPlus, abbreviate, showFiatAsInteger }))
-  }, [children, currency, satoshisPerUSD, showPlus, abbreviate, showFiatAsInteger])
+    setFormatted(formatAmount(numValue, currency, satoshisPerUSD, { showPlus, abbreviate, showFiatAsInteger, usdToFiat }))
+  }, [children, currency, satoshisPerUSD, usdToFiat, showPlus, abbreviate, showFiatAsInteger])
 
   return <>{formatted}</>
 }

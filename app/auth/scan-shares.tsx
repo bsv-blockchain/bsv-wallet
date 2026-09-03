@@ -5,7 +5,17 @@ import { router } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { useTranslation } from 'react-i18next'
 import { Mnemonic, PrivateKey } from '@bsv/sdk'
-import { useTheme, spacing, radii, typography, useWallet, useLocalStorage, haptics } from '@bsv/expo-wallet-toolbox'
+import {
+  useTheme,
+  spacing,
+  radii,
+  typography,
+  useWallet,
+  useLocalStorage,
+  haptics,
+  recoverMnemonicWallet,
+  backupAttestation
+} from '@bsv/expo-wallet-toolbox'
 import {
   showAlert,
   Celebration,
@@ -19,8 +29,7 @@ import {
 export default function ScanSharesScreen() {
   const { t } = useTranslation()
   const { colors, isDark } = useTheme()
-  const { buildWalletFromRecoveredKey, buildWalletFromMnemonic, backupRestore, getBackupRestore } =
-    useWallet()
+  const { buildWalletFromRecoveredKey, buildWalletFromMnemonic, backupRestore, getBackupRestore } = useWallet()
   const { setRecoveredKey, setMnemonic, deleteRecoveredKey } = useLocalStorage()
 
   const [scannedShares, setScannedShares] = useState<ParsedShare[]>([])
@@ -104,7 +113,7 @@ export default function ScanSharesScreen() {
    * Returns true when it handled the failure and the caller must stop. Reads
    * getBackupRestore() because the render value is still the pre-build one here.
    */
-  const handledRestoreFailure = async (withoutHistory: () => Promise<void>): Promise<boolean> => {
+  const handledRestoreFailure = async (identityKey: string, withoutHistory: () => Promise<void>): Promise<boolean> => {
     const state = getBackupRestore()
     if (state.phase !== 'failed') return false
 
@@ -121,6 +130,7 @@ export default function ScanSharesScreen() {
 
     if (choice === 'skip') {
       await withoutHistory()
+      await backupAttestation.set(identityKey, 'shares')
       setRecovered(true)
       setCelebrating(true)
       return true
@@ -142,8 +152,15 @@ export default function ScanSharesScreen() {
     try {
       const secret = recoverSecretFromShares(shareStrings)
 
+      let identityKey: string
+
       if (secret.kind === 'entropy') {
         const mnemonic = Mnemonic.fromEntropy(secret.entropy).toString()
+        // Computed directly from the recovered phrase, not through the
+        // wallet's getPublicKey: that depended on the just-built wallet's
+        // permissions manager being ready, an async chain (build → possible
+        // backup replay) with too many places to silently miss the write.
+        identityKey = recoverMnemonicWallet(mnemonic).identityKey
 
         if (!(await setMnemonic(mnemonic))) return await retryOrReset(shareStrings)
         // Only after the phrase is safely stored: a refusal between the two
@@ -152,13 +169,15 @@ export default function ScanSharesScreen() {
         // Shares recover an EXISTING wallet, so the encrypted backup log is replayed
         // before the wallet is usable — same reasoning as the phrase-import flow.
         await buildWalletFromMnemonic(mnemonic, { restoreFromBackup: true })
-        if (await handledRestoreFailure(() => buildWalletFromMnemonic(mnemonic))) return
+        if (await handledRestoreFailure(identityKey, () => buildWalletFromMnemonic(mnemonic))) return
       } else {
-        const wif = new PrivateKey(secret.primaryKey).toWif()
+        const primaryKey = new PrivateKey(secret.primaryKey)
+        const wif = primaryKey.toWif()
+        identityKey = primaryKey.toPublicKey().toString()
 
         if (!(await setRecoveredKey(wif))) return await retryOrReset(shareStrings)
         await buildWalletFromRecoveredKey(wif, { restoreFromBackup: true })
-        if (await handledRestoreFailure(() => buildWalletFromRecoveredKey(wif))) return
+        if (await handledRestoreFailure(identityKey, () => buildWalletFromRecoveredKey(wif))) return
 
         await showAlert({
           title: t('scan_shares_legacy_title'),
@@ -167,6 +186,9 @@ export default function ScanSharesScreen() {
         })
       }
 
+      // Recovering from shares is itself proof of a backup — record it so the
+      // reminder never nags someone who just proved they hold a working set.
+      await backupAttestation.set(identityKey, 'shares')
       setRecovered(true)
       setCelebrating(true)
     } catch (err: any) {

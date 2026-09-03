@@ -242,6 +242,8 @@ export interface WalletBuildOptions {
 export interface WalletContextValue {
   // Managers:
   managers: ManagerState
+  /** Synchronous, always-current read of managers — see getManagers's own comment. */
+  getManagers: () => ManagerState
   // Settings
   settings: WalletSettings
   updateSettings: (newSettings: WalletSettings) => Promise<void>
@@ -313,6 +315,7 @@ export interface WalletContextValue {
 
 export const WalletContext = createContext<WalletContextValue>({
   managers: {},
+  getManagers: () => ({}),
   settings: DEFAULT_SETTINGS,
   updateSettings: async () => {},
   logout: () => {},
@@ -568,6 +571,40 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * render — a state read there would see whatever was committed, which is a race.
    */
   const restoreIntentRef = useRef(false)
+  /**
+   * Set by rebuildWallet right before finalizeConfig, cleared by the auto-build
+   * effect once it actually starts (or determines there is nothing to build).
+   *
+   * finalizeConfig only REQUESTS a rebuild — it flips configStatus, and the
+   * actual build runs later in the auto-build effect below, once React has
+   * committed that state change and run the effect. rebuildWallet's own promise
+   * resolves long before any of that happens, so a caller doing
+   * `await rebuildWallet(...)` then reading the result (managers, walletBuilt)
+   * sees the PRE-rebuild state, not the new wallet. This ref closes that gap:
+   * waitForRebuild spins until it (and walletBuildingRef) both go false, i.e.
+   * the auto-build effect has run to completion for this generation.
+   */
+  const pendingAutoBuildRef = useRef(false)
+  /**
+   * Poll until the auto-build effect triggered by rebuildWallet has actually
+   * settled (built, or determined there is nothing to build) for the given
+   * generation — see pendingAutoBuildRef's comment. `token` is the generation
+   * rebuildWallet bumped to; a later teardown (another rebuild, a network
+   * switch) bumps past it and this returns immediately rather than waiting on
+   * a build nothing still wants.
+   */
+  const waitForRebuild = useCallback(async (token: number, timeoutMs = 300000): Promise<void> => {
+    // A restore replays the encrypted backup log INSIDE the build, before
+    // walletBuiltRef flips — a large history can legitimately take minutes.
+    // The timeout is a safety net against a build that never settles, not a
+    // normal-path budget; the generation check is what actually bounds this
+    // to a superseded rebuild.
+    const start = Date.now()
+    while (buildGenRef.current.isCurrent(token) && Date.now() - start < timeoutMs) {
+      if (!pendingAutoBuildRef.current && !walletBuildingRef.current) return
+      await new Promise(resolve => setTimeout(resolve, 40))
+    }
+  }, [])
   const [localPayNotification, setLocalPayNotification] = useState<{
     message: string
     type: 'success' | 'error' | 'info'
@@ -585,6 +622,24 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   useEffect(() => {
     managersRef.current = managers
   }, [managers])
+  /**
+   * Synchronous read of the managers a build just produced.
+   *
+   * `managers` from render scope is stale inside the async build functions below:
+   * setManagers schedules a re-render, but a caller doing
+   * `await buildWalletFromMnemonic(...)` then reading `managers.permissionsManager`
+   * from its own closure sees the pre-build value, not the one the build just set.
+   * updateManagers keeps this ref in lockstep with every setManagers call so
+   * callers can read the real, current value immediately after an await.
+   */
+  const getManagers = useCallback((): ManagerState => managersRef.current, [])
+  const updateManagers = useCallback((updater: ManagerState | ((m: ManagerState) => ManagerState)): void => {
+    setManagers(m => {
+      const next = typeof updater === 'function' ? (updater as (m: ManagerState) => ManagerState)(m) : updater
+      managersRef.current = next
+      return next
+    })
+  }, [])
 
   // [perf] JS-thread-stall watchdog — started at provider MOUNT (not in the
   // monitor setup) so it also covers the cold-start window BEFORE the wallet
@@ -1645,7 +1700,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           logWithTimestamp(F, 'Discarding a build the network switch overtook')
           return null
         }
-        setManagers(m => ({ ...m, ...newManagers }))
+        updateManagers(m => ({ ...m, ...newManagers }))
         logWithTimestamp(F, 'Wallet build completed successfully')
 
         return permissionsManager
@@ -1739,7 +1794,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         await swm.providePrivilegedKeyManager(privilegedKeyManager)
 
-        setManagers(m => ({
+        updateManagers(m => ({
           ...m,
           walletManager: swm
         }))
@@ -1806,7 +1861,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         await swm.providePrivilegedKeyManager(privilegedKeyManager)
 
-        setManagers(m => ({
+        updateManagers(m => ({
           ...m,
           walletManager: swm
         }))
@@ -1836,7 +1891,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // buildWalletFromMnemonic({ restoreFromBackup: true }) would.
     restoreIntentRef.current = opts?.restoreFromBackup === true
     // Any build already in flight belongs to the configuration being replaced.
-    buildGenRef.current.bump()
+    const token = buildGenRef.current.bump()
 
     // Stop any running monitor and let its current pass drain before the
     // storage teardown below closes the connection under it.
@@ -1866,7 +1921,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     setStorage(null)
 
     // Tear down current wallet state (but keep mnemonic / config)
-    setManagers({})
+    updateManagers({})
     walletBuiltRef.current = false
     setWalletBuilt(false)
     walletBuildingRef.current = false
@@ -1874,9 +1929,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
     // Re-finalize with current config — triggers auto-build effect
     const config = { wabUrl: 'noWAB', method: 'mnemonic', network: selectedNetwork, storageUrl: 'local' }
+    pendingAutoBuildRef.current = true
     finalizeConfig(config)
     logWithTimestamp(F, 'Wallet rebuild triggered')
-  }, [selectedNetwork, storage, finalizeConfig])
+    // finalizeConfig above only requests the rebuild; without this,
+    // rebuildWallet's promise resolved before the auto-build effect had even
+    // run, so `await rebuildWallet(...)` callers (e.g. the import screens
+    // replacing an auto-created wallet) saw pre-rebuild managers and a
+    // pre-rebuild walletBuilt — silently skipping anything gated on the new
+    // wallet actually existing, such as recording a backup attestation.
+    await waitForRebuild(token)
+  }, [selectedNetwork, storage, finalizeConfig, waitForRebuild])
 
   // Switch network: tear down wallet, update config, and rebuild on new chain
   const switchNetwork = useCallback(
@@ -1908,7 +1971,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       setStorage(null)
 
       // Tear down current wallet state (but keep mnemonic)
-      setManagers({})
+      updateManagers({})
       walletBuiltRef.current = false
       setWalletBuilt(false)
       walletBuildingRef.current = false
@@ -1939,6 +2002,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // it does would report "no wallet" to an existing user on the first launch
     // after upgrading, and this effect would not re-fire to correct it.
     if (!secretsReady) return
+    // From here the build actually starts (buildWalletFromMnemonic below sets
+    // walletBuildingRef synchronously, in this same tick) — waitForRebuild can
+    // stop treating this generation as "not yet started".
+    pendingAutoBuildRef.current = false
     ;(async () => {
       // Try mnemonic-based build first (calls getMnemonic internally)
       await buildWalletFromMnemonic()
@@ -2249,13 +2316,25 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       }
       setStorage(null)
 
-      setManagers({})
+      updateManagers({})
       setConfigStatus('initial')
       walletBuiltRef.current = false
       setWalletBuilt(false)
       walletBuildingRef.current = false
       setWalletBuilding(false)
       setWalletUserId(null)
+
+      // The home screen shows this cached figure immediately on mount, before
+      // its own balance read resolves — logout must not leave the departed
+      // wallet's number sitting there for the next (walletless) mount to
+      // paint. Sweep every network's cache, not just the current one.
+      try {
+        const keys = await AsyncStorage.getAllKeys()
+        const stale = keys.filter(k => k.startsWith('cached_wallet_balance_'))
+        if (stale.length > 0) await AsyncStorage.multiRemove(stale)
+      } catch (err) {
+        console.warn('[logout] failed to clear cached balance', err)
+      }
 
       // Awaited, and it removes the KEK along with the ciphertexts: leaving the
       // key behind would make the next cold start prompt for a wallet that no
@@ -2667,6 +2746,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const contextValue = useMemo<WalletContextValue>(
     () => ({
       managers,
+      getManagers,
       settings,
       updateSettings,
       logout,
@@ -2709,6 +2789,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     }),
     [
       managers,
+      getManagers,
       settings,
       updateSettings,
       logout,

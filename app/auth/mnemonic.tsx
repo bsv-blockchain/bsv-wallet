@@ -31,9 +31,11 @@ import {
   typography,
   useWallet,
   generateMnemonicWallet,
+  recoverMnemonicWallet,
   validateMnemonic,
   useLocalStorage,
   recordBackupAttestation,
+  backupAttestation,
   type BackupMedium
 } from '@bsv/expo-wallet-toolbox'
 
@@ -188,7 +190,16 @@ export default function MnemonicScreen() {
     if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
       setLoading(true)
       try {
-        const wif = PrivateKey.fromHex(trimmed).toWif()
+        const importedKey = PrivateKey.fromHex(trimmed)
+        const wif = importedKey.toWif()
+        // Computed directly from the key, not through the wallet: recording
+        // this depended on the just-(re)built wallet's permissions manager
+        // resolving getPublicKey, which is only ready once the build (and any
+        // backup replay inside it) fully settles — an async chain with too
+        // many places to silently miss. The identity key is exactly this
+        // key's public key regardless, so write it before the wallet exists
+        // at all.
+        const identityKey = importedKey.toPublicKey().toString()
         const stored = await setRecoveredKey(wif)
         if (!stored) {
           const choice = await showAlert({
@@ -211,6 +222,10 @@ export default function MnemonicScreen() {
           await buildWalletFromRecoveredKey(wif, { restoreFromBackup: true })
         }
         if (await handledRestoreFailure(() => handleContinueWithImported())) return
+        // An imported key is, by definition, already backed up — the user just
+        // proved they hold it. Recording this here means the reminder never
+        // nags someone who imported instead of generating.
+        await backupAttestation.set(identityKey, 'phrase')
         setCelebrating(true)
       } catch (error: any) {
         console.error('[Mnemonic] Error importing hex key:', error)
@@ -306,6 +321,14 @@ export default function MnemonicScreen() {
       if (opts?.restore === true && (await handledRestoreFailure(() => initializeWallet(mnemonicPhrase, opts)))) {
         return
       }
+      // initializeWallet is only ever reached via the import path — an imported
+      // phrase is by definition already backed up, so record it and skip the
+      // nag. Computed directly from the phrase (recoverMnemonicWallet already
+      // derives it) rather than through the wallet's getPublicKey — that
+      // depended on the just-(re)built wallet's permissions manager being
+      // ready, an async chain (rebuild → auto-build effect → possible backup
+      // replay) with too many places to silently miss.
+      await backupAttestation.set(recoverMnemonicWallet(mnemonicPhrase).identityKey, 'phrase')
       setCelebrating(true)
     } catch (error: any) {
       console.error('[Mnemonic] Error setting up wallet:', error)

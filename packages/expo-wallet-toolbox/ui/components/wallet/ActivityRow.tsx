@@ -116,7 +116,7 @@ function ActivityRowBase({
   const { t } = useTranslation()
   const { colors } = useTheme()
   const { settings } = useWallet()
-  const { satoshisPerUSD } = useContext(ExchangeRateContext)
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const MaterialCommunityIcons = loadMaterialCommunityIcons()
 
   const currency = settings?.currency || 'BSV'
@@ -127,14 +127,16 @@ function ActivityRowBase({
 
   const { value, unit } = formatAmountParts(action.satoshis, currency, satoshisPerUSD, {
     abbreviate: true,
-    showPlus: true
+    showPlus: true,
+    usdToFiat
   })
   // The second denomination — the one the user is NOT currently displaying. It
   // is the answer to "yes, but how much is that really", which is the whole
   // reason a sats-denominated wallet needs a fiat line at all.
-  const secondary = formatAmount(action.satoshis, currency === 'USD' ? 'BSV' : 'USD', satoshisPerUSD, {
+  const secondary = formatAmount(action.satoshis, currency === 'BSV' ? 'USD' : 'BSV', satoshisPerUSD, {
     abbreviate: true,
-    showPlus: true
+    showPlus: true,
+    usdToFiat
   })
 
   const time = formatRowTime(action.created_at)

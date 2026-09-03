@@ -60,8 +60,8 @@ describe('bleTransport', () => {
     expect(bleTransport.kind).toBe('ble')
   })
 
-  it('exposes the 6 s connect budget as a named constant', () => {
-    expect(BLE_CONNECT_TIMEOUT_MS).toBe(6_000)
+  it('exposes the 15 s connect budget as a named constant', () => {
+    expect(BLE_CONNECT_TIMEOUT_MS).toBe(15_000)
   })
 })
 
@@ -88,7 +88,7 @@ describe('bleTransport.send', () => {
     expect(native.sendFrame).not.toHaveBeenCalled()
   })
 
-  it('passes the 6 s connect budget and 20 s send budget to sendFrame', async () => {
+  it('passes the 15 s connect budget and 30 s send budget to sendFrame', async () => {
     const native = fakeNative({ sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) })
     getLocalPayBleTransport.mockReturnValue(native)
 
@@ -96,8 +96,8 @@ describe('bleTransport.send', () => {
     const call = (native.sendFrame as jest.Mock).mock.calls[0]
     expect(call[0]).toBe(instanceName(session.sessionId))
     expect(call[1]).toBe(toBase64(session.psk))
-    expect(call[3]).toBe(20000)
-    expect(call[4]).toBe(6000)
+    expect(call[3]).toBe(30000)
+    expect(call[4]).toBe(15000)
   })
 
   // Spec §3 step 8: the native central rejects with this exact string when
