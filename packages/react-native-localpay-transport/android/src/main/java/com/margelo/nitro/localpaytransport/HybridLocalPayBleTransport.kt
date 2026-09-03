@@ -272,6 +272,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
   ) {
     val serviceUuid: UUID = BleGattProfile.serviceUuid(psk, instanceName)
     private val t0 = SystemClock.elapsedRealtime()
+    private val connectDeadline = t0 + connectTimeoutMs
     fun elapsed(): Long = SystemClock.elapsedRealtime() - t0
     private var settled = false
     /** The central that subscribed first and received HELLO_A; only its writes count. */
@@ -352,7 +353,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
             candidate = null
             centrals.remove(device.address)
             gattServer?.cancelConnection(device)
-            main.postDelayed(connectTimer, 0L.coerceAtLeast(0))
+            main.postDelayed(connectTimer, (connectDeadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
             return
           }
           bound = device
