@@ -63,17 +63,23 @@ interface InternalizingWallet {
 }
 
 /**
- * A shareable payment link for a handle.
+ * A shareable BRC-125 payment link for a handle.
  *
- * Deliberately the same `peerpay:` form the app already parses
- * (parsePeerPayURI.ts) and already routes (app/+native-intent.ts in the host
- * app), so a tapped link lands on /pay with the recipient filled in. A non-positive amount
- * emits no query at all — `sats=0` would be an invalid link, and an open
- * request is exactly the absence of a figure.
+ * `peerpay:<key>[?sats=<n>][&url=<host>]`. The same form the app parses
+ * (parsePeerPayURI.ts) and routes (+native-intent.ts in the host app). A
+ * non-positive amount emits no `sats` — `sats=0` would be an invalid link,
+ * and an open request is exactly the absence of a figure. `url` is this
+ * app's extension: the payee's message-box host, so the payer can skip the
+ * overlay lookup. Omitted for the no-server sentinel and for blank.
  */
-export function peerPayLinkFor(identityKey: string, sats?: number): string {
+export function peerPayLinkFor(identityKey: string, sats?: number, messageBoxUrl?: string): string {
+  const params: string[] = []
   const amount = sats !== undefined ? Math.round(Number(sats)) : NaN
-  return Number.isFinite(amount) && amount > 0 ? `peerpay:${identityKey}?sats=${amount}` : `peerpay:${identityKey}`
+  if (Number.isFinite(amount) && amount > 0) params.push(`sats=${amount}`)
+  const host = (messageBoxUrl ?? '').trim().replace(/\/+$/, '')
+  if (host && host !== NO_MESSAGE_BOX) params.push(`url=${encodeURIComponent(host)}`)
+  const base = `peerpay:${identityKey.toLowerCase()}`
+  return params.length ? `${base}?${params.join('&')}` : base
 }
 
 /**
@@ -381,8 +387,14 @@ export async function sendViaHandle(args: {
   note?: string
   /** Resolved display name, used only for the default description. */
   recipientName?: string
+  /**
+   * The recipient's message-box host from a BRC-125 `url` extension. Passed
+   * as sendMessage's override so the overlay lookup is skipped, and stored on
+   * the entry so every retry goes to the same place.
+   */
+  recipientHost?: string
 }): Promise<{ outboxId: string; satoshis: number }> {
-  const { wallet, adminOriginator, client, storage, recipient, messageBoxUrl, recipientName } = args
+  const { wallet, adminOriginator, client, storage, recipient, messageBoxUrl, recipientName, recipientHost } = args
   const sats = Math.round(Number(args.satoshis))
   if (!Number.isFinite(sats) || sats <= 0) throw new Error('Invalid amount')
   // No advertisement check. Anointing a host costs a transaction, so someone
@@ -446,7 +458,7 @@ export async function sendViaHandle(args: {
   }
   let outboxId: string | undefined
   try {
-    outboxId = await saveOutboxEntry(storage, { recipient, token, messageBoxUrl, txid: car.txid })
+    outboxId = await saveOutboxEntry(storage, { recipient, token, messageBoxUrl, txid: car.txid, recipientHost })
   } catch (e) {
     try {
       await abortPeerPayNosend(wallet, adminOriginator, car.txid)
@@ -459,11 +471,14 @@ export async function sendViaHandle(args: {
     // Checkpoint before the box round-trip: if we crash after the box accepted
     // the token, cancel must not abort a payment the recipient may already hold.
     await updateOutboxEntry(storage, outboxId, { delivering: true })
-    await client.sendMessage({
-      recipient,
-      messageBox: PAYMENT_INBOX,
-      body: JSON.stringify(token)
-    })
+    await client.sendMessage(
+      {
+        recipient,
+        messageBox: PAYMENT_INBOX,
+        body: JSON.stringify(token)
+      },
+      recipientHost
+    )
     // Delivered is persisted before the broadcast is attempted: from here the
     // recipient holds the token, so a retry must never re-mint or cancel-abort —
     // only the broadcast is still outstanding.
@@ -568,11 +583,14 @@ export async function retryDelivery(args: {
     if (entry.delivered !== true) {
       await updateOutboxEntry(storage, entry.id, { delivering: true })
       try {
-        await client.sendMessage({
-          recipient: entry.recipient,
-          messageBox: PAYMENT_INBOX,
-          body: JSON.stringify(entry.token)
-        })
+        await client.sendMessage(
+          {
+            recipient: entry.recipient,
+            messageBox: PAYMENT_INBOX,
+            body: JSON.stringify(entry.token)
+          },
+          entry.recipientHost
+        )
       } catch (e) {
         // The box already holds this token — the first attempt landed and only
         // its response was lost. That is delivered, not failed: retrying it
