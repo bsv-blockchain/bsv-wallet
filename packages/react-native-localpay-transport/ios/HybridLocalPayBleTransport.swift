@@ -237,7 +237,9 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
     dispatchPrecondition(condition: .onQueue(queue))
     os_log("payee(scan): %{public}@; rescanning", log: bleLog, type: .default, reason)
     idleReaper?.cancel(); idleReaper = nil
+    isScanning = false
     if let p = peripheral, let cm = engine?.centralManager, p.state != .disconnected { cm.cancelPeripheralConnection(p) }
+    peripheral?.delegate = nil
     peripheral = nil; frameChar = nil
     reassembler = BleGattProfile.Reassembler()
     writeChunks = []; writeCompletion = nil
@@ -254,9 +256,11 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
       if let p = peripheral, p.state != .disconnected { cm.cancelPeripheralConnection(p) }
     }
     isScanning = false
+    peripheral?.delegate = nil
     peripheral = nil
     stage = .done
-    writeCompletion?(false); writeCompletion = nil
+    let done = writeCompletion; writeCompletion = nil
+    done?(false)
   }
 
   var isHolding: Bool { stage == .holding }
@@ -325,6 +329,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
 
   func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral else { return }
     guard stage == .discoveringServices else { return }
     if let error { return rescan(error.localizedDescription) }
     guard let service = p.services?.first(where: { $0.uuid == serviceUuid }) else { return rescan("session service not found on peer") }
@@ -334,6 +339,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
 
   func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral else { return }
     guard stage == .discoveringCharacteristics, service.uuid == serviceUuid else { return }
     if let error { return rescan(error.localizedDescription) }
     let chars = service.characteristics ?? []
@@ -348,6 +354,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
 
   func peripheral(_ p: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral else { return }
     guard stage == .subscribing, characteristic.uuid == BleGattProfile.ackCharUuid else { return }
     if let error { return rescan(error.localizedDescription) }
     guard characteristic.isNotifying else { return rescan("peer refused the ack subscription") }
@@ -357,6 +364,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
 
   func peripheral(_ p: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral else { return }
     guard characteristic.uuid == BleGattProfile.ackCharUuid else { return }
     if let error { return rescan(error.localizedDescription) }
     guard let value = characteristic.value, !value.isEmpty else { return }
@@ -377,6 +385,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
       stage = .writingHelloB
       write(BleGattProfile.helloB(psk: psk, instanceName: instanceName), on: p) { [weak self] ok in
         guard let self else { return }
+        guard self.stage == .writingHelloB else { return }
         if ok { self.stage = .awaitingFrame } else { self.rescan("HELLO_B write failed") }
       }
     case (BleGattProfile.typeFrame, .awaitingFrame), (BleGattProfile.typeFrame, .writingHelloB):
@@ -412,6 +421,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
 
   func peripheral(_ p: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral else { return }
     guard characteristic.uuid == BleGattProfile.frameCharUuid, let frame = frameChar else { return }
     if error != nil {
       let done = writeCompletion; writeCompletion = nil; writeChunks = []
@@ -1035,6 +1045,9 @@ final class BleEngine: NSObject {
     }
     queue.sync {
       self.ensureManagers()
+      if self.listening == nil {
+        os_log("payee(scan): startScanning called with no active listen session", log: bleLog, type: .default)
+      }
       self.activeScan?.tearDown()
       let scan = InboundScan(engine: self, instanceName: instanceName, psk: psk, onFrame: onFrame, onError: onError)
       self.activeScan = scan
@@ -1074,11 +1087,11 @@ final class BleEngine: NSObject {
   /// Called by InboundScan when the held payer disconnected before the ack.
   fileprivate func scanLinkLost(_ scan: InboundScan) {
     dispatchPrecondition(condition: .onQueue(queue))
-    guard let session = listening, session.scanPendingAck === scan else { return }
-    session.scanPendingAck = nil
-    session.pendingAckTimeout?.cancel(); session.pendingAckTimeout = nil
-    scan.tearDown()
+    guard activeScan === scan else { return }
+    listening?.pendingAckTimeout?.cancel()
+    listening?.pendingAckTimeout = nil
     activeScan = nil
+    scan.tearDown()
   }
 
   func sendFrameAdvertising(
