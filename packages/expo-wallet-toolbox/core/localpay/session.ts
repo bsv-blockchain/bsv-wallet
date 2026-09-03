@@ -14,7 +14,15 @@ export const CAP_AWDL = 0x01
 export const CAP_NEARBY = 0x02
 /** Payee is advertising bsvpay-ble/1 — now advertised by this app, and the profile Blitz adopts. */
 export const CAP_BLE = 0x04
-// 0x08..0x80 reserved for future rungs (L2CAP, NFC, Wi-Fi Aware).
+/**
+ * Payee is ALSO scanning for a payer that advertises this session's service
+ * UUID (bsvpay-ble/1 reversed role, spec 2026-09-03). Never minted without
+ * CAP_BLE: a scanner with no advertiser behind it would strand a payer whose
+ * own central role is trusted. Set by iOS payees only — Android as central is
+ * the role that fails against iOS.
+ */
+export const CAP_BLE_SCAN = 0x08
+// 0x10..0x80 reserved for future rungs (L2CAP, NFC, Wi-Fi Aware).
 
 /**
  * HIGH BITS — device hints. Never read for transport selection; they feed one
@@ -94,6 +102,8 @@ export function mintSession(args: {
   supportsNearby?: boolean
   /** True only while a bsvpay-ble/1 listener is actually advertising for this session. */
   supportsBle?: boolean
+  /** True only while a reversed-role scan listener is live for this session. Ignored unless supportsBle. */
+  supportsBleScan?: boolean
   /**
    * HINT_* bits from deviceCaps.capsFromProbe. Masked to `~RUNG_MASK` here, so
    * a hint word can never advertise a listener that was not started.
@@ -117,6 +127,7 @@ export function mintSession(args: {
       (args.supportsAwdl ? CAP_AWDL : 0) |
       (args.supportsNearby ? CAP_NEARBY : 0) |
       (args.supportsBle ? CAP_BLE : 0) |
+      (args.supportsBle && args.supportsBleScan ? CAP_BLE_SCAN : 0) |
       ((args.hints ?? 0) & ~RUNG_MASK),
     sessionId: new Uint8Array(Random(16)),
     psk: new Uint8Array(Random(32)),

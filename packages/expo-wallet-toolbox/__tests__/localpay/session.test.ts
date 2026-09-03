@@ -1,6 +1,6 @@
 import QRCode from 'qrcode'
 import {
-  mintSession, encodeSession, decodeSession, instanceName, CAP_AWDL, CAP_NEARBY, SESSION_VERSION, CAP_BLE,
+  mintSession, encodeSession, decodeSession, instanceName, CAP_AWDL, CAP_NEARBY, SESSION_VERSION, CAP_BLE, CAP_BLE_SCAN,
   HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC, RUNG_MASK, type SessionAsset,
 } from '../../core/localpay/session'
 import { CodecError } from '../../core/localpay/codec'
@@ -76,6 +76,20 @@ describe('localpay session', () => {
     expect(mintSession(args).caps & CAP_BLE).toBe(0)
     // The BLE rung does not disturb the other rungs.
     expect(mintSession({ ...args, supportsBle: true }).caps & CAP_AWDL).toBe(CAP_AWDL)
+  })
+
+  it('mints the BLE scan bit only alongside the BLE rung bit', () => {
+    expect(CAP_BLE_SCAN).toBe(0x08)
+    expect(mintSession({ ...args, supportsBle: true, supportsBleScan: true }).caps & CAP_BLE_SCAN).toBe(CAP_BLE_SCAN)
+    expect(mintSession({ ...args, supportsBle: true, supportsBleScan: false }).caps & CAP_BLE_SCAN).toBe(0)
+    expect(mintSession({ ...args, supportsBle: true }).caps & CAP_BLE_SCAN).toBe(0)
+    // A scanner with no advertiser behind it would strand iOS payers: refused at the mint.
+    expect(mintSession({ ...args, supportsBle: false, supportsBleScan: true }).caps & (CAP_BLE | CAP_BLE_SCAN)).toBe(0)
+  })
+
+  it('round-trips the scan bit through the QR text', () => {
+    const s = mintSession({ ...args, supportsBle: true, supportsBleScan: true })
+    expect(decodeSession(encodeSession(s)).caps & CAP_BLE_SCAN).toBe(CAP_BLE_SCAN)
   })
 
   it('masks hints to the non-rung bits and ORs them into caps', () => {
