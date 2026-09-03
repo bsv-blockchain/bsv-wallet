@@ -84,6 +84,7 @@ export function makeBleTransport(
             // self-reset inside startListening would otherwise tear it down.
             if (Platform.OS !== 'ios' || settled) return
             return backend.startScanning(name, psk, onFrame, onError).catch((e: unknown) => {
+              if (settled) return
               console.warn('[localpay] ble scan unavailable:', e instanceof Error ? e.message : String(e))
             })
           })

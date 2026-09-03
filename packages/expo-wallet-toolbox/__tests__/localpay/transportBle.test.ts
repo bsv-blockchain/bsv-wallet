@@ -454,6 +454,33 @@ describe('bleTransport reversed role', () => {
     warn.mockRestore()
   })
 
+  // Regression: startScanning() being CALLED before settle is not the same as
+  // its eventual rejection being LOGGED before settle. Here the advertised
+  // listener delivers on a macrotask (setTimeout 0) — settling receive() and
+  // flipping `settled` true — while the scan's own promise is still pending
+  // and only rejects on a LATER macrotask (native cancelling the loser's scan
+  // once the winner is known). The warning must not fire once the payment has
+  // already succeeded.
+  it('does not log a scan-unavailable warning once the advertised link already delivered', async () => {
+    Platform.OS = 'ios'
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const startListening = jest.fn((_n: string, _p: string, onFrame: (f: string) => void) => {
+      setTimeout(() => onFrame(toBase64(sealFrame(frame, session.psk))), 0)
+      return Promise.resolve()
+    })
+    const startScanning = jest.fn(
+      () => new Promise<void>((_, reject) => setTimeout(() => reject(new Error('bluetooth unavailable')), 10))
+    )
+    const native = fakeNative({ startListening: startListening as never, startScanning: startScanning as never })
+    getLocalPayBleTransport.mockReturnValue(native)
+    const received = await bleTransport.receive(session, new AbortController().signal)
+    expect(received.frame.transaction).toEqual(frame.transaction)
+    // Let the scan's later rejection actually fire before asserting.
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('a frame from the scan link resolves receive() and shares the one confirm handle', async () => {
     Platform.OS = 'ios'
     const startScanning = jest.fn((_n: string, _p: string, onFrame: (f: string) => void) => {
