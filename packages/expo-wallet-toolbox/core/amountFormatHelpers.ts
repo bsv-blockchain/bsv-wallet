@@ -196,6 +196,28 @@ export const formatAmountParts = (
 }
 
 /**
+ * The spendable figure in the unit AmountInput is asking for RIGHT NOW, with
+ * no symbol and no unit word: the input's own suffix already says "satoshis"
+ * or "USD", and repeating it beside the balance reads twice. BSV mode never
+ * switches to whole BSV for this reason — the field beside it takes satoshis.
+ * Empty when there is nothing honest to show (no rate in USD mode, NaN).
+ */
+export const formatAmountInInputUnit = (satoshis: number, currency: string, satoshisPerUSD: number): string => {
+  const n = Number(satoshis)
+  if (!Number.isFinite(n)) return ''
+  if (currency === 'USD') {
+    if (!(satoshisPerUSD > 0)) return ''
+    const usd = Math.abs(n) / satoshisPerUSD
+    try {
+      return new Intl.NumberFormat(localeDefault, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(usd)
+    } catch {
+      return usd.toFixed(2)
+    }
+  }
+  return formatSatoshisLocale(Math.abs(Math.round(n)))
+}
+
+/**
  * Convert a user-entered display value back to integer satoshis.
  * - BSV mode: input is satoshi integers, passthrough
  * - USD mode: input is dollar amount, multiply by satoshisPerUSD
