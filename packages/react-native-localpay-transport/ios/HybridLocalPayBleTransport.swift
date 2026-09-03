@@ -471,10 +471,12 @@ private final class PayerAdvertise {
   /** Set once HELLO_B verified. */
   var bound: CBCentral?
   var frameOnWire = false
+  var frameIndicationStarted = false
   var reassemblers: [UUID: BleGattProfile.Reassembler] = [:]
   var settled = false
   var connectTimeout: DispatchWorkItem?
   var wholeTimeout: DispatchWorkItem?
+  var connectDeadline: DispatchTime?
   let startedAt = DispatchTime.now()
 
   init(instanceName: String, psk: Data, sealed: Data, promise: Promise<String>) {
@@ -675,6 +677,10 @@ final class BleEngine: NSObject {
       // Self-reset (spec §3 step 2): a previous session that was never
       // explicitly stopped must not leak its latch, centrals or reapers.
       self.resetListening()
+      // A device never pays and receives at once; a listen supersedes a live send.
+      if let payer = self.activePayer {
+        self.settlePayer(payer, .failure(BleGattProfile.error("superseded by a newer send", code: 15)))
+      }
       // Defensive, and normally a no-op: the payee flow calls prepare() at
       // minting, which is where the iOS Bluetooth prompt appears. Without this
       // call a caller that skipped prepare() would hang forever on
@@ -1164,12 +1170,14 @@ final class BleEngine: NSObject {
       }
       payer.wholeTimeout = whole
       self.queue.asyncAfter(deadline: .now() + .milliseconds(max(0, Int(timeoutMs))), execute: whole)
+      let connectDeadline = DispatchTime.now() + .milliseconds(max(0, Int(connectTimeoutMs)))
+      payer.connectDeadline = connectDeadline
       let connect = DispatchWorkItem { [weak self] in
         guard let self, let p = self.activePayer, p === payer, p.candidate == nil else { return }
         self.settlePayer(p, .failure(BleGattProfile.error("connect timeout: no route to peer", code: 14)))
       }
       payer.connectTimeout = connect
-      self.queue.asyncAfter(deadline: .now() + .milliseconds(max(0, Int(connectTimeoutMs))), execute: connect)
+      self.queue.asyncAfter(deadline: connectDeadline, execute: connect)
       self.advertisePayerIfPowered()
     }
     return promise
@@ -1236,7 +1244,7 @@ final class BleEngine: NSObject {
 
   private func payerHandle(message: Data, from central: CBCentral, payer: PayerAdvertise) {
     dispatchPrecondition(condition: .onQueue(queue))
-    guard !message.isEmpty, let ack = payer.ackChar else { return }
+    guard !payer.settled, !message.isEmpty, let ack = payer.ackChar else { return }
     let type = message[message.startIndex]
     let body = Data(message.dropFirst())
     let fromCandidate = payer.candidate?.identifier == central.identifier
@@ -1245,11 +1253,20 @@ final class BleEngine: NSObject {
       guard BleGattProfile.constantTimeEquals(body, expected) else {
         os_log("payer(adv): HELLO_B proof failed id=%{public}@", log: bleLog, type: .default, central.identifier.uuidString)
         payer.candidate = nil
+        if let deadline = payer.connectDeadline {
+          let retry = DispatchWorkItem { [weak self] in
+            guard let self, let p = self.activePayer, p === payer, p.candidate == nil else { return }
+            self.settlePayer(p, .failure(BleGattProfile.error("connect timeout: no route to peer", code: 14)))
+          }
+          payer.connectTimeout = retry
+          self.queue.asyncAfter(deadline: deadline, execute: retry)
+        }
         return
       }
       payer.bound = central
       if let pm = peripheralManager, pm.isAdvertising { pm.stopAdvertising() }
       os_log("payer(adv): hello verified ms=%ld; indicating frame bytes=%ld", log: bleLog, type: .default, payer.elapsedMs(), payer.sealed.count)
+      payer.frameIndicationStarted = true
       enqueuePayerIndication(BleGattProfile.frameMessage(sealed: payer.sealed), to: central, ack: ack) { [weak self, weak payer] in
         guard let payer, !payer.settled else { return }
         payer.frameOnWire = true
@@ -1258,7 +1275,7 @@ final class BleEngine: NSObject {
       }
       return
     }
-    if type == BleGattProfile.typeAck, payer.bound?.identifier == central.identifier, payer.bound != nil {
+    if type == BleGattProfile.typeAck, payer.bound?.identifier == central.identifier, payer.frameOnWire || payer.frameIndicationStarted {
       guard body.count > BleGattProfile.macLength else { return settlePayer(payer, .failure(BleGattProfile.error("peer failed the session proof", code: 22))) }
       let json = Data(body.prefix(body.count - BleGattProfile.macLength))
       let mac = Data(body.suffix(BleGattProfile.macLength))
@@ -1410,19 +1427,21 @@ extension BleEngine: CBPeripheralManagerDelegate {
     guard let first = requests.first else { return }
     if let payer = activePayer {
       var result: CBATTError.Code = .success
+      var pending: [(Data, CBCentral)] = []
       for request in requests {
         guard request.characteristic.uuid == BleGattProfile.frameCharUuid, let value = request.value, !value.isEmpty else { continue }
         var reassembler = payer.reassemblers[request.central.identifier] ?? BleGattProfile.Reassembler()
         do {
           let messages = try reassembler.feed(value)
           payer.reassemblers[request.central.identifier] = reassembler
-          for message in messages { payerHandle(message: message, from: request.central, payer: payer) }
+          for message in messages { pending.append((message, request.central)) }
         } catch {
           payer.reassemblers[request.central.identifier] = BleGattProfile.Reassembler()
           result = .invalidAttributeValueLength
         }
       }
       pm.respond(to: first, withResult: result)
+      for (message, central) in pending { payerHandle(message: message, from: central, payer: payer) }
       return
     }
     guard let session = listening, !session.closing else {
