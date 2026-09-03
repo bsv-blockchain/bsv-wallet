@@ -197,6 +197,12 @@ describe('classifyRecipientInput', () => {
     expect((r as { message: string }).message).toContain('identity key')
   })
 
+  it('reports a peerpay link with a good key but a bad amount as invalid_link', () => {
+    const r = classifyRecipientInput(`peerpay:${KEY}?sats=2.5`)
+    expect(r.kind).toBe('invalid_link')
+    expect((r as { message: string }).message).toContain('sats')
+  })
+
   it('sends a phone-shaped number to search — it is too short to be an address', () => {
     expect(classifyRecipientInput('12125551234')).toEqual({ kind: 'search', query: '12125551234' })
   })

@@ -101,7 +101,7 @@ export type RecipientInput =
   | { kind: 'search'; query: string }
 
 function handleFromPeerPay(result: PeerPayValidationResult): RecipientInput {
-  if (!result.identityKey || result.errors.identityKey) {
+  if (!result.identityKey || result.errors.identityKey || result.errors.sats) {
     return { kind: 'invalid_link', message: peerPayValidationMessage(result) ?? 'Invalid peerpay link' }
   }
   return {
