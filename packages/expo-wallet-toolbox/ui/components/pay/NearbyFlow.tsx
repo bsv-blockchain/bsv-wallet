@@ -394,9 +394,13 @@ export interface NearbyFlowProps {
   role: 'payer' | 'payee'
   /** Leave the flow. The Pay screen decides what that means (back to the grid). */
   onExit: () => void
+  /** Payer only: a session the Pay screen already scanned. Skips the scanner, lands on confirm. */
+  initialSession?: Session
+  /** Payee only: mint immediately for this amount (undefined = open request). Skips receive_amount. */
+  initialRequest?: { sats?: number }
 }
 
-export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProps) {
+export default function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest }: NearbyFlowProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -631,17 +635,6 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     setPhase(next)
   }, [])
 
-  // The grid already asked which side the user is on, so the old role screen is
-  // gone. A payee goes straight to naming an amount; a payer straight to the
-  // camera. Runs once per mount.
-  const enteredRef = useRef(false)
-  useEffect(() => {
-    if (enteredRef.current) return
-    enteredRef.current = true
-    if (initialRole === 'payee') setPhase('receive_amount')
-    else openScanner('send_scan')
-  }, [initialRole, openScanner])
-
   const fail = useCallback(
     (kind: 'network' | 'generic', detail?: string, offerWalletCheck = false) => {
       setFailure(
@@ -659,6 +652,13 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
   )
 
   const reset = useCallback(() => {
+    // A mount whose amount or session came from outside has no phase to go
+    // back to — the hub or the send form owns that state. Leaving is the reset.
+    if (initialRequest || initialSession) {
+      abortAll()
+      onExit()
+      return
+    }
     abortAll()
     settlingRef.current = false
     scanLatchRef.current = false
@@ -684,7 +684,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     setLinked(false)
     setCelebrating(false)
     setReceivedOverlay(null)
-  }, [abortAll, initialRole])
+  }, [abortAll, initialRole, initialRequest, initialSession, onExit])
 
   const goBack = useCallback(() => {
     abortAll()
@@ -1031,13 +1031,12 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 
   // ── Receive: mint the request ──
 
-  const startRequest = useCallback(async () => {
+  const startRequest = useCallback(async (requested?: number) => {
     // Zero (or blank) is the user asking the payer to choose, so it becomes an
     // open session rather than a rejected input. Undefined, never 0 — the codec
     // refuses a non-positive amount precisely so a corrupt zero can never be
     // read back as "any amount".
-    const requested = satsFrom(requestAmount)
-    const sats = requested > 0 ? requested : undefined
+    const sats = requested !== undefined && Number.isFinite(requested) && requested > 0 ? Math.round(requested) : undefined
     // Gate on storage too, not just the wallet. Advertising with storage null
     // means a payer can deliver a frame the payee then cannot persist, after the
     // transport has already acked it as accepted.
@@ -1097,7 +1096,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
     } catch (e) {
       fail('generic', messageOf(e))
     }
-  }, [requestAmount, wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t])
+  }, [wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t])
 
   // ── Receive: scan the payer's frame ──
 
@@ -1148,6 +1147,20 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 
   // ── Send: scan the payee's session ──
 
+  /** The state moves that follow a valid session, whether scanned here or handed in. */
+  const adoptSession = useCallback((session: Session) => {
+    setScannedSession(session)
+    // Prompt-free read of this device's Bluetooth state for describeFloor.
+    // Never prepare() here: a payer who lands on QR must never be prompted.
+    setBleState(readBluetoothState())
+    // Who is being paid. Best-effort lookup for the presence row and the
+    // recipient card; nothing waits on it.
+    setPeerKey(session.identityKey)
+    setSendAmount('')
+    setRole('payer')
+    setPhase('send_confirm')
+  }, [])
+
   const onSessionScanned = useCallback(
     (data: string) => {
       if (scanLatchRef.current) return
@@ -1159,19 +1172,29 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         fail('generic', t('invalid_qr_code'))
         return
       }
-      setScannedSession(session)
-      // Prompt-free read of this device's Bluetooth state for describeFloor.
-      // Never prepare() here: a payer who lands on QR must never be prompted.
-      setBleState(readBluetoothState())
-      // Who is being paid. Best-effort lookup for the presence row and the
-      // recipient card; nothing waits on it.
-      setPeerKey(session.identityKey)
-      setSendAmount('')
-      setRole('payer')
-      setPhase('send_confirm')
+      adoptSession(session)
     },
-    [fail, t]
+    [adoptSession, fail, t]
   )
+
+  // One entry per mount. A payee with a pre-set request mints at once; a payer
+  // with a pre-scanned session lands on confirm. Without either, the old
+  // behaviour: payee names an amount, payer raises the camera. Declared here,
+  // below startRequest and adoptSession, because a dependency array is read at
+  // render time and both are `const`s — referencing them from above would TDZ.
+  const enteredRef = useRef(false)
+  useEffect(() => {
+    if (enteredRef.current) return
+    enteredRef.current = true
+    if (initialRole === 'payee') {
+      if (initialRequest) void startRequest(initialRequest.sats)
+      else setPhase('receive_amount')
+    } else if (initialSession) {
+      adoptSession(initialSession)
+    } else {
+      openScanner('send_scan')
+    }
+  }, [initialRole, initialRequest, initialSession, openScanner, startRequest, adoptSession])
 
   /**
    * The transport this payment will take. Memoized per scanned session:
@@ -1859,11 +1882,12 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
         {phase === 'receive_amount' && (
           <Animated.View entering={settleIn}>
             {phaseTitle(t('local_pay_request'))}
-            {supportText(t('local_pay_amount_optional_hint'))}
             <View style={styles.gapXl} />
 
             {/* No max button and no balance line: this asks the PAYER for money,
-                so the requester's own balance is meaningless here. */}
+                so the requester's own balance is meaningless here. Zero or blank
+                is a real choice — payer decides — and the design says so by not
+                gating on it. */}
             <PayAmountField value={requestAmount} onChangeText={setRequestAmount} showMax={false} showBalance={false} />
             {/* Never disabled. Leaving the amount at zero is a real choice — it
                 means "payer decides" — so gating Continue on a non-zero amount
@@ -1873,7 +1897,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
               styles={styles}
               colors={colors}
               label={t('continue_action')}
-              onPress={() => void startRequest()}
+              onPress={() => void startRequest(satsFrom(requestAmount) || undefined)}
             />
             <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
           </Animated.View>
