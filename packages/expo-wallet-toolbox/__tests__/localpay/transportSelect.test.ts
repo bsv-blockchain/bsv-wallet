@@ -1,7 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native'
 import type { Permission, PermissionStatus } from 'react-native'
-import { localSupportsBle, selectTransport } from '../../core/localpay/transport/select'
-import { mintSession, CAP_AWDL, CAP_BLE, CAP_NEARBY, type Session } from '../../core/localpay/session'
+import { bleRole, localSupportsBle, selectTransport } from '../../core/localpay/transport/select'
+import { mintSession, CAP_AWDL, CAP_BLE, CAP_BLE_SCAN, CAP_NEARBY, type Session } from '../../core/localpay/session'
 import { requestNearbyPermissions } from '../../core/localpay/nearbyPermissions'
 
 let mockIsSupported = true
@@ -170,5 +170,32 @@ describe('requestNearbyPermissions', () => {
 
     await expect(requestNearbyPermissions()).resolves.toBe(false)
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('bleRole', () => {
+  afterEach(() => {
+    Platform.OS = 'ios'
+  })
+
+  it('is peripheral only when the payee scans and this device is Android', () => {
+    Platform.OS = 'android'
+    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe('peripheral')
+  })
+
+  it('stays central on iOS even when the payee scans', () => {
+    Platform.OS = 'ios'
+    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe('central')
+  })
+
+  it('stays central on Android when the payee does not scan', () => {
+    Platform.OS = 'android'
+    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true }))).toBe('central')
+  })
+
+  it('does not select BLE at all for a session carrying only the scan bit', () => {
+    Platform.OS = 'android'
+    const s: Session = { ...mintSession({ ...base, supportsAwdl: false }), caps: CAP_BLE_SCAN }
+    expect(selectTransport(s)).toBe('qr')
   })
 })

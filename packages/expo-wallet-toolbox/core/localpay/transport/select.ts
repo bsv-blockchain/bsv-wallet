@@ -1,6 +1,6 @@
 import { Platform } from 'react-native'
 import { getLocalPayBleTransport, getLocalPayTransport } from 'react-native-localpay-transport'
-import { CAP_AWDL, CAP_BLE, CAP_NEARBY, HINT_BT, RUNG_MASK, type Session } from '../session'
+import { CAP_AWDL, CAP_BLE, CAP_BLE_SCAN, CAP_NEARBY, HINT_BT, RUNG_MASK, type Session } from '../session'
 import type { BluetoothState } from '../deviceCaps'
 
 export type TransportKind = 'awdl' | 'nearby' | 'ble' | 'qr'
@@ -64,6 +64,22 @@ export function selectTransport(session: Session): TransportKind {
   if ((session.caps & CAP_NEARBY) !== 0 && localSupportsNearby()) return 'nearby'
   if ((session.caps & CAP_BLE) !== 0 && localSupportsBle()) return 'ble'
   return 'qr'
+}
+
+/** The GATT role THIS device takes as payer once the ladder chose 'ble'. */
+export type BleRole = 'central' | 'peripheral'
+
+/**
+ * Peripheral only when the payee advertised that it is scanning (CAP_BLE_SCAN)
+ * AND this device is Android. Android as central against an iOS peripheral
+ * fails below the app — its controller's link-layer instants are applied by
+ * the iPhone seconds to minutes late (spec 2026-09-03) — so it advertises and
+ * lets the iOS payee connect. The platform check is a local-ability check in
+ * the spirit of localSupportsNearby(), not a read of the peer's OS:
+ * `session.os` stays metadata.
+ */
+export function bleRole(session: Session): BleRole {
+  return (session.caps & CAP_BLE_SCAN) !== 0 && Platform.OS === 'android' ? 'peripheral' : 'central'
 }
 
 /**
