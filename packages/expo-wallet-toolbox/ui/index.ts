@@ -68,8 +68,11 @@ export { default as ResultBanner } from './components/pay/ResultBanner'
 export {
   peerPayValidationMessage,
   classifyIdentitySearchError,
-  useIdentitySearch
-} from './components/pay/useIdentitySearch'
+  useRecipientInput,
+  type RecipientTarget,
+  type RecipientInlineError,
+  type UseRecipientInputOptions
+} from './components/pay/useRecipientInput'
 
 // Pay screen (Task 21 — extracted from app/pay.tsx) and the online-status hook
 // it, and several pay cells above, depend on.
