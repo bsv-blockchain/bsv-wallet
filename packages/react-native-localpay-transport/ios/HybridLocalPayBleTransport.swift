@@ -456,6 +456,38 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
   }
 }
 
+// MARK: - Reversed role: payer as peripheral (spec 2026-09-03 §4, iOS twin)
+
+private final class PayerAdvertise {
+  let instanceName: String
+  let psk: Data
+  let sealed: Data
+  let serviceUuid: CBUUID
+  let promise: Promise<String>
+  var service: CBMutableService?
+  var ackChar: CBMutableCharacteristic?
+  /** The central that subscribed first and received HELLO_A. */
+  var candidate: CBCentral?
+  /** Set once HELLO_B verified. */
+  var bound: CBCentral?
+  var frameOnWire = false
+  var reassemblers: [UUID: BleGattProfile.Reassembler] = [:]
+  var settled = false
+  var connectTimeout: DispatchWorkItem?
+  var wholeTimeout: DispatchWorkItem?
+  let startedAt = DispatchTime.now()
+
+  init(instanceName: String, psk: Data, sealed: Data, promise: Promise<String>) {
+    self.instanceName = instanceName
+    self.psk = psk
+    self.sealed = sealed
+    self.serviceUuid = BleGattProfile.serviceUuid(psk: psk, instanceName: instanceName)
+    self.promise = promise
+  }
+
+  func elapsedMs() -> Int { Int((DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000) }
+}
+
 // MARK: - Engine
 
 /// Owns both CoreBluetooth managers and every piece of mutable state.
@@ -483,6 +515,7 @@ final class BleEngine: NSObject {
 
   private var activeSend: OutboundSend?
   private var activeScan: InboundScan?
+  private var activePayer: PayerAdvertise?
 
   /// How long the service stays registered after the ACK's last chunk was
   /// queued, in case the payer has not yet read it and disconnected. iOS only:
@@ -1110,8 +1143,137 @@ final class BleEngine: NSObject {
     timeoutMs: Double, connectTimeoutMs: Double
   ) -> Promise<String> {
     let promise = Promise<String>()
-    promise.reject(withError: BleGattProfile.error("bluetooth unavailable", code: 16))
+    guard let psk = Data(base64Encoded: pskBase64), let sealed = Data(base64Encoded: frameBase64), !instanceName.isEmpty else {
+      promise.reject(withError: BleGattProfile.error("bad psk or frame", code: 11))
+      return promise
+    }
+    guard sealed.count + 1 <= BleGattProfile.maxBleFrameBytes else {
+      promise.reject(withError: BleGattProfile.error("frame too large for a BLE payload", code: 30))
+      return promise
+    }
+    queue.sync {
+      self.ensureManagers()
+      // A payer never listens while it pays; a newer send supersedes an older one.
+      self.resetListening()
+      if let previous = self.activePayer { self.settlePayer(previous, .failure(BleGattProfile.error("superseded by a newer send", code: 15))) }
+      let payer = PayerAdvertise(instanceName: instanceName, psk: psk, sealed: sealed, promise: promise)
+      self.activePayer = payer
+      let whole = DispatchWorkItem { [weak self] in
+        guard let self, let p = self.activePayer, p === payer else { return }
+        self.settlePayer(p, .failure(BleGattProfile.error("timed out waiting for peer", code: 12)))
+      }
+      payer.wholeTimeout = whole
+      self.queue.asyncAfter(deadline: .now() + .milliseconds(max(0, Int(timeoutMs))), execute: whole)
+      let connect = DispatchWorkItem { [weak self] in
+        guard let self, let p = self.activePayer, p === payer, p.candidate == nil else { return }
+        self.settlePayer(p, .failure(BleGattProfile.error("connect timeout: no route to peer", code: 14)))
+      }
+      payer.connectTimeout = connect
+      self.queue.asyncAfter(deadline: .now() + .milliseconds(max(0, Int(connectTimeoutMs))), execute: connect)
+      self.advertisePayerIfPowered()
+    }
     return promise
+  }
+
+  private func advertisePayerIfPowered() {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard let payer = activePayer, payer.service == nil, let pm = peripheralManager else { return }
+    switch pm.state {
+    case .poweredOn: break
+    case .unknown, .resetting: return
+    case .unauthorized where CBManager.authorization == .notDetermined: return
+    default:
+      settlePayer(payer, .failure(BleGattProfile.error("bluetooth unavailable", code: 16)))
+      return
+    }
+    let frame = CBMutableCharacteristic(type: BleGattProfile.frameCharUuid, properties: [.write, .writeWithoutResponse], value: nil, permissions: [.writeable])
+    let ack = CBMutableCharacteristic(type: BleGattProfile.ackCharUuid, properties: [.indicate], value: nil, permissions: [.readable])
+    let service = CBMutableService(type: payer.serviceUuid, primary: true)
+    service.characteristics = [frame, ack]
+    payer.ackChar = ack
+    payer.service = service
+    pm.add(service)
+  }
+
+  fileprivate func settlePayer(_ payer: PayerAdvertise, _ result: Result<String, Error>) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard !payer.settled else { return }
+    payer.settled = true
+    payer.connectTimeout?.cancel(); payer.wholeTimeout?.cancel()
+    if activePayer === payer { activePayer = nil }
+    indicationQueue.removeAll()
+    if let pm = peripheralManager, pm.state == .poweredOn {
+      if pm.isAdvertising { pm.stopAdvertising() }
+      pm.removeAllServices()
+    }
+    switch result {
+    case .success(let ack): payer.promise.resolve(withResult: ack)
+    case .failure(let error):
+      os_log("payer(adv): send failed reason=%{public}@", log: bleLog, type: .default, error.localizedDescription)
+      payer.promise.reject(withError: error)
+    }
+  }
+
+  /// Indication enqueue for the payer role: `flushIndications` needs an ACK characteristic, which it reads from `listening`; the payer keeps its own, so this variant takes it explicitly.
+  private func enqueuePayerIndication(_ message: Data, to central: CBCentral, ack: CBMutableCharacteristic, completion: (() -> Void)?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    let parts = BleGattProfile.chunks(BleGattProfile.lengthPrefixed(message), size: central.maximumUpdateValueLength)
+    for (i, part) in parts.enumerated() {
+      indicationQueue.append(Indication(central: central, chunk: part, completion: i == parts.count - 1 ? completion : nil))
+    }
+    flushPayerIndications(ack)
+  }
+
+  private func flushPayerIndications(_ ack: CBMutableCharacteristic) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard let pm = peripheralManager else { indicationQueue.removeAll(); return }
+    while let next = indicationQueue.first {
+      guard pm.updateValue(next.chunk, for: ack, onSubscribedCentrals: [next.central]) else { return }
+      indicationQueue.removeFirst()
+      next.completion?()
+    }
+  }
+
+  private func payerHandle(message: Data, from central: CBCentral, payer: PayerAdvertise) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard !message.isEmpty, let ack = payer.ackChar else { return }
+    let type = message[message.startIndex]
+    let body = Data(message.dropFirst())
+    let fromCandidate = payer.candidate?.identifier == central.identifier
+    if type == BleGattProfile.typeHelloB, payer.bound == nil, fromCandidate {
+      let expected = BleGattProfile.proof(psk: payer.psk, instanceName: payer.instanceName, type: BleGattProfile.typeHelloB)
+      guard BleGattProfile.constantTimeEquals(body, expected) else {
+        os_log("payer(adv): HELLO_B proof failed id=%{public}@", log: bleLog, type: .default, central.identifier.uuidString)
+        payer.candidate = nil
+        return
+      }
+      payer.bound = central
+      if let pm = peripheralManager, pm.isAdvertising { pm.stopAdvertising() }
+      os_log("payer(adv): hello verified ms=%ld; indicating frame bytes=%ld", log: bleLog, type: .default, payer.elapsedMs(), payer.sealed.count)
+      enqueuePayerIndication(BleGattProfile.frameMessage(sealed: payer.sealed), to: central, ack: ack) { [weak self, weak payer] in
+        guard let payer, !payer.settled else { return }
+        payer.frameOnWire = true
+        os_log("payer(adv): frame indicated ms=%ld; awaiting ack", log: bleLog, type: .default, payer.elapsedMs())
+        _ = self
+      }
+      return
+    }
+    if type == BleGattProfile.typeAck, payer.bound?.identifier == central.identifier, payer.bound != nil {
+      guard body.count > BleGattProfile.macLength else { return settlePayer(payer, .failure(BleGattProfile.error("peer failed the session proof", code: 22))) }
+      let json = Data(body.prefix(body.count - BleGattProfile.macLength))
+      let mac = Data(body.suffix(BleGattProfile.macLength))
+      guard BleGattProfile.constantTimeEquals(mac, BleGattProfile.ackMac(psk: payer.psk, instanceName: payer.instanceName, ackJson: json)) else {
+        return settlePayer(payer, .failure(BleGattProfile.error("peer failed the session proof", code: 22)))
+      }
+      os_log("payer(adv): ack verified bytes=%ld ms=%ld", log: bleLog, type: .default, json.count, payer.elapsedMs())
+      settlePayer(payer, .success(json.base64EncodedString()))
+      return
+    }
+    if payer.frameOnWire {
+      os_log("payer(adv): unexpected message ignored type=%d", log: bleLog, type: .default, Int32(type))
+    } else if fromCandidate {
+      settlePayer(payer, .failure(BleGattProfile.error("peer failed the session proof", code: 22)))
+    }
   }
 }
 
@@ -1122,6 +1284,15 @@ extension BleEngine: CBPeripheralManagerDelegate {
     dispatchPrecondition(condition: .onQueue(queue))
     os_log("peripheral manager state=%{public}@", log: bleLog, type: .default, Self.describe(pm.state))
     stateChanged(pm.state)
+    if let payer = activePayer {
+      switch pm.state {
+      case .poweredOn: advertisePayerIfPowered()
+      case .unknown, .resetting: break
+      case .unauthorized where CBManager.authorization == .notDetermined: break
+      default: settlePayer(payer, .failure(BleGattProfile.error("bluetooth unavailable", code: 16)))
+      }
+      return
+    }
     guard let session = listening else { return }
     switch pm.state {
     case .poweredOn:
@@ -1145,6 +1316,11 @@ extension BleEngine: CBPeripheralManagerDelegate {
 
   func peripheralManager(_ pm: CBPeripheralManager, didAdd service: CBService, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
+    if let payer = activePayer, payer.service?.uuid == service.uuid {
+      if let error { return settlePayer(payer, .failure(error)) }
+      pm.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [payer.serviceUuid], CBAdvertisementDataLocalNameKey: BleGattProfile.localName])
+      return
+    }
     guard let session = listening, session.service?.uuid == service.uuid else { return }
     if let error {
       failStart(session, message: error.localizedDescription)
@@ -1158,6 +1334,11 @@ extension BleEngine: CBPeripheralManagerDelegate {
 
   func peripheralManagerDidStartAdvertising(_ pm: CBPeripheralManager, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
+    if let payer = activePayer {
+      if let error { return settlePayer(payer, .failure(error)) }
+      os_log("payer(adv): advertising started service=%{public}@", log: bleLog, type: .default, payer.serviceUuid.uuidString)
+      return
+    }
     guard let session = listening else { return }
     if let error {
       failStart(session, message: error.localizedDescription)
@@ -1173,6 +1354,14 @@ extension BleEngine: CBPeripheralManagerDelegate {
 
   func peripheralManager(_ pm: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
     dispatchPrecondition(condition: .onQueue(queue))
+    if let payer = activePayer, characteristic.uuid == BleGattProfile.ackCharUuid, let ack = payer.ackChar {
+      guard payer.candidate == nil else { return }
+      payer.candidate = central
+      payer.connectTimeout?.cancel()
+      os_log("payer(adv): central subscribed id=%{public}@ maxUpdate=%ld ms=%ld; indicating HELLO_A", log: bleLog, type: .default, central.identifier.uuidString, central.maximumUpdateValueLength, payer.elapsedMs())
+      enqueuePayerIndication(BleGattProfile.helloA(psk: payer.psk, instanceName: payer.instanceName), to: central, ack: ack, completion: nil)
+      return
+    }
     guard let session = listening, characteristic.uuid == BleGattProfile.ackCharUuid, !session.closing else { return }
     // A subscriber after acceptance can never be bound (advertising stopped
     // before it could have discovered us); do not track it.
@@ -1185,6 +1374,12 @@ extension BleEngine: CBPeripheralManagerDelegate {
 
   func peripheralManager(_ pm: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {
     dispatchPrecondition(condition: .onQueue(queue))
+    if let payer = activePayer {
+      if payer.bound?.identifier == central.identifier || payer.candidate?.identifier == central.identifier {
+        settlePayer(payer, .failure(BleGattProfile.error("peer disconnected before acking", code: 21)))
+      }
+      return
+    }
     guard let session = listening, let entry = session.centrals[central.identifier] else { return }
     entry.subscribed = false
     let id = central.identifier
@@ -1213,6 +1408,23 @@ extension BleEngine: CBPeripheralManagerDelegate {
   func peripheralManager(_ pm: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
     dispatchPrecondition(condition: .onQueue(queue))
     guard let first = requests.first else { return }
+    if let payer = activePayer {
+      var result: CBATTError.Code = .success
+      for request in requests {
+        guard request.characteristic.uuid == BleGattProfile.frameCharUuid, let value = request.value, !value.isEmpty else { continue }
+        var reassembler = payer.reassemblers[request.central.identifier] ?? BleGattProfile.Reassembler()
+        do {
+          let messages = try reassembler.feed(value)
+          payer.reassemblers[request.central.identifier] = reassembler
+          for message in messages { payerHandle(message: message, from: request.central, payer: payer) }
+        } catch {
+          payer.reassemblers[request.central.identifier] = BleGattProfile.Reassembler()
+          result = .invalidAttributeValueLength
+        }
+      }
+      pm.respond(to: first, withResult: result)
+      return
+    }
     guard let session = listening, !session.closing else {
       pm.respond(to: first, withResult: .insufficientAuthorization)
       return
@@ -1253,6 +1465,7 @@ extension BleEngine: CBPeripheralManagerDelegate {
 
   func peripheralManagerIsReady(toUpdateSubscribers pm: CBPeripheralManager) {
     dispatchPrecondition(condition: .onQueue(queue))
+    if let payer = activePayer, let ack = payer.ackChar { flushPayerIndications(ack); return }
     flushIndications()
   }
 }
