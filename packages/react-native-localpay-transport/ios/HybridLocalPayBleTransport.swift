@@ -242,8 +242,19 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
     peripheral?.delegate = nil
     peripheral = nil; frameChar = nil
     reassembler = BleGattProfile.Reassembler()
-    writeChunks = []; writeCompletion = nil
+    writeChunks = []
     stage = .scanning
+    // Capture-then-nil-then-invoke (tearDown's pattern): a stray write completion
+    // must not be silently dropped (it may be `writeAck`'s, which settles
+    // `confirmFrame`), but `stage` is set to `.scanning` BEFORE it runs so that a
+    // reentrant call lands correctly either way -- the HELLO_B closure's own
+    // stage guard now no-ops instead of recursing into `rescan`, and if this was
+    // `writeAck`'s completion, its nested `tearDown()` call (which sets
+    // `stage = .done`) is not clobbered by a `stage = .scanning` running after
+    // it, so the trailing `scan(cm)` below correctly declines to resurrect a
+    // scan the engine has already disowned.
+    let done = writeCompletion; writeCompletion = nil
+    done?(false)
     if let cm = engine?.centralManager { scan(cm) }
   }
 
