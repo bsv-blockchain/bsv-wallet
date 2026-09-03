@@ -58,6 +58,12 @@ export { default as NearbyFlow, type NearbyFlowProps } from './components/pay/Ne
 export { NearbyAdvisoryModal } from './components/pay/NearbyAdvisoryModal'
 export { default as OfflineNotice, offlineActionDetails, type OfflineNoticeProps } from './components/pay/OfflineNotice'
 export { default as PayCellRow, type PayCellRowProps } from './components/pay/PayCellRow'
+export {
+  default as RequestHub,
+  requestSatsFrom,
+  type RequestHubProps,
+  type RequestMethod
+} from './components/pay/RequestHub'
 export { PayField, PayAmountField, ConsequenceNote, PayCta, RecipientSummary } from './components/pay/PayForm'
 export { default as PaymentQrDisplay } from './components/pay/PaymentQrDisplay'
 export { default as PaymentSuccessOverlay, type ReceivedOverlayProps } from './components/pay/PaymentSuccessOverlay'
