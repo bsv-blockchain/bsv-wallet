@@ -35,7 +35,10 @@ export type RecipientInlineError = 'invalid_bsv_address'
 export interface UseRecipientInputOptions {
   wallet: unknown
   adminOriginator: string | undefined
-  /** A recipient known before the form opened (deep link, scan on the way in). */
+  /**
+   * A recipient known before the form opened (deep link, scan on the way in).
+   * Compared by content; a new object with the same fields does not re-adopt.
+   */
   initialTarget?: RecipientTarget
   /** A link or code named an amount too. */
   onPeerPayAmount?: (sats: number) => void
@@ -98,9 +101,18 @@ export function useRecipientInput({
     [stopSearch]
   )
 
+  // Compared by content, not reference: a caller may rebuild this object every
+  // render, and a re-render must never clobber what the user has typed. The ref
+  // carries the latest object so the effect can adopt it without depending on it.
+  const initialTargetKey = initialTarget
+    ? `${initialTarget.kind}:${textFor(initialTarget)}:${initialTarget.kind === 'handle' ? (initialTarget.messageBoxUrl ?? '') : ''}`
+    : ''
+  const initialTargetRef = useRef(initialTarget)
+  initialTargetRef.current = initialTarget
   useEffect(() => {
-    if (initialTarget) setDirectTarget(initialTarget)
-  }, [initialTarget, setDirectTarget])
+    const next = initialTargetRef.current
+    if (next) setDirectTarget(next)
+  }, [initialTargetKey, setDirectTarget])
 
   const onChangeText = useCallback(
     (text: string) => {

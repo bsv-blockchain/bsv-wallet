@@ -102,6 +102,31 @@ describe('useRecipientInput — typing', () => {
     expect(result.current.target).toBeNull()
     expect(result.current.inputText).toBe('')
   })
+
+  it('does not clobber typing when the caller rebuilds an identical initialTarget object', () => {
+    const { result, rerender } = renderHook(
+      (props: { initialTarget?: { kind: 'handle'; identityKey: string } }) =>
+        useRecipientInput({ wallet: null, adminOriginator: 'admin.com', ...props }),
+      { initialProps: { initialTarget: { kind: 'handle' as const, identityKey: KEY } } }
+    )
+    act(() => result.current.onChangeText(ADDRESS))
+    expect(result.current.target).toEqual({ kind: 'address', address: ADDRESS })
+    rerender({ initialTarget: { kind: 'handle' as const, identityKey: KEY } }) // new reference, same content
+    expect(result.current.target).toEqual({ kind: 'address', address: ADDRESS })
+    expect(result.current.inputText).toBe(ADDRESS)
+  })
+
+  it('adopts a genuinely new initialTarget after mount', () => {
+    const OTHER = '03' + KEY.slice(2) // same x, odd-y prefix: a different valid compressed key
+    const { result, rerender } = renderHook(
+      (props: { initialTarget?: { kind: 'handle'; identityKey: string } }) =>
+        useRecipientInput({ wallet: null, adminOriginator: 'admin.com', ...props }),
+      { initialProps: { initialTarget: { kind: 'handle' as const, identityKey: KEY } } }
+    )
+    rerender({ initialTarget: { kind: 'handle' as const, identityKey: OTHER } })
+    expect(result.current.target).toEqual({ kind: 'handle', identityKey: OTHER })
+    expect(result.current.inputText).toBe(OTHER)
+  })
 })
 
 describe('useRecipientInput — scanning', () => {
