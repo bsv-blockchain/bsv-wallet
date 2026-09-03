@@ -284,7 +284,8 @@ export default function UniversalSend({
   const sendHandle = useCallback(
     async (to: Extract<RecipientTarget, { kind: 'handle' }>, sats: number) => {
       const client = peerPayClient
-      if (!client || !storage || !wallet) return
+      if (!client) throw new Error(t('message_box_off_hint'))
+      if (!storage || !wallet) throw new Error(t('wallet_not_ready'))
       const { satoshis: paidSats } = await sendViaHandle({
         wallet: wallet as any,
         adminOriginator,
@@ -298,15 +299,17 @@ export default function UniversalSend({
         recipientName: recipient.selectedIdentity?.name
       })
       await loadOutbox()
-      // Only a human-readable name goes on the success screen — a raw key is noise there.
+      // The overlay stages its own haptic (inside Celebration) and tone; firing
+      // haptics.success() here would double the beat. Only a human-readable
+      // name goes on the success screen — a raw identity key is noise there.
       setSent({ amount: paidSats, recipient: recipient.selectedIdentity?.name })
     },
-    [peerPayClient, storage, wallet, adminOriginator, messageBoxUrl, note, recipient.selectedIdentity, loadOutbox]
+    [peerPayClient, storage, wallet, adminOriginator, messageBoxUrl, note, recipient.selectedIdentity, loadOutbox, t]
   )
 
   const sendAddress = useCallback(
     async (to: Extract<RecipientTarget, { kind: 'address' }>, sats: number) => {
-      if (!wallet) return
+      if (!wallet) throw new Error(t('wallet_not_ready'))
       const { paidSatoshis } = await sendToAddress({
         wallet: wallet as any,
         adminOriginator,
@@ -315,11 +318,17 @@ export default function UniversalSend({
       })
       setSent({ amount: paidSatoshis, recipient: to.address })
     },
-    [wallet, adminOriginator]
+    [wallet, adminOriginator, t]
   )
 
   const handleSend = useCallback(async () => {
     if (!target) return
+    // Guard before any side effect: a wallet that is not ready must leave the
+    // form exactly as typed, with a banner, not a cleared field and silence.
+    if (!wallet || !storage) {
+      flashResult({ type: 'error', message: t('wallet_not_ready') })
+      return
+    }
     const sats = Math.round(Number(sendAmount))
     if (!Number.isFinite(sats) || sats <= 0) {
       flashResult({ type: 'error', message: t('enter_valid_amount') })
@@ -347,10 +356,29 @@ export default function UniversalSend({
     } finally {
       setIsSending(false)
     }
-  }, [target, sendAmount, sendHandle, sendAddress, recipient, handleWalletCheck, flashResult, loadOutbox, t])
+  }, [
+    target,
+    sendAmount,
+    sendHandle,
+    sendAddress,
+    recipient,
+    handleWalletCheck,
+    flashResult,
+    loadOutbox,
+    t,
+    wallet,
+    storage
+  ])
 
   const handleRetry = useCallback(
     async (entry: OutboxEntry) => {
+      // `peerPayClient` is built from the CURRENT setting, so it wins: the
+      // configured host may have changed since this entry was minted, and the
+      // client re-resolves the recipient's advertised inbox on every send
+      // anyway. The entry's own host is the last resort, for when the user has
+      // since opted out of a server entirely. When the entry carries a
+      // `recipientHost`, `retryDelivery` passes it as the override regardless
+      // of which client is used.
       const client =
         peerPayClient ??
         makePeerPayClient({ wallet: wallet as never, messageBoxUrl: entry.messageBoxUrl, originator: adminOriginator })

@@ -116,4 +116,15 @@ describe('UniversalSend', () => {
     const s = draw()
     expect(s.queryByLabelText('message_box_server')).toBeNull()
   })
+
+  it('leaves the form intact and shows a banner when the wallet is not ready', async () => {
+    const s = draw()
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+    fireEvent.press(s.getByLabelText('pay'))
+    await waitFor(() => expect(s.getByText('wallet_not_ready')).toBeTruthy())
+    expect(s.getByPlaceholderText('recipient_placeholder').props.value).toBe(ADDRESS)
+    expect(s.getByTestId('amount-input').props.value).toBe('500')
+  })
 })
