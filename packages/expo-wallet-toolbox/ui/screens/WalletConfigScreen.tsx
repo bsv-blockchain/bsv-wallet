@@ -29,7 +29,8 @@ import {
   TaskBackupPush,
   DEFAULT_BACKUP_URL,
   setMockDriverEnabled,
-  UserContext
+  UserContext,
+  NO_MESSAGE_BOX
 } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -55,6 +56,7 @@ function appVersionLabel(): string {
   }
 }
 
+import { ConfigPanel, useMessageBoxConfig } from '../components/pay/MessageBoxConfig'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
 import { showAlert } from '../components/ui/AlertCard'
@@ -163,6 +165,7 @@ export function WalletConfigScreen() {
   const { appName } = useContext(UserContext)
 
   const currentCurrency = settings?.currency || 'BSV'
+  const messageBox = useMessageBoxConfig(t)
 
   // Load persisted auto-approve threshold
   useEffect(() => {
@@ -746,6 +749,39 @@ export function WalletConfigScreen() {
                     }
                   </TouchableOpacity>
                 </View>
+              </View>
+            )}
+            {/* The one home of the message-box setting. Save / Default / Use no
+                server live in ConfigPanel, unchanged from when it sat on the
+                pay screens; the row's value says which server handle payments
+                go through, or that none does. */}
+            <ListRow
+              label={t('message_box_server')}
+              value={
+                messageBox.messageBoxUrl === NO_MESSAGE_BOX
+                  ? t('message_box_off')
+                  : messageBox.messageBoxUrl.replace(/^https:\/\//, '')
+              }
+              icon="mail-outline"
+              iconColor="#5E5CE6"
+              onPress={() => messageBox.setShowConfig(v => !v)}
+              showChevron={messageBox.showConfig}
+              chevronDown={messageBox.showConfig}
+            />
+            {messageBox.showConfig && (
+              <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
+                <ConfigPanel
+                  urlInput={messageBox.urlInput}
+                  isSaving={messageBox.isSaving}
+                  colors={colors}
+                  t={t}
+                  onChangeUrl={messageBox.setUrlInput}
+                  onSave={() => {
+                    void messageBox.handleSave(messageBox.urlInput)
+                  }}
+                  onReset={messageBox.handleReset}
+                  onNone={messageBox.handleNone}
+                />
               </View>
             )}
             <ListRow
