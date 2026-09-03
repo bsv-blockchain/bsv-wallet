@@ -1,7 +1,9 @@
 import {
   inferRail,
   classifyScan,
+  classifyRecipientInput,
   isValidBsvAddress,
+  isCompressedPublicKey,
   normalizeAddressInput,
   legacyRedirectTarget,
   PRECONDITION_KEYS,
@@ -140,5 +142,94 @@ describe('legacyRedirectTarget', () => {
 
   it('drops undefined params rather than forwarding them', () => {
     expect(legacyRedirectTarget('payments', { sats: undefined }).params).toEqual({ cell: 'pay-handle' })
+  })
+})
+
+describe('classifyRecipientInput', () => {
+  // Uppercase form of KEY: valid on the curve, but not the lowercase BRC-125 wants.
+  const KEY_UPPER = KEY.toUpperCase()
+  // Same length and alphabet as ADDRESS with the last character changed: checksum fails.
+  const BROKEN_ADDRESS = ADDRESS.slice(0, -1) + (ADDRESS.endsWith('2') ? '3' : '2')
+
+  it('treats an empty or whitespace string as empty', () => {
+    expect(classifyRecipientInput('')).toEqual({ kind: 'empty' })
+    expect(classifyRecipientInput('   ')).toEqual({ kind: 'empty' })
+  })
+
+  it('reads a base58check address as an address target', () => {
+    expect(classifyRecipientInput(ADDRESS)).toEqual({ kind: 'address', address: ADDRESS })
+    expect(classifyRecipientInput(`  ${ADDRESS}  `)).toEqual({ kind: 'address', address: ADDRESS })
+  })
+
+  it('flags an address-shaped string whose checksum fails, and does not search for it', () => {
+    expect(classifyRecipientInput(BROKEN_ADDRESS)).toEqual({ kind: 'invalid_address' })
+  })
+
+  it('strips a bitcoin: scheme and query before the address rule', () => {
+    expect(classifyRecipientInput(`bitcoin:${ADDRESS}?amount=0.1`)).toEqual({ kind: 'address', address: ADDRESS })
+    expect(classifyRecipientInput(`bitcoin:${BROKEN_ADDRESS}`)).toEqual({ kind: 'invalid_address' })
+  })
+
+  it('reads a compressed key as a handle, lowercased', () => {
+    expect(classifyRecipientInput(KEY)).toEqual({ kind: 'handle', identityKey: KEY })
+    expect(classifyRecipientInput(KEY_UPPER)).toEqual({ kind: 'handle', identityKey: KEY })
+  })
+
+  it('sends an uncompressed key to search rather than paying it', () => {
+    // 04 + 128 hex: the right length for an uncompressed key, not a compressed one.
+    const uncompressed = '04' + 'ab'.repeat(64)
+    expect(classifyRecipientInput(uncompressed)).toEqual({ kind: 'search', query: uncompressed })
+  })
+
+  it('reads a peerpay link as a handle carrying sats and messageBoxUrl', () => {
+    const uri = `peerpay:${KEY}?sats=250&url=${encodeURIComponent('https://mb.example')}`
+    expect(classifyRecipientInput(uri)).toEqual({
+      kind: 'handle',
+      identityKey: KEY,
+      sats: 250,
+      messageBoxUrl: 'https://mb.example'
+    })
+  })
+
+  it('reports a malformed peerpay link as invalid_link with the validator message', () => {
+    const r = classifyRecipientInput('peerpay:nope')
+    expect(r.kind).toBe('invalid_link')
+    expect((r as { message: string }).message).toContain('identity key')
+  })
+
+  it('sends a phone-shaped number to search — it is too short to be an address', () => {
+    expect(classifyRecipientInput('12125551234')).toEqual({ kind: 'search', query: '12125551234' })
+  })
+
+  it('sends an email or a handle to search', () => {
+    expect(classifyRecipientInput('alice@example.com')).toEqual({ kind: 'search', query: 'alice@example.com' })
+    expect(classifyRecipientInput('alice')).toEqual({ kind: 'search', query: 'alice' })
+  })
+})
+
+describe('classifyScan — key strictness and url', () => {
+  it('rejects an uncompressed bare key', () => {
+    expect(classifyScan('04' + 'ab'.repeat(64))).toBeNull()
+  })
+
+  it('lowercases a scanned compressed key', () => {
+    expect(classifyScan(KEY.toUpperCase())).toEqual({ kind: 'handle', identityKey: KEY })
+  })
+
+  it('carries messageBoxUrl from a peerpay link', () => {
+    const target = classifyScan(`peerpay:${KEY}?sats=5&url=${encodeURIComponent('https://mb.example')}`)
+    expect(target).toEqual({ kind: 'handle', identityKey: KEY, sats: 5, messageBoxUrl: 'https://mb.example' })
+  })
+})
+
+describe('isCompressedPublicKey', () => {
+  it('accepts 02/03 + 64 hex on the curve, either case', () => {
+    expect(isCompressedPublicKey(KEY)).toBe(true)
+    expect(isCompressedPublicKey(KEY.toUpperCase())).toBe(true)
+  })
+  it('rejects the wrong prefix, length or a point off the curve', () => {
+    expect(isCompressedPublicKey('04' + 'ab'.repeat(64))).toBe(false)
+    expect(isCompressedPublicKey(KEY.slice(0, 64))).toBe(false)
+    expect(isCompressedPublicKey('02' + 'ff'.repeat(32))).toBe(false)
   })
 })
