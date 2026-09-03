@@ -91,8 +91,8 @@ Order, first match wins, on `raw.trim()`:
 1. Empty → `empty`.
 2. Starts with `peerpay:` (case-insensitive) → `validatePeerPayURI`. A valid key → `handle` with `sats` and `messageBoxUrl`. An invalid key or amount → `invalid_link` with the validator's message (via `peerPayValidationMessage`). A malformed link is neither a search query nor a payable key, so it gets its own shape and its own banner.
 3. Starts with `bitcoin:` → `normalizeAddressInput`, then the address rule.
-4. **Address candidate:** `/^1[1-9A-HJ-NP-Za-km-z]{24,34}$/`. Checksum via `Utils.fromBase58Check` → `address`; checksum failure → `invalid_address`. This is the only shape that produces an inline error while typing: a candidate that fails its checksum is almost always a mis-paste, and searching the overlay for it would be noise. A US phone number typed as `12125551234` is 11 characters and never reaches this rule.
-5. **Compressed key:** `/^0[23][0-9a-fA-F]{64}$/` and `PublicKey.fromString` succeeds → `handle` with the key lowercased (BRC-125 wants lowercase; the wallet's own keys already are).
+4. **Address candidate:** `/^[1mn][1-9A-HJ-NP-Za-km-z]{24,34}$/` — mainnet (`1`) and testnet (`m`/`n`) P2PKH. Checksum via `Utils.fromBase58Check` → `address`; checksum failure → `invalid_address`. This is the only shape that produces an inline error while typing: a candidate that fails its checksum is almost always a mis-paste, and searching the overlay for it would be noise. A US phone number typed as `12125551234` is 11 characters and never reaches this rule. P2SH (`3…`) is deliberately not a candidate: the address rail pays with a P2PKH lock, which cannot pay a script hash.
+5. **Compressed key:** `/^0[23][0-9a-fA-F]{64}$/`, `PublicKey.fromString` succeeds, AND the parsed point re-serialises to the same hex (the SDK reduces an out-of-range x mod p instead of throwing, so parse success alone accepts a key nobody holds) → `handle` with the key lowercased (BRC-125 wants lowercase; the wallet's own keys already are). This one check — `isCompressedPublicKey` in `core/parsePeerPayURI.ts` — is also what `validatePeerPayURI` uses for the link's key; there is no second definition of a valid key.
 6. Anything else → `search`.
 
 **`classifyScan` changes.** The bare-key branch uses the same compressed-only test as rule 5. The `peerpay:` branch carries `messageBoxUrl` into the handle target. `PayTarget`'s handle variant gains `messageBoxUrl?: string`.
@@ -111,7 +111,8 @@ peerpay:<identityKey>[?sats=<n>][&url=<encodeURIComponent(host)>]
 
 - Scheme: `peerpay:` per spec; `peerpay://` is also accepted and the slashes are dropped before the key is read. Tolerance only — the app never emits `//`.
 - `sats`: unchanged.
-- `url`: read from the same `URLSearchParams` (which percent-decodes). Accepted only if it matches `/^https:\/\/[^\s/?#]+(?:[/?#]\S*)?$/i`; trailing slashes are trimmed. Anything else — `http:`, a bare host, whitespace, empty — is **ignored**, not an error: BRC-125 says extension params are ignorable, and a bad hint must not block a payment whose key is fine. The overlay lookup is the fallback. Result type gains `messageBoxUrl?: string`.
+- `url`: read from the same `URLSearchParams` (which percent-decodes). Accepted only if it matches `/^https:\/\/[^\s/?#@\\]+(?:[/?#]\S*)?$/i` — the authority may not contain `@` or `\`, so a value cannot read as one host while resolving to another; trailing slashes are trimmed.
+- The key in a link is accepted in either hex case and normalised to lowercase (tolerance on input; the app still emits lowercase per BRC-125). Anything else — `http:`, a bare host, whitespace, empty — is **ignored**, not an error: BRC-125 says extension params are ignorable, and a bad hint must not block a payment whose key is fine. The overlay lookup is the fallback. Result type gains `messageBoxUrl?: string`.
 - Only `https:` because the payer will authenticate (BRC-103) against whatever host this names, and a QR is an untrusted input.
 
 **Send** — `sendViaHandle` gains `recipientHost?: string`. It is passed as the second argument to `client.sendMessage(message, recipientHost)`, and persisted on the outbox entry as `recipientHost`. `OutboxEntry` gains `recipientHost?: string`; `saveOutboxEntry` accepts it. `retryDelivery` passes `entry.recipientHost` to `sendMessage`. The drain task's re-send path (whatever calls `retryDelivery` or `sendMessage` for an outbox entry from `TaskDrainOutbox`) passes the same field — verified at implementation time; the invariant is *every re-send of an entry goes to the host it was minted for*. Entries without the field behave exactly as today.
@@ -274,7 +275,7 @@ Removed keys (all locales): `local_pay_amount_optional_hint`, `search_name_or_ke
 ## Error handling
 
 - Checksum-broken address candidate: inline red `invalid_bsv_address` under the field, no lookup, CTA disabled.
-- Malformed `peerpay:` pasted or scanned: existing error banner with the validator's message; scanner stays open for a scan.
+- Malformed `peerpay:` (bad key or bad `sats`) pasted: existing error banner with the validator's message. Scanned: the scanner closes and the same banner shows — a banner behind a live camera would never be seen, and the old handle scanner closed on a `peerpay:` code too. `classifyScan` returns `null` for such a code; the hook recognises the `peerpay:` prefix on a `null` and runs the validator for the message.
 - Unrecognised QR: ignored, scanner keeps looking.
 - `url` extension malformed or non-https: silently dropped; send falls back to overlay resolution.
 - Message box Off with a handle target: CTA disabled, footnote points at Settings › Advanced. Address targets are unaffected.
