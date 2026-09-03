@@ -104,7 +104,7 @@ export default function RecipientField({
         <TextInput
           value={searchQuery}
           onChangeText={onSearchChange}
-          placeholder={t('search_name_or_key')}
+          placeholder={t('recipient_placeholder')}
           placeholderTextColor={colors.textTertiary}
           autoCapitalize="none"
           autoCorrect={false}
