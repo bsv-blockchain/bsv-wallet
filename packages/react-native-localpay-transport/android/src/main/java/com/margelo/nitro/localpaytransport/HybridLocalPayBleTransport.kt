@@ -497,7 +497,14 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       } else if (status == BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY) {
         main.postDelayed({ writeNextChunk() }, WRITE_BUSY_RETRY_MS)
       } else {
-        disconnectAndRescan("write rejected by the stack (status $status)")
+        val pendingAck = ackPromise
+        if (pendingAck != null) {
+          ackPromise = null
+          pendingAck.reject(Error("peer disconnected before acking"))
+          tearDown()
+        } else {
+          disconnectAndRescan("write rejected by the stack (status $status)")
+        }
       }
     }
 
