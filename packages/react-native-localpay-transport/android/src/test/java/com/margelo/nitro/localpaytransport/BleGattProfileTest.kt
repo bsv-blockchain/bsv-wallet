@@ -227,4 +227,19 @@ class BleGattProfileTest {
     assertEquals(1, afterReset.size)
     assertArrayEquals(message, afterReset[0])
   }
+
+  @Test
+  fun verifyAck_acceptsTheAckMessageBuiltByThePeer() {
+    // Reversed role: the payer (Android) now verifies an ACK the payee built.
+    // Same bytes as ackMessage(), so the peripheral-side check is the existing
+    // verifyAck() over a message produced by the existing builder.
+    val psk = ByteArray(32) { it.toByte() }
+    val name = "bsvpay-ob6nb2nqxvazcq2bx33et5ama4"
+    val json = "{\"ok\":true}".toByteArray(Charsets.UTF_8)
+    val message = BleGattProfile.ackMessage(psk, name, json)
+    assertArrayEquals(json, BleGattProfile.verifyAck(psk, name, message))
+    // One flipped MAC bit is refused.
+    val tampered = message.copyOf(); tampered[tampered.size - 1] = (tampered.last().toInt() xor 1).toByte()
+    assertNull(BleGattProfile.verifyAck(psk, name, tampered))
+  }
 }

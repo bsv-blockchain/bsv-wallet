@@ -253,6 +253,149 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
   private val indicationJobs = ArrayDeque<IndicationJob>()
   private var indicationInFlight: IndicationJob? = null
 
+  // ── reversed role: payer as peripheral (spec 2026-09-03 §4) — main thread only ──
+
+  /**
+   * One sendFrameAdvertising() in flight. Shares the GATT server, `centrals`,
+   * the indication pump and the advertising helpers with the payee side; the
+   * two roles never run at once on one device (a payer is not listening for a
+   * payment while it pays), so `payer != null` simply routes every server
+   * callback here first.
+   */
+  private inner class PayerAdvertise(
+    val instanceName: String,
+    val psk: ByteArray,
+    val sealed: ByteArray,
+    val promise: Promise<String>,
+    timeoutMs: Long,
+    connectTimeoutMs: Long
+  ) {
+    val serviceUuid: UUID = BleGattProfile.serviceUuid(psk, instanceName)
+    private val t0 = SystemClock.elapsedRealtime()
+    fun elapsed(): Long = SystemClock.elapsedRealtime() - t0
+    private var settled = false
+    /** The central that subscribed first and received HELLO_A; only its writes count. */
+    var candidate: BluetoothDevice? = null
+    /** Set once HELLO_B verified: FRAME goes to this central, ACK is expected from it. */
+    var bound: BluetoothDevice? = null
+    /** Set once the last FRAME chunk's indication was confirmed. */
+    var frameOnWire = false
+    private val connectTimer = Runnable {
+      if (candidate == null) fail("connect timeout: no route to peer")
+    }
+    private val wholeTimer = Runnable { fail("timed out waiting for peer") }
+
+    init {
+      main.postDelayed(connectTimer, connectTimeoutMs)
+      main.postDelayed(wholeTimer, timeoutMs)
+    }
+
+    fun settle(block: () -> Unit) {
+      if (settled) return
+      settled = true
+      main.removeCallbacks(connectTimer)
+      main.removeCallbacks(wholeTimer)
+      payer = null
+      resetSession(null)
+      block()
+    }
+
+    fun fail(message: String) = settle {
+      Log.d(TAG, "payer: send failed reason=$message")
+      promise.reject(Error(message))
+    }
+
+    fun onConnected(device: BluetoothDevice) {
+      if (centrals.containsKey(device.address)) return
+      centrals[device.address] = Central(device)
+      Log.d(TAG, "payer: central connected ${device.address} at ${elapsed()} ms")
+    }
+
+    fun onDisconnected(device: BluetoothDevice) {
+      Log.d(TAG, "payer: central disconnected ${device.address} at ${elapsed()} ms")
+      centrals.remove(device.address)?.subscribed = false
+      failIndicationsFor(device)
+      if (device.address == bound?.address || device.address == candidate?.address) {
+        fail(if (frameOnWire || bound != null) "peer disconnected before acking" else "connect failed: central left")
+      }
+    }
+
+    fun onMtu(device: BluetoothDevice, mtu: Int) {
+      centrals[device.address]?.mtu = mtu
+      Log.d(TAG, "payer: mtu $mtu for ${device.address}")
+    }
+
+    /** CCCD enable on ACK from `device`: the first subscriber becomes the candidate and gets HELLO_A. */
+    fun onSubscribed(device: BluetoothDevice, subscribed: Boolean) {
+      val central = centrals[device.address] ?: Central(device).also { centrals[device.address] = it }
+      central.subscribed = subscribed
+      if (!subscribed || candidate != null || settled) return
+      candidate = device
+      main.removeCallbacks(connectTimer)
+      Log.d(TAG, "payer: central subscribed ${device.address} at ${elapsed()} ms; indicating HELLO_A (mtu ${central.mtu})")
+      sendIndication(central, BleGattProfile.helloA(psk, instanceName)) { ok ->
+        if (!ok && !settled) fail("failed to send frame: HELLO_A indication not delivered")
+      }
+    }
+
+    /** A reassembled message written by `device` to the FRAME characteristic. */
+    fun onMessage(device: BluetoothDevice, message: ByteArray) {
+      if (settled || message.isEmpty()) return
+      val type = message[0].toInt() and 0xff
+      val fromCandidate = device.address == candidate?.address
+      when {
+        message[0] == TYPE_HELLO_B && bound == null && fromCandidate -> {
+          val proof = message.copyOfRange(1, message.size)
+          if (!BleGattProfile.constantTimeEquals(proof, BleGattProfile.proof(psk, instanceName, TYPE_HELLO_B))) {
+            // Not our payee: drop this central, forget the candidate, keep advertising for the real one.
+            Log.d(TAG, "payer: HELLO_B proof failed from ${device.address}; dropping")
+            candidate = null
+            centrals.remove(device.address)
+            gattServer?.cancelConnection(device)
+            main.postDelayed(connectTimer, 0L.coerceAtLeast(0))
+            return
+          }
+          bound = device
+          stopAdvertising()
+          val central = centrals[device.address] ?: return fail("peer disconnected before acking")
+          val framed = BleGattProfile.frameMessage(sealed)
+          val chunkCount = (framed.size + BleGattProfile.LENGTH_PREFIX_BYTES + BleGattProfile.chunkSize(central.mtu) - 1) / BleGattProfile.chunkSize(central.mtu)
+          Log.d(TAG, "payer: HELLO_B verified at ${elapsed()} ms; indicating frame (${sealed.size} bytes, $chunkCount chunks at mtu ${central.mtu})")
+          val tFrame = SystemClock.elapsedRealtime()
+          sendIndication(central, framed) { ok ->
+            if (settled) return@sendIndication
+            if (!ok) {
+              fail("failed to send frame: indication not delivered")
+              return@sendIndication
+            }
+            frameOnWire = true
+            Log.d(TAG, "payer: frame indicated in ${SystemClock.elapsedRealtime() - tFrame} ms; awaiting ack")
+          }
+        }
+        message[0] == TYPE_ACK && device.address == bound?.address && (frameOnWire || indicationInFlight != null) -> {
+          // The ACK write may land before the last chunk's onNotificationSent
+          // walked us to frameOnWire (the payee had every chunk already).
+          val json = BleGattProfile.verifyAck(psk, instanceName, message)
+          if (json == null) {
+            fail("peer failed the session proof")
+            return
+          }
+          Log.d(TAG, "payer: ack verified; total ${elapsed()} ms")
+          settle { promise.resolve(Base64.encodeToString(json, Base64.NO_WRAP)) }
+        }
+        frameOnWire -> Log.d(TAG, "payer: unexpected message ignored type=$type bytes=${message.size - 1}")
+        else -> {
+          Log.d(TAG, "payer: unexpected message type=$type from ${device.address} before the frame; dropping that central")
+          centrals.remove(device.address)
+          gattServer?.cancelConnection(device)
+          if (fromCandidate) fail("peer failed the session proof")
+        }
+      }
+    }
+  }
+
+  private var payer: PayerAdvertise? = null
+
   private fun ensureGattServer(): BluetoothGattServer? {
     gattServer?.let { return it }
     val ctx = context() ?: return null
@@ -565,6 +708,13 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
   private val serverCallback = object : BluetoothGattServerCallback() {
     override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
       main.post {
+        payer?.let { p ->
+          when (newState) {
+            BluetoothProfile.STATE_CONNECTED -> p.onConnected(device)
+            BluetoothProfile.STATE_DISCONNECTED -> p.onDisconnected(device)
+          }
+          return@post
+        }
         when (newState) {
           BluetoothProfile.STATE_CONNECTED -> {
             if (!listening) return@post
@@ -607,6 +757,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
 
     override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
       main.post {
+        payer?.let { it.onMtu(device, mtu); return@post }
         centrals[device.address]?.mtu = mtu
         Log.d(TAG, "payee: mtu $mtu for ${device.address}")
       }
@@ -615,6 +766,10 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     override fun onServiceAdded(status: Int, addedService: BluetoothGattService) {
       main.post {
         if (addedService.uuid != service?.uuid) return@post
+        if (status != BluetoothGatt.GATT_SUCCESS && payer != null) {
+          payer?.fail("bluetooth unavailable: could not add GATT service (status $status)")
+          return@post
+        }
         if (status != BluetoothGatt.GATT_SUCCESS) {
           failStart("bluetooth unavailable: could not add GATT service (status $status)")
           return@post
@@ -647,11 +802,24 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
           if (responseNeeded) {
             gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
           }
-          if (characteristic.uuid == FRAME_CHAR_UUID && listening) refuse(device, "prepared write")
+          if (characteristic.uuid == FRAME_CHAR_UUID && listening && payer == null) refuse(device, "prepared write")
           return@post
         }
         if (responseNeeded) {
           gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+        }
+        payer?.let { p ->
+          if (characteristic.uuid != FRAME_CHAR_UUID || value == null || value.isEmpty()) return@post
+          val central = centrals[device.address] ?: Central(device).also { centrals[device.address] = it }
+          val messages = try {
+            central.reassembler.feed(value)
+          } catch (e: RuntimeException) {
+            Log.d(TAG, "payer: bad framing from ${device.address}: ${e.message}")
+            central.reassembler.reset()
+            return@post
+          }
+          for (message in messages) p.onMessage(device, message)
+          return@post
         }
         if (characteristic.uuid != FRAME_CHAR_UUID || !listening) return@post
         // A write can outrun our main-thread bookkeeping of the CONNECTED
@@ -696,6 +864,11 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       main.post {
         if (responseNeeded) {
           gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+        }
+        payer?.let { p ->
+          if (descriptor.uuid != CCCD_UUID || descriptor.characteristic.uuid != ACK_CHAR_UUID) return@post
+          p.onSubscribed(device, value != null && value.isNotEmpty() && (value[0].toInt() and 0x03) != 0)
+          return@post
         }
         if (descriptor.uuid != CCCD_UUID || descriptor.characteristic.uuid != ACK_CHAR_UUID || !listening) return@post
         val central = centrals[device.address] ?: run {
@@ -746,7 +919,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
       main.post {
         advertising = true
-        Log.d(TAG, "payee: advertising ${service?.uuid} (${SystemClock.elapsedRealtime() - listenStartedAt} ms after startListening)")
+        Log.d(TAG, "${if (payer != null) "payer" else "payee"}: advertising ${service?.uuid} (${SystemClock.elapsedRealtime() - listenStartedAt} ms after start)")
         startPromise?.resolve(Unit)
         startPromise = null
       }
@@ -755,7 +928,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     override fun onStartFailure(errorCode: Int) {
       main.post {
         advertising = false
-        failStart("advertising failed: code $errorCode")
+        payer?.fail("advertising failed: code $errorCode") ?: failStart("advertising failed: code $errorCode")
       }
     }
   }
@@ -763,7 +936,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
   private fun startAdvertising(uuid: UUID) {
     val advertiser = adapter()?.bluetoothLeAdvertiser
     if (advertiser == null || !canAdvertise()) {
-      failStart("bluetooth unavailable")
+      payer?.fail("bluetooth unavailable") ?: failStart("bluetooth unavailable")
       return
     }
     val settings = AdvertiseSettings.Builder()
@@ -784,7 +957,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     try {
       advertiser.startAdvertising(settings, data, advertiseCallback)
     } catch (e: Exception) {
-      failStart("advertising failed: ${e.message}")
+      payer?.fail("advertising failed: ${e.message}") ?: failStart("advertising failed: ${e.message}")
     }
   }
 
@@ -1003,7 +1176,60 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     connectTimeoutMs: Double
   ): Promise<String> {
     val promise = Promise<String>()
-    promise.reject(Error("bluetooth unavailable"))
+    main.post {
+      fun rejectEarly(message: String) {
+        Log.d(TAG, "payer: send failed reason=$message")
+        promise.reject(Error(message))
+      }
+      val psk = try { Base64.decode(pskBase64, Base64.DEFAULT) } catch (e: Exception) { null }
+      val sealed = try { Base64.decode(frameBase64, Base64.DEFAULT) } catch (e: Exception) { null }
+      if (psk == null || psk.isEmpty() || sealed == null || instanceName.isEmpty()) {
+        rejectEarly("bad psk or frame")
+        return@post
+      }
+      if (sealed.size + 1 > MAX_BLE_FRAME_BYTES) {
+        rejectEarly("frame too large for a BLE payload")
+        return@post
+      }
+      val a = adapter()
+      if (a == null || !hasBleHardware() || !a.isEnabled || !canConnect() || !canAdvertise()) {
+        rejectEarly("bluetooth unavailable")
+        return@post
+      }
+      val server = ensureGattServer()
+      if (server == null) {
+        rejectEarly("bluetooth unavailable")
+        return@post
+      }
+      // A payer never listens while it pays, and a newer send supersedes an older one.
+      payer?.fail("superseded by a newer send")
+      resetSession("superseded by a send")
+      listenPsk = null; listenName = null; listenOnFrame = null; listenOnError = null
+
+      val p = PayerAdvertise(instanceName, psk, sealed, promise, timeoutMs.toLong(), connectTimeoutMs.toLong())
+      payer = p
+      listenStartedAt = SystemClock.elapsedRealtime()
+      val frame = BluetoothGattCharacteristic(
+        FRAME_CHAR_UUID,
+        BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
+        BluetoothGattCharacteristic.PERMISSION_WRITE
+      )
+      val ack = BluetoothGattCharacteristic(
+        ACK_CHAR_UUID,
+        BluetoothGattCharacteristic.PROPERTY_INDICATE,
+        BluetoothGattCharacteristic.PERMISSION_READ
+      )
+      ack.addDescriptor(
+        BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE)
+      )
+      val svc = BluetoothGattService(p.serviceUuid, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+      svc.addCharacteristic(frame)
+      svc.addCharacteristic(ack)
+      service = svc
+      ackCharacteristic = ack
+      Log.d(TAG, "payer: adding service ${p.serviceUuid} for $instanceName; advertising follows")
+      if (!server.addService(svc)) p.fail("bluetooth unavailable: could not add GATT service")
+    }
     return promise
   }
 
