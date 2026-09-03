@@ -85,11 +85,13 @@ export function isValidBsvAddress(text: string): boolean {
 }
 
 /**
- * Base58 alphabet (no 0, O, I, l), leading 1, 25–35 chars: the shape of a
- * P2PKH address. Anything this matches is either an address or a mis-paste —
- * never a search query — so a checksum failure is reported, not searched.
+ * Base58 alphabet (no 0, O, I, l), 25–35 chars: the shape of a P2PKH address on
+ * either network — mainnet `1`, testnet `m`/`n`. P2SH `3` is deliberately
+ * absent: the address rail pays with a P2PKH lock. Anything this matches is
+ * either an address or a mis-paste — never a search query — so a checksum
+ * failure is reported, not searched.
  */
-const ADDRESS_CANDIDATE_REGEX = /^1[1-9A-HJ-NP-Za-km-z]{24,34}$/
+const ADDRESS_CANDIDATE_REGEX = /^[1mn][1-9A-HJ-NP-Za-km-z]{24,34}$/
 
 /** What the recipient field has been given, as typed. */
 export type RecipientInput =

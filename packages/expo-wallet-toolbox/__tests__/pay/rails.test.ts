@@ -165,6 +165,16 @@ describe('classifyRecipientInput', () => {
     expect(classifyRecipientInput(`  ${ADDRESS}  `)).toEqual({ kind: 'address', address: ADDRESS })
   })
 
+  it('reads a testnet address as an address target — testnet is a selectable network', () => {
+    const TESTNET = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn'
+    expect(classifyRecipientInput(TESTNET)).toEqual({ kind: 'address', address: TESTNET })
+  })
+
+  it('sends a P2SH-shaped address to search — the address rail pays with a P2PKH lock', () => {
+    const P2SH = '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy'
+    expect(classifyRecipientInput(P2SH)).toEqual({ kind: 'search', query: P2SH })
+  })
+
   it('flags an address-shaped string whose checksum fails, and does not search for it', () => {
     expect(classifyRecipientInput(BROKEN_ADDRESS)).toEqual({ kind: 'invalid_address' })
   })
