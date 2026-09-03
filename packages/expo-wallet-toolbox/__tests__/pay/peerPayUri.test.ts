@@ -1,6 +1,6 @@
 import { parsePeerPayURI, peerPayValidationMessage, validatePeerPayURI } from '../../core/parsePeerPayURI'
 
-// secp256k1 generator point, lowercase — the only form the key regex accepts.
+// secp256k1 generator point, lowercase — the form the parser normalises every key to.
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 describe('validatePeerPayURI — scheme', () => {
