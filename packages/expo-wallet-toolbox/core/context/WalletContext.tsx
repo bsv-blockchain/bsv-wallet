@@ -166,6 +166,7 @@ import { findOfflineActions } from '../storage/methods/offlineActions'
 import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
 import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueuedAncestors'
 import { provenTxFromBump } from '../pay/provenTxFromBump'
+import { recordProof } from '../pay/recordProof'
 import { makeCreditClassifier } from '../pay/creditErrors'
 import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
 import { isReceiveInboxFocused } from '../pay/receiveFocus'
@@ -1986,6 +1987,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const results = await processPending(managers.permissionsManager as any, storage, adminOriginator)
         const successes = results.filter(r => r.success)
         if (successes.length > 0) {
+          // The activity list and balance re-read on this version; without it
+          // a payment credited here stayed invisible until a manual refresh.
+          setTxStatusVersion(v => v + 1)
           setLocalPayNotification({
             message:
               successes.length === 1
@@ -2293,7 +2297,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * silently failed shows "Broadcasting" forever and holds its inputs hostage.
    */
   const refreshProof = useCallback(
-    async (txid: string): Promise<'confirmed' | 'pending' | 'failed'> => {
+    async (txid: string, opts?: { neverFail?: boolean }): Promise<'confirmed' | 'pending' | 'failed'> => {
       if (!storage) throw new Error('Storage not available')
 
       const wocBase =
@@ -2323,18 +2327,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
         if (!headerHash) return 'pending'
 
-        const reqs = await storage.findProvenTxReqs({ partial: { txid } })
-        if (!reqs.length) throw new Error('No pending record found for this transaction')
-
-        const req = reqs[0]
+        // Through the req when there is one; written directly when there is
+        // not (a half-internalized payment has a row and an output but no req —
+        // see pay/recordProof.ts). The direct path needs the raw bytes, which
+        // an internalized row may not hold, so they come from the same source
+        // as the proof.
         const proof = provenTxFromBump({ merklePath, txid, headerHash })
-        await storage.updateProvenTxReqWithNewProvenTx({
-          provenTxReqId: req.provenTxReqId,
-          status: req.status,
+        await recordProof(storage, {
           txid,
-          attempts: req.attempts,
-          history: req.history,
-          ...proof
+          proof,
+          fetchRawTx: async () => {
+            const r = await fetch(`${wocBase}/v1/bsv/${chain}/tx/${txid}/hex`)
+            if (!r.ok) throw new Error(`raw tx fetch failed: ${r.status}`)
+            return Utils.toArray((await r.text()).trim(), 'hex')
+          }
         })
         setTxStatusVersion(v => v + 1)
         return 'confirmed'
@@ -2354,7 +2360,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       if (onChain) return 'pending'
 
       // Not on chain. Only repair records that still claim to be in flight, and
-      // only once propagation can no longer be the explanation.
+      // only once propagation can no longer be the explanation — and only when
+      // a person asked: the background repair sweep records proofs, it does
+      // not decide that money is gone.
+      if (opts?.neverFail) return 'pending'
       const txs = await storage.findTransactions({ partial: { txid }, noRawTx: true })
       const tx = txs[0]
       if (!tx || tx.status === 'failed' || tx.status === 'completed') return 'pending'
@@ -2384,6 +2393,35 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     },
     [storage, selectedNetwork]
   )
+
+  // ── Proof repair for transactions nothing else will prove ──
+  // An `unproven` row with no proven_tx_req is invisible to TaskCheckForProofs
+  // (see storage/methods/unprovenWithoutReqSql.ts for how one comes to exist).
+  // Refresh each once per wallet build, proof-only: this never marks a
+  // transaction failed.
+  useEffect(() => {
+    if (!walletBuilt || !storage) return
+    let cancelled = false
+    ;(async () => {
+      let txids: string[] = []
+      try {
+        txids = await storage.findUnprovenTxidsWithoutReq()
+      } catch {
+        return
+      }
+      for (const txid of txids) {
+        if (cancelled) return
+        try {
+          await refreshProof(txid, { neverFail: true })
+        } catch {
+          // Offline, or still unmined: the next build tries again.
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [walletBuilt, storage, refreshProof])
 
   const peekLastMissHeight = useCallback(() => offlineChaintracksRef.current?.peekLastMissHeight(), [])
 

@@ -40,6 +40,10 @@ interface StoredMeta {
 }
 
 export class HeaderStore {
+  /** Headers validated per JS-thread slice before `append` yields. ~140ms on the device that produced 2.8s stalls. */
+  static readonly DEFAULT_YIELD_EVERY = 100
+  yieldEvery = HeaderStore.DEFAULT_YIELD_EVERY
+
   private roots: Uint8Array
   private extra: Record<string, string>
   private constructor(
@@ -176,6 +180,11 @@ export class HeaderStore {
     let prev = this.currentTipHash
 
     for (let i = 0; i < added; i++) {
+      // Two SHA-256 passes and a difficulty check per header, on the JS thread.
+      // A 2,000-header chunk was ~2.8s of solid JS on a mid-range Android and a
+      // first-launch sync repeats that ~30 times; nothing else — a nearby
+      // payment's ack, a tap — could run. Hand the loop back periodically.
+      if (i > 0 && i % this.yieldEvery === 0) await yieldToEventLoop()
       const offset = i * HEADER_BYTES
       const header = bytes.slice(offset, offset + HEADER_BYTES)
       const parsed = deserializeBaseBlockHeader(bytes, offset)
@@ -316,4 +325,9 @@ export class HeaderStore {
     }
     await this.fs.writeText(this.metaPath, JSON.stringify(meta))
   }
+}
+
+/** One macrotask turn, so timers, touches and native callbacks get a slice. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0))
 }

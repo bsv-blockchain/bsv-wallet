@@ -53,6 +53,12 @@ import com.margelo.nitro.localpaytransport.BleGattProfile.TYPE_HELLO_A
 import com.margelo.nitro.localpaytransport.BleGattProfile.TYPE_HELLO_B
 import java.util.UUID
 
+/** Chunk writes refused with ERROR_GATT_WRITE_REQUEST_BUSY are retried this many times, this far apart. */
+private const val WRITE_BUSY_MAX_RETRIES = 5
+private const val WRITE_BUSY_RETRY_MS = 20L
+/** Pre-API-33 writeCharacteristic only says false; a stand-in code so the log line reads the same. */
+private const val WRITE_REJECTED_LEGACY = -1
+
 /**
  * LocalPayBleTransport over android.bluetooth GATT — the `bsvpay-ble/1`
  * profile (design §2–§3). Payee = GATT peripheral (advertises the
@@ -1085,32 +1091,54 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         fail(message)
       }
 
-      /** Next chunk only after the previous onCharacteristicWrite — Android delivers it for WRITE_TYPE_NO_RESPONSE too (§3 step 6). */
+      /**
+       * Next chunk only after the previous onCharacteristicWrite — Android
+       * delivers it for WRITE_TYPE_NO_RESPONSE too (§3 step 6).
+       *
+       * API 33+ answers a write the stack cannot take yet with
+       * ERROR_GATT_WRITE_REQUEST_BUSY. Some OEM stacks (seen: OSCAL TIGER 13,
+       * Android 14) clear their busy flag only AFTER delivering
+       * onCharacteristicWrite, so the very next chunk, written from inside that
+       * callback, is refused. That is a moment's contention, not a dead link:
+       * retry a few times before giving up, and log the code either way.
+       */
+      var busyRetries = 0
       fun writeNextChunk(g: BluetoothGatt) {
         val characteristic = frameCharacteristic
         if (characteristic == null) {
           fail("session service not found on peer")
           return
         }
-        val chunk = writeQueue.removeFirstOrNull()
+        val chunk = writeQueue.firstOrNull()
         if (chunk == null) {
           val drained = onWriteQueueDrained
           onWriteQueueDrained = null
           drained?.invoke()
           return
         }
-        val ok = try {
+        val status = try {
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            g.writeCharacteristic(characteristic, chunk, writeType) == BluetoothStatusCodes.SUCCESS
+            g.writeCharacteristic(characteristic, chunk, writeType)
           } else {
             characteristic.writeType = writeType
             characteristic.value = chunk
-            g.writeCharacteristic(characteristic)
+            if (g.writeCharacteristic(characteristic)) BluetoothStatusCodes.SUCCESS else WRITE_REJECTED_LEGACY
           }
         } catch (e: Exception) {
-          false
+          WRITE_REJECTED_LEGACY
         }
-        if (!ok) fail("failed to send frame: write rejected by the stack")
+        when {
+          status == BluetoothStatusCodes.SUCCESS -> {
+            writeQueue.removeFirst()
+            busyRetries = 0
+          }
+          status == BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY && busyRetries < WRITE_BUSY_MAX_RETRIES -> {
+            busyRetries++
+            Log.d(TAG, "payer: stack busy on chunk write; retry $busyRetries in $WRITE_BUSY_RETRY_MS ms")
+            main.postDelayed({ if (!settled) writeNextChunk(g) }, WRITE_BUSY_RETRY_MS)
+          }
+          else -> fail("failed to send frame: write rejected by the stack (status $status)")
+        }
       }
 
       fun writeMessage(g: BluetoothGatt, message: ByteArray, type: Int, onDrained: () -> Unit) {
