@@ -106,13 +106,23 @@ jest.mock('expo-router', () => ({
 
 jest.mock('../../ui/components/pay/NearbyFlow', () => 'NearbyFlow')
 jest.mock('../../ui/components/pay/UniversalSend', () => 'UniversalSend')
+jest.mock('../../ui/components/pay/RequestHub', () => ({
+  __esModule: true,
+  default: 'RequestHub',
+  requestSatsFrom: (text: string) => {
+    const n = Math.round(Number(text))
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+}))
 jest.mock('../../ui/components/pay/HandleReceive', () => 'HandleReceive')
 jest.mock('../../ui/components/pay/AddressReceive', () => 'AddressReceive')
 
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render, act, waitFor } from '@testing-library/react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PayScreen } from '../../ui/screens/PayScreen'
-import { ThemeProvider, resetProofNudgeForTests, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
+import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
+import { ThemeProvider, resetProofNudgeForTests, mintSession, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
 
 // Lowercase hex: validatePeerPayURI's compressed-key regex is case-sensitive,
 // so an uppercase key is rejected as malformed.
@@ -144,19 +154,13 @@ const offlineRow = (overrides: Partial<OfflineActionRow>): OfflineActionRow => (
 })
 
 describe('PayScreen', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     for (const k of Object.keys(mockParams)) delete mockParams[k]
     mockOnline = true
     mockStorage = undefined
     resetProofNudgeForTests()
     mockRunMonitorTask.mockClear()
-  })
-
-  it('renders the three counterparty rows for the Pay direction', () => {
-    const { getByText } = draw()
-    expect(getByText('pay_cell_nearby_pay')).toBeTruthy()
-    expect(getByText('pay_cell_handle_pay')).toBeTruthy()
-    expect(getByText('pay_cell_address_pay')).toBeTruthy()
+    await AsyncStorage.clear()
   })
 
   it('titles the screen with the direction it was opened in, with no switcher', () => {
@@ -168,61 +172,87 @@ describe('PayScreen', () => {
     expect(queryByText('pay_direction_receive')).toBeNull()
   })
 
-  it('titles the screen Get paid and lists the receive rows for ?direction=get', () => {
-    mockParams.direction = 'get'
-    const { getByText, queryByText } = draw()
-    expect(getByText('pay_direction_receive')).toBeTruthy()
-    expect(queryByText('pay_direction_pay')).toBeNull()
-    expect(getByText('pay_cell_nearby_get')).toBeTruthy()
-    expect(getByText('pay_cell_handle_get')).toBeTruthy()
-    expect(getByText('pay_cell_address_get')).toBeTruthy()
-  })
-
-  it('opens the handle cell when a deep link names it', () => {
-    mockParams.cell = 'pay-handle'
-    const { UNSAFE_getByType } = draw()
-    expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy()
-  })
-
-  it('opens the handle cell for a peerpay link and forwards the key', () => {
-    mockParams.peerpay = `peerpay:${KEY}?sats=1000`
-    const { UNSAFE_getByType } = draw()
-    const cell = UNSAFE_getByType('UniversalSend' as never)
-    expect(cell.props.initialTarget.identityKey).toBe(KEY)
-    expect(cell.props.initialSats).toBe(1000)
-  })
-
-  it('opens the nearby payee cell for the get-nearby link', () => {
+  it('opens the nearby payee cell for the get-nearby link', async () => {
     mockParams.cell = 'get-nearby'
+    await act(async () => {
+      await nearbyAdvisory.set()
+    })
     const { UNSAFE_getByType } = draw()
+    await waitFor(() => expect(UNSAFE_getByType('NearbyFlow' as never)).toBeTruthy())
     expect(UNSAFE_getByType('NearbyFlow' as never).props.role).toBe('payee')
+    expect(UNSAFE_getByType('NearbyFlow' as never).props.initialRequest).toEqual({ sats: undefined })
   })
 
-  it('ignores an unknown cell param and shows the grid', () => {
-    mockParams.cell = 'nonsense'
-    const { getByText } = draw()
-    expect(getByText('pay_cell_nearby_pay')).toBeTruthy()
+  it('opens straight on the send form for the Pay direction — no chooser', () => {
+    const { UNSAFE_getByType, queryByText } = draw()
+    expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy()
+    expect(queryByText('pay_cell_nearby_pay')).toBeNull()
+    expect(queryByText('pay_cell_handle_pay')).toBeNull()
   })
 
-  it('disables the handle and address cells while offline, leaving nearby alone', () => {
-    mockOnline = false
-    const { getByLabelText } = draw()
-    // `t` returns the key, and PayCellRow's label is `${title}. ${subtitle}`.
-    expect(getByLabelText('pay_cell_nearby_pay. pay_cell_nearby_pay_sub').props.accessibilityState.disabled).toBe(false)
-    expect(getByLabelText('pay_cell_handle_pay. pay_offline_needs_internet').props.accessibilityState.disabled).toBe(
-      true
-    )
-    expect(getByLabelText('pay_cell_address_pay. pay_offline_needs_internet').props.accessibilityState.disabled).toBe(
-      true
-    )
+  it('treats pay-handle and pay-address as aliases for the send form', () => {
+    mockParams.cell = 'pay-address'
+    expect(draw().UNSAFE_getByType('UniversalSend' as never).props.openScannerOnMount).toBeFalsy()
   })
 
-  it('leaves every cell enabled while online', () => {
-    const { getByLabelText } = draw()
-    expect(getByLabelText('pay_cell_handle_pay. pay_cell_handle_pay_sub').props.accessibilityState.disabled).toBe(false)
-    expect(getByLabelText('pay_cell_address_pay. pay_cell_address_pay_sub').props.accessibilityState.disabled).toBe(
-      false
-    )
+  it('opens the send form with the scanner up for pay-nearby', () => {
+    mockParams.cell = 'pay-nearby'
+    expect(draw().UNSAFE_getByType('UniversalSend' as never).props.openScannerOnMount).toBe(true)
+  })
+
+  it('prefills the send form from a peerpay link, url extension included', () => {
+    mockParams.peerpay = `peerpay:${KEY}?sats=1000&url=${encodeURIComponent('https://mb.example')}`
+    const form = draw().UNSAFE_getByType('UniversalSend' as never)
+    expect(form.props.initialTarget).toEqual({ kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' })
+    expect(form.props.initialSats).toBe(1000)
+  })
+
+  it('surfaces a malformed peerpay link as a notice on the send form', () => {
+    mockParams.peerpay = 'peerpay:nope'
+    expect(draw().UNSAFE_getByType('UniversalSend' as never).props.initialNotice).toContain('identity key')
+  })
+
+  it('swaps the send form for the nearby payer flow when a session code is scanned', async () => {
+    await act(async () => {
+      await nearbyAdvisory.set()
+    })
+    const { UNSAFE_getByType } = draw()
+    const session = mintSession({
+      identityKey: KEY,
+      derivationPrefix: 'ZGV2LXByZWZpeA==',
+      derivationSuffix: 'ZGV2LXN1ZmZpeA==',
+      supportsAwdl: false
+    })
+    act(() => UNSAFE_getByType('UniversalSend' as never).props.onNearbySession(session))
+    // The nearby advisory has already been acknowledged (set above), so the
+    // form is swapped for the flow itself rather than waiting behind the modal.
+    const nearby = await waitFor(() => UNSAFE_getByType('NearbyFlow' as never))
+    expect(nearby.props.role).toBe('payer')
+    expect(nearby.props.initialSession).toBe(session)
+  })
+
+  it('opens the request hub for the Get direction, titled Request Payment', () => {
+    mockParams.direction = 'get'
+    const { UNSAFE_getByType, getByText, queryByText } = draw()
+    expect(UNSAFE_getByType('RequestHub' as never)).toBeTruthy()
+    expect(getByText('local_pay_request')).toBeTruthy()
+    expect(queryByText('pay_direction_receive')).toBeNull()
+  })
+
+  it('carries the hub amount into the picked method', () => {
+    mockParams.direction = 'get'
+    const { UNSAFE_getByType } = draw()
+    const hub = UNSAFE_getByType('RequestHub' as never)
+    act(() => hub.props.onChangeRequestSats('2500'))
+    act(() => UNSAFE_getByType('RequestHub' as never).props.onPick('get-handle'))
+    expect(UNSAFE_getByType('HandleReceive' as never).props.initialSats).toBe(2500)
+  })
+
+  it('opens a receive method directly, amount unset, when a deep link names it', () => {
+    mockParams.cell = 'get-handle'
+    const { UNSAFE_getByType, getByText } = draw()
+    expect(UNSAFE_getByType('HandleReceive' as never).props.initialSats).toBeUndefined()
+    expect(getByText('pay_method_remote_link')).toBeTruthy()
   })
 
   it('shows a rejected received payment through the attributed notice, not the sent one', async () => {
@@ -291,7 +321,7 @@ describe('PayScreen', () => {
     expect(queryByText('pay_offline_title')).toBeNull()
   })
 
-  it('keeps the grid working when the queue read itself fails', async () => {
+  it('keeps the send form working when the queue read itself fails', async () => {
     // The banner is advisory, never load-bearing (see app/pay.tsx's queue
     // effect). A broken read must not take the rest of the screen down with it.
     mockStorage = {
@@ -303,7 +333,7 @@ describe('PayScreen', () => {
         getFirstAsync: async () => undefined
       }
     }
-    const { findByText } = draw()
-    await findByText('pay_cell_nearby_pay')
+    const { UNSAFE_getByType } = draw()
+    await waitFor(() => expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy())
   })
 })
