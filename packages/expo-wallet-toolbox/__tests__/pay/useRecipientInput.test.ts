@@ -165,6 +165,16 @@ describe('useRecipientInput — scanning', () => {
     expect(result.current.scannerVisible).toBe(false)
   })
 
+  it('closes the scanner and reports a malformed peerpay code', () => {
+    const onPeerPayError = jest.fn()
+    const { result } = draw({ onPeerPayError })
+    act(() => result.current.openScanner())
+    act(() => result.current.onScan('peerpay:nope'))
+    expect(onPeerPayError).toHaveBeenCalledWith(expect.stringContaining('identity key'))
+    expect(result.current.scannerVisible).toBe(false)
+    expect(result.current.target).toBeNull()
+  })
+
   it('ignores junk and leaves the scanner open', () => {
     const { result } = draw()
     act(() => result.current.openScanner())

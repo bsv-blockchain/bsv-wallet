@@ -53,6 +53,10 @@ describe('classifyScan', () => {
     expect(classifyScan('peerpay:not-a-key')).toBeNull()
   })
 
+  it('rejects a peerpay URI whose amount is malformed, rather than dropping the figure', () => {
+    expect(classifyScan(`peerpay:${KEY}?sats=-1`)).toBeNull()
+  })
+
   it('reads a bare compressed public key as a handle target', () => {
     expect(classifyScan(KEY)).toEqual({ kind: 'handle', identityKey: KEY })
   })

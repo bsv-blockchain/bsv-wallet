@@ -149,7 +149,7 @@ export function classifyScan(raw: string): PayTarget | null {
 
   if (text.toLowerCase().startsWith('peerpay:')) {
     const result = validatePeerPayURI(text)
-    if (!result.identityKey || result.errors.identityKey) return null
+    if (!result.identityKey || result.errors.identityKey || result.errors.sats) return null
     return {
       kind: 'handle',
       identityKey: result.identityKey,

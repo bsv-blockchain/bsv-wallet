@@ -5,6 +5,10 @@
  * classifyScan. Both are pure and live in core/pay/rails. This hook only holds
  * the resulting state and the identity search that free text turns into.
  *
+ * Unrecognised junk in front of the camera is ignored and the scanner keeps
+ * looking; a malformed `peerpay:` code is different — it closes the scanner and
+ * reports the validator's message in the banner, as pasting the same string does.
+ *
  * Grew out of useIdentitySearch (handle-only). The search machinery is the
  * same; what is new is that an address is a first-class outcome and a nearby
  * session is handed up to whoever mounted the form.
@@ -18,6 +22,7 @@ import {
   classifyRecipientInput,
   classifyScan,
   peerPayValidationMessage,
+  validatePeerPayURI,
   type PayTarget,
   type Session
 } from '@bsv/expo-wallet-toolbox'
@@ -203,7 +208,20 @@ export function useRecipientInput({
   const onScan = useCallback(
     (data: string) => {
       const scanned = classifyScan(data)
-      if (!scanned) return // QRScanner is in multiScan mode: it keeps looking.
+      if (!scanned) {
+        // A code that names the peerpay scheme was recognised and rejected: silence in front of
+        // a live camera is a dead end, so say why and get out of the way. Anything else is
+        // unclassifiable junk — QRScanner is in multiScan mode and keeps looking.
+        const text = data.trim()
+        if (text.toLowerCase().startsWith('peerpay:')) {
+          const message = peerPayValidationMessage(validatePeerPayURI(text))
+          if (message) {
+            setScannerVisible(false)
+            onPeerPayError?.(message)
+          }
+        }
+        return
+      }
       setScannerVisible(false)
       if (scanned.kind === 'nearby') {
         onNearbySession?.(scanned.session)
@@ -220,7 +238,7 @@ export function useRecipientInput({
       }
       setDirectTarget({ kind: 'address', address: scanned.address })
     },
-    [onNearbySession, onPeerPayAmount, setDirectTarget]
+    [onNearbySession, onPeerPayAmount, onPeerPayError, setDirectTarget]
   )
 
   return {
