@@ -241,6 +241,8 @@ export function formatAmountInInputUnit(satoshis: number, currency: string, sato
 
 BSV mode → grouped integer satoshis (`formatSatoshisLocale`), never the ≥1 BSV switch, because the input beside it says "satoshis". USD mode → `satoshis / satoshisPerUSD` to two decimals, locale grouping, no `$`; if `satoshisPerUSD <= 0` the line renders nothing (no rate, no figure). Styles: `marginTop: spacing.sm`, no bottom margin (the `PayField` wrapper already spaces the group).
 
+The bare figure is only honest beside an `AmountInput`, whose suffix names the unit. `NearbyFlow`'s fixed-amount confirm renders `AvailableBalance` standalone under an `AmountDisplay` headline (which may read "1.5 BSV" or "$12.34"), so the component takes an optional `withUnit` prop: when set, the figure is `<AmountDisplay>{balance}</AmountDisplay>` — unit-labelled, matching the headline — and that call site passes it. Default stays bare.
+
 ### 9. Copy
 
 New keys, all twelve locales:
