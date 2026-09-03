@@ -112,6 +112,8 @@ private final class ListenSession {
   /// The central whose FRAME went to JS and has not been acknowledged. Held
   /// -- deliberately un-acked -- until JS calls `confirmFrame`.
   var pendingAck: InboundCentral?
+  /// The scan link whose FRAME went to JS and has not been acknowledged (reversed role). Mutually exclusive with `pendingAck`.
+  var scanPendingAck: InboundScan?
   var pendingAckTimeout: DispatchWorkItem?
   /// Set by `confirmFrame` until the last ACK chunk has been queued.
   var ackPromise: Promise<Void>?
@@ -158,6 +160,281 @@ private struct PrepareWaiter {
   let timeout: DispatchWorkItem
 }
 
+// MARK: - Reversed role: payee as central (spec 2026-09-03 §5)
+
+/// Scan → connect → discover → subscribe → HELLO_A (indication) → HELLO_B
+/// (write) → FRAME (indications) → hold → ACK (write with response).
+/// Callbacks arrive on `engine.queue`. Owned by `BleEngine.activeScan`; the
+/// first-success-wins latch is the ListenSession's, shared with the
+/// advertised link.
+private final class InboundScan: NSObject, CBPeripheralDelegate {
+  private enum Stage { case scanning, connecting, discoveringServices, discoveringCharacteristics, subscribing, awaitingHelloA, writingHelloB, awaitingFrame, holding, writingAck, done }
+
+  private weak var engine: BleEngine?
+  private let queue: DispatchQueue
+  let instanceName: String
+  let psk: Data
+  let serviceUuid: CBUUID
+  let onFrame: (String) -> Void
+  let onError: (String) -> Void
+
+  private var stage: Stage = .scanning
+  private(set) var isScanning = false
+  private(set) var peripheral: CBPeripheral?
+  private var frameChar: CBCharacteristic?
+  private var reassembler = BleGattProfile.Reassembler()
+  private var writeChunks: [Data] = []
+  private var writeCompletion: ((Bool) -> Void)?
+  private var idleReaper: DispatchWorkItem?
+  private let startedAt = DispatchTime.now()
+
+  init(engine: BleEngine, instanceName: String, psk: Data,
+       onFrame: @escaping (String) -> Void, onError: @escaping (String) -> Void) {
+    self.engine = engine
+    self.queue = engine.queue
+    self.instanceName = instanceName
+    self.psk = psk
+    self.serviceUuid = BleGattProfile.serviceUuid(psk: psk, instanceName: instanceName)
+    self.onFrame = onFrame
+    self.onError = onError
+    super.init()
+  }
+
+  private func elapsedMs() -> Int {
+    Int((DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000)
+  }
+
+  private static func writeChunkSize(for p: CBPeripheral) -> Int {
+    min(p.maximumWriteValueLength(for: .withoutResponse), p.maximumWriteValueLength(for: .withResponse))
+  }
+
+  /// Runs on `queue`. Starts scanning if the manager is powered on; otherwise waits for managerStateChanged.
+  func start() -> Bool {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard let cm = engine?.centralManager else { return false }
+    switch cm.state {
+    case .poweredOn:
+      scan(cm)
+      return true
+    case .unknown, .resetting:
+      return true
+    case .unauthorized where CBManager.authorization == .notDetermined:
+      return true
+    default:
+      return false
+    }
+  }
+
+  private func scan(_ cm: CBCentralManager) {
+    guard stage == .scanning, !isScanning else { return }
+    isScanning = true
+    cm.scanForPeripherals(withServices: [serviceUuid], options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+    os_log("payee(scan): scanning service=%{public}@", log: bleLog, type: .default, serviceUuid.uuidString)
+  }
+
+  /// Drop the current peripheral (a stranger, a bad proof, a mid-handshake disconnect) and scan again.
+  private func rescan(_ reason: String) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    os_log("payee(scan): %{public}@; rescanning", log: bleLog, type: .default, reason)
+    idleReaper?.cancel(); idleReaper = nil
+    if let p = peripheral, let cm = engine?.centralManager, p.state != .disconnected { cm.cancelPeripheralConnection(p) }
+    peripheral = nil; frameChar = nil
+    reassembler = BleGattProfile.Reassembler()
+    writeChunks = []; writeCompletion = nil
+    stage = .scanning
+    if let cm = engine?.centralManager { scan(cm) }
+  }
+
+  /// Full stop: called by the engine when the advertised link won, on stopListening, or after the ack.
+  func tearDown() {
+    dispatchPrecondition(condition: .onQueue(queue))
+    idleReaper?.cancel(); idleReaper = nil
+    if let cm = engine?.centralManager {
+      if isScanning { cm.stopScan() }
+      if let p = peripheral, p.state != .disconnected { cm.cancelPeripheralConnection(p) }
+    }
+    isScanning = false
+    peripheral = nil
+    stage = .done
+    writeCompletion?(false); writeCompletion = nil
+  }
+
+  var isHolding: Bool { stage == .holding }
+
+  // MARK: central manager events (forwarded by BleEngine)
+
+  func managerStateChanged(_ state: CBManagerState) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard stage == .scanning, let cm = engine?.centralManager else { return }
+    switch state {
+    case .poweredOn: scan(cm)
+    case .unknown, .resetting: break
+    case .unauthorized where CBManager.authorization == .notDetermined: break
+    default:
+      isScanning = false
+      onError("bluetooth unavailable")
+    }
+  }
+
+  func didDiscover(_ p: CBPeripheral, rssi: NSNumber) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard stage == .scanning, let cm = engine?.centralManager else { return }
+    cm.stopScan(); isScanning = false
+    stage = .connecting
+    peripheral = p
+    p.delegate = self
+    os_log("payee(scan): scan hit rssi=%d id=%{public}@ ms=%ld", log: bleLog, type: .default, rssi.int32Value, p.identifier.uuidString, elapsedMs())
+    let reaper = DispatchWorkItem { [weak self] in
+      guard let self, self.stage != .holding, self.stage != .writingAck, self.stage != .done else { return }
+      self.rescan("idle central reaper")
+    }
+    idleReaper = reaper
+    queue.asyncAfter(deadline: .now() + .milliseconds(BleGattProfile.idleConnectionTimeoutMs), execute: reaper)
+    cm.connect(p, options: nil)
+  }
+
+  func didConnect(_ p: CBPeripheral) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral, stage == .connecting else { return }
+    stage = .discoveringServices
+    os_log("payee(scan): connected id=%{public}@ chunk=%ld ms=%ld", log: bleLog, type: .default, p.identifier.uuidString, Self.writeChunkSize(for: p), elapsedMs())
+    p.discoverServices([serviceUuid])
+  }
+
+  func didFailToConnect(_ p: CBPeripheral, error: Error?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral else { return }
+    rescan("connect failed: \(error?.localizedDescription ?? "unknown")")
+  }
+
+  func didDisconnect(_ p: CBPeripheral, error: Error?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard p === peripheral else { return }
+    switch stage {
+    case .holding, .writingAck:
+      // The payer left before the ack: release the hold so confirmFrame reports the failure (Swift hardening 2).
+      engine?.scanLinkLost(self)
+    case .done:
+      break
+    default:
+      rescan("peer disconnected")
+    }
+  }
+
+  // MARK: CBPeripheralDelegate
+
+  func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard stage == .discoveringServices else { return }
+    if let error { return rescan(error.localizedDescription) }
+    guard let service = p.services?.first(where: { $0.uuid == serviceUuid }) else { return rescan("session service not found on peer") }
+    stage = .discoveringCharacteristics
+    p.discoverCharacteristics([BleGattProfile.frameCharUuid, BleGattProfile.ackCharUuid], for: service)
+  }
+
+  func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard stage == .discoveringCharacteristics, service.uuid == serviceUuid else { return }
+    if let error { return rescan(error.localizedDescription) }
+    let chars = service.characteristics ?? []
+    guard let frame = chars.first(where: { $0.uuid == BleGattProfile.frameCharUuid }),
+          let ack = chars.first(where: { $0.uuid == BleGattProfile.ackCharUuid }) else {
+      return rescan("session characteristics not found on peer")
+    }
+    frameChar = frame
+    stage = .subscribing
+    p.setNotifyValue(true, for: ack)
+  }
+
+  func peripheral(_ p: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard stage == .subscribing, characteristic.uuid == BleGattProfile.ackCharUuid else { return }
+    if let error { return rescan(error.localizedDescription) }
+    guard characteristic.isNotifying else { return rescan("peer refused the ack subscription") }
+    stage = .awaitingHelloA
+    os_log("payee(scan): subscribed ms=%ld; awaiting HELLO_A", log: bleLog, type: .default, elapsedMs())
+  }
+
+  func peripheral(_ p: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard characteristic.uuid == BleGattProfile.ackCharUuid else { return }
+    if let error { return rescan(error.localizedDescription) }
+    guard let value = characteristic.value, !value.isEmpty else { return }
+    let messages: [Data]
+    do { messages = try reassembler.feed(value) } catch { return rescan("bad framing from peer") }
+    for message in messages { handle(message: message, on: p) }
+  }
+
+  private func handle(message: Data, on p: CBPeripheral) {
+    guard !message.isEmpty else { return }
+    let type = message[message.startIndex]
+    let body = Data(message.dropFirst())
+    switch (type, stage) {
+    case (BleGattProfile.typeHelloA, .awaitingHelloA):
+      let expected = BleGattProfile.proof(psk: psk, instanceName: instanceName, type: BleGattProfile.typeHelloA)
+      guard BleGattProfile.constantTimeEquals(body, expected) else { return rescan("HELLO_A proof failed") }
+      os_log("payee(scan): hello verified ms=%ld", log: bleLog, type: .default, elapsedMs())
+      stage = .writingHelloB
+      write(BleGattProfile.helloB(psk: psk, instanceName: instanceName), on: p) { [weak self] ok in
+        guard let self else { return }
+        if ok { self.stage = .awaitingFrame } else { self.rescan("HELLO_B write failed") }
+      }
+    case (BleGattProfile.typeFrame, .awaitingFrame), (BleGattProfile.typeFrame, .writingHelloB):
+      guard !body.isEmpty else { return rescan("empty frame") }
+      guard let engine, engine.acceptScannedFrame(self) else {
+        // The advertised link already won: this payer gets nothing and times out to its fountain.
+        return rescan("already accepted on the other link")
+      }
+      idleReaper?.cancel(); idleReaper = nil
+      stage = .holding
+      os_log("payee(scan): frame accepted bytes=%ld id=%{public}@", log: bleLog, type: .default, body.count, p.identifier.uuidString)
+      onFrame(body.base64EncodedString())
+    default:
+      os_log("payee(scan): unexpected message ignored type=%d", log: bleLog, type: .default, Int32(type))
+    }
+  }
+
+  private func write(_ message: Data, on p: CBPeripheral, completion: @escaping (Bool) -> Void) {
+    guard let frame = frameChar else { return completion(false) }
+    writeChunks = BleGattProfile.chunks(BleGattProfile.lengthPrefixed(message), size: Self.writeChunkSize(for: p))
+    writeCompletion = completion
+    writeNextChunk(p, frame)
+  }
+
+  private func writeNextChunk(_ p: CBPeripheral, _ frame: CBCharacteristic) {
+    guard !writeChunks.isEmpty else {
+      let done = writeCompletion; writeCompletion = nil
+      done?(true)
+      return
+    }
+    p.writeValue(writeChunks.removeFirst(), for: frame, type: .withResponse)
+  }
+
+  func peripheral(_ p: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard characteristic.uuid == BleGattProfile.frameCharUuid, let frame = frameChar else { return }
+    if error != nil {
+      let done = writeCompletion; writeCompletion = nil; writeChunks = []
+      done?(false)
+      return
+    }
+    writeNextChunk(p, frame)
+  }
+
+  /// The ACK, written with response. `completion(true)` only once the last chunk's write response arrived.
+  func writeAck(_ message: Data, completion: @escaping (Bool) -> Void) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard stage == .holding, let p = peripheral else { return completion(false) }
+    stage = .writingAck
+    write(message, on: p) { [weak self] ok in
+      guard let self else { return }
+      os_log("payee(scan): ack written ok=%d", log: bleLog, type: .default, ok ? 1 : 0)
+      completion(ok)
+      self.tearDown()
+    }
+  }
+}
+
 // MARK: - Engine
 
 /// Owns both CoreBluetooth managers and every piece of mutable state.
@@ -184,6 +461,7 @@ final class BleEngine: NSObject {
   private var indicationQueue: [Indication] = []
 
   private var activeSend: OutboundSend?
+  private var activeScan: InboundScan?
 
   /// How long the service stays registered after the ACK's last chunk was
   /// queued, in case the payer has not yet read it and disconnected. iOS only:
@@ -412,6 +690,7 @@ final class BleEngine: NSObject {
   private func resetListening() {
     dispatchPrecondition(condition: .onQueue(queue))
     indicationQueue.removeAll()
+    activeScan?.tearDown(); activeScan = nil
     if let session = listening {
       session.centrals.values.forEach { $0.idleReaper?.cancel() }
       session.pendingAckTimeout?.cancel()
@@ -459,6 +738,24 @@ final class BleEngine: NSObject {
       }
       session.pendingAckTimeout?.cancel()
       session.pendingAckTimeout = nil
+      if let scan = session.scanPendingAck {
+        session.scanPendingAck = nil
+        let json = accepted ? BleGattProfile.okJson : BleGattProfile.declineJson(reason: reason)
+        let message = BleGattProfile.ackMessage(psk: session.psk, instanceName: session.instanceName, ackJson: Data(json.utf8))
+        session.closing = true
+        scan.writeAck(message) { [weak self] ok in
+          guard let self else { return }
+          self.activeScan = nil
+          if ok {
+            os_log("ack sent ok=%d bytes=%ld via scan link", log: bleLog, type: .default, accepted ? 1 : 0, message.count)
+            promise.resolve(withResult: ())
+          } else {
+            promise.reject(withError: BleGattProfile.error("peer disconnected before acking", code: 21))
+          }
+          self.resetListening()
+        }
+        return
+      }
       guard let target = session.pendingAck else {
         promise.resolve(withResult: ())
         return
@@ -634,6 +931,9 @@ final class BleEngine: NSObject {
       // Stop advertising immediately so nothing else can connect, rather than
       // waiting for JS to round-trip stopListening().
       if let pm = peripheralManager, pm.isAdvertising { pm.stopAdvertising() }
+      // The advertised link won: the scan link (reversed role) is torn down now.
+      activeScan?.tearDown()
+      activeScan = nil
       // Arm the hold BEFORE handing the frame over (see
       // HybridLocalPayTransport.acceptConnection for why the order matters).
       session.pendingAck = entry
@@ -729,8 +1029,56 @@ final class BleEngine: NSObject {
     onFrame: @escaping (String) -> Void, onError: @escaping (String) -> Void
   ) -> Promise<Void> {
     let promise = Promise<Void>()
-    promise.reject(withError: BleGattProfile.error("bluetooth unavailable", code: 16))
+    guard let psk = Data(base64Encoded: pskBase64), !instanceName.isEmpty else {
+      promise.reject(withError: BleGattProfile.error("bad psk or instance name", code: 10))
+      return promise
+    }
+    queue.sync {
+      self.ensureManagers()
+      self.activeScan?.tearDown()
+      let scan = InboundScan(engine: self, instanceName: instanceName, psk: psk, onFrame: onFrame, onError: onError)
+      self.activeScan = scan
+      if scan.start() {
+        promise.resolve(withResult: ())
+      } else {
+        self.activeScan = nil
+        promise.reject(withError: BleGattProfile.error("bluetooth unavailable", code: 16))
+      }
+    }
     return promise
+  }
+
+  /// Called by InboundScan on `queue` when a FRAME is complete. Returns false if the advertised link already won.
+  fileprivate func acceptScannedFrame(_ scan: InboundScan) -> Bool {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard let session = listening, !session.hasAccepted, activeScan === scan else { return false }
+    session.hasAccepted = true
+    if let pm = peripheralManager, pm.isAdvertising { pm.stopAdvertising() }
+    // The advertised link lost: forget every central it holds.
+    for entry in Array(session.centrals.values) { forget(entry, in: session) }
+    session.scanPendingAck = scan
+    let item = DispatchWorkItem { [weak self] in
+      guard let self, let session = self.listening, session.scanPendingAck === scan else { return }
+      session.scanPendingAck = nil
+      session.pendingAckTimeout = nil
+      scan.tearDown()
+      self.activeScan = nil
+      os_log("ack reaper fired; connection released", log: bleLog, type: .default)
+      session.onError("payee never confirmed the payment; connection released")
+    }
+    session.pendingAckTimeout = item
+    queue.asyncAfter(deadline: .now() + .milliseconds(BleGattProfile.pendingAckTimeoutMs), execute: item)
+    return true
+  }
+
+  /// Called by InboundScan when the held payer disconnected before the ack.
+  fileprivate func scanLinkLost(_ scan: InboundScan) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    guard let session = listening, session.scanPendingAck === scan else { return }
+    session.scanPendingAck = nil
+    session.pendingAckTimeout?.cancel(); session.pendingAckTimeout = nil
+    scan.tearDown()
+    activeScan = nil
   }
 
   func sendFrameAdvertising(
@@ -893,27 +1241,32 @@ extension BleEngine: CBCentralManagerDelegate {
     os_log("central manager state=%{public}@", log: bleLog, type: .default, Self.describe(cm.state))
     stateChanged(cm.state)
     activeSend?.managerStateChanged(cm.state)
+    activeScan?.managerStateChanged(cm.state)
   }
 
   func centralManager(_ cm: CBCentralManager, didDiscover peripheral: CBPeripheral,
                       advertisementData: [String: Any], rssi RSSI: NSNumber) {
     dispatchPrecondition(condition: .onQueue(queue))
     activeSend?.didDiscover(peripheral, rssi: RSSI)
+    activeScan?.didDiscover(peripheral, rssi: RSSI)
   }
 
   func centralManager(_ cm: CBCentralManager, didConnect peripheral: CBPeripheral) {
     dispatchPrecondition(condition: .onQueue(queue))
     activeSend?.didConnect(peripheral)
+    activeScan?.didConnect(peripheral)
   }
 
   func centralManager(_ cm: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
     activeSend?.didFailToConnect(peripheral, error: error)
+    activeScan?.didFailToConnect(peripheral, error: error)
   }
 
   func centralManager(_ cm: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
     dispatchPrecondition(condition: .onQueue(queue))
     activeSend?.didDisconnect(peripheral, error: error)
+    activeScan?.didDisconnect(peripheral, error: error)
   }
 }
 
