@@ -50,7 +50,7 @@ export function PayField({ labelKey, children }: { labelKey: string; children: R
 }
 
 /**
- * THE amount question. Same label, same balance line beneath it, same input on every
+ * THE amount question. Same label, same input, same balance line beneath it on every
  * screen that asks it. `showBalance` is false only when the person typing is
  * not the one paying (a payee naming a request) — their balance is meaningless
  * to the payer and showing it would imply otherwise.

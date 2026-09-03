@@ -2017,7 +2017,7 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
               <>
                 <View style={styles.stageTight}>{amountBlock(scannedSession.amount)}</View>
                 <View style={styles.gapXl} />
-                <AvailableBalance />
+                <AvailableBalance withUnit />
               </>
             )}
 
