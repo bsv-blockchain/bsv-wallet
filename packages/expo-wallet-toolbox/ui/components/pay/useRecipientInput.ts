@@ -106,19 +106,6 @@ export function useRecipientInput({
     [stopSearch]
   )
 
-  // Compared by content, not reference: a caller may rebuild this object every
-  // render, and a re-render must never clobber what the user has typed. The ref
-  // carries the latest object so the effect can adopt it without depending on it.
-  const initialTargetKey = initialTarget
-    ? `${initialTarget.kind}:${textFor(initialTarget)}:${initialTarget.kind === 'handle' ? (initialTarget.messageBoxUrl ?? '') : ''}`
-    : ''
-  const initialTargetRef = useRef(initialTarget)
-  initialTargetRef.current = initialTarget
-  useEffect(() => {
-    const next = initialTargetRef.current
-    if (next) setDirectTarget(next)
-  }, [initialTargetKey, setDirectTarget])
-
   const onChangeText = useCallback(
     (text: string) => {
       setInputText(text)
@@ -201,6 +188,28 @@ export function useRecipientInput({
     setSearchError(false)
     setInlineError(null)
   }, [stopSearch])
+
+  // Compared by content, not reference: a caller may rebuild this object every
+  // render, and a re-render must never clobber what the user has typed. The ref
+  // carries the latest object so the effect can adopt it without depending on it.
+  // A link that was adopted and then withdrawn (a second, malformed link) must
+  // not leave the first recipient armed. Declared below clearRecipient, which it needs.
+  const initialTargetKey = initialTarget
+    ? `${initialTarget.kind}:${textFor(initialTarget)}:${initialTarget.kind === 'handle' ? (initialTarget.messageBoxUrl ?? '') : ''}`
+    : ''
+  const initialTargetRef = useRef(initialTarget)
+  initialTargetRef.current = initialTarget
+  const adoptedKeyRef = useRef('')
+  useEffect(() => {
+    const next = initialTargetRef.current
+    if (next) {
+      setDirectTarget(next)
+      adoptedKeyRef.current = initialTargetKey
+    } else if (adoptedKeyRef.current) {
+      adoptedKeyRef.current = ''
+      clearRecipient()
+    }
+  }, [initialTargetKey, setDirectTarget, clearRecipient])
 
   const clearSearchError = useCallback(() => setSearchError(false), [])
   const openScanner = useCallback(() => setScannerVisible(true), [])

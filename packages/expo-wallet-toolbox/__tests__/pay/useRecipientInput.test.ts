@@ -127,6 +127,30 @@ describe('useRecipientInput — typing', () => {
     expect(result.current.target).toEqual({ kind: 'handle', identityKey: OTHER })
     expect(result.current.inputText).toBe(OTHER)
   })
+
+  it('clears the recipient when an adopted initialTarget is withdrawn', () => {
+    const { result, rerender } = renderHook(
+      (props: { initialTarget?: { kind: 'handle'; identityKey: string } }) =>
+        useRecipientInput({ wallet: null, adminOriginator: 'admin.com', ...props }),
+      { initialProps: { initialTarget: { kind: 'handle' as const, identityKey: KEY } } }
+    )
+    expect(result.current.target).toEqual({ kind: 'handle', identityKey: KEY })
+    rerender({ initialTarget: undefined }) // a second, malformed link: nothing to adopt
+    expect(result.current.target).toBeNull()
+    expect(result.current.inputText).toBe('')
+  })
+
+  it('leaves a typed recipient alone when no initialTarget was ever adopted', () => {
+    const { result, rerender } = renderHook(
+      (props: { initialTarget?: { kind: 'handle'; identityKey: string } }) =>
+        useRecipientInput({ wallet: null, adminOriginator: 'admin.com', ...props }),
+      { initialProps: {} as { initialTarget?: { kind: 'handle'; identityKey: string } } }
+    )
+    act(() => result.current.onChangeText(ADDRESS))
+    rerender({ initialTarget: undefined })
+    expect(result.current.target).toEqual({ kind: 'address', address: ADDRESS })
+    expect(result.current.inputText).toBe(ADDRESS)
+  })
 })
 
 describe('useRecipientInput — scanning', () => {

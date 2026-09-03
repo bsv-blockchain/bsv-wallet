@@ -231,6 +231,16 @@ export default function UniversalSend({
   })
   const target = recipient.target
 
+  // A second deep link while mounted re-adopts the recipient (useRecipientInput);
+  // the amount and the notice it carried must follow, or Pay sends the OLD
+  // figure to the NEW person.
+  useEffect(() => {
+    setSendAmount(initialSats && initialSats > 0 ? String(initialSats) : '')
+  }, [initialSats])
+  useEffect(() => {
+    setNotice(initialNotice ? { type: 'error', message: initialNotice } : null)
+  }, [initialNotice])
+
   useEffect(() => {
     if (openScannerOnMount) recipient.openScanner()
     // Mount-only by design: re-opening on every render would trap the user in the camera.

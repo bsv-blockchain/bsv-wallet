@@ -112,6 +112,32 @@ describe('UniversalSend', () => {
     expect(s.getByText('PeerPay link contains an invalid identity key')).toBeTruthy()
   })
 
+  it('a second deep link replaces the amount on screen', () => {
+    const s = draw({ initialTarget: { kind: 'handle', identityKey: KEY }, initialSats: 5000 })
+    fireEvent.changeText(s.getByTestId('amount-input'), '1234')
+    expect(s.getByTestId('amount-input').props.value).toBe('1234')
+    s.rerender(
+      <ThemeProvider>
+        <UniversalSend
+          onNearbySession={jest.fn()}
+          initialTarget={{ kind: 'handle', identityKey: KEY }}
+          initialSats={200}
+        />
+      </ThemeProvider>
+    )
+    expect(s.getByTestId('amount-input').props.value).toBe('200')
+  })
+
+  it('a second, malformed deep link raises its notice as a banner', () => {
+    const s = draw({ initialTarget: { kind: 'handle', identityKey: KEY }, initialSats: 5000 })
+    s.rerender(
+      <ThemeProvider>
+        <UniversalSend onNearbySession={jest.fn()} initialNotice="bad" />
+      </ThemeProvider>
+    )
+    expect(s.getByText('bad')).toBeTruthy()
+  })
+
   it('never shows the message-box server bar', () => {
     const s = draw()
     expect(s.queryByLabelText('message_box_server')).toBeNull()
