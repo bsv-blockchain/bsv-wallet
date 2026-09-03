@@ -36,7 +36,7 @@ Alongside, four smaller changes the user asked for on the same screens:
 - `PayAmountField` renders `AvailableBalance` then `AmountInput` (`ui/components/pay/PayForm.tsx:55-70`). `AvailableBalance` renders a wallet glyph, `<AmountDisplay>{balance}</AmountDisplay>`, and `t('available')` (`AvailableBalance.tsx:33-51`). `AmountInput` labels its unit `'satoshis'` in BSV mode and `'USD'` in USD mode; the value it emits is always integer satoshis (`ui/components/wallet/AmountInput.tsx:174-177`). `formatAmountParts` splits figure from unit for BSV but returns a `$`-prefixed figure for USD (`core/amountFormatHelpers.ts:185-196`).
 - `WalletHomeScreen` pushes `/pay`, `/pay?direction=get`, `/pay?cell=pay-handle`, `/pay?cell=get-handle`, `/pay?sats=N` (`WalletHomeScreen.tsx:913,972,1115,1126,1194,1215`). `legacyRedirectTarget` maps the three retired routes to `pay-handle` / `get-address` / `get-nearby` (`rails/index.ts:129-140`).
 - Existing coverage: `__tests__/ui/payScreen.test.tsx` (grid + deep links, cells mocked to host strings), `__tests__/pay/rails.test.ts` (`classifyScan`, address validation, copy keys, legacy redirects), `__tests__/pay/handleRail.test.ts`, `__tests__/ui/payFormComponents.test.tsx` (`AvailableBalance` mocked to a testID).
-- `translations.tsx` carries ten locales (`en zh hi es fr ar pt bn ru id`); every key exists in all ten.
+- `translations.tsx` carries twelve locales (`en zh hi es fr ar pt bn ru id ja pl`); every key exists in all twelve.
 
 ## Non-goals
 
@@ -243,7 +243,7 @@ BSV mode → grouped integer satoshis (`formatSatoshisLocale`), never the ≥1 B
 
 ### 9. Copy
 
-New keys, all ten locales:
+New keys, all twelve locales:
 
 | key | en |
 |---|---|
