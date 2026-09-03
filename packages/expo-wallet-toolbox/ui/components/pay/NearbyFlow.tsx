@@ -495,6 +495,14 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
    * every API level, so on a GMS device the one Nearby prompt answers both.
    */
   const [blePermitted, setBlePermitted] = useState(Platform.OS !== 'android')
+  /**
+   * The Android permission probe below has finished, either way. A mint reads
+   * the radio flags through startRequest's closure, so a mint fired in the
+   * mount commit would advertise their initial `false`; the hub-started
+   * request waits on this. True from the start off Android, where there is no
+   * probe to wait for.
+   */
+  const [permissionsSettled, setPermissionsSettled] = useState(Platform.OS !== 'android')
 
   /** The encoder rejected the pairing payload. Should be unreachable at ~170 chars. */
   const [sessionQrBroken, setSessionQrBroken] = useState(false)
@@ -563,20 +571,31 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
   useEffect(() => {
     if (Platform.OS !== 'android') return
     let live = true
+    // Settled either way, and settled even when neither probe runs: a mint held
+    // for a probe that will never resolve would never advertise at all.
+    const settle = () => {
+      if (live) setPermissionsSettled(true)
+    }
     if (localSupportsNearby()) {
-      void requestNearbyPermissions().then(granted => {
-        if (!live) return
-        setNearbyReady(granted)
-        setBlePermitted(granted)
-      })
+      void requestNearbyPermissions()
+        .then(granted => {
+          if (!live) return
+          setNearbyReady(granted)
+          setBlePermitted(granted)
+        })
+        .finally(settle)
     } else if (initialRole === 'payee' && localSupportsBle()) {
       // localSupportsBle() is false while the radio is off (Task 9's isSupported
       // reads BluetoothAdapter.isEnabled), so a GMS-less payee who enters with
       // Bluetooth off stays QR-only until the screen is re-entered — the same
       // posture as a Nearby denial.
-      void requestBlePermissions().then(granted => {
-        if (live) setBlePermitted(granted)
-      })
+      void requestBlePermissions()
+        .then(granted => {
+          if (live) setBlePermitted(granted)
+        })
+        .finally(settle)
+    } else {
+      settle()
     }
     return () => {
       live = false
@@ -1181,24 +1200,37 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
     [adoptSession, fail, t]
   )
 
-  // One entry per mount. A payee with a pre-set request mints at once; a payer
-  // with a pre-scanned session lands on confirm. Without either, the old
-  // behaviour: payee names an amount, payer raises the camera. Declared here,
-  // below startRequest and adoptSession, because a dependency array is read at
-  // render time and both are `const`s — referencing them from above would TDZ.
+  // One entry per mount. A payee with a pre-set request mints as soon as the
+  // radio permissions have settled — startRequest reads nearbyReady/blePermitted
+  // through its closure, so minting in the mount commit advertised their initial
+  // `false` and floored every payer to QR. A payer with a pre-scanned session
+  // lands on confirm. Without either, the old behaviour: payee names an amount,
+  // payer raises the camera.
+  //
+  // The effect may therefore run twice on Android — before and after the probe
+  // settles — so each branch is guarded by its own ref: `mintedRef` for the mint
+  // (which waits), `enteredRef` for the three that do not. Declared here, below
+  // startRequest and adoptSession, because a dependency array is read at render
+  // time and both are `const`s — referencing them from above would TDZ.
   const enteredRef = useRef(false)
+  const mintedRef = useRef(false)
   useEffect(() => {
+    if (initialRole === 'payee' && initialRequest) {
+      if (!permissionsSettled || mintedRef.current) return
+      mintedRef.current = true
+      void startRequest(initialRequest.sats)
+      return
+    }
     if (enteredRef.current) return
     enteredRef.current = true
     if (initialRole === 'payee') {
-      if (initialRequest) void startRequest(initialRequest.sats)
-      else setPhase('receive_amount')
+      setPhase('receive_amount')
     } else if (initialSession) {
       adoptSession(initialSession)
     } else {
       openScanner('send_scan')
     }
-  }, [initialRole, initialRequest, initialSession, openScanner, startRequest, adoptSession])
+  }, [initialRole, initialRequest, initialSession, openScanner, startRequest, adoptSession, permissionsSettled])
 
   /**
    * The failed screen's Retry. Unlike reset(), it never leaves: a mount that
