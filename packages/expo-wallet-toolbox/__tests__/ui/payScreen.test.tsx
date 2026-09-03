@@ -118,7 +118,7 @@ jest.mock('../../ui/components/pay/HandleReceive', () => 'HandleReceive')
 jest.mock('../../ui/components/pay/AddressReceive', () => 'AddressReceive')
 
 import React from 'react'
-import { render, act, waitFor } from '@testing-library/react-native'
+import { render, act, waitFor, fireEvent } from '@testing-library/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PayScreen } from '../../ui/screens/PayScreen'
 import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
@@ -253,6 +253,48 @@ describe('PayScreen', () => {
     const { UNSAFE_getByType, getByText } = draw()
     expect(UNSAFE_getByType('HandleReceive' as never).props.initialSats).toBeUndefined()
     expect(getByText('pay_method_remote_link')).toBeTruthy()
+  })
+
+  it('ignores a get-* cell when a peerpay link is present — send form, no advisory', () => {
+    mockParams.cell = 'get-nearby'
+    mockParams.peerpay = `peerpay:${KEY}?sats=5`
+    const { UNSAFE_getByType, queryByText } = draw()
+    expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy()
+    // NearbyAdvisoryModal reads i18n directly (not the mocked useTranslation
+    // hook), so it renders real copy rather than the key.
+    expect(queryByText('Connecting Nearby')).toBeNull()
+  })
+
+  it('treats pay-handle as an alias for the send form too', () => {
+    mockParams.cell = 'pay-handle'
+    const form = draw().UNSAFE_getByType('UniversalSend' as never)
+    expect(form.props.openScannerOnMount).toBeFalsy()
+    expect(form.props.initialTarget).toBeUndefined()
+  })
+
+  it('holds a scanned session behind the advisory and returns to the send form on Cancel', async () => {
+    // Flag deliberately NOT set: the modal must appear and NearbyFlow must not mount.
+    mockParams.cell = 'pay-nearby'
+    const { UNSAFE_getByType, UNSAFE_queryByType, getByText, findByText } = draw()
+    expect(UNSAFE_getByType('UniversalSend' as never).props.openScannerOnMount).toBe(true)
+    const session = mintSession({
+      identityKey: KEY,
+      derivationPrefix: 'ZGV2LXByZWZpeA==',
+      derivationSuffix: 'ZGV2LXN1ZmZpeA==',
+      supportsAwdl: false
+    })
+    act(() => UNSAFE_getByType('UniversalSend' as never).props.onNearbySession(session))
+    expect(getByText('pay_cell_nearby_pay')).toBeTruthy()
+    expect(UNSAFE_queryByType('NearbyFlow' as never)).toBeNull()
+    // NearbyAdvisoryModal reads i18n directly (not the mocked useTranslation
+    // hook), so it renders real copy ("Connecting Nearby" / "Cancel") rather
+    // than the key.
+    await findByText('Connecting Nearby')
+    fireEvent.press(getByText('Cancel'))
+    const form = UNSAFE_getByType('UniversalSend' as never)
+    expect(form).toBeTruthy()
+    expect(form.props.openScannerOnMount).toBe(false)
+    expect(getByText('pay_direction_pay')).toBeTruthy()
   })
 
   it('shows a rejected received payment through the attributed notice, not the sent one', async () => {

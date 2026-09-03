@@ -166,10 +166,13 @@ export function PayScreen() {
   /** Pay side: a scanned nearby session takes over the screen. */
   const [nearbySession, setNearbySession] = useState<Session | null>(null)
   /** Get side: the method chosen on the hub, or named by a deep link. */
-  const [method, setMethod] = useState<RequestMethod | null>(isRequestMethod(paramCell) ? paramCell : null)
+  const [method, setMethod] = useState<RequestMethod | null>(
+    direction === 'get' && isRequestMethod(paramCell) ? paramCell : null
+  )
   /** Get side: the hub's raw amount, carried into the method. */
   const [requestSats, setRequestSats] = useState('')
-  const openScannerOnMount = paramCell === 'pay-nearby'
+  // One camera raise per deep link; a cancelled advisory must not re-open it.
+  const [scanOnMount, setScanOnMount] = useState(paramCell === 'pay-nearby')
 
   // ── nearby advisory ─────────────────────────────────────────────────
   /**
@@ -192,12 +195,12 @@ export function PayScreen() {
   const isNearbyCell = (direction === 'pay' && nearbySession !== null) || method === 'get-nearby'
 
   // Refreshed whenever the wallet finishes building, connectivity changes, or
-  // the user enters/leaves a method: the queue only moves when the network
-  // state does or when a cell just queued a row (e.g. an in-session offline
-  // QR Done), so there is no need to poll it on every render. `cell` is a
-  // cheap local SQLite read, not a network round-trip, so re-running it on
-  // every cell transition is fine — returning from a pay cell must pick up
-  // rows the cell just queued.
+  // the user enters/leaves a method or a nearby session: the queue only moves
+  // when the network state does or when one of those just queued a row (e.g.
+  // an in-session offline QR Done), so there is no need to poll it on every
+  // render. It is a cheap local SQLite read, not a network round-trip, so
+  // re-running it on every such transition is fine — returning from a method
+  // or a nearby session must pick up rows it just queued.
   useEffect(() => {
     if (!walletBuilt) return
     let cancelled = false
@@ -245,7 +248,7 @@ export function PayScreen() {
         setStalled(TaskSendOffline.lastStall)
       } catch {
         // This banner is advisory, never load-bearing. A read failure here must
-        // not break the rest of the screen — the grid still has to render.
+        // not break the rest of the screen — the send form or hub still has to render.
       }
     })()
     return () => {
@@ -307,17 +310,24 @@ export function PayScreen() {
 
   /**
    * Back from anywhere on this screen means "back to the wallet" — never to
-   * the chooser grid. The grid is a decision the user already made on the way
-   * in; stepping back through it makes leaving a two- or three-tap affair.
+   * an intermediate screen. The hub or the send form is a decision the user
+   * already made on the way in; stepping back through it makes leaving a
+   * two- or three-tap affair.
    *
    * `dismissTo` pops to the wallet when it is in the stack (the normal case)
    * and replaces this screen with it when /pay was deep-linked into directly.
-   * Not `navigate`: that re-pushes the wallet above the very cells this is
+   * Not `navigate`: that re-pushes the wallet above the very screens this is
    * trying to leave behind, which puts them one edge-swipe away instead of
    * discarding them.
    */
   const goBack = useCallback(() => {
     router.dismissTo('/')
+  }, [])
+
+  const onNearbySession = useCallback((session: Session) => {
+    // One camera raise per deep link; a cancelled advisory must not re-open it.
+    setScanOnMount(false)
+    setNearbySession(session)
   }, [])
 
   const offlineNotice = (
@@ -354,8 +364,8 @@ export function PayScreen() {
             initialTarget={initialTarget}
             initialSats={initialSats}
             initialNotice={peerPayNotice}
-            openScannerOnMount={openScannerOnMount}
-            onNearbySession={setNearbySession}
+            openScannerOnMount={scanOnMount}
+            onNearbySession={onNearbySession}
           />
         </>
       )
@@ -425,7 +435,11 @@ export function PayScreen() {
       </Modal>
       <NearbyAdvisoryModal
         visible={isNearbyCell && nearbyAdvisorySeen === false}
-        onCancel={() => (direction === 'pay' ? setNearbySession(null) : setMethod(null))}
+        onCancel={() => {
+          // Whichever side raised it, cancelling leaves no nearby state behind.
+          setNearbySession(null)
+          setMethod(null)
+        }}
         onContinue={() => {
           void nearbyAdvisory.set()
           setNearbyAdvisorySeen(true)
