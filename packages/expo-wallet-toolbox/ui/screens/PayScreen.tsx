@@ -20,9 +20,8 @@ import PayCellRow from '../components/pay/PayCellRow'
 import NearbyFlow from '../components/pay/NearbyFlow'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import PaymentQrDisplay from '../components/pay/PaymentQrDisplay'
-import HandleSend from '../components/pay/HandleSend'
+import UniversalSend from '../components/pay/UniversalSend'
 import HandleReceive from '../components/pay/HandleReceive'
-import AddressSend from '../components/pay/AddressSend'
 import AddressReceive from '../components/pay/AddressReceive'
 import OfflineNotice from '../components/pay/OfflineNotice'
 import { useOnline } from '../hooks/useOnline'
@@ -411,12 +410,17 @@ export function PayScreen() {
         return nearbyAdvisorySeen ? <NearbyFlow role="payee" onExit={goBack} /> : null
       case 'pay-handle':
         return (
-          <HandleSend initialIdentityKey={initialIdentityKey} initialSats={initialSats} initialNotice={peerPayNotice} />
+          <UniversalSend
+            initialTarget={initialIdentityKey ? { kind: 'handle', identityKey: initialIdentityKey } : undefined}
+            initialSats={initialSats}
+            initialNotice={peerPayNotice}
+            onNearbySession={() => setCell('pay-nearby')}
+          />
         )
       case 'get-handle':
         return <HandleReceive />
       case 'pay-address':
-        return <AddressSend />
+        return <UniversalSend onNearbySession={() => setCell('pay-nearby')} />
       case 'get-address':
         return <AddressReceive />
       default:

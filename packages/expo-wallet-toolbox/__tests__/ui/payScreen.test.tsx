@@ -105,9 +105,8 @@ jest.mock('expo-router', () => ({
 }))
 
 jest.mock('../../ui/components/pay/NearbyFlow', () => 'NearbyFlow')
-jest.mock('../../ui/components/pay/HandleSend', () => 'HandleSend')
+jest.mock('../../ui/components/pay/UniversalSend', () => 'UniversalSend')
 jest.mock('../../ui/components/pay/HandleReceive', () => 'HandleReceive')
-jest.mock('../../ui/components/pay/AddressSend', () => 'AddressSend')
 jest.mock('../../ui/components/pay/AddressReceive', () => 'AddressReceive')
 
 import React from 'react'
@@ -182,14 +181,14 @@ describe('PayScreen', () => {
   it('opens the handle cell when a deep link names it', () => {
     mockParams.cell = 'pay-handle'
     const { UNSAFE_getByType } = draw()
-    expect(UNSAFE_getByType('HandleSend' as never)).toBeTruthy()
+    expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy()
   })
 
   it('opens the handle cell for a peerpay link and forwards the key', () => {
     mockParams.peerpay = `peerpay:${KEY}?sats=1000`
     const { UNSAFE_getByType } = draw()
-    const cell = UNSAFE_getByType('HandleSend' as never)
-    expect(cell.props.initialIdentityKey).toBe(KEY)
+    const cell = UNSAFE_getByType('UniversalSend' as never)
+    expect(cell.props.initialTarget.identityKey).toBe(KEY)
     expect(cell.props.initialSats).toBe(1000)
   })
 

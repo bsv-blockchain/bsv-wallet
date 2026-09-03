@@ -1,11 +1,17 @@
 /**
- * Pay → someone with this app.
+ * Pay → anyone.
  *
- * The recipient is a handle (an identity key, reached by search, scan or deep
- * link) and delivery is asynchronous: the token is dropped in their MessageBox
- * and lands when their wallet next checks. That is exactly what the consequence
- * line under the button says, and why it says it before the send rather than
- * after.
+ * One recipient field decides the rail: a base58check address goes out as a
+ * plain P2PKH payment; an identity key, peerpay link or search hit goes out as
+ * a PeerPay token dropped in the recipient's message box; a nearby-session
+ * code is handed up to the Pay screen, which swaps this form for NearbyFlow.
+ * Nothing here is chosen by the user except the recipient and the amount.
+ *
+ * The form recomposes by what the field resolved to: a note field exists
+ * only for handles (an address has nowhere to carry one), and the "they are
+ * not notified" consequence is shown only for addresses, where it is
+ * load-bearing — a user who pastes an address expecting messaging-style
+ * delivery has effectively posted cash.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -23,8 +29,8 @@ import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
 import PaymentSuccessOverlay from './PaymentSuccessOverlay'
 import ResultBanner from './ResultBanner'
 import RecipientField from './RecipientField'
-import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from './MessageBoxConfig'
-import { useIdentitySearch } from './useIdentitySearch'
+import { useMessageBoxConfig } from './MessageBoxConfig'
+import { useRecipientInput, type RecipientTarget } from './useRecipientInput'
 import {
   useTheme,
   spacing,
@@ -39,10 +45,12 @@ import {
   makePeerPayClient,
   retryDelivery,
   sendViaHandle,
+  sendToAddress,
   getOutboxEntries,
   pruneExpiredSent,
   unsentEntries,
   type OutboxEntry,
+  type Session,
   haptics,
   listPendingResendRequests
 } from '@bsv/expo-wallet-toolbox'
@@ -169,24 +177,34 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
   )
 }
 
-export interface HandleSendProps {
-  /** Prefilled recipient from a deep link or a scan (identity key hex). */
-  initialIdentityKey?: string
-  /** Prefilled amount in satoshis from a peerpay link. */
+export interface UniversalSendProps {
+  /** A recipient known before the form opened: a peerpay deep link or `?identityKey=`. */
+  initialTarget?: Extract<RecipientTarget, { kind: 'handle' }>
+  /** Prefilled amount in satoshis from a peerpay link or `?sats=`. */
   initialSats?: number
   /** Error text from a malformed peerpay link, shown as a banner. */
   initialNotice?: string | null
+  /** Open the scanner as soon as the form mounts (deep link `cell=pay-nearby`). */
+  openScannerOnMount?: boolean
+  /** A nearby-session code was scanned. The Pay screen swaps this form for NearbyFlow. */
+  onNearbySession: (session: Session) => void
 }
 
-export default function HandleSend({ initialIdentityKey, initialSats, initialNotice }: HandleSendProps) {
+export default function UniversalSend({
+  initialTarget,
+  initialSats,
+  initialNotice,
+  openScannerOnMount = false,
+  onNearbySession
+}: UniversalSendProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const StatusBar = loadStatusBar()
   const { managers, adminOriginator, storage } = useWallet()
   const wallet = managers?.permissionsManager || null
 
-  const config = useMessageBoxConfig(t)
-  const { messageBoxUrl, setShowConfig } = config
+  // Read-only here: the server is configured in Settings › Advanced.
+  const { messageBoxUrl } = useMessageBoxConfig(t)
   const isConfigured = !!messageBoxUrl && messageBoxUrl !== NO_MESSAGE_BOX
 
   const [sendAmount, setSendAmount] = useState(initialSats && initialSats > 0 ? String(initialSats) : '')
@@ -201,13 +219,23 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
   const [outbox, setOutbox] = useState<OutboxEntry[]>([])
   const [retryingId, setRetryingId] = useState<string | null>(null)
 
-  const search = useIdentitySearch(
-    wallet as any,
+  const onPeerPayAmount = useCallback((sats: number) => setSendAmount(String(sats)), [])
+  const onPeerPayError = useCallback((message: string) => setNotice({ type: 'error', message }), [])
+  const recipient = useRecipientInput({
+    wallet,
     adminOriginator,
-    initialIdentityKey,
-    sats => setSendAmount(String(sats)),
-    message => setNotice({ type: 'error', message })
-  )
+    initialTarget,
+    onPeerPayAmount,
+    onPeerPayError,
+    onNearbySession
+  })
+  const target = recipient.target
+
+  useEffect(() => {
+    if (openScannerOnMount) recipient.openScanner()
+    // Mount-only by design: re-opening on every render would trap the user in the camera.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const peerPayClient = useMemo(
     () => makePeerPayClient({ wallet: wallet as never, messageBoxUrl, originator: adminOriginator }),
@@ -216,8 +244,6 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
 
   const loadOutbox = useCallback(async () => {
     if (!storage) return
-    // Sent entries are kept as the sender-side token copy for resend, then
-    // pruned after 30 days. Only unsent entries surface in Retry/Cancel.
     await pruneExpiredSent(storage)
     setOutbox(unsentEntries(await getOutboxEntries(storage)))
   }, [storage])
@@ -240,111 +266,114 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
     void pollResendRequests()
   }, [pollResendRequests])
 
-  const handleSend = useCallback(async () => {
-    const client = peerPayClient
-    if (!client || !search.recipientKey || !storage) return
-    const sats = Math.round(Number(sendAmount))
-    if (!Number.isFinite(sats) || sats <= 0) {
-      setSendResult({ type: 'error', message: t('enter_valid_amount') })
-      setTimeout(() => setSendResult(null), 5000)
-      return
-    }
-    haptics.confirm()
-    setIsSending(true)
-    try {
+  const flashResult = useCallback((result: { type: 'success' | 'error'; message: string }) => {
+    setSendResult(result)
+    setTimeout(() => setSendResult(null), 5000)
+  }, [])
+
+  const handleWalletCheck = useCallback(
+    async (error: unknown): Promise<boolean> => {
+      if (!userFacingPayError(error).offerWalletCheck) return false
+      const choice = await promptCheckWallet(t)
+      if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
+      return true
+    },
+    [t]
+  )
+
+  const sendHandle = useCallback(
+    async (to: Extract<RecipientTarget, { kind: 'handle' }>, sats: number) => {
+      const client = peerPayClient
+      if (!client || !storage || !wallet) return
       const { satoshis: paidSats } = await sendViaHandle({
         wallet: wallet as any,
         adminOriginator,
         client,
         storage,
-        recipient: search.recipientKey,
+        recipient: to.identityKey,
+        recipientHost: to.messageBoxUrl,
         satoshis: sats,
         messageBoxUrl,
         note,
-        recipientName: search.selectedIdentity?.name
+        recipientName: recipient.selectedIdentity?.name
       })
       await loadOutbox()
-      // The overlay stages its own haptic (inside Celebration) and tone; firing
-      // haptics.success() here would double the beat. Only a human-readable
-      // name goes on the success screen — a raw identity key is noise there.
-      setSent({
-        amount: paidSats,
-        recipient: search.selectedIdentity?.name
+      // Only a human-readable name goes on the success screen — a raw key is noise there.
+      setSent({ amount: paidSats, recipient: recipient.selectedIdentity?.name })
+    },
+    [peerPayClient, storage, wallet, adminOriginator, messageBoxUrl, note, recipient.selectedIdentity, loadOutbox]
+  )
+
+  const sendAddress = useCallback(
+    async (to: Extract<RecipientTarget, { kind: 'address' }>, sats: number) => {
+      if (!wallet) return
+      const { paidSatoshis } = await sendToAddress({
+        wallet: wallet as any,
+        adminOriginator,
+        address: to.address,
+        satoshis: sats
       })
+      setSent({ amount: paidSatoshis, recipient: to.address })
+    },
+    [wallet, adminOriginator]
+  )
+
+  const handleSend = useCallback(async () => {
+    if (!target) return
+    const sats = Math.round(Number(sendAmount))
+    if (!Number.isFinite(sats) || sats <= 0) {
+      flashResult({ type: 'error', message: t('enter_valid_amount') })
+      return
+    }
+    haptics.confirm()
+    setIsSending(true)
+    try {
+      if (target.kind === 'handle') await sendHandle(target, sats)
+      else await sendAddress(target, sats)
       setSendAmount('')
       setNote('')
-      search.clearRecipient()
+      recipient.clearRecipient()
     } catch (error: any) {
-      if (userFacingPayError(error).offerWalletCheck) {
-        const choice = await promptCheckWallet(t)
-        if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
-        return
-      }
-      // An unreachable message box is a configuration problem, not a payment
-      // one — point at the fix rather than echoing the raw fetch error.
+      if (await handleWalletCheck(error)) return
       const message =
         error instanceof RangeError
           ? t('enter_valid_amount')
           : isMessageBoxNetworkError(error)
             ? t('message_box_unreachable')
             : error?.message || t('unknown_error')
-      setSendResult({ type: 'error', message })
-      // The outbox entry stays 'unsent' and is offered for retry below.
-      await loadOutbox()
+      flashResult({ type: 'error', message })
+      // A failed handle send leaves its entry 'unsent' and offered for retry below.
+      if (target.kind === 'handle') await loadOutbox()
     } finally {
       setIsSending(false)
-      setTimeout(() => setSendResult(null), 5000)
     }
-  }, [peerPayClient, search, sendAmount, note, storage, messageBoxUrl, loadOutbox, wallet, adminOriginator, t])
+  }, [target, sendAmount, sendHandle, sendAddress, recipient, handleWalletCheck, flashResult, loadOutbox, t])
 
   const handleRetry = useCallback(
     async (entry: OutboxEntry) => {
-      // `peerPayClient` is built from the CURRENT setting, so it wins: the
-      // configured host may have changed since this entry was minted, and the
-      // client re-resolves the recipient's advertised inbox on every send
-      // anyway. The entry's own host is the last resort, for when the user has
-      // since opted out of a server entirely.
       const client =
         peerPayClient ??
-        makePeerPayClient({
-          wallet: wallet as never,
-          messageBoxUrl: entry.messageBoxUrl,
-          originator: adminOriginator
-        })
+        makePeerPayClient({ wallet: wallet as never, messageBoxUrl: entry.messageBoxUrl, originator: adminOriginator })
       if (!client || !storage) {
-        setShowConfig(true)
-        showToast(t('message_box_unreachable'), { type: 'error' })
+        showToast(t('message_box_off_hint'), { type: 'error' })
         return
       }
       setRetryingId(entry.id)
       try {
         await retryDelivery({ wallet: wallet as any, adminOriginator, client, storage, entry })
-        // A retried payment that lands gets the same success moment as one
-        // that worked first time — held until Done, then back to the wallet.
         setSent({ amount: entry.token.amount })
       } catch (e: any) {
-        if (userFacingPayError(e).offerWalletCheck) {
-          const choice = await promptCheckWallet(t)
-          if (choice === 'check_wallet') loadExpoRouter().router.push('/wallet-check' as any)
-          return
-        }
-        const reason = isMessageBoxNetworkError(e)
-          ? t('message_box_unreachable')
-          : e?.message || t('unknown_error')
+        if (await handleWalletCheck(e)) return
+        const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
         showToast(`${t('retry_failed')}: ${reason}`, { type: 'error' })
       } finally {
         setRetryingId(null)
         await loadOutbox()
       }
     },
-    [peerPayClient, storage, loadOutbox, wallet, adminOriginator, t, setShowConfig]
+    [peerPayClient, storage, loadOutbox, wallet, adminOriginator, t, handleWalletCheck]
   )
 
-  /**
-   * Cancel a stuck payment. Undelivered: one confirm, then abort. Delivered or
-   * delivering: Abandon (payment_cancelled) or Finish (retry) — the sheet is
-   * the confirmation.
-   */
   const handleCancel = useCallback(
     async (entry: OutboxEntry) => {
       if (!storage || !wallet) return
@@ -365,20 +394,12 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
         if (key !== 'abandon') return
         const client = peerPayClient
         if (!client) {
-          setShowConfig(true)
-          showToast(t('message_box_unreachable'), { type: 'error' })
+          showToast(t('message_box_off_hint'), { type: 'error' })
           return
         }
         setRetryingId(entry.id)
         try {
-          await cancelOutboxPayment({
-            wallet: wallet as any,
-            adminOriginator,
-            storage,
-            entry,
-            client,
-            mode: 'abandon'
-          })
+          await cancelOutboxPayment({ wallet: wallet as any, adminOriginator, storage, entry, client, mode: 'abandon' })
         } catch (e: any) {
           const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
           showToast(reason, { type: 'error' })
@@ -398,13 +419,7 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
       if (choice !== 'cancel_payment') return
       setRetryingId(entry.id)
       try {
-        await cancelOutboxPayment({
-          wallet: wallet as any,
-          adminOriginator,
-          storage,
-          entry,
-          mode: 'undelivered'
-        })
+        await cancelOutboxPayment({ wallet: wallet as any, adminOriginator, storage, entry, mode: 'undelivered' })
       } catch (e: any) {
         showToast(e?.message || t('unknown_error'), { type: 'error' })
       } finally {
@@ -412,90 +427,72 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
         await loadOutbox()
       }
     },
-    [storage, wallet, adminOriginator, peerPayClient, handleRetry, loadOutbox, t, setShowConfig]
+    [storage, wallet, adminOriginator, peerPayClient, handleRetry, loadOutbox, t]
   )
 
-  /**
-   * A stuck payment blocks new sends: every attempt while the message box is
-   * unreachable would mint another noSend action and another stuck entry, so
-   * the only ways forward are Retry and Cancel on what is already queued.
-   */
-  const formOtherwiseValid = search.recipientKey.length > 0 && Number(sendAmount) > 0 && !isSending && isConfigured
-  const canSend = formOtherwiseValid && outbox.length === 0
+  const amountOk = Number(sendAmount) > 0
+  const isHandle = target?.kind === 'handle'
+  const isAddress = target?.kind === 'address'
+  // A stuck handle payment blocks new HANDLE sends: every attempt while the box
+  // is unreachable would mint another noSend action and another stuck entry.
+  // Address sends never touch the box, so they are not held hostage by it.
+  const handleBlockedByOutbox = isHandle && outbox.length > 0
+  const handleFormValid = isHandle && amountOk && !isSending && isConfigured
+  const canSend = isAddress ? amountOk && !isSending : handleFormValid && !handleBlockedByOutbox
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      {/* Config lives behind the same gear the old screen used, not on the main path. */}
-      <MessageBoxBar
-        url={config.messageBoxUrl}
-        open={config.showConfig}
-        onToggle={() =>
-          // A no-server sentinel keeps the panel pinned open: there is nothing to
-          // collapse back to, and closing it would hide the only way to fix it.
-          config.setShowConfig(v => (config.messageBoxUrl === NO_MESSAGE_BOX ? true : !v))
-        }
-        colors={colors}
-        t={t}
-      />
-      {config.showConfig && (
-        <ConfigPanel
-          urlInput={config.urlInput}
-          isSaving={config.isSaving}
-          colors={colors}
-          t={t}
-          onChangeUrl={config.setUrlInput}
-          onSave={() => {
-            void config.handleSave(config.urlInput)
-          }}
-          onReset={config.handleReset}
-          onNone={config.handleNone}
-        />
-      )}
       {notice && <ResultBanner result={notice} onDismiss={() => setNotice(null)} colors={colors} />}
-      {search.searchError && (
+      {recipient.searchError && (
         <ResultBanner
           result={{ type: 'error', message: t('identity_search_unavailable') }}
-          onDismiss={search.clearSearchError}
+          onDismiss={recipient.clearSearchError}
           colors={colors}
         />
       )}
 
       <PayField labelKey="recipient">
         <RecipientField
-          selectedIdentity={search.selectedIdentity}
-          searchQuery={search.searchQuery}
-          recipientKey={search.recipientKey}
-          isSearching={search.isSearching}
-          searchResults={search.searchResults}
+          selectedIdentity={recipient.selectedIdentity}
+          inputText={recipient.inputText}
+          target={recipient.target}
+          inlineError={recipient.inlineError}
+          isSearching={recipient.isSearching}
+          searchResults={recipient.searchResults}
           colors={colors}
           t={t}
-          onSearchChange={search.handleSearchChange}
-          onSelectIdentity={search.handleSelectIdentity}
-          onClear={search.clearRecipient}
-          onOpenScanner={search.openScanner}
+          onChangeText={recipient.onChangeText}
+          onSelectIdentity={recipient.selectIdentity}
+          onClear={recipient.clearRecipient}
+          onOpenScanner={recipient.openScanner}
         />
       </PayField>
 
       <PayAmountField value={sendAmount} onChangeText={setSendAmount} />
 
-      <PayField labelKey="note">
-        <TextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder={t('note_placeholder')}
-          placeholderTextColor={colors.textQuaternary}
-          maxLength={280}
-          style={[
-            styles.noteInput,
-            { backgroundColor: colors.backgroundSecondary, borderColor: colors.separator, color: colors.textPrimary }
-          ]}
-        />
-      </PayField>
+      {isHandle && (
+        <PayField labelKey="note">
+          <TextInput
+            value={note}
+            onChangeText={setNote}
+            placeholder={t('note_placeholder')}
+            placeholderTextColor={colors.textQuaternary}
+            maxLength={280}
+            style={[
+              styles.noteInput,
+              { backgroundColor: colors.backgroundSecondary, borderColor: colors.separator, color: colors.textPrimary }
+            ]}
+          />
+        </PayField>
+      )}
 
-      {/* The consequence, before the button — not after. */}
-      <ConsequenceNote textKey={CONSEQUENCE_KEYS.handle} />
+      {/* Load-bearing for an address: this rail cannot notify the payee. Nothing for a handle. */}
+      {isAddress && <ConsequenceNote textKey={CONSEQUENCE_KEYS.address} />}
 
-      {formOtherwiseValid && outbox.length > 0 && (
+      {isHandle && !isConfigured && (
+        <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('message_box_off_hint')}</Text>
+      )}
+      {handleFormValid && handleBlockedByOutbox && (
         <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('finish_or_cancel_outgoing')}</Text>
       )}
 
@@ -503,7 +500,6 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
 
       {sendResult && <ResultBanner result={sendResult} onDismiss={() => setSendResult(null)} colors={colors} />}
 
-      {/* Outgoing: unsent tokens offered for manual retry, exactly as before. */}
       {outbox.length > 0 && (
         <OutgoingSection
           entries={outbox}
@@ -516,17 +512,17 @@ export default function HandleSend({ initialIdentityKey, initialSats, initialNot
       )}
 
       <Modal
-        visible={search.scannerVisible}
+        visible={recipient.scannerVisible}
         animationType="slide"
-        onRequestClose={() => search.setScannerVisible(false)}
+        onRequestClose={() => recipient.setScannerVisible(false)}
         statusBarTranslucent
       >
         <StatusBar style="light" />
         <QRScanner
           multiScan
-          onScan={search.handleQRScanned}
-          onClose={() => search.setScannerVisible(false)}
-          hintText={t('scan_identity_key_hint')}
+          onScan={recipient.onScan}
+          onClose={() => recipient.setScannerVisible(false)}
+          hintText={t('scan_recipient_hint')}
         />
       </Modal>
 
