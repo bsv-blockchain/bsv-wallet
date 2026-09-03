@@ -651,21 +651,12 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
     [t]
   )
 
-  const reset = useCallback(() => {
-    // A mount whose amount or session came from outside has no phase to go
-    // back to — the hub or the send form owns that state. Leaving is the reset.
-    if (initialRequest || initialSession) {
-      abortAll()
-      onExit()
-      return
-    }
-    abortAll()
+  const clearFlowState = useCallback(() => {
     settlingRef.current = false
     scanLatchRef.current = false
     airGapDecoderRef.current = null
     setScanProgress(null)
     builtRef.current = null
-    setPhase(initialRole === 'payee' ? 'receive_amount' : 'entry')
     setRole(initialRole)
     setHostedSession(null)
     setScannedSession(null)
@@ -684,7 +675,20 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
     setLinked(false)
     setCelebrating(false)
     setReceivedOverlay(null)
-  }, [abortAll, initialRole, initialRequest, initialSession, onExit])
+  }, [initialRole])
+
+  const reset = useCallback(() => {
+    // Cancel from a mount whose amount or session came from outside: there is
+    // no phase to go back to — the hub or the send form owns that state.
+    if (initialRequest || initialSession) {
+      abortAll()
+      onExit()
+      return
+    }
+    abortAll()
+    clearFlowState()
+    setPhase(initialRole === 'payee' ? 'receive_amount' : 'entry')
+  }, [abortAll, clearFlowState, initialRole, initialRequest, initialSession, onExit])
 
   const goBack = useCallback(() => {
     abortAll()
@@ -1195,6 +1199,24 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
       openScanner('send_scan')
     }
   }, [initialRole, initialRequest, initialSession, openScanner, startRequest, adoptSession])
+
+  /**
+   * The failed screen's Retry. Unlike reset(), it never leaves: a mount that
+   * was handed its request or session re-enters from that same input, so a
+   * failed mint mints again and a failed send lands back on confirm.
+   */
+  const retry = useCallback(() => {
+    abortAll()
+    clearFlowState()
+    if (initialRole === 'payee') {
+      if (initialRequest) void startRequest(initialRequest.sats)
+      else setPhase('receive_amount')
+    } else if (initialSession) {
+      adoptSession(initialSession)
+    } else {
+      setPhase('entry')
+    }
+  }, [abortAll, clearFlowState, initialRole, initialRequest, initialSession, startRequest, adoptSession])
 
   /**
    * The transport this payment will take. Memoized per scanned session:
@@ -2265,7 +2287,7 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
             {unsettled ? (
               <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
             ) : (
-              <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={reset} />
+              <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={retry} />
             )}
           </Animated.View>
         )}
