@@ -71,6 +71,12 @@ describe('validatePeerPayURI — url extension', () => {
     expect(validatePeerPayURI(`peerpay:${KEY}?url=${encodeURIComponent('https://a b')}`).messageBoxUrl).toBeUndefined()
   })
 
+  it('drops a url whose authority hides the real host behind userinfo', () => {
+    // Readable prefix is the trusted host; the real host is evil.example.
+    const spoof = encodeURIComponent('https://mb.trusted.example@evil.example')
+    expect(validatePeerPayURI(`peerpay:${KEY}?url=${spoof}`).messageBoxUrl).toBeUndefined()
+  })
+
   it('still rejects a malformed key even when the url is fine', () => {
     const r = validatePeerPayURI(`peerpay:not-a-key?url=${encodeURIComponent('https://mb.example')}`)
     expect(r.identityKey).toBeUndefined()

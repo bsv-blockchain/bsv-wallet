@@ -17,7 +17,7 @@ import { getOutboxEntries, saveOutboxEntry, updateOutboxEntry } from '../../core
 import { validatePeerPayURI } from '../../core/parsePeerPayURI'
 
 // secp256k1 generator point, in the lowercase hex PublicKey.toString() emits —
-// which is also the only form parsePeerPayURI.ts's identity-key regex accepts.
+// which is also the form parsePeerPayURI.ts stores, whichever case a link carries.
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 function fakeStorage() {

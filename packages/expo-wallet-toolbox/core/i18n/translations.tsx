@@ -432,7 +432,6 @@ const resources = {
       // Identity / Payments screen
       message_box_server: 'Message Box Server',
       message_box_required: 'Required to send and receive identity-based payments.',
-      message_box_tap_to_configure: 'Tap to configure your Message Box server',
       send_payment: 'Send Payment',
       recipient: 'Recipient',
       amount: 'Amount',
@@ -989,7 +988,6 @@ const resources = {
 
       message_box_server: '消息箱服务器',
       message_box_required: '发送和接收基于身份的付款所必需的。',
-      message_box_tap_to_configure: '点击配置您的消息箱服务器',
       send_payment: '发送付款',
       recipient: '收款人',
       amount: '金额',
@@ -1516,7 +1514,6 @@ const resources = {
 
       message_box_server: 'मैसेज बॉक्स सर्वर',
       message_box_required: 'पहचान-आधारित भुगतान भेजने और प्राप्त करने के लिए आवश्यक है।',
-      message_box_tap_to_configure: 'अपना मैसेज बॉक्स सर्वर कॉन्फ़िगर करने के लिए टैप करें',
       send_payment: 'भुगतान भेजें',
       recipient: 'प्राप्तकर्ता',
       amount: 'राशि',
@@ -2048,7 +2045,6 @@ const resources = {
 
       message_box_server: 'Servidor de Buzón de Mensajes',
       message_box_required: 'Necesario para enviar y recibir pagos basados en identidad.',
-      message_box_tap_to_configure: 'Toca para configurar tu servidor de Buzón de Mensajes',
       send_payment: 'Enviar pago',
       recipient: 'Destinatario',
       amount: 'Monto',
@@ -2575,7 +2571,6 @@ const resources = {
 
       message_box_server: 'Serveur de boîte aux lettres',
       message_box_required: "Requis pour envoyer et recevoir des paiements basés sur l'identité.",
-      message_box_tap_to_configure: 'Appuyez pour configurer votre serveur de boîte aux lettres',
       send_payment: 'Envoyer un paiement',
       recipient: 'Destinataire',
       amount: 'Montant',
@@ -3101,7 +3096,6 @@ const resources = {
 
       message_box_server: 'خادم صندوق الرسائل',
       message_box_required: 'مطلوب لإرسال واستقبال المدفوعات القائمة على الهوية.',
-      message_box_tap_to_configure: 'انقر لتكوين خادم صندوق الرسائل الخاص بك',
       send_payment: 'إرسال دفعة',
       recipient: 'المستلم',
       amount: 'المبلغ',
@@ -3624,7 +3618,6 @@ const resources = {
 
       message_box_server: 'Servidor de Caixa de Mensagens',
       message_box_required: 'Necessário para enviar e receber pagamentos baseados em identidade.',
-      message_box_tap_to_configure: 'Toque para configurar seu servidor de Caixa de Mensagens',
       send_payment: 'Enviar pagamento',
       recipient: 'Destinatário',
       amount: 'Valor',
@@ -4150,7 +4143,6 @@ const resources = {
 
       message_box_server: 'মেসেজ বক্স সার্ভার',
       message_box_required: 'পরিচয়-ভিত্তিক পেমেন্ট পাঠাতে ও গ্রহণ করতে প্রয়োজনীয়।',
-      message_box_tap_to_configure: 'আপনার মেসেজ বক্স সার্ভার কনফিগার করতে ট্যাপ করুন',
       send_payment: 'পেমেন্ট পাঠান',
       recipient: 'প্রাপক',
       amount: 'পরিমাণ',
@@ -4676,7 +4668,6 @@ const resources = {
 
       message_box_server: 'Сервер почтового ящика',
       message_box_required: 'Требуется для отправки и получения платежей на основе идентификатора.',
-      message_box_tap_to_configure: 'Нажмите, чтобы настроить сервер почтового ящика',
       send_payment: 'Отправить платёж',
       recipient: 'Получатель',
       amount: 'Сумма',
@@ -5203,7 +5194,6 @@ const resources = {
 
       message_box_server: 'Server Kotak Pesan',
       message_box_required: 'Diperlukan untuk mengirim dan menerima pembayaran berbasis identitas.',
-      message_box_tap_to_configure: 'Ketuk untuk mengonfigurasi server Kotak Pesan Anda',
       send_payment: 'Kirim Pembayaran',
       recipient: 'Penerima',
       amount: 'Jumlah',
@@ -5735,7 +5725,6 @@ const resources = {
       // Identity / Payments screen
       message_box_server: 'メッセージボックスサーバー',
       message_box_required: 'アイデンティティベースの支払いの送受信に必要です。',
-      message_box_tap_to_configure: 'タップしてメッセージボックスサーバーを設定',
       send_payment: '送金',
       recipient: '受取人',
       amount: '金額',
@@ -6274,7 +6263,6 @@ const resources = {
       // Identity / Payments screen
       message_box_server: 'Serwer skrzynki wiadomości',
       message_box_required: 'Wymagany do wysyłania i odbierania płatności opartych na tożsamości.',
-      message_box_tap_to_configure: 'Dotknij, aby skonfigurować serwer skrzynki wiadomości',
       send_payment: 'Wyślij płatność',
       recipient: 'Odbiorca',
       amount: 'Kwota',

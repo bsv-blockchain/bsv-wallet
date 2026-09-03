@@ -32,8 +32,12 @@ export interface PeerPayValidationResult {
 
 const PEERPAY_SCHEME = 'peerpay:'
 const COMPRESSED_PUBLIC_KEY_REGEX = /^0[23][0-9a-fA-F]{64}$/
-/** https, a host, then an optional path/query/fragment with no whitespace. */
-const MESSAGE_BOX_URL_REGEX = /^https:\/\/[^\s/?#]+(?:[/?#]\S*)?$/i
+/**
+ * https, a host, then an optional path/query/fragment with no whitespace. The
+ * authority chunk excludes `@` and `\` so a `mb.trusted.example@evil.example`
+ * userinfo cannot present a readable prefix that is not the real host.
+ */
+const MESSAGE_BOX_URL_REGEX = /^https:\/\/[^\s/?#@\\]+(?:[/?#]\S*)?$/i
 
 export function parsePeerPayURI(uri: string): PeerPayParams | null {
   const result = validatePeerPayURI(uri)

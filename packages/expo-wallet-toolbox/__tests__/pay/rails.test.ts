@@ -13,10 +13,9 @@ import { encodeSession, mintSession } from '../../core/localpay/session'
 
 // secp256k1 generator point — a genuinely valid compressed pubkey.
 //
-// Lowercase is load-bearing, not cosmetic: parsePeerPayURI's
-// COMPRESSED_PUBLIC_KEY_REGEX is /^0[23][0-9a-f]{64}$/ with no `i` flag, so a
-// `peerpay:` URI carrying uppercase hex is rejected as malformed. This constant
-// therefore has to be in the form a real peerpay link uses.
+// Lowercase because that is the form PublicKey.toString() emits and the form
+// every classifier hands back: a `peerpay:` URI may carry either case, and the
+// parser lowercases the key it stores.
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 // A real mainnet P2PKH address (base58check).
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'

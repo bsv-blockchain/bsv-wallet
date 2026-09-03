@@ -44,20 +44,43 @@ jest.mock('../../ui/components/wallet/AmountInput', () => {
   }
 })
 // wallet null: no IdentityClient, no PeerPay client, no outbox read. The form's
-// composition does not depend on any of them.
+// composition does not depend on any of them. `storage` starts undefined so the
+// outbox stays unread; only the send-gating test that needs a stuck entry sets it.
+type MockStorage = { getKeyValue: (k: string) => Promise<string | undefined>; setKeyValue: () => Promise<void> }
+let mockStorage: MockStorage | undefined
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
-  useWallet: () => ({ managers: null, adminOriginator: 'admin.com', storage: undefined })
+  useWallet: () => ({ managers: null, adminOriginator: 'admin.com', storage: mockStorage })
 }))
 
 import React from 'react'
 import { fireEvent, render, waitFor } from '@testing-library/react-native'
-import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { MESSAGE_BOX_URL_KEY, NO_MESSAGE_BOX, ThemeProvider } from '@bsv/expo-wallet-toolbox'
 import UniversalSend from '../../ui/components/pay/UniversalSend'
 
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
 const BROKEN_ADDRESS = ADDRESS.slice(0, -1) + '3'
+
+/** One unsent outbox entry, the shape core/peerpay/outbox.ts persists. */
+const stuckOutbox = () => {
+  const entries = [
+    {
+      id: '1700000000000_0279be66',
+      createdAt: new Date().toISOString(),
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 42 },
+      messageBoxUrl: 'https://mb.example',
+      status: 'unsent',
+      txid: 'aa'
+    }
+  ]
+  return {
+    getKeyValue: async (k: string) => (k === 'peerpay_outbox' ? JSON.stringify(entries) : undefined),
+    setKeyValue: async () => {}
+  }
+}
 
 const draw = (props: Partial<React.ComponentProps<typeof UniversalSend>> = {}) =>
   render(
@@ -67,6 +90,11 @@ const draw = (props: Partial<React.ComponentProps<typeof UniversalSend>> = {}) =
   )
 
 describe('UniversalSend', () => {
+  beforeEach(async () => {
+    mockStorage = undefined
+    await AsyncStorage.clear()
+  })
+
   it('opens with the universal placeholder, an amount, and neither note nor consequence', () => {
     const s = draw()
     expect(s.getByPlaceholderText('recipient_placeholder')).toBeTruthy()
@@ -141,6 +169,27 @@ describe('UniversalSend', () => {
   it('never shows the message-box server bar', () => {
     const s = draw()
     expect(s.queryByLabelText('message_box_server')).toBeNull()
+  })
+
+  // The two send-gating rules the spec names. Both are the kind a refactor of
+  // canSend would break silently: the handle rail needs a configured server, and
+  // the address rail must never be held hostage by a stuck handle payment.
+  it('a handle cannot be paid with no message-box server, and says why', async () => {
+    await AsyncStorage.setItem(MESSAGE_BOX_URL_KEY, NO_MESSAGE_BOX)
+    const s = draw()
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    await waitFor(() => expect(s.getByText('message_box_off_hint')).toBeTruthy())
+    expect(s.getByLabelText('pay').props.accessibilityState.disabled).toBe(true)
+  })
+
+  it('an address can still be paid while a handle payment is stuck in the outbox', async () => {
+    mockStorage = stuckOutbox()
+    const s = draw()
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    await waitFor(() => expect(s.getByText('outgoing_payments')).toBeTruthy())
+    expect(s.getByLabelText('pay').props.accessibilityState.disabled).toBe(false)
   })
 
   it('leaves the form intact and shows a banner when the wallet is not ready', async () => {
