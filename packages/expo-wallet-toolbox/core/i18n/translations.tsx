@@ -496,11 +496,19 @@ const resources = {
       recovery_phrase_write_down: 'Write down these 12 words in order and store them in a safe place.',
       acknowledgment_text:
         'I have saved my recovery key and understand that losing it will result in total and permanent loss of all associated funds, tokens, and certificates.',
-      enter_recovery_words: 'Enter recovery words or private key hex...',
+      enter_recovery_words: 'Enter 12 word mnemonic',
       restore_wallet_description: 'Enter your recovery key to restore your wallet',
-      backup_reminder_title: 'Back up your wallet',
-      backup_reminder_body:
-        'Your wallet is ready. Back up your recovery key now so you never lose access to your funds.',
+      backup_reminder_title: 'Your Wallet is Not Backed Up',
+      backup_reminder_body: 'Export your keys to prevent loss of funds.',
+      biometric_advisory_title: 'Secure Your Wallet',
+      biometric_advisory_body:
+        'On this device, your recovery phrase is encrypted with a key that Face ID or your fingerprint unlocks.',
+      import_prompt_title: 'Already have a wallet?',
+      import_prompt_body: 'Restore it from your recovery key or shares.',
+      import_prompt_action: 'Import from backup',
+      nearby_advisory_title: 'Connecting Nearby',
+      nearby_advisory_body:
+        "You'll be asked to allow Wi-Fi, Bluetooth, or NFC access. This is only used to connect you directly to a nearby device for payment — never sent to our servers, and never used to build a profile of you.",
       backup_reminder_now: 'Back up keys now',
       backup_reminder_import: 'Import from backup',
       restore_backup_checking: 'Looking for your encrypted backup…',

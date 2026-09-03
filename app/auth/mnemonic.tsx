@@ -180,25 +180,6 @@ export default function MnemonicScreen() {
     }
   }
 
-  // Continue with generated mnemonic after acknowledgment
-  // Wallet was already built in handleGenerateNew, so just navigate.
-  const handleContinueWithGenerated = async () => {
-    if (!hasAcknowledged) return
-    // Record the backup HERE, where it actually happened. Without this, a user
-    // who wrote the phrase down thirty seconds ago meets the vault's backup
-    // gate and is told to go and back up — the app asking for something it
-    // just watched them do. Failure is logged, not surfaced: nothing on this
-    // screen promised an attestation, and the vault gate still offers both
-    // routes if the write did not land.
-    const recorded = await recordBackupAttestation(
-      managers?.permissionsManager,
-      adminOriginator,
-      backupMedium ?? 'phrase'
-    )
-    if (!recorded) console.warn('[Mnemonic] backup attestation not recorded')
-    setCelebrating(true)
-  }
-
   // Validate and continue with imported mnemonic or hex private key
   const handleContinueWithImported = async () => {
     const trimmed = importedMnemonic.trim()
@@ -444,42 +425,22 @@ export default function MnemonicScreen() {
       <CustomSafeArea style={[s.screen, { backgroundColor: colors.background }]}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-          <Text style={[s.largeTitle, { color: colors.textPrimary, textAlign: 'left' }]}>
-            {t('save_recovery_phrase_heading')}
-          </Text>
-          <Text style={[s.sectionSubtitle, { color: colors.textSecondary }]}>
-            Write down these words in order and keep them somewhere safe.
+          <Text style={[s.largeTitle, { color: colors.textPrimary, textAlign: 'left', marginTop: spacing.xl }]}>
+            Save these words
           </Text>
 
-          {/* Warning banner */}
-          <View
-            style={[
-              s.warningBanner,
-              {
-                backgroundColor: isDark ? 'rgba(255, 69, 58, 0.12)' : 'rgba(255, 59, 48, 0.08)',
-                borderColor: isDark ? 'rgba(255, 69, 58, 0.25)' : 'rgba(255, 59, 48, 0.2)'
-              }
-            ]}
-          >
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={22}
-              color={colors.error}
-              style={{ marginRight: spacing.md }}
-            />
-            <Text style={[s.warningText, { color: colors.textPrimary }]}>
-              Write down these 12 words. This is the <Text style={{ fontWeight: '700' }}>only way</Text> to recover your
-              wallet.
-            </Text>
-          </View>
-
-          {/* Mnemonic display — compact selectable block */}
+          {/* Mnemonic display — compact selectable block. White fill with a
+              warning-colored border rather than the page's ordinary card
+              styling: this is the one block of content the user actually
+              has to act on, so it needs to read as distinct from the
+              surrounding chrome, not blend into it. */}
           <View
             style={[
               s.mnemonicDisplay,
               {
-                backgroundColor: colors.fillTertiary,
-                borderColor: colors.separator
+                backgroundColor: colors.background,
+                borderColor: colors.warning,
+                borderWidth: 2
               }
             ]}
           >
@@ -515,8 +476,18 @@ export default function MnemonicScreen() {
               </PressableScale>
             </View>
 
+            {/* Print recovery shares is a distinct backup medium, not a step
+                in saving the words above — a divider keeps it from reading
+                as part of the same action. */}
+            <View style={[s.divider, { backgroundColor: colors.separator }]} />
+
+            <Text style={[s.printSectionTitle, { color: colors.textPrimary }]}>Distribute shares</Text>
+            <Text style={[s.printExplainer, { color: colors.textSecondary }]}>
+              Any 2 of the 3 pages can be used to recover your wallet.
+            </Text>
+
             <PressableScale
-              style={[s.primaryButton, { backgroundColor: colors.accent }]}
+              style={[s.primaryButton, { backgroundColor: colors.warning }]}
               onPress={handlePrintRecoveryShares}
               disabled={isPrinting}
               haptic="confirm"
@@ -530,84 +501,31 @@ export default function MnemonicScreen() {
             </PressableScale>
           </View>
 
-          {/* Biometric protection note. Keep this claim accurate: the phrase is
-              encrypted on this device under a key the OS releases only after a
-              biometric match — and if those biometrics change, the OS destroys
-              that key, which is why the written copy matters. */}
-          <View style={[s.biometricNote, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
-            <Ionicons name="finger-print" size={32} color={colors.textSecondary} style={s.biometricIcon} />
-            <Text style={[s.biometricText, { color: colors.textSecondary }]}>
-              On this device your recovery phrase is encrypted with a key that Face ID or your
-              fingerprint unlocks. Write the phrase down anyway — if your biometrics change, the
-              key is destroyed and the phrase is the only way back in.
-            </Text>
-          </View>
-
-          {/* Acknowledgment */}
-          <PressableScale
-            style={[
-              s.acknowledgment,
-              {
-                backgroundColor: hasAcknowledged
-                  ? isDark
-                    ? 'rgba(10, 132, 255, 0.1)'
-                    : 'rgba(0, 122, 255, 0.06)'
-                  : colors.fillTertiary,
-                borderColor: hasAcknowledged ? colors.accent : colors.separator
-              }
-            ]}
-            onPress={() => setHasAcknowledged(!hasAcknowledged)}
-            haptic="tap"
-          >
-            <Ionicons
-              name={hasAcknowledged ? 'checkmark-circle' : 'ellipse-outline'}
-              size={24}
-              color={hasAcknowledged ? colors.accent : colors.textTertiary}
-              style={{ marginRight: spacing.md }}
-            />
-            <Text style={[s.acknowledgmentText, { color: colors.textPrimary }]}>{t('acknowledgment_text')}</Text>
-          </PressableScale>
-
-          {/* Continue */}
-          <PressableScale
-            style={[
-              s.primaryButton,
-              {
-                backgroundColor: hasAcknowledged ? colors.accent : colors.fillSecondary,
-                opacity: loading ? 0.6 : 1
-              }
-            ]}
-            onPress={handleContinueWithGenerated}
-            disabled={!hasAcknowledged || loading}
-            haptic="confirm"
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.textOnAccent} />
-            ) : (
-              <Text
-                style={[
-                  s.btnLabel,
-                  {
-                    color: hasAcknowledged ? colors.textOnAccent : colors.textTertiary
-                  }
-                ]}
-              >
-                {t('continue')}
-              </Text>
-            )}
-          </PressableScale>
-
-          {/* Back link. flow === 'backup' means the wallet already exists —
-              there is no "choose" step to return to, only the root screen. */}
+          {/* Go back. No separate Continue button: this is the one exit from
+              the screen, so it carries what Continue used to do — recording
+              the backup attestation — before actually leaving. Only recorded
+              if the user actually hit Save, Copy, or Print Recovery Shares
+              (hasAcknowledged) — leaving without touching any of them must
+              not mark the wallet as backed up. flow === 'backup' means the
+              wallet already exists, so leaving means returning to the root
+              screen; otherwise this is a fresh wallet and leaving means the
+              celebration screen. */}
           <PressableScale
             style={s.textButton}
-            onPress={() => {
+            onPress={async () => {
+              if (hasAcknowledged) {
+                const recorded = await recordBackupAttestation(
+                  managers?.permissionsManager,
+                  adminOriginator,
+                  backupMedium ?? 'phrase'
+                )
+                if (!recorded) console.warn('[Mnemonic] backup attestation not recorded')
+              }
               if (flow === 'backup') {
                 router.back()
                 return
               }
-              setMode('choose')
-              setHasAcknowledged(false)
+              setCelebrating(true)
             }}
             haptic="tap"
           >
@@ -788,30 +706,9 @@ const s = StyleSheet.create({
     lineHeight: 22,
     marginBottom: spacing.xxxl + spacing.sm
   },
-  sectionSubtitle: {
-    ...typography.subhead,
-    marginBottom: spacing.xxl,
-    lineHeight: 20
-  },
   bodyText: {
     ...typography.body,
     lineHeight: 24
-  },
-
-  // ─── Warning banner ────────────────────────────────────────────────
-  warningBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.md,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.xxl
-  },
-  warningText: {
-    ...typography.subhead,
-    flex: 1,
-    lineHeight: 21
   },
 
   // ─── Mnemonic display ──────────────────────────────────────────────
@@ -826,26 +723,6 @@ const s = StyleSheet.create({
     fontFamily: 'monospace',
     lineHeight: 24,
     textAlign: 'center'
-  },
-
-  // ─── Biometric note ────────────────────────────────────────────────
-  biometricNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.md,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.xl,
-    gap: spacing.md
-  },
-  biometricIcon: {
-    flexShrink: 0
-  },
-  biometricText: {
-    ...typography.footnote,
-    flex: 1,
-    lineHeight: 18
   },
 
   // ─── Buttons ────────────────────────────────────────────────────────
@@ -887,6 +764,18 @@ const s = StyleSheet.create({
   generateActions: {
     gap: spacing.sm,
     marginBottom: spacing.xxl
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 20
+  },
+  printSectionTitle: {
+    ...typography.largeTitle
+  },
+  printExplainer: {
+    ...typography.footnote,
+    lineHeight: 18,
+    marginBottom: spacing.xs
   },
   inlineButtonRow: {
     flexDirection: 'row',
@@ -932,21 +821,6 @@ const s = StyleSheet.create({
   },
   textButtonLabel: {
     ...typography.subhead
-  },
-
-  // ─── Acknowledgment ────────────────────────────────────────────────
-  acknowledgment: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.md,
-    padding: spacing.lg,
-    marginBottom: spacing.xl
-  },
-  acknowledgmentText: {
-    ...typography.subhead,
-    flex: 1,
-    lineHeight: 21
   },
 
   // ─── Import text input ─────────────────────────────────────────────

@@ -41,6 +41,8 @@ import {
   TaskSendOffline
 } from '@bsv/expo-wallet-toolbox'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
+import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
+import { NearbyAdvisoryModal } from '../components/pay/NearbyAdvisoryModal'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -207,6 +209,26 @@ export function PayScreen() {
       ? 'get'
       : 'pay'
   const [cell, setCell] = useState<PayCell | null>(openingCell)
+
+  // ── nearby advisory ─────────────────────────────────────────────────
+  /**
+   * Nearby pay/get-paid triggers OS-level prompts (iOS Local Network access;
+   * Android Bluetooth/nearby-Wi-Fi permissions) as soon as NearbyFlow mounts,
+   * with no gesture of its own to explain them. null = not loaded yet (block
+   * mounting NearbyFlow, but don't show the modal either — avoids a flash for
+   * a returning user whose flag is about to come back true).
+   */
+  const [nearbyAdvisorySeen, setNearbyAdvisorySeen] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void nearbyAdvisory.get().then(seen => {
+      if (!cancelled) setNearbyAdvisorySeen(seen)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const isNearbyCell = cell === 'pay-nearby' || cell === 'get-nearby'
 
   // Refreshed whenever the wallet finishes building, connectivity changes, or
   // the user enters/leaves a pay cell: the queue only moves when the network
@@ -384,9 +406,9 @@ export function PayScreen() {
   const body = () => {
     switch (cell) {
       case 'pay-nearby':
-        return <NearbyFlow role="payer" onExit={goBack} />
+        return nearbyAdvisorySeen ? <NearbyFlow role="payer" onExit={goBack} /> : null
       case 'get-nearby':
-        return <NearbyFlow role="payee" onExit={goBack} />
+        return nearbyAdvisorySeen ? <NearbyFlow role="payee" onExit={goBack} /> : null
       case 'pay-handle':
         return (
           <HandleSend initialIdentityKey={initialIdentityKey} initialSats={initialSats} initialNotice={peerPayNotice} />
@@ -446,6 +468,14 @@ export function PayScreen() {
           </View>
         </View>
       </Modal>
+      <NearbyAdvisoryModal
+        visible={isNearbyCell && nearbyAdvisorySeen === false}
+        onCancel={() => setCell(null)}
+        onContinue={() => {
+          void nearbyAdvisory.set()
+          setNearbyAdvisorySeen(true)
+        }}
+      />
     </View>
   )
 }

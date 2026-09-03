@@ -65,7 +65,6 @@ export const PhraseBackupSheet: React.FC<{
 
   return (
     <ScrollView contentContainerStyle={styles.body}>
-      <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_phrase_title')}</Text>
       <Text style={[styles.p, { color: colors.textSecondary }]}>
         {t('vault_phrase_intro', { count: words.length })}
       </Text>
@@ -73,12 +72,16 @@ export const PhraseBackupSheet: React.FC<{
       {/* Two fixed columns with the index in its own right-aligned gutter, so
           every word starts on the same x. The old grid let each cell size to
           its own content, which put the words on a ragged left edge and made a
-          list you have to hunt through rather than one you can read down. */}
-      <View style={[styles.grid, { borderColor: colors.separator }]}>
+          list you have to hunt through rather than one you can read down.
+          Inverted (warning-tinted fill, high-contrast text) rather than the
+          page's ordinary card styling — this is the one block of content the
+          user actually has to act on (copy to paper), so it needs to read as
+          distinct from the surrounding chrome, not blend into it. */}
+      <View style={[styles.grid, { backgroundColor: colors.warning, borderColor: colors.warning }]}>
         {words.map((word, i) => (
           <View key={i} style={styles.wordCell}>
-            <Text style={[styles.wordIndex, { color: colors.textTertiary }]}>{i + 1}</Text>
-            <Text style={[styles.word, { color: colors.textPrimary }]}>{word}</Text>
+            <Text style={[styles.wordIndex, { color: colors.textOnAccent, opacity: 0.6 }]}>{i + 1}</Text>
+            <Text style={[styles.word, { color: colors.textOnAccent }]}>{word}</Text>
           </View>
         ))}
       </View>
@@ -165,7 +168,6 @@ export const PhraseBackupSheet: React.FC<{
 
 const styles = StyleSheet.create({
   body: { padding: spacing.xl, gap: spacing.lg },
-  h1: { ...typography.title2, textAlign: 'center' },
   p: { ...typography.subhead, textAlign: 'center' },
   grid: {
     flexDirection: 'row',
