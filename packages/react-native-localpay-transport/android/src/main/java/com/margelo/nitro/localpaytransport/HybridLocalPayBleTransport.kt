@@ -1127,6 +1127,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         } catch (e: Exception) {
           WRITE_REJECTED_LEGACY
         }
+        Log.d(TAG, "payer: chunk write submitted bytes=${chunk.size} remaining=${writeQueue.size - 1} type=$writeType status=$status at ${elapsed()} ms")
         when {
           status == BluetoothStatusCodes.SUCCESS -> {
             writeQueue.removeFirst()
@@ -1241,11 +1242,25 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
 
         override fun onMtuChanged(g: BluetoothGatt, newMtu: Int, status: Int) {
           main.post {
-            if (settled || discoveryStarted) return@post
-            if (status == BluetoothGatt.GATT_SUCCESS) mtu = newMtu
+            if (settled) return@post
+            // Android 14 queues the app's MTU request behind its own connect-time
+            // service discovery, so against a peripheral with many services (iOS)
+            // the answer lands well after the 2 s timer started discovery. Adopt it
+            // whenever it arrives, as long as no message is mid-write: a chunk size
+            // is fixed per message at writeMessage(), so a later message simply
+            // uses the real MTU instead of 20-byte pieces.
+            if (status == BluetoothGatt.GATT_SUCCESS && writeQueue.isEmpty()) mtu = newMtu
+            if (discoveryStarted) {
+              Log.d(TAG, "payer: late mtu $newMtu (status $status) at ${elapsed()} ms; using $mtu")
+              return@post
+            }
             Log.d(TAG, "payer: mtu $mtu (status $status) at ${elapsed()} ms; discovering services")
             startDiscovery(g)
           }
+        }
+
+        override fun onPhyUpdate(g: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
+          Log.d(TAG, "payer: phy updated tx=$txPhy rx=$rxPhy status=$status at ${elapsed()} ms")
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
@@ -1284,7 +1299,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
               return@post
             }
             ready = true
-            Log.d(TAG, "payer: subscribed to ACK at ${elapsed()} ms; sending HELLO_A")
+            Log.d(TAG, "payer: subscribed to ACK at ${elapsed()} ms; sending HELLO_A (mtu $mtu)")
             writeMessage(g, BleGattProfile.helloA(psk, instanceName), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {}
           }
         }
@@ -1292,6 +1307,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
           main.post {
             if (settled || characteristic.uuid != FRAME_CHAR_UUID) return@post
+            Log.d(TAG, "payer: chunk write confirmed status=$status queued=${writeQueue.size} at ${elapsed()} ms")
             if (status != BluetoothGatt.GATT_SUCCESS) {
               fail("failed to send frame: gatt status $status")
               return@post
