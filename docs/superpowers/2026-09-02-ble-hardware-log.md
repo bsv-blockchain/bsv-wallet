@@ -103,7 +103,10 @@ The first `D LocalPayBle:` line on each phone is `prepare: poweredOn` when its R
 
 | Pairing | Negotiated MTU (`mtu <M>`) | Advertising latency (`advertising … (<n> ms`) | Subscribed at (`subscribed to ACK at <t5> ms`) | Frame bytes | Frame write (`frame written in <tf> ms`) | Ack indication (`ack … in <ta> ms`) | Total (`ack verified; total <T> ms`) | Result |
 |---|---|---|---|---|---|---|---|---|
-| Android B → iOS (payer B) — **run first** | — | n/a (iOS payee) | — | — | — | n/a | — | pending — requires devices; not run in the implementation session |
+| Android TIGER 13 → iOS 15 Pro (payer Android, central) — 2026-09-03 13:29 | 517 on the link, app stayed at 23 (late `onMtuChanged` dropped) | n/a (iOS payee) | 5477 | 41 (HELLO_A only) | never confirmed | n/a | — | **fail**: `timed out waiting for peer` at 30 s. HELLO_A Write Request sent by the stack, never seen by iPhone `bluetoothd`; link-layer desync — iPhone applied Android's connection updates 4.4 s and 86 s late, PHY update `status 42` (Instant Passed). See spec 2026-09-03. |
+| Android TIGER 13 → iOS 15 Pro (payer Android, central, late-MTU + 1M-PHY experiment) — 2026-09-03 14:21 | 23 (MTU response never arrived) | n/a | never | — | — | n/a | — | **fail**: `connect timeout: no route to peer` at 15 s; discovery stalled the whole run; iPhone applied the 7.5 ms update 10.5 s late; PHY `status 42` again. Experiment closed; reversed role adopted. |
+| Android (payer, **peripheral**) → iOS (payee, **central**) — reversed role, run first | payer log `mtu N` | payee log `chunk=` | payee `subscribed ms=` | `frame indicated` bytes | `frame indicated in <t> ms` | `ack written ok=1` | payer `ack verified; total <T> ms` | pending — Tasks 4/6/8 build |
+| Android (payer, peripheral) → iOS (payee, central), payee screen locked mid-wait | — | — | — | — | — | — | — | pending — record whether the iOS scan in background still hits the Android advert |
 | Android A → Android B (payer B) | — | — | — | — | — | — | — | pending — requires devices; not run in the implementation session |
 | iOS → Android A (payee A) | — | — | n/a (iOS payer) | — | n/a | — | n/a | pending — requires devices; not run in the implementation session |
 
@@ -116,6 +119,7 @@ The first `D LocalPayBle:` line on each phone is `prepare: poweredOn` when its R
 | Wrong-PSK sender (Step 10.5) | `connect timeout: no route to peer` (UUID never matches) | pending — requires devices; not run in the implementation session |
 | Garbage write to FRAME (Step 10.5, nRF Connect) | `bad framing from` or `HELLO_A proof failed from`; next real payment still succeeds | pending — requires devices; not run in the implementation session |
 | Payee screen locked, iOS payer (Step 12) | payer falls to fountain; payee logs no `frame accepted` | pending — requires devices; not run in the implementation session |
+| Second payer, same QR, reversed role | second Android payer advertises; iOS payee (already accepted) refuses at FRAME, second payer times out to its fountain, JS answers `already_paid` | pending |
 
 ### Findings
 
