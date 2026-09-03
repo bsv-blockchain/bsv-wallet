@@ -3,9 +3,9 @@
  *
  * Your handle in three forms, because the counterparty's situation decides
  * which one works: a QR to scan across a table, a copyable key to paste, and a
- * peerpay: link to send through any messaging app. All three carry the same
- * identity key — the link is the one the app can route itself, via
- * +native-intent, straight back into Pay → handle.
+ * peerpay: link to send through any messaging app. The QR and link encode a
+ * peerpay link with the remote host url, so the payer learns where to deliver
+ * without an overlay lookup. The key below the QR is a bare identity key.
  *
  * Below it: nothing, when all is well. Arriving payments are credited the moment
  * this screen sees them — accepting was never a decision anyone could act on,
@@ -31,7 +31,7 @@ import { type DisplayableIdentity } from '@bsv/sdk'
 
 import ResultBanner from './ResultBanner'
 import ReceivedOverlay from './PaymentSuccessOverlay'
-import { ConfigPanel, MessageBoxBar, useMessageBoxConfig } from './MessageBoxConfig'
+import { useMessageBoxConfig } from './MessageBoxConfig'
 import AmountDisplay from '../wallet/AmountDisplay'
 import PressableScale from '../ui/PressableScale'
 import { showAlert } from '../ui/AlertCard'
@@ -346,7 +346,7 @@ function AttentionRow({
   )
 }
 
-export default function HandleReceive() {
+export default function HandleReceive({ initialSats }: { initialSats?: number } = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -359,8 +359,7 @@ export default function HandleReceive() {
   const [identityKey, setIdentityKey] = useState('')
   const [identityError, setIdentityError] = useState(false)
   const [copied, setCopied] = useState(false)
-  const config = useMessageBoxConfig(t)
-  const { messageBoxUrl } = config
+  const { messageBoxUrl } = useMessageBoxConfig(t)
   const isConfigured = !!messageBoxUrl && messageBoxUrl !== NO_MESSAGE_BOX
 
   const [payments, setPayments] = useState<IncomingPayment[]>([])
@@ -433,7 +432,10 @@ export default function HandleReceive() {
     }
   }, [isConfigured, messageBoxUrl, wallet, adminOriginator])
 
-  const link = identityKey ? peerPayLinkFor(identityKey) : ''
+  // BRC-125 with this app's url extension: the payer learns where to deliver
+  // without an overlay lookup. Omitted when no server is configured, since
+  // there is then nowhere to point them.
+  const link = identityKey ? peerPayLinkFor(identityKey, initialSats, isConfigured ? messageBoxUrl : undefined) : ''
 
   const handleCopy = useCallback(() => {
     if (!identityKey) return
@@ -677,36 +679,18 @@ export default function HandleReceive() {
     // Scrolls, because a 240pt QR plus the inbox overflows a small screen and a
     // note being edited puts the keyboard over the row that owns it.
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      {/* The way into the message-box settings, and the active host. Without it a
-          user who saved a broken host has no route back to reset or clear it. */}
-      <MessageBoxBar
-        url={config.messageBoxUrl}
-        open={config.showConfig}
-        onToggle={() => config.setShowConfig(v => (config.messageBoxUrl === NO_MESSAGE_BOX ? true : !v))}
-        colors={colors}
-        t={t}
-      />
-      {config.showConfig && (
-        <ConfigPanel
-          urlInput={config.urlInput}
-          isSaving={config.isSaving}
-          colors={colors}
-          t={t}
-          onChangeUrl={config.setUrlInput}
-          onSave={() => {
-            void config.handleSave(config.urlInput)
-          }}
-          onReset={config.handleReset}
-          onNone={config.handleNone}
-        />
-      )}
-
       {/* Your handle. The QR is the focal element — it is the thing physically
           held up to another device. */}
+      {/* The figure the code asks for, as its price. Only when one was named. */}
+      {initialSats !== undefined && initialSats > 0 && (
+        <Text style={[styles.requestedAmount, { color: colors.textPrimary }]}>
+          <AmountDisplay>{initialSats}</AmountDisplay>
+        </Text>
+      )}
       <View style={styles.qrHero}>
         {identityKey ? (
           <View style={styles.qrPlate}>
-            <QRCode value={identityKey} size={240} color="#000" backgroundColor="#fff" />
+            <QRCode value={link} size={240} color="#000" backgroundColor="#fff" />
           </View>
         ) : identityError ? (
           <View style={styles.identityError}>
@@ -808,6 +792,7 @@ const styles = StyleSheet.create({
   },
 
   // Your handle
+  requestedAmount: { ...typography.title2, textAlign: 'center', marginBottom: spacing.lg },
   qrHero: {
     alignItems: 'center',
     marginBottom: spacing.lg

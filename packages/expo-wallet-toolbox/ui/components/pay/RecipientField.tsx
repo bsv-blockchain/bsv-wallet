@@ -1,16 +1,17 @@
 /**
- * The recipient field for the handle rail: a search box that resolves names,
- * accepts a pasted identity key, opens the scanner, and collapses to an
- * identity card once a counterparty is chosen.
- *
- * Copied verbatim out of app/payments.tsx so both handle cells present the
- * recipient the same way.
+ * The universal recipient field: one input that takes a handle, a public key,
+ * an address or a peerpay link, plus the QR button that scans the same set. It
+ * shows the search dropdown for free text, a status row for a resolved target
+ * or a checksum failure, and collapses to an identity card once a search hit
+ * is chosen. What the text MEANS is decided in core/pay/rails and held by
+ * useRecipientInput; this file only renders that state.
  */
 import React from 'react'
 import { ActivityIndicator, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import type { DisplayableIdentity } from '@bsv/sdk'
 import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { spacing, typography, radii, springs } from '@bsv/expo-wallet-toolbox'
+import type { RecipientInlineError, RecipientTarget } from './useRecipientInput'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -31,13 +32,14 @@ function loadIonicons(): IoniconsComponent {
 
 interface RecipientFieldProps {
   readonly selectedIdentity: DisplayableIdentity | null
-  readonly searchQuery: string
-  readonly recipientKey: string
+  readonly inputText: string
+  readonly target: RecipientTarget | null
+  readonly inlineError: RecipientInlineError | null
   readonly isSearching: boolean
   readonly searchResults: DisplayableIdentity[]
   readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
-  readonly onSearchChange: (v: string) => void
+  readonly onChangeText: (v: string) => void
   readonly onSelectIdentity: (i: DisplayableIdentity) => void
   readonly onClear: () => void
   readonly onOpenScanner: () => void
@@ -45,13 +47,14 @@ interface RecipientFieldProps {
 
 export default function RecipientField({
   selectedIdentity,
-  searchQuery,
-  recipientKey,
+  inputText,
+  target,
+  inlineError,
   isSearching,
   searchResults,
   colors,
   t,
-  onSearchChange,
+  onChangeText,
   onSelectIdentity,
   onClear,
   onOpenScanner
@@ -88,38 +91,41 @@ export default function RecipientField({
       </Animated.View>
     )
   }
-  const showDropdown = (isSearching || searchResults.length > 0) && !recipientKey
+  const showDropdown = (isSearching || searchResults.length > 0) && !target && !inlineError
+  const borderColor = inlineError ? colors.error : target ? colors.success : colors.separator
+  const borderWidth = inlineError || target ? 1 : StyleSheet.hairlineWidth
   return (
     <>
-      <View
-        style={[
-          styles.inputRow,
-          {
-            backgroundColor: colors.backgroundSecondary,
-            borderColor: recipientKey ? colors.success : colors.separator,
-            borderWidth: recipientKey ? 1 : StyleSheet.hairlineWidth
-          }
-        ]}
-      >
+      <View style={[styles.inputRow, { backgroundColor: colors.backgroundSecondary, borderColor, borderWidth }]}>
         <TextInput
-          value={searchQuery}
-          onChangeText={onSearchChange}
-          placeholder={t('search_name_or_key')}
+          value={inputText}
+          onChangeText={onChangeText}
+          placeholder={t('recipient_placeholder')}
           placeholderTextColor={colors.textTertiary}
           autoCapitalize="none"
           autoCorrect={false}
           style={[styles.recipientInput, { color: colors.textPrimary }]}
         />
-        <TouchableOpacity onPress={onOpenScanner} style={styles.inputAction} accessibilityLabel="Scan QR code">
+        <TouchableOpacity onPress={onOpenScanner} style={styles.inputAction} accessibilityLabel={t('scan_qr_code')}>
           <Ionicons name="qr-code-outline" size={20} color={colors.accent} />
         </TouchableOpacity>
       </View>
-      {!!recipientKey && (
-        <View style={styles.directKeyRow}>
-          <Ionicons name="key-outline" size={14} color={colors.success} />
-          <Text style={[styles.directKeyText, { color: colors.success }]}>{t('valid_identity_key')}</Text>
+      {inlineError ? (
+        <View style={styles.statusRow}>
+          <Ionicons name="close-circle-outline" size={14} color={colors.error} />
+          <Text style={[styles.statusText, { color: colors.error }]}>{t(inlineError)}</Text>
         </View>
-      )}
+      ) : target?.kind === 'handle' ? (
+        <View style={styles.statusRow}>
+          <Ionicons name="key-outline" size={14} color={colors.success} />
+          <Text style={[styles.statusText, { color: colors.success }]}>{t('valid_identity_key')}</Text>
+        </View>
+      ) : target?.kind === 'address' ? (
+        <View style={styles.statusRow}>
+          <Ionicons name="wallet-outline" size={14} color={colors.success} />
+          <Text style={[styles.statusText, { color: colors.success }]}>{t('valid_bsv_address')}</Text>
+        </View>
+      ) : null}
       {showDropdown && (
         <View
           style={[styles.searchResults, { backgroundColor: colors.backgroundSecondary, borderColor: colors.separator }]}
@@ -207,14 +213,14 @@ const styles = StyleSheet.create({
     padding: spacing.xs
   },
 
-  // Direct key
-  directKeyRow: {
+  // Status row (resolved target or inline error)
+  statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     marginTop: spacing.sm
   },
-  directKeyText: {
+  statusText: {
     ...typography.caption1,
     fontWeight: '500'
   },

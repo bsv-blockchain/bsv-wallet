@@ -1,24 +1,33 @@
 /**
  * Rail identity.
  *
- * A rail is never chosen by the user. It is derived from HOW the counterparty
- * was identified: a scanned nearby session, an identity key, or a base58
- * address. Everything in this file is pure — no wallet, no network — so the
+ * A rail is never chosen by the user. It is inferred from what they typed or
+ * scanned: a nearby-session code, an identity key or peerpay link, or a
+ * base58check address. Free text that is none of those is an identity search.
+ * Everything in this file is pure — no wallet, no network — so the
  * classification a payment depends on is testable in isolation.
  */
-import { PublicKey, Utils } from '@bsv/sdk'
+import { Utils } from '@bsv/sdk'
 import { decodeSession, type Session } from '../../localpay/session'
-import { validatePeerPayURI } from '../../parsePeerPayURI'
+import {
+  validatePeerPayURI,
+  type PeerPayValidationResult,
+  peerPayValidationMessage,
+  isCompressedPublicKey
+} from '../../parsePeerPayURI'
+
+/** One definition of a valid compressed key serves both the bare-key path and the link parser. */
+export { isCompressedPublicKey }
 
 export type RailId = 'nearby' | 'handle' | 'address'
 
 /** How a counterparty was identified. Each variant carries only what its rail needs. */
 export type PayTarget =
   | { kind: 'nearby'; session: Session }
-  | { kind: 'handle'; identityKey: string; sats?: number }
+  | { kind: 'handle'; identityKey: string; sats?: number; messageBoxUrl?: string }
   | { kind: 'address'; address: string; sats?: number }
 
-/** The six cells of the grid: direction × counterparty. */
+/** Six cell names. Since the universal input, `pay-*` are deep-link aliases that all open the send form; `get-*` open one receive method directly. */
 export type PayCell = 'pay-nearby' | 'pay-handle' | 'pay-address' | 'get-nearby' | 'get-handle' | 'get-address'
 
 export const PAY_CELLS: readonly PayCell[] = [
@@ -75,13 +84,56 @@ export function isValidBsvAddress(text: string): boolean {
   }
 }
 
-function isCompressedPublicKey(text: string): boolean {
-  try {
-    PublicKey.fromString(text)
-    return true
-  } catch {
-    return false
+/**
+ * Base58 alphabet (no 0, O, I, l), 25–35 chars: the shape of a P2PKH address on
+ * either network — mainnet `1`, testnet `m`/`n`. P2SH `3` is deliberately
+ * absent: the address rail pays with a P2PKH lock. Anything this matches is
+ * either an address or a mis-paste — never a search query — so a checksum
+ * failure is reported, not searched.
+ */
+const ADDRESS_CANDIDATE_REGEX = /^[1mn][1-9A-HJ-NP-Za-km-z]{24,34}$/
+
+/** What the recipient field has been given, as typed. */
+export type RecipientInput =
+  | { kind: 'empty' }
+  | { kind: 'address'; address: string }
+  | { kind: 'invalid_address' }
+  | { kind: 'handle'; identityKey: string; sats?: number; messageBoxUrl?: string }
+  | { kind: 'invalid_link'; message: string }
+  | { kind: 'search'; query: string }
+
+function handleFromPeerPay(result: PeerPayValidationResult): RecipientInput {
+  if (!result.identityKey || result.errors.identityKey || result.errors.sats) {
+    return { kind: 'invalid_link', message: peerPayValidationMessage(result) ?? 'Invalid peerpay link' }
   }
+  return {
+    kind: 'handle',
+    identityKey: result.identityKey,
+    ...(result.sats !== undefined ? { sats: result.sats } : {}),
+    ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
+  }
+}
+
+/**
+ * The one place typed text becomes a recipient kind. Order matters: schemed
+ * forms first, then the address shape (which alone can produce an inline
+ * error), then a bare key, then search for everything else.
+ */
+export function classifyRecipientInput(raw: string): RecipientInput {
+  const text = raw.trim()
+  if (!text) return { kind: 'empty' }
+
+  if (text.toLowerCase().startsWith('peerpay:')) return handleFromPeerPay(validatePeerPayURI(text))
+
+  const isBitcoinUri = /^bitcoin:/i.test(text)
+  const candidate = isBitcoinUri ? normalizeAddressInput(text) : text
+  if (isBitcoinUri || ADDRESS_CANDIDATE_REGEX.test(candidate)) {
+    return isValidBsvAddress(candidate) ? { kind: 'address', address: candidate } : { kind: 'invalid_address' }
+  }
+
+  if (isCompressedPublicKey(text)) return { kind: 'handle', identityKey: text.toLowerCase() }
+
+  return { kind: 'search', query: text }
 }
 
 /**
@@ -99,8 +151,13 @@ export function classifyScan(raw: string): PayTarget | null {
 
   if (text.toLowerCase().startsWith('peerpay:')) {
     const result = validatePeerPayURI(text)
-    if (!result.identityKey || result.errors.identityKey) return null
-    return { kind: 'handle', identityKey: result.identityKey, sats: result.sats }
+    if (!result.identityKey || result.errors.identityKey || result.errors.sats) return null
+    return {
+      kind: 'handle',
+      identityKey: result.identityKey,
+      sats: result.sats,
+      ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
+    }
   }
 
   if (/^bitcoin:/i.test(text)) {
@@ -114,7 +171,7 @@ export function classifyScan(raw: string): PayTarget | null {
     // Not a session envelope. Fall through to the bare forms.
   }
 
-  if (isCompressedPublicKey(text)) return { kind: 'handle', identityKey: text }
+  if (isCompressedPublicKey(text)) return { kind: 'handle', identityKey: text.toLowerCase() }
   if (isValidBsvAddress(text)) return { kind: 'address', address: text }
   return null
 }

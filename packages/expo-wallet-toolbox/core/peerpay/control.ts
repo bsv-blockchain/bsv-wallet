@@ -52,15 +52,25 @@ export function parseControlMessage(body: unknown): PaymentControlMessage | unde
   }
 }
 
+/**
+ * `overrideHost` skips the overlay lookup and posts to a named box — for a control
+ * message about a payment that was itself delivered to a link-named host.
+ */
 export async function sendControlMessage(
-  client: { sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<unknown> },
-  args: { recipient: string; message: PaymentControlMessage }
+  client: {
+    sendMessage(args: { recipient: string; messageBox: string; body: string }, overrideHost?: string): Promise<unknown>
+  },
+  args: { recipient: string; message: PaymentControlMessage },
+  overrideHost?: string
 ): Promise<void> {
-  await client.sendMessage({
-    recipient: args.recipient,
-    messageBox: PAYMENT_CONTROL_BOX,
-    body: JSON.stringify(args.message)
-  })
+  await client.sendMessage(
+    {
+      recipient: args.recipient,
+      messageBox: PAYMENT_CONTROL_BOX,
+      body: JSON.stringify(args.message)
+    },
+    overrideHost
+  )
 }
 
 export type ControlBoxMessage = { messageId: string; sender: string; body: unknown }

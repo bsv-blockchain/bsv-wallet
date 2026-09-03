@@ -1,5 +1,6 @@
 /**
- * MessageBox server configuration — the state hook and the panel.
+ * MessageBox server configuration — the state hook and the panel; both now
+ * render from Settings › Advanced.
  *
  * Both are copied verbatim out of app/payments.tsx (useMessageBoxConfig and
  * ConfigPanel). The only change: the storage key, the default host and the
@@ -118,55 +119,6 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
   }
 }
 
-interface MessageBoxBarProps {
-  readonly url: string
-  readonly open: boolean
-  readonly onToggle: () => void
-  readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
-  readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
-}
-
-/**
- * The only way into the message-box settings, and the only place the active host
- * is shown.
- *
- * Both are load-bearing rather than decorative. The panel holds the reset and
- * the use-no-server escape hatches, so without an affordance that opens it a
- * user who saved a broken host has no route back — the panel's own auto-open
- * only fires for the explicit no-server sentinel. And the host is worth naming
- * because it decides whether a handle payment can be delivered at all.
- *
- * Kept to one quiet row: the old screen carried a header gear and a separate
- * green server chip, which is two controls for one fact.
- */
-export function MessageBoxBar({ url, open, onToggle, colors, t }: MessageBoxBarProps) {
-  const Ionicons = loadIonicons()
-  const isNone = url === NO_MESSAGE_BOX
-  return (
-    <TouchableOpacity
-      onPress={onToggle}
-      style={[styles.bar, { borderColor: isNone ? colors.error + '40' : colors.separator }]}
-      accessibilityRole="button"
-      accessibilityLabel={t('message_box_server')}
-      accessibilityState={{ expanded: open }}
-    >
-      <Ionicons
-        name={isNone ? 'alert-circle' : 'checkmark-circle'}
-        size={14}
-        color={isNone ? colors.error : colors.success}
-      />
-      <Text
-        style={[styles.barText, { color: isNone ? colors.error : colors.textSecondary }]}
-        numberOfLines={1}
-        ellipsizeMode="middle"
-      >
-        {isNone ? t('message_box_tap_to_configure') : url}
-      </Text>
-      <Ionicons name="settings-outline" size={16} color={open ? colors.accent : colors.textTertiary} />
-    </TouchableOpacity>
-  )
-}
-
 interface ConfigPanelProps {
   readonly urlInput: string
   readonly isSaving: boolean
@@ -242,20 +194,6 @@ export function ConfigPanel({ urlInput, isSaving, colors, t, onChangeUrl, onSave
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.lg
-  },
-  barText: {
-    ...typography.caption1,
-    flex: 1
-  },
   configPanel: {
     padding: spacing.lg,
     borderRadius: radii.md,

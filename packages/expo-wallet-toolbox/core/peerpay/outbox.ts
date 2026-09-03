@@ -42,6 +42,12 @@ export interface OutboxEntry {
   }
   /** The MessageBox host URL used at creation time */
   messageBoxUrl: string
+  /**
+   * The RECIPIENT's message-box host, when a BRC-125 link named one via its
+   * `url` extension. Every re-send of this entry goes here, bypassing the
+   * overlay lookup. Absent for entries minted from a bare key.
+   */
+  recipientHost?: string
   status: 'unsent' | 'sent'
   /** ISO 8601 timestamp of most recent delivery attempt */
   lastAttemptAt?: string
@@ -115,9 +121,10 @@ export async function saveOutboxEntry(
     token: OutboxEntry['token']
     messageBoxUrl: string
     txid?: string
+    recipientHost?: string
   }
 ): Promise<string> {
-  const { recipient, token, messageBoxUrl, txid } = params
+  const { recipient, token, messageBoxUrl, txid, recipientHost } = params
   const id = `${Date.now()}_${recipient.slice(0, 8)}`
   const entry: OutboxEntry = {
     id,
@@ -126,7 +133,8 @@ export async function saveOutboxEntry(
     token,
     messageBoxUrl,
     status: 'unsent',
-    ...(txid ? { txid } : {})
+    ...(txid ? { txid } : {}),
+    ...(recipientHost ? { recipientHost } : {})
   }
   const all = await readEntries(storage)
   all.push(entry)

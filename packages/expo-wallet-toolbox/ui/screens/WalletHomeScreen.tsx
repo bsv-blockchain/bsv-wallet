@@ -75,6 +75,8 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
 import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
+import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
+import { ImportFromBackupPrompt } from '../components/wallet/ImportFromBackupPrompt'
 import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
@@ -227,98 +229,100 @@ export function WalletHomeScreen() {
     walletUserId,
     refreshProof,
     settings,
-    configStatus,
-    walletBuilding,
     walletBuilt,
     buildWalletFromMnemonic
   } = useWallet()
-  const { unlockState, setMnemonic: storeMnemonic } = useLocalStorage()
+  const { setMnemonic: storeMnemonic } = useLocalStorage()
   const { satoshisPerUSD } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
   const online = useOnline()
 
-  // ── onboarding gate ─────────────────────────────────────────────────
+  // ── lazy wallet creation ────────────────────────────────────────────
   /**
-   * A fresh install has no mnemonic and no recovered key, so the auto-build
-   * effect in WalletContext finishes with walletBuilt=false and nothing to
-   * show — this screen would otherwise spin forever (no wallet, no error).
-   * WalletLockNotice already covers a RETURNING user whose key the OS
-   * destroyed or who cancelled the biometric prompt ('lost' / 'cancelled' /
-   * 'unavailable'); this covers the one case it doesn't: nothing was ever
-   * stored here at all.
+   * Apple HIG: never ask for Face ID/Touch ID before the user has done
+   * something that explains why. Creating a wallet needs biometric-gated
+   * storage (setMnemonic below), so building one eagerly on first mount —
+   * as this screen used to — put a biometric prompt in front of a user who
+   * had not yet tapped anything. Instead, wallet creation is deferred until
+   * the first Pay or Get Paid tap (see destinationPress below), behind a
+   * one-time advisory modal that explains the prompt before it fires.
    *
-   * `unlockState.status` only becomes the literal 'absent' once an unlock has
-   * actually been attempted (services/secrets/kek.ts doUnlock) — and on a
-   * true fresh install that never happens, because getMnemonic/getRecoveredKey
-   * short-circuit on `hasSecret` before ever calling ensureUnlocked. So the
-   * status simply stays at its 'locked' module default forever. Once the
-   * build attempt has genuinely concluded (walletBuilding false, walletBuilt
-   * false), 'locked' and 'absent' both mean the same thing here: no secret
-   * was ever found. sawBuildAttemptRef guards against the single-render race
-   * where configStatus flips to 'configured' a tick before WalletContext's
-   * own effect sets walletBuilding=true — without it, that transient
-   * (false, false) reading would look identical to "settled, nothing found"
-   * and could bounce a normal returning user into onboarding.
-   *
-   * On a true fresh install there is no returning identity to protect, so
-   * rather than sending the user to the onboarding chooser this silently
-   * creates a wallet for them (same calls `/auth/mnemonic`'s "create new"
-   * button makes) and lets them land straight on the Wallet screen with a
-   * zero balance. The backup-reminder sheet below is what asks them to
-   * secure it, once there's a screen worth showing.
+   * A fresh install has no mnemonic and no recovered key, so until that
+   * first tap this screen simply renders with no wallet: zero balance, no
+   * activity, Pay/Get Paid still visible. WalletLockNotice covers a
+   * RETURNING user whose key the OS destroyed or who cancelled the
+   * biometric prompt ('lost' / 'cancelled' / 'unavailable'); a true fresh
+   * install never reaches those states, so nothing else needs to render
+   * here in the meantime.
    */
-  const sawBuildAttemptRef = useRef(false)
-  const autoCreateAttemptedRef = useRef(false)
-  useEffect(() => {
-    if (walletBuilding) sawBuildAttemptRef.current = true
-    if (autoCreateAttemptedRef.current) return
-    if (!sawBuildAttemptRef.current) return
-    if (walletBuilding || walletBuilt) return
-    if (configStatus !== 'configured') return
-    if (unlockState.status !== 'absent' && unlockState.status !== 'locked') return
-    autoCreateAttemptedRef.current = true
-    ;(async () => {
+  const creatingWalletRef = useRef(false)
+  const ensureWalletExists = useCallback(async (): Promise<boolean> => {
+    if (managers.permissionsManager) return true
+    if (creatingWalletRef.current) return false
+    creatingWalletRef.current = true
+    try {
       const wallet = generateMnemonicWallet()
       const stored = await storeMnemonic(wallet.mnemonic)
       if (!stored) {
         // Biometric access was needed and unavailable/declined — same dead
-        // end onboarding's own generate flow hits. Fall back to the chooser
-        // screen, where the user can retry generation explicitly.
-        autoCreateAttemptedRef.current = false
+        // end onboarding's own generate flow hits. Send the user there to
+        // retry explicitly rather than silently failing the tap.
         router.replace('/auth/mnemonic')
-        return
+        return false
       }
       await buildWalletFromMnemonic(wallet.mnemonic)
-    })()
-  }, [walletBuilding, walletBuilt, configStatus, unlockState.status])
+      return true
+    } finally {
+      creatingWalletRef.current = false
+    }
+  }, [managers.permissionsManager, storeMnemonic, buildWalletFromMnemonic, router])
+
+  const [pendingDestination, setPendingDestination] = useState<string | null>(null)
+  const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
+
+  const destinationPress = useCallback(
+    (destination: string) => {
+      if (managers.permissionsManager) {
+        router.push(destination as Parameters<typeof router.push>[0])
+        return
+      }
+      setPendingDestination(destination)
+      setShowBiometricAdvisory(true)
+    },
+    [managers.permissionsManager, router]
+  )
 
   // ── backup reminder ─────────────────────────────────────────────────
   /**
    * Once a wallet exists, ask whether this identity has ever attested a
-   * backup. Reopens on every mount (app restart included) until the user
-   * backs up or imports — same advisory attestation the vault gate reads.
+   * backup. Re-checked on every focus of this screen (not just mount) so
+   * dismissing the card never sticks for the session — it reappears the
+   * moment the user lands back on the main page, until they actually back
+   * up or import. Same advisory attestation the vault gate reads.
    */
   const [showBackupReminder, setShowBackupReminder] = useState(false)
-  useEffect(() => {
-    if (!walletBuilt) return
-    const wallet = managers.permissionsManager
-    if (!wallet) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const { publicKey } = await wallet.getPublicKey({ identityKey: true }, adminOriginator)
-        const attested = await backupAttestation.get(publicKey)
-        if (!cancelled) setShowBackupReminder(attested === null)
-      } catch {
-        // Advisory only — if the check fails, err toward reminding rather
-        // than silently skipping it.
-        if (!cancelled) setShowBackupReminder(true)
+  useFocusEffect(
+    useCallback(() => {
+      if (!walletBuilt) return
+      const wallet = managers.permissionsManager
+      if (!wallet) return
+      let cancelled = false
+      ;(async () => {
+        try {
+          const { publicKey } = await wallet.getPublicKey({ identityKey: true }, adminOriginator)
+          const attested = await backupAttestation.get(publicKey)
+          if (!cancelled) setShowBackupReminder(attested === null)
+        } catch {
+          // Advisory only — if the check fails, err toward reminding rather
+          // than silently skipping it.
+          if (!cancelled) setShowBackupReminder(true)
+        }
+      })()
+      return () => {
+        cancelled = true
       }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [walletBuilt, managers.permissionsManager, adminOriginator])
+    }, [walletBuilt, managers.permissionsManager, adminOriginator])
+  )
 
   const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
   /**
@@ -586,12 +590,25 @@ export function WalletHomeScreen() {
     ;(async () => {
       // Same gate as the balance: until the mounted storage belongs to the
       // network on screen, the wallet answering listActions is still the
-      // previous chain's, and its payments are not this network's.
-      if (!onThisNetwork) return
+      // previous chain's, and its payments are not this network's. A null
+      // storage (no wallet created yet) also fails this gate, and has
+      // nothing to load — settle the spinner instead of leaving it spinning
+      // until a wallet exists.
+      if (!onThisNetwork) {
+        if (!storage) setLoading(false)
+        return
+      }
       if (actions.length === 0) setLoading(true)
       try {
         const result = await fetchActions(0)
-        if (cancelled || !result) return
+        if (cancelled) return
+        if (!result) {
+          // No permissionsManager yet (no wallet created — see the lazy
+          // creation flow above): there is nothing to load, so settle the
+          // spinner instead of leaving it spinning forever.
+          setLoading(false)
+          return
+        }
         setActions(result.actions as ActivityAction[])
         offsetRef.current = result.actions.length
         // A fresh first page may have more behind it again.
@@ -1095,7 +1112,7 @@ export function WalletHomeScreen() {
         <View style={styles.destinations}>
           <PressableScale
             haptic="confirm"
-            onPress={() => router.push('/pay')}
+            onPress={() => destinationPress('/pay')}
             style={[styles.dest, styles.destPrimary, { backgroundColor: colors.accent }]}
           >
             <MaterialCommunityIcons name="arrow-top-right" size={19} color={colors.textOnAccent} />
@@ -1106,7 +1123,7 @@ export function WalletHomeScreen() {
 
           <PressableScale
             haptic="confirm"
-            onPress={() => router.push('/pay?direction=get')}
+            onPress={() => destinationPress('/pay?direction=get')}
             style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
           >
             <MaterialCommunityIcons name="arrow-bottom-left" size={19} color={colors.textPrimary} />
@@ -1339,10 +1356,28 @@ export function WalletHomeScreen() {
           setShowBackupReminder(false)
           router.push('/auth/mnemonic?flow=backup')
         }}
-        onImportFromBackup={() => {
-          setShowBackupReminder(false)
-          router.push('/auth/mnemonic?flow=import')
+      />
+
+      <BiometricAdvisoryModal
+        visible={showBiometricAdvisory}
+        onCancel={() => {
+          setShowBiometricAdvisory(false)
+          setPendingDestination(null)
         }}
+        onContinue={() => {
+          setShowBiometricAdvisory(false)
+          const destination = pendingDestination
+          setPendingDestination(null)
+          ;(async () => {
+            const created = await ensureWalletExists()
+            if (created && destination) router.push(destination as Parameters<typeof router.push>[0])
+          })()
+        }}
+      />
+
+      <ImportFromBackupPrompt
+        visible={!hasWallet}
+        onImport={() => router.push('/auth/mnemonic?flow=import')}
       />
     </View>
   )

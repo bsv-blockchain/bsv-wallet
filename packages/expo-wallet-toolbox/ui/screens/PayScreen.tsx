@@ -1,14 +1,15 @@
 /**
- * Pay — one screen, six cells.
+ * Pay — two screens, no chooser.
  *
- * Direction is the primary axis because it is the first thing a user knows
- * about their own situation; who the counterparty is comes second, and IT is
- * what determines the rail. The user never picks a transport: see
- * utils/pay/rails/index.ts, where the rail is inferred from how the
- * counterparty was identified.
+ * Pay opens on one send form whose recipient field infers the rail from what
+ * is typed or scanned (see core/pay/rails: classifyRecipientInput,
+ * classifyScan). A scanned nearby-session code swaps the form for NearbyFlow.
  *
- * Replaces /payments, /legacy-payments, /local-payments and the Identity Key
- * modal in settings.
+ * Get paid opens on the request hub: the amount first, then three method
+ * rows, each of which shows that method's code with the amount carried in.
+ *
+ * `?cell=` values survive as deep-link aliases: any `pay-*` opens the send form
+ * (`pay-nearby` with the scanner up), any `get-*` opens that method directly.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { I18nManager, InteractionManager, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
@@ -16,13 +17,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 
 import PressableScale from '../components/ui/PressableScale'
-import PayCellRow from '../components/pay/PayCellRow'
-import NearbyFlow from '../components/pay/NearbyFlow'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import PaymentQrDisplay from '../components/pay/PaymentQrDisplay'
-import HandleSend from '../components/pay/HandleSend'
+import UniversalSend from '../components/pay/UniversalSend'
+import RequestHub, { requestSatsFrom, type RequestMethod } from '../components/pay/RequestHub'
+import NearbyFlow from '../components/pay/NearbyFlow'
 import HandleReceive from '../components/pay/HandleReceive'
-import AddressSend from '../components/pay/AddressSend'
 import AddressReceive from '../components/pay/AddressReceive'
 import OfflineNotice from '../components/pay/OfflineNotice'
 import { useOnline } from '../hooks/useOnline'
@@ -33,14 +33,15 @@ import {
   typography,
   useWallet,
   validatePeerPayURI,
-  isPayCell,
-  type PayCell,
+  type Session,
   takeProofNudge,
   findOfflineActions,
   type OfflineActionRow,
   TaskSendOffline
 } from '@bsv/expo-wallet-toolbox'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
+import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
+import { NearbyAdvisoryModal } from '../components/pay/NearbyAdvisoryModal'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -82,64 +83,14 @@ type Direction = 'pay' | 'get'
 
 const firstParam = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 
-interface CellSpec {
-  cell: PayCell
-  titleKey: string
-  subtitleKey: string
-  icon: keyof IoniconsComponent['glyphMap']
+const METHOD_TITLE_KEYS: Record<RequestMethod, string> = {
+  'get-nearby': 'pay_method_nearby',
+  'get-handle': 'pay_method_remote_link',
+  'get-address': 'pay_method_address'
 }
 
-const CELLS: Record<Direction, CellSpec[]> = {
-  pay: [
-    {
-      cell: 'pay-nearby',
-      titleKey: 'pay_cell_nearby_pay',
-      subtitleKey: 'pay_cell_nearby_pay_sub',
-      icon: 'scan-outline'
-    },
-    {
-      cell: 'pay-handle',
-      titleKey: 'pay_cell_handle_pay',
-      subtitleKey: 'pay_cell_handle_pay_sub',
-      icon: 'person-outline'
-    },
-    {
-      cell: 'pay-address',
-      titleKey: 'pay_cell_address_pay',
-      subtitleKey: 'pay_cell_address_pay_sub',
-      icon: 'wallet-outline'
-    }
-  ],
-  get: [
-    {
-      cell: 'get-nearby',
-      titleKey: 'pay_cell_nearby_get',
-      subtitleKey: 'pay_cell_nearby_get_sub',
-      icon: 'qr-code-outline'
-    },
-    {
-      cell: 'get-handle',
-      titleKey: 'pay_cell_handle_get',
-      subtitleKey: 'pay_cell_handle_get_sub',
-      icon: 'person-outline'
-    },
-    {
-      cell: 'get-address',
-      titleKey: 'pay_cell_address_get',
-      subtitleKey: 'pay_cell_address_get_sub',
-      icon: 'wallet-outline'
-    }
-  ]
-}
-
-const CELL_TITLE_KEYS: Record<PayCell, string> = {
-  'pay-nearby': 'pay_cell_nearby_pay',
-  'pay-handle': 'pay_cell_handle_pay',
-  'pay-address': 'pay_cell_address_pay',
-  'get-nearby': 'pay_cell_nearby_get',
-  'get-handle': 'pay_cell_handle_get',
-  'get-address': 'pay_cell_address_get'
-}
+const isRequestMethod = (v: string | undefined): v is RequestMethod =>
+  v === 'get-nearby' || v === 'get-handle' || v === 'get-address'
 
 export function PayScreen() {
   const { t } = useTranslation()
@@ -190,31 +141,66 @@ export function PayScreen() {
   const initialIdentityKey = peerPayValidation?.identityKey ?? firstParam(params.identityKey)
   const satsParam = peerPayValidation?.sats ?? Number(firstParam(params.sats))
   const initialSats = Number.isFinite(satsParam) && satsParam > 0 ? Number(satsParam) : undefined
+  // Memoized: useRecipientInput re-adopts initialTarget whenever its identity changes.
+  const initialTarget = useMemo(
+    () =>
+      initialIdentityKey
+        ? {
+            kind: 'handle' as const,
+            identityKey: initialIdentityKey,
+            ...(peerPayValidation?.messageBoxUrl ? { messageBoxUrl: peerPayValidation.messageBoxUrl } : {})
+          }
+        : undefined,
+    [initialIdentityKey, peerPayValidation?.messageBoxUrl]
+  )
 
   const paramCell = firstParam(params.cell)
-  // A peerpay link is a request to pay a handle, whatever cell was named.
-  const openingCell: PayCell | null = peerpay ? 'pay-handle' : isPayCell(paramCell) ? paramCell : null
+  // Direction is fixed by how the user got here. A peerpay link is a request
+  // to pay; a `get-*` cell or `?direction=get` is the receive side.
+  const direction: Direction =
+    peerpay || (paramCell ?? '').startsWith('pay')
+      ? 'pay'
+      : isRequestMethod(paramCell) || firstParam(params.direction) === 'get'
+        ? 'get'
+        : 'pay'
+  /** Pay side: a scanned nearby session takes over the screen. */
+  const [nearbySession, setNearbySession] = useState<Session | null>(null)
+  /** Get side: the method chosen on the hub, or named by a deep link. */
+  const [method, setMethod] = useState<RequestMethod | null>(
+    direction === 'get' && isRequestMethod(paramCell) ? paramCell : null
+  )
+  /** Get side: the hub's raw amount, carried into the method. */
+  const [requestSats, setRequestSats] = useState('')
+  // One camera raise per deep link; a cancelled advisory must not re-open it.
+  const [scanOnMount, setScanOnMount] = useState(paramCell === 'pay-nearby')
 
-  // Fixed by how the user got here, not switchable on-screen: a named cell
-  // implies its own direction, and `?direction=get` opens the receive side on
-  // its CHOOSER (no cell), which is what the wallet's "Get paid" button wants —
-  // the transport is still the user's to pick.
-  const direction: Direction = openingCell
-    ? openingCell.startsWith('get')
-      ? 'get'
-      : 'pay'
-    : firstParam(params.direction) === 'get'
-      ? 'get'
-      : 'pay'
-  const [cell, setCell] = useState<PayCell | null>(openingCell)
+  // ── nearby advisory ─────────────────────────────────────────────────
+  /**
+   * Nearby pay/get-paid triggers OS-level prompts (iOS Local Network access;
+   * Android Bluetooth/nearby-Wi-Fi permissions) as soon as NearbyFlow mounts,
+   * with no gesture of its own to explain them. null = not loaded yet (block
+   * mounting NearbyFlow, but don't show the modal either — avoids a flash for
+   * a returning user whose flag is about to come back true).
+   */
+  const [nearbyAdvisorySeen, setNearbyAdvisorySeen] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void nearbyAdvisory.get().then(seen => {
+      if (!cancelled) setNearbyAdvisorySeen(seen)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const isNearbyCell = (direction === 'pay' && nearbySession !== null) || method === 'get-nearby'
 
   // Refreshed whenever the wallet finishes building, connectivity changes, or
-  // the user enters/leaves a pay cell: the queue only moves when the network
-  // state does or when a cell just queued a row (e.g. an in-session offline
-  // QR Done), so there is no need to poll it on every render. `cell` is a
-  // cheap local SQLite read, not a network round-trip, so re-running it on
-  // every cell transition is fine — returning from a pay cell must pick up
-  // rows the cell just queued.
+  // the user enters/leaves a method or a nearby session: the queue only moves
+  // when the network state does or when one of those just queued a row (e.g.
+  // an in-session offline QR Done), so there is no need to poll it on every
+  // render. It is a cheap local SQLite read, not a network round-trip, so
+  // re-running it on every such transition is fine — returning from a method
+  // or a nearby session must pick up rows it just queued.
   useEffect(() => {
     if (!walletBuilt) return
     let cancelled = false
@@ -262,13 +248,13 @@ export function PayScreen() {
         setStalled(TaskSendOffline.lastStall)
       } catch {
         // This banner is advisory, never load-bearing. A read failure here must
-        // not break the rest of the screen — the grid still has to render.
+        // not break the rest of the screen — the send form or hub still has to render.
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [walletBuilt, storage, online, txStatusVersion, walletUserId, cell, queueNonce])
+  }, [walletBuilt, storage, online, txStatusVersion, walletUserId, method, nearbySession, queueNonce])
 
   const reloadQueue = useCallback(() => setQueueNonce(n => n + 1), [])
 
@@ -324,12 +310,13 @@ export function PayScreen() {
 
   /**
    * Back from anywhere on this screen means "back to the wallet" — never to
-   * the chooser grid. The grid is a decision the user already made on the way
-   * in; stepping back through it makes leaving a two- or three-tap affair.
+   * an intermediate screen. The hub or the send form is a decision the user
+   * already made on the way in; stepping back through it makes leaving a
+   * two- or three-tap affair.
    *
    * `dismissTo` pops to the wallet when it is in the stack (the normal case)
    * and replaces this screen with it when /pay was deep-linked into directly.
-   * Not `navigate`: that re-pushes the wallet above the very cells this is
+   * Not `navigate`: that re-pushes the wallet above the very screens this is
    * trying to leave behind, which puts them one edge-swipe away instead of
    * discarding them.
    */
@@ -337,8 +324,14 @@ export function PayScreen() {
     router.dismissTo('/')
   }, [])
 
-  const grid = () => (
-    <View style={styles.grid}>
+  const onNearbySession = useCallback((session: Session) => {
+    // One camera raise per deep link; a cancelled advisory must not re-open it.
+    setScanOnMount(false)
+    setNearbySession(session)
+  }, [])
+
+  const offlineNotice = (
+    <View style={styles.noticeWrap}>
       <OfflineNotice
         online={online}
         queued={queued}
@@ -356,49 +349,47 @@ export function PayScreen() {
         onDismiss={row => void onDismiss(row)}
         onSendAgain={row => void onSendAgain(row)}
       />
-      {/* No direction switcher here: the user already chose Pay or Get paid to
-          get to this screen, and the header title says which one they are in.
-          Offering the toggle again would ask a question they just answered. */}
-      <View style={styles.rows}>
-        {CELLS[direction].map(spec => {
-          // Handle needs a message box round-trip and address needs an overlay
-          // lookup; neither works underground. Nearby is the whole point of
-          // being offline — it is the one rail this whole feature was built for.
-          const needsInternet = !spec.cell.endsWith('nearby')
-          const disabled = !online && needsInternet
-          return (
-            <PayCellRow
-              key={spec.cell}
-              title={t(spec.titleKey)}
-              subtitle={disabled ? t('pay_offline_needs_internet') : t(spec.subtitleKey)}
-              icon={spec.icon}
-              disabled={disabled}
-              onPress={() => setCell(spec.cell)}
-            />
-          )
-        })}
-      </View>
     </View>
   )
 
   const body = () => {
-    switch (cell) {
-      case 'pay-nearby':
-        return <NearbyFlow role="payer" onExit={goBack} />
+    if (direction === 'pay') {
+      if (nearbySession) {
+        return nearbyAdvisorySeen ? <NearbyFlow role="payer" initialSession={nearbySession} onExit={goBack} /> : null
+      }
+      return (
+        <>
+          {offlineNotice}
+          <UniversalSend
+            initialTarget={initialTarget}
+            initialSats={initialSats}
+            initialNotice={peerPayNotice}
+            openScannerOnMount={scanOnMount}
+            onNearbySession={onNearbySession}
+          />
+        </>
+      )
+    }
+    const sats = requestSatsFrom(requestSats)
+    switch (method) {
       case 'get-nearby':
-        return <NearbyFlow role="payee" onExit={goBack} />
-      case 'pay-handle':
-        return (
-          <HandleSend initialIdentityKey={initialIdentityKey} initialSats={initialSats} initialNotice={peerPayNotice} />
-        )
+        return nearbyAdvisorySeen ? <NearbyFlow role="payee" initialRequest={{ sats }} onExit={goBack} /> : null
       case 'get-handle':
-        return <HandleReceive />
-      case 'pay-address':
-        return <AddressSend />
+        return <HandleReceive initialSats={sats} />
       case 'get-address':
-        return <AddressReceive />
+        return <AddressReceive initialSats={sats} />
       default:
-        return grid()
+        return (
+          <>
+            {offlineNotice}
+            <RequestHub
+              requestSats={requestSats}
+              onChangeRequestSats={setRequestSats}
+              onPick={setMethod}
+              online={online}
+            />
+          </>
+        )
     }
   }
 
@@ -419,19 +410,15 @@ export function PayScreen() {
           />
         </PressableScale>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-          {/* Inside a rail, the rail names itself. Otherwise the title carries
-              the direction, since the switcher that used to show it is gone. */}
-          {cell ? t(CELL_TITLE_KEYS[cell]) : t(direction === 'pay' ? 'pay_direction_pay' : 'pay_direction_receive')}
+          {/* The screen names what it is doing: the direction, or the rail/method once one is live. */}
+          {direction === 'pay'
+            ? t(nearbySession ? 'pay_cell_nearby_pay' : 'pay_direction_pay')
+            : t(method ? METHOD_TITLE_KEYS[method] : 'local_pay_request')}
         </Text>
         <View style={styles.headerBtn} />
       </View>
-      {/* The grid sits on the secondary background so its elevated rows read as
-          cards — on `background` they would be white-on-white in light mode and
-          separated by a hairline alone. A cell body is a form, not a card list,
-          so it gets the plain background the rest of the app's forms use. */}
-      <View style={[styles.bodyWrap, { backgroundColor: cell ? colors.background : colors.backgroundSecondary }]}>
-        {body()}
-      </View>
+      {/* Both entry screens are forms now; the hub's rows carry their own elevation. */}
+      <View style={[styles.bodyWrap, { backgroundColor: colors.background }]}>{body()}</View>
       <Modal visible={!!showCode} animationType="slide" transparent onRequestClose={() => setShowCode(null)}>
         <View style={styles.codeOverlay}>
           <View style={[styles.codeCard, { backgroundColor: colors.backgroundElevated }]}>
@@ -446,6 +433,18 @@ export function PayScreen() {
           </View>
         </View>
       </Modal>
+      <NearbyAdvisoryModal
+        visible={isNearbyCell && nearbyAdvisorySeen === false}
+        onCancel={() => {
+          // Whichever side raised it, cancelling leaves no nearby state behind.
+          setNearbySession(null)
+          setMethod(null)
+        }}
+        onContinue={() => {
+          void nearbyAdvisory.set()
+          setNearbyAdvisorySeen(true)
+        }}
+      />
     </View>
   )
 }
@@ -463,8 +462,7 @@ const styles = StyleSheet.create({
   headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { ...typography.headline, fontWeight: '600', flex: 1, textAlign: 'center' },
   bodyWrap: { flex: 1 },
-  grid: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
-  rows: { gap: spacing.md },
+  noticeWrap: { paddingHorizontal: spacing.lg },
   codeOverlay: {
     flex: 1,
     alignItems: 'center',

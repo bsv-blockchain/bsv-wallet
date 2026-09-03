@@ -84,11 +84,14 @@ describe('PayField', () => {
 })
 
 describe('PayAmountField', () => {
-  it('always asks the same question: AMOUNT label, balance line, amount input', () => {
+  it('always asks the same question: AMOUNT label, amount input, then the balance line beneath it', () => {
     const screen = wrap(<PayAmountField value="" onChangeText={() => {}} />)
     expect(screen.getByText('amount')).toBeTruthy()
-    expect(screen.getByTestId('available-balance')).toBeTruthy()
-    expect(screen.getByTestId('amount-input')).toBeTruthy()
+    const tree = JSON.stringify(screen.toJSON())
+    const inputAt = tree.indexOf('"amount-input"')
+    const balanceAt = tree.indexOf('"available-balance"')
+    expect(inputAt).toBeGreaterThan(-1)
+    expect(balanceAt).toBeGreaterThan(inputAt)
   })
 
   it('hides the balance line when the enterer is not the payer', () => {

@@ -36,6 +36,7 @@ export { useThemeStyles } from './theme/useThemeStyles'
 export {
   formatAmount,
   formatAmountParts,
+  formatAmountInInputUnit,
   formatSatoshisAsFiat,
   formatSatoshisAsBsv,
   formatSatoshisAsBsvDecimal,

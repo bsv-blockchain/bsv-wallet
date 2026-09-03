@@ -41,11 +41,27 @@ describe('sendControlMessage', () => {
       { sendMessage },
       { recipient: '02aa', message: { type: 'resend_request', txid: 'aa', reason: 'uncreditible' } }
     )
-    expect(sendMessage).toHaveBeenCalledWith({
-      recipient: '02aa',
-      messageBox: PAYMENT_CONTROL_BOX,
-      body: JSON.stringify({ type: 'resend_request', txid: 'aa', reason: 'uncreditible' })
-    })
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        recipient: '02aa',
+        messageBox: PAYMENT_CONTROL_BOX,
+        body: JSON.stringify({ type: 'resend_request', txid: 'aa', reason: 'uncreditible' })
+      },
+      undefined // no override: the box is resolved for the recipient as before
+    )
+  })
+
+  it('posts to an overridden host when the caller names one', async () => {
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    await sendControlMessage(
+      { sendMessage },
+      { recipient: '02aa', message: { type: 'payment_cancelled', txid: 'aa' } },
+      'https://their.box'
+    )
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageBox: PAYMENT_CONTROL_BOX, recipient: '02aa' }),
+      'https://their.box'
+    )
   })
 })
 

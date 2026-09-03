@@ -256,15 +256,18 @@ describe('discardIncoming', () => {
       sendMessage: jest.fn().mockResolvedValue(undefined)
     }
     await discardIncoming(client as never, { ...payment('a'), sender: KEY })
-    expect(client.sendMessage).toHaveBeenCalledWith({
-      recipient: KEY,
-      messageBox: PAYMENT_CONTROL_BOX,
-      body: JSON.stringify({
-        type: 'resend_request',
-        txid: 'a',
-        reason: 'uncreditible',
-        messageId: 'a'
-      })
-    })
+    expect(client.sendMessage).toHaveBeenCalledWith(
+      {
+        recipient: KEY,
+        messageBox: PAYMENT_CONTROL_BOX,
+        body: JSON.stringify({
+          type: 'resend_request',
+          txid: 'a',
+          reason: 'uncreditible',
+          messageId: 'a'
+        })
+      },
+      undefined // no host override on this path
+    )
   })
 })

@@ -45,30 +45,39 @@ export * from './resolveIdentity'
 export { useSpendableBalance } from './hooks/useSpendableBalance'
 
 // QR scanner (components/QRScanner) — pulled forward from its originally
-// planned Task 24 move because AddressSend/HandleSend/NearbyFlow below
+// planned Task 24 move because UniversalSend/NearbyFlow below
 // depend on it directly; see Task 21 report for the full rationale.
 export { default as QRScanner } from './components/QRScanner'
 
 // Pay + local-payment UI (components/pay), the P2P payment surfaces (Task 21)
 export { default as AddressReceive } from './components/pay/AddressReceive'
-export { default as AddressSend } from './components/pay/AddressSend'
 export { default as AvailableBalance } from './components/pay/AvailableBalance'
 export { default as HandleReceive } from './components/pay/HandleReceive'
-export { default as HandleSend, type HandleSendProps } from './components/pay/HandleSend'
-export { useMessageBoxConfig, MessageBoxBar, ConfigPanel } from './components/pay/MessageBoxConfig'
+export { useMessageBoxConfig, ConfigPanel } from './components/pay/MessageBoxConfig'
 export { default as NearbyFlow, type NearbyFlowProps } from './components/pay/NearbyFlow'
+export { NearbyAdvisoryModal } from './components/pay/NearbyAdvisoryModal'
 export { default as OfflineNotice, offlineActionDetails, type OfflineNoticeProps } from './components/pay/OfflineNotice'
 export { default as PayCellRow, type PayCellRowProps } from './components/pay/PayCellRow'
+export {
+  default as RequestHub,
+  requestSatsFrom,
+  type RequestHubProps,
+  type RequestMethod
+} from './components/pay/RequestHub'
 export { PayField, PayAmountField, ConsequenceNote, PayCta, RecipientSummary } from './components/pay/PayForm'
 export { default as PaymentQrDisplay } from './components/pay/PaymentQrDisplay'
 export { default as PaymentSuccessOverlay, type ReceivedOverlayProps } from './components/pay/PaymentSuccessOverlay'
 export { default as RecipientField } from './components/pay/RecipientField'
 export { default as ResultBanner } from './components/pay/ResultBanner'
+export { default as UniversalSend, type UniversalSendProps } from './components/pay/UniversalSend'
 export {
   peerPayValidationMessage,
   classifyIdentitySearchError,
-  useIdentitySearch
-} from './components/pay/useIdentitySearch'
+  useRecipientInput,
+  type RecipientTarget,
+  type RecipientInlineError,
+  type UseRecipientInputOptions
+} from './components/pay/useRecipientInput'
 
 // Pay screen (Task 21 — extracted from app/pay.tsx) and the online-status hook
 // it, and several pay cells above, depend on.
@@ -104,6 +113,8 @@ export { EnrollWizard } from './components/vault/EnrollWizard'
 export { PassphraseField, type PassphraseFieldProps } from './components/vault/PassphraseField'
 export { PhraseBackupSheet } from './components/vault/PhraseBackupSheet'
 export { BackupReminderSheet } from './components/wallet/BackupReminderSheet'
+export { BiometricAdvisoryModal } from './components/wallet/BiometricAdvisoryModal'
+export { ImportFromBackupPrompt } from './components/wallet/ImportFromBackupPrompt'
 export { VaultCeremonySheet } from './components/vault/VaultCeremonySheet'
 export { useVaultBalance } from './hooks/useVaultBalance'
 export { VaultScreen } from './screens/VaultScreen'

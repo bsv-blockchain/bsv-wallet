@@ -1,64 +1,61 @@
 /**
- * The "what can I actually send?" line every send surface opens with.
+ * The "what can I actually send?" line under the amount input.
  *
- * One compact row — wallet glyph, the spendable figure, "available" — kept to
- * footnote weight so the form below stays the focal point (the wallet screen
- * owns the 44pt balance; here it is context, not headline). The figure runs
- * through AmountDisplay so it follows the user's BSV/fiat currency setting,
- * and the row renders nothing until a figure exists rather than flashing "0".
+ * One footnote: the spendable figure, then "available". By default, the figure
+ * is in the unit the input above it is taking (satoshis or USD) with no symbol
+ * or unit word, because the input's own suffix already names it. Renders nothing
+ * until a figure exists rather than flashing "0", and nothing in USD mode until
+ * a rate exists rather than inventing one.
+ *
+ * When `withUnit` is true, render as a unit-labelled figure via AmountDisplay
+ * instead — used standalone under a unit-labelled headline (e.g. a confirm
+ * screen showing "$12.34" above) where no input suffix names the unit.
  */
-import React from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import React, { useContext } from 'react'
+import { StyleSheet, Text } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { useSpendableBalance } from '../../hooks/useSpendableBalance'
-import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
+import {
+  ExchangeRateContext,
+  formatAmountInInputUnit,
+  spacing,
+  typography,
+  useTheme,
+  useWallet
+} from '@bsv/expo-wallet-toolbox'
 import AmountDisplay from '../wallet/AmountDisplay'
 
-/**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
- */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
-
-export default function AvailableBalance() {
+export default function AvailableBalance({ withUnit = false }: { withUnit?: boolean }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const { settings } = useWallet()
+  const { satoshisPerUSD } = useContext(ExchangeRateContext)
   const balance = useSpendableBalance()
-  const Ionicons = loadIonicons()
 
   if (balance == null) return null
 
-  return (
-    <View style={styles.row} accessibilityRole="text">
-      <Ionicons name="wallet-outline" size={14} color={colors.textSecondary} />
-      <Text style={[styles.text, { color: colors.textSecondary }]}>
+  if (withUnit) {
+    return (
+      <Text style={[styles.text, { color: colors.textSecondary }]} accessibilityRole="text">
         <Text style={[styles.figure, { color: colors.textPrimary }]}>
           <AmountDisplay>{balance}</AmountDisplay>
         </Text>{' '}
         {t('available')}
       </Text>
-    </View>
+    )
+  }
+
+  const figure = formatAmountInInputUnit(balance, settings?.currency || 'BSV', satoshisPerUSD)
+  if (!figure) return null
+
+  return (
+    <Text style={[styles.text, { color: colors.textSecondary }]} accessibilityRole="text">
+      <Text style={[styles.figure, { color: colors.textPrimary }]}>{figure}</Text> {t('available')}
+    </Text>
   )
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.lg
-  },
-  text: { ...typography.footnote },
+  text: { ...typography.footnote, marginTop: spacing.sm },
   figure: { ...typography.footnote, fontWeight: '600', fontVariant: ['tabular-nums'] }
 })

@@ -17,7 +17,7 @@ import { getOutboxEntries, saveOutboxEntry, updateOutboxEntry } from '../../core
 import { validatePeerPayURI } from '../../core/parsePeerPayURI'
 
 // secp256k1 generator point, in the lowercase hex PublicKey.toString() emits —
-// which is also the only form parsePeerPayURI.ts's identity-key regex accepts.
+// which is also the form parsePeerPayURI.ts stores, whichever case a link carries.
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 function fakeStorage() {
@@ -49,6 +49,33 @@ describe('peerPayLinkFor', () => {
 
   it('omits a non-positive amount rather than emitting sats=0', () => {
     expect(peerPayLinkFor(KEY, 0)).toBe(`peerpay:${KEY}`)
+  })
+
+  it('appends the message-box host as a percent-encoded url extension', () => {
+    expect(peerPayLinkFor(KEY, 5000, 'https://mb.example/')).toBe(
+      `peerpay:${KEY}?sats=5000&url=${encodeURIComponent('https://mb.example')}`
+    )
+  })
+
+  it('emits url alone when there is no amount', () => {
+    expect(peerPayLinkFor(KEY, undefined, 'https://mb.example')).toBe(
+      `peerpay:${KEY}?url=${encodeURIComponent('https://mb.example')}`
+    )
+  })
+
+  it('omits url for the no-server sentinel and for blank', () => {
+    expect(peerPayLinkFor(KEY, 10, NO_MESSAGE_BOX)).toBe(`peerpay:${KEY}?sats=10`)
+    expect(peerPayLinkFor(KEY, 10, '   ')).toBe(`peerpay:${KEY}?sats=10`)
+  })
+
+  it('round-trips the url through the validator', () => {
+    const r = validatePeerPayURI(peerPayLinkFor(KEY, 42, 'https://mb.example/box'))
+    expect(r.sats).toBe(42)
+    expect(r.messageBoxUrl).toBe('https://mb.example/box')
+  })
+
+  it('lowercases the key it emits', () => {
+    expect(peerPayLinkFor(KEY.toUpperCase())).toBe(`peerpay:${KEY}`)
   })
 })
 
@@ -426,6 +453,24 @@ describe('sendViaHandle', () => {
     expect(delivered.amount).toBe(4990)
     expect((await getOutboxEntries(s))[0].token.amount).toBe(4990)
   })
+
+  it('passes recipientHost to sendMessage and persists it on the entry', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    await sendViaHandle({ ...sendArgs(w, client, s), recipientHost: 'https://their.box' })
+    expect(client.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: KEY }), 'https://their.box')
+    expect((await getOutboxEntries(s))[0].recipientHost).toBe('https://their.box')
+  })
+
+  it('sends with no host override and stores no recipientHost when none was given', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    await sendViaHandle(sendArgs(w, client, s))
+    expect(client.sendMessage.mock.calls[0][1]).toBeUndefined()
+    expect((await getOutboxEntries(s))[0]).not.toHaveProperty('recipientHost')
+  })
 })
 
 describe('isMessageBoxNetworkError', () => {
@@ -509,6 +554,34 @@ describe('retryDelivery', () => {
     expect(after.status).toBe('unsent')
     expect(after.lastError).toBe('still offline')
     expect(after.lastAttemptAt).toBeTruthy()
+  })
+})
+
+describe('retryDelivery — recipient host', () => {
+  it('re-sends to the host the entry was minted for', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const failing = { sendMessage: jest.fn().mockRejectedValue(new Error('down')) }
+    await expect(
+      sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })
+    ).rejects.toThrow('down')
+    const entry = (await getOutboxEntries(s))[0]
+    expect(entry.status).toBe('unsent')
+
+    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    expect(client.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: KEY }), 'https://their.box')
+  })
+
+  it('re-sends with no override for an entry that has no recipientHost', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const failing = { sendMessage: jest.fn().mockRejectedValue(new Error('down')) }
+    await expect(sendViaHandle(sendArgs(w, failing, s))).rejects.toThrow('down')
+    const entry = (await getOutboxEntries(s))[0]
+    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    expect(client.sendMessage.mock.calls[0][1]).toBeUndefined()
   })
 })
 
@@ -621,10 +694,13 @@ describe('cancelOutboxPayment', () => {
       client: { sendMessage } as never,
       mode: 'abandon'
     })
-    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      messageBox: 'payment_control',
-      recipient: KEY
-    }))
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageBox: 'payment_control',
+        recipient: KEY
+      }),
+      undefined // this entry named no host, so the box is resolved for the recipient
+    )
     expect(JSON.parse(sendMessage.mock.calls[0][0].body).type).toBe('payment_cancelled')
   })
 
@@ -653,6 +729,35 @@ describe('cancelOutboxPayment', () => {
     expect(result.aborted).toBe(true)
     expect(w.abortAction).toHaveBeenCalledWith({ reference: 'r' }, 'admin.com')
     expect(await getOutboxEntries(s)).toHaveLength(0)
+  })
+
+  it('abandon cancels in the box the token was delivered to', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const failing = { sendMessage: jest.fn().mockRejectedValue(new Error('down')) }
+    await expect(sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })).rejects.toThrow(
+      'down'
+    )
+    const seeded = (await getOutboxEntries(s))[0]
+    await updateOutboxEntry(s, seeded.id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
+    expect(entry.recipientHost).toBe('https://their.box')
+
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    w.abortAction = jest.fn().mockResolvedValue({ aborted: true })
+    w.listActions = jest.fn().mockResolvedValue({ actions: [] })
+    await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: { sendMessage } as never,
+      mode: 'abandon'
+    })
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageBox: 'payment_control', recipient: KEY }),
+      'https://their.box'
+    )
   })
 
   it('abandon does not remove the entry when payment_cancelled cannot be sent', async () => {
