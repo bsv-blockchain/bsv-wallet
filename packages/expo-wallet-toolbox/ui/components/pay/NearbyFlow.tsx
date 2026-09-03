@@ -1107,6 +1107,10 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
         supportsAwdl,
         supportsNearby: nearbyReady,
         supportsBle: bleLive,
+        // Reversed role (spec 2026-09-03): an iOS payee also scans for a payer
+        // that advertises, so an Android payer never has to be the central.
+        // ble.ts starts that scan alongside the advertised listener.
+        supportsBleScan: bleLive && Platform.OS === 'ios',
         // prepare() settles the Bluetooth answer the prompt-free probe may have
         // read as 'unknown' a moment earlier, so where it ran it overrides the
         // probe's field. The hint bits are copy for the payer, not dispatch.

@@ -17,7 +17,7 @@ import {
  * connectTimeoutMs (BLE's 15 s, see ble.ts) with margin left for the actual
  * transfer.
  */
-const SEND_TIMEOUT_MS = 30_000
+export const SEND_TIMEOUT_MS = 30_000
 
 /**
  * The four methods this wrapper drives. `LocalPayTransport` (AWDL on iOS,
@@ -29,13 +29,13 @@ const SEND_TIMEOUT_MS = 30_000
  */
 export type LocalPayNative = Pick<LocalPayTransport, 'startListening' | 'stopListening' | 'confirmFrame' | 'sendFrame'>
 
-function toBase64(b: Uint8Array): string {
+export function toBase64(b: Uint8Array): string {
   let s = ''
   for (const byte of b) s += String.fromCharCode(byte)
   return globalThis.btoa(s)
 }
 
-function fromBase64(s: string): Uint8Array {
+export function fromBase64(s: string): Uint8Array {
   return Uint8Array.from(globalThis.atob(s), c => c.charCodeAt(0))
 }
 
@@ -44,7 +44,7 @@ function fromBase64(s: string): Uint8Array {
  * isn't a well-formed { ok: boolean, error?: string } object — a genuine
  * peer decline (ok: false) is not an error and must be returned normally.
  */
-function parseAck(ackBase64: string): Ack {
+export function parseAck(ackBase64: string): Ack {
   let parsed: unknown
   try {
     parsed = JSON.parse(new TextDecoder().decode(fromBase64(ackBase64)))
@@ -75,7 +75,7 @@ function parseAck(ackBase64: string): Ack {
  * positive ack is sent — a socket error here is a payer-side retry problem,
  * not a reason to tell the payee its payment failed.
  */
-function makeConfirm(native: LocalPayNative): ConfirmDelivery {
+export function makeConfirm(native: LocalPayNative): ConfirmDelivery {
   let acked = false
   return (accepted, reason) => {
     if (acked) return Promise.resolve()
@@ -98,7 +98,7 @@ function warnAckFailure(e: unknown): void {
  * throw here would unwind into Swift's `onFrame` invocation rather than into
  * any JS caller.
  */
-function declineQuietly(native: LocalPayNative, reason: DeclineReason): void {
+export function declineQuietly(native: LocalPayNative, reason: DeclineReason): void {
   try {
     void native.confirmFrame(false, reason).catch(warnAckFailure)
   } catch (e) {

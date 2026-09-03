@@ -1,6 +1,7 @@
+import { Platform } from 'react-native'
 import { BLE_CONNECT_TIMEOUT_MS, bleTransport } from '../../core/localpay/transport/ble'
 import { AckError } from '../../core/localpay/types'
-import { mintSession, instanceName } from '../../core/localpay/session'
+import { mintSession, instanceName, CAP_BLE_SCAN } from '../../core/localpay/session'
 import { CodecError, FRAME_VERSION, SEAL_VERSION, encodeFrame, sealFrame, unsealFrame, type PaymentFrame } from '../../core/localpay/codec'
 import type { LocalPayBleTransport } from 'react-native-localpay-transport'
 
@@ -22,6 +23,8 @@ function fakeNative(overrides: Partial<LocalPayBleTransport> = {}) {
     stopListening: jest.fn().mockResolvedValue(undefined),
     confirmFrame: jest.fn().mockResolvedValue(undefined),
     sendFrame: jest.fn(),
+    startScanning: jest.fn().mockResolvedValue(undefined),
+    sendFrameAdvertising: jest.fn(),
     ...overrides,
   }
 }
@@ -362,5 +365,108 @@ describe('bleTransport.receive', () => {
 
     await expect(bleTransport.receive(session, new AbortController().signal)).rejects.toThrow('bluetooth unavailable')
     expect(native.stopListening).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('bleTransport reversed role', () => {
+  afterEach(() => {
+    Platform.OS = 'ios'
+    jest.clearAllMocks()
+  })
+
+  const scanning = { ...session, caps: session.caps | CAP_BLE_SCAN }
+
+  it('send() advertises on Android when the payee scans', async () => {
+    Platform.OS = 'android'
+    const native = fakeNative({
+      sendFrameAdvertising: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) as never,
+    })
+    getLocalPayBleTransport.mockReturnValue(native)
+    await expect(bleTransport.send(scanning, frame, new AbortController().signal)).resolves.toEqual({ ok: true })
+    expect(native.sendFrameAdvertising).toHaveBeenCalledTimes(1)
+    expect(native.sendFrame).not.toHaveBeenCalled()
+    expect((native.sendFrameAdvertising as jest.Mock).mock.calls[0].slice(3)).toEqual([30_000, 15_000])
+  })
+
+  it('send() stays central on iOS even when the payee scans', async () => {
+    Platform.OS = 'ios'
+    const native = fakeNative({ sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) as never })
+    getLocalPayBleTransport.mockReturnValue(native)
+    await bleTransport.send(scanning, frame, new AbortController().signal)
+    expect(native.sendFrame).toHaveBeenCalledTimes(1)
+    expect(native.sendFrameAdvertising).not.toHaveBeenCalled()
+  })
+
+  it('send() stays central on Android when the payee does not scan', async () => {
+    Platform.OS = 'android'
+    const native = fakeNative({ sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) as never })
+    getLocalPayBleTransport.mockReturnValue(native)
+    await bleTransport.send(session, frame, new AbortController().signal)
+    expect(native.sendFrame).toHaveBeenCalledTimes(1)
+    expect(native.sendFrameAdvertising).not.toHaveBeenCalled()
+  })
+
+  it('receive() starts the advertised listener and the scan on iOS, with the same session args', async () => {
+    Platform.OS = 'ios'
+    const startListening = jest.fn(() => Promise.resolve())
+    const startScanning = jest.fn(() => Promise.resolve())
+    const native = fakeNative({ startListening: startListening as never, startScanning: startScanning as never })
+    getLocalPayBleTransport.mockReturnValue(native)
+    const controller = new AbortController()
+    const pending = bleTransport.receive(session, controller.signal)
+    await Promise.resolve()
+    expect(startListening).toHaveBeenCalledTimes(1)
+    expect(startScanning).toHaveBeenCalledTimes(1)
+    expect(startScanning.mock.calls[0][0]).toBe(instanceName(session.sessionId))
+    expect(startScanning.mock.calls[0][1]).toBe(toBase64(session.psk))
+    controller.abort()
+    await expect(pending).rejects.toThrow('cancelled')
+  })
+
+  it('receive() never scans on Android', async () => {
+    Platform.OS = 'android'
+    const startScanning = jest.fn(() => Promise.resolve())
+    const native = fakeNative({ startListening: jest.fn(() => Promise.resolve()) as never, startScanning: startScanning as never })
+    getLocalPayBleTransport.mockReturnValue(native)
+    const controller = new AbortController()
+    const pending = bleTransport.receive(session, controller.signal)
+    await Promise.resolve()
+    expect(startScanning).not.toHaveBeenCalled()
+    controller.abort()
+    await expect(pending).rejects.toThrow('cancelled')
+  })
+
+  it('a failing scan start is logged, not terminal: the advertised listener still delivers', async () => {
+    Platform.OS = 'ios'
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const startListening = jest.fn((_n: string, _p: string, onFrame: (f: string) => void) => {
+      setTimeout(() => onFrame(toBase64(sealFrame(frame, session.psk))), 0)
+      return Promise.resolve()
+    })
+    const native = fakeNative({
+      startListening: startListening as never,
+      startScanning: jest.fn().mockRejectedValue(new Error('bluetooth unavailable')) as never,
+    })
+    getLocalPayBleTransport.mockReturnValue(native)
+    const received = await bleTransport.receive(session, new AbortController().signal)
+    expect(received.frame.transaction).toEqual(frame.transaction)
+    expect(warn).toHaveBeenCalledWith('[localpay] ble scan unavailable:', 'bluetooth unavailable')
+    warn.mockRestore()
+  })
+
+  it('a frame from the scan link resolves receive() and shares the one confirm handle', async () => {
+    Platform.OS = 'ios'
+    const startScanning = jest.fn((_n: string, _p: string, onFrame: (f: string) => void) => {
+      setTimeout(() => onFrame(toBase64(sealFrame(frame, session.psk))), 0)
+      return Promise.resolve()
+    })
+    const native = fakeNative({ startListening: jest.fn(() => Promise.resolve()) as never, startScanning: startScanning as never })
+    getLocalPayBleTransport.mockReturnValue(native)
+    const received = await bleTransport.receive(session, new AbortController().signal)
+    await received.confirm(true)
+    await received.confirm(false, 'save_failed')
+    expect(native.confirmFrame).toHaveBeenCalledTimes(1)
+    expect(native.confirmFrame).toHaveBeenCalledWith(true, '')
+    expect(native.stopListening).not.toHaveBeenCalled()
   })
 })
