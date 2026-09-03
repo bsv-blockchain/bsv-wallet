@@ -66,6 +66,10 @@ async function exportIOS(storage: StorageExpoSQLite | null): Promise<number> {
   const sourceFile = new File(dbPath)
   if (!sourceFile.exists) return 0
 
+  // The database runs in WAL mode: commits sit in the -wal sidecar until a
+  // checkpoint, and a byte copy of the .db alone would silently omit them.
+  await storage.checkpointWal()
+
   const outName = exportFilename(storage.dbName)
   const tempDir = new Directory(Paths.cache, 'bsv-wallet-export')
   if (tempDir.exists) tempDir.delete()

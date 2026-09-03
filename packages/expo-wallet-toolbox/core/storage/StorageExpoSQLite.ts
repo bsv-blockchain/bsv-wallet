@@ -77,6 +77,7 @@ import type { EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/stora
 import type { PostReqsToNetworkResult } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork'
 import { listActionsSql } from './methods/listActionsSql'
 import { listOutputsSql } from './methods/listOutputsSql'
+import { findUnprovenTxidsWithoutReq } from './methods/unprovenWithoutReqSql'
 import { insertOfflineAction, type OfflineActionRole } from './methods/offlineActions'
 import {
   LIVE_OFFLINE_SKIP_TXIDS_SQL,
@@ -99,6 +100,19 @@ export interface StorageExpoSQLiteOptions extends StorageProviderOptions {
   identityKey?: string
 }
 
+/** Per-connection wait before a lock contention becomes "database is locked". */
+export const BUSY_TIMEOUT_MS = 5000
+
+/**
+ * The token `transaction()` hands its scope. Carrying the connection on the
+ * token is what lets `getDB(trx)` route a statement to the transaction without
+ * touching `this.db`.
+ */
+interface SqliteTrxToken {
+  _inTrx: true
+  db: SQLiteDatabase
+}
+
 /**
  * SQLite storage provider for BSV wallet using expo-sqlite.
  * Extends StorageProvider to inherit business logic (createAction, internalizeAction, etc.)
@@ -119,7 +133,15 @@ export class StorageExpoSQLite extends StorageProvider {
   // ============================================================================
 
   async migrate(storageName: string, storageIdentityKey: string): Promise<string> {
-    this.db = await SQLite.openDatabaseAsync(this.dbName)
+    this.db = await this.openDatabase()
+    // Two connections share this file whenever a transaction is open (see
+    // `transaction()`), and expo-sqlite sets no busy handler, so without these
+    // any overlap fails instantly with "database is locked". WAL lets readers
+    // proceed while the transaction connection writes; the busy timeout turns a
+    // writer-writer overlap into a short wait. WAL persists in the file, the
+    // timeout is per connection.
+    await this.db.execAsync(`PRAGMA journal_mode = WAL`)
+    await this.db.execAsync(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`)
     await createTables(this.db)
     await ensureOfflineActionsColumns(this.db)
 
@@ -141,8 +163,13 @@ export class StorageExpoSQLite extends StorageProvider {
     return '1'
   }
 
-  async readSettings(_trx?: TrxToken): Promise<TableSettings> {
-    const db = this.getDB()
+  /** Seam for tests, which inject a fake connection instead of a native one. */
+  protected async openDatabase(): Promise<SQLiteDatabase> {
+    return await SQLite.openDatabaseAsync(this.dbName)
+  }
+
+  async readSettings(trx?: TrxToken): Promise<TableSettings> {
+    const db = this.getDB(trx)
     const row = (await db.getFirstAsync('SELECT * FROM settings LIMIT 1')) as any
     if (!row) throw new Error('Settings not found. Call migrate() first.')
     return this.validateEntity({ ...row })
@@ -203,23 +230,29 @@ export class StorageExpoSQLite extends StorageProvider {
     }
 
     const db = this.getDB()
-    const token: TrxToken = { _inTrx: true } as any
 
     // withExclusiveTransactionAsync opens a dedicated connection for the
-    // transaction so no other async queries can interleave with BEGIN/COMMIT.
-    // All queries executed inside scope() must go through that connection, so
-    // we temporarily replace this.db with the exclusive txn object and restore
-    // it when the scope completes (or throws).
+    // transaction and CLOSES it when the scope ends. That connection must be
+    // reachable only through the token: an earlier version swapped `this.db`
+    // to it for the scope's duration, so any concurrent caller without a token
+    // (a monitor task, a balance refresh, a raw `sqliteDb` user) prepared
+    // statements on a connection that was then closed under it — a native
+    // SIGSEGV in exsqlite3_reset on Android. Everything without a token now
+    // stays on the main connection, and WAL + busy_timeout (see `migrate`)
+    // handle the two connections overlapping.
+    //
+    // Transactions are also serialised here. Two exclusive connections at once
+    // would each BEGIN deferred, and in WAL the second one's first write fails
+    // with SQLITE_BUSY_SNAPSHOT — which no busy handler can wait out.
+    const unlock = await this.acquireTransactionLock()
     let result!: T
     try {
       await db.withExclusiveTransactionAsync(async txn => {
-        const savedDb = this.db
-        this.db = txn as any
-        try {
-          result = await scope(token)
-        } finally {
-          this.db = savedDb
-        }
+        // Fresh connection, so the main connection's busy timeout does not
+        // apply to it.
+        await txn.execAsync(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`)
+        const token: SqliteTrxToken = { _inTrx: true, db: txn as unknown as SQLiteDatabase }
+        result = await scope(token as unknown as TrxToken)
       })
     } catch (e) {
       // Rethrow a recognisable storage failure as a typed one so the UI can say
@@ -227,8 +260,53 @@ export class StorageExpoSQLite extends StorageProvider {
       // guessing would turn a schema bug into a "free up space" prompt.
       const classified = storageErrorFromSqlite(e)
       throw classified ?? e
+    } finally {
+      unlock()
     }
     return result
+  }
+
+  /**
+   * How long a transaction may wait for the previous one before failing. A
+   * wait this long means a scope is stuck (most likely a nested `transaction()`
+   * call that forgot to pass its token); failing beats hanging the wallet.
+   */
+  transactionLockTimeoutMs = 30_000
+  private transactionLock: Promise<void> = Promise.resolve()
+
+  private async acquireTransactionLock(): Promise<() => void> {
+    let release!: () => void
+    const held = new Promise<void>(r => (release = r))
+    const previous = this.transactionLock
+    this.transactionLock = previous.then(() => held)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`transaction lock wait exceeded ${this.transactionLockTimeoutMs}ms`)),
+        this.transactionLockTimeoutMs
+      )
+    })
+    try {
+      await Promise.race([previous, timedOut])
+    } catch (e) {
+      // Give the slot back so the chain is not left waiting on a promise that
+      // no scope will ever resolve.
+      release()
+      throw e
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+    return release
+  }
+
+  /**
+   * Fold the write-ahead log back into the main file. In WAL mode (see
+   * `migrate`) recent commits live in `<name>.db-wal` until a checkpoint, so
+   * anything that copies the `.db` file as bytes — the iOS export — must call
+   * this first or ship a snapshot missing the newest transactions.
+   */
+  async checkpointWal(): Promise<void> {
+    await this.getDB().execAsync('PRAGMA wal_checkpoint(TRUNCATE)')
   }
 
   async dropAllData(): Promise<void> {
@@ -246,7 +324,18 @@ export class StorageExpoSQLite extends StorageProvider {
     return this._settings.dbtype as string
   }
 
-  private getDB(): SQLiteDatabase {
+  /**
+   * The connection a statement must run on. Inside a `transaction()` scope
+   * that is the token's own connection; everywhere else it is the shared main
+   * connection. The token is the ONLY route to the transaction connection —
+   * see `transaction()` for why `this.db` is never swapped.
+   */
+  private getDB(trx?: TrxToken): SQLiteDatabase {
+    const bound = (trx as SqliteTrxToken | undefined)?.db
+    if (bound) {
+      this.whenLastAccess = new Date()
+      return bound
+    }
     if (!this.db) throw new Error('Database not initialized. Call migrate() first.')
     this.whenLastAccess = new Date()
     return this.db
@@ -400,7 +489,7 @@ export class StorageExpoSQLite extends StorageProvider {
     extraClauses?: { conditions: string[]; params: any[] },
     columns?: string[]
   ): Promise<T[]> {
-    const db = this.getDB()
+    const db = this.getDB(args.trx)
     const { sql: whereSql, params } = this.buildWhere(args.partial)
 
     // Params must be pushed in the same order buildFindSql emits their
@@ -427,7 +516,7 @@ export class StorageExpoSQLite extends StorageProvider {
     args: { partial: Record<string, any>; since?: Date; trx?: TrxToken },
     extraClauses?: { conditions: string[]; params: any[] }
   ): Promise<number> {
-    const db = this.getDB()
+    const db = this.getDB(args.trx)
     const { sql: whereSql, params } = this.buildWhere(args.partial)
     let query = `SELECT COUNT(*) as count FROM "${table}" ${whereSql}`
 
@@ -456,7 +545,7 @@ export class StorageExpoSQLite extends StorageProvider {
     args: { partial: Record<string, any>; since?: Date; trx?: TrxToken },
     extraClauses?: { conditions: string[]; params: any[] }
   ): Promise<{ count: number; total: number }> {
-    const db = this.getDB()
+    const db = this.getDB(args.trx)
     const { sql: whereSql, params } = this.buildWhere(args.partial)
     let query = `SELECT COUNT(*) as count, COALESCE(SUM("${column}"), 0) as total FROM "${table}" ${whereSql}`
 
@@ -491,8 +580,13 @@ export class StorageExpoSQLite extends StorageProvider {
     return names
   }
 
-  private async sqlInsert(table: string, entity: Record<string, any>, pkCol: string): Promise<number> {
-    const db = this.getDB()
+  private async sqlInsert(
+    table: string,
+    entity: Record<string, any>,
+    pkCol: string,
+    trx?: TrxToken
+  ): Promise<number> {
+    const db = this.getDB(trx)
     const cols: string[] = []
     const placeholders: string[] = []
     const vals: any[] = []
@@ -517,9 +611,10 @@ export class StorageExpoSQLite extends StorageProvider {
     table: string,
     ids: number | number[],
     update: Record<string, any>,
-    pkCol: string
+    pkCol: string,
+    trx?: TrxToken
   ): Promise<number> {
-    const db = this.getDB()
+    const db = this.getDB(trx)
     const setClauses: string[] = []
     const vals: any[] = []
     for (const [key, value] of Object.entries(update)) {
@@ -543,9 +638,10 @@ export class StorageExpoSQLite extends StorageProvider {
   private async sqlUpdateComposite(
     table: string,
     keyMap: Record<string, any>,
-    update: Record<string, any>
+    update: Record<string, any>,
+    trx?: TrxToken
   ): Promise<number> {
-    const db = this.getDB()
+    const db = this.getDB(trx)
     const setClauses: string[] = []
     const vals: any[] = []
     for (const [key, value] of Object.entries(update)) {
@@ -575,7 +671,7 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertUser(user: TableUser, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(user, trx)
     if (e.userId === 0) delete e.userId
-    const id = await this.sqlInsert('users', e, 'userId')
+    const id = await this.sqlInsert('users', e, 'userId', trx)
     user.userId = id
     return id
   }
@@ -583,7 +679,7 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertProvenTx(tx: TableProvenTx, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(tx, trx)
     if (e.provenTxId === 0) delete e.provenTxId
-    const id = await this.sqlInsert('proven_txs', e, 'provenTxId')
+    const id = await this.sqlInsert('proven_txs', e, 'provenTxId', trx)
     tx.provenTxId = id
     return id
   }
@@ -594,7 +690,7 @@ export class StorageExpoSQLite extends StorageProvider {
     // See methods/historyNotes.ts: provider error notes carry the full EF/rawTx
     // hex and reach this column untruncated.
     e.history = scrubHistoryJson(e.history)
-    const id = await this.sqlInsert('proven_tx_reqs', e, 'provenTxReqId')
+    const id = await this.sqlInsert('proven_tx_reqs', e, 'provenTxReqId', trx)
     tx.provenTxReqId = id
     return id
   }
@@ -604,7 +700,7 @@ export class StorageExpoSQLite extends StorageProvider {
     const fields = (e as any).fields
     if (e.fields) delete (e as any).fields
     if (e.certificateId === 0) delete (e as any).certificateId
-    const id = await this.sqlInsert('certificates', e, 'certificateId')
+    const id = await this.sqlInsert('certificates', e, 'certificateId', trx)
     certificate.certificateId = id
     if (fields) {
       for (const field of fields) {
@@ -618,13 +714,13 @@ export class StorageExpoSQLite extends StorageProvider {
 
   async insertCertificateField(certificateField: TableCertificateField, trx?: TrxToken): Promise<void> {
     const e = await this.validateEntityForInsert(certificateField, trx)
-    await this.sqlInsert('certificate_fields', e, 'certificateId')
+    await this.sqlInsert('certificate_fields', e, 'certificateId', trx)
   }
 
   async insertCommission(commission: TableCommission, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(commission, trx)
     if (e.commissionId === 0) delete (e as any).commissionId
-    const id = await this.sqlInsert('commissions', e, 'commissionId')
+    const id = await this.sqlInsert('commissions', e, 'commissionId', trx)
     commission.commissionId = id
     return id
   }
@@ -632,7 +728,7 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertMonitorEvent(event: TableMonitorEvent, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(event, trx)
     if (e.id === 0) delete (e as any).id
-    const id = await this.sqlInsert('monitor_events', e, 'id')
+    const id = await this.sqlInsert('monitor_events', e, 'id', trx)
     event.id = id
     return id
   }
@@ -640,7 +736,7 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertOutput(output: TableOutput, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(output, trx)
     if (e.outputId === 0) delete (e as any).outputId
-    const id = await this.sqlInsert('outputs', e, 'outputId')
+    const id = await this.sqlInsert('outputs', e, 'outputId', trx)
     output.outputId = id
     return id
   }
@@ -648,7 +744,7 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertOutputBasket(basket: TableOutputBasket, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(basket, trx, undefined, ['isDeleted'])
     if (e.basketId === 0) delete (e as any).basketId
-    const id = await this.sqlInsert('output_baskets', e, 'basketId')
+    const id = await this.sqlInsert('output_baskets', e, 'basketId', trx)
     basket.basketId = id
     return id
   }
@@ -656,20 +752,20 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertOutputTag(tag: TableOutputTag, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(tag, trx, undefined, ['isDeleted'])
     if (e.outputTagId === 0) delete (e as any).outputTagId
-    const id = await this.sqlInsert('output_tags', e, 'outputTagId')
+    const id = await this.sqlInsert('output_tags', e, 'outputTagId', trx)
     tag.outputTagId = id
     return id
   }
 
   async insertOutputTagMap(tagMap: TableOutputTagMap, trx?: TrxToken): Promise<void> {
     const e = await this.validateEntityForInsert(tagMap, trx, undefined, ['isDeleted'])
-    await this.sqlInsert('output_tags_map', e, 'outputTagId')
+    await this.sqlInsert('output_tags_map', e, 'outputTagId', trx)
   }
 
   async insertSyncState(syncState: TableSyncState, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(syncState, trx, ['when'], ['init'])
     if (e.syncStateId === 0) delete (e as any).syncStateId
-    const id = await this.sqlInsert('sync_states', e, 'syncStateId')
+    const id = await this.sqlInsert('sync_states', e, 'syncStateId', trx)
     syncState.syncStateId = id
     return id
   }
@@ -677,7 +773,7 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertTransaction(tx: TableTransaction, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(tx, trx)
     if (e.transactionId === 0) delete (e as any).transactionId
-    const id = await this.sqlInsert('transactions', e, 'transactionId')
+    const id = await this.sqlInsert('transactions', e, 'transactionId', trx)
     tx.transactionId = id
     return id
   }
@@ -685,14 +781,14 @@ export class StorageExpoSQLite extends StorageProvider {
   async insertTxLabel(label: TableTxLabel, trx?: TrxToken): Promise<number> {
     const e = await this.validateEntityForInsert(label, trx, undefined, ['isDeleted'])
     if (e.txLabelId === 0) delete (e as any).txLabelId
-    const id = await this.sqlInsert('tx_labels', e, 'txLabelId')
+    const id = await this.sqlInsert('tx_labels', e, 'txLabelId', trx)
     label.txLabelId = id
     return id
   }
 
   async insertTxLabelMap(labelMap: TableTxLabelMap, trx?: TrxToken): Promise<void> {
     const e = await this.validateEntityForInsert(labelMap, trx, undefined, ['isDeleted'])
-    await this.sqlInsert('tx_labels_map', e, 'txLabelId')
+    await this.sqlInsert('tx_labels_map', e, 'txLabelId', trx)
   }
 
   // ============================================================================
@@ -701,12 +797,12 @@ export class StorageExpoSQLite extends StorageProvider {
 
   async updateUser(id: number, update: Partial<TableUser>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update)
-    return await this.sqlUpdate('users', id, u as any, 'userId')
+    return await this.sqlUpdate('users', id, u as any, 'userId', trx)
   }
 
   async updateProvenTx(id: number, update: Partial<TableProvenTx>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update) as any
-    return await this.sqlUpdate('proven_txs', id, u, 'provenTxId')
+    return await this.sqlUpdate('proven_txs', id, u, 'provenTxId', trx)
   }
 
   /**
@@ -717,12 +813,12 @@ export class StorageExpoSQLite extends StorageProvider {
   async updateProvenTxReq(id: number | number[], update: Partial<TableProvenTxReq>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update) as any
     if ('history' in u) u.history = scrubHistoryJson(u.history)
-    return await this.sqlUpdate('proven_tx_reqs', id, u, 'provenTxReqId')
+    return await this.sqlUpdate('proven_tx_reqs', id, u, 'provenTxReqId', trx)
   }
 
   async updateCertificate(id: number, update: Partial<TableCertificate>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update, undefined, ['isDeleted'])
-    return await this.sqlUpdate('certificates', id, u as any, 'certificateId')
+    return await this.sqlUpdate('certificates', id, u as any, 'certificateId', trx)
   }
 
   async updateCertificateField(
@@ -732,32 +828,32 @@ export class StorageExpoSQLite extends StorageProvider {
     trx?: TrxToken
   ): Promise<number> {
     const u = this.validatePartialForUpdate(update)
-    return await this.sqlUpdateComposite('certificate_fields', { certificateId, fieldName }, u as any)
+    return await this.sqlUpdateComposite('certificate_fields', { certificateId, fieldName }, u as any, trx)
   }
 
   async updateCommission(id: number, update: Partial<TableCommission>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update)
-    return await this.sqlUpdate('commissions', id, u as any, 'commissionId')
+    return await this.sqlUpdate('commissions', id, u as any, 'commissionId', trx)
   }
 
   async updateMonitorEvent(id: number, update: Partial<TableMonitorEvent>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update)
-    return await this.sqlUpdate('monitor_events', id, u as any, 'id')
+    return await this.sqlUpdate('monitor_events', id, u as any, 'id', trx)
   }
 
   async updateOutput(id: number, update: Partial<TableOutput>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update) as any
-    return await this.sqlUpdate('outputs', id, u, 'outputId')
+    return await this.sqlUpdate('outputs', id, u, 'outputId', trx)
   }
 
   async updateOutputBasket(id: number, update: Partial<TableOutputBasket>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update, undefined, ['isDeleted'])
-    return await this.sqlUpdate('output_baskets', id, u as any, 'basketId')
+    return await this.sqlUpdate('output_baskets', id, u as any, 'basketId', trx)
   }
 
   async updateOutputTag(id: number, update: Partial<TableOutputTag>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update, undefined, ['isDeleted'])
-    return await this.sqlUpdate('output_tags', id, u as any, 'outputTagId')
+    return await this.sqlUpdate('output_tags', id, u as any, 'outputTagId', trx)
   }
 
   async updateOutputTagMap(
@@ -767,22 +863,22 @@ export class StorageExpoSQLite extends StorageProvider {
     trx?: TrxToken
   ): Promise<number> {
     const u = this.validatePartialForUpdate(update, undefined, ['isDeleted'])
-    return await this.sqlUpdateComposite('output_tags_map', { outputTagId: tagId, outputId }, u as any)
+    return await this.sqlUpdateComposite('output_tags_map', { outputTagId: tagId, outputId }, u as any, trx)
   }
 
   async updateSyncState(id: number, update: Partial<TableSyncState>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update, ['when'], ['init'])
-    return await this.sqlUpdate('sync_states', id, u as any, 'syncStateId')
+    return await this.sqlUpdate('sync_states', id, u as any, 'syncStateId', trx)
   }
 
   async updateTransaction(id: number | number[], update: Partial<TableTransaction>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update) as any
-    return await this.sqlUpdate('transactions', id, u, 'transactionId')
+    return await this.sqlUpdate('transactions', id, u, 'transactionId', trx)
   }
 
   async updateTxLabel(id: number, update: Partial<TableTxLabel>, trx?: TrxToken): Promise<number> {
     const u = this.validatePartialForUpdate(update, undefined, ['isDeleted'])
-    return await this.sqlUpdate('tx_labels', id, u as any, 'txLabelId')
+    return await this.sqlUpdate('tx_labels', id, u as any, 'txLabelId', trx)
   }
 
   async updateTxLabelMap(
@@ -792,7 +888,7 @@ export class StorageExpoSQLite extends StorageProvider {
     trx?: TrxToken
   ): Promise<number> {
     const u = this.validatePartialForUpdate(update, undefined, ['isDeleted'])
-    return await this.sqlUpdateComposite('tx_labels_map', { txLabelId, transactionId }, u as any)
+    return await this.sqlUpdateComposite('tx_labels_map', { txLabelId, transactionId }, u as any, trx)
   }
 
   // ============================================================================
@@ -1526,6 +1622,14 @@ export class StorageExpoSQLite extends StorageProvider {
     return { rows: result.changes ?? 0 }
   }
 
+  /**
+   * Transactions no monitor task will ever prove: `unproven` with neither a
+   * proven_tx_req nor a proven_tx. See methods/unprovenWithoutReqSql.ts.
+   */
+  async findUnprovenTxidsWithoutReq(): Promise<string[]> {
+    return await findUnprovenTxidsWithoutReq(this.getDB())
+  }
+
   async getProvenTxHeights(): Promise<Map<string, number>> {
     if (!this.isAvailable()) await this.makeAvailable()
     const rows = (await this.getDB().getAllAsync(PROVEN_HEIGHTS_SQL)) as { txid?: string; height?: number }[]
@@ -1554,7 +1658,7 @@ export class StorageExpoSQLite extends StorageProvider {
     // Table order and the status filter mirror getProvenOrRawTx exactly (see
     // rangeReadSql), so a range read can never see a row the full read refuses.
     if (offset !== undefined && length !== undefined && Number.isInteger(offset) && Number.isInteger(length)) {
-      const db = this.getDB()
+      const db = this.getDB(trx)
       // substr is 1-indexed over bytes; a JS offset of n starts at n + 1.
       const args = [offset + 1, length, txid]
       type RangeRow = { chunk?: Uint8Array } | null
@@ -1658,7 +1762,7 @@ export class StorageExpoSQLite extends StorageProvider {
 
   async reviewStatus(args: { agedLimit: Date; trx?: TrxToken }): Promise<{ log: string }> {
     return await this.transaction(async trx => {
-      const db = this.getDB()
+      const db = this.getDB(trx)
       const skipRows = (await db.getAllAsync(LIVE_OFFLINE_SKIP_TXIDS_SQL, [])) as { txid: string }[]
       const skipTxids = new Set(skipRows.map(row => row.txid))
       let log = ''
