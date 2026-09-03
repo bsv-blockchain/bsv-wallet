@@ -1013,7 +1013,7 @@ const resources = {
       message_box_saved: '消息箱服务器已保存',
       message_box_removed: '消息箱服务器已删除',
       message_box_off: '关闭',
-      message_box_off_hint: '消息箱服务器已关闭。请在"设置 › 高级"中开启。',
+      message_box_off_hint: '消息箱服务器已关闭。请在“设置 › 高级”中开启。',
       enter_valid_url: '请输入有效的网址',
       checking_connection: '正在检查连接...',
       connection_failed: '连接失败',
