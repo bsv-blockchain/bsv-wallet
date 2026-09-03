@@ -694,10 +694,13 @@ describe('cancelOutboxPayment', () => {
       client: { sendMessage } as never,
       mode: 'abandon'
     })
-    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      messageBox: 'payment_control',
-      recipient: KEY
-    }))
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageBox: 'payment_control',
+        recipient: KEY
+      }),
+      undefined // this entry named no host, so the box is resolved for the recipient
+    )
     expect(JSON.parse(sendMessage.mock.calls[0][0].body).type).toBe('payment_cancelled')
   })
 
@@ -726,6 +729,35 @@ describe('cancelOutboxPayment', () => {
     expect(result.aborted).toBe(true)
     expect(w.abortAction).toHaveBeenCalledWith({ reference: 'r' }, 'admin.com')
     expect(await getOutboxEntries(s)).toHaveLength(0)
+  })
+
+  it('abandon cancels in the box the token was delivered to', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const failing = { sendMessage: jest.fn().mockRejectedValue(new Error('down')) }
+    await expect(sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })).rejects.toThrow(
+      'down'
+    )
+    const seeded = (await getOutboxEntries(s))[0]
+    await updateOutboxEntry(s, seeded.id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
+    expect(entry.recipientHost).toBe('https://their.box')
+
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    w.abortAction = jest.fn().mockResolvedValue({ aborted: true })
+    w.listActions = jest.fn().mockResolvedValue({ actions: [] })
+    await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: { sendMessage } as never,
+      mode: 'abandon'
+    })
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageBox: 'payment_control', recipient: KEY }),
+      'https://their.box'
+    )
   })
 
   it('abandon does not remove the entry when payment_cancelled cannot be sent', async () => {

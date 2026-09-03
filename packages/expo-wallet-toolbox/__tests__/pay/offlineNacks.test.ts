@@ -28,11 +28,14 @@ describe('sendBouncedOfflineNack', () => {
     expect(first).toBe(true)
     expect(second).toBe(false)
     expect(sendMessage).toHaveBeenCalledTimes(1)
-    expect(sendMessage).toHaveBeenCalledWith({
-      recipient: '02sender',
-      messageBox: 'payment_control',
-      body: JSON.stringify({ type: 'resend_request', txid: 'aa', reason: 'bounced_offline' })
-    })
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        recipient: '02sender',
+        messageBox: 'payment_control',
+        body: JSON.stringify({ type: 'resend_request', txid: 'aa', reason: 'bounced_offline' })
+      },
+      undefined // no host override on this path
+    )
     const stored = JSON.parse((await storage.getKeyValue(OFFLINE_NACKS_KEY)) ?? '{}') as {
       aa?: { nackSentAt: number }
     }
@@ -72,7 +75,8 @@ describe('nackRejectedReceived', () => {
       expect.objectContaining({
         recipient: '02aa',
         body: JSON.stringify({ type: 'resend_request', txid: 'aa', reason: 'bounced_offline' })
-      })
+      }),
+      undefined // no host override on this path
     )
   })
 })

@@ -516,7 +516,7 @@ export async function cancelOutboxPayment(args: {
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>
   adminOriginator: string
   storage: StorageLike
-  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient'>
+  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient' | 'recipientHost'>
   client?: Pick<PeerPayClient, 'sendMessage'>
   mode?: 'undelivered' | 'abandon'
 }): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
@@ -531,10 +531,16 @@ export async function cancelOutboxPayment(args: {
   if (mode === 'abandon') {
     if (!client) throw new Error('client required to abandon')
     if (entry.txid) {
-      await sendControlMessage(client, {
-        recipient: entry.recipient,
-        message: { type: 'payment_cancelled', txid: entry.txid }
-      })
+      // Same box the token went to — an entry minted for a link-named host must
+      // be cancelled there, or the payee never hears.
+      await sendControlMessage(
+        client,
+        {
+          recipient: entry.recipient,
+          message: { type: 'payment_cancelled', txid: entry.txid }
+        },
+        entry.recipientHost
+      )
     }
   }
   let aborted = false
