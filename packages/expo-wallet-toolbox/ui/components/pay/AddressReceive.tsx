@@ -122,7 +122,7 @@ function loadQRCode(): QRCodeComponent {
  */
 const HISTORY_POLL_MS = 5000
 
-export default function AddressReceive() {
+export default function AddressReceive({ initialSats }: { initialSats?: number } = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -302,6 +302,12 @@ export default function AddressReceive() {
         </View>
       ) : (
         <>
+          {/* The figure the code asks for, as its price. Only when one was named. */}
+          {initialSats !== undefined && initialSats > 0 && (
+            <Text style={[styles.requestedAmount, { color: colors.textPrimary }]}>
+              <AmountDisplay>{initialSats}</AmountDisplay>
+            </Text>
+          )}
           <View style={styles.qrHero}>
             <View style={styles.qrPlate}>
               <QRCode value={address} size={240} color="#000" backgroundColor="#fff" />
@@ -440,6 +446,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   centered: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.xxxl, gap: spacing.md },
   support: { ...typography.subhead, textAlign: 'center' },
+  requestedAmount: { ...typography.title2, textAlign: 'center', marginBottom: spacing.lg },
   qrHero: { alignItems: 'center', marginBottom: spacing.lg },
   qrPlate: { padding: spacing.lg, borderRadius: radii.xl, backgroundColor: '#fff' },
   addressChip: { borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.sm },
