@@ -7,9 +7,17 @@
  * Everything in this file is pure — no wallet, no network — so the
  * classification a payment depends on is testable in isolation.
  */
-import { PublicKey, Utils } from '@bsv/sdk'
+import { Utils } from '@bsv/sdk'
 import { decodeSession, type Session } from '../../localpay/session'
-import { validatePeerPayURI, type PeerPayValidationResult, peerPayValidationMessage } from '../../parsePeerPayURI'
+import {
+  validatePeerPayURI,
+  type PeerPayValidationResult,
+  peerPayValidationMessage,
+  isCompressedPublicKey
+} from '../../parsePeerPayURI'
+
+/** One definition of a valid compressed key serves both the bare-key path and the link parser. */
+export { isCompressedPublicKey }
 
 export type RailId = 'nearby' | 'handle' | 'address'
 
@@ -76,24 +84,12 @@ export function isValidBsvAddress(text: string): boolean {
   }
 }
 
-const COMPRESSED_KEY_REGEX = /^0[23][0-9a-fA-F]{64}$/
 /**
  * Base58 alphabet (no 0, O, I, l), leading 1, 25–35 chars: the shape of a
  * P2PKH address. Anything this matches is either an address or a mis-paste —
  * never a search query — so a checksum failure is reported, not searched.
  */
 const ADDRESS_CANDIDATE_REGEX = /^1[1-9A-HJ-NP-Za-km-z]{24,34}$/
-
-/** A 33-byte compressed secp256k1 key in hex, either case, on the curve. */
-export function isCompressedPublicKey(text: string): boolean {
-  if (!COMPRESSED_KEY_REGEX.test(text)) return false
-  try {
-    const pk = PublicKey.fromString(text)
-    return pk.toString().toLowerCase() === text.toLowerCase()
-  } catch {
-    return false
-  }
-}
 
 /** What the recipient field has been given, as typed. */
 export type RecipientInput =

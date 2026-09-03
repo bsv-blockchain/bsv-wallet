@@ -31,7 +31,7 @@ export interface PeerPayValidationResult {
 }
 
 const PEERPAY_SCHEME = 'peerpay:'
-const COMPRESSED_PUBLIC_KEY_REGEX = /^0[23][0-9a-f]{64}$/
+const COMPRESSED_PUBLIC_KEY_REGEX = /^0[23][0-9a-fA-F]{64}$/
 /** https, a host, then an optional path/query/fragment with no whitespace. */
 const MESSAGE_BOX_URL_REGEX = /^https:\/\/[^\s/?#]+(?:[/?#]\S*)?$/i
 
@@ -60,7 +60,7 @@ export function validatePeerPayURI(uri: string): PeerPayValidationResult {
 
   let identityKey: string | undefined
   if (isValidIdentityKey(keyPart)) {
-    identityKey = keyPart
+    identityKey = keyPart.toLowerCase()
   } else {
     errors.identityKey = 'PeerPay link contains an invalid identity key'
   }
@@ -96,12 +96,20 @@ export function peerPayValidationMessage(result: PeerPayValidationResult | null)
   return messages.length ? messages.join('. ') : null
 }
 
-function isValidIdentityKey(identityKey: string) {
-  if (!COMPRESSED_PUBLIC_KEY_REGEX.test(identityKey)) return false
+/**
+ * A 33-byte compressed secp256k1 key in hex, either case, on the curve. Round-trips through
+ * PublicKey because the SDK reduces an out-of-range x mod p instead of throwing — parse success
+ * alone would accept a key nobody holds.
+ */
+export function isCompressedPublicKey(text: string): boolean {
+  if (!COMPRESSED_PUBLIC_KEY_REGEX.test(text)) return false
   try {
-    PublicKey.fromString(identityKey)
-    return true
+    return PublicKey.fromString(text).toString().toLowerCase() === text.toLowerCase()
   } catch {
     return false
   }
+}
+
+function isValidIdentityKey(identityKey: string) {
+  return COMPRESSED_PUBLIC_KEY_REGEX.test(identityKey) && isCompressedPublicKey(identityKey)
 }

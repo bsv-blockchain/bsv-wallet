@@ -23,6 +23,23 @@ describe('validatePeerPayURI — scheme', () => {
   })
 })
 
+describe('validatePeerPayURI — key strictness', () => {
+  it('rejects an out-of-range x coordinate that PublicKey.fromString would silently reduce', () => {
+    // p + 1. The SDK reduces x mod p and hands back the point for x = 1 rather than throwing,
+    // so parse success alone would accept a key nobody holds.
+    const outOfRange = '02' + 'ff'.repeat(27) + 'fe' + 'fffffc30'
+    const r = validatePeerPayURI(`peerpay:${outOfRange}`)
+    expect(r.identityKey).toBeUndefined()
+    expect(r.errors.identityKey).toBeTruthy()
+  })
+
+  it('accepts an uppercase key and lowercases it', () => {
+    const r = validatePeerPayURI(`peerpay:${KEY.toUpperCase()}`)
+    expect(r.identityKey).toBe(KEY)
+    expect(r.errors).toEqual({})
+  })
+})
+
 describe('validatePeerPayURI — url extension', () => {
   it('reads a percent-encoded https url alongside sats', () => {
     const r = validatePeerPayURI(`peerpay:${KEY}?sats=5000&url=${encodeURIComponent('https://mb.example')}`)
