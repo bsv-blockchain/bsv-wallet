@@ -213,7 +213,16 @@ function withDayHeaders(actions: ActivityAction[], t: (k: string) => string): Ro
   return out
 }
 
-export function WalletHomeScreen() {
+export interface WalletHomeScreenProps {
+  /**
+   * Rendered in the top-left of the header — e.g. a back button for host apps
+   * that present the wallet as a screen within a larger flow (BSV Browser).
+   * No default: most hosts (BSV Wallet included) have nothing to return to.
+   */
+  topLeft?: React.ReactNode
+}
+
+export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
@@ -1338,7 +1347,8 @@ export function WalletHomeScreen() {
           money action, so it should not compete with Pay and Vault for the eye.
           Connections moved into Settings as "Connect to App" — pairing a desktop
           app is a once-in-a-while errand, not a home-screen affordance. */}
-      <View style={styles.header}>
+      <View style={[styles.header, topLeft ? styles.headerSpaced : styles.headerEnd]}>
+        {topLeft}
         <TouchableOpacity
           onPress={() => router.push('/wallet-config')}
           style={[styles.iconBtn, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
@@ -1464,11 +1474,12 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs
   },
+  headerEnd: { justifyContent: 'flex-end' },
+  headerSpaced: { justifyContent: 'space-between' },
   iconBtn: {
     width: 34,
     height: 34,

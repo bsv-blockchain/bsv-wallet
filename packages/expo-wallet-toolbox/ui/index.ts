@@ -33,6 +33,7 @@ export { default as Balance } from './components/wallet/Balance'
 
 // Wallet home screen (Task 20 — extracted from app/index.tsx)
 export { WalletHomeScreen } from './screens/WalletHomeScreen'
+export type { WalletHomeScreenProps } from './screens/WalletHomeScreen'
 
 // Wallet-screen support utilities, moved alongside the screen (Task 20)
 export * from './txStatus'
