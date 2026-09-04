@@ -75,10 +75,11 @@ jest.mock('../../ui/components/ui/Celebration', () => {
 // Partial mock: PaymentSuccessOverlay.tsx pulls `sounds` from the same package
 // barrel as useTheme/spacing/typography/etc — which this test needs REAL for
 // rendering — so only `sounds` is overridden, via requireActual for the rest.
-const mockConfirmation = jest.fn()
+const mockPaymentReceive = jest.fn()
+const mockPaymentSend = jest.fn()
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
-  sounds: { confirmation: () => mockConfirmation(), release: jest.fn() }
+  sounds: { paymentReceive: () => mockPaymentReceive(), paymentSend: () => mockPaymentSend(), release: jest.fn() }
 }))
 
 // Done returns the user to the wallet so the updated balance is the next thing
@@ -120,7 +121,8 @@ function draw(props: {
 
 beforeEach(() => {
   mockMarkDone = undefined
-  mockConfirmation.mockClear()
+  mockPaymentReceive.mockClear()
+  mockPaymentSend.mockClear()
   mockNavigate.mockClear()
   mockDismissTo.mockClear()
 })
@@ -198,14 +200,15 @@ describe('ReceivedOverlay', () => {
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
-  it('sounds the confirmation tone', () => {
+  it('sounds the paymentReceive tone, not paymentSend', () => {
     jest.useFakeTimers()
     try {
       draw({ amount: 5000, onDismiss: jest.fn() })
       act(() => {
         jest.advanceTimersByTime(500)
       })
-      expect(mockConfirmation).toHaveBeenCalled()
+      expect(mockPaymentReceive).toHaveBeenCalled()
+      expect(mockPaymentSend).not.toHaveBeenCalled()
     } finally {
       jest.useRealTimers()
     }
@@ -251,5 +254,19 @@ describe('PaymentSuccessOverlay (sent)', () => {
     fireEvent.press(screen.getByLabelText('done'))
     expect(mockDismissTo).toHaveBeenCalledWith('/')
     expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('sounds the paymentSend tone, not paymentReceive', () => {
+    jest.useFakeTimers()
+    try {
+      draw({ amount: 5000, direction: 'sent', onDismiss: jest.fn() })
+      act(() => {
+        jest.advanceTimersByTime(500)
+      })
+      expect(mockPaymentSend).toHaveBeenCalled()
+      expect(mockPaymentReceive).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })

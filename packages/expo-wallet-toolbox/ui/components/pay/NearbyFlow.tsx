@@ -100,7 +100,6 @@ import { userFacingPayError } from '../../../core/pay/userError'
 
 import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
-import Celebration from '../ui/Celebration'
 import PressableScale from '../ui/PressableScale'
 import PresenceRow, { type PresenceState } from '../ui/PresenceRow'
 import AvailableBalance from './AvailableBalance'
@@ -309,16 +308,6 @@ interface Unsettled {
 const PAYMENT_QR_SIZE = 288
 
 /**
- * Staging for the success moment. The amount lands, the mark is drawn, the tone
- * sounds — three beats, never one. Firing them on the same frame reads as a
- * single blunt event and buries the thing that actually matters, which is the
- * figure. Both delays are sequencing, not animation, so they apply under
- * reduced motion too; only the drawing inside Celebration is suppressed there.
- */
-const CELEBRATION_DELAY_MS = durations.quick
-const TONE_DELAY_MS = 120
-
-/**
  * Decline codes as the PAYER renders them. The payee sends a stable machine
  * code precisely so the sentence can be produced here, in this device's locale.
  * Anything unrecognised falls through to the raw text, preserving the old
@@ -450,20 +439,17 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
   /** True once the AWDL link has provably carried this session's frame. */
   const [linked, setLinked] = useState(false)
 
-  /** Drives the celebration mark on the success screen. Staged, not immediate. */
-  const [celebrating, setCelebrating] = useState(false)
-
   /**
-   * The payee's full-screen receipt, held until they acknowledge it. Set only
-   * once funds are provably in the wallet — see settleReceived, where a merely
-   * queued payment deliberately does NOT raise it.
-   *
-   * `broadcast` is whether storage already records a network hand-off for this
-   * tx (`alreadySentStatuses`) — NOT whether this device was online at settle
-   * time. An offline hold parks the req at `nosend`, so the receipt must not
-   * claim broadcast just because NetInfo was up.
+   * The payee's `broadcast` flag for the shared success overlay (see the
+   * `phase === 'done'` render below): whether storage already records a
+   * network hand-off for this tx (`alreadySentStatuses`) — NOT whether this
+   * device was online at settle time. An offline hold parks the req at
+   * `nosend`, so the receipt must not claim broadcast just because NetInfo
+   * was up. Defaults optimistic (no pending line) since the overlay is shown
+   * immediately on settle, before this is known; updated once internalizing
+   * resolves it (only reachable when the funds actually credited).
    */
-  const [receivedOverlay, setReceivedOverlay] = useState<{ amount: number; broadcast: boolean } | null>(null)
+  const [receivedBroadcast, setReceivedBroadcast] = useState(true)
 
   /**
    * A frame that was delivered but could not be persisted. Held so the payee can
@@ -692,8 +678,7 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
     setPeerKey(null)
     setPeerName(null)
     setLinked(false)
-    setCelebrating(false)
-    setReceivedOverlay(null)
+    setReceivedBroadcast(true)
   }, [initialRole])
 
   const reset = useCallback(() => {
@@ -929,6 +914,11 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
       setSettledAmount(satoshis)
       setRole('payee')
       setPhase('done')
+      // The overlay below renders as soon as phase flips; start it optimistic
+      // (no pending-broadcast line) regardless of what a previous settle in
+      // this same mount left behind — internalizing corrects it below if the
+      // payment credits without a broadcast yet.
+      setReceivedBroadcast(true)
       setUnsettled(null)
       // Who paid. Starts a best-effort identity lookup for the presence row;
       // deliberately after the durable write, and never awaited.
@@ -967,11 +957,11 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
         setNotice(
           credited ? { text: t('local_pay_added'), tone: 'success' } : { text: t('local_pay_queued'), tone: 'info' }
         )
-        // The full-screen moment, held until acknowledged — but ONLY once the
-        // funds are actually in the wallet. Queued money is safe and not yet
-        // spendable, and a receipt claiming otherwise is the one thing the tone
-        // rule above exists to prevent. A queued settle keeps the neutral notice
-        // on the done screen instead.
+        // The success overlay is already up by this point (set unconditionally
+        // at the top of this function) — this only refines its `broadcast`
+        // flag once storage confirms a network hand-off. Not reachable when
+        // the payment merely queued (no txid to check yet), so the overlay
+        // keeps its optimistic default there.
         if (credited) {
           let broadcast = false
           try {
@@ -983,7 +973,7 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
           } catch {
             broadcast = false
           }
-          setReceivedOverlay({ amount: satoshis, broadcast })
+          setReceivedBroadcast(broadcast)
         }
       } catch (e) {
         console.warn('[localpay] processPending failed:', messageOf(e))
@@ -1624,36 +1614,6 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
     return unsub
   }, [phase, navigation, handleSendQrExit])
 
-  // ── The success moment ──
-  //
-  // Three beats, staged. The amount has already landed by the time this runs
-  // (it animates in with the phase); then the mark is drawn, which fires the
-  // success haptic from inside Celebration — this screen must NOT fire a second
-  // one; then the tone. `sounds.confirmation()` returns immediately and cannot
-  // throw, so a device with no audio session simply completes the payment
-  // quietly.
-
-  useEffect(() => {
-    if (phase !== 'done') return
-    // The payee's celebration belongs to ReceivedOverlay alone, outright — not
-    // just while it happens to be up. A credited receipt celebrates once, there,
-    // when it is raised; re-firing here after the payee dismisses it (overlay
-    // flips to null while phase is still 'done', re-running this effect) read as
-    // a second payment landing. A merely-queued receipt gets no overlay and,
-    // deliberately, no fanfare either — queued money is safe but not credited,
-    // and green (see the file header's tone doctrine) is reserved for funds
-    // actually in the wallet.
-    if (role === 'payee') return
-    // Belt-and-braces for the instant the overlay is actually up.
-    if (receivedOverlay) return
-    const mark = setTimeout(() => setCelebrating(true), CELEBRATION_DELAY_MS)
-    const tone = setTimeout(() => sounds.confirmation(), CELEBRATION_DELAY_MS + TONE_DELAY_MS)
-    return () => {
-      clearTimeout(mark)
-      clearTimeout(tone)
-    }
-  }, [phase, receivedOverlay, role])
-
   // ── Receive: retry a settle that never reached storage ──
 
   const retrySettle = useCallback(() => {
@@ -2203,37 +2163,6 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
             Focal: the amount. The celebration mark is a transient overlay that
             owns attention for ~700ms and then hands it back, so the two never
             compete for the same beat. */}
-        {phase === 'done' && (
-          <View style={styles.stage}>
-            {phaseTitle(role === 'payer' ? t('local_pay_sent') : t('local_pay_received'))}
-            <View style={styles.gapSm} />
-            {amountBlock(settledAmount, 'done-amount')}
-            <View style={styles.gapMd} />
-            {presenceBlock}
-            {!!notice && (
-              <>
-                <View style={styles.gapXl} />
-                {noticeBlock(notice)}
-              </>
-            )}
-            <View style={styles.gapXl} />
-            {/* A completed payment ends on the balance it changed, on every
-                rail: exit the flow, then land on the wallet. `dismissTo` pops
-                the finished flow off rather than re-pushing the wallet above
-                it — see PaymentSuccessOverlay for why navigate leaves the
-                spent screens one swipe behind. */}
-            <PrimaryButton
-              styles={styles}
-              colors={colors}
-              label={t('done')}
-              onPress={() => {
-                goBack()
-                router.dismissTo('/')
-              }}
-            />
-          </View>
-        )}
-
         {/* ══ Already paid — a success terminal, not an error ══
             Focal: the headline. There is no figure to show — this device never
             saw a second payment — so nothing here is at display scale. */}
@@ -2354,26 +2283,24 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
       </Modal>
 
       {/* ══ The moment ══
-          Celebration fires haptics.success() itself. This screen must never fire
-          a second one — two success notifications in a row read as an error. */}
-      {celebrating && (
-        <View style={styles.celebrationOverlay} pointerEvents="none">
-          <Celebration onDone={() => setCelebrating(false)} />
-        </View>
-      )}
-
-      {/* The payee's receipt. Full screen, and it stays until acknowledged —
-          being paid in person is the one moment both people are watching for. */}
-      {receivedOverlay && (
+          One shared overlay for every rail and either direction: full screen,
+          and it stays until acknowledged — being paid in person is the one
+          moment both people are watching for. Shown as soon as the payment is
+          durably queued, even before the payee's wallet has internalized it —
+          the write cannot be lost at that point, and background internalizing
+          catches up on its own; surfacing that separately (if it ever fails)
+          is a job for the activity list, not for withholding this screen. */}
+      {phase === 'done' && (
         <ReceivedOverlay
-          amount={receivedOverlay.amount}
-          broadcast={receivedOverlay.broadcast}
+          amount={settledAmount}
+          direction={role === 'payer' ? 'sent' : 'received'}
+          broadcast={role === 'payer' ? undefined : receivedBroadcast}
+          recipientName={
+            role === 'payer' ? (peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined)) : undefined
+          }
           // The overlay navigates to the wallet after this; goBack ends the
           // session and resets the cell so /pay is not left mid-flow beneath.
-          onDismiss={() => {
-            setReceivedOverlay(null)
-            goBack()
-          }}
+          onDismiss={goBack}
         />
       )}
     </View>
@@ -2610,12 +2537,6 @@ function makeStyles() {
       borderRadius: radii.md,
       borderWidth: StyleSheet.hairlineWidth
     },
-    noticeText: { ...typography.footnote, flex: 1 },
-
-    celebrationOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      alignItems: 'center',
-      justifyContent: 'center'
-    }
+    noticeText: { ...typography.footnote, flex: 1 }
   })
 }

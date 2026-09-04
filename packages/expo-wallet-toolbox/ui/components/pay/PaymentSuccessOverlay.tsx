@@ -102,7 +102,7 @@ export default function PaymentSuccessOverlay({
   useEffect(() => {
     // Returns immediately and cannot throw, so a device with no audio session
     // simply gets the payment quietly.
-    const tone = setTimeout(() => sounds.confirmation(), TONE_DELAY_MS)
+    const tone = setTimeout(() => (sent ? sounds.paymentSend() : sounds.paymentReceive()), TONE_DELAY_MS)
     return () => clearTimeout(tone)
   }, [])
 

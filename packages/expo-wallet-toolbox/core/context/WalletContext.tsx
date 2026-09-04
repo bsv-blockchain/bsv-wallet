@@ -1393,7 +1393,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 Date.now,
                 () => {
                   if (isReceiveInboxFocused()) return
-                  sounds.confirmation()
+                  sounds.paymentReceive()
                   onToast?.(i18n.t('payment_arrived'), { type: 'success' })
                 }
               )

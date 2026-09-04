@@ -24,16 +24,18 @@
  * Pairing rules (each tone pairs with exactly one haptic; never fire both a
  * tone's partner haptic AND the tone's own — Toast/Celebration already own
  * haptics.success for their moments):
- *   confirmation ↔ haptics.success   (money landed)
- *   vaultOpen    ↔ haptics.success   (vault unlocked after the ceremony)
- *   vaultClose   ↔ haptics.confirm   (vault relocked: timeout / unplug / manual)
+ *   paymentReceive ↔ haptics.success   (money landed)
+ *   paymentSend    ↔ haptics.success   (money sent)
+ *   vaultOpen      ↔ haptics.success   (vault unlocked after the ceremony)
+ *   vaultClose     ↔ haptics.confirm   (vault relocked: timeout / unplug / manual)
  */
 import { useMemo } from 'react'
 
 // Bundled tones. Static requires, not imports: Metro resolves these to asset
 // ids at build time, which is exactly the `number` shape expo-audio accepts.
 const TONES = {
-  confirmation: require('../../assets/sounds/payment-confirmed.wav'),
+  paymentReceive: require('../../assets/sounds/payment-receive.wav'),
+  paymentSend: require('../../assets/sounds/payment-send.wav'),
   vaultOpen: require('../../assets/sounds/vault-open.wav'),
   vaultClose: require('../../assets/sounds/vault-close.wav'),
 } as const
@@ -120,7 +122,9 @@ function releaseAll(): void {
 
 export const sounds = {
   /** The money landed. Pairs with `haptics.success()`. */
-  confirmation: () => playTone('confirmation'),
+  paymentReceive: () => playTone('paymentReceive'),
+  /** The money was sent. Pairs with `haptics.success()`. */
+  paymentSend: () => playTone('paymentSend'),
   /** The vault unlocked after a successful ceremony. Pairs with `haptics.success()`. */
   vaultOpen: () => playTone('vaultOpen'),
   /** The vault relocked (timeout, unplug, or manual). Pairs with `haptics.confirm()`. */
