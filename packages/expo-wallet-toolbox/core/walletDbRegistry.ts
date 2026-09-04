@@ -1,5 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
-
 /**
  * Wallet database filename registry.
  *
@@ -81,6 +79,22 @@ export function selectLatestDb(filenames: string[]): string {
 
 // ── AsyncStorage-backed registry ────────────────────────────────────────────
 
+// Required lazily, on first call, rather than imported statically — this
+// file is barrel-exported from the package root, and a static top-level
+// `import` of a native module gets eagerly evaluated for every consumer of
+// the barrel, which breaks a plain `jest` host that never touches the
+// registry (no native module to resolve). Same class of issue documented on
+// useHaptics.ts and services/vault/driver.ts/random.ts's lazy requires.
+type AsyncStorageModule = typeof import('@react-native-async-storage/async-storage')['default']
+let asyncStorage: AsyncStorageModule | undefined
+function getAsyncStorage(): AsyncStorageModule {
+  if (!asyncStorage) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    asyncStorage = require('@react-native-async-storage/async-storage').default as AsyncStorageModule
+  }
+  return asyncStorage
+}
+
 function registryKey(keySuffix: string, chain: string): string {
   return `walletDbs-${keySuffix}-${chain}net`
 }
@@ -89,7 +103,7 @@ function registryKey(keySuffix: string, chain: string): string {
  * Return all registered wallet DB filenames for the given identity + chain.
  */
 export async function getRegisteredDbs(keySuffix: string, chain: string): Promise<string[]> {
-  const raw = await AsyncStorage.getItem(registryKey(keySuffix, chain))
+  const raw = await getAsyncStorage().getItem(registryKey(keySuffix, chain))
   if (!raw) return []
   try {
     const arr = JSON.parse(raw)
@@ -106,5 +120,5 @@ export async function registerDb(keySuffix: string, chain: string, filename: str
   const existing = await getRegisteredDbs(keySuffix, chain)
   if (existing.includes(filename)) return
   existing.push(filename)
-  await AsyncStorage.setItem(registryKey(keySuffix, chain), JSON.stringify(existing))
+  await getAsyncStorage().setItem(registryKey(keySuffix, chain), JSON.stringify(existing))
 }
