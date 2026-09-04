@@ -1,4 +1,4 @@
-import { P2PKH, PublicKey } from '@bsv/sdk'
+import { P2PKH, PublicKey, Transaction } from '@bsv/sdk'
 import { FRAME_VERSION, type PaymentFrame } from './codec'
 import { isRequestableAmount, type Session } from './session'
 import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
@@ -54,6 +54,14 @@ export interface BuiltPayment {
    * cannot be broadcast by the payer at all.
    */
   txid?: string
+  /**
+   * The real satoshis locked into `frame.outputIndex`, read off the signed
+   * transaction rather than the requested `amount` — the two differ under
+   * send-max, where `amount` carries the sentinel and the wallet rewrites the
+   * output to whatever it could fund. Callers displaying "amount sent" must
+   * use this, not the value they asked `buildPaymentFrame` for.
+   */
+  satoshis: number
 }
 
 /**
@@ -174,6 +182,11 @@ export async function buildPaymentFrame(
 
   if (!result.tx) throw new Error('createAction returned no transaction')
 
+  // Authoritative amount off the transaction itself — covers send-max, where
+  // `amount` was the sentinel and the wallet wrote the real figure to output 0.
+  const paid = Transaction.fromAtomicBEEF(result.tx).outputs[0]?.satoshis
+  if (typeof paid !== 'number' || paid <= 0) throw new Error('Could not determine paid amount')
+
   return {
     frame: {
       version: FRAME_VERSION,
@@ -185,7 +198,8 @@ export async function buildPaymentFrame(
       transaction: new Uint8Array(result.tx)
     },
     reference,
-    txid: result.txid
+    txid: result.txid,
+    satoshis: paid
   }
 }
 

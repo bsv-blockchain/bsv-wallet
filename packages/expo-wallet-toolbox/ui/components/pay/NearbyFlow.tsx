@@ -1489,7 +1489,10 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
         console.warn('[localpay] broadcast after a positive ack failed:', outcome.detail ?? '')
         setNotice({ text: t('local_pay_broadcast_pending'), tone: 'warning' })
       }
-      setSettledAmount(payAmount)
+      // `built.satoshis` is the real amount the wallet locked into the output —
+      // `payAmount` is only what was requested, and the two diverge under
+      // send-max (`payAmount` carries the sentinel).
+      setSettledAmount(built.satoshis)
       setPhase('done')
     } finally {
       registry.delete(controller)
@@ -1569,7 +1572,7 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
       if (celebrate) setNotice({ text: t('local_pay_broadcast_pending'), tone: 'warning' })
     }
     if (celebrate) {
-      setSettledAmount(payAmount)
+      setSettledAmount(built.satoshis)
       setRole('payer')
       setPhase('done')
     }

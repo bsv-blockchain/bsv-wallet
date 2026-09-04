@@ -2,6 +2,18 @@ import { broadcastPayment, buildPaymentFrame, finalizeDelivery } from '../../cor
 import { mintSession } from '../../core/localpay/session'
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
 
+const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
+
+// buildPaymentFrame now reads the real paid amount off output 0 of the signed
+// transaction (send-max support), so every mocked `tx` must be a genuine
+// AtomicBEEF the SDK can parse — not an arbitrary byte array.
+function atomicBeefWithOutput(satoshis: number): number[] {
+  const { Transaction, P2PKH } = require('@bsv/sdk')
+  const tx = new Transaction()
+  tx.addOutput({ lockingScript: new P2PKH().lock(ADDRESS), satoshis })
+  return Array.from(tx.toAtomicBEEF() as number[])
+}
+
 const session = () =>
   mintSession({
     identityKey: '02'.padEnd(66, 'e'),
@@ -18,7 +30,7 @@ function walletStub() {
   return {
     getPublicKey: jest.fn().mockResolvedValue({ publicKey: '03'.padEnd(66, 'f') }),
     createAction: jest.fn().mockResolvedValue({ signableTransaction: { reference: 'ref-123' } }),
-    signAction: jest.fn().mockResolvedValue({ tx: [1, 2, 3], txid: 'finalized' }),
+    signAction: jest.fn().mockResolvedValue({ tx: atomicBeefWithOutput(777), txid: 'finalized' }),
     abortAction: jest.fn().mockResolvedValue({ aborted: true })
   }
 }
@@ -61,7 +73,7 @@ describe('buildPaymentFrame', () => {
 
   it('carries the transaction bytes', async () => {
     const { frame } = await buildPaymentFrame(walletStub() as never, session(), 'admin.com', 777)
-    expect(Array.from(frame.transaction)).toEqual([1, 2, 3])
+    expect(Array.from(frame.transaction)).toEqual(atomicBeefWithOutput(777))
   })
 
   it('propagates a createAction failure', async () => {
@@ -127,10 +139,11 @@ describe('buildPaymentFrame', () => {
 
   it('returns no reference when a wallet finalizes createAction itself', async () => {
     const w = walletStub()
-    w.createAction.mockResolvedValue({ tx: [4, 5, 6], txid: 'deadbeef' })
+    const tx = atomicBeefWithOutput(777)
+    w.createAction.mockResolvedValue({ tx, txid: 'deadbeef' })
     const built = await buildPaymentFrame(w as never, session(), 'admin.com', 777)
     expect(built.reference).toBeUndefined()
-    expect(Array.from(built.frame.transaction)).toEqual([4, 5, 6])
+    expect(Array.from(built.frame.transaction)).toEqual(tx)
     expect(w.signAction).not.toHaveBeenCalled()
   })
 
@@ -150,7 +163,7 @@ describe('buildPaymentFrame', () => {
       { reference: 'ref-123', spends: {}, options: { noSend: true } },
       'admin.com'
     )
-    expect(Array.from(built.frame.transaction)).toEqual([1, 2, 3])
+    expect(Array.from(built.frame.transaction)).toEqual(atomicBeefWithOutput(777))
   })
 
   // `options.sendWith` addresses a withheld action by TXID, not by reference,
@@ -163,7 +176,7 @@ describe('buildPaymentFrame', () => {
 
   it('takes the txid from createAction when the wallet finalizes it itself', async () => {
     const w = walletStub()
-    w.createAction.mockResolvedValue({ tx: [4, 5, 6], txid: 'deadbeef' })
+    w.createAction.mockResolvedValue({ tx: atomicBeefWithOutput(777), txid: 'deadbeef' })
     const built = await buildPaymentFrame(w as never, session(), 'admin.com', 777)
     expect(built.txid).toBe('deadbeef')
   })
@@ -196,6 +209,17 @@ describe('buildPaymentFrame', () => {
     const built = await buildPaymentFrame(w as never, session(), 'admin.com', 777)
     expect(w.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(777)
     expect('amount' in (built.frame as unknown as Record<string, unknown>)).toBe(false)
+  })
+
+  // Send-max: the requested `amount` argument is the sentinel, and the wallet
+  // rewrites output 0 to whatever it could actually fund. Confirmation screens
+  // must show `built.satoshis`, not the amount they asked for — this is what
+  // makes that real figure available.
+  it('reads the real paid satoshis off output 0, not the requested amount', async () => {
+    const w = walletStub()
+    w.signAction.mockResolvedValue({ tx: atomicBeefWithOutput(654321), txid: 'finalized' })
+    const built = await buildPaymentFrame(w as never, openSession(), 'admin.com', 2099999999999999)
+    expect(built.satoshis).toBe(654321)
   })
 
   // The payee's settle path refuses a frame whose amount contradicts a figure
