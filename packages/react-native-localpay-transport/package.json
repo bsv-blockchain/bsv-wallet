@@ -1,6 +1,6 @@
 {
   "name": "@bsv/react-native-localpay-transport",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Nitro module exposing native local-payment transports (AWDL/TLS-PSK on iOS, Nearby Connections on Android, plus a BLE rung on both) for proximity BSV payments in Expo/React Native apps.",
   "license": "Open BSV",

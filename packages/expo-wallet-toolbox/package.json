@@ -1,6 +1,6 @@
 {
   "name": "@bsv/expo-wallet-toolbox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
   "license": "SEE LICENSE IN LICENSE.txt",
@@ -22,26 +22,29 @@
   ],
   "main": "core/index.ts",
   "types": "core/index.ts",
-  "files": ["core", "ui", "assets"],
+  "files": [
+    "core",
+    "ui",
+    "assets"
+  ],
   "peerDependencies": {
-    "react": "^19.2.0",
-    "react-native": "^0.83.6",
-    "expo-router": "~55.0.16",
-
-    "@bsv/sdk": "^2.4.1",
-    "@bsv/wallet-toolbox-mobile": "^2.4.3",
-    "@bsv/btms-permission-module": "^1.1.0",
     "@bsv/air-gap": "^0.1.1",
     "@bsv/backup-cache-client": "^0.1.0",
+    "@bsv/btms-permission-module": "^1.1.0",
     "@bsv/message-box-client": "^2.2.1",
+    "@bsv/react-native-localpay-transport": "*",
+    "@bsv/sdk": "^2.4.1",
     "@bsv/templates": "^1.10.0",
+    "@bsv/wallet-toolbox-mobile": "^2.4.3",
+    "@expo/vector-icons": "^15.0.3",
     "@noble/curves": "^2.3.0",
-    "qrcode": "^1.5.4",
-
-    "expo-sqlite": "~55.0.16",
-    "expo-secure-store": "~55.0.14",
-    "expo-camera": "~55.0.19",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-clipboard/clipboard": "^1.16.2",
+    "@react-native-community/netinfo": "^11.5.2",
+    "date-fns": "^4.1.0",
     "expo-audio": "~55.0.16",
+    "expo-blur": "~55.0.14",
+    "expo-camera": "~55.0.19",
     "expo-clipboard": "~55.0.13",
     "expo-crypto": "~55.0.15",
     "expo-device": "~55.0.17",
@@ -51,36 +54,33 @@
     "expo-local-authentication": "~55.0.14",
     "expo-localization": "~55.0.15",
     "expo-print": "~55.0.15",
+    "expo-router": "~55.0.16",
+    "expo-secure-store": "~55.0.14",
     "expo-sharing": "~55.0.19",
+    "expo-sqlite": "~55.0.16",
     "expo-status-bar": "~55.0.6",
-    "expo-blur": "~55.0.14",
-    "@expo/vector-icons": "^15.0.3",
-
-    "@react-native-async-storage/async-storage": "^2.2.0",
-    "@react-native-clipboard/clipboard": "^1.16.2",
-    "@react-native-community/netinfo": "^11.5.2",
+    "i18next": "^25.2.1",
+    "mobx": "^6.13.7",
+    "mobx-react-lite": "^4.1.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.0",
+    "react-i18next": "^15.5.3",
+    "react-native": "^0.83.6",
+    "react-native-engine-native": "*",
     "react-native-gesture-handler": "~2.30.0",
     "react-native-localize": "^3.4.1",
+    "react-native-nitro-modules": "^0.35.2",
     "react-native-qrcode-svg": "^6.3.15",
     "react-native-reanimated": "^4.2.1",
     "react-native-safe-area-context": "~5.6.0",
-    "react-native-svg": "^15.15.3",
-    "react-native-sse": "^1.2.1",
-
-    "mobx": "^6.13.7",
-    "mobx-react-lite": "^4.1.0",
-    "i18next": "^25.2.1",
-    "react-i18next": "^15.5.3",
-    "date-fns": "^4.1.0",
-
-    "react-native-nitro-modules": "^0.35.2",
-    "@bsv/react-native-localpay-transport": "*",
-    "react-native-engine-native": "*",
     "react-native-secp-native": "*",
-
+    "react-native-sse": "^1.2.1",
+    "react-native-svg": "^15.15.3",
     "react-native-yubikey": "*"
   },
   "peerDependenciesMeta": {
-    "react-native-yubikey": { "optional": true }
+    "react-native-yubikey": {
+      "optional": true
+    }
   }
 }
