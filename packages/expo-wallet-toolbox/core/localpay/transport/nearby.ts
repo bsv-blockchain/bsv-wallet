@@ -1,4 +1,4 @@
-import { getLocalPayTransport } from 'react-native-localpay-transport'
+import { getLocalPayTransport } from '@bsv/react-native-localpay-transport'
 import { makeSocketTransport } from './socket'
 
 /**

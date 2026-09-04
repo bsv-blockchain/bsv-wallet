@@ -1,5 +1,5 @@
 import { Platform } from 'react-native'
-import { getLocalPayBleTransport, getLocalPayTransport } from 'react-native-localpay-transport'
+import { getLocalPayBleTransport, getLocalPayTransport } from '@bsv/react-native-localpay-transport'
 import { CAP_AWDL, CAP_BLE, CAP_BLE_SCAN, CAP_NEARBY, HINT_BT, RUNG_MASK, type Session } from '../session'
 import type { BluetoothState } from '../deviceCaps'
 

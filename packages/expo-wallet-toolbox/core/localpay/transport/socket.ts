@@ -1,4 +1,4 @@
-import type { LocalPayTransport } from 'react-native-localpay-transport'
+import type { LocalPayTransport } from '@bsv/react-native-localpay-transport'
 import { sealFrame, unsealFrame, type PaymentFrame } from '../codec'
 import { instanceName, type Session } from '../session'
 import {

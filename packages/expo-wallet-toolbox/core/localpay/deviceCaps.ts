@@ -18,7 +18,7 @@
  */
 import { Platform } from 'react-native'
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo'
-import { getLocalPayBleTransport } from 'react-native-localpay-transport'
+import { getLocalPayBleTransport } from '@bsv/react-native-localpay-transport'
 import {
   HINT_BT,
   HINT_NET,

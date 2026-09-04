@@ -10,7 +10,7 @@ let mockBleState = 'poweredOn'
 let mockBleAccessorNull = false
 let mockBleThrows = false
 
-jest.mock('react-native-localpay-transport', () => ({
+jest.mock('@bsv/react-native-localpay-transport', () => ({
   getLocalPayTransport: () => ({ isSupported: () => mockIsSupported }),
   getLocalPayBleTransport: () =>
     mockBleAccessorNull

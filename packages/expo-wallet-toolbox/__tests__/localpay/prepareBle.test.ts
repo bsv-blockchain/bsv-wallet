@@ -8,14 +8,14 @@ jest.mock('@react-native-community/netinfo', () => {
   return { __esModule: true, default: netinfo, fetch: netinfo.fetch }
 })
 
-jest.mock('react-native-localpay-transport', () => ({
+jest.mock('@bsv/react-native-localpay-transport', () => ({
   getLocalPayTransport: jest.fn(() => null),
   getLocalPayBleTransport: jest.fn(() => null)
 }))
 
 import { BLE_PREPARE_TIMEOUT_MS, prepareBle } from '../../core/localpay/deviceCaps'
 
-const { getLocalPayBleTransport } = jest.requireMock('react-native-localpay-transport') as {
+const { getLocalPayBleTransport } = jest.requireMock('@bsv/react-native-localpay-transport') as {
   getLocalPayBleTransport: jest.Mock
 }
 

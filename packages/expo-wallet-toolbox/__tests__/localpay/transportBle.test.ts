@@ -3,13 +3,13 @@ import { BLE_CONNECT_TIMEOUT_MS, bleTransport } from '../../core/localpay/transp
 import { AckError } from '../../core/localpay/types'
 import { mintSession, instanceName, CAP_BLE_SCAN } from '../../core/localpay/session'
 import { CodecError, FRAME_VERSION, SEAL_VERSION, encodeFrame, sealFrame, unsealFrame, type PaymentFrame } from '../../core/localpay/codec'
-import type { LocalPayBleTransport } from 'react-native-localpay-transport'
+import type { LocalPayBleTransport } from '@bsv/react-native-localpay-transport'
 
-jest.mock('react-native-localpay-transport', () => ({
+jest.mock('@bsv/react-native-localpay-transport', () => ({
   getLocalPayBleTransport: jest.fn(),
 }))
 
-const { getLocalPayBleTransport } = jest.requireMock('react-native-localpay-transport') as {
+const { getLocalPayBleTransport } = jest.requireMock('@bsv/react-native-localpay-transport') as {
   getLocalPayBleTransport: jest.Mock
 }
 
