@@ -128,7 +128,7 @@ The first `D LocalPayBle:` line on each phone is `prepare: poweredOn` when its R
 
 ## Status: Android rows not yet run
 
-Every Android row above is `pending — requires devices; not run in the implementation session`. The Kotlin backend compiles (`:react-native-localpay-transport:compileDebugKotlin`) and the eleven `BleGattProfileTest` known-answer vectors pass on the plain JVM, which pins the wire format against `ios/BleGattProfile.swift`; nothing below can be checked without two Android phones and an iPhone, and none were attached when it was written.
+Two Android rows above now carry real 2026-09-03 measurements (the `Android TIGER 13 → iOS 15 Pro` rows, both direct-central attempts that failed with a link-layer desync — see spec 2026-09-03); every other row is still `pending — requires devices; not run in the implementation session`. The Kotlin backend compiles (`:react-native-localpay-transport:compileDebugKotlin`) and the twelve `BleGattProfileTest` known-answer vectors pass on the plain JVM, which pins the wire format against `ios/BleGattProfile.swift`; nothing below can be checked without two Android phones and an iPhone, and none were attached when it was written.
 
 ## How to run the Android rows (Task 9 brief, Steps 9–12)
 
