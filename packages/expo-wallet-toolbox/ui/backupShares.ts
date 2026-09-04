@@ -217,7 +217,7 @@ export async function generatePrintHTML(
         <div class="qr-container identity-qr">
           ${identityQR}
         </div>
-        <div class="data-label">Identity Key</div>
+        <div class="data-label">Identifier</div>
         <div class="data-value">${identityKey}</div>
         <div class="identity-caption">Scan this QR code to send BSV payments to this wallet.</div>
       </div>

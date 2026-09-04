@@ -122,7 +122,7 @@ function parsePairingUri(raw: string): ParseResult {
     }
 
     if (!/^0[23][0-9a-fA-F]{64}$/.test(backendIdentityKey)) {
-      return { params: null, error: 'Backend identity key is not a valid public key' }
+      return { params: null, error: 'Backend identifier is not valid' }
     }
 
     let proto: unknown

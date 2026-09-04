@@ -257,7 +257,7 @@ function ActivityRowBase({
               {action.txid && !parked ? (
                 <Chip
                   icon="link-outline"
-                  label="WoC"
+                  label="Explorer"
                   accessibilityLabel={t('tx_action_explorer')}
                   onPress={() => onExplorer(action.txid)}
                 />
