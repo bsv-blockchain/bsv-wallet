@@ -41,6 +41,16 @@ object BleGattProfile {
   const val DEFAULT_ATT_MTU = 23
   /** ATT opcode (1 byte) + attribute handle (2 bytes) precede every write / indication payload. */
   const val ATT_HEADER_BYTES = 3
+  /**
+   * Hard ceiling on a single GATT chunk, independent of the negotiated ATT MTU.
+   * Discovered 2026-09-03 on the reversed-role hardware run: Android's native
+   * Bluetooth stack rejects `notifyCharacteristicChanged`/indication payloads
+   * over 512 bytes regardless of MTU (`bt_stack: BTA_GATTS_HandleValueIndication
+   * — data to indicate is too long` at mtu-3=514 with MTU=517). Applied to every
+   * chunk (writes included, not just indications) for one uniform, defensive
+   * ceiling rather than tracking which paths are and aren't exempt.
+   */
+  const val MAX_CHUNK_BYTES = 512
 
   private const val SERVICE_LABEL = "bsvpay-ble-svc"
   private val UTF8 = Charsets.UTF_8
@@ -151,7 +161,7 @@ object BleGattProfile {
     return out
   }
 
-  fun chunkSize(mtu: Int): Int = maxOf(1, mtu - ATT_HEADER_BYTES)
+  fun chunkSize(mtu: Int): Int = maxOf(1, minOf(mtu - ATT_HEADER_BYTES, MAX_CHUNK_BYTES))
 
   fun chunk(bytes: ByteArray, mtu: Int): ArrayDeque<ByteArray> {
     val size = chunkSize(mtu)

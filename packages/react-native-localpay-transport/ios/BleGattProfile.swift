@@ -52,6 +52,18 @@ enum BleGattProfile {
   static let requestedMtu = 517
   static let defaultAttMtu = 23
   static let macLength = 32
+  /**
+   * Hard ceiling on a single GATT chunk, independent of the negotiated ATT MTU.
+   * Discovered 2026-09-03 on the reversed-role hardware run: Android's native
+   * Bluetooth stack rejects `notifyCharacteristicChanged`/indication payloads
+   * over 512 bytes regardless of MTU. CoreBluetooth's own indication path
+   * (`CBCentral.maximumUpdateValueLength`) doesn't carry this specific bug, but
+   * a payer peer on the other end of an indication (or a future iOS↔iOS pairing
+   * on a stack revision that does) might — applied defensively on iOS's
+   * indication paths too, on top of the `.withResponse` cap the write path
+   * already self-imposes via `writeChunkSize`.
+   */
+  static let maxChunkBytes = 512
 
   // MARK: - Errors
 

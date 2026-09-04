@@ -72,7 +72,7 @@ Message bytes, HMAC domains and the ack MAC are identical in both modes (`HELLO_
 | `FRAME` | central writes without response → FRAME char | peripheral indications ← ACK char |
 | `ACK` | peripheral indication ← ACK char | central write **with response** → FRAME char |
 
-Chunking is unchanged: `[u32 BE length][message]`, cut to `ATT_MTU − 3` (`maxUpdateValueLength` / `maximumWriteValueLength` on iOS, `mtu − 3` on Android), reassembled by the existing `Reassembler` on the receiving side.
+Chunking is unchanged: `[u32 BE length][message]`, cut to `min(ATT_MTU − 3, 512)` (`maxUpdateValueLength` / `maximumWriteValueLength` on iOS, `mtu − 3` on Android — both now clamped at 512, see the 2026-09-03 hardware-run correction in the amended 09-02 spec), reassembled by the existing `Reassembler` on the receiving side.
 
 ### 3. Native surface
 

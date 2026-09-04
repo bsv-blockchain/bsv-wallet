@@ -134,9 +134,12 @@ class BleGattProfileTest {
   }
 
   @Test
-  fun chunksNeverExceedMtuMinusThree() {
+  fun chunksNeverExceedMtuMinusThreeOrTheHardCeiling() {
     assertEquals(20, BleGattProfile.chunkSize(23))
-    assertEquals(514, BleGattProfile.chunkSize(517))
+    // Android's stack rejects notifyCharacteristicChanged/indication payloads over 512
+    // bytes regardless of negotiated MTU (2026-09-03 hardware finding) — mtu-3=514 at
+    // MTU=517 must still clamp to 512, not pass the raw mtu-3 value through.
+    assertEquals(512, BleGattProfile.chunkSize(517))
     assertEquals(1, BleGattProfile.chunkSize(0))
     val framed = BleGattProfile.lengthPrefixed(ByteArray(1000) { it.toByte() })
     val small = BleGattProfile.chunk(framed, 23)
@@ -145,8 +148,8 @@ class BleGattProfileTest {
     assertEquals(1004, small.sumOf { it.size })
     val large = BleGattProfile.chunk(framed, 517)
     assertEquals(2, large.size)
-    assertEquals(514, large.first().size)
-    assertEquals(490, large.last().size)
+    assertEquals(512, large.first().size)
+    assertEquals(492, large.last().size)
   }
 
   @Test

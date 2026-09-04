@@ -1010,7 +1010,7 @@ final class BleEngine: NSObject {
 
   private func enqueueIndication(_ message: Data, to central: CBCentral, completion: (() -> Void)?) {
     dispatchPrecondition(condition: .onQueue(queue))
-    let parts = BleGattProfile.chunks(BleGattProfile.lengthPrefixed(message), size: central.maximumUpdateValueLength)
+    let parts = BleGattProfile.chunks(BleGattProfile.lengthPrefixed(message), size: min(central.maximumUpdateValueLength, BleGattProfile.maxChunkBytes))
     for (i, part) in parts.enumerated() {
       indicationQueue.append(Indication(central: central, chunk: part, completion: i == parts.count - 1 ? completion : nil))
     }
@@ -1223,7 +1223,7 @@ final class BleEngine: NSObject {
   /// Indication enqueue for the payer role: `flushIndications` needs an ACK characteristic, which it reads from `listening`; the payer keeps its own, so this variant takes it explicitly.
   private func enqueuePayerIndication(_ message: Data, to central: CBCentral, ack: CBMutableCharacteristic, completion: (() -> Void)?) {
     dispatchPrecondition(condition: .onQueue(queue))
-    let parts = BleGattProfile.chunks(BleGattProfile.lengthPrefixed(message), size: central.maximumUpdateValueLength)
+    let parts = BleGattProfile.chunks(BleGattProfile.lengthPrefixed(message), size: min(central.maximumUpdateValueLength, BleGattProfile.maxChunkBytes))
     for (i, part) in parts.enumerated() {
       indicationQueue.append(Indication(central: central, chunk: part, completion: i == parts.count - 1 ? completion : nil))
     }
