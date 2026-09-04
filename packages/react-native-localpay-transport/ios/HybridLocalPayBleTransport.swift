@@ -274,8 +274,6 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
     done?(false)
   }
 
-  var isHolding: Bool { stage == .holding }
-
   // MARK: central manager events (forwarded by BleEngine)
 
   func managerStateChanged(_ state: CBManagerState) {
