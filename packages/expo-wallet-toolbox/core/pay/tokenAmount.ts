@@ -1,7 +1,7 @@
-import { Transaction } from '@bsv/sdk'
+import { Transaction, type AtomicBEEF } from '@bsv/sdk'
 
 export function satoshisFromToken(token: {
-  transaction: number[]
+  transaction: AtomicBEEF
   outputIndex?: number
   amount?: number
 }): { satoshis: number; claimedAgrees: boolean } | undefined {

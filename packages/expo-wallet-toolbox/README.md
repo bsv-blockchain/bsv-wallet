@@ -21,7 +21,7 @@ app's own TypeScript config transpile it like any other workspace source.
 ## Install
 
 ```bash
-npm install @bsv/expo-wallet-toolbox react-native-localpay-transport react-native-engine-native react-native-secp-native react-native-nitro-modules
+npm install @bsv/expo-wallet-toolbox @bsv/react-native-localpay-transport react-native-engine-native react-native-secp-native react-native-nitro-modules
 ```
 
 `react-native-yubikey` is optional — the vault subsystem
@@ -119,14 +119,15 @@ Expo SDK line.
 | Package | Notes |
 | --- | --- |
 | `react-native-nitro-modules` | ^0.35.2. Nitro codegen runtime the three below build on. |
-| `react-native-localpay-transport` | Local WiFi/Bluetooth P2P payment transport. |
+| `@bsv/react-native-localpay-transport` | Local WiFi/Bluetooth/BLE P2P payment transport. Published independently — see `packages/react-native-localpay-transport`. |
 | `react-native-engine-native` | Native wallet-toolbox engine bindings. |
 | `react-native-secp-native` | Native secp256k1 signing. |
 
-These three ship as sibling `packages/` in this repo and are not yet
-published to npm independently — when they are, pin to their published
-version; each declares `react-native` and `react-native-nitro-modules`
-as its own peer dependencies.
+`react-native-engine-native` and `react-native-secp-native` ship as sibling
+`packages/` in this repo and are not yet published to npm independently —
+when they are, pin to their published version. Each of the three declares
+`react-native` and `react-native-nitro-modules` as its own peer
+dependencies.
 
 ### Optional
 
@@ -355,7 +356,7 @@ repo's:
 ```
 
 Required for the Nitro/xcframework native modules
-(`react-native-localpay-transport`, `react-native-engine-native`,
+(`@bsv/react-native-localpay-transport`, `react-native-engine-native`,
 `react-native-secp-native`, `react-native-yubikey`) to build on iOS.
 
 ### `metro.config.js`

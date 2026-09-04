@@ -92,7 +92,17 @@ const METHOD_TITLE_KEYS: Record<RequestMethod, string> = {
 const isRequestMethod = (v: string | undefined): v is RequestMethod =>
   v === 'get-nearby' || v === 'get-handle' || v === 'get-address'
 
-export function PayScreen() {
+export interface PayScreenProps {
+  /**
+   * Where a finished payment (or "back" from the form) sends the user.
+   * Defaults to `/`, the wallet's own home route. A host that mounts this
+   * screen somewhere other than the app root — e.g. a browser app that puts
+   * the wallet at `/wallet` — should pass that route here instead.
+   */
+  dismissTo?: string
+}
+
+export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -321,8 +331,8 @@ export function PayScreen() {
    * discarding them.
    */
   const goBack = useCallback(() => {
-    router.dismissTo('/')
-  }, [])
+    router.dismissTo(dismissTo)
+  }, [dismissTo])
 
   const onNearbySession = useCallback((session: Session) => {
     // One camera raise per deep link; a cancelled advisory must not re-open it.
@@ -355,7 +365,9 @@ export function PayScreen() {
   const body = () => {
     if (direction === 'pay') {
       if (nearbySession) {
-        return nearbyAdvisorySeen ? <NearbyFlow role="payer" initialSession={nearbySession} onExit={goBack} /> : null
+        return nearbyAdvisorySeen ? (
+          <NearbyFlow role="payer" initialSession={nearbySession} onExit={goBack} dismissTo={dismissTo} />
+        ) : null
       }
       return (
         <>
@@ -366,6 +378,7 @@ export function PayScreen() {
             initialNotice={peerPayNotice}
             openScannerOnMount={scanOnMount}
             onNearbySession={onNearbySession}
+            dismissTo={dismissTo}
           />
         </>
       )
@@ -373,11 +386,13 @@ export function PayScreen() {
     const sats = requestSatsFrom(requestSats)
     switch (method) {
       case 'get-nearby':
-        return nearbyAdvisorySeen ? <NearbyFlow role="payee" initialRequest={{ sats }} onExit={goBack} /> : null
+        return nearbyAdvisorySeen ? (
+          <NearbyFlow role="payee" initialRequest={{ sats }} onExit={goBack} dismissTo={dismissTo} />
+        ) : null
       case 'get-handle':
-        return <HandleReceive initialSats={sats} />
+        return <HandleReceive initialSats={sats} dismissTo={dismissTo} />
       case 'get-address':
-        return <AddressReceive initialSats={sats} />
+        return <AddressReceive initialSats={sats} dismissTo={dismissTo} />
       default:
         return (
           <>

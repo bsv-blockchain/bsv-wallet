@@ -74,7 +74,7 @@
     "date-fns": "^4.1.0",
 
     "react-native-nitro-modules": "^0.35.2",
-    "react-native-localpay-transport": "*",
+    "@bsv/react-native-localpay-transport": "*",
     "react-native-engine-native": "*",
     "react-native-secp-native": "*",
 

@@ -5,7 +5,7 @@ import { mintSession, CAP_AWDL, CAP_BLE, CAP_NEARBY, HINT_BT, HINT_WIFI, type Se
 let mockIsSupported = true
 let mockBleSupported = true
 
-jest.mock('react-native-localpay-transport', () => ({
+jest.mock('@bsv/react-native-localpay-transport', () => ({
   getLocalPayTransport: () => ({ isSupported: () => mockIsSupported }),
   getLocalPayBleTransport: () => ({
     isSupported: () => mockBleSupported,

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native'
-import { getLocalPayBleTransport, type LocalPayBleTransport } from 'react-native-localpay-transport'
+import { getLocalPayBleTransport, type LocalPayBleTransport } from '@bsv/react-native-localpay-transport'
 import { unsealFrame, sealFrame, type PaymentFrame } from '../codec'
 import { instanceName, type Session } from '../session'
 import type { Ack, LocalPaymentTransport, ReceivedFrame } from '../types'

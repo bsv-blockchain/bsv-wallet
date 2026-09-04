@@ -355,7 +355,7 @@ The `--clean` flag regenerates the native projects from scratch, ensuring all na
 
 | Feature                    | Native Dependencies                                                                          |
 | --------------------------- | ---------------------------------------------------------------------------------------------- |
-| Local Payments              | `react-native-localpay-transport` (AWDL/Nearby Connections), `react-native-nitro-modules`, `@react-native-community/netinfo` |
+| Local Payments              | `@bsv/react-native-localpay-transport` (AWDL/Nearby Connections/BLE), `react-native-nitro-modules`, `@react-native-community/netinfo` |
 | Vault (hardware key)        | `react-native-yubikey`, `react-native-nitro-modules`                                          |
 | Wallet storage              | `expo-sqlite`                                                                                  |
 | Secure key storage          | `expo-secure-store`                                                                            |

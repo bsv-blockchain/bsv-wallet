@@ -188,6 +188,8 @@ export interface UniversalSendProps {
   openScannerOnMount?: boolean
   /** A nearby-session code was scanned. The Pay screen swaps this form for NearbyFlow. */
   onNearbySession: (session: Session) => void
+  /** Where the post-payment overlay sends the user. Defaults to `/`. */
+  dismissTo?: string
 }
 
 export default function UniversalSend({
@@ -195,7 +197,8 @@ export default function UniversalSend({
   initialSats,
   initialNotice,
   openScannerOnMount = false,
-  onNearbySession
+  onNearbySession,
+  dismissTo = '/'
 }: UniversalSendProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -570,6 +573,7 @@ export default function UniversalSend({
           amount={sent.amount}
           recipientName={sent.recipient}
           onDismiss={() => setSent(null)}
+          dismissTo={dismissTo}
         />
       )}
     </ScrollView>

@@ -19,7 +19,7 @@ import {
   mintSession,
 } from '../../core/localpay/session'
 
-jest.mock('react-native-localpay-transport', () => ({
+jest.mock('@bsv/react-native-localpay-transport', () => ({
   getLocalPayTransport: jest.fn(),
   getLocalPayBleTransport: jest.fn(),
 }))
@@ -29,7 +29,7 @@ jest.mock('@react-native-community/netinfo', () => ({
   default: { fetch: jest.fn() },
 }))
 
-const { getLocalPayBleTransport } = jest.requireMock('react-native-localpay-transport') as {
+const { getLocalPayBleTransport } = jest.requireMock('@bsv/react-native-localpay-transport') as {
   getLocalPayBleTransport: jest.Mock
 }
 

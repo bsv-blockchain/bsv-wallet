@@ -1,6 +1,6 @@
 /**
  * getLocalPayBleTransport() is the second never-throwing Nitro accessor in
- * react-native-localpay-transport (spec §1). A `null` from it silently floors
+ * @bsv/react-native-localpay-transport (spec §1). A `null` from it silently floors
  * the payment flow to QR — the same masking that hid two shipped native bugs
  * (84cd96e, 0c75467) — so the accessor must (a) never throw, (b) cache its
  * answer, and (c) warn exactly once in __DEV__ when it swallows the error.
@@ -9,11 +9,11 @@
  * react-native-nitro-modules replaced, because the accessor's cache is a
  * module-level variable.
  */
-type Accessors = typeof import('react-native-localpay-transport')
+type Accessors = typeof import('@bsv/react-native-localpay-transport')
 
 function loadWithNitro(createHybridObject: jest.Mock): Accessors {
   jest.doMock('react-native-nitro-modules', () => ({ NitroModules: { createHybridObject } }))
-  return jest.requireActual<Accessors>('react-native-localpay-transport')
+  return jest.requireActual<Accessors>('@bsv/react-native-localpay-transport')
 }
 
 describe('getLocalPayBleTransport', () => {

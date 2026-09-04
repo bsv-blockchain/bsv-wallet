@@ -378,6 +378,9 @@ export const WalletManagersContext = createContext<WalletManagersSlice>({
   walletBuilding: false
 })
 
+/** Subscribes to just the managers/storage slice — see WalletManagersContext above. */
+export const useWalletManagers = (): WalletManagersSlice => useContext(WalletManagersContext)
+
 type PermissionType = 'identity' | 'protocol' | 'renewal' | 'basket'
 
 type BasketAccessRequest = {

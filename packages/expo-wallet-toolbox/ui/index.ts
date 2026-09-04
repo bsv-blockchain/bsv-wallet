@@ -83,6 +83,7 @@ export {
 // Pay screen (Task 21 — extracted from app/pay.tsx) and the online-status hook
 // it, and several pay cells above, depend on.
 export { PayScreen } from './screens/PayScreen'
+export type { PayScreenProps } from './screens/PayScreen'
 export { useOnline } from './hooks/useOnline'
 
 // Settings + wallet-config screens (Task 22 — extracted from app/settings.tsx

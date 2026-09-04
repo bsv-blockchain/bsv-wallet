@@ -71,6 +71,12 @@ export interface ReceivedOverlayProps {
   /** Sent only: the resolved counterparty (name, handle, or abbreviated address). */
   recipientName?: string
   /**
+   * Where acknowledging the overlay sends the user. Defaults to `/`, the
+   * wallet's own home route. A host that embeds the wallet as a sub-screen
+   * (rather than as the app root) should pass its own wallet-home route here.
+   */
+  dismissTo?: string
+  /**
    * Acknowledged. The only way this screen closes. Clean up local state here —
    * the overlay itself then returns the user to the wallet, so the updated
    * balance is the next thing they see.
@@ -84,6 +90,7 @@ export default function PaymentSuccessOverlay({
   broadcast = true,
   direction = 'received',
   recipientName,
+  dismissTo = '/',
   onDismiss
 }: ReceivedOverlayProps) {
   const sent = direction === 'sent'
@@ -127,8 +134,8 @@ export default function PaymentSuccessOverlay({
    */
   const acknowledge = useCallback(() => {
     onDismiss()
-    router.dismissTo('/')
-  }, [onDismiss])
+    router.dismissTo(dismissTo)
+  }, [onDismiss, dismissTo])
 
   const settleIn = reducedMotion
     ? undefined
