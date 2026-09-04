@@ -423,6 +423,16 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     lateinit var gattCallback: BluetoothGattCallback
 
     fun disconnectAndRescan(reason: String) {
+      ackPromise?.let { p ->
+        // A pending confirmFrame ack write must be settled, not left hanging:
+        // a disconnect or reassembler-throw here means the peer is gone, so
+        // reject and fully tear down instead of rescanning (mirrors the
+        // synchronous-rejection branch in writeNextChunk).
+        ackPromise = null
+        p.reject(Error("peer disconnected before acking"))
+        tearDown()
+        return
+      }
       Log.d(TAG, "payee(scan): $reason; rescanning")
       idleReaper?.let { main.removeCallbacks(it) }
       idleReaper = null
@@ -1219,6 +1229,9 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         return@post
       }
 
+      // A device never pays and receives at once (Swift's startListening does the same).
+      payer?.fail("superseded by a newer send")
+
       // Self-reset: a fresh session never inherits a previous one's bookkeeping (§3 peripheral step 2).
       resetSession("superseded by a new startListening")
 
@@ -1267,6 +1280,8 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       Log.d(TAG, "payee: listening stopped by JS")
       scan?.tearDown()
       scan = null
+      // A device never pays and receives at once (Swift's startListening does the same).
+      payer?.fail("superseded by a newer send")
       resetSession("listening stopped")
       listenPsk = null
       listenName = null

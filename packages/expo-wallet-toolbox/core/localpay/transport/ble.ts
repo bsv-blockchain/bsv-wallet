@@ -1,5 +1,10 @@
-import { getLocalPayBleTransport } from 'react-native-localpay-transport'
-import { makeSocketTransport } from './socket'
+import { Platform } from 'react-native'
+import { getLocalPayBleTransport, type LocalPayBleTransport } from 'react-native-localpay-transport'
+import { unsealFrame, sealFrame, type PaymentFrame } from '../codec'
+import { instanceName, type Session } from '../session'
+import type { Ack, LocalPaymentTransport, ReceivedFrame } from '../types'
+import { bleRole } from './select'
+import { SEND_TIMEOUT_MS, declineQuietly, fromBase64, makeConfirm, parseAck, toBase64 } from './socket'
 
 /**
  * Connect-phase budget before the payer gives up and falls back to the QR:
@@ -20,9 +25,135 @@ import { makeSocketTransport } from './socket'
 export const BLE_CONNECT_TIMEOUT_MS = 15_000
 
 /**
+ * The BLE rung. Unlike the AWDL/Nearby wrapper this one knows two roles (spec
+ * 2026-09-03): the payee listens on BOTH the advertised link (startListening)
+ * and, on iOS, the scan link (startScanning); the payer advertises instead of
+ * connecting when bleRole() says so. Frame decoding, the single-shot confirm
+ * handle and the never-stop-on-success discipline are socket.ts's, reused.
+ */
+export function makeBleTransport(
+  native: () => LocalPayBleTransport | null,
+  connectTimeoutMs: number
+): LocalPaymentTransport {
+  return {
+    kind: 'ble',
+
+    receive(session: Session, signal: AbortSignal): Promise<ReceivedFrame> {
+      const backend = native()
+      if (!backend) return Promise.reject(new Error('ble transport unavailable'))
+      if (signal.aborted) return Promise.reject(new Error('cancelled'))
+      const name = instanceName(session.sessionId)
+      const psk = toBase64(session.psk)
+
+      return new Promise<ReceivedFrame>((resolve, reject) => {
+        let settled = false
+        // Same contract as socket.ts: teardown is FALSE on the success path,
+        // because the native side already cancelled the loser and is holding
+        // the winner's link open for confirmFrame().
+        const finish = (teardown: boolean, fn: () => void) => {
+          if (settled) return
+          settled = true
+          signal.removeEventListener('abort', onAbort)
+          if (teardown) void backend.stopListening().catch(() => {})
+          fn()
+        }
+        const onAbort = () => finish(true, () => reject(new Error('cancelled')))
+        signal.addEventListener('abort', onAbort)
+
+        // One frame handler for both links: the native latch guarantees only
+        // one of them ever fires it.
+        const onFrame = (frameBase64: string) => {
+          let frame: PaymentFrame
+          try {
+            frame = unsealFrame(fromBase64(frameBase64), session.psk)
+          } catch (e) {
+            declineQuietly(backend, 'decode_failed')
+            return finish(false, () => reject(e))
+          }
+          finish(false, () => resolve({ frame, confirm: makeConfirm(backend) }))
+        }
+        const onError = (message: string) => finish(true, () => reject(new Error(message)))
+
+        backend
+          .startListening(name, psk, onFrame, onError)
+          .then(() => {
+            // Reversed role: only where this device's central is trusted
+            // against a peer that advertises. A scan that cannot start leaves
+            // the advertised listener serving iOS payers, so it is logged, not
+            // terminal. Started AFTER startListening resolves: the native
+            // self-reset inside startListening would otherwise tear it down.
+            if (Platform.OS !== 'ios' || settled) return
+            return backend.startScanning(name, psk, onFrame, onError).catch((e: unknown) => {
+              if (settled) return
+              console.warn('[localpay] ble scan unavailable:', e instanceof Error ? e.message : String(e))
+            })
+          })
+          .catch(e => finish(true, () => reject(e)))
+      })
+    },
+
+    send(session: Session, frame: PaymentFrame, signal: AbortSignal): Promise<Ack> {
+      const backend = native()
+      if (!backend) return Promise.reject(new Error('ble transport unavailable'))
+      if (signal.aborted) return Promise.reject(new Error('cancelled'))
+
+      return new Promise<Ack>((resolve, reject) => {
+        let settled = false
+        const cleanup = () => signal.removeEventListener('abort', onAbort)
+        const onAbort = () => {
+          if (settled) return
+          settled = true
+          cleanup()
+          reject(new Error('cancelled'))
+        }
+        signal.addEventListener('abort', onAbort)
+        // sealFrame can throw (e.g. an oversize frame); computed inside the
+        // executor so that throw becomes a rejection of this Promise<Ack>
+        // rather than a synchronous throw out of send() (matches socket.ts).
+        let args: readonly [string, string, string, number, number]
+        try {
+          args = [
+            instanceName(session.sessionId),
+            toBase64(session.psk),
+            toBase64(sealFrame(frame, session.psk)),
+            SEND_TIMEOUT_MS,
+            connectTimeoutMs,
+          ] as const
+        } catch (e) {
+          settled = true
+          cleanup()
+          reject(e)
+          return
+        }
+        const pending =
+          bleRole(session) === 'peripheral' ? backend.sendFrameAdvertising(...args) : backend.sendFrame(...args)
+        pending.then(
+          ackBase64 => {
+            if (settled) return
+            settled = true
+            cleanup()
+            try {
+              resolve(parseAck(ackBase64))
+            } catch (e) {
+              reject(e)
+            }
+          },
+          e => {
+            if (settled) return
+            settled = true
+            cleanup()
+            reject(e)
+          }
+        )
+      })
+    },
+  }
+}
+
+/**
  * A separate HybridObject from the AWDL/Nearby one. That is load-bearing for
  * the payee's multi-listener: aborting this rung runs ITS native
  * stopListening(), which can never touch the other radio's held ack
  * connection.
  */
-export const bleTransport = makeSocketTransport('ble', getLocalPayBleTransport, BLE_CONNECT_TIMEOUT_MS)
+export const bleTransport = makeBleTransport(getLocalPayBleTransport, BLE_CONNECT_TIMEOUT_MS)
