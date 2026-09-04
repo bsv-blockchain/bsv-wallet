@@ -122,7 +122,10 @@ function loadQRCode(): QRCodeComponent {
  */
 const HISTORY_POLL_MS = 5000
 
-export default function AddressReceive({ initialSats }: { initialSats?: number } = {}) {
+export default function AddressReceive({
+  initialSats,
+  dismissTo = '/'
+}: { initialSats?: number; dismissTo?: string } = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -436,7 +439,12 @@ export default function AddressReceive({ initialSats }: { initialSats?: number }
       {/* The moment money arrives. A Modal, so it covers the header too, and it
           stays until acknowledged. */}
       {received && (
-        <ReceivedOverlay amount={received.amount} count={received.count} onDismiss={() => setReceived(null)} />
+        <ReceivedOverlay
+          amount={received.amount}
+          count={received.count}
+          onDismiss={() => setReceived(null)}
+          dismissTo={dismissTo}
+        />
       )}
     </ScrollView>
   )

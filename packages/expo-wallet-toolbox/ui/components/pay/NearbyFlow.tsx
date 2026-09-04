@@ -387,9 +387,17 @@ export interface NearbyFlowProps {
   initialSession?: Session
   /** Payee only: mint immediately for this amount (undefined = open request). Skips receive_amount. */
   initialRequest?: { sats?: number }
+  /** Where the post-payment overlay and an exited QR flow send the user. Defaults to `/`. */
+  dismissTo?: string
 }
 
-export default function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest }: NearbyFlowProps) {
+export default function NearbyFlow({
+  role: initialRole,
+  onExit,
+  initialSession,
+  initialRequest,
+  dismissTo = '/'
+}: NearbyFlowProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -1591,10 +1599,10 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
       // — and its Resend and Cancel — actually is.
       reset()
       onExit()
-      router.dismissTo('/')
+      router.dismissTo(dismissTo)
       return leavingScreen
     },
-    [completeQrDelivery, reset, onExit, router]
+    [completeQrDelivery, reset, onExit, router, dismissTo]
   )
 
   useEffect(() => {
@@ -2301,6 +2309,7 @@ export default function NearbyFlow({ role: initialRole, onExit, initialSession, 
           // The overlay navigates to the wallet after this; goBack ends the
           // session and resets the cell so /pay is not left mid-flow beneath.
           onDismiss={goBack}
+          dismissTo={dismissTo}
         />
       )}
     </View>

@@ -346,7 +346,10 @@ function AttentionRow({
   )
 }
 
-export default function HandleReceive({ initialSats }: { initialSats?: number } = {}) {
+export default function HandleReceive({
+  initialSats,
+  dismissTo = '/'
+}: { initialSats?: number; dismissTo?: string } = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -754,7 +757,12 @@ export default function HandleReceive({ initialSats }: { initialSats?: number } 
 
       {/* The moment money arrives. A Modal, so it covers the header too. */}
       {received && (
-        <ReceivedOverlay amount={received.amount} count={received.count} onDismiss={() => setReceived(null)} />
+        <ReceivedOverlay
+          amount={received.amount}
+          count={received.count}
+          onDismiss={() => setReceived(null)}
+          dismissTo={dismissTo}
+        />
       )}
     </ScrollView>
   )
