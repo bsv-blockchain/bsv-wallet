@@ -279,17 +279,21 @@ export * from './hooks/useHaptics'
 export * from './hooks/useConfirmationSound'
 
 // WalletContext — the core hub wiring together storage, headers, localpay,
-// backup, vault-ceremony bridging, and monitor tasks. Only its two actually-
-// consumed exports are re-exported here (WalletContextProvider, useWallet) —
-// its narrow selector hooks (useWalletStatus, useWalletQueues,
-// useTxStatusVersion), WalletManagersContext, and the various *Value/*Slice
-// types have zero current consumers anywhere in the app, so they are left
-// off the barrel for now (same "only what's actually used" convention as
-// Task 3's motion.ts/useThemeStyles.tsx) — reachable via a relative import
-// from inside the package if a future task needs them, and easy to add here
-// once a real consumer exists. WalletContextProvider takes an optional
-// onToast prop (see WalletContext.tsx's WalletContextToast type) rather than
-// importing a ui Toast component directly — core must never import from ui,
-// same boundary as VaultContext's onToast above.
-export { WalletContextProvider, useWallet, WalletContext } from './context/WalletContext'
+// backup, vault-ceremony bridging, and monitor tasks. Its narrow selector
+// hooks (useWalletStatus, useWalletQueues, useTxStatusVersion) and the
+// various *Value/*Slice types still have zero current consumers anywhere in
+// the app, so they stay off the barrel for now (same "only what's actually
+// used" convention as Task 3's motion.ts/useThemeStyles.tsx) — reachable via
+// a relative import from inside the package if a future task needs them.
+// WalletManagersContext/useWalletManagers ARE exported: a host embedding the
+// wallet as a sub-screen inside a larger app (e.g. a browser driving a
+// BRC-100 bridge from its own WebView tabs) needs the manager/storage handle
+// without mounting a second WalletContextProvider — a second provider means
+// a second createWalletMonitor and a second StorageExpoSQLite on the same
+// .db file, which is a SIGSEGV waiting to happen. WalletContextProvider
+// takes an optional onToast prop (see WalletContext.tsx's WalletContextToast
+// type) rather than importing a ui Toast component directly — core must
+// never import from ui, same boundary as VaultContext's onToast above.
+export { WalletContextProvider, useWallet, WalletContext, WalletManagersContext, useWalletManagers } from './context/WalletContext'
+export type { WalletManagersSlice } from './context/WalletContext'
 export { usePermissionQueue } from './hooks/usePermissionQueue'

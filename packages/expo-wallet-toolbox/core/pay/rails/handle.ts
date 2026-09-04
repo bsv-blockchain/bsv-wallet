@@ -9,7 +9,7 @@
  * makes a crash recoverable.
  */
 import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
-import { Beef, P2PKH, PublicKey, Random, Transaction, Utils } from '@bsv/sdk'
+import { Beef, P2PKH, PublicKey, Random, Transaction, Utils, type AtomicBEEF } from '@bsv/sdk'
 import { BRC29_PROTOCOL_ID } from './address'
 import {
   getOutboxEntries,
@@ -169,7 +169,7 @@ async function acknowledgeCredited(
 }
 
 /** The AtomicBEEF subject txid, or undefined if the bytes will not parse. */
-function safeAtomicTxid(tx: number[]): string | undefined {
+function safeAtomicTxid(tx: AtomicBEEF): string | undefined {
   try {
     return Beef.fromBinary(Array.from(tx)).atomicTxid
   } catch {
@@ -304,7 +304,7 @@ export async function autoAcceptInbox<T extends { messageId: string | number }>(
  */
 export async function discardIncoming(
   client: Pick<PeerPayClient, 'acknowledgeMessage' | 'sendMessage'>,
-  payment: { messageId: string; sender?: string; token?: { transaction?: number[] } },
+  payment: { messageId: string; sender?: string; token?: { transaction?: AtomicBEEF } },
   reason: ResendReason = 'uncreditible'
 ): Promise<void> {
   const txid = payment.token?.transaction ? safeAtomicTxid(payment.token.transaction) : undefined
