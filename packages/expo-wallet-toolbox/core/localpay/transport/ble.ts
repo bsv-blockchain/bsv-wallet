@@ -96,13 +96,6 @@ export function makeBleTransport(
       const backend = native()
       if (!backend) return Promise.reject(new Error('ble transport unavailable'))
       if (signal.aborted) return Promise.reject(new Error('cancelled'))
-      const args = [
-        instanceName(session.sessionId),
-        toBase64(session.psk),
-        toBase64(sealFrame(frame, session.psk)),
-        SEND_TIMEOUT_MS,
-        connectTimeoutMs,
-      ] as const
 
       return new Promise<Ack>((resolve, reject) => {
         let settled = false
@@ -114,6 +107,24 @@ export function makeBleTransport(
           reject(new Error('cancelled'))
         }
         signal.addEventListener('abort', onAbort)
+        // sealFrame can throw (e.g. an oversize frame); computed inside the
+        // executor so that throw becomes a rejection of this Promise<Ack>
+        // rather than a synchronous throw out of send() (matches socket.ts).
+        let args: readonly [string, string, string, number, number]
+        try {
+          args = [
+            instanceName(session.sessionId),
+            toBase64(session.psk),
+            toBase64(sealFrame(frame, session.psk)),
+            SEND_TIMEOUT_MS,
+            connectTimeoutMs,
+          ] as const
+        } catch (e) {
+          settled = true
+          cleanup()
+          reject(e)
+          return
+        }
         const pending =
           bleRole(session) === 'peripheral' ? backend.sendFrameAdvertising(...args) : backend.sendFrame(...args)
         pending.then(

@@ -167,6 +167,25 @@ describe('bleTransport.send', () => {
     expect(sentBytes[0]).toBe(SEAL_VERSION)
     expect(unsealFrame(sentBytes, session.psk)).toEqual(frame)
   })
+
+  // Regression: sealFrame(...) is computed to build sendFrame's args, and it
+  // can throw (e.g. a malformed frame CodecError). That computation must sit
+  // INSIDE the Promise<Ack> executor so a throw becomes a rejection of the
+  // promise send() already returned, never a synchronous throw out of send()
+  // itself — the same shape socket.ts uses.
+  it('rejects rather than throwing synchronously when sealFrame throws', async () => {
+    const native = fakeNative()
+    getLocalPayBleTransport.mockReturnValue(native)
+    const badFrame: PaymentFrame = { ...frame, senderIdentityKey: '02' }
+
+    let result: Promise<unknown>
+    expect(() => {
+      result = bleTransport.send(session, badFrame, new AbortController().signal)
+    }).not.toThrow()
+
+    await expect(result!).rejects.toThrow(CodecError)
+    expect(native.sendFrame).not.toHaveBeenCalled()
+  })
 })
 
 describe('bleTransport.receive', () => {
