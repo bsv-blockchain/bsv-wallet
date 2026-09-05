@@ -82,6 +82,7 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
     chain: deps.chain,
     identityKey: deps.identityKey,
     client,
+    manifest: devices,
     deviceId: target.deviceId,
     generation: target.generation,
     onProgress: deps.onProgress

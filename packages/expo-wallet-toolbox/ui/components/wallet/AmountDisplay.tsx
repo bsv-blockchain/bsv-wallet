@@ -1,4 +1,4 @@
-import React, { ReactNode, useState, useEffect, useContext } from 'react'
+import React, { ReactNode, useMemo, useContext } from 'react'
 import { formatAmount, ExchangeRateContext, useWallet } from '@bsv/expo-wallet-toolbox'
 
 type Props = {
@@ -25,21 +25,18 @@ type Props = {
  * @param {number|string} props.children - The amount in satoshis to display
  */
 const AmountDisplay: React.FC<Props> = ({ abbreviate, showPlus, children, showFiatAsInteger }) => {
-  const [formatted, setFormatted] = useState('...')
-
   const { settings } = useWallet()
   const currency = settings?.currency || 'BSV'
 
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
 
-  useEffect(() => {
+  const formatted = useMemo(() => {
     const numValue = Number(children)
     if (!Number.isInteger(numValue)) {
-      setFormatted('...')
-      return
+      return '...'
     }
 
-    setFormatted(formatAmount(numValue, currency, satoshisPerUSD, { showPlus, abbreviate, showFiatAsInteger, usdToFiat }))
+    return formatAmount(numValue, currency, satoshisPerUSD, { showPlus, abbreviate, showFiatAsInteger, usdToFiat })
   }, [children, currency, satoshisPerUSD, usdToFiat, showPlus, abbreviate, showFiatAsInteger])
 
   return <>{formatted}</>

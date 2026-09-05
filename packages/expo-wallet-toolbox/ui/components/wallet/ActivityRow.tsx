@@ -56,6 +56,8 @@ export type ActivityAction = WalletAction & {
 }
 
 interface Props {
+  /** Pass the screen currency to avoid subscribing every row to wallet updates. */
+  currency?: string
   action: ActivityAction
   /** Identity of this row in the list's expanded/busy bookkeeping. Passed back
    * to `onToggle` so the handler can stay referentially stable across renders —
@@ -99,6 +101,7 @@ export function formatRowTime(value?: string | number | Date): string {
 }
 
 function ActivityRowBase({
+  currency,
   action,
   rowKey,
   offlineStatus,
@@ -112,14 +115,12 @@ function ActivityRowBase({
   onSendPaymentDetails,
   onSendAgain,
   onCancelParked
-}: Props) {
+}: Props & { currency: string }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const { settings } = useWallet()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const MaterialCommunityIcons = loadMaterialCommunityIcons()
 
-  const currency = settings?.currency || 'BSV'
   const view = txStatusView(action.status, offlineStatus)
   const settled = view.tone === 'settled'
   const tone = toneColor(view.tone, colors as unknown as Record<string, string>)
@@ -396,13 +397,19 @@ const styles = StyleSheet.create({
   chipLabel: { fontSize: 12, fontWeight: '600' }
 })
 
-/** Rows are re-rendered only when something they actually show changes — the
- * list re-renders on every status poll, and there can be hundreds of them. */
-export default memo(ActivityRowBase, (a, b) =>
-  a.action === b.action &&
-  a.rowKey === b.rowKey &&
-  a.offlineStatus === b.offlineStatus &&
-  a.expanded === b.expanded &&
-  a.busy === b.busy &&
-  a.onToggle === b.onToggle
-)
+// Compare every prop: callbacks and busyLabel must also update, otherwise a
+// retained row can invoke a previous network's handler or show stale progress.
+const MemoActivityRow = memo(ActivityRowBase)
+
+function ConnectedActivityRow(props: Props) {
+  const { settings } = useWallet()
+  return <MemoActivityRow {...props} currency={settings?.currency || 'BSV'} />
+}
+
+/** Preserve the existing package API for hosts that omit currency; the home
+ * screen supplies it so background wallet updates cannot invalidate each row. */
+export default function ActivityRow(props: Props) {
+  return props.currency === undefined
+    ? <ConnectedActivityRow {...props} />
+    : <MemoActivityRow {...props} currency={props.currency} />
+}

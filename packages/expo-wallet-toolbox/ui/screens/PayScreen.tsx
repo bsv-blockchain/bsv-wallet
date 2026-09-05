@@ -181,6 +181,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
   )
   /** Get side: the hub's raw amount, carried into the method. */
   const [requestSats, setRequestSats] = useState('')
+  const initialNearbyRequest = useMemo(() => ({ sats: requestSatsFrom(requestSats) }), [requestSats])
   // One camera raise per deep link; a cancelled advisory must not re-open it.
   const [scanOnMount, setScanOnMount] = useState(paramCell === 'pay-nearby')
 
@@ -387,7 +388,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
     switch (method) {
       case 'get-nearby':
         return nearbyAdvisorySeen ? (
-          <NearbyFlow role="payee" initialRequest={{ sats }} onExit={goBack} dismissTo={dismissTo} />
+          <NearbyFlow role="payee" initialRequest={initialNearbyRequest} onExit={goBack} dismissTo={dismissTo} />
         ) : null
       case 'get-handle':
         return <HandleReceive initialSats={sats} dismissTo={dismissTo} />

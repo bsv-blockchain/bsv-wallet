@@ -64,6 +64,7 @@ function fakeStorage (expected: number): any {
   let seen = 0
   const s: any = {
     seen: () => seen,
+    findProvenTxReqs: jest.fn().mockResolvedValue([]),
     makeAvailable: jest.fn().mockResolvedValue({ storageIdentityKey: 'fresh-local' }),
     findOrInsertUser: jest.fn(async () => ({ user: { userId: 7 }, isNew: true })),
     findOrInsertSyncStateAuth: jest.fn(async () => ({ syncState: {}, isNew: true })),
@@ -132,6 +133,7 @@ describe('restoreOnImport', () => {
     expect(result.deviceId).toBe(NEW_DEVICE)
     expect(result.generation).toBe(2)
     expect(result.chunks).toBe(2)
+    expect(client.manifest).toHaveBeenCalledTimes(1)
     // The target is resolved HERE and passed through explicitly — never left to
     // restoreFromBackup's own "most recently updated" default, which this device's
     // own first push would win as soon as the monitor starts.

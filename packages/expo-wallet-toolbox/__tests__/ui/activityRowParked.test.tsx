@@ -5,18 +5,20 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   typography: { subhead: {}, footnote: {} },
   useTheme: () => ({ colors: new Proxy({}, { get: (_t, k) => String(k) }) }),
-  useWallet: () => ({ settings: { currency: 'BSV' } }),
+  useWallet: jest.fn(() => ({ settings: { currency: 'BSV' } })),
+  haptics: { tap: jest.fn() },
   // useContext needs a real context object, not a stand-in.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   ExchangeRateContext: require('react').createContext({ satoshisPerUSD: 5_000_000 }),
   spacing: { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 },
   radii: { sm: 6, md: 10, lg: 14, pill: 999 },
   formatAmount: () => '1,000 sats',
-  formatAmountParts: () => ({ value: '-1,000', unit: 'sats' })
+  formatAmountParts: jest.fn(() => ({ value: '-1,000', unit: 'sats' }))
 }))
 
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { fireEvent, render } from '@testing-library/react-native'
+import { formatAmountParts, useWallet } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../../ui/components/wallet/ActivityRow'
 import { txStatusView } from '../../ui/txStatus'
 
@@ -99,4 +101,43 @@ it('says what the spinner is waiting on', () => {
   expect(r.getByText('Sending via message box')).toBeTruthy()
   // The chips are replaced by the spinner while it runs.
   expect(r.queryByLabelText('pay_parked_cancel')).toBeNull()
+})
+
+it('uses the supplied currency without subscribing the row to wallet updates', () => {
+  const noop = () => {}
+  const row = action()
+  const draw = (currency: string) => (
+    <ActivityRow action={row} currency={currency} rowKey="k" expanded={false} busy={false}
+      onToggle={noop} onExplorer={noop} onRefreshTx={noop} onAbort={noop} />
+  )
+  jest.mocked(useWallet).mockClear()
+  jest.mocked(formatAmountParts).mockClear()
+  const screen = render(draw('BSV'))
+  expect(useWallet).not.toHaveBeenCalled()
+  expect(formatAmountParts).toHaveBeenLastCalledWith(-1000, 'BSV', expect.any(Number), expect.any(Object))
+  const calls = jest.mocked(formatAmountParts).mock.calls.length
+  screen.rerender(draw('BSV'))
+  expect(formatAmountParts).toHaveBeenCalledTimes(calls)
+  screen.rerender(draw('EUR'))
+  expect(formatAmountParts).toHaveBeenLastCalledWith(-1000, 'EUR', expect.any(Number), expect.any(Object))
+})
+
+it('updates busy text and action callbacks even when the transaction is unchanged', () => {
+  const noop = () => {}
+  const row = action()
+  const firstExplorer = jest.fn()
+  const nextExplorer = jest.fn()
+  const draw = (busy: boolean, busyLabel: string, onExplorer = firstExplorer) => (
+    <ActivityRow action={row} currency="BSV" rowKey="k" expanded busy={busy} busyLabel={busyLabel}
+      onToggle={noop} onExplorer={onExplorer} onRefreshTx={noop} onAbort={noop} />
+  )
+  const screen = render(draw(true, 'Sending'))
+  screen.rerender(draw(true, 'Waiting for acknowledgement'))
+  expect(screen.queryByText('Sending')).toBeNull()
+  expect(screen.getByText('Waiting for acknowledgement')).toBeTruthy()
+  screen.rerender(draw(false, ''))
+  screen.rerender(draw(false, '', nextExplorer))
+  fireEvent.press(screen.getByText('Explorer'))
+  expect(nextExplorer).toHaveBeenCalledWith(TXID)
+  expect(firstExplorer).not.toHaveBeenCalled()
 })

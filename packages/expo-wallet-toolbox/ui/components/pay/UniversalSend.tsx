@@ -13,7 +13,7 @@
  * load-bearing — a user who pastes an address expecting messaging-style
  * delivery has effectively posted cash.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 
@@ -37,7 +37,7 @@ import {
   typography,
   radii,
   hitTargets,
-  useWallet,
+  useWalletManagers,
   CONSEQUENCE_KEYS,
   NO_MESSAGE_BOX,
   cancelOutboxPayment,
@@ -192,7 +192,7 @@ export interface UniversalSendProps {
   dismissTo?: string
 }
 
-export default function UniversalSend({
+function UniversalSend({
   initialTarget,
   initialSats,
   initialNotice,
@@ -203,7 +203,7 @@ export default function UniversalSend({
   const { t } = useTranslation()
   const { colors } = useTheme()
   const StatusBar = loadStatusBar()
-  const { managers, adminOriginator, storage } = useWallet()
+  const { managers, adminOriginator, storage } = useWalletManagers()
   const wallet = managers?.permissionsManager || null
 
   // Read-only here: the server is configured in Settings › Advanced.
@@ -689,3 +689,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md
   }
 })
+
+// Wallet status updates in the parent do not change this form's inputs.
+export default memo(UniversalSend)

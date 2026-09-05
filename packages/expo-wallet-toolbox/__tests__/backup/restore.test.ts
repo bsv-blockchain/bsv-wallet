@@ -1,4 +1,4 @@
-import { PrivateKey } from '@bsv/sdk'
+import { PrivateKey, Utils } from '@bsv/sdk'
 import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import type { LogEntry } from '../../core/backup/client'
 import { encodeChunk, emptyChunk, isEmptyChunk } from '../../core/backup/codec'
@@ -152,5 +152,95 @@ describe('RemoteSyncReader', () => {
     expect(restored.outputs[0].derivationPrefix).toBe('cHJlZml4')
     expect(restored.outputs[0].derivationSuffix).toBe('c3VmZml4')
     expect(restored.outputs[0].lockingScript).toEqual(Array.from({ length: 64 }, (_, i) => i))
+  })
+})
+
+
+describe('RemoteSyncReader reliability and scheduling', () => {
+  const wallet = () => ({ decrypt: jest.fn(async () => ({
+    plaintext: Utils.toArray(JSON.stringify({ chain: 'main', chunk: chunkWithTx('restored') }), 'utf8')
+  })) }) as any
+  const entries = (n: number): LogEntry[] => Array.from({ length: n }, (_, i) => ({
+    seq: i + 1, sha256: `sha${i + 1}`, prevSha256: i ? `sha${i}` : undefined,
+    size: 10, createdAt: '2026-09-05T00:00:00Z'
+  }))
+
+  it('reads beyond the server 500-entry page limit and replays every chunk in order', async () => {
+    const all = entries(501)
+    const client = {
+      index: jest.fn(async (_d, _g, from = 1) => all.slice(from - 1, from - 1 + 500)),
+      blob: jest.fn(async () => new Uint8Array([1]))
+    }
+    const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS, 501)
+    for (let i = 0; i < 501; i++) expect(isEmptyChunk(await reader.getSyncChunk(args))).toBe(false)
+    expect(isEmptyChunk(await reader.getSyncChunk(args))).toBe(true)
+    expect(reader.length).toBe(501)
+    expect(client.index.mock.calls).toEqual([[DEVICE, 1], [DEVICE, 1, 501]])
+    expect(client.blob.mock.calls.map((call: any) => call[2])).toEqual(all.map(e => e.seq))
+  })
+
+  it('rejects an index that stops before the manifest head, before replaying any data', async () => {
+    const client = {
+      index: jest.fn().mockResolvedValueOnce(entries(1)).mockResolvedValueOnce([]),
+      blob: jest.fn()
+    }
+    const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS, 2)
+    await expect(reader.getSyncChunk(args)).rejects.toThrow(/advertised head/)
+    expect(client.blob).not.toHaveBeenCalled()
+  })
+
+  it('does not cache an invalid index across retries', async () => {
+    const client = { index: jest.fn().mockResolvedValue([{ ...entries(1)[0], seq: 2 }]), blob: jest.fn() }
+    const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
+    await expect(reader.getSyncChunk(args)).rejects.toThrow(/gap/)
+    await expect(reader.getSyncChunk(args)).rejects.toThrow(/gap/)
+    expect(client.blob).not.toHaveBeenCalled()
+  })
+
+  it('retries the same sequence after a download or decryption failure', async () => {
+    const w = wallet()
+    w.decrypt.mockRejectedValueOnce(new Error('decode failed'))
+    const client = {
+      index: jest.fn().mockResolvedValue(entries(1)),
+      blob: jest.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(new Uint8Array([1]))
+    }
+    const reader = new RemoteSyncReader(client as any, w, 'main', DEVICE, 1, SETTINGS)
+    await expect(reader.getSyncChunk(args)).rejects.toThrow('offline')
+    await expect(reader.getSyncChunk(args)).rejects.toThrow('decode failed')
+    expect(isEmptyChunk(await reader.getSyncChunk(args))).toBe(false)
+    expect(client.blob.mock.calls.map(call => call[2])).toEqual([1, 1, 1])
+  })
+
+  it('downloads only one small chunk ahead while the caller replays, without reordering', async () => {
+    const client = { index: jest.fn().mockResolvedValue(entries(3)), blob: jest.fn().mockResolvedValue(new Uint8Array([1])) }
+    const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
+    await reader.getSyncChunk(args)
+    expect(client.blob.mock.calls.map(call => call[2])).toEqual([1, 2])
+    await reader.getSyncChunk(args)
+    expect(client.blob.mock.calls.map(call => call[2])).toEqual([1, 2, 3])
+    await reader.getSyncChunk(args)
+    expect(client.blob).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps large chunks sequential to avoid doubling mobile memory pressure', async () => {
+    const index = entries(2).map(e => ({ ...e, size: 2 * 1024 * 1024 }))
+    const client = { index: jest.fn().mockResolvedValue(index), blob: jest.fn().mockResolvedValue(new Uint8Array([1])) }
+    const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
+    await reader.getSyncChunk(args)
+    expect(client.blob).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a failed prefetch when consumed and retries that sequence', async () => {
+    const client = {
+      index: jest.fn().mockResolvedValue(entries(2)),
+      blob: jest.fn().mockResolvedValueOnce(new Uint8Array([1])).mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValue(new Uint8Array([1]))
+    }
+    const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
+    await reader.getSyncChunk(args)
+    await new Promise(resolve => setImmediate(resolve))
+    await expect(reader.getSyncChunk(args)).rejects.toThrow('offline')
+    expect(isEmptyChunk(await reader.getSyncChunk(args))).toBe(false)
+    expect(client.blob.mock.calls.map(call => call[2])).toEqual([1, 2, 2])
   })
 })

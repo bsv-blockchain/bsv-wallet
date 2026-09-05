@@ -2152,3 +2152,95 @@ index 5ca4747..2beb7ab 100644
          const previousCache = this.activeSignatureHashCache;
          this.activeSignatureHashCache = { hashOutputsSingle: new Map() };
          let unlockingScripts;
+diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js
+--- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js
++++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js
+@@ -317,6 +317,11 @@
+     return out.join('');
+ }
+ const NODE_CRYPTO = (() => {
++    // Mobile hosts install a Node-compatible JSI backend before SDK modules load.
++    // Keep runtime injection explicit: ordinary Web Crypto lacks these APIs.
++    const injected = typeof globalThis === 'undefined' ? undefined : globalThis.__bsvNativeCrypto;
++    if (injected != null)
++        return injected;
+     const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
+     const getBuiltinModule = processLike?.getBuiltinModule;
+     if (typeof getBuiltinModule === 'function') {
+diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
+--- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
++++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
+@@ -13,10 +13,13 @@
+ // Resolved once at module load using the same pattern as Hash.ts.  When
+ // supported Node exposes `node:crypto` through `process.getBuiltinModule`,
+ // encrypt and decrypt use it instead of the pure-TS implementation. The
+-// pure-TS path remains the unconditional fallback in browsers and mobile
+-// runtimes, without leaving a static Node dependency for their bundlers.
++// Mobile hosts may inject the same API via __bsvNativeCrypto. The pure-TS
++// path remains the fallback without a backend, with no static Node dependency.
+ // ---------------------------------------------------------------------------
++const INJECTED_CRYPTO_SYM = typeof globalThis === 'undefined' ? undefined : globalThis.__bsvNativeCrypto;
+ const NODE_CRYPTO_SYM = (() => {
++    if (INJECTED_CRYPTO_SYM != null)
++        return INJECTED_CRYPTO_SYM;
+     const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
+     const getBuiltinModule = processLike?.getBuiltinModule;
+     if (typeof getBuiltinModule === 'function') {
+@@ -179,6 +182,11 @@
+         if (msgBytes.length < ivLength + tagLength) {
+             throw new Error('Ciphertext too short');
+         }
++        // Preserve the pure-JS mobile contract for an empty encrypted message.
++        // Node's existing native route accepts this case; mobile previously threw.
++        if (INJECTED_CRYPTO_SYM != null && msgBytes.length === ivLength + tagLength) {
++            throw new Error('Cipher text must not be empty');
++        }
+         const keyBytes = new Uint8Array(this.toArray('be', 32));
+         // Fast path: native AES-256-GCM via node:crypto.
+         // Falls back to pure-TS on null/undefined return.
+diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js
+--- a/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js
++++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js
+@@ -316,6 +316,11 @@
+     return out.join('');
+ }
+ const NODE_CRYPTO = (() => {
++    // Mobile hosts install a Node-compatible JSI backend before SDK modules load.
++    // Keep runtime injection explicit: ordinary Web Crypto lacks these APIs.
++    const injected = typeof globalThis === 'undefined' ? undefined : globalThis.__bsvNativeCrypto;
++    if (injected != null)
++        return injected;
+     const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
+     const getBuiltinModule = processLike?.getBuiltinModule;
+     if (typeof getBuiltinModule === 'function') {
+diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
+--- a/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
++++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
+@@ -8,10 +8,13 @@
+ // Resolved once at module load using the same pattern as Hash.ts.  When
+ // supported Node exposes `node:crypto` through `process.getBuiltinModule`,
+ // encrypt and decrypt use it instead of the pure-TS implementation. The
+-// pure-TS path remains the unconditional fallback in browsers and mobile
+-// runtimes, without leaving a static Node dependency for their bundlers.
++// Mobile hosts may inject the same API via __bsvNativeCrypto. The pure-TS
++// path remains the fallback without a backend, with no static Node dependency.
+ // ---------------------------------------------------------------------------
++const INJECTED_CRYPTO_SYM = typeof globalThis === 'undefined' ? undefined : globalThis.__bsvNativeCrypto;
+ const NODE_CRYPTO_SYM = (() => {
++    if (INJECTED_CRYPTO_SYM != null)
++        return INJECTED_CRYPTO_SYM;
+     const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
+     const getBuiltinModule = processLike?.getBuiltinModule;
+     if (typeof getBuiltinModule === 'function') {
+@@ -174,6 +177,11 @@
+         if (msgBytes.length < ivLength + tagLength) {
+             throw new Error('Ciphertext too short');
+         }
++        // Preserve the pure-JS mobile contract for an empty encrypted message.
++        // Node's existing native route accepts this case; mobile previously threw.
++        if (INJECTED_CRYPTO_SYM != null && msgBytes.length === ivLength + tagLength) {
++            throw new Error('Cipher text must not be empty');
++        }
+         const keyBytes = new Uint8Array(this.toArray('be', 32));
+         // Fast path: native AES-256-GCM via node:crypto.
+         // Falls back to pure-TS on null/undefined return.

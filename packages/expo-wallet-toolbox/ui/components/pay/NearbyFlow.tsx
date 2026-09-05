@@ -87,7 +87,7 @@
  *             easings.out. Nothing eases in; nothing starts from scale(0).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -114,7 +114,7 @@ import {
   typography,
   durations,
   springs,
-  useWallet,
+  useWalletManagers,
   sounds,
   updateOfflineAction,
   AirGapDecoder,
@@ -391,7 +391,7 @@ export interface NearbyFlowProps {
   dismissTo?: string
 }
 
-export default function NearbyFlow({
+function NearbyFlow({
   role: initialRole,
   onExit,
   initialSession,
@@ -407,7 +407,7 @@ export default function NearbyFlow({
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
   const reducedMotion = useReducedMotion()
-  const { managers, adminOriginator, storage } = useWallet()
+  const { managers, adminOriginator, storage } = useWalletManagers()
   const wallet = managers?.permissionsManager ?? null
 
   const [phase, setPhase] = useState<Phase>('entry')
@@ -2549,3 +2549,6 @@ function makeStyles() {
     noticeText: { ...typography.footnote, flex: 1 }
   })
 }
+
+// Wallet status updates in the parent do not change this form's inputs.
+export default memo(NearbyFlow)

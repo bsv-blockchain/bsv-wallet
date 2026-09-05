@@ -17,7 +17,7 @@
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface OutboxEntry {
-  /** Unique ID: `${timestamp}_${recipientKey.slice(0, 8)}` */
+  /** `${timestamp}_${recipientKey.slice(0, 8)}`, with a suffix on collision. */
   id: string
   /** ISO 8601 creation timestamp */
   createdAt: string
@@ -87,14 +87,33 @@ export const SENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
+// A send and the background retry/prune task can update this same JSON blob.
+// Serialize each storage's entire read-modify-write, not just the final write,
+// so delivery checkpoints and newly saved payment tokens cannot be overwritten
+// by another operation's stale snapshot. Separate wallet stores stay independent.
+const mutationTails = new WeakMap<StorageLike, Promise<void>>()
+
+function withOutboxLock<T>(storage: StorageLike, fn: () => Promise<T>): Promise<T> {
+  const run = (mutationTails.get(storage) ?? Promise.resolve()).then(fn)
+  // A failed storage operation must reject its caller without poisoning retries.
+  mutationTails.set(
+    storage,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  )
+  return run
+}
+
 async function readEntries(storage: StorageLike): Promise<OutboxEntry[]> {
-  try {
-    const raw = await storage.getKeyValue(OUTBOX_KEY)
-    if (!raw) return []
-    return JSON.parse(raw) as OutboxEntry[]
-  } catch {
-    return []
-  }
+  // Mutations must fail closed: treating an unreadable queue as empty would
+  // erase persisted tokens when the subsequent write succeeds.
+  const raw = await storage.getKeyValue(OUTBOX_KEY)
+  if (raw === undefined) return []
+  const parsed: unknown = JSON.parse(raw)
+  if (!Array.isArray(parsed)) throw new Error('Outbox data is not an array')
+  return parsed as OutboxEntry[]
 }
 
 async function writeEntries(storage: StorageLike, entries: OutboxEntry[]): Promise<void> {
@@ -107,7 +126,12 @@ async function writeEntries(storage: StorageLike, entries: OutboxEntry[]): Promi
  * Returns all outbox entries (any status).
  */
 export async function getOutboxEntries(storage: StorageLike): Promise<OutboxEntry[]> {
-  return readEntries(storage)
+  try {
+    return await readEntries(storage)
+  } catch {
+    // Preserve the best-effort read API; mutations use the strict reader above.
+    return []
+  }
 }
 
 /**
@@ -136,10 +160,18 @@ export async function saveOutboxEntry(
     ...(txid ? { txid } : {}),
     ...(recipientHost ? { recipientHost } : {})
   }
-  const all = await readEntries(storage)
-  all.push(entry)
-  await writeEntries(storage, all)
-  return id
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    // Concurrent sends to the same recipient can share a millisecond. Choose
+    // against the current queue while holding the lock so later updates and
+    // removals still identify exactly one payment; existing IDs stay unchanged.
+    const usedIds = new Set(all.map(e => e.id))
+    let suffix = 0
+    while (usedIds.has(entry.id)) entry.id = `${id}_${++suffix}`
+    all.push(entry)
+    await writeEntries(storage, all)
+    return entry.id
+  })
 }
 
 /**
@@ -147,12 +179,14 @@ export async function saveOutboxEntry(
  * Called immediately after `sendMessage()` returns without error.
  */
 export async function markOutboxSent(storage: StorageLike, id: string): Promise<void> {
-  const all = await readEntries(storage)
-  const entry = all.find(e => e.id === id)
-  if (entry) {
-    entry.status = 'sent'
-    await writeEntries(storage, all)
-  }
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    const entry = all.find(e => e.id === id)
+    if (entry) {
+      entry.status = 'sent'
+      await writeEntries(storage, all)
+    }
+  })
 }
 
 /**
@@ -160,12 +194,14 @@ export async function markOutboxSent(storage: StorageLike, id: string): Promise<
  * Used to record `lastAttemptAt` and `lastError` on failed retry attempts.
  */
 export async function updateOutboxEntry(storage: StorageLike, id: string, patch: Partial<OutboxEntry>): Promise<void> {
-  const all = await readEntries(storage)
-  const idx = all.findIndex(e => e.id === id)
-  if (idx !== -1) {
-    all[idx] = { ...all[idx], ...patch }
-    await writeEntries(storage, all)
-  }
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    const idx = all.findIndex(e => e.id === id)
+    if (idx !== -1) {
+      all[idx] = { ...all[idx], ...patch }
+      await writeEntries(storage, all)
+    }
+  })
 }
 
 /**
@@ -173,11 +209,13 @@ export async function updateOutboxEntry(storage: StorageLike, id: string, patch:
  * Called when the user explicitly dismisses an entry.
  */
 export async function removeOutboxEntry(storage: StorageLike, id: string): Promise<void> {
-  const all = await readEntries(storage)
-  await writeEntries(
-    storage,
-    all.filter(e => e.id !== id)
-  )
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    await writeEntries(
+      storage,
+      all.filter(e => e.id !== id)
+    )
+  })
 }
 
 /**
@@ -196,11 +234,13 @@ export function isSentExpired(entry: OutboxEntry, now: number = Date.now()): boo
  * Remove only expired sent rows. Returns how many were removed.
  */
 export async function pruneExpiredSent(storage: StorageLike, now: number = Date.now()): Promise<number> {
-  const all = await readEntries(storage)
-  const kept = all.filter(e => !isSentExpired(e, now))
-  const removed = all.length - kept.length
-  if (removed > 0) await writeEntries(storage, kept)
-  return removed
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    const kept = all.filter(e => !isSentExpired(e, now))
+    const removed = all.length - kept.length
+    if (removed > 0) await writeEntries(storage, kept)
+    return removed
+  })
 }
 
 /** Entries that still need Retry/Cancel — everything not yet marked sent. */

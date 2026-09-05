@@ -12,7 +12,8 @@ import {
   BackupHttpError,
   BACKUP_REQUEST_TIMEOUT_MS,
   ERR_BLOB_TOO_LARGE,
-  ERR_SEQ_CONFLICT
+  ERR_SEQ_CONFLICT,
+  withBackupRequestTimeout
 } from '../../core/backup/client'
 import { backupPseudonym } from '../../core/backup/derive'
 
@@ -21,7 +22,10 @@ const DEVICE = 'a'.repeat(32)
 const BASE = 'https://backup.example.test'
 const SERVER_KEY = new PrivateKey(7).toPublicKey().toString()
 
-interface Call { url: string, init: RequestInit | undefined }
+interface Call {
+  url: string
+  init: RequestInit | undefined
+}
 
 const jsonRes = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -30,9 +34,7 @@ const limitsRes = (): Response =>
   jsonRes({ maxBlobBytes: 200 * 1024 * 1024, maxBodyBytes: 210 * 1024 * 1024, serverIdentityKey: SERVER_KEY })
 
 /** Fetch stub answering /v1/limits itself and delegating everything else. */
-function clientWith (
-  respond: (call: Call) => Response
-): { client: BackupClient, calls: Call[] } {
+function clientWith(respond: (call: Call) => Response): { client: BackupClient; calls: Call[] } {
   const calls: Call[] = []
   const client = new BackupClient(BASE, KEY, 'main', (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -45,7 +47,7 @@ function clientWith (
 }
 
 /** Decode the X-Bsv-Auth header a call carried. */
-function proofOf (call: Call): { action: string, identityKey: string } {
+function proofOf(call: Call): { action: string; identityKey: string } {
   const header = (call.init?.headers as Record<string, string>)['X-Bsv-Auth']
   return JSON.parse(Utils.toUTF8(Utils.toArray(header, 'base64')))
 }
@@ -122,9 +124,7 @@ describe('BackupClient limits', () => {
 
 describe('BackupClient errors', () => {
   it('surfaces the server error envelope as BackupHttpError', async () => {
-    const { client } = clientWith(() =>
-      jsonRes({ code: ERR_SEQ_CONFLICT, description: 'expected seq 7' }, 409)
-    )
+    const { client } = clientWith(() => jsonRes({ code: ERR_SEQ_CONFLICT, description: 'expected seq 7' }, 409))
     await expect(client.append(DEVICE, 1, 9, 'x', [1])).rejects.toMatchObject({
       status: 409,
       code: ERR_SEQ_CONFLICT
@@ -135,9 +135,7 @@ describe('BackupClient errors', () => {
     // The old BRC-103 transport reported the unsigned 413 as "missing auth
     // headers"; the stateless protocol has no signed response envelope, so the
     // real code arrives as itself.
-    const { client } = clientWith(() =>
-      jsonRes({ code: ERR_BLOB_TOO_LARGE, description: 'blob exceeds cap' }, 413)
-    )
+    const { client } = clientWith(() => jsonRes({ code: ERR_BLOB_TOO_LARGE, description: 'blob exceeds cap' }, 413))
     await expect(client.append(DEVICE, 1, 1, undefined, [1])).rejects.toMatchObject({
       status: 413,
       code: ERR_BLOB_TOO_LARGE
@@ -167,5 +165,138 @@ describe('BackupClient request timeout', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+})
+
+describe('BackupClient body deadlines and transport cancellation', () => {
+  beforeEach(() => jest.useFakeTimers())
+  afterEach(() => jest.useRealTimers())
+
+  it.each(['json', 'arrayBuffer'] as const)('bounds a stalled %s reader after headers arrive', async reader => {
+    let requestSignal: AbortSignal | null | undefined
+    const bodyRead = jest.fn(() => new Promise<never>(() => {}))
+    const response = new Response(null, { status: 200 })
+    response[reader] = bodyRead
+    const client = new BackupClient(BASE, KEY, 'main', (async (input, init) => {
+      if (String(input).endsWith('/v1/limits')) return limitsRes()
+      requestSignal = init?.signal
+      return response
+    }) as typeof fetch)
+    const pending = reader === 'json' ? client.manifest() : client.blob(DEVICE, 1, 1)
+    const assertion = expect(pending).rejects.toThrow(`timed out after ${BACKUP_REQUEST_TIMEOUT_MS}ms`)
+    await jest.advanceTimersByTimeAsync(BACKUP_REQUEST_TIMEOUT_MS + 1)
+    await assertion
+    expect(bodyRead).toHaveBeenCalledTimes(1)
+    expect(requestSignal?.aborted).toBe(true)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('aborts a stalled transfer even when the transport ignores cancellation', async () => {
+    let requestSignal: AbortSignal | null | undefined
+    const transport = withBackupRequestTimeout((async (_input, init) => {
+      requestSignal = init?.signal
+      return new Promise<Response>(() => {})
+    }) as typeof fetch)
+    const assertion = expect(transport(BASE)).rejects.toThrow('timed out')
+    await jest.advanceTimersByTimeAsync(BACKUP_REQUEST_TIMEOUT_MS)
+    await assertion
+    expect(requestSignal?.aborted).toBe(true)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('uses the remaining request deadline for the body instead of granting another 30 seconds', async () => {
+    let requestSignal: AbortSignal | null | undefined
+    const response = jsonRes({ devices: [] })
+    response.json = jest.fn(() => new Promise<never>(() => {}))
+    const transport = withBackupRequestTimeout((async (_input, init) => {
+      requestSignal = init?.signal
+      return new Promise<Response>(resolve => setTimeout(() => resolve(response), BACKUP_REQUEST_TIMEOUT_MS - 1000))
+    }) as typeof fetch)
+    const pending = transport(BASE).then(res => res.json())
+    const assertion = expect(pending).rejects.toThrow('timed out')
+    await jest.advanceTimersByTimeAsync(BACKUP_REQUEST_TIMEOUT_MS - 1)
+    expect(requestSignal?.aborted).toBe(false)
+    await jest.advanceTimersByTimeAsync(1)
+    await assertion
+    expect(requestSignal?.aborted).toBe(true)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('returns the original response and body buffer without cloning or copying', async () => {
+    const bytes = new Uint8Array([9, 8, 7]).buffer
+    const response = new Response(null)
+    const read = jest.fn(async () => bytes)
+    response.arrayBuffer = read
+    const clone = jest.spyOn(response, 'clone')
+    const transport = withBackupRequestTimeout((async () => response) as typeof fetch)
+    const result = await transport(BASE)
+    expect(result).toBe(response)
+    expect(await result.arrayBuffer()).toBe(bytes)
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(clone).not.toHaveBeenCalled()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it.each(['fetch', 'json'] as const)('preserves an upstream %s error and clears the deadline', async phase => {
+    const error = new Error('upstream failure')
+    const response = jsonRes({ devices: [] })
+    response.json = jest.fn(async () => {
+      throw error
+    })
+    const transport = withBackupRequestTimeout((async () => {
+      if (phase === 'fetch') throw error
+      return response
+    }) as typeof fetch)
+    const pending = transport(BASE).then(res => res.json())
+    await expect(pending).rejects.toBe(error)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it.each(['fetch', 'json'] as const)('forwards caller cancellation during %s and cleans up listeners', async phase => {
+    const caller = new AbortController()
+    const add = jest.spyOn(caller.signal, 'addEventListener')
+    const remove = jest.spyOn(caller.signal, 'removeEventListener')
+    let requestSignal: AbortSignal | null | undefined
+    const response = jsonRes({ devices: [] })
+    response.json = jest.fn(() => new Promise<never>(() => {}))
+    const transport = withBackupRequestTimeout((async (_input, init) => {
+      requestSignal = init?.signal
+      return phase === 'fetch' ? new Promise<Response>(() => {}) : response
+    }) as typeof fetch)
+    const reason = new Error('cancelled by caller')
+    const pending = transport(BASE, { signal: caller.signal }).then(res => res.json())
+    const assertion = expect(pending).rejects.toBe(reason)
+    await jest.advanceTimersByTimeAsync(0)
+    caller.abort(reason)
+    await assertion
+    expect(requestSignal?.aborted).toBe(true)
+    expect(add.mock.calls.length).toBe(remove.mock.calls.length)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('honors an already-aborted Request signal without starting the transport', async () => {
+    const caller = new AbortController()
+    caller.abort()
+    const fetchImpl = jest.fn()
+    const transport = withBackupRequestTimeout(fetchImpl)
+    await expect(transport(new Request(BASE, { signal: caller.signal }))).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('preserves the HTTP status when an error response body stalls', async () => {
+    let signal: AbortSignal | null | undefined
+    const response = new Response(null, { status: 503 })
+    response.json = jest.fn(() => new Promise<never>(() => {}))
+    const client = new BackupClient(BASE, KEY, 'main', (async (input, init) => {
+      if (String(input).endsWith('/v1/limits')) return limitsRes()
+      signal = init?.signal
+      return response
+    }) as typeof fetch)
+    const assertion = expect(client.manifest()).rejects.toMatchObject({ status: 503, code: 'ERR_UNKNOWN' })
+    await jest.advanceTimersByTimeAsync(BACKUP_REQUEST_TIMEOUT_MS + 1)
+    await assertion
+    expect(signal?.aborted).toBe(true)
+    expect(jest.getTimerCount()).toBe(0)
   })
 })

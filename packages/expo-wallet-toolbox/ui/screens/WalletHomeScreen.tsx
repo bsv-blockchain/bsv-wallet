@@ -1090,6 +1090,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
 
       return (
         <ActivityRow
+          currency={currency}
           action={item}
           rowKey={key}
           offlineStatus={offline?.status}
@@ -1102,12 +1103,13 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           onAbort={onAbort}
           onSendPaymentDetails={onSendPaymentDetails}
           onSendAgain={onFailedSendAgain}
-          onCancelParked={txid => void onCancelParked(txid)}
+          onCancelParked={onCancelParked}
         />
       )
     },
     [
       colors,
+      currency,
       offlineByTxid,
       busyRow,
       busyLabel,

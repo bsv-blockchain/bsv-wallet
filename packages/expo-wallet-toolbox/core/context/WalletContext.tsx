@@ -554,6 +554,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    */
   const walletBuiltRef = useRef<boolean>(false)
   const walletBuildingRef = useRef<boolean>(false)
+  // A failed mnemonic build must not silently fall back to a different stored key.
+  const mnemonicMissingRef = useRef(false)
   const [walletBuilding, setWalletBuilding] = useState<boolean>(false)
   const [backupRestore, setBackupRestoreState] = useState<BackupRestoreState>({
     phase: 'idle',
@@ -1197,6 +1199,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               const message = e instanceof Error ? e.message : String(e)
               console.error('[WalletContext] backup restore failed:', message)
               setBackupRestore({ phase: 'failed', chunks: 0, total: 0, error: message })
+              // This storage was never published to the app. Release its
+              // connection before a retry opens the same database again.
+              try {
+                await phoneStorage.destroy()
+              } catch {}
               throw e
             }
           }
@@ -1711,7 +1718,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         console.error('Error building wallet:', error)
         onToast?.('Failed to build wallet: ' + error.message, { type: 'error' })
         logWithTimestamp(F, 'Error building wallet', error.message)
-        return null
+        // SimpleWalletManager authenticates whenever its builder resolves,
+        // even to null. Reject so a failed restore cannot mark a wallet built.
+        throw error
       }
     },
     [
@@ -1755,6 +1764,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       }
 
       walletBuildingRef.current = true
+      mnemonicMissingRef.current = false
       setWalletBuilding(true)
 
       try {
@@ -1767,6 +1777,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         if (__DEV__)
           console.warn(`[perf] getMnemonic (auth/keychain): ${(performance.now() - __tMnemonicStart).toFixed(0)}ms`)
         if (!mnemonic) {
+          mnemonicMissingRef.current = true
           walletBuildingRef.current = false
           setWalletBuilding(false)
           return
@@ -1790,7 +1801,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // Armed before the keys go in, because providing both is what triggers
         // buildWallet — the only place a fresh, empty database exists to replay into.
-        restoreIntentRef.current = opts?.restoreFromBackup === true
+        // An automatic build has no options: preserve the request armed by
+        // rebuildWallet until buildWallet consumes it. Explicit false still
+        // allows the import screen to continue without restoring on retry.
+        if (opts !== undefined) restoreIntentRef.current = opts.restoreFromBackup === true
 
         // Provide the primary key and privileged key manager to authenticate the wallet
         await swm.providePrimaryKey(primaryKey)
@@ -1858,7 +1872,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const swm = new SimpleWalletManager(ADMIN_ORIGINATOR, buildWallet)
 
         // Same arming point as the mnemonic path — see the comment there.
-        restoreIntentRef.current = opts?.restoreFromBackup === true
+        // An automatic build has no options: preserve the request armed by
+        // rebuildWallet until buildWallet consumes it. Explicit false still
+        // allows the import screen to continue without restoring on retry.
+        if (opts !== undefined) restoreIntentRef.current = opts.restoreFromBackup === true
 
         await swm.providePrimaryKey(primaryKey)
 
@@ -2012,15 +2029,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     ;(async () => {
       // Try mnemonic-based build first (calls getMnemonic internally)
       await buildWalletFromMnemonic()
-      // If still not built (no mnemonic), try recovered key. walletBuiltRef is
-      // the reliable signal here — this closure's walletBuilt is frozen at
-      // false, and the old `!walletBuildingRef.current` check was wrong twice
-      // over: it reads false after a SUCCESSFUL build too (both builders clear
-      // it on completion), so a wallet holding both a mnemonic and a leftover
-      // recoveredKey would build TWICE — two wallet stacks, two monitors.
-      if (!walletBuiltRef.current && !walletBuildingRef.current) {
-        // buildWalletFromMnemonic finished without building (no mnemonic found).
-        // Try recovered key as a fallback.
+      // Only missing mnemonic material allows a recovered-key fallback. A
+      // restore failure must remain failed so the import screen can offer a
+      // retry; a leftover WIF must not build over that partial replay.
+      if (mnemonicMissingRef.current && !walletBuiltRef.current && !walletBuildingRef.current) {
         const recoveredWif = await getRecoveredKey()
         if (recoveredWif) {
           await buildWalletFromRecoveredKey(recoveredWif)

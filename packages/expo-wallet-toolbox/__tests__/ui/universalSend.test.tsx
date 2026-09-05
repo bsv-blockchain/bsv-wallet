@@ -50,7 +50,8 @@ type MockStorage = { getKeyValue: (k: string) => Promise<string | undefined>; se
 let mockStorage: MockStorage | undefined
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
-  useWallet: () => ({ managers: null, adminOriginator: 'admin.com', storage: mockStorage })
+  useWallet: () => ({ managers: null, adminOriginator: 'admin.com', storage: mockStorage }),
+  useWalletManagers: () => ({ managers: null, adminOriginator: 'admin.com', storage: mockStorage })
 }))
 
 import React from 'react'

@@ -1,0 +1,1751 @@
+{
+  "environment": {
+    "simulator": "iPhone 17 Pro",
+    "ios": "26.4",
+    "runtime": "Hermes",
+    "build": "Expo development client",
+    "sourceBase": "1297bde"
+  },
+  "limitations": [
+    "Development simulator; not release/physical-device measurements.",
+    "Initial run already included reader and lifecycle fixes.",
+    "Initial replay is summed read/apply duration; after is whole replay elapsed with manifest already available.",
+    "Full UI imports used different backup logs.",
+    "Initial watchdog and after requestAnimationFrame probes are different."
+  ],
+  "syntheticDecrypt": {
+    "before": [
+      {
+        "bytes": 1024,
+        "nativeMs": 0.14770913124084473,
+        "parity": true,
+        "sdkMs": 39.77787494659424
+      },
+      {
+        "bytes": 16384,
+        "nativeMs": 0.30979204177856445,
+        "parity": true,
+        "sdkMs": 551.029000043869
+      },
+      {
+        "bytes": 131072,
+        "nativeMs": 1.4196250438690186,
+        "parity": true,
+        "sdkMs": 4333.532249927521
+      }
+    ],
+    "after": [
+      {
+        "bytes": 1024,
+        "nativeMs": 0.6258749961853027,
+        "parity": true,
+        "sdkMs": 3.709541082382202
+      },
+      {
+        "bytes": 16384,
+        "nativeMs": 0.5854170322418213,
+        "parity": true,
+        "sdkMs": 10.814374923706055
+      },
+      {
+        "bytes": 131072,
+        "nativeMs": 2.007124900817871,
+        "parity": true,
+        "sdkMs": 36.48429203033447
+      }
+    ]
+  },
+  "initialRestore": {
+    "chunks": 12,
+    "readerMs": 19167.388585329056,
+    "sqliteMs": 412.21254110336304,
+    "spans": [
+      {
+        "label": "backup.manifest",
+        "ms": 274.4965410232544,
+        "ok": true
+      },
+      {
+        "label": "backup.index",
+        "ms": 83.00991702079773,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 143.42233300209045,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 6223.701917171478,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 109.18804097175598,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 146.0309579372406,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 5374.756458997726,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 132.25412511825562,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 154.5829999446869,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 1371.7039170265198,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 14.764624834060669,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 168.97445797920227,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 1120.823832988739,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 18.370833158493042,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 129.58012509346008,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 1020.827959060669,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 18.45204210281372,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 138.22679209709167,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 1350.4742081165314,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 13.844166994094849,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 77.79429221153259,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 268.85337495803833,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 6.792833089828491,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 76.38904094696045,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 262.6072919368744,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 6.368833065032959,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 69.58308410644531,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 246.03941702842712,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 8.672958850860596,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 80.68779182434082,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 248.6906659603119,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 6.592583894729614,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 70.76733303070068,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 259.47412514686584,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 6.689208030700684,
+        "ok": true
+      },
+      {
+        "label": "backup.blob",
+        "ms": 72.64383292198181,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 1419.2276248931885,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 17.54558300971985,
+        "ok": true
+      },
+      {
+        "label": "restore.readChunk",
+        "ms": 0.20779204368591309,
+        "ok": true
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 15.833791017532349,
+        "ok": true
+      },
+      {
+        "chunks": 12,
+        "label": "restore.total",
+        "ms": 24829.80566596985,
+        "ok": true,
+        "restored": true
+      }
+    ],
+    "watchdogMaxStallMs": 5911
+  },
+  "repeatUiImport": {
+    "chunks": 1,
+    "totalMs": 5777.547209024429,
+    "frames": {
+      "max": 225.2442500591278,
+      "n": 333,
+      "over100ms": 1,
+      "over50ms": 1,
+      "p95": 16.87879204750061
+    },
+    "spans": [
+      {
+        "label": "backup.manifest",
+        "ms": 318.8766670227051
+      },
+      {
+        "label": "backup.index",
+        "ms": 72.71295809745789
+      },
+      {
+        "bytes": 178415,
+        "label": "backup.blob",
+        "ms": 238.40495896339417
+      },
+      {
+        "label": "restore.decode",
+        "ms": 172.85575008392334
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 98.41329216957092
+      },
+      {
+        "label": "restore.sqliteChunk",
+        "ms": 16.56141710281372
+      },
+      {
+        "chunks": 1,
+        "label": "restore.total",
+        "ms": 5776.99874997139,
+        "restored": true
+      }
+    ]
+  },
+  "originalLogReplays": {
+    "bytes": 531927,
+    "results": [
+      {
+        "chunks": 12,
+        "counts": {
+          "certificates": 0,
+          "output_baskets": 1,
+          "outputs": 227,
+          "proven_tx_reqs": 42,
+          "proven_txs": 24,
+          "transactions": 43
+        },
+        "frames": {
+          "max": 239.3782501220703,
+          "n": 102,
+          "over50ms": 6,
+          "p95": 52.07354211807251
+        },
+        "replayMs": 2274.9905409812927,
+        "run": 1,
+        "spans": [
+          {
+            "label": "backup.index",
+            "ms": 76.87012505531311
+          },
+          {
+            "bytes": 174954,
+            "label": "backup.blob",
+            "ms": 168.7823748588562
+          },
+          {
+            "label": "restore.decode",
+            "ms": 166.3963749408722
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 125.2494158744812
+          },
+          {
+            "bytes": 159394,
+            "label": "backup.blob",
+            "ms": 179.8860001564026
+          },
+          {
+            "label": "restore.decode",
+            "ms": 144.25458407402039
+          },
+          {
+            "bytes": 39463,
+            "label": "backup.blob",
+            "ms": 85.24495792388916
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 109.77400016784668
+          },
+          {
+            "label": "restore.decode",
+            "ms": 38.078874826431274
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 13.1663339138031
+          },
+          {
+            "bytes": 28246,
+            "label": "backup.blob",
+            "ms": 183.30566692352295
+          },
+          {
+            "label": "restore.decode",
+            "ms": 38.12495803833008
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 22.21512508392334
+          },
+          {
+            "bytes": 26778,
+            "label": "backup.blob",
+            "ms": 86.657958984375
+          },
+          {
+            "label": "restore.decode",
+            "ms": 28.64633297920227
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 21.537290811538696
+          },
+          {
+            "bytes": 36010,
+            "label": "backup.blob",
+            "ms": 101.40249991416931
+          },
+          {
+            "label": "restore.decode",
+            "ms": 36.03116703033447
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 15.810458183288574
+          },
+          {
+            "bytes": 6044,
+            "label": "backup.blob",
+            "ms": 152.09762501716614
+          },
+          {
+            "label": "restore.decode",
+            "ms": 10.467833995819092
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 9.147125005722046
+          },
+          {
+            "bytes": 5717,
+            "label": "backup.blob",
+            "ms": 88.14775013923645
+          },
+          {
+            "label": "restore.decode",
+            "ms": 10.030791997909546
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.41558289527893
+          },
+          {
+            "bytes": 5421,
+            "label": "backup.blob",
+            "ms": 89.31158399581909
+          },
+          {
+            "label": "restore.decode",
+            "ms": 7.535125017166138
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 9.161332845687866
+          },
+          {
+            "bytes": 5098,
+            "label": "backup.blob",
+            "ms": 88.12862515449524
+          },
+          {
+            "label": "restore.decode",
+            "ms": 8.532166957855225
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.434124946594238
+          },
+          {
+            "bytes": 5425,
+            "label": "backup.blob",
+            "ms": 91.53504085540771
+          },
+          {
+            "label": "restore.decode",
+            "ms": 11.387249946594238
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 9.47724986076355
+          },
+          {
+            "bytes": 39377,
+            "label": "backup.blob",
+            "ms": 181.47983288764954
+          },
+          {
+            "label": "restore.decode",
+            "ms": 51.80120778083801
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 14.49258303642273
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 1.207916021347046
+          }
+        ]
+      },
+      {
+        "chunks": 12,
+        "counts": {
+          "certificates": 0,
+          "output_baskets": 1,
+          "outputs": 227,
+          "proven_tx_reqs": 42,
+          "proven_txs": 24,
+          "transactions": 43
+        },
+        "frames": {
+          "max": 240.29308319091797,
+          "n": 94,
+          "over50ms": 5,
+          "p95": 56.755208015441895
+        },
+        "replayMs": 2117.2555408477783,
+        "run": 2,
+        "spans": [
+          {
+            "label": "backup.index",
+            "ms": 78.67162489891052
+          },
+          {
+            "bytes": 174954,
+            "label": "backup.blob",
+            "ms": 208.87641596794128
+          },
+          {
+            "label": "restore.decode",
+            "ms": 179.01787495613098
+          },
+          {
+            "bytes": 159394,
+            "label": "backup.blob",
+            "ms": 114.56762480735779
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 144.53954195976257
+          },
+          {
+            "label": "restore.decode",
+            "ms": 143.450749874115
+          },
+          {
+            "bytes": 39463,
+            "label": "backup.blob",
+            "ms": 89.23033380508423
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 110.7563328742981
+          },
+          {
+            "label": "restore.decode",
+            "ms": 38.741000175476074
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 11.426208972930908
+          },
+          {
+            "bytes": 28246,
+            "label": "backup.blob",
+            "ms": 99.68474984169006
+          },
+          {
+            "label": "restore.decode",
+            "ms": 30.121042013168335
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 19.230499982833862
+          },
+          {
+            "bytes": 26778,
+            "label": "backup.blob",
+            "ms": 98.45970916748047
+          },
+          {
+            "label": "restore.decode",
+            "ms": 29.202082872390747
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 21.658041954040527
+          },
+          {
+            "bytes": 36010,
+            "label": "backup.blob",
+            "ms": 134.43770790100098
+          },
+          {
+            "label": "restore.decode",
+            "ms": 41.73366594314575
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 15.99762511253357
+          },
+          {
+            "bytes": 6044,
+            "label": "backup.blob",
+            "ms": 78.69170784950256
+          },
+          {
+            "label": "restore.decode",
+            "ms": 8.745166063308716
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 7.524583101272583
+          },
+          {
+            "bytes": 5717,
+            "label": "backup.blob",
+            "ms": 73.44041681289673
+          },
+          {
+            "label": "restore.decode",
+            "ms": 9.432000160217285
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 12.301167011260986
+          },
+          {
+            "bytes": 5421,
+            "label": "backup.blob",
+            "ms": 72.84883308410645
+          },
+          {
+            "label": "restore.decode",
+            "ms": 8.853957891464233
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.676542043685913
+          },
+          {
+            "bytes": 5098,
+            "label": "backup.blob",
+            "ms": 157.83729195594788
+          },
+          {
+            "label": "restore.decode",
+            "ms": 13.047667026519775
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.563541889190674
+          },
+          {
+            "bytes": 5425,
+            "label": "backup.blob",
+            "ms": 84.98862504959106
+          },
+          {
+            "label": "restore.decode",
+            "ms": 11.404750108718872
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 9.82224988937378
+          },
+          {
+            "bytes": 39377,
+            "label": "backup.blob",
+            "ms": 92.1021671295166
+          },
+          {
+            "label": "restore.decode",
+            "ms": 47.85533404350281
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 17.325416088104248
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 0.9848330020904541
+          }
+        ]
+      },
+      {
+        "chunks": 12,
+        "counts": {
+          "certificates": 0,
+          "output_baskets": 1,
+          "outputs": 227,
+          "proven_tx_reqs": 42,
+          "proven_txs": 24,
+          "transactions": 43
+        },
+        "frames": {
+          "max": 227.19274997711182,
+          "n": 96,
+          "over50ms": 6,
+          "p95": 56.33816695213318
+        },
+        "replayMs": 2181.084541797638,
+        "run": 3,
+        "spans": [
+          {
+            "label": "backup.index",
+            "ms": 159.75337505340576
+          },
+          {
+            "bytes": 174954,
+            "label": "backup.blob",
+            "ms": 122.77158403396606
+          },
+          {
+            "label": "restore.decode",
+            "ms": 168.2595419883728
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 124.9195830821991
+          },
+          {
+            "bytes": 159394,
+            "label": "backup.blob",
+            "ms": 217.27937483787537
+          },
+          {
+            "label": "restore.decode",
+            "ms": 146.2801661491394
+          },
+          {
+            "bytes": 39463,
+            "label": "backup.blob",
+            "ms": 85.24425005912781
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 113.08070802688599
+          },
+          {
+            "label": "restore.decode",
+            "ms": 38.100750207901
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 11.907624959945679
+          },
+          {
+            "bytes": 28246,
+            "label": "backup.blob",
+            "ms": 178.99095797538757
+          },
+          {
+            "label": "restore.decode",
+            "ms": 36.15716600418091
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 22.28379201889038
+          },
+          {
+            "bytes": 26778,
+            "label": "backup.blob",
+            "ms": 86.27174997329712
+          },
+          {
+            "label": "restore.decode",
+            "ms": 28.918916940689087
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 21.352208852767944
+          },
+          {
+            "bytes": 36010,
+            "label": "backup.blob",
+            "ms": 82.17674994468689
+          },
+          {
+            "label": "restore.decode",
+            "ms": 35.01658296585083
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 14.586083889007568
+          },
+          {
+            "bytes": 6044,
+            "label": "backup.blob",
+            "ms": 69.49208307266235
+          },
+          {
+            "label": "restore.decode",
+            "ms": 8.12625002861023
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 6.853749990463257
+          },
+          {
+            "bytes": 5717,
+            "label": "backup.blob",
+            "ms": 141.33020901679993
+          },
+          {
+            "label": "restore.decode",
+            "ms": 9.333709001541138
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.461167097091675
+          },
+          {
+            "bytes": 5421,
+            "label": "backup.blob",
+            "ms": 73.24466586112976
+          },
+          {
+            "label": "restore.decode",
+            "ms": 9.576791048049927
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 10.01645803451538
+          },
+          {
+            "bytes": 5098,
+            "label": "backup.blob",
+            "ms": 72.10724997520447
+          },
+          {
+            "label": "restore.decode",
+            "ms": 8.191874980926514
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.169749975204468
+          },
+          {
+            "bytes": 5425,
+            "label": "backup.blob",
+            "ms": 92.06095790863037
+          },
+          {
+            "label": "restore.decode",
+            "ms": 12.785459041595459
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.887458086013794
+          },
+          {
+            "bytes": 39377,
+            "label": "backup.blob",
+            "ms": 89.20716595649719
+          },
+          {
+            "label": "restore.decode",
+            "ms": 46.18108415603638
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 16.818958044052124
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 0.923332929611206
+          }
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "jest": {
+      "passedSuites": 154,
+      "skippedSuites": 1,
+      "passedTests": 1907,
+      "skippedTests": 1,
+      "durationSeconds": 46.001
+    },
+    "typecheck": {
+      "baseline_count": 31,
+      "final_count": 31,
+      "introduced": [],
+      "resolved": []
+    },
+    "lint": {
+      "files": 25,
+      "errors": 0,
+      "warnings": 121,
+      "baselineWarnings": 108,
+      "newApplicationWarnings": 0
+    },
+    "diffCheck": "passed"
+  },
+  "finalOriginalLogReplays": {
+    "bytes": 531927,
+    "results": [
+      {
+        "chunks": 12,
+        "counts": {
+          "certificates": 0,
+          "output_baskets": 1,
+          "outputs": 227,
+          "proven_tx_reqs": 42,
+          "proven_txs": 24,
+          "transactions": 43
+        },
+        "frames": {
+          "max": 235.93620800971985,
+          "n": 132,
+          "over50ms": 5,
+          "p95": 37.85841679573059
+        },
+        "replayMs": 2749.050208091736,
+        "run": 1,
+        "spans": [
+          {
+            "label": "backup.index",
+            "ms": 73.8984158039093
+          },
+          {
+            "bytes": 174954,
+            "label": "backup.blob",
+            "ms": 240.22983312606812
+          },
+          {
+            "label": "restore.decode",
+            "ms": 177.53062510490417
+          },
+          {
+            "bytes": 159394,
+            "label": "backup.blob",
+            "ms": 117.90004181861877
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 177.7340829372406
+          },
+          {
+            "label": "restore.decode",
+            "ms": 167.76524996757507
+          },
+          {
+            "bytes": 39463,
+            "label": "backup.blob",
+            "ms": 129.38450002670288
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 136.24833297729492
+          },
+          {
+            "label": "restore.decode",
+            "ms": 39.2112078666687
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 17.04187512397766
+          },
+          {
+            "bytes": 28246,
+            "label": "backup.blob",
+            "ms": 95.08949995040894
+          },
+          {
+            "label": "restore.decode",
+            "ms": 28.264708042144775
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 25.631792068481445
+          },
+          {
+            "bytes": 26778,
+            "label": "backup.blob",
+            "ms": 134.8671669960022
+          },
+          {
+            "label": "restore.decode",
+            "ms": 27.42383313179016
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 24.132874965667725
+          },
+          {
+            "bytes": 36010,
+            "label": "backup.blob",
+            "ms": 86.18225002288818
+          },
+          {
+            "label": "restore.decode",
+            "ms": 37.85050010681152
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 17.61275005340576
+          },
+          {
+            "bytes": 6044,
+            "label": "backup.blob",
+            "ms": 153.10383296012878
+          },
+          {
+            "label": "restore.decode",
+            "ms": 7.438249826431274
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 7.9186248779296875
+          },
+          {
+            "bytes": 5717,
+            "label": "backup.blob",
+            "ms": 191.9734170436859
+          },
+          {
+            "label": "restore.decode",
+            "ms": 12.86933422088623
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 5.957624912261963
+          },
+          {
+            "bytes": 5421,
+            "label": "backup.blob",
+            "ms": 86.34533405303955
+          },
+          {
+            "label": "restore.decode",
+            "ms": 10.033250093460083
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 6.42074990272522
+          },
+          {
+            "bytes": 5098,
+            "label": "backup.blob",
+            "ms": 85.19145798683167
+          },
+          {
+            "label": "restore.decode",
+            "ms": 11.413708925247192
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 6.02333402633667
+          },
+          {
+            "bytes": 5425,
+            "label": "backup.blob",
+            "ms": 87.47991585731506
+          },
+          {
+            "label": "restore.decode",
+            "ms": 11.75108289718628
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 6.99683403968811
+          },
+          {
+            "bytes": 39377,
+            "label": "backup.blob",
+            "ms": 93.67862486839294
+          },
+          {
+            "label": "restore.decode",
+            "ms": 39.29854202270508
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 16.917582988739014
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 1.2007908821105957
+          }
+        ],
+        "staleProvenRequests": 0
+      },
+      {
+        "chunks": 12,
+        "counts": {
+          "certificates": 0,
+          "output_baskets": 1,
+          "outputs": 227,
+          "proven_tx_reqs": 42,
+          "proven_txs": 24,
+          "transactions": 43
+        },
+        "frames": {
+          "max": 229.54308319091797,
+          "n": 110,
+          "over50ms": 4,
+          "p95": 38.83441710472107
+        },
+        "replayMs": 2373.397166967392,
+        "run": 2,
+        "spans": [
+          {
+            "label": "backup.index",
+            "ms": 112.89854216575623
+          },
+          {
+            "bytes": 174954,
+            "label": "backup.blob",
+            "ms": 122.01579213142395
+          },
+          {
+            "label": "restore.decode",
+            "ms": 173.76600003242493
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 157.65404200553894
+          },
+          {
+            "bytes": 159394,
+            "label": "backup.blob",
+            "ms": 174.71550011634827
+          },
+          {
+            "label": "restore.decode",
+            "ms": 152.58699989318848
+          },
+          {
+            "bytes": 39463,
+            "label": "backup.blob",
+            "ms": 95.59700012207031
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 129.42324995994568
+          },
+          {
+            "label": "restore.decode",
+            "ms": 40.09241700172424
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 14.582667112350464
+          },
+          {
+            "bytes": 28246,
+            "label": "backup.blob",
+            "ms": 134.49300003051758
+          },
+          {
+            "label": "restore.decode",
+            "ms": 27.486791133880615
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 23.57074999809265
+          },
+          {
+            "bytes": 26778,
+            "label": "backup.blob",
+            "ms": 100.77220916748047
+          },
+          {
+            "label": "restore.decode",
+            "ms": 25.833374977111816
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 24.23520803451538
+          },
+          {
+            "bytes": 36010,
+            "label": "backup.blob",
+            "ms": 86.72141599655151
+          },
+          {
+            "label": "restore.decode",
+            "ms": 35.506958961486816
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 16.847874879837036
+          },
+          {
+            "bytes": 6044,
+            "label": "backup.blob",
+            "ms": 90.12012505531311
+          },
+          {
+            "label": "restore.decode",
+            "ms": 5.728000164031982
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 10.101500034332275
+          },
+          {
+            "bytes": 5717,
+            "label": "backup.blob",
+            "ms": 143.04066705703735
+          },
+          {
+            "label": "restore.decode",
+            "ms": 6.0929999351501465
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.525042057037354
+          },
+          {
+            "bytes": 5421,
+            "label": "backup.blob",
+            "ms": 76.03433299064636
+          },
+          {
+            "label": "restore.decode",
+            "ms": 6.3434998989105225
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 9.140375137329102
+          },
+          {
+            "bytes": 5098,
+            "label": "backup.blob",
+            "ms": 74.9823751449585
+          },
+          {
+            "label": "restore.decode",
+            "ms": 5.983832836151123
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.933291912078857
+          },
+          {
+            "bytes": 5425,
+            "label": "backup.blob",
+            "ms": 93.05883288383484
+          },
+          {
+            "label": "restore.decode",
+            "ms": 7.505583047866821
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.68862509727478
+          },
+          {
+            "bytes": 39377,
+            "label": "backup.blob",
+            "ms": 98.48979091644287
+          },
+          {
+            "label": "restore.decode",
+            "ms": 38.046082973480225
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 16.64437508583069
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 1.1324169635772705
+          }
+        ],
+        "staleProvenRequests": 0
+      },
+      {
+        "chunks": 12,
+        "counts": {
+          "certificates": 0,
+          "output_baskets": 1,
+          "outputs": 227,
+          "proven_tx_reqs": 42,
+          "proven_txs": 24,
+          "transactions": 43
+        },
+        "frames": {
+          "max": 230.86350011825562,
+          "n": 109,
+          "over50ms": 4,
+          "p95": 38.29537487030029
+        },
+        "replayMs": 2329.2872080802917,
+        "run": 3,
+        "spans": [
+          {
+            "label": "backup.index",
+            "ms": 78.78145790100098
+          },
+          {
+            "bytes": 174954,
+            "label": "backup.blob",
+            "ms": 159.7653751373291
+          },
+          {
+            "label": "restore.decode",
+            "ms": 170.85625004768372
+          },
+          {
+            "bytes": 159394,
+            "label": "backup.blob",
+            "ms": 108.46075010299683
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 163.1455841064453
+          },
+          {
+            "label": "restore.decode",
+            "ms": 161.76895809173584
+          },
+          {
+            "bytes": 39463,
+            "label": "backup.blob",
+            "ms": 106.99383306503296
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 125.3834581375122
+          },
+          {
+            "label": "restore.decode",
+            "ms": 40.76212501525879
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 13.774874925613403
+          },
+          {
+            "bytes": 28246,
+            "label": "backup.blob",
+            "ms": 82.48154187202454
+          },
+          {
+            "label": "restore.decode",
+            "ms": 26.624917030334473
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 23.526124954223633
+          },
+          {
+            "bytes": 26778,
+            "label": "backup.blob",
+            "ms": 168.80749988555908
+          },
+          {
+            "label": "restore.decode",
+            "ms": 27.66949987411499
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 23.79062509536743
+          },
+          {
+            "bytes": 36010,
+            "label": "backup.blob",
+            "ms": 85.34737491607666
+          },
+          {
+            "label": "restore.decode",
+            "ms": 35.773041009902954
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 17.03975009918213
+          },
+          {
+            "bytes": 6044,
+            "label": "backup.blob",
+            "ms": 71.79170823097229
+          },
+          {
+            "label": "restore.decode",
+            "ms": 5.946916103363037
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 9.019500017166138
+          },
+          {
+            "bytes": 5717,
+            "label": "backup.blob",
+            "ms": 76.67395901679993
+          },
+          {
+            "label": "restore.decode",
+            "ms": 5.758625030517578
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.731666088104248
+          },
+          {
+            "bytes": 5421,
+            "label": "backup.blob",
+            "ms": 76.84874987602234
+          },
+          {
+            "label": "restore.decode",
+            "ms": 5.2670838832855225
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 8.976290941238403
+          },
+          {
+            "bytes": 5098,
+            "label": "backup.blob",
+            "ms": 177.3235001564026
+          },
+          {
+            "label": "restore.decode",
+            "ms": 5.028749942779541
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 7.826124906539917
+          },
+          {
+            "bytes": 5425,
+            "label": "backup.blob",
+            "ms": 94.53491616249084
+          },
+          {
+            "label": "restore.decode",
+            "ms": 5.388416051864624
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 10.378999948501587
+          },
+          {
+            "bytes": 39377,
+            "label": "backup.blob",
+            "ms": 96.50008392333984
+          },
+          {
+            "label": "restore.decode",
+            "ms": 41.20154094696045
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 20.544167041778564
+          },
+          {
+            "label": "restore.sqliteChunk",
+            "ms": 1.4210000038146973
+          }
+        ],
+        "staleProvenRequests": 0
+      }
+    ],
+    "targetChunks": 12
+  },
+  "selfPayment": {
+    "satoshis": 100,
+    "localFeeSatoshis": 47,
+    "localResponse": {
+      "frames": {
+        "max": 34.52683401107788,
+        "n": 4,
+        "over50ms": 0,
+        "p95": 34.52683401107788
+      },
+      "paymentFinishedAt": 1788578789352,
+      "paymentStartedAt": 1788578789225,
+      "spans": [
+        {
+          "label": "receive.sweep",
+          "ms": 198.99166703224182
+        },
+        {
+          "label": "receive.sweep",
+          "ms": 287.5098338127136
+        },
+        {
+          "label": "wallet.createAction",
+          "ms": 126.25487494468689,
+          "sincePaymentMs": 1.348249912261963
+        },
+        {
+          "label": "payment.address",
+          "ms": 127.60854196548462,
+          "sincePaymentMs": 0
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 95.57083296775818,
+          "sincePaymentMs": 11384.184000015259,
+          "status": 202
+        },
+        {
+          "label": "fetch.other",
+          "ms": 33.3671669960022,
+          "sincePaymentMs": 18462.98533296585,
+          "status": 204
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 280.25125002861023,
+          "sincePaymentMs": 19116.024582862854,
+          "status": 200
+        },
+        {
+          "label": "receive.sweep",
+          "ms": 285.19025015830994,
+          "sincePaymentMs": 19115.982499837875
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 216.24324989318848,
+          "sincePaymentMs": 49129.72604203224,
+          "status": 200
+        },
+        {
+          "label": "receive.sweep",
+          "ms": 219.12029194831848,
+          "sincePaymentMs": 49129.70112490654
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 100.28545808792114,
+          "sincePaymentMs": 56645.50704193115,
+          "status": 200
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 195.04325008392334,
+          "sincePaymentMs": 61767.80104184151,
+          "status": 500
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 76.56316709518433,
+          "sincePaymentMs": 62402.93424987793,
+          "status": 200
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 64.97095799446106,
+          "sincePaymentMs": 62480.86429190636,
+          "status": 200
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 82.0087080001831,
+          "sincePaymentMs": 62547.80479192734,
+          "status": 200
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 145.03116703033447,
+          "sincePaymentMs": 62634.58033299446,
+          "status": 200
+        },
+        {
+          "label": "fetch.other",
+          "ms": 16.071417093276978,
+          "sincePaymentMs": 78512.96987485886,
+          "status": 204
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 215.23483300209045,
+          "sincePaymentMs": 79147.7641248703,
+          "status": 200
+        },
+        {
+          "label": "receive.sweep",
+          "ms": 220.7277500629425,
+          "sincePaymentMs": 79147.7366669178
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 355.5144581794739,
+          "sincePaymentMs": 81690.63787484169,
+          "status": 200
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 289.276624917984,
+          "sincePaymentMs": 81757.01620793343,
+          "status": 200
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 175.77470803260803,
+          "sincePaymentMs": 82045.92304182053,
+          "status": 200
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 463.2539999485016,
+          "sincePaymentMs": 81811.77733302116,
+          "status": 200
+        },
+        {
+          "label": "receive.sweep",
+          "ms": 464.5946669578552,
+          "sincePaymentMs": 81811.76999998093
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 92.94574999809265,
+          "sincePaymentMs": 82245.11491703987,
+          "status": 200
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 73.31541705131531,
+          "sincePaymentMs": 82355.58095788956,
+          "status": 200
+        },
+        {
+          "label": "fetch.backup",
+          "ms": 281.6267499923706,
+          "sincePaymentMs": 82381.19754195213,
+          "status": 201
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 63.24375009536743,
+          "sincePaymentMs": 82666.18908286095,
+          "status": 200
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 63.542792081832886,
+          "sincePaymentMs": 82731.81395792961,
+          "status": 200
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 199.77233290672302,
+          "sincePaymentMs": 82796.43187499046,
+          "status": 500
+        },
+        {
+          "label": "fetch.other",
+          "ms": 183.11579203605652,
+          "sincePaymentMs": 82996.30495786667,
+          "status": 404
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 224.02241706848145,
+          "sincePaymentMs": 83188.8884999752,
+          "status": 500
+        },
+        {
+          "label": "fetch.other",
+          "ms": 165.5410840511322,
+          "sincePaymentMs": 83412.9928328991,
+          "status": 404
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 314.62516689300537,
+          "sincePaymentMs": 83580.74874997139,
+          "status": 500
+        },
+        {
+          "label": "fetch.other",
+          "ms": 183.62158298492432,
+          "sincePaymentMs": 83895.47175002098,
+          "status": 404
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 195.97241592407227,
+          "sincePaymentMs": 84083.4024169445,
+          "status": 500
+        },
+        {
+          "label": "fetch.other",
+          "ms": 299.0969588756561,
+          "sincePaymentMs": 84279.44620800018,
+          "status": 404
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 212.83866596221924,
+          "sincePaymentMs": 84583.38766694069,
+          "status": 500
+        },
+        {
+          "label": "fetch.other",
+          "ms": 199.92458295822144,
+          "sincePaymentMs": 84796.30641698837,
+          "status": 404
+        },
+        {
+          "label": "fetch.chain-indexer",
+          "ms": 174.34616589546204,
+          "sincePaymentMs": 85004.92916703224,
+          "status": 500
+        },
+        {
+          "label": "fetch.other",
+          "ms": 300.3860409259796,
+          "sincePaymentMs": 85179.35504198074,
+          "status": 404
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 68.05087494850159,
+          "sincePaymentMs": 85511.0586669445,
+          "status": 200
+        },
+        {
+          "label": "fetch.broadcast",
+          "ms": 65.13245797157288,
+          "sincePaymentMs": 85580.68441700935,
+          "status": 200
+        },
+        {
+          "label": "fetch.backup",
+          "ms": 98.26945900917053,
+          "sincePaymentMs": 90697.96445798874,
+          "status": 201
+        }
+      ]
+    },
+    "delivery": {
+      "status": "REJECTED",
+      "httpStatus": 466,
+      "reason": "UTXO_SPENT",
+      "inboundObserved": false
+    },
+    "limitations": [
+      "One after-change run; no payment baseline.",
+      "Only four frames sampled during the local rail operation.",
+      "Broadcaster acknowledgement is not delivery."
+    ],
+    "troubleshooting": {
+      "stuckCoinsFreed": 2,
+      "paymentsRecovered": 0,
+      "activityStillDisplays": "Accepted",
+      "statusMismatchUnresolved": true
+    }
+  }
+}
