@@ -413,7 +413,7 @@ are required — both hard-won during this package's extraction:
 
    ```
    transformIgnorePatterns: [
-     "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox)/)",
+     "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox|@bsv/react-native-localpay-transport)/)",
      "/node_modules/react-native-reanimated/plugin/"
    ]
    ```
@@ -424,8 +424,10 @@ are required — both hard-won during this package's extraction:
    because `react-native-reanimated` is a required peer dependency.
    You don't need every name in that big alternation — most come from
    the `jest-expo` preset's own defaults or other-app concerns — but
-   `@bsv/expo-wallet-toolbox` itself and `@bsv/backup-cache-client` (see
-   below) must be in whatever pattern you end up with.
+   `@bsv/expo-wallet-toolbox`, `@bsv/react-native-localpay-transport`
+   (also raw TypeScript — `core/localpay/transport/select.ts` imports it
+   directly), and `@bsv/backup-cache-client` (see below) must be in
+   whatever pattern you end up with.
 
 2. **Native-module and ESM-only-package mocks** — anything the package
    touches that has no pure-JS Jest-safe implementation, or that ships
@@ -469,6 +471,17 @@ are required — both hard-won during this package's extraction:
    (`"preset": "jest-expo"` in `package.json`), which already covers most
    other Expo native modules — start from that preset before adding the
    overrides above.
+
+## Breaking changes
+
+**0.1.1:** `react-native-localpay-transport` (unscoped, private, hand-synced
+out of this repo) became `@bsv/react-native-localpay-transport` (published
+independently). This is a native-module identity change, not just an npm
+rename: the pod name (`LocalPayTransport`) and Nitro hybrid object
+registrations are unchanged, so a consumer that still has its own local
+copy of the old module installed alongside the new package will get a
+duplicate pod and duplicate native registration. Delete any local copy
+before installing the new package — do not run both at once.
 
 ## Publishing notes
 
