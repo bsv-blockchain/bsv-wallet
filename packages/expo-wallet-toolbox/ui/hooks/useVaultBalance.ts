@@ -22,29 +22,60 @@ export function useVaultBalance(): { balance: number | null; loading: boolean; r
   const transferInFlight = vaultState.phase === 'preparing' || vaultState.phase === 'broadcasting'
   const [balance, setBalance] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
-  // Kept in a ref so `refresh` has a stable identity. With `balance` in its deps
-  // every callers' effect that lists `refresh` (app/vault.tsx does) re-ran and
-  // refetched each time the figure changed.
+  const [refreshVersion, setRefreshVersion] = useState(0)
+  // Read the latest figure without making balance changes trigger another read.
   const balanceRef = useRef<number | null>(null)
   balanceRef.current = balance
+  const inFlightRef = useRef(false)
+  const pendingRef = useRef<(() => Promise<void>) | null>(null)
 
   const refresh = useCallback(() => {
-    const pm = managers?.permissionsManager
-    if (!pm) return
-    setLoading(prev => (balanceRef.current === null ? true : prev))
-    getVaultBalance(pm as unknown as VaultWallet, adminOriginator)
-      .then(setBalance)
-      .catch(() => {
-        /* leave the last known balance in place on a transient failure */
-      })
-      .finally(() => setLoading(false))
-  }, [managers?.permissionsManager, adminOriginator])
+    setRefreshVersion(prev => prev + 1)
+  }, [])
 
   useEffect(() => {
-    if (transferInFlight) return // freeze: a fetch now would read a false 0
-    refresh() // also runs on the busy→idle transition, adopting the real figure
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managers?.permissionsManager, adminOriginator, txStatusVersion, transferInFlight])
+    let cancelled = false
+    const pm = managers?.permissionsManager
+    if (transferInFlight || !pm) {
+      setLoading(false)
+      return
+    }
+
+    const read = async () => {
+      if (balanceRef.current === null) setLoading(true)
+      try {
+        const next = await getVaultBalance(pm as unknown as VaultWallet, adminOriginator)
+        if (!cancelled) setBalance(next)
+      } catch {
+        // Leave the last known balance in place on a transient failure.
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    // Retain only the latest invalidation while a read is in flight. Cleanup
+    // also discards results from reads that started before the transfer freeze.
+    pendingRef.current = read
+    if (!inFlightRef.current) {
+      inFlightRef.current = true
+      void (async () => {
+        try {
+          while (pendingRef.current) {
+            const next = pendingRef.current
+            pendingRef.current = null
+            await next()
+          }
+        } finally {
+          inFlightRef.current = false
+        }
+      })()
+    }
+
+    return () => {
+      cancelled = true
+      if (pendingRef.current === read) pendingRef.current = null
+    }
+  }, [managers?.permissionsManager, adminOriginator, txStatusVersion, transferInFlight, refreshVersion])
 
   return { balance, loading, refresh }
 }

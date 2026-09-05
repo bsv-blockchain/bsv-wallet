@@ -1676,26 +1676,25 @@ export class StorageExpoSQLite extends StorageProvider {
 
   async getLabelsForTransactionId(transactionId?: number, trx?: TrxToken): Promise<TableTxLabel[]> {
     if (!transactionId) return []
-    const maps = await this.findTxLabelMaps({ partial: { transactionId, isDeleted: false } as any, trx })
-    const labels: any[] = []
-    for (const m of maps) {
-      const results = await this.findTxLabels({ partial: { txLabelId: m.txLabelId, isDeleted: false } as any, trx })
-      if (results.length > 0) labels.push(results[0])
-    }
-    return labels
+    // Resolve the associations in one read instead of one bridge round trip
+    // for the maps followed by another for every label.
+    const rows = await this.getDB(trx).getAllAsync(
+      `SELECT l.* FROM tx_labels_map m JOIN tx_labels l ON l.txLabelId = m.txLabelId
+       WHERE m.transactionId = ? AND m.isDeleted = 0 AND l.isDeleted = 0
+       ORDER BY m.txLabelId ASC`,
+      [transactionId]
+    )
+    return this.validateEntities(rows, undefined, ['isDeleted'])
   }
 
   async getTagsForOutputId(outputId: number, trx?: TrxToken): Promise<TableOutputTag[]> {
-    const maps = await this.findOutputTagMaps({ partial: { outputId, isDeleted: false } as any, trx })
-    const tags: any[] = []
-    for (const m of maps) {
-      const results = await this.findOutputTags({
-        partial: { outputTagId: m.outputTagId, isDeleted: false } as any,
-        trx
-      })
-      if (results.length > 0) tags.push(results[0])
-    }
-    return tags
+    const rows = await this.getDB(trx).getAllAsync(
+      `SELECT t.* FROM output_tags_map m JOIN output_tags t ON t.outputTagId = m.outputTagId
+       WHERE m.outputId = ? AND m.isDeleted = 0 AND t.isDeleted = 0
+       ORDER BY m.outputTagId ASC`,
+      [outputId]
+    )
+    return this.validateEntities(rows, undefined, ['isDeleted'])
   }
 
   // Change input allocation

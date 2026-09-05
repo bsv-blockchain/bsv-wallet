@@ -24,6 +24,16 @@ import { useVaultBalance } from '../../ui/hooks/useVaultBalance'
 
 const fetchBalance = getVaultBalance as jest.Mock
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 const settle = async () => {
   await act(async () => {
     await new Promise(r => setImmediate(r))
@@ -90,5 +100,102 @@ describe('useVaultBalance', () => {
     await settle()
     expect(fetchBalance).toHaveBeenCalledTimes(2) // the thaw itself refetches
     expect(result.current.balance).toBe(320)
+  })
+
+  test('coalesces invalidations during a read and publishes only the fresh result', async () => {
+    const first = deferred<number>()
+    fetchBalance.mockReturnValueOnce(first.promise).mockResolvedValue(320)
+    const { result, rerender } = renderHook(() => useVaultBalance())
+    await settle()
+
+    for (const txStatusVersion of [1, 2]) {
+      mockWalletCtx = { ...mockWalletCtx, txStatusVersion }
+      rerender(undefined)
+      await settle()
+    }
+    act(() => result.current.refresh())
+    await settle()
+    expect(fetchBalance).toHaveBeenCalledTimes(1)
+
+    await act(async () => first.resolve(500))
+    await settle()
+    expect(fetchBalance).toHaveBeenCalledTimes(2)
+    expect(result.current.balance).toBe(320)
+    expect(result.current.loading).toBe(false)
+  })
+
+  test.each(['preparing', 'broadcasting'])(
+    'discards a pending read and ignores manual refresh while %s',
+    async phase => {
+      const pending = deferred<number>()
+      fetchBalance.mockResolvedValueOnce(500).mockReturnValueOnce(pending.promise).mockResolvedValue(320)
+      const { result, rerender } = renderHook(() => useVaultBalance())
+      await settle()
+
+      act(() => result.current.refresh())
+      await settle()
+      mockVaultPhase = phase
+      rerender(undefined)
+      act(() => result.current.refresh())
+      await settle()
+      expect(fetchBalance).toHaveBeenCalledTimes(2)
+
+      await act(async () => pending.resolve(0))
+      await settle()
+      expect(result.current.balance).toBe(500)
+
+      mockVaultPhase = 'idle'
+      rerender(undefined)
+      await settle()
+      expect(fetchBalance).toHaveBeenCalledTimes(3)
+      expect(result.current.balance).toBe(320)
+    }
+  )
+
+  test('retains a queued refresh after a read fails', async () => {
+    const first = deferred<number>()
+    fetchBalance.mockReturnValueOnce(first.promise).mockResolvedValue(320)
+    const { result } = renderHook(() => useVaultBalance())
+    await settle()
+    act(() => result.current.refresh())
+    await act(async () => first.reject(new Error('temporary read failure')))
+    await settle()
+    expect(fetchBalance).toHaveBeenCalledTimes(2)
+    expect(result.current.balance).toBe(320)
+    expect(result.current.loading).toBe(false)
+  })
+
+  test('ignores a previous wallet read after its manager is replaced', async () => {
+    const first = deferred<number>()
+    const next = deferred<number>()
+    fetchBalance.mockReturnValueOnce(first.promise).mockReturnValueOnce(next.promise)
+    const { result, rerender } = renderHook(() => useVaultBalance())
+    await settle()
+
+    const replacement = {}
+    mockWalletCtx = { ...mockWalletCtx, managers: { permissionsManager: replacement } }
+    rerender(undefined)
+    await act(async () => first.resolve(500))
+    await settle()
+    expect(result.current.balance).toBeNull()
+    expect(result.current.loading).toBe(true)
+    expect(fetchBalance).toHaveBeenLastCalledWith(replacement, 'admin')
+
+    await act(async () => next.resolve(320))
+    await settle()
+    expect(result.current.balance).toBe(320)
+    expect(result.current.loading).toBe(false)
+  })
+
+  test('drops queued reads when unmounted', async () => {
+    const first = deferred<number>()
+    fetchBalance.mockReturnValueOnce(first.promise).mockResolvedValue(320)
+    const { result, unmount } = renderHook(() => useVaultBalance())
+    await settle()
+    act(() => result.current.refresh())
+    unmount()
+    await act(async () => first.resolve(500))
+    await settle()
+    expect(fetchBalance).toHaveBeenCalledTimes(1)
   })
 })

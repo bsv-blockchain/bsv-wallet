@@ -4,7 +4,7 @@ import { unsealFrame, sealFrame, type PaymentFrame } from '../codec'
 import { instanceName, type Session } from '../session'
 import type { Ack, LocalPaymentTransport, ReceivedFrame } from '../types'
 import { bleRole } from './select'
-import { SEND_TIMEOUT_MS, declineQuietly, fromBase64, makeConfirm, parseAck, toBase64 } from './socket'
+import { SEND_TIMEOUT_MS, declineQuietly, fromBase64, makeConfirm, nativePromise, parseAck, toBase64 } from './socket'
 
 /**
  * Connect-phase budget before the payer gives up and falls back to the QR:
@@ -54,7 +54,7 @@ export function makeBleTransport(
           if (settled) return
           settled = true
           signal.removeEventListener('abort', onAbort)
-          if (teardown) void backend.stopListening().catch(() => {})
+          if (teardown) void nativePromise(() => backend.stopListening()).catch(() => {})
           fn()
         }
         const onAbort = () => finish(true, () => reject(new Error('cancelled')))
@@ -74,8 +74,7 @@ export function makeBleTransport(
         }
         const onError = (message: string) => finish(true, () => reject(new Error(message)))
 
-        backend
-          .startListening(name, psk, onFrame, onError)
+        nativePromise(() => backend.startListening(name, psk, onFrame, onError))
           .then(() => {
             // Reversed role: only where this device's central is trusted
             // against a peer that advertises. A scan that cannot start leaves
@@ -83,7 +82,7 @@ export function makeBleTransport(
             // terminal. Started AFTER startListening resolves: the native
             // self-reset inside startListening would otherwise tear it down.
             if (Platform.OS !== 'ios' || settled) return
-            return backend.startScanning(name, psk, onFrame, onError).catch((e: unknown) => {
+            return nativePromise(() => backend.startScanning(name, psk, onFrame, onError)).catch((e: unknown) => {
               if (settled) return
               console.warn('[localpay] ble scan unavailable:', e instanceof Error ? e.message : String(e))
             })
@@ -125,8 +124,9 @@ export function makeBleTransport(
           reject(e)
           return
         }
-        const pending =
+        const pending = nativePromise(() =>
           bleRole(session) === 'peripheral' ? backend.sendFrameAdvertising(...args) : backend.sendFrame(...args)
+        )
         pending.then(
           ackBase64 => {
             if (settled) return

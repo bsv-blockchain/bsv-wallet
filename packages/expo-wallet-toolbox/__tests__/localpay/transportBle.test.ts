@@ -455,7 +455,7 @@ describe('bleTransport reversed role', () => {
     await expect(pending).rejects.toThrow('cancelled')
   })
 
-  it('a failing scan start is logged, not terminal: the advertised listener still delivers', async () => {
+  it.each(['throw', 'reject'] as const)('a scan start failure by %s keeps the advertised listener active', async mode => {
     Platform.OS = 'ios'
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const startListening = jest.fn((_n: string, _p: string, onFrame: (f: string) => void) => {
@@ -464,7 +464,11 @@ describe('bleTransport reversed role', () => {
     })
     const native = fakeNative({
       startListening: startListening as never,
-      startScanning: jest.fn().mockRejectedValue(new Error('bluetooth unavailable')) as never,
+      startScanning: jest.fn().mockImplementation(() => {
+        const error = new Error('bluetooth unavailable')
+        if (mode === 'throw') throw error
+        return Promise.reject(error)
+      }) as never,
     })
     getLocalPayBleTransport.mockReturnValue(native)
     const received = await bleTransport.receive(session, new AbortController().signal)

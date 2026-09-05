@@ -1,5 +1,5 @@
 import { TaskCreditInbox } from '../../core/monitor/TaskCreditInbox'
-import { creditInboxOnce, resetCreditInboxForTests } from '../../core/pay/creditInbox'
+import { creditInboxOnce, isCreditInboxBusy, resetCreditInboxForTests } from '../../core/pay/creditInbox'
 import { loadInboxAttempts, saveInboxAttempts } from '../../core/peerpay/inboxAttempts'
 import type { IncomingPayment } from '@bsv/message-box-client'
 
@@ -241,5 +241,47 @@ describe('creditInboxOnce', () => {
     await Promise.all([first, second])
     expect(accept).toHaveBeenCalledTimes(1)
     expect(client.listIncomingPayments).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('serializes queued retries when the preceding pass rejects: %s', async rejectFirst => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const storage = fakeStorage()
+    let active = 0
+    let maxActive = 0
+    const accept = jest.fn(async () => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      await Promise.resolve()
+      active--
+      throw new Error('credit failed')
+    })
+    const client = {
+      listIncomingPayments: jest.fn().mockResolvedValue([payment('a')]).mockImplementationOnce(async () => {
+        await gate
+        if (rejectFirst) throw new Error('listing failed')
+        return [payment('a')]
+      }),
+      listMessages: jest.fn().mockResolvedValue([]),
+      sendMessage: jest.fn().mockResolvedValue(undefined)
+    }
+    const args = { client, messageBoxUrl: 'https://mb', storage, accept }
+    const first = creditInboxOnce(args).catch(error => error)
+    const retryOne = creditInboxOnce({ ...args, force: ['a'] })
+    const retryTwo = creditInboxOnce({ ...args, force: ['a'] })
+    expect(isCreditInboxBusy()).toBe(true)
+    release()
+
+    await Promise.all([first, retryOne, retryTwo])
+    const expectedAttempts = rejectFirst ? 2 : 3
+    expect(client.listIncomingPayments).toHaveBeenCalledTimes(3)
+    expect(accept).toHaveBeenCalledTimes(expectedAttempts)
+    expect(maxActive).toBe(1)
+    expect(await loadInboxAttempts(storage)).toEqual({
+      a: { attempts: expectedAttempts, error: 'credit failed' }
+    })
+    expect(isCreditInboxBusy()).toBe(false)
   })
 })

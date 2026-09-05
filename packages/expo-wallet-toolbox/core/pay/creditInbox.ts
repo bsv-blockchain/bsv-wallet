@@ -191,7 +191,9 @@ export async function creditInboxOnce(args: {
 }): Promise<CreditInboxResult> {
   const force = args.force ?? []
   if (inFlight && force.length === 0) return inFlight
-  if (inFlight) await inFlight.catch(() => {})
+  // Several manual retries can be waiting on the same pass. Recheck after
+  // each wait so only one acquires the slot; the others wait for it in turn.
+  while (inFlight) await inFlight.catch(() => {})
   const run = runCreditInbox(args)
   inFlight = run
   try {

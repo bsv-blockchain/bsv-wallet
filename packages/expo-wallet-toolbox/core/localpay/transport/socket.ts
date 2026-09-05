@@ -29,6 +29,15 @@ export const SEND_TIMEOUT_MS = 30_000
  */
 export type LocalPayNative = Pick<LocalPayTransport, 'startListening' | 'stopListening' | 'confirmFrame' | 'sendFrame'>
 
+/** Normalize synchronous bridge failures to the native method's promise contract. */
+export function nativePromise<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return call()
+  } catch (e) {
+    return Promise.reject(e)
+  }
+}
+
 export function toBase64(b: Uint8Array): string {
   let s = ''
   for (const byte of b) s += String.fromCharCode(byte)
@@ -153,14 +162,14 @@ export function makeSocketTransport(
           if (settled) return
           settled = true
           signal.removeEventListener('abort', onAbort)
-          if (teardown) void backend.stopListening().catch(() => {})
+          if (teardown) void nativePromise(() => backend.stopListening()).catch(() => {})
           fn()
         }
         const onAbort = () => finish(true, () => reject(new Error('cancelled')))
         signal.addEventListener('abort', onAbort)
 
-        backend
-          .startListening(
+        nativePromise(() =>
+          backend.startListening(
             name,
             toBase64(session.psk),
             frameBase64 => {
@@ -192,7 +201,7 @@ export function makeSocketTransport(
             },
             message => finish(true, () => reject(new Error(message)))
           )
-          .catch(e => finish(true, () => reject(e)))
+        ).catch(e => finish(true, () => reject(e)))
       })
     },
 
@@ -212,32 +221,32 @@ export function makeSocketTransport(
         }
         signal.addEventListener('abort', onAbort)
 
-        backend
-          .sendFrame(
+        nativePromise(() =>
+          backend.sendFrame(
             instanceName(session.sessionId),
             toBase64(session.psk),
             toBase64(sealFrame(frame, session.psk)),
             SEND_TIMEOUT_MS,
             connectTimeoutMs
           )
-          .then(
-            ackBase64 => {
-              if (settled) return
-              settled = true
-              cleanup()
-              try {
-                resolve(parseAck(ackBase64))
-              } catch (e) {
-                reject(e)
-              }
-            },
-            e => {
-              if (settled) return
-              settled = true
-              cleanup()
+        ).then(
+          ackBase64 => {
+            if (settled) return
+            settled = true
+            cleanup()
+            try {
+              resolve(parseAck(ackBase64))
+            } catch (e) {
               reject(e)
             }
-          )
+          },
+          e => {
+            if (settled) return
+            settled = true
+            cleanup()
+            reject(e)
+          }
+        )
       })
     },
   }
