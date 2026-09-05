@@ -59,7 +59,7 @@ it('offers only a remote resend and cancel on a parked payment', () => {
   const r = chips('parked')
   // A parked payment is not on chain: an explorer link would 404 and a Refresh
   // would ask the network about a transaction it has never seen.
-  expect(r.queryByText('WoC')).toBeNull()
+  expect(r.queryByText('Explorer')).toBeNull()
   expect(r.queryByText('tx_action_refresh_short')).toBeNull()
   // Resend is the message-box rail, not a re-run of the nearby hand-over.
   expect(r.getByLabelText('send_payment_details_again')).toBeTruthy()
@@ -68,7 +68,7 @@ it('offers only a remote resend and cancel on a parked payment', () => {
 
 it('keeps the usual chips on a payment that was actually sent', () => {
   const r = chips(undefined, { status: 'unproven' })
-  expect(r.getByText('WoC')).toBeTruthy()
+  expect(r.getByText('Explorer')).toBeTruthy()
   expect(r.getByText('tx_action_refresh_short')).toBeTruthy()
   expect(r.queryByLabelText('pay_parked_cancel')).toBeNull()
 })

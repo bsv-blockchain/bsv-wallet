@@ -117,9 +117,9 @@ describe('OfflineNotice', () => {
 
   it('never says a queued payment has settled, online or off', () => {
     const { getByText } = render(<OfflineNotice online queued={1} rejected={[]} />)
-    // The negation is the load-bearing part of the copy: "not reached the
-    // network yet", never "received" or "settled".
-    expect(getByText(/not reached the network yet/i)).toBeTruthy()
+    // The negation is the load-bearing part of the copy: "not been processed
+    // yet", never "received" or "settled".
+    expect(getByText(/not been processed yet/i)).toBeTruthy()
     expect(getByText(/nothing is settled until/i)).toBeTruthy()
   })
 
