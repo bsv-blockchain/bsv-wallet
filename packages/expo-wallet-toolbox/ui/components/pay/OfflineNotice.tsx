@@ -234,6 +234,14 @@ export default function OfflineNotice({
           <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />
           <View style={styles.text}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>{t('pay_offline_kv_corrupt')}</Text>
+            {/* The queue was cleared to repair it, but the raw blob is kept under a
+                timestamped `localpay_pending_corrupt_*` key. Say so: the payments were
+                incoming money, and a bare "damaged data" title reads as "my queued
+                payments vanished". Steer away from blind re-sends — a quarantined entry
+                may already have been credited. */}
+            <Text style={[styles.body, { color: colors.textSecondary }]}>
+              {t('pay_offline_kv_corrupt_body')}
+            </Text>
           </View>
         </View>
       )}

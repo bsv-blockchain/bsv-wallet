@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1
+
+### Payments
+
+- The corrupt-pending-queue notice now has a body. `readUnprocessedPending`
+  quarantines an unparseable `localpay_pending` blob under a timestamped
+  `localpay_pending_corrupt_*` key and clears the live queue, but the card only
+  rendered a title ("Damaged payment data was found on this device"), so a user
+  carrying incoming payments was told nothing about what happened to them. The
+  new `pay_offline_kv_corrupt_body` (all twelve locales) says the payments were
+  set aside rather than deleted, and that a sender should be asked to send again
+  only if their payment is still missing — a quarantined entry may already have
+  been credited, and a blind re-send is the failure worth steering away from.
+
 ## 0.2.0
 
 Released from bsv-wallet master, tag `expo-wallet-toolbox-v0.2.0`. Contains
