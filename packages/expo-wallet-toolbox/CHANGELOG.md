@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.2
+
+### Fixes
+
+- `AppLogo`'s rotation now sets `isInteraction: false`. `Animated.timing`
+  registers an InteractionManager handle for the duration of the animation, and
+  `Animated.loop` means that duration never ends — so the handle was held for
+  as long as the component stayed mounted, and while any handle is held
+  `InteractionManager.runAfterInteractions` never fires for *anyone* in the
+  process. `Balance` renders `<AppLogo rotate />` whenever a balance is loading,
+  so this was reachable in normal use: `PayScreen`'s deferred proof sweep never
+  ran, and a host that defers real work the same way could hang indefinitely
+  with no error and no timeout. Long-standing; found by the bsv-browser session,
+  where a dApp's `listOutputs` hung forever behind a loading spinner.
+
 ## 0.2.1
 
 ### Payments

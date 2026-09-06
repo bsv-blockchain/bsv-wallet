@@ -23,7 +23,15 @@ const AppLogo: React.FC<AppLogoProps> = ({ size = 150, color = '#2196F3', rotate
           toValue: 1,
           duration: 10000,
           easing: Easing.linear,
-          useNativeDriver: true
+          useNativeDriver: true,
+          // A looped animation never ends, so without this the interaction
+          // handle Animated.timing registers is held for as long as this
+          // component is mounted — and while any handle is held,
+          // InteractionManager.runAfterInteractions never fires for anyone,
+          // process-wide. Balance renders this spinner whenever a balance is
+          // loading, so the deferred proof sweep in PayScreen (and any host
+          // that defers work the same way) would simply never run.
+          isInteraction: false
         })
       ).start()
     }
