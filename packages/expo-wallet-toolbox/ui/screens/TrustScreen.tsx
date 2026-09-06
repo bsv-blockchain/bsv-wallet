@@ -9,7 +9,6 @@ import {
   Modal,
   ActivityIndicator
 } from 'react-native'
-import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import validateTrust from '../validateTrust'
@@ -32,6 +31,22 @@ function loadIonicons(): IoniconsComponent {
     ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
   }
   return ioniconsComponent
+}
+
+/**
+ * expo-image's package entry is raw TypeScript (`main: src/index.ts`), which
+ * Jest does not transform under this package's documented config. Requiring
+ * it at render time keeps the `ui` barrel importable in consumers' test
+ * suites, the same boundary treatment @expo/vector-icons gets above.
+ */
+type ExpoImageComponent = typeof import('expo-image').Image
+let expoImageComponent: ExpoImageComponent | undefined
+function loadExpoImage(): ExpoImageComponent {
+  if (!expoImageComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoImageComponent = require('expo-image').Image as ExpoImageComponent
+  }
+  return expoImageComponent
 }
 
 /**
@@ -93,6 +108,7 @@ export function TrustScreen() {
   const insets = useSafeAreaInsets()
   const { router } = loadExpoRouter()
   const Ionicons = loadIonicons()
+  const Image = loadExpoImage()
 
   const { settings, updateSettings } = useWallet()
 
@@ -348,6 +364,7 @@ function AddProviderModal({
 }) {
   const { t } = useTranslation()
   const Ionicons = loadIonicons()
+  const Image = loadExpoImage()
   const [advanced, setAdvanced] = useState(false)
   const [domain, setDomain] = useState('')
   const [name, setName] = useState('')
