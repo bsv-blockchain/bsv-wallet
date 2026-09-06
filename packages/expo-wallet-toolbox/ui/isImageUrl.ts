@@ -1,9 +1,8 @@
-import { Image } from 'react-native'
+import { Image } from 'expo-image'
 
 export default async (url: string): Promise<boolean> => {
   try {
-    await Image.prefetch(url)
-    return true
+    return await Image.prefetch(url)
   } catch {
     return false
   }

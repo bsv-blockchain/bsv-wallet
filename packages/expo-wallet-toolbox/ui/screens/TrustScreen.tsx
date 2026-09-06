@@ -6,10 +6,10 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  Image,
   Modal,
   ActivityIndicator
 } from 'react-native'
+import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import validateTrust from '../validateTrust'
