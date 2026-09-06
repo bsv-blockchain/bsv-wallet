@@ -32,6 +32,7 @@ import {
   type ProcessedTx,
   watchAddress
 } from '@bsv/expo-wallet-toolbox'
+import type { DismissTarget } from '../../dismissTarget'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -125,7 +126,7 @@ const HISTORY_POLL_MS = 5000
 export default function AddressReceive({
   initialSats,
   dismissTo = '/'
-}: { initialSats?: number; dismissTo?: string } = {}) {
+}: { initialSats?: number; dismissTo?: DismissTarget } = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()

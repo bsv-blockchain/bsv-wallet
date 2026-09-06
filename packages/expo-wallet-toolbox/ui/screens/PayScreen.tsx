@@ -42,6 +42,7 @@ import {
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
 import { NearbyAdvisoryModal } from '../components/pay/NearbyAdvisoryModal'
+import type { DismissTarget } from '../dismissTarget'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -99,7 +100,7 @@ export interface PayScreenProps {
    * screen somewhere other than the app root — e.g. a browser app that puts
    * the wallet at `/wallet` — should pass that route here instead.
    */
-  dismissTo?: string
+  dismissTo?: DismissTarget
 }
 
 export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {

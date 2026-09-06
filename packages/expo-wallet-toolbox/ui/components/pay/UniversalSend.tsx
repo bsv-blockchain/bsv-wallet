@@ -54,6 +54,7 @@ import {
   haptics,
   listPendingResendRequests
 } from '@bsv/expo-wallet-toolbox'
+import type { DismissTarget } from '../../dismissTarget'
 
 /**
  * expo-status-bar's package.json `main` points straight at its raw
@@ -189,7 +190,7 @@ export interface UniversalSendProps {
   /** A nearby-session code was scanned. The Pay screen swaps this form for NearbyFlow. */
   onNearbySession: (session: Session) => void
   /** Where the post-payment overlay sends the user. Defaults to `/`. */
-  dismissTo?: string
+  dismissTo?: DismissTarget
 }
 
 function UniversalSend({

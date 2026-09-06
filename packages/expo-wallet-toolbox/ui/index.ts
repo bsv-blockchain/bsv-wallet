@@ -1,6 +1,7 @@
 export const CANARY_UI = 'ui'
 
 // Shared UI primitives (components/ui)
+export type { DismissTarget } from './dismissTarget'
 export { showAlert, AlertHost } from './components/ui/AlertCard'
 export type { AlertButton, AlertOptions } from './components/ui/AlertCard'
 export { showChoiceSheet, choiceSheetOrder } from './components/ui/ChoiceSheet'

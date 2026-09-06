@@ -27,6 +27,7 @@ import { useTheme, durations, springs, spacing, typography, radii, sounds } from
 import AmountDisplay from '../wallet/AmountDisplay'
 import Celebration from '../ui/Celebration'
 import PressableScale from '../ui/PressableScale'
+import type { DismissTarget } from '../../dismissTarget'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -75,7 +76,7 @@ export interface ReceivedOverlayProps {
    * wallet's own home route. A host that embeds the wallet as a sub-screen
    * (rather than as the app root) should pass its own wallet-home route here.
    */
-  dismissTo?: string
+  dismissTo?: DismissTarget
   /**
    * Acknowledged. The only way this screen closes. Clean up local state here —
    * the overlay itself then returns the user to the wallet, so the updated

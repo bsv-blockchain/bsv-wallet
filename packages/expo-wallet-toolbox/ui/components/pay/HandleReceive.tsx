@@ -63,6 +63,7 @@ import {
   peerPayLinkFor,
   type InboxAttempt
 } from '@bsv/expo-wallet-toolbox'
+import type { DismissTarget } from '../../dismissTarget'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -349,7 +350,7 @@ function AttentionRow({
 export default function HandleReceive({
   initialSats,
   dismissTo = '/'
-}: { initialSats?: number; dismissTo?: string } = {}) {
+}: { initialSats?: number; dismissTo?: DismissTarget } = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()

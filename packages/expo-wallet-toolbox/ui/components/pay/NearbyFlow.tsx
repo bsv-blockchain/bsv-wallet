@@ -166,6 +166,7 @@ import {
   type DerivingWallet,
   type VerifiedPayment
 } from '@bsv/expo-wallet-toolbox'
+import type { DismissTarget } from '../../dismissTarget'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -388,7 +389,7 @@ export interface NearbyFlowProps {
   /** Payee only: mint immediately for this amount (undefined = open request). Skips receive_amount. */
   initialRequest?: { sats?: number }
   /** Where the post-payment overlay and an exited QR flow send the user. Defaults to `/`. */
-  dismissTo?: string
+  dismissTo?: DismissTarget
 }
 
 function NearbyFlow({
