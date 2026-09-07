@@ -6,13 +6,28 @@ import {
   getProcessedTransactions,
   getUtxosForAddress,
   parseWocBeefBody,
+  payerAddressOf,
   sendToAddress,
   sweepAddress,
   wocConfigFor
 } from '../../core/pay/rails/address'
+import {
+  abbreviateKey,
+  addressLabel,
+  counterpartyOf,
+  FROM_ADDRESS_LABEL_PREFIX,
+  TO_ADDRESS_LABEL_PREFIX
+} from '../../core/pay/counterparty'
 
 const woc = wocConfigFor('main')
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
+
+// A coinbase-shaped spend: one input with an empty unlocking script, one
+// P2PKH output to ADDRESS. Nothing about the payer can be read off it.
+const UNSIGNED_INPUT_TX_HEX =
+  '0100000001000000000000000000000000000000000000000000000000000000000000000000000000000000000001e8030000000000001976a914' +
+  '0000000000000000000000000000000000000000' +
+  '88ac00000000'
 
 function mockFetchOnce(handler: (url: string) => { json?: unknown; text?: string; ok?: boolean }) {
   global.fetch = jest.fn(async (url: string) => {
@@ -38,8 +53,70 @@ function paymentBeef(satoshis: number) {
   }
 }
 
+/**
+ * What a conventional wallet's payment looks like once WoC hands it back: a
+ * bare transaction whose zeroth input carries a real P2PKH unlocking script
+ * (signature, then the payer's compressed key). Re-parsed from hex so no
+ * sourceTransaction rides along the way it would in the signing wallet.
+ */
+async function p2pkhSpendBeef(payerKeyScalar: number, satoshis: number) {
+  const { Beef, Transaction, P2PKH, PrivateKey } = require('@bsv/sdk')
+  const payerKey = new PrivateKey(payerKeyScalar)
+  const payerAddress: string = payerKey.toPublicKey().toAddress()
+  const source = new Transaction()
+  source.addOutput({ lockingScript: new P2PKH().lock(payerAddress), satoshis: satoshis + 500 })
+  const signing = new Transaction()
+  signing.addInput({ sourceTransaction: source, sourceOutputIndex: 0, unlockingScriptTemplate: new P2PKH().unlock(payerKey) })
+  signing.addOutput({ lockingScript: new P2PKH().lock(ADDRESS), satoshis })
+  await signing.sign()
+  const tx = Transaction.fromHex(signing.toHex())
+  const beef = new Beef()
+  beef.mergeRawTx(tx.toBinary())
+  return {
+    tx,
+    txid: tx.id('hex') as string,
+    hex: Buffer.from(beef.toBinary()).toString('hex'),
+    satoshis,
+    payerAddress
+  }
+}
+
 afterEach(() => {
   jest.restoreAllMocks()
+})
+
+describe('payerAddressOf', () => {
+  it('reads the payer address off a P2PKH-unlocked zeroth input', async () => {
+    const spend = await p2pkhSpendBeef(7, 1000)
+    expect(payerAddressOf(spend.tx)).toBe(spend.payerAddress)
+  })
+
+  it('encodes the payer address for the requested network', async () => {
+    const { PrivateKey } = require('@bsv/sdk')
+    const spend = await p2pkhSpendBeef(7, 1000)
+    expect(payerAddressOf(spend.tx, 'testnet')).toBe(new PrivateKey(7).toPublicKey().toAddress('testnet'))
+  })
+
+  it('is undefined when the zeroth input has no unlocking script', () => {
+    const { Transaction } = require('@bsv/sdk')
+    expect(payerAddressOf(Transaction.fromHex(UNSIGNED_INPUT_TX_HEX))).toBeUndefined()
+  })
+
+  it('is undefined for a two-push unlocking script whose second push is not a compressed key', () => {
+    const { Transaction, UnlockingScript } = require('@bsv/sdk')
+    const tx = new Transaction()
+    tx.addInput({
+      sourceTXID: '00'.repeat(32),
+      sourceOutputIndex: 0,
+      unlockingScript: UnlockingScript.fromASM('0102 0304')
+    })
+    expect(payerAddressOf(tx)).toBeUndefined()
+  })
+
+  it('is undefined for a transaction with no inputs', () => {
+    const { Transaction } = require('@bsv/sdk')
+    expect(payerAddressOf(new Transaction())).toBeUndefined()
+  })
 })
 
 describe('parseWocBeefBody', () => {
@@ -185,15 +262,12 @@ describe('sweepAddress', () => {
     expect(wallet.internalizeAction).not.toHaveBeenCalled()
   })
 
-  it('internalizes with the legacy remittance, description and labels', async () => {
+  it('internalizes with the legacy remittance and the generic description when the payer is unreadable', async () => {
     // One UTXO, and a BEEF response the SDK can parse: use a real Beef built in
-    // the test so this exercises the production merge path.
+    // the test so this exercises the production merge path. The input carries
+    // no unlocking script, so there is no payer address to name or label.
     const { Beef, Transaction } = require('@bsv/sdk')
-    const tx = Transaction.fromHex(
-      '0100000001000000000000000000000000000000000000000000000000000000000000000000000000000000000001e8030000000000001976a914' +
-        '0000000000000000000000000000000000000000' +
-        '88ac00000000'
-    )
+    const tx = Transaction.fromHex(UNSIGNED_INPUT_TX_HEX)
     const beef = new Beef()
     beef.mergeRawTx(tx.toBinary())
     const txid = tx.id('hex')
@@ -231,14 +305,49 @@ describe('sweepAddress', () => {
     )
   })
 
-  it('counts a rejected internalize as a failure and imports nothing', async () => {
-    const { Beef, Transaction, PrivateKey } = require('@bsv/sdk')
-    void PrivateKey
-    const tx = Transaction.fromHex(
-      '0100000001000000000000000000000000000000000000000000000000000000000000000000000000000000000001e8030000000000001976a914' +
-        '0000000000000000000000000000000000000000' +
-        '88ac00000000'
+  it('names and labels the payer when the zeroth input is a P2PKH spend', async () => {
+    const spend = await p2pkhSpendBeef(7, 1000)
+    mockFetchOnce(url =>
+      url.includes('/unspent/all')
+        ? { json: { result: [{ tx_hash: spend.txid, tx_pos: 0, value: 1000, isSpentInMempoolTx: false }] } }
+        : { text: spend.hex }
     )
+
+    const wallet = walletWithNothingImported()
+    const result = await sweepAddress({
+      wallet: wallet as never,
+      adminOriginator: 'admin.com',
+      woc,
+      address: ADDRESS,
+      derivationPrefix: prefix,
+      nowSeconds: 1_700_000_000
+    })
+
+    expect(result.importedSatoshis).toBe(1000)
+    const [args] = wallet.internalizeAction.mock.calls[0]
+    expect(args.description).toBe(abbreviateKey(spend.payerAddress))
+    expect(args.description).toHaveLength(13)
+    expect(args.description).toContain('…')
+    // The bare receive-address label and the ts: label are what dedup and the
+    // history view key on; the from-label rides alongside them, never replaces them.
+    const fromLabel = addressLabel(FROM_ADDRESS_LABEL_PREFIX, spend.payerAddress)
+    expect(args.labels).toEqual(['legacy', 'inbound', 'bsvbrowser', ADDRESS, 'ts:1700000000', fromLabel])
+    // The wallet folds labels to lower case before storing them, and base58 is
+    // case-sensitive, so the label must not carry the address's own spelling.
+    expect(fromLabel).toBe(fromLabel.toLowerCase())
+    expect(fromLabel).not.toContain(spend.payerAddress)
+    expect(counterpartyOf({ labels: [fromLabel.toLowerCase()] })).toEqual({
+      kind: 'address',
+      value: spend.payerAddress
+    })
+    expect(args.outputs[0].paymentRemittance.senderIdentityKey).toBe(
+      new (require('@bsv/sdk').PrivateKey)(1).toPublicKey().toString()
+    )
+  })
+
+  it('counts a rejected internalize as a failure and imports nothing', async () => {
+    const { Beef, Transaction } = require('@bsv/sdk')
+    const tx = Transaction.fromHex(UNSIGNED_INPUT_TX_HEX)
     const beef = new Beef()
     beef.mergeRawTx(tx.toBinary())
     mockFetchOnce(url =>
@@ -313,13 +422,19 @@ describe('sweepAddress', () => {
 })
 
 describe('sendToAddress', () => {
-  it('locks a P2PKH output for the recipient and labels the action legacy/outbound', async () => {
+  it('locks a P2PKH output for the recipient, names the recipient and labels the action legacy/outbound/to:', async () => {
     const wallet = { createAction: jest.fn().mockResolvedValue({}) }
     await sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: ADDRESS, satoshis: 1234 })
     const [args, originator] = wallet.createAction.mock.calls[0]
     expect(originator).toBe('admin.com')
-    expect(args.description).toBe('Send BSV to address')
-    expect(args.labels).toEqual(['legacy', 'outbound'])
+    expect(args.description).toBe(abbreviateKey(ADDRESS))
+    expect(args.description).toBe('1BvBMSEY…NVN2')
+    const toLabel = addressLabel(TO_ADDRESS_LABEL_PREFIX, ADDRESS)
+    expect(args.labels).toEqual(['legacy', 'outbound', toLabel])
+    // Same reason as the sweep's from: label: it must read back after the
+    // wallet has folded it to lower case.
+    expect(toLabel).toBe(toLabel.toLowerCase())
+    expect(counterpartyOf({ labels: [toLabel.toLowerCase()] })).toEqual({ kind: 'address', value: ADDRESS })
     expect(args.outputs).toEqual([
       {
         lockingScript: new (require('@bsv/sdk').P2PKH)().lock(ADDRESS).toHex(),

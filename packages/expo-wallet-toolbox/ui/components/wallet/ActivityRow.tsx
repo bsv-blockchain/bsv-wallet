@@ -1,8 +1,9 @@
 /**
  * One row of the wallet's activity list.
  *
- * Reading order is direction → what it was → how much, then status and time
- * underneath. The per-transaction utilities (status, explorer, resend, cancel)
+ * Reading order is who (a sigil avatar for the counterparty, with direction on
+ * the tile edge) → what it was → how much, then status and time underneath.
+ * The per-transaction utilities (status, explorer, resend, cancel)
  * are NOT on the row: they used to sit permanently on the right, four icons
  * deep, which made every row look equally busy whether or not anything needed
  * doing. They now live behind a tap, and the expanded row lifts onto its own
@@ -12,13 +13,27 @@
  * txid to a clipboard is not that — it is debugging, and it used to crowd out
  * the two chips that actually resolve a stuck payment.
  */
-import React, { memo, useContext } from 'react'
+import React, { memo, useContext, useMemo } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import type { WalletAction } from '@bsv/sdk'
-import { useTheme, spacing, radii, typography, useWallet, ExchangeRateContext, formatAmount, formatAmountParts } from '@bsv/expo-wallet-toolbox'
+import {
+  useTheme,
+  spacing,
+  radii,
+  typography,
+  useWallet,
+  ExchangeRateContext,
+  formatAmount,
+  formatAmountParts,
+  counterpartyOf,
+  counterpartyHue,
+  sigilPointOf,
+  sigilPalette
+} from '@bsv/expo-wallet-toolbox'
 import { txStatusView, toneColor } from '../../txStatus'
 import PressableScale from '../ui/PressableScale'
+import Sigil from '../ui/Sigil'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -48,11 +63,14 @@ function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   return materialCommunityIconsComponent
 }
 
-/** A row as storage actually returns it: `reference` and `created_at` are real
- * columns the SDK's WalletAction type does not declare. */
+/** A row as storage actually returns it: `reference`, `created_at` and
+ * `senderIdentityKey` are real columns the SDK's WalletAction type does not
+ * declare. The sender key is what an inbound peer payment records about who
+ * paid, since nothing else on the row does. */
 export type ActivityAction = WalletAction & {
   reference?: string
   created_at?: string | number | Date
+  senderIdentityKey?: string
 }
 
 interface Props {
@@ -117,7 +135,7 @@ function ActivityRowBase({
   onCancelParked
 }: Props & { currency: string }) {
   const { t } = useTranslation()
-  const { colors } = useTheme()
+  const { colors, isDark } = useTheme()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const MaterialCommunityIcons = loadMaterialCommunityIcons()
 
@@ -143,6 +161,22 @@ function ActivityRowBase({
   const time = formatRowTime(action.created_at)
   const amountColor = incoming ? colors.successAmount : colors.textPrimary
   const unitColor = incoming ? colors.successAmount : colors.textSecondary
+
+  // Keyed on the label contents rather than on `action` or `labels`: every
+  // poll hands the row a fresh action object with a fresh labels array for the
+  // same transaction, so only a scalar key keeps the @p derivation from
+  // re-running per poll. Newline cannot appear in a stored label, so the join
+  // is unambiguous.
+  const { labels, senderIdentityKey, txid } = action
+  const labelsKey = labels?.join('\n') ?? ''
+  const face = useMemo(() => {
+    const cp = counterpartyOf({ labels: labelsKey === '' ? undefined : labelsKey.split('\n'), senderIdentityKey, txid })
+    return cp ? { point: sigilPointOf(cp), hue: counterpartyHue(cp) } : null
+  }, [labelsKey, senderIdentityKey, txid])
+  // Resolved outside the memo: the hue is a property of the counterparty, the
+  // colours it maps to are a property of the theme, and the theme can flip
+  // under a mounted row. Two HSL conversions per render are not worth a dep.
+  const palette = face ? sigilPalette(face.hue, !!isDark) : null
 
   // A parked payment was built and shown as a code, but never released: it is
   // not on chain and no task will put it there. An explorer link would 404 and
@@ -187,23 +221,50 @@ function ActivityRowBase({
         accessibilityState={{ expanded }}
         accessibilityLabel={action.description || t('transactions')}
       >
-        <View
-          style={[
-            styles.glyph,
-            incoming
-              ? {
-                  backgroundColor: colors.successStrong + '1A',
-                  borderColor: colors.successStrong + '2E'
-                }
-              : { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }
-          ]}
-        >
-          <MaterialCommunityIcons
-            name={incoming ? 'arrow-bottom-left' : 'arrow-top-right'}
-            size={16}
-            color={incoming ? colors.successStrong : colors.textSecondary}
-          />
-        </View>
+        {/* The sigil fills the tile, so direction moves to the border tint
+            alone: the same tints as the arrow tile, so a mixed list still
+            reads consistently down the left edge. The tile takes the
+            counterparty's own colour, and the sigil is drawn in exactly that
+            pair: sigil-js cuts its glyph lines in the background colour, so
+            the fill must be the same solid or the cuts show as a halo. */}
+        {face !== null && palette !== null ? (
+          <View
+            style={[
+              styles.glyph,
+              styles.avatar,
+              {
+                backgroundColor: palette.background,
+                borderColor: incoming ? colors.successStrong + '2E' : colors.surfaceSunkenBorder
+              }
+            ]}
+          >
+            <Sigil
+              point={face.point}
+              size={38}
+              foreground={palette.foreground}
+              background={palette.background}
+              detail="default"
+            />
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.glyph,
+              incoming
+                ? {
+                    backgroundColor: colors.successStrong + '1A',
+                    borderColor: colors.successStrong + '2E'
+                  }
+                : { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={incoming ? 'arrow-bottom-left' : 'arrow-top-right'}
+              size={16}
+              color={incoming ? colors.successStrong : colors.textSecondary}
+            />
+          </View>
+        )}
 
         <View style={styles.middle}>
           <Text style={[styles.description, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -362,6 +423,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
+  // Clips the square sigil to the tile's rounded corners.
+  avatar: { overflow: 'hidden' },
   middle: { flex: 1, minWidth: 0 },
   // 14.5/500 rather than body 17/400: the row is scanned, not read, and at 17pt
   // the description crowds the amount on narrow phones.

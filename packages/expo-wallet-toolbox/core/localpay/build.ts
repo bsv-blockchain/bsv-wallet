@@ -4,6 +4,7 @@ import { isRequestableAmount, type Session } from './session'
 import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
 import type { Ack } from './types'
 import { getOnline } from '../net/online'
+import { abbreviateKey } from '../pay/counterparty'
 
 /** The toolbox's per-txid verdict on a `sendWith` release. */
 type SendWithStatus = 'unproven' | 'sending' | 'failed'
@@ -125,7 +126,9 @@ export async function buildPaymentFrame(
 
   let result = await wallet.createAction(
     {
-      description: 'Payment to a nearby device',
+      // The activity list uses the description as the row title, so it names
+      // the payee rather than the rail: the rail is already in the label.
+      description: abbreviateKey(session.identityKey),
       // The payee's identity key rides as a label, and the derivation data as
       // the output's customInstructions — exactly what the handle rail writes.
       // Both rails derive to BRC-29 (`counterparty: identityKey`, keyID

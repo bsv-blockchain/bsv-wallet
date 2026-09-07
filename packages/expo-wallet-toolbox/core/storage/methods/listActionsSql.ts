@@ -109,6 +109,11 @@ export async function listActionsSql(
     await specOp.postProcess(storage, auth, vargs, specOpLabels, txs)
   }
 
+  // The activity list identifies who paid us from the key stored on the
+  // transaction's outputs. One read covers the whole page rather than a
+  // findOutputs round trip per row.
+  const senderIdentityKeys = await storage.getSenderIdentityKeysForTransactionIds(txs.map(tx => tx.transactionId))
+
   // Build action objects
   for (const tx of txs) {
     const wtx: any = {
@@ -126,6 +131,10 @@ export async function listActionsSql(
       // `reference` already is.
       created_at: tx.created_at
     }
+    // Another extra, set only when a keyed output exists so consumers can tell
+    // "no sender recorded" from an empty string.
+    const senderIdentityKey = senderIdentityKeys.get(tx.transactionId)
+    if (senderIdentityKey !== undefined) wtx.senderIdentityKey = senderIdentityKey
     r.actions.push(wtx)
   }
 

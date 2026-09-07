@@ -13,7 +13,16 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   spacing: { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 },
   radii: { sm: 6, md: 10, lg: 14, pill: 999 },
   formatAmount: () => '1,000 sats',
-  formatAmountParts: jest.fn(() => ({ value: '-1,000', unit: 'sats' }))
+  formatAmountParts: jest.fn(() => ({ value: '-1,000', unit: 'sats' })),
+  // The row resolves its counterparty through this barrel, so the real
+  // resolver is spliced back in: the fixture's txid then draws a sigil, as it
+  // would in the app, instead of crashing the tile on an undefined import.
+  counterpartyOf: jest.requireActual('../../core/pay/counterparty').counterpartyOf,
+  counterpartyHue: jest.requireActual('../../core/pay/counterparty').counterpartyHue,
+  sigilPointOf: jest.requireActual('../../core/pay/counterparty').sigilPointOf,
+  // The tile colour comes from the same barrel. The useTheme stub above hands
+  // back no isDark, which the row must read as the light palette.
+  sigilPalette: jest.requireActual('../../core/theme/sigilPalette').sigilPalette
 }))
 
 import React from 'react'
@@ -23,6 +32,20 @@ import ActivityRow, { type ActivityAction } from '../../ui/components/wallet/Act
 import { txStatusView } from '../../ui/txStatus'
 
 const TXID = 'aa'.repeat(32)
+
+// The fixture's txid draws a real sigil, and react-native-svg warns once per
+// fill it cannot parse because the colours Proxy hands it token names. That
+// is the harness, not the row, so only that exact message is dropped.
+const realWarn = console.warn
+beforeAll(() => {
+  jest.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].endsWith('is not a valid color or brush')) return
+    realWarn(...args)
+  })
+})
+afterAll(() => {
+  jest.restoreAllMocks()
+})
 
 const action = (over: Partial<ActivityAction> = {}): ActivityAction =>
   ({

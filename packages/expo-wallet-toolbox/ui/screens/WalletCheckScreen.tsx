@@ -17,7 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PeerPayClient } from '@bsv/message-box-client'
 import { showAlert } from '../components/ui/AlertCard'
 import { makeCreditClassifier } from '../../core/pay/creditErrors'
-import { creditInboxOnce, INBOX_DESCRIPTION } from '../../core/pay/creditInbox'
+import { creditInboxOnce } from '../../core/pay/creditInbox'
 import { makeBeefRepair } from '../../core/pay/beefRepair'
 import {
   acceptWithRetry,
@@ -192,8 +192,8 @@ function useWalletCheckPorts(): WalletCheckPorts {
           storage: storage ?? undefined,
           classify,
           accept: payment =>
-            acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
-              internalizeIncoming(wallet as never, client, adminOriginator, p, d, repairBeef)
+            acceptWithRetry(client, messageBoxUrl, payment, p =>
+              internalizeIncoming(wallet as never, client, adminOriginator, p, repairBeef)
             )
         })
         return { accepted: outcome.accepted }

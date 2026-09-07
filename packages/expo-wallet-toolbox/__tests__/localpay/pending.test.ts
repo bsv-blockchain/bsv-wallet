@@ -1,5 +1,6 @@
 import {
   MAX_PENDING_ATTEMPTS,
+  PEERPAY_LABEL,
   PENDING_KEY,
   PENDING_SUMMARY_KEY,
   PendingCorruptError,
@@ -16,6 +17,7 @@ import {
   updateStatus
 } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
+import { abbreviateKey } from '../../core/pay/counterparty'
 import { Transaction, Beef, LockingScript } from '@bsv/sdk'
 
 function fakeStorage() {
@@ -221,6 +223,21 @@ describe('localpay pending queue', () => {
     expect(results).toEqual([expect.objectContaining({ success: true })])
     // completed entries are pruned on write
     expect(await getPending(s)).toEqual([])
+  })
+
+  // The description is what the activity list shows as the row title, and the
+  // list recovers the counterparty from outputs.senderIdentityKey rather than
+  // from a label, so the label carries only the rail marker.
+  it('describes the internalized action by the abbreviated sender key and labels it with the rail only', async () => {
+    const s = fakeStorage()
+    const f = frame()
+    await savePending(s, f)
+    const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
+    await processPending(wallet as never, s, 'admin.com')
+    const [args, originator] = wallet.internalizeAction.mock.calls[0]
+    expect(args.description).toBe(abbreviateKey(f.senderIdentityKey))
+    expect(args.labels).toEqual([PEERPAY_LABEL])
+    expect(originator).toBe('admin.com')
   })
 
   it('marks failed and keeps the entry when internalizeAction throws', async () => {

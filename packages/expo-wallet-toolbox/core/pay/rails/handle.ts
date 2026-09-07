@@ -20,6 +20,7 @@ import {
   type OutboxEntry
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
+import { abbreviateKey } from '../counterparty'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 
@@ -85,6 +86,12 @@ export function peerPayLinkFor(identityKey: string, sats?: number, messageBoxUrl
 /**
  * Credit an incoming payment, then acknowledge it. Never acknowledge first.
  *
+ * The recorded description is the note the sender attached to the token or,
+ * failing that, the sender's abbreviated identity key: the same default the
+ * sending wallet wrote for the recipient, so both sides name one payment the
+ * same way. The sender is not added to the labels; the activity list recovers
+ * the counterparty from the output's senderIdentityKey instead.
+ *
  * `repairBeef` is the second chance. The token's AtomicBEEF was minted at send
  * time, and a reorg between then and now invalidates its merkle path without
  * touching the transaction itself — the toolbox reports that as
@@ -97,13 +104,16 @@ export async function internalizeIncoming(
   client: Pick<PeerPayClient, 'acknowledgeMessage'>,
   adminOriginator: string,
   payment: IncomingPayment,
-  description: string,
   repairBeef?: (txid: string) => Promise<number[] | undefined>
 ): Promise<void> {
   // A note the sender attached to the token becomes the description the
-  // recipient's wallet records — same field the sender's action carries.
+  // recipient's wallet records, the same field the sender's action carries.
   const note = (payment.token as { note?: unknown }).note
   const noted = typeof note === 'string' && note.trim().length > 0 ? note.trim().slice(0, 500) : undefined
+  // Same rule as the sender's side: the note verbatim, space-padded to the
+  // 5-byte validation floor when it is shorter. The abbreviated key is 13
+  // characters, so it never needs padding.
+  const description = noted ? noted.padEnd(5) : abbreviateKey(payment.sender)
 
   const argsFor = (tx: number[] | typeof payment.token.transaction) => ({
     tx,
@@ -119,9 +129,7 @@ export async function internalizeIncoming(
       }
     ],
     labels: ['peerpay'],
-    // Same rule as the sender's side: the note verbatim, space-padded to the
-    // 5-byte validation floor when it is shorter.
-    description: noted ? noted.padEnd(5) : description
+    description
   })
 
   try {
@@ -185,15 +193,14 @@ export async function acceptWithRetry(
   client: Pick<PeerPayClient, 'listIncomingPayments'>,
   messageBoxUrl: string,
   payment: IncomingPayment,
-  description: string,
-  internalize: (p: IncomingPayment, d: string) => Promise<void>
+  internalize: (p: IncomingPayment) => Promise<void>
 ): Promise<void> {
   void client
   void messageBoxUrl
   try {
-    await internalize(payment, description)
+    await internalize(payment)
   } catch {
-    await internalize(payment, description)
+    await internalize(payment)
   }
 }
 
@@ -403,12 +410,15 @@ export async function sendViaHandle(args: {
   // advertised host when there is one and otherwise falls back to the host this
   // wallet is configured for, which is where both parties' apps look by default.
 
-  // The note IS the description when one was given — verbatim; otherwise
-  // "Pay <who>". BRC-100 requires 5–2000 bytes and the validator does not
-  // trim, so a very short note is padded with trailing spaces rather than
-  // decorated, and everything is clamped at the top end.
+  // The note IS the description when one was given, verbatim; otherwise the
+  // recipient's name, or their abbreviated key. No "Pay" prefix: the activity
+  // row already shows the direction, and the receive side records the sender
+  // the same way, so both wallets name one payment alike. BRC-100 requires
+  // 5-2000 bytes and the validator does not trim, so a very short note is
+  // padded with trailing spaces rather than decorated, and everything is
+  // clamped at the top end.
   const note = args.note?.trim() || undefined
-  const description = (note ?? `Pay ${recipientName?.trim() || recipient.slice(0, 8)}`).slice(0, 500).padEnd(5)
+  const description = (note ?? (recipientName?.trim() || abbreviateKey(recipient))).slice(0, 500).padEnd(5)
 
   // Standard BRC-29: fresh prefix/suffix, key derived toward the recipient.
   const derivationPrefix = Utils.toBase64(Random(8))

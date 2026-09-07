@@ -22,6 +22,7 @@ import {
   type WalletProtocol
 } from '@bsv/sdk'
 import type { AppChain } from '../../config'
+import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABEL_PREFIX } from '../counterparty'
 import { isValidBsvAddress } from './index'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
@@ -216,13 +217,40 @@ export function parseWocBeefBody(resp: { ok: boolean; text: string }): number[] 
 }
 
 /**
+ * The address a conventional wallet paid from, read off the zeroth input's
+ * P2PKH unlocking script: a signature push followed by a 33-byte compressed
+ * key. That is the only place the sweep can learn anything about the payer,
+ * since the remittance carries a sentinel sender rather than a real one.
+ * Anything else (coinbase, unsigned, multisig, a key that will not parse)
+ * yields undefined so the caller falls back to a generic description instead
+ * of guessing at a face; a throw here would count a good payment as failed.
+ */
+export function payerAddressOf(tx: Transaction, network: 'mainnet' | 'testnet' = 'mainnet'): string | undefined {
+  const chunks = tx.inputs[0]?.unlockingScript?.chunks
+  if (chunks === undefined || chunks.length !== 2) return undefined
+  const key = chunks[1].data
+  if (key === undefined || key.length !== 33 || (key[0] !== 0x02 && key[0] !== 0x03)) return undefined
+  try {
+    return PublicKey.fromString(Utils.toHex(key)).toAddress(network)
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * The sweep. Ported from legacy-payments.tsx's handleImportFunds with one
- * change and one only: the trigger. Nothing about what it writes moves.
+ * change to its trigger. What it writes has since grown a payer-facing
+ * description and a `from:` label so the activity list can name and draw the
+ * payer; both are additive and derived, and the dedup contract below is
+ * untouched. The label carries the address as hex (see addressLabel): the
+ * wallet lower-cases labels on the way in, which base58 does not survive.
  *
  * The sentinel sender key (PrivateKey(1)'s public key) and the label list are
  * both load-bearing: the labels are how getInternalizedUtxos recognises what
- * has already been imported, and the address label in particular is what makes
- * a second sweep a no-op instead of a double credit.
+ * has already been imported, and the bare address label in particular is what
+ * makes a second sweep a no-op instead of a double credit. The `from:` label
+ * is a different string from the bare address, so the `labelQueryMode: 'all'`
+ * lookups and the `ts:` parse in getProcessedTransactions never see it.
  *
  * Each UTXO is fetched and internalized in its own try/catch so one bad BEEF
  * cannot skip the rest of the address.
@@ -275,11 +303,21 @@ export async function sweepAddress(args: {
           derivationSuffix: LEGACY_DERIVATION_SUFFIX
         }
       }))
+      // Same network the rail derives its own receive addresses on, so payer
+      // and payee addresses read consistently in one history.
+      const payerAddress = payerAddressOf(tx, woc.network)
       const internalizeArgs: InternalizeActionArgs = {
         tx: tx.toAtomicBEEF(),
-        description: 'Payment to your address',
+        description: payerAddress !== undefined ? abbreviateKey(payerAddress) : 'Payment to your address',
         outputs,
-        labels: ['legacy', 'inbound', 'bsvbrowser', address, `ts:${nowSeconds}`]
+        labels: [
+          'legacy',
+          'inbound',
+          'bsvbrowser',
+          address,
+          `ts:${nowSeconds}`,
+          ...(payerAddress !== undefined ? [addressLabel(FROM_ADDRESS_LABEL_PREFIX, payerAddress)] : [])
+        ]
       }
       const response = await wallet.internalizeAction(internalizeArgs, adminOriginator)
       if (response?.accepted) importedSatoshis += relevant.reduce((sum, o) => sum + o.satoshis, 0)
@@ -313,9 +351,11 @@ export async function sendToAddress(args: {
   const isSendMax = sats === 2099999999999999
   const result = (await wallet.createAction(
     {
-      description: 'Send BSV to address',
+      // The recipient's address is the description so the activity list has a
+      // name for the row without a lookup; the to: label is what lets it draw a face.
+      description: abbreviateKey(address),
       outputs: [{ lockingScript, satoshis: sats, outputDescription: 'BSV for recipient address' }],
-      labels: ['legacy', 'outbound'],
+      labels: ['legacy', 'outbound', addressLabel(TO_ADDRESS_LABEL_PREFIX, address)],
       ...(isSendMax ? { options: { randomizeOutputs: false } } : {})
     },
     adminOriginator

@@ -15,6 +15,7 @@ import {
 import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
 import { getOutboxEntries, saveOutboxEntry, updateOutboxEntry } from '../../core/peerpay/outbox'
 import { validatePeerPayURI } from '../../core/parsePeerPayURI'
+import { abbreviateKey } from '../../core/pay/counterparty'
 
 // secp256k1 generator point, in the lowercase hex PublicKey.toString() emits —
 // which is also the form parsePeerPayURI.ts stores, whichever case a link carries.
@@ -105,11 +106,14 @@ describe('internalizeIncoming', () => {
     const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
     const client = { acknowledgeMessage: jest.fn().mockResolvedValue(undefined) }
 
-    await internalizeIncoming(wallet as never, client as never, 'admin.com', payment, 'Dinner')
+    await internalizeIncoming(wallet as never, client as never, 'admin.com', payment)
 
     const [args, originator] = wallet.internalizeAction.mock.calls[0]
     expect(originator).toBe('admin.com')
-    expect(args.description).toBe('Dinner')
+    // No note in the token: the description names the sender the same way the
+    // sender's own wallet named the recipient, so both sides agree on the row.
+    expect(args.description).toBe(abbreviateKey(KEY))
+    expect(args.description).toBe('0279be66\u20261798')
     expect(args.labels).toEqual(['peerpay'])
     expect(args.tx).toEqual([1, 2, 3])
     expect(args.outputs[0]).toEqual({
@@ -124,31 +128,39 @@ describe('internalizeIncoming', () => {
     const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
     const client = { acknowledgeMessage: jest.fn().mockResolvedValue(undefined) }
     const noted = { ...(payment as any), token: { ...(payment as any).token, note: 'Dinner at the pier' } }
-    await internalizeIncoming(wallet as never, client as never, 'admin.com', noted, 'Identity Payment')
+    await internalizeIncoming(wallet as never, client as never, 'admin.com', noted)
     expect(wallet.internalizeAction.mock.calls[0][0].description).toBe('Dinner at the pier')
+  })
+
+  it('space-pads a very short note to the validation floor rather than decorating it', async () => {
+    const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
+    const client = { acknowledgeMessage: jest.fn().mockResolvedValue(undefined) }
+    const noted = { ...(payment as any), token: { ...(payment as any).token, note: '  tea ' } }
+    await internalizeIncoming(wallet as never, client as never, 'admin.com', noted)
+    const description = wallet.internalizeAction.mock.calls[0][0].description as string
+    expect(description.length).toBeGreaterThanOrEqual(5)
+    expect(description.trimEnd()).toBe('tea')
   })
 
   it('defaults outputIndex to 0 when the token omits it', async () => {
     const wallet = { internalizeAction: jest.fn().mockResolvedValue({}) }
     const client = { acknowledgeMessage: jest.fn().mockResolvedValue(undefined) }
     const noIndex = { ...(payment as any), token: { ...(payment as any).token, outputIndex: undefined } }
-    await internalizeIncoming(wallet as never, client as never, 'admin.com', noIndex, 'x')
+    await internalizeIncoming(wallet as never, client as never, 'admin.com', noIndex)
     expect(wallet.internalizeAction.mock.calls[0][0].outputs[0].outputIndex).toBe(0)
   })
 
   it('does not acknowledge when the internalize fails', async () => {
     const wallet = { internalizeAction: jest.fn().mockRejectedValue(new Error('nope')) }
     const client = { acknowledgeMessage: jest.fn() }
-    await expect(internalizeIncoming(wallet as never, client as never, 'admin.com', payment, 'x')).rejects.toThrow()
+    await expect(internalizeIncoming(wallet as never, client as never, 'admin.com', payment)).rejects.toThrow()
     expect(client.acknowledgeMessage).not.toHaveBeenCalled()
   })
 
   it('does not fail the credit when acknowledgeMessage throws after internalizeAction succeeds', async () => {
     const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
     const client = { acknowledgeMessage: jest.fn().mockRejectedValue(new Error('offline')) }
-    await expect(
-      internalizeIncoming(wallet as never, client as never, 'admin.com', payment, 'x')
-    ).resolves.toBeUndefined()
+    await expect(internalizeIncoming(wallet as never, client as never, 'admin.com', payment)).resolves.toBeUndefined()
     expect(wallet.internalizeAction).toHaveBeenCalled()
     expect(client.acknowledgeMessage).toHaveBeenCalled()
   })
@@ -159,7 +171,7 @@ describe('internalizeIncoming', () => {
     const result = await autoAcceptInbox({
       payments: [payment],
       attempts: {},
-      accept: p => internalizeIncoming(wallet as never, client as never, 'admin.com', p, 'x')
+      accept: p => internalizeIncoming(wallet as never, client as never, 'admin.com', p)
     })
     expect(result.accepted).toBe(1)
     expect(result.attempts).toEqual({})
@@ -172,7 +184,7 @@ describe('acceptWithRetry', () => {
   it('accepts on the first attempt', async () => {
     const internalize = jest.fn().mockResolvedValue(undefined)
     const client = { listIncomingPayments: jest.fn() }
-    await acceptWithRetry(client as never, 'https://mb', payment, 'note', internalize)
+    await acceptWithRetry(client as never, 'https://mb', payment, internalize)
     expect(internalize).toHaveBeenCalledTimes(1)
     expect(client.listIncomingPayments).not.toHaveBeenCalled()
   })
@@ -180,16 +192,16 @@ describe('acceptWithRetry', () => {
   it('rethrows if the retry also fails', async () => {
     const internalize = jest.fn().mockRejectedValue(new Error('stale'))
     const client = { listIncomingPayments: jest.fn() }
-    await expect(acceptWithRetry(client as never, 'https://mb', payment, 'n', internalize)).rejects.toThrow('stale')
+    await expect(acceptWithRetry(client as never, 'https://mb', payment, internalize)).rejects.toThrow('stale')
     expect(internalize).toHaveBeenCalledTimes(2)
-    expect(internalize).toHaveBeenNthCalledWith(2, payment, 'n')
+    expect(internalize).toHaveBeenNthCalledWith(2, payment)
     expect(client.listIncomingPayments).not.toHaveBeenCalled()
   })
 
   it('retries the same payment without relisting the inbox', async () => {
     const listIncomingPayments = jest.fn()
     let n = 0
-    await acceptWithRetry({ listIncomingPayments } as never, 'https://mb', payment, 'd', async () => {
+    await acceptWithRetry({ listIncomingPayments } as never, 'https://mb', payment, async () => {
       n++
       if (n === 1) throw new Error('stale')
     })
@@ -375,7 +387,9 @@ describe('sendViaHandle', () => {
     const s = fakeStorage()
     const w = fakeWallet()
     const inner = w.createAction.getMockImplementation()!
-    w.createAction.mockImplementation(async (args: any) => {
+    // Promise<any>: fakeWallet's sendWith branch returns {}, so the inferred
+    // return union has no room for the sendWithResults shape this test needs.
+    w.createAction.mockImplementation(async (args: any): Promise<any> => {
       if (args?.options?.sendWith) {
         return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'failed' }] }
       }
@@ -420,16 +434,19 @@ describe('sendViaHandle', () => {
     expect(body.note).toBe('Dinner at the pier')
   })
 
-  it('defaults the description to the recipient name, then to the key prefix', async () => {
+  it('defaults the description to the recipient name, then to the abbreviated key', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await sendViaHandle({ ...sendArgs(w, client, s), recipientName: 'Alice' })
-    expect((w.createAction.mock.calls[0][0] as any).description).toBe('Pay Alice')
+    expect((w.createAction.mock.calls[0][0] as any).description).toBe('Alice')
 
+    // Same abbreviation the receive side records for the sender, so the two
+    // wallets name one payment the same way. 13 chars: no padding needed.
     const w2 = fakeWallet()
     await sendViaHandle(sendArgs(w2, client, fakeStorage()))
-    expect((w2.createAction.mock.calls[0][0] as any).description).toBe(`Pay ${KEY.slice(0, 8)}`)
+    expect((w2.createAction.mock.calls[0][0] as any).description).toBe(abbreviateKey(KEY))
+    expect((w2.createAction.mock.calls[0][0] as any).description).toBe('0279be66\u20261798')
   })
 
   it('keeps a very short note valid by space-padding — never by decorating it', async () => {

@@ -118,6 +118,18 @@ const DEFAULT_SETTINGS: WalletSettings = {
         iconUrl: 'https://whoiam.bsvblockchain.tech/whoiam.png',
         identityKey: '02e7eeb3986273db6843b790a1595ed0ff1b2ae8f43ae2e7f1a0c9db4dd3fb9441',
         trust: 5
+      },
+      // Values as published in https://auth.sigmaidentity.com/manifest.json
+      // (babbage.trust). Lowest trust of the shipped set: it is the newest
+      // certifier here and the list is ordered by trust on the Trust screen.
+      // The icon is an SVG; the Trust screen draws those with react-native-svg
+      // rather than the platform decoder, which mispositions its <text> glyph.
+      {
+        name: 'Sigma Identity',
+        description: 'Certifies verified identity claims',
+        iconUrl: 'https://auth.sigmaidentity.com/sigma-mark.svg',
+        identityKey: '02250905f0383085b53409876aefbf01fc8e7fd841922dc4ce55ae035b31341e6d',
+        trust: 2
       }
     ]
   }
@@ -168,7 +180,7 @@ import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueu
 import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { recordProof } from '../pay/recordProof'
 import { makeCreditClassifier } from '../pay/creditErrors'
-import { creditInboxOnce, INBOX_DESCRIPTION } from '../pay/creditInbox'
+import { creditInboxOnce } from '../pay/creditInbox'
 import { isReceiveInboxFocused } from '../pay/receiveFocus'
 import { sounds } from '../hooks/useConfirmationSound'
 import i18n from '../i18n/translations'
@@ -1394,8 +1406,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                     storage: phoneStorage!,
                     classify,
                     accept: payment =>
-                      acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, (p, d) =>
-                        internalizeIncoming(permissionsManager as never, client, adminOriginator, p, d, repairBeef)
+                      acceptWithRetry(client, messageBoxUrl, payment, p =>
+                        internalizeIncoming(permissionsManager as never, client, adminOriginator, p, repairBeef)
                       )
                   })
                   return { accepted: r.accepted, attention: r.attentionCount, pending: r.pending }

@@ -6,12 +6,16 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  Image,
   Modal,
   ActivityIndicator
 } from 'react-native'
+import type { StyleProp, ViewStyle } from 'react-native'
+import { SvgUri } from 'react-native-svg'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
+// Same deep path WalletContext uses: the package root does not re-export the
+// settings types.
+import type { Certifier as WalletCertifier } from '@bsv/wallet-toolbox-mobile/out/src/WalletSettingsManager'
 import validateTrust from '../validateTrust'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { showAlert } from '../components/ui/AlertCard'
@@ -35,6 +39,22 @@ function loadIonicons(): IoniconsComponent {
 }
 
 /**
+ * expo-image's package entry is raw TypeScript (`main: src/index.ts`), which
+ * Jest does not transform under this package's documented config. Requiring
+ * it at render time keeps the `ui` barrel importable in consumers' test
+ * suites, the same boundary treatment @expo/vector-icons gets above.
+ */
+type ExpoImageComponent = typeof import('expo-image').Image
+let expoImageComponent: ExpoImageComponent | undefined
+function loadExpoImage(): ExpoImageComponent {
+  if (!expoImageComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoImageComponent = require('expo-image').Image as ExpoImageComponent
+  }
+  return expoImageComponent
+}
+
+/**
  * expo-router is required lazily rather than imported at module scope: this
  * file is barrel-exported from the package's `ui` entry point, and a static
  * top-level `import` of expo-router pulls in its own untransformed JSX
@@ -53,12 +73,71 @@ function loadExpoRouter(): ExpoRouterModule {
 }
 
 // -------------------- Types --------------------
-export type Certifier = {
-  name: string
-  description: string
-  icon?: string
-  identityKey: string
-  trust: number // 1..10
+/**
+ * The wallet's own settings type, not a local copy: a local copy is how this
+ * screen came to read `icon` while every shipped default (and the library's
+ * WalletSettingsManager) stores the URL as `iconUrl`, so the built-in
+ * certifiers never showed their icons.
+ */
+export type Certifier = WalletCertifier
+
+/**
+ * Builds before 0.3.0 saved a user-added provider's icon under `icon`. A
+ * wallet upgraded in place holds those entries next to `iconUrl` ones, so the
+ * screen accepts both on load and writes only the canonical field back.
+ * `iconUrl` wins if an entry somehow carries both.
+ */
+export function normaliseCertifier(c: Certifier & { icon?: string }): Certifier {
+  const { icon, ...rest } = c
+  if (rest.iconUrl || !icon) return rest
+  return { ...rest, iconUrl: icon }
+}
+
+/**
+ * An icon URL is a promise the certifier's manifest made, not a guarantee: two
+ * of the shipped defaults point at .ico favicons the iOS decoder rejects, and
+ * any provider can move its file. The initial-letter tile is therefore the
+ * fallback for a failed load as well as for a missing URL, so a broken icon
+ * never leaves an empty square where the letter used to be.
+ */
+function CertifierIcon({
+  url,
+  name,
+  style,
+  placeholderStyle,
+  colors
+}: {
+  url?: string
+  name?: string
+  style: React.ComponentProps<ExpoImageComponent>['style']
+  placeholderStyle: StyleProp<ViewStyle>
+  colors: { accent: string; background: string }
+}) {
+  const Image = loadExpoImage()
+  // Remembers which URL failed rather than a bare flag, so a corrected URL on
+  // the same row gets a fresh attempt.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  if (!url || failedUrl === url) {
+    return (
+      <View style={[placeholderStyle, { backgroundColor: colors.accent }]}>
+        <Text style={{ color: colors.background, fontWeight: '700' }}>{name?.[0] || '?'}</Text>
+      </View>
+    )
+  }
+  // expo-image hands an SVG to the platform decoder, which on iOS drops
+  // percentage-positioned <text> and similar authoring shortcuts, so a vector
+  // mark can come out blank or with its glyph in a corner. react-native-svg's
+  // own parser is already in the bundle for the activity sigils and handles
+  // those, and its fetch or parse failures surface through onError like a
+  // raster load would. The wrapper carries the tile's size and radius.
+  if (/\.svg(?:[?#]|$)/i.test(url)) {
+    return (
+      <View style={[style as StyleProp<ViewStyle>, { overflow: 'hidden' }]}>
+        <SvgUri uri={url} width="100%" height="100%" onError={() => setFailedUrl(url)} />
+      </View>
+    )
+  }
+  return <Image source={{ uri: url }} style={style} onError={() => setFailedUrl(url)} />
 }
 
 // -------------------- Helpers --------------------
@@ -98,7 +177,10 @@ export function TrustScreen() {
 
   // Source of truth from Settings — sort by trust descending so position matches priority
   const initialTrusted: Certifier[] = useMemo(
-    () => [...(settings?.trustSettings?.trustedCertifiers || [])].sort((a, b) => b.trust - a.trust),
+    () =>
+      (settings?.trustSettings?.trustedCertifiers || [])
+        .map(normaliseCertifier)
+        .sort((a, b) => b.trust - a.trust),
     [settings?.trustSettings?.trustedCertifiers]
   )
 
@@ -240,13 +322,13 @@ export function TrustScreen() {
                   ]}
                 >
                   <View style={styles.certifierHeader}>
-                    {item.icon ? (
-                      <Image source={{ uri: item.icon }} style={styles.certifierIcon} />
-                    ) : (
-                      <View style={[styles.certifierIconPlaceholder, { backgroundColor: colors.accent }]}>
-                        <Text style={{ color: colors.background, fontWeight: '700' }}>{item.name?.[0] || '?'}</Text>
-                      </View>
-                    )}
+                    <CertifierIcon
+                      url={item.iconUrl}
+                      name={item.name}
+                      style={styles.certifierIcon}
+                      placeholderStyle={styles.certifierIconPlaceholder}
+                      colors={colors}
+                    />
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.certifierName, { color: colors.textPrimary }]} numberOfLines={1}>
                         {item.name}
@@ -554,13 +636,13 @@ function AddProviderModal({
           {fieldsValid && (
             <View style={[styles.previewBox, { borderColor: colors.separator, backgroundColor: colors.fillTertiary }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {icon ? (
-                  <Image source={{ uri: icon }} style={styles.previewIcon} />
-                ) : (
-                  <View style={[styles.previewIcon, { backgroundColor: colors.accent, justifyContent: 'center', alignItems: 'center' }]}>
-                    <Text style={{ color: colors.background, fontWeight: '700' }}>{name?.[0] || '?'}</Text>
-                  </View>
-                )}
+                <CertifierIcon
+                  url={icon}
+                  name={name}
+                  style={styles.previewIcon}
+                  placeholderStyle={[styles.previewIcon, { justifyContent: 'center', alignItems: 'center' }]}
+                  colors={colors}
+                />
                 <View style={{ marginLeft: spacing.md, flex: 1 }}>
                   <Text style={{ fontWeight: '700', color: colors.textPrimary }}>{name}</Text>
                   <Text style={[styles.previewKey, { color: colors.textSecondary }]}>{maskKey(identityKey)}</Text>
@@ -590,7 +672,7 @@ function AddProviderModal({
             </TouchableOpacity>
             <TouchableOpacity
               disabled={!ready}
-              onPress={() => onAdd({ name, description, icon, identityKey })}
+              onPress={() => onAdd({ name, description, iconUrl: icon, identityKey })}
               style={[styles.saveBtn, { backgroundColor: colors.accent, opacity: ready ? 1 : 0.5, flex: 0 }]}
             >
               <Ionicons name="shield-checkmark-outline" size={16} color={colors.background} />

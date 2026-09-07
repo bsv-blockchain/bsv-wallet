@@ -1,6 +1,7 @@
 import { broadcastPayment, buildPaymentFrame, finalizeDelivery } from '../../core/localpay/build'
 import { mintSession } from '../../core/localpay/session'
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
+import { abbreviateKey } from '../../core/pay/counterparty'
 
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
 
@@ -52,6 +53,17 @@ describe('buildPaymentFrame', () => {
     await buildPaymentFrame(w as never, s, 'admin.com', 777)
     const args = w.createAction.mock.calls[0][0]
     expect(args.labels).toContain(s.identityKey)
+  })
+
+  // The activity list shows the action description as the row title. A fixed
+  // 'nearby device' string made every nearby payment look identical; the
+  // abbreviated payee key is what lets two of them be told apart.
+  it('describes the action by the abbreviated payee key so the activity row names the counterparty', async () => {
+    const w = walletStub()
+    const s = session()
+    await buildPaymentFrame(w as never, s, 'admin.com', 777)
+    const args = w.createAction.mock.calls[0][0]
+    expect(args.description).toBe(abbreviateKey(s.identityKey))
   })
 
   it('writes the derivation data as customInstructions so a resend can rebuild the token', async () => {
@@ -291,7 +303,7 @@ describe('finalizeDelivery', () => {
     }
   }
 
-  const built = { frame: {} as never, reference: 'ref-1', txid: 'tx-1' }
+  const built = { frame: {} as never, reference: 'ref-1', txid: 'tx-1', satoshis: 700 }
   // These tests are pinning the ONLINE path, so connectivity is injected rather
   // than left to the real default (`@/utils/net/online`'s `getOnline`, which
   // calls the native NetInfo module and has nothing to answer with under Jest).
@@ -385,7 +397,7 @@ describe('finalizeDelivery', () => {
 })
 
 describe('finalizeDelivery when offline', () => {
-  const built = { frame: {} as never, reference: 'ref-1', txid: 'aa'.repeat(32) }
+  const built = { frame: {} as never, reference: 'ref-1', txid: 'aa'.repeat(32), satoshis: 700 }
 
   it('enqueues instead of broadcasting and reports pending', async () => {
     const wallet = {

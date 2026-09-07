@@ -1,4 +1,5 @@
 import { Beef } from '@bsv/sdk'
+import { PUBKEY_LABEL } from '../pay/counterparty'
 import {
   ackControlMessages,
   isDuplicateMessageError,
@@ -13,8 +14,6 @@ const PAYMENT_INBOX = 'payment_inbox'
 
 /** Stored unanswered `resend_request`s so Home can show a banner without re-listing. */
 export const UNANSWERED_RESENDS_KEY = 'peerpay_unanswered_resends'
-
-const PUBKEY_LABEL = /^(02|03)[0-9a-fA-F]{64}$/
 
 /**
  * Rail labels an outbound payment can carry. Both are resendable: each writes

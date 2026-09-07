@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.3.0
+
+### Breaking
+
+- `INBOX_DESCRIPTION` is removed from `core/pay/creditInbox` (and so from the
+  `core` barrel). Inbound peer rows are now described by the sender's note or,
+  failing that, the sender's abbreviated identity key, so the fixed default
+  string has no remaining use.
+- `internalizeIncoming` and `acceptWithRetry` in `core/pay/rails/handle` no
+  longer take a positional `description`. The signatures are now
+  `internalizeIncoming(wallet, client, adminOriginator, payment, repairBeef?)`
+  and `acceptWithRetry(client, messageBoxUrl, payment, internalize)`, with
+  `internalize: (p: IncomingPayment) => Promise<void>`. A JavaScript caller
+  still passing the old fifth argument would hand `acceptWithRetry` a string
+  where it expects the `internalize` function and every inbox credit would
+  throw; TypeScript callers see an arity error.
+
+### Activity
+
+- Activity rows show a deterministic sigil avatar for the counterparty in the
+  tile where the direction arrow used to sit. The face is derived from the
+  counterparty's identity key when the row records one (a pubkey label on an
+  outbound peer payment, or `senderIdentityKey` on an inbound one), else the
+  address from a `to:`/`from:` label, else the txid, so two payments to the
+  same key wear the same face. Direction stays on the tile's border tint, and
+  a row with nothing to identify the other side keeps the arrow. The address
+  sweep's sentinel `senderIdentityKey` (the pubkey of private key 1) is not a
+  counterparty and falls through to the txid. Each face also has its own
+  colour: the hue is taken from the four bytes before the shape seed
+  (`counterpartyHue`), so shape and colour vary independently, and
+  `sigilPalette` turns it into a per-theme symbol and tile pair (pale tile
+  and deep symbol in light, deep tile and bright symbol in dark) that is
+  contrast-checked to at least 4.5:1 for every hue in both themes.
+- Default action descriptions are now the payment note, else the resolved
+  name, else the abbreviated identity key or address, instead of a rail name.
+- `listActions` rows expose `senderIdentityKey` (from
+  `outputs.senderIdentityKey`) alongside `reference` and `created_at`, and
+  `ActivityAction` declares it.
+- Address-rail rows carry `to:` (outbound send) and `from:` (inbound sweep,
+  the payer's zeroth-input P2PKH address) labels, so the address rail has a
+  counterparty to show as well. The payload after the prefix is the address's
+  version byte and hash160 as 42 hex characters, built by `addressLabel` and
+  decoded back to base58 by `counterpartyOf`: the wallet folds every label to
+  lower case before storing it (`@bsv/sdk` `validateLabel`), which a base58
+  spelling does not survive but hex does.
+
+### Trust network
+
+- Provider icons load through `expo-image` instead of React Native's core
+  `Image`, so a BRC-68 manifest that advertises an SVG icon (for example
+  `https://auth.sigmaidentity.com/manifest.json`) passes validation and
+  displays instead of failing with "icon image URL is invalid". `prefetch`'s
+  boolean result is preserved, so an unavailable image still rejects.
+  Contributed in #12 by @rohenaz. SVG icons themselves are drawn with
+  react-native-svg's parser (`SvgUri`) rather than handed to the platform
+  decoder: iOS's decoder ignores percentage-positioned `<text>`, which is how
+  Sigma's mark is authored, and rendered it as a black square.
+- The built-in certifiers now show their icons. The screen kept a local
+  `Certifier` type that read `icon`, while the wallet's settings type and every
+  shipped default store the URL as `iconUrl`, so the defaults always fell to
+  the initial-letter placeholder. The screen now uses the settings type,
+  accepts entries an older build saved under `icon`, and writes `iconUrl` back
+  on save (`normaliseCertifier`).
+- A certifier icon that fails to load falls back to the initial-letter tile
+  instead of an empty square. Two shipped defaults point at `.ico` favicons
+  the iOS decoder rejects, and any provider can move its file.
+- Sigma Identity (`auth.sigmaidentity.com`) ships as a default certifier,
+  below the existing three in trust order. Two stores are involved: the Trust screen's list
+  is hydrated from AsyncStorage and an existing wallet keeps its saved list
+  there, while the wallet's identity resolution (`discoverByIdentityKey` and
+  `discoverByAttributes`) reads the toolbox's WalletSettingsManager store,
+  which this app never writes, so for resolution the shipped defaults,
+  Sigma included, apply to every wallet. That split predates this release.
+
+### Peer dependencies
+
+- New peer `@urbit/sigil-js` (^2.2.0), imported only through its `./core`
+  entry. It ships CJS, so a consumer's Jest `transformIgnorePatterns` needs no
+  change; see the README's Jest configuration section.
+- New peer `expo-image` (~55.0.11). Its package entry is raw TypeScript that
+  Jest does not transform, so the toolbox requires it lazily at render and
+  call time; a consumer's Jest config needs no change.
+
 ## 0.2.2
 
 ### Fixes

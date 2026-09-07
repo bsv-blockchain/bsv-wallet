@@ -34,7 +34,7 @@ four dozen packages beyond the four listed — Expo native modules
 (camera, clipboard, secure-store, haptics, ...), state/i18n libraries
 (mobx, i18next), and BSV SDK packages. The **[Peer dependencies](#peer-dependencies)**
 table below is the full, audited list — `package.json`'s `peerDependencies`
-now declares all 49 entries (46 directly imported + 3 required only for
+now declares all 50 entries (47 directly imported + 3 required only for
 native linking — see the Nitro row below), so a plain `npm install
 @bsv/expo-wallet-toolbox` surfaces the rest as peer-dependency warnings
 instead of silently missing them.
@@ -103,6 +103,26 @@ Expo SDK line.
 | `react-native-safe-area-context` | ~5.6.0 |
 | `react-native-svg` | 15.15.3 |
 | `react-native-sse` | ^1.2.1 |
+
+### Pure JS rendering (required)
+
+| Package | Version |
+| --- | --- |
+| `@urbit/sigil-js` | ^2.2.0 |
+
+Draws the counterparty avatar on activity rows. This package imports only
+its `./core` entry: the package root pulls in a DOM renderer that touches
+`document` at import time. `./core` ships CJS, so Jest needs neither a
+`transformIgnorePatterns` entry nor a mock for it (see
+[Jest configuration](#jest-configuration)).
+
+`./core` exists only as an entry in the package's `exports` map (there is no
+`core.js` at the package root), so Metro's package-exports resolution must stay
+enabled (`resolver.unstable_enablePackageExports`, on by default since Expo
+SDK 53). A host that has switched it off to work around another dual-package
+problem gets `Unable to resolve module @urbit/sigil-js/core` at bundle time;
+the fix is a `resolveRequest` that maps `@urbit/sigil-js/core` to
+`@urbit/sigil-js/dist/core.js`.
 
 ### State & i18n (required)
 
@@ -428,6 +448,11 @@ are required — both hard-won during this package's extraction:
    (also raw TypeScript — `core/localpay/transport/select.ts` imports it
    directly), and `@bsv/backup-cache-client` (see below) must be in
    whatever pattern you end up with.
+
+   `@urbit/sigil-js`, the peer added with the activity-row sigil avatars,
+   needs no entry here: the `./core` entry this package imports ships CJS,
+   so Jest loads it untransformed. Install it alongside the other peers and
+   nothing else in this section changes.
 
 2. **Native-module and ESM-only-package mocks** — anything the package
    touches that has no pure-JS Jest-safe implementation, or that ships

@@ -42,7 +42,7 @@ import { wocConfigFor } from '../../../core/pay/rails/address'
 import { makeCreditClassifier } from '../../../core/pay/creditErrors'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
 import { userFacingPayError } from '../../../core/pay/userError'
-import { creditInboxOnce, INBOX_DESCRIPTION, type CreditInboxResult } from '../../../core/pay/creditInbox'
+import { creditInboxOnce, type CreditInboxResult } from '../../../core/pay/creditInbox'
 import { setReceiveInboxFocused } from '../../../core/pay/receiveFocus'
 import { TaskCreditInbox } from '../../../core/monitor/TaskCreditInbox'
 import { useOnline } from '../../hooks/useOnline'
@@ -468,10 +468,10 @@ export default function HandleReceive({
   )
 
   const internalize = useCallback(
-    async (payment: IncomingPayment, description: string) => {
+    async (payment: IncomingPayment) => {
       const client = peerPayClient
       if (!client || !wallet) throw new Error(t('wallet_not_ready'))
-      await internalizeIncoming(wallet as any, client, adminOriginator, payment, description, repairBeef)
+      await internalizeIncoming(wallet as any, client, adminOriginator, payment, repairBeef)
     },
     [peerPayClient, wallet, adminOriginator, t, repairBeef]
   )
@@ -510,7 +510,7 @@ export default function HandleReceive({
         storage: storage ?? undefined,
         force,
         classify,
-        accept: payment => acceptWithRetry(client, messageBoxUrl, payment, INBOX_DESCRIPTION, internalize)
+        accept: payment => acceptWithRetry(client, messageBoxUrl, payment, internalize)
       })
       applyCreditResult(outcome)
       return outcome

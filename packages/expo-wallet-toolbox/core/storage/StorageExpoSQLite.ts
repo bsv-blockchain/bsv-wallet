@@ -104,6 +104,13 @@ export interface StorageExpoSQLiteOptions extends StorageProviderOptions {
 export const BUSY_TIMEOUT_MS = 5000
 
 /**
+ * The lowest SQLITE_MAX_VARIABLE_NUMBER a shipped SQLite still enforces. Any
+ * IN (...) list built from caller data is split at this size so a large page
+ * can never turn into "too many SQL variables".
+ */
+const SQLITE_MAX_BOUND_VARIABLES = 999
+
+/**
  * The token `transaction()` hands its scope. Carrying the connection on the
  * token is what lets `getDB(trx)` route a statement to the transaction without
  * touching `this.db`.
@@ -1685,6 +1692,36 @@ export class StorageExpoSQLite extends StorageProvider {
       [transactionId]
     )
     return this.validateEntities(rows, undefined, ['isDeleted'])
+  }
+
+  /**
+   * The payer's identity key for each of a page of transactions, keyed by
+   * transactionId. The key is recorded per output, not per transaction, so this
+   * reads the whole page's outputs in one round trip and keeps the lowest-vout
+   * non-empty key per transaction; transactions with no keyed output are absent
+   * from the map. The sentinel key the address sweep writes is deliberately NOT
+   * filtered here: what counts as a real counterparty is a presentation
+   * decision that belongs to the caller.
+   */
+  async getSenderIdentityKeysForTransactionIds(transactionIds: number[], trx?: TrxToken): Promise<Map<number, string>> {
+    const keys = new Map<number, string>()
+    if (transactionIds.length === 0) return keys
+    const db = this.getDB(trx)
+    type Row = { transactionId: number; senderIdentityKey: string }
+    for (let i = 0; i < transactionIds.length; i += SQLITE_MAX_BOUND_VARIABLES) {
+      const chunk = transactionIds.slice(i, i + SQLITE_MAX_BOUND_VARIABLES)
+      const rows = (await db.getAllAsync(
+        `SELECT transactionId, senderIdentityKey FROM outputs
+         WHERE transactionId IN (${chunk.map(() => '?').join(',')})
+           AND senderIdentityKey IS NOT NULL AND senderIdentityKey != ''
+         ORDER BY transactionId, vout`,
+        chunk
+      )) as Row[]
+      for (const row of rows) {
+        if (!keys.has(row.transactionId)) keys.set(row.transactionId, row.senderIdentityKey)
+      }
+    }
+    return keys
   }
 
   async getTagsForOutputId(outputId: number, trx?: TrxToken): Promise<TableOutputTag[]> {

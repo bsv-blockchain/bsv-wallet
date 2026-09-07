@@ -1,5 +1,6 @@
 import { Beef } from '@bsv/sdk'
 import type { PaymentFrame } from './codec'
+import { abbreviateKey } from '../pay/counterparty'
 
 export const PENDING_KEY = 'localpay_pending'
 /**
@@ -11,7 +12,6 @@ export const PENDING_KEY = 'localpay_pending'
 export const PENDING_SUMMARY_KEY = 'localpay_pending_summary'
 export const PEERPAY_PROTOCOL_ID: [number, string] = [2, '3241645161d8']
 export const PEERPAY_LABEL = 'localpay'
-export const PEERPAY_DESCRIPTION = 'Payment received from a nearby device'
 
 export type PendingStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
@@ -310,7 +310,10 @@ export async function processPending(
               }
             }
           ],
-          description: PEERPAY_DESCRIPTION,
+          // The activity list uses the description as the row title, so it
+          // names the payer. The counterparty itself is recovered from
+          // outputs.senderIdentityKey, which is why the label stays rail-only.
+          description: abbreviateKey(p.frame.senderIdentityKey),
           labels: [PEERPAY_LABEL]
         },
         originator

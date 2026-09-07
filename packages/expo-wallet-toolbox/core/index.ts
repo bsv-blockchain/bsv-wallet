@@ -29,6 +29,8 @@ export {
 // Theme tokens and providers
 export { ThemeProvider, useTheme } from './theme/ThemeContext'
 export { spacing, radii, typography, lightColors, darkColors, hitTargets } from './theme/tokens'
+export { sigilPalette } from './theme/sigilPalette'
+export type { SigilPalette } from './theme/sigilPalette'
 export { easings, springs, durations } from './theme/motion'
 export { useThemeStyles } from './theme/useThemeStyles'
 
@@ -127,15 +129,17 @@ export * from './pay/beefRepair'
 export * from './pay/creditErrors'
 export * from './pay/creditInbox'
 export * from './pay/userError'
+export * from './pay/patp'
+export * from './pay/counterparty'
 export * from './pay/rails/address'
 export * from './pay/rails/handle'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)
 // and @bsv/air-gap; only its genuinely new names are re-exported here by hand —
 // a blanket `export *` would collide (TS2308) with the localpay/offline exports
 // above, since most of nearby.ts's surface is itself a re-export of those.
-// CAP_BLE is listed although `export * from './localpay/session'` already
-// carries it: an explicit re-export takes precedence over a star export, so
-// this is legal, and it keeps the block a faithful mirror of nearby.ts.
+// CAP_BLE is the one nearby.ts name deliberately missing from this list:
+// `export * from './localpay/session'` above already carries the same binding,
+// and naming it twice trips eslint's import/export rule.
 export {
   AIR_GAP_PREFIX,
   AirGapDecoder,
@@ -156,7 +160,6 @@ export {
   readBluetoothState,
   prepareBle,
   raceReceivers,
-  CAP_BLE,
   isDeclineReason,
   type TransportKind,
   type FloorReason,
@@ -185,7 +188,15 @@ export {
   touchWatched,
   unwatchAddress
 } from './pay/watchlist'
-export * from './parsePeerPayURI'
+// isCompressedPublicKey is omitted here because './pay/rails' above already
+// re-exports the same binding; naming it twice trips eslint's import/export rule.
+export {
+  type PeerPayParams,
+  type PeerPayValidationResult,
+  parsePeerPayURI,
+  validatePeerPayURI,
+  peerPayValidationMessage
+} from './parsePeerPayURI'
 
 // Blockchain header sync / checkpointing
 export * from './headers/checkpoints'

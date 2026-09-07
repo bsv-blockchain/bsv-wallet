@@ -21,9 +21,6 @@ import type { CreditFailureKind } from './creditErrors'
 import { sendControlMessage } from '../peerpay/control'
 import { loadInboxAttempts, saveInboxAttempts } from '../peerpay/inboxAttempts'
 
-/** Same default the receive screen used when the note was left blank. */
-export const INBOX_DESCRIPTION = 'Identity Payment'
-
 /** Placeholder token so unparseable inbox rows can share the IncomingPayment row UI. */
 export const DAMAGED_TOKEN_PLACEHOLDER: IncomingPayment['token'] = {
   customInstructions: { derivationPrefix: '', derivationSuffix: '' },

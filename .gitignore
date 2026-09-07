@@ -79,3 +79,6 @@ ios/build-release/
 # Python bytecode from scripts/
 __pycache__/
 *.pyc
+
+# Per-machine Browser-pane preview config (Metro on :8081); commands/, skills/, tasks/ stay tracked
+.claude/launch.json
