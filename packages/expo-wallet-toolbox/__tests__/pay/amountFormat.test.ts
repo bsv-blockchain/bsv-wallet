@@ -39,6 +39,45 @@ describe('formatAmount fiat currencies', () => {
   })
 })
 
+describe('formatAmount fiat signs', () => {
+  // Fiat follows the satoshi convention: a leading minus for money out, a
+  // leading plus for money in when the caller asks for it, never accounting
+  // parentheses. The "< smallest unit" marker stays in front of the figure.
+  it('prefixes a negative amount with a minus, not parentheses', () => {
+    const s = formatAmount(-SATS_PER_BSV, 'USD', SATS_PER_USD)
+    expect(s.startsWith('-')).toBe(true)
+    expect(s).toMatch(/16[.,]00/)
+    expect(s).not.toMatch(/[()]/)
+  })
+
+  it('prefixes a positive amount with a plus only when showPlus is set', () => {
+    expect(formatAmount(SATS_PER_BSV, 'USD', SATS_PER_USD, { showPlus: true }).startsWith('+')).toBe(true)
+    expect(formatAmount(SATS_PER_BSV, 'USD', SATS_PER_USD)).not.toMatch(/^[+-]/)
+  })
+
+  it('signs a non-USD currency the same way', () => {
+    const s = formatAmount(-SATS_PER_BSV, 'EUR', SATS_PER_USD, { usdToFiat: { EUR: 0.85 } })
+    expect(s.startsWith('-')).toBe(true)
+    expect(s).not.toMatch(/[()]/)
+  })
+
+  it('keeps the sub-cent marker and puts the sign on the figure', () => {
+    // 1,000 sats at 6,250,000 sats/USD is $0.00016: below one cent.
+    const negative = formatAmount(-1000, 'USD', SATS_PER_USD)
+    expect(negative).toMatch(/^< -/)
+    expect(negative).toMatch(/0[.,]01/)
+    expect(negative).not.toMatch(/[()]/)
+    expect(formatAmount(1000, 'USD', SATS_PER_USD, { showPlus: true })).toMatch(/^< \+/)
+    expect(formatAmount(1000, 'USD', SATS_PER_USD)).toMatch(/^< [^+-]/)
+  })
+
+  it('carries the sign through formatAmountParts', () => {
+    const { value, unit } = formatAmountParts(-SATS_PER_BSV, 'USD', SATS_PER_USD, { showPlus: true })
+    expect(value.startsWith('-')).toBe(true)
+    expect(unit).toBe('')
+  })
+})
+
 describe('formatAmountParts fiat', () => {
   it('puts the currency symbol in the value and leaves unit empty', () => {
     const { value, unit } = formatAmountParts(SATS_PER_BSV, 'EUR', SATS_PER_USD, {

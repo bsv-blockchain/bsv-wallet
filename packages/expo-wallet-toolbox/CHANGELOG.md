@@ -46,6 +46,13 @@
   lower case before storing it (`@bsv/sdk` `validateLabel`), which a base58
   spelling does not survive but hex does.
 
+### Amounts
+
+- Fiat amounts follow the satoshi sign convention: a leading minus for money
+  out and, where the caller asks for it, a leading plus for money in.
+  Accounting parentheses are gone. The sub-cent marker keeps its form with the
+  sign on the figure, e.g. `< -$0.01`.
+
 ### Trust network
 
 - Provider icons load through `expo-image` instead of React Native's core

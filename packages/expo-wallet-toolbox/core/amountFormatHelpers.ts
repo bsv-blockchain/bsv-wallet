@@ -58,7 +58,8 @@ const formatCurrency = (
   locale: string,
   currency: string,
   minDigits: number,
-  maxDigits?: number
+  maxDigits?: number,
+  showPlus = false
 ): string => {
   const abs = Math.abs(value)
   let formatted: string
@@ -78,9 +79,14 @@ const formatCurrency = (
   } catch {
     formatted = `${currency} ${abs.toFixed(minDigits)}`
   }
-  return value < 0 ? `(${formatted})` : formatted
+  // Same sign convention as the satoshi formatter, so a column of mixed
+  // currencies reads one way: minus for money out, plus for money in when the
+  // caller asks for it. Accounting parentheses were dropped because the row's
+  // direction cue lives in the sign, and "(...)" is not one.
+  return `${fiatSign(value, showPlus)}${formatted}`
 }
 
+const fiatSign = (value: number, showPlus: boolean): string => (value < 0 ? '-' : showPlus && value > 0 ? '+' : '')
 /**
  * Format a satoshi amount as a locale-aware integer string with grouping separators.
  * E.g. 1234567 -> "1,234,567" (en-US) or "1.234.567" (de-DE)
@@ -114,37 +120,17 @@ const formatBsvLocale = (bsvValue: number): string => {
 }
 
 /**
- * Format a sub-cent USD value as cents (¢).
- * Dynamically adjusts decimal precision based on magnitude.
- */
-const formatCents = (cents: number): string => {
-  const absCents = Math.abs(cents)
-  let maxDigits = 2
-  if (absCents < 0.01) maxDigits = 4
-  else if (absCents < 0.1) maxDigits = 3
-
-  try {
-    const formatted = new Intl.NumberFormat(localeDefault, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: maxDigits,
-      useGrouping: true
-    }).format(cents)
-    return `${formatted}¢`
-  } catch {
-    return `${parseFloat(cents.toFixed(maxDigits))}¢`
-  }
-}
-
-/**
  * Format a satoshi amount as fiat using satoshis-per-unit of that currency.
- * Values below one minor unit (1 cent, 1 yen, …) display as "< {smallest}".
- * Otherwise rounds up to the currency's minor unit.
+ * Values below one minor unit (1 cent, 1 yen, …) display as "< {smallest}",
+ * with the sign on the figure ("< -$0.01"). Otherwise rounds up to the
+ * currency's minor unit.
  */
 export const formatSatoshisAsFiat = (
   satoshis: number,
   satoshisPerUnit: number,
   showFiatAsInteger = false,
-  currency = 'USD'
+  currency = 'USD',
+  showPlus = false
 ): string => {
   if (!Number.isInteger(Number(satoshis)) || !satoshisPerUnit || satoshisPerUnit <= 0) {
     return '...'
@@ -160,7 +146,7 @@ export const formatSatoshisAsFiat = (
 
   if (v > 0 && v < threshold && !showFiatAsInteger) {
     const smallest = formatCurrency(threshold, localeDefault, currency, digits, digits)
-    return raw < 0 ? `< (${smallest})` : `< ${smallest}`
+    return `< ${fiatSign(raw, showPlus)}${smallest}`
   }
 
   const sign = raw < 0 ? -1 : 1
@@ -169,7 +155,7 @@ export const formatSatoshisAsFiat = (
   const minDigits = showFiatAsInteger ? 0 : digits
   const maxDigits = showFiatAsInteger ? 0 : digits
 
-  return formatCurrency(rounded, localeDefault, currency, minDigits, maxDigits)
+  return formatCurrency(rounded, localeDefault, currency, minDigits, maxDigits, showPlus)
 }
 
 /**
@@ -212,7 +198,7 @@ export const formatAmount = (
 
   if (isFiatCurrency(currency)) {
     const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
-    return formatSatoshisAsFiat(satoshis, per, showFiatAsInteger, currency)
+    return formatSatoshisAsFiat(satoshis, per, showFiatAsInteger, currency, showPlus)
   }
 
   return formatSatoshisAsBsv(satoshis, showPlus, abbreviate)
