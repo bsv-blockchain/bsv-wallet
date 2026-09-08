@@ -35,10 +35,11 @@ export type MigrationResult =
 /** Reads a legacy plaintext item. Prompt-free — these were always written
  * unauthenticated. Kept exported so the provider can still serve a session
  * whose migration failed, instead of showing the user an empty wallet. */
-export async function readLegacySecret(name: SecretName): Promise<string | null> {
+export async function readLegacySecret(name: SecretName, options?: { strict?: boolean }): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(LEGACY_KEYS[name])
-  } catch {
+  } catch (err) {
+    if (options?.strict) throw err
     return null
   }
 }

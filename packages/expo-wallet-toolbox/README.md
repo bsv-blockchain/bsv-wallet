@@ -252,12 +252,12 @@ export { WalletHomeScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 | `TrustScreen` | `app/trust.tsx` |
 | `LogsScreen` | `app/logs.tsx` |
 
-> **Note:** `ConnectionsScreen`'s OS-level deep-link pairing (a desktop
-> session opening the app directly) currently assumes the `bsv-wallet://`
-> URL scheme is hardcoded into its parsing and link-building. A consuming
-> app that registers a different scheme would need that deep-link path
-> updated to match. In-app QR-code scanning of a pairing code is unaffected
-> and works regardless of the consumer's own scheme.
+> **Note:** `ConnectionsScreen` accepts pairing codes using `bsv-wallet://`
+> or `bsv-browser://`. OS-level links also require native scheme registration
+> in the host app. This repo routes external `pair` links to `/connections`
+> through `app/+native-intent.ts`; in-app QR scanning uses the same pairing
+> parameter validation. A consumer using another pairing scheme must update
+> the parser and its own native registration together.
 
 Each route file is the one-line `export { XScreen as default } from '@bsv/expo-wallet-toolbox/ui'`
 pattern shown above — no other wiring needed per screen; navigation
@@ -300,7 +300,7 @@ vault/hardware-key support (i.e. installed `react-native-yubikey`); omit
 both if you didn't.
 
 Also add `CFBundleURLTypes` for **your own** deep-link scheme(s) — do not
-reuse `bsv-wallet://` or `peerpay://`, those are this repo's own app
+reuse `bsv-wallet://`, `bsv-browser://`, or `peerpay://`, those are this repo's own app
 identity, not the package's:
 
 ```json
@@ -545,7 +545,7 @@ without an `exports` map, and Metro's own `exports` support has its own
 quirks worth re-testing explicitly rather than assuming Node's behavior
 carries over.
 
-`files` is `["core", "ui", "assets"]`; npm always includes `package.json`
+`files` is `["core", "ui", "assets", "CHANGELOG.md"]`; npm always includes `package.json`
 and `README.md` regardless of `files`. `__tests__/` and `tsconfig.json`
 live at the package root, outside every `files` entry, so they are
 excluded from the published tarball — confirmed with `npm pack --dry-run`.

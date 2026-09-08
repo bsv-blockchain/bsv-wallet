@@ -239,9 +239,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     refreshProof,
     settings,
     walletBuilt,
+    walletBuilding,
     buildWalletFromMnemonic
   } = useWallet()
-  const { setMnemonic: storeMnemonic, hasStoredIdentity } = useLocalStorage()
+  const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
   const online = useOnline()
@@ -250,7 +251,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   /**
    * Apple HIG: never ask for Face ID/Touch ID before the user has done
    * something that explains why. Creating a wallet needs biometric-gated
-   * storage (setMnemonic below), so building one eagerly on first mount —
+   * storage (createMnemonic below), so building one eagerly on first mount —
    * as this screen used to — put a biometric prompt in front of a user who
    * had not yet tapped anything. Instead, wallet creation is deferred until
    * the first Pay or Get Paid tap (see destinationPress below), behind a
@@ -267,45 +268,62 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const creatingWalletRef = useRef(false)
   const ensureWalletExists = useCallback(async (): Promise<boolean> => {
     if (managers.permissionsManager) return true
-    if (creatingWalletRef.current) return false
+    if (!secretsReady || walletBuilding || creatingWalletRef.current) return false
     creatingWalletRef.current = true
     try {
+      // A missing manager during migration, unlock, or a failed build does
+      // not mean the device has no wallet. Never replace that stored identity.
+      if (await hasStoredIdentity()) return false
       const wallet = generateMnemonicWallet()
-      const stored = await storeMnemonic(wallet.mnemonic)
+      const stored = await createMnemonic(wallet.mnemonic)
       if (!stored) {
         // Biometric access was needed and unavailable/declined — same dead
         // end onboarding's own generate flow hits. Send the user there to
         // retry explicitly rather than silently failing the tap.
-        router.replace('/auth/mnemonic')
+        if (!(await hasStoredIdentity())) router.replace('/auth/mnemonic')
         return false
+      }
+      try {
+        await backupAttestation.markPending(wallet.identityKey)
+      } catch (error) {
+        console.warn('[WalletHome] Could not record pending backup reminder:', error)
       }
       await buildWalletFromMnemonic(wallet.mnemonic)
       return true
+    } catch (error) {
+      console.warn('[WalletHome] Wallet creation did not complete:', error)
+      return false
     } finally {
       creatingWalletRef.current = false
     }
-  }, [managers.permissionsManager, storeMnemonic, buildWalletFromMnemonic, router])
+  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, createMnemonic, buildWalletFromMnemonic, router])
 
   const [pendingDestination, setPendingDestination] = useState<string | null>(null)
   const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
   const [creatingWalletFromAdvisory, setCreatingWalletFromAdvisory] = useState(false)
 
   const destinationPress = useCallback(
-    (destination: string) => {
+    async (destination: string) => {
       if (managers.permissionsManager) {
         router.push(destination as Parameters<typeof router.push>[0])
+        return
+      }
+      if (!secretsReady || walletBuilding) return
+      try {
+        if (await hasStoredIdentity()) return
+      } catch {
         return
       }
       setPendingDestination(destination)
       setShowBiometricAdvisory(true)
     },
-    [managers.permissionsManager, router]
+    [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, router]
   )
 
   // ── backup reminder ─────────────────────────────────────────────────
   /**
-   * Once a wallet exists, ask whether this identity has ever attested a
-   * backup. Re-checked on every focus of this screen (not just mount) so
+   * Remind only identities created with an explicit pending-backup record.
+   * Older wallets without tracking have unknown status. Re-check on focus so
    * dismissing the card never sticks for the session — it reappears the
    * moment the user lands back on the main page, until they actually back
    * up or import. Same advisory attestation the vault gate reads.
@@ -313,6 +331,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const [showBackupReminder, setShowBackupReminder] = useState(false)
   useFocusEffect(
     useCallback(() => {
+      setShowBackupReminder(false)
       if (!walletBuilt) return
       const wallet = managers.permissionsManager
       if (!wallet) return
@@ -320,12 +339,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       ;(async () => {
         try {
           const { publicKey } = await wallet.getPublicKey({ identityKey: true }, adminOriginator)
-          const attested = await backupAttestation.get(publicKey)
-          if (!cancelled) setShowBackupReminder(attested === null)
+          const needsReminder = await backupAttestation.needsReminder(publicKey)
+          if (!cancelled) setShowBackupReminder(needsReminder)
         } catch {
-          // Advisory only — if the check fails, err toward reminding rather
-          // than silently skipping it.
-          if (!cancelled) setShowBackupReminder(true)
+          // An unavailable status is not proof that the wallet is unbacked.
+          if (!cancelled) setShowBackupReminder(false)
         }
       })()
       return () => {
@@ -381,8 +399,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
 
   /**
    * Whether a wallet is already stored on this device, checked prompt-free
-   * (no biometric, no wallet build) so it settles well before the wallet
-   * itself finishes building. That build gap is briefly indistinguishable
+   * after migration and the initial build settle. That build gap is briefly indistinguishable
    * from "no wallet at all" — both show no permissions manager — and two
    * things key off telling them apart: ImportFromBackupPrompt below (must
    * not flash "import" over an existing user's already-populated screen)
@@ -393,6 +410,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    */
   const [knownNoStoredIdentity, setKnownNoStoredIdentity] = useState(false)
   useEffect(() => {
+    setKnownNoStoredIdentity(false)
+    if (!secretsReady || walletBuilding) return
     let cancelled = false
     ;(async () => {
       try {
@@ -405,7 +424,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [hasStoredIdentity])
+  }, [hasStoredIdentity, secretsReady, walletBuilding])
 
   // ── balance ─────────────────────────────────────────────────────────
   /**
@@ -1462,7 +1481,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       />
 
       <ImportFromBackupPrompt
-        visible={!hasWallet && knownNoStoredIdentity}
+        visible={!hasWallet && secretsReady && !walletBuilding && knownNoStoredIdentity}
         onImport={() => router.push('/auth/mnemonic?flow=import')}
       />
     </View>

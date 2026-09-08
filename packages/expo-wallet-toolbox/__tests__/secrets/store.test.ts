@@ -12,9 +12,11 @@ import {
   deleteAllSecrets,
   deleteSecret,
   getSecret,
+  hasAnySecret,
   hasSecret,
   putSecret
 } from '../../core/services/secrets/store'
+import { readLegacySecret } from '../../core/services/secrets/migration'
 
 const ENV_SERVICE = 'bsvb.secrets.v1'
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
@@ -80,6 +82,16 @@ describe('secret store', () => {
     expect(await hasSecret('mnemonic')).toBe(true)
     expect(await hasSecret('recoveredKey')).toBe(false)
     expect(secureStore.__prompts()).toBe(0)
+  })
+
+  it('propagates encrypted keychain read failures for creation checks', async () => {
+    secureStore.getItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'))
+    await expect(hasAnySecret({ strict: true })).rejects.toThrow('keychain unavailable')
+  })
+
+  it('propagates legacy keychain read failures for creation checks', async () => {
+    secureStore.getItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'))
+    await expect(readLegacySecret('mnemonic', { strict: true })).rejects.toThrow('keychain unavailable')
   })
 
   it('refuses to open a blob sealed by a different KEK', async () => {

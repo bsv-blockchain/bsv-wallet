@@ -27,6 +27,10 @@ import {
   type UnlockState
 } from '../services/secrets'
 
+// The identity is shared storage, so overlapping provider mounts must share the
+// guard too. Hold it through both the existence check and the completed write.
+let creatingMnemonic = false
+
 /**
  * Wallet secrets are held by services/secrets, which wraps them in AES-256-GCM
  * under a key the OS will only release after a biometric match. This provider
@@ -40,6 +44,8 @@ import {
  */
 export interface LocalStorageContextType {
   /* secure */
+  /** Fresh onboarding only. Refuses to replace any existing wallet identity. */
+  createMnemonic: (mnemonic: string) => Promise<boolean>
   setMnemonic: (mnemonic: string) => Promise<boolean>
   getMnemonic: () => Promise<string | null>
   deleteMnemonic: () => Promise<void>
@@ -69,6 +75,7 @@ export interface LocalStorageContextType {
 
 export const LocalStorageContext = createContext<LocalStorageContextType>({
   /* secure */
+  createMnemonic: async () => false,
   setMnemonic: async () => false,
   getMnemonic: async () => null,
   deleteMnemonic: async () => {},
@@ -94,6 +101,7 @@ export const useLocalStorage = () => useContext(LocalStorageContext)
 
 export default function LocalStorageProvider({ children }: { children: React.ReactNode }) {
   const [secretsReady, setSecretsReady] = useState(false)
+  const secretsReadyRef = useRef(false)
   const [migration, setMigration] = useState<MigrationResult | null>(null)
   const [unlockState, setUnlockState] = useState<UnlockState>(getUnlockState)
   /** Set when migration failed: this session keeps serving the legacy plaintext
@@ -114,11 +122,13 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
       }
       if (cancelled) return
       legacyFallback.current = result.outcome === 'failed'
+      secretsReadyRef.current = true
       setMigration(result)
       setSecretsReady(true)
     })()
     return () => {
       cancelled = true
+      secretsReadyRef.current = false
     }
   }, [])
 
@@ -177,16 +187,30 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
   const deleteAllWalletKeys = useCallback(() => deleteAllSecrets(), [])
 
   const hasStoredIdentity = useCallback(async (): Promise<boolean> => {
-    if (legacyFallback.current) {
-      return (await readLegacySecret('mnemonic')) != null || (await readLegacySecret('recoveredKey')) != null
-    }
-    return hasAnySecret()
+    return (await hasAnySecret({ strict: true })) ||
+      (await readLegacySecret('mnemonic', { strict: true })) != null ||
+      (await readLegacySecret('recoveredKey', { strict: true })) != null
   }, [])
+
+  const createMnemonic = useCallback(async (mnemonic: string): Promise<boolean> => {
+    // A failed migration cannot establish that storage is safely empty.
+    if (!secretsReadyRef.current || legacyFallback.current || creatingMnemonic) return false
+    creatingMnemonic = true
+    try {
+      if (await hasStoredIdentity()) return false
+      // The provider may have unmounted while checking storage.
+      if (!secretsReadyRef.current) return false
+      return await putSecret('mnemonic', mnemonic)
+    } finally {
+      creatingMnemonic = false
+    }
+  }, [hasStoredIdentity])
 
   /* -------------------------------- output --------------------------------- */
 
   const value: LocalStorageContextType = useMemo(
     () => ({
+      createMnemonic,
       setMnemonic,
       getMnemonic,
       deleteMnemonic,
@@ -206,6 +230,7 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
       deleteItem: AsyncStorage.removeItem
     }),
     [
+      createMnemonic,
       setMnemonic,
       getMnemonic,
       deleteMnemonic,

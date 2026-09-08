@@ -1,6 +1,6 @@
 {
   "name": "@bsv/expo-wallet-toolbox",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
   "license": "SEE LICENSE IN LICENSE.txt",
@@ -25,7 +25,8 @@
   "files": [
     "core",
     "ui",
-    "assets"
+    "assets",
+    "CHANGELOG.md"
   ],
   "peerDependencies": {
     "@bsv/air-gap": "^0.1.1",

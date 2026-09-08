@@ -24,7 +24,6 @@ import {
   satoshisPerFiatUnit,
   ExchangeRateContext,
   DISPLAY_CURRENCY_OPTIONS,
-  recordBackupAttestation,
   isBackupPushEnabled,
   setBackupPushEnabled,
   BACKUP_CHAINS,
@@ -33,7 +32,6 @@ import {
   TaskBackupPush,
   DEFAULT_BACKUP_URL,
   setMockDriverEnabled,
-  UserContext,
   NO_MESSAGE_BOX
 } from '@bsv/expo-wallet-toolbox'
 
@@ -68,7 +66,6 @@ import { showToast } from '../components/ui/Toast'
 import { PrivateKey } from '@bsv/sdk'
 import { exportAllWalletDatabases } from '../exportDatabases'
 import { importWalletDatabase } from '../importDatabases'
-import { printRecoveryShares } from '../printRecoveryShares'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 /**
@@ -108,29 +105,13 @@ function loadExpoRouter(): ExpoRouterModule {
   return expoRouterMod
 }
 
-/**
- * @react-native-clipboard/clipboard reaches for its native TurboModule at
- * import time (`TurboModuleRegistry.getEnforcing`), which throws under Jest
- * (no native binary registered there) even though the module itself
- * transforms fine. Required lazily, only when a handler actually copies
- * something, so importing the `ui` barrel never touches the native module.
- * Same pattern as WalletHomeScreen.tsx's lazy clipboard load.
- */
-type ClipboardModule = typeof import('@react-native-clipboard/clipboard').default
-let clipboardModule: ClipboardModule | undefined
-function loadClipboard(): ClipboardModule {
-  if (!clipboardModule) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    clipboardModule = require('@react-native-clipboard/clipboard').default as ClipboardModule
-  }
-  return clipboardModule
-}
-
 export function WalletConfigScreen() {
   const versionLabel = useMemo(() => appVersionLabel(), [])
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const { router } = loadExpoRouter()
+  const { router, useLocalSearchParams } = loadExpoRouter()
+  const { section } = useLocalSearchParams<{ section?: string }>()
+  const openBackup = section === 'backup'
   const Ionicons = loadIonicons()
   const {
     managers,
@@ -146,8 +127,6 @@ export function WalletConfigScreen() {
   const { getMnemonic, getRecoveredKey } = useLocalStorage()
   const insets = useSafeAreaInsets()
 
-  const [isPrinting, setIsPrinting] = useState(false)
-  const [copiedMnemonic, setCopiedMnemonic] = useState(false)
   const [switchingNetwork, setSwitchingNetwork] = useState(false)
   const [networkExpanded, setNetworkExpanded] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -158,7 +137,10 @@ export function WalletConfigScreen() {
   const [loggingOut, setLoggingOut] = useState(false)
   const [storageBusy, setStorageBusy] = useState(false)
   const [currencyExpanded, setCurrencyExpanded] = useState(false)
-  const [advancedExpanded, setAdvancedExpanded] = useState(false)
+  const [advancedExpanded, setAdvancedExpanded] = useState(openBackup)
+  const scrollRef = useRef<ScrollView>(null)
+  const [backupSectionY, setBackupSectionY] = useState<number | null>(null)
+  const scrolledToBackup = useRef(false)
   const [thresholdExpanded, setThresholdExpanded] = useState(false)
   const [thresholdSats, setThresholdSats] = useState(DEFAULT_AUTO_APPROVE_THRESHOLD)
   const [thresholdInput, setThresholdInput] = useState('')
@@ -167,10 +149,20 @@ export function WalletConfigScreen() {
   const [arcTokenInput, setArcTokenInput] = useState('')
   const [arcSaving, setArcSaving] = useState(false)
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
-  const { appName } = useContext(UserContext)
 
   const currentCurrency = settings?.currency || 'BSV'
   const messageBox = useMessageBoxConfig(t)
+
+  useEffect(() => {
+    if (openBackup) setAdvancedExpanded(true)
+    else scrolledToBackup.current = false
+  }, [openBackup])
+
+  useEffect(() => {
+    if (!openBackup || backupSectionY === null || scrolledToBackup.current) return
+    scrollRef.current?.scrollTo({ y: backupSectionY, animated: false })
+    scrolledToBackup.current = true
+  }, [openBackup, backupSectionY])
 
   // Load persisted auto-approve threshold
   useEffect(() => {
@@ -378,61 +370,6 @@ export function WalletConfigScreen() {
     })
   }, [])
 
-  const handleCopyMnemonic = async () => {
-    try {
-      // Copy mnemonic if available, otherwise fall back to primary key hex
-      const mnemonic = await getMnemonic()
-      if (mnemonic) {
-        loadClipboard().setString(mnemonic)
-      } else {
-        const wif = await getRecoveredKey()
-        if (!wif) return
-        loadClipboard().setString(PrivateKey.fromWif(wif).toHex())
-      }
-      setCopiedMnemonic(true)
-      setTimeout(() => setCopiedMnemonic(false), 2000)
-    } catch (error) {
-      console.error('Error retrieving recovery key:', error)
-    }
-  }
-
-  const handlePrintRecoveryShares = async () => {
-    if (isPrinting) return
-    setIsPrinting(true)
-    try {
-      const result = await printRecoveryShares({
-        mnemonic: await getMnemonic(),
-        recoveredKeyWif: await getRecoveredKey(),
-        appName
-      })
-      if (result.ok) {
-        // A resolved print sheet from Settings is the same genuine backup
-        // EnrollWizard records — the other route to satisfying the vault's
-        // backup prerequisite — so it records the same attestation, through
-        // the same writer.
-        //
-        // A failure here must be visible. The paper is real and correct; only
-        // the record is missing. Staying silent would send the user away
-        // believing they are covered, and the vault would refuse every deposit
-        // later with nothing on screen connecting the two.
-        if (!(await recordBackupAttestation(managers?.permissionsManager, adminOriginator, 'shares'))) {
-          showToast(t('vault_backup_attest_failed_printed'), { type: 'error' })
-        }
-      } else {
-        showToast(
-          result.reason === 'unsupported-word-count'
-            ? t('vault_shares_word_count')
-            : 'Unable to access wallet key. Please authenticate and try again.',
-          { type: 'error' }
-        )
-      }
-    } catch (error: any) {
-      console.info('[WalletConfig] Print recovery shares did not complete:', error?.message)
-    } finally {
-      setIsPrinting(false)
-    }
-  }
-
   const handleExportData = async () => {
     if (isExporting) return
     setIsExporting(true)
@@ -545,7 +482,7 @@ export function WalletConfigScreen() {
         <Text style={[localStyles.headerTitle, { color: colors.textPrimary }]}>{t('settings')}</Text>
         <View style={localStyles.headerBack} />
       </View>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xxxl }}>
+      <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xxxl }}>
         {/* ── Essentials ──
             The rows a holder reaches for without being told to: what their money
             is denominated in, how to hand an app access, and the two ways out of
@@ -845,6 +782,7 @@ export function WalletConfigScreen() {
           </GroupedSection>
 
           {/* ── Data & Security ── */}
+          <View onLayout={event => setBackupSectionY(event.nativeEvent.layout.y)}>
           <GroupedSection header={t('data_and_security')}>
             {/* Vault's primary entry lives on the wallet menu (below Payments).
                 The DEV mock toggle stays here. */}
@@ -862,31 +800,11 @@ export function WalletConfigScreen() {
                 }}
               />
             )}
-            {/* Both are recovery material rather than everyday controls, so
-                they sit with the rest of the data-and-security rows. */}
             <ListRow
-              label={t('copy_secret_words')}
+              label={t('backup_wallet_keys', { defaultValue: 'Backup Wallet Keys' })}
               icon="key-outline"
               iconColor="#CC8400"
-              onPress={handleCopyMnemonic}
-              showChevron={false}
-              trailing={
-                <TouchableOpacity onPress={handleCopyMnemonic} style={{ padding: spacing.xs }}>
-                  <Ionicons
-                    name={copiedMnemonic ? 'checkmark' : 'copy-outline'}
-                    size={18}
-                    color={copiedMnemonic ? colors.success : colors.textSecondary}
-                  />
-                </TouchableOpacity>
-              }
-            />
-            <ListRow
-              label={t('print_recovery_keys')}
-              icon="print-outline"
-              iconColor="#5856D6"
-              onPress={handlePrintRecoveryShares}
-              showChevron={false}
-              trailing={isPrinting ? <ActivityIndicator size="small" /> : undefined}
+              onPress={() => router.push('/auth/mnemonic?flow=backup')}
             />
             <ListRow
               label={t('storage_row')}
@@ -920,6 +838,7 @@ export function WalletConfigScreen() {
               isLast
             />
           </GroupedSection>
+          </View>
 
           {/* ── Private backup ──
               Its own section purely so the footer can carry the disclosure: the app sends an

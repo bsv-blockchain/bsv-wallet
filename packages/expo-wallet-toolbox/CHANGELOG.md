@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.3.1
+
+### Wallet creation and backup
+
+- Add `useLocalStorage().createMnemonic` for new wallets. It refuses to
+  replace an existing encrypted or legacy identity, waits for migration,
+  and blocks overlapping creation attempts. Identity checks propagate
+  storage errors instead of treating unreadable keys as an empty wallet.
+- Wallet Home waits for migration and wallet construction before offering
+  creation or import. Backup reminders now require an explicit pending
+  record for a newly created identity; existing wallets without historical
+  backup metadata no longer receive a false warning.
+- Add `backupAttestation.markPending` and `needsReminder`. Recording a
+  backup clears the pending reminder, and logout clears both record types.
+- Advanced Settings replaces Copy Secret Words and Print Recovery Keys
+  with Backup Wallet Keys, linking to `/auth/mnemonic?flow=backup`, with
+  translations in all twelve supported languages.
+
+### Pairing
+
+- Connections accepts both `bsv-wallet://` and `bsv-browser://` pairing
+  codes. Forwarded pairing parameters retain reserved characters in
+  topics, origins, protocol identifiers, and signatures.
+
+### Host app integration
+
+- The mnemonic backup page and native URL registration remain owned by
+  the host app. Its `/auth/mnemonic?flow=backup` route must display the
+  existing identity, and new-wallet creation should use `createMnemonic`.
+  The confirmation delay, export actions, and back button are implemented
+  in the BSV Wallet app rather than shipped in this package.
+- Hosts accepting both URL schemes must register them in their native
+  configuration and rebuild the app. BSV Wallet routes external pairing
+  links through `app/+native-intent.ts` to `/connections`.
+
 ## 0.3.0
 
 ### Breaking

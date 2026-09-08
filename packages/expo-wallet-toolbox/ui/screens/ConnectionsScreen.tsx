@@ -93,7 +93,9 @@ type ParseResult = { params: PairingParams; error: null } | { params: null; erro
 function parsePairingUri(raw: string): ParseResult {
   try {
     const url = new URL(raw)
-    if (url.protocol !== 'bsv-wallet:') return { params: null, error: 'Not a bsv-wallet:// URI' }
+    if (url.protocol !== 'bsv-wallet:' && url.protocol !== 'bsv-browser:') {
+      return { params: null, error: 'Not a bsv-wallet:// or bsv-browser:// URI' }
+    }
 
     const g = (k: string) => url.searchParams.get(k) ?? ''
     const topic = g('topic')
@@ -163,7 +165,15 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
   // Auto-connect when navigated here with deep link pairing params
   useEffect(() => {
     if (!deepLinkParams.topic || !managers.permissionsManager) return
-    const uri = `bsv-wallet://pair?topic=${deepLinkParams.topic}&backendIdentityKey=${deepLinkParams.backendIdentityKey}&protocolID=${encodeURIComponent(deepLinkParams.protocolID)}&origin=${encodeURIComponent(deepLinkParams.origin)}&expiry=${deepLinkParams.expiry}&sig=${deepLinkParams.sig}`
+    const query = new URLSearchParams({
+      topic: deepLinkParams.topic,
+      backendIdentityKey: deepLinkParams.backendIdentityKey ?? '',
+      protocolID: deepLinkParams.protocolID ?? '',
+      origin: deepLinkParams.origin ?? '',
+      expiry: deepLinkParams.expiry ?? '',
+      sig: deepLinkParams.sig ?? ''
+    })
+    const uri = `bsv-wallet://pair?${query}`
     handleScan(uri)
   }, [deepLinkParams.topic, managers.permissionsManager]) // eslint-disable-line react-hooks/exhaustive-deps
 

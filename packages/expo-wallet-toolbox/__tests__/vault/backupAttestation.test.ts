@@ -26,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   backupAttestation,
   ATTEST_KEY_PREFIX,
+  PENDING_KEY_PREFIX,
   resolveAttestationIdentity,
   readBackupAttestation,
   recordBackupAttestation
@@ -54,6 +55,45 @@ describe('backupAttestation', () => {
     expect(await backupAttestation.get(IDENTITY_A)).toBeNull()
   })
 
+  test('does not call an upgraded wallet unbacked or fabricate an attestation', async () => {
+    expect(await backupAttestation.needsReminder(IDENTITY_A)).toBe(false)
+    expect(await backupAttestation.get(IDENTITY_A)).toBeNull()
+    expect(await AsyncStorage.getAllKeys()).toEqual([])
+  })
+
+  test('reminds a newly generated wallet across subsequent reads until it backs up', async () => {
+    await backupAttestation.markPending(IDENTITY_A)
+
+    expect(await backupAttestation.needsReminder(IDENTITY_A)).toBe(true)
+    expect(await backupAttestation.needsReminder(IDENTITY_A)).toBe(true)
+    expect(await backupAttestation.needsReminder(IDENTITY_B)).toBe(false)
+    expect(await backupAttestation.get(IDENTITY_A)).toBeNull()
+
+    await backupAttestation.set(IDENTITY_A, 'shares')
+
+    expect(await backupAttestation.needsReminder(IDENTITY_A)).toBe(false)
+    expect(await AsyncStorage.getItem(PENDING_KEY_PREFIX + IDENTITY_A)).toBeNull()
+  })
+
+  test('respects a recorded backup even if a stale pending marker remains', async () => {
+    await backupAttestation.set(IDENTITY_A, 'phrase')
+    await backupAttestation.markPending(IDENTITY_A)
+
+    expect(await backupAttestation.needsReminder(IDENTITY_A)).toBe(false)
+  })
+
+  test('a pending marker is scoped to the full identity, even with matching suffixes', async () => {
+    const sameSuffix = '03' + 'b'.repeat(54) + IDENTITY_A.slice(-8)
+    await backupAttestation.markPending(IDENTITY_A)
+
+    expect(await backupAttestation.needsReminder(sameSuffix)).toBe(false)
+  })
+
+  test('ignores malformed pending records', async () => {
+    await AsyncStorage.setItem(PENDING_KEY_PREFIX + IDENTITY_A, 'unknown')
+    expect(await backupAttestation.needsReminder(IDENTITY_A)).toBe(false)
+  })
+
   test('records the medium and a timestamp', async () => {
     await backupAttestation.set(IDENTITY_A, 'phrase')
     const got = await backupAttestation.get(IDENTITY_A)
@@ -80,21 +120,30 @@ describe('backupAttestation', () => {
   test('clear removes only the named identity', async () => {
     await backupAttestation.set(IDENTITY_A, 'phrase')
     await backupAttestation.set(IDENTITY_B, 'phrase')
+    await backupAttestation.markPending(IDENTITY_A)
+    await backupAttestation.markPending(IDENTITY_B)
     await backupAttestation.clear(IDENTITY_A)
 
     expect(await backupAttestation.get(IDENTITY_A)).toBeNull()
     expect(await backupAttestation.get(IDENTITY_B)).not.toBeNull()
+    expect(await AsyncStorage.getItem(PENDING_KEY_PREFIX + IDENTITY_A)).toBeNull()
+    expect(await AsyncStorage.getItem(PENDING_KEY_PREFIX + IDENTITY_B)).toBe('1')
   })
 
-  test('clearAll removes every attestation and nothing else', async () => {
+  test('clearAll removes every attestation and pending reminder and nothing else', async () => {
     await AsyncStorage.setItem('unrelated_key', 'keep me')
     await backupAttestation.set(IDENTITY_A, 'phrase')
     await backupAttestation.set(IDENTITY_B, 'shares')
+    await backupAttestation.markPending(IDENTITY_A)
+    await backupAttestation.markPending(IDENTITY_B)
 
     await backupAttestation.clearAll()
 
     expect(await backupAttestation.get(IDENTITY_A)).toBeNull()
     expect(await backupAttestation.get(IDENTITY_B)).toBeNull()
+    expect(await backupAttestation.needsReminder(IDENTITY_A)).toBe(false)
+    expect(await backupAttestation.needsReminder(IDENTITY_B)).toBe(false)
+    expect(await AsyncStorage.getAllKeys()).toEqual(['unrelated_key'])
     expect(await AsyncStorage.getItem('unrelated_key')).toBe('keep me')
   })
 

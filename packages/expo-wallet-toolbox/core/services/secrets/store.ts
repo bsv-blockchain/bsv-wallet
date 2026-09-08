@@ -28,17 +28,19 @@ import { EnvelopeBlob, EnvelopeError, SECRET_NAMES, SecretName } from './types'
  * the stale ciphertext. Harmless — it was already unopenable — but don't call
  * it speculatively in a hot path.
  */
-export async function hasSecret(name: SecretName): Promise<boolean> {
+export async function hasSecret(name: SecretName, options?: { strict?: boolean }): Promise<boolean> {
   try {
     return (await SecureStore.getItemAsync(envKey(name), envOptions)) !== null
-  } catch {
+  } catch (err) {
+    // Creation must distinguish an unreadable keychain from an empty one.
+    if (options?.strict) throw err
     return false
   }
 }
 
-export async function hasAnySecret(): Promise<boolean> {
+export async function hasAnySecret(options?: { strict?: boolean }): Promise<boolean> {
   for (const name of SECRET_NAMES) {
-    if (await hasSecret(name)) return true
+    if (await hasSecret(name, options)) return true
   }
   return false
 }

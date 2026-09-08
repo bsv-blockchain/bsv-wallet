@@ -2,7 +2,10 @@
   "expo": {
     "name": "BSV Wallet",
     "slug": "bsv-wallet",
-    "scheme": "bsv-wallet",
+    "scheme": [
+      "bsv-wallet",
+      "bsv-browser"
+    ],
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -127,7 +130,8 @@
           {
             "CFBundleURLName": "org.bsvblockchain.wallet.pair",
             "CFBundleURLSchemes": [
-              "bsv-wallet"
+              "bsv-wallet",
+              "bsv-browser"
             ]
           }
         ],

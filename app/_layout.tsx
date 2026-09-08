@@ -30,7 +30,6 @@ import {
 // TODO: Re-add RecoveryKeySaver when WAB support returns
 import { PermissionSheet, AlertHost, ToastHost, showToast, ErrorBoundary } from '@bsv/expo-wallet-toolbox/ui'
 import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
-import { useDeepLinking } from '@/hooks/useDeepLinking'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -70,12 +69,6 @@ function FirstTouchRecorder() {
   return null
 }
 
-// Deep link handler component
-function DeepLinkHandler() {
-  useDeepLinking()
-  return null
-}
-
 // Surfaces background local-payment internalization (e.g. a payment queued
 // while offline that was internalized after wallet build or on reconnect)
 // via the existing global ToastHost snackbar, so it is visible from any
@@ -111,7 +104,6 @@ export default function RootLayout() {
                       <VaultProvider onToast={showToast}>
                         <View style={{ flex: 1, backgroundColor }}>
                           <FirstTouchRecorder />
-                          <DeepLinkHandler />
                           {/* <TranslationTester /> */}
                           <PermissionSheet />
                           <VaultCeremonySheet />

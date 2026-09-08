@@ -18,6 +18,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 export const ATTEST_KEY_PREFIX = 'vault_backup_attest_v1_'
+export const PENDING_KEY_PREFIX = 'wallet_backup_pending_v1_'
 
 export type BackupMedium = 'phrase' | 'shares'
 
@@ -30,8 +31,21 @@ export interface BackupAttestation {
 
 /** Last 8 hex chars of the identity key — the app's established scope suffix. */
 const scopeKey = (identityKey: string): string => ATTEST_KEY_PREFIX + identityKey.slice(-8)
+const pendingKey = (identityKey: string): string => PENDING_KEY_PREFIX + identityKey
 
 export const backupAttestation = {
+  /** Only newly generated wallets are known to need their first backup.
+   * A returning wallet with no record predates tracking: its backup status is
+   * unknown, not evidence that the owner has never saved their keys. */
+  async markPending(identityKey: string): Promise<void> {
+    await AsyncStorage.setItem(pendingKey(identityKey), '1')
+  },
+
+  async needsReminder(identityKey: string): Promise<boolean> {
+    if ((await AsyncStorage.getItem(pendingKey(identityKey))) !== '1') return false
+    return (await backupAttestation.get(identityKey)) === null
+  },
+
   async get(identityKey: string): Promise<BackupAttestation | null> {
     const raw = await AsyncStorage.getItem(scopeKey(identityKey))
     if (!raw) return null
@@ -46,16 +60,17 @@ export const backupAttestation = {
   async set(identityKey: string, medium: BackupMedium): Promise<void> {
     const record: BackupAttestation = { v: 1, medium, at: Date.now() }
     await AsyncStorage.setItem(scopeKey(identityKey), JSON.stringify(record))
+    await AsyncStorage.removeItem(pendingKey(identityKey))
   },
 
   async clear(identityKey: string): Promise<void> {
-    await AsyncStorage.removeItem(scopeKey(identityKey))
+    await AsyncStorage.multiRemove([scopeKey(identityKey), pendingKey(identityKey)])
   },
 
   /** Logout has no identity key to hand, so sweep the prefix. */
   async clearAll(): Promise<void> {
     const keys = await AsyncStorage.getAllKeys()
-    const mine = keys.filter(k => k.startsWith(ATTEST_KEY_PREFIX))
+    const mine = keys.filter(k => k.startsWith(ATTEST_KEY_PREFIX) || k.startsWith(PENDING_KEY_PREFIX))
     if (mine.length > 0) await AsyncStorage.multiRemove(mine)
   }
 }

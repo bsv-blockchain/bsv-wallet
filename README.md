@@ -14,7 +14,7 @@ A self-custodial BSV payments wallet for iOS and Android. Built with React Nativ
 - Multi-network support (mainnet, testnet, teratest)
 - Background transaction monitoring via ARC SSE (Server-Sent Events)
 - Hardware-backed Vault -- a YubiKey-secured spending key (NFC on iOS, USB on Android)
-- Pairing with external wallets/clients over `bsv-wallet://pair` deep links, and payment handles via `peerpay:` links
+- Pairing with external wallets/clients over `bsv-wallet://pair` or `bsv-browser://pair` deep links, and payment handles via `peerpay:` links
 - 12 languages supported
 
 ## Table of Contents
@@ -118,7 +118,7 @@ bsv-wallet/
 │   ├── vault-transfer.tsx           #   Vault deposit / withdraw
 │   ├── trust.tsx                     #   Trust / certifier management
 │   ├── connections.tsx                #   Paired external wallet connections
-│   ├── pair.tsx                        #   Pairing handshake screen (bsv-wallet://pair)
+│   ├── pair.tsx                        #   Internal pairing approval screen
 │   ├── settings.tsx                     #   Settings screen
 │   ├── wallet-config.tsx                 #   Network / ARC config picker
 │   ├── logs.tsx                           #   In-app debug log viewer
@@ -140,7 +140,7 @@ bsv-wallet/
 │   ├── UserContext.tsx              #   User / auth state
 │   ├── ExchangeRateContext.tsx       #   BSV/fiat exchange rates
 │   └── LocalStorageProvider.tsx       #   Local key/value storage
-├── hooks/                     # Custom React hooks (deep linking, vault balance, permission queue, etc.)
+├── hooks/                     # Custom React hooks (vault balance, permission queue, etc.)
 ├── stores/                    # MobX store for paired connections (ConnectionStore)
 ├── storage/                   # SQLite-backed wallet storage adapter
 │   ├── schema/                  #   Table creation SQL
@@ -199,7 +199,9 @@ GestureHandlerRootView
 
 **Vault** is an optional hardware-backed spending key secured by a YubiKey, via the `react-native-yubikey` Nitro module -- NFC (PIV over ISO7816) on iOS, USB/CCID on Android. `services/vault/` holds the driver abstraction, the enrollment/ceremony state machine, and key derivation; `context/VaultContext.tsx` and `components/vault/` drive the UI.
 
-**Pairing with external wallets/clients** happens over `bsv-wallet://pair` deep links (`app/pair.tsx`, `app/connections.tsx`). `context/WalletConnectionContext.tsx` opens an encrypted, relay-based RPC channel to the pairing origin and implements a subset of the BRC-100 wallet interface (`createAction`, `signAction`, `listActions`, `getPublicKey`, certificates, `encrypt`/`decrypt`, signatures, etc.) for that paired connection. Every call still goes through the same wallet permission system as an in-app spend -- there is no standing grant.
+**Pairing with external wallets/clients** accepts both `bsv-wallet://pair` and `bsv-browser://pair` deep links (`app/pair.tsx`, `app/connections.tsx`). `context/WalletConnectionContext.tsx` opens an encrypted, relay-based RPC channel to the pairing origin and implements a subset of the BRC-100 wallet interface (`createAction`, `signAction`, `listActions`, `getPublicKey`, certificates, `encrypt`/`decrypt`, signatures, etc.) for that paired connection. Every call still goes through the same wallet permission system as an in-app spend -- there is no standing grant.
+
+Both schemes are registered in `app.json` and the checked-in `ios/BSVWallet/Info.plist`. Android receives them through Expo prebuild. Scheme registration changes require a native rebuild and installation; a JavaScript update alone cannot add a new OS protocol handler.
 
 **Background monitoring** -- a `Monitor` instance (from `@bsv/wallet-toolbox-mobile`) subscribes to ARC SSE (Server-Sent Events) for real-time transaction status updates. Missed events are fetched when the app returns from the background.
 
@@ -389,7 +391,7 @@ Open `app.json` and change the following fields to match your own project:
 | ---------------------------- | ----------------------------------------- | -------------------------------------------------------------- |
 | `expo.name`                 | `"BSV Wallet"`                            | Your app's display name                                      |
 | `expo.slug`                 | `"bsv-wallet"`                            | Your Expo project slug (must match the dashboard)            |
-| `expo.scheme`               | `"bsv-wallet"`                            | Your app's URI scheme for deep links                         |
+| `expo.scheme`               | `["bsv-wallet", "bsv-browser"]`            | Your app's URI schemes for deep links                        |
 | `expo.owner`                 | `"bsvb"`                                  | Your Expo account username or organization slug              |
 | `expo.extra.eas.projectId`  | `"435e9e20-dd2a-4be5-8684-af5809f913bb"`  | Your EAS project ID from the Expo dashboard                  |
 | `expo.android.package`       | `"org.bsvassociation.wallet"`             | Your Android application ID (e.g. `com.yourcompany.wallet`)  |
