@@ -5,6 +5,17 @@ import {
   chaintracksUrlFor
 } from '../../core/services/walletServiceConfig'
 import { Services } from '@bsv/wallet-toolbox-mobile'
+import { configureToolbox, resetToolboxConfig } from '../../core/toolboxConfig'
+
+// The service config now comes from the host, not from process.env — see
+// core/toolboxConfig.ts. An empty `services` block is the "host stated nothing
+// per-chain" case, which is what exercises the built-in defaults below.
+beforeEach(() => {
+  configureToolbox({ backupUrl: null })
+})
+afterEach(() => {
+  resetToolboxConfig()
+})
 
 const exchangeRate = () => ({ timestamp: new Date(), base: 'USD' as const, rate: 1 })
 
@@ -97,7 +108,7 @@ describe('createServices', () => {
 })
 
 describe('chaintracksUrlFor', () => {
-  it('returns the right default URL per network, with no env override set', () => {
+  it('returns the right default URL per network when the host configured no override', () => {
     expect(chaintracksUrlFor('main')).toBe('https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1')
     expect(chaintracksUrlFor('test')).toBe('https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1')
     expect(chaintracksUrlFor('teratest')).toBe('https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1')

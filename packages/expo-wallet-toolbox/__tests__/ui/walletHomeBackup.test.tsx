@@ -52,7 +52,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     DEFAULT_AUTO_APPROVE_THRESHOLD: 0,
     AUTO_APPROVE_STORAGE_KEY: 'auto_approve',
     ADVANCED_SETTINGS_EXPANDED_KEY: 'advanced',
-    DEFAULT_BACKUP_URL: ''
+    getBackupUrl: () => ''
   }
 })
 jest.mock('expo-router', () => ({

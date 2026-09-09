@@ -30,9 +30,9 @@ import {
   eraseRemoteBackup,
   recoverMnemonicWallet,
   TaskBackupPush,
-  DEFAULT_BACKUP_URL,
   setMockDriverEnabled,
-  NO_MESSAGE_BOX
+  NO_MESSAGE_BOX,
+  getBackupUrl
 } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -257,7 +257,7 @@ export function WalletConfigScreen() {
       // chain propagates — a partial erasure must never be reported as done.
       let deleted = 0
       for (const chain of BACKUP_CHAINS) {
-        deleted += (await eraseRemoteBackup({ primaryKey, chain, baseUrl: DEFAULT_BACKUP_URL })).deleted
+        deleted += (await eraseRemoteBackup({ primaryKey, chain, baseUrl: getBackupUrl() })).deleted
       }
       setBackupPushOn(false)
       showToast(t('backup_erase_done', { count: deleted }), { type: 'success' })
@@ -844,7 +844,7 @@ export function WalletConfigScreen() {
               Its own section purely so the footer can carry the disclosure: the app sends an
               encrypted copy of the wallet database to a BSVA-operated server by default, and
               that deserves saying out loud rather than burying in a row label. */}
-          {DEFAULT_BACKUP_URL !== '' && (
+          {getBackupUrl() !== '' && (
             <GroupedSection header={t('backup_push_section')} footer={t('backup_push_disclosure')}>
               <ListRow
                 label={t('backup_push_toggle')}

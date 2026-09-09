@@ -2,6 +2,17 @@ import React from 'react'
 import { act, render } from '@testing-library/react-native'
 import { PrivateKey } from '@bsv/sdk'
 import { WalletContextProvider, useWallet } from '../../core/context/WalletContext'
+import { configureToolbox, resetToolboxConfig } from '../../core/toolboxConfig'
+
+// The provider now requires the host to have stated its endpoints — see
+// core/toolboxConfig.ts. A backup URL keeps the restore-on-import path live;
+// without one, restoreOnImport is never reached.
+beforeEach(() => {
+  configureToolbox({ backupUrl: 'https://backup.example.com' })
+})
+afterEach(() => {
+  resetToolboxConfig()
+})
 
 const mockGetMnemonic = jest.fn<Promise<string | null>, []>()
 const mockGetRecoveredKey = jest.fn<Promise<string | null>, []>()

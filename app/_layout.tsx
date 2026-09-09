@@ -25,13 +25,56 @@ import {
   LocalStorageProvider,
   VaultProvider,
   LanguageProvider,
-  WalletConnectionProvider
+  WalletConnectionProvider,
+  configureToolbox
 } from '@bsv/expo-wallet-toolbox'
 // TODO: Re-add RecoveryKeySaver when WAB support returns
 import { PermissionSheet, AlertHost, ToastHost, showToast, ErrorBoundary } from '@bsv/expo-wallet-toolbox/ui'
 import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
+
+/**
+ * Install the toolbox's runtime configuration before anything from the package
+ * renders or builds a wallet.
+ *
+ * The EXPO_PUBLIC_* reads live here, in app source, on purpose: Expo's Babel
+ * preset does not inline them inside node_modules, so the same reads made
+ * within @bsv/expo-wallet-toolbox are undefined in any production bundle that
+ * installs the package from npm. Reading here and passing the values in keeps
+ * one code path for every consumer.
+ *
+ * backupUrl: null (no EXPO_PUBLIC_BACKUP_URL) disables backup entirely — that is
+ * what a plain local `npm run ios` with no .env.local gets. The EAS development,
+ * dev-physical and production profiles set it; preview-apk carries no env block
+ * at all. See eas.json.
+ */
+configureToolbox({
+  backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
+  services: {
+    main: {
+      arcUrl: process.env.EXPO_PUBLIC_ARC_URL,
+      arcApiKey: process.env.EXPO_PUBLIC_ARC_API_KEY,
+      chaintracksUrl: process.env.EXPO_PUBLIC_CHAINTRACKS_URL,
+      whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY,
+      taalApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
+    },
+    test: {
+      arcUrl: process.env.EXPO_PUBLIC_TEST_ARC_URL,
+      arcApiKey: process.env.EXPO_PUBLIC_TEST_ARC_API_KEY,
+      chaintracksUrl: process.env.EXPO_PUBLIC_TEST_CHAINTRACKS_URL,
+      whatsOnChainApiKey: process.env.EXPO_PUBLIC_TEST_WOC_API_KEY,
+      taalApiKey: process.env.EXPO_PUBLIC_TEST_TAAL_API_KEY
+    },
+    teratest: {
+      arcUrl: process.env.EXPO_PUBLIC_TERATEST_ARC_URL,
+      arcApiKey: process.env.EXPO_PUBLIC_TERATEST_ARC_API_KEY,
+      chaintracksUrl: process.env.EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL,
+      whatsOnChainApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY,
+      taalApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY
+    }
+  }
+})
 
 export const FIRST_TOUCH_DATE_KEY = 'firstTouchDate'
 

@@ -1,5 +1,6 @@
 import type { AppChain } from '../config'
 import { toWalletChain } from '../config'
+import { getServiceConfig } from '../toolboxConfig'
 import {
   ChaintracksServiceClient,
   Services
@@ -18,18 +19,11 @@ import type { ChainTracker } from '@bsv/sdk'
  * this, rather than each keeping their own copy that could drift.
  */
 export function chaintracksUrlFor(network: AppChain): string {
-  if (network === 'main') {
-    return process.env?.EXPO_PUBLIC_CHAINTRACKS_URL ?? 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1'
-  }
-  if (network === 'test') {
-    return (
-      process.env?.EXPO_PUBLIC_TEST_CHAINTRACKS_URL ??
-      'https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1'
-    )
-  }
-  return (
-    process.env?.EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL ?? 'https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1'
-  )
+  const configured = getServiceConfig(network).chaintracksUrl
+  if (configured != null && configured !== '') return configured
+  if (network === 'main') return 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1'
+  if (network === 'test') return 'https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1'
+  return 'https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1'
 }
 
 /**
@@ -75,6 +69,7 @@ export function createServiceOptions(
   chaintracksOverride?: ChaintracksClientApi
 ): WalletServicesOptions {
   const walletChain = toWalletChain(network)
+  const svc = getServiceConfig(network)
   const base = {
     chain: walletChain,
     bsvExchangeRate,
@@ -88,15 +83,15 @@ export function createServiceOptions(
   if (network === 'main') {
     return {
       ...base,
-      arcUrl: arcUrlOverride ?? process.env?.EXPO_PUBLIC_ARC_URL ?? 'https://arcade-v2-us-1.bsvblockchain.tech',
+      arcUrl: arcUrlOverride ?? svc.arcUrl ?? 'https://arcade-v2-us-1.bsvblockchain.tech',
       arcConfig: {
-        apiKey: arcApiKeyOverride ?? process.env?.EXPO_PUBLIC_ARC_API_KEY ?? '',
+        apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
         callbackToken
       },
       bsvUpdateMsecs: 60 * 60 * 1000,
       fiatUpdateMsecs: 60 * 60 * 1000,
-      whatsOnChainApiKey: process.env?.EXPO_PUBLIC_WOC_API_KEY ?? '',
-      taalApiKey: process.env?.EXPO_PUBLIC_WOC_API_KEY ?? '',
+      whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
+      taalApiKey: svc.taalApiKey ?? svc.whatsOnChainApiKey ?? '',
       chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
     }
   }
@@ -104,15 +99,15 @@ export function createServiceOptions(
   if (network === 'test') {
     return {
       ...base,
-      arcUrl: arcUrlOverride ?? process.env?.EXPO_PUBLIC_TEST_ARC_URL ?? 'https://arcade-v2-testnet-us-1.bsvblockchain.tech',
+      arcUrl: arcUrlOverride ?? svc.arcUrl ?? 'https://arcade-v2-testnet-us-1.bsvblockchain.tech',
       arcConfig: {
-        apiKey: arcApiKeyOverride ?? process.env?.EXPO_PUBLIC_TEST_ARC_API_KEY ?? '',
+        apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
         callbackToken
       },
       bsvUpdateMsecs: 60 * 60 * 1000000,
       fiatUpdateMsecs: 60 * 60 * 1000000,
-      whatsOnChainApiKey: process.env?.EXPO_PUBLIC_TEST_WOC_API_KEY ?? '',
-      taalApiKey: process.env?.EXPO_PUBLIC_TEST_TAAL_API_KEY ?? '',
+      whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
+      taalApiKey: svc.taalApiKey ?? svc.whatsOnChainApiKey ?? '',
       chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
     }
   }
@@ -120,15 +115,15 @@ export function createServiceOptions(
   // teratest
   return {
     ...base,
-    arcUrl: arcUrlOverride ?? process.env?.EXPO_PUBLIC_TERATEST_ARC_URL ?? 'https://arcade-v2-ttn-us-1.bsvblockchain.tech',
+    arcUrl: arcUrlOverride ?? svc.arcUrl ?? 'https://arcade-v2-ttn-us-1.bsvblockchain.tech',
     arcConfig: {
-      apiKey: arcApiKeyOverride ?? process.env?.EXPO_PUBLIC_TERATEST_ARC_API_KEY ?? '',
+      apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
       callbackToken
     },
     bsvUpdateMsecs: 60 * 60 * 1000000,
     fiatUpdateMsecs: 60 * 60 * 1000000,
-    whatsOnChainApiKey: process.env?.EXPO_PUBLIC_TERATEST_WOC_API_KEY ?? '',
-    taalApiKey: process.env?.EXPO_PUBLIC_TERATEST_WOC_API_KEY ?? '',
+    whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
+    taalApiKey: svc.taalApiKey ?? svc.whatsOnChainApiKey ?? '',
     chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
   }
 }

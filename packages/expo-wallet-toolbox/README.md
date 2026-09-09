@@ -155,6 +155,49 @@ dependencies.
 | --- | --- |
 | `react-native-yubikey` | Vault/hardware-key support. Absence is detected at runtime and vault features degrade gracefully. |
 
+## Configuration
+
+Call `configureToolbox` once, at your app entry point, before anything from this
+package renders or builds a wallet:
+
+```tsx
+import { configureToolbox } from '@bsv/expo-wallet-toolbox'
+
+configureToolbox({
+  backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
+  services: {
+    main: {
+      arcUrl: process.env.EXPO_PUBLIC_ARC_URL,
+      arcApiKey: process.env.EXPO_PUBLIC_ARC_API_KEY,
+      chaintracksUrl: process.env.EXPO_PUBLIC_CHAINTRACKS_URL,
+      whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY,
+      taalApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
+    }
+  }
+})
+```
+
+**The `EXPO_PUBLIC_*` reads must live in your app source, not in this package.**
+Expo's Babel preset refuses to inline `EXPO_PUBLIC_*` for any file whose path
+contains `node_modules` (`babel-preset-expo/build/common.js`: `!isNodeModule &&
+...`). A production bundle defines only `NODE_ENV` on `process.env`, so an env
+read inside an installed copy of this package is `undefined` — silently, and
+only in production, since Expo's dev serializer injects the variables at
+runtime. That asymmetry is why this package reads no environment of its own.
+
+`backupUrl` is required and accepts `null`, which disables backup entirely: no
+monitor task is registered, nothing is sent, and the backup UI does not render.
+It is not optional and has no default, so every build states its endpoint —
+including stating that it has none. It must be a bare origin: the BRC-103/104
+handshake posts to the origin root, so a path, query or fragment is rejected.
+
+Every `services` field is optional and falls back to the built-in public
+endpoint for that chain. Chains are `main`, `test` and `teratest`.
+
+Reading configuration before `configureToolbox` has run **throws**. An
+unconfigured build fails loudly rather than behaving like a deliberately
+disabled one.
+
 ## Usage
 
 ```tsx
@@ -498,6 +541,15 @@ are required — both hard-won during this package's extraction:
    overrides above.
 
 ## Breaking changes
+
+**0.4.0:** the package no longer reads `process.env` at all. `DEFAULT_BACKUP_URL`
+is removed, and the `EXPO_PUBLIC_*` service reads in `walletServiceConfig` are
+gone. The host supplies these through `configureToolbox({ backupUrl, services })`
+at app entry — see [Configuration](#configuration). Removing the export rather
+than deprecating it is deliberate: a host that upgrades gets a build error, not
+another empty string. Hosts that installed this package from npm were silently
+running with backup disabled and WhatsOnChain/Taal unkeyed, because Expo does
+not inline `EXPO_PUBLIC_*` inside `node_modules`.
 
 **0.1.1:** `react-native-localpay-transport` (unscoped, private, hand-synced
 out of this repo) became `@bsv/react-native-localpay-transport` (published

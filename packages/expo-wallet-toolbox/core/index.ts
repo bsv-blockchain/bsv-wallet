@@ -21,10 +21,20 @@ export {
   DEFAULT_WAB_URL,
   DEFAULT_STORAGE_URL,
   DEFAULT_MESSAGEBOX_URL,
-  DEFAULT_BACKUP_URL,
   DEFAULT_CHAIN,
   ADMIN_ORIGINATOR
 } from './config'
+
+// Host-supplied runtime configuration (backup endpoint, service URLs and keys).
+// Must be installed by the host app before anything here renders — see toolboxConfig.ts.
+export {
+  configureToolbox,
+  isToolboxConfigured,
+  getBackupUrl,
+  getServiceConfig,
+  resetToolboxConfig
+} from './toolboxConfig'
+export type { ToolboxConfig, ToolboxServiceConfig } from './toolboxConfig'
 
 // Theme tokens and providers
 export { ThemeProvider, useTheme } from './theme/ThemeContext'

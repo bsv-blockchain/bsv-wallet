@@ -135,7 +135,8 @@ const DEFAULT_SETTINGS: WalletSettings = {
   }
 }
 import type { AppChain } from '../config'
-import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, DEFAULT_BACKUP_URL, toWalletChain } from '../config'
+import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
+import { getBackupUrl } from '../toolboxConfig'
 import { DEFAULT_AUTO_APPROVE_THRESHOLD, AUTO_APPROVE_COOLDOWN_MS, AUTO_APPROVE_STORAGE_KEY } from '../constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { UserContext } from './UserContext'
@@ -1188,7 +1189,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 primaryKey,
                 chain: chainStr,
                 identityKey,
-                baseUrl: DEFAULT_BACKUP_URL,
+                baseUrl: getBackupUrl(),
                 onProgress: (chunks, total) => setBackupRestore({ phase: 'restoring', chunks, total }),
                 // reviewSpendableOutputs talks to Services through the Wallet, which
                 // needs this storage attached first. Attach here (idempotent with the
@@ -1461,7 +1462,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             //
             // Reads chunks straight from phoneStorage rather than through
             // WalletStorageManager, whose sync lock would block all storage access.
-            if (DEFAULT_BACKUP_URL !== '') {
+            if (getBackupUrl() !== '') {
               monitor.addTask(
                 new TaskBackupPush(monitor, async () => {
                   return await pushOnce({
@@ -1469,7 +1470,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                     primaryKey,
                     chain: backupChain,
                     identityKey: keyDeriver.identityKey,
-                    baseUrl: DEFAULT_BACKUP_URL
+                    baseUrl: getBackupUrl()
                   })
                 })
               )

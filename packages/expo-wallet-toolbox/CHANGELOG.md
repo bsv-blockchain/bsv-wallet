@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0
+
+### Host-supplied configuration (breaking)
+
+- Add `configureToolbox({ backupUrl, services })`, with `getBackupUrl`,
+  `getServiceConfig` and `isToolboxConfigured`. The host states its backup
+  endpoint and per-chain service URLs and keys once, at app entry.
+- Remove `DEFAULT_BACKUP_URL` and every `process.env` read in the package.
+  Expo's Babel preset does not inline `EXPO_PUBLIC_*` for files under
+  `node_modules`, so those reads were `undefined` in the production bundle of
+  any host that installed this package from npm — disabling backup entirely
+  and leaving the WhatsOnChain/Taal key unset, while working in dev and in
+  hosts that consume the package from source.
+- `backupUrl` is required and takes `null` to disable backup deliberately.
+  Reading configuration before `configureToolbox` runs throws, so an
+  unconfigured build fails loudly instead of imitating a disabled one.
+- Backup URLs are validated as bare origins: a path, query or fragment is
+  rejected, since the BRC-103/104 handshake posts to the origin root.
+
 ## 0.3.1
 
 ### Wallet creation and backup
