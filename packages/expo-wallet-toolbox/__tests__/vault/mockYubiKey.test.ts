@@ -8,7 +8,6 @@ import { Utils } from '@bsv/sdk'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { getVaultDriver, setMockDriver } from '../../core/services/vault/driver'
 import { VaultError } from '../../core/services/vault/types'
-import { sealVaultKey, unsealVaultKey } from '../../core/services/vault/sealing'
 
 describe('MockYubiKey', () => {
   test('wrong PIN decrements retries then locks at zero', async () => {
@@ -35,6 +34,65 @@ describe('MockYubiKey', () => {
     mock.insertKey('MOCK-9')
     mock.removeKey()
     expect(events).toEqual(['attached:MOCK-9', 'detached:MOCK-9'])
+  })
+
+  test('keeps one record per serial: insertKey switches keys, PINs and retries', async () => {
+    const mock = new MockYubiKey()
+    mock.insertKey('A')
+    const { publicKey: pubA } = await mock.generateVaultKey(0x82)
+    mock.setPin('111111')
+
+    mock.insertKey('B')
+    expect(await mock.readVaultPublicKey(0x82)).toBeNull() // B has no key yet
+    const { publicKey: pubB } = await mock.generateVaultKey(0x82)
+    expect(pubB).not.toBe(pubA)
+    // B still has the default PIN; A's change did not leak across serials.
+    expect((await mock.verifyPin('123456')).ok).toBe(true)
+    expect((await mock.verifyPin('111111')).ok).toBe(false)
+
+    mock.insertKey('A')
+    expect((await mock.readVaultPublicKey(0x82))!.publicKey).toBe(pubA)
+    expect((await mock.verifyPin('111111')).ok).toBe(true)
+  })
+
+  test('re-inserting a serial does not reset its PIN verification or its lockout', async () => {
+    const mock = new MockYubiKey()
+    mock.insertKey('A')
+    await mock.generateVaultKey(0x82)
+    await mock.verifyPin('123456')
+    mock.insertKey('B')
+    mock.insertKey('A')
+    // pinPolicy=once is per session: a swap ends the session, so the PIN must
+    // be presented again.
+    await expect(mock.signEcdsa(0x82, '', 'ab'.repeat(32))).rejects.toMatchObject({ code: 'pin-required' })
+
+    mock.insertKey('L')
+    await mock.verifyPin('000000')
+    await mock.verifyPin('000000')
+    await mock.verifyPin('000000')
+    mock.insertKey('A')
+    mock.insertKey('L')
+    expect((await mock.getKeyInfo()).pinRetries).toBe(0) // still locked after a re-tap
+  })
+
+  test('signEcdsa signs with the CURRENT serial key', async () => {
+    const mock = new MockYubiKey()
+    mock.insertKey('A')
+    await mock.generateVaultKey(0x82)
+    mock.insertKey('B')
+    const { publicKey: pubB } = await mock.generateVaultKey(0x82)
+    await mock.verifyPin('123456')
+    const digest = 'cd'.repeat(32)
+    const { signature } = await mock.signEcdsa(0x82, '123456', digest)
+    const sig = p256.Signature.fromBytes(Uint8Array.from(Utils.toArray(signature, 'hex')), 'der')
+    const compressedB = p256.Point.fromBytes(Uint8Array.from(Utils.toArray(pubB, 'hex'))).toBytes(true)
+    expect(p256.verify(sig.toBytes(), Uint8Array.from(Utils.toArray(digest, 'hex')), compressedB, { prehash: false, lowS: false })).toBe(true)
+  })
+
+  test('start(message) records the alert text for tests to read', () => {
+    const mock = new MockYubiKey()
+    mock.start('Hold your YubiKey here')
+    expect(mock.startMessage).toBe('Hold your YubiKey here')
   })
 })
 
@@ -206,80 +264,63 @@ describe('MockYubiKey.signEcdsa', () => {
   })
 })
 
-// ── ecdh (task 2) ──
-describe('ecdh', () => {
-  it('computes the PIV shared secret after PIN verify', async () => {
-    const mock = new MockYubiKey()
-    mock.insertKey('31337')
-    await mock.generateVaultKey(0x82)
-    const cardPub = (await mock.readVaultPublicKey(0x82))!.publicKey
-    // seal to the card, then ask the mock to do the card-side ECDH
-    const blob = sealVaultKey([42, 42], cardPub, { slot: 0x82, serial: '31337' })
-    const { secret } = await mock.ecdh(0x82, '123456', blob.ePub)
-    expect(unsealVaultKey(blob, secret)).toEqual([42, 42])
+// ── generateVaultKey policy + start(message) forwarding (R1C) ──
+describe('native adapter', () => {
+  const nativeFake = (calls: unknown[][]) => ({
+    isSupported: () => true,
+    startDiscovery: (message: string) => {
+      calls.push(['startDiscovery', message])
+    },
+    stopDiscovery: () => {},
+    setKeyListener: () => {},
+    clearKeyListener: () => {},
+    getKeyInfo: async () => '{}',
+    verifyPin: async () => '{}',
+    changePin: async () => '{}',
+    generateVaultKey: async (...args: unknown[]) => {
+      calls.push(['generateVaultKey', ...args])
+      return JSON.stringify({ publicKey: '04' + '11'.repeat(64) })
+    },
+    readVaultPublicKey: async () => '{"publicKey":null}',
+    signEcdsa: async () => '{}'
   })
 
-  it('refuses ECDH without PIN when not yet verified', async () => {
-    const mock = new MockYubiKey()
-    mock.insertKey('1'); await mock.generateVaultKey(0x82)
-    await expect(mock.ecdh(0x82, '', 'deadbeef')).rejects.toMatchObject({ code: 'pin-required' })
-  })
-
-  it('rejects a WRONG PIN, not silently satisfied', async () => {
-    // Same trap signEcdsa's inline verify used to fall into: discarding
-    // verifyPin's { ok: false } result and proceeding anyway. Guard it here
-    // too so a wrong PIN can never be indistinguishable from a correct one.
-    const mock = new MockYubiKey()
-    mock.insertKey('1')
-    await mock.generateVaultKey(0x82)
-    await expect(mock.ecdh(0x82, '000000', 'deadbeef')).rejects.toMatchObject({
-      code: 'pin-invalid',
-      retriesLeft: 2
-    })
-    const { pinRetries } = await mock.getKeyInfo()
-    expect(pinRetries).toBe(2)
-  })
-
-  it('reports touch-timeout when touch is not delivered', async () => {
-    const mock = new MockYubiKey()
-    mock.insertKey('1'); await mock.generateVaultKey(0x82)
-    await mock.verifyPin('123456')
-    mock.setTouchBehavior('timeout')
-    await expect(mock.ecdh(0x82, '', 'deadbeef')).rejects.toMatchObject({ code: 'touch-timeout' })
-  })
-})
-
-// ── generateVaultKey policy (task 7; touch policy revised task 2) ──
-describe('generateVaultKey policy', () => {
-  it('generates with touch policy always and pin policy once', async () => {
+  it('generates with touch policy cached and pin policy once (spec D6)', async () => {
     const calls: unknown[][] = []
-    const native = {
-      isSupported: () => true,
-      startDiscovery: () => {},
-      stopDiscovery: () => {},
-      setKeyListener: () => {},
-      clearKeyListener: () => {},
-      getKeyInfo: async () => '{}',
-      verifyPin: async () => '{}',
-      changePin: async () => '{}',
-      generateVaultKey: async (...args: unknown[]) => {
-        calls.push(args)
-        return JSON.stringify({ publicKey: '04' + '11'.repeat(64) })
-      },
-      readVaultPublicKey: async () => '{"publicKey":null}',
-      signEcdsa: async () => '{}'
-    }
-    jest.doMock('react-native-yubikey', () => ({ getYubiKeyPiv: () => native }))
+    jest.doMock('react-native-yubikey', () => ({ getYubiKeyPiv: () => nativeFake(calls) }))
     jest.resetModules()
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getVaultDriver } = require('../../core/services/vault/driver')
 
     await getVaultDriver()!.generateVaultKey(0x82)
 
-    // The YubiKey is now an ECDH unwrap oracle: one on-token ECDH per
-    // ceremony recovers the vault key, then every R1-K1 input signs in
-    // software — no per-input touch to spare, so 'always' is affordable and
-    // is the stronger policy for new enrollments.
-    expect(calls[0]).toEqual([0x82, 'always', 'once'])
+    // The card signs on-chain now, up to VAULT_INPUTS_PER_TAP digests per tap,
+    // so ONE touch must cover a whole batch: 'cached' keeps the touch valid
+    // for the card's 15 s window. 'always' would demand a touch per input.
+    expect(calls[0]).toEqual(['generateVaultKey', 0x82, 'cached', 'once'])
+  })
+
+  it('forwards the NFC alert text to startDiscovery, and an empty string when none is given', () => {
+    const calls: unknown[][] = []
+    jest.doMock('react-native-yubikey', () => ({ getYubiKeyPiv: () => nativeFake(calls) }))
+    jest.resetModules()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getVaultDriver } = require('../../core/services/vault/driver')
+
+    getVaultDriver()!.start('Hold your YubiKey here to sign')
+    getVaultDriver()!.start()
+    expect(calls).toEqual([
+      ['startDiscovery', 'Hold your YubiKey here to sign'],
+      ['startDiscovery', '']
+    ])
+  })
+
+  it('exposes no ecdh on the driver', () => {
+    const calls: unknown[][] = []
+    jest.doMock('react-native-yubikey', () => ({ getYubiKeyPiv: () => nativeFake(calls) }))
+    jest.resetModules()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getVaultDriver } = require('../../core/services/vault/driver')
+    expect((getVaultDriver() as unknown as Record<string, unknown>).ecdh).toBeUndefined()
   })
 })
