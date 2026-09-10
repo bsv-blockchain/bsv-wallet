@@ -13,9 +13,7 @@ import type { StyleProp, ViewStyle } from 'react-native'
 import { SvgUri } from 'react-native-svg'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-// Same deep path WalletContext uses: the package root does not re-export the
-// settings types.
-import type { Certifier as WalletCertifier } from '@bsv/wallet-toolbox-mobile/out/src/WalletSettingsManager'
+import type { Certifier as WalletCertifier } from '@bsv/wallet-toolbox-mobile'
 import validateTrust from '../validateTrust'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { showAlert } from '../components/ui/AlertCard'

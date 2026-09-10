@@ -11,7 +11,7 @@
  * and rebuilt on network switches and wallet rebuilds, and a pending outbox
  * must survive that.
  */
-import { WalletMonitorTask } from '@bsv/wallet-toolbox-mobile/out/src/monitor/tasks/WalletMonitorTask'
+import { WalletMonitorTask } from './WalletMonitorTask'
 import type { Monitor } from '@bsv/wallet-toolbox-mobile'
 import type { OutboxEntry } from '../peerpay/outbox'
 

@@ -9,17 +9,15 @@ import {
   WalletSigner,
   PermissionRequest,
   SimpleWalletManager,
-  Monitor
+  Monitor,
+  DEFAULT_SETTINGS as LIB_DEFAULT_SETTINGS,
+  WalletSettings,
+  WalletSettingsManager
 } from '@bsv/wallet-toolbox-mobile'
 import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk'
 import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
 import { getVaultDriver } from '../services/vault/driver'
 import { backupAttestation } from '../services/vault/backupAttestation'
-import {
-  DEFAULT_SETTINGS as LIB_DEFAULT_SETTINGS,
-  WalletSettings,
-  WalletSettingsManager
-} from '@bsv/wallet-toolbox-mobile/out/src/WalletSettingsManager'
 
 /** App-level defaults: library defaults + additional certifiers */
 /**

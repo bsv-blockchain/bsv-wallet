@@ -19,7 +19,7 @@
  * reports online seconds before routes actually work — which is exactly the
  * "payments sit at nosend forever" bug this rewrite removes.
  */
-import { WalletMonitorTask } from '@bsv/wallet-toolbox-mobile/out/src/monitor/tasks/WalletMonitorTask'
+import { WalletMonitorTask } from './WalletMonitorTask'
 import type { Monitor } from '@bsv/wallet-toolbox-mobile'
 import type { ProcessOfflineActionsResult } from '../storage/methods/processOfflineActions'
 

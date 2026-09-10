@@ -5,12 +5,11 @@ import {
   ChaintracksServiceClient,
   Services
 } from '@bsv/wallet-toolbox-mobile'
-import type {
-  BsvExchangeRate,
-  WalletServicesOptions
-} from '@bsv/wallet-toolbox-mobile/out/src/sdk'
-import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile/out/src/services/chaintracker/chaintracks/Api/ChaintracksClientApi'
+import type { ChaintracksClientApi, sdk } from '@bsv/wallet-toolbox-mobile'
 import type { ChainTracker } from '@bsv/sdk'
+
+type BsvExchangeRate = sdk.BsvExchangeRate
+type WalletServicesOptions = sdk.WalletServicesOptions
 
 /**
  * The chaintracks URL for a network — the one place this table is defined.

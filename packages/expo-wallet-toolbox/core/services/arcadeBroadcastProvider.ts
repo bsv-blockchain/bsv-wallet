@@ -1,8 +1,8 @@
 import { Beef, Transaction, Utils } from '@bsv/sdk'
-import type {
-  PostBeefResult,
-  PostTxResultForTxid
-} from '@bsv/wallet-toolbox-mobile/out/src/sdk'
+import type { sdk } from '@bsv/wallet-toolbox-mobile'
+
+type PostBeefResult = sdk.PostBeefResult
+type PostTxResultForTxid = sdk.PostTxResultForTxid
 
 /**
  * ARC intermediate statuses that still mean "accepted for relay".

@@ -20,16 +20,13 @@
  * helper checks linkage but not difficulty.
  */
 import { Utils } from '@bsv/sdk'
-import {
-  blockHash,
-  deserializeBaseBlockHeader,
-  validateHeaderDifficulty
-} from '@bsv/wallet-toolbox-mobile/out/src/services/chaintracker/chaintracks/util/blockHeaderUtilities'
+import { utils as toolboxUtils } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderCheckpoint } from './checkpoints'
 import type { HeaderFs } from './fs'
 
 const HEADER_BYTES = 80
 const ROOT_BYTES = 32
+const { blockHash, deserializeBaseBlockHeader, validateHeaderDifficulty } = toolboxUtils
 
 interface StoredMeta {
   chain: string

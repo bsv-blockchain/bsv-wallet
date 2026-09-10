@@ -10,12 +10,14 @@
  * no req, the proof is written directly: a proven_tx row (the toolbox's own
  * `findOrInsertProvenTx` shape) and the transaction promoted to `completed`.
  */
+import type { sdk } from '@bsv/wallet-toolbox-mobile'
 import type {
   TableProvenTx,
   TableProvenTxReq,
   TableTransaction
-} from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
-import type { UpdateProvenTxReqWithNewProvenTxArgs } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
+} from '@bsv/wallet-toolbox-mobile'
+
+type UpdateProvenTxReqWithNewProvenTxArgs = sdk.UpdateProvenTxReqWithNewProvenTxArgs
 
 export interface ProofStorage {
   findProvenTxReqs(args: {

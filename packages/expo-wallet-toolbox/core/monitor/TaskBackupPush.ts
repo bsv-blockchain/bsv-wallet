@@ -13,7 +13,7 @@
  * a pass takes at most one chunk and the interval floor keeps it off the JS thread the rest
  * of the time.
  */
-import { WalletMonitorTask } from '@bsv/wallet-toolbox-mobile/out/src/monitor/tasks/WalletMonitorTask'
+import { WalletMonitorTask } from './WalletMonitorTask'
 import type { Monitor } from '@bsv/wallet-toolbox-mobile'
 import { MIN_PUSH_INTERVAL_MS } from '../backup/constants'
 import type { PushResult } from '../backup/push'

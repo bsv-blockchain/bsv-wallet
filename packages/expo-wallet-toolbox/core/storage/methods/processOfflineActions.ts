@@ -18,9 +18,7 @@
  * database reads, writes and logging, which is validated on device.
  */
 import { Beef } from '@bsv/sdk'
-import { attemptToPostReqsToNetwork } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork'
-import { EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/entities'
-import type { TableProvenTxReq, TableTransaction } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
+import { EntityProvenTxReq, type TableProvenTxReq, type TableTransaction } from '@bsv/wallet-toolbox-mobile'
 import type { StorageExpoSQLite } from '../StorageExpoSQLite'
 import { findOfflineActions, updateOfflineAction, type OfflineActionRow, type OfflineDb } from './offlineActions'
 import {
@@ -384,7 +382,7 @@ async function postOwned(storage: StorageExpoSQLite, api: TableProvenTxReq): Pro
 
   let detailStatus: string | undefined
   try {
-    const posted = await attemptToPostReqsToNetwork(storage, [req])
+    const posted = await storage.attemptToPostReqsToNetwork([req])
     detailStatus = posted.details.find(d => d.txid === api.txid)?.status
   } catch (e) {
     devLog(`[processOfflineActions] posting ${api.txid} threw:`, e)
