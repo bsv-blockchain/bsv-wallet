@@ -85,7 +85,12 @@ import {
   VAULT_STAGING_BASKET,
   VaultWallet,
   depositToVault,
+  estimateRelockFee,
+  getVaultBalance,
+  getVaultKeyCoverage,
+  orphanedIfRemoved,
   reclaimStagingOutputs,
+  relockVault,
   withdrawFromVault
 } from '../../core/services/vault/transfers'
 
@@ -1325,5 +1330,226 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
       throw reviewError([RESERVING])
     })
     await expect(withdrawAll()).rejects.toMatchObject({ code: 5 })
+  })
+})
+
+// ── re-lock (spec §4.3) ───────────────────────────────────────────────────
+
+describe('estimateRelockFee', () => {
+  it('is ceil(size/1000)·satPerKb·1.1 over the declared unlock length and the new lock, computed without float drift', () => {
+    // 1 input, 2-key lock: size = 10 + 1·(41+3+2560) + (3 + 27881 + 8) = 30,506 → 31 kB → 3,100 → +10 % = 3,410
+    expect(estimateRelockFee(1, R1C_LOCK_LEN(2))).toBe(3410)
+    // 32 inputs, 3-key lock: size = 10 + 32·2604 + (3 + 27906 + 8) = 111,255 → 112 kB → 11,200 → 12,320
+    // (11200 * 1.1 is 12320.000000000002 in doubles — a float ceil would say 12,321.)
+    expect(estimateRelockFee(32, R1C_LOCK_LEN(3))).toBe(12320)
+    // satPerKb is a parameter: 31 kB · 50 = 1,550 → 1,705
+    expect(estimateRelockFee(1, R1C_LOCK_LEN(2), 50)).toBe(1705)
+    // Zero inputs is not a re-lock, but the arithmetic is still well-defined:
+    // size = 27,902 → 28 kB → 2,800 → 3,080 (2800 * 1.1 is 3080.0000000000005 in doubles).
+    expect(estimateRelockFee(0, R1C_LOCK_LEN(2))).toBe(3080)
+  })
+})
+
+describe('relockVault', () => {
+  const relock = (opts?: Parameters<typeof relockVault>[4]) => relockVault(wallet, ADMIN, 'Re-lock vault', 'A-1', opts)
+
+  it('spends everything the chosen key can open into ONE fresh vault output of acc − fee committed to the CURRENT key set, with no withdrawal output', async () => {
+    const fx = [vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])]
+    await seedVault(fx, [KEY_A, KEY_B, KEY_C]) // a key was ADDED since these deposits
+    const r = await relock()
+    expect(r).toEqual({ txid: 'feedface'.repeat(8), cappedInputs: 0, unreachable: { count: 0, satoshis: 0, keys: [] } })
+
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    expect(caArgs.description).toBe('Re-lock vault')
+    expect(caArgs.version).toBe(2)
+    expect(caArgs.labels).toEqual(['vault', 'vault-relock'])
+    expect(caArgs.inputs).toHaveLength(2)
+    for (const i of caArgs.inputs) {
+      expect(i.unlockingScriptLength).toBe(R1C_UNLOCK_LEN)
+      expect(i.inputDescription).toBe('Vault re-lock')
+    }
+    expect(caArgs.options).toEqual({ randomizeOutputs: false, acceptDelayedBroadcast: false, trustSelf: 'known' })
+
+    // ONE output: the whole accumulated value minus the fee reserve, back into
+    // the vault under the current three keys. No second output — the fake
+    // cannot observe the default-basket surplus, but it can observe that no
+    // withdrawal output was asked for.
+    expect(caArgs.outputs).toHaveLength(1)
+    const out = caArgs.outputs[0]
+    const fee = estimateRelockFee(2, R1C_LOCK_LEN(3))
+    expect(out).toMatchObject({ satoshis: 1_000_000 - fee, basket: VAULT_BASKET, outputDescription: 'Vault re-lock', tags: ['vault'] })
+    expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
+    const ci = decodeVaultInstructions(out.customInstructions)!
+    expect(ci.keys).toEqual([PUB_A, PUB_B, KEY_C.pubkey])
+    expect(fx.map(f => f.salt)).not.toContain(ci.salt) // fresh salt
+    expect(bakedCommitments(LockingScript.fromHex(out.lockingScript))).toEqual(
+      [PUB_A, PUB_B, KEY_C.pubkey].map(pk => commitment(pk, ci.salt))
+    )
+    validateSpends(fx)
+    expect((await vaultStore.getMeta())!.lastUsedSerial).toBe('A-1')
+  }, 60_000)
+
+  it('after a key was REMOVED, the re-lock output is committed only to the remaining keys', async () => {
+    const fx = [vaultFixture(500_000, [PUB_A, PUB_B, KEY_C.pubkey])]
+    await seedVault(fx, [KEY_A, KEY_B]) // C removed
+    await relock()
+    const out = wallet.createAction.mock.calls[0][0].outputs[0]
+    expect(decodeVaultInstructions(out.customInstructions)!.keys).toEqual([PUB_A, PUB_B])
+    expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(2))
+    expect(out.satoshis).toBe(500_000 - estimateRelockFee(1, R1C_LOCK_LEN(2)))
+    validateSpends(fx)
+  }, 60_000)
+
+  it('too-small-to-relock when acc − fee would fall below the floor — nothing reserved, no tap; exactly the floor passes', async () => {
+    await seedVault([vaultFixture(100_000, [PUB_A, PUB_B])]) // 100,000 − 3,410 < 100,000
+    const err = await relock().catch(e => e)
+    expect(err).toMatchObject({ code: 'too-small-to-relock' })
+    expect(err.message).toContain('96590')
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+
+    await seedVault([vaultFixture(100_000 + estimateRelockFee(1, R1C_LOCK_LEN(2)), [PUB_A, PUB_B])])
+    await expect(relock()).resolves.toMatchObject({ txid: expect.any(String) })
+    expect(wallet.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(VAULT_DEPOSIT_MIN)
+  }, 60_000)
+
+  it('not-released when the flag is off — before listing or tapping; reads isVaultEnabled() when opts omit it', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
+    await expect(relock({ vaultEnabled: () => false })).rejects.toMatchObject({ code: 'not-released' })
+    ;(isVaultEnabled as jest.Mock).mockReturnValueOnce(false)
+    await expect(relock()).rejects.toMatchObject({ code: 'not-released' })
+    expect(wallet.listOutputs).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
+  it('requires-online before listing', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
+    await expect(relock({ isOnline: async () => false })).rejects.toMatchObject({ code: 'requires-online' })
+    expect(wallet.listOutputs).not.toHaveBeenCalled()
+  })
+
+  it('selects like a withdrawal: outputs the chosen key cannot open are reported as unreachable, so the screen can ask for another key', async () => {
+    const mine = vaultFixture(500_000, [PUB_A, PUB_B])
+    const theirs = vaultFixture(400_000, [PUB_B])
+    await seedVault([mine, theirs])
+    const r = await relock()
+    expect(r.unreachable).toEqual({ count: 1, satoshis: 400_000, keys: [{ serial: 'B-1', pubkey: PUB_B }] })
+    expect(wallet.createAction.mock.calls[0][0].inputs.map((i: any) => i.outpoint)).toEqual([mine.outpoint])
+    expect(wallet.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(500_000 - estimateRelockFee(1, R1C_LOCK_LEN(2)))
+    validateSpends([mine])
+  }, 60_000)
+
+  it('caps like a withdrawal and reports cappedInputs so the screen can run another pass', async () => {
+    await seedVault(Array.from({ length: VAULT_MAX_INPUTS + 1 }, () => vaultFixture(300_000, [PUB_A, PUB_B])))
+    jest.spyOn(r1comb, 'verifyVaultInput').mockReturnValue(true)
+    const r = await relock()
+    expect(r.cappedInputs).toBe(1)
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    expect(caArgs.inputs).toHaveLength(VAULT_MAX_INPUTS)
+    expect(caArgs.outputs[0].satoshis).toBe(VAULT_MAX_INPUTS * 300_000 - estimateRelockFee(VAULT_MAX_INPUTS, R1C_LOCK_LEN(2)))
+  }, 120_000)
+})
+
+// ── coverage (spec §3.4 badges) ───────────────────────────────────────────
+
+describe('getVaultKeyCoverage', () => {
+  let n = 0
+  const rec = (keys: string[]) => ({
+    outpoint: `${'ab'.repeat(32)}.${n++}`,
+    satoshis: 1,
+    customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'cd'.repeat(32), keys })
+  })
+  const removed = Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), true)))
+
+  it('counts stale outputs in both directions, names the missing current keys, and counts outputs still open to a removed key', async () => {
+    await seedMeta([KEY_A, KEY_B])
+    wallet.listOutputs.mockResolvedValueOnce({
+      outputs: [
+        rec([PUB_A, PUB_B]), // current
+        rec([PUB_A]), // stale: B was added after this deposit → "not yet open to Safe"
+        rec([PUB_A, PUB_B, removed]), // stale: a removed key can still open it
+        { outpoint: `${'ee'.repeat(32)}.0`, satoshis: 5, customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' }) }, // ignored
+        { outpoint: `${'ff'.repeat(32)}.0`, satoshis: 5, customInstructions: '{' } // ignored
+      ]
+    })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({
+      outputs: 3,
+      stale: 2,
+      missingKeys: [PUB_B],
+      removedKeyOutputs: 1
+    })
+    const [listArgs] = wallet.listOutputs.mock.calls[0]
+    expect(listArgs).toMatchObject({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 })
+  })
+
+  it('is all-zero for an empty vault and for a vault whose every output matches the current set', async () => {
+    await seedMeta([KEY_A, KEY_B])
+    wallet.listOutputs.mockResolvedValueOnce({ outputs: [] })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 0, stale: 0, missingKeys: [], removedKeyOutputs: 0 })
+
+    wallet.listOutputs.mockResolvedValueOnce({ outputs: [rec([PUB_A, PUB_B]), rec([PUB_B, PUB_A])] }) // order is irrelevant
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 2, stale: 0, missingKeys: [], removedKeyOutputs: 0 })
+  })
+
+  it('with no key list every output is stale and open to a removed key, and nothing is missing', async () => {
+    wallet.listOutputs.mockResolvedValueOnce({ outputs: [rec([PUB_A, PUB_B]), rec([PUB_A])] })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 2, stale: 2, missingKeys: [], removedKeyOutputs: 2 })
+  })
+
+  it('missingKeys follows meta order and lists each key once however many outputs lack it', async () => {
+    await seedMeta([KEY_A, KEY_B, KEY_C])
+    wallet.listOutputs.mockResolvedValueOnce({ outputs: [rec([PUB_A]), rec([PUB_A]), rec([PUB_B])] })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 3, stale: 3, missingKeys: [PUB_A, PUB_B, KEY_C.pubkey], removedKeyOutputs: 0 })
+  })
+})
+
+describe('orphanedIfRemoved', () => {
+  it('counts vault outputs that would lose every remaining key if the given pubkey were removed', async () => {
+    await seedMeta([KEY_A, KEY_B])
+    wallet.listOutputs.mockResolvedValueOnce({
+      outputs: [
+        { outpoint: `${'ab'.repeat(32)}.0`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'cd'.repeat(32), keys: [PUB_A, PUB_B] }) },
+        { outpoint: `${'ab'.repeat(32)}.1`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'ce'.repeat(32), keys: [PUB_A] }) }
+      ]
+    })
+    expect(await orphanedIfRemoved(wallet, ADMIN, PUB_A)).toBe(1)
+
+    wallet.listOutputs.mockResolvedValueOnce({
+      outputs: [
+        { outpoint: `${'ab'.repeat(32)}.0`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'cd'.repeat(32), keys: [PUB_A, PUB_B] }) },
+        { outpoint: `${'ab'.repeat(32)}.1`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'ce'.repeat(32), keys: [PUB_A] }) }
+      ]
+    })
+    expect(await orphanedIfRemoved(wallet, ADMIN, PUB_B)).toBe(0)
+  })
+})
+
+// ── balance ───────────────────────────────────────────────────────────────
+
+describe('getVaultBalance', () => {
+  it('sums decodable v4 outputs only — a v3 K1 record, a malformed one and a missing one are ignored', async () => {
+    const v4 = (sats: number) => ({
+      outpoint: `${'ab'.repeat(32)}.${sats}`,
+      satoshis: sats,
+      customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'cd'.repeat(32), keys: [PUB_A, PUB_B] })
+    })
+    wallet.listOutputs.mockResolvedValueOnce({
+      outputs: [
+        v4(3000),
+        v4(4500),
+        { outpoint: 'v3.0', satoshis: 1000, customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' }) },
+        { outpoint: 'bad.0', satoshis: 2000, customInstructions: 'not json' },
+        { outpoint: 'none.0', satoshis: 700 }
+      ]
+    })
+    expect(await getVaultBalance(wallet, ADMIN)).toBe(7500)
+    // Without this flag listOutputs omits customInstructions and EVERYTHING
+    // would read as undecodable — a zero balance over a full vault.
+    const [listArgs] = wallet.listOutputs.mock.calls[0]
+    expect(listArgs).toEqual({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 })
+  })
+
+  it('is zero for an empty basket', async () => {
+    expect(await getVaultBalance(wallet, ADMIN)).toBe(0)
   })
 })

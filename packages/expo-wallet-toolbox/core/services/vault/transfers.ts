@@ -44,6 +44,7 @@ import { isBackupPushEnabled } from '../../backup/preference'
 import { isVaultEnabled } from '../../toolboxConfig'
 import { noteVaultProgress, requestVaultSigner } from './ceremonyHost'
 import {
+  R1C_LOCK_LEN,
   R1C_UNLOCK_LEN,
   SALT_BYTES,
   VaultInstructionsV4,
@@ -453,9 +454,20 @@ async function requireOnline(opts?: VaultTransferOptions): Promise<void> {
 
 // ── balance ─────────────────────────────────────────────────────────────
 
+/**
+ * Sum of the DECODABLE v4 outputs in the basket (spec §2.7). An output whose
+ * record is missing or malformed cannot be spent by this code and is ignored
+ * here, in selection, in coverage and in the zero-balance check for Disable —
+ * so the number on the screen is what a YubiKey can actually open.
+ * includeCustomInstructions is required: listOutputs omits the field unless
+ * asked, and without it everything would read as undecodable.
+ */
 export async function getVaultBalance(w: VaultWallet, adminOriginator: string): Promise<number> {
-  const res = await w.listOutputs({ basket: VAULT_BASKET, limit: 1000 }, adminOriginator)
-  return res.outputs.reduce((sum, o) => sum + (o.satoshis ?? 0), 0)
+  const res = await w.listOutputs({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 }, adminOriginator)
+  return res.outputs.reduce(
+    (sum, o) => sum + (decodeVaultInstructions(o.customInstructions) ? (o.satoshis ?? 0) : 0),
+    0
+  )
 }
 
 // ── vault outputs ────────────────────────────────────────────────────────
@@ -1204,4 +1216,134 @@ export async function withdrawFromVault(
     { outputs, labels: ['vault', 'vault-withdraw'], inputDescription: 'Vault withdrawal' },
     opts
   )
+}
+
+// ── re-lock (spec §4.3) ──────────────────────────────────────────────────
+
+/**
+ * Fee reserve for a re-lock, in the toolbox's own arithmetic (100 sat/kB,
+ * rounded up per kB) plus 10 %.
+ *
+ *   size = 10 + inputCount·(41 + 3 + R1C_UNLOCK_LEN) + (3 + lockLen + 8)
+ *
+ * — version/locktime/counts (10); per input the outpoint + sequence (41), a
+ * 3-byte script-length prefix and the DECLARED unlock length; one output: an
+ * 8-byte value, a 3-byte prefix and the new lock. The +10 % is computed in
+ * integers (`ceil(kb·satPerKb·11 / 10)`): `11200 * 1.1` is
+ * `12320.000000000002` in doubles, and a float ceil would over-charge by one.
+ *
+ * The re-lock output is `acc − this`; the toolbox's real fee is at most this
+ * and the surplus becomes ordinary default-basket change (folded into the fee
+ * when below dust). ≈ 2,900 sat per pass plus ≈ 260 sat per input.
+ */
+export function estimateRelockFee(inputCount: number, lockLen: number, satPerKb = 100): number {
+  const size = 10 + inputCount * (41 + 3 + R1C_UNLOCK_LEN) + (3 + lockLen + 8)
+  const kb = Math.ceil(size / 1000)
+  return Math.ceil((kb * satPerKb * 11) / 10)
+}
+
+/**
+ * Re-lock the vault with the chosen key (spec §4.3): a distinct spend mode,
+ * NOT withdrawFromVault('all') — whose remainder is zero and would sweep the
+ * vault into the hot wallet. Selects exactly as a withdrawal of 'all' does
+ * (filter → sort → cap → commitment check), then creates ONE output of
+ * `acc − estimateRelockFee(...)` committed to the CURRENT key set, and no
+ * withdrawal output. This is how a key added later gains access to old
+ * deposits and how a removed key loses it — on-chain the removed key can still
+ * spend the outputs it was committed to, so the re-lock IS the revocation.
+ *
+ * The screen runs one pass per tap while `cappedInputs > 0`, and asks for
+ * another key when only `unreachable` outputs remain.
+ */
+export async function relockVault(
+  w: VaultWallet,
+  adminOriginator: string,
+  reason: string,
+  chosenSerial: string,
+  opts?: VaultTransferOptions
+): Promise<VaultSpendResult> {
+  requireReleased(opts, 'Re-locking the vault')
+  await requireOnline(opts)
+  const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, 'all')
+  if (sel.keys.length < VAULT_MIN_KEYS) {
+    throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${sel.keys.length} enrolled`)
+  }
+  const fee = estimateRelockFee(sel.selected.length, R1C_LOCK_LEN(sel.keys.length))
+  const relocked = sel.acc - fee
+  if (relocked < VAULT_DEPOSIT_MIN) {
+    throw new VaultError(
+      'too-small-to-relock',
+      `Re-locking ${sel.acc} satoshis would leave ${relocked} after fees, below the ${VAULT_DEPOSIT_MIN} floor`
+    )
+  }
+  return spendVaultOutputs(
+    w,
+    adminOriginator,
+    sel,
+    reason,
+    {
+      outputs: [newVaultOutput(sel.keys, relocked, 'Vault re-lock')],
+      labels: ['vault', 'vault-relock'],
+      inputDescription: 'Vault re-lock'
+    },
+    opts
+  )
+}
+
+// ── coverage (spec §3.4 badges) ──────────────────────────────────────────
+
+/**
+ * How the vault's outputs relate to the CURRENT key list, from each output's
+ * v4 record (the informational key list — good enough for a badge; the
+ * withdraw path checks the real lock). `stale` counts outputs whose set
+ * differs in EITHER direction; `missingKeys` are the current pubkeys some
+ * output lacks ("{{count}} deposits not yet open to {{nickname}}");
+ * `removedKeyOutputs` are outputs a pubkey no longer in meta can still open
+ * ("still open to a removed key"). Undecodable outputs are ignored, as
+ * everywhere.
+ */
+export async function getVaultKeyCoverage(w: VaultWallet, adminOriginator: string): Promise<VaultKeyCoverage> {
+  const meta = await vaultStore.getMeta()
+  const current = meta?.keys.map(k => k.pubkey) ?? []
+  const currentSet = new Set(current)
+  const res = await w.listOutputs({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 }, adminOriginator)
+  const records = res.outputs
+    .map(o => decodeVaultInstructions(o.customInstructions))
+    .filter((ci): ci is VaultInstructionsV4 => ci != null)
+
+  let stale = 0
+  let removedKeyOutputs = 0
+  const missing = new Set<string>()
+  for (const ci of records) {
+    const set = new Set(ci.keys)
+    const same = set.size === currentSet.size && current.every(pk => set.has(pk))
+    if (!same) stale++
+    for (const pk of current) if (!set.has(pk)) missing.add(pk)
+    if (ci.keys.some(pk => !currentSet.has(pk))) removedKeyOutputs++
+  }
+  return {
+    outputs: records.length,
+    stale,
+    missingKeys: current.filter(pk => missing.has(pk)), // meta order, each once
+    removedKeyOutputs
+  }
+}
+
+/**
+ * How many vault outputs would lose every remaining committed key if `pubkey`
+ * were removed (spec §3.4) — the exact predicate Remove must satisfy: an
+ * output stays spendable after removal only if its baked key set (the
+ * informational v4 record — good enough here, as in getVaultKeyCoverage; the
+ * withdraw path checks the real lock) intersects the CURRENT key list minus
+ * the one being removed. Reads the same listOutputs as getVaultKeyCoverage;
+ * undecodable outputs are ignored, as everywhere.
+ */
+export async function orphanedIfRemoved(w: VaultWallet, adminOriginator: string, pubkey: string): Promise<number> {
+  const meta = await vaultStore.getMeta()
+  const remaining = new Set((meta?.keys.map(k => k.pubkey) ?? []).filter(pk => pk !== pubkey))
+  const res = await w.listOutputs({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 }, adminOriginator)
+  const records = res.outputs
+    .map(o => decodeVaultInstructions(o.customInstructions))
+    .filter((ci): ci is VaultInstructionsV4 => ci != null)
+  return records.filter(ci => !ci.keys.some(pk => remaining.has(pk))).length
 }
