@@ -13,7 +13,7 @@
  * SECURITY: nothing secret passes through this module — public keys, per-output
  * salts, signatures the card already produced, and script bytes.
  */
-import { Hash, LockingScript, OP, PrivateKey, Script, Transaction, TransactionSignature, Utils } from '@bsv/sdk'
+import { Hash, LockingScript, OP, PrivateKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
 
@@ -71,9 +71,6 @@ const bytesOf = (h: string): number[] => Utils.toArray(h, 'hex') as number[]
 const beToBig = (b: number[]): bigint => BigInt('0x' + (b.length > 0 ? Utils.toHex(b) : '0'))
 const leToBig = (b: number[]): bigint => beToBig([...b].reverse())
 const invalid = (message: string): VaultError => new VaultError('template-invalid', message)
-// Keep the helper referenced until a later task uses it (TypeScript strict does not
-// flag unused module-level consts, but this documents intent).
-void leToBig
 
 // ───────────────────────── script-number encoding ─────────────────────────
 /** Raw data push with the minimal push opcode (direct length, PUSHDATA1/2/4). */
@@ -631,4 +628,92 @@ export function decodeDerSignature(der: number[]): { r: bigint; s: bigint } {
   if (pos !== der.length) fail('trailing bytes')
   if (r === 0n || r >= P256_N || s === 0n || s >= P256_N) fail('scalar out of range')
   return { r, s }
+}
+
+// ───────────────────────── strict verification flags ─────────────────────────
+/**
+ * Explicit @bsv/sdk Spend flags. With flags given, every rule is flag-driven and ignores the transaction
+ * version: MINIMALDATA (minimal pushes and script numbers — the rule the OP_PUSH_TX peel loop can trip),
+ * UTXO_AFTER_CHRONICLE (post-Genesis limits off, OP_RSHIFTNUM/OP_2MUL live), SIGHASH_FORKID + STRICTENC
+ * (strict DER, defined hash type, FORKID required). A version-2 vault spend is judged exactly as strictly as
+ * the version-1 mined fixture.
+ */
+export const R1C_VERIFY_FLAGS: readonly string[] = ['MINIMALDATA', 'UTXO_AFTER_CHRONICLE', 'SIGHASH_FORKID', 'STRICTENC']
+
+// ───────────────────────── fullR / buildUnlock (spec §2.4) ─────────────────────────
+/**
+ * R = u1·G + u2·Q for e = LE(hash256(preimage)), u1 = e·s⁻¹, u2 = rSig·s⁻¹ (mod n).
+ * Returns the FULL affine x (in [0, p)), or null if R is the point at infinity. Throws on s ≡ 0.
+ */
+export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHex33: string }): bigint | null {
+  requirePreimage(a.preimage, 'fullR')
+  const Q = p256.Point.fromHex(compressPubkey(a.pubkeyHex33))
+  const s = mod(a.s, P256_N)
+  if (s === 0n) throw invalid('fullR: s ≡ 0 (mod n)')
+  const e = leToBig(Hash.hash256(a.preimage))
+  const sInv = modinv(s, P256_N)
+  const u1 = mod(e * sInv, P256_N)
+  const u2 = mod(a.rSig * sInv, P256_N)
+  const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(u2 === 0n ? p256.Point.ZERO : Q.multiply(u2))
+  if (R.is0()) return null
+  return R.toAffine().x
+}
+
+/**
+ * The 71-push unlocking script: r, u2', u1', 64 coords of table(Q), salt, s, s⁻¹, preimage (spec §2.4).
+ * Refuses: wrong preimage length, preimage version ≠ 2 (spec §2.6 — Plan 2 maps this to 'bad-version' upstream),
+ * bad salt / key / DER, R = O. It does NOT verify the signature against Q: the interpreter is the arbiter
+ * (Plan 2 runs verifyVaultInput on every input before signAction).
+ */
+export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript {
+  const { preimage } = a
+  requirePreimage(preimage, 'buildUnlock')
+  const version = new Utils.Reader(preimage.slice(0, 4)).readUInt32LE()
+  if (version !== 2) throw invalid(`buildUnlock: withdrawals are version-2 transactions; this preimage carries version ${version}`)
+  const salt = saltBytes(a.saltHex64)
+  const key = compressPubkey(a.pubkeyHex33)
+  const { r: rSig, s } = decodeDerSignature(a.derSig)
+  const Rx = fullR({ preimage, rSig, s, pubkeyHex33: key })
+  if (Rx === null) throw invalid('buildUnlock: R is the point at infinity')
+  const e = leToBig(Hash.hash256(preimage))
+  const sInv = modinv(s, P256_N)
+  const u1 = mod(e * sInv, P256_N)
+  const u2 = mod(Rx * sInv, P256_N)   // the lock derives u2 from the PUSHED r (≡ rSig mod n), so recode that
+  const bytes: number[] = [...encNum(Rx), ...encNum(recode(u2)), ...encNum(recode(u1))]
+  for (const { x, y } of combTable(key)) bytes.push(...encNum(x), ...encNum(y))
+  bytes.push(...pushData(salt), ...encNum(s), ...encNum(sInv), ...pushData(preimage))
+  if (bytes.length > R1C_UNLOCK_LEN) throw invalid(`buildUnlock: ${bytes.length} bytes exceeds R1C_UNLOCK_LEN`)
+  return new UnlockingScript(Script.fromBinary(bytes).chunks)
+}
+
+// ───────────────────────── strict local verification ─────────────────────────
+/** Run @bsv/sdk Spend with R1C_VERIFY_FLAGS for one input. Returns true or throws the interpreter's error. */
+export function verifyVaultInput(a: {
+  tx: Transaction
+  inputIndex: number
+  sourceSatoshis: number
+  lockingScript: LockingScript
+  unlockingScript: UnlockingScript
+}): true {
+  const { tx, inputIndex } = a
+  const input = tx.inputs[inputIndex]
+  if (input === undefined) throw invalid(`verifyVaultInput: input ${inputIndex} does not exist`)
+  const sourceTXID = input.sourceTXID ?? input.sourceTransaction?.id('hex')
+  if (sourceTXID === undefined) throw invalid('verifyVaultInput: input needs sourceTXID or sourceTransaction')
+  const spend = new Spend({
+    sourceTXID,
+    sourceOutputIndex: input.sourceOutputIndex,
+    sourceSatoshis: a.sourceSatoshis,
+    lockingScript: a.lockingScript,
+    transactionVersion: tx.version,
+    otherInputs: tx.inputs.filter((_, i) => i !== inputIndex),
+    outputs: tx.outputs,
+    inputIndex,
+    unlockingScript: a.unlockingScript,
+    inputSequence: input.sequence ?? 0xffffffff,
+    lockTime: tx.lockTime,
+    verifyFlags: [...R1C_VERIFY_FLAGS]
+  })
+  if (spend.validate() !== true) throw invalid('verifyVaultInput: script evaluated to false')
+  return true
 }
