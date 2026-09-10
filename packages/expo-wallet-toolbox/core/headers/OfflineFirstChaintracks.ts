@@ -14,7 +14,7 @@
  * whose ancestry we resolved once should verify offline forever after.
  */
 import { Utils } from '@bsv/sdk'
-import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile/out/src/services/chaintracker/chaintracks/Api/ChaintracksClientApi'
+import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderStore } from './headerStore'
 
 /** A merkle root as display-order hex, whether the source gave us a hex string

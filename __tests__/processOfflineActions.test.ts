@@ -40,12 +40,9 @@ jest.mock('expo-secure-store', () => ({
 
 // `mock`-prefixed so jest's out-of-scope guard allows the factory to close over it.
 const mockPostReqs = jest.fn()
-jest.mock('@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork', () => ({
-  attemptToPostReqsToNetwork: (...args: unknown[]) => mockPostReqs(...args)
-}))
 
 import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
-import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
+import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile'
 import {
   processOfflineActions,
   type BindValue,
@@ -120,6 +117,7 @@ function fakeStorage(args: { db: ReturnType<typeof fakeDb>; reqs: TableProvenTxR
     findTransactions: async () => [{ transactionId: 11, status: 'unproven' }],
     updateProvenTxReq: jest.fn(),
     updateTransactionStatus: jest.fn(),
+    attemptToPostReqsToNetwork: (reqs: unknown[]) => mockPostReqs(undefined, reqs),
     getServices: () => ({ postBeef: args.postBeef ?? jest.fn(async () => []) })
   }
 }

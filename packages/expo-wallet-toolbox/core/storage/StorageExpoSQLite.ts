@@ -23,36 +23,11 @@ import {
 } from './methods/reclaim'
 import { availableDiskBytes, diskPressure } from '../diskSpace'
 import { devLog } from '../logging'
-import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
-import type { StorageProviderOptions } from '@bsv/wallet-toolbox-mobile'
-import type {
-  AuthId,
-  FindCertificateFieldsArgs,
-  FindCertificatesArgs,
-  FindCommissionsArgs,
-  FindMonitorEventsArgs,
-  FindOutputBasketsArgs,
-  FindOutputsArgs,
-  FindOutputTagsArgs,
-  FindOutputTagMapsArgs,
-  FindProvenTxReqsArgs,
-  FindProvenTxsArgs,
-  FindSyncStatesArgs,
-  FindTransactionsArgs,
-  FindTxLabelsArgs,
-  FindTxLabelMapsArgs,
-  FindUsersArgs,
-  FindForUserSincePagedArgs,
-  ProcessSyncChunkResult,
-  ProvenOrRawTx,
-  PurgeParams,
-  PurgeResults,
-  RequestSyncChunkArgs,
-  SyncChunk,
-  TrxToken
-} from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
-import type { AdminStatsResult } from '@bsv/wallet-toolbox-mobile/out/src/storage/StorageProvider'
-import type {
+import {
+  StorageProvider,
+  type AdminStatsResult,
+  type EntityProvenTxReq,
+  type StorageProviderOptions,
   TableCertificate,
   TableCertificateField,
   TableCertificateX,
@@ -69,12 +44,11 @@ import type {
   TableTransaction,
   TableTxLabel,
   TableTxLabelMap,
-  TableUser
-} from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
+  TableUser,
+  type sdk
+} from '@bsv/wallet-toolbox-mobile'
 import type { ListActionsResult, ListOutputsResult, Validation, WalletLoggerInterface } from '@bsv/sdk'
 import { Beef } from '@bsv/sdk'
-import type { EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/entities'
-import type { PostReqsToNetworkResult } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork'
 import { listActionsSql } from './methods/listActionsSql'
 import { listOutputsSql } from './methods/listOutputsSql'
 import { findUnprovenTxidsWithoutReq } from './methods/unprovenWithoutReqSql'
@@ -94,6 +68,32 @@ import {
 import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
 import { getOnline } from '../net/online'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
+
+type AuthId = sdk.AuthId
+type FindCertificateFieldsArgs = sdk.FindCertificateFieldsArgs
+type FindCertificatesArgs = sdk.FindCertificatesArgs
+type FindCommissionsArgs = sdk.FindCommissionsArgs
+type FindMonitorEventsArgs = sdk.FindMonitorEventsArgs
+type FindOutputBasketsArgs = sdk.FindOutputBasketsArgs
+type FindOutputsArgs = sdk.FindOutputsArgs
+type FindOutputTagsArgs = sdk.FindOutputTagsArgs
+type FindOutputTagMapsArgs = sdk.FindOutputTagMapsArgs
+type FindProvenTxReqsArgs = sdk.FindProvenTxReqsArgs
+type FindProvenTxsArgs = sdk.FindProvenTxsArgs
+type FindSyncStatesArgs = sdk.FindSyncStatesArgs
+type FindTransactionsArgs = sdk.FindTransactionsArgs
+type FindTxLabelsArgs = sdk.FindTxLabelsArgs
+type FindTxLabelMapsArgs = sdk.FindTxLabelMapsArgs
+type FindUsersArgs = sdk.FindUsersArgs
+type FindForUserSincePagedArgs = sdk.FindForUserSincePagedArgs
+type ProcessSyncChunkResult = sdk.ProcessSyncChunkResult
+type ProvenOrRawTx = sdk.ProvenOrRawTx
+type PurgeParams = sdk.PurgeParams
+type PurgeResults = sdk.PurgeResults
+type RequestSyncChunkArgs = sdk.RequestSyncChunkArgs
+type SyncChunk = sdk.SyncChunk
+type TrxToken = sdk.TrxToken
+type PostReqsToNetworkResult = Awaited<ReturnType<StorageProvider['attemptToPostReqsToNetwork']>>
 
 export interface StorageExpoSQLiteOptions extends StorageProviderOptions {
   databaseName?: string

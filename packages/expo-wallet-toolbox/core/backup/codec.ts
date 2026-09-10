@@ -16,11 +16,11 @@
  */
 import type { CompletedProtoWallet } from '@bsv/sdk'
 import { Utils } from '@bsv/sdk'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
+import type { sdk } from '@bsv/wallet-toolbox-mobile'
 import {
   parseJsonRpc,
   stringifyJsonRpc
-} from '@bsv/wallet-toolbox-mobile/out/src/storage/remoting/BinaryJson'
+} from './binaryJson'
 import { BACKUP_PROTOCOL, backupKeyId, type BackupChain } from './constants'
 
 /**
@@ -30,6 +30,7 @@ import { BACKUP_PROTOCOL, backupKeyId, type BackupChain } from './constants'
  * usually ids rather than payloads.
  */
 const PACK_MIN_LENGTH = 32
+type SyncChunk = sdk.SyncChunk
 
 /**
  * Repack byte-valued numeric arrays as Uint8Array so the binary serialiser can base64 them.

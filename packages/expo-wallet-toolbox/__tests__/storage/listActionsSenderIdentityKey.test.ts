@@ -6,7 +6,9 @@
  * under test: a renamed column or a filter that stops matching fails here.
  */
 import { DatabaseSync } from 'node:sqlite'
-import type { TrxToken } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
+import type { sdk } from '@bsv/wallet-toolbox-mobile'
+
+type TrxToken = sdk.TrxToken
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { createTables } from '../../core/storage/schema/createTables'
 
