@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.5.0
+
+### 1-of-N YubiKey vault (breaking)
+
+The vault is rebuilt around the P-256 comb verifier: each enrolled YubiKey
+signs vault inputs on the card, and the K1 sealed-seed design is gone. Spec:
+`docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md`.
+
+Removed exports (`core` barrel):
+
+- `sealing` (`sealVaultKey`, `unsealVaultKey`, `softwareEcdh`, `SEAL_INFO`),
+  `vaultDerivation` (`deriveVaultSeed`, `deriveVaultHD`, `bip32KeyID`,
+  `indexFromKeyID`, `depositPrivKey`, `depositPubKeyHash`,
+  `randomDepositStartIndex`), `vaultPassphrase` (`checkVaultPassphrase`,
+  `normalizeVaultPassphrase`), `k1` (`K1_LOCK_LEN`, `K1_UNLOCK_LEN`,
+  `buildVaultLockingScript`, the v3 `VaultInstructions` codec).
+- `SealedBlob`; the error codes `seal-corrupt`, `bad-passphrase`,
+  `bad-mnemonic`, `bad-derivation-index`, `backup-required`.
+- `VaultKeyHandle`, `CeremonyController.requestKey`, `requestVaultKey`;
+  `CeremonyStoreView.getSeal`.
+- `enrollVault`, `recoverVaultHD`, `resealToNewKey`, `PendingEnrollment`.
+- `sweepVaultWithHD`; `VaultSpendResult.remainingInputs`; the `reason`
+  parameter of `depositToVault`; `VaultDriver.ecdh`; `vaultStore.getSeal` /
+  `setSeal` / `takeNextIndex`; meta v4 (`VaultMetaV4`).
+
+New:
+
+- `r1comb`: `buildLock`, `bakedCommitments`, `commitment`, `buildUnlock`,
+  `verifyVaultInput`, `sighashPreimage`, `signerDigest`, `pushTxDerCheck`,
+  `compressPubkey`, the v4 `VaultInstructions` codec, `R1C_LOCK_LEN`,
+  `R1C_UNLOCK_LEN` (see the 0.5.0 Plan 1 entry for the on-chain format).
+- `vaultStore` meta v5: `VaultKeyRecord`, `VaultMetaV5`, `addKey`,
+  `removeKey`, `renameKey`, `noteLastUsed`, `migrateLegacySeal`;
+  `isEnrolled()` is meta-only.
+- `VaultKeyService`: `enrollKey`, `finalizeEnrollment(records)`,
+  `addVaultKey`, `VAULT_MIN_KEYS`, `VAULT_MAX_KEYS`, `EnrollPhase`.
+- Ceremony: `VaultSigner { serial, pubkey, sign(digest, progress?), release() }`,
+  `CeremonyController.requestSigner(reason, chosenSerial)`,
+  `requestVaultSigner`, `VAULT_INPUTS_PER_TAP`, `CeremonyState.progress`,
+  `VaultProgress.signed/total`.
+- Transfers: `depositToVault(w, adminOriginator, satoshis, opts?)` needs no
+  hardware; `withdrawFromVault(w, adminOriginator, amount, reason,
+  chosenSerial, opts?)`; `relockVault`; `estimateRelockFee`;
+  `getVaultKeyCoverage`; `VaultSpendResult { txid, cappedInputs, unreachable }`;
+  `VaultTransferOptions.vaultEnabled` / `backupEnabled`; error codes
+  `not-released`, `backup-off`, `not-enough-keys`, `key-already-enrolled`,
+  `too-many-keys`, `last-keys`, `relock-required`, `key-not-committed`,
+  `key-cannot-cover`, `too-small-to-relock`, `bad-version`.
+- `configureToolbox({ vaultEnabled })` and `isVaultEnabled()` — the release
+  gate (default off).
+- `withKeySession(driver, work, onWaiting?, { nfcMessage?, attachTimeoutMs? })`
+  rejects on `session-failed`, `detached` and the attach timeout instead of
+  waiting forever.
+- Native: `startDiscovery(message)` sets the iOS NFC alert text from JS.
+
+Behaviour changes:
+
+- Vault outputs are version-2 spends of a ~28 KB lock committed to every
+  enrolled key; deposits stay version 1. `VAULT_DEPOSIT_MIN` is 100,000 sat.
+- A deposit is refused while backup push is off (`backup-off`) or the
+  release flag is off (`not-released`). Withdrawing pre-existing outputs is
+  never gated; creating a re-vault output or a re-lock is.
+- Withdrawals name a key before the tap; only outputs committed to that key
+  are spent, each checked against its real lock; the card signs one digest
+  per input in batches of 16 per NFC tap, resuming after a dropped tap.
+- `generateVaultKey` enrols with touch policy `cached` (was `always`) and
+  always generates a fresh key (no adoption).
+- A device holding v4 meta reads as not enrolled; the legacy SecureStore seal
+  is deleted on `VaultProvider` mount. Sweep any dev device holding K1 vault
+  funds BEFORE installing this version — the K1 sweep tooling is gone.
+- Kept as legacy pending confirmation that nothing is stranded:
+  `reclaimStagingOutputs`, `VAULT_STAGING_BASKET`,
+  `StorageExpoSQLite.releaseVaultStagingStrandedByInvalidTx`.
+  `VaultWallet.getPublicKey` and `createSignature` survive only for that
+  reclaim.
+
 ## 0.4.0
 
 ### Host-supplied configuration (breaking)

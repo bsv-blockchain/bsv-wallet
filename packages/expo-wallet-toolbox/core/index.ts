@@ -252,9 +252,11 @@ export * from './backup/restoreOnImport'
 export * from './walletRepair/runWalletCheck'
 export { TaskBackupPush } from './monitor/TaskBackupPush'
 
-// Hardware vault: YubiKey PIV custody, ceremony state machine, K1 script,
-// sealing/session/derivation crypto, transfers (deposit/withdraw/sweep/
-// reclaim), persistence, passphrase policy, access guard, backup attestation.
+// Hardware vault: YubiKey PIV custody (1-of-N P-256 comb vault, spec
+// docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md), ceremony state
+// machine, the r1comb template module, session helper, transfers
+// (deposit / withdraw / re-lock / legacy staging reclaim), persistence (meta
+// v5), access guard, backup attestation.
 //
 // 'driver.ts' and 'random.ts' both reach for a native module
 // (react-native-yubikey, expo-crypto) with a `require(...)` INSIDE a
@@ -266,10 +268,7 @@ export * from './services/vault/types'
 export * from './services/vault/driver'
 export * from './services/vault/session'
 export * from './services/vault/random'
-export * from './services/vault/sealing'
 export * from './services/vault/r1comb'
-export * from './services/vault/vaultDerivation'
-export * from './services/vault/vaultPassphrase'
 export * from './services/vault/vaultStore'
 export * from './services/vault/mockYubiKey'
 export * from './services/vault/devMock'

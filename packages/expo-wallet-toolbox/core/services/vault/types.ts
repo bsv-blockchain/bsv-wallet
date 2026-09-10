@@ -1,25 +1,11 @@
 /**
- * Vault domain types — shared by the sealing crypto, the store, the ceremony
- * controller, and the UI. No React, no I/O.
+ * Vault domain types — shared by the store, the ceremony controller, the
+ * transfers and the UI. No React, no I/O.
+ *
+ * There is no sealed blob and no seed anywhere in this design (spec D2): the
+ * enrolled YubiKeys are the keys, and each output's salt lives in the wallet
+ * database's customInstructions.
  */
-
-/** Persisted seal: everything needed to recover the vault key EXCEPT the
- * on-token ECDH. The blob alone is useless without the physical YubiKey. */
-export interface SealedBlob {
-  v: 1
-  /** PIV slot holding the P-256 key (0x82, first "retired" slot). */
-  slot: number
-  /** Ephemeral P-256 public key, hex, 65-byte uncompressed SEC1 point. */
-  ePub: string
-  /** HKDF salt, hex, 32 bytes. */
-  salt: string
-  /** AES-256-GCM ciphertext of the vault key (SymmetricKey wire format), hex. */
-  c: string
-  /** Serial of the enrolled YubiKey — ceremony rejects other keys early. */
-  yubiSerial: string
-  /** sha256 of the token public key, hex — sanity check against slot rewrites. */
-  yubiPubSha256: string
-}
 
 export type VaultErrorCode =
   | 'unsupported-platform'
@@ -32,9 +18,6 @@ export type VaultErrorCode =
   | 'key-removed-mid-op'
   | 'mgmt-key-custom'
   | 'slot-occupied'
-  /** unsealVaultKey could not open a SealedBlob — wrong shared secret,
-   * tampered ciphertext, or a malformed blob. Never distinguishes which. */
-  | 'seal-corrupt'
   /** A vault key digest, DER signature, pubkey or script failed a structural
    * check (r1comb.ts throws it for malformed SEC1 points, DER, or a lock that
    * is not an R1C lock). Distinct from 'wrong-key', which vaultErrorFromNative
@@ -49,13 +32,6 @@ export type VaultErrorCode =
   | 'below-dust'
   | 'no-transaction'
   | 'nfc-lost'
-  /** REMOVED IN TASK 12 of the R1C plan — seed-era codes kept only so the
-   * modules deleted there (sealing.ts, vaultPassphrase.ts, vaultDerivation.ts)
-   * and the pre-rewrite transfers.ts compile until their own task lands. */
-  | 'bad-passphrase'
-  | 'bad-mnemonic'
-  | 'bad-derivation-index'
-  | 'backup-required'
   /** More vault inputs would be needed than one transaction may safely carry.
    *  See VAULT_MAX_INPUTS — the remedy is a smaller withdrawal, which also
    *  consolidates the vault. */

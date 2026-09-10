@@ -441,7 +441,7 @@ async function freeReservedInputs(
 /**
  * Refuse a vault transfer while offline.
  *
- * Checked before anything else: before the deposit's backup attestation, and
+ * Checked before anything else: before the deposit's backup-push gate, and
  * before the withdrawal arms the YubiKey — an offline user must not be asked to
  * present a key for a transfer that cannot proceed.
  */
@@ -604,7 +604,7 @@ export interface ReclaimResult {
  * deposit-time reuse, which matched by exact satoshis — with no outputs of its
  * own, so the toolbox returns the whole value (minus fee) as default-basket
  * change. The staging key is an ordinary BRC-42 wallet key (counterparty
- * 'self'), so no ceremony, no tap, no vault HD node is involved.
+ * 'self'), so no ceremony or tap is involved.
  *
  * Safe to call speculatively: returns {reclaimed: 0} without touching the
  * wallet when the basket is empty.
