@@ -5,6 +5,7 @@ const expoConfig = require('eslint-config-expo/flat')
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*']
+    // docs/example-txs/spike holds throwaway Node analysis scripts (see its README), not app code.
+    ignores: ['dist/*', 'docs/example-txs/spike/*']
   }
 ])
