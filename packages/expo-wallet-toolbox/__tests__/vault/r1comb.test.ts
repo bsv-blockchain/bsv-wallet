@@ -728,14 +728,15 @@ describe('round trips through Spend (version 2, strict flags)', () => {
     }
   })
 
-  it('a key whose comb table has a sub-2^248 coordinate (31-byte push) spends', () => {
+  it('a key whose comb table has a sub-2^247 coordinate (31-byte push) spends', () => {
     let found: Member | null = null
     for (let tries = 0; tries < 200 && found === null; tries++) {
       const m = newMember()
-      if (combTable(m.pub).some(pt => pt.x < (1n << 248n) || pt.y < (1n << 248n))) found = m
+      if (combTable(m.pub).some(pt => pt.x < (1n << 247n) || pt.y < (1n << 247n))) found = m
     }
     if (found === null) {
-      // ≈ 22 % of keys have a short coordinate, so 200 misses has probability ≈ 0.78^200 ≈ 2^-71.
+      // P(a coordinate < 2^247) = 2^-9, so P(a key has at least one such coordinate among 64) =
+      // 1 − (1 − 2^-9)^64 ≈ 11.8 %; 200 misses ≈ 0.882^200 ≈ 2^-36.
       console.warn('r1comb.test: no 31-byte coordinate in 200 random keys — skipping the short-coordinate round trip')
       return
     }
