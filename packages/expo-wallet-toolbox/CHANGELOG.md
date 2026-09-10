@@ -10,12 +10,17 @@ signs vault inputs on the card, and the K1 sealed-seed design is gone. Spec:
 
 Removed exports (`core` barrel):
 
-- `sealing` (`sealVaultKey`, `unsealVaultKey`, `softwareEcdh`, `SEAL_INFO`),
-  `vaultDerivation` (`deriveVaultSeed`, `deriveVaultHD`, `bip32KeyID`,
-  `indexFromKeyID`, `depositPrivKey`, `depositPubKeyHash`,
-  `randomDepositStartIndex`), `vaultPassphrase` (`checkVaultPassphrase`,
-  `normalizeVaultPassphrase`), `k1` (`K1_LOCK_LEN`, `K1_UNLOCK_LEN`,
-  `buildVaultLockingScript`, the v3 `VaultInstructions` codec).
+- `sealing` (`SEAL_INFO`, `softwareEcdh`, `sealVaultKey`, `unsealVaultKey`);
+  `vaultDerivation` (`deriveVaultSeed`, `BIP32_KEYID_PREFIX`, `bip32KeyID`,
+  `indexFromKeyID`, `randomDepositStartIndex`, `deriveVaultHD`,
+  `depositPrivKey`, `depositPubKeyHash`); `vaultPassphrase`
+  (`VAULT_PASSPHRASE_MIN_BITS`, `RECOMMENDED_WORD_COUNT`,
+  `MINIMUM_WORD_COUNT`, `generatePassphrase`, `PassphraseVerdict`,
+  `PassphraseTier`, `PassphraseStrength`, `normalizeVaultPassphrase`,
+  `passphraseEntropyBits`, `checkVaultPassphrase`, `crackTimeSeconds`,
+  `formatCrackTime`, `passphraseStrength`); `k1` (`K1_LOCK_LEN`,
+  `K1_UNLOCK_LEN`, `VaultInstructions`, `encodeVaultInstructions`,
+  `decodeVaultInstructions`, `buildVaultLockingScript`).
 - `SealedBlob`; the error codes `seal-corrupt`, `bad-passphrase`,
   `bad-mnemonic`, `bad-derivation-index`, `backup-required`.
 - `VaultKeyHandle`, `CeremonyController.requestKey`, `requestVaultKey`;
@@ -30,7 +35,9 @@ New:
 - `r1comb`: `buildLock`, `bakedCommitments`, `commitment`, `buildUnlock`,
   `verifyVaultInput`, `sighashPreimage`, `signerDigest`, `pushTxDerCheck`,
   `compressPubkey`, the v4 `VaultInstructions` codec, `R1C_LOCK_LEN`,
-  `R1C_UNLOCK_LEN` (see the 0.5.0 Plan 1 entry for the on-chain format).
+  `R1C_UNLOCK_LEN` (on-chain format: spec
+  `docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md` §2; codec in
+  `core/services/vault/r1comb.ts`).
 - `vaultStore` meta v5: `VaultKeyRecord`, `VaultMetaV5`, `addKey`,
   `removeKey`, `renameKey`, `noteLastUsed`, `migrateLegacySeal`;
   `isEnrolled()` is meta-only.
@@ -43,17 +50,20 @@ New:
 - Transfers: `depositToVault(w, adminOriginator, satoshis, opts?)` needs no
   hardware; `withdrawFromVault(w, adminOriginator, amount, reason,
   chosenSerial, opts?)`; `relockVault`; `estimateRelockFee`;
-  `getVaultKeyCoverage`; `VaultSpendResult { txid, cappedInputs, unreachable }`;
+  `getVaultKeyCoverage`; `orphanedIfRemoved`;
+  `VaultSpendResult { txid, cappedInputs, unreachable }`;
   `VaultTransferOptions.vaultEnabled` / `backupEnabled`; error codes
   `not-released`, `backup-off`, `not-enough-keys`, `key-already-enrolled`,
   `too-many-keys`, `last-keys`, `relock-required`, `key-not-committed`,
-  `key-cannot-cover`, `too-small-to-relock`, `bad-version`.
+  `key-cannot-cover`, `too-small-to-relock`, `bad-version`; `VaultError.details`.
 - `configureToolbox({ vaultEnabled })` and `isVaultEnabled()` — the release
   gate (default off).
 - `withKeySession(driver, work, onWaiting?, { nfcMessage?, attachTimeoutMs? })`
   rejects on `session-failed`, `detached` and the attach timeout instead of
-  waiting forever.
+  waiting forever; `VaultDriver.start` takes an optional `message`.
 - Native: `startDiscovery(message)` sets the iOS NFC alert text from JS.
+- `devMock`: `setMockPresentKey`, `getMockPresentKey`, `MockPresentKey` —
+  switch which of three dev keys is "held to the phone" without hardware.
 
 Behaviour changes:
 
