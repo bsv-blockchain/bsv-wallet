@@ -1,18 +1,12 @@
 /**
- * VaultKeyService — enrollment, recovery, disable. Driven against the mock
- * YubiKey and the real (AsyncStorage/SecureStore-mocked) vaultStore.
+ * VaultKeyService — enrolling YubiKeys into the vault's key list. Driven
+ * against the multi-serial mock YubiKey and the real (AsyncStorage-mocked)
+ * vaultStore. The card is a SIGNER now: enrollment generates a fresh P-256
+ * key on it and records the compressed public key, nothing else — so these
+ * tests inspect the public record and the store, and prove nothing reaches
+ * disk until finalizeEnrollment.
  *
- * The YubiKey is now an unwrap oracle: enrollment seals the 64-byte vault
- * seed to the card's public key and writes v4 meta (no xpub, no
- * r1PublicKey — see VaultKeyService.ts's header). These tests therefore
- * prove the seal is USABLE — the enrolled (or re-enrolled, or adopted) card's
- * ECDH must open it back to the exact HD node the mnemonic + passphrase route
- * derives — rather than inspecting a public key field that no longer exists.
- *
- * The ceremony's own ceremony.ts (rewritten under Task 8 to the same
- * unwrap-oracle model — no per-output r1PublicKey vocabulary left) is
- * intentionally not exercised here; VaultKeyService no longer has anything
- * to do with it.
+ * Plan 1's r1comb.ts must exist: compressPubkey is the canonical form.
  */
 // Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
 // suites install a different one and a global mapper makes the resolver
@@ -31,159 +25,140 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     }
   }
 })
-const secureItems: Record<string, string> = {}
 jest.mock('expo-secure-store', () => ({
   AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
-  getItemAsync: jest.fn(async (k: string) => secureItems[k] ?? null),
-  setItemAsync: jest.fn(async (k: string, v: string) => {
-    secureItems[k] = v
-  }),
-  deleteItemAsync: jest.fn(async (k: string) => {
-    delete secureItems[k]
-  })
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => {}),
+  deleteItemAsync: jest.fn(async () => {})
 }))
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { HD, Hash, Utils } from '@bsv/sdk'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { setMockDriver } from '../../core/services/vault/driver'
-import { vaultStore } from '../../core/services/vault/vaultStore'
+import { compressPubkey } from '../../core/services/vault/r1comb'
+import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import {
-  enrollVault,
-  finalizeEnrollment,
-  recoverVaultHD,
+  VAULT_MAX_KEYS,
+  VAULT_MIN_KEYS,
+  VAULT_SLOT,
+  addVaultKey,
   disableVault,
-  resealToNewKey,
-  VAULT_SLOT
+  enrollKey,
+  finalizeEnrollment
 } from '../../core/services/vault/VaultKeyService'
-import { deriveVaultHD } from '../../core/services/vault/vaultDerivation'
-import { unsealVaultKey } from '../../core/services/vault/sealing'
 
 let mock: MockYubiKey
 
 beforeEach(async () => {
   await AsyncStorage.clear()
-  for (const k of Object.keys(secureItems)) delete secureItems[k]
   mock = new MockYubiKey()
   mock.insertKey('MOCK-1')
   setMockDriver(mock)
 })
 afterEach(() => setMockDriver(null))
 
-// A fixed, well-known throwaway BIP39 test vector. NEVER a real wallet phrase.
-const MNEMONIC =
-  'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
-const PASSPHRASE = 'correct horse battery staple anchor'
+const PIN = '123456'
 
-// args().getPin returns this and no requestPinChange is supplied in these
-// tests, so the card's PIN never actually changes during enrollment.
-const DEFAULT_PIN_AFTER_CHANGE = '123456'
-
-/** Enrollment args with the v4 requirements filled in. */
+/** Enrollment args with the contract's required fields filled in. */
 const args = (over: Record<string, unknown> = {}) => ({
-  nickname: 'k',
-  mnemonic: MNEMONIC,
-  passphrase: PASSPHRASE,
+  pendingSerials: [] as string[],
   onPhase: () => {},
-  getPin: async () => DEFAULT_PIN_AFTER_CHANGE,
+  getPin: async () => PIN,
   ...over
 })
 
-describe('enrollVault', () => {
-  test('produces v4 meta and persists nothing until finalize', async () => {
-    const phases: string[] = []
-    const { pending } = await enrollVault(args({ nickname: 'Work key', onPhase: (p: string) => phases.push(p) }))
+const rec = (n: number): VaultKeyRecord => ({
+  serial: `1000000${n}`,
+  slot: VAULT_SLOT,
+  pubkey: '02' + n.toString(16).padStart(2, '0').repeat(32),
+  nickname: `Key ${n}`,
+  enrolledAt: 1_700_000_000_000 + n
+})
 
-    expect(phases).toContain('generating')
-    expect(phases).toContain('done')
+/** An NFC-shaped mock whose start() "connects the tap" at once. */
+const nfcMock = (): MockYubiKey => {
+  const nfc = new MockYubiKey()
+  ;(nfc as unknown as { sessionBased: boolean }).sessionBased = true
+  nfc.insertKey('MOCK-1')
+  return nfc
+}
+
+describe('enrollKey', () => {
+  test('one card session yields a key record with a compressed lowercase pubkey, and persists nothing', async () => {
+    const phases: string[] = []
+    const before = Date.now()
+    const record = await enrollKey(args({ onPhase: (p: string) => phases.push(p) }))
+
+    // Persistent reader: no 'connecting' — there is no tap to wait for.
+    expect(phases).toEqual(['pin-check', 'generating', 'done'])
+    expect(record.serial).toBe('MOCK-1')
+    expect(record.slot).toBe(0x82)
+    expect(record.nickname).toBe('Key 1')
+    expect(record.enrolledAt).toBeGreaterThanOrEqual(before)
+    expect(record.pubkey).toMatch(/^0[23][0-9a-f]{64}$/)
+    // The compressed form of exactly the key now in the card's slot.
+    const onCard = (await mock.readVaultPublicKey(VAULT_SLOT))!.publicKey
+    expect(record.pubkey).toBe(compressPubkey(onCard))
 
     // Nothing on disk yet — a user who backs out is simply not enrolled.
     expect(await vaultStore.isEnrolled()).toBe(false)
     expect(await vaultStore.getMeta()).toBeNull()
-    expect(await vaultStore.getSeal()).toBeNull()
-
-    expect(pending.meta.v).toBe(4)
-    expect(pending.meta.slot).toBe(0x82)
-    expect(pending.meta.nickname).toBe('Work key')
-    expect(pending.meta.yubiSerial).toBe('MOCK-1')
-    expect(pending.meta.nextKeyIndex).toBe(0)
-    expect((pending.meta as any).xpub).toBeUndefined()
-    expect((pending.meta as any).r1PublicKey).toBeUndefined()
-    expect(pending.seal.v).toBe(1)
-    expect(pending.seal.slot).toBe(0x82)
-    expect(pending.seal.yubiSerial).toBe('MOCK-1')
-
-    await finalizeEnrollment(pending)
-    expect(await vaultStore.isEnrolled()).toBe(true)
-    const meta = await vaultStore.getMeta()
-    expect(meta!.nickname).toBe('Work key')
-    expect(await vaultStore.getSeal()).toEqual(pending.seal)
   })
 
-  test('persists a v4 meta with no xpub and a seal the enrolled card can open', async () => {
-    const { pending } = await enrollVault(args())
-    await finalizeEnrollment(pending)
-    const meta = await vaultStore.getMeta()
-    expect(meta).toMatchObject({ v: 4, nextKeyIndex: expect.any(Number) })
-    expect((meta as any).xpub).toBeUndefined()
-    expect((meta as any).r1PublicKey).toBeUndefined()
-    const seal = await vaultStore.getSeal()
-    expect(seal?.v).toBe(1)
-    // The mock card opens it, and the seed inside derives the same HD as the
-    // mnemonic + passphrase route.
-    const { secret } = await mock.ecdh(seal!.slot, DEFAULT_PIN_AFTER_CHANGE, seal!.ePub)
-    const seed = unsealVaultKey(seal!, secret)
-    expect(HD.fromSeed(seed).toString()).toBe(deriveVaultHD(MNEMONIC, PASSPHRASE).toString())
+  test('a caller-supplied nickname is kept (trimmed); the default counts from the pending list', async () => {
+    expect((await enrollKey(args({ nickname: '  Desk ' }))).nickname).toBe('Desk')
+    expect((await enrollKey(args({ pendingSerials: ['A', 'B'] }))).nickname).toBe('Key 3')
+    expect((await enrollKey(args({ nickname: '   ' }))).nickname).toBe('Key 1')
   })
 
-  test('enrollment returns no second mnemonic to back up', async () => {
-    // The entire point of v2/v3/v4: one phrase, not two.
-    const result = await enrollVault(args())
-    expect(result).not.toHaveProperty('backupMnemonic')
+  test('two keys with different serials enrol through the same mock, each with its own pubkey', async () => {
+    const a = await enrollKey(args())
+    mock.insertKey('MOCK-2')
+    const b = await enrollKey(args({ pendingSerials: [a.serial] }))
+    expect(a.serial).toBe('MOCK-1')
+    expect(b.serial).toBe('MOCK-2')
+    expect(b.nickname).toBe('Key 2')
+    expect(a.pubkey).not.toBe(b.pubkey)
+    // A's slot key survived B's enrollment: records are per serial.
+    mock.insertKey('MOCK-1')
+    expect(compressPubkey((await mock.readVaultPublicKey(VAULT_SLOT))!.publicKey)).toBe(a.pubkey)
   })
 
-  test('zeroes the vault seed even when sealing fails on malformed card key material', async () => {
-    // A card bug (or a compromised/foreign PIV slot) could return something
-    // that is not a well-formed SEC1 point; sealVaultKey's ECDH then throws a
-    // raw @noble/curves error with no .code. enrollVault recodes that into
-    // VaultError('template-invalid') without echoing the underlying message
-    // (which could otherwise leak details about the malformed input back to
-    // a caller). That throw happens AFTER the seed has been derived, so it
-    // must not skip the zeroing step — the seed is exactly the secret this
-    // whole function exists to keep off disk and out of memory once done
-    // with it.
-    jest.spyOn(mock, 'generateVaultKey').mockResolvedValueOnce({ publicKey: '04aabb' })
-    const fillSpy = jest.spyOn(Array.prototype, 'fill')
-    await expect(enrollVault(args())).rejects.toMatchObject({ code: 'template-invalid' })
-    const zeroedA64ByteArray = fillSpy.mock.calls.some(
-      ([value], i) => value === 0 && (fillSpy.mock.instances[i] as unknown[]).length === 64
-    )
-    fillSpy.mockRestore()
-    expect(zeroedA64ByteArray).toBe(true)
+  test('a serial already enrolled or pending → key-already-enrolled, BEFORE the PIN is spent or the slot is touched', async () => {
+    const genSpy = jest.spyOn(mock, 'generateVaultKey')
+    const verifySpy = jest.spyOn(mock, 'verifyPin')
+    const err = await enrollKey(args({ pendingSerials: ['MOCK-9', 'MOCK-1'] })).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-already-enrolled' })
+    expect(err.message).toBe('MOCK-1') // the wizard names the key from this
+    expect(err.details).toEqual({ serial: 'MOCK-1' })
+    expect(genSpy).not.toHaveBeenCalled()
+    expect(verifySpy).not.toHaveBeenCalled()
+    expect(await mock.readVaultPublicKey(VAULT_SLOT)).toBeNull() // slot untouched
   })
 
-  test('rejects a weak passphrase before any key contact', async () => {
-    const spy = jest.spyOn(mock, 'getKeyInfo')
-    let pinAsked = false
-    await expect(
-      enrollVault(args({ passphrase: 'hunter2', getPin: async () => { pinAsked = true; return '123456' } }))
-    ).rejects.toMatchObject({ code: 'bad-passphrase' })
-    expect(pinAsked).toBe(false)
-    expect(spy).not.toHaveBeenCalled()
+  test('pin-locked propagates, and the slot is untouched', async () => {
+    await mock.verifyPin('000000')
+    await mock.verifyPin('000000')
+    await mock.verifyPin('000000') // retries now 0
+    const genSpy = jest.spyOn(mock, 'generateVaultKey')
+    await expect(enrollKey(args())).rejects.toMatchObject({ code: 'pin-locked' })
+    expect(genSpy).not.toHaveBeenCalled()
+    expect(await mock.readVaultPublicKey(VAULT_SLOT)).toBeNull()
   })
 
-  test('enroll refuses an empty passphrase', async () => {
-    // Empty would make V identical to the main wallet's master key.
-    const spy = jest.spyOn(mock, 'getKeyInfo')
-    await expect(enrollVault(args({ passphrase: '' }))).rejects.toMatchObject({
-      code: 'bad-passphrase'
+  test('a wrong PIN → pin-invalid with retriesLeft; the slot is untouched', async () => {
+    const genSpy = jest.spyOn(mock, 'generateVaultKey')
+    await expect(enrollKey(args({ getPin: async () => '000000' }))).rejects.toMatchObject({
+      code: 'pin-invalid',
+      retriesLeft: 2
     })
-    expect(spy).not.toHaveBeenCalled()
+    expect(genSpy).not.toHaveBeenCalled()
+    expect(await mock.readVaultPublicKey(VAULT_SLOT)).toBeNull()
   })
 
-  test('a factory-PIN key (user enters 123456) forces a PIN change (fix #5)', async () => {
+  test('a factory-PIN key (user enters 123456) forces a PIN change that reaches the card', async () => {
     let changeArgs: { oldPin: string; newPin: string } | null = null
-    await enrollVault(
+    await enrollKey(
       args({
         getPin: async () => '123456', // factory
         requestPinChange: async () => {
@@ -193,12 +168,13 @@ describe('enrollVault', () => {
       })
     )
     expect(changeArgs).toEqual({ oldPin: '123456', newPin: '654321' })
+    expect((await mock.verifyPin('654321')).ok).toBe(true)
   })
 
-  test('a non-factory PIN never triggers a change and never burns a retry (fix #5)', async () => {
+  test('a non-factory PIN never triggers a change and never burns a retry', async () => {
     mock.setPin('999999') // key already has a custom PIN
     let changeCalled = false
-    await enrollVault(
+    await enrollKey(
       args({
         getPin: async () => '999999',
         requestPinChange: async () => {
@@ -208,241 +184,156 @@ describe('enrollVault', () => {
       })
     )
     expect(changeCalled).toBe(false)
-    // No wasted '123456' probe → retries stay full.
     expect((await mock.getKeyInfo()).pinRetries).toBe(3)
   })
 
-  test('enroll refuses a key whose PIN is already blocked (fix #5)', async () => {
-    const blocked = new MockYubiKey()
-    blocked.insertKey('BLOCKED')
-    // exhaust retries
-    await blocked.verifyPin('000000').catch(() => {})
-    await blocked.verifyPin('000000').catch(() => {})
-    await blocked.verifyPin('000000').catch(() => {})
-    setMockDriver(blocked)
-    await expect(
-      enrollVault(args())
-    ).rejects.toMatchObject({ code: 'pin-locked' })
-  })
-
-  test('enroll refuses to overwrite an occupied PIV slot (slot-occupied)', async () => {
-    mock.occupySlot() // e.g. an existing age-plugin-yubikey identity in slot 82
-    await expect(
-      enrollVault(args())
-    ).rejects.toMatchObject({ code: 'slot-occupied' })
-    // nothing persisted, and the existing slot key is untouched
-    expect(await vaultStore.isEnrolled()).toBe(false)
-  })
-
-  test('adopting an occupied slot reuses that key and never generates', async () => {
-    mock.occupySlot() // the same YubiKey, already enrolled on another device
+  test('always generates a fresh key, replacing whatever the slot held (spec D6) — no adoption', async () => {
+    mock.occupySlot() // e.g. an age-plugin-yubikey identity in slot 82
     const existing = (await mock.readVaultPublicKey(VAULT_SLOT))!.publicKey
     const genSpy = jest.spyOn(mock, 'generateVaultKey')
     const phases: string[] = []
-
-    const { pending } = await enrollVault(
-      args({ adoptExisting: true, onPhase: (p: string) => phases.push(p) })
-    )
-
-    expect(genSpy).not.toHaveBeenCalled()
-    expect(phases).toContain('adopting')
-    expect(phases).not.toContain('generating')
-    // The seal was built against the key ALREADY on the card, not a fresh
-    // one — proven by its yubiPubSha256 matching that key's hash, and (the
-    // stronger check) by the card's own ECDH actually opening it.
-    expect(pending.seal.yubiPubSha256).toBe(Utils.toHex(Hash.sha256(Utils.toArray(existing, 'hex'))))
-    const { secret } = await mock.ecdh(pending.seal.slot, DEFAULT_PIN_AFTER_CHANGE, pending.seal.ePub)
-    const seed = unsealVaultKey(pending.seal, secret)
-    expect(HD.fromSeed(seed).toString()).toBe(deriveVaultHD(MNEMONIC, PASSPHRASE).toString())
-    // Still nothing on disk until finalize.
-    expect(await vaultStore.isEnrolled()).toBe(false)
-  })
-
-  test('adoption starts deposit indices high, so two devices do not reissue the same address', async () => {
-    mock.occupySlot()
-    const { pending: adopted } = await enrollVault(args({ adoptExisting: true }))
-    expect(adopted.meta.nextKeyIndex).toBeGreaterThanOrEqual(1 << 20)
-    expect(adopted.meta.nextKeyIndex).toBeLessThan(0x80000000)
-
-    // Two adoptions in a row must not land on the same index.
-    const { pending: again } = await enrollVault(args({ adoptExisting: true }))
-    expect(again.meta.nextKeyIndex).not.toBe(adopted.meta.nextKeyIndex)
-  })
-
-  test('adoptExisting on an EMPTY slot still generates a fresh key from index 0', async () => {
-    const genSpy = jest.spyOn(mock, 'generateVaultKey')
-    const { pending } = await enrollVault(args({ adoptExisting: true }))
+    const record = await enrollKey(args({ onPhase: (p: string) => phases.push(p) }))
     expect(genSpy).toHaveBeenCalledTimes(1)
-    expect(pending.meta.nextKeyIndex).toBe(0)
+    expect(genSpy).toHaveBeenCalledWith(VAULT_SLOT)
+    expect(record.pubkey).not.toBe(compressPubkey(existing))
+    expect(phases).not.toContain('adopting')
   })
 
-  test('session-based enroll (NFC): PIN collected BEFORE the tap; ops run in one session', async () => {
-    const nfc = new MockYubiKey()
-    ;(nfc as any).sessionBased = true
-    nfc.setPin('123456')
-    nfc.insertKey('MOCK-1')
+  test('malformed card key material → template-invalid, without echoing the bytes', async () => {
+    jest.spyOn(mock, 'generateVaultKey').mockResolvedValueOnce({ publicKey: '04aabb' })
+    const err = await enrollKey(args()).catch(e => e)
+    expect(err).toMatchObject({ code: 'template-invalid' })
+    expect(err.message).not.toContain('aabb')
+  })
+
+  test('NFC: the PIN is collected BEFORE the tap, every op runs in one session, and the alert text is forwarded', async () => {
+    const nfc = nfcMock()
     setMockDriver(nfc)
     const order: string[] = []
     const startSpy = jest.spyOn(nfc, 'start').mockImplementation(() => {
       order.push('session-start')
       // simulate the tap connecting
-      ;(nfc as any).emit({ type: 'attached', serial: 'MOCK-1', transport: 'mock' })
+      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({ type: 'attached', serial: 'MOCK-1', transport: 'mock' })
     })
     const stopSpy = jest.spyOn(nfc, 'stop')
+    const phases: string[] = []
 
-    const { pending } = await enrollVault(
+    const record = await enrollKey(
       args({
+        onPhase: (p: string) => phases.push(p),
         getPin: async () => {
           order.push('pin-entered')
-          return '123456'
-        }
+          return PIN
+        },
+        nfcMessage: 'Hold your YubiKey here to set it up'
       })
     )
-    await finalizeEnrollment(pending)
 
-    // PIN entered in the UI BEFORE the NFC session opened, and the session closed.
+    expect(record.serial).toBe('MOCK-1')
     expect(order).toEqual(['pin-entered', 'session-start'])
     expect(startSpy).toHaveBeenCalledTimes(1)
+    expect(startSpy).toHaveBeenCalledWith('Hold your YubiKey here to set it up')
     expect(stopSpy).toHaveBeenCalledTimes(1)
+    expect(phases).toEqual(['pin-check', 'connecting', 'generating', 'done'])
+  })
+
+  test('NFC: the system sheet being cancelled rejects the step with user-cancelled and closes the session', async () => {
+    const nfc = nfcMock()
+    setMockDriver(nfc)
+    jest.spyOn(nfc, 'start').mockImplementation(() => nfc.failSession('user-cancelled'))
+    const stopSpy = jest.spyOn(nfc, 'stop')
+    await expect(enrollKey(args())).rejects.toMatchObject({ code: 'user-cancelled' })
+    expect(stopSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('NFC: the card leaving mid-session rejects the step with key-removed-mid-op', async () => {
+    const nfc = nfcMock()
+    setMockDriver(nfc)
+    jest.spyOn(nfc, 'start').mockImplementation(() => {
+      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({ type: 'attached', serial: 'MOCK-1', transport: 'mock' })
+    })
+    // The card is pulled while the PIN verify is in flight; the verify never answers.
+    jest.spyOn(nfc, 'verifyPin').mockImplementationOnce(() => {
+      nfc.removeKey()
+      return new Promise(() => {})
+    })
+    await expect(enrollKey(args())).rejects.toMatchObject({ code: 'key-removed-mid-op' })
+  })
+})
+
+describe('finalizeEnrollment', () => {
+  test('the bounds are 2 and 5', () => {
+    expect(VAULT_MIN_KEYS).toBe(2)
+    expect(VAULT_MAX_KEYS).toBe(5)
+  })
+
+  test('one record → not-enough-keys, nothing written', async () => {
+    await expect(finalizeEnrollment([rec(1)])).rejects.toMatchObject({ code: 'not-enough-keys' })
+    expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  test('six records → too-many-keys, nothing written', async () => {
+    await expect(finalizeEnrollment([1, 2, 3, 4, 5, 6].map(rec))).rejects.toMatchObject({ code: 'too-many-keys' })
+    expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  test('duplicate serials → key-already-enrolled (defensive: the wizard already refuses them)', async () => {
+    const err = await finalizeEnrollment([rec(1), { ...rec(2), serial: rec(1).serial }]).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-already-enrolled' })
+    expect(err.details).toEqual({ serial: rec(1).serial })
+    expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  test('two records → meta v5 persisted verbatim; five is the ceiling', async () => {
+    const before = Date.now()
+    await finalizeEnrollment([rec(1), rec(2)])
     expect(await vaultStore.isEnrolled()).toBe(true)
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.v).toBe(5)
+    expect(meta.createdAt).toBeGreaterThanOrEqual(before)
+    expect(meta.keys).toEqual([rec(1), rec(2)])
+    expect(meta.lastUsedSerial).toBeUndefined()
+
+    await finalizeEnrollment([1, 2, 3, 4, 5].map(rec)) // a fresh Finish replaces the list
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(5)
+  })
+
+  test('two REAL enrollments round-trip with lowercase compressed pubkeys', async () => {
+    const a = await enrollKey(args({ nickname: 'Desk' }))
+    mock.insertKey('MOCK-2')
+    const b = await enrollKey(args({ pendingSerials: [a.serial], nickname: 'Safe' }))
+    await finalizeEnrollment([a, b])
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.keys.map(k => k.serial)).toEqual(['MOCK-1', 'MOCK-2'])
+    expect(meta.keys.map(k => k.nickname)).toEqual(['Desk', 'Safe'])
+    for (const k of meta.keys) {
+      expect(k.pubkey).toMatch(/^0[23][0-9a-f]{64}$/)
+      expect(k.pubkey).toBe(k.pubkey.toLowerCase())
+      expect(k.slot).toBe(0x82)
+    }
   })
 })
 
-describe('recoverVaultHD', () => {
-  test('rejects an invalid phrase', async () => {
-    await expect(recoverVaultHD('not a valid mnemonic phrase at all', PASSPHRASE)).rejects.toBeDefined()
-  })
-})
-
-describe('resealToNewKey', () => {
-  test('writes v4 meta for the new key, preserving nextKeyIndex', async () => {
-    // Enroll and finalize under the FIRST key.
-    const { pending } = await enrollVault(args())
-    await finalizeEnrollment(pending)
-    const oldSeal = pending.seal
-
-    // Simulate a couple of deposits having advanced the counter.
-    await vaultStore.takeNextIndex()
-    await vaultStore.takeNextIndex()
-    expect((await vaultStore.getMeta())!.nextKeyIndex).toBe(2)
-
-    // Lose the key; enroll a fresh one via resealToNewKey.
-    const fresh = new MockYubiKey()
-    fresh.insertKey('MOCK-2')
-    setMockDriver(fresh)
-    await resealToNewKey(MNEMONIC, PASSPHRASE, 'k', async () => '123456')
-
-    const after = await vaultStore.getMeta()
-    expect(after!.v).toBe(4)
-    expect(after!.yubiSerial).toBe('MOCK-2')
-    // The counter must never be reissued to a second address.
-    expect(after!.nextKeyIndex).toBe(2)
-
-    const newSeal = (await vaultStore.getSeal())!
-    expect(newSeal).not.toEqual(oldSeal)
-    // The seal now opens through the NEW card, to the same HD node the
-    // mnemonic + passphrase derive.
-    const { secret } = await fresh.ecdh(newSeal.slot, '123456', newSeal.ePub)
-    const seed = unsealVaultKey(newSeal, secret)
-    expect(HD.fromSeed(seed).toString()).toBe(deriveVaultHD(MNEMONIC, PASSPHRASE).toString())
+describe('addVaultKey / disableVault', () => {
+  test('addVaultKey appends through vaultStore.addKey and returns the new meta', async () => {
+    await finalizeEnrollment([rec(1), rec(2)])
+    const meta = await addVaultKey(rec(3))
+    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003'])
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(3)
   })
 
-  test('the OLD physical key can no longer open the seal after re-enrollment', async () => {
-    // Outputs locked under the OLD key do not become spendable via the R1
-    // ceremony again after a reseal — that guarantee lives in ceremony.ts's
-    // serial check (Task 8, not exercised here). What VaultKeyService itself
-    // guarantees is narrower but just as load-bearing: the OLD card's ECDH no
-    // longer opens the CURRENT seal at all, because resealToNewKey overwrites
-    // it with one sealed to the NEW card's key.
-    const { pending } = await enrollVault(args())
-    await finalizeEnrollment(pending)
-    const oldMock = mock // still "physically present" with its original key
-
-    const fresh = new MockYubiKey()
-    fresh.insertKey('MOCK-2')
-    setMockDriver(fresh)
-    await resealToNewKey(MNEMONIC, PASSPHRASE, 'k', async () => '123456')
-
-    const after = (await vaultStore.getMeta())!
-    expect(after.yubiSerial).toBe('MOCK-2')
-    expect(after.yubiSerial).not.toBe(pending.meta.yubiSerial)
-
-    const newSeal = (await vaultStore.getSeal())!
-    const { secret: oldCardSecret } = await oldMock.ecdh(newSeal.slot, '123456', newSeal.ePub)
-    expect(() => unsealVaultKey(newSeal, oldCardSecret)).toThrow(
-      expect.objectContaining({ code: 'seal-corrupt' })
-    )
+  test('addVaultKey refuses a duplicate serial, a sixth key, and an unenrolled vault', async () => {
+    await expect(addVaultKey(rec(1))).rejects.toMatchObject({ code: 'not-enrolled' })
+    await finalizeEnrollment([1, 2, 3, 4, 5].map(rec))
+    await expect(addVaultKey(rec(6))).rejects.toMatchObject({ code: 'too-many-keys' })
+    await finalizeEnrollment([rec(1), rec(2)])
+    await expect(addVaultKey({ ...rec(1), nickname: 'again' })).rejects.toMatchObject({ code: 'key-already-enrolled' })
   })
 
-  describe('verifyHD gate', () => {
-    test('verifyHD returning false refuses to reseal: nothing written, nothing generated', async () => {
-      // BIP39 passphrases have no checksum, so a mistyped one would otherwise
-      // silently overwrite the ONLY seal that opens the real vault with one
-      // sealed to a node nobody can spend from — the old physical key is
-      // gone by design (that's what reseal is for), so this is the last
-      // chance to catch the typo before it becomes unrecoverable.
-      const { pending } = await enrollVault(args())
-      await finalizeEnrollment(pending)
-      const oldSeal = pending.seal
-      const oldMeta = await vaultStore.getMeta()
-
-      const fresh = new MockYubiKey()
-      fresh.insertKey('MOCK-2')
-      setMockDriver(fresh)
-      const infoSpy = jest.spyOn(fresh, 'getKeyInfo')
-      const genSpy = jest.spyOn(fresh, 'generateVaultKey')
-
-      await expect(
-        resealToNewKey(MNEMONIC, PASSPHRASE, 'k', async () => '123456', async () => false)
-      ).rejects.toMatchObject({ code: 'bad-passphrase' })
-
-      // Verification runs BEFORE the tap even begins.
-      expect(infoSpy).not.toHaveBeenCalled()
-      expect(genSpy).not.toHaveBeenCalled()
-      // The slot on the new card was never touched.
-      expect(await fresh.readVaultPublicKey(VAULT_SLOT)).toBeNull()
-
-      // vaultStore is untouched — the OLD seal is exactly as it was, and
-      // still opens (via the OLD card) to the OLD HD.
-      expect(await vaultStore.getMeta()).toEqual(oldMeta)
-      expect(await vaultStore.getSeal()).toEqual(oldSeal)
-      const { secret } = await mock.ecdh(oldSeal.slot, DEFAULT_PIN_AFTER_CHANGE, oldSeal.ePub)
-      const seed = unsealVaultKey(oldSeal, secret)
-      expect(HD.fromSeed(seed).toString()).toBe(deriveVaultHD(MNEMONIC, PASSPHRASE).toString())
-    })
-
-    test('verifyHD returning true lets the reseal proceed as before', async () => {
-      const { pending } = await enrollVault(args())
-      await finalizeEnrollment(pending)
-
-      const fresh = new MockYubiKey()
-      fresh.insertKey('MOCK-2')
-      setMockDriver(fresh)
-      let verifiedWith: string | null = null
-
-      await resealToNewKey(MNEMONIC, PASSPHRASE, 'k', async () => '123456', async hd => {
-        verifiedWith = hd.toString()
-        return true
-      })
-
-      // verifyHD was actually called with the HD the new seal now wraps.
-      expect(verifiedWith).toBe(deriveVaultHD(MNEMONIC, PASSPHRASE).toString())
-
-      const after = await vaultStore.getMeta()
-      expect(after!.yubiSerial).toBe('MOCK-2')
-      const seal = (await vaultStore.getSeal())!
-      const { secret } = await fresh.ecdh(seal.slot, '123456', seal.ePub)
-      const seed = unsealVaultKey(seal, secret)
-      expect(HD.fromSeed(seed).toString()).toBe(deriveVaultHD(MNEMONIC, PASSPHRASE).toString())
-    })
+  test('disableVault clears the key list', async () => {
+    await finalizeEnrollment([rec(1), rec(2)])
+    await disableVault()
+    expect(await vaultStore.isEnrolled()).toBe(false)
+    expect(await vaultStore.getMeta()).toBeNull()
   })
-})
-
-test('disableVault clears all vault state', async () => {
-  const { pending } = await enrollVault(args())
-  await finalizeEnrollment(pending)
-  await disableVault()
-  expect(await vaultStore.isEnrolled()).toBe(false)
-  expect(await vaultStore.getMeta()).toBeNull()
-  expect(await vaultStore.getSeal()).toBeNull()
 })
