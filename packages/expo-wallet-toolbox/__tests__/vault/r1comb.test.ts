@@ -17,7 +17,8 @@ import {
   compressPubkey, combTable, combTableScalar, gTable, le33, canonicalTableBytes, commitment,
   buildLock, bakedCommitments, recode, sharedSuffix, shiftFor,
   sighashPreimage, signerDigest, pushTxSignatureS, peelLoopNonMinimalAt, pushTxDerCheck, decodeDerSignature, R1C_PREIMAGE_LEN, R1C_SIGHASH,
-  fullR, buildUnlock, verifyVaultInput, R1C_VERIFY_FLAGS
+  fullR, buildUnlock, verifyVaultInput, R1C_VERIFY_FLAGS,
+  encodeVaultInstructions, decodeVaultInstructions, type VaultInstructionsV4
 } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 
@@ -896,5 +897,70 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
 
   it('verifyVaultInput rejects a missing input with template-invalid', () => {
     expect(() => verifyVaultInput({ tx, inputIndex: 3, sourceSatoshis: sats, lockingScript: lock, unlockingScript: good })).toThrow(VaultError)
+  })
+})
+
+describe('customInstructions v4 codec', () => {
+  const keys5 = [...Array(5)].map(() => newMember().pub)
+  const salt = randSalt()
+
+  it.each([1, 2, 3, 4, 5])('round-trips %i keys in order and writes the canonical field order', n => {
+    const rec: VaultInstructionsV4 = { v: 4, type: 'R1C', salt, keys: keys5.slice(0, n) }
+    const s = encodeVaultInstructions(rec)
+    expect(s).toBe(JSON.stringify({ v: 4, type: 'R1C', salt, keys: keys5.slice(0, n) }))
+    expect(s.length).toBeLessThan(4096)
+    expect(decodeVaultInstructions(s)).toEqual(rec)
+  })
+
+  it('ignores extra fields and accepts a re-ordered object', () => {
+    const s = JSON.stringify({ keys: [keys5[0]], extra: 1, type: 'R1C', salt, v: 4 })
+    expect(decodeVaultInstructions(s)).toEqual({ v: 4, type: 'R1C', salt, keys: [keys5[0]] })
+  })
+
+  it.each<[string, string | undefined]>([
+    ['undefined', undefined],
+    ['empty', ''],
+    ['not JSON', 'not json'],
+    ['{}', '{}'],
+    ['[]', '[]'],
+    ['null', 'null'],
+    ['a string', JSON.stringify('R1C')],
+    ['v3 K1 record', JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/7' })],
+    ['v2 R1K1 record', JSON.stringify({ v: 2, type: 'R1K1', keyID: 'bip32/7', salt: 'aa', r1PublicKey: 'bb', slot: 130 })],
+    ['v4 with type K1', JSON.stringify({ v: 4, type: 'K1', salt, keys: [keys5[0]] })],
+    ['v 5', JSON.stringify({ v: 5, type: 'R1C', salt, keys: [keys5[0]] })],
+    ['v as string', JSON.stringify({ v: '4', type: 'R1C', salt, keys: [keys5[0]] })],
+    ['missing salt', JSON.stringify({ v: 4, type: 'R1C', keys: [keys5[0]] })],
+    ['salt 62 hex', JSON.stringify({ v: 4, type: 'R1C', salt: salt.slice(2), keys: [keys5[0]] })],
+    ['salt 66 hex', JSON.stringify({ v: 4, type: 'R1C', salt: salt + '00', keys: [keys5[0]] })],
+    ['salt not hex', JSON.stringify({ v: 4, type: 'R1C', salt: 'zz'.repeat(32), keys: [keys5[0]] })],
+    ['salt uppercase', JSON.stringify({ v: 4, type: 'R1C', salt: salt.toUpperCase(), keys: [keys5[0]] })],
+    ['0 keys', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [] })],
+    ['6 keys', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [...keys5, newMember().pub] })],
+    ['keys not an array', JSON.stringify({ v: 4, type: 'R1C', salt, keys: keys5[0] })],
+    ['key uppercase', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [keys5[0].toUpperCase()] })],
+    ['key uncompressed (65 B)', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), false)))] })],
+    ['key off-curve', JSON.stringify({ v: 4, type: 'R1C', salt, keys: ['02' + 'ff'.repeat(32)] })],
+    ['key wrong prefix', JSON.stringify({ v: 4, type: 'R1C', salt, keys: ['05' + keys5[0].slice(2)] })],
+    ['key too short', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [keys5[0].slice(0, 64)] })],
+    ['duplicate keys', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [keys5[0], keys5[0]] })],
+    ['non-string key', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [1] })],
+    ['over 4096 chars', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [keys5[0]], pad: 'x'.repeat(4100) })]
+  ])('fails closed on %s', (_name, ci) => {
+    expect(decodeVaultInstructions(ci)).toBeNull()
+  })
+
+  it('encode refuses what decode would refuse', () => {
+    for (const bad of [
+      { v: 4, type: 'R1C', salt, keys: [] },
+      { v: 4, type: 'R1C', salt, keys: [...keys5, newMember().pub] },
+      { v: 4, type: 'R1C', salt: salt.toUpperCase(), keys: [keys5[0]] },
+      { v: 4, type: 'R1C', salt, keys: [keys5[0].toUpperCase()] },
+      { v: 4, type: 'R1C', salt: 'ab', keys: [keys5[0]] },
+      { v: 4, type: 'R1C', salt, keys: [keys5[0], keys5[0]] }
+    ] as VaultInstructionsV4[]) {
+      expect(() => encodeVaultInstructions(bad)).toThrow(VaultError)
+      try { encodeVaultInstructions(bad) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+    }
   })
 })

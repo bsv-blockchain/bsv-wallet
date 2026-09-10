@@ -717,3 +717,57 @@ export function verifyVaultInput(a: {
   if (spend.validate() !== true) throw invalid('verifyVaultInput: script evaluated to false')
   return true
 }
+
+// ───────────────────────── customInstructions v4 (spec §2.7) ─────────────────────────
+/** What a vault output records about itself. `keys` are the pubkeys whose commitments the lock bakes, in commitment order. */
+export interface VaultInstructionsV4 {
+  v: 4
+  type: 'R1C'
+  /** 32-byte salt shared by every commitment in this output, 64 lowercase hex. */
+  salt: string
+  /** 1..5 compressed P-256 pubkeys, 66 lowercase hex each, commitment order. */
+  keys: string[]
+}
+export type VaultInstructions = VaultInstructionsV4
+
+const MAX_CUSTOM_INSTRUCTIONS_CHARS = 4096
+
+/**
+ * Parse an output's customInstructions, or null for anything that is not exactly a v4 R1C record with a valid
+ * lowercase salt and 1..5 distinct, valid, lowercase compressed keys. Fails closed on purpose: an undecodable
+ * record is an output the app cannot construct a spend for, and ignoring it beats building a doomed transaction.
+ * v3 `K1` and v2 `R1K1` records are rejected here.
+ */
+export function decodeVaultInstructions(ci?: string): VaultInstructionsV4 | null {
+  if (typeof ci !== 'string' || ci.length === 0 || ci.length > MAX_CUSTOM_INSTRUCTIONS_CHARS) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(ci)
+  } catch {
+    return null
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const p = parsed as Record<string, unknown>
+  if (p.v !== 4 || p.type !== 'R1C') return null
+  if (typeof p.salt !== 'string' || !/^[0-9a-f]{64}$/.test(p.salt)) return null
+  if (!Array.isArray(p.keys) || p.keys.length < 1 || p.keys.length > R1C_MAX_KEYS) return null
+  const keys: string[] = []
+  for (const k of p.keys) {
+    if (typeof k !== 'string' || !/^0[23][0-9a-f]{64}$/.test(k)) return null
+    try {
+      if (compressPubkey(k) !== k) return null
+    } catch {
+      return null
+    }
+    keys.push(k)
+  }
+  if (new Set(keys).size !== keys.length) return null
+  return { v: 4, type: 'R1C', salt: p.salt, keys }
+}
+
+/** Serialise a v4 record. Throws VaultError('template-invalid') rather than write anything decodeVaultInstructions would refuse. */
+export function encodeVaultInstructions(i: VaultInstructionsV4): string {
+  const s = JSON.stringify({ v: 4, type: 'R1C', salt: i.salt, keys: i.keys })
+  if (decodeVaultInstructions(s) === null) throw invalid('encodeVaultInstructions: record would not decode (salt/keys must be valid lowercase hex, 1..5 distinct keys)')
+  return s
+}
