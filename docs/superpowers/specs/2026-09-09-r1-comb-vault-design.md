@@ -280,6 +280,13 @@ or *"{{count}} deposits still open to a removed key"* — and the **Re-lock** ac
   is refused by the ceremony (`serial-mismatch`); on-chain the key can still spend the outputs it
   was committed to, which is why re-lock is the real revocation.
 - **Rename**: nickname only.
+- **Export wallet data**: replaces the old "Recover with phrase" row. Same action and label as
+  the Settings row (`exportAllWalletDatabases(storage)` from `ui/exportDatabases.ts`, i18n
+  `export_wallet_data`, `share-outline` icon, spinner while exporting) — the vault screen is where
+  the user is thinking about recovery, so the export lives here too. Explainer beneath it:
+  *"Every vault deposit carries a unique piece of data that is needed to open it, along with your
+  YubiKeys. It is stored in this wallet's database. Keep the encrypted backup on, and export a copy
+  of the wallet data after making deposits."*
 - **Disable vault**: only when the decodable-v4 balance is zero; clears meta. Copy: *"This
   forgets the vault's key list on this phone. The keys stay on your YubiKeys."*
 - Footnote under the key list, always visible: *"Only these keys open the vault. Your recovery
@@ -287,10 +294,12 @@ or *"{{count}} deposits still open to a removed key"* — and the **Re-lock** ac
 
 ### 3.5 Recovery model
 
-Recovery needs **any enrolled YubiKey and this wallet's database** (this phone, or its encrypted
-backup — the backup log includes outputs and their `customInstructions`, hence the salts). Neither
-alone recovers anything. There is no phrase, no passphrase, no third path. §7 includes a
-restore-from-backup-then-spend test.
+Recovery needs **any enrolled YubiKey and this wallet's database** (this phone, its encrypted
+backup — the backup log includes outputs and their `customInstructions`, hence the salts — or an
+exported wallet database file). Neither alone recovers anything. There is no phrase, no
+passphrase, no third path. The vault screen therefore offers **Export wallet data** in place of
+the old phrase-recovery row (§3.4), and §7 includes restore-from-backup and import-exported-
+database tests that end in a vault spend.
 
 ## 4. Flows
 
@@ -475,7 +484,9 @@ header, `WalletContext.tsx` vault comments, the Swift/Kotlin comments claiming `
 
 - `EnrollWizard` rewritten to §3.3.
 - `VaultScreen`: keys list with badges, add / remove / rename / re-lock, balance, deposit /
-  withdraw, footnote, disable. States: `vaultEnabled` off → hero with *"Not available yet — vault
+  withdraw, **Export wallet data** row with its explainer (§3.4; the handler is lifted from
+  `WalletConfigScreen.handleExportData` into a shared hook so both screens share it), footnote,
+  disable. States: `vaultEnabled` off → hero with *"Not available yet — vault
   deposits are switched off in this release."* and a disabled CTA; driver unsupported → existing
   "Needs a YubiKey" notice; not enrolled → hero; enrolled → balance.
 - `VaultTransferScreen`: key chooser (withdraw), floor/fee inline, remainder confirm,
@@ -554,7 +565,9 @@ Jest (`packages/expo-wallet-toolbox/__tests__/vault/`):
   at input k with the reservation kept; re-lock leaves default-basket balance unchanged (≤
   surplus), refuses below the floor, and after add/remove every output carries the current set;
   remove refused when it would orphan an output; remove refused at 2.
-- **Restore**: restore a wallet from its backup log on a fresh store, then spend a vault output.
+- **Restore**: restore a wallet from its backup log on a fresh store, then spend a vault output;
+  import an exported wallet database file on a fresh install, then spend a vault output. The vault
+  screen's export row renders and invokes `exportAllWalletDatabases`.
 
 Device / network (§0): `scripts/r1c-spend-proof.ts` on testnet and mainnet including the
 constructed peel-nonminimal v2 case and the mixed-input case; dev build with two YubiKeys; 32-input
@@ -580,3 +593,6 @@ response-side `listOutputs` caps; wallet-side reconciliation of malleated confir
   (D15); no key adoption (D6); `pushTxDerCheck` kept until proven (D4b); version-2 mechanism and
   invariant pinned (§2.6); removal cannot orphan outputs; twelve locales; staging reclaim kept as
   legacy pending confirmation.
+- 2026-09-09 — user review: vault screen gains an **Export wallet data** row (same action as
+  Settings) with an explainer that each deposit carries unique data needed for recovery alongside
+  the YubiKeys; replaces the old phrase-recovery row (§3.4, §3.5, §5.4, §7).
