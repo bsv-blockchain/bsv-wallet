@@ -39,10 +39,25 @@
  * withdrawal or re-lock and is released in a finally. Salts are public once
  * spent and are never logged before that.
  */
-import { Hash, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
+import { Beef, Hash, LockingScript, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
 import { isBackupPushEnabled } from '../../backup/preference'
 import { isVaultEnabled } from '../../toolboxConfig'
-import { SALT_BYTES, buildLock, commitment, encodeVaultInstructions } from './r1comb'
+import { noteVaultProgress, requestVaultSigner } from './ceremonyHost'
+import {
+  R1C_UNLOCK_LEN,
+  SALT_BYTES,
+  VaultInstructionsV4,
+  bakedCommitments,
+  buildLock,
+  buildUnlock,
+  commitment,
+  decodeVaultInstructions,
+  encodeVaultInstructions,
+  pushTxDerCheck,
+  sighashPreimage,
+  signerDigest,
+  verifyVaultInput
+} from './r1comb'
 import { randomBytes } from './random'
 import { VaultError } from './types'
 import { VAULT_MIN_KEYS } from './VaultKeyService'
@@ -744,4 +759,419 @@ export async function reclaimStagingOutputs(
   const txid = signed.txid ?? (signed.tx ? Transaction.fromAtomicBEEF(signed.tx).id('hex') : undefined)
   if (!txid) throw new VaultError('no-transaction', 'Reclaim produced no transaction')
   return { txid, reclaimed: coins.length, satoshis: totalSats }
+}
+
+// ── withdraw / re-lock: selection (spec §4.2 steps 2–3) ───────────────────
+
+/** How many times the signable transaction may be re-created to dodge a
+ * pushTxDerCheck hit (spec D4b) before giving up. Each re-creation bumps the
+ * offending input's sequence number, which changes every preimage. */
+const PUSH_TX_RETRY_MAX = 8
+
+/** One vault output the chosen key can open, with its real lock in hand. */
+interface SelectedVaultOutput {
+  outpoint: string
+  satoshis: number
+  ci: VaultInstructionsV4
+  /** The output's REAL locking script, read from the listed BEEF. */
+  lockingScript: LockingScript
+}
+
+interface VaultSelection {
+  /** The CURRENT key list (meta.keys) — what a re-vault or re-lock commits to. */
+  keys: VaultKeyRecord[]
+  chosen: VaultKeyRecord
+  /** Largest first, capped, every one proven committed to `chosen`. */
+  selected: SelectedVaultOutput[]
+  /** Sum of `selected`. */
+  acc: number
+  cappedInputs: number
+  unreachable: VaultSpendResult['unreachable']
+  beef?: number[]
+}
+
+/**
+ * list → decode v4 → filter to the chosen key → sort largest first → cap →
+ * prove each selected output's REAL lock commits to the chosen key → amount
+ * checks. Nothing is reserved, tapped or signed here, so every refusal is free.
+ *
+ * `include: 'entire transactions'` IS required, twice over. Structurally:
+ * every input carries unlockingScriptLength but no unlockingScript, so
+ * @bsv/sdk's validateCreateActionArgs sets isSignAction=true and
+ * buildSignableTransaction resolves each input's sourceTransaction ONLY from
+ * args.inputBEEF (buildSignableTransaction.js:14,101) — omit it and
+ * createAction.js's makeSignableTransactionBeef throws WERR_INTERNAL before
+ * signing starts. And for the commitment check: the BEEF is where each
+ * output's REAL lock comes from — customInstructions are never trusted over
+ * it (a record can claim any key list; only the lock says who can spend).
+ * `include` is one-of, so this call cannot also ask for 'locking scripts'.
+ * includeCustomInstructions is required too: listOutputs omits the field
+ * unless asked, and without it every output decodes as null.
+ */
+async function selectVaultInputs(
+  w: VaultWallet,
+  adminOriginator: string,
+  chosenSerial: string,
+  amount: number | 'all'
+): Promise<VaultSelection> {
+  const meta = await vaultStore.getMeta()
+  if (!meta) throw new VaultError('not-enrolled', 'Vault is not set up')
+  const chosen = meta.keys.find(k => k.serial === chosenSerial)
+  if (!chosen) throw new VaultError('not-enrolled', `Key ${chosenSerial} is not one of this vault's keys`)
+
+  // Hand the JS thread back once so React can paint before the bridge and
+  // database work below; the listOutputs payload is up to ~900 KB of BEEF.
+  await new Promise<void>(resolve => setTimeout(resolve, 0))
+  const list = await w.listOutputs(
+    { basket: VAULT_BASKET, include: 'entire transactions', includeCustomInstructions: true, limit: 1000 },
+    adminOriginator
+  )
+  const decodable = list.outputs
+    .map(o => ({ outpoint: o.outpoint, satoshis: o.satoshis, ci: decodeVaultInstructions(o.customInstructions) }))
+    .filter((o): o is typeof o & { ci: VaultInstructionsV4 } => o.ci != null)
+  if (decodable.length === 0) throw new VaultError('vault-empty', 'Vault is empty')
+
+  const total = decodable.reduce((s, o) => s + o.satoshis, 0)
+  const mine = decodable.filter(o => o.ci.keys.includes(chosen.pubkey)).sort((a, b) => b.satoshis - a.satoshis)
+  const others = decodable.filter(o => !o.ci.keys.includes(chosen.pubkey))
+  const otherPubkeys = [...new Set(others.flatMap(o => o.ci.keys))]
+  const unreachable: VaultSpendResult['unreachable'] = {
+    count: others.length,
+    satoshis: others.reduce((s, o) => s + o.satoshis, 0),
+    keys: otherPubkeys.map(pubkey => ({ serial: meta.keys.find(k => k.pubkey === pubkey)?.serial, pubkey }))
+  }
+  if (mine.length === 0) {
+    throw new VaultError('key-not-committed', `Key ${chosen.serial} is not committed to any vault output`)
+  }
+  const reachable = mine.reduce((s, o) => s + o.satoshis, 0)
+
+  // Bounded input count — see VAULT_MAX_INPUTS. Largest first (already
+  // sorted), so the fewest inputs cover the most value.
+  const cap = Math.min(VAULT_MAX_INPUTS, VAULT_HARD_MAX_INPUTS)
+  const capped = mine.slice(0, cap)
+  const cappedInputs = mine.length - capped.length
+
+  // THE COMMITMENT CHECK, against the script the output is ACTUALLY locked
+  // with — never a lock rebuilt from the output's own record, which is
+  // self-consistent by construction. Runs before anything is reserved, so a
+  // lying record costs nothing to refuse.
+  const sources = list.BEEF?.length ? Beef.fromBinary(list.BEEF) : undefined
+  const selected: SelectedVaultOutput[] = capped.map(o => {
+    const [txid, voutStr] = o.outpoint.split('.')
+    // Beef indexes by exact txid string; storage writes lowercase, but so does
+    // every other txid comparison in this file — match them rather than trust it.
+    const lockingScript = sources?.findTxid(txid.toLowerCase())?.tx?.outputs[Number(voutStr)]?.lockingScript
+    if (!lockingScript) {
+      // Fail closed rather than sign blind — and createAction would refuse
+      // this input moments later anyway (see the listOutputs comment).
+      throw new VaultError('no-transaction', `No source transaction for vault output ${o.outpoint}`)
+    }
+    let baked: string[]
+    try {
+      baked = bakedCommitments(lockingScript)
+    } catch (e) {
+      if (e instanceof VaultError && e.code === 'template-invalid') {
+        throw new VaultError('key-not-committed', `Vault output ${o.outpoint} is not an R1C lock`)
+      }
+      throw e
+    }
+    if (!baked.includes(commitment(chosen.pubkey, o.ci.salt))) {
+      throw new VaultError('key-not-committed', `Vault output ${o.outpoint} is not committed to key ${chosen.serial}`)
+    }
+    return { outpoint: o.outpoint, satoshis: o.satoshis, ci: o.ci, lockingScript }
+  })
+  const acc = selected.reduce((s, o) => s + o.satoshis, 0)
+
+  if (amount !== 'all') {
+    if (amount > total) throw new VaultError('amount-exceeds-balance', 'Withdrawal exceeds vault balance')
+    if (amount > reachable && reachable < total) {
+      // Another key could open more: say which, rather than blaming the balance.
+      throw new VaultError(
+        'key-cannot-cover',
+        `Key ${chosen.serial} can open ${reachable} of the ${total} satoshis in the vault`,
+        undefined,
+        { reachable, total }
+      )
+    }
+    if (amount > acc) {
+      // The key holds enough (checked above) but not within the input cap. The
+      // remedy is a smaller withdrawal, which also consolidates.
+      throw new VaultError(
+        'too-many-inputs',
+        `Withdrawing ${amount} satoshis would need more than ${cap} vault inputs; withdraw a smaller amount first`
+      )
+    }
+  }
+  return { keys: meta.keys, chosen, selected, acc, cappedInputs, unreachable, beef: list.BEEF }
+}
+
+// ── withdraw / re-lock: build, sign on the card, verify, finalise ─────────
+
+/** What a spend adds to the transaction beyond its vault inputs. */
+interface VaultSpendPlan {
+  outputs: ReturnType<typeof newVaultOutput>[]
+  labels: string[]
+  inputDescription: string
+}
+
+interface PreparedInput {
+  /** Position in the signable transaction — located by outpoint, never assumed. */
+  inputIndex: number
+  preimage: number[]
+}
+
+type SignableBuild =
+  | { kind: 'done'; txid: string }
+  | { kind: 'signable'; tx: Transaction; reference: string; prepared: PreparedInput[] }
+
+/**
+ * createAction with `version: 2` (spec §2.6), then the two checks that must
+ * pass before the FIRST card signature: the parsed signable transaction is
+ * version 2 (`bad-version`), and every input's preimage passes pushTxDerCheck
+ * (D4b). A D4b hit aborts the reservation and re-creates the action with that
+ * input's `sequenceNumber` bumped — the toolbox default is 0xffffffff, so
+ * "bumped" means decremented; lockTime is 0, so any value is final — which
+ * changes every preimage. Bounded by PUSH_TX_RETRY_MAX.
+ *
+ * The freeReservedInputs retry-once around createAction is unchanged: a prior
+ * failed attempt can leave a vault UTXO reserved by an orphaned transaction,
+ * in either of the two error shapes freeReservedInputs recognises.
+ */
+async function createSignableVaultTx(
+  w: VaultWallet,
+  adminOriginator: string,
+  sel: VaultSelection,
+  reason: string,
+  plan: VaultSpendPlan,
+  opts?: VaultTransferOptions
+): Promise<SignableBuild> {
+  const outpoints = sel.selected.map(o => o.outpoint)
+  /** outpoint → sequenceNumber override, set by a pushTxDerCheck hit. */
+  const sequences = new Map<string, number>()
+
+  for (let attempt = 1; ; attempt++) {
+    const caArgs = {
+      description: reason,
+      version: 2,
+      inputs: sel.selected.map(o => ({
+        outpoint: o.outpoint,
+        unlockingScriptLength: R1C_UNLOCK_LEN,
+        inputDescription: plan.inputDescription,
+        ...(sequences.has(o.outpoint) ? { sequenceNumber: sequences.get(o.outpoint) } : {})
+      })),
+      outputs: plan.outputs,
+      labels: plan.labels,
+      // From the 'entire transactions' listOutputs call — required, not
+      // optional (see selectVaultInputs). trustSelf: 'known' lets storage skip
+      // re-walking each source transaction's own merkle-proof ancestry for a
+      // basket this wallet already trusts; it does not replace inputBEEF.
+      inputBEEF: sel.beef?.length ? sel.beef : undefined,
+      options: { randomizeOutputs: false, acceptDelayedBroadcast: false, trustSelf: 'known' }
+    }
+
+    let created: CreateActionResult
+    try {
+      created = await w.createAction(caArgs, adminOriginator)
+    } catch (e) {
+      const freed = await freeReservedInputs(w, adminOriginator, e, outpoints, opts?.findSpendingReferences)
+      if (freed === 0) throw e
+      created = await w.createAction(caArgs, adminOriginator)
+    }
+
+    if (!created.signableTransaction) {
+      // Inputs carrying unlockingScriptLength always come back signable; kept
+      // for symmetry with reclaimStagingOutputs' direct-txid branch.
+      const txid = created.txid ?? (created.tx ? Transaction.fromAtomicBEEF(created.tx).id('hex') : undefined)
+      if (!txid) throw new VaultError('no-transaction', 'Vault spend produced no transaction')
+      return { kind: 'done', txid }
+    }
+
+    const { reference } = created.signableTransaction
+    try {
+      const tx = Transaction.fromAtomicBEEF(created.signableTransaction.tx)
+      if (tx.version !== 2) {
+        throw new VaultError('bad-version', `Signable transaction is version ${tx.version}; expected 2`)
+      }
+      const prepared: PreparedInput[] = sel.selected.map(o => {
+        const [txid, voutStr] = o.outpoint.split('.')
+        const vout = Number(voutStr)
+        // The toolbox is free to add funding inputs of its own, so each vault
+        // input is located by outpoint, never assumed by position.
+        const inputIndex = tx.inputs.findIndex(
+          i =>
+            (i.sourceTXID ?? i.sourceTransaction?.id('hex'))?.toLowerCase() === txid.toLowerCase() &&
+            i.sourceOutputIndex === vout
+        )
+        if (inputIndex < 0) {
+          throw new VaultError('no-transaction', `Vault input ${o.outpoint} missing from the signable transaction`)
+        }
+        return { inputIndex, preimage: sighashPreimage(tx, inputIndex, o.satoshis) }
+      })
+
+      const badAt = prepared.findIndex(p => !pushTxDerCheck(p.preimage).ok)
+      if (badAt < 0) return { kind: 'signable', tx, reference, prepared }
+      if (attempt >= PUSH_TX_RETRY_MAX) {
+        throw new VaultError(
+          'no-transaction',
+          `Could not build a signable vault transaction in ${PUSH_TX_RETRY_MAX} attempts`
+        )
+      }
+      const bad = sel.selected[badAt]
+      const current = sequences.get(bad.outpoint) ?? (tx.inputs[prepared[badAt].inputIndex].sequence ?? 0xffffffff)
+      sequences.set(bad.outpoint, current - 1)
+    } catch (e) {
+      await w.abortAction({ reference }, adminOriginator).catch(() => {})
+      throw e
+    }
+    // D4b hit: this reservation is worthless — release it and rebuild with the
+    // bumped sequence.
+    await w.abortAction({ reference }, adminOriginator).catch(() => {})
+  }
+}
+
+/**
+ * Spec §4.2 steps 5–8, shared by withdrawFromVault and relockVault.
+ *
+ * ORDER, and why: build + screen (no card) → tap (requestVaultSigner) → sign
+ * every input SEQUENTIALLY → release the signer → verify every unlock locally
+ * with the strict flags → signAction. Verification runs after release so the
+ * NFC sheet is down while the interpreter works; anything failing before
+ * signAction aborts the reservation; nothing after it does.
+ *
+ * SEQUENTIAL BY DESIGN — do not "simplify" this into an
+ * unlockingScriptTemplate + tx.sign(). @bsv/sdk's Transaction.sign() fans
+ * every template's sign() out through Promise.all and takes ownership of the
+ * whole input set; this loop keeps each input's script ours to build, in a
+ * known order, one card round trip at a time (the card signs one digest per
+ * command). The yield before each signature keeps the JS thread responsive
+ * for the sheet.
+ */
+async function spendVaultOutputs(
+  w: VaultWallet,
+  adminOriginator: string,
+  sel: VaultSelection,
+  reason: string,
+  plan: VaultSpendPlan,
+  opts?: VaultTransferOptions
+): Promise<VaultSpendResult> {
+  const built = await createSignableVaultTx(w, adminOriginator, sel, reason, plan, opts)
+  const result = (txid: string): VaultSpendResult => ({ txid, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable })
+  if (built.kind === 'done') return result(built.txid)
+  const { tx, reference, prepared } = built
+  const { chosen, selected } = sel
+  const total = selected.length
+
+  const unlocks: { inputIndex: number; unlockingScript: UnlockingScript }[] = []
+  try {
+    // ── the tap(s): one on-card signature per input ────────────────────
+    const signer = await requestVaultSigner(reason, chosen.serial)
+    try {
+      for (let i = 0; i < total; i++) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0))
+        noteVaultProgress({ phase: 'preparing', signed: i, total })
+        const { inputIndex, preimage } = prepared[i]
+        const der = await signer.sign(signerDigest(preimage), { index: i, total })
+        // buildUnlock throws template-invalid if fullR is the point at
+        // infinity — a 2^-256 event; it unwinds through the abort below.
+        unlocks.push({
+          inputIndex,
+          unlockingScript: buildUnlock({ preimage, derSig: der, pubkeyHex33: signer.pubkey, saltHex64: selected[i].ci.salt })
+        })
+      }
+    } finally {
+      // Dismisses the NFC sheet and drops the PIN whether or not every input
+      // was signed; the local verification below needs no card.
+      signer.release()
+    }
+
+    // ── strict local Spend per input (spec §4.2 step 7) ────────────────
+    // Honest unlocks are minimal, so MINIMALDATA on is strictly stronger than
+    // the node's version-2 rules: anything that passes here is accepted there.
+    for (let i = 0; i < total; i++) {
+      verifyVaultInput({
+        tx,
+        inputIndex: unlocks[i].inputIndex,
+        sourceSatoshis: selected[i].satoshis,
+        lockingScript: selected[i].lockingScript,
+        unlockingScript: unlocks[i].unlockingScript
+      })
+    }
+  } catch (e) {
+    // Nothing reached signAction, so the reservation is worthless — release
+    // it, or the vault UTXO stays spendable=false and the next attempt is
+    // refused outright.
+    await w.abortAction({ reference }, adminOriginator).catch(() => {})
+    throw e
+  }
+
+  const spends: Record<number, { unlockingScript: string }> = {}
+  for (const u of unlocks) spends[u.inputIndex] = { unlockingScript: u.unlockingScript.toHex() }
+
+  // PAST THE POINT OF NO ABORT.
+  //
+  // acceptDelayedBroadcast: true hands the signed transaction to storage and
+  // lets the monitor's SendWaiting task carry it to the network. A slow or
+  // timing-out broadcaster therefore cannot cost the user a signed
+  // transaction, and this call no longer waits on the network before the UI
+  // can move on.
+  //
+  // Deliberately OUTSIDE the try above: once a transaction is signed, aborting
+  // it is the dangerous move, not the safe one — the network may already have
+  // accepted it, and abandoning it locally would leave the wallet blind to
+  // funds that really moved. A failure here is reported as "we will try
+  // again", never as a cancellation.
+  //
+  // The broadcasting note is inert once the signer is released (noteProgress
+  // ignores notes with nothing armed); the transfer screen shows its own
+  // spinner. Kept so the phase sequence reads complete.
+  noteVaultProgress({ phase: 'broadcasting' })
+  const signed = await w.signAction({ reference, spends, options: { acceptDelayedBroadcast: true } }, adminOriginator)
+  const txid = signed.txid ?? (signed.tx ? Transaction.fromAtomicBEEF(signed.tx).id('hex') : undefined)
+  if (!txid) throw new VaultError('no-transaction', 'Vault spend produced no transaction')
+  await vaultStore.noteLastUsed(chosen.serial)
+  return result(txid)
+}
+
+// ── withdraw ────────────────────────────────────────────────────────────
+
+/**
+ * Withdraw from the vault with the CHOSEN key (spec §4.2).
+ *
+ * `amount: 'all'` means "as much as one transaction can carry of what this
+ * key can open": the untouched outputs stay in the vault and are reported as
+ * `cappedInputs` (repeat to move them); outputs other keys own are reported as
+ * `unreachable` (repeat with one of those keys). A remainder ≥ VAULT_DEPOSIT_MIN
+ * is re-vaulted as one output committed to the CURRENT key set (so a partial
+ * withdrawal also brings old deposits up to date with the key list); a smaller
+ * one is folded into the withdrawal as toolbox change.
+ */
+export async function withdrawFromVault(
+  w: VaultWallet,
+  adminOriginator: string,
+  amount: number | 'all',
+  reason: string,
+  chosenSerial: string,
+  opts?: VaultTransferOptions
+): Promise<VaultSpendResult> {
+  // Before anything else: an offline user is never asked to present a key for
+  // a transfer that cannot proceed.
+  await requireOnline(opts)
+  const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount)
+  const want = amount === 'all' ? sel.acc : amount
+  const remainder = sel.acc - want
+  const outputs: VaultSpendPlan['outputs'] = []
+  if (remainder >= VAULT_DEPOSIT_MIN) {
+    // Re-vaulting CREATES a vault output, which the release flag gates (spec
+    // §5.5). Withdrawing pre-existing outputs — 'all' — never is.
+    requireReleased(opts, 'Re-vaulting a remainder')
+    outputs.push(newVaultOutput(sel.keys, remainder, 'Vault change'))
+  }
+  return spendVaultOutputs(
+    w,
+    adminOriginator,
+    sel,
+    reason,
+    { outputs, labels: ['vault', 'vault-withdraw'], inputDescription: 'Vault withdrawal' },
+    opts
+  )
 }

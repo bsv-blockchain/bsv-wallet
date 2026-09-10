@@ -16,10 +16,19 @@ import { Beef, BigNumber, ECDSA, LockingScript, P2PKH, PrivateKey, Spend, Transa
 import { p256 } from '@noble/curves/nist.js'
 import {
   R1C_LOCK_LEN,
+  R1C_UNLOCK_LEN,
   bakedCommitments,
+  buildLock,
   commitment,
-  decodeVaultInstructions
+  decodeVaultInstructions,
+  encodeVaultInstructions,
+  sighashPreimage,
+  signerDigest,
+  verifyVaultInput
 } from '../../core/services/vault/r1comb'
+// Namespace import so single functions can be spied (Babel's CJS interop
+// reads exports at call time, so a spyOn here is seen by transfers.ts).
+import * as r1comb from '../../core/services/vault/r1comb'
 
 // Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
 // suites install a different one and a global mapper makes the resolver
@@ -66,13 +75,18 @@ import { isBackupPushEnabled } from '../../core/backup/preference'
 import { isVaultEnabled } from '../../core/toolboxConfig'
 import { noteVaultProgress, requestVaultSigner } from '../../core/services/vault/ceremonyHost'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
+import type { VaultSigner } from '../../core/services/vault/ceremony'
+import { VaultError } from '../../core/services/vault/types'
 import {
   VAULT_BASKET,
   VAULT_DEPOSIT_MIN,
+  VAULT_HARD_MAX_INPUTS,
+  VAULT_MAX_INPUTS,
   VAULT_STAGING_BASKET,
   VaultWallet,
   depositToVault,
-  reclaimStagingOutputs
+  reclaimStagingOutputs,
+  withdrawFromVault
 } from '../../core/services/vault/transfers'
 
 const ADMIN = 'admin.com'
@@ -153,6 +167,10 @@ beforeEach(async () => {
   ;(isBackupPushEnabled as jest.Mock).mockResolvedValue(true)
   ;(noteVaultProgress as jest.Mock).mockClear()
   ;(requestVaultSigner as jest.Mock).mockReset()
+  lastSignable = undefined
+  signerRelease = jest.fn()
+  signCalls = []
+  armWith(PRIV_A, PUB_A, 'A-1')
 })
 
 // Spies on r1comb (Task 10 stubs verifyVaultInput / pushTxDerCheck in a few
@@ -160,6 +178,149 @@ beforeEach(async () => {
 // later "the interpreter accepts it" test pass vacuously. Everything the
 // beforeEach above creates or re-arms survives this.
 afterEach(() => jest.restoreAllMocks())
+
+// ── withdraw fixtures ─────────────────────────────────────────────────────
+
+interface VaultFixture {
+  outpoint: string
+  satoshis: number
+  salt: string
+  keys: string[]
+  lockingScript: LockingScript
+  src: Transaction
+  customInstructions: string
+}
+
+/**
+ * A real R1C vault output: fresh salt, lock committed to `lockKeys`, and a v4
+ * record claiming `keys`. The two agree unless a test says otherwise (the
+ * key-not-committed case bakes a lock the record lies about).
+ */
+function vaultFixture(satoshis: number, keys: string[], lockKeys: string[] = keys): VaultFixture {
+  const salt = Utils.toHex(Array.from(crypto.getRandomValues(new Uint8Array(32))))
+  const lockingScript = buildLock({ commitments: lockKeys.map(pk => commitment(pk, salt)) })
+  const src = new Transaction()
+  src.addOutput({ satoshis, lockingScript })
+  return {
+    outpoint: `${src.id('hex')}.0`,
+    satoshis,
+    salt,
+    keys,
+    lockingScript,
+    src,
+    customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt, keys })
+  }
+}
+
+/** The signable transaction the fake wallet last fabricated — the object the
+ * real interpreter checks each unlocking script against. */
+let lastSignable: Transaction | undefined
+
+/**
+ * Serve `fx` from the fake wallet and fabricate a REAL signable transaction of
+ * whatever version the caller asks for, honouring per-input sequenceNumber,
+ * with the toolbox's own change output appended. `fundingFirst` prepends a
+ * funding input, as the toolbox may — the code under test must locate its
+ * inputs by outpoint, never by position.
+ */
+async function seedVault(
+  fx: VaultFixture[],
+  keys: VaultKeyRecord[] = [KEY_A, KEY_B],
+  opts: { fundingFirst?: boolean } = {}
+): Promise<void> {
+  await seedMeta(keys)
+  wallet.listOutputs.mockImplementation(async (args: any) =>
+    args?.basket === VAULT_BASKET
+      ? {
+          outputs: fx.map(f => ({ outpoint: f.outpoint, satoshis: f.satoshis, customInstructions: f.customInstructions })),
+          BEEF: stitchBeef(fx)
+        }
+      : args?.basket === VAULT_STAGING_BASKET
+        ? { outputs: [...fakeStagingUtxos] }
+        : { outputs: [] }
+  )
+  wallet.createAction.mockImplementation(async (args: any) => {
+    const tx = new Transaction(args.version ?? 1)
+    if (opts.fundingFirst) {
+      const fund = new Transaction()
+      fund.addOutput({ satoshis: 50_000, lockingScript: new P2PKH().lock(Utils.toArray('44'.repeat(20), 'hex')) })
+      tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+    }
+    for (const inp of args.inputs ?? []) {
+      const f = fx.find(x => x.outpoint === inp.outpoint)!
+      tx.addInput({
+        sourceTransaction: f.src,
+        sourceOutputIndex: 0,
+        sequence: inp.sequenceNumber ?? 0xffffffff,
+        unlockingScript: new UnlockingScript([])
+      })
+    }
+    for (const out of args.outputs ?? []) {
+      tx.addOutput({ satoshis: out.satoshis, lockingScript: LockingScript.fromHex(out.lockingScript) })
+    }
+    // The toolbox's own default-basket change.
+    tx.addOutput({ satoshis: 1234, lockingScript: new P2PKH().lock(Utils.toArray('11'.repeat(20), 'hex')) })
+    lastSignable = tx
+    return { signableTransaction: { tx: tx.toAtomicBEEF(), reference: 'ref-1' } }
+  })
+}
+
+let signerRelease: jest.Mock
+let signCalls: { digest: string; progress?: { index: number; total: number } }[]
+
+/**
+ * Arm the mocked ceremonyHost with a software key standing in for a YubiKey.
+ * Mirrors the real requestVaultSigner contract: refuses a chosenSerial that is
+ * not this key (serial-mismatch), signs raw 32-byte digests as DER WITHOUT
+ * low-S normalisation (real PIV hardware does not normalise; the lock accepts
+ * both), and refuses to sign after release.
+ */
+const armWith = (priv: Uint8Array, pubkey: string, serial: string): void => {
+  ;(requestVaultSigner as jest.Mock).mockImplementation(async (_reason: string, chosenSerial: string) => {
+    if (chosenSerial !== serial) {
+      throw new VaultError('serial-mismatch', `Tapped key ${serial}, chose key ${chosenSerial}`)
+    }
+    let released = false
+    const signer: VaultSigner = {
+      serial,
+      pubkey,
+      sign: async (digestHex, progress) => {
+        if (released) throw new VaultError('key-removed-mid-op', 'Vault signer already released')
+        signCalls.push({ digest: digestHex, progress })
+        const raw = p256.sign(Uint8Array.from(Utils.toArray(digestHex, 'hex')), priv, { prehash: false, lowS: false })
+        return Array.from(p256.Signature.fromBytes(raw).toBytes('der'))
+      },
+      release: () => {
+        if (released) return
+        released = true
+        signerRelease()
+      }
+    }
+    return signer
+  })
+}
+
+/** Every produced unlock, checked by the real interpreter under the strict
+ * flags against the fake's real v2 transaction. */
+const validateSpends = (fx: VaultFixture[]): void => {
+  const [caArgs] = wallet.createAction.mock.calls.at(-1)!
+  const [saArgs] = wallet.signAction.mock.calls[0]
+  const tx = lastSignable!
+  expect(Object.keys(saArgs.spends)).toHaveLength(caArgs.inputs.length)
+  for (const inp of caArgs.inputs as { outpoint: string }[]) {
+    const f = fx.find(x => x.outpoint === inp.outpoint)!
+    const idx = tx.inputs.findIndex(i => i.sourceTransaction?.id('hex') === f.src.id('hex'))
+    expect(idx).toBeGreaterThanOrEqual(0)
+    const unlockingScript = UnlockingScript.fromHex(saArgs.spends[idx].unlockingScript)
+    expect(unlockingScript.toBinary().length).toBeLessThanOrEqual(R1C_UNLOCK_LEN)
+    expect(
+      verifyVaultInput({ tx, inputIndex: idx, sourceSatoshis: f.satoshis, lockingScript: f.lockingScript, unlockingScript })
+    ).toBe(true)
+  }
+}
+
+const withdrawAll = (opts?: Parameters<typeof withdrawFromVault>[5]) =>
+  withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw all', 'A-1', opts)
 
 // ── deposit ───────────────────────────────────────────────────────────────
 
@@ -561,5 +722,534 @@ describe('reclaimStagingOutputs', () => {
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-orphan' }, ADMIN)
     expect(wallet.createAction).toHaveBeenCalledTimes(2)
     validateReclaimSpends(f)
+  })
+})
+
+// ── withdraw ──────────────────────────────────────────────────────────────
+
+describe('withdrawFromVault', () => {
+  it('lists with entire transactions + customInstructions, and creates a VERSION-2 action with the R1C unlock length, the BEEF, and undelayed strict options', async () => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    await withdrawAll()
+
+    const [listArgs] = wallet.listOutputs.mock.calls[0]
+    expect(listArgs).toEqual({
+      basket: VAULT_BASKET,
+      include: 'entire transactions',
+      includeCustomInstructions: true,
+      limit: 1000
+    })
+
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    expect(caArgs.description).toBe('Withdraw all')
+    expect(caArgs.version).toBe(2) // spec §2.6: every vault spend is version 2
+    expect(caArgs.inputs).toHaveLength(2)
+    for (const i of caArgs.inputs) {
+      expect(i).toEqual({ outpoint: i.outpoint, unlockingScriptLength: R1C_UNLOCK_LEN, inputDescription: 'Vault withdrawal' })
+      expect(i.unlockingScriptLength).toBe(2560)
+    }
+    // Largest first.
+    expect(caArgs.inputs.map((i: any) => i.outpoint)).toEqual([fx[0].outpoint, fx[1].outpoint])
+    expect(caArgs.labels).toEqual(['vault', 'vault-withdraw'])
+    expect(caArgs.options).toEqual({ randomizeOutputs: false, acceptDelayedBroadcast: false, trustSelf: 'known' })
+    // Sourced from the listOutputs result, not fabricated — and it decodes to
+    // a BEEF containing every spent output's source transaction.
+    const beef = Beef.fromBinary(caArgs.inputBEEF)
+    for (const f of fx) expect(beef.findTxid(f.src.id('hex'))).toBeDefined()
+  }, 60_000)
+
+  it('produces unlocking scripts the strict interpreter accepts against the REAL version-2 signable transaction, keyed by input index', async () => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    const r = await withdrawAll()
+    expect(r.txid).toBe('feedface'.repeat(8))
+    expect(lastSignable!.version).toBe(2)
+    validateSpends(fx)
+  }, 60_000)
+
+  it('locates its inputs by outpoint when the toolbox prepends a funding input', async () => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B])]
+    await seedVault(fx, [KEY_A, KEY_B], { fundingFirst: true })
+    await withdrawAll()
+    const [saArgs] = wallet.signAction.mock.calls[0]
+    expect(Object.keys(saArgs.spends).sort()).toEqual(['1', '2']) // input 0 is the toolbox's
+    validateSpends(fx)
+  }, 60_000)
+
+  it('signs the digest of each input\'s REAL preimage, sequentially, with per-input progress, then reports broadcasting', async () => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B]), vaultFixture(100_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    await withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw from vault', 'A-1')
+
+    expect(requestVaultSigner).toHaveBeenCalledTimes(1)
+    expect(requestVaultSigner).toHaveBeenCalledWith('Withdraw from vault', 'A-1')
+    expect(signCalls).toHaveLength(3)
+    signCalls.forEach((c, i) => {
+      expect(c.progress).toEqual({ index: i, total: 3 })
+      expect(c.digest).toBe(signerDigest(sighashPreimage(lastSignable!, i, fx[i].satoshis)))
+    })
+    const notes = (noteVaultProgress as jest.Mock).mock.calls.map(([p]) => p)
+    expect(notes.slice(0, 3)).toEqual([
+      { phase: 'preparing', signed: 0, total: 3 },
+      { phase: 'preparing', signed: 1, total: 3 },
+      { phase: 'preparing', signed: 2, total: 3 }
+    ])
+    expect(notes.at(-1)).toEqual({ phase: 'broadcasting' })
+    expect(signerRelease).toHaveBeenCalledTimes(1)
+  }, 90_000)
+
+  it('hands the signed transaction to the monitor (acceptDelayedBroadcast: true) and stamps lastUsedSerial', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    await withdrawAll()
+    const [saArgs] = wallet.signAction.mock.calls[0]
+    expect(saArgs.reference).toBe('ref-1')
+    expect(saArgs.options).toEqual({ acceptDelayedBroadcast: true })
+    expect((await vaultStore.getMeta())!.lastUsedSerial).toBe('A-1')
+  }, 60_000)
+
+  it('returns cappedInputs 0 and an empty unreachable set when every output is the chosen key\'s and fits', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    const r = await withdrawAll()
+    expect(r).toEqual({ txid: 'feedface'.repeat(8), cappedInputs: 0, unreachable: { count: 0, satoshis: 0, keys: [] } })
+  }, 60_000)
+
+  // ── selection (spec §4.2 steps 2–3) ───────────────────────────────────
+
+  it('filters to the chosen key BEFORE capping: 35 outputs, the 3 largest committed only to B, chosen A → the 32 A outputs, 3 unreachable', async () => {
+    // A cap-before-filter bug would pick the three B-only outputs (they are
+    // the largest) and either fail on the commitment check or leave A with
+    // fewer than 32 inputs.
+    const aOutputs = Array.from({ length: 32 }, (_, i) => vaultFixture(300_000 + i, [PUB_A, PUB_B]))
+    const bOnly = Array.from({ length: 3 }, (_, i) => vaultFixture(900_000 + i, [PUB_B]))
+    await seedVault([...bOnly, ...aOutputs])
+    jest.spyOn(r1comb, 'verifyVaultInput').mockReturnValue(true) // 32 real verifications are for the device run
+
+    const r = await withdrawAll()
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    expect(caArgs.inputs).toHaveLength(VAULT_MAX_INPUTS)
+    expect(caArgs.inputs.length).toBeLessThanOrEqual(VAULT_HARD_MAX_INPUTS)
+    const aOutpoints = new Set(aOutputs.map(f => f.outpoint))
+    for (const i of caArgs.inputs) expect(aOutpoints.has(i.outpoint)).toBe(true)
+    expect(r.cappedInputs).toBe(0)
+    expect(r.unreachable).toEqual({
+      count: 3,
+      satoshis: 900_000 + 900_001 + 900_002,
+      keys: [{ serial: 'B-1', pubkey: PUB_B }]
+    })
+    expect(signCalls).toHaveLength(32)
+  }, 120_000)
+
+  it('caps at VAULT_MAX_INPUTS and reports the untouched outputs as cappedInputs', async () => {
+    const fx = Array.from({ length: VAULT_MAX_INPUTS + 2 }, () => vaultFixture(300_000, [PUB_A, PUB_B]))
+    await seedVault(fx)
+    jest.spyOn(r1comb, 'verifyVaultInput').mockReturnValue(true)
+    const r = await withdrawAll()
+    expect(r.cappedInputs).toBe(2)
+    expect(r.unreachable.count).toBe(0)
+    expect(wallet.createAction.mock.calls[0][0].inputs).toHaveLength(VAULT_MAX_INPUTS)
+  }, 120_000)
+
+  it('choosing B selects only B\'s outputs and reports A\'s as unreachable, naming A', async () => {
+    armWith(PRIV_B, PUB_B, 'B-1')
+    const shared = vaultFixture(300_000, [PUB_A, PUB_B])
+    const bOnly = vaultFixture(400_000, [PUB_B])
+    const aOnly = vaultFixture(500_000, [PUB_A])
+    await seedVault([shared, bOnly, aOnly])
+    const r = await withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'B-1')
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    expect(caArgs.inputs.map((i: any) => i.outpoint)).toEqual([bOnly.outpoint, shared.outpoint]) // largest first
+    expect(r.unreachable).toEqual({ count: 1, satoshis: 500_000, keys: [{ serial: 'A-1', pubkey: PUB_A }] })
+    validateSpends([shared, bOnly])
+  }, 60_000)
+
+  it('an unreachable output committed to a key no longer in meta is reported without a serial', async () => {
+    const removed = Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), true)))
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(700_000, [removed])])
+    const r = await withdrawAll()
+    expect(r.unreachable).toEqual({ count: 1, satoshis: 700_000, keys: [{ serial: undefined, pubkey: removed }] })
+  }, 60_000)
+
+  it('key-not-committed when the REAL lock lacks the chosen key\'s commitment although customInstructions claims it — before any reservation or tap', async () => {
+    const liar = vaultFixture(300_000, [PUB_A, PUB_B], [PUB_B]) // record says A+B, lock says B
+    await seedVault([liar])
+    const err = await withdrawAll().catch(e => e)
+    expect(err).toMatchObject({ code: 'key-not-committed' })
+    expect(err.message).toContain(liar.outpoint)
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
+  it('key-not-committed when no output is committed to the chosen key at all', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_B]), vaultFixture(200_000, [PUB_B])])
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'key-not-committed' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
+  it('key-cannot-cover when the chosen key can open less than asked while other keys could open more', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_B])])
+    const err = await withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1').catch(e => e)
+    expect(err).toMatchObject({ code: 'key-cannot-cover' })
+    expect(err.message).toContain('500000')
+    expect(err.message).toContain('1000000')
+    expect(err.details).toEqual({ reachable: 500_000, total: 1_000_000 })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
+  it('amount-exceeds-balance when the whole vault is too small', async () => {
+    await seedVault([vaultFixture(250_000, [PUB_A, PUB_B])])
+    await expect(withdrawFromVault(wallet, ADMIN, 300_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
+      code: 'amount-exceeds-balance'
+    })
+  })
+
+  it('too-many-inputs when the amount cannot be funded within the cap although the key could open it', async () => {
+    // 34 × 300,000 is plenty, but 32 inputs only reach 9,600,000 — an
+    // input-count problem, not a balance or a key problem, and it must say so.
+    await seedVault(Array.from({ length: VAULT_MAX_INPUTS + 2 }, () => vaultFixture(300_000, [PUB_A, PUB_B])))
+    await expect(withdrawFromVault(wallet, ADMIN, 10_000_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
+      code: 'too-many-inputs'
+    })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('vault-empty when nothing decodes as v4 — a v3 K1 record is skipped, not spent', async () => {
+    await seedMeta()
+    wallet.listOutputs.mockResolvedValueOnce({
+      outputs: [
+        { outpoint: `${'aa'.repeat(32)}.0`, satoshis: 250_000, customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' }) },
+        { outpoint: `${'bb'.repeat(32)}.0`, satoshis: 250_000, customInstructions: 'not json' }
+      ]
+    })
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'vault-empty' })
+  })
+
+  it('not-enrolled for an unknown chosen serial, before listing anything', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    await expect(withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'Z-9')).rejects.toMatchObject({ code: 'not-enrolled' })
+    expect(wallet.listOutputs).not.toHaveBeenCalled()
+  })
+
+  it('requires-online before anything else — an offline user is never asked for a key', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    await expect(withdrawAll({ isOnline: async () => false })).rejects.toMatchObject({ code: 'requires-online' })
+    expect(wallet.listOutputs).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
+  // ── remainder (spec §4.2 step 4) ───────────────────────────────────────
+
+  it('re-vaults a remainder ≥ the floor as ONE output with a fresh salt committed to the CURRENT key set', async () => {
+    const fx = [vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])]
+    await seedVault(fx, [KEY_A, KEY_B, KEY_C]) // a key was added since these deposits
+    await withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')
+
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    expect(caArgs.outputs).toHaveLength(1)
+    const out = caArgs.outputs[0]
+    expect(out).toMatchObject({ satoshis: 400_000, basket: VAULT_BASKET, outputDescription: 'Vault change', tags: ['vault'] })
+    expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
+    const ci = decodeVaultInstructions(out.customInstructions)!
+    expect(ci.keys).toEqual([PUB_A, PUB_B, KEY_C.pubkey])
+    expect(fx.map(f => f.salt)).not.toContain(ci.salt)
+    expect(bakedCommitments(LockingScript.fromHex(out.lockingScript))).toEqual(
+      [PUB_A, PUB_B, KEY_C.pubkey].map(pk => commitment(pk, ci.salt))
+    )
+    validateSpends(fx)
+  }, 60_000)
+
+  it('folds a sub-floor remainder into the withdrawal (no vault output)', async () => {
+    await seedVault([vaultFixture(150_000, [PUB_A, PUB_B])])
+    await withdrawFromVault(wallet, ADMIN, 100_000, 'Withdraw', 'A-1')
+    // 50,000 is below VAULT_DEPOSIT_MIN: it reaches the user as toolbox
+    // change rather than becoming an output not worth what it costs to move.
+    expect(wallet.createAction.mock.calls[0][0].outputs).toEqual([])
+  }, 60_000)
+
+  it('refuses to CREATE a re-vault output while vaultEnabled is off (not-released); withdrawing all is never gated', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])])
+    await expect(
+      withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1', { vaultEnabled: () => false })
+    ).rejects.toMatchObject({ code: 'not-released' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+
+    await expect(withdrawAll({ vaultEnabled: () => false })).resolves.toMatchObject({ txid: expect.any(String) })
+  }, 60_000)
+
+  // ── the version invariant and D4b (spec §2.6, §4.2 step 5) ─────────────
+
+  it('bad-version: a signable transaction that is not version 2 is aborted before any signature', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    const real = wallet.createAction.getMockImplementation()!
+    wallet.createAction.mockImplementationOnce(async (args: any, o: string) => real({ ...args, version: 1 }, o))
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'bad-version' })
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(wallet.signAction).not.toHaveBeenCalled()
+  })
+
+  it('a pushTxDerCheck hit aborts the reservation and re-creates the action with that input\'s sequenceNumber bumped', async () => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    const check = jest.spyOn(r1comb, 'pushTxDerCheck').mockReturnValueOnce({ ok: false, s: 0n })
+
+    const r = await withdrawAll()
+    expect(r.txid).toBeDefined()
+    expect(check).toHaveBeenCalledTimes(2) // once per attempt
+    expect(wallet.createAction).toHaveBeenCalledTimes(2)
+    const [first] = wallet.createAction.mock.calls[0]
+    const [second] = wallet.createAction.mock.calls[1]
+    expect(first.inputs[0]).not.toHaveProperty('sequenceNumber')
+    expect(second.inputs[0].sequenceNumber).toBe(0xfffffffe)
+    expect(wallet.abortAction).toHaveBeenCalledTimes(1)
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    // The signatures are over the SECOND transaction (sequence 0xfffffffe).
+    expect(lastSignable!.inputs[0].sequence).toBe(0xfffffffe)
+    validateSpends(fx)
+  }, 60_000)
+
+  it('gives up after 8 attempts with no-transaction, never tapping', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    jest.spyOn(r1comb, 'pushTxDerCheck').mockReturnValue({ ok: false, s: 0n })
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'no-transaction' })
+    expect(wallet.createAction).toHaveBeenCalledTimes(8)
+    expect(wallet.abortAction).toHaveBeenCalledTimes(8)
+    const seqs = wallet.createAction.mock.calls.map(([a]: [any]) => a.inputs[0].sequenceNumber)
+    expect(seqs).toEqual([undefined, 0xfffffffe, 0xfffffffd, 0xfffffffc, 0xfffffffb, 0xfffffffa, 0xfffffff9, 0xfffffff8])
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(wallet.signAction).not.toHaveBeenCalled()
+  }, 60_000)
+
+  // ── abort discipline ───────────────────────────────────────────────────
+
+  it('aborts the reservation and releases the signer when a signature fails (user cancel mid-batch)', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B])])
+    ;(requestVaultSigner as jest.Mock).mockImplementationOnce(async () => ({
+      serial: 'A-1',
+      pubkey: PUB_A,
+      sign: async () => {
+        throw new VaultError('user-cancelled')
+      },
+      release: signerRelease
+    }))
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'user-cancelled' })
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    expect(signerRelease).toHaveBeenCalledTimes(1)
+    expect(wallet.signAction).not.toHaveBeenCalled()
+  })
+
+  it('aborts the reservation when the tap itself fails (serial-mismatch from the ceremony)', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    ;(requestVaultSigner as jest.Mock).mockRejectedValueOnce(new VaultError('serial-mismatch', 'Tapped key B-1, chose key A-1'))
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'serial-mismatch' })
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    expect(wallet.signAction).not.toHaveBeenCalled()
+  })
+
+  it('aborts when local verification rejects an unlock — the signer is already released', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    jest.spyOn(r1comb, 'verifyVaultInput').mockImplementationOnce(() => {
+      throw new Error('SCRIPT_ERR_EVAL_FALSE')
+    })
+    await expect(withdrawAll()).rejects.toThrow('SCRIPT_ERR_EVAL_FALSE')
+    expect(signerRelease).toHaveBeenCalledTimes(1)
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    expect(wallet.signAction).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('still aborts when the signable bytes do not parse (after createAction reserved, before anything exists to sign)', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    wallet.createAction.mockResolvedValueOnce({ signableTransaction: { tx: [0, 0, 0, 0], reference: 'ref-corrupt' } })
+    await expect(withdrawAll()).rejects.toThrow()
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-corrupt' }, ADMIN)
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
+  it('does NOT abort when signAction itself fails — the transaction is signed and the network may have it', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    wallet.signAction.mockRejectedValueOnce(new Error('ETIMEDOUT posting to ARC'))
+    await expect(withdrawAll()).rejects.toThrow('ETIMEDOUT')
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(signerRelease).toHaveBeenCalledTimes(1)
+  }, 60_000)
+})
+
+// ── double-spend self-heal (unchanged behaviour, R1C fixtures) ────────────
+
+describe('withdraw self-heals a double-spend from stuck reservations', () => {
+  const reviewError = (competingTxs: string[]) =>
+    Object.assign(new Error('Undelayed createAction or signAction results require review.'), {
+      code: 5,
+      reviewActionResults: [{ txid: '', status: 'doubleSpend', competingTxs }]
+    })
+
+  /** One A+B output served, with the fake's createAction wrapped so the FIRST
+   * call throws `err` and later calls run the real fabrication. */
+  const oneOutputThrowingFirst = async (err: (outpoint: string) => unknown) => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    let createCalls = 0
+    const real = wallet.createAction.getMockImplementation()!
+    wallet.createAction.mockImplementation(async (...args: any[]) => {
+      if (++createCalls === 1) throw err(fx[0].outpoint)
+      return real(...(args as [unknown, string]))
+    })
+    return { fx, createCalls: () => createCalls }
+  }
+
+  test('aborts exactly the reserving txid (by txid match) then retries createAction', async () => {
+    const RESERVING = 'ab'.repeat(32)
+    const aborted: string[] = []
+    const h = await oneOutputThrowingFirst(() => reviewError([RESERVING]))
+    wallet.listActions.mockResolvedValue({
+      actions: [
+        { txid: RESERVING, status: 'nosend', reference: 'ref-reserving' }, // the culprit
+        { txid: 'cd'.repeat(32), status: 'nosend', reference: 'ref-other' }, // unrelated txid
+        { txid: RESERVING, status: 'completed', reference: 'ref-terminal' } // same txid, terminal
+      ]
+    })
+    wallet.abortAction.mockImplementation(async (args: any) => {
+      aborted.push(args.reference)
+      return {}
+    })
+
+    const { txid } = await withdrawAll()
+    expect(txid).toBeDefined()
+    expect(h.createCalls()).toBe(2) // threw once, retried once
+    expect(aborted).toEqual(['ref-reserving']) // only the matching txid + abortable status
+  }, 60_000)
+
+  // The shape a failed withdrawal ACTUALLY leaves behind: the orphan died
+  // before signing, so it has no txid for the review path to blame and the
+  // toolbox refuses the input with a plain WERR_INVALID_PARAMETER naming the
+  // outpoint instead.
+  const unspendableError = (outpoint: string) => {
+    const [txid, vout] = outpoint.split('.')
+    return Object.assign(
+      new Error(
+        `The inputs[0] parameter must be spendable output. output ${txid}:${vout} ` +
+          'appears to have been spent (spendable=false).'
+      ),
+      { code: 'WERR_INVALID_PARAMETER' }
+    )
+  }
+
+  test('aborts the orphan reserving the outpoint (matched on its inputs) then retries', async () => {
+    const aborted: string[] = []
+    const h = await oneOutputThrowingFirst(unspendableError)
+    wallet.listActions.mockImplementation(async (args: any) => {
+      expect(args.includeInputs).toBe(true) // cannot match on txid here, so it must ask for inputs
+      if (args.offset > 0) return { actions: [] }
+      return {
+        actions: [
+          { status: 'unsigned', reference: 'ref-orphan', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] },
+          { status: 'unsigned', reference: 'ref-other', inputs: [{ sourceOutpoint: `${'ee'.repeat(32)}.0` }] },
+          { txid: 'cd'.repeat(32), status: 'completed', reference: 'ref-done', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] }
+        ]
+      }
+    })
+    wallet.abortAction.mockImplementation(async (args: any) => {
+      aborted.push(args.reference)
+      return {}
+    })
+
+    const { txid } = await withdrawAll()
+    expect(txid).toBeDefined()
+    expect(h.createCalls()).toBe(2)
+    expect(aborted).toEqual(['ref-orphan'])
+  }, 60_000)
+
+  test('with a storage lookup, heals from one query and never pages actions', async () => {
+    const h = await oneOutputThrowingFirst(unspendableError)
+    const asked: string[][] = []
+    const findSpendingReferences = jest.fn(async (outpoints: string[]) => {
+      asked.push(outpoints)
+      return [
+        { reference: 'ref-orphan', status: 'unsigned' },
+        { reference: 'ref-done', status: 'completed' } // terminal → not abortable
+      ]
+    })
+
+    const { txid } = await withdrawAll({ findSpendingReferences })
+    expect(txid).toBeDefined()
+    expect(h.createCalls()).toBe(2)
+    expect(asked).toEqual([[h.fx[0].outpoint]])
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-orphan' }, ADMIN)
+    expect(wallet.abortAction).not.toHaveBeenCalledWith({ reference: 'ref-done' }, ADMIN)
+    expect(wallet.listActions).not.toHaveBeenCalled()
+  }, 60_000)
+
+  test('falls back to the scan when the storage lookup throws', async () => {
+    const h = await oneOutputThrowingFirst(unspendableError)
+    const findSpendingReferences = jest.fn(async () => {
+      throw new Error('database is locked')
+    })
+    wallet.listActions.mockResolvedValue({
+      actions: [{ status: 'unsigned', reference: 'ref-orphan', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] }]
+    })
+    await expect(withdrawAll({ findSpendingReferences })).resolves.toMatchObject({ txid: expect.any(String) })
+    expect(findSpendingReferences).toHaveBeenCalled()
+    expect(wallet.listActions).toHaveBeenCalled()
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-orphan' }, ADMIN)
+  }, 60_000)
+
+  test('matches the outpoint spelling the toolbox uses in error text (txid:vout)', async () => {
+    const h = await oneOutputThrowingFirst(unspendableError)
+    const [txid] = h.fx[0].outpoint.split('.')
+    expect(h.fx[0].outpoint).toBe(`${txid}.0`)
+    expect(unspendableError(h.fx[0].outpoint).message).toContain(`${txid}:0`)
+    wallet.listActions.mockResolvedValue({
+      actions: [{ status: 'nosend', reference: 'ref-orphan', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] }]
+    })
+    await expect(withdrawAll()).resolves.toMatchObject({ txid: expect.any(String) })
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-orphan' }, ADMIN)
+  }, 60_000)
+
+  test('rethrows an unrelated WERR_INVALID_PARAMETER without aborting anything', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    wallet.createAction.mockImplementation(async () => {
+      throw Object.assign(new Error('The outputs[0].satoshis parameter must be a positive integer.'), {
+        code: 'WERR_INVALID_PARAMETER'
+      })
+    })
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'WERR_INVALID_PARAMETER' })
+    expect(wallet.listActions).not.toHaveBeenCalled()
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(wallet.createAction).toHaveBeenCalledTimes(1) // no retry
+  })
+
+  test('rethrows when the wedged outpoint is not one this withdrawal is spending', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    wallet.createAction.mockImplementation(async () => {
+      throw unspendableError(`${'ee'.repeat(32)}.0`)
+    })
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'WERR_INVALID_PARAMETER' })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  test('rethrows when nothing reserving the outpoint can be aborted', async () => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    wallet.listActions.mockResolvedValue({
+      actions: [{ txid: 'cd'.repeat(32), status: 'completed', reference: 'ref-done', inputs: [{ sourceOutpoint: fx[0].outpoint }] }]
+    })
+    wallet.createAction.mockImplementation(async () => {
+      throw unspendableError(fx[0].outpoint)
+    })
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'WERR_INVALID_PARAMETER' })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  test('rethrows the review error when the reserving tx is not abortable/found', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    const RESERVING = 'ab'.repeat(32)
+    wallet.listActions.mockResolvedValue({
+      actions: [{ txid: RESERVING, status: 'completed', reference: 'ref-terminal' }]
+    })
+    wallet.createAction.mockImplementation(async () => {
+      throw reviewError([RESERVING])
+    })
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 5 })
   })
 })
