@@ -938,6 +938,26 @@ describe('withdrawFromVault', () => {
     expect(requestVaultSigner).not.toHaveBeenCalled()
   })
 
+  it.each([NaN, 0, -1, 1.5])(
+    'below-dust for an amount that is not a positive integer (%p) — before the online probe, listing, reserving or tapping',
+    async amount => {
+      // Every amount check in selectVaultInputs is `amount > x`, which is
+      // false for all four: unguarded, NaN would sweep everything the key can
+      // open to the hot wallet, a negative would fund a re-vault output LARGER
+      // than the inputs from the default basket, 0 would pay a fee to re-lock
+      // everything, and 1.5 would ask for a fractional-satoshi output.
+      await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+      const isOnline = jest.fn(async () => true)
+      await expect(withdrawFromVault(wallet, ADMIN, amount, 'Withdraw', 'A-1', { isOnline })).rejects.toMatchObject({
+        code: 'below-dust'
+      })
+      expect(isOnline).not.toHaveBeenCalled()
+      expect(wallet.listOutputs).not.toHaveBeenCalled()
+      expect(wallet.createAction).not.toHaveBeenCalled()
+      expect(requestVaultSigner).not.toHaveBeenCalled()
+    }
+  )
+
   // ── remainder (spec §4.2 step 4) ───────────────────────────────────────
 
   it('re-vaults a remainder ≥ the floor as ONE output with a fresh salt committed to the CURRENT key set', async () => {
@@ -985,6 +1005,38 @@ describe('withdrawFromVault', () => {
     wallet.createAction.mockImplementationOnce(async (args: any, o: string) => real({ ...args, version: 1 }, o))
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'bad-version' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(wallet.signAction).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a txid', { txid: 'cafe'.repeat(16) }],
+    ['AtomicBEEF bytes', { tx: [1, 2, 3] }]
+  ])(
+    'fails closed when createAction returns a FINISHED transaction (%s) instead of a signable one: no-transaction, no tap, no signAction, lastUsed untouched',
+    async (_shape, created) => {
+      // Inputs carrying unlockingScriptLength always come back signable. A
+      // finished transaction here would mean the toolbox spent R1C outputs
+      // WITHOUT our unlocks — reporting its txid as success would be the worst
+      // possible outcome, so the branch throws instead.
+      await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+      const noteLastUsed = jest.spyOn(vaultStore, 'noteLastUsed')
+      wallet.createAction.mockResolvedValueOnce(created)
+
+      const err = await withdrawAll().catch(e => e)
+      expect(err).toMatchObject({ code: 'no-transaction' })
+      expect(err.message).toContain('refusing')
+      expect(requestVaultSigner).not.toHaveBeenCalled()
+      expect(wallet.signAction).not.toHaveBeenCalled()
+      expect(noteLastUsed).not.toHaveBeenCalled()
+      expect((await vaultStore.getMeta())!.lastUsedSerial).toBeUndefined()
+    }
+  )
+
+  it('no-transaction when createAction returns neither a signable nor a finished transaction', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    wallet.createAction.mockResolvedValueOnce({})
+    await expect(withdrawAll()).rejects.toMatchObject({ code: 'no-transaction' })
     expect(requestVaultSigner).not.toHaveBeenCalled()
     expect(wallet.signAction).not.toHaveBeenCalled()
   })
@@ -1044,6 +1096,28 @@ describe('withdrawFromVault', () => {
     ;(requestVaultSigner as jest.Mock).mockRejectedValueOnce(new VaultError('serial-mismatch', 'Tapped key B-1, chose key A-1'))
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'serial-mismatch' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    expect(wallet.signAction).not.toHaveBeenCalled()
+  })
+
+  it('serial-mismatch when the signer\'s pubkey is not the chosen key\'s — released once, aborted, nothing signed', async () => {
+    // The commitment check ran against chosen.pubkey; every unlock is built
+    // with signer.pubkey. A ceremony that failed to enforce the serial (or a
+    // slot whose key was regenerated under the same serial) must be caught
+    // before the first digest reaches the card.
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    const sign = jest.fn()
+    ;(requestVaultSigner as jest.Mock).mockImplementationOnce(async () => ({
+      serial: 'B-1',
+      pubkey: PUB_B,
+      sign,
+      release: signerRelease
+    }))
+    const err = await withdrawAll().catch(e => e)
+    expect(err).toMatchObject({ code: 'serial-mismatch' })
+    expect(err.details).toEqual({ tapped: 'B-1', chosen: 'A-1' })
+    expect(signerRelease).toHaveBeenCalledTimes(1)
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
+    expect(sign).not.toHaveBeenCalled()
     expect(wallet.signAction).not.toHaveBeenCalled()
   })
 

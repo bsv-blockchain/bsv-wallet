@@ -920,9 +920,14 @@ interface PreparedInput {
   preimage: number[]
 }
 
-type SignableBuild =
-  | { kind: 'done'; txid: string }
-  | { kind: 'signable'; tx: Transaction; reference: string; prepared: PreparedInput[] }
+/** A reserved, parsed, D4b-clean signable transaction awaiting the card. This
+ * is the ONLY shape createSignableVaultTx returns: a vault spend that came back
+ * already signed is an invariant violation, and it throws (see below). */
+interface SignableBuild {
+  tx: Transaction
+  reference: string
+  prepared: PreparedInput[]
+}
 
 /**
  * createAction with `version: 2` (spec §2.6), then the two checks that must
@@ -979,11 +984,16 @@ async function createSignableVaultTx(
     }
 
     if (!created.signableTransaction) {
-      // Inputs carrying unlockingScriptLength always come back signable; kept
-      // for symmetry with reclaimStagingOutputs' direct-txid branch.
-      const txid = created.txid ?? (created.tx ? Transaction.fromAtomicBEEF(created.tx).id('hex') : undefined)
-      if (!txid) throw new VaultError('no-transaction', 'Vault spend produced no transaction')
-      return { kind: 'done', txid }
+      // Inputs carrying unlockingScriptLength always come back signable. If the
+      // toolbox ever handed back a finished transaction here it would have
+      // spent R1C outputs WITHOUT our unlocks — never a success to report, so
+      // this fails closed. A non-signable result carries no reference (the
+      // toolbox has already finalised whatever it built), so there is nothing
+      // reservable left to abort; refusing is the whole remedy.
+      if (created.txid || created.tx) {
+        throw new VaultError('no-transaction', 'createAction returned a signed transaction for vault inputs; refusing')
+      }
+      throw new VaultError('no-transaction', 'Vault spend produced no transaction')
     }
 
     const { reference } = created.signableTransaction
@@ -1009,7 +1019,7 @@ async function createSignableVaultTx(
       })
 
       const badAt = prepared.findIndex(p => !pushTxDerCheck(p.preimage).ok)
-      if (badAt < 0) return { kind: 'signable', tx, reference, prepared }
+      if (badAt < 0) return { tx, reference, prepared }
       if (attempt >= PUSH_TX_RETRY_MAX) {
         throw new VaultError(
           'no-transaction',
@@ -1054,10 +1064,8 @@ async function spendVaultOutputs(
   plan: VaultSpendPlan,
   opts?: VaultTransferOptions
 ): Promise<VaultSpendResult> {
-  const built = await createSignableVaultTx(w, adminOriginator, sel, reason, plan, opts)
+  const { tx, reference, prepared } = await createSignableVaultTx(w, adminOriginator, sel, reason, plan, opts)
   const result = (txid: string): VaultSpendResult => ({ txid, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable })
-  if (built.kind === 'done') return result(built.txid)
-  const { tx, reference, prepared } = built
   const { chosen, selected } = sel
   const total = selected.length
 
@@ -1065,6 +1073,20 @@ async function spendVaultOutputs(
   try {
     // ── the tap(s): one on-card signature per input ────────────────────
     const signer = await requestVaultSigner(reason, chosen.serial)
+    // The commitment check above ran against chosen.pubkey, but every unlock
+    // is built with signer.pubkey — they must be the same key, or the card
+    // would sign for a lock it cannot open (a stale slot, or a ceremony that
+    // failed to enforce the serial). Release first: the signing loop's own
+    // finally has not been entered yet.
+    if (signer.pubkey !== chosen.pubkey) {
+      signer.release()
+      throw new VaultError(
+        'serial-mismatch',
+        'Signer public key does not match the chosen key',
+        undefined,
+        { tapped: signer.serial, chosen: chosen.serial }
+      )
+    }
     try {
       for (let i = 0; i < total; i++) {
         await new Promise<void>(resolve => setTimeout(resolve, 0))
@@ -1153,8 +1175,16 @@ export async function withdrawFromVault(
   chosenSerial: string,
   opts?: VaultTransferOptions
 ): Promise<VaultSpendResult> {
-  // Before anything else: an offline user is never asked to present a key for
-  // a transfer that cannot proceed.
+  // Cheapest refusal first, as in depositToVault. Every amount comparison in
+  // selectVaultInputs is `amount > x`, which is false for NaN, 0 and negatives:
+  // unguarded, NaN would withdraw everything the key can open, a negative
+  // would fund a re-vault output LARGER than the inputs from the hot wallet
+  // (bypassing the deposit gates), 0 would pay a fee to re-lock everything.
+  if (amount !== 'all' && (!Number.isInteger(amount) || amount <= 0)) {
+    throw new VaultError('below-dust', 'Withdrawal amount must be a positive integer number of satoshis')
+  }
+  // An offline user is never asked to present a key for a transfer that
+  // cannot proceed.
   await requireOnline(opts)
   const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount)
   const want = amount === 'all' ? sel.acc : amount
