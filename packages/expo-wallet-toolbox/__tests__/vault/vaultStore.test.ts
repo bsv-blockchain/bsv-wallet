@@ -1,8 +1,8 @@
 /**
- * vaultStore persistence tests — v4 meta in AsyncStorage, sealed blob in
- * SecureStore. Meta v4 carries no key material at all: no xpub, no R1 public
- * key. Those live only inside the sealed blob, opened through the YubiKey
- * ceremony.
+ * vaultStore persistence tests — meta v5 (the enrolled key list) in
+ * AsyncStorage. There is no seal any more: the only thing the store holds is
+ * public data (serials, pubkeys, nicknames), and the legacy SecureStore seal
+ * entry is removed by migrateLegacySeal.
  */
 // Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
 // suites install a different one and a global mapper makes the resolver
@@ -35,99 +35,137 @@ jest.mock('expo-secure-store', () => ({
 }))
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { vaultStore, VaultMetaV4 } from '../../core/services/vault/vaultStore'
-import { SealedBlob } from '../../core/services/vault/types'
+import * as SecureStore from 'expo-secure-store'
+import { vaultStore, VaultKeyRecord, VaultMetaV5 } from '../../core/services/vault/vaultStore'
 
-const META: VaultMetaV4 = {
-  v: 4,
-  enrolledAt: 1_700_000_000_000,
-  yubiSerial: '12345678',
-  nickname: 'Main key',
+const key = (n: number): VaultKeyRecord => ({
+  serial: `1000000${n}`,
   slot: 0x82,
-  nextKeyIndex: 0
-}
+  pubkey: '02' + n.toString(16).padStart(2, '0').repeat(32),
+  nickname: `Key ${n}`,
+  enrolledAt: 1_700_000_000_000 + n
+})
 
-const SEAL: SealedBlob = {
-  v: 1,
-  slot: 0x82,
-  ePub: '04' + 'cd'.repeat(64),
-  salt: 'ab'.repeat(32),
-  c: 'ef'.repeat(48),
-  yubiSerial: '12345678',
-  yubiPubSha256: '11'.repeat(32)
+const META: VaultMetaV5 = {
+  v: 5,
+  createdAt: 1_700_000_000_000,
+  keys: [key(1), key(2)]
 }
 
 beforeEach(async () => {
   await AsyncStorage.clear()
   for (const k of Object.keys(secureItems)) delete secureItems[k]
+  ;(SecureStore.deleteItemAsync as jest.Mock).mockClear()
 })
 
-describe('vaultStore v4', () => {
-  it('round-trips v4 meta with no xpub / r1PublicKey', async () => {
+describe('vaultStore v5', () => {
+  it('round-trips v5 meta and reports enrolled on meta alone', async () => {
+    expect(await vaultStore.isEnrolled()).toBe(false)
     await vaultStore.setMeta(META)
-    const got = await vaultStore.getMeta()
-    expect(got).toEqual(META)
-    expect(got).not.toHaveProperty('xpub')
-    expect(got).not.toHaveProperty('r1PublicKey')
+    expect(await vaultStore.getMeta()).toEqual(META)
+    expect(await vaultStore.isEnrolled()).toBe(true)
   })
 
-  it('rejects meta that is not v4', async () => {
-    // No backwards compatibility: an old v3 record (with xpub/r1PublicKey)
-    // must read as "not enrolled" rather than deserialise into something the
-    // new code would misuse.
-    // Written through AsyncStorage directly — vaultStore deliberately exposes
-    // no raw-write seam just for tests.
+  it('reads a v4 record as not enrolled', async () => {
+    // Spec §3.2 / §8: a device holding the K1-era v4 meta shows "not enrolled"
+    // and can enrol fresh. Written through AsyncStorage directly — the store
+    // exposes no raw-write seam just for tests.
     await AsyncStorage.setItem(
       'vault_meta_v1',
-      JSON.stringify({ ...META, v: 3, xpub: 'x', r1PublicKey: 'y' })
+      JSON.stringify({ v: 4, enrolledAt: 1, yubiSerial: 's', nickname: 'n', slot: 0x82, nextKeyIndex: 3 })
     )
     expect(await vaultStore.getMeta()).toBeNull()
     expect(await vaultStore.isEnrolled()).toBe(false)
   })
 
-  it('round-trips a sealed blob via setSeal/getSeal', async () => {
-    expect(await vaultStore.getSeal()).toBeNull()
-    await vaultStore.setSeal(SEAL)
-    expect(await vaultStore.getSeal()).toEqual(SEAL)
+  it('reads a v5 record without a keys array as not enrolled', async () => {
+    await AsyncStorage.setItem('vault_meta_v1', JSON.stringify({ v: 5, createdAt: 1 }))
+    expect(await vaultStore.getMeta()).toBeNull()
   })
 
-  it('isEnrolled requires both meta v4 and a seal', async () => {
-    expect(await vaultStore.isEnrolled()).toBe(false)
+  it('reads unparseable JSON as not enrolled', async () => {
+    await AsyncStorage.setItem('vault_meta_v1', '{not json')
+    expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  it('addKey appends and persists, returning the new meta', async () => {
+    await vaultStore.setMeta(META)
+    const next = await vaultStore.addKey(key(3))
+    expect(next.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003'])
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(3)
+  })
+
+  it('addKey refuses a duplicate serial with key-already-enrolled', async () => {
+    await vaultStore.setMeta(META)
+    const err = await vaultStore.addKey({ ...key(1), nickname: 'again' }).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-already-enrolled' })
+    expect(err.details).toEqual({ serial: key(1).serial })
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(2)
+  })
+
+  it('addKey refuses a sixth key with too-many-keys', async () => {
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5)] })
+    await expect(vaultStore.addKey(key(6))).rejects.toMatchObject({ code: 'too-many-keys' })
+  })
+
+  it('addKey with no meta throws not-enrolled', async () => {
+    await expect(vaultStore.addKey(key(1))).rejects.toMatchObject({ code: 'not-enrolled' })
+  })
+
+  it('removeKey drops the serial and clears lastUsedSerial when it pointed at it', async () => {
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3)], lastUsedSerial: '10000003', lastUsedAt: 5 })
+    const next = await vaultStore.removeKey('10000003')
+    expect(next.keys.map(k => k.serial)).toEqual(['10000001', '10000002'])
+    expect(next.lastUsedSerial).toBeUndefined()
+    expect(next.lastUsedAt).toBe(5)
+  })
+
+  it('removeKey refuses to go below two keys with last-keys', async () => {
+    await vaultStore.setMeta(META)
+    await expect(vaultStore.removeKey('10000001')).rejects.toMatchObject({ code: 'last-keys' })
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(2)
+  })
+
+  it('removeKey of an unknown serial throws not-enrolled and changes nothing', async () => {
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3)] })
+    await expect(vaultStore.removeKey('nope')).rejects.toMatchObject({ code: 'not-enrolled' })
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(3)
+  })
+
+  it('renameKey changes only the nickname', async () => {
+    await vaultStore.setMeta(META)
+    const next = await vaultStore.renameKey('10000002', 'Safe')
+    expect(next.keys[1]).toEqual({ ...key(2), nickname: 'Safe' })
+    expect(next.keys[0]).toEqual(key(1))
+  })
+
+  it('noteLastUsed stamps serial and time, and is a no-op with no meta', async () => {
+    await vaultStore.noteLastUsed('10000001') // nothing enrolled yet
+    expect(await vaultStore.getMeta()).toBeNull()
 
     await vaultStore.setMeta(META)
-    expect(await vaultStore.isEnrolled()).toBe(false) // meta only, no seal
-
-    await vaultStore.setSeal(SEAL)
-    expect(await vaultStore.isEnrolled()).toBe(true)
+    const before = Date.now()
+    await vaultStore.noteLastUsed('10000002')
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.lastUsedSerial).toBe('10000002')
+    expect(meta.lastUsedAt).toBeGreaterThanOrEqual(before)
   })
 
-  it('isEnrolled is false with a seal but no meta', async () => {
-    // Clean slate from beforeEach — genuinely seal-only, no prior setMeta.
-    await vaultStore.setSeal(SEAL)
-    expect(await vaultStore.isEnrolled()).toBe(false)
+  it('migrateLegacySeal deletes the SecureStore seal and swallows errors', async () => {
+    secureItems['vault_seal_v1'] = 'legacy-sealed-blob'
+    await vaultStore.migrateLegacySeal()
+    expect(secureItems['vault_seal_v1']).toBeUndefined()
+
+    ;(SecureStore.deleteItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keychain locked'))
+    await expect(vaultStore.migrateLegacySeal()).resolves.toBeUndefined()
   })
 
-  it('takes consecutive indices and persists them', async () => {
+  it('clear() removes the meta (and any legacy seal) so isEnrolled is false', async () => {
     await vaultStore.setMeta(META)
-    expect(await vaultStore.takeNextIndex()).toBe(0)
-    expect(await vaultStore.takeNextIndex()).toBe(1)
-    expect((await vaultStore.getMeta())!.nextKeyIndex).toBe(2)
-  })
-
-  it('clear() removes both the meta and the seal', async () => {
-    await vaultStore.setMeta(META)
-    await vaultStore.setSeal(SEAL)
+    secureItems['vault_seal_v1'] = 'legacy'
     await vaultStore.clear()
     expect(await vaultStore.getMeta()).toBeNull()
-    expect(await vaultStore.getSeal()).toBeNull()
     expect(await vaultStore.isEnrolled()).toBe(false)
-  })
-
-  it('clears a legacy seal entry even with no meta present', async () => {
-    // Seed the SecureStore key directly, as an upgraded install might still
-    // have one sitting in the Keychain.
-    secureItems['vault_seal_v1'] = 'legacy-sealed-blob'
-    await vaultStore.clear()
     expect(secureItems['vault_seal_v1']).toBeUndefined()
   })
 })

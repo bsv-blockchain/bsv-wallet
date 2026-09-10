@@ -1,77 +1,66 @@
 /**
- * Vault persistence.
+ * Vault persistence — the enrolled key list.
  *
- * - Sealed blob → expo-secure-store ('vault_seal_v1'), same Keychain
- *   accessibility class as the wallet mnemonic. The seal alone is useless
- *   without the physical YubiKey; SecureStore here is defense-in-depth, and
- *   it is deliberately NOT behind LocalStorageProvider's biometric latch —
- *   the YubiKey ceremony is the gate for anything the seal protects.
- * - UI metadata (serial, nickname, deposit-index counter) → AsyncStorage
- *   ('vault_meta_v1'). Nothing secret lives here, and no key material either:
- *   v4 carries no xpub and no card public key. The only thing that can
- *   produce a vault address is the private HD node, which exists solely for
- *   the length of a ceremony (or a mnemonic + passphrase recovery).
+ * Meta v5 lives in AsyncStorage under the unchanged key 'vault_meta_v1'. It is
+ * PUBLIC data only: serials, compressed P-256 public keys, nicknames, and
+ * timestamps. There is no seed, no seal and no passphrase anywhere in this
+ * design (spec D2): the YubiKeys ARE the keys, and each output's salt lives
+ * in the wallet database's customInstructions, not here.
  *
- * v1-v3 records are not readable — `getMeta` returns null for anything whose
- * `v` isn't 4, so an un-migrated install reads as "not enrolled" rather than
- * deserialising into something this code would misuse.
+ * Anything whose `v` is not 5 reads as "not enrolled" (a K1-era v4 record is
+ * ignored, spec §8). The K1 design's SecureStore seal ('vault_seal_v1') is
+ * removed by `migrateLegacySeal`, which VaultProvider calls once on mount.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
-import { SealedBlob } from './types'
+import { VaultError } from './types'
 
-const SEAL_KEY = 'vault_seal_v1'
+const LEGACY_SEAL_KEY = 'vault_seal_v1'
 const META_KEY = 'vault_meta_v1'
 
-/**
- * Current enrollment.
- *
- * K1-only vault: at rest this is just the sealed blob plus this plaintext
- * counter. No xpub and no card public key: the one secret at rest is the
- * seed inside the sealed blob, and nothing here narrows the search for it.
- */
-export interface VaultMetaV4 {
-  v: 4
-  enrolledAt: number
-  yubiSerial: string
-  nickname: string
-  /** PIV slot holding the card's P-256 ECDH key (0x82). */
+/** How many keys may be enrolled (spec D3). Mirrored by VaultKeyService's
+ * VAULT_MIN_KEYS / VAULT_MAX_KEYS; kept local so this module imports no
+ * service. */
+const MIN_KEYS = 2
+const MAX_KEYS = 5
+
+export interface VaultKeyRecord {
+  serial: string
   slot: number
-  /** Next unused deposit index — monotonic, never reused. */
-  nextKeyIndex: number
-  lastUsedAt?: number
+  /** 33-byte compressed P-256 public key, lowercase hex (compressPubkey). */
+  pubkey: string
+  nickname: string
+  enrolledAt: number
 }
 
-export type VaultMeta = VaultMetaV4
+export interface VaultMetaV5 {
+  v: 5
+  createdAt: number
+  lastUsedAt?: number
+  lastUsedSerial?: string
+  keys: VaultKeyRecord[]
+}
 
-const secureOpts = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }
+export type VaultMeta = VaultMetaV5
+
+async function requireMeta(): Promise<VaultMeta> {
+  const meta = await vaultStore.getMeta()
+  if (!meta) throw new VaultError('not-enrolled', 'Vault is not set up')
+  return meta
+}
 
 export const vaultStore = {
+  /** Meta-only: there is nothing else an enrollment consists of. */
   async isEnrolled(): Promise<boolean> {
-    const [meta, seal] = await Promise.all([vaultStore.getMeta(), vaultStore.getSeal()])
-    return meta != null && seal != null
-  },
-
-  async getSeal(): Promise<SealedBlob | null> {
-    const raw = await SecureStore.getItemAsync(SEAL_KEY, secureOpts)
-    if (!raw) return null
-    try {
-      return JSON.parse(raw) as SealedBlob
-    } catch {
-      return null
-    }
-  },
-
-  async setSeal(b: SealedBlob): Promise<void> {
-    await SecureStore.setItemAsync(SEAL_KEY, JSON.stringify(b), secureOpts)
+    return (await vaultStore.getMeta()) != null
   },
 
   async getMeta(): Promise<VaultMeta | null> {
     const raw = await AsyncStorage.getItem(META_KEY)
     if (!raw) return null
     try {
-      const parsed = JSON.parse(raw) as { v?: unknown }
-      return parsed?.v === 4 ? (parsed as VaultMeta) : null
+      const parsed = JSON.parse(raw) as { v?: unknown; keys?: unknown }
+      return parsed?.v === 5 && Array.isArray(parsed.keys) ? (parsed as VaultMeta) : null
     } catch {
       return null
     }
@@ -81,24 +70,61 @@ export const vaultStore = {
     await AsyncStorage.setItem(META_KEY, JSON.stringify(m))
   },
 
-  /**
-   * Reserve the next deposit index and advance the counter.
-   *
-   * Persisted before returning: a crash between deposits must never reissue an
-   * index, since two deposits to the same K1 key are linkable and confusing.
-   */
-  async takeNextIndex(): Promise<number | null> {
-    const meta = await vaultStore.getMeta()
-    if (!meta) return null
-    const index = meta.nextKeyIndex
-    await vaultStore.setMeta({ ...meta, nextKeyIndex: index + 1 })
-    return index
+  async addKey(k: VaultKeyRecord): Promise<VaultMeta> {
+    const meta = await requireMeta()
+    if (meta.keys.length >= MAX_KEYS) {
+      throw new VaultError('too-many-keys', `The vault already has ${MAX_KEYS} keys`)
+    }
+    if (meta.keys.some(x => x.serial === k.serial)) {
+      throw new VaultError('key-already-enrolled', k.serial, undefined, { serial: k.serial })
+    }
+    const next: VaultMeta = { ...meta, keys: [...meta.keys, k] }
+    await vaultStore.setMeta(next)
+    return next
   },
 
-  /** Remove everything, including the sealed blob — used by disable +
-   * recovery flows. */
+  async removeKey(serial: string): Promise<VaultMeta> {
+    const meta = await requireMeta()
+    if (meta.keys.length <= MIN_KEYS) {
+      throw new VaultError('last-keys', `A vault needs at least ${MIN_KEYS} keys`)
+    }
+    if (!meta.keys.some(x => x.serial === serial)) {
+      throw new VaultError('not-enrolled', `Key ${serial} is not enrolled`)
+    }
+    const next: VaultMeta = { ...meta, keys: meta.keys.filter(x => x.serial !== serial) }
+    if (next.lastUsedSerial === serial) delete next.lastUsedSerial
+    await vaultStore.setMeta(next)
+    return next
+  },
+
+  async renameKey(serial: string, nickname: string): Promise<VaultMeta> {
+    const meta = await requireMeta()
+    const next: VaultMeta = { ...meta, keys: meta.keys.map(x => (x.serial === serial ? { ...x, nickname } : x)) }
+    await vaultStore.setMeta(next)
+    return next
+  },
+
+  /** Remember which key opened the vault last, so the withdraw chooser can
+   * default to it. Silently skipped when nothing is enrolled. */
+  async noteLastUsed(serial: string): Promise<void> {
+    const meta = await vaultStore.getMeta()
+    if (!meta) return
+    await vaultStore.setMeta({ ...meta, lastUsedAt: Date.now(), lastUsedSerial: serial })
+  },
+
+  /** Remove the K1-era sealed blob from the Keychain. Idempotent and silent:
+   * a locked Keychain must not stop the app from mounting. */
+  async migrateLegacySeal(): Promise<void> {
+    try {
+      await SecureStore.deleteItemAsync(LEGACY_SEAL_KEY)
+    } catch {
+      /* best-effort */
+    }
+  },
+
+  /** Forget the key list (Disable vault). The keys stay on the YubiKeys. */
   async clear(): Promise<void> {
-    await SecureStore.deleteItemAsync(SEAL_KEY).catch(() => {})
+    await vaultStore.migrateLegacySeal()
     await AsyncStorage.removeItem(META_KEY)
   }
 }

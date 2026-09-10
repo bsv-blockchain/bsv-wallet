@@ -13,6 +13,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import { ceremony } from '../services/vault/ceremonyHost'
 import { CeremonyState } from '../services/vault/ceremony'
+import { vaultStore } from '../services/vault/vaultStore'
 import { sounds } from '../hooks/useConfirmationSound'
 import { haptics } from '../hooks/useHaptics'
 import i18n from '../i18n/translations'
@@ -46,12 +47,16 @@ export const VaultProvider: React.FC<{ children: React.ReactNode; onToast?: Vaul
 
   useEffect(() => ceremony.subscribe(setState), [])
 
+  // One-time cleanup of the K1-era sealed blob (spec §3.2). Fire-and-forget:
+  // migrateLegacySeal swallows its own errors.
+  useEffect(() => {
+    void vaultStore.migrateLegacySeal()
+  }, [])
+
   // Effects of a completed ceremony: the open cue, and nothing else. `onArmed`
-  // deliberately ignores its VaultKeyHandle argument — the unwrapped node must
-  // never reach React state or a closure that outlives the operation (see
-  // VaultKeyHandle in services/vault/ceremony.ts). There is no key queue to
-  // replenish here either: deposit addresses derive from the private node on
-  // demand, and no xpub is stored anywhere.
+  // deliberately ignores its VaultSigner argument — the signer is owned by the
+  // transfer that requested it (transfers.ts obtains it from ceremonyHost) and
+  // must never reach React state (see VaultSigner in services/vault/ceremony.ts).
   useEffect(() => {
     ceremony.onArmed = () => {
       haptics.success()
