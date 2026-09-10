@@ -14,7 +14,7 @@ public protocol HybridYubiKeyPivSpec_protocol: HybridObject {
 
   // Methods
   func isSupported() throws -> Bool
-  func startDiscovery() throws -> Void
+  func startDiscovery(message: String) throws -> Void
   func stopDiscovery() throws -> Void
   func setKeyListener(listener: @escaping (_ eventType: String, _ serial: String, _ transport: String) -> Void) throws -> Void
   func clearKeyListener() throws -> Void

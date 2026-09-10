@@ -2,7 +2,11 @@ import type { HybridObject } from 'react-native-nitro-modules'
 
 export interface YubiKeyPiv extends HybridObject<{ ios: 'swift'; android: 'kotlin' }> {
   isSupported(): boolean
-  startDiscovery(): void
+  /** Open discovery. `message` is the localised text the iOS NFC scan sheet
+   * shows for this session (set from JS per tap — spec §4.2 step 6); Android
+   * ignores it (system NFC has no per-session prompt, USB has none). An empty
+   * string selects the native default wording. */
+  startDiscovery(message: string): void
   stopDiscovery(): void
   setKeyListener(listener: (eventType: string, serial: string, transport: string) => void): void
   clearKeyListener(): void

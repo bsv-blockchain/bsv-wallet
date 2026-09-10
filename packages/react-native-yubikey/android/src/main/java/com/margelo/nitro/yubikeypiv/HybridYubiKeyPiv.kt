@@ -76,7 +76,9 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     return usb || nfc
   }
 
-  override fun startDiscovery() {
+  /** `message` is the iOS NFC alert text; Android's system NFC has no
+   *  per-session prompt and USB has none, so it is accepted and ignored. */
+  override fun startDiscovery(message: String) {
     main.post {
       if (discovering) return@post
       val m = manager ?: return@post
@@ -293,8 +295,9 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
       // SHA-1 — so only the AAR's minCompileSdk metadata differs, which is why
       // this file's 3.2.0-era API usage is correct on the 3.1.0 pin.)
       val peer = PublicKeyValues.Ec.fromEncodedPoint(EllipticCurveValues.SECP256R1, peerBytes)
-      // TOUCH-gated by the slot's touch policy (generateVaultKey now enrolls with
-      // ALWAYS): this blocks until the user taps, and an unmet touch surfaces as
+      // TOUCH-gated by the slot's touch policy (generateVaultKey enrols with
+      // CACHED, spec D6): blocks until the user taps unless a touch within the
+      // card's 15 s window is still valid; an unmet touch surfaces as
       // SW 0x6982/0x6985, which mapError folds into touch-timeout.
       //
       // The result is the RAW x-coordinate of the shared point — 32 bytes, no

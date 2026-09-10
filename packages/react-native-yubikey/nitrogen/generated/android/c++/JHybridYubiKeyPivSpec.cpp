@@ -54,9 +54,9 @@ namespace margelo::nitro::yubikeypiv {
     auto __result = method(_javaPart);
     return static_cast<bool>(__result);
   }
-  void JHybridYubiKeyPivSpec::startDiscovery() {
-    static const auto method = _javaPart->javaClassStatic()->getMethod<void()>("startDiscovery");
-    method(_javaPart);
+  void JHybridYubiKeyPivSpec::startDiscovery(const std::string& message) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<void(jni::alias_ref<jni::JString> /* message */)>("startDiscovery");
+    method(_javaPart, jni::make_jstring(message));
   }
   void JHybridYubiKeyPivSpec::stopDiscovery() {
     static const auto method = _javaPart->javaClassStatic()->getMethod<void()>("stopDiscovery");

@@ -35,7 +35,7 @@ abstract class HybridYubiKeyPivSpec: HybridObject() {
   
   @DoNotStrip
   @Keep
-  abstract fun startDiscovery(): Unit
+  abstract fun startDiscovery(message: String): Unit
   
   @DoNotStrip
   @Keep

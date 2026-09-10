@@ -76,8 +76,8 @@ namespace margelo::nitro::yubikeypiv {
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline void startDiscovery() override {
-      auto __result = _swiftPart.startDiscovery();
+    inline void startDiscovery(const std::string& message) override {
+      auto __result = _swiftPart.startDiscovery(message);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }

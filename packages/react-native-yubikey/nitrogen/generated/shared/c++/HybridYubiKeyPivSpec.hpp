@@ -51,7 +51,7 @@ namespace margelo::nitro::yubikeypiv {
     public:
       // Methods
       virtual bool isSupported() = 0;
-      virtual void startDiscovery() = 0;
+      virtual void startDiscovery(const std::string& message) = 0;
       virtual void stopDiscovery() = 0;
       virtual void setKeyListener(const std::function<void(const std::string& /* eventType */, const std::string& /* serial */, const std::string& /* transport */)>& listener) = 0;
       virtual void clearKeyListener() = 0;

@@ -62,7 +62,7 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   /// wedged — a state only a device restart clears, observed in production
   /// after interrupted scan sessions. Silence here was one of the "modal never
   /// appears and nothing is reported" paths.
-  func startDiscovery() throws {
+  func startDiscovery(message: String) throws {
     if #available(iOS 13.0, *) {
       guard NFCReaderSession.readingAvailable else {
         throw Self.vaultError(
@@ -71,8 +71,12 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       }
     }
     YubiKitManager.shared.delegate = connDelegate
+    // The alert text comes from JS, localised per tap (a withdrawal batch, an
+    // enrollment step). YubiKit reads this static at session start, so it is
+    // fixed for the life of one session; progress between batches is shown by
+    // the app once the sheet dismisses. Empty = native default wording.
     YubiKitExternalLocalization.nfcScanAlertMessage =
-      "Hold your YubiKey to the top of your phone to unlock the vault."
+      message.isEmpty ? "Hold your YubiKey to the top of your phone." : message
     if #available(iOS 13.0, *) {
       YubiKitManager.shared.startNFCConnection()
     }
@@ -305,9 +309,10 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       // withSession may hand back a session on which nothing has been verified.
       // A wrong/locked PIN is classified by verifyPinGated.
       Self.verifyPinGated(session, pin: pin, settled, promise) {
-        // TOUCH-gated when the slot's key was generated with TouchPolicy.ALWAYS
-        // (which is what generateVaultKey now uses): this blocks until the user
-        // taps, and an unmet touch surfaces as touch-timeout via mapError.
+        // TOUCH-gated by the slot's touch policy (generateVaultKey enrols with
+        // CACHED, spec D6): blocks until the user taps unless a touch within
+        // the card's 15 s window is still valid; an unmet touch surfaces as
+        // touch-timeout via mapError. (ecdh itself is unused by the R1C vault.)
         //
         // The result is the RAW x-coordinate of the shared point — 32 bytes, no
         // KDF, no hashing. YubiKit returns exactly what the card's GENERAL
