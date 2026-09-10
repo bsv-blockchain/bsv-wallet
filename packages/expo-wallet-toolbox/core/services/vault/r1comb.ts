@@ -13,7 +13,7 @@
  * SECURITY: nothing secret passes through this module — public keys, per-output
  * salts, signatures the card already produced, and script bytes.
  */
-import { Hash, OP, Utils } from '@bsv/sdk'
+import { Hash, LockingScript, OP, PrivateKey, Script, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
 
@@ -71,9 +71,8 @@ const bytesOf = (h: string): number[] => Utils.toArray(h, 'hex') as number[]
 const beToBig = (b: number[]): bigint => BigInt('0x' + (b.length > 0 ? Utils.toHex(b) : '0'))
 const leToBig = (b: number[]): bigint => beToBig([...b].reverse())
 const invalid = (message: string): VaultError => new VaultError('template-invalid', message)
-// Keep the helpers referenced until later tasks use them (TypeScript strict does not
+// Keep the helper referenced until a later task uses it (TypeScript strict does not
 // flag unused module-level consts, but this documents intent).
-void modinv
 void leToBig
 
 // ───────────────────────── script-number encoding ─────────────────────────
@@ -248,4 +247,287 @@ function saltBytes(saltHex64: string): number[] {
 /** hash160(salt ‖ canonicalTableBytes(Q)) as 40 lowercase hex chars — the value baked into the lock. */
 export function commitment(pubkeyHex33: string, saltHex64: string): string {
   return Utils.toHex(Hash.hash160([...saltBytes(saltHex64), ...canonicalTableBytes(pubkeyHex33)]))
+}
+
+// ───────────────────────── scalar recoding (spec §2.4, ANALYSIS.md §5.2) ─────────────────────────
+/** u' = ((u odd ? u : u + n) + 2^258 − 1) / 2 — exactly the H2 arithmetic. u' < 2^258 and bit 257 is always set. */
+export function recode(u: bigint): bigint {
+  let v = mod(u, P256_N)
+  if (v % 2n === 0n) v += P256_N
+  return (v + RECODE_CONST) / 2n
+}
+
+// ───────────────────────── header H0–H5 (spec §2.3, gen2.mjs emitHeader2) ─────────────────────────
+/** 64 Q coordinates pushed by the unlocker. */
+const K_Q = 2 * TABLE_SIZE
+
+/**
+ * H0–H4 (+ OP_HASH160): identical for every lock. Stack in (unlock): [r u2' u1' Q0..Q63 salt s sInv preimage]
+ * alt []; stack out: [r u2' u1' Q0..Q63 H] alt [preimage n], where H = hash160(salt ‖ canonical table).
+ */
+let headerPrefixCache: number[] | null = null
+function emitHeaderPrefix(): number[] {
+  if (headerPrefixCache !== null) return headerPrefixCache
+  const out: number[] = []
+  // H0: e = unsigned-LE(hash256(preimage)); preimage -> alt
+  out.push(...asm('OP_DUP OP_HASH256 <00> OP_CAT OP_BIN2NUM OP_SWAP OP_TOALTSTACK'))
+  // H1: n -> alt; s*sInv == 1; u1 = e*sInv; u2 = r*sInv (r sits under salt + 64 coords + u1' + u2'); drop s, sInv
+  //     [.. salt s sInv u1]: u1(0) sInv(1) s(2) salt(3) Q63(4) .. Q0(3+K) u1'(4+K) u2'(5+K) r(6+K)
+  out.push(...asm(`
+    {N} OP_TOALTSTACK
+    2 OP_PICK 2 OP_PICK OP_MUL MODP 1 OP_NUMEQUALVERIFY
+    OP_OVER OP_MUL MODP
+    {RDEPTH} OP_PICK 2 OP_PICK OP_MUL MODP
+    2 OP_ROLL OP_DROP 2 OP_ROLL OP_DROP
+  `, { N: P256_N, RDEPTH: K_Q + 6 }))
+  // H2: recode u2 then u1 -> [.. salt u1' u2']
+  const one = 'OP_DUP 2 OP_MOD OP_NOTIF {N} OP_ADD OP_ENDIF {C} OP_ADD 2 OP_DIV OP_SWAP'
+  out.push(...asm(`${one} ${one}`, { N: P256_N, C: RECODE_CONST }))
+  // H3: computed u2' == pushed u2' (depth K+4), then computed u1' == pushed u1' (depth K+2) -> [r u2' u1' Q.. salt]
+  out.push(...asm('{DU2} OP_PICK OP_NUMEQUALVERIFY {DU1} OP_PICK OP_NUMEQUALVERIFY', { DU2: K_Q + 4, DU1: K_Q + 2 }))
+  // H4: acc = salt; acc ||= NUM2BIN33(Q_m) for m = 0..63 (Q_m at depth K − m); H = hash160(acc)
+  for (let m = 0; m < K_Q; m++) out.push(...asm('{D} OP_PICK {W} OP_NUM2BIN OP_CAT', { D: K_Q - m, W: COORD_WIDTH }))
+  out.push(OP.OP_HASH160)
+  headerPrefixCache = out
+  return out
+}
+
+/** H5: H must equal one of the N baked 20-byte commitments. 22 B (N = 1) or 25N − 2 B (N >= 2). */
+function emitH5(commitments: number[][]): number[] {
+  const out: number[] = []
+  if (commitments.length === 1) {
+    out.push(...asm('{C} OP_EQUALVERIFY', { C: commitments[0] }))
+    return out
+  }
+  for (let i = 0; i < commitments.length - 1; i++) out.push(...asm('OP_DUP {C} OP_EQUAL OP_SWAP', { C: commitments[i] }))
+  out.push(...asm('{C} OP_EQUAL', { C: commitments[commitments.length - 1] }))
+  for (let i = 0; i < commitments.length - 1; i++) out.push(OP.OP_BOOLOR)
+  out.push(OP.OP_VERIFY)
+  return out
+}
+
+// ───────────────────────── shared suffix: G table, pre-loop, comb loop, tail (verbatim from gen.mjs) ─────────────────────────
+function emitGTable(): number[] {
+  const out: number[] = []
+  for (const { x, y } of gTable()) out.push(...encNum(x), ...encNum(y))
+  return out
+}
+
+/** Push p; swap altstack top n -> p; accumulator := Jacobian infinity (1, 1, 0). */
+function emitPreloop(): number[] {
+  return asm('{P} OP_FROMALTSTACK OP_DROP OP_TOALTSTACK 1 1 0', { P: P256_P })
+}
+
+// Jacobian doubling, a = -3 (dbl-2001-b): M = 3(X-Z^2)(X+Z^2), S = 4XY^2,
+// X3 = M^2 - 2S, Y3 = M(S - X3) - 8Y^4, Z3 = 2YZ. Only X3, Y3, Z3 are reduced.
+// The `1 OP_ROLL 1 OP_ROLL` pairs and the trailing 3x `2 OP_ROLL` are no-ops kept for byte-exactness.
+const DOUBLE = `
+  OP_DUP OP_DUP OP_MUL
+  3 OP_PICK OP_OVER OP_SUB
+  4 OP_PICK 2 OP_ROLL OP_ADD
+  1 OP_ROLL 1 OP_ROLL
+  OP_MUL 3 OP_MUL
+  2 OP_PICK OP_DUP OP_MUL
+  4 OP_ROLL OP_OVER OP_MUL 4 OP_MUL
+  2 OP_PICK OP_DUP OP_MUL
+  OP_OVER OP_2MUL
+  1 OP_ROLL 1 OP_ROLL
+  OP_SUB MODP NORM
+  1 OP_ROLL OP_OVER OP_SUB
+  3 OP_ROLL 1 OP_ROLL OP_MUL
+  2 OP_ROLL OP_DUP OP_MUL 8 OP_MUL
+  1 OP_ROLL 1 OP_ROLL OP_SUB MODP NORM
+  3 OP_ROLL 3 OP_ROLL OP_MUL OP_2MUL MODP NORM
+  2 OP_ROLL 2 OP_ROLL 2 OP_ROLL
+`
+
+// Digit extraction + table lookup + conditional negation. Stack in: [.. X Y Z]; out: [.. X Y Z x y].
+// Row 0 bit = sign digit; rows 1..4 are XNOR'd against it to form the 5-bit table index j.
+const DIGITS_AND_LOOKUP = `
+  {DEPTH0} OP_PICK {SHIFT0} OP_RSHIFTNUM 2 OP_MOD
+  {DEPTH1} OP_PICK {SHIFT1} OP_RSHIFTNUM 2 OP_MOD OP_OVER OP_NUMEQUAL OP_2MUL
+  {DEPTH2} OP_PICK {SHIFT2} OP_RSHIFTNUM 2 OP_MOD 2 OP_PICK OP_NUMEQUAL OP_ADD OP_2MUL
+  {DEPTH2} OP_PICK {SHIFT3} OP_RSHIFTNUM 2 OP_MOD 2 OP_PICK OP_NUMEQUAL OP_ADD OP_2MUL
+  {DEPTH2} OP_PICK {SHIFT4} OP_RSHIFTNUM 2 OP_MOD 2 OP_PICK OP_NUMEQUAL OP_ADD OP_2MUL
+  {DEPTH2} OP_PICK {SHIFT5} OP_RSHIFTNUM 2 OP_MOD 2 OP_PICK OP_NUMEQUAL OP_ADD
+  OP_DUP OP_2MUL {BASE} OP_SWAP OP_SUB OP_PICK
+  OP_OVER OP_2MUL {BASE} OP_SWAP OP_SUB OP_PICK
+  2 OP_ROLL OP_DROP 2 OP_ROLL
+  OP_NOTIF OP_FROMALTSTACK OP_DUP OP_TOALTSTACK OP_SWAP OP_SUB OP_ENDIF
+`
+
+// Identity guard (column 0, first add only): if Z == 0 replace the accumulator by (x, y, 1).
+const GUARD_PREFIX = '2 OP_PICK 0 OP_NUMEQUAL OP_IF OP_TOALTSTACK OP_TOALTSTACK OP_DROP OP_DROP OP_DROP OP_FROMALTSTACK OP_FROMALTSTACK 1 OP_ELSE'
+const GUARD_SUFFIX = 'OP_ENDIF'
+
+// Mixed Jacobian + affine addition: U2 = xZ^2, S2 = yZ^3, H = U2 - X, R = S2 - Y,
+// X3 = R^2 - H^3 - 2XH^2, Y3 = R(XH^2 - X3) - YH^3, Z3 = ZH. Only X3, Y3, Z3 are reduced.
+const MADD = `
+  2 OP_PICK OP_DUP OP_MUL
+  2 OP_ROLL OP_OVER OP_MUL
+  3 OP_PICK 2 OP_ROLL OP_MUL
+  2 OP_ROLL 1 OP_ROLL OP_MUL
+  1 OP_ROLL 4 OP_PICK OP_SUB
+  1 OP_ROLL 3 OP_PICK OP_SUB
+  OP_OVER OP_DUP OP_MUL
+  2 OP_PICK OP_OVER OP_MUL
+  6 OP_ROLL 2 OP_ROLL OP_MUL
+  2 OP_PICK OP_DUP OP_MUL
+  OP_OVER OP_2MUL
+  1 OP_ROLL 3 OP_PICK OP_SUB
+  1 OP_ROLL OP_SUB MODP NORM
+  1 OP_ROLL OP_OVER OP_SUB
+  3 OP_ROLL 1 OP_ROLL OP_MUL
+  5 OP_ROLL 3 OP_ROLL OP_MUL
+  1 OP_ROLL 1 OP_ROLL OP_SUB MODP NORM
+  3 OP_ROLL 3 OP_ROLL OP_MUL MODP NORM
+  2 OP_ROLL 2 OP_ROLL 2 OP_ROLL
+`
+
+/** Stack layout beneath the accumulator: [r u2' u1' C[0..K-1]] with K = 128 table coordinates (Q[0..63] then G[0..63]). */
+const K_CONSTS = 2 * 2 * TABLE_SIZE            // 128
+const BELOW = 3 + K_CONSTS                     // 131 items under the accumulator (X Y Z)
+// With [.. X Y Z] on top (BELOW + 3 items): stack index 1 (= u2') is at depth 132, index 2 (= u1') at 131.
+const scalarDepth = (half: 0 | 1): number => BELOW + 1 - half
+// C[m] sits at depth 132 − m once [.. X Y Z sign j] is on top; half 0 -> C[0..63] (= Q), half 1 -> C[64..127] (= G).
+const tableBase = (half: 0 | 1): number => BELOW + 1 - 2 * TABLE_SIZE * half
+/** Shift for column c, row k: bit position 43k + 42 − c of the recoded scalar = 257 − c − 43k. */
+export const shiftFor = (c: number, k: number): number => COMB_COLS * (COMB_ROWS - 1 - k) + (COMB_COLS - 1 - c)
+
+function emitAdd(half: 0 | 1, c: number, guarded: boolean): number[] {
+  const params: Record<string, AsmParam> = {
+    DEPTH0: scalarDepth(half), DEPTH1: scalarDepth(half) + 1, DEPTH2: scalarDepth(half) + 2, BASE: tableBase(half)
+  }
+  for (let k = 0; k < COMB_ROWS; k++) params[`SHIFT${k}`] = shiftFor(c, k)
+  return asm(`${DIGITS_AND_LOOKUP} ${guarded ? GUARD_PREFIX : ''} ${MADD} ${guarded ? GUARD_SUFFIX : ''}`, params)
+}
+
+/** 43 columns, Horner: acc = 2·acc + d2(c)·TQ[j2] + d1(c)·TG[j1]; only column 0's first add is identity-guarded. */
+function emitCombLoop(): number[] {
+  const out: number[] = []
+  for (let c = 0; c < COMB_COLS; c++) {
+    out.push(...asm(DOUBLE))
+    out.push(...emitAdd(0, c, c === 0))     // index-1 scalar (u2') with C[0..63] (Q)
+    out.push(...emitAdd(1, c, false))       // index-2 scalar (u1') with C[64..127] (G)
+  }
+  return out
+}
+
+/** DER INTEGER for a non-negative bigint: minimal big-endian with a 0x00 pad if the top bit is set. */
+function derIntBytes(v: bigint): number[] {
+  let h = v.toString(16)
+  if (h.length % 2 === 1) h = '0' + h
+  const b = bytesOf(h)
+  if ((b[0] & 0x80) !== 0) b.unshift(0)
+  return [0x02, b.length, ...b]
+}
+
+/** The OP_PUSH_TX dummy key d·G on secp256k1, d = 2^248·Gx⁻¹ mod n_k1 (public by construction). */
+let pushTxPubKeyCache: number[] | null = null
+function pushTxPubKey(): number[] {
+  if (pushTxPubKeyCache === null) {
+    const d = mod((1n << 248n) * modinv(SECP_GX, SECP_N), SECP_N)
+    pushTxPubKeyCache = new PrivateKey(d.toString(16).padStart(64, '0'), 16).toPublicKey().encode(true) as number[]
+  }
+  return pushTxPubKeyCache
+}
+
+/** Tail: Z != 0 and X == r·Z² (mod p); clear the stack; OP_PUSH_TX with k = 1 on secp256k1 (ANALYSIS.md §6). */
+function emitTail(): number[] {
+  // r (item index 0) with [.. X Y Z Z^2] on top (BELOW + 4 items) is at depth BELOW + 3 = 134
+  const rCheck = asm(`
+    OP_DUP 0 OP_NUMEQUAL OP_NOTIF
+      OP_DUP OP_DUP OP_MUL MODP
+      {RDEPTH} OP_PICK OP_OVER OP_MUL MODP
+      4 OP_PICK OP_NUMEQUAL
+    OP_ELSE 0 OP_ENDIF OP_VERIFY
+    OP_FROMALTSTACK OP_DROP
+  `, { RDEPTH: BELOW + 3 })
+  // stack now holds BELOW + 4 items (r u2' u1' C[] X Y Z Z^2): drop them all
+  const leftover = BELOW + 4
+  const clear: number[] = [
+    ...new Array<number>(Math.floor(leftover / 2)).fill(OP.OP_2DROP),
+    ...(leftover % 2 === 1 ? [OP.OP_DROP] : [])
+  ]
+  // e_k1 = BE(hash256(preimage)); s = lowS((e_k1 + 2^248) mod n_k1); r = Gx (k = 1)
+  const rev31 = new Array<string>(31).fill('OP_SWAP OP_CAT').join(' ')
+  const pushTx = asm(`
+    OP_FROMALTSTACK {SIGHASH} OP_TOALTSTACK OP_HASH256
+    ${new Array<string>(31).fill('1 OP_SPLIT').join(' ')}
+    ${rev31}
+    <00> OP_CAT OP_BIN2NUM
+    0 31 OP_NUM2BIN 1 OP_CAT OP_ADD
+    {NK} OP_TUCK 2 OP_DIV OP_OVER OP_LESSTHAN
+    OP_IF OP_OVER OP_MOD OP_OVER 2 OP_DIV OP_OVER OP_LESSTHAN OP_IF OP_SUB OP_ELSE OP_NIP OP_ENDIF
+    OP_ELSE OP_NIP OP_ENDIF
+    ${new Array<string>(31).fill('OP_DUP OP_0NOTEQUAL OP_SPLIT').join(' ')}
+    ${rev31}
+    OP_SIZE OP_SWAP OP_CAT
+    {DERPREFIX} OP_SWAP OP_CAT
+    OP_SIZE OP_SWAP OP_CAT
+    <30> OP_SWAP OP_CAT
+    OP_FROMALTSTACK OP_CAT
+    {PUBKEY} OP_CODESEPARATOR OP_CHECKSIG
+  `, {
+    SIGHASH: [R1C_SIGHASH], NK: SECP_N,
+    DERPREFIX: [...derIntBytes(SECP_GX), 0x02],   // 02 20 <Gx> 02  (s INTEGER tag appended)
+    PUBKEY: pushTxPubKey()
+  })
+  return [...rCheck, ...clear, ...pushTx]
+}
+
+let sharedSuffixCache: number[] | null = null
+/** G table + pre-loop + comb loop + tail: 27,160 B, byte-identical to fixture chunks [87..150] ++ [215..end]. Computed once. */
+export function sharedSuffix(): number[] {
+  if (sharedSuffixCache === null) sharedSuffixCache = [...emitGTable(), ...emitPreloop(), ...emitCombLoop(), ...emitTail()]
+  return sharedSuffixCache.slice()
+}
+
+// ───────────────────────── public: buildLock / bakedCommitments (spec §2.3) ─────────────────────────
+function parseCommitments(commitments: unknown): number[][] {
+  if (!Array.isArray(commitments) || commitments.length < 1 || commitments.length > R1C_MAX_KEYS) {
+    throw invalid(`buildLock: commitments must be 1..${R1C_MAX_KEYS} hash160 hex strings`)
+  }
+  const lower: string[] = commitments.map(c => {
+    if (typeof c !== 'string' || !/^[0-9a-fA-F]{40}$/.test(c)) throw invalid('buildLock: commitment must be 40 hex chars')
+    return c.toLowerCase()
+  })
+  if (new Set(lower).size !== lower.length) throw invalid('buildLock: duplicate commitment')
+  return lower.map(bytesOf)
+}
+
+/** N in 1..5 commitments (40-hex each), in the order given. Byte-exact per spec §2.3; length asserted against R1C_LOCK_LEN. */
+export function buildLock(a: { commitments: string[] }): LockingScript {
+  const cs = parseCommitments(a.commitments)
+  const bytes = [...emitHeaderPrefix(), ...emitH5(cs), ...sharedSuffix()]
+  const expected = R1C_LOCK_LEN(cs.length)
+  if (bytes.length !== expected) throw invalid(`buildLock: emitted ${bytes.length} bytes, expected ${expected}`)
+  return new LockingScript(Script.fromBinary(bytes).chunks)
+}
+
+/**
+ * Parse region H5 of a lock built by buildLock → the commitments in order (lowercase hex).
+ * Fail-closed: the header prefix, the H5 skeleton AND the whole shared suffix must be byte-identical
+ * to what buildLock emits for the extracted commitments; anything else is 'template-invalid'.
+ */
+export function bakedCommitments(lock: Script): string[] {
+  const bin = lock.toBinary()
+  let n = -1
+  for (let k = 1; k <= R1C_MAX_KEYS; k++) if (bin.length === R1C_LOCK_LEN(k)) n = k
+  if (n < 0) throw invalid(`bakedCommitments: ${bin.length} bytes is not an R1C lock length`)
+  const prefix = emitHeaderPrefix()
+  const suffix = sharedSuffix()
+  const h5 = bin.slice(prefix.length, bin.length - suffix.length)
+  const cs: number[][] = []
+  if (n === 1) {
+    cs.push(h5.slice(1, 21))
+  } else {
+    for (let i = 0; i < n - 1; i++) cs.push(h5.slice(24 * i + 2, 24 * i + 22))
+    cs.push(h5.slice(24 * (n - 1) + 1, 24 * (n - 1) + 21))
+  }
+  const rebuilt = [...prefix, ...emitH5(cs), ...suffix]
+  if (rebuilt.length !== bin.length || rebuilt.some((b, i) => b !== bin[i])) {
+    throw invalid('bakedCommitments: not an R1C lock')
+  }
+  return cs.map(c => Utils.toHex(c))
 }

@@ -8,13 +8,14 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { BigNumber, Curve, Hash, LockingScript, Utils } from '@bsv/sdk'
+import { BigNumber, Curve, Hash, LockingScript, Script, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import {
   COMB_COLS, COMB_ROWS, COORD_WIDTH, SALT_BYTES, TABLE_SIZE, R1C_LOCK_LEN, R1C_MAX_KEYS, R1C_UNLOCK_LEN,
   P256_N, P256_P, SECP_GX, SECP_N, RECODE_CONST,
   asm, encNum, pushData, scriptNum,
-  compressPubkey, combTable, combTableScalar, gTable, le33, canonicalTableBytes, commitment
+  compressPubkey, combTable, combTableScalar, gTable, le33, canonicalTableBytes, commitment,
+  buildLock, bakedCommitments, recode, sharedSuffix, shiftFor
 } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 
@@ -225,5 +226,137 @@ describe('canonical table bytes and commitment', () => {
 
   it.each(['', '01'.repeat(31), '01'.repeat(33), 'zz'.repeat(32)])('commitment rejects salt %s', bad => {
     expect(() => commitment(FIXTURE_Q, bad)).toThrow(VaultError)
+  })
+})
+
+/** hash160 of a small deterministic byte string — a syntactically valid commitment for structural tests. */
+const fakeCommitment = (i: number): string => Utils.toHex(Hash.hash160([0xc0, i]))
+
+/** Golden commitment set: FIXTURE_Q under the two salts pinned in Task 2. */
+const GOLDEN_C2 = ['d45e539304c629b5ef67f7d38e654e5ed2138152', '1efb4cd1b3edc12a6772215d5f112aad53541246']
+/** sha256 of buildLock({ commitments: GOLDEN_C2 }) — computed from docs/example-txs/spike/gen2.mjs
+ *  (`buildLock2({ commitments: GOLDEN_C2 })`), the reference this module ports. If this ever differs
+ *  the PORT is wrong; never re-pin to the new value. Re-derive with:
+ *  cd docs/example-txs/spike && node --input-type=module -e "import { buildLock2 } from './gen2.mjs'; import { Hash, Utils } from '@bsv/sdk'; console.log(Utils.toHex(Hash.sha256(buildLock2({ commitments: ['d45e539304c629b5ef67f7d38e654e5ed2138152', '1efb4cd1b3edc12a6772215d5f112aad53541246'] }).toBinary())))" */
+const GOLDEN_SHA256_N2 = '1b94d0b8453d459116694334b67f7f2c32ec77c2e0e6588805e5d0d4cd2ed472'
+/** Same for N = 1 with GOLDEN_C2[0] only. */
+const GOLDEN_SHA256_N1 = '680a378d65640bea8b31e70b884809a9b6aaf6cbcf011fdefa7202c3db0930a4'
+/** OP_PUSH_TX dummy key d·G, d = 2^248·Gx⁻¹ mod n_k1 (ANALYSIS.md §6.1, fixture chunk 23064). */
+const PUSH_TX_PUBKEY = '02b405d7f0322a89d0f9f3a98e6f938fdc1c969a8d1382a2bf66a71ae74a1e83b0'
+
+describe('recode and shiftFor', () => {
+  it("recode(u) = ((u odd ? u : u + n) + 2^258 − 1) / 2 and inverts to u mod n", () => {
+    expect(recode(1n)).toBe(1n << 257n)
+    expect(recode(P256_N - 1n)).toBe(P256_N + (1n << 257n) - 1n)
+    // fixture u1 (ANALYSIS.md §2, even → +n branch)
+    const u1 = 0x051fd0dba16ab0f7a8ba9127e52a45c1316ab230f807d243ec88788eb1d8d2e6n
+    expect(recode(u1)).toBe((u1 + P256_N + RECODE_CONST) / 2n)
+    for (let i = 0; i < 50; i++) {
+      const u = BigInt('0x' + Utils.toHex(Array.from(p256.utils.randomSecretKey()))) % P256_N
+      const up = recode(u)
+      expect(up < (1n << 258n)).toBe(true)
+      expect((up >> 257n) & 1n).toBe(1n)
+      expect((((2n * up - RECODE_CONST) % P256_N) + P256_N) % P256_N).toBe(u)
+    }
+  })
+
+  it('shiftFor(c, k) = 257 − c − 43k', () => {
+    expect(shiftFor(0, 0)).toBe(257)
+    expect(shiftFor(42, 5)).toBe(0)
+    expect(shiftFor(0, 5)).toBe(42)
+    expect(shiftFor(42, 0)).toBe(215)
+    for (let c = 0; c < 43; c++) for (let k = 0; k < 6; k++) expect(shiftFor(c, k)).toBe(257 - c - 43 * k)
+  })
+})
+
+describe('buildLock goldens', () => {
+  const fixtureLock = LockingScript.fromHex(FIXTURE_LOCK_HEX)
+
+  it('sharedSuffix() equals fixture chunks [87..150] ++ [215..end] byte-for-byte (27,160 B)', () => {
+    const fixtureSuffix = new LockingScript([...fixtureLock.chunks.slice(87, 151), ...fixtureLock.chunks.slice(215)])
+    const mine = sharedSuffix()
+    expect(mine).toHaveLength(27160)
+    expect(hex(mine)).toBe(fixtureSuffix.toHex())
+    expect(sharedSuffix()).toEqual(mine) // cached and stable
+  })
+
+  it.each([1, 2, 3, 4, 5])('N=%i: exact byte length R1C_LOCK_LEN(N) and chunk count', N => {
+    const commitments = [...Array(N)].map((_, i) => fakeCommitment(i))
+    const lock = buildLock({ commitments })
+    expect(lock.toBinary()).toHaveLength(R1C_LOCK_LEN(N))
+    expect(lock.chunks).toHaveLength(N === 1 ? 23310 : 23306 + 5 * N)
+    // the lock ends with the shared suffix
+    const bin = lock.toBinary()
+    expect(hex(bin.slice(bin.length - 27160))).toBe(hex(sharedSuffix()))
+  })
+
+  it('pins sha256 for the golden commitment sets (N = 1 and N = 2)', () => {
+    expect(hex(Hash.sha256(buildLock({ commitments: [GOLDEN_C2[0]] }).toBinary()))).toBe(GOLDEN_SHA256_N1)
+    expect(hex(Hash.sha256(buildLock({ commitments: GOLDEN_C2 }).toBinary()))).toBe(GOLDEN_SHA256_N2)
+    // uppercase commitments produce the same bytes
+    expect(hex(buildLock({ commitments: GOLDEN_C2.map(c => c.toUpperCase()) }).toBinary())).toBe(hex(buildLock({ commitments: GOLDEN_C2 }).toBinary()))
+  })
+
+  it('tail ends with <dummy pubkey> OP_CODESEPARATOR OP_CHECKSIG', () => {
+    const c = buildLock({ commitments: [fakeCommitment(0)] }).chunks
+    expect(hex(c[c.length - 3].data!)).toBe(PUSH_TX_PUBKEY)
+    expect(c[c.length - 2].op).toBe(0xab)
+    expect(c[c.length - 1].op).toBe(0xac)
+    expect(hex(fixtureLock.chunks[23064].data!)).toBe(PUSH_TX_PUBKEY)
+  })
+
+  it('H5 layout: N=1 is <C0> EQUALVERIFY; N>=2 is (DUP <Ci> EQUAL SWAP)×(N−1) <C_last> EQUAL BOOLOR×(N−1) VERIFY', () => {
+    const one = buildLock({ commitments: [fakeCommitment(0)] }).chunks
+    expect(one[391].op).toBe(0xa9) // OP_HASH160
+    expect(hex(one[392].data!)).toBe(fakeCommitment(0))
+    expect(one[393].op).toBe(0x88) // OP_EQUALVERIFY
+    const three = buildLock({ commitments: [0, 1, 2].map(fakeCommitment) }).chunks
+    expect(three[391].op).toBe(0xa9)
+    expect(three.slice(392, 392 + 4 * 2 + 2 + 2 + 1).map(k => (k.data !== undefined ? hex(k.data) : k.op))).toEqual([
+      0x76, fakeCommitment(0), 0x87, 0x7c,
+      0x76, fakeCommitment(1), 0x87, 0x7c,
+      fakeCommitment(2), 0x87,
+      0x9b, 0x9b, 0x69
+    ])
+  })
+
+  it.each([
+    [[]],
+    [[0, 1, 2, 3, 4, 5].map(fakeCommitment)],
+    [['zz'.repeat(20)]],
+    [[fakeCommitment(0).slice(0, 38)]],
+    [[fakeCommitment(0) + '00']],
+    [[fakeCommitment(0), fakeCommitment(0)]],
+    [[fakeCommitment(0), fakeCommitment(0).toUpperCase()]]
+  ])('buildLock rejects %j with template-invalid', bad => {
+    expect(() => buildLock({ commitments: bad })).toThrow(VaultError)
+    try { buildLock({ commitments: bad }) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+  })
+})
+
+describe('bakedCommitments', () => {
+  it.each([1, 2, 3, 4, 5])('round-trips N=%i commitments in order', N => {
+    const commitments = [...Array(N)].map(() => Utils.toHex(Hash.hash160(Array.from(p256.utils.randomSecretKey()))))
+    const lock = buildLock({ commitments })
+    expect(bakedCommitments(lock)).toEqual(commitments)
+    // also from a re-parsed copy (what a BEEF gives Plan 2)
+    expect(bakedCommitments(Script.fromHex(lock.toHex()))).toEqual(commitments)
+  })
+
+  it('returns lowercase even when built from uppercase input', () => {
+    expect(bakedCommitments(buildLock({ commitments: GOLDEN_C2.map(c => c.toUpperCase()) }))).toEqual(GOLDEN_C2)
+  })
+
+  it.each<[string, () => Script]>([
+    ['empty script', () => Script.fromHex('')],
+    ['P2PKH', () => Script.fromASM('OP_DUP OP_HASH160 ' + 'ab'.repeat(20) + ' OP_EQUALVERIFY OP_CHECKSIG')],
+    ['the original fixture lock (Q table baked, no H5)', () => LockingScript.fromHex(FIXTURE_LOCK_HEX)],
+    ['R1C lock with its last byte dropped', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); return Script.fromBinary(b.slice(0, -1)) }],
+    ['R1C lock with one suffix byte flipped', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); b[10_000] ^= 0x01; return Script.fromBinary(b) }],
+    ['R1C lock with one header byte flipped', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); b[3] ^= 0x01; return Script.fromBinary(b) }],
+    ['R1C lock whose H5 BOOLOR was replaced by OP_BOOLAND', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); const i = b.length - 27160 - 2; expect(b[i]).toBe(0x9b); b[i] = 0x9a; return Script.fromBinary(b) }]
+  ])('throws template-invalid on %s', (_name, mk) => {
+    expect(() => bakedCommitments(mk())).toThrow(VaultError)
+    try { bakedCommitments(mk()) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
   })
 })
