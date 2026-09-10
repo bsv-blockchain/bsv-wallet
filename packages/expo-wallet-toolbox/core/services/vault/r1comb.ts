@@ -13,7 +13,7 @@
  * SECURITY: nothing secret passes through this module — public keys, per-output
  * salts, signatures the card already produced, and script bytes.
  */
-import { Hash, LockingScript, OP, PrivateKey, Script, Utils } from '@bsv/sdk'
+import { Hash, LockingScript, OP, PrivateKey, Script, Transaction, TransactionSignature, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
 
@@ -530,4 +530,105 @@ export function bakedCommitments(lock: Script): string[] {
     throw invalid('bakedCommitments: not an R1C lock')
   }
   return cs.map(c => Utils.toHex(c))
+}
+
+// ───────────────────────── sighash preimage and signer digest (spec §2.5) ─────────────────────────
+/** OP_CODESEPARATOR OP_CHECKSIG ⇒ the scriptCode the lock's CHECKSIG hashes is the single byte `ac`. */
+const SUBSCRIPT = Script.fromHex('ac')
+
+function requirePreimage(preimage: number[], where: string): void {
+  if (!Array.isArray(preimage) || preimage.length !== R1C_PREIMAGE_LEN) {
+    throw invalid(`${where}: preimage must be ${R1C_PREIMAGE_LEN} bytes`)
+  }
+}
+
+/** BIP143 preimage, subscript `ac`, scope 0x41, for input `inputIndex` of `tx` whose source output carried `sourceSatoshis`. 158 bytes. */
+export function sighashPreimage(tx: Transaction, inputIndex: number, sourceSatoshis: number): number[] {
+  const input = tx.inputs[inputIndex]
+  if (input === undefined) throw invalid(`sighashPreimage: input ${inputIndex} does not exist`)
+  const sourceTXID = input.sourceTXID ?? input.sourceTransaction?.id('hex')
+  if (sourceTXID === undefined) throw invalid('sighashPreimage: input needs sourceTXID or sourceTransaction')
+  if (!Number.isSafeInteger(sourceSatoshis) || sourceSatoshis < 0) throw invalid('sighashPreimage: sourceSatoshis must be a non-negative integer')
+  const preimage = TransactionSignature.format({
+    sourceTXID,
+    sourceOutputIndex: input.sourceOutputIndex,
+    sourceSatoshis,
+    transactionVersion: tx.version,
+    otherInputs: tx.inputs.filter((_, i) => i !== inputIndex),
+    outputs: tx.outputs,
+    inputIndex,
+    subscript: SUBSCRIPT,
+    inputSequence: input.sequence ?? 0xffffffff,
+    lockTime: tx.lockTime,
+    scope: R1C_SIGHASH
+  })
+  if (preimage.length !== R1C_PREIMAGE_LEN) throw invalid(`sighashPreimage: expected ${R1C_PREIMAGE_LEN} bytes, got ${preimage.length}`)
+  return preimage
+}
+
+/** reverse(hash256(preimage)) as 64 lowercase hex — the raw digest the P-256 signer signs (the script reads e little-endian). */
+export function signerDigest(preimage: number[]): string {
+  requirePreimage(preimage, 'signerDigest')
+  return Utils.toHex([...Hash.hash256(preimage)].reverse())
+}
+
+// ───────────────────────── OP_PUSH_TX model (ANALYSIS.md §6) ─────────────────────────
+/** The s the tail assembles: lowS((BE(hash256(preimage)) + 2^248) mod n_k1). r is fixed at Gx (k = 1). */
+export function pushTxSignatureS(preimage: number[]): bigint {
+  const e = beToBig(Hash.hash256(preimage))
+  const t = mod(e + (1n << 248n), SECP_N)
+  return t > (SECP_N - 1n) / 2n ? SECP_N - t : t
+}
+
+/**
+ * Model of the byte-peel loop `(DUP 0NOTEQUAL SPLIT)×31`: it reads the not-yet-peeled remainder of the s scriptnum
+ * as a NUMBER at k = 0..30. Returns the first k whose remainder is a non-minimal script number (a trailing 0x00/0x80
+ * with no high bit beneath it), or −1 when every remainder is minimal. An empty remainder is fine (== 0).
+ */
+export function peelLoopNonMinimalAt(sLE: number[]): number {
+  for (let k = 0; k <= 30; k++) {
+    const rem = sLE.slice(k)
+    if (rem.length === 0) continue
+    const last = rem[rem.length - 1]
+    if ((last & 0x7f) === 0 && (rem.length === 1 || (rem[rem.length - 2] & 0x80) === 0)) return k
+  }
+  return -1
+}
+
+/**
+ * D4b screen — evaluate BEFORE asking the card to sign. ok = false when the OP_PUSH_TX s the lock will assemble
+ * is zero (2^-256) or peel-nonminimal (2^-16: scriptnum(s) <= 31 bytes ending in a sign byte). Under strict
+ * MINIMALDATA such a spend aborts at the peel loop; the remedy is to perturb the transaction (Plan 2 bumps the
+ * input's sequence) and re-screen. Pure function of the preimage; independent of the P-256 signature.
+ */
+export function pushTxDerCheck(preimage: number[]): { ok: boolean; s: bigint } {
+  requirePreimage(preimage, 'pushTxDerCheck')
+  const s = pushTxSignatureS(preimage)
+  if (s === 0n) return { ok: false, s }
+  return { ok: peelLoopNonMinimalAt(scriptNum(s)) === -1, s }
+}
+
+// ───────────────────────── DER ─────────────────────────
+/** Strict DER `SEQUENCE { INTEGER r, INTEGER s }` → (r, s), both in [1, n−1]. Short-form lengths only (max 72 B). */
+export function decodeDerSignature(der: number[]): { r: bigint; s: bigint } {
+  const fail = (why: string): never => { throw invalid(`decodeDerSignature: ${why}`) }
+  if (!Array.isArray(der) || der.length < 8 || der.length > 72) fail('length')
+  if (der[0] !== 0x30) fail('not a SEQUENCE')
+  if (der[1] !== der.length - 2) fail('bad SEQUENCE length')
+  let pos = 2
+  const readInt = (): bigint => {
+    if (der[pos] !== 0x02) fail('expected INTEGER')
+    const len = der[pos + 1]
+    if (len === undefined || len === 0 || len > 33 || pos + 2 + len > der.length) fail('bad INTEGER length')
+    const body = der.slice(pos + 2, pos + 2 + len)
+    if ((body[0] & 0x80) !== 0) fail('negative INTEGER')
+    if (len > 1 && body[0] === 0x00 && (body[1] & 0x80) === 0) fail('non-minimal INTEGER')
+    pos += 2 + len
+    return beToBig(body)
+  }
+  const r = readInt()
+  const s = readInt()
+  if (pos !== der.length) fail('trailing bytes')
+  if (r === 0n || r >= P256_N || s === 0n || s >= P256_N) fail('scalar out of range')
+  return { r, s }
 }

@@ -8,14 +8,15 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { BigNumber, Curve, Hash, LockingScript, Script, Utils } from '@bsv/sdk'
+import { BigNumber, Curve, Hash, LockingScript, Script, Transaction, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import {
   COMB_COLS, COMB_ROWS, COORD_WIDTH, SALT_BYTES, TABLE_SIZE, R1C_LOCK_LEN, R1C_MAX_KEYS, R1C_UNLOCK_LEN,
   P256_N, P256_P, SECP_GX, SECP_N, RECODE_CONST,
   asm, encNum, pushData, scriptNum,
   compressPubkey, combTable, combTableScalar, gTable, le33, canonicalTableBytes, commitment,
-  buildLock, bakedCommitments, recode, sharedSuffix, shiftFor
+  buildLock, bakedCommitments, recode, sharedSuffix, shiftFor,
+  sighashPreimage, signerDigest, pushTxSignatureS, peelLoopNonMinimalAt, pushTxDerCheck, decodeDerSignature, R1C_PREIMAGE_LEN, R1C_SIGHASH
 } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 
@@ -358,5 +359,189 @@ describe('bakedCommitments', () => {
   ])('throws template-invalid on %s', (_name, mk) => {
     expect(() => bakedCommitments(mk())).toThrow(VaultError)
     try { bakedCommitments(mk()) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+  })
+})
+
+/** Minimal LE sign-magnitude scriptnum bytes → bigint (inverse of scriptNum; test-side only). */
+export const fromScriptNum = (b: number[]): bigint => {
+  if (b.length === 0) return 0n
+  const m = [...b]
+  const neg = (m[m.length - 1] & 0x80) !== 0
+  m[m.length - 1] &= 0x7f
+  const v = BigInt('0x' + hex([...m].reverse()))
+  return neg ? -v : v
+}
+export const beBig = (b: number[]): bigint => BigInt('0x' + (b.length > 0 ? hex(b) : '0'))
+/** 158 random bytes — a synthetic preimage for functions that only hash their input (test-side only). */
+const syntheticPreimage = (): number[] => {
+  const out: number[] = []
+  while (out.length < R1C_PREIMAGE_LEN) out.push(...Array.from(p256.utils.randomSecretKey()))
+  return out.slice(0, R1C_PREIMAGE_LEN)
+}
+
+/** Fixture facts (ANALYSIS.md §2). */
+export const FIXTURE_SATS = 4600
+export const FIXTURE_HASH256 = '0bd94d7d0883ed0e47d4bbc903845542857cb072a85b45c7a6484f7ff532620e'
+export const FIXTURE_DIGEST = '0e6232f57f4f48a6c7455ba872b07c8542558403c9bbd4470eed83087d4dd90b'
+export const FIXTURE_R = 0xe3c4329684a494d2db1c99234f136d9b941c4274f40befe976b546c130f9f7c7n
+export const FIXTURE_S = 0x401a6223caf9c7b57188e354044d52687ed2c69f975bc4c075369d44199d67e9n
+export const FIXTURE_DER = '3045022100e3c4329684a494d2db1c99234f136d9b941c4274f40befe976b546c130f9f7c70220401a6223caf9c7b57188e354044d52687ed2c69f975bc4c075369d44199d67e9'
+
+describe('sighashPreimage and signerDigest (fixture spend)', () => {
+  const tx = Transaction.fromHex(FIXTURE_TX_HEX)
+  const unlock = tx.inputs[0].unlockingScript!
+  const hashOutputs = unlock.chunks[3].data!   // push #3
+  const outpoint = unlock.chunks[4].data!      // push #4
+
+  it('reconstructs the 158-byte preimage field by field', () => {
+    expect(hashOutputs).toHaveLength(32)
+    expect(outpoint).toHaveLength(36)
+    const expected = [
+      ...(Utils.toArray('01000000', 'hex') as number[]),           // version 1
+      ...Hash.hash256(outpoint),                                    // hashPrevouts (single input)
+      ...Hash.hash256(Utils.toArray('ffffffff', 'hex') as number[]),// hashSequence
+      ...outpoint,
+      ...(Utils.toArray('01ac', 'hex') as number[]),               // scriptCode = OP_CHECKSIG
+      ...(Utils.toArray('f811000000000000', 'hex') as number[]),   // 4600 sat LE64
+      ...(Utils.toArray('ffffffff', 'hex') as number[]),           // sequence
+      ...hashOutputs,
+      ...(Utils.toArray('00000000', 'hex') as number[]),           // lockTime
+      ...(Utils.toArray('41000000', 'hex') as number[])            // sighash ALL|FORKID
+    ]
+    expect(expected).toHaveLength(R1C_PREIMAGE_LEN)
+    const preimage = sighashPreimage(tx, 0, FIXTURE_SATS)
+    expect(hex(preimage)).toBe(hex(expected))
+    expect(hex(preimage.slice(118, 150))).toBe(hex(hashOutputs))
+    expect(hex(preimage.slice(68, 104))).toBe(hex(outpoint))
+    expect(hex(Hash.hash256(preimage))).toBe(FIXTURE_HASH256)
+    expect(R1C_SIGHASH).toBe(0x41)
+  })
+
+  it('signerDigest is reverse(hash256(preimage)) as 64 lowercase hex', () => {
+    const preimage = sighashPreimage(tx, 0, FIXTURE_SATS)
+    expect(signerDigest(preimage)).toBe(FIXTURE_DIGEST)
+    expect(signerDigest(preimage)).toBe(hex([...Hash.hash256(preimage)].reverse()))
+    // the script's e is the LE view of hash256 == the BE view of the digest
+    expect(beBig(Utils.toArray(FIXTURE_DIGEST, 'hex') as number[])).toBe(beBig([...Hash.hash256(preimage)].reverse()))
+  })
+
+  it('a different sourceSatoshis changes only the amount field', () => {
+    const a = sighashPreimage(tx, 0, FIXTURE_SATS)
+    const b = sighashPreimage(tx, 0, FIXTURE_SATS + 1)
+    expect(hex(a.slice(0, 106))).toBe(hex(b.slice(0, 106)))
+    expect(hex(a.slice(114))).toBe(hex(b.slice(114)))
+    expect(hex(b.slice(106, 114))).toBe('f911000000000000')
+  })
+
+  it('rejects a missing input, an input without a source reference, and bad satoshis', () => {
+    expect(() => sighashPreimage(tx, 1, FIXTURE_SATS)).toThrow(VaultError)
+    const bare = new Transaction(2, [{ sourceOutputIndex: 0, sequence: 0xffffffff }], [], 0)
+    expect(() => sighashPreimage(bare, 0, 1000)).toThrow(VaultError)
+    expect(() => sighashPreimage(tx, 0, -1)).toThrow(VaultError)
+    expect(() => sighashPreimage(tx, 0, 1.5)).toThrow(VaultError)
+    expect(() => signerDigest(new Array(157).fill(0))).toThrow(VaultError)
+  })
+})
+
+describe('OP_PUSH_TX model: pushTxSignatureS / peelLoopNonMinimalAt / pushTxDerCheck', () => {
+  const tx = Transaction.fromHex(FIXTURE_TX_HEX)
+  const preimage = sighashPreimage(tx, 0, FIXTURE_SATS)
+
+  it('fixture: ok, and s = e_k1 + 2^248 (no wrap, below n/2)', () => {
+    const eK1 = beBig(Hash.hash256(preimage))
+    expect(eK1).toBe(BigInt('0x' + FIXTURE_HASH256))
+    const chk = pushTxDerCheck(preimage)
+    expect(chk.ok).toBe(true)
+    expect(chk.s).toBe(eK1 + (1n << 248n))
+    expect(pushTxSignatureS(preimage)).toBe(chk.s)
+    expect(chk.s < (SECP_N - 1n) / 2n).toBe(true)
+  })
+
+  it('pushTxSignatureS applies mod n_k1 and the low-S flip', () => {
+    // synthetic preimages are fine here: the function only hashes its input
+    for (let i = 0; i < 200; i++) {
+      const p = Array.from(p256.utils.randomSecretKey())
+      const e = beBig(Hash.hash256(p))
+      const t = ((e + (1n << 248n)) % SECP_N + SECP_N) % SECP_N
+      const expected = t > (SECP_N - 1n) / 2n ? SECP_N - t : t
+      expect(pushTxSignatureS(p)).toBe(expected)
+      expect(pushTxSignatureS(p) <= (SECP_N - 1n) / 2n).toBe(true)
+    }
+  })
+
+  // ANALYSIS.md §6.2 boundary table of the peel loop (k = index of the first non-minimal remainder, −1 = ok)
+  it.each<[string, bigint, number, number]>([
+    ['2^248 − 1', (1n << 248n) - 1n, 32, -1],
+    ['2^247',     1n << 247n,        32, -1],
+    ['2^247 − 1', (1n << 247n) - 1n, 31, -1],
+    ['2^240',     1n << 240n,        31, -1],
+    ['2^240 − 1', (1n << 240n) - 1n, 31, 30],
+    ['2^239',     1n << 239n,        31, 30],
+    ['2^239 − 1', (1n << 239n) - 1n, 30, -1],
+    ['2^231',     1n << 231n,        30, 29],
+    ['255',       255n,               2,  1],
+    ['128',       128n,               2,  1],
+    ['127',       127n,               1, -1],
+    ['1',         1n,                 1, -1]
+  ])('peelLoopNonMinimalAt(scriptNum(%s)) — %i-byte scriptnum → %i', (_n, s, len, k) => {
+    const b = scriptNum(s)
+    expect(b).toHaveLength(len)
+    expect(peelLoopNonMinimalAt(b)).toBe(k)
+  })
+
+  it('peelLoopNonMinimalAt: empty remainder is fine; a lone 0x00 or 0x80 is not', () => {
+    expect(peelLoopNonMinimalAt([])).toBe(-1)
+    expect(peelLoopNonMinimalAt([0x00])).toBe(0)
+    expect(peelLoopNonMinimalAt([0x80])).toBe(0)
+    expect(peelLoopNonMinimalAt([0x01, 0x00])).toBe(0)   // 1 with a redundant 00: non-minimal as a whole (k = 0)
+    expect(peelLoopNonMinimalAt([0xff, 0x00])).toBe(1)   // 255: minimal as a whole; the lone 00 left after one peel is not
+    expect(peelLoopNonMinimalAt([0x00, 0x80])).toBe(0)   // −0 with a padded magnitude: non-minimal at k = 0
+    expect(peelLoopNonMinimalAt([0x80, 0x00])).toBe(1)   // 128: minimal as a whole; lone 00 at k = 1 (the 2^(8m−1) class)
+  })
+
+  it('pushTxDerCheck agrees with the predicate on the boundary classes (ok ⇔ s ≠ 0 ∧ peel = −1)', () => {
+    // Pick 4,000 synthetic 158-byte preimages; every verdict must equal the closed form.
+    // (pushTxDerCheck enforces the 158-byte length, unlike pushTxSignatureS — so the inputs must be full-size.)
+    for (let i = 0; i < 4000; i++) {
+      const p = syntheticPreimage()
+      const { ok, s } = pushTxDerCheck(p)
+      expect(ok).toBe(s !== 0n && peelLoopNonMinimalAt(scriptNum(s)) === -1)
+    }
+  })
+})
+
+describe('decodeDerSignature', () => {
+  it('decodes the fixture signature', () => {
+    expect(decodeDerSignature(Utils.toArray(FIXTURE_DER, 'hex') as number[])).toEqual({ r: FIXTURE_R, s: FIXTURE_S })
+    expect(hex(Array.from(new p256.Signature(FIXTURE_R, FIXTURE_S).toBytes('der')))).toBe(FIXTURE_DER)
+  })
+
+  it("round-trips noble's DER for 200 fresh signatures (low-S and high-S)", () => {
+    for (let i = 0; i < 200; i++) {
+      const priv = p256.utils.randomSecretKey()
+      const digest = p256.utils.randomSecretKey()
+      const sig = p256.Signature.fromBytes(p256.sign(digest, priv, { prehash: false, lowS: false }))
+      const der = Array.from(sig.toBytes('der'))
+      expect(decodeDerSignature(der)).toEqual({ r: sig.r, s: sig.s })
+      const flipped = new p256.Signature(sig.r, P256_N - sig.s)
+      expect(decodeDerSignature(Array.from(flipped.toBytes('der')))).toEqual({ r: sig.r, s: P256_N - sig.s })
+    }
+  })
+
+  it.each<[string, number[]]>([
+    ['empty', []],
+    ['just a SEQUENCE tag', [0x30]],
+    ['compact r‖s', Array.from(new p256.Signature(FIXTURE_R, FIXTURE_S).toBytes('compact'))],
+    ['trailing byte', [...(Utils.toArray(FIXTURE_DER, 'hex') as number[]), 0x00]],
+    ['SEQUENCE length off by one', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d[1] -= 1; return d })()],
+    ['negative r (missing 00 pad)', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d.splice(4, 1); d[1] -= 1; d[3] -= 1; return d })()],
+    ['non-minimal s (extra 00 pad)', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d.splice(d.length - 32, 0, 0x00); d[1] += 1; d[d.length - 34] += 1; return d })()],
+    // noble's Signature constructor refuses r = 0, so this is the DER it would otherwise emit: INTEGER 0 is `02 01 00`
+    ['r = 0', [0x30, 37, 0x02, 0x01, 0x00, 0x02, 0x20, ...(Utils.toArray(FIXTURE_S.toString(16), 'hex') as number[])]],
+    ['s = n', (() => { const rInt = Array.from(new p256.Signature(FIXTURE_R, 1n).toBytes('der')).slice(2, 2 + 35); const nBytes = Utils.toArray(P256_N.toString(16), 'hex') as number[]; return [0x30, 70, ...rInt, 0x02, 33, 0x00, ...nBytes] })()],
+    ['INTEGER tag replaced', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d[2] = 0x04; return d })()]
+  ])('rejects %s with template-invalid', (_name, der) => {
+    expect(() => decodeDerSignature(der)).toThrow(VaultError)
+    try { decodeDerSignature(der) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
   })
 })
