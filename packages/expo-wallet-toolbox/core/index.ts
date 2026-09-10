@@ -32,6 +32,7 @@ export {
   isToolboxConfigured,
   getBackupUrl,
   getServiceConfig,
+  isVaultEnabled,
   resetToolboxConfig
 } from './toolboxConfig'
 export type { ToolboxConfig, ToolboxServiceConfig } from './toolboxConfig'

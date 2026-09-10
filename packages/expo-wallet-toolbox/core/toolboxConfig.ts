@@ -51,11 +51,20 @@ export interface ToolboxConfig {
   backupUrl: string | null
   /** Per-chain service endpoints and keys. Omitted chains use built-in defaults. */
   services?: Partial<Record<AppChain, ToolboxServiceConfig>>
+  /**
+   * Release gate for the YubiKey vault (spec §0, D15). Default false: the home
+   * button and Settings row are hidden, the vault route shows "Not available
+   * yet", and no code path may enrol hardware or create a vault output. Turned
+   * on per build profile by the host (EXPO_PUBLIC_VAULT_ENABLED in eas.json),
+   * never read from process.env here.
+   */
+  vaultEnabled?: boolean
 }
 
 interface ResolvedConfig {
   backupUrl: string
   services: Partial<Record<AppChain, ToolboxServiceConfig>>
+  vaultEnabled: boolean
 }
 
 let current: ResolvedConfig | null = null
@@ -98,7 +107,8 @@ export function configureToolbox(config: ToolboxConfig): void {
   }
   current = {
     backupUrl: config.backupUrl == null ? '' : normalizeBackupUrl(config.backupUrl),
-    services: config.services ?? {}
+    services: config.services ?? {},
+    vaultEnabled: config.vaultEnabled === true
   }
 }
 
@@ -121,6 +131,16 @@ export function getBackupUrl(): string {
 export function getServiceConfig(chain: AppChain): ToolboxServiceConfig {
   if (current === null) throw new Error(NOT_CONFIGURED)
   return current.services[chain] ?? {}
+}
+
+/**
+ * Whether this build may enrol vault hardware or create vault outputs.
+ *
+ * Deliberately NOT throwing when unconfigured: this is read while rendering
+ * the home screen, and "unconfigured" must look like "vault off", not crash.
+ */
+export function isVaultEnabled(): boolean {
+  return current?.vaultEnabled ?? false
 }
 
 /** Test-only: drop the installed configuration. */

@@ -3,6 +3,7 @@ import {
   getBackupUrl,
   getServiceConfig,
   isToolboxConfigured,
+  isVaultEnabled,
   resetToolboxConfig
 } from '../core/toolboxConfig'
 
@@ -77,5 +78,31 @@ describe('getServiceConfig', () => {
   it('returns an empty object for a chain the host said nothing about', () => {
     configureToolbox({ backupUrl: null, services: { main: { arcUrl: 'https://arc.main' } } })
     expect(getServiceConfig('teratest')).toEqual({})
+  })
+})
+
+// The vault release gate (spec §0 / D15). Default off; on only when the host
+// says so; and — unlike the URL getters — never throws, because the home
+// screen reads it while rendering and an unconfigured dev host must simply
+// see "no vault", not a crash.
+describe('isVaultEnabled', () => {
+  it('is false before configureToolbox runs, without throwing', () => {
+    expect(isVaultEnabled()).toBe(false)
+  })
+
+  it('defaults to false when the host omits it', () => {
+    configureToolbox({ backupUrl: null })
+    expect(isVaultEnabled()).toBe(false)
+  })
+
+  it('is true when the host passes true', () => {
+    configureToolbox({ backupUrl: null, vaultEnabled: true })
+    expect(isVaultEnabled()).toBe(true)
+  })
+
+  it('is replaced wholesale with the rest of the configuration', () => {
+    configureToolbox({ backupUrl: null, vaultEnabled: true })
+    configureToolbox({ backupUrl: null })
+    expect(isVaultEnabled()).toBe(false)
   })
 })
