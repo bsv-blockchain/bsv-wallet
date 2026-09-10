@@ -1217,20 +1217,14 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('pay_direction_receive')}</Text>
           </PressableScale>
 
-          {/* Vault — hidden for now; will release once R1-K1 research is complete.
           <PressableScale
+            haptic="confirm"
             onPress={() => router.push('/vault')}
-            style={[
-              styles.dest,
-              { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
-            ]}
+            style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
           >
             <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
-            <Text style={[styles.destLabel, { color: colors.textPrimary }]}>
-              {t('wallet_vault')}
-            </Text>
+            <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('wallet_vault')}</Text>
           </PressableScale>
-          */}
         </View>
       </View>
     ),
