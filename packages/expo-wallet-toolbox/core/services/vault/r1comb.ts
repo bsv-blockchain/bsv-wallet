@@ -13,7 +13,7 @@
  * SECURITY: nothing secret passes through this module — public keys, per-output
  * salts, signatures the card already produced, and script bytes.
  */
-import { OP, Utils } from '@bsv/sdk'
+import { Hash, OP, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
 
@@ -150,4 +150,102 @@ export function asm(text: string, params: Record<string, AsmParam> = {}): number
     out.push(op)
   }
   return out
+}
+
+// ───────────────────────── public keys ─────────────────────────
+/**
+ * 65-byte SEC1 (04‖X‖Y) or 33-byte compressed hex in → 33-byte compressed lowercase hex out.
+ * The card returns the 65-byte form; every comparison in the app uses the compressed form.
+ */
+export function compressPubkey(sec1Hex: string): string {
+  if (typeof sec1Hex !== 'string' || !/^([0-9a-fA-F]{66}|[0-9a-fA-F]{130})$/.test(sec1Hex)) {
+    throw invalid('compressPubkey: expected 33- or 65-byte SEC1 hex')
+  }
+  const lower = sec1Hex.toLowerCase()
+  const prefix = lower.slice(0, 2)
+  if (lower.length === 66 && prefix !== '02' && prefix !== '03') throw invalid('compressPubkey: bad compressed prefix')
+  if (lower.length === 130 && prefix !== '04') throw invalid('compressPubkey: bad uncompressed prefix')
+  try {
+    const P = p256.Point.fromHex(lower)
+    P.assertValidity()
+    return P.toHex(true)
+  } catch {
+    throw invalid('compressPubkey: not a valid P-256 point')
+  }
+}
+
+// ───────────────────────── comb tables (spec §2.1) ─────────────────────────
+export interface AffinePoint { x: bigint; y: bigint }
+type P256Point = ReturnType<typeof p256.Point.fromHex>
+
+/**
+ * Comb table scalar for entry j (0 <= j < 32):
+ *   T_j = 2^(43·5) + Σ_{k<5} (bit_k(j) ? +1 : −1) · 2^(43k)
+ * The top digit is fixed +1 (the sign digit is applied in-script by negating y).
+ */
+export function combTableScalar(j: number): bigint {
+  let s = 1n << BigInt(COMB_COLS * (COMB_ROWS - 1))
+  for (let k = 0; k < COMB_ROWS - 1; k++) s += (((j >> k) & 1) !== 0 ? 1n : -1n) << BigInt(COMB_COLS * k)
+  return s
+}
+
+function tableOf(base: P256Point): AffinePoint[] {
+  const pts: AffinePoint[] = []
+  for (let j = 0; j < TABLE_SIZE; j++) {
+    const a = base.multiply(mod(combTableScalar(j), P256_N)).toAffine()
+    pts.push({ x: a.x, y: a.y })
+  }
+  return pts
+}
+
+let gTableCache: AffinePoint[] | null = null
+/** table(G) — computed once on first use (32 scalar multiplications), then constant. */
+export function gTable(): AffinePoint[] {
+  if (gTableCache === null) gTableCache = tableOf(p256.Point.BASE)
+  return gTableCache
+}
+
+const TABLE_CACHE_MAX = 8
+const qTableCache = new Map<string, AffinePoint[]>()
+/** table(Q): 32 affine points T_j·Q. Memoised per compressed pubkey (Map, FIFO, max 8). Never persisted. */
+export function combTable(pubkeyHex33: string): AffinePoint[] {
+  const key = compressPubkey(pubkeyHex33)
+  const hit = qTableCache.get(key)
+  if (hit !== undefined) return hit
+  const table = tableOf(p256.Point.fromHex(key))
+  if (qTableCache.size >= TABLE_CACHE_MAX) {
+    const oldest = qTableCache.keys().next().value
+    if (oldest !== undefined) qTableCache.delete(oldest)
+  }
+  qTableCache.set(key, table)
+  return table
+}
+
+// ───────────────────────── commitment (spec §2.2) ─────────────────────────
+/** OP_NUM2BIN(v, 33) for a non-negative v: minimal LE scriptnum zero-padded to 33 bytes. */
+export function le33(v: bigint): number[] {
+  if (v < 0n) throw invalid('le33: negative coordinate')
+  const b = scriptNum(v)
+  if (b.length > COORD_WIDTH) throw invalid('le33: value does not fit in 33 bytes')
+  while (b.length < COORD_WIDTH) b.push(0)
+  return b
+}
+
+/** le33(x_0) ‖ le33(y_0) ‖ … ‖ le33(y_31) — 2,112 bytes; injective over integer values. */
+export function canonicalTableBytes(pubkeyHex33: string): number[] {
+  const out: number[] = []
+  for (const { x, y } of combTable(pubkeyHex33)) out.push(...le33(x), ...le33(y))
+  return out
+}
+
+function saltBytes(saltHex64: string): number[] {
+  if (typeof saltHex64 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(saltHex64)) {
+    throw invalid(`salt must be ${SALT_BYTES} bytes as 64 hex chars`)
+  }
+  return bytesOf(saltHex64)
+}
+
+/** hash160(salt ‖ canonicalTableBytes(Q)) as 40 lowercase hex chars — the value baked into the lock. */
+export function commitment(pubkeyHex33: string, saltHex64: string): string {
+  return Utils.toHex(Hash.hash160([...saltBytes(saltHex64), ...canonicalTableBytes(pubkeyHex33)]))
 }

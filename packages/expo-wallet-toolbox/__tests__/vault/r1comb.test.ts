@@ -8,11 +8,13 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { BigNumber, Curve, Utils } from '@bsv/sdk'
+import { BigNumber, Curve, Hash, LockingScript, Utils } from '@bsv/sdk'
+import { p256 } from '@noble/curves/nist.js'
 import {
   COMB_COLS, COMB_ROWS, COORD_WIDTH, SALT_BYTES, TABLE_SIZE, R1C_LOCK_LEN, R1C_MAX_KEYS, R1C_UNLOCK_LEN,
   P256_N, P256_P, SECP_GX, SECP_N, RECODE_CONST,
-  asm, encNum, pushData, scriptNum
+  asm, encNum, pushData, scriptNum,
+  compressPubkey, combTable, combTableScalar, gTable, le33, canonicalTableBytes, commitment
 } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 
@@ -130,5 +132,98 @@ describe('asm mini-assembler', () => {
   it('rejects unknown opcodes and missing params with template-invalid', () => {
     expect(() => asm('OP_NOPE')).toThrow(VaultError)
     expect(() => asm('{MISSING}')).toThrow(VaultError)
+  })
+})
+
+/** The fixture's signer key, recovered from its Q comb table (ANALYSIS.md §2). */
+export const FIXTURE_Q = '03f4d667712d8825372cd616b0b1b1a818e5eeb3681dd45c5bdd59fed9f21d5a7d'
+
+describe('compressPubkey', () => {
+  it('compresses a 65-byte SEC1 point and lowercases a compressed one', () => {
+    const priv = p256.utils.randomSecretKey()
+    const uncompressed = Utils.toHex(p256.getPublicKey(priv, false))
+    const compressed = Utils.toHex(p256.getPublicKey(priv, true))
+    expect(uncompressed).toHaveLength(130)
+    expect(compressPubkey(uncompressed)).toBe(compressed)
+    expect(compressPubkey(compressed.toUpperCase())).toBe(compressed)
+    expect(compressPubkey(FIXTURE_Q)).toBe(FIXTURE_Q)
+  })
+
+  it.each([
+    '', 'zz', '02' + 'ff'.repeat(32) /* x >= p */, '05' + '00'.repeat(32), '04' + '00'.repeat(64) /* off curve */,
+    FIXTURE_Q.slice(0, 64), FIXTURE_Q + '00'
+  ])('throws template-invalid on %s', bad => {
+    expect(() => compressPubkey(bad)).toThrow(VaultError)
+    try { compressPubkey(bad) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+  })
+})
+
+describe('comb tables', () => {
+  const fixtureLock = LockingScript.fromHex(FIXTURE_LOCK_HEX)
+
+  it('combTableScalar: T_j = 2^215 + Σ (bit_k(j) ? +1 : -1)·2^(43k)', () => {
+    expect(combTableScalar(0)).toBe((1n << 215n) - (1n << 172n) - (1n << 129n) - (1n << 86n) - (1n << 43n) - 1n)
+    expect(combTableScalar(31)).toBe((1n << 215n) + (1n << 172n) + (1n << 129n) + (1n << 86n) + (1n << 43n) + 1n)
+    expect(combTableScalar(1)).toBe(combTableScalar(0) + 2n)
+  })
+
+  it('combTable(fixture Q) equals fixture chunks 151..214 as minimal scriptnums', () => {
+    const table = combTable(FIXTURE_Q)
+    expect(table).toHaveLength(32)
+    for (let j = 0; j < 32; j++) {
+      expect(hex(fixtureLock.chunks[151 + 2 * j].data!)).toBe(hex(scriptNum(table[j].x)))
+      expect(hex(fixtureLock.chunks[152 + 2 * j].data!)).toBe(hex(scriptNum(table[j].y)))
+    }
+    expect(table[0].x.toString(16)).toBe('954767a2ef708eeab0476600b7a681af687f511f6a92b4f365ba6fedf9be3ad')
+    expect(table[31].y.toString(16)).toBe('5a5330b7f93e4fafddac56b822bbcdbfad880239d990a9623018422aff4e9083')
+  })
+
+  it('gTable() equals fixture chunks 87..150', () => {
+    const g = gTable()
+    for (let j = 0; j < 32; j++) {
+      expect(hex(fixtureLock.chunks[87 + 2 * j].data!)).toBe(hex(scriptNum(g[j].x)))
+      expect(hex(fixtureLock.chunks[88 + 2 * j].data!)).toBe(hex(scriptNum(g[j].y)))
+    }
+    expect(g[0].x.toString(16)).toBe('16e4abe60c4b18a476fdab0db59c1ac3767855b4118be0113bd04bb679f1952d')
+  })
+
+  it('memoises per pubkey (same array back) and normalises the key case', () => {
+    const a = combTable(FIXTURE_Q)
+    expect(combTable(FIXTURE_Q)).toBe(a)
+    expect(combTable(FIXTURE_Q.toUpperCase())).toBe(a)
+  })
+
+  it('evicts the oldest entry once more than 8 keys are cached', () => {
+    const first = combTable(FIXTURE_Q)
+    for (let i = 0; i < 8; i++) combTable(Utils.toHex(p256.getPublicKey(p256.utils.randomSecretKey(), true)))
+    expect(combTable(FIXTURE_Q)).not.toBe(first)
+  })
+})
+
+describe('canonical table bytes and commitment', () => {
+  it('le33 is OP_NUM2BIN(v, 33): minimal LE magnitude zero-padded to 33 bytes', () => {
+    expect(hex(le33(0n))).toBe('00'.repeat(33))
+    expect(hex(le33(1n))).toBe('01' + '00'.repeat(32))
+    expect(hex(le33(1n << 255n))).toBe('00'.repeat(31) + '8000')
+    expect(() => le33(-1n)).toThrow(VaultError)
+    expect(() => le33(1n << 263n)).toThrow(VaultError)
+  })
+
+  it('canonicalTableBytes(fixture Q) is 2,112 bytes with the pinned sha256', () => {
+    const c = canonicalTableBytes(FIXTURE_Q)
+    expect(c).toHaveLength(64 * 33)
+    expect(hex(Hash.sha256(c))).toBe('014d1dc4d05be751e798dc280bdd824dda0880d70f1615275ef62c66d680bf77')
+  })
+
+  it('commitment = hash160(salt ‖ canonical) — pinned for two salts', () => {
+    expect(commitment(FIXTURE_Q, '01'.repeat(32))).toBe('d45e539304c629b5ef67f7d38e654e5ed2138152')
+    expect(commitment(FIXTURE_Q, '00'.repeat(32))).toBe('1efb4cd1b3edc12a6772215d5f112aad53541246')
+    expect(commitment(FIXTURE_Q, '01'.repeat(32))).toBe(
+      hex(Hash.hash160([...(Utils.toArray('01'.repeat(32), 'hex') as number[]), ...canonicalTableBytes(FIXTURE_Q)]))
+    )
+  })
+
+  it.each(['', '01'.repeat(31), '01'.repeat(33), 'zz'.repeat(32)])('commitment rejects salt %s', bad => {
+    expect(() => commitment(FIXTURE_Q, bad)).toThrow(VaultError)
   })
 })
