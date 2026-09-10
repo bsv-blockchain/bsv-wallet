@@ -35,12 +35,10 @@ export type VaultErrorCode =
   /** unsealVaultKey could not open a SealedBlob — wrong shared secret,
    * tampered ciphertext, or a malformed blob. Never distinguishes which. */
   | 'seal-corrupt'
-  /** A vault key digest or key material failed a structural check. Usually a
-   * corrupted dependency or a native bug, but a user CAN cause this: choosing
-   * to adopt a foreign PIV slot (VaultKeyService's `adoptExisting`) whose key
-   * material isn't a compatible EC point makes sealVaultKey's ECDH reject it
-   * the same way. Distinct from 'wrong-key', which vaultErrorFromNative may
-   * reclassify to 'nfc-lost'. */
+  /** A vault key digest, DER signature, pubkey or script failed a structural
+   * check (r1comb.ts throws it for malformed SEC1 points, DER, or a lock that
+   * is not an R1C lock). Distinct from 'wrong-key', which vaultErrorFromNative
+   * may reclassify to 'nfc-lost'. */
   | 'template-invalid'
   | 'serial-mismatch'
   | 'user-cancelled'
@@ -51,15 +49,12 @@ export type VaultErrorCode =
   | 'below-dust'
   | 'no-transaction'
   | 'nfc-lost'
-  /** Vault passphrase missing or empty — an empty one would collide with the
-   * main wallet's master key. */
+  /** REMOVED IN TASK 12 of the R1C plan — seed-era codes kept only so the
+   * modules deleted there (sealing.ts, vaultPassphrase.ts, vaultDerivation.ts)
+   * and the pre-rewrite transfers.ts compile until their own task lands. */
   | 'bad-passphrase'
-  /** Main wallet recovery phrase failed BIP39 validation. */
   | 'bad-mnemonic'
-  /** Deposit index outside the non-hardened BIP32 range. */
   | 'bad-derivation-index'
-  /** No backup attestation for this wallet — depositing would create funds
-   *  with no recovery path. Advisory gate, not a security control. */
   | 'backup-required'
   /** More vault inputs would be needed than one transaction may safely carry.
    *  See VAULT_MAX_INPUTS — the remedy is a smaller withdrawal, which also
@@ -68,17 +63,51 @@ export type VaultErrorCode =
   /** The device is offline. Vault transfers never enter the offline queue — see
    *  VaultTransferOptions.isOnline. */
   | 'requires-online'
+  // ── R1C (1-of-N comb vault) ──────────────────────────────────────────────
+  /** `vaultEnabled` is off in this build (spec §0 / D15): no enrollment,
+   *  deposit, re-vault or re-lock may create a vault output. */
+  | 'not-released'
+  /** Encrypted wallet backup push is switched off (D13): a deposit's salt lives
+   *  only in the wallet DB, so no YubiKey could open it after a phone loss. */
+  | 'backup-off'
+  /** Fewer than VAULT_MIN_KEYS keys — defensive; the wizard cannot persist it. */
+  | 'not-enough-keys'
+  /** The tapped serial is already in meta.keys or in the wizard's pending list.
+   *  The message carries the serial. */
+  | 'key-already-enrolled'
+  /** VAULT_MAX_KEYS keys already enrolled. */
+  | 'too-many-keys'
+  /** Removing this key would leave fewer than VAULT_MIN_KEYS. */
+  | 'last-keys'
+  /** Removing this key would orphan an output only it can open — re-lock first. */
+  | 'relock-required'
+  /** The chosen key is not among the commitments baked into an output's real
+   *  lock (or no reachable output exists). The message names the outpoint. */
+  | 'key-not-committed'
+  /** The chosen key can open less than the requested amount while other keys
+   *  could open more. */
+  | 'key-cannot-cover'
+  /** acc − feeEstimate < VAULT_DEPOSIT_MIN: nothing worth re-locking. */
+  | 'too-small-to-relock'
+  /** The signable transaction is not version 2 — refused before any signature. */
+  | 'bad-version'
 
 export class VaultError extends Error {
   code: VaultErrorCode
   /** PIN attempts remaining, present on pin-invalid. */
   retriesLeft?: number
+  /** Structured context for the specific failure — e.g. serial-mismatch's
+   *  { tapped, chosen } or key-cannot-cover's { reachable, total } (see the
+   *  Interfaces note above for the full convention). Additive: most codes
+   *  leave it undefined, and no existing call site needs to change. */
+  details?: Record<string, string | number>
 
-  constructor(code: VaultErrorCode, message?: string, retriesLeft?: number) {
+  constructor(code: VaultErrorCode, message?: string, retriesLeft?: number, details?: Record<string, string | number>) {
     super(message ?? code)
     this.name = 'VaultError'
     this.code = code
     this.retriesLeft = retriesLeft
+    this.details = details
   }
 }
 
