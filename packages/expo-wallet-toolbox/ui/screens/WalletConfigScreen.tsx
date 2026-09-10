@@ -31,6 +31,8 @@ import {
   recoverMnemonicWallet,
   TaskBackupPush,
   setMockDriverEnabled,
+  setMockPresentKey,
+  getMockPresentKey,
   NO_MESSAGE_BOX,
   getBackupUrl
 } from '@bsv/expo-wallet-toolbox'
@@ -64,7 +66,7 @@ import { ListRow } from '../components/ui/ListRow'
 import { showAlert } from '../components/ui/AlertCard'
 import { showToast } from '../components/ui/Toast'
 import { PrivateKey } from '@bsv/sdk'
-import { exportAllWalletDatabases } from '../exportDatabases'
+import { useExportWalletData } from '../hooks/useExportWalletData'
 import { importWalletDatabase } from '../importDatabases'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -105,6 +107,14 @@ function loadExpoRouter(): ExpoRouterModule {
   return expoRouterMod
 }
 
+/** The three serials the DEV mock can present, cycled by the selector row below. */
+type MockPresentKey = Parameters<typeof setMockPresentKey>[0]
+const NEXT_MOCK_KEY: Record<MockPresentKey, MockPresentKey> = {
+  'MOCK-DEV-1': 'MOCK-DEV-2',
+  'MOCK-DEV-2': 'MOCK-DEV-3',
+  'MOCK-DEV-3': 'MOCK-DEV-1'
+}
+
 export function WalletConfigScreen() {
   const versionLabel = useMemo(() => appVersionLabel(), [])
   const { t } = useTranslation()
@@ -129,7 +139,10 @@ export function WalletConfigScreen() {
 
   const [switchingNetwork, setSwitchingNetwork] = useState(false)
   const [networkExpanded, setNetworkExpanded] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
+  const { exportData, exporting } = useExportWalletData()
+  // Not read from getMockPresentKey() at mount: the mock is off by default and
+  // the row is hidden until the toggle turns it on, at which point it syncs.
+  const [mockPresent, setMockPresent] = useState<MockPresentKey>('MOCK-DEV-1')
   const [isImporting, setIsImporting] = useState(false)
   const [vaultMockOn, setVaultMockOn] = useState(false)
   const [backupPushOn, setBackupPushOn] = useState(true)
@@ -369,18 +382,6 @@ export function WalletConfigScreen() {
       return next
     })
   }, [])
-
-  const handleExportData = async () => {
-    if (isExporting) return
-    setIsExporting(true)
-    try {
-      await exportAllWalletDatabases(storage)
-    } catch (e) {
-      console.warn('[WalletConfig] Export failed:', e)
-    } finally {
-      setIsExporting(false)
-    }
-  }
 
   const handleImportData = async () => {
     if (isImporting) return
@@ -797,6 +798,25 @@ export function WalletConfigScreen() {
                   const next = !vaultMockOn
                   setVaultMockOn(next)
                   setMockDriverEnabled(next)
+                  if (next) setMockPresent(getMockPresentKey())
+                }}
+              />
+            )}
+            {/* Which of the three mock YubiKeys is "on the phone" right now.
+                A 1-of-N vault enrolled with MOCK-DEV-1 and MOCK-DEV-2 is
+                exercised by switching the present key between taps. Label is a
+                DEV-only literal, like the "Debugging" row below — not user copy. */}
+            {__DEV__ && vaultMockOn && (
+              <ListRow
+                label="Mock key present (dev)"
+                icon="key-outline"
+                iconColor="#8E8E93"
+                showChevron={false}
+                value={mockPresent}
+                onPress={() => {
+                  const next = NEXT_MOCK_KEY[mockPresent]
+                  setMockPresent(next)
+                  setMockPresentKey(next)
                 }}
               />
             )}
@@ -818,9 +838,9 @@ export function WalletConfigScreen() {
               label={t('export_wallet_data')}
               icon="share-outline"
               iconColor="#32ADE6"
-              onPress={handleExportData}
+              onPress={() => void exportData()}
               showChevron={false}
-              trailing={isExporting ? <ActivityIndicator size="small" /> : undefined}
+              trailing={exporting ? <ActivityIndicator size="small" /> : undefined}
             />
             <ListRow
               label={t('import_wallet_data')}
