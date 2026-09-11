@@ -26,8 +26,14 @@
  * haptics.success for their moments):
  *   paymentReceive ↔ haptics.success   (money landed)
  *   paymentSend    ↔ haptics.success   (money sent)
- *   vaultOpen      ↔ haptics.success   (vault unlocked after the ceremony)
- *   vaultClose     ↔ haptics.confirm   (vault relocked: timeout / unplug / manual)
+ *   vaultDeposit   ↔ haptics.success   (funds moved into the vault)
+ *   vaultWithdraw  ↔ haptics.success   (funds moved out of the vault)
+ *
+ * The ceremony's own arm/relock moments (VaultContext's onArmed/onRelock) and
+ * enrollment's finish step play no tone — only vault-deposit.mp3 and
+ * vault-withdraw.mp3 are provided, and neither is a deposit or a withdrawal,
+ * so stretching one over them would tell the wrong story. Haptics still cover
+ * those.
  */
 import { useMemo } from 'react'
 
@@ -36,8 +42,8 @@ import { useMemo } from 'react'
 const TONES = {
   paymentReceive: require('../../assets/sounds/payment-receive.wav'),
   paymentSend: require('../../assets/sounds/payment-send.wav'),
-  vaultOpen: require('../../assets/sounds/vault-open.wav'),
-  vaultClose: require('../../assets/sounds/vault-close.wav'),
+  vaultDeposit: require('../../assets/sounds/vault-deposit.mp3'),
+  vaultWithdraw: require('../../assets/sounds/vault-withdraw.mp3'),
 } as const
 
 type ToneName = keyof typeof TONES
@@ -125,10 +131,10 @@ export const sounds = {
   paymentReceive: () => playTone('paymentReceive'),
   /** The money was sent. Pairs with `haptics.success()`. */
   paymentSend: () => playTone('paymentSend'),
-  /** The vault unlocked after a successful ceremony. Pairs with `haptics.success()`. */
-  vaultOpen: () => playTone('vaultOpen'),
-  /** The vault relocked (timeout, unplug, or manual). Pairs with `haptics.confirm()`. */
-  vaultClose: () => playTone('vaultClose'),
+  /** Funds moved into the vault. Pairs with `haptics.success()`. */
+  vaultDeposit: () => playTone('vaultDeposit'),
+  /** Funds moved out of the vault. Pairs with `haptics.success()`. */
+  vaultWithdraw: () => playTone('vaultWithdraw'),
   release: releaseAll,
 } as const
 

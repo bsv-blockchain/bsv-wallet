@@ -35,6 +35,14 @@ export function vaultKeyLabel(k: { nickname: string; serial: string }): string {
   return `${k.nickname} · …${k.serial.slice(-4)}`
 }
 
+/** A serial grouped in threes from the right, e.g. `24939299` → `24 939 299`
+ * — the vault screen's key row shows the FULL serial this way rather than
+ * `vaultKeyLabel`'s truncated tail4 (that form stays for copy that names a
+ * key in passing — alerts, the ceremony sheet). */
+export function formatVaultSerial(serial: string): string {
+  return serial.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+}
+
 export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; onSelect: (serial: string) => void }> = ({
   keys,
   selected,

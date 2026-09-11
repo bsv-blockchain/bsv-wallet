@@ -28,7 +28,7 @@
  * Finish replaces whatever is stored.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator, BackHandler } from 'react-native'
+import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator, BackHandler, Platform } from 'react-native'
 import PressableScale from '../ui/PressableScale'
 import { showAlert } from '../ui/AlertCard'
 import { showToast } from '../ui/Toast'
@@ -47,7 +47,6 @@ import {
   VAULT_MAX_KEYS,
   VaultError,
   isBackupPushEnabled,
-  sounds,
   haptics,
   i18n,
   type VaultKeyRecord,
@@ -373,7 +372,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     setStepError(null)
     try {
       await finalizeEnrollment(pending)
-      sounds.vaultOpen()
+      // No tone here (see useConfirmationSound): vaultDeposit/vaultWithdraw
+      // name an actual transfer, and enrolling isn't one.
       haptics.success()
       showToast(t('vault_enrolled_toast'), { type: 'success' })
       setStep('done')
@@ -484,6 +484,14 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           )}
           {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
           {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          {/* NFC only: a brand-new YubiKey ships in restricted NFC mode (Yubico's
+              anti-scan-in-transit policy) and stays that way until it is plugged
+              into USB-C for a few seconds — a one-time, per-key step done outside
+              this app. Shown on every key here since we cannot tell a fresh card
+              from a already-activated one before the tap. */}
+          {Platform.OS === 'ios' && (
+            <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_nfc_activation_hint')}</Text>
+          )}
           <ActionButton label={t('vault_continue')} enabled={pinOk && !busy} onPress={() => void runTap()} />
           {leaveLink}
         </ScrollView>

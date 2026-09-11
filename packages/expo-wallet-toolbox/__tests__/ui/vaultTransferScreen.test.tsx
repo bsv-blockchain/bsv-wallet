@@ -10,6 +10,7 @@ const mockDeposit = jest.fn()
 const mockWithdraw = jest.fn()
 const mockPreview = jest.fn()
 const mockRefresh = jest.fn()
+const mockGetVaultBalance = jest.fn()
 let mockParams: { direction?: string } = {}
 let mockMeta: unknown = null
 let mockBalance: number | null = 0
@@ -35,6 +36,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     depositToVault: (...a: unknown[]) => mockDeposit(...a),
     previewVaultWithdrawal: (...a: unknown[]) => mockPreview(...a),
     withdrawFromVault: (...a: unknown[]) => mockWithdraw(...a),
+    getVaultBalance: (...a: unknown[]) => mockGetVaultBalance(...a),
+    sounds: { vaultDeposit: jest.fn(), vaultWithdraw: jest.fn() },
     isVaultEnabled: () => mockVaultEnabled,
     isBackupPushEnabled: (...a: unknown[]) => mockIsBackupPushEnabled(...a),
     getOnline: async () => true,
@@ -123,6 +126,13 @@ beforeEach(() => {
   // Default: the chosen key can select the whole balance. Remainder tests
   // set the preview explicitly — the rule is computed from it, not the balance.
   mockPreview.mockReset().mockImplementation(async () => previewOf(mockBalance ?? 0))
+  // Rejects by default (rather than resolving to some arbitrary figure) so an
+  // unmocked call fails fast into run()'s catch instead of silently mismatching
+  // the post-withdrawal balance-settle loop and burning real setTimeout delays
+  // the test harness's settle() (a single setImmediate flush) never waits out.
+  // Tests that need the settle loop to complete give it the exact expected
+  // figure with mockResolvedValueOnce so it matches — and returns — first try.
+  mockGetVaultBalance.mockReset().mockRejectedValue(new Error('getVaultBalance not mocked for this test'))
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockShowAlert.mockReset()
   mockWallet = {
@@ -404,6 +414,10 @@ describe('withdraw', () => {
       unreachable: { count: 2, satoshis: 120_000, keys: [{ serial: '12340001', pubkey: PUB('a') }] }
     })
     mockShowAlert.mockResolvedValueOnce('ok')
+    // total 500,000 - moved 50,000 (withdrawAll is false; the typed amount is
+    // well under the preview's selectable total, so no remainder-confirm) —
+    // matches on the first read, so the balance-settle loop returns at once.
+    mockGetVaultBalance.mockResolvedValueOnce(450_000)
     const screen = await renderTransfer('withdraw')
     await typeAndRun(screen, '50000', 'vault_withdraw_cta')
     expect(mockShowAlert).toHaveBeenCalledWith(

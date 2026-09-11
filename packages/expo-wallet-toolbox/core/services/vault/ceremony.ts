@@ -371,6 +371,14 @@ export class CeremonyController {
     if (this.activeHandle) {
       this.activeHandle.release()
       this.onRelock?.('manual')
+    } else if (!this.running && this.state.phase !== 'idle') {
+      // Dismissing a finished attempt's error phase (e.g. serial-mismatch):
+      // running is already false (run()'s finally cleared it) and there is
+      // no armed handle for release() to relock, so nothing above touches
+      // phase. Left uncleared, the sheet's `visible` (phase !== 'idle')
+      // never flips, so a swipe-to-dismiss slides the sheet view away while
+      // its full-screen backdrop stays mounted and eats every touch.
+      this.set({ phase: 'idle' })
     }
   }
 

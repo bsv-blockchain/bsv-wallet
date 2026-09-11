@@ -128,9 +128,16 @@ export const VaultCeremonySheet: React.FC = () => {
   }, [phase, reducedMotion, pulse])
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }))
 
-  // Reset the PIN field whenever we (re)enter pin-entry.
+  // Reset the PIN field whenever we (re)enter pin-entry, and focus the
+  // input on a delay: `autoFocus` grabs focus before the sheet's mount/
+  // layout settles, which on both platforms drops the first keystroke
+  // (it lands while the native field is still wiring up).
+  const pinInputRef = useRef<TextInput>(null)
   useEffect(() => {
-    if (phase === 'pin-entry') setPin('')
+    if (phase !== 'pin-entry') return
+    setPin('')
+    const timer = setTimeout(() => pinInputRef.current?.focus(), 150)
+    return () => clearTimeout(timer)
   }, [phase])
 
   // The vault's key labels, for serial-mismatch copy. Read once per ceremony
@@ -240,6 +247,7 @@ export const VaultCeremonySheet: React.FC = () => {
               {nfc ? t('vault_pin_sub_nfc') : t('vault_pin_sub_usb')}
             </Text>
             <TextInput
+              ref={pinInputRef}
               style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
               value={pin}
               onChangeText={setPin}
@@ -248,7 +256,6 @@ export const VaultCeremonySheet: React.FC = () => {
               keyboardType="number-pad"
               secureTextEntry
               maxLength={8}
-              autoFocus
             />
             {state.error?.code === 'pin-invalid' && typeof state.error.retriesLeft === 'number' && (
               <Text style={[styles.hint, { color: colors.warning }]}>

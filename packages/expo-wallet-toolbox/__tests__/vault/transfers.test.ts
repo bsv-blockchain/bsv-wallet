@@ -344,7 +344,7 @@ describe('depositToVault', () => {
     expect(args.version).toBeUndefined() // deposits stay at the default version 1 (spec §2.6)
     expect(args.inputs).toBeUndefined() // funding is the toolbox's own coin selection
     expect(args.inputBEEF).toBeUndefined()
-    expect(args.description).toBe('Move to vault')
+    expect(args.description).toBe('Vault deposit')
     // The label is load-bearing: the patched toolbox suppresses UTXO-pool
     // growth for 'vault-deposit', keeping the deposit shape minimal.
     expect(args.labels).toEqual(['vault', 'vault-deposit'])
@@ -748,7 +748,11 @@ describe('withdrawFromVault', () => {
     })
 
     const [caArgs] = wallet.createAction.mock.calls[0]
-    expect(caArgs.description).toBe('Withdraw all')
+    // Fixed regardless of the caller's `reason` (the ceremony's NFC prompt
+    // text, 'Withdraw all' here) — the action's own description no longer
+    // tracks it, so the amount never leaks into what shows in the activity
+    // list for a withdrawal.
+    expect(caArgs.description).toBe('Vault withdrawal')
     expect(caArgs.version).toBe(2) // spec §2.6: every vault spend is version 2
     expect(caArgs.inputs).toHaveLength(2)
     for (const i of caArgs.inputs) {

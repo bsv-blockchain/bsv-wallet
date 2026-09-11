@@ -30,7 +30,7 @@ import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryMo
 import { showAlert, type AlertButton } from '../components/ui/AlertCard'
 import { showToast } from '../components/ui/Toast'
 import { EnrollWizard } from '../components/vault/EnrollWizard'
-import { KeyChooser, vaultKeyLabel } from '../components/vault/KeyChooser'
+import { KeyChooser, vaultKeyLabel, formatVaultSerial } from '../components/vault/KeyChooser'
 import { VaultBackdrop } from '../components/vault/VaultBackdrop'
 import { vaultErrorCopy } from '../components/vault/vaultErrorCopy'
 import { useVaultBalance } from '../hooks/useVaultBalance'
@@ -371,11 +371,7 @@ export function VaultScreen() {
         return
       }
       const fee = estimateRelockFee(Math.max(coverage?.outputs ?? 1, 1), R1C_LOCK_LEN(m.keys.length - 1))
-      // Re-locking CREATES a vault output, which the release flag gates (spec
-      // §5.5) — the same gating as openGenericRelock. With the flag off the
-      // sheet could only refuse (not-released), so the option is not offered.
       const buttons: AlertButton[] = [
-        ...(enabled ? [{ text: t('vault_remove_and_relock'), key: 'relock' }] : []),
         { text: t('vault_remove_only'), key: 'remove', style: 'destructive' },
         { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
       ]
@@ -384,7 +380,7 @@ export function VaultScreen() {
         message: t('vault_remove_body', { nickname: rec.nickname, fee: fee.toLocaleString('en-US') }),
         buttons
       })
-      if (choice !== 'relock' && choice !== 'remove') return
+      if (choice !== 'remove') return
       try {
         await vaultStore.removeKey(rec.serial)
       } catch (e) {
@@ -400,9 +396,18 @@ export function VaultScreen() {
       showToast(t('vault_key_removed_toast'), { type: 'info' })
       await reload()
       refreshCoverage()
-      if (choice === 'relock') openRelock({ reason: t('vault_relock_reason_generic') })
+      // A removed key can still open everything deposited before it left
+      // (spec §3.4); re-locking with a remaining key is how that stops being
+      // true. Not optional here (the flag still gates it — re-locking CREATES
+      // a vault output, same as openGenericRelock): a funded vault goes
+      // straight to the sheet rather than offering it as a coin-flip choice
+      // in the alert above, so the encouraged next step is picking one of the
+      // keys that are actually left.
+      if (enabled && (balance ?? 0) > 0) {
+        openRelock({ reason: t('vault_relock_reason_generic') })
+      }
     },
-    [coverage, pm, adminOriginator, enabled, reload, refreshCoverage, openRelock]
+    [coverage, pm, adminOriginator, enabled, balance, reload, refreshCoverage, openRelock]
   )
 
   const keyActions = useCallback(
@@ -696,7 +701,7 @@ export function VaultScreen() {
           {meta.keys.map((rec, i) => (
             <ListRow
               key={rec.serial}
-              label={vaultKeyLabel(rec)}
+              label={`${rec.nickname} · ${formatVaultSerial(rec.serial)}`}
               subtitle={new Date(rec.enrolledAt).toLocaleDateString()}
               icon="key-outline"
               iconColor={colors.permissionSpending}
@@ -711,13 +716,13 @@ export function VaultScreen() {
         </GroupedSection>
 
         <GroupedSection header={t('vault_manage_section')} footer={t('vault_export_explainer')}>
-          <ListRow
-            label={t('vault_relock_row')}
-            icon="refresh-outline"
-            iconColor={colors.info}
-            showChevron={false}
-            onPress={openGenericRelock}
-          />
+          {/* No standalone "re-lock now" row here (spec revision): re-locking
+              is a consequence, not a user action in its own right. It runs
+              automatically after adding a key to a funded vault (onKeyAdded
+              below) and is offered contextually from the coverage badges
+              above (a missing or removed key really does need one) — a
+              generic button with no problem to point at just confused
+              people into tapping it unprompted. */}
           {/* Same action, label and styling as the Settings row (spec §3.4). */}
           <ListRow
             label={t('export_wallet_data')}

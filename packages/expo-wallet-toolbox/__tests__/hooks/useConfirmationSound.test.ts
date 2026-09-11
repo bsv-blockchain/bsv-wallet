@@ -140,15 +140,15 @@ describe('vault tones', () => {
     audio.__reset()
   })
 
-  it('vaultOpen and vaultClose return synchronously', () => {
-    expect(sounds.vaultOpen()).toBeUndefined()
-    expect(sounds.vaultClose()).toBeUndefined()
+  it('vaultDeposit and vaultWithdraw return synchronously', () => {
+    expect(sounds.vaultDeposit()).toBeUndefined()
+    expect(sounds.vaultWithdraw()).toBeUndefined()
   })
 
   it('each tone lazily creates its own player, distinct from the payment tones', async () => {
-    sounds.vaultOpen()
+    sounds.vaultDeposit()
     await settle()
-    sounds.vaultClose()
+    sounds.vaultWithdraw()
     await settle()
     sounds.paymentReceive()
     await settle()
@@ -158,9 +158,9 @@ describe('vault tones', () => {
   })
 
   it('shares the one-time audio-session config across tones', async () => {
-    sounds.vaultOpen()
+    sounds.vaultDeposit()
     await settle()
-    sounds.vaultClose()
+    sounds.vaultWithdraw()
     await settle()
     expect(audio.__calls.audioModes).toHaveLength(1)
     expect(audio.__calls.audioModes[0]).toMatchObject({
@@ -170,9 +170,9 @@ describe('vault tones', () => {
   })
 
   it('reuses each tone player and rewinds it', async () => {
-    sounds.vaultOpen()
+    sounds.vaultDeposit()
     await settle()
-    sounds.vaultOpen()
+    sounds.vaultDeposit()
     await settle()
     expect(audio.__calls.created).toHaveLength(1)
     expect(audio.__calls.played).toBe(2)
@@ -180,9 +180,9 @@ describe('vault tones', () => {
   })
 
   it('release removes every tone player', async () => {
-    sounds.vaultOpen()
+    sounds.vaultDeposit()
     await settle()
-    sounds.vaultClose()
+    sounds.vaultWithdraw()
     await settle()
     sounds.release()
     expect(audio.__calls.removed).toBe(2)
@@ -194,7 +194,7 @@ describe('vault tones', () => {
       throw new Error('no decoder')
     }
     try {
-      expect(() => sounds.vaultOpen()).not.toThrow()
+      expect(() => sounds.vaultDeposit()).not.toThrow()
       await settle()
       expect(audio.__calls.played).toBe(0)
     } finally {

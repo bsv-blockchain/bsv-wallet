@@ -567,7 +567,7 @@ export async function depositToVault(
   // change toward numberOfDesiredUTXOs.
   const created = await w.createAction(
     {
-      description: 'Move to vault',
+      description: 'Vault deposit',
       outputs: [newVaultOutput(keys, satoshis, 'Vault deposit')],
       labels: ['vault', 'vault-deposit'],
       options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
@@ -924,6 +924,12 @@ interface VaultSpendPlan {
   outputs: ReturnType<typeof newVaultOutput>[]
   labels: string[]
   inputDescription: string
+  /** The action's own description — fixed per operation, unlike `reason`
+   * (the ceremony's NFC prompt text, which names the amount and varies call
+   * to call). Kept separate so the amount never leaks into what the activity
+   * list shows for a withdrawal, and so a copy change to one never touches
+   * the other. */
+  description: string
 }
 
 interface PreparedInput {
@@ -968,7 +974,7 @@ async function createSignableVaultTx(
 
   for (let attempt = 1; ; attempt++) {
     const caArgs = {
-      description: reason,
+      description: plan.description,
       version: 2,
       inputs: sel.selected.map(o => ({
         outpoint: o.outpoint,
@@ -1254,7 +1260,7 @@ export async function withdrawFromVault(
     adminOriginator,
     sel,
     reason,
-    { outputs, labels: ['vault', 'vault-withdraw'], inputDescription: 'Vault withdrawal' },
+    { outputs, labels: ['vault', 'vault-withdraw'], inputDescription: 'Vault withdrawal', description: 'Vault withdrawal' },
     opts
   )
 }
@@ -1325,7 +1331,12 @@ export async function relockVault(
     {
       outputs: [newVaultOutput(sel.keys, relocked, 'Vault re-lock')],
       labels: ['vault', 'vault-relock'],
-      inputDescription: 'Vault re-lock'
+      inputDescription: 'Vault re-lock',
+      // Unchanged from before `description` split off `reason` generally
+      // (see VaultSpendPlan): re-lock keeps the caller's reason as the
+      // action's own description, since it isn't in scope of the
+      // deposit/withdrawal description fix.
+      description: reason
     },
     opts
   )

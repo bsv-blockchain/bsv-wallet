@@ -3,8 +3,10 @@
  *
  * Subscribes to the shared CeremonyController (services/vault/ceremonyHost) and
  * republishes its state to the ceremony sheet, and owns the *effects* of a
- * ceremony: on arm, play the open sound + success haptic; on relock, play the
- * close sound + confirm haptic and toast.
+ * ceremony: on arm, the success haptic; on relock, the confirm haptic and a
+ * toast. No tone: arming and relocking are hardware/session events, not a
+ * deposit or a withdrawal — those get their own tones (vaultDeposit /
+ * vaultWithdraw) at the transfer screen's actual success moment instead.
  *
  * WalletContext owns the unplug→relock wiring; this owns the user-facing
  * feedback. They never fire the same haptic twice — the pairing rules live in
@@ -14,7 +16,6 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import { ceremony } from '../services/vault/ceremonyHost'
 import { CeremonyState } from '../services/vault/ceremony'
 import { vaultStore } from '../services/vault/vaultStore'
-import { sounds } from '../hooks/useConfirmationSound'
 import { haptics } from '../hooks/useHaptics'
 import i18n from '../i18n/translations'
 
@@ -53,18 +54,16 @@ export const VaultProvider: React.FC<{ children: React.ReactNode; onToast?: Vaul
     void vaultStore.migrateLegacySeal()
   }, [])
 
-  // Effects of a completed ceremony: the open cue, and nothing else. `onArmed`
+  // Effects of a completed ceremony: the haptic, and nothing else. `onArmed`
   // deliberately ignores its VaultSigner argument — the signer is owned by the
   // transfer that requested it (transfers.ts obtains it from ceremonyHost) and
   // must never reach React state (see VaultSigner in services/vault/ceremony.ts).
   useEffect(() => {
     ceremony.onArmed = () => {
       haptics.success()
-      sounds.vaultOpen()
     }
     ceremony.onRelock = () => {
       haptics.confirm()
-      sounds.vaultClose()
       onToast?.(i18n.t('vault_locked'), { type: 'info' })
     }
     return () => {

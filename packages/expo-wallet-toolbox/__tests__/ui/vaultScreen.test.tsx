@@ -202,11 +202,11 @@ describe('not enrolled', () => {
 })
 
 describe('enrolled', () => {
-  test('lists every key as nickname · …tail4 with the footnote and the key-count header', async () => {
+  test('lists every key as nickname · full serial (grouped in threes) with the footnote and the key-count header', async () => {
     const screen = await renderVault()
     expect(screen.getByText('vault_key_section:{"count":2}')).toBeTruthy()
-    expect(screen.getByText('Desk · …0001')).toBeTruthy()
-    expect(screen.getByText('Safe · …0002')).toBeTruthy()
+    expect(screen.getByText('Desk · 12 340 001')).toBeTruthy()
+    expect(screen.getByText('Safe · 12 340 002')).toBeTruthy()
     expect(screen.getByText('vault_footnote')).toBeTruthy()
     expect(screen.getByText('vault_export_explainer')).toBeTruthy()
     expect(screen.getByText('export_wallet_data')).toBeTruthy()
@@ -259,7 +259,7 @@ describe('enrolled', () => {
     await settle()
     expect(screen.queryByText('WIZARD:add-key')).toBeNull()
     expect(screen.getByText('vault_key_section:{"count":3}')).toBeTruthy()
-    expect(screen.getByText('Car · …0003')).toBeTruthy()
+    expect(screen.getByText('Car · 12 340 003')).toBeTruthy()
     expect(mockRefreshCoverage).toHaveBeenCalled()
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
@@ -285,11 +285,11 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_add_key_row')).toBeNull()
   })
 
-  test('removing a key shows the three-button confirmation and removes on Remove only', async () => {
+  test('removing a key shows a two-button confirmation and removes on Remove; an empty vault gets no auto re-lock', async () => {
     mockGetMeta.mockResolvedValue(META3)
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockOrphanedIfRemoved).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', PUB('a'))
     expect(mockShowAlert).toHaveBeenCalledTimes(2)
@@ -301,7 +301,7 @@ describe('enrolled', () => {
     const confirm = mockShowAlert.mock.calls[1][0]
     expect(confirm.title).toBe('vault_remove_title:{"nickname":"Desk"}')
     expect(confirm.message).toBe('vault_remove_body:{"nickname":"Desk","fee":"2,900"}')
-    expect(confirm.buttons.map((b: any) => b.text)).toEqual(['vault_remove_and_relock', 'vault_remove_only', 'vault_cancel'])
+    expect(confirm.buttons.map((b: any) => b.text)).toEqual(['vault_remove_only', 'vault_cancel'])
     expect(mockRemoveKey).toHaveBeenCalledWith('12340001')
     expect(mockShowToast).toHaveBeenCalledWith('vault_key_removed_toast', { type: 'info' })
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
@@ -315,7 +315,7 @@ describe('enrolled', () => {
     mockGetMeta.mockResolvedValue(META3)
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockShowAlert).toHaveBeenCalledTimes(2)
     const confirm = mockShowAlert.mock.calls[1][0]
@@ -325,11 +325,12 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
-  test('Remove and re-lock now removes, then opens the re-lock sheet', async () => {
+  test('removing a key from a funded vault removes, then opens the re-lock sheet on its own — no choice offered', async () => {
     mockGetMeta.mockResolvedValue(META3)
-    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('relock')
+    mockBalance = 300_000
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Car · …0003')))
+    await act(async () => fireEvent.press(screen.getByText('Car · 12 340 003')))
     await settle()
     expect(mockRemoveKey).toHaveBeenCalledWith('12340003')
     expect(screen.getByText('vault_relock_choose')).toBeTruthy()
@@ -338,7 +339,7 @@ describe('enrolled', () => {
   test('removal is refused at two keys', async () => {
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_last_keys')
     expect(mockRemoveKey).not.toHaveBeenCalled()
@@ -349,7 +350,7 @@ describe('enrolled', () => {
     mockOrphanedIfRemoved.mockResolvedValueOnce(1)
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockOrphanedIfRemoved).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', PUB('a'))
     expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_relock_required')
@@ -361,7 +362,7 @@ describe('enrolled', () => {
     mockWallet.managers = {}
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockShowAlert).toHaveBeenCalledTimes(2)
     expect(mockShowAlert.mock.calls[1][0].title).toBe('vault_remove_title:{"nickname":"Desk"}')
@@ -375,7 +376,7 @@ describe('enrolled', () => {
     mockOrphanedIfRemoved.mockRejectedValueOnce(new TypeError('listOutputs is not a function'))
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockShowAlert).toHaveBeenCalledTimes(2)
     expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_generic')
@@ -385,7 +386,7 @@ describe('enrolled', () => {
   test('rename saves through vaultStore.renameKey', async () => {
     mockShowAlert.mockResolvedValueOnce('rename')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Safe · …0002')))
+    await act(async () => fireEvent.press(screen.getByText('Safe · 12 340 002')))
     await settle()
     const field = screen.getByLabelText('vault_rename_title:{"nickname":"Safe"}')
     fireEvent.changeText(field, 'Office safe')
@@ -396,6 +397,9 @@ describe('enrolled', () => {
 
   test('re-lock defaults to the last-used key, loops while capped, then reports the unreachable keys', async () => {
     mockBalance = 300_000
+    // No standalone "re-lock now" row (spec revision): reach the same sheet
+    // through a coverage badge, same as a real missing-key situation would.
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
     mockRelock
       .mockResolvedValueOnce({ txid: 'a', cappedInputs: 2, unreachable: NO_UNREACHABLE })
       .mockResolvedValueOnce({
@@ -405,7 +409,7 @@ describe('enrolled', () => {
       })
     mockShowAlert.mockResolvedValueOnce('ok')
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('vault_relock_row')))
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
     const radios = screen.getAllByRole('radio')
     expect(radios[1].props.accessibilityState).toEqual({ selected: true }) // Safe = lastUsedSerial
 
@@ -424,9 +428,10 @@ describe('enrolled', () => {
 
   test('a clean re-lock toasts done', async () => {
     mockBalance = 300_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
     mockRelock.mockResolvedValueOnce({ txid: 'a', cappedInputs: 0, unreachable: NO_UNREACHABLE })
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('vault_relock_row')))
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
     await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
     await settle()
     expect(mockShowToast).toHaveBeenCalledWith('vault_relock_done', { type: 'success' })
@@ -435,9 +440,10 @@ describe('enrolled', () => {
 
   test('a re-lock that is still capped after the pass bound does not toast done', async () => {
     mockBalance = 300_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
     mockRelock.mockResolvedValue({ txid: 'a', cappedInputs: 1, unreachable: NO_UNREACHABLE })
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('vault_relock_row')))
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
     await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
     await settle()
     expect(mockRelock).toHaveBeenCalledTimes(32)
@@ -449,9 +455,10 @@ describe('enrolled', () => {
 
   test('Re-lock now without a built wallet shows the error in the sheet instead of doing nothing', async () => {
     mockBalance = 300_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
     mockWallet.managers = {}
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('vault_relock_row')))
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
     await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
     await settle()
     expect(screen.getByText('vault_err_generic')).toBeTruthy()
@@ -461,10 +468,11 @@ describe('enrolled', () => {
 
   test('a re-lock error stays in the sheet with its copy', async () => {
     mockBalance = 50_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
     const { VaultError } = jest.requireActual('../../core/services/vault/types')
     mockRelock.mockRejectedValueOnce(new VaultError('too-small-to-relock'))
     const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('vault_relock_row')))
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
     await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
     await settle()
     expect(screen.getByText('vault_err_too_small_to_relock')).toBeTruthy()

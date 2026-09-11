@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AmountInput, SEND_MAX_VALUE } from '../components/wallet/AmountInput'
 import PressableScale from '../components/ui/PressableScale'
 import AmountDisplay from '../components/wallet/AmountDisplay'
+import AvailableBalance from '../components/pay/AvailableBalance'
 import { showToast } from '../components/ui/Toast'
 import { showAlert } from '../components/ui/AlertCard'
 import { KeyChooser, vaultKeyLabel } from '../components/vault/KeyChooser'
@@ -43,6 +44,7 @@ import {
   depositToVault,
   previewVaultWithdrawal,
   withdrawFromVault,
+  getVaultBalance,
   VAULT_DEPOSIT_MIN,
   VAULT_MAX_KEYS,
   estimateRelockFee,
@@ -55,6 +57,7 @@ import {
   getOnline,
   VaultError,
   haptics,
+  sounds,
   i18n
 } from '@bsv/expo-wallet-toolbox'
 
@@ -105,6 +108,19 @@ function loadExpoRouter(): ExpoRouterModule {
  * structurally so this file depends on no service type; when absent the copy
  * degrades per vaultErrorCopy.
  */
+/**
+ * A withdrawal spends the vault's one input and creates two outputs (the
+ * withdrawn funds to the default basket, the change back into the vault
+ * basket) — for a moment after broadcast the spent input is gone from a
+ * balance read but the vault-change output has not landed yet, so a naive
+ * read right after `withdrawFromVault` resolves can show 0. Rather than
+ * navigate back to the vault screen while it would flash that, `run()` polls
+ * here until the balance actually reflects the withdrawal (or gives up and
+ * leaves anyway, so a slow read can never strand the user on this screen).
+ */
+const VAULT_BALANCE_SETTLE_ATTEMPTS = 10
+const VAULT_BALANCE_SETTLE_DELAY_MS = 300
+
 function readErrorDetails(e: unknown): { reachable?: number; total?: number; tapped?: string; chosen?: string } {
   const details = (e as { details?: unknown } | null)?.details
   if (!details || typeof details !== 'object') return {}
@@ -267,7 +283,9 @@ export function VaultTransferScreen() {
         }
         setBusy(true)
         await depositToVault(w, adminOriginator, sats, { isOnline: getOnline })
-        // The success toast carries the success haptic (Toast.tsx).
+        // The success toast carries the success haptic (Toast.tsx); the tone
+        // is the vault's own (see useConfirmationSound's pairing rules).
+        sounds.vaultDeposit()
         showToast(t('vault_deposit_done'), { type: 'success' })
       } else {
         if (!chosen) return
@@ -310,6 +328,11 @@ export function VaultTransferScreen() {
             isOnline: getOnline
           }
         )
+        // The withdrawal itself succeeded whether or not everything moved —
+        // play the tone once here rather than only in the plain-success
+        // branch below, so a partial (unreachable/capped) withdrawal still
+        // gets it.
+        sounds.vaultWithdraw()
         // Alerts, not toasts, for what did NOT move (spec §4.2 step 8): the
         // user has to act on both, and a toast can be missed.
         const moved = withdrawAll ? Math.max(0, total - result.unreachable.satoshis) : sats
@@ -336,6 +359,17 @@ export function VaultTransferScreen() {
           })
         }
         if (!reported) showToast(t('vault_withdraw_done'), { type: 'success' })
+        // See VAULT_BALANCE_SETTLE_ATTEMPTS' doc: wait for the read to catch
+        // up with the withdrawal before leaving, so the vault screen never
+        // flashes a scary zero. `busy` (and this button's spinner) stays true
+        // for the whole wait — the withdrawal already happened; this is just
+        // holding the door for the balance to agree.
+        const expectedRemainder = Math.max(0, total - moved)
+        for (let attempt = 0; attempt < VAULT_BALANCE_SETTLE_ATTEMPTS; attempt++) {
+          const current = await getVaultBalance(w, adminOriginator)
+          if (current === expectedRemainder) break
+          await new Promise(resolve => setTimeout(resolve, VAULT_BALANCE_SETTLE_DELAY_MS))
+        }
       }
       setAmount('')
       refresh()
@@ -409,6 +443,12 @@ export function VaultTransferScreen() {
         )}
 
         <AmountInput value={amount} onChangeText={setAmount} showMax={!isDeposit} maxLabelKey="entire_vault_balance" />
+
+        {/* What a deposit draws from is the WALLET's spendable balance, not the
+            vault's (shown above already) — the same line PayForm shows under
+            its amount input, for the same reason: "how much can I actually
+            put in this field". */}
+        {isDeposit && <AvailableBalance />}
 
         {isDeposit && (
           <Text style={[styles.floor, { color: colors.textSecondary }]}>
