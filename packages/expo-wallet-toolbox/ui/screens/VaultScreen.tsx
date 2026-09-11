@@ -226,7 +226,14 @@ export function VaultScreen() {
   }, [])
 
   const runRelock = useCallback(async () => {
-    if (!pm || !relock || !relockSerial || relocking) return
+    if (!relock || !relockSerial || relocking) return
+    if (!pm) {
+      // The manage row is reachable with no built wallet (enrolment needs
+      // none). Nothing can be listed or signed, so say so in the sheet rather
+      // than swallow the tap.
+      setRelockError(vaultErrorCopy(undefined))
+      return
+    }
     setRelocking(true)
     setRelockError(null)
     try {
@@ -244,8 +251,8 @@ export function VaultScreen() {
       refresh()
       refreshCoverage()
       if (result.unreachable.count > 0) {
-        // Only outputs this key is NOT committed to remain: another key has
-        // to finish the job.
+        // Outputs this key is NOT committed to: another key has to finish
+        // the job (whatever the cap left behind, this key cannot open these).
         await showAlert({
           title: t('vault_relock_row'),
           message: t('vault_relock_unreachable', {
@@ -254,7 +261,10 @@ export function VaultScreen() {
           }),
           buttons: [{ text: t('vault_ok'), key: 'ok' }]
         })
-      } else {
+      } else if (result.cappedInputs === 0) {
+        // Not when the pass bound tripped with outputs still behind the cap:
+        // the capped toast just asked for another pass, and "done" would
+        // contradict it.
         showToast(t('vault_relock_done'), { type: 'success' })
       }
     } catch (e) {
@@ -271,12 +281,24 @@ export function VaultScreen() {
   }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor])
 
   // ── wizard hand-offs ────────────────────────────────────────────────
-  const onEnrolled = useCallback(async () => {
+  /**
+   * Every way out of the wizard — done or cancel — comes through here. The
+   * wizard persists keys as it goes, so meta may have changed however it
+   * closed; a cancel that skipped the reload would leave a stale
+   * not-enrolled hero over a persisted key list, or an add-key list missing
+   * the new key. Returns the fresh meta so onKeyAdded can diff it.
+   */
+  const closeWizard = useCallback(async (): Promise<VaultMeta | null> => {
     setWizard(null)
-    await reload()
-    refresh()
+    const m = await reload()
     refreshCoverage()
-  }, [reload, refresh, refreshCoverage])
+    return m
+  }, [reload, refreshCoverage])
+
+  const onEnrolled = useCallback(async () => {
+    await closeWizard()
+    refresh()
+  }, [closeWizard, refresh])
 
   const openAddKey = useCallback(() => {
     serialsBeforeAdd.current = new Set(metaRef.current?.keys.map(k => k.serial) ?? [])
@@ -284,9 +306,7 @@ export function VaultScreen() {
   }, [])
 
   const onKeyAdded = useCallback(async () => {
-    setWizard(null)
-    const m = await reload()
-    refreshCoverage()
+    const m = await closeWizard()
     if (!m) return
     const before = serialsBeforeAdd.current
     const added = m.keys.filter(k => !before.has(k.serial))
@@ -300,7 +320,7 @@ export function VaultScreen() {
         exclude: added[0].serial
       })
     }
-  }, [reload, refreshCoverage, balance, openRelock])
+  }, [closeWizard, balance, openRelock])
 
   // ── rename / remove ─────────────────────────────────────────────────
   const saveRename = useCallback(async () => {
@@ -329,9 +349,23 @@ export function VaultScreen() {
       }
       // Every output must stay committed to at least one remaining key
       // (spec §3.4) — checked exactly, against each output's real committed
-      // key set, not approximated from the coverage record.
-      const w = pm as unknown as VaultWallet
-      const orphans = await orphanedIfRemoved(w, adminOriginator, rec.pubkey)
+      // key set, not approximated from the coverage record. Fail closed: with
+      // no built wallet (fresh install, or stored but not yet built) the
+      // outputs cannot be read, and an unread vault may hold some, so the
+      // check is refused rather than skipped.
+      const ok = [{ text: t('vault_ok'), key: 'ok' }]
+      if (!pm) {
+        await showAlert({ title, message: vaultErrorCopy(undefined), buttons: ok })
+        return
+      }
+      let orphans: number
+      try {
+        orphans = await orphanedIfRemoved(pm as unknown as VaultWallet, adminOriginator, rec.pubkey)
+      } catch (e) {
+        haptics.error()
+        await showAlert({ title, message: vaultErrorCopy(e instanceof VaultError ? e.code : undefined), buttons: ok })
+        return
+      }
       if (orphans > 0) {
         await showAlert({ title, message: vaultErrorCopy('relock-required'), buttons: [{ text: t('vault_ok'), key: 'ok' }] })
         return
@@ -520,7 +554,7 @@ export function VaultScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
-        <EnrollWizard mode={wizard} onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded} onCancel={() => setWizard(null)} />
+        <EnrollWizard mode={wizard} onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded} onCancel={() => void closeWizard()} />
       </View>
     )
   }

@@ -100,8 +100,17 @@ jest.mock('../../ui/components/wallet/BiometricAdvisoryModal', () => ({ Biometri
 jest.mock('../../ui/components/vault/VaultBackdrop', () => ({ VaultBackdrop: () => null }))
 jest.mock('../../ui/components/vault/EnrollWizard', () => {
   const React = require('react')
-  const { Text } = require('react-native')
-  return { EnrollWizard: ({ mode }: any) => React.createElement(Text, null, `WIZARD:${mode}`) }
+  const { Pressable, Text } = require('react-native')
+  return {
+    EnrollWizard: ({ mode, onDone, onCancel }: any) =>
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(Text, null, `WIZARD:${mode}`),
+        React.createElement(Pressable, { onPress: onDone }, React.createElement(Text, null, 'WIZARD_DONE')),
+        React.createElement(Pressable, { onPress: onCancel }, React.createElement(Text, null, 'WIZARD_CANCEL'))
+      )
+  }
 })
 jest.mock('../../ui/hooks/useVaultBalance', () => ({
   useVaultBalance: () => ({ balance: mockBalance, loading: false, refresh: jest.fn() })
@@ -238,6 +247,36 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_add_key_row')).toBeNull()
   })
 
+  test('cancelling the add-key wizard reloads the key list and offers no re-lock', async () => {
+    mockBalance = 300_000
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_add_key_row')))
+    expect(screen.getByText('WIZARD:add-key')).toBeTruthy()
+    // The wizard persisted a third key, then closed via onCancel.
+    mockGetMeta.mockResolvedValue(META3)
+    mockRefreshCoverage.mockClear()
+    await act(async () => fireEvent.press(screen.getByText('WIZARD_CANCEL')))
+    await settle()
+    expect(screen.queryByText('WIZARD:add-key')).toBeNull()
+    expect(screen.getByText('vault_key_section:{"count":3}')).toBeTruthy()
+    expect(screen.getByText('Car · …0003')).toBeTruthy()
+    expect(mockRefreshCoverage).toHaveBeenCalled()
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
+  })
+
+  test('finishing the add-key wizard with a funded vault offers a re-lock that excludes the new key', async () => {
+    mockBalance = 300_000
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_add_key_row')))
+    mockGetMeta.mockResolvedValue(META3)
+    await act(async () => fireEvent.press(screen.getByText('WIZARD_DONE')))
+    await settle()
+    expect(screen.getByText('vault_key_section:{"count":3}')).toBeTruthy()
+    expect(screen.getByText('vault_relock_choose')).toBeTruthy()
+    expect(screen.getByText('vault_relock_reason:{"names":"Desk · …0001, Safe · …0002"}')).toBeTruthy()
+    expect(screen.getAllByRole('radio')).toHaveLength(2)
+  })
+
   test('Add key is inert while the flag is off, but the enrolled view stays', async () => {
     mockVaultEnabled = false
     const screen = await renderVault()
@@ -299,6 +338,32 @@ describe('enrolled', () => {
     expect(mockRemoveKey).not.toHaveBeenCalled()
   })
 
+  test('removal is refused without a built wallet: the orphan check is never skipped', async () => {
+    mockGetMeta.mockResolvedValue(META3)
+    mockWallet.managers = {}
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await settle()
+    expect(mockShowAlert).toHaveBeenCalledTimes(2)
+    expect(mockShowAlert.mock.calls[1][0].title).toBe('vault_remove_title:{"nickname":"Desk"}')
+    expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_generic')
+    expect(mockOrphanedIfRemoved).not.toHaveBeenCalled()
+    expect(mockRemoveKey).not.toHaveBeenCalled()
+  })
+
+  test('removal is refused when the orphan check itself throws', async () => {
+    mockGetMeta.mockResolvedValue(META3)
+    mockOrphanedIfRemoved.mockRejectedValueOnce(new TypeError('listOutputs is not a function'))
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await settle()
+    expect(mockShowAlert).toHaveBeenCalledTimes(2)
+    expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_generic')
+    expect(mockRemoveKey).not.toHaveBeenCalled()
+  })
+
   test('rename saves through vaultStore.renameKey', async () => {
     mockShowAlert.mockResolvedValueOnce('rename')
     const screen = await renderVault()
@@ -348,6 +413,32 @@ describe('enrolled', () => {
     await settle()
     expect(mockShowToast).toHaveBeenCalledWith('vault_relock_done', { type: 'success' })
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
+  })
+
+  test('a re-lock that is still capped after the pass bound does not toast done', async () => {
+    mockBalance = 300_000
+    mockRelock.mockResolvedValue({ txid: 'a', cappedInputs: 1, unreachable: NO_UNREACHABLE })
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_row')))
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
+    await settle()
+    expect(mockRelock).toHaveBeenCalledTimes(32)
+    expect(mockShowToast).toHaveBeenCalledWith('vault_relock_capped:{"count":1}', { type: 'info' })
+    expect(mockShowToast).not.toHaveBeenCalledWith('vault_relock_done', expect.anything())
+    expect(mockShowAlert).not.toHaveBeenCalled()
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
+  })
+
+  test('Re-lock now without a built wallet shows the error in the sheet instead of doing nothing', async () => {
+    mockBalance = 300_000
+    mockWallet.managers = {}
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_row')))
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
+    await settle()
+    expect(screen.getByText('vault_err_generic')).toBeTruthy()
+    expect(screen.getByText('vault_relock_choose')).toBeTruthy()
+    expect(mockRelock).not.toHaveBeenCalled()
   })
 
   test('a re-lock error stays in the sheet with its copy', async () => {
