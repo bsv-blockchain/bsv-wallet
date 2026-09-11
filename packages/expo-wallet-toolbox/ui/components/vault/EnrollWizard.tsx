@@ -1,46 +1,49 @@
 /**
- * Vault enrollment wizard — backup gate → passphrase → PIN → tap → done.
+ * Vault enrollment wizard — spec §3.3.
  *
- * The vault key is derived from the wallet's EXISTING mnemonic plus a vault
- * passphrase, so there is no second phrase to write down and no confirmation
- * quiz. What replaces them is the passphrase step: a strength meter, because
- * the KDF is only 2048 rounds, and a confirm field, because BIP39 passphrases
- * have no checksum and a typo silently opens a different, empty vault.
+ *   enroll mode:  intro → key (× k; sub-states pin · tap · name · error) → more → done
+ *   add-key mode: key → done
  *
- * enrollVault() drives the YubiKey (getKeyInfo → PIN → generate). Every prompt
- * is gathered BEFORE the tap, since the NFC sheet covers the app.
+ * Nothing is persisted until Finish (enroll) or until the single key step
+ * completes (add-key). `pending` holds public records only — serial, slot,
+ * pubkey, nickname, enrolledAt — in component state, so it survives
+ * backgrounding but not leaving. Every prompt (the PIN, and a new PIN when the
+ * card still carries the factory default) is gathered BEFORE the tap, because
+ * the iOS NFC sheet covers the app for the whole card session. The PIN lives
+ * in input state only while its key step is open: it is kept across an
+ * error → Try again (a re-tap needs it) and cleared the moment the step is
+ * left, the card is swapped, or the PIN turns out to be wrong.
  *
- * The adopt step exists because slot occupancy is only knowable ON the card:
- * enrollVault refuses an occupied slot with 'slot-occupied', this wizard turns
- * that refusal into an explicit choice, and a second run with adoptExisting
- * enrolls against the key already there. That costs a second tap only in the
- * occupied case, which is what keeps the one-tap rule intact for the normal
- * one.
+ * The host screen hides its own back chevron while this is mounted: leaving
+ * goes through `leave()` — the leave-confirm alert when at least one key is
+ * unsaved — which is also wired to Android's hardware back button.
  */
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native'
-import { PassphraseField } from './PassphraseField'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator, BackHandler } from 'react-native'
 import PressableScale from '../ui/PressableScale'
+import { showAlert } from '../ui/AlertCard'
 import { showToast } from '../ui/Toast'
-import { printRecoveryShares } from '../../printRecoveryShares'
-import { PhraseBackupSheet } from './PhraseBackupSheet'
+import { vaultErrorCopy } from './vaultErrorCopy'
+import { vaultKeyLabel } from './KeyChooser'
 import {
   useTheme,
   spacing,
   radii,
   typography,
-  enrollVault,
+  enrollKey,
   finalizeEnrollment,
+  addVaultKey,
+  vaultStore,
+  VAULT_MIN_KEYS,
+  VAULT_MAX_KEYS,
   VaultError,
-  useLocalStorage,
+  isBackupPushEnabled,
   sounds,
   haptics,
   i18n,
-  readBackupAttestation,
-  recordBackupAttestation,
-  type BackupMedium,
-  useWallet,
-  UserContext
+  type VaultKeyRecord,
+  type VaultErrorCode,
+  type EnrollPhase
 } from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
@@ -49,14 +52,11 @@ const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
  * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
  * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Both icon sets are loaded lazily, only when actually rendering, same
- * pattern as this package's other native-module-boundary fixes (expo-router,
- * expo-blur).
+ * Loaded lazily, only when actually rendering, same pattern as this
+ * package's other native-module-boundary fixes (expo-router, expo-blur).
  */
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-type MaterialCommunityIconsComponent = typeof import('@expo/vector-icons').MaterialCommunityIcons
 let ioniconsComponent: IoniconsComponent | undefined
-let materialCommunityIconsComponent: MaterialCommunityIconsComponent | undefined
 function loadIonicons(): IoniconsComponent {
   if (!ioniconsComponent) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -64,503 +64,623 @@ function loadIonicons(): IoniconsComponent {
   }
   return ioniconsComponent
 }
-function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
-  if (!materialCommunityIconsComponent) {
-    materialCommunityIconsComponent = require('@expo/vector-icons')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      .MaterialCommunityIcons as MaterialCommunityIconsComponent
+
+/**
+ * expo-router is required lazily rather than imported at module scope: this
+ * file is barrel-exported from the package's `ui` entry point, and a static
+ * top-level `import` of expo-router pulls in its own untransformed JSX
+ * source (Navigator.js etc.), which Jest cannot parse for any consumer of the
+ * barrel, even one that never navigates. Same pattern as VaultScreen.tsx.
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
   }
-  return materialCommunityIconsComponent
+  return expoRouterMod
 }
 
-type Step = 'backup' | 'phrase' | 'passphrase' | 'adopt' | 'running' | 'done'
+type Step = 'intro' | 'key' | 'more' | 'done'
+type KeySub = 'pin' | 'tap' | 'name' | 'error'
 
-interface PinRequest {
-  kind: 'pin' | 'change'
-  retries?: number
-  resolve: (v: any) => void
-  reject: (e: unknown) => void
+/** The PIV factory PIN. Typing it means the card was never personalised, so a new PIN is demanded before the tap. */
+const DEFAULT_PIV_PIN = '123456'
+const PIN_MIN = 6
+const PIN_MAX = 8
+const pinLengthOk = (p: string) => p.length >= PIN_MIN && p.length <= PIN_MAX
+
+interface KeyStepError {
+  code: VaultErrorCode | undefined
+  copy: string
+  /** Serial of a key pending in THIS run that the tapped card duplicates — offers "Set it up again". */
+  pendingDuplicate?: string
 }
 
-export const EnrollWizard: React.FC<{ onDone: () => void; onCancel: () => void }> = ({
-  onDone,
-  onCancel
-}) => {
+/**
+ * The duplicate's serial from a key-already-enrolled rejection. The services
+ * attach it as `details.serial` (VaultKeyService.enrollKey, vaultStore.addKey);
+ * the message is never parsed for it.
+ */
+function duplicateSerial(err: VaultError | undefined): string | undefined {
+  const s = err?.details?.serial
+  return typeof s === 'string' ? s : undefined
+}
+
+export interface EnrollWizardProps {
+  mode: 'enroll' | 'add-key'
+  onDone: () => void
+  onCancel: () => void
+}
+
+export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCancel }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
-  const MaterialCommunityIcons = loadMaterialCommunityIcons()
-  const { getMnemonic, getRecoveredKey } = useLocalStorage()
-  const { appName } = useContext(UserContext)
-  const [step, setStep] = useState<Step>('backup')
-  const [medium, setMedium] = useState<BackupMedium | null>(null)
-  const [wordCount, setWordCount] = useState<number | null>(null)
-  const [revealed, setRevealed] = useState<string | null>(null)
-  const [passphrase, setPassphrase] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [passphraseOk, setPassphraseOk] = useState(false)
-  const [phaseLabel, setPhaseLabel] = useState('')
-  const [pinReq, setPinReq] = useState<PinRequest | null>(null)
+  const { router } = loadExpoRouter()
+
+  const [step, setStep] = useState<Step>(mode === 'enroll' ? 'intro' : 'key')
+  const [sub, setSub] = useState<KeySub>('pin')
+  const [ack, setAck] = useState(false)
+  /** Keys already in meta — add-key mode only. A fresh enrollment has no meta
+   * to honour: Finish replaces whatever is stored, so nothing stored may shift
+   * the ordinal or refuse a card. */
+  const [enrolled, setEnrolled] = useState<VaultKeyRecord[]>([])
+  /** Keys set up in this run and not yet persisted. Public data only. */
+  const [pending, setPending] = useState<VaultKeyRecord[]>([])
+  const [pin, setPin] = useState('')
+  const [newPin, setNewPin] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
-  const [pinInput, setPinInput] = useState('')
-  const [newPinInput, setNewPinInput] = useState('')
-  const [printing, setPrinting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [phase, setPhase] = useState<EnrollPhase | null>(null)
+  /** The record the card just produced, awaiting its nickname. */
+  const [fresh, setFresh] = useState<VaultKeyRecord | null>(null)
+  const [name, setName] = useState('')
+  /** Index in `pending` the record being named replaces ("Set it up again"); null = append. */
+  const [replaceIndex, setReplaceIndex] = useState<number | null>(null)
+  const [keyError, setKeyError] = useState<KeyStepError | null>(null)
+  /** A write (finalizeEnrollment / addVaultKey) or the backup check is in flight. */
+  const [busy, setBusy] = useState(false)
+  const [stepError, setStepError] = useState<string | null>(null)
+  const [addedNickname, setAddedNickname] = useState('')
+  /** One card session at a time: a double-tapped Continue must not open two. */
+  const tapInFlight = useRef(false)
+  /** One leave-confirm at a time. */
+  const leaving = useRef(false)
 
-  const { managers, adminOriginator } = useWallet()
-
-  const wallet = managers?.permissionsManager
-
-  // A user who already backed up should not be asked twice — including the
-  // user who wrote their phrase down during wallet creation minutes ago, which
-  // now records an attestation of its own. Skipping the step outright rather
-  // than showing it pre-ticked: a screen full of green ticks is still a
-  // checkpoint to read and clear.
   useEffect(() => {
+    if (mode !== 'add-key') return
     let alive = true
-    void (async () => {
-      const existing = await readBackupAttestation(wallet, adminOriginator)
-      if (!alive || !existing) return
-      setMedium(existing.medium)
-      // Straight to the passphrase. The mnemonic guard that toPassphrase runs
-      // is skipped on this path on purpose — it calls getMnemonic(), which is
-      // biometric-gated, and prompting for Face ID on mount would be worse than
-      // surfacing 'requires mnemonic' when enrolment actually starts.
-      setStep(current => (current === 'backup' ? 'passphrase' : current))
-    })()
+    vaultStore
+      .getMeta()
+      .then(m => {
+        if (alive && m) setEnrolled(m.keys)
+      })
+      .catch(() => {
+        /* addVaultKey reports 'not-enrolled' if meta is truly unreadable */
+      })
     return () => {
       alive = false
     }
-  }, [wallet, adminOriginator])
+  }, [mode])
 
-  /**
-   * Only a persisted attestation may unlock Continue. A wallet that ticks the
-   * row without a written flag would enrol into a vault the deposit gate then
-   * refuses forever, since the gate would find nothing recorded.
-   */
-  const attest = useCallback(
-    async (m: BackupMedium): Promise<boolean> => {
-      if (!(await recordBackupAttestation(wallet, adminOriginator, m))) {
-        setError(t('vault_backup_attest_failed'))
-        return false
-      }
-      setError(null)
-      setMedium(m)
-      return true
-    },
-    [wallet, adminOriginator]
-  )
+  const total = enrolled.length + pending.length
+  /** Ordinal of the key on screen: the next slot, or the pending slot being redone. */
+  const k = replaceIndex === null ? total + 1 : enrolled.length + replaceIndex + 1
+  const needsNewPin = pin === DEFAULT_PIV_PIN
+  const pinOk = pinLengthOk(pin) && (!needsNewPin || (pinLengthOk(newPin) && newPin !== DEFAULT_PIV_PIN))
+  /** Keys that would be lost by leaving: pending ones plus a just-generated, not-yet-named one. */
+  const unsaved = pending.length + (fresh ? 1 : 0)
 
-  const requestPin = useCallback(
-    () => new Promise<string>((resolve, reject) => setPinReq({ kind: 'pin', resolve, reject })),
-    []
-  )
-  const requestPinChange = useCallback(
-    (retries: number) =>
-      new Promise<{ oldPin: string; newPin: string }>((resolve, reject) =>
-        setPinReq({ kind: 'change', retries, resolve, reject })
-      ),
-    []
-  )
+  /** Everything the key step gathered: the PIN(s) and the fresh record. */
+  const clearKeyInputs = () => {
+    setPin('')
+    setNewPin('')
+    setPinError(null)
+    setFresh(null)
+    setName('')
+  }
 
-  const onPrintShares = useCallback(async () => {
-    if (printing) return
-    setPrinting(true)
+  // ── leaving ─────────────────────────────────────────────────────────
+  const leave = useCallback(async () => {
+    if (busy || leaving.current) return
+    leaving.current = true
     try {
-      const result = await printRecoveryShares({
-        mnemonic: await getMnemonic(),
-        recoveredKeyWif: await getRecoveredKey?.(),
-        appName
-      })
-      if (result.ok) {
-        // Only a resolved print sheet counts. A cancelled one produced no paper.
-        await attest('shares')
-      } else if (result.reason === 'unsupported-word-count') {
-        showToast(t('vault_shares_word_count'), { type: 'error' })
-      } else {
-        showToast(t('vault_shares_unavailable'), { type: 'error' })
+      if (unsaved > 0) {
+        const choice = await showAlert({
+          title: t('vault_leave_title'),
+          message: t('vault_leave_body', { count: unsaved }),
+          buttons: [
+            { text: t('vault_leave_confirm'), key: 'leave', style: 'destructive' },
+            { text: t('vault_leave_stay'), key: 'stay', style: 'cancel' }
+          ]
+        })
+        if (choice !== 'leave') return
       }
-    } catch {
-      // Print sheet dismissed or unavailable — not an error worth blocking on.
+      onCancel()
     } finally {
-      setPrinting(false)
+      leaving.current = false
     }
-  }, [printing, getMnemonic, getRecoveredKey, attest])
+  }, [busy, unsaved, onCancel])
 
-  const onRevealPhrase = useCallback(async () => {
-    setError(null)
-    // getMnemonic() is behind the biometric latch, so the reveal is
-    // re-authenticated without a second prompt of our own.
-    const mnemonic = await getMnemonic()
-    if (!mnemonic) {
-      setError(t('vault_requires_mnemonic'))
-      haptics.error()
-      return
-    }
-    setWordCount(mnemonic.trim().split(/\s+/).length)
-    setRevealed(mnemonic)
-    setStep('phrase')
-  }, [getMnemonic])
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      void leave()
+      return true
+    })
+    return () => subscription.remove()
+  }, [leave])
 
-  // Gate: a wallet restored from backup shares has no mnemonic, so it can
-  // neither enroll nor ever recover a vault. Refuse rather than create a vault
-  // with only one recovery path.
-  const toPassphrase = useCallback(async () => {
-    setError(null)
-    const mnemonic = await getMnemonic()
-    if (!mnemonic) {
-      setError(t('vault_requires_mnemonic'))
-      haptics.error()
-      return
-    }
-    setStep('passphrase')
-  }, [getMnemonic])
-
-  /** Set to `start` below; the wrong-PIN path re-enters the ceremony. */
-  const startRef = useRef<((adoptExisting?: boolean) => Promise<void>) | null>(null)
-
-  const start = useCallback(async (adoptExisting = false) => {
-    setStep('running')
-    setError(null)
+  // ── intro → key 1 ───────────────────────────────────────────────────
+  const begin = useCallback(async () => {
+    if (!ack || busy) return
+    setBusy(true)
     try {
-      const mnemonic = await getMnemonic()
-      if (!mnemonic) throw new VaultError('bad-mnemonic', t('vault_requires_mnemonic'))
-      const { pending } = await enrollVault({
-        // Empty by design: the vault screen identifies the key by its serial,
-        // which the key itself reports. A nickname field was one more thing to
-        // fill in during setup and named nothing the user could not already see.
-        nickname: '',
-        mnemonic,
-        passphrase,
-        adoptExisting,
-        onPhase: p => setPhaseLabel(t(`vault_enroll_phase_${p}`)),
-        getPin: requestPin,
-        requestPinChange
-      })
+      // D13: the salts of every future deposit live only in this wallet's
+      // database, so enrolment refuses to start while the encrypted backup is
+      // off. Settings is where it is switched on; push keeps this screen behind.
+      if (!(await isBackupPushEnabled())) {
+        const choice = await showAlert({
+          title: t('vault_backup_off_title'),
+          message: t('vault_backup_off_body'),
+          buttons: [
+            { text: t('vault_backup_off_cta'), key: 'settings' },
+            { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+          ]
+        })
+        if (choice === 'settings') router.push('/wallet-config')
+        return
+      }
+      setStep('key')
+      setSub('pin')
+    } finally {
+      setBusy(false)
+    }
+  }, [ack, busy, router])
+
+  // ── the card session ────────────────────────────────────────────────
+  const runTap = useCallback(
+    async (replaceSerial?: string) => {
+      if (tapInFlight.current) return
+      tapInFlight.current = true
+      setSub('tap')
+      setPhase(null)
+      setKeyError(null)
+      setStepError(null)
+      const known = [...enrolled.map(r => r.serial), ...pending.map(r => r.serial)]
+      try {
+        const record = await enrollKey({
+          // "Set it up again" drops the duplicate's own serial so the service
+          // regenerates on that card instead of refusing it a second time.
+          pendingSerials: replaceSerial === undefined ? known : known.filter(s => s !== replaceSerial),
+          onPhase: setPhase,
+          getPin: async () => pin,
+          ...(needsNewPin ? { requestPinChange: async () => ({ oldPin: pin, newPin }) } : {}),
+          // Localised iOS NFC sheet text for this tap (enrollKey forwards it to
+          // withKeySession → driver.start). Omitting it would fall back to the
+          // native default wording.
+          nfcMessage: t('vault_nfc_enroll_message')
+        })
+        haptics.success()
+        setReplaceIndex(replaceSerial === undefined ? null : pending.findIndex(p => p.serial === replaceSerial))
+        setFresh(record)
+        setName('')
+        setSub('name')
+      } catch (e) {
+        haptics.error()
+        const err = e instanceof VaultError ? e : undefined
+        // A wrong PIN is feedback on the PIN, so it belongs on the PIN field,
+        // and the wrong digits must not linger in it. Nothing has been written
+        // to the card (verifyPin runs before generateVaultKey), so re-entering
+        // is safe. On NFC it costs a re-tap.
+        if (err?.code === 'pin-invalid') {
+          setPin('')
+          setNewPin('')
+          setPinError(vaultErrorCopy('pin-invalid', { count: err.retriesLeft }))
+          setSub('pin')
+          return
+        }
+        // The user dismissed the system NFC sheet: not an error to explain.
+        // The PIN stays so Continue can simply be pressed again.
+        if (err?.code === 'user-cancelled') {
+          setSub('pin')
+          return
+        }
+        const tapped = duplicateSerial(err)
+        const dupPending = tapped ? pending.find(p => p.serial === tapped) : undefined
+        const dupEnrolled = tapped ? enrolled.find(p => p.serial === tapped) : undefined
+        let copy: string
+        if (err?.code === 'key-already-enrolled') {
+          // Name the duplicate; with no record to name, the serial tail still
+          // identifies the card. Without even a serial the copy degrades to the
+          // generic line inside vaultErrorCopy.
+          copy = vaultErrorCopy(err.code, {
+            nickname: dupPending?.nickname ?? dupEnrolled?.nickname ?? (tapped ? `…${tapped.slice(-4)}` : undefined)
+          })
+        } else if (err?.code === 'pin-locked') {
+          // Enrolment-specific: there is no "use another of your vault keys"
+          // yet, so the remedy is the PUK or a different card.
+          copy = t('vault_err_pin_locked_enroll')
+        } else {
+          copy = vaultErrorCopy(err?.code)
+        }
+        setKeyError({ code: err?.code, copy, pendingDuplicate: dupPending?.serial })
+        setSub('error')
+      } finally {
+        tapInFlight.current = false
+      }
+    },
+    [enrolled, pending, pin, newPin, needsNewPin]
+  )
+
+  // ── naming → more / addVaultKey ─────────────────────────────────────
+  const saveName = useCallback(async () => {
+    if (!fresh || busy) return
+    const record: VaultKeyRecord = { ...fresh, nickname: name.trim() || t('vault_name_default', { k }) }
+    if (mode === 'add-key') {
+      setBusy(true)
+      setStepError(null)
+      try {
+        await addVaultKey(record)
+        clearKeyInputs()
+        haptics.success()
+        showToast(t('vault_key_added_toast'), { type: 'success' })
+        setAddedNickname(record.nickname)
+        setStep('done')
+      } catch (e) {
+        // The record is dropped with the inputs: the remedy is a fresh tap.
+        haptics.error()
+        clearKeyInputs()
+        setStepError(vaultErrorCopy(e instanceof VaultError ? e.code : undefined))
+        setSub('pin')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    setPending(prev => (replaceIndex === null ? [...prev, record] : prev.map((p, i) => (i === replaceIndex ? record : p))))
+    setReplaceIndex(null)
+    clearKeyInputs()
+    setStep('more')
+  }, [fresh, busy, name, k, mode, replaceIndex])
+
+  // ── finish (enroll mode) ────────────────────────────────────────────
+  const finish = useCallback(async () => {
+    if (pending.length < VAULT_MIN_KEYS || busy) return
+    setBusy(true)
+    setStepError(null)
+    try {
       await finalizeEnrollment(pending)
-      setPassphrase('')
-      setConfirm('')
       sounds.vaultOpen()
       haptics.success()
       showToast(t('vault_enrolled_toast'), { type: 'success' })
       setStep('done')
-      onDone()
     } catch (e) {
-      // An occupied slot is a fork in the road, not a failure: the key already
-      // there is exactly what a second device needs. Offer it instead of
-      // dropping the user back to the passphrase step with a dead-end error.
-      if (e instanceof VaultError && e.code === 'slot-occupied' && !adoptExisting) {
-        setStep('adopt')
-        return
-      }
       haptics.error()
-
-      // A wrong PIN is feedback on the PIN, so it belongs on the PIN prompt.
-      // Dropping back to the passphrase screen with "Wrong PIN." underneath it
-      // asked the user to re-confirm a passphrase that was never the problem.
-      // Nothing has been written to the key at this point — verifyPin runs
-      // before generateVaultKey — so re-entering the ceremony is safe, and it
-      // is what puts the PIN sheet back on screen.
-      if (e instanceof VaultError && e.code === 'pin-invalid') {
-        setPinError(
-          e.retriesLeft !== undefined
-            ? `${t('vault_err_pin_invalid')} ${t('vault_pin_retries', { count: e.retriesLeft })}`
-            : t('vault_err_pin_invalid')
-        )
-        void startRef.current?.(adoptExisting)
-        return
-      }
-
-      const msg =
-        e instanceof VaultError ? t(`vault_err_${e.code.replace(/-/g, '_')}`, {}) : String(e)
-      setError(msg || t('vault_err_generic'))
-      setStep('passphrase')
+      setStepError(vaultErrorCopy(e instanceof VaultError ? e.code : undefined))
+    } finally {
+      setBusy(false)
     }
-  }, [passphrase, getMnemonic, requestPin, requestPinChange, onDone])
+  }, [pending, busy])
 
-  startRef.current = start
+  const addAnother = useCallback(() => {
+    setStepError(null)
+    setStep('key')
+    setSub('pin')
+  }, [])
 
-  const submitPin = useCallback(() => {
-    if (!pinReq) return
-    if (pinReq.kind === 'change') {
-      if (newPinInput.length < 6) return
-      pinReq.resolve({ oldPin: '123456', newPin: newPinInput })
-    } else {
-      if (pinInput.length < 4) return
-      pinReq.resolve(pinInput)
-    }
-    setPinReq(null)
-    setPinInput('')
-    setNewPinInput('')
-  }, [pinReq, pinInput, newPinInput])
-
-  // ── backup (prerequisite) ───────────────────────────────────────────
-  if (step === 'backup') {
-    return (
-      <ScrollView contentContainerStyle={styles.gateBody}>
-        {/* No hero glyph here. A shield-with-a-tick says "you are protected",
-            which is the opposite of this screen's message — it is asking for
-            work, not confirming it is done. The two rows below are the
-            instruction, so nothing should out-shout them. */}
-        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_backup_title')}</Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_backup_intro')}</Text>
-
-        <BackupRow
-          icon="document-text-outline"
-          title={t('vault_backup_phrase_title')}
-          // The actual count is only known once the phrase has been
-          // revealed (getMnemonic() is biometric-gated, so it isn't read
-          // just to label this row). 12 is the count for every wallet this
-          // app generates; imported 24-word wallets get the correct number
-          // here as soon as they reveal once.
-          subtitle={t('vault_backup_phrase_sub', { count: wordCount ?? 12 })}
-          done={medium === 'phrase'}
-          busy={false}
-          onPress={onRevealPhrase}
-        />
-        <BackupRow
-          icon="print-outline"
-          title={t('vault_backup_shares_title')}
-          subtitle={t('vault_backup_shares_sub')}
-          done={medium === 'shares'}
-          busy={printing}
-          onPress={onPrintShares}
-        />
-
-
-        {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
-        <PressableScale
-          haptic="confirm"
-          onPress={medium ? toPassphrase : undefined}
-          style={[
-            styles.primary,
-            // Outlined while it is not yet armed. Filled with the secondary
-            // background it was indistinguishable from the page in dark mode,
-            // so the disabled CTA read as a stray line of grey text rather
-            // than as a button waiting on the rows above it.
-            {
-              backgroundColor: medium ? colors.accent : 'transparent',
-              borderWidth: medium ? 0 : StyleSheet.hairlineWidth,
-              borderColor: colors.separator
-            }
-          ]}
-        >
-          <Text
-            style={[
-              styles.primaryLabel,
-              { color: medium ? colors.textOnAccent : colors.textTertiary }
-            ]}
-          >
-            {t('vault_continue')}
-          </Text>
-        </PressableScale>
-      </ScrollView>
-    )
+  /** A different card has a different PIN: start the step over. */
+  const useDifferentKey = () => {
+    setKeyError(null)
+    clearKeyInputs()
+    setSub('pin')
   }
 
-  // ── phrase reveal ───────────────────────────────────────────────────
-  if (step === 'phrase' && revealed) {
-    return (
-      <PhraseBackupSheet
-        mnemonic={revealed}
-        onAttest={async () => {
-          // Whatever attest() decides, the phrase should not linger on
-          // screen: on success the row ticks; on failure the backup step's
-          // inline error tells the user to retry rather than stranding them
-          // here with no feedback.
-          await attest('phrase')
-          setRevealed(null)
-          setStep('backup')
-        }}
-        onCancel={() => {
-          setRevealed(null)
-          setStep('backup')
-        }}
-      />
-    )
-  }
+  const leaveLink = (
+    <PressableScale onPress={() => void leave()} style={styles.secondary}>
+      <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
+        {unsaved > 0 ? t('vault_leave_setup') : t('vault_cancel')}
+      </Text>
+    </PressableScale>
+  )
 
-  // ── passphrase ──────────────────────────────────────────────────────
-  if (step === 'passphrase') {
-    return (
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_enroll_title')}</Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_enroll_intro')}</Text>
-
-        <PassphraseField
-          value={passphrase}
-          onChangeText={setPassphrase}
-          confirm={confirm}
-          onChangeConfirm={setConfirm}
-          onValidityChange={setPassphraseOk}
-        />
-
-        <View style={[styles.warnBox, { backgroundColor: colors.warning + '14' }]}>
-          <Ionicons name="warning-outline" size={16} color={colors.warning} />
-          <Text style={[styles.warnText, { color: colors.textSecondary }]}>
-            {t('vault_passphrase_no_reset')}
-          </Text>
-        </View>
-
-        {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
-        <PressableScale
-          haptic="confirm"
-          onPress={passphraseOk ? () => start() : undefined}
-          style={[
-            styles.primary,
-            {
-              backgroundColor: passphraseOk ? colors.accent : 'transparent',
-              borderWidth: passphraseOk ? 0 : StyleSheet.hairlineWidth,
-              borderColor: colors.separator
-            }
-          ]}
-        >
-          <Text
-            style={[
-              styles.primaryLabel,
-              { color: passphraseOk ? colors.textOnAccent : colors.textTertiary }
-            ]}
-          >
-            {t('vault_enroll_begin')}
-          </Text>
-        </PressableScale>
-      </ScrollView>
-    )
-  }
-
-  // ── adopt (slot already holds a key) ────────────────────────────────
-  if (step === 'adopt') {
+  // ── intro ───────────────────────────────────────────────────────────
+  if (step === 'intro') {
     return (
       <ScrollView contentContainerStyle={styles.body}>
-        <Ionicons
-          name="hardware-chip-outline"
-          size={48}
-          color={colors.textPrimary}
-          style={styles.hero}
-        />
-        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_slot_in_use_title')}</Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_slot_in_use_body')}</Text>
-
+        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_intro_title')}</Text>
+        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_intro_what')}</Text>
+        <View style={[styles.bullets, { borderColor: colors.separator }]}>
+          <Bullet icon="key-outline" text={t('vault_intro_two_keys')} />
+          <Bullet icon="location-outline" text={t('vault_intro_apart')} />
+          <Bullet icon="cloud-upload-outline" text={t('vault_intro_backup')} />
+        </View>
         <PressableScale
-          haptic="confirm"
-          onPress={() => start(true)}
-          style={[styles.primary, { backgroundColor: colors.accent }]}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: ack }}
+          haptic="tap"
+          onPress={() => setAck(a => !a)}
+          style={[styles.ackRow, { borderColor: ack ? colors.accent : colors.separator }]}
         >
-          <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>
-            {t('vault_use_existing_key')}
-          </Text>
+          <Ionicons name={ack ? 'checkbox' : 'square-outline'} size={24} color={ack ? colors.accent : colors.textTertiary} />
+          <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_intro_ack')}</Text>
         </PressableScale>
+        <ActionButton label={t('vault_intro_begin')} enabled={ack} busy={busy} onPress={() => void begin()} />
         <PressableScale onPress={onCancel} style={styles.secondary}>
-          <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
-            {t('vault_cancel')}
-          </Text>
+          <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_cancel')}</Text>
         </PressableScale>
       </ScrollView>
     )
   }
 
-  // ── running (PIN prompts + tap) ─────────────────────────────────────
-  if (step === 'running') {
+  // ── key k ───────────────────────────────────────────────────────────
+  if (step === 'key') {
+    if (sub === 'pin') {
+      return (
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
+          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_key_step_replace')}</Text>
+
+          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_enter_pin')}</Text>
+          {/* Which PIN, and what it is if they have never set one: the prompt
+              is otherwise ambiguous with the phone's own passcode. */}
+          <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_enter_pin_sub')}</Text>
+          <TextInput
+            accessibilityLabel={t('vault_enter_pin')}
+            style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+            value={pin}
+            onChangeText={text => {
+              setPinError(null)
+              setPin(text)
+            }}
+            placeholder="••••••"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="number-pad"
+            // Masking only once there is something to mask: iOS renders a
+            // secure field's PLACEHOLDER with masked-glyph metrics, which
+            // stretches the bullets apart before any digit is typed.
+            secureTextEntry={pin.length > 0}
+            maxLength={PIN_MAX}
+            autoFocus
+          />
+          {needsNewPin && (
+            <>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_set_new_pin')}</Text>
+              <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_default_pin_warning')}</Text>
+              <TextInput
+                accessibilityLabel={t('vault_set_new_pin')}
+                style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+                value={newPin}
+                onChangeText={setNewPin}
+                placeholder="••••••"
+                placeholderTextColor={colors.textTertiary}
+                keyboardType="number-pad"
+                secureTextEntry={newPin.length > 0}
+                maxLength={PIN_MAX}
+              />
+            </>
+          )}
+          {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
+          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          <ActionButton label={t('vault_continue')} enabled={pinOk && !busy} onPress={() => void runTap()} />
+          {leaveLink}
+        </ScrollView>
+      )
+    }
+
+    if (sub === 'tap') {
+      return (
+        <View style={styles.body}>
+          <ActivityIndicator color={colors.textPrimary} size="large" style={styles.hero} />
+          <Text style={[styles.h1, { color: colors.textPrimary }]}>
+            {phase ? t(`vault_enroll_phase_${phase.replace(/-/g, '_')}`) : t('vault_reading_key')}
+          </Text>
+          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_touch_when_blinks')}</Text>
+        </View>
+      )
+    }
+
+    if (sub === 'name') {
+      return (
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <Ionicons name="checkmark-circle" size={48} color={colors.success} style={styles.hero} />
+          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_name_title')}</Text>
+          <Text style={[styles.p, { color: colors.textSecondary }]}>{fresh ? `…${fresh.serial.slice(-4)}` : ''}</Text>
+          <TextInput
+            accessibilityLabel={t('vault_name_title')}
+            style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+            value={name}
+            onChangeText={setName}
+            placeholder={t('vault_name_default', { k })}
+            placeholderTextColor={colors.textTertiary}
+            maxLength={32}
+            autoCapitalize="words"
+            returnKeyType="done"
+            onSubmitEditing={() => void saveName()}
+            autoFocus
+          />
+          <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_name_hint')}</Text>
+          <ActionButton label={t('vault_continue')} busy={busy} onPress={() => void saveName()} />
+          {leaveLink}
+        </ScrollView>
+      )
+    }
+
+    // sub === 'error'
+    const code = keyError?.code
+    const setupAgain = keyError?.pendingDuplicate
     return (
       <View style={styles.body}>
-        {pinReq ? (
+        <Ionicons name="alert-circle-outline" size={48} color={colors.error} style={styles.hero} />
+        <Text style={[styles.h1, { color: colors.textPrimary }]}>{keyError?.copy ?? t('vault_err_generic')}</Text>
+        {code === 'pin-locked' ? (
           <>
-            <Ionicons name="keypad-outline" size={40} color={colors.textPrimary} style={styles.hero} />
-            <Text style={[styles.h1, { color: colors.textPrimary }]}>
-              {pinReq.kind === 'change' ? t('vault_set_new_pin') : t('vault_enter_pin')}
-            </Text>
-            {/* Which PIN, and what it is if they have never set one. Without
-                this the prompt is ambiguous with the phone's own passcode, and
-                a factory key's PIN is not something users know they have. */}
-            <Text style={[styles.p, { color: colors.textSecondary }]}>
-              {pinReq.kind === 'change' ? t('vault_default_pin_warning') : t('vault_enter_pin_sub')}
-            </Text>
-            {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
-            <TextInput
-              style={[
-                styles.pin,
-                { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }
-              ]}
-              value={pinReq.kind === 'change' ? newPinInput : pinInput}
-              onChangeText={text => {
-                setPinError(null)
-                ;(pinReq.kind === 'change' ? setNewPinInput : setPinInput)(text)
-              }}
-              placeholder="••••••"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="number-pad"
-              // Masking only once there is something to mask: iOS renders a
-              // secure field's PLACEHOLDER with masked-glyph metrics, which is
-              // what stretches the bullets apart before any digit is typed.
-              secureTextEntry={(pinReq.kind === 'change' ? newPinInput : pinInput).length > 0}
-              maxLength={8}
-              autoFocus
+            <ActionButton label={t('vault_key_use_different')} onPress={useDifferentKey} />
+            <ActionButton label={t('vault_retry')} variant="outline" onPress={() => void runTap()} />
+          </>
+        ) : code === 'key-already-enrolled' ? (
+          <>
+            {setupAgain !== undefined && (
+              <ActionButton label={t('vault_key_setup_again')} onPress={() => void runTap(setupAgain)} />
+            )}
+            <ActionButton
+              label={t('vault_key_use_different')}
+              variant={setupAgain !== undefined ? 'outline' : 'primary'}
+              onPress={useDifferentKey}
             />
-            <PressableScale
-              haptic="confirm"
-              onPress={submitPin}
-              style={[styles.primary, { backgroundColor: colors.accent }]}
-            >
-              <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>
-                {t('vault_continue')}
-              </Text>
-            </PressableScale>
           </>
         ) : (
-          <>
-            <ActivityIndicator color={colors.textPrimary} size="large" style={styles.hero} />
-            <Text style={[styles.h1, { color: colors.textPrimary }]}>
-              {phaseLabel || t('vault_reading_key')}
-            </Text>
-            <Text style={[styles.p, { color: colors.textSecondary }]}>
-              {t('vault_touch_when_blinks')}
-            </Text>
-          </>
+          <ActionButton label={t('vault_retry')} onPress={() => void runTap()} />
         )}
+        {leaveLink}
       </View>
     )
   }
 
-  return null
+  // ── more ────────────────────────────────────────────────────────────
+  if (step === 'more') {
+    const canAdd = total < VAULT_MAX_KEYS
+    const canFinish = pending.length >= VAULT_MIN_KEYS
+    return (
+      <ScrollView contentContainerStyle={styles.body}>
+        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_more_title')}</Text>
+        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_more_body')}</Text>
+        <View style={[styles.list, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}>
+          {pending.map((p, i) => (
+            <View
+              key={p.serial}
+              style={[
+                styles.listRow,
+                i < pending.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+              ]}
+            >
+              <Ionicons name="key-outline" size={20} color={colors.success} />
+              <Text style={[styles.listLabel, { color: colors.textPrimary }]} numberOfLines={1}>
+                {vaultKeyLabel(p)}
+              </Text>
+            </View>
+          ))}
+        </View>
+        {!canFinish && <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_more_need_two')}</Text>}
+        {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+        {/* The filled button is whichever moves the user forward: Add while a
+            second key is still required, Finish once there are enough. */}
+        {canAdd && (
+          <ActionButton
+            label={t('vault_more_add')}
+            variant={canFinish ? 'outline' : 'primary'}
+            enabled={!busy}
+            onPress={addAnother}
+          />
+        )}
+        <ActionButton label={t('vault_more_finish')} enabled={canFinish} busy={busy} onPress={() => void finish()} />
+        {leaveLink}
+      </ScrollView>
+    )
+  }
+
+  // ── done ────────────────────────────────────────────────────────────
+  return (
+    <View style={[styles.body, styles.doneBody]}>
+      <Ionicons name="checkmark-circle" size={56} color={colors.success} style={styles.hero} />
+      <Text style={[styles.h1, { color: colors.textPrimary }]}>
+        {mode === 'enroll' ? t('vault_enrolled_toast') : t('vault_key_added_toast')}
+      </Text>
+      <Text style={[styles.p, { color: colors.textSecondary }]}>
+        {mode === 'enroll'
+          ? t('vault_done_body', { count: pending.length })
+          : t('vault_add_key_done', { nickname: addedNickname })}
+      </Text>
+      <ActionButton label={mode === 'enroll' ? t('vault_done_cta') : t('vault_relock_now')} onPress={onDone} />
+    </View>
+  )
 }
 
-/** One backup route: tappable, ticks when satisfied, stays tappable after. */
-const BackupRow: React.FC<{
-  icon: React.ComponentProps<IoniconsComponent>['name']
-  title: string
-  subtitle: string
-  done: boolean
-  busy: boolean
-  onPress: () => void
-}> = ({ icon, title, subtitle, done, busy, onPress }) => {
+/** One intro bullet: glyph + line. */
+const Bullet: React.FC<{ icon: React.ComponentProps<IoniconsComponent>['name']; text: string }> = ({ icon, text }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   return (
+    <View style={styles.bulletRow}>
+      <Ionicons name={icon} size={18} color={colors.info} />
+      <Text style={[styles.bulletText, { color: colors.textPrimary }]}>{text}</Text>
+    </View>
+  )
+}
+
+/**
+ * The wizard's button. Filled accent when primary and enabled; outlined when
+ * disabled or `variant="outline"` — filled with the secondary background it was
+ * indistinguishable from the page in dark mode.
+ */
+const ActionButton: React.FC<{
+  label: string
+  enabled?: boolean
+  busy?: boolean
+  variant?: 'primary' | 'outline'
+  onPress: () => void
+}> = ({ label, enabled = true, busy = false, variant = 'primary', onPress }) => {
+  const { colors } = useTheme()
+  const active = enabled && !busy
+  const filled = active && variant === 'primary'
+  return (
     <PressableScale
-      onPress={busy ? undefined : onPress}
-      style={[styles.backupRow, { borderColor: done ? colors.success : colors.separator }]}
+      haptic="confirm"
+      // `disabled` (not only a dropped handler) so the responder itself
+      // refuses the press: a11y reports it, and nothing above it in the tree
+      // can pick the press up.
+      disabled={!active}
+      onPress={active ? onPress : undefined}
+      accessibilityState={{ disabled: !active }}
+      style={[
+        styles.primary,
+        filled
+          ? { backgroundColor: colors.accent }
+          : { backgroundColor: 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }
+      ]}
     >
       {busy ? (
-        <ActivityIndicator color={colors.info} size="small" />
+        <ActivityIndicator color={filled ? colors.textOnAccent : colors.textPrimary} />
       ) : (
-        <Ionicons name={icon} size={22} color={done ? colors.success : colors.info} />
+        <Text
+          style={[
+            styles.primaryLabel,
+            { color: filled ? colors.textOnAccent : active ? colors.textPrimary : colors.textTertiary }
+          ]}
+        >
+          {label}
+        </Text>
       )}
-      <View style={styles.backupRowText}>
-        <Text style={[styles.backupRowTitle, { color: colors.textPrimary }]}>{title}</Text>
-        <Text style={[styles.backupRowSub, { color: colors.textSecondary }]}>{subtitle}</Text>
-      </View>
-      {done && <Ionicons name="checkmark-circle" size={20} color={colors.success} />}
     </PressableScale>
   )
 }
 
 const styles = StyleSheet.create({
   body: { padding: spacing.xl, gap: spacing.lg },
-  // The gate is three short blocks; top-aligned they sat in the upper third
-  // with half a screen of nothing under them.
-  gateBody: { padding: spacing.xl, gap: spacing.lg, flexGrow: 1, justifyContent: 'center' },
+  doneBody: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   hero: { marginTop: spacing.lg, alignSelf: 'center' },
   h1: { ...typography.title2, textAlign: 'center' },
   p: { ...typography.subhead, textAlign: 'center' },
+  label: { ...typography.headline },
+  hint: { ...typography.footnote },
+  warn: { ...typography.footnote, textAlign: 'center' },
+  err: { ...typography.footnote, textAlign: 'center' },
+  bullets: {
+    gap: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.lg
+  },
+  bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  bulletText: { ...typography.subhead, flex: 1 },
+  ackRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.lg
+  },
+  ackText: { ...typography.subhead, flex: 1 },
   input: {
     width: '100%',
     borderRadius: radii.md,
@@ -577,51 +697,18 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     paddingVertical: spacing.md
   },
-  primary: { width: '100%', borderRadius: radii.md, paddingVertical: spacing.lg, alignItems: 'center' },
-  primaryLabel: { ...typography.headline },
-  secondary: { paddingVertical: spacing.md, alignItems: 'center' },
-  secondaryLabel: { ...typography.body },
-  err: { ...typography.footnote, textAlign: 'center' },
-  fine: { ...typography.caption2, textAlign: 'center' },
-  ghost: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: spacing.md
-  },
-  ghostLabel: { ...typography.footnote, fontWeight: '600' },
-  backupRow: {
+  list: { borderRadius: radii.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  listRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.lg
+    minHeight: 44,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg
   },
-  backupRowText: { flex: 1, gap: spacing.xs },
-  backupRowTitle: { ...typography.headline },
-  backupRowSub: { ...typography.footnote },
-  paths: {
-    width: '100%',
-    gap: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.lg
-  },
-  pathsTitle: { ...typography.footnote, fontWeight: '600' },
-  pathRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-  pathText: { ...typography.footnote, flex: 1 },
-  pathsFine: { ...typography.caption2 },
-  warnBox: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    alignItems: 'flex-start',
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md
-  },
-  warnText: { ...typography.footnote, flex: 1 }
+  listLabel: { ...typography.body, flex: 1 },
+  primary: { width: '100%', borderRadius: radii.md, paddingVertical: spacing.lg, alignItems: 'center' },
+  primaryLabel: { ...typography.headline },
+  secondary: { paddingVertical: spacing.md, alignItems: 'center' },
+  secondaryLabel: { ...typography.body }
 })
