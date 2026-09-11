@@ -17,7 +17,7 @@
  * Lazy wallet creation is the Vault screen's job (its Deposit button); with no
  * built wallet the CTA here is simply inert.
  */
-import React, { useCallback, useContext, useEffect, useState } from 'react'
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AmountInput, SEND_MAX_VALUE } from '../components/wallet/AmountInput'
@@ -127,6 +127,11 @@ export function VaultTransferScreen() {
   const [chosenSerial, setChosenSerial] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Guards run()'s whole lifetime, not just the `busy` render state: without
+  // it a second tap that lands before the first `await` (e.g. the
+  // isBackupPushEnabled read below, which precedes setBusy(true)) re-enters
+  // run() while canRun is still true and busy is still false.
+  const runningRef = useRef(false)
 
   const isDeposit = direction !== 'withdraw'
   const isMax = amount === SEND_MAX_VALUE
@@ -167,7 +172,7 @@ export function VaultTransferScreen() {
   const validAmount = isDeposit
     ? Number.isFinite(sats) && sats >= VAULT_DEPOSIT_MIN
     : isMax || (Number.isFinite(sats) && sats > 0)
-  const canRun = validAmount && !busy && !!pm && (isDeposit ? released : chosen !== undefined)
+  const canRun = validAmount && !busy && !!pm && balance !== null && (isDeposit ? released : chosen !== undefined)
 
   /** `nickname · …tail4` for each referenced key; a key no longer in meta shows its pubkey tail. */
   const namesFor = useCallback(
@@ -225,6 +230,11 @@ export function VaultTransferScreen() {
 
   const run = useCallback(async () => {
     if (!pm || !canRun) return
+    // Whole-lifetime re-entrancy guard (not just `busy`): a second tap that
+    // lands before this function's first `await` still sees canRun true and
+    // busy false, so `busy` alone cannot stop it.
+    if (runningRef.current) return
+    runningRef.current = true
     const w = pm as unknown as VaultWallet
     const total = balance ?? 0
     setError(null)
@@ -328,6 +338,7 @@ export function VaultTransferScreen() {
       setError(vaultErrorCopy(code, errorParams(e)))
     } finally {
       setBusy(false)
+      runningRef.current = false
     }
   }, [
     pm,

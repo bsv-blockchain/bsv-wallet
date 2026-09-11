@@ -15,6 +15,10 @@ let mockBalance: number | null = 0
 let mockVaultEnabled = true
 let mockBackupOn = true
 let mockWallet: any
+// A jest.fn (not the plain arrow the other flags use) so a single test can
+// override it with a promise it controls, to simulate a tap landing while
+// this AsyncStorage read is still in flight.
+const mockIsBackupPushEnabled = jest.fn(async () => mockBackupOn)
 
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
@@ -30,7 +34,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     depositToVault: (...a: unknown[]) => mockDeposit(...a),
     withdrawFromVault: (...a: unknown[]) => mockWithdraw(...a),
     isVaultEnabled: () => mockVaultEnabled,
-    isBackupPushEnabled: async () => mockBackupOn,
+    isBackupPushEnabled: (...a: unknown[]) => mockIsBackupPushEnabled(...a),
     getOnline: async () => true,
     estimateRelockFee: () => 3080,
     R1C_LOCK_LEN: () => 27881,
@@ -107,6 +111,7 @@ beforeEach(() => {
   mockBackupOn = true
   mockDeposit.mockReset().mockResolvedValue({ txid: 'd' })
   mockWithdraw.mockReset().mockResolvedValue(OK_RESULT)
+  mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockShowAlert.mockReset()
   mockWallet = {
     managers: { permissionsManager: { createAction: jest.fn() } },
@@ -166,6 +171,27 @@ describe('deposit', () => {
     expect(mockDeposit).toHaveBeenCalledTimes(1)
   })
 
+  test('a double tap during the backup check deposits only once', async () => {
+    mockBalance = 500_000
+    let resolveBackup: (v: boolean) => void = () => {}
+    mockIsBackupPushEnabled.mockImplementationOnce(
+      () => new Promise<boolean>(resolve => { resolveBackup = resolve })
+    )
+    const screen = await renderTransfer('deposit')
+    fireEvent.changeText(screen.getByTestId('amount'), '200000')
+    await act(async () => {
+      fireEvent.press(screen.getByText('vault_deposit_cta'))
+      fireEvent.press(screen.getByText('vault_deposit_cta'))
+    })
+    await act(async () => {
+      resolveBackup(true)
+      await new Promise(r => setImmediate(r))
+    })
+    await settle()
+    expect(mockIsBackupPushEnabled).toHaveBeenCalledTimes(1)
+    expect(mockDeposit).toHaveBeenCalledTimes(1)
+  })
+
   test('backup off: the alert with the settings CTA, no deposit', async () => {
     mockBackupOn = false
     mockShowAlert.mockResolvedValueOnce('settings')
@@ -212,6 +238,13 @@ describe('withdraw', () => {
     const radios = screen.getAllByRole('radio')
     expect(radios).toHaveLength(2)
     expect(radios[1].props.accessibilityState).toEqual({ selected: true })
+  })
+
+  test('an unknown balance keeps the CTA inert even with a key chosen and a valid amount', async () => {
+    mockBalance = null
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '50000', 'vault_withdraw_cta')
+    expect(mockWithdraw).not.toHaveBeenCalled()
   })
 
   test('passes the chosen serial to withdrawFromVault, and follows a change of choice', async () => {
