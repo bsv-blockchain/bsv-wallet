@@ -77,6 +77,11 @@ Behaviour changes:
   per input in batches of 16 per NFC tap, resuming after a dropped tap.
 - `generateVaultKey` enrols with touch policy `cached` (was `always`) and
   always generates a fresh key (no adoption).
+- `enrollKey` refuses a serial already in the stored key list itself
+  (meta ∪ `pendingSerials`), inside the card session and before the PIN is
+  spent or the slot is regenerated; `finalizeEnrollment` refuses
+  (`key-already-enrolled`) while a vault is already enrolled, so Finish never
+  replaces a live key list.
 - A device holding v4 meta reads as not enrolled; the legacy SecureStore seal
   is deleted on `VaultProvider` mount. Sweep any dev device holding K1 vault
   funds BEFORE installing this version — the K1 sweep tooling is gone.

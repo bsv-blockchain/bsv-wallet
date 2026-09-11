@@ -136,6 +136,33 @@ describe('enrollKey', () => {
     expect(await mock.readVaultPublicKey(VAULT_SLOT)).toBeNull() // slot untouched
   })
 
+  test('a serial in the STORED key list is refused by the service itself (pendingSerials empty), BEFORE the PIN is spent or the slot is touched', async () => {
+    // The wizard passes meta ∪ pending, but its copy of meta loads
+    // asynchronously; the service reads the store itself, so an enrolled
+    // card is refused however early the tap lands (spec §3.3 step 2).
+    await vaultStore.setMeta({ v: 5, createdAt: 1, keys: [{ ...rec(1), serial: 'MOCK-1' }, rec(2)] })
+    const genSpy = jest.spyOn(mock, 'generateVaultKey')
+    const verifySpy = jest.spyOn(mock, 'verifyPin')
+    const err = await enrollKey(args({ pendingSerials: [] })).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-already-enrolled' })
+    expect(err.message).toBe('MOCK-1') // same shape the wizard already resolves to a nickname
+    expect(err.details).toEqual({ serial: 'MOCK-1' })
+    expect(genSpy).not.toHaveBeenCalled()
+    expect(verifySpy).not.toHaveBeenCalled()
+    expect(await mock.readVaultPublicKey(VAULT_SLOT)).toBeNull() // slot untouched
+    // The stored list is exactly as it was: enrollKey reads meta, never writes it.
+    expect((await vaultStore.getMeta())!.keys.map(k => k.serial)).toEqual(['MOCK-1', rec(2).serial])
+  })
+
+  test('a different card enrols normally while a vault is stored (the add-key path): meta is read, not written', async () => {
+    await vaultStore.setMeta({ v: 5, createdAt: 1, keys: [rec(1), rec(2)] })
+    mock.insertKey('MOCK-2')
+    const record = await enrollKey(args({ pendingSerials: [rec(1).serial, rec(2).serial] }))
+    expect(record.serial).toBe('MOCK-2')
+    expect(record.nickname).toBe('Key 3')
+    expect((await vaultStore.getMeta())!.keys).toEqual([rec(1), rec(2)])
+  })
+
   test('pin-locked propagates, and the slot is untouched', async () => {
     await mock.verifyPin('000000')
     await mock.verifyPin('000000')
@@ -294,8 +321,24 @@ describe('finalizeEnrollment', () => {
     expect(meta.keys).toEqual([rec(1), rec(2)])
     expect(meta.lastUsedSerial).toBeUndefined()
 
-    await finalizeEnrollment([1, 2, 3, 4, 5].map(rec)) // a fresh Finish replaces the list
+    await disableVault() // a Finish never replaces a live vault (next test); start over first
+    await finalizeEnrollment([1, 2, 3, 4, 5].map(rec))
     expect((await vaultStore.getMeta())!.keys).toHaveLength(5)
+  })
+
+  test('a vault already enrolled → key-already-enrolled naming an enrolled serial, the live key list untouched; with no vault it resolves', async () => {
+    // Finish must never silently replace the key list that guards existing
+    // deposits. The code is reused (no new locale copy); the serial lets the
+    // wizard name a key it already knows.
+    await finalizeEnrollment([rec(1), rec(2)])
+    const err = await finalizeEnrollment([rec(3), rec(4)]).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-already-enrolled' })
+    expect(err.details).toEqual({ serial: rec(1).serial })
+    expect((await vaultStore.getMeta())!.keys).toEqual([rec(1), rec(2)])
+
+    await disableVault()
+    await expect(finalizeEnrollment([rec(3), rec(4)])).resolves.toBeUndefined()
+    expect((await vaultStore.getMeta())!.keys).toEqual([rec(3), rec(4)])
   })
 
   test('two REAL enrollments round-trip with lowercase compressed pubkeys', async () => {
@@ -326,6 +369,7 @@ describe('addVaultKey / disableVault', () => {
     await expect(addVaultKey(rec(1))).rejects.toMatchObject({ code: 'not-enrolled' })
     await finalizeEnrollment([1, 2, 3, 4, 5].map(rec))
     await expect(addVaultKey(rec(6))).rejects.toMatchObject({ code: 'too-many-keys' })
+    await disableVault()
     await finalizeEnrollment([rec(1), rec(2)])
     await expect(addVaultKey({ ...rec(1), nickname: 'again' })).rejects.toMatchObject({ code: 'key-already-enrolled' })
   })

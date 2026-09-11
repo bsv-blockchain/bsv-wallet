@@ -41,11 +41,15 @@ export type EnrollPhase = 'connecting' | 'pin-check' | 'generating' | 'done'
  * Enrol ONE YubiKey: one card session (one NFC tap), one fresh key, one
  * public record back. Persists nothing.
  *
- * `pendingSerials` are the serials that must be refused — already in
- * meta.keys, or already enrolled earlier in this wizard run. The check runs
- * FIRST inside the session, before the PIN is spent and, above all, before
- * generateVaultKey replaces whatever the slot holds: re-tapping an enrolled
- * card must cost nothing (spec §3.3 step 2).
+ * `pendingSerials` are the serials enrolled earlier in this wizard run (the
+ * wizard also passes meta.keys' serials, and may keep doing so). The
+ * serials already in meta.keys are read HERE, from the store, so the refusal
+ * does not depend on the caller's copy of the key list being loaded yet: the
+ * service is the thing that stands between an enrolled card and
+ * generateVaultKey. The check runs FIRST inside the session, before the PIN
+ * is spent and, above all, before generateVaultKey replaces whatever the
+ * slot holds: re-tapping an enrolled card must cost nothing (spec §3.3
+ * step 2).
  *
  * All user input (PIN, replacement PIN) is gathered BEFORE the tap: on NFC the
  * scan sheet is a system modal that covers the app.
@@ -68,6 +72,13 @@ export async function enrollKey(args: {
   const driver = getVaultDriver()
   if (!driver) throw new VaultError('driver-unavailable')
 
+  // The enrolled key list, read once (AsyncStorage) before any user input or
+  // key contact. Refused alongside pendingSerials below — meta ∪ pending —
+  // so an enrolled card is refused even when the caller's own copy of meta
+  // has not loaded (the wizard's key list arrives asynchronously).
+  const meta = await vaultStore.getMeta()
+  const refused = new Set<string>([...(meta?.keys.map(k => k.serial) ?? []), ...args.pendingSerials])
+
   // ── ALL user input up front, BEFORE any key contact ──
   args.onPhase('pin-check')
   const pin0 = await args.getPin()
@@ -85,7 +96,7 @@ export async function enrollKey(args: {
     driver,
     async () => {
       const info = await driver.getKeyInfo()
-      if (args.pendingSerials.includes(info.serial)) {
+      if (refused.has(info.serial)) {
         // The message IS the serial: the wizard resolves it to a nickname.
         throw new VaultError('key-already-enrolled', info.serial, undefined, { serial: info.serial })
       }
@@ -127,7 +138,15 @@ export async function enrollKey(args: {
 
 /** Commit an enrollment: the wizard's 2..5 records become meta v5, atomically
  * (one AsyncStorage write). The bounds are defensive — the wizard cannot
- * reach Finish with fewer than two keys and disables Add at five. */
+ * reach Finish with fewer than two keys and disables Add at five.
+ *
+ * Refuses while a vault is already enrolled: Finish must never silently
+ * replace the key list that guards existing deposits (disableVault, offered
+ * only at zero balance, is the way to start over; addVaultKey is the way to
+ * grow the list). The refusal reuses `key-already-enrolled` — the closest
+ * existing code, whose copy the wizard already renders with the serial it
+ * carries — rather than minting a new VaultErrorCode that would need its own
+ * copy in every locale. */
 export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<void> {
   if (records.length < VAULT_MIN_KEYS) {
     throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${records.length} given`)
@@ -139,6 +158,15 @@ export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<voi
   const dupeSerial = serials.find((s, i) => serials.indexOf(s) !== i)
   if (dupeSerial !== undefined) {
     throw new VaultError('key-already-enrolled', 'Duplicate serial in the enrollment', undefined, { serial: dupeSerial })
+  }
+  const existing = await vaultStore.getMeta()
+  if (existing && existing.keys.length > 0) {
+    throw new VaultError(
+      'key-already-enrolled',
+      'A vault is already enrolled on this device; disable it before enrolling again',
+      undefined,
+      { serial: existing.keys[0].serial }
+    )
   }
   await vaultStore.setMeta({ v: 5, createdAt: Date.now(), keys: records })
 }

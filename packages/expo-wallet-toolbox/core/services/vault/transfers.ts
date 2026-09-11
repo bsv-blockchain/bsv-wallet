@@ -1162,7 +1162,14 @@ async function spendVaultOutputs(
   const signed = await w.signAction({ reference, spends, options: { acceptDelayedBroadcast: true } }, adminOriginator)
   const txid = signed.txid ?? (signed.tx ? Transaction.fromAtomicBEEF(signed.tx).id('hex') : undefined)
   if (!txid) throw new VaultError('no-transaction', 'Vault spend produced no transaction')
-  await vaultStore.noteLastUsed(chosen.serial)
+  // Best-effort: the transaction is already with the monitor, so a failed
+  // AsyncStorage write here (the chooser's "last used" default) must never
+  // turn a completed transfer into a reported failure.
+  try {
+    await vaultStore.noteLastUsed(chosen.serial)
+  } catch (e) {
+    console.log('[vault] noteLastUsed failed (transfer already complete):', (e as Error)?.message)
+  }
   return result(txid)
 }
 

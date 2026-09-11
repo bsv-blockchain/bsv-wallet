@@ -355,6 +355,10 @@ export class CeremonyController {
    * trigger it. */
   cancel(): void {
     this.cancelled = true
+    // A PIN submitted before anything was waiting for it belongs to the
+    // ceremony being cancelled; the next one must show pin-entry, not
+    // silently consume it.
+    this.queuedPin = undefined
     const err = new VaultError('user-cancelled')
     this.pinWaiter?.reject(err)
     this.retryWaiter?.reject(err)
@@ -432,6 +436,12 @@ export class CeremonyController {
   private async run(): Promise<void> {
     // This attempt's identity for the rest of its life — see `generation`.
     const gen = ++this.generation
+    // Synchronous with requestSigner(): anything queued BEFORE this ceremony
+    // was asked for is stale (a failed or superseded attempt's leftovers) and
+    // must not be consumed by this attempt's collectPin. A PIN submitted
+    // after this point — including one that lands before pin-entry is
+    // painted — is this attempt's and is still queued for it.
+    this.queuedPin = undefined
     const driver = this.deps.getDriver()
     if (!driver) {
       this.failAll(new VaultError('driver-unavailable'))
@@ -811,6 +821,13 @@ export class CeremonyController {
       pubkey: key.pubkey,
       sign: async (digestHex, progress) => {
         if (released) throw deadSigner()
+        // Stale-but-unreleased: a successor ceremony has armed since this
+        // signer was handed out (see the module doc on coexisting signers).
+        // Refuse before painting a phase, restarting the retention timer or
+        // installing a retry/attach waiter over the successor's session. No
+        // caller can produce this today (transfers releases in a finally);
+        // hardening only.
+        if (this.activeHandle !== signer) throw deadSigner()
         if (progress) this.noteSigning(progress)
         // Batch boundary (spec §4.2 step 6). The progress published just above
         // is what the sheet shows under 'waiting-for-key' ("batch b of n").

@@ -251,6 +251,36 @@ describe('CeremonyController: arming', () => {
     expect(c.state.phase).toBe('idle')
   })
 
+  test('a PIN queued before cancel() is dropped: the next ceremony shows pin-entry instead of consuming it', async () => {
+    const { ceremony: c, mock } = await makeCeremony()
+    c.submitPin(PIN) // nothing is waiting for it — queued
+    c.cancel()
+    const verifySpy = jest.spyOn(mock, 'verifyPin')
+    const p = c.requestSigner('x', SERIAL_A)
+    mock.insertKey(SERIAL_A)
+    await flush()
+    expect(c.state.phase).toBe('pin-entry') // the stale PIN was not consumed
+    expect(verifySpy).not.toHaveBeenCalled()
+    c.submitPin(PIN)
+    ;(await p).release()
+  })
+
+  test('a PIN queued with no ceremony in flight is dropped when the next one starts; one submitted after it is asked for is kept', async () => {
+    const { ceremony: c, mock } = await makeCeremony()
+    c.submitPin(PIN) // leftover: no ceremony asked for it
+    const verifySpy = jest.spyOn(mock, 'verifyPin')
+    const p = c.requestSigner('x', SERIAL_A)
+    mock.insertKey(SERIAL_A)
+    await flush()
+    expect(c.state.phase).toBe('pin-entry')
+    expect(verifySpy).not.toHaveBeenCalled()
+    c.submitPin(PIN) // for THIS ceremony — consumed
+    const signer = await p
+    expect(c.state.phase).toBe('armed')
+    expect(verifySpy).toHaveBeenCalledTimes(1)
+    signer.release()
+  })
+
   test('armed window expires back to idle, fires onRelock(timeout), and the signer refuses afterwards', async () => {
     const h = await makeCeremony({ retentionMs: 1000 })
     const relocks: string[] = []
@@ -989,6 +1019,40 @@ describe('CeremonyController: one singleton, sequential ceremonies', () => {
     expect(signSpy).toHaveBeenCalledTimes(1) // no touch spent on signer1's behalf
     expect(verifies(await signer2.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
     signer2.release()
+  })
+})
+
+describe('CeremonyController: stale signer', () => {
+  test("a stale, unreleased signer's sign() is refused once a successor has armed — no repaint, no timer, no touch", async () => {
+    // No caller produces this today (transfers releases in a finally and the
+    // UI serialises transfers); this pins the hardening so a stale signer can
+    // never paint 'awaiting-touch', restart the retention window or install
+    // a retry/attach waiter over the successor's session.
+    const h = await makeCeremony()
+    const c = h.ceremony
+    const signSpy = jest.spyOn(h.mock, 'signEcdsa')
+    const signerA = await armA(h, 'op A')
+    // A second, independent ceremony arms while A's caller has not released.
+    const signerB = await armA(h, 'op B')
+    expect(signerB).not.toBe(signerA)
+    expect(c.state.phase).toBe('armed')
+    const armedUntil = c.state.armedUntil
+
+    const phases: string[] = []
+    const unsubscribe = c.subscribe(s => phases.push(s.phase))
+    await expect(signerA.sign(DIGEST, { index: 0, total: 1 })).rejects.toMatchObject({ code: 'key-removed-mid-op' })
+    unsubscribe()
+    expect(phases.every(p => p === 'armed')).toBe(true) // nothing painted over B
+    expect(c.state.progress).toBeUndefined() // B's position untouched
+    expect(c.state.armedUntil).toBe(armedUntil) // B's window not refreshed
+    expect(signSpy).not.toHaveBeenCalled()
+
+    // B is unaffected and still signs; A's late release is a no-op against the controller.
+    expect(verifies(await signerB.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
+    signerB.release()
+    expect(c.state.phase).toBe('idle')
+    signerA.release()
+    expect(c.state.phase).toBe('idle')
   })
 })
 

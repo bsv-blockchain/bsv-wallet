@@ -813,6 +813,16 @@ describe('withdrawFromVault', () => {
     expect((await vaultStore.getMeta())!.lastUsedSerial).toBe('A-1')
   }, 60_000)
 
+  it('a failing lastUsedSerial stamp never fails the transfer — the transaction is already with the monitor', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    jest.spyOn(vaultStore, 'noteLastUsed').mockRejectedValueOnce(new Error('disk full'))
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {})
+    await expect(withdrawAll()).resolves.toMatchObject({ txid: 'feedface'.repeat(8) })
+    expect(wallet.signAction).toHaveBeenCalledTimes(1)
+    expect(wallet.abortAction).not.toHaveBeenCalled() // past the point of no abort
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('[vault] noteLastUsed failed'), 'disk full')
+  }, 60_000)
+
   it('returns cappedInputs 0 and an empty unreachable set when every output is the chosen key\'s and fits', async () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
     const r = await withdrawAll()
