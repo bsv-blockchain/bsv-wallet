@@ -49,7 +49,10 @@ New:
   `VaultProgress.signed/total`.
 - Transfers: `depositToVault(w, adminOriginator, satoshis, opts?)` needs no
   hardware; `withdrawFromVault(w, adminOriginator, amount, reason,
-  chosenSerial, opts?)`; `relockVault`; `estimateRelockFee`;
+  chosenSerial, opts?)`; `previewVaultWithdrawal(w, adminOriginator,
+  chosenSerial, amount)` — the chosen key's selectable total, capped count
+  and unreachable set without reserving or tapping, for the remainder
+  confirmation before the tap; `relockVault`; `estimateRelockFee`;
   `getVaultKeyCoverage`; `orphanedIfRemoved`;
   `VaultSpendResult { txid, cappedInputs, unreachable }`;
   `VaultTransferOptions.vaultEnabled` / `backupEnabled`; error codes

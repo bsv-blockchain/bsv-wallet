@@ -10,14 +10,17 @@
  * in this wallet's database (D13).
  *
  * Withdraw asks which key will be tapped BEFORE anything runs (the NFC sheet is
- * modal), confirms when the remainder would fall under the vault floor, and
- * reports what did NOT move afterwards as alerts rather than toasts: outputs
- * the chosen key cannot open, and outputs left behind by the input cap.
+ * modal), previews what the chosen key can select (previewVaultWithdrawal —
+ * a database read, nothing reserved or tapped) so the remainder-fold
+ * confirmation is computed against THAT total rather than the whole balance,
+ * confirms when the remainder would fall under the vault floor, and reports
+ * what did NOT move afterwards as alerts rather than toasts: outputs the
+ * chosen key cannot open, and outputs left behind by the input cap.
  *
  * Lazy wallet creation is the Vault screen's job (its Deposit button); with no
  * built wallet the CTA here is simply inert.
  */
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AmountInput, SEND_MAX_VALUE } from '../components/wallet/AmountInput'
@@ -38,6 +41,7 @@ import {
   formatAmount,
   vaultStore,
   depositToVault,
+  previewVaultWithdrawal,
   withdrawFromVault,
   VAULT_DEPOSIT_MIN,
   VAULT_MAX_KEYS,
@@ -160,7 +164,9 @@ export function VaultTransferScreen() {
     }
   }, [])
 
-  const keys = meta?.keys ?? []
+  // Memoised: several useCallback deps below read it, and a fresh `[]` on
+  // every render would invalidate them all.
+  const keys = useMemo(() => meta?.keys ?? [], [meta])
   const chosen = keys.find(k => k.serial === chosenSerial)
   const allNames = keys.map(vaultKeyLabel).join(', ')
 
@@ -266,12 +272,21 @@ export function VaultTransferScreen() {
       } else {
         if (!chosen) return
         let withdrawAll = isMax
+        // What THIS key would select — a database read; nothing reserved or
+        // tapped. Its total can be less than the balance (outputs only other
+        // keys can open, or the input cap), and it is the figure the service
+        // folds or re-vaults the remainder against, so the remainder rule
+        // below must use it. A refusal here (key-cannot-cover, …) lands in
+        // the catch and shows inline, before any NFC sheet.
+        const preview = await previewVaultWithdrawal(w, adminOriginator, chosen.serial, withdrawAll ? 'all' : sats)
+        const remainder = preview.selectedTotal - (withdrawAll ? preview.selectedTotal : sats)
         // Remainder rule (spec §4.2 step 4): a leftover under the floor cannot
-        // be re-vaulted, so the whole vault would move. Say so before running.
-        if (!withdrawAll && total - sats > 0 && total - sats < VAULT_DEPOSIT_MIN) {
+        // be re-vaulted, so everything this key can select would move. Say so
+        // before running.
+        if (!withdrawAll && remainder > 0 && remainder < VAULT_DEPOSIT_MIN) {
           const choice = await showAlert({
             title: t('vault_remainder_title'),
-            message: t('vault_remainder_body', { amount: fmt(sats), remainder: fmt(total - sats) }),
+            message: t('vault_remainder_body', { amount: fmt(sats), remainder: fmt(remainder) }),
             buttons: [
               { text: t('vault_remainder_all'), key: 'all' },
               { text: t('vault_remainder_change'), key: 'change', style: 'cancel' }

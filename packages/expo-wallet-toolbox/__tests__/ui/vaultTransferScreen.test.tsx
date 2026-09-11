@@ -8,6 +8,7 @@ const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
 const mockDeposit = jest.fn()
 const mockWithdraw = jest.fn()
+const mockPreview = jest.fn()
 const mockRefresh = jest.fn()
 let mockParams: { direction?: string } = {}
 let mockMeta: unknown = null
@@ -32,6 +33,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     VaultError: jest.requireActual('../../core/services/vault/types').VaultError,
     vaultStore: { getMeta: async () => mockMeta },
     depositToVault: (...a: unknown[]) => mockDeposit(...a),
+    previewVaultWithdrawal: (...a: unknown[]) => mockPreview(...a),
     withdrawFromVault: (...a: unknown[]) => mockWithdraw(...a),
     isVaultEnabled: () => mockVaultEnabled,
     isBackupPushEnabled: (...a: unknown[]) => mockIsBackupPushEnabled(...a),
@@ -83,6 +85,13 @@ const key = (n: number, nickname: string, c: string) => ({
 })
 const META = { v: 5, createdAt: 1, lastUsedSerial: '12340002', keys: [key(1, 'Desk', 'a'), key(2, 'Safe', 'b')] }
 const OK_RESULT = { txid: 'tx', cappedInputs: 0, unreachable: { count: 0, satoshis: 0, keys: [] } }
+/** A preview in which the chosen key can select `selectedTotal`. */
+const previewOf = (selectedTotal: number, over: Record<string, unknown> = {}) => ({
+  selectedTotal,
+  cappedInputs: 0,
+  unreachable: { count: 0, satoshis: 0, keys: [] },
+  ...over
+})
 
 const settle = async () => {
   await act(async () => {
@@ -111,6 +120,9 @@ beforeEach(() => {
   mockBackupOn = true
   mockDeposit.mockReset().mockResolvedValue({ txid: 'd' })
   mockWithdraw.mockReset().mockResolvedValue(OK_RESULT)
+  // Default: the chosen key can select the whole balance. Remainder tests
+  // set the preview explicitly — the rule is computed from it, not the balance.
+  mockPreview.mockReset().mockImplementation(async () => previewOf(mockBalance ?? 0))
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockShowAlert.mockReset()
   mockWallet = {
@@ -251,6 +263,9 @@ describe('withdraw', () => {
     mockBalance = 500_000
     const screen = await renderTransfer('withdraw')
     await typeAndRun(screen, '50000', 'vault_withdraw_cta')
+    // The preview runs first, for the same key and amount, before anything is tapped.
+    expect(mockPreview).toHaveBeenCalledTimes(1)
+    expect(mockPreview.mock.calls[0]).toEqual([mockWallet.managers.permissionsManager, 'admin.test', '12340002', 50000])
     expect(mockWithdraw).toHaveBeenCalledTimes(1)
     expect(mockWithdraw.mock.calls[0].slice(0, 5)).toEqual([
       mockWallet.managers.permissionsManager,
@@ -269,6 +284,7 @@ describe('withdraw', () => {
 
   test('a remainder below the floor confirms; Withdraw everything runs with all', async () => {
     mockBalance = 150_000
+    mockPreview.mockResolvedValueOnce(previewOf(150_000))
     mockShowAlert.mockResolvedValueOnce('all')
     const screen = await renderTransfer('withdraw')
     await typeAndRun(screen, '80000', 'vault_withdraw_cta')
@@ -285,6 +301,7 @@ describe('withdraw', () => {
 
   test('Change amount on the remainder confirm withdraws nothing', async () => {
     mockBalance = 150_000
+    mockPreview.mockResolvedValueOnce(previewOf(150_000))
     mockShowAlert.mockResolvedValueOnce('change')
     const screen = await renderTransfer('withdraw')
     await typeAndRun(screen, '80000', 'vault_withdraw_cta')
@@ -293,10 +310,90 @@ describe('withdraw', () => {
 
   test('a remainder at or above the floor needs no confirm', async () => {
     mockBalance = 200_000
+    mockPreview.mockResolvedValueOnce(previewOf(200_000))
     const screen = await renderTransfer('withdraw')
     await typeAndRun(screen, '100000', 'vault_withdraw_cta')
     expect(mockShowAlert).not.toHaveBeenCalled()
     expect(mockWithdraw.mock.calls[0][2]).toBe(100000)
+  })
+
+  test('the remainder is measured against the CHOSEN key\'s selectable total, not the balance: vault 300,000, key reaches 200,000, withdraw 150,000 → confirm, and Withdraw everything runs with all', async () => {
+    // Spec §4.2 step 4. Against the balance the remainder would be 150,000
+    // (no prompt); the service folds against the key's 200,000, so 50,000
+    // would silently move — the confirmation must fire.
+    mockBalance = 300_000
+    mockPreview.mockResolvedValueOnce(
+      previewOf(200_000, { unreachable: { count: 1, satoshis: 100_000, keys: [{ serial: '12340001', pubkey: PUB('a') }] } })
+    )
+    mockShowAlert.mockResolvedValueOnce('all')
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '150000', 'vault_withdraw_cta')
+    expect(mockPreview).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340002', 150000)
+    expect(mockShowAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'vault_remainder_title',
+        message: 'vault_remainder_body:{"amount":"150,000 sats","remainder":"50,000 sats"}'
+      })
+    )
+    expect(mockWithdraw).toHaveBeenCalledTimes(1)
+    expect(mockWithdraw.mock.calls[0][2]).toBe('all')
+    expect(mockWithdraw.mock.calls[0][4]).toBe('12340002')
+  })
+
+  test('no confirm when the chosen key\'s selectable total leaves a remainder at the floor, whatever the balance', async () => {
+    mockBalance = 300_000
+    mockPreview.mockResolvedValueOnce(previewOf(250_000))
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '150000', 'vault_withdraw_cta')
+    expect(mockShowAlert).not.toHaveBeenCalled()
+    expect(mockWithdraw.mock.calls[0][2]).toBe(150000)
+  })
+
+  test('Max previews with all and never asks about a remainder', async () => {
+    mockBalance = 300_000
+    mockPreview.mockResolvedValueOnce(previewOf(200_000))
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '2099999999999999', 'vault_withdraw_cta')
+    expect(mockPreview.mock.calls[0][3]).toBe('all')
+    expect(mockShowAlert).not.toHaveBeenCalled()
+    expect(mockWithdraw.mock.calls[0][2]).toBe('all')
+  })
+
+  test('a preview refusal shows inline like a run-time error, before any withdrawal — key-cannot-cover names the key and the figures', async () => {
+    mockBalance = 500_000
+    const err = new VaultError('key-cannot-cover') as VaultError & { details?: unknown }
+    err.details = { reachable: 200_000, total: 500_000 }
+    mockPreview.mockRejectedValueOnce(err)
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '300000', 'vault_withdraw_cta')
+    expect(mockWithdraw).not.toHaveBeenCalled()
+    expect(mockShowAlert).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(
+        'vault_err_key_cannot_cover:{"nickname":"Safe · …0002","reachable":"200,000 sats","total":"500,000 sats","otherNames":"Desk · …0001"}'
+      )
+    ).toBeTruthy()
+    // The screen is usable again afterwards.
+    expect(screen.getByText('vault_withdraw_cta')).toBeTruthy()
+  })
+
+  test('a double tap during the preview withdraws only once', async () => {
+    mockBalance = 500_000
+    let resolvePreview: (v: unknown) => void = () => {}
+    mockPreview.mockImplementationOnce(() => new Promise(resolve => { resolvePreview = resolve }))
+    const screen = await renderTransfer('withdraw')
+    fireEvent.changeText(screen.getByTestId('amount'), '50000')
+    await act(async () => {
+      fireEvent.press(screen.getByText('vault_withdraw_cta'))
+      fireEvent.press(screen.getByText('vault_withdraw_cta'))
+    })
+    await act(async () => {
+      resolvePreview(previewOf(500_000))
+      await new Promise(r => setImmediate(r))
+    })
+    await settle()
+    expect(mockPreview).toHaveBeenCalledTimes(1)
+    expect(mockWithdraw).toHaveBeenCalledTimes(1)
   })
 
   test('unreachable outputs produce an alert after the transfer, naming the keys', async () => {

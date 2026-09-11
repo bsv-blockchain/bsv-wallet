@@ -1176,6 +1176,46 @@ async function spendVaultOutputs(
 // ── withdraw ────────────────────────────────────────────────────────────
 
 /**
+ * Cheapest refusal first, shared by the preview and the withdrawal. Every
+ * amount comparison in selectVaultInputs is `amount > x`, which is false for
+ * NaN, 0 and negatives: unguarded, NaN would withdraw everything the key can
+ * open, a negative would fund a re-vault output LARGER than the inputs from
+ * the hot wallet (bypassing the deposit gates), 0 would pay a fee to re-lock
+ * everything.
+ */
+function requireWithdrawalAmount(amount: number | 'all'): void {
+  if (amount !== 'all' && (!Number.isInteger(amount) || amount <= 0)) {
+    throw new VaultError('below-dust', 'Withdrawal amount must be a positive integer number of satoshis')
+  }
+}
+
+/**
+ * What a withdrawal with the CHOSEN key would select, without reserving,
+ * tapping or signing anything (spec §4.2 step 4 needs it BEFORE the tap).
+ *
+ * `selectedTotal` is the chosen key's selectable total — its committed
+ * outputs, largest first, within the input cap — which is what
+ * withdrawFromVault folds or re-vaults the remainder against, and which can
+ * be LESS than the vault balance when other keys hold part of it or the cap
+ * applies. The screen computes the remainder-fold confirmation from this
+ * figure, never from the whole balance. Throws exactly what the withdrawal's
+ * own selection would (`not-enrolled`, `vault-empty`, `key-not-committed`,
+ * `key-cannot-cover`, `amount-exceeds-balance`, `too-many-inputs`,
+ * `below-dust`), so those surface inline before any NFC sheet. Reads the
+ * wallet database only; no network, so it is not gated on being online.
+ */
+export async function previewVaultWithdrawal(
+  w: VaultWallet,
+  adminOriginator: string,
+  chosenSerial: string,
+  amount: number | 'all'
+): Promise<{ selectedTotal: number; cappedInputs: number; unreachable: VaultSpendResult['unreachable'] }> {
+  requireWithdrawalAmount(amount)
+  const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount)
+  return { selectedTotal: sel.acc, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable }
+}
+
+/**
  * Withdraw from the vault with the CHOSEN key (spec §4.2).
  *
  * `amount: 'all'` means "as much as one transaction can carry of what this
@@ -1194,14 +1234,8 @@ export async function withdrawFromVault(
   chosenSerial: string,
   opts?: VaultTransferOptions
 ): Promise<VaultSpendResult> {
-  // Cheapest refusal first, as in depositToVault. Every amount comparison in
-  // selectVaultInputs is `amount > x`, which is false for NaN, 0 and negatives:
-  // unguarded, NaN would withdraw everything the key can open, a negative
-  // would fund a re-vault output LARGER than the inputs from the hot wallet
-  // (bypassing the deposit gates), 0 would pay a fee to re-lock everything.
-  if (amount !== 'all' && (!Number.isInteger(amount) || amount <= 0)) {
-    throw new VaultError('below-dust', 'Withdrawal amount must be a positive integer number of satoshis')
-  }
+  // Cheapest refusal first, as in depositToVault — see requireWithdrawalAmount.
+  requireWithdrawalAmount(amount)
   // An offline user is never asked to present a key for a transfer that
   // cannot proceed.
   await requireOnline(opts)

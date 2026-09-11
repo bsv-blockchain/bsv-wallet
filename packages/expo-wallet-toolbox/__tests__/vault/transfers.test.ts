@@ -89,6 +89,7 @@ import {
   getVaultBalance,
   getVaultKeyCoverage,
   orphanedIfRemoved,
+  previewVaultWithdrawal,
   reclaimStagingOutputs,
   relockVault,
   withdrawFromVault
@@ -1165,6 +1166,74 @@ describe('withdrawFromVault', () => {
 })
 
 // ── double-spend self-heal (unchanged behaviour, R1C fixtures) ────────────
+
+describe('previewVaultWithdrawal', () => {
+  it('reports the chosen key\'s selectable total, capped count and unreachable set — the same figures the withdrawal then uses — reserving and tapping nothing', async () => {
+    const shared = vaultFixture(300_000, [PUB_A, PUB_B])
+    const bOnly = vaultFixture(400_000, [PUB_B])
+    const aOnly = vaultFixture(500_000, [PUB_A])
+    await seedVault([shared, bOnly, aOnly])
+
+    const preview = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 'all')
+    expect(preview).toEqual({
+      selectedTotal: 800_000, // A's two outputs, not the 1,200,000 balance
+      cappedInputs: 0,
+      unreachable: { count: 1, satoshis: 400_000, keys: [{ serial: 'B-1', pubkey: PUB_B }] }
+    })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+
+    // The withdrawal that follows selects exactly what the preview said.
+    const r = await withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'A-1')
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    const selectedSum = (caArgs.inputs as { outpoint: string }[])
+      .map(i => [shared, bOnly, aOnly].find(f => f.outpoint === i.outpoint)!.satoshis)
+      .reduce((s, v) => s + v, 0)
+    expect(selectedSum).toBe(preview.selectedTotal)
+    expect(r.cappedInputs).toBe(preview.cappedInputs)
+    expect(r.unreachable).toEqual(preview.unreachable)
+  }, 60_000)
+
+  it('the reviewer\'s case: vault 300,000 in three outputs, chosen key committed to 200,000, withdraw 150,000 → selectedTotal 200,000, and the withdrawal folds the 50,000 remainder', async () => {
+    const fx = [vaultFixture(100_000, [PUB_A, PUB_B]), vaultFixture(100_000, [PUB_A, PUB_B]), vaultFixture(100_000, [PUB_B])]
+    await seedVault(fx)
+    const preview = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 150_000)
+    expect(preview.selectedTotal).toBe(200_000) // NOT 300,000: the screen's remainder is 50,000, under the floor
+    expect(preview.unreachable).toEqual({ count: 1, satoshis: 100_000, keys: [{ serial: 'B-1', pubkey: PUB_B }] })
+
+    await withdrawFromVault(wallet, ADMIN, 150_000, 'Withdraw', 'A-1')
+    // 200,000 − 150,000 = 50,000 < VAULT_DEPOSIT_MIN → folded: no vault output.
+    expect(wallet.createAction.mock.calls[0][0].outputs).toEqual([])
+  }, 60_000)
+
+  it('reports cappedInputs like the withdrawal — selectedTotal is the capped sum', async () => {
+    await seedVault(Array.from({ length: VAULT_MAX_INPUTS + 2 }, () => vaultFixture(300_000, [PUB_A, PUB_B])))
+    const preview = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 'all')
+    expect(preview.selectedTotal).toBe(VAULT_MAX_INPUTS * 300_000)
+    expect(preview.cappedInputs).toBe(2)
+    expect(preview.unreachable.count).toBe(0)
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  }, 120_000)
+
+  it('throws exactly the selection\'s refusals: key-cannot-cover with details, not-enrolled, and below-dust for a bad amount — before any reservation or tap', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_B])])
+    const err = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 600_000).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-cannot-cover' })
+    expect(err.details).toEqual({ reachable: 500_000, total: 1_000_000 })
+
+    await expect(previewVaultWithdrawal(wallet, ADMIN, 'Z-9', 'all')).rejects.toMatchObject({ code: 'not-enrolled' })
+    await expect(previewVaultWithdrawal(wallet, ADMIN, 'A-1', NaN)).rejects.toMatchObject({ code: 'below-dust' })
+    await expect(previewVaultWithdrawal(wallet, ADMIN, 'A-1', 0)).rejects.toMatchObject({ code: 'below-dust' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
+  it('does not probe the online signal — it is a database read', async () => {
+    await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+    await expect(previewVaultWithdrawal(wallet, ADMIN, 'A-1', 'all')).resolves.toMatchObject({ selectedTotal: 300_000 })
+  })
+})
 
 describe('withdraw self-heals a double-spend from stuck reservations', () => {
   const reviewError = (competingTxs: string[]) =>
