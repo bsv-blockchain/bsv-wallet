@@ -71,6 +71,7 @@ import {
   isMessageBoxNetworkError,
   generateMnemonicWallet,
   backupAttestation,
+  isVaultEnabled,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
@@ -1217,14 +1218,20 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('pay_direction_receive')}</Text>
           </PressableScale>
 
-          <PressableScale
-            haptic="confirm"
-            onPress={() => router.push('/vault')}
-            style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
-          >
-            <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
-            <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('wallet_vault')}</Text>
-          </PressableScale>
+          {/* Release-gated (spec §5.5): no Vault destination until the host
+              turns vaultEnabled on. Plain push, not destinationPress —
+              enrolment needs no wallet, and the Vault screen's own Deposit
+              button runs the lazy wallet-creation path when it comes to that. */}
+          {isVaultEnabled() && (
+            <PressableScale
+              haptic="confirm"
+              onPress={() => router.push('/vault')}
+              style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
+            >
+              <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
+              <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('wallet_vault')}</Text>
+            </PressableScale>
+          )}
         </View>
       </View>
     ),

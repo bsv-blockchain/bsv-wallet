@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, ScrollView, StyleSheet } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { useTheme, spacing, typography, useWallet } from '@bsv/expo-wallet-toolbox'
+import { useTheme, spacing, typography, useWallet, isVaultEnabled } from '@bsv/expo-wallet-toolbox'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
 import AmountDisplay from '../components/wallet/AmountDisplay'
@@ -132,15 +132,19 @@ export function SettingsScreen() {
             icon="swap-horizontal-outline"
             iconColor={colors.success}
             onPress={() => router.push('/pay')}
+            isLast={!isVaultEnabled()}
           />
-          <ListRow
-            label={t('vault_row_title')}
-            icon="safe"
-            iconFamily="material-community"
-            iconColor="#30B0C7"
-            onPress={() => router.push('/vault' as any)}
-            isLast
-          />
+          {/* Same release gate as the home screen's Vault destination (spec §5.5). */}
+          {isVaultEnabled() && (
+            <ListRow
+              label={t('vault_row_title')}
+              icon="safe"
+              iconFamily="material-community"
+              iconColor="#30B0C7"
+              onPress={() => router.push('/vault' as any)}
+              isLast
+            />
+          )}
         </GroupedSection>
 
         {/* ── Settings drill-down ── */}
