@@ -41,4 +41,4 @@ Verification at d790087 (after the final fix wave — commits ae923b3, 05bc8ac, 
 5. End-to-end restore on hardware (encrypted backup and exported `.db`), then spend with an enrolled YubiKey.
 6. Sweep any dev device holding K1 (`v: 3`) vault funds before installing this build (spec §8).
 
-`vaultEnabled` stays off in `production` and `preview-apk` until 1–5 are recorded.
+2026-09-11: at the maintainer's request the `production` EAS profile now also sets `EXPO_PUBLIC_VAULT_ENABLED` so TestFlight builds show the vault for device testing. This supersedes the earlier "dev profiles only" rule; remove the entry from `production` before any App Store release that should hide the vault, or record items 1–5 first.
