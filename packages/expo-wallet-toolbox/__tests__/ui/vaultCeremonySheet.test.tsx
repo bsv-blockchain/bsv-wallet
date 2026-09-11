@@ -7,12 +7,13 @@ let mockState: Record<string, unknown> = { phase: 'idle' }
 let mockMeta: unknown = null
 const mockRetry = jest.fn()
 const mockCancel = jest.fn()
+const mockSubmitPin = jest.fn()
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
   useTheme: () => ({ colors: {} }),
   i18n: { t: (k: string, o?: Record<string, unknown>) => mockT(k, o) },
-  useVault: () => ({ state: mockState, submitPin: jest.fn(), cancel: mockCancel, retry: mockRetry }),
+  useVault: () => ({ state: mockState, submitPin: mockSubmitPin, cancel: mockCancel, retry: mockRetry }),
   vaultStore: { getMeta: async () => mockMeta },
   VAULT_INPUTS_PER_TAP: 16,
   haptics: { tap: jest.fn(), confirm: jest.fn(), success: jest.fn(), warning: jest.fn(), error: jest.fn() }
@@ -122,6 +123,30 @@ test('serial-mismatch with no meta falls back to the plain wrong-key line', asyn
   const screen = render(<VaultCeremonySheet />)
   await settle()
   expect(screen.getByText('vault_err_wrong_key')).toBeTruthy()
+})
+
+test('submitting the PIN hands it to the controller and clears the field at once', async () => {
+  mockState = { phase: 'pin-entry' }
+  const screen = render(<VaultCeremonySheet />)
+  await settle()
+  fireEvent.changeText(screen.getByPlaceholderText('••••••'), '123456')
+  expect(screen.getByPlaceholderText('••••••').props.value).toBe('123456')
+  fireEvent.press(screen.getByText('vault_unlock_cta'))
+  expect(mockSubmitPin).toHaveBeenCalledTimes(1)
+  expect(mockSubmitPin).toHaveBeenCalledWith('123456')
+  // Same phase — pin-entry was never re-entered — yet the field is empty:
+  // the PIN does not linger in the globally-mounted sheet's state.
+  expect(screen.getByPlaceholderText('••••••').props.value).toBe('')
+})
+
+test('a PIN shorter than four digits is not submitted and stays in the field', async () => {
+  mockState = { phase: 'pin-entry' }
+  const screen = render(<VaultCeremonySheet />)
+  await settle()
+  fireEvent.changeText(screen.getByPlaceholderText('••••••'), '123')
+  fireEvent.press(screen.getByText('vault_unlock_cta'))
+  expect(mockSubmitPin).not.toHaveBeenCalled()
+  expect(screen.getByPlaceholderText('••••••').props.value).toBe('123')
 })
 
 test('a wrong PIN shows the attempts left under the error', async () => {

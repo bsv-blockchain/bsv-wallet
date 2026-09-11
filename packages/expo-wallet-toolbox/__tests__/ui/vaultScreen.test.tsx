@@ -307,6 +307,24 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
+  test('flag off: the confirmation offers Remove only / Cancel — re-locking creates a vault output, which the flag gates', async () => {
+    // Same gating as the Re-lock actions (openGenericRelock): with the flag
+    // off the re-lock sheet could only refuse with not-released. The flag-on
+    // case above pins the three-button form.
+    mockVaultEnabled = false
+    mockGetMeta.mockResolvedValue(META3)
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Desk · …0001')))
+    await settle()
+    expect(mockShowAlert).toHaveBeenCalledTimes(2)
+    const confirm = mockShowAlert.mock.calls[1][0]
+    expect(confirm.title).toBe('vault_remove_title:{"nickname":"Desk"}')
+    expect(confirm.buttons.map((b: any) => b.text)).toEqual(['vault_remove_only', 'vault_cancel'])
+    expect(mockRemoveKey).toHaveBeenCalledWith('12340001')
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
+  })
+
   test('Remove and re-lock now removes, then opens the re-lock sheet', async () => {
     mockGetMeta.mockResolvedValue(META3)
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('relock')

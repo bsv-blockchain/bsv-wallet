@@ -27,7 +27,7 @@ import PressableScale from '../components/ui/PressableScale'
 import Sheet from '../components/ui/Sheet'
 import AmountDisplay from '../components/wallet/AmountDisplay'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
-import { showAlert } from '../components/ui/AlertCard'
+import { showAlert, type AlertButton } from '../components/ui/AlertCard'
 import { showToast } from '../components/ui/Toast'
 import { EnrollWizard } from '../components/vault/EnrollWizard'
 import { KeyChooser, vaultKeyLabel } from '../components/vault/KeyChooser'
@@ -371,14 +371,18 @@ export function VaultScreen() {
         return
       }
       const fee = estimateRelockFee(Math.max(coverage?.outputs ?? 1, 1), R1C_LOCK_LEN(m.keys.length - 1))
+      // Re-locking CREATES a vault output, which the release flag gates (spec
+      // §5.5) — the same gating as openGenericRelock. With the flag off the
+      // sheet could only refuse (not-released), so the option is not offered.
+      const buttons: AlertButton[] = [
+        ...(enabled ? [{ text: t('vault_remove_and_relock'), key: 'relock' }] : []),
+        { text: t('vault_remove_only'), key: 'remove', style: 'destructive' },
+        { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+      ]
       const choice = await showAlert({
         title,
         message: t('vault_remove_body', { nickname: rec.nickname, fee: fee.toLocaleString('en-US') }),
-        buttons: [
-          { text: t('vault_remove_and_relock'), key: 'relock' },
-          { text: t('vault_remove_only'), key: 'remove', style: 'destructive' },
-          { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
-        ]
+        buttons
       })
       if (choice !== 'relock' && choice !== 'remove') return
       try {
@@ -398,7 +402,7 @@ export function VaultScreen() {
       refreshCoverage()
       if (choice === 'relock') openRelock({ reason: t('vault_relock_reason_generic') })
     },
-    [coverage, pm, adminOriginator, reload, refreshCoverage, openRelock]
+    [coverage, pm, adminOriginator, enabled, reload, refreshCoverage, openRelock]
   )
 
   const keyActions = useCallback(

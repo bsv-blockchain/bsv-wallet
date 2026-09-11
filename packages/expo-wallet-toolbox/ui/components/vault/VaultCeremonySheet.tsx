@@ -258,7 +258,12 @@ export const VaultCeremonySheet: React.FC = () => {
             <PressableScale
               haptic="confirm"
               onPress={() => {
-                if (pin.length >= 4) submitPin(pin)
+                if (pin.length < 4) return
+                submitPin(pin)
+                // Drop it from component state the moment it is handed over:
+                // this sheet is mounted for the app's whole life, and the
+                // phase effect above only clears on RE-ENTERING pin-entry.
+                setPin('')
               }}
               style={[styles.primaryBtn, { backgroundColor: colors.accent, opacity: pin.length >= 4 ? 1 : 0.4 }]}
             >

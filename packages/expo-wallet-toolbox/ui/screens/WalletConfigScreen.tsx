@@ -804,8 +804,10 @@ export function WalletConfigScreen() {
             )}
             {/* Which of the three mock YubiKeys is "on the phone" right now.
                 A 1-of-N vault enrolled with MOCK-DEV-1 and MOCK-DEV-2 is
-                exercised by switching the present key between taps. Label is a
-                DEV-only literal, like the "Debugging" row below — not user copy. */}
+                exercised by switching the present key between taps. The label
+                is a literal rather than user copy because this row renders
+                only under the `__DEV__` gate just below — it never reaches a
+                release build. */}
             {__DEV__ && vaultMockOn && (
               <ListRow
                 label="Mock key present (dev)"
