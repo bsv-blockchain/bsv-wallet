@@ -4,10 +4,15 @@
  * VaultContext, which mirrors the ceremony singleton.
  *
  * Every phase says three things: WHY (the reason string / transfer summary),
- * WHAT to do now (the phase copy + illustration), and how long is left
- * (countdown on awaiting-touch and armed). Motion is scale/opacity of the
- * sheet's own subviews only — never a fractional-opacity animation over glass
- * (the UIVisualEffectView freeze guardrail).
+ * WHAT to do now (the phase copy + illustration), and how far along it is
+ * (countdown on awaiting-touch; `Signed k of n` and the batch number while a
+ * multi-input withdrawal is being signed — spec §4.2 step 8). Motion is
+ * scale/opacity of the sheet's own subviews only — never a fractional-opacity
+ * animation over glass (the UIVisualEffectView freeze guardrail).
+ *
+ * Error copy comes from vaultErrorCopy. CeremonyState carries no serial, so a
+ * serial-mismatch here can only list the vault's keys (read from meta); the
+ * "That's X — you chose Y" wording is the transfer screen's, which knows both.
  */
 import React, { useEffect, useRef, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ActivityIndicator, Platform } from 'react-native'
@@ -23,12 +28,16 @@ import Animated, {
 } from 'react-native-reanimated'
 import Sheet from '../ui/Sheet'
 import PressableScale from '../ui/PressableScale'
+import { vaultErrorCopy, RETRYABLE_VAULT_ERRORS } from './vaultErrorCopy'
+import { vaultKeyLabel } from './KeyChooser'
 import {
   useTheme,
   spacing,
   radii,
   typography,
   useVault,
+  vaultStore,
+  VAULT_INPUTS_PER_TAP,
   haptics,
   i18n,
   type CeremonyPhase,
@@ -54,32 +63,6 @@ function loadIonicons(): IoniconsComponent {
   return ioniconsComponent
 }
 
-const ERROR_COPY: Record<string, string> = {
-  'serial-mismatch': 'vault_err_wrong_key',
-  'wrong-key': 'vault_err_wrong_key',
-  'touch-timeout': 'vault_err_touch_timeout',
-  'pin-locked': 'vault_err_pin_locked',
-  'pin-invalid': 'vault_err_pin_invalid',
-  'key-removed-mid-op': 'vault_err_removed',
-  'no-key': 'vault_err_no_key',
-  'driver-unavailable': 'vault_err_unavailable',
-  'not-enrolled': 'vault_err_unavailable',
-  'mgmt-key-custom': 'vault_err_mgmt_key',
-  'user-cancelled': 'vault_err_generic',
-  'unsupported-platform': 'vault_err_unavailable',
-  'slot-occupied': 'vault_err_generic',
-  'pin-required': 'vault_enter_pin',
-  'nfc-lost': 'vault_err_nfc_lost'
-}
-
-/** Errors where the fix is simply "do the tap again" — worth a Retry button
- * instead of only Dismiss. Must stay a SUBSET of `CeremonyController`'s own
- * retryable set (services/vault/ceremony.ts) or the button renders but does
- * nothing — 'key-removed-mid-op' is deliberately excluded even though the
- * ceremony loop can produce it, because it can ALSO arrive from a moment the
- * loop doesn't cover (waiting-for-key), where retry would be a dead button. */
-const RETRYABLE_ERRORS = new Set<string>(['touch-timeout', 'nfc-lost'])
-
 /** Swallows the sheet's dismiss while work is in flight — `Sheet` requires an
  * onClose, and cancelling mid-operation is the thing we are preventing. */
 const noop = (): void => {}
@@ -101,12 +84,12 @@ export const VaultCeremonySheet: React.FC = () => {
   const { state, submitPin, cancel, retry } = useVault()
   const reducedMotion = useReducedMotion()
   const [pin, setPin] = useState('')
+  const [keyNames, setKeyNames] = useState('')
   const Ionicons = loadIonicons()
 
   const phase = state.phase
   // 'armed' stays hidden: it persists for the whole retention window, so
-  // showing it would leave the sheet up for minutes after a transfer is done
-  // — deposit and withdrawal both arm the same way and are treated alike here.
+  // showing it would leave the sheet up for minutes after a transfer is done.
   const visible = phase !== 'idle' && phase !== 'armed'
 
   /**
@@ -150,8 +133,37 @@ export const VaultCeremonySheet: React.FC = () => {
     if (phase === 'pin-entry') setPin('')
   }, [phase])
 
+  // The vault's key labels, for serial-mismatch copy. Read once per ceremony
+  // (when the sheet becomes visible), never during idle: this component is
+  // mounted for the app's whole life.
+  useEffect(() => {
+    if (!visible) return
+    let alive = true
+    void vaultStore
+      .getMeta()
+      .then(m => {
+        if (alive) setKeyNames(m ? m.keys.map(vaultKeyLabel).join(', ') : '')
+      })
+      .catch(() => {
+        if (alive) setKeyNames('')
+      })
+    return () => {
+      alive = false
+    }
+  }, [visible])
+
   const reason = state.reason
   const errCode = state.error?.code as VaultErrorCode | undefined
+  const progress = state.progress
+
+  // Batch arithmetic (spec §4.2 step 6): at most VAULT_INPUTS_PER_TAP digests
+  // per tap. `signed > 0` while waiting for a key means "between batches".
+  const batches = progress ? Math.max(1, Math.ceil(progress.total / VAULT_INPUTS_PER_TAP)) : 0
+  const batchIndex = progress ? Math.min(batches, Math.floor(progress.signed / VAULT_INPUTS_PER_TAP) + 1) : 0
+  const betweenBatches =
+    !!progress &&
+    progress.signed > 0 &&
+    (phase === 'waiting-for-key' || phase === 'awaiting-touch' || phase === 'connecting')
 
   // iOS talks to the key over NFC (a tap), Android over USB (insert + touch).
   const nfc = Platform.OS === 'ios'
@@ -171,7 +183,7 @@ export const VaultCeremonySheet: React.FC = () => {
       case 'broadcasting':
         return t('vault_sending_to_network')
       case 'error':
-        return t((errCode && ERROR_COPY[errCode]) ?? 'vault_err_generic')
+        return vaultErrorCopy(errCode, { names: keyNames || undefined })
       default:
         return ''
     }
@@ -194,12 +206,29 @@ export const VaultCeremonySheet: React.FC = () => {
 
         <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
 
+        {/* Between taps of a multi-batch signing: which batch this is, and how
+            far along. The iOS system NFC sheet covers this while it is up, so
+            this is what the user sees as it dismisses and before the next tap. */}
+        {betweenBatches && progress && (
+          <>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              {t('vault_nfc_sign_batch', { b: batchIndex, n: batches })}
+            </Text>
+            <Text style={[styles.hint, { color: colors.textSecondary }]}>
+              {t('vault_sign_progress', { signed: progress.signed, total: progress.total })}
+            </Text>
+          </>
+        )}
+
         {/* The whole point of the busy phases: say the work is real and say
-            not to leave, so a wait for tx assembly or the network reads as
-            progress rather than a hang. */}
+            not to leave. While signatures are being gathered, say how many. */}
         {busy && (
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            {phase === 'broadcasting' ? t('vault_sending_sub') : t('vault_unlocking_sub')}
+            {phase === 'broadcasting'
+              ? t('vault_sending_sub')
+              : progress
+                ? t('vault_sign_progress', { signed: progress.signed, total: progress.total })
+                : t('vault_unlocking_sub')}
           </Text>
         )}
 
@@ -248,7 +277,7 @@ export const VaultCeremonySheet: React.FC = () => {
 
         {phase === 'error' && (
           <View style={styles.errorActions}>
-            {errCode && RETRYABLE_ERRORS.has(errCode) && (
+            {errCode && RETRYABLE_VAULT_ERRORS.has(errCode) && (
               <PressableScale
                 haptic="confirm"
                 onPress={retry}
