@@ -1,4 +1,5 @@
 import React from 'react'
+import { BackHandler } from 'react-native'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
 const mockT = (k: string, o?: Record<string, unknown>) =>
@@ -65,6 +66,24 @@ const settle = async () => {
   })
 }
 
+/**
+ * Jest runs the iOS BackHandler, whose addEventListener is a no-op, so the
+ * wizard's hardware-back handler is captured here and "pressed" the way RN
+ * dispatches it on Android: newest subscription first.
+ */
+type BackPressHandler = () => boolean | null | undefined
+const backHandlers: BackPressHandler[] = []
+const pressBack = async () => {
+  const handler = backHandlers[backHandlers.length - 1]
+  expect(handler).toBeDefined()
+  let handled: boolean | null | undefined
+  await act(async () => {
+    handled = handler()
+  })
+  await settle()
+  return handled
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockMeta = null
@@ -73,6 +92,16 @@ beforeEach(() => {
   mockFinalize.mockReset().mockResolvedValue(undefined)
   mockAddVaultKey.mockReset().mockResolvedValue({ v: 5, createdAt: 1, keys: [] })
   mockShowAlert.mockReset()
+  backHandlers.length = 0
+  jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, handler) => {
+    backHandlers.push(handler)
+    return {
+      remove: () => {
+        const i = backHandlers.indexOf(handler)
+        if (i !== -1) backHandlers.splice(i, 1)
+      }
+    }
+  })
 })
 
 /** intro → key 1 pin sub-state. */
@@ -202,6 +231,81 @@ test('a duplicate of an already-enrolled key (add-key mode) has no Set it up aga
   expect(mockEnrollKey).toHaveBeenCalledWith(expect.objectContaining({ pendingSerials: ['12340001', '12340002'] }))
   expect(screen.getByText('vault_err_key_already_enrolled:{"nickname":"Safe"}')).toBeTruthy()
   expect(screen.queryByText('vault_key_setup_again')).toBeNull()
+})
+
+test('enroll mode refuses a card the stored meta already holds, without counting it toward the ordinal', async () => {
+  // A meta under a not-enrolled hero is a host-state anomaly (spec §3.3 step 2
+  // still says refuse): its serials go to enrollKey, which refuses BEFORE it
+  // spends the PIN or regenerates the slot; k stays 1 because Finish overwrites.
+  mockMeta = { v: 5, createdAt: 1, keys: [{ ...record('META0001', 'm'), nickname: 'Old desk' }] }
+  mockEnrollKey.mockRejectedValueOnce(dupError('META0001'))
+  const { screen } = await beginEnroll()
+  expect(screen.getByText('vault_key_step_title:{"k":1}')).toBeTruthy()
+
+  fireEvent.changeText(screen.getByLabelText('vault_enter_pin'), '654321')
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  expect(mockEnrollKey).toHaveBeenCalledTimes(1)
+  expect(mockEnrollKey.mock.calls[0][0].pendingSerials).toEqual(['META0001'])
+  expect(screen.getByText('vault_err_key_already_enrolled:{"nickname":"Old desk"}')).toBeTruthy()
+  expect(screen.getByText('vault_key_use_different')).toBeTruthy()
+  expect(screen.queryByText('vault_key_setup_again')).toBeNull()
+})
+
+test('hardware back on the enroll done step completes via onDone, with no leave-confirm', async () => {
+  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a')).mockResolvedValueOnce(record('12340002', 'b'))
+  const { screen, onDone, onCancel } = await beginEnroll()
+  await enrolOneKey(screen, 'Desk')
+  await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
+  await enrolOneKey(screen, 'Safe')
+  await act(async () => fireEvent.press(screen.getByText('vault_more_finish')))
+  await settle()
+  expect(screen.getByText('vault_done_cta')).toBeTruthy()
+
+  expect(await pressBack()).toBe(true)
+  expect(onDone).toHaveBeenCalledTimes(1)
+  expect(onCancel).not.toHaveBeenCalled()
+  expect(mockShowAlert).not.toHaveBeenCalled()
+})
+
+test('hardware back on the add-key done step hands off to the re-lock prompt via onDone', async () => {
+  mockMeta = { v: 5, createdAt: 1, keys: [{ ...record('12340001', 'a'), nickname: 'Desk' }, { ...record('12340002', 'b'), nickname: 'Safe' }] }
+  mockEnrollKey.mockResolvedValueOnce(record('12340003', 'c'))
+  const onDone = jest.fn()
+  const onCancel = jest.fn()
+  const screen = render(<EnrollWizard mode="add-key" onDone={onDone} onCancel={onCancel} />)
+  await settle()
+  await enrolOneKey(screen, 'Car')
+  expect(screen.getByText('vault_relock_now')).toBeTruthy()
+
+  expect(await pressBack()).toBe(true)
+  expect(onDone).toHaveBeenCalledTimes(1)
+  expect(onCancel).not.toHaveBeenCalled()
+  expect(mockShowAlert).not.toHaveBeenCalled()
+})
+
+test('hardware back is swallowed while a tap is in flight; the resolved record still reaches the name step', async () => {
+  let resolveTap!: (r: ReturnType<typeof record>) => void
+  mockEnrollKey.mockImplementationOnce(() => new Promise(r => { resolveTap = r }))
+  const { screen, onCancel } = await beginEnroll()
+  fireEvent.changeText(screen.getByLabelText('vault_enter_pin'), '654321')
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  expect(screen.getByText('vault_reading_key')).toBeTruthy()
+  // No way out is offered on the tap screen: neither leave link variant.
+  expect(screen.queryByText('vault_cancel')).toBeNull()
+  expect(screen.queryByText('vault_leave_setup')).toBeNull()
+
+  expect(await pressBack()).toBe(true)
+  expect(onCancel).not.toHaveBeenCalled()
+  expect(mockShowAlert).not.toHaveBeenCalled()
+  expect(screen.getByText('vault_reading_key')).toBeTruthy()
+
+  await act(async () => {
+    resolveTap(record('12340001', 'a'))
+  })
+  await settle()
+  expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
 })
 
 test('a blocked PIN keeps the pending keys and offers a different YubiKey or a retry', async () => {

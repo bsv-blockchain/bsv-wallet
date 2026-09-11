@@ -16,7 +16,16 @@
  *
  * The host screen hides its own back chevron while this is mounted: leaving
  * goes through `leave()` — the leave-confirm alert when at least one key is
- * unsaved — which is also wired to Android's hardware back button.
+ * unsaved — which is also wired to Android's hardware back button. On the
+ * `done` step back completes the wizard (`onDone`) instead, and while a card
+ * session is open it is swallowed: the tap's outcome must land somewhere.
+ *
+ * Whatever meta is stored is loaded in BOTH modes and its serials are always
+ * passed to `enrollKey` as `pendingSerials` (spec §3.3 step 2): that refusal is
+ * the only thing between an enrolled card and `generateVaultKey`, which wipes
+ * the slot. In enroll mode a stored meta is a host-state anomaly — its keys are
+ * refused (loud, safe) but never counted toward the ordinal or the cap, since
+ * Finish replaces whatever is stored.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator, BackHandler } from 'react-native'
@@ -122,10 +131,10 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const [step, setStep] = useState<Step>(mode === 'enroll' ? 'intro' : 'key')
   const [sub, setSub] = useState<KeySub>('pin')
   const [ack, setAck] = useState(false)
-  /** Keys already in meta — add-key mode only. A fresh enrollment has no meta
-   * to honour: Finish replaces whatever is stored, so nothing stored may shift
-   * the ordinal or refuse a card. */
-  const [enrolled, setEnrolled] = useState<VaultKeyRecord[]>([])
+  /** Keys already in the stored meta, loaded in both modes. Their serials are
+   * always refused; they count toward the ordinal and the cap in add-key mode
+   * only (see the file comment). */
+  const [metaKeys, setMetaKeys] = useState<VaultKeyRecord[]>([])
   /** Keys set up in this run and not yet persisted. Public data only. */
   const [pending, setPending] = useState<VaultKeyRecord[]>([])
   const [pin, setPin] = useState('')
@@ -148,12 +157,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const leaving = useRef(false)
 
   useEffect(() => {
-    if (mode !== 'add-key') return
     let alive = true
     vaultStore
       .getMeta()
       .then(m => {
-        if (alive && m) setEnrolled(m.keys)
+        if (alive && m) setMetaKeys(m.keys)
       })
       .catch(() => {
         /* addVaultKey reports 'not-enrolled' if meta is truly unreadable */
@@ -161,11 +169,14 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     return () => {
       alive = false
     }
-  }, [mode])
+  }, [])
 
-  const total = enrolled.length + pending.length
+  /** Stored keys that count toward the ordinal and the 5-key cap: all of them
+   * when adding to a vault, none while enrolling one (Finish overwrites). */
+  const enrolledCount = mode === 'add-key' ? metaKeys.length : 0
+  const total = enrolledCount + pending.length
   /** Ordinal of the key on screen: the next slot, or the pending slot being redone. */
-  const k = replaceIndex === null ? total + 1 : enrolled.length + replaceIndex + 1
+  const k = replaceIndex === null ? total + 1 : enrolledCount + replaceIndex + 1
   const needsNewPin = pin === DEFAULT_PIV_PIN
   const pinOk = pinLengthOk(pin) && (!needsNewPin || (pinLengthOk(newPin) && newPin !== DEFAULT_PIV_PIN))
   /** Keys that would be lost by leaving: pending ones plus a just-generated, not-yet-named one. */
@@ -182,6 +193,16 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
 
   // ── leaving ─────────────────────────────────────────────────────────
   const leave = useCallback(async () => {
+    // Everything is saved on `done`: back means the same as the Done button —
+    // hand off to the host (the re-lock prompt in add-key mode), never a
+    // "won't be saved yet" alert over a persisted vault.
+    if (step === 'done') {
+      onDone()
+      return
+    }
+    // A card session is open: its result must land in state, so back is
+    // swallowed (the BackHandler handler still returns true) until it settles.
+    if (tapInFlight.current) return
     if (busy || leaving.current) return
     leaving.current = true
     try {
@@ -200,7 +221,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     } finally {
       leaving.current = false
     }
-  }, [busy, unsaved, onCancel])
+  }, [step, busy, unsaved, onCancel, onDone])
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -246,7 +267,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       setPhase(null)
       setKeyError(null)
       setStepError(null)
-      const known = [...enrolled.map(r => r.serial), ...pending.map(r => r.serial)]
+      // Stored ∪ pending, in every mode: the service refuses these BEFORE it
+      // spends the PIN or regenerates the slot (spec §3.3 step 2).
+      const known = [...metaKeys.map(r => r.serial), ...pending.map(r => r.serial)]
       try {
         const record = await enrollKey({
           // "Set it up again" drops the duplicate's own serial so the service
@@ -287,7 +310,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         }
         const tapped = duplicateSerial(err)
         const dupPending = tapped ? pending.find(p => p.serial === tapped) : undefined
-        const dupEnrolled = tapped ? enrolled.find(p => p.serial === tapped) : undefined
+        const dupEnrolled = tapped ? metaKeys.find(p => p.serial === tapped) : undefined
         let copy: string
         if (err?.code === 'key-already-enrolled') {
           // Name the duplicate; with no record to name, the serial tail still
@@ -309,7 +332,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         tapInFlight.current = false
       }
     },
-    [enrolled, pending, pin, newPin, needsNewPin]
+    [metaKeys, pending, pin, newPin, needsNewPin]
   )
 
   // ── naming → more / addVaultKey ─────────────────────────────────────
