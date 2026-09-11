@@ -48,9 +48,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
  * what a plain local `npm run ios` with no .env.local gets. The EAS development,
  * dev-physical and production profiles set it; preview-apk carries no env block
  * at all. See eas.json.
+ *
+ * vaultEnabled: the YubiKey vault's release gate (its spec §0 / §5.5). Only
+ * the literal string "true" turns it on. The development and dev-physical
+ * profiles set EXPO_PUBLIC_VAULT_ENABLED; production omits it, so store builds
+ * hide the vault until the device run and the mainnet proof are recorded.
  */
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
+  vaultEnabled: process.env.EXPO_PUBLIC_VAULT_ENABLED === 'true',
   services: {
     main: {
       arcUrl: process.env.EXPO_PUBLIC_ARC_URL,

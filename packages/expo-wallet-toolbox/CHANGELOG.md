@@ -86,6 +86,29 @@ Behaviour changes:
   `VaultWallet.getPublicKey` and `createSignature` survive only for that
   reclaim.
 
+### Vault UI (breaking)
+
+- `EnrollWizard` is the sequential multi-key wizard (`mode: 'enroll' | 'add-key'`):
+  intro with the acknowledgement and the backup-push gate, one card session per
+  key with the PIN gathered before the tap, naming, Add another / Finish with
+  two keys minimum, leave-confirm while keys are pending.
+- `VaultScreen` shows the key list (`nickname · …serialTail4`), coverage badges,
+  add / rename / remove (refused when a re-lock is needed first), the re-lock
+  sheet, an **Export wallet data** row with its explainer, the footnote and
+  disable-when-empty. Deposit runs the lazy wallet-creation path.
+- `VaultTransferScreen` renders the deposit floor and fee inline, confirms the
+  first deposit and a below-floor remainder, lets the user choose the key
+  before a withdrawal, and reports unreachable and capped outputs as alerts.
+- `VaultCeremonySheet` shows `Signed k of n` and the batch number between taps.
+- New exports: `KeyChooser`, `vaultKeyLabel`, `vaultErrorCopy`,
+  `RETRYABLE_VAULT_ERRORS`, `useExportWalletData`, `useVaultCoverage`.
+- Removed exports: `PassphraseField`, `PhraseBackupSheet`, `VaultRecoverScreen`
+  (there is no phrase path). Hosts must drop their `vault-recover` route.
+- The home Vault button and the Settings Vault row render only when the host
+  passes `vaultEnabled: true` to `configureToolbox`.
+- i18n: the wizard, key-management, transfer-confirmation and error keys added
+  in all twelve locales; the K1/passphrase-era keys removed.
+
 ## 0.4.0
 
 ### Host-supplied configuration (breaking)
