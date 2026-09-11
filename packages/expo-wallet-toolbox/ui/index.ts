@@ -108,20 +108,22 @@ export {
   type RecoveredSecret
 } from './backupShares'
 
-// Vault UI (components/vault) + vault screens (Task 23 — extracted from
-// app/vault.tsx, app/vault-recover.tsx, app/vault-transfer.tsx). Also home
-// to VaultCeremonySheet, mounted at the app-shell level (app/_layout.tsx)
-// alongside PermissionSheet/ToastHost above.
+// Vault UI (components/vault) + vault screens (app/vault.tsx,
+// app/vault-transfer.tsx). Also home to VaultCeremonySheet, mounted at the
+// app-shell level (app/_layout.tsx) alongside PermissionSheet/ToastHost above.
+// The 1-of-N YubiKey vault has no phrase path: PassphraseField,
+// PhraseBackupSheet and VaultRecoverScreen are gone (spec §3.5).
 export { EnrollWizard } from './components/vault/EnrollWizard'
-export { PassphraseField, type PassphraseFieldProps } from './components/vault/PassphraseField'
-export { PhraseBackupSheet } from './components/vault/PhraseBackupSheet'
+export { KeyChooser, vaultKeyLabel } from './components/vault/KeyChooser'
+export { vaultErrorCopy, RETRYABLE_VAULT_ERRORS, type VaultErrorParams } from './components/vault/vaultErrorCopy'
 export { BackupReminderSheet } from './components/wallet/BackupReminderSheet'
 export { BiometricAdvisoryModal } from './components/wallet/BiometricAdvisoryModal'
 export { ImportFromBackupPrompt } from './components/wallet/ImportFromBackupPrompt'
 export { VaultCeremonySheet } from './components/vault/VaultCeremonySheet'
 export { useVaultBalance } from './hooks/useVaultBalance'
+export { useVaultCoverage } from './hooks/useVaultCoverage'
+export { useExportWalletData } from './hooks/useExportWalletData'
 export { VaultScreen } from './screens/VaultScreen'
-export { VaultRecoverScreen } from './screens/VaultRecoverScreen'
 export { VaultTransferScreen } from './screens/VaultTransferScreen'
 
 // Connections, pair, trust, and logs screens (Task 24 — extracted from

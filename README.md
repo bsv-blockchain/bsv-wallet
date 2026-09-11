@@ -114,7 +114,6 @@ bsv-wallet/
 │   ├── auth/                    #   Mnemonic create/import & Shamir-share recovery flows
 │   ├── pay.tsx                   #   Pay / Get paid -- one screen over three rails
 │   ├── vault.tsx                  #   Hardware-backed vault (YubiKey NFC/USB)
-│   ├── vault-recover.tsx           #   Vault recovery flow
 │   ├── vault-transfer.tsx           #   Vault deposit / withdraw
 │   ├── trust.tsx                     #   Trust / certifier management
 │   ├── connections.tsx                #   Paired external wallet connections
@@ -126,7 +125,7 @@ bsv-wallet/
 │                                            #   Retired routes -- redirect into /pay (old links still resolve)
 ├── components/
 │   ├── pay/                   #   Pay/Get paid screen pieces (handle, nearby, address rails)
-│   ├── vault/                  #   Enrollment wizard, ceremony sheet, passphrase field
+│   ├── vault/                  #   Enrollment wizard, ceremony sheet, key chooser
 │   ├── localpay/                #   Nearby-peer presence row
 │   ├── security/                 #   Wallet lock notice
 │   └── ui/                        #   Shared UI primitives (Sheet, GroupedList, ErrorBoundary, Toast, etc.)

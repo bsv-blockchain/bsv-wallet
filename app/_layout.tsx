@@ -171,7 +171,6 @@ export default function RootLayout() {
                             <Stack.Screen name="wallet-config" />
                             <Stack.Screen name="wallet-check" />
                             <Stack.Screen name="vault" />
-                            <Stack.Screen name="vault-recover" />
                             <Stack.Screen name="vault-transfer" />
                             <Stack.Screen name="pay" />
                             {/* The three below become redirect stubs into /pay (Task 14).

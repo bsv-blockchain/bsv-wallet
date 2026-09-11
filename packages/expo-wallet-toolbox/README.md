@@ -288,7 +288,6 @@ export { WalletHomeScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 | `SettingsScreen` | `app/settings.tsx` |
 | `WalletConfigScreen` | `app/wallet-config.tsx` |
 | `VaultScreen` | `app/vault.tsx` |
-| `VaultRecoverScreen` | `app/vault-recover.tsx` |
 | `VaultTransferScreen` | `app/vault-transfer.tsx` |
 | `ConnectionsScreen` | `app/connections.tsx` |
 | `PairScreen` | `app/pair.tsx` |
