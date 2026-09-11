@@ -1,46 +1,58 @@
 /**
- * Vault deposit / withdraw — full screen, not a drawer.
+ * Vault deposit / withdraw — full screen, not a drawer. Spec §4.1 / §4.2.
  *
  * Direction comes from the `direction` search param ('deposit' | 'withdraw').
  *
- * Both directions run the ceremony sheet. A deposit address is a BIP32 child
- * of the vault's PRIVATE HD node — there is no stored xpub to derive one
- * from without it — so even a deposit needs one YubiKey tap to unwrap that
- * node. Withdraw derives every input's key (and any re-vaulted remainder)
- * from the same unwrapped node and signs in software. Either way the ceremony
- * sheet takes over for insert/PIN/touch — that one stays a sheet
- * deliberately, because it fires from any screen as a system prompt.
+ * Deposit needs no hardware: the wallet builds an R1C output committed to every
+ * enrolled key and broadcasts it (depositToVault). The screen shows the floor
+ * and the fee inline, confirms the FIRST deposit into an empty vault, and
+ * refuses while the encrypted backup is off — every deposit's salt lives only
+ * in this wallet's database (D13).
+ *
+ * Withdraw asks which key will be tapped BEFORE anything runs (the NFC sheet is
+ * modal), confirms when the remainder would fall under the vault floor, and
+ * reports what did NOT move afterwards as alerts rather than toasts: outputs
+ * the chosen key cannot open, and outputs left behind by the input cap.
+ *
+ * Lazy wallet creation is the Vault screen's job (its Deposit button); with no
+ * built wallet the CTA here is simply inert.
  */
-import React, { useState, useCallback } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  TouchableOpacity
-} from 'react-native'
+import React, { useCallback, useContext, useEffect, useState } from 'react'
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AmountInput, SEND_MAX_VALUE } from '../components/wallet/AmountInput'
 import PressableScale from '../components/ui/PressableScale'
 import AmountDisplay from '../components/wallet/AmountDisplay'
 import { showToast } from '../components/ui/Toast'
 import { showAlert } from '../components/ui/AlertCard'
+import { KeyChooser, vaultKeyLabel } from '../components/vault/KeyChooser'
+import { vaultErrorCopy, type VaultErrorParams } from '../components/vault/vaultErrorCopy'
+import { useVaultBalance } from '../hooks/useVaultBalance'
 import {
   useTheme,
   spacing,
   radii,
   typography,
   useWallet,
+  ExchangeRateContext,
+  formatAmount,
+  vaultStore,
   depositToVault,
   withdrawFromVault,
+  VAULT_DEPOSIT_MIN,
+  VAULT_MAX_KEYS,
+  estimateRelockFee,
+  R1C_LOCK_LEN,
+  isVaultEnabled,
+  isBackupPushEnabled,
   type VaultWallet,
+  type VaultMeta,
+  type VaultSpendResult,
   getOnline,
   VaultError,
   haptics,
   i18n
 } from '@bsv/expo-wallet-toolbox'
-import { useVaultBalance } from '../hooks/useVaultBalance'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 
@@ -66,12 +78,9 @@ function loadIonicons(): IoniconsComponent {
  * file is barrel-exported from the package's `ui` entry point, and a static
  * top-level `import` of expo-router pulls in its own untransformed JSX
  * source (Navigator.js etc.), which Jest cannot parse for any consumer of the
- * barrel, even one that never navigates. Same pattern as
- * core/context/WalletContext.tsx's and WalletHomeScreen.tsx's lazy
- * expo-router load. `useLocalSearchParams` is a hook, but calling it via
- * `loadExpoRouter().useLocalSearchParams()` is equivalent to calling it
- * directly — the module is cached after the first call, so it is the exact
- * same function reference on every render, which is what the rules of hooks
+ * barrel, even one that never navigates. `useLocalSearchParams` is a hook, but
+ * calling it via `loadExpoRouter().useLocalSearchParams()` is the exact same
+ * function reference on every render, which is what the rules of hooks
  * actually require (a stable, unconditional call per render).
  */
 type ExpoRouterModule = typeof import('expo-router')
@@ -85,15 +94,23 @@ function loadExpoRouter(): ExpoRouterModule {
 }
 
 /**
- * i18next returns the KEY itself when a string is missing, and a key is
- * truthy — so the old `t(...) || t('vault_err_generic')` fallback never fired
- * and shipped raw keys like `vault_err_backup_required` to the screen.
+ * Optional structured details services attach to a VaultError per the
+ * DECISION: `key-cannot-cover` → `{ reachable, total }` (what the chosen key
+ * can reach and the vault's total); `serial-mismatch` → `{ tapped, chosen }`
+ * (both serials, so the sheet can say "That's X — you chose Y"). Read
+ * structurally so this file depends on no service type; when absent the copy
+ * degrades per vaultErrorCopy.
  */
-function translateVaultError(code: string | undefined): string {
-  if (!code) return t('vault_err_generic')
-  const key = `vault_err_${code.replace(/-/g, '_')}`
-  const translated = t(key)
-  return translated === key ? t('vault_err_generic') : translated
+function readErrorDetails(e: unknown): { reachable?: number; total?: number; tapped?: string; chosen?: string } {
+  const details = (e as { details?: unknown } | null)?.details
+  if (!details || typeof details !== 'object') return {}
+  const d = details as Record<string, unknown>
+  return {
+    reachable: typeof d.reachable === 'number' ? d.reachable : undefined,
+    total: typeof d.total === 'number' ? d.total : undefined,
+    tapped: typeof d.tapped === 'string' ? d.tapped : undefined,
+    chosen: typeof d.chosen === 'string' ? d.chosen : undefined
+  }
 }
 
 export function VaultTransferScreen() {
@@ -102,43 +119,165 @@ export function VaultTransferScreen() {
   const { router, useLocalSearchParams } = loadExpoRouter()
   const Ionicons = loadIonicons()
   const { direction } = useLocalSearchParams<{ direction?: string }>()
-  const { managers, adminOriginator, storage } = useWallet()
+  const { managers, adminOriginator, storage, settings } = useWallet()
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const { balance, refresh } = useVaultBalance()
+  const [meta, setMeta] = useState<VaultMeta | null>(null)
   const [amount, setAmount] = useState('')
+  const [chosenSerial, setChosenSerial] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const isDeposit = direction !== 'withdraw'
-
-  // Send max is a sentinel value, not a number: the withdraw path takes 'all'
-  // and lets the toolbox work out the fee, which is the only way to empty the
-  // vault exactly. Pre-computing "balance minus fee" here cannot work — a K1
-  // withdrawal's fee depends on how many vault inputs it takes to cover the
-  // amount (each input is an ordinary ~107-byte unlock), not on any one
-  // script's size, and that count is not known until the outputs are selected.
   const isMax = amount === SEND_MAX_VALUE
+  const released = isVaultEnabled()
+  const pm = managers?.permissionsManager
+  const currency = settings?.currency || 'BSV'
+  // The same formatter AmountDisplay wraps; a component cannot be interpolated
+  // into i18n.t, so the alerts and the floor line take the string form.
+  const fmt = useCallback(
+    (sats: number) => formatAmount(sats, currency, satoshisPerUSD, { usdToFiat }),
+    [currency, satoshisPerUSD, usdToFiat]
+  )
+
+  useEffect(() => {
+    let alive = true
+    void vaultStore.getMeta().then(m => {
+      if (!alive) return
+      setMeta(m)
+      if (!m || m.keys.length === 0) return
+      // Default to the key used last; a removed serial falls back to the first.
+      const lastUsed = m.keys.find(k => k.serial === m.lastUsedSerial)
+      setChosenSerial((lastUsed ?? m.keys[0]).serial)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const keys = meta?.keys ?? []
+  const chosen = keys.find(k => k.serial === chosenSerial)
+  const allNames = keys.map(vaultKeyLabel).join(', ')
+
+  // The lock's own size at the toolbox rate, plus its 10 % margin. The funding
+  // input adds ~15 sat on top; "about" is the right word for the copy.
+  const depositFee = estimateRelockFee(0, R1C_LOCK_LEN(Math.min(VAULT_MAX_KEYS, Math.max(1, keys.length))))
+
+  const sats = parseInt(amount, 10)
+  const validAmount = isDeposit
+    ? Number.isFinite(sats) && sats >= VAULT_DEPOSIT_MIN
+    : isMax || (Number.isFinite(sats) && sats > 0)
+  const canRun = validAmount && !busy && !!pm && (isDeposit ? released : chosen !== undefined)
+
+  /** `nickname · …tail4` for each referenced key; a key no longer in meta shows its pubkey tail. */
+  const namesFor = useCallback(
+    (refs: { serial?: string; pubkey: string }[]): string =>
+      refs
+        .map(r => {
+          const rec = keys.find(k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey)
+          return rec ? vaultKeyLabel(rec) : `…${r.pubkey.slice(-4)}`
+        })
+        .join(', '),
+    [keys]
+  )
+
+  const backupOffAlert = useCallback(async () => {
+    haptics.error()
+    const choice = await showAlert({
+      title: t('vault_backup_off_title'),
+      message: t('vault_backup_off_body'),
+      buttons: [
+        { text: t('vault_backup_off_cta'), key: 'settings' },
+        { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+      ]
+    })
+    // push (not replace) keeps this screen on the stack so the user can come
+    // back and retry the deposit after switching backup on.
+    if (choice === 'settings') router.push('/wallet-config')
+  }, [router])
+
+  /** Everything vaultErrorCopy can name for this screen's errors. */
+  const errorParams = useCallback(
+    (e: unknown): VaultErrorParams => {
+      const details = readErrorDetails(e)
+      // The DECISION: serial-mismatch carries { tapped, chosen } in
+      // VaultError.details, not in message — details.tapped is only ever an
+      // enrolled serial (or absent), so a lookup miss degrades to undefined
+      // exactly like every other missing param. The chosen key is read from
+      // details first (the serial the service actually ran with) and falls
+      // back to the in-app choice when a service attaches none.
+      const tapped = details.tapped ? keys.find(k => k.serial === details.tapped) : undefined
+      const chosenRec = (details.chosen ? keys.find(k => k.serial === details.chosen) : undefined) ?? chosen
+      const others = keys.filter(k => k.serial !== chosenRec?.serial)
+      return {
+        nickname: chosenRec ? vaultKeyLabel(chosenRec) : undefined,
+        chosenName: chosenRec ? vaultKeyLabel(chosenRec) : undefined,
+        tappedName: tapped ? vaultKeyLabel(tapped) : undefined,
+        otherNames: others.length ? others.map(vaultKeyLabel).join(', ') : undefined,
+        names: allNames || undefined,
+        reachable: details.reachable !== undefined ? fmt(details.reachable) : undefined,
+        total: details.total !== undefined ? fmt(details.total) : undefined,
+        count: e instanceof VaultError ? e.retriesLeft : undefined
+      }
+    },
+    [keys, chosen, allNames, fmt]
+  )
 
   const run = useCallback(async () => {
-    const pm = managers?.permissionsManager
-    const sats = parseInt(amount, 10)
-    if (!pm) return
-    if (!isMax && (!Number.isFinite(sats) || sats <= 0)) return
-    setBusy(true)
+    if (!pm || !canRun) return
+    const w = pm as unknown as VaultWallet
+    const total = balance ?? 0
     setError(null)
     try {
-      const w = pm as unknown as VaultWallet
       if (isDeposit) {
-        await depositToVault(w, adminOriginator, sats, t('vault_deposit_reason', { amount: sats }), {
-          isOnline: getOnline
-        })
-        // vaultOpen/haptic already fired by the ceremony's onArmed
+        // D13 first: the salt of this deposit will live only in this wallet's
+        // database, so an unbacked wallet must not create it.
+        if (!(await isBackupPushEnabled())) {
+          await backupOffAlert()
+          return
+        }
+        // The first deposit is the moment the recovery model becomes real
+        // money: say it once, with the names of the keys that hold it.
+        if (total === 0) {
+          const choice = await showAlert({
+            title: t('vault_first_deposit_title'),
+            message: t('vault_first_deposit_body', { amount: fmt(sats), count: keys.length, names: allNames }),
+            buttons: [
+              { text: t('vault_deposit_cta'), key: 'deposit' },
+              { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+            ]
+          })
+          if (choice !== 'deposit') return
+        }
+        setBusy(true)
+        await depositToVault(w, adminOriginator, sats, { isOnline: getOnline })
+        // The success toast carries the success haptic (Toast.tsx).
         showToast(t('vault_deposit_done'), { type: 'success' })
       } else {
-        const result = await withdrawFromVault(
+        if (!chosen) return
+        let withdrawAll = isMax
+        // Remainder rule (spec §4.2 step 4): a leftover under the floor cannot
+        // be re-vaulted, so the whole vault would move. Say so before running.
+        if (!withdrawAll && total - sats > 0 && total - sats < VAULT_DEPOSIT_MIN) {
+          const choice = await showAlert({
+            title: t('vault_remainder_title'),
+            message: t('vault_remainder_body', { amount: fmt(sats), remainder: fmt(total - sats) }),
+            buttons: [
+              { text: t('vault_remainder_all'), key: 'all' },
+              { text: t('vault_remainder_change'), key: 'change', style: 'cancel' }
+            ]
+          })
+          if (choice !== 'all') return
+          withdrawAll = true
+        }
+        setBusy(true)
+        const result: VaultSpendResult = await withdrawFromVault(
           w,
           adminOriginator,
-          isMax ? 'all' : sats,
-          t('vault_withdraw_reason', { amount: isMax ? (balance ?? 0) : sats }),
+          withdrawAll ? 'all' : sats,
+          // Becomes the NFC sheet's text for every tap of this withdrawal.
+          t('vault_withdraw_reason', { amount: withdrawAll ? total : sats }),
+          chosen.serial,
           {
             // Lets the reservation heal find the reserving transaction with one
             // indexed query instead of paging every action in the wallet.
@@ -146,17 +285,32 @@ export function VaultTransferScreen() {
             isOnline: getOnline
           }
         )
-        // vaultOpen/haptic already fired by the ceremony's onArmed
-        //
-        // A capped withdrawal is partial by design (see VAULT_MAX_INPUTS), so
-        // say so rather than letting the balance look wrong: the vault still
-        // holds the untouched outputs, and repeating the withdrawal moves them.
-        showToast(
-          result.remainingInputs > 0
-            ? t('vault_withdraw_partial', { count: result.remainingInputs })
-            : t('vault_withdraw_done'),
-          { type: 'success' }
-        )
+        // Alerts, not toasts, for what did NOT move (spec §4.2 step 8): the
+        // user has to act on both, and a toast can be missed.
+        const moved = withdrawAll ? Math.max(0, total - result.unreachable.satoshis) : sats
+        let reported = false
+        if (result.unreachable.count > 0) {
+          reported = true
+          await showAlert({
+            title: t('vault_unreachable_title'),
+            message: t('vault_unreachable_body', {
+              moved: fmt(moved),
+              count: result.unreachable.count,
+              amount: fmt(result.unreachable.satoshis),
+              names: namesFor(result.unreachable.keys)
+            }),
+            buttons: [{ text: t('vault_ok'), key: 'ok' }]
+          })
+        }
+        if (result.cappedInputs > 0) {
+          reported = true
+          await showAlert({
+            title: t('vault_withdraw_done'),
+            message: t('vault_withdraw_partial', { count: result.cappedInputs }),
+            buttons: [{ text: t('vault_ok'), key: 'ok' }]
+          })
+        }
+        if (!reported) showToast(t('vault_withdraw_done'), { type: 'success' })
       }
       setAmount('')
       refresh()
@@ -164,50 +318,39 @@ export function VaultTransferScreen() {
     } catch (e) {
       console.error('[vault] transfer failed:', e instanceof Error ? e.message : e, e)
       const code = e instanceof VaultError ? e.code : undefined
-
-      if (code === 'backup-required') {
-        // A blocked deposit needs a route out, not a red footnote. Matches the
-        // disable-while-funded pattern on the vault screen.
-        //
-        // The CTA goes to Settings > Wallet, not back to /vault: this refusal
-        // only fires once a vault already exists (deposit is only offered
-        // from the enrolled vault screen), and the enrolled vault screen has
-        // no backup affordance of its own — EnrollWizard, the only other
-        // place that records an attestation, isn't reachable from there.
-        // Printing recovery shares from wallet-config is a real backup and
-        // now records the same attestation (see handlePrintRecoveryShares),
-        // so it satisfies the gate. push (not replace) keeps this screen on
-        // the stack so the user can come back and retry the deposit.
-        haptics.error()
-        const choice = await showAlert({
-          title: t('vault_deposit_blocked_title'),
-          message: t('vault_deposit_blocked_message'),
-          buttons: [
-            { text: t('vault_deposit_blocked_dismiss'), style: 'cancel', key: 'cancel' },
-            { text: t('vault_deposit_blocked_cta'), key: 'backup' }
-          ]
-        })
-        if (choice === 'backup') router.push('/wallet-config')
+      if (code === 'backup-off') {
+        // The service's own D13 refusal lands on the same alert as the
+        // pre-check, with the same way out.
+        await backupOffAlert()
         return
       }
-
-      setError(translateVaultError(code))
       haptics.error()
+      setError(vaultErrorCopy(code, errorParams(e)))
     } finally {
       setBusy(false)
     }
-  }, [amount, isMax, balance, isDeposit, managers?.permissionsManager, adminOriginator, refresh, storage])
-
-  const sats = parseInt(amount, 10)
-  const valid = isMax || (Number.isFinite(sats) && sats > 0)
+  }, [
+    pm,
+    canRun,
+    balance,
+    isDeposit,
+    isMax,
+    sats,
+    keys.length,
+    allNames,
+    chosen,
+    adminOriginator,
+    storage,
+    fmt,
+    namesFor,
+    backupOffAlert,
+    errorParams,
+    refresh,
+    router
+  ])
 
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }
-      ]}
-    >
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
       <View style={[styles.header, { borderBottomColor: colors.separator }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
@@ -220,9 +363,7 @@ export function VaultTransferScreen() {
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         <View style={styles.balanceBlock}>
-          <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>
-            {t('vault_balance_label')}
-          </Text>
+          <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>{t('vault_balance_label')}</Text>
           <Text style={[styles.balance, { color: colors.textPrimary }]}>
             <AmountDisplay>{balance ?? 0}</AmountDisplay>
           </Text>
@@ -232,35 +373,46 @@ export function VaultTransferScreen() {
           {isDeposit ? t('vault_deposit_sub') : t('vault_withdraw_sub')}
         </Text>
 
-        <AmountInput
-          value={amount}
-          onChangeText={setAmount}
-          showMax={!isDeposit}
-          maxLabelKey="entire_vault_balance"
-        />
+        {!isDeposit && keys.length > 0 && (
+          <View style={styles.chooser}>
+            <Text style={[styles.chooserLabel, { color: colors.textPrimary }]}>{t('vault_choose_key')}</Text>
+            {/* Frozen while a ceremony runs: the highlighted key must stay the
+                one the NFC sheet is asking for. */}
+            <KeyChooser keys={keys} selected={chosenSerial} onSelect={busy ? () => {} : setChosenSerial} />
+          </View>
+        )}
+
+        <AmountInput value={amount} onChangeText={setAmount} showMax={!isDeposit} maxLabelKey="entire_vault_balance" />
+
+        {isDeposit && (
+          <Text style={[styles.floor, { color: colors.textSecondary }]}>
+            {t('vault_floor_line', {
+              floorDisplay: fmt(VAULT_DEPOSIT_MIN),
+              floorSats: VAULT_DEPOSIT_MIN.toLocaleString('en-US'),
+              feeDisplay: fmt(depositFee)
+            })}
+          </Text>
+        )}
+
+        {isDeposit && !released && (
+          <Text style={[styles.floor, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>
+        )}
 
         {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
 
         <PressableScale
           haptic="confirm"
-          onPress={valid && !busy ? run : undefined}
+          onPress={canRun ? () => void run() : undefined}
+          accessibilityState={{ disabled: !canRun }}
           style={[
             styles.primary,
-            {
-              backgroundColor: valid ? colors.accent : colors.backgroundElevated,
-              opacity: busy ? 0.6 : 1
-            }
+            { backgroundColor: canRun ? colors.accent : colors.backgroundElevated, opacity: busy ? 0.6 : 1 }
           ]}
         >
           {busy ? (
             <ActivityIndicator color={colors.textOnAccent} />
           ) : (
-            <Text
-              style={[
-                styles.primaryLabel,
-                { color: valid ? colors.textOnAccent : colors.textTertiary }
-              ]}
-            >
+            <Text style={[styles.primaryLabel, { color: canRun ? colors.textOnAccent : colors.textTertiary }]}>
               {isDeposit ? t('vault_deposit_cta') : t('vault_withdraw_cta')}
             </Text>
           )}
@@ -287,6 +439,9 @@ const styles = StyleSheet.create({
   balanceLabel: { ...typography.footnote, textTransform: 'uppercase' },
   balance: { ...typography.title1, fontVariant: ['tabular-nums'] },
   sub: { ...typography.subhead, textAlign: 'center' },
+  chooser: { gap: spacing.sm },
+  chooserLabel: { ...typography.headline },
+  floor: { ...typography.footnote, textAlign: 'center' },
   err: { ...typography.footnote, textAlign: 'center' },
   primary: { borderRadius: radii.md, paddingVertical: spacing.lg, alignItems: 'center' },
   primaryLabel: { ...typography.headline }
