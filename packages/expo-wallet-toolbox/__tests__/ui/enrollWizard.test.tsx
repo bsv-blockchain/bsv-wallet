@@ -7,6 +7,8 @@ const mockEnrollKey = jest.fn()
 const mockFinalize = jest.fn()
 const mockAddVaultKey = jest.fn()
 const mockResumeEnrollmentDraft = jest.fn()
+const mockResetPiv = jest.fn()
+const mockAcrossChains = jest.fn()
 const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
 let mockMeta: unknown = null
@@ -34,12 +36,14 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   resumeEnrollmentDraft: (...a: unknown[]) => mockResumeEnrollmentDraft(...a),
   finalizeEnrollment: (...a: unknown[]) => mockFinalize(...a),
   addVaultKey: (...a: unknown[]) => mockAddVaultKey(...a),
+  resetPivApplication: (...a: unknown[]) => mockResetPiv(...a),
   vaultStore: {
     captureScopeToken: () => ({ identityKey: 'scope', chain: 'test', generation: 1 }),
     assertScopeToken: jest.fn(),
     getMeta: async () => mockMeta,
     getEnrollmentDrafts: async () => mockDrafts,
-    getEnrollmentQuarantines: async () => mockQuarantines
+    getEnrollmentQuarantines: async () => mockQuarantines,
+    enrolledSerialsAcrossChains: (...a: unknown[]) => mockAcrossChains(...a)
   },
   VAULT_MIN_KEYS: 2,
   VAULT_MAX_KEYS: 5,
@@ -59,7 +63,7 @@ jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: (...a: unknown
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...a: unknown[]) => mockShowToast(...a) }))
 
 import { EnrollWizard } from '../../ui/components/vault/EnrollWizard'
-import { VaultError } from '../../core/services/vault/types'
+import { VaultError, type VaultErrorCode } from '../../core/services/vault/types'
 
 const record = (serial: string, tail: string) => ({
   serial,
@@ -111,6 +115,8 @@ beforeEach(() => {
   mockQuarantines = []
   mockEnrollKey.mockReset()
   mockResumeEnrollmentDraft.mockReset()
+  mockResetPiv.mockReset()
+  mockAcrossChains.mockReset().mockResolvedValue([])
   mockFinalize.mockReset().mockResolvedValue(undefined)
   mockAddVaultKey.mockReset().mockResolvedValue({ v: 5, createdAt: 1, keys: [] })
   mockShowAlert.mockReset()
@@ -645,6 +651,210 @@ test('add-key mode runs one key step, calls addVaultKey and ends on the re-lock 
   fireEvent.press(screen.getByText('vault_relock_now'))
   expect(onDone).toHaveBeenCalledTimes(1)
   expect(mockFinalize).not.toHaveBeenCalled()
+})
+
+// ── the in-app PIV reset ──────────────────────────────────────────────
+//
+// The destructive end of the wizard. Every test below is written so that it
+// fails if the guard it names is removed: the refusals carry a positive
+// control in the same test, so "no reset offered" can never pass merely
+// because the feature is absent.
+
+/** Walk to the tap, and have it fail with `code` (optionally carrying details). */
+async function failTapWith(code: VaultErrorCode, details?: Record<string, string>) {
+  mockEnrollKey.mockRejectedValueOnce(new VaultError(code, undefined, undefined, details))
+  const { screen, onCancel } = await beginEnroll()
+  enterCredentials(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  return { screen, onCancel }
+}
+
+/** From a failed tap, take the reset offer and land on the reset page. */
+async function openResetPage(code: VaultErrorCode = 'mgmt-key-custom', serial = '12340001') {
+  const ctx = await failTapWith(code, { serial })
+  fireEvent.press(ctx.screen.getByText('vault_reset_offer'))
+  await settle()
+  return ctx
+}
+
+const pressConfirm = async (screen: ReturnType<typeof render>) => {
+  await act(async () => fireEvent.press(screen.getByText('vault_reset_confirm')))
+  await settle()
+}
+
+test.each<VaultErrorCode>([
+  'mgmt-key-custom',
+  'pin-invalid',
+  'puk-invalid',
+  'pin-locked',
+  'puk-locked',
+  'slot-occupied'
+])('%s offers a reset when the serial is known', async code => {
+  const { screen } = await failTapWith(code, { serial: '12340001' })
+  expect(screen.getByText('vault_reset_offer')).toBeTruthy()
+})
+
+test('a counterfeit key is never offered a reset', async () => {
+  // Positive control first, same serial: without it this assertion would also
+  // pass if the offer never rendered anywhere.
+  const control = await failTapWith('mgmt-key-custom', { serial: '12340001' })
+  expect(control.screen.getByText('vault_reset_offer')).toBeTruthy()
+  control.screen.unmount()
+
+  const { screen } = await failTapWith('attestation-invalid', { serial: '12340001' })
+  expect(screen.queryByText('vault_reset_offer')).toBeNull()
+})
+
+test('an already-enrolled key is never offered a reset', async () => {
+  const control = await failTapWith('mgmt-key-custom', { serial: '12340001' })
+  expect(control.screen.getByText('vault_reset_offer')).toBeTruthy()
+  control.screen.unmount()
+
+  const { screen } = await failTapWith('key-already-enrolled', { serial: '12340001' })
+  expect(screen.queryByText('vault_reset_offer')).toBeNull()
+})
+
+test('without a serial there is nothing to bind a reset to, so none is offered', async () => {
+  const { screen } = await failTapWith('mgmt-key-custom')
+  expect(screen.queryByText('vault_reset_offer')).toBeNull()
+  // The same code WITH a serial does offer one (above), so this is the missing
+  // binding and not the feature simply being absent.
+  expect(screen.getByText('vault_retry')).toBeTruthy()
+})
+
+test('the reset page gates the destructive button on the acknowledgement', async () => {
+  const { screen } = await openResetPage()
+
+  expect(screen.getByText('vault_reset_title')).toBeTruthy()
+  await pressConfirm(screen)
+  expect(mockResetPiv).not.toHaveBeenCalled()
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+  expect(mockResetPiv).toHaveBeenCalledWith(
+    expect.objectContaining({
+      serial: '12340001',
+      acknowledgeDestroysAllCredentials: true
+    })
+  )
+})
+
+test('a successful reset returns to the tap step without re-asking for the PIN', async () => {
+  mockResetPiv.mockResolvedValueOnce(undefined)
+  const { screen } = await openResetPage()
+  // Queued after the failing tap so it is the RE-tap that succeeds.
+  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  expect(screen.queryByLabelText('vault_pin_choose_title')).toBeNull()
+  expect(mockEnrollKey).toHaveBeenCalledTimes(2)
+  // The same PIN and recovery code, because the card is back at factory state
+  // and neither was ever written to it.
+  await expect(mockEnrollKey.mock.calls[1][0].requestPinChange()).resolves.toEqual({
+    oldPin: '123456',
+    newPin: '654321'
+  })
+})
+
+test('the reset passes stored AND pending serials so a vault key can never be erased', async () => {
+  mockMeta = { v: 5, createdAt: 1, keys: [record('99990001', 'z')] }
+  mockEnrollKey
+    .mockResolvedValueOnce(record('12340001', 'a'))
+    .mockRejectedValueOnce(new VaultError('mgmt-key-custom', undefined, undefined, { serial: '12340002' }))
+    .mockResolvedValueOnce(record('12340002', 'b'))
+  mockResetPiv.mockResolvedValueOnce(undefined)
+
+  const { screen } = await beginEnroll()
+  await enrolOneKey(screen, 'Desk')
+  await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
+  enterCredentials(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
+  fireEvent.press(screen.getByText('vault_reset_offer'))
+  await settle()
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  const args = mockResetPiv.mock.calls[0][0]
+  expect(args.serial).toBe('12340002')
+  // Stored meta AND this run's not-yet-persisted key. Dropping either half
+  // silently removes half of pivReset's enrolled-key refusal.
+  expect(args.refuseSerials).toEqual(expect.arrayContaining(['99990001', '12340001']))
+})
+
+test('an unrecognized vault key on the card takes its own second consent', async () => {
+  mockResetPiv
+    .mockRejectedValueOnce(new VaultError('slot-occupied', undefined, undefined, { serial: '12340001' }))
+    .mockResolvedValueOnce(undefined)
+  const { screen } = await openResetPage()
+  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+  // The "erases everything" tick is NOT consent to wiping a vault key this
+  // device cannot account for. The first attempt must never pre-suppose it.
+  expect(mockResetPiv.mock.calls[0][0].acknowledgeUnrecognizedVaultKey).toBeUndefined()
+
+  expect(screen.getByText('vault_reset_unknown_ack')).toBeTruthy()
+  await pressConfirm(screen)
+  expect(mockResetPiv).toHaveBeenCalledTimes(1)
+
+  fireEvent.press(screen.getByText('vault_reset_unknown_ack'))
+  await pressConfirm(screen)
+  expect(mockResetPiv).toHaveBeenCalledTimes(2)
+  expect(mockResetPiv.mock.calls[1][0].acknowledgeUnrecognizedVaultKey).toBe(true)
+})
+
+test('unreadable vault records refuse the reset before any card contact, and say so', async () => {
+  mockAcrossChains.mockReset().mockRejectedValue(new VaultError('template-invalid', 'corrupt (teratest)'))
+  const { screen } = await openResetPage()
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  expect(mockResetPiv).not.toHaveBeenCalled()
+  expect(screen.getByText('vault_err_reset_unreadable')).toBeTruthy()
+  expect(screen.queryByText('vault_err_template_invalid')).toBeNull()
+})
+
+test('an interrupted reset never claims the key was left untouched', async () => {
+  // A lift after the RESET APDU rejects on a card that is already factory, and
+  // no code distinguishes it from a refusal before contact.
+  mockResetPiv.mockRejectedValueOnce(new VaultError('key-removed-mid-op'))
+  const { screen } = await openResetPage()
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  expect(screen.getByText('vault_reset_uncertain')).toBeTruthy()
+  expect(screen.queryByText('vault_err_key_removed_mid_op')).toBeNull()
+})
+
+test('a reset refused as an enrolled key says which mistake was prevented', async () => {
+  mockResetPiv.mockRejectedValueOnce(new VaultError('key-already-enrolled', '12340001'))
+  const { screen } = await openResetPage()
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  expect(screen.getByText('vault_err_reset_enrolled')).toBeTruthy()
+})
+
+test('resuming a saved key asks for that key’s existing PIN, not a new one', async () => {
+  // resumeEnrollmentDraft sends the PIN typed here, and the card already
+  // carries the one an earlier run set: three guesses lock a real vault key.
+  mockDrafts = [{ record: record('DRAFT001', 'a'), assurance: 'challenge-required' }]
+  const { screen } = await beginEnroll()
+  expect(screen.getByText('vault_enrollment_resume_pin_hint')).toBeTruthy()
+})
+
+test('with nothing to resume, the PIN page does not talk about an earlier PIN', async () => {
+  const { screen } = await beginEnroll()
+  expect(screen.queryByText('vault_enrollment_resume_pin_hint')).toBeNull()
 })
 
 test('Add another key disappears once five keys are set up', async () => {

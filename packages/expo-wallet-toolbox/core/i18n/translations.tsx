@@ -232,6 +232,24 @@ const resources = {
       vault_puk_body:
         'Write this down and keep it somewhere safe. It is the only way to unlock this key if the PIN is forgotten, and it will not be shown again.',
       vault_puk_ack: 'I have written this down',
+      vault_reset_offer: 'Reset this key',
+      vault_reset_title: 'Reset this key?',
+      vault_reset_body:
+        'This key has been used before. Resetting erases every certificate and key in its PIV application, not only the vault slot. Anything that relies on this key stops working.',
+      vault_reset_ack: 'I understand this erases everything on this key',
+      vault_reset_unknown_ack:
+        'This key already holds a vault key that no vault on this device claims. I understand erasing it destroys that key for good.',
+      vault_reset_confirm: 'Erase and reset',
+      vault_resetting: 'Resetting the key…',
+      vault_reset_done: 'Key reset. Tap it again to continue.',
+      vault_reset_uncertain:
+        'The reset did not finish. This key may already have been erased — check it before relying on it.',
+      vault_err_reset_enrolled:
+        'That key is already part of your vault — resetting it would destroy one of your vault keys.',
+      vault_err_reset_unreadable:
+        'Your vault records on this device could not be read, so there is no way to prove this key is not one of your vault keys. Nothing was erased and the reset is refused.',
+      vault_enrollment_resume_pin_hint:
+        'Resuming a saved key needs the PIN you chose for it earlier, not a new one. Three wrong tries lock the key.',
       vault_setup_step: 'Step {{n}} of {{total}}',
       vault_enrollment_resume: 'Resume saved key',
       vault_enrollment_reset_required:
@@ -1001,6 +1019,22 @@ const resources = {
       vault_puk_title: '您的恢复码',
       vault_puk_body: '请抄下并妥善保管。忘记 PIN 码时，这是解锁此密钥的唯一方式，且不会再次显示。',
       vault_puk_ack: '我已抄下',
+      vault_reset_offer: '重置此密钥',
+      vault_reset_title: '要重置此密钥吗？',
+      vault_reset_body:
+        '此密钥曾被使用过。重置会抹除其 PIV 应用中的所有证书和密钥，而不仅仅是保险库槽位。任何依赖此密钥的功能都将失效。',
+      vault_reset_ack: '我明白这会抹除此密钥上的所有内容',
+      vault_reset_unknown_ack:
+        '此密钥的保险库槽位已存有一把密钥，而本设备上的任何保险库都不认领它。我明白抹除它会永久销毁那把密钥。',
+      vault_reset_confirm: '抹除并重置',
+      vault_resetting: '正在重置密钥…',
+      vault_reset_done: '密钥已重置。请再次轻触以继续。',
+      vault_reset_uncertain: '重置未完成。此密钥可能已被抹除 — 在依赖它之前请先检查。',
+      vault_err_reset_enrolled: '该密钥已是您保险库的一部分 — 重置它会销毁您的一把保险库密钥。',
+      vault_err_reset_unreadable:
+        '无法读取本设备上的保险库记录，因此无法证明此密钥不是您的保险库密钥之一。未抹除任何内容，重置已被拒绝。',
+      vault_enrollment_resume_pin_hint:
+        '恢复已保存的密钥需要您先前为它设定的 PIN，而不是新的 PIN。连续输错三次会锁定该密钥。',
       vault_setup_step: '第 {{n}} 步，共 {{total}} 步',
       vault_enrollment_resume: '继续已保存的密钥',
       vault_enrollment_reset_required:
@@ -1714,6 +1748,24 @@ const resources = {
       vault_puk_body:
         'इसे लिखकर सुरक्षित जगह रखें। PIN भूल जाने पर इस कुंजी को खोलने का यही एकमात्र तरीका है, और यह दोबारा नहीं दिखाया जाएगा।',
       vault_puk_ack: 'मैंने इसे लिख लिया है',
+      vault_reset_offer: 'इस कुंजी को रीसेट करें',
+      vault_reset_title: 'इस कुंजी को रीसेट करें?',
+      vault_reset_body:
+        'यह कुंजी पहले इस्तेमाल हो चुकी है। रीसेट करने पर इसके PIV ऐप्लिकेशन का हर प्रमाणपत्र और कुंजी मिट जाएगी, सिर्फ़ वॉल्ट स्लॉट नहीं। इस कुंजी पर निर्भर सब कुछ काम करना बंद कर देगा।',
+      vault_reset_ack: 'मैं समझता हूँ कि इससे इस कुंजी का सब कुछ मिट जाएगा',
+      vault_reset_unknown_ack:
+        'इस कुंजी में पहले से एक वॉल्ट कुंजी है जिसे इस डिवाइस का कोई वॉल्ट अपना नहीं मानता। मैं समझता हूँ कि इसे मिटाने से वह कुंजी हमेशा के लिए नष्ट हो जाएगी।',
+      vault_reset_confirm: 'मिटाएँ और रीसेट करें',
+      vault_resetting: 'कुंजी रीसेट की जा रही है…',
+      vault_reset_done: 'कुंजी रीसेट हो गई। जारी रखने के लिए इसे फिर से टैप करें।',
+      vault_reset_uncertain:
+        'रीसेट पूरा नहीं हुआ। यह कुंजी शायद पहले ही मिट चुकी हो — इस पर भरोसा करने से पहले इसे जाँच लें।',
+      vault_err_reset_enrolled:
+        'वह कुंजी पहले से आपके वॉल्ट का हिस्सा है — उसे रीसेट करने से आपकी एक वॉल्ट कुंजी नष्ट हो जाएगी।',
+      vault_err_reset_unreadable:
+        'इस डिवाइस पर आपके वॉल्ट रिकॉर्ड पढ़े नहीं जा सके, इसलिए यह साबित नहीं किया जा सकता कि यह कुंजी आपकी वॉल्ट कुंजियों में से एक नहीं है। कुछ भी नहीं मिटाया गया और रीसेट अस्वीकार कर दिया गया।',
+      vault_enrollment_resume_pin_hint:
+        'सहेजी गई कुंजी फिर से शुरू करने के लिए वही PIN चाहिए जो आपने पहले उसके लिए चुना था, नया नहीं। तीन बार गलत होने पर कुंजी लॉक हो जाएगी।',
       vault_setup_step: 'चरण {{n}} / {{total}}',
       vault_enrollment_resume: 'सहेजी गई कुंजी जारी रखें',
       vault_enrollment_reset_required:
@@ -2460,6 +2512,24 @@ const resources = {
       vault_puk_body:
         'Anótalo y guárdalo en un lugar seguro. Es la única forma de desbloquear esta llave si olvidas el PIN, y no volverá a mostrarse.',
       vault_puk_ack: 'Lo he anotado',
+      vault_reset_offer: 'Restablecer esta llave',
+      vault_reset_title: '¿Restablecer esta llave?',
+      vault_reset_body:
+        'Esta llave ya se ha usado antes. Restablecerla borra todos los certificados y claves de su aplicación PIV, no solo la ranura de la caja fuerte. Todo lo que dependa de ella dejará de funcionar.',
+      vault_reset_ack: 'Entiendo que esto borra todo lo que hay en esta llave',
+      vault_reset_unknown_ack:
+        'Esta llave ya contiene una clave de caja fuerte que ninguna caja fuerte de este dispositivo reclama. Entiendo que borrarla destruye esa clave para siempre.',
+      vault_reset_confirm: 'Borrar y restablecer',
+      vault_resetting: 'Restableciendo la llave…',
+      vault_reset_done: 'Llave restablecida. Vuelve a acercarla para continuar.',
+      vault_reset_uncertain:
+        'El restablecimiento no terminó. Puede que esta llave ya se haya borrado: compruébala antes de confiar en ella.',
+      vault_err_reset_enrolled:
+        'Esa llave ya forma parte de tu caja fuerte: restablecerla destruiría una de tus claves.',
+      vault_err_reset_unreadable:
+        'No se pudieron leer los registros de tu caja fuerte en este dispositivo, así que no hay forma de probar que esta llave no es una de tus claves. No se borró nada y el restablecimiento queda rechazado.',
+      vault_enrollment_resume_pin_hint:
+        'Retomar una llave guardada requiere el PIN que elegiste antes para ella, no uno nuevo. Tres intentos fallidos la bloquean.',
       vault_setup_step: 'Paso {{n}} de {{total}}',
       vault_enrollment_resume: 'Reanudar clave guardada',
       vault_enrollment_reset_required:
@@ -3219,6 +3289,24 @@ const resources = {
       vault_puk_body:
         'Notez-le et conservez-le en lieu sûr. C’est le seul moyen de débloquer cette clé en cas d’oubli du code PIN, et il ne sera plus affiché.',
       vault_puk_ack: 'Je l’ai noté',
+      vault_reset_offer: 'Réinitialiser cette clé',
+      vault_reset_title: 'Réinitialiser cette clé ?',
+      vault_reset_body:
+        'Cette clé a déjà servi. La réinitialiser efface tous les certificats et toutes les clés de son application PIV, pas seulement l’emplacement du coffre. Tout ce qui en dépend cessera de fonctionner.',
+      vault_reset_ack: 'Je comprends que cela efface tout sur cette clé',
+      vault_reset_unknown_ack:
+        'Cette clé contient déjà une clé de coffre qu’aucun coffre de cet appareil ne revendique. Je comprends que l’effacer détruit cette clé définitivement.',
+      vault_reset_confirm: 'Effacer et réinitialiser',
+      vault_resetting: 'Réinitialisation de la clé…',
+      vault_reset_done: 'Clé réinitialisée. Présentez-la à nouveau pour continuer.',
+      vault_reset_uncertain:
+        'La réinitialisation ne s’est pas terminée. Cette clé a peut-être déjà été effacée — vérifiez-la avant de vous y fier.',
+      vault_err_reset_enrolled:
+        'Cette clé fait déjà partie de votre coffre — la réinitialiser détruirait une de vos clés.',
+      vault_err_reset_unreadable:
+        'Les enregistrements de votre coffre sur cet appareil n’ont pas pu être lus : impossible de prouver que cette clé n’est pas l’une des vôtres. Rien n’a été effacé et la réinitialisation est refusée.',
+      vault_enrollment_resume_pin_hint:
+        'Reprendre une clé enregistrée demande le code PIN que vous aviez choisi pour elle, pas un nouveau. Trois essais erronés la bloquent.',
       vault_setup_step: 'Étape {{n}} sur {{total}}',
       vault_enrollment_resume: 'Reprendre la clé enregistrée',
       vault_enrollment_reset_required:
@@ -3976,6 +4064,22 @@ const resources = {
       vault_puk_body:
         'دوّنه واحتفظ به في مكان آمن. إنه الطريقة الوحيدة لفتح هذا المفتاح إذا نسيت رمز PIN، ولن يُعرض مرة أخرى.',
       vault_puk_ack: 'لقد دوّنته',
+      vault_reset_offer: 'إعادة ضبط هذا المفتاح',
+      vault_reset_title: 'إعادة ضبط هذا المفتاح؟',
+      vault_reset_body:
+        'استُخدم هذا المفتاح من قبل. إعادة الضبط تمحو كل شهادة ومفتاح في تطبيق PIV الخاص به، وليس خانة الخزنة وحدها. كل ما يعتمد على هذا المفتاح سيتوقف عن العمل.',
+      vault_reset_ack: 'أفهم أن هذا يمحو كل شيء على هذا المفتاح',
+      vault_reset_unknown_ack:
+        'يحتوي هذا المفتاح بالفعل على مفتاح خزنة لا تطالب به أي خزنة على هذا الجهاز. أفهم أن محوه يدمّر ذلك المفتاح نهائيًا.',
+      vault_reset_confirm: 'محو وإعادة ضبط',
+      vault_resetting: 'جارٍ إعادة ضبط المفتاح…',
+      vault_reset_done: 'أُعيد ضبط المفتاح. قرّبه مرة أخرى للمتابعة.',
+      vault_reset_uncertain: 'لم تكتمل إعادة الضبط. قد يكون هذا المفتاح قد مُحي بالفعل — تحقّق منه قبل الاعتماد عليه.',
+      vault_err_reset_enrolled: 'هذا المفتاح جزء من خزنتك بالفعل — إعادة ضبطه ستدمّر أحد مفاتيح خزنتك.',
+      vault_err_reset_unreadable:
+        'تعذّرت قراءة سجلات خزنتك على هذا الجهاز، لذا لا سبيل لإثبات أن هذا المفتاح ليس أحد مفاتيح خزنتك. لم يُمحَ شيء، وقد رُفضت إعادة الضبط.',
+      vault_enrollment_resume_pin_hint:
+        'استئناف مفتاح محفوظ يتطلّب رمز PIN الذي اخترته له سابقًا، لا رمزًا جديدًا. ثلاث محاولات خاطئة تقفل المفتاح.',
       vault_setup_step: 'الخطوة {{n}} من {{total}}',
       vault_enrollment_resume: 'متابعة المفتاح المحفوظ',
       vault_enrollment_reset_required:
@@ -4704,6 +4808,24 @@ const resources = {
       vault_puk_body:
         'Anote-o e guarde-o num local seguro. É a única forma de desbloquear esta chave se esquecer o PIN, e não voltará a ser mostrado.',
       vault_puk_ack: 'Já o anotei',
+      vault_reset_offer: 'Repor esta chave',
+      vault_reset_title: 'Repor esta chave?',
+      vault_reset_body:
+        'Esta chave já foi usada. Repô-la apaga todos os certificados e chaves da sua aplicação PIV, não apenas a ranhura do cofre. Tudo o que depende desta chave deixa de funcionar.',
+      vault_reset_ack: 'Compreendo que isto apaga tudo nesta chave',
+      vault_reset_unknown_ack:
+        'Esta chave já contém uma chave de cofre que nenhum cofre deste dispositivo reclama. Compreendo que apagá-la destrói essa chave para sempre.',
+      vault_reset_confirm: 'Apagar e repor',
+      vault_resetting: 'A repor a chave…',
+      vault_reset_done: 'Chave reposta. Aproxime-a novamente para continuar.',
+      vault_reset_uncertain:
+        'A reposição não terminou. Esta chave pode já ter sido apagada — verifique-a antes de confiar nela.',
+      vault_err_reset_enrolled:
+        'Essa chave já faz parte do seu cofre — repô-la destruiria uma das suas chaves do cofre.',
+      vault_err_reset_unreadable:
+        'Não foi possível ler os registos do seu cofre neste dispositivo, por isso não há como provar que esta chave não é uma das suas chaves do cofre. Nada foi apagado e a reposição é recusada.',
+      vault_enrollment_resume_pin_hint:
+        'Retomar uma chave guardada exige o PIN que escolheu para ela antes, não um novo. Três tentativas erradas bloqueiam a chave.',
       vault_setup_step: 'Passo {{n}} de {{total}}',
       vault_enrollment_resume: 'Retomar chave guardada',
       vault_enrollment_reset_required:
@@ -5457,6 +5579,22 @@ const resources = {
       vault_puk_body:
         'এটি লিখে নিরাপদ জায়গায় রাখুন। PIN ভুলে গেলে এই কী খোলার এটিই একমাত্র উপায়, এবং এটি আর দেখানো হবে না।',
       vault_puk_ack: 'আমি লিখে নিয়েছি',
+      vault_reset_offer: 'এই কী রিসেট করুন',
+      vault_reset_title: 'এই কী রিসেট করবেন?',
+      vault_reset_body:
+        'এই কী আগে ব্যবহার হয়েছে। রিসেট করলে এর PIV অ্যাপ্লিকেশনের প্রতিটি সার্টিফিকেট ও কী মুছে যাবে, শুধু ভল্ট স্লট নয়। এই কীর উপর নির্ভরশীল সবকিছু কাজ করা বন্ধ করবে।',
+      vault_reset_ack: 'আমি বুঝেছি এতে এই কীর সবকিছু মুছে যাবে',
+      vault_reset_unknown_ack:
+        'এই কীতে ইতিমধ্যে একটি ভল্ট কী রয়েছে, যা এই ডিভাইসের কোনো ভল্ট নিজের বলে দাবি করে না। আমি বুঝেছি এটি মুছে ফেললে ওই কী চিরতরে নষ্ট হবে।',
+      vault_reset_confirm: 'মুছে ফেলে রিসেট করুন',
+      vault_resetting: 'কী রিসেট করা হচ্ছে…',
+      vault_reset_done: 'কী রিসেট হয়েছে। চালিয়ে যেতে আবার ট্যাপ করুন।',
+      vault_reset_uncertain: 'রিসেট শেষ হয়নি। এই কী হয়তো ইতিমধ্যেই মুছে গেছে — এর উপর নির্ভর করার আগে যাচাই করুন।',
+      vault_err_reset_enrolled: 'ওই কী ইতিমধ্যে আপনার ভল্টের অংশ — রিসেট করলে আপনার একটি ভল্ট কী নষ্ট হবে।',
+      vault_err_reset_unreadable:
+        'এই ডিভাইসে আপনার ভল্টের রেকর্ড পড়া যায়নি, তাই এই কী আপনার ভল্ট কীগুলির একটি নয় তা প্রমাণ করার উপায় নেই। কিছুই মোছা হয়নি এবং রিসেট প্রত্যাখ্যান করা হয়েছে।',
+      vault_enrollment_resume_pin_hint:
+        'সংরক্ষিত কী আবার শুরু করতে আগে বেছে নেওয়া PIN লাগবে, নতুন কোনোটি নয়। তিনবার ভুল হলে কী লক হয়ে যাবে।',
       vault_setup_step: 'ধাপ {{n}} / {{total}}',
       vault_enrollment_resume: 'সংরক্ষিত কী চালিয়ে যান',
       vault_enrollment_reset_required:
@@ -6199,6 +6337,23 @@ const resources = {
       vault_puk_body:
         'Запишите его и храните в надёжном месте. Это единственный способ разблокировать ключ, если PIN-код забыт, и повторно он показан не будет.',
       vault_puk_ack: 'Я записал его',
+      vault_reset_offer: 'Сбросить этот ключ',
+      vault_reset_title: 'Сбросить этот ключ?',
+      vault_reset_body:
+        'Этот ключ уже использовался. Сброс стирает все сертификаты и ключи в его PIV-приложении, а не только слот хранилища. Всё, что на него опирается, перестанет работать.',
+      vault_reset_ack: 'Я понимаю, что это сотрёт с ключа всё',
+      vault_reset_unknown_ack:
+        'В этом ключе уже есть ключ хранилища, который не принадлежит ни одному хранилищу на этом устройстве. Я понимаю, что стирание уничтожит его безвозвратно.',
+      vault_reset_confirm: 'Стереть и сбросить',
+      vault_resetting: 'Сброс ключа…',
+      vault_reset_done: 'Ключ сброшен. Приложите его снова, чтобы продолжить.',
+      vault_reset_uncertain:
+        'Сброс не завершился. Ключ мог быть уже стёрт — проверьте его, прежде чем на него полагаться.',
+      vault_err_reset_enrolled: 'Этот ключ уже входит в ваше хранилище — сброс уничтожил бы один из его ключей.',
+      vault_err_reset_unreadable:
+        'Записи вашего хранилища на этом устройстве не удалось прочитать, поэтому нельзя доказать, что этот ключ не входит в ваше хранилище. Ничего не стёрто, сброс отклонён.',
+      vault_enrollment_resume_pin_hint:
+        'Чтобы продолжить сохранённый ключ, нужен PIN, выбранный для него раньше, а не новый. Три неверные попытки заблокируют ключ.',
       vault_setup_step: 'Шаг {{n}} из {{total}}',
       vault_enrollment_resume: 'Продолжить сохранённый ключ',
       vault_enrollment_reset_required:
@@ -6950,6 +7105,24 @@ const resources = {
       vault_puk_body:
         'Catat dan simpan di tempat aman. Ini satu-satunya cara membuka kunci ini bila PIN terlupa, dan tidak akan ditampilkan lagi.',
       vault_puk_ack: 'Saya sudah mencatatnya',
+      vault_reset_offer: 'Setel ulang kunci ini',
+      vault_reset_title: 'Setel ulang kunci ini?',
+      vault_reset_body:
+        'Kunci ini pernah dipakai. Menyetel ulang menghapus setiap sertifikat dan kunci di aplikasi PIV-nya, bukan hanya slot brankas. Semua yang bergantung padanya berhenti berfungsi.',
+      vault_reset_ack: 'Saya paham ini menghapus semua isi kunci ini',
+      vault_reset_unknown_ack:
+        'Kunci ini sudah berisi kunci brankas yang tidak diakui oleh brankas mana pun di perangkat ini. Saya paham menghapusnya memusnahkan kunci itu selamanya.',
+      vault_reset_confirm: 'Hapus dan setel ulang',
+      vault_resetting: 'Menyetel ulang kunci…',
+      vault_reset_done: 'Kunci disetel ulang. Tempelkan lagi untuk melanjutkan.',
+      vault_reset_uncertain:
+        'Penyetelan ulang tidak selesai. Kunci ini mungkin sudah terhapus — periksa dulu sebelum mengandalkannya.',
+      vault_err_reset_enrolled:
+        'Kunci itu sudah menjadi bagian brankas Anda — menyetel ulangnya akan menghancurkan salah satu kunci brankas.',
+      vault_err_reset_unreadable:
+        'Catatan brankas Anda di perangkat ini tidak dapat dibaca, jadi tidak ada cara membuktikan kunci ini bukan salah satu kunci brankas Anda. Tidak ada yang dihapus dan penyetelan ulang ditolak.',
+      vault_enrollment_resume_pin_hint:
+        'Melanjutkan kunci tersimpan memerlukan PIN yang Anda pilih untuknya sebelumnya, bukan yang baru. Tiga kali salah akan mengunci kunci.',
       vault_setup_step: 'Langkah {{n}} dari {{total}}',
       vault_enrollment_resume: 'Lanjutkan kunci tersimpan',
       vault_enrollment_reset_required:
@@ -7705,6 +7878,23 @@ const resources = {
       vault_puk_body:
         '書き留めて安全な場所に保管してください。PIN を忘れたときにこのキーを解除できる唯一の方法で、二度と表示されません。',
       vault_puk_ack: '書き留めました',
+      vault_reset_offer: 'このキーをリセット',
+      vault_reset_title: 'このキーをリセットしますか？',
+      vault_reset_body:
+        'このキーは以前に使われています。リセットすると、保管庫スロットだけでなく PIV アプリケーション内のすべての証明書と鍵が消去されます。このキーに依存しているものは動作しなくなります。',
+      vault_reset_ack: 'このキーの内容がすべて消えることを理解しました',
+      vault_reset_unknown_ack:
+        'このキーには、この端末のどの保管庫にも属さない保管庫の鍵が既に入っています。消去するとその鍵が永久に失われることを理解しました。',
+      vault_reset_confirm: '消去してリセット',
+      vault_resetting: 'キーをリセットしています…',
+      vault_reset_done: 'キーをリセットしました。続けるにはもう一度かざしてください。',
+      vault_reset_uncertain:
+        'リセットは完了しませんでした。このキーは既に消去されている可能性があります。頼りにする前に確認してください。',
+      vault_err_reset_enrolled: 'そのキーは既に保管庫の一部です。リセットすると保管庫の鍵が 1 つ失われます。',
+      vault_err_reset_unreadable:
+        'この端末の保管庫の記録を読み取れなかったため、このキーがあなたの保管庫の鍵でないと確かめられません。何も消去されず、リセットは拒否されました。',
+      vault_enrollment_resume_pin_hint:
+        '保存済みのキーを再開するには、以前そのキーに設定した PIN が必要です。新しい PIN ではありません。3 回間違えるとキーはロックされます。',
       vault_setup_step: 'ステップ {{n}}／{{total}}',
       vault_enrollment_resume: '保存済みキーを再開',
       vault_enrollment_reset_required:
@@ -8466,6 +8656,23 @@ const resources = {
       vault_puk_body:
         'Zapisz go i trzymaj w bezpiecznym miejscu. To jedyny sposób na odblokowanie tego klucza po zapomnieniu PIN-u, a nie zostanie pokazany ponownie.',
       vault_puk_ack: 'Zapisałem go',
+      vault_reset_offer: 'Zresetuj ten klucz',
+      vault_reset_title: 'Zresetować ten klucz?',
+      vault_reset_body:
+        'Ten klucz był już używany. Reset kasuje każdy certyfikat i klucz w jego aplikacji PIV, nie tylko gniazdo sejfu. Wszystko, co na nim polega, przestanie działać.',
+      vault_reset_ack: 'Rozumiem, że to skasuje całą zawartość tego klucza',
+      vault_reset_unknown_ack:
+        'Ten klucz zawiera już klucz sejfu, do którego nie przyznaje się żaden sejf na tym urządzeniu. Rozumiem, że skasowanie zniszczy ten klucz na zawsze.',
+      vault_reset_confirm: 'Skasuj i zresetuj',
+      vault_resetting: 'Resetowanie klucza…',
+      vault_reset_done: 'Klucz zresetowany. Przyłóż go ponownie, aby kontynuować.',
+      vault_reset_uncertain:
+        'Reset się nie zakończył. Ten klucz mógł już zostać skasowany — sprawdź go, zanim na nim polegniesz.',
+      vault_err_reset_enrolled: 'Ten klucz jest już częścią Twojego sejfu — reset zniszczyłby jeden z kluczy sejfu.',
+      vault_err_reset_unreadable:
+        'Nie udało się odczytać zapisów Twojego sejfu na tym urządzeniu, więc nie można dowieść, że ten klucz nie jest jednym z kluczy sejfu. Nic nie skasowano, a reset został odrzucony.',
+      vault_enrollment_resume_pin_hint:
+        'Wznowienie zapisanego klucza wymaga PIN-u wybranego dla niego wcześniej, nie nowego. Trzy błędne próby zablokują klucz.',
       vault_setup_step: 'Krok {{n}} z {{total}}',
       vault_enrollment_resume: 'Wznów zapisany klucz',
       vault_enrollment_reset_required:
