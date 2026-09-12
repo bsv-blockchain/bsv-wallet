@@ -104,7 +104,9 @@ Behaviour changes:
   signed AtomicBEEF is revalidated, and that exact txid is then released with
   `sendWith`. A signed held action discovered after a crash is neither aborted
   nor automatically rebroadcast; it requires manual network-state
-  reconciliation. The release flag still defaults off (`not-released`).
+  reconciliation. The toolbox release flag still defaults off (`not-released`);
+  the app's EAS production profile now enables it explicitly for TestFlight and
+  production builds.
 - HMAC salt derivation requires the wallet root, numeric ID, and complete
   ordered serial list, and does not reconstruct an exact lock by itself.
   Clean-device recovery also needs the ordered historical P-256 YubiKey

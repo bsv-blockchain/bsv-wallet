@@ -41,8 +41,8 @@ of these items are complete:
    descriptor, serial list, and numeric salt-index high-water.
 4. **Independent review.** Re-review the exact generated script bytes, the wallet-toolbox patch,
    native attestation verifiers and trust bundle, external-wallet guard, storage backstop, and
-   final recovery protocol. The feature flag must remain off in distributable builds until the
-   evidence is recorded.
+   final recovery protocol. The host release flag remains explicit; the EAS production profile
+   enables it for TestFlight and production builds following the release decision.
 
 ## 2. Security model
 
