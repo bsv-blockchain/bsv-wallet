@@ -33,6 +33,7 @@ export {
   getBackupUrl,
   getServiceConfig,
   isVaultEnabled,
+  isVaultAvailable,
   resetToolboxConfig
 } from './toolboxConfig'
 export type { ToolboxConfig, ToolboxServiceConfig } from './toolboxConfig'

@@ -1,18 +1,23 @@
 /**
  * The Vault screen — spec §3.4 / §5.4.
  *
- * Four states:
+ * Five states:
  *   • vaultEnabled off, not enrolled   → hero, "Not available yet" notice, inert CTA
+ *   • off mainnet, not enrolled        → hero, "mainnet only" notice, inert CTA
  *   • driver unsupported, not enrolled → hero, "Needs a YubiKey" notice, inert CTA
  *   • not enrolled                     → hero; "Set up vault" opens the EnrollWizard
  *   • enrolled                         → balance, deposit / withdraw, the key list with
  *                                        coverage badges, add / rename / remove / re-lock,
  *                                        export wallet data, disable
  *
- * An enrolled vault remains visible with the release flag off. Wallet-scoped
- * metadata means setup first creates or unlocks the wallet identity. A fresh
- * device restores records only from authenticated live locks, then requires a
- * physical possession challenge for each YubiKey before that key can sign.
+ * An enrolled vault remains visible with the release flag off, and likewise on
+ * testnet: a tester who enrolled before the mainnet-only rule can still see and
+ * withdraw what is there, but nothing may create a new output or enrol a key.
+ *
+ * Wallet-scoped metadata means setup first creates or unlocks the wallet
+ * identity. A fresh device restores records only from authenticated live locks,
+ * then requires a physical possession challenge for each YubiKey before that
+ * key can sign.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native'
@@ -57,6 +62,7 @@ import {
   VAULT_MAX_KEYS,
   getVaultDriver,
   isVaultEnabled,
+  isVaultAvailable,
   isBackupPushEnabled,
   getBackupUrl,
   disableVault,
@@ -128,7 +134,7 @@ export function VaultScreen() {
   const { balance, loading, refresh } = useVaultBalance()
   const { coverage, refresh: refreshCoverage } = useVaultCoverage()
   const { exportData, exporting } = useExportWalletData()
-  const { managers, adminOriginator, storage, walletBuilding, buildWalletFromMnemonic } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, walletBuilding, buildWalletFromMnemonic } = useWallet()
   const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
 
   /** undefined = loading; null = not enrolled. */
@@ -152,7 +158,16 @@ export function VaultScreen() {
   const [adoptionBusy, setAdoptionBusy] = useState(false)
   const [adoptionError, setAdoptionError] = useState<string | null>(null)
 
-  const enabled = isVaultEnabled()
+  // Release flag AND mainnet (task 11). Read from the reactive `selectedNetwork`
+  // so everything this gates collapses on a network switch without a remount —
+  // in particular the two doors into EnrollWizard, whose factory-reset offer is
+  // the fund-loss path a testnet vault reopens.
+  const enabled = isVaultAvailable(selectedNetwork)
+  // Which refusal to print when it is off. A build with the flag off says so
+  // first (spec §5.5); a released build that is simply on the wrong network owes
+  // the user that reason instead — "not available yet" would describe an
+  // unreleased build, not a vault they had working a moment ago.
+  const unavailableCopy = isVaultEnabled() ? 'vault_not_on_mainnet_body' : 'vault_not_released_body'
   const backupConfigured = getBackupUrl() !== ''
   const supported = getVaultDriver()?.isSupported() ?? false
   const pm = managers?.permissionsManager
@@ -753,11 +768,12 @@ export function VaultScreen() {
                   {t('vault_enroll_begin')}
                 </Text>
               </PressableScale>
-              {/* Release gate first (spec §5.5): a build with the flag off says
-                  so before it says anything about hardware. */}
+              {/* Availability gate first (spec §5.5): a build with the flag off,
+                  or a wallet on testnet, says so before it says anything about
+                  hardware. */}
               {!enabled && (
                 <View style={styles.heroNotice}>
-                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>
+                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>
                 </View>
               )}
               {enabled && !supported && (
@@ -846,7 +862,7 @@ export function VaultScreen() {
             <Text style={[styles.actionLabel, { color: colors.accent }]}>{t('vault_withdraw_cta')}</Text>
           </PressableScale>
         </View>
-        {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>}
+        {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>}
         {transfersBlocked && <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>}
         {recoveryRequired && !hasRecoveryRedundancy && (
           <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>

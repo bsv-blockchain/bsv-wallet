@@ -143,6 +143,26 @@ export function isVaultEnabled(): boolean {
   return current?.vaultEnabled ?? false
 }
 
+/**
+ * Whether the vault may be used on this network.
+ *
+ * Vault is mainnet-only by product decision (2026-09-12): there is no reason to
+ * hold different hardware keys per network, and high-value storage is
+ * meaningless on a chain whose coins are worthless. Keeping it off testnet also
+ * removes a fund-loss path — the enrollment wizard's reset offer reads enrolled
+ * serials from one wallet+chain namespace, but a YubiKey is physical and shared
+ * across all of them, so a testnet wizard could offer to factory-reset a live
+ * mainnet signer.
+ *
+ * Chain is a parameter, not a module read: screens must re-render when the user
+ * switches network, and `selectedNetwork` from the wallet context is what makes
+ * that reactive. Keeping it a parameter also keeps this module a leaf — it must
+ * never import `vaultStore`.
+ */
+export function isVaultAvailable(chain: AppChain): boolean {
+  return isVaultEnabled() && chain === 'main'
+}
+
 /** Test-only: drop the installed configuration. */
 export function resetToolboxConfig(): void {
   current = null

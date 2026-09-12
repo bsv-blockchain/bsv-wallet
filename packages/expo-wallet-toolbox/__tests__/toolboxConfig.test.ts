@@ -3,6 +3,7 @@ import {
   getBackupUrl,
   getServiceConfig,
   isToolboxConfigured,
+  isVaultAvailable,
   isVaultEnabled,
   resetToolboxConfig
 } from '../core/toolboxConfig'
@@ -104,5 +105,33 @@ describe('isVaultEnabled', () => {
     configureToolbox({ backupUrl: null, vaultEnabled: true })
     configureToolbox({ backupUrl: null })
     expect(isVaultEnabled()).toBe(false)
+  })
+})
+
+// Vault is mainnet-only (task 11): a testnet vault would let the enrollment
+// wizard's factory-reset offer wipe a YubiKey that is a live mainnet signer,
+// because the enrolled-key list it reads is namespaced per (wallet, chain)
+// while the key itself is one physical object.
+describe('isVaultAvailable', () => {
+  it('is true only on main with the flag on', () => {
+    configureToolbox({ backupUrl: null, vaultEnabled: true })
+    expect(isVaultAvailable('main')).toBe(true)
+  })
+
+  it('is false on every test chain even with the flag on', () => {
+    configureToolbox({ backupUrl: null, vaultEnabled: true })
+    expect(isVaultAvailable('test')).toBe(false)
+    expect(isVaultAvailable('teratest')).toBe(false)
+  })
+
+  it('is false on every chain with the flag off', () => {
+    configureToolbox({ backupUrl: null })
+    expect(isVaultAvailable('main')).toBe(false)
+    expect(isVaultAvailable('test')).toBe(false)
+    expect(isVaultAvailable('teratest')).toBe(false)
+  })
+
+  it('is false before configureToolbox runs, without throwing', () => {
+    expect(isVaultAvailable('main')).toBe(false)
   })
 })

@@ -45,6 +45,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     TaskSendOffline: { lastStall: null },
     isBackupPushEnabled: async () => true,
     isVaultEnabled: () => true,
+    isVaultAvailable: (chain: string) => chain === 'main',
     arcUrlStorageKey: () => 'arc_url',
     arcApiTokenStorageKey: () => 'arc_token',
     DEFAULT_ARC_URLS: { main: '' },

@@ -1,11 +1,17 @@
 /**
- * The vault's release gate (spec §5.5, D15): with `vaultEnabled` off the home
- * screen has no Vault destination and Settings has no Vault row, so no path
- * can enrol hardware or create a vault output; with it on, both appear and
- * push /vault directly (enrolment needs no wallet).
+ * The vault's availability gate (spec §5.5, D15; task 11): with `vaultEnabled`
+ * off — or the wallet on any chain but main — the home screen has no Vault
+ * destination and Settings has no Vault row, so no path can enrol hardware or
+ * create a vault output; with the flag on and the wallet on main, both appear
+ * and push /vault directly (enrolment needs no wallet).
+ *
+ * The network half matters most: off mainnet the entry points to EnrollWizard
+ * are what close the fund-loss path, since its factory-reset offer reads
+ * enrolled serials from one (wallet, chain) namespace while a YubiKey is one
+ * physical object shared across all of them.
  *
  * The barrel mock mirrors walletHomeBackup.test.tsx — WalletHomeScreen pulls
- * in the whole wallet surface — plus `isVaultEnabled`.
+ * in the whole wallet surface — plus the vault gate.
  */
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
@@ -41,6 +47,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     TaskSendOffline: { lastStall: null },
     isBackupPushEnabled: async () => true,
     isVaultEnabled: () => mockVaultEnabled,
+    isVaultAvailable: (chain: string) => mockVaultEnabled && chain === 'main',
     arcUrlStorageKey: () => 'arc_url',
     arcApiTokenStorageKey: () => 'arc_token',
     DEFAULT_ARC_URLS: { main: '' },
@@ -127,6 +134,28 @@ describe('WalletHomeScreen', () => {
     await act(async () => fireEvent.press(screen.getByText('wallet_vault')))
     expect(mockRouter.push).toHaveBeenCalledWith('/vault')
   })
+
+  test.each(['test', 'teratest'])('has no Vault destination on %s even with the flag on', async chain => {
+    mockVaultEnabled = true
+    mockWallet.selectedNetwork = chain
+    const screen = render(<WalletHomeScreen />)
+    await act(async () => {})
+    expect(screen.getByText('pay_direction_pay')).toBeTruthy()
+    expect(screen.queryByText('wallet_vault')).toBeNull()
+  })
+
+  test('drops the Vault destination when the wallet switches to testnet', async () => {
+    mockVaultEnabled = true
+    const screen = render(<WalletHomeScreen />)
+    await act(async () => {})
+    expect(screen.getByText('wallet_vault')).toBeTruthy()
+    // The same reactive value the context publishes: a switch must remove the
+    // destination on re-render, not only on a remount.
+    mockWallet = { ...mockWallet, selectedNetwork: 'test' }
+    screen.rerender(<WalletHomeScreen />)
+    await act(async () => {})
+    expect(screen.queryByText('wallet_vault')).toBeNull()
+  })
 })
 
 describe('SettingsScreen', () => {
@@ -143,5 +172,14 @@ describe('SettingsScreen', () => {
     await act(async () => {})
     await act(async () => fireEvent.press(screen.getByText('vault_row_title')))
     expect(mockRouter.push).toHaveBeenCalledWith('/vault')
+  })
+
+  test.each(['test', 'teratest'])('has no Vault row on %s even with the flag on', async chain => {
+    mockVaultEnabled = true
+    mockWallet.selectedNetwork = chain
+    const screen = render(<SettingsScreen />)
+    await act(async () => {})
+    expect(screen.getByText('payments')).toBeTruthy()
+    expect(screen.queryByText('vault_row_title')).toBeNull()
   })
 })

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, ScrollView, StyleSheet } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { useTheme, spacing, typography, useWallet, isVaultEnabled } from '@bsv/expo-wallet-toolbox'
+import { useTheme, spacing, typography, useWallet, isVaultAvailable } from '@bsv/expo-wallet-toolbox'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
 import AmountDisplay from '../components/wallet/AmountDisplay'
@@ -33,6 +33,10 @@ export function SettingsScreen() {
   const { colors } = useTheme()
   const { router } = loadExpoRouter()
   const { managers, adminOriginator, selectedNetwork, txStatusVersion } = useWallet()
+
+  // Read during render, from the reactive network, so the row disappears on a
+  // switch to testnet without a remount.
+  const vaultAvailable = isVaultAvailable(selectedNetwork)
 
   const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
   const balanceCacheTimestampKey = `cached_wallet_balance_ts_${selectedNetwork}`
@@ -132,10 +136,11 @@ export function SettingsScreen() {
             icon="swap-horizontal-outline"
             iconColor={colors.success}
             onPress={() => router.push('/pay')}
-            isLast={!isVaultEnabled()}
+            isLast={!vaultAvailable}
           />
-          {/* Same release gate as the home screen's Vault destination (spec §5.5). */}
-          {isVaultEnabled() && (
+          {/* Same release and network gate as the home screen's Vault
+              destination (spec §5.5, task 11). */}
+          {vaultAvailable && (
             <ListRow
               label={t('vault_row_title')}
               icon="safe"

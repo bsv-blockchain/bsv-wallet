@@ -40,6 +40,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   },
   getVaultDriver: () => ({ isSupported: () => mockSupported }),
   isVaultEnabled: () => mockVaultEnabled,
+  isVaultAvailable: (chain: string) => mockVaultEnabled && chain === 'main',
   isBackupPushEnabled: () => mockIsBackupPushEnabled(),
   getBackupUrl: () => mockBackupUrl,
   disableVault: (...a: unknown[]) => mockDisable(...a),
@@ -195,6 +196,7 @@ beforeEach(() => {
   mockWallet = {
     managers: { permissionsManager: { listOutputs: jest.fn() } },
     adminOriginator: 'admin.test',
+    selectedNetwork: 'main',
     storage: null,
     walletBuilding: false,
     buildWalletFromMnemonic: jest.fn()

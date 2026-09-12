@@ -37,6 +37,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     getVaultBalance: (...a: unknown[]) => mockGetVaultBalance(...a),
     sounds: { vaultDeposit: jest.fn(), vaultWithdraw: jest.fn() },
     isVaultEnabled: () => mockVaultEnabled,
+    isVaultAvailable: (chain: string) => mockVaultEnabled && chain === 'main',
     isBackupPushEnabled: () => mockIsBackupPushEnabled(),
     getBackupUrl: () => mockBackupUrl,
     getOnline: async () => true,
@@ -141,6 +142,7 @@ beforeEach(() => {
   mockWallet = {
     managers: { permissionsManager: { createAction: jest.fn() } },
     adminOriginator: 'admin.test',
+    selectedNetwork: 'main',
     storage: null,
     settings: { currency: 'BSV' }
   }

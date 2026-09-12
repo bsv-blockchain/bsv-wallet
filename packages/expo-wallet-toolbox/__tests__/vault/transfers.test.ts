@@ -74,14 +74,21 @@ jest.mock('../../core/services/vault/ceremonyHost', () => ({
 // to configureToolbox / AsyncStorage state.
 jest.mock('../../core/toolboxConfig', () => ({
   getBackupUrl: jest.fn(() => 'https://backup.example'),
-  isVaultEnabled: jest.fn(() => true)
+  isVaultEnabled: jest.fn(() => true),
+  // Default-open rather than chain-faithful: this suite's scope is 'test' for
+  // storage-namespace reasons, and every deposit/re-lock fixture would refuse
+  // under the real mainnet rule. The rule itself is unit-tested in
+  // toolboxConfig.test.ts; what these tests own is the WIRING — that the gate
+  // is consulted with the operation's own scope chain and that a false answer
+  // refuses before any money moves.
+  isVaultAvailable: jest.fn(() => true)
 }))
 jest.mock('../../core/backup/preference', () => ({
   isBackupPushEnabled: jest.fn(async () => true)
 }))
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { isBackupPushEnabled } from '../../core/backup/preference'
-import { getBackupUrl, isVaultEnabled } from '../../core/toolboxConfig'
+import { getBackupUrl, isVaultAvailable, isVaultEnabled } from '../../core/toolboxConfig'
 import { noteVaultProgress, requestVaultSigner } from '../../core/services/vault/ceremonyHost'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import type { VaultSigner } from '../../core/services/vault/ceremony'
@@ -221,6 +228,7 @@ beforeEach(async () => {
     listActions: jest.fn(async () => ({ actions: [] }))
   }
   ;(isVaultEnabled as jest.Mock).mockReturnValue(true)
+  ;(isVaultAvailable as jest.Mock).mockReset().mockReturnValue(true)
   ;(getBackupUrl as jest.Mock).mockReturnValue('https://backup.example')
   ;(isBackupPushEnabled as jest.Mock).mockResolvedValue(true)
   ;(noteVaultProgress as jest.Mock).mockClear()
@@ -1193,6 +1201,40 @@ describe('depositToVault', () => {
       ;(isVaultEnabled as jest.Mock).mockReturnValueOnce(false)
       await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'not-released' })
       expect(wallet.createAction).not.toHaveBeenCalled()
+    })
+
+    // Task 11: vault is mainnet-only. The chain comes from the operation's own
+    // scope token — captured before the first await — not a live getScope()
+    // read, so a network switch landing mid-flight cannot carry the deposit
+    // onto the new chain.
+    it('not-released off mainnet, asked with the operation’s own scope chain', async () => {
+      await seedMeta()
+      ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
+      const isOnline = jest.fn(async () => true)
+      // The suite's scope is 'test'.
+      await expect(depositToVault(wallet, ADMIN, 250_000, { isOnline })).rejects.toMatchObject({
+        code: 'not-released'
+      })
+      expect(isVaultAvailable).toHaveBeenCalledWith('test')
+      expect(isOnline).not.toHaveBeenCalled()
+      expect(wallet.createAction).not.toHaveBeenCalled()
+    })
+
+    it('the injected build flag cannot buy a testnet deposit past the mainnet rule', async () => {
+      await seedMeta()
+      ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
+      await expect(depositToVault(wallet, ADMIN, 250_000, { vaultEnabled: () => true })).rejects.toMatchObject({
+        code: 'not-released'
+      })
+      expect(wallet.createAction).not.toHaveBeenCalled()
+    })
+
+    it('passes the same gate on mainnet', async () => {
+      vaultStore.configureScope({ identityKey: SCOPE_IDENTITY, chain: 'main' })
+      await seedMeta()
+      ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
+      await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
+      expect(isVaultAvailable).toHaveBeenCalledWith('main')
     })
 
     it('below-dust under VAULT_DEPOSIT_MIN, and for a non-integer or unsafe amount', async () => {
@@ -2194,6 +2236,16 @@ describe('relockVault', () => {
     await expect(relock({ vaultEnabled: () => false })).rejects.toMatchObject({ code: 'not-released' })
     ;(isVaultEnabled as jest.Mock).mockReturnValueOnce(false)
     await expect(relock()).rejects.toMatchObject({ code: 'not-released' })
+    expect(wallet.listOutputs).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
+  // Re-locking CREATES a vault output, so the mainnet rule gates it too.
+  it('not-released off mainnet — before listing or tapping', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
+    ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
+    await expect(relock()).rejects.toMatchObject({ code: 'not-released' })
+    expect(isVaultAvailable).toHaveBeenCalledWith('test')
     expect(wallet.listOutputs).not.toHaveBeenCalled()
     expect(requestVaultSigner).not.toHaveBeenCalled()
   })

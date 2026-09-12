@@ -42,7 +42,7 @@
  */
 import { Beef, Hash, LockingScript, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { isBackupPushEnabled } from '../../backup/preference'
-import { getBackupUrl, isVaultEnabled } from '../../toolboxConfig'
+import { getBackupUrl, isVaultAvailable, isVaultEnabled } from '../../toolboxConfig'
 import { specOpFailedActions } from '@bsv/wallet-toolbox-mobile/out/src/sdk/types'
 import { noteVaultProgress, requestVaultSigner } from './ceremonyHost'
 import {
@@ -103,8 +103,9 @@ export interface VaultTransferOptions {
    * reaches the offline drain" a testable invariant.
    */
   isOnline?: () => Promise<boolean>
-  /** Injected release gate so the module stays config-free in tests. Defaults
-   * to isVaultEnabled() from toolboxConfig. */
+  /** Injected BUILD half of the release gate so the module stays config-free in
+   * tests. Defaults to isVaultEnabled() from toolboxConfig. The mainnet half is
+   * deliberately not injectable — see requireReleased. */
   vaultEnabled?: () => boolean
   /** Private encrypted backup must have a configured service and must not be
    * opted out before any operation creates a new Vault output. */
@@ -1443,12 +1444,28 @@ async function newVaultOutput(
   return output
 }
 
-/** The release gate (spec D15 / §5.5), injectable so tests stay config-free.
- * Gates every path that CREATES a vault output; never a withdrawal of
- * pre-existing outputs. */
-function requireReleased(opts: VaultTransferOptions | undefined, what: string): void {
+/**
+ * The availability gate (spec D15 / §5.5, task 11). Gates every path that
+ * CREATES a vault output; never a withdrawal of pre-existing outputs.
+ *
+ * Two halves, matching `isVaultAvailable`. The build flag is injectable so this
+ * module stays config-free in tests; the mainnet rule is not injectable and
+ * takes its chain from the operation's own scope token rather than a module
+ * read of `vaultStore.getScope()`. That token is captured before the first
+ * await and re-asserted by the `assertVaultScope` immediately preceding every
+ * call here, so a network switch landing mid-flight aborts the operation
+ * instead of letting it write an output under the wrong chain — a live
+ * `getScope()` read would simply see the new chain and carry on.
+ *
+ * In production `opts.vaultEnabled` is never supplied, so the first check is
+ * exactly the build half and the second reduces to the chain half.
+ */
+function requireReleased(opts: VaultTransferOptions | undefined, scopeToken: VaultScopeToken, what: string): void {
   const enabled = opts?.vaultEnabled ?? isVaultEnabled
   if (!enabled()) throw new VaultError('not-released', `${what} is switched off in this build`)
+  if (!isVaultAvailable(scopeToken.chain)) {
+    throw new VaultError('not-released', `${what} is only available on mainnet`)
+  }
 }
 
 /** A real private-backup configuration needs both a host endpoint and the
@@ -1605,7 +1622,7 @@ export async function depositToVault(
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
   assertVaultScope(scopeToken)
-  requireReleased(opts, 'Vault deposit')
+  requireReleased(opts, scopeToken, 'Vault deposit')
   if (!Number.isSafeInteger(satoshis) || satoshis < VAULT_DEPOSIT_MIN) {
     throw new VaultError('below-dust', `Vault deposits must be at least ${VAULT_DEPOSIT_MIN} satoshis`)
   }
@@ -2412,7 +2429,7 @@ export async function withdrawFromVault(
   if (remainder >= VAULT_DEPOSIT_MIN) {
     // Re-vaulting CREATES a vault output, which the release flag gates (spec
     // §5.5). Withdrawing pre-existing outputs — 'all' — never is.
-    requireReleased(opts, 'Re-vaulting a remainder')
+    requireReleased(opts, scopeToken, 'Re-vaulting a remainder')
     await requirePrivateBackup(opts, 'Re-vaulting a remainder')
     assertVaultScope(scopeToken)
     await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
@@ -2485,7 +2502,7 @@ export async function relockVault(
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
   assertVaultScope(scopeToken)
-  requireReleased(opts, 'Re-locking the vault')
+  requireReleased(opts, scopeToken, 'Re-locking the vault')
   await requireOnline(opts)
   assertVaultScope(scopeToken)
   await requirePrivateBackup(opts, 'Re-locking the vault')

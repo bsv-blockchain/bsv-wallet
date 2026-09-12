@@ -51,6 +51,7 @@ import {
   estimateRelockFee,
   R1C_LOCK_LEN,
   isVaultEnabled,
+  isVaultAvailable,
   isBackupPushEnabled,
   getBackupUrl,
   type VaultWallet,
@@ -141,7 +142,7 @@ export function VaultTransferScreen() {
   const { router, useLocalSearchParams } = loadExpoRouter()
   const Ionicons = loadIonicons()
   const { direction } = useLocalSearchParams<{ direction?: string }>()
-  const { managers, adminOriginator, storage, settings } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, settings } = useWallet()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const { balance, refresh } = useVaultBalance()
   const [meta, setMeta] = useState<VaultMeta | null>(null)
@@ -156,7 +157,13 @@ export function VaultTransferScreen() {
 
   const isDeposit = direction !== 'withdraw'
   const isMax = amount === SEND_MAX_VALUE
-  const released = isVaultEnabled()
+  // Release flag AND mainnet (task 11): deposits create a vault output, and one
+  // must never land off mainnet. Withdrawal of pre-existing outputs is never
+  // gated — that is how a testnet tester gets their coins back out.
+  const released = isVaultAvailable(selectedNetwork)
+  // See VaultScreen: "not available yet" describes an unreleased build, not a
+  // released build on the wrong network.
+  const unavailableCopy = isVaultEnabled() ? 'vault_not_on_mainnet_body' : 'vault_not_released_body'
   const backupConfigured = getBackupUrl() !== ''
   const pm = managers?.permissionsManager
   const currency = settings?.currency || 'BSV'
@@ -494,7 +501,7 @@ export function VaultTransferScreen() {
         )}
 
         {isDeposit && !released && (
-          <Text style={[styles.floor, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>
+          <Text style={[styles.floor, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>
         )}
 
         {transfersBlocked && (

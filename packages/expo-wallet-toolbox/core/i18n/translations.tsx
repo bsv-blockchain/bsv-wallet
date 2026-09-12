@@ -208,6 +208,7 @@ const resources = {
       vault_withdraw_reason: 'Hold your YubiKey here to sign — withdraw {{amount}} sats',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Not available yet — vault deposits are switched off in this release.',
+      vault_not_on_mainnet_body: 'Vault is available on mainnet only. Switch the wallet back to mainnet to use it.',
       vault_intro_title: 'Set up your vault',
       vault_intro_what:
         'The vault locks money to your own YubiKeys. Nothing about the vault key ever exists on this phone; any one of your keys opens it.',
@@ -978,6 +979,7 @@ const resources = {
       vault_withdraw_reason: '将 YubiKey 靠在这里以签名 — 从保险库提取 {{amount}} sats',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: '暂不可用 — 此版本已关闭保险库存入。',
+      vault_not_on_mainnet_body: '保险库仅在主网上可用。请将钱包切换回主网后使用。',
       vault_intro_title: '设置您的保险库',
       vault_intro_what:
         '保险库将资金锁定到您自己的 YubiKey。保险库密钥的任何部分都不会存在于这部手机上；您的任何一把密钥都能打开它。',
@@ -1687,6 +1689,8 @@ const resources = {
       vault_withdraw_reason: 'हस्ताक्षर के लिए अपनी YubiKey यहाँ रखें — वॉल्ट से {{amount}} sats निकालें',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'अभी उपलब्ध नहीं — इस रिलीज़ में वॉल्ट जमा बंद हैं।',
+      vault_not_on_mainnet_body:
+        'वॉल्ट केवल मेननेट पर उपलब्ध है। इसका उपयोग करने के लिए वॉलेट को मेननेट पर वापस ले जाएँ।',
       vault_intro_title: 'अपना वॉल्ट सेट करें',
       vault_intro_what:
         'वॉल्ट पैसे को आपकी अपनी YubiKeys से लॉक करता है। वॉल्ट कुंजी का कोई भी हिस्सा इस फ़ोन पर कभी मौजूद नहीं होता; आपकी कोई भी एक कुंजी इसे खोलती है।',
@@ -2430,6 +2434,8 @@ const resources = {
       vault_withdraw_reason: 'Acerca tu YubiKey aquí para firmar: retirar {{amount}} sats de la caja fuerte',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Aún no disponible: los depósitos a la caja fuerte están desactivados en esta versión.',
+      vault_not_on_mainnet_body:
+        'La caja fuerte solo está disponible en la red principal. Vuelve a cambiar la cartera a la red principal para usarla.',
       vault_intro_title: 'Configura tu caja fuerte',
       vault_intro_what:
         'La caja fuerte bloquea el dinero con tus propias YubiKeys. Nada de la clave de la caja fuerte existe jamás en este teléfono; cualquiera de tus llaves la abre.',
@@ -3187,6 +3193,8 @@ const resources = {
       vault_withdraw_reason: 'Tenez votre YubiKey ici pour signer — retirer {{amount}} sats du coffre',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Pas encore disponible — les dépôts dans le coffre sont désactivés dans cette version.',
+      vault_not_on_mainnet_body:
+        'Le coffre n’est disponible que sur le réseau principal. Repassez le portefeuille sur le réseau principal pour l’utiliser.',
       vault_intro_title: 'Configurer votre coffre',
       vault_intro_what:
         'Le coffre verrouille l’argent avec vos propres YubiKeys. Rien de la clé du coffre n’existe jamais sur ce téléphone ; n’importe laquelle de vos clés l’ouvre.',
@@ -3944,6 +3952,7 @@ const resources = {
       vault_withdraw_reason: 'ضع مفتاح YubiKey هنا للتوقيع — سحب {{amount}} sats من الخزنة',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'غير متاح بعد — إيداعات الخزنة معطّلة في هذا الإصدار.',
+      vault_not_on_mainnet_body: 'الخزنة متاحة على الشبكة الرئيسية فقط. أعِد المحفظة إلى الشبكة الرئيسية لاستخدامها.',
       vault_intro_title: 'إعداد خزنتك',
       vault_intro_what:
         'تقفل الخزنة الأموال بمفاتيح YubiKey الخاصة بك. لا يوجد أي جزء من مفتاح الخزنة على هذا الهاتف أبدًا؛ وأي مفتاح من مفاتيحك يفتحها.',
@@ -4669,6 +4678,8 @@ const resources = {
       vault_withdraw_reason: 'Encoste a sua YubiKey aqui para assinar — retirar {{amount}} sats do cofre',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Ainda não disponível — os depósitos no cofre estão desativados nesta versão.',
+      vault_not_on_mainnet_body:
+        'O cofre só está disponível na rede principal. Volte a colocar a carteira na rede principal para o utilizar.',
       vault_intro_title: 'Configure o seu cofre',
       vault_intro_what:
         'O cofre tranca o dinheiro com as suas próprias YubiKeys. Nada da chave do cofre existe neste telefone; qualquer uma das suas chaves o abre.',
@@ -5422,6 +5433,7 @@ const resources = {
       vault_withdraw_reason: 'সই করতে আপনার YubiKey এখানে ধরুন — ভল্ট থেকে {{amount}} sats উত্তোলন করুন',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'এখনও উপলব্ধ নয় — এই রিলিজে ভল্টে জমা বন্ধ রাখা হয়েছে।',
+      vault_not_on_mainnet_body: 'ভল্ট কেবল মেইননেটে উপলব্ধ। এটি ব্যবহার করতে ওয়ালেটটি আবার মেইননেটে ফিরিয়ে নিন।',
       vault_intro_title: 'আপনার ভল্ট সেট আপ করুন',
       vault_intro_what:
         'ভল্ট আপনার নিজের YubiKey দিয়ে টাকা লক করে। ভল্ট কী-এর কোনো অংশই কখনও এই ফোনে থাকে না; আপনার যেকোনো একটি কী এটি খোলে।',
@@ -6161,6 +6173,8 @@ const resources = {
       vault_withdraw_reason: 'Приложите YubiKey сюда для подписи — вывести {{amount}} sats из хранилища',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Пока недоступно — пополнение хранилища отключено в этой версии.',
+      vault_not_on_mainnet_body:
+        'Хранилище доступно только в основной сети. Переключите кошелёк обратно на основную сеть, чтобы им пользоваться.',
       vault_intro_title: 'Настройте хранилище',
       vault_intro_what:
         'Хранилище запирает деньги вашими собственными YubiKey. Ничего из ключа хранилища никогда не хранится на этом телефоне; любой из ваших ключей открывает его.',
@@ -6910,6 +6924,8 @@ const resources = {
       vault_withdraw_reason: 'Tempelkan YubiKey Anda di sini untuk menandatangani — tarik {{amount}} sats dari brankas',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Belum tersedia — setoran brankas dimatikan pada rilis ini.',
+      vault_not_on_mainnet_body:
+        'Brankas hanya tersedia di jaringan utama. Kembalikan dompet ke jaringan utama untuk menggunakannya.',
       vault_intro_title: 'Siapkan brankas Anda',
       vault_intro_what:
         'Brankas mengunci uang dengan YubiKey milik Anda sendiri. Tidak ada bagian dari kunci brankas yang pernah ada di ponsel ini; salah satu kunci Anda saja cukup untuk membukanya.',
@@ -7663,6 +7679,8 @@ const resources = {
       vault_withdraw_reason: '署名するには YubiKey をここにかざしてください — 保管庫から {{amount}} sats を出金',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'まだ利用できません — このリリースでは保管庫への入金は無効になっています。',
+      vault_not_on_mainnet_body:
+        '保管庫はメインネットでのみ利用できます。ご利用にはウォレットをメインネットに戻してください。',
       vault_intro_title: '保管庫を設定する',
       vault_intro_what:
         '保管庫はあなた自身の YubiKey で資金をロックします。保管庫の鍵はこのスマートフォン上に一切存在せず、どの鍵一本でも開けられます。',
@@ -8422,6 +8440,8 @@ const resources = {
       vault_withdraw_reason: 'Przyłóż tutaj klucz YubiKey, aby podpisać — wypłać {{amount}} sats z sejfu',
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Jeszcze niedostępne — wpłaty do sejfu są wyłączone w tym wydaniu.',
+      vault_not_on_mainnet_body:
+        'Sejf jest dostępny wyłącznie w sieci głównej. Aby z niego korzystać, przełącz portfel z powrotem na sieć główną.',
       vault_intro_title: 'Skonfiguruj swój sejf',
       vault_intro_what:
         'Sejf zamyka pieniądze Twoimi własnymi kluczami YubiKey. Żaden fragment klucza sejfu nigdy nie istnieje na tym telefonie; otwiera go dowolny z Twoich kluczy.',

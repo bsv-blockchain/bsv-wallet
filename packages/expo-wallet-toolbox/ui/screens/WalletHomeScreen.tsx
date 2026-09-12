@@ -71,7 +71,7 @@ import {
   isMessageBoxNetworkError,
   generateMnemonicWallet,
   backupAttestation,
-  isVaultEnabled,
+  isVaultAvailable,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
@@ -1218,11 +1218,14 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('pay_direction_receive')}</Text>
           </PressableScale>
 
-          {/* Release-gated (spec §5.5): no Vault destination until the host
-              turns vaultEnabled on. Plain push, not destinationPress —
-              enrolment needs no wallet, and the Vault screen's own Deposit
-              button runs the lazy wallet-creation path when it comes to that. */}
-          {isVaultEnabled() && (
+          {/* Release- and network-gated (spec §5.5, task 11): no Vault
+              destination until the host turns vaultEnabled on, and never off
+              mainnet. `selectedNetwork` is a dependency of this memo, so the
+              destination appears and disappears with a network switch. Plain
+              push, not destinationPress — enrolment needs no wallet, and the
+              Vault screen's own Deposit button runs the lazy wallet-creation
+              path when it comes to that. */}
+          {isVaultAvailable(selectedNetwork) && (
             <PressableScale
               haptic="confirm"
               onPress={() => router.push('/vault')}
@@ -1235,7 +1238,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         </View>
       </View>
     ),
-    [balanceParts, balanceContext, colors, t, refreshBalance, router]
+    [balanceParts, balanceContext, colors, t, refreshBalance, router, selectedNetwork]
   )
 
   const listHeader = useMemo(
