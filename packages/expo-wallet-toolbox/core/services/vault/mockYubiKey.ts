@@ -268,7 +268,15 @@ export class MockYubiKey implements VaultDriver {
     this.requireExpectedSerial(expectedSerial)
     // The real card blocks the PIN and PUK before RESET, so nothing here is
     // conditional on knowing either code — that is the whole point of reset.
-    this.keys.set(expectedSerial, freshRecord())
+    // A PIV application reset wipes every slot's keys/certs (0x82 included)
+    // and restores the default PIN, PUK, management key and retry counters —
+    // but it never touches slot F9's factory manufacturer attestation, which
+    // is provisioned at manufacture time and lives outside the resettable PIV
+    // application state on the real card. A counterfeit or tampered key's bad
+    // attestation must survive a reset unchanged: reset cannot repair it, and
+    // must not be modelled as laundering it back to trusted.
+    const { manufacturerAttested } = this.record()
+    this.keys.set(expectedSerial, { ...freshRecord(), manufacturerAttested })
     return { ok: true }
   }
 

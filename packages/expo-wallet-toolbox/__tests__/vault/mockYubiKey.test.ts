@@ -427,4 +427,17 @@ describe('MockYubiKey.resetPivApplication', () => {
     key.insertKey('MOCK-RST')
     await expect(key.resetPivApplication('MOCK-OTHER')).rejects.toMatchObject({ code: 'serial-mismatch' })
   })
+
+  it('never launders a bad manufacturer attestation back to trusted', async () => {
+    // Slot F9's factory attestation is provisioned at manufacture and is
+    // untouched by a PIV application reset on real hardware — a counterfeit
+    // or tampered card must stay untrusted across a reset.
+    const key = new MockYubiKey()
+    key.insertKey('MOCK-RST')
+    key.setManufacturerAttested(false)
+
+    await expect(key.resetPivApplication('MOCK-RST')).resolves.toEqual({ ok: true })
+
+    await expect(key.generateVaultKey('MOCK-RST')).rejects.toMatchObject({ code: 'attestation-invalid' })
+  })
 })
