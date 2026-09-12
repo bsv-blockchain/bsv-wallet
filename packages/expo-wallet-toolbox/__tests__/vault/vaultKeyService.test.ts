@@ -131,10 +131,7 @@ async function finalizeReady(records: VaultKeyRecord[]): Promise<void> {
 }
 
 async function stageReady(record: VaultKeyRecord): Promise<void> {
-  await vaultStore.preserveEnrollmentDraft(
-    { record, assurance: 'ready' },
-    vaultStore.captureScopeToken()
-  )
+  await vaultStore.preserveEnrollmentDraft({ record, assurance: 'ready' }, vaultStore.captureScopeToken())
 }
 
 /** An NFC-shaped mock whose start() "connects the tap" at once. */
@@ -291,9 +288,9 @@ describe('enrollKey', () => {
   test('requires a dedicated whole-PIV acknowledgement below the UI boundary', async () => {
     const getPin = jest.fn(async () => '123456')
     const info = jest.spyOn(mock, 'getKeyInfo')
-    await expect(
-      enrollKey(args({ acknowledgeDedicatedPivApplication: false, getPin }) as any)
-    ).rejects.toMatchObject({ code: 'template-invalid' })
+    await expect(enrollKey(args({ acknowledgeDedicatedPivApplication: false, getPin }) as any)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
     expect(getPin).not.toHaveBeenCalled()
     expect(info).not.toHaveBeenCalled()
   })
@@ -348,14 +345,87 @@ describe('enrollKey', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
+  test('a personalised key is refused before the PIN the wizard supplies can spend a retry', async () => {
+    // The wizard sends the factory PIN on the user's behalf, so a key that has
+    // already been used for something else must be identified by the read-only
+    // preflight — never by burning one of three retries on a code the user
+    // never chose. personalise() protects the management key, which is exactly
+    // what the real preflight refuses.
+    const verify = jest.spyOn(mock, 'verifyPin')
+    mock.personalise('999999', '99999999')
+
+    await expect(enrollKey(args())).rejects.toMatchObject({ code: 'mgmt-key-custom' })
+
+    expect(verify).not.toHaveBeenCalled()
+    expect((await mock.getKeyInfo()).pinRetries).toBe(3)
+  })
+
+  test.each(['pin-invalid', 'puk-invalid', 'mgmt-key-custom', 'attestation-invalid'] as const)(
+    '%s from the card session carries the serial so a later reset can bind to that key',
+    async code => {
+      let over: Record<string, unknown> = {}
+      if (code === 'mgmt-key-custom') {
+        mock.personalise('999999', '99999999')
+      } else if (code === 'attestation-invalid') {
+        mock.setManufacturerAttested(false)
+      } else if (code === 'pin-invalid') {
+        mock.setPin('998877') // enrollKey is handed the factory PIN by its caller
+      } else {
+        // A wrong PUK is only a bare puk-invalid while no earlier mutation has
+        // landed, so this card must already carry a non-factory PIN.
+        mock.setPin('999999')
+        over = {
+          getPin: async () => '999999',
+          requestPukChange: async () => ({ oldPuk: '11111111', newPuk: '87654321' })
+        }
+      }
+
+      await expect(enrollKey(args(over))).rejects.toMatchObject({
+        code,
+        details: { serial: 'MOCK-1' }
+      })
+    }
+  )
+
+  test('tagging the serial never rebuilds a partial-enrollment error or a foreign throwable', async () => {
+    // A rebuilt VaultError would silently drop stage/record/recoverySaved and
+    // break the quarantine and draft-recovery machinery that reads them.
+    const partial = new VaultEnrollmentPartialError('pin-changed', new Error('transport lost'), undefined, true)
+    jest.spyOn(mock, 'verifyPin').mockRejectedValueOnce(partial)
+    const tagged = await enrollKey(args()).catch(e => e)
+    expect(tagged).toBe(partial)
+    expect(tagged).toBeInstanceOf(VaultEnrollmentPartialError)
+    expect(tagged).toMatchObject({ code: 'enrollment-partial', stage: 'pin-changed', recoverySaved: true })
+
+    const foreign = new Error('bridge exploded')
+    jest.spyOn(mock, 'preflightDedicatedPiv').mockRejectedValueOnce(foreign)
+    await expect(enrollKey(args())).rejects.toBe(foreign)
+  })
+
+  test('a serial already named on the error is kept, not overwritten by the tapped one', async () => {
+    jest
+      .spyOn(mock, 'verifyPin')
+      .mockRejectedValueOnce(new VaultError('pin-invalid', 'Wrong PIN', 2, { serial: 'MOCK-OTHER' }))
+    await expect(enrollKey(args())).rejects.toMatchObject({
+      code: 'pin-invalid',
+      retriesLeft: 2,
+      details: { serial: 'MOCK-OTHER' }
+    })
+  })
+
   test('binds each native command to the serial read for this enrollment', async () => {
-    const realPreflight = mock.preflightDedicatedPiv.bind(mock)
-    jest.spyOn(mock, 'preflightDedicatedPiv').mockImplementationOnce(async serial => {
-      const result = await realPreflight(serial)
-      // A second USB token becomes current between bridge calls. Every later
-      // destructive command must compare the serial inside its own session.
-      mock.insertKey('MOCK-2')
-      return result
+    // The swap rides on the slot-occupancy probe, the LAST read-only card call
+    // before personalization: preflight and verifyPin now run ahead of it and
+    // would catch the new serial themselves, leaving changePin unreached.
+    const realSign = mock.signEcdsa.bind(mock)
+    jest.spyOn(mock, 'signEcdsa').mockImplementationOnce(async (...signArgs) => {
+      try {
+        return await realSign(...signArgs)
+      } finally {
+        // A second USB token becomes current between bridge calls. Every later
+        // destructive command must compare the serial inside its own session.
+        mock.insertKey('MOCK-2')
+      }
     })
     const changed = jest.spyOn(mock, 'changePin')
 
@@ -512,9 +582,7 @@ describe('enrollKey', () => {
     expect(await vaultStore.getMeta()).toBeNull()
     expect(await vaultStore.getEnrollmentDrafts()).toEqual([])
     vaultStore.configureScope({ identityKey: '02' + 'ab'.repeat(32), chain: 'main' })
-    expect(await vaultStore.getEnrollmentDrafts()).toEqual([
-      { record: err.record, assurance: 'challenge-required' }
-    ])
+    expect(await vaultStore.getEnrollmentDrafts()).toEqual([{ record: err.record, assurance: 'challenge-required' }])
     expect(scopeA.storageKey).toContain('vault_meta_v6_main_')
   })
 
@@ -541,9 +609,10 @@ describe('enrollKey', () => {
     const [draft] = await vaultStore.getEnrollmentDrafts()
     expect(draft).toEqual({ record: err.record, assurance: 'management-uncertain' })
     const pin = jest.fn(async () => '654321')
-    await expect(
-      resumeEnrollmentDraft({ entry: draft, onPhase: () => {}, getPin: pin })
-    ).rejects.toMatchObject({ code: 'enrollment-partial', stage: 'key-generated' })
+    await expect(resumeEnrollmentDraft({ entry: draft, onPhase: () => {}, getPin: pin })).rejects.toMatchObject({
+      code: 'enrollment-partial',
+      stage: 'key-generated'
+    })
     expect(pin).not.toHaveBeenCalled()
   })
 

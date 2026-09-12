@@ -106,6 +106,28 @@ function requirePivCode(value: string, label: 'PIN' | 'PUK'): void {
   }
 }
 
+/**
+ * Attach the tapped serial to an error leaving the card session.
+ *
+ * The UI's reset offer must bind to the exact key that failed, and a separate
+ * reset tap has no other way to learn which one that was. Native-origin errors
+ * cannot carry it themselves: vaultErrorFromNative parses only the code, the
+ * message and `retries=`, never `details`.
+ *
+ * Only a plain VaultError is rebuilt. Anything else passes through untouched:
+ * a foreign throwable keeps its identity, and a VaultError SUBCLASS keeps the
+ * fields a plain VaultError cannot hold — VaultEnrollmentPartialError's
+ * `stage`, `record` and `recoverySaved` are what the quarantine and draft
+ * recovery machinery reads, so rebuilding one would silently disarm it. An
+ * existing `details.serial` is never overwritten.
+ */
+function withSerial(error: unknown, serial: string): unknown {
+  if (!(error instanceof VaultError)) return error
+  if (error.constructor !== VaultError) return error
+  if (error.details?.serial !== undefined) return error
+  return new VaultError(error.code, error.message, error.retriesLeft, { ...error.details, serial })
+}
+
 function validatePukChange(change: { oldPuk: string; newPuk: string }, pin: string): void {
   requirePivCode(change.oldPuk, 'PUK')
   requirePivCode(change.newPuk, 'PUK')
@@ -299,27 +321,45 @@ export async function enrollKey(args: {
         )
       }
       // A blocked PIN can't be enrolled — surface it before burning anything.
-      if (info.pinRetries === 0) throw new VaultError('pin-locked', 'PIN is blocked')
-      // Verify the entered PIN before doing any card mutation. The signing
-      // probe below is the iOS-safe occupancy check for retired slot 0x82.
-      const verified = await driver.verifyPin(info.serial, pin0)
-      requireVerifiedPin(verified)
-      args.onPhase('checking-slot')
-      await requireEmptyVaultSlot(info.serial, pin0, args.replaceOccupiedVaultSlot === true)
+      if (info.pinRetries === 0) throw withSerial(new VaultError('pin-locked', 'PIN is blocked'), info.serial)
       // PIN/PUK and management credentials are global to the whole PIV
       // application, not slot 0x82. Native must cryptographically verify the
       // factory F9 chain, authenticate the default management key, and reject
       // every occupied user slot it can reliably inspect before mutation. The
       // explicit dedicated-token acknowledgement still matters because a
       // genuine factory-attested token can contain unrelated user credentials.
-      const preflight = await driver.preflightDedicatedPiv(info.serial, args.replaceOccupiedVaultSlot === true)
+      //
+      // This runs BEFORE verifyPin deliberately. It is read-only, issues no
+      // VERIFY on either platform, and refuses every personalised PIV
+      // application — so a used token is identified without spending one of
+      // three PIN retries on the factory PIN the UI supplies on the user's
+      // behalf.
+      let preflight: Awaited<ReturnType<typeof driver.preflightDedicatedPiv>>
+      try {
+        preflight = await driver.preflightDedicatedPiv(info.serial, args.replaceOccupiedVaultSlot === true)
+      } catch (e) {
+        throw withSerial(e, info.serial)
+      }
       if (
         preflight.ok !== true ||
         preflight.manufacturerAttestation !== 'verified' ||
         (preflight.inspection !== 'metadata' && preflight.inspection !== 'attestation')
       ) {
-        throw new VaultError('attestation-invalid', 'Native manufacturer attestation was not verified')
+        throw withSerial(
+          new VaultError('attestation-invalid', 'Native manufacturer attestation was not verified'),
+          info.serial
+        )
       }
+      // Verify the entered PIN before doing any card mutation. The signing
+      // probe below is the iOS-safe occupancy check for retired slot 0x82.
+      try {
+        const verified = await driver.verifyPin(info.serial, pin0)
+        requireVerifiedPin(verified)
+      } catch (e) {
+        throw withSerial(e, info.serial)
+      }
+      args.onPhase('checking-slot')
+      await requireEmptyVaultSlot(info.serial, pin0, args.replaceOccupiedVaultSlot === true)
       // Everything above is read-only. This is the last guard before the
       // first irreversible token mutation.
       vaultStore.assertScopeToken(scopeToken)
@@ -335,12 +375,7 @@ export async function enrollKey(args: {
         } catch (e) {
           if (isDefiniteCredentialRejection(e)) {
             try {
-              await vaultStore.transitionEnrollmentQuarantine(
-                info.serial,
-                'pin-change-uncertain',
-                null,
-                scopeToken
-              )
+              await vaultStore.transitionEnrollmentQuarantine(info.serial, 'pin-change-uncertain', null, scopeToken)
             } catch (storageError) {
               throw new VaultEnrollmentPartialError('pin-change-uncertain', storageError, undefined, true)
             }
@@ -408,17 +443,12 @@ export async function enrollKey(args: {
             )
           }
           if (pinChange) throw new VaultEnrollmentPartialError('pin-changed', e, undefined, true)
-          throw e
+          throw withSerial(e, info.serial)
         }
         throw new VaultEnrollmentPartialError('puk-change-uncertain', e, undefined, true)
       }
       try {
-        await vaultStore.transitionEnrollmentQuarantine(
-          info.serial,
-          'puk-change-uncertain',
-          'puk-changed',
-          scopeToken
-        )
+        await vaultStore.transitionEnrollmentQuarantine(info.serial, 'puk-change-uncertain', 'puk-changed', scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
       }
@@ -433,12 +463,7 @@ export async function enrollKey(args: {
       // process cannot otherwise distinguish an empty slot from one whose
       // GENERATE ASYMMETRIC KEYPAIR command landed without returning.
       try {
-        await vaultStore.transitionEnrollmentQuarantine(
-          info.serial,
-          'puk-changed',
-          'generation-uncertain',
-          scopeToken
-        )
+        await vaultStore.transitionEnrollmentQuarantine(info.serial, 'puk-changed', 'generation-uncertain', scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
       }
@@ -481,10 +506,7 @@ export async function enrollKey(args: {
         )
       }
       try {
-        await vaultStore.preserveEnrollmentDraft(
-          { record: generated, assurance: 'management-uncertain' },
-          scopeToken
-        )
+        await vaultStore.preserveEnrollmentDraft({ record: generated, assurance: 'management-uncertain' }, scopeToken)
       } catch (e) {
         // The public recovery handle could not be made durable after the key
         // was generated. Surface the record and stop before relying on it.
@@ -504,10 +526,7 @@ export async function enrollKey(args: {
         throw new VaultEnrollmentPartialError('key-generated', e, generated, true)
       }
       try {
-        await vaultStore.preserveEnrollmentDraft(
-          { record: generated, assurance: 'challenge-required' },
-          scopeToken
-        )
+        await vaultStore.preserveEnrollmentDraft({ record: generated, assurance: 'challenge-required' }, scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('key-protected', e, generated, true)
       }
@@ -599,10 +618,15 @@ export async function resumeEnrollmentDraft(args: {
         const info = await driver.getKeyInfo()
         if (!isVaultSerial(info.serial)) throw new VaultError('template-invalid', 'YubiKey returned an invalid serial')
         if (info.serial !== stored.record.serial) {
-          throw new VaultError('serial-mismatch', 'The presented YubiKey does not match the recovery handle', undefined, {
-            tapped: info.serial,
-            chosen: stored.record.serial
-          })
+          throw new VaultError(
+            'serial-mismatch',
+            'The presented YubiKey does not match the recovery handle',
+            undefined,
+            {
+              tapped: info.serial,
+              chosen: stored.record.serial
+            }
+          )
         }
         if (info.pinRetries === 0) throw new VaultError('pin-locked', 'PIN is blocked')
         requireVerifiedPin(await driver.verifyPin(stored.record.serial, pin))
