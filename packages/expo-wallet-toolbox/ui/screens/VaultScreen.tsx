@@ -485,6 +485,20 @@ export function VaultScreen() {
       const m = metaRef.current
       if (!m) return
       const title = t('vault_remove_title', { nickname: rec.nickname })
+      // Availability first, before any other refusal and long before the
+      // service is called. beginVaultKeyRemoval writes a DURABLE pendingRemoval
+      // tombstone and only a re-lock clears it — and a re-lock creates a vault
+      // output, so it is exactly what this gate refuses. Starting a removal
+      // here would wedge the vault with no exit: `transfersBlocked` then kills
+      // withdraw, deep-linking the transfer screen refuses with
+      // relock-required, cancelUnbroadcastKeyRemoval has no UI caller, and
+      // disable is refused while a tombstone is set. The tombstone-before-gate
+      // ordering is the underlying defect; refusing up front is the fix that
+      // does not reorder the two-phase service.
+      if (!enabled) {
+        await showAlert({ title, message: t(unavailableCopy), buttons: [{ text: t('vault_ok'), key: 'ok' }] })
+        return
+      }
       if (m.keys.length <= VAULT_MIN_KEYS) {
         await showAlert({ title, message: vaultErrorCopy('last-keys'), buttons: [{ text: t('vault_ok'), key: 'ok' }] })
         return
@@ -525,7 +539,7 @@ export function VaultScreen() {
         return
       }
     },
-    [coverage, pm, adminOriginator, reload, refreshCoverage, openRelock]
+    [coverage, pm, adminOriginator, reload, refreshCoverage, openRelock, enabled, unavailableCopy]
   )
 
   const keyActions = useCallback(

@@ -103,9 +103,11 @@ export interface VaultTransferOptions {
    * reaches the offline drain" a testable invariant.
    */
   isOnline?: () => Promise<boolean>
-  /** Injected BUILD half of the release gate so the module stays config-free in
-   * tests. Defaults to isVaultEnabled() from toolboxConfig. The mainnet half is
-   * deliberately not injectable — see requireReleased. */
+  /** Injected BUILD half of the availability gate so the module stays
+   * config-free in tests. Defaults to isVaultEnabled() from toolboxConfig.
+   * Half-dead since task 11: it can still refuse, but `() => true` no longer
+   * enables anything, because the mainnet half is not injectable and runs
+   * regardless — see requireReleased. */
   vaultEnabled?: () => boolean
   /** Private encrypted backup must have a configured service and must not be
    * opted out before any operation creates a new Vault output. */
@@ -1464,7 +1466,7 @@ function requireReleased(opts: VaultTransferOptions | undefined, scopeToken: Vau
   const enabled = opts?.vaultEnabled ?? isVaultEnabled
   if (!enabled()) throw new VaultError('not-released', `${what} is switched off in this build`)
   if (!isVaultAvailable(scopeToken.chain)) {
-    throw new VaultError('not-released', `${what} is only available on mainnet`)
+    throw new VaultError('not-on-mainnet', `${what} is only available on mainnet`)
   }
 }
 

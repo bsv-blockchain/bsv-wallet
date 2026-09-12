@@ -1207,13 +1207,16 @@ describe('depositToVault', () => {
     // scope token — captured before the first await — not a live getScope()
     // read, so a network switch landing mid-flight cannot carry the deposit
     // onto the new chain.
-    it('not-released off mainnet, asked with the operation’s own scope chain', async () => {
+    // The code is 'not-on-mainnet', NOT 'not-released': vaultErrorCopy maps
+    // not-released to "switched off in this release", which is false for a
+    // released build on testnet and hides the switch-network remedy.
+    it('not-on-mainnet off mainnet, asked with the operation’s own scope chain', async () => {
       await seedMeta()
       ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
       const isOnline = jest.fn(async () => true)
       // The suite's scope is 'test'.
       await expect(depositToVault(wallet, ADMIN, 250_000, { isOnline })).rejects.toMatchObject({
-        code: 'not-released'
+        code: 'not-on-mainnet'
       })
       expect(isVaultAvailable).toHaveBeenCalledWith('test')
       expect(isOnline).not.toHaveBeenCalled()
@@ -1224,7 +1227,7 @@ describe('depositToVault', () => {
       await seedMeta()
       ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
       await expect(depositToVault(wallet, ADMIN, 250_000, { vaultEnabled: () => true })).rejects.toMatchObject({
-        code: 'not-released'
+        code: 'not-on-mainnet'
       })
       expect(wallet.createAction).not.toHaveBeenCalled()
     })
@@ -2241,10 +2244,10 @@ describe('relockVault', () => {
   })
 
   // Re-locking CREATES a vault output, so the mainnet rule gates it too.
-  it('not-released off mainnet — before listing or tapping', async () => {
+  it('not-on-mainnet off mainnet — before listing or tapping', async () => {
     await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
     ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
-    await expect(relock()).rejects.toMatchObject({ code: 'not-released' })
+    await expect(relock()).rejects.toMatchObject({ code: 'not-on-mainnet' })
     expect(isVaultAvailable).toHaveBeenCalledWith('test')
     expect(wallet.listOutputs).not.toHaveBeenCalled()
     expect(requestVaultSigner).not.toHaveBeenCalled()

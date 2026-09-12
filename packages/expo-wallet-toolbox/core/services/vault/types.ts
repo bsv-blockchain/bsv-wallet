@@ -59,6 +59,11 @@ export type VaultErrorCode =
   /** `vaultEnabled` is off in this build (spec §0 / D15): no enrollment,
    *  deposit, re-vault or re-lock may create a vault output. */
   | 'not-released'
+  /** The wallet is on `test` or `teratest` and the vault is mainnet-only
+   *  (task 11). Deliberately distinct from 'not-released': the copy that code
+   *  maps to tells the user the BUILD is off, which is false here and would
+   *  hide the one thing they can act on — switching network. */
+  | 'not-on-mainnet'
   /** No private backup service is configured, or encrypted backup push is
    * opted out. New Vault outputs retain recovery metadata in that backup. */
   | 'backup-off'

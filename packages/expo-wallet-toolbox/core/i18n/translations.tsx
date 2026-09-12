@@ -328,6 +328,7 @@ const resources = {
         "That's {{tappedName}}. You chose {{chosenName}} — tap it, or go back and choose {{tappedName}}.",
       vault_err_key_already_enrolled: "You've already added this YubiKey ({{nickname}}). Tap a different one.",
       vault_err_not_released: 'Vault deposits are switched off in this release.',
+      vault_err_not_on_mainnet: 'Vault is available on mainnet only. Switch the wallet to mainnet and try again.',
       vault_err_backup_off:
         'Turn encrypted private backup on before creating another Vault output. You can still withdraw everything.',
       vault_err_not_enough_keys: 'This vault has fewer than two keys. Set it up again.',
@@ -1109,6 +1110,7 @@ const resources = {
         '这是 {{tappedName}}。您选择的是 {{chosenName}} — 请轻触它，或返回并选择 {{tappedName}}。',
       vault_err_key_already_enrolled: '您已经添加过这把 YubiKey（{{nickname}}）。请轻触另一把。',
       vault_err_not_released: '此版本已关闭保险库存入。',
+      vault_err_not_on_mainnet: '保险库仅在主网上可用。请将钱包切换到主网后重试。',
       vault_err_backup_off: '创建新的保险库输出前，请先开启加密私密备份。您仍可全部取出。',
       vault_err_not_enough_keys: '此保险库的密钥少于两把。请重新设置。',
       vault_err_too_many_keys: '一个保险库最多可有五把密钥。',
@@ -1845,6 +1847,7 @@ const resources = {
         'यह {{tappedName}} है। आपने {{chosenName}} चुनी थी — उसे टैप करें, या वापस जाकर {{tappedName}} चुनें।',
       vault_err_key_already_enrolled: 'आप यह YubiKey ({{nickname}}) पहले ही जोड़ चुके हैं। दूसरी टैप करें।',
       vault_err_not_released: 'इस रिलीज़ में वॉल्ट जमा बंद हैं।',
+      vault_err_not_on_mainnet: 'वॉल्ट केवल मेननेट पर उपलब्ध है। वॉलेट को मेननेट पर ले जाकर फिर कोशिश करें।',
       vault_err_backup_off:
         'नया वॉल्ट आउटपुट बनाने से पहले एन्क्रिप्टेड निजी बैकअप चालू करें। आप अब भी सब कुछ निकाल सकते हैं।',
       vault_err_not_enough_keys: 'इस वॉल्ट में दो से कम कुंजियाँ हैं। इसे फिर से सेट करें।',
@@ -2611,6 +2614,8 @@ const resources = {
         'Esa es {{tappedName}}. Elegiste {{chosenName}}: tócala, o vuelve atrás y elige {{tappedName}}.',
       vault_err_key_already_enrolled: 'Ya añadiste esta YubiKey ({{nickname}}). Toca otra distinta.',
       vault_err_not_released: 'Los depósitos a la caja fuerte están desactivados en esta versión.',
+      vault_err_not_on_mainnet:
+        'La caja fuerte solo está disponible en la red principal. Cambia la cartera a la red principal e inténtalo de nuevo.',
       vault_err_backup_off:
         'Activa la copia privada cifrada antes de crear otra salida de la caja fuerte. Aún puedes retirar todo.',
       vault_err_not_enough_keys: 'Esta caja fuerte tiene menos de dos llaves. Configúrala de nuevo.',
@@ -3387,6 +3392,8 @@ const resources = {
         'C’est {{tappedName}}. Vous avez choisi {{chosenName}} — approchez-la, ou revenez en arrière et choisissez {{tappedName}}.',
       vault_err_key_already_enrolled: 'Vous avez déjà ajouté cette YubiKey ({{nickname}}). Approchez-en une autre.',
       vault_err_not_released: 'Les dépôts dans le coffre sont désactivés dans cette version.',
+      vault_err_not_on_mainnet:
+        'Le coffre n’est disponible que sur le réseau principal. Basculez le portefeuille sur le réseau principal, puis réessayez.',
       vault_err_backup_off:
         'Activez la sauvegarde privée chiffrée avant de créer une nouvelle sortie du coffre. Vous pouvez toujours tout retirer.',
       vault_err_not_enough_keys: 'Ce coffre a moins de deux clés. Reconfigurez-le.',
@@ -4156,6 +4163,8 @@ const resources = {
         'هذا هو {{tappedName}}. اخترت {{chosenName}} — المسه، أو ارجع واختر {{tappedName}}.',
       vault_err_key_already_enrolled: 'لقد أضفت هذا المفتاح من قبل ({{nickname}}). المس مفتاحًا آخر.',
       vault_err_not_released: 'إيداعات الخزنة معطّلة في هذا الإصدار.',
+      vault_err_not_on_mainnet:
+        'الخزنة متاحة على الشبكة الرئيسية فقط. حوِّل المحفظة إلى الشبكة الرئيسية ثم أعِد المحاولة.',
       vault_err_backup_off:
         'فعّل النسخة الاحتياطية الخاصة المشفّرة قبل إنشاء مخرج خزنة جديد. ولا يزال بإمكانك سحب كل شيء.',
       vault_err_not_enough_keys: 'هذه الخزنة لديها أقل من مفتاحين. أعد إعدادها.',
@@ -4906,6 +4915,8 @@ const resources = {
         'Essa é {{tappedName}}. Você escolheu {{chosenName}} — encoste-a, ou volte e escolha {{tappedName}}.',
       vault_err_key_already_enrolled: 'Você já adicionou esta YubiKey ({{nickname}}). Encoste outra.',
       vault_err_not_released: 'Os depósitos no cofre estão desativados nesta versão.',
+      vault_err_not_on_mainnet:
+        'O cofre só está disponível na rede principal. Mude a carteira para a rede principal e tente novamente.',
       vault_err_backup_off:
         'Ative o backup privado criptografado antes de criar outra saída do cofre. Você ainda pode sacar tudo.',
       vault_err_not_enough_keys: 'Este cofre tem menos de duas chaves. Configure-o de novo.',
@@ -5672,6 +5683,7 @@ const resources = {
         'এটি {{tappedName}}। আপনি {{chosenName}} বেছেছিলেন — সেটি ট্যাপ করুন, অথবা ফিরে গিয়ে {{tappedName}} বাছুন।',
       vault_err_key_already_enrolled: 'আপনি এই YubiKey ({{nickname}}) আগেই যোগ করেছেন। অন্য একটি ট্যাপ করুন।',
       vault_err_not_released: 'এই রিলিজে ভল্টে জমা বন্ধ রাখা হয়েছে।',
+      vault_err_not_on_mainnet: 'ভল্ট কেবল মেইননেটে উপলব্ধ। ওয়ালেটটি মেইননেটে নিয়ে আবার চেষ্টা করুন।',
       vault_err_backup_off:
         'নতুন ভল্ট আউটপুট তৈরির আগে এনক্রিপ্টেড ব্যক্তিগত ব্যাকআপ চালু করুন। আপনি এখনও সব তুলে নিতে পারেন।',
       vault_err_not_enough_keys: 'এই ভল্টে দুটির কম কী আছে। আবার সেট আপ করুন।',
@@ -6433,6 +6445,8 @@ const resources = {
         'Это {{tappedName}}. Вы выбрали {{chosenName}} — приложите его или вернитесь и выберите {{tappedName}}.',
       vault_err_key_already_enrolled: 'Вы уже добавили этот YubiKey ({{nickname}}). Приложите другой.',
       vault_err_not_released: 'Пополнение хранилища отключено в этой версии.',
+      vault_err_not_on_mainnet:
+        'Хранилище доступно только в основной сети. Переключите кошелёк на основную сеть и повторите попытку.',
       vault_err_backup_off:
         'Включите зашифрованную приватную копию перед созданием нового выхода хранилища. Вы по-прежнему можете вывести всё.',
       vault_err_not_enough_keys: 'В этом хранилище меньше двух ключей. Настройте его заново.',
@@ -7204,6 +7218,8 @@ const resources = {
         'Itu {{tappedName}}. Anda memilih {{chosenName}} — tempelkan itu, atau kembali dan pilih {{tappedName}}.',
       vault_err_key_already_enrolled: 'Anda sudah menambahkan YubiKey ini ({{nickname}}). Tempelkan yang lain.',
       vault_err_not_released: 'Setoran brankas dimatikan pada rilis ini.',
+      vault_err_not_on_mainnet:
+        'Brankas hanya tersedia di jaringan utama. Alihkan dompet ke jaringan utama lalu coba lagi.',
       vault_err_backup_off:
         'Aktifkan cadangan pribadi terenkripsi sebelum membuat output brankas baru. Anda tetap dapat menarik semuanya.',
       vault_err_not_enough_keys: 'Brankas ini memiliki kurang dari dua kunci. Siapkan lagi.',
@@ -7974,6 +7990,8 @@ const resources = {
         'これは {{tappedName}} です。選択したのは {{chosenName}} です — それをかざすか、戻って {{tappedName}} を選択してください。',
       vault_err_key_already_enrolled: 'この YubiKey（{{nickname}}）は既に追加済みです。別の鍵をかざしてください。',
       vault_err_not_released: 'このリリースでは保管庫への入金は無効になっています。',
+      vault_err_not_on_mainnet:
+        '保管庫はメインネットでのみ利用できます。ウォレットをメインネットに切り替えてからお試しください。',
       vault_err_backup_off:
         '新しい保管庫出力を作成する前に、暗号化プライベートバックアップをオンにしてください。すべてを引き出すことはできます。',
       vault_err_not_enough_keys: 'この保管庫の鍵は 2 本未満です。もう一度設定してください。',
@@ -8753,6 +8771,8 @@ const resources = {
         'To {{tappedName}}. Wybrałeś {{chosenName}} — przyłóż go albo wróć i wybierz {{tappedName}}.',
       vault_err_key_already_enrolled: 'Ten klucz YubiKey ({{nickname}}) został już dodany. Przyłóż inny.',
       vault_err_not_released: 'Wpłaty do sejfu są wyłączone w tym wydaniu.',
+      vault_err_not_on_mainnet:
+        'Sejf jest dostępny wyłącznie w sieci głównej. Przełącz portfel na sieć główną i spróbuj ponownie.',
       vault_err_backup_off:
         'Włącz zaszyfrowaną prywatną kopię przed utworzeniem nowego wyjścia sejfu. Nadal możesz wypłacić wszystko.',
       vault_err_not_enough_keys: 'Ten sejf ma mniej niż dwa klucze. Skonfiguruj go ponownie.',

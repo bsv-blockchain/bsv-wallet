@@ -336,21 +336,41 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
-  test('flag off: the confirmation offers Remove only / Cancel — re-locking creates a vault output, which the flag gates', async () => {
-    // Same gating as the Re-lock actions (openGenericRelock): with the flag
-    // off the re-lock sheet could only refuse with not-released. The flag-on
-    // case above pins the three-button form.
+  // beginVaultKeyRemoval writes a durable pendingRemoval tombstone, and ONLY a
+  // re-lock clears it — but a re-lock creates a vault output, which is what the
+  // availability gate refuses. Starting the removal would therefore wedge the
+  // vault with no exit at all: transfersBlocked kills withdraw, the transfer
+  // screen refuses with relock-required even when deep-linked,
+  // cancelUnbroadcastKeyRemoval has no UI caller, and disable is refused while
+  // a tombstone is set. So removal must be refused BEFORE the service is
+  // called, for both halves of the gate.
+  test('flag off: removal is refused before the service is called, naming the build', async () => {
     mockVaultEnabled = false
     mockGetMeta.mockResolvedValue(META3)
-    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockShowAlert).toHaveBeenCalledTimes(2)
-    const confirm = mockShowAlert.mock.calls[1][0]
-    expect(confirm.title).toBe('vault_remove_title:{"nickname":"Desk"}')
-    expect(confirm.buttons.map((b: any) => b.text)).toEqual(['vault_remove_only', 'vault_cancel'])
-    expect(mockBeginRemoval).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340001')
+    const refusal = mockShowAlert.mock.calls[1][0]
+    expect(refusal.title).toBe('vault_remove_title:{"nickname":"Desk"}')
+    expect(refusal.message).toBe('vault_not_released_body')
+    expect(mockBeginRemoval).not.toHaveBeenCalled()
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
+  })
+
+  test('testnet: removal is refused before the service is called, naming the network', async () => {
+    mockWallet.selectedNetwork = 'test'
+    mockGetMeta.mockResolvedValue(META3)
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
+    await settle()
+    expect(mockShowAlert).toHaveBeenCalledTimes(2)
+    // Not vault_not_released_body: this build IS released, it is on the wrong
+    // network, and switching back is the remedy the user can act on.
+    expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_not_on_mainnet_body')
+    expect(mockBeginRemoval).not.toHaveBeenCalled()
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
