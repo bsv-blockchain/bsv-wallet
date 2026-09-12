@@ -222,6 +222,12 @@ const resources = {
       vault_key_step_title: 'Key {{k}} of up to 5',
       vault_key_step_replace:
         'Use a factory-reset YubiKey dedicated to Vault. If its Vault slot contains an old key, setup will warn before replacing it.',
+      vault_pin_choose_title: 'Choose a PIN',
+      vault_pin_choose_sub: 'You will enter this every time you use this key. 6 to 8 digits.',
+      vault_pin_confirm_label: 'Enter it again',
+      vault_pin_mismatch: 'Those two PINs do not match.',
+      vault_pin_not_default: 'Pick something other than 123456.',
+      vault_setup_step: 'Step {{n}} of {{total}}',
       vault_enrollment_resume: 'Resume saved key',
       vault_enrollment_reset_required:
         "This YubiKey's PIV setup ended in an uncertain state. Do not guess credentials or retry it: guessing can block the entire PIV application. Use another key and recover or factory-reset this one with an administrator.",
@@ -980,6 +986,12 @@ const resources = {
       vault_intro_begin: '开始',
       vault_key_step_title: '第 {{k}} 把密钥（最多 5 把）',
       vault_key_step_replace: '请使用专供保险库且已恢复出厂设置的 YubiKey。任何 PIV 槽位已被占用时，设置都会停止。',
+      vault_pin_choose_title: '设置 PIN 码',
+      vault_pin_choose_sub: '每次使用此密钥时都需要输入。6 至 8 位数字。',
+      vault_pin_confirm_label: '再次输入',
+      vault_pin_mismatch: '两次输入的 PIN 码不一致。',
+      vault_pin_not_default: '请选择 123456 以外的数字。',
+      vault_setup_step: '第 {{n}} 步，共 {{total}} 步',
       vault_enrollment_resume: '继续已保存的密钥',
       vault_enrollment_reset_required:
         '这把 YubiKey 的 PIV 设置结果无法确定。不要猜测凭据或重试，否则可能锁定整个 PIV 应用。请使用另一把密钥，并由管理员恢复或重置此密钥。',
@@ -1680,6 +1692,12 @@ const resources = {
       vault_key_step_title: 'कुंजी {{k}}, अधिकतम 5 में से',
       vault_key_step_replace:
         'वॉल्ट के लिए समर्पित, फ़ैक्टरी-रीसेट YubiKey का उपयोग करें। कोई भी PIV स्लॉट भरा होने पर सेटअप रुक जाएगा।',
+      vault_pin_choose_title: 'PIN चुनें',
+      vault_pin_choose_sub: 'इस कुंजी का उपयोग करते समय हर बार यही दर्ज करना होगा। 6 से 8 अंक।',
+      vault_pin_confirm_label: 'इसे दोबारा दर्ज करें',
+      vault_pin_mismatch: 'दोनों PIN मेल नहीं खाते।',
+      vault_pin_not_default: '123456 के अलावा कुछ चुनें।',
+      vault_setup_step: 'चरण {{n}} / {{total}}',
       vault_enrollment_resume: 'सहेजी गई कुंजी जारी रखें',
       vault_enrollment_reset_required:
         'इस YubiKey की PIV सेटअप स्थिति अनिश्चित है। क्रेडेंशियल का अनुमान लगाकर दोबारा प्रयास न करें; इससे पूरा PIV ऐप ब्लॉक हो सकता है। दूसरी कुंजी इस्तेमाल करें और इसे प्रशासक से रिकवर या फ़ैक्टरी-रीसेट कराएँ।',
@@ -2413,6 +2431,12 @@ const resources = {
       vault_key_step_title: 'Llave {{k}} de hasta 5',
       vault_key_step_replace:
         'Usa una YubiKey restablecida de fábrica y dedicada a la caja fuerte. La configuración se detiene si alguna ranura PIV está ocupada.',
+      vault_pin_choose_title: 'Elige un PIN',
+      vault_pin_choose_sub: 'Lo introducirás cada vez que uses esta llave. De 6 a 8 dígitos.',
+      vault_pin_confirm_label: 'Introdúcelo otra vez',
+      vault_pin_mismatch: 'Esos dos PIN no coinciden.',
+      vault_pin_not_default: 'Elige algo distinto de 123456.',
+      vault_setup_step: 'Paso {{n}} de {{total}}',
       vault_enrollment_resume: 'Reanudar clave guardada',
       vault_enrollment_reset_required:
         'La configuración PIV de esta YubiKey quedó en un estado incierto. No adivines credenciales ni vuelvas a intentarlo: podrías bloquear toda la aplicación PIV. Usa otra llave y pide a un administrador que recupere o restablezca esta.',
@@ -3159,6 +3183,12 @@ const resources = {
       vault_key_step_title: 'Clé {{k}} sur 5 maximum',
       vault_key_step_replace:
         'Utilisez une YubiKey réinitialisée et dédiée au coffre. La configuration s’arrête si un emplacement PIV est occupé.',
+      vault_pin_choose_title: 'Choisissez un code PIN',
+      vault_pin_choose_sub: 'Vous le saisirez à chaque utilisation de cette clé. 6 à 8 chiffres.',
+      vault_pin_confirm_label: 'Saisissez-le à nouveau',
+      vault_pin_mismatch: 'Ces deux codes PIN ne correspondent pas.',
+      vault_pin_not_default: 'Choisissez autre chose que 123456.',
+      vault_setup_step: 'Étape {{n}} sur {{total}}',
       vault_enrollment_resume: 'Reprendre la clé enregistrée',
       vault_enrollment_reset_required:
         'La configuration PIV de cette YubiKey est dans un état incertain. Ne devinez pas les identifiants et ne réessayez pas : vous pourriez bloquer toute l’application PIV. Utilisez une autre clé et faites récupérer ou réinitialiser celle-ci par un administrateur.',
@@ -3904,6 +3934,12 @@ const resources = {
       vault_key_step_title: 'المفتاح {{k}} من 5 كحدّ أقصى',
       vault_key_step_replace:
         'استخدم مفتاح YubiKey معادًا إلى إعدادات المصنع ومخصصًا للخزنة. يتوقف الإعداد إذا كانت أي خانة PIV مستخدمة.',
+      vault_pin_choose_title: 'اختر رمز PIN',
+      vault_pin_choose_sub: 'ستُدخله في كل مرة تستخدم فيها هذا المفتاح. من 6 إلى 8 أرقام.',
+      vault_pin_confirm_label: 'أدخله مرة أخرى',
+      vault_pin_mismatch: 'الرمزان غير متطابقين.',
+      vault_pin_not_default: 'اختر رمزًا غير 123456.',
+      vault_setup_step: 'الخطوة {{n}} من {{total}}',
       vault_enrollment_resume: 'متابعة المفتاح المحفوظ',
       vault_enrollment_reset_required:
         'انتهى إعداد PIV لهذا المفتاح في حالة غير مؤكدة. لا تخمّن بيانات الاعتماد ولا تعِد المحاولة، فقد يؤدي ذلك إلى قفل تطبيق PIV بالكامل. استخدم مفتاحًا آخر واستعن بمسؤول لاستعادة هذا المفتاح أو إعادته إلى إعدادات المصنع.',
@@ -4619,6 +4655,12 @@ const resources = {
       vault_key_step_title: 'Chave {{k}} de até 5',
       vault_key_step_replace:
         'Use uma YubiKey reposta de fábrica e dedicada ao cofre. A configuração para se algum slot PIV estiver ocupado.',
+      vault_pin_choose_title: 'Escolha um PIN',
+      vault_pin_choose_sub: 'Vai introduzi-lo sempre que usar esta chave. 6 a 8 dígitos.',
+      vault_pin_confirm_label: 'Introduza-o novamente',
+      vault_pin_mismatch: 'Os dois PIN não coincidem.',
+      vault_pin_not_default: 'Escolha algo diferente de 123456.',
+      vault_setup_step: 'Passo {{n}} de {{total}}',
       vault_enrollment_resume: 'Retomar chave guardada',
       vault_enrollment_reset_required:
         'A configuração PIV desta YubiKey terminou num estado incerto. Não adivinhe credenciais nem tente novamente: isso pode bloquear toda a aplicação PIV. Use outra chave e peça a um administrador para recuperar ou repor esta.',
@@ -5360,6 +5402,12 @@ const resources = {
       vault_key_step_title: 'কী {{k}}, সর্বোচ্চ ৫টির মধ্যে',
       vault_key_step_replace:
         'ভল্টের জন্য নির্দিষ্ট, ফ্যাক্টরি-রিসেট YubiKey ব্যবহার করুন। কোনো PIV স্লট দখল করা থাকলে সেটআপ থেমে যাবে।',
+      vault_pin_choose_title: 'একটি PIN বাছুন',
+      vault_pin_choose_sub: 'এই কী ব্যবহারের প্রতিবার এটি দিতে হবে। ৬ থেকে ৮ অঙ্ক।',
+      vault_pin_confirm_label: 'আবার লিখুন',
+      vault_pin_mismatch: 'দুটি PIN মিলছে না।',
+      vault_pin_not_default: '123456 ছাড়া অন্য কিছু বাছুন।',
+      vault_setup_step: 'ধাপ {{n}} / {{total}}',
       vault_enrollment_resume: 'সংরক্ষিত কী চালিয়ে যান',
       vault_enrollment_reset_required:
         'এই YubiKey-এর PIV সেটআপ অনিশ্চিত অবস্থায় শেষ হয়েছে। পরিচয়পত্র অনুমান করে আবার চেষ্টা করবেন না; এতে পুরো PIV অ্যাপ ব্লক হতে পারে। অন্য কী ব্যবহার করুন এবং প্রশাসকের সাহায্যে এটি পুনরুদ্ধার বা ফ্যাক্টরি-রিসেট করুন।',
@@ -6089,6 +6137,12 @@ const resources = {
       vault_key_step_title: 'Ключ {{k}} из не более 5',
       vault_key_step_replace:
         'Используйте YubiKey, сброшенный до заводских настроек и выделенный для хранилища. Настройка остановится, если занят любой слот PIV.',
+      vault_pin_choose_title: 'Придумайте PIN-код',
+      vault_pin_choose_sub: 'Его нужно будет вводить при каждом использовании этого ключа. От 6 до 8 цифр.',
+      vault_pin_confirm_label: 'Введите ещё раз',
+      vault_pin_mismatch: 'PIN-коды не совпадают.',
+      vault_pin_not_default: 'Выберите что-нибудь кроме 123456.',
+      vault_setup_step: 'Шаг {{n}} из {{total}}',
       vault_enrollment_resume: 'Продолжить сохранённый ключ',
       vault_enrollment_reset_required:
         'Настройка PIV этого YubiKey завершилась в неопределённом состоянии. Не угадывайте данные и не повторяйте попытку: это может заблокировать всё приложение PIV. Используйте другой ключ, а этот восстановите или сбросьте с помощью администратора.',
@@ -6827,6 +6881,12 @@ const resources = {
       vault_key_step_title: 'Kunci {{k}} dari maksimal 5',
       vault_key_step_replace:
         'Gunakan YubiKey yang telah direset pabrik dan dikhususkan untuk brankas. Penyiapan berhenti jika ada slot PIV yang terisi.',
+      vault_pin_choose_title: 'Pilih PIN',
+      vault_pin_choose_sub: 'Anda akan memasukkannya setiap kali memakai kunci ini. 6 sampai 8 digit.',
+      vault_pin_confirm_label: 'Masukkan sekali lagi',
+      vault_pin_mismatch: 'Kedua PIN tidak sama.',
+      vault_pin_not_default: 'Pilih selain 123456.',
+      vault_setup_step: 'Langkah {{n}} dari {{total}}',
       vault_enrollment_resume: 'Lanjutkan kunci tersimpan',
       vault_enrollment_reset_required:
         'Penyiapan PIV YubiKey ini berakhir dalam keadaan tidak pasti. Jangan menebak kredensial atau mencoba lagi karena seluruh aplikasi PIV dapat terblokir. Gunakan kunci lain dan minta administrator memulihkan atau mereset kunci ini.',
@@ -7569,6 +7629,12 @@ const resources = {
       vault_key_step_title: '鍵 {{k}}（最大 5 本）',
       vault_key_step_replace:
         '工場出荷状態にリセットした保管庫専用の YubiKey を使用してください。PIV スロットが一つでも使用中なら設定は停止します。',
+      vault_pin_choose_title: 'PIN を決めてください',
+      vault_pin_choose_sub: 'このキーを使うたびに入力します。6〜8 桁の数字。',
+      vault_pin_confirm_label: 'もう一度入力',
+      vault_pin_mismatch: '2 つの PIN が一致しません。',
+      vault_pin_not_default: '123456 以外を選んでください。',
+      vault_setup_step: 'ステップ {{n}}／{{total}}',
       vault_enrollment_resume: '保存済みキーを再開',
       vault_enrollment_reset_required:
         'この YubiKey の PIV 設定は結果を確認できない状態で終了しました。認証情報を推測して再試行しないでください。PIV アプリ全体がロックされる恐れがあります。別のキーを使い、このキーは管理者と復旧または初期化してください。',
@@ -8317,6 +8383,12 @@ const resources = {
       vault_key_step_title: 'Klucz {{k}} z maks. 5',
       vault_key_step_replace:
         'Użyj YubiKey przywróconego do ustawień fabrycznych i przeznaczonego dla sejfu. Konfiguracja zatrzyma się, jeśli którykolwiek slot PIV jest zajęty.',
+      vault_pin_choose_title: 'Wybierz PIN',
+      vault_pin_choose_sub: 'Będziesz go podawać przy każdym użyciu tego klucza. Od 6 do 8 cyfr.',
+      vault_pin_confirm_label: 'Wpisz go ponownie',
+      vault_pin_mismatch: 'Te dwa PIN-y nie są takie same.',
+      vault_pin_not_default: 'Wybierz coś innego niż 123456.',
+      vault_setup_step: 'Krok {{n}} z {{total}}',
       vault_enrollment_resume: 'Wznów zapisany klucz',
       vault_enrollment_reset_required:
         'Konfiguracja PIV tego YubiKey zakończyła się w niepewnym stanie. Nie zgaduj danych i nie próbuj ponownie, bo możesz zablokować całą aplikację PIV. Użyj innego klucza, a ten odzyskaj lub zresetuj z pomocą administratora.',

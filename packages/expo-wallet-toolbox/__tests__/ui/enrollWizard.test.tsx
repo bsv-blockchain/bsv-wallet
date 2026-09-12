@@ -2,8 +2,7 @@ import React from 'react'
 import { BackHandler } from 'react-native'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 const mockEnrollKey = jest.fn()
 const mockFinalize = jest.fn()
 const mockAddVaultKey = jest.fn()
@@ -19,15 +18,18 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   useTheme: () => ({ colors: {} }),
   i18n: { t: (k: string, o?: Record<string, unknown>) => mockT(k, o) },
   VaultError: jest.requireActual('../../core/services/vault/types').VaultError,
-  VaultEnrollmentPartialError: class VaultEnrollmentPartialError extends (
-    jest.requireActual('../../core/services/vault/types').VaultError
-  ) {
+  VaultEnrollmentPartialError: class VaultEnrollmentPartialError
+    extends jest.requireActual('../../core/services/vault/types').VaultError
+  {
     stage: string
     constructor(stage: string) {
       super('enrollment-partial')
       this.stage = stage
     }
   },
+  // Real entropy (WebCrypto under Node): the wizard generates the recovery
+  // code itself, and stubbing the source would hide a broken generator.
+  randomBytes: jest.requireActual('../../core/services/vault/random').randomBytes,
   enrollKey: (...a: unknown[]) => mockEnrollKey(...a),
   resumeEnrollmentDraft: (...a: unknown[]) => mockResumeEnrollmentDraft(...a),
   finalizeEnrollment: (...a: unknown[]) => mockFinalize(...a),
@@ -137,11 +139,10 @@ async function beginEnroll() {
   return { screen, onDone, onCancel }
 }
 
-/** From the pin sub-state: type a PIN, tap, name the key. Ends on `more` (enroll) or `done` (add-key). */
-function enterCredentials(screen: ReturnType<typeof render>, pin = '654321') {
-  fireEvent.changeText(screen.getByLabelText('vault_enter_pin'), pin)
-  fireEvent.changeText(screen.getByLabelText('vault_enter_puk'), '12345678')
-  fireEvent.changeText(screen.getByLabelText('vault_set_new_puk'), '87654321')
+/** From the pin sub-state: choose and confirm a PIN, then advance to the PUK page. */
+function choosePin(screen: ReturnType<typeof render>, pin = '654321') {
+  fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), pin)
+  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), pin)
 }
 
 async function enrolOneKey(screen: ReturnType<typeof render>, name: string) {
@@ -167,6 +168,41 @@ test('Begin is inert until both the recovery and whole-PIV acknowledgements are 
   await act(async () => fireEvent.press(screen.getByText('vault_intro_begin')))
   await settle()
   expect(screen.getByText('vault_key_step_title:{"k":1}')).toBeTruthy()
+})
+
+test('the PIN page shows step 1 of 4 and no PUK fields', async () => {
+  const { screen } = await beginEnroll()
+  expect(screen.getByText('vault_setup_step:{"n":1,"total":4}')).toBeTruthy()
+  expect(screen.queryByLabelText('vault_enter_puk')).toBeNull()
+  expect(screen.queryByLabelText('vault_set_new_puk')).toBeNull()
+})
+
+test('Continue stays inert until both PIN fields match a valid non-default code', async () => {
+  const { screen } = await beginEnroll()
+  const cont = () => screen.getByText('vault_continue')
+
+  fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), '654321')
+  await act(async () => fireEvent.press(cont()))
+  expect(screen.queryByText('vault_puk_title')).toBeNull()
+
+  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), '654322')
+  await act(async () => fireEvent.press(cont()))
+  expect(screen.getByText('vault_pin_mismatch')).toBeTruthy()
+  expect(screen.queryByText('vault_puk_title')).toBeNull()
+
+  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), '654321')
+  await act(async () => fireEvent.press(cont()))
+  await settle()
+  expect(screen.getByText('vault_puk_title')).toBeTruthy()
+})
+
+test('the factory PIN is refused as a choice', async () => {
+  const { screen } = await beginEnroll()
+  fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), '123456')
+  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), '123456')
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  expect(screen.getByText('vault_pin_not_default')).toBeTruthy()
+  expect(screen.queryByText('vault_puk_title')).toBeNull()
 })
 
 test('restores ready scoped drafts into pending without touching the YubiKeys again', async () => {
@@ -258,9 +294,7 @@ test('an empty name falls back to Key {{k}}', async () => {
 })
 
 test('a duplicate pending key is never regenerated or replaced', async () => {
-  mockEnrollKey
-    .mockResolvedValueOnce(record('12340001', 'a'))
-    .mockRejectedValueOnce(dupError('12340001'))
+  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a')).mockRejectedValueOnce(dupError('12340001'))
   const { screen } = await beginEnroll()
   await enrolOneKey(screen, 'Desk')
   await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
@@ -278,7 +312,14 @@ test('a duplicate pending key is never regenerated or replaced', async () => {
 })
 
 test('a duplicate of an already-enrolled key (add-key mode) has no Set it up again', async () => {
-  mockMeta = { v: 5, createdAt: 1, keys: [{ ...record('12340001', 'a'), nickname: 'Desk' }, { ...record('12340002', 'b'), nickname: 'Safe' }] }
+  mockMeta = {
+    v: 5,
+    createdAt: 1,
+    keys: [
+      { ...record('12340001', 'a'), nickname: 'Desk' },
+      { ...record('12340002', 'b'), nickname: 'Safe' }
+    ]
+  }
   mockEnrollKey.mockRejectedValueOnce(dupError('12340002'))
   const screen = render(<EnrollWizard mode="add-key" onDone={jest.fn()} onCancel={jest.fn()} />)
   await settle()
@@ -328,7 +369,14 @@ test('hardware back on the enroll done step completes via onDone, with no leave-
 })
 
 test('hardware back on the add-key done step hands off to the re-lock prompt via onDone', async () => {
-  mockMeta = { v: 5, createdAt: 1, keys: [{ ...record('12340001', 'a'), nickname: 'Desk' }, { ...record('12340002', 'b'), nickname: 'Safe' }] }
+  mockMeta = {
+    v: 5,
+    createdAt: 1,
+    keys: [
+      { ...record('12340001', 'a'), nickname: 'Desk' },
+      { ...record('12340002', 'b'), nickname: 'Safe' }
+    ]
+  }
   mockEnrollKey.mockResolvedValueOnce(record('12340003', 'c'))
   const onDone = jest.fn()
   const onCancel = jest.fn()
@@ -345,7 +393,12 @@ test('hardware back on the add-key done step hands off to the re-lock prompt via
 
 test('hardware back is swallowed while a tap is in flight; the resolved record still reaches the name step', async () => {
   let resolveTap!: (r: ReturnType<typeof record>) => void
-  mockEnrollKey.mockImplementationOnce(() => new Promise(r => { resolveTap = r }))
+  mockEnrollKey.mockImplementationOnce(
+    () =>
+      new Promise(r => {
+        resolveTap = r
+      })
+  )
   const { screen, onCancel } = await beginEnroll()
   enterCredentials(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
@@ -387,9 +440,7 @@ test('a blocked PIN keeps the pending keys and offers a different YubiKey or a r
 })
 
 test('an occupied Vault slot requires explicit replacement and retries with consent', async () => {
-  mockEnrollKey
-    .mockRejectedValueOnce(new VaultError('slot-occupied'))
-    .mockResolvedValueOnce(record('12340001', 'b'))
+  mockEnrollKey.mockRejectedValueOnce(new VaultError('slot-occupied')).mockResolvedValueOnce(record('12340001', 'b'))
   const { screen } = await beginEnroll()
   enterCredentials(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
@@ -460,7 +511,14 @@ test('leaving with nothing pending cancels without asking', async () => {
 })
 
 test('add-key mode runs one key step, calls addVaultKey and ends on the re-lock hint', async () => {
-  mockMeta = { v: 5, createdAt: 1, keys: [{ ...record('12340001', 'a'), nickname: 'Desk' }, { ...record('12340002', 'b'), nickname: 'Safe' }] }
+  mockMeta = {
+    v: 5,
+    createdAt: 1,
+    keys: [
+      { ...record('12340001', 'a'), nickname: 'Desk' },
+      { ...record('12340002', 'b'), nickname: 'Safe' }
+    ]
+  }
   mockEnrollKey.mockResolvedValueOnce(record('12340003', 'c'))
   const onDone = jest.fn()
   const screen = render(<EnrollWizard mode="add-key" onDone={onDone} onCancel={jest.fn()} />)
