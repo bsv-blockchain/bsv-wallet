@@ -19,12 +19,14 @@ public protocol HybridYubiKeyPivSpec_protocol: HybridObject {
   func setKeyListener(listener: @escaping (_ eventType: String, _ serial: String, _ transport: String) -> Void) throws -> Void
   func clearKeyListener() throws -> Void
   func getKeyInfo() throws -> Promise<String>
-  func verifyPin(pin: String) throws -> Promise<String>
-  func changePin(oldPin: String, newPin: String) throws -> Promise<String>
-  func generateVaultKey(slot: Double, touchPolicy: String, pinPolicy: String) throws -> Promise<String>
-  func readVaultPublicKey(slot: Double) throws -> Promise<String>
-  func ecdh(slot: Double, pin: String, peerPublicKey: String) throws -> Promise<String>
-  func signEcdsa(slot: Double, pin: String, digest: String) throws -> Promise<String>
+  func verifyPin(expectedSerial: String, pin: String) throws -> Promise<String>
+  func changePin(expectedSerial: String, oldPin: String, newPin: String) throws -> Promise<String>
+  func changePuk(expectedSerial: String, oldPuk: String, newPuk: String) throws -> Promise<String>
+  func preflightDedicatedPiv(expectedSerial: String) throws -> Promise<String>
+  func generateVaultKey(expectedSerial: String) throws -> Promise<String>
+  func protectManagementKey(expectedSerial: String) throws -> Promise<String>
+  func readVaultPublicKey(expectedSerial: String) throws -> Promise<String>
+  func signEcdsa(expectedSerial: String, pin: String, digest: String) throws -> Promise<String>
 }
 
 public extension HybridYubiKeyPivSpec_protocol {

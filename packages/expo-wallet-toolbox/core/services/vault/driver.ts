@@ -11,7 +11,6 @@
  * "no YubiKey capability on this device", and every caller treats it as such —
  * the vault UI hides, exactly like localpay's getLocalPayTransport() null path.
  */
-import { Platform } from 'react-native'
 import { vaultErrorFromNative } from './types'
 
 export interface KeyEvent {
@@ -26,27 +25,48 @@ export interface KeyEvent {
 
 export interface VaultDriver {
   isSupported(): boolean
-  /** True when the transport is a modal per-ceremony session (iOS NFC: start()
-   * shows the scan sheet, stop() dismisses it) rather than a persistent reader
-   * (Android USB, mock). Session-based drivers are started only when a ceremony
-   * begins — never at launch — and stopped when it arms or fails. */
+  /** True when discovery and the selected device are owned by one ceremony.
+   * Real native drivers are always session-based: iOS presents its NFC sheet;
+   * Android discovers either USB or NFC for the ceremony and tears both down
+   * before releasing the process-wide hardware lease. Test mocks may model a
+   * persistent reader. */
   sessionBased: boolean
   /** Open discovery. `message` is the localised NFC alert text shown on the
-   * iOS scan sheet for this session (spec §4.2 step 6); persistent readers and
-   * Android ignore it. */
+   * iOS scan sheet for this session (spec §4.2 step 6); Android and persistent
+   * test readers ignore it. */
   start(message?: string): void
   stop(): void
   onKeyEvent(cb: (e: KeyEvent) => void): () => void
   getKeyInfo(): Promise<{ serial: string; firmwareVersion: string; pinRetries: number }>
-  verifyPin(pin: string): Promise<{ ok: boolean; retriesLeft: number }>
-  changePin(oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }>
-  /** Generate a fresh P-256 key in `slot`, replacing whatever was there. The
-   * adapter passes touch policy 'cached' and PIN policy 'once' (spec D6). */
-  generateVaultKey(slot: number): Promise<{ publicKey: string }>
-  readVaultPublicKey(slot: number): Promise<{ publicKey: string } | null>
+  verifyPin(expectedSerial: string, pin: string): Promise<{ ok: boolean; retriesLeft: number }>
+  changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }>
+  /** Rotate the PIV unblock code. Neither value may be logged or persisted. */
+  changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<{ ok: boolean; retriesLeft: number }>
+  /** Authenticate the default management key and best-effort reject occupied
+   * user slots before global PIV credentials are changed. Native also verifies
+   * the factory F9 certificate through the pinned production Yubico chain,
+   * offline. Never mutates. */
+  preflightDedicatedPiv(expectedSerial: string): Promise<{
+    ok: true
+    inspection: 'metadata' | 'attestation'
+    manufacturerAttestation: 'verified'
+  }>
+  /** Generate a fresh P-256 key in the fixed Vault slot 0x82, with touch
+   * policy CACHED and PIN policy ONCE (spec D6). Native returns only after a
+   * same-session manufacturer attestation binds the exact key and policies. */
+  generateVaultKey(expectedSerial: string): Promise<{
+    publicKey: string
+    manufacturerAttestation: 'verified'
+  }>
+  /**
+   * Replace the factory management key with native CSPRNG material and discard
+   * it. Called immediately after vault-key generation, in the same session.
+   */
+  protectManagementKey(expectedSerial: string): Promise<{ ok: true }>
+  readVaultPublicKey(expectedSerial: string): Promise<{ publicKey: string } | null>
   /** Sign a pre-computed 32-byte digest (64 hex chars) with the slot's P-256
    * key. Returns a DER signature as hex. TOUCH-gated, PIN-gated. */
-  signEcdsa(slot: number, pin: string, digest: string): Promise<{ signature: string }>
+  signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<{ signature: string }>
 }
 
 /** Shape of the native Nitro module (JSON-string API). Kept local so a missing
@@ -58,12 +78,14 @@ interface NativeYubiKeyPiv {
   setKeyListener(listener: (eventType: string, serial: string, transport: string) => void): void
   clearKeyListener(): void
   getKeyInfo(): Promise<string>
-  verifyPin(pin: string): Promise<string>
-  changePin(oldPin: string, newPin: string): Promise<string>
-  generateVaultKey(slot: number, touchPolicy: string, pinPolicy: string): Promise<string>
-  readVaultPublicKey(slot: number): Promise<string>
-  signEcdsa(slot: number, pin: string, digest: string): Promise<string>
-  // The native `ecdh` method may still exist; nothing in the TS layer calls it.
+  verifyPin(expectedSerial: string, pin: string): Promise<string>
+  changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<string>
+  changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<string>
+  preflightDedicatedPiv(expectedSerial: string): Promise<string>
+  generateVaultKey(expectedSerial: string): Promise<string>
+  protectManagementKey(expectedSerial: string): Promise<string>
+  readVaultPublicKey(expectedSerial: string): Promise<string>
+  signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<string>
 }
 
 let injectedMock: VaultDriver | null = null
@@ -119,8 +141,10 @@ function adaptNative(native: NativeYubiKeyPiv): VaultDriver {
   const listeners = new Set<(e: KeyEvent) => void>()
   return {
     isSupported: () => native.isSupported(),
-    // iOS = NFC (a modal per-tap session); Android = persistent USB reader.
-    sessionBased: Platform.OS === 'ios',
+    // Both native implementations scope discovery to one hardware ceremony.
+    // Android listens for USB and NFC together, then synchronously tears both
+    // down on stop so an NFC device object can never survive into a later run.
+    sessionBased: true,
     start: (message?: string) => {
       // (Re)install the native listener each start; it forwards into the
       // persistent JS `listeners` set so app subscribers survive stop/start
@@ -149,18 +173,21 @@ function adaptNative(native: NativeYubiKeyPiv): VaultDriver {
       return () => listeners.delete(cb)
     },
     getKeyInfo: () => parse(native.getKeyInfo()),
-    verifyPin: pin => parse(native.verifyPin(pin)),
-    changePin: (o, n) => parse(native.changePin(o, n)),
+    verifyPin: (serial, pin) => parse(native.verifyPin(serial, pin)),
+    changePin: (serial, o, n) => parse(native.changePin(serial, o, n)),
+    changePuk: (serial, o, n) => parse(native.changePuk(serial, o, n)),
+    preflightDedicatedPiv: serial => parse(native.preflightDedicatedPiv(serial)),
     // 'cached' (spec D6): the card signs every vault input on-chain, up to
     // VAULT_INPUTS_PER_TAP digests per tap, so one touch must cover a batch —
     // the card keeps a touch valid for 15 s. 'always' would need a touch per
     // input. 'once' lets the PIN verified at session start cover the batch.
-    generateVaultKey: slot => parse(native.generateVaultKey(slot, 'cached', 'once')),
-    readVaultPublicKey: async slot => {
-      const r = await parse<{ publicKey: string | null }>(native.readVaultPublicKey(slot))
+    generateVaultKey: serial => parse(native.generateVaultKey(serial)),
+    protectManagementKey: serial => parse(native.protectManagementKey(serial)),
+    readVaultPublicKey: async serial => {
+      const r = await parse<{ publicKey: string | null }>(native.readVaultPublicKey(serial))
       return r.publicKey ? { publicKey: r.publicKey } : null
     },
-    signEcdsa: (slot, pin, digest) => parse(native.signEcdsa(slot, pin, digest))
+    signEcdsa: (serial, pin, digest) => parse(native.signEcdsa(serial, pin, digest))
   }
 }
 

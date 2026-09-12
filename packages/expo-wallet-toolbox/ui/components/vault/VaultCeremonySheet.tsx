@@ -265,14 +265,15 @@ export const VaultCeremonySheet: React.FC = () => {
             <PressableScale
               haptic="confirm"
               onPress={() => {
-                if (pin.length < 4) return
+                if (!/^[0-9]{6,8}$/.test(pin)) return
                 submitPin(pin)
                 // Drop it from component state the moment it is handed over:
                 // this sheet is mounted for the app's whole life, and the
                 // phase effect above only clears on RE-ENTERING pin-entry.
                 setPin('')
               }}
-              style={[styles.primaryBtn, { backgroundColor: colors.accent, opacity: pin.length >= 4 ? 1 : 0.4 }]}
+              accessibilityState={{ disabled: !/^[0-9]{6,8}$/.test(pin) }}
+              style={[styles.primaryBtn, { backgroundColor: colors.accent, opacity: /^[0-9]{6,8}$/.test(pin) ? 1 : 0.4 }]}
             >
               <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_unlock_cta')}</Text>
             </PressableScale>

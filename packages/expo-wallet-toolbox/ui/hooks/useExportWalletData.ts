@@ -2,7 +2,9 @@
  * Export the wallet database through the OS share sheet — the action behind
  * Settings › "Export Wallet Data" and the Vault screen's row of the same name
  * (spec §3.4: the vault screen is where the user is thinking about recovery,
- * and every vault deposit's salt lives only in this database).
+ * and encrypted export preserves the recovery metadata/history mirrored by
+ * each output. The public salt is also baked into the lock and cross-checked
+ * against its v6 custom instructions).
  *
  * Lifted from WalletConfigScreen.handleExportData so both screens share one
  * implementation: one export at a time, `exporting` for the spinner, failures

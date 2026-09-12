@@ -7,12 +7,14 @@ const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() }
 const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
 const mockGetMeta = jest.fn()
-const mockRemoveKey = jest.fn()
 const mockRenameKey = jest.fn()
 const mockRelock = jest.fn()
-const mockOrphanedIfRemoved = jest.fn()
+const mockRecover = jest.fn()
+const mockAdopt = jest.fn()
+const mockBeginRemoval = jest.fn()
+const mockFinalizeRemoval = jest.fn()
 const mockDisable = jest.fn()
-const mockReclaim = jest.fn()
+const mockDisableWhenSafe = jest.fn()
 const mockRefreshCoverage = jest.fn()
 const mockExportData = jest.fn()
 let mockVaultEnabled = true
@@ -29,18 +31,21 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   useLocalStorage: () => ({ hasStoredIdentity: async () => true, createMnemonic: jest.fn(), secretsReady: true }),
   VaultError: jest.requireActual('../../core/services/vault/types').VaultError,
   vaultStore: {
+    captureScopeToken: () => ({ identityKey: 'scope', chain: 'test', generation: 1 }),
     getMeta: (...a: unknown[]) => mockGetMeta(...a),
-    removeKey: (...a: unknown[]) => mockRemoveKey(...a),
     renameKey: (...a: unknown[]) => mockRenameKey(...a)
   },
   getVaultDriver: () => ({ isSupported: () => mockSupported }),
   isVaultEnabled: () => mockVaultEnabled,
   disableVault: (...a: unknown[]) => mockDisable(...a),
+  disableVaultWhenSafe: (...a: unknown[]) => mockDisableWhenSafe(...a),
   relockVault: (...a: unknown[]) => mockRelock(...a),
-  orphanedIfRemoved: (...a: unknown[]) => mockOrphanedIfRemoved(...a),
-  reclaimStagingOutputs: (...a: unknown[]) => mockReclaim(...a),
+  recoverVaultMetaFromOutputs: (...a: unknown[]) => mockRecover(...a),
+  adoptVaultKey: (...a: unknown[]) => mockAdopt(...a),
+  beginVaultKeyRemoval: (...a: unknown[]) => mockBeginRemoval(...a),
+  finalizeVaultKeyRemoval: (...a: unknown[]) => mockFinalizeRemoval(...a),
   estimateRelockFee: () => 2900,
-  R1C_LOCK_LEN: () => 27881,
+  R1C_LOCK_LEN: () => 45204,
   VAULT_MIN_KEYS: 2,
   VAULT_MAX_KEYS: 5,
   getOnline: async () => true,
@@ -132,7 +137,14 @@ const key = (n: number, nickname: string, c: string) => ({
   nickname,
   enrolledAt: 1_700_000_000_000 + n
 })
-const META2 = { v: 5, createdAt: 1, lastUsedSerial: '12340002', keys: [key(1, 'Desk', 'a'), key(2, 'Safe', 'b')] }
+const META2 = {
+  v: 6,
+  vaultId: '11'.repeat(32),
+  revision: 1,
+  createdAt: 1,
+  lastUsedSerial: '12340002',
+  keys: [key(1, 'Desk', 'a'), key(2, 'Safe', 'b')]
+}
 const META3 = { ...META2, keys: [...META2.keys, key(3, 'Car', 'c')] }
 const META5 = { ...META2, keys: [...META3.keys, key(4, 'Bank', 'd'), key(5, 'Parents', 'e')] }
 const CLEAN = { outputs: 4, stale: 0, missingKeys: [], removedKeyOutputs: 0 }
@@ -150,6 +162,12 @@ async function renderVault() {
   return screen
 }
 
+function actionAccessibilityState(screen: Awaited<ReturnType<typeof renderVault>>, label: string) {
+  let node: any = screen.getByText(label)
+  while (node && node.props.accessibilityState === undefined) node = node.parent
+  return node?.props.accessibilityState
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockVaultEnabled = true
@@ -157,12 +175,14 @@ beforeEach(() => {
   mockBalance = 0
   mockCoverage = CLEAN
   mockGetMeta.mockReset().mockResolvedValue(META2)
-  mockRemoveKey.mockReset().mockResolvedValue(META2)
   mockRenameKey.mockReset().mockResolvedValue(META2)
   mockRelock.mockReset()
-  mockOrphanedIfRemoved.mockReset().mockResolvedValue(0)
+  mockRecover.mockReset().mockResolvedValue(null)
+  mockAdopt.mockReset().mockResolvedValue(undefined)
+  mockBeginRemoval.mockReset().mockResolvedValue({ complete: true, meta: META2 })
+  mockFinalizeRemoval.mockReset().mockResolvedValue(false)
   mockDisable.mockReset().mockResolvedValue(undefined)
-  mockReclaim.mockReset().mockResolvedValue({ reclaimed: 0, satoshis: 0 })
+  mockDisableWhenSafe.mockReset().mockResolvedValue(true)
   mockShowAlert.mockReset()
   mockWallet = {
     managers: { permissionsManager: { listOutputs: jest.fn() } },
@@ -285,13 +305,12 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_add_key_row')).toBeNull()
   })
 
-  test('removing a key shows a two-button confirmation and removes on Remove; an empty vault gets no auto re-lock', async () => {
+  test('removing a key uses the two-phase service; an empty vault needs no re-lock', async () => {
     mockGetMeta.mockResolvedValue(META3)
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
-    expect(mockOrphanedIfRemoved).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', PUB('a'))
     expect(mockShowAlert).toHaveBeenCalledTimes(2)
     expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.text)).toEqual([
       'vault_key_action_rename',
@@ -302,7 +321,7 @@ describe('enrolled', () => {
     expect(confirm.title).toBe('vault_remove_title:{"nickname":"Desk"}')
     expect(confirm.message).toBe('vault_remove_body:{"nickname":"Desk","fee":"2,900"}')
     expect(confirm.buttons.map((b: any) => b.text)).toEqual(['vault_remove_only', 'vault_cancel'])
-    expect(mockRemoveKey).toHaveBeenCalledWith('12340001')
+    expect(mockBeginRemoval).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340001')
     expect(mockShowToast).toHaveBeenCalledWith('vault_key_removed_toast', { type: 'info' })
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
@@ -321,18 +340,19 @@ describe('enrolled', () => {
     const confirm = mockShowAlert.mock.calls[1][0]
     expect(confirm.title).toBe('vault_remove_title:{"nickname":"Desk"}')
     expect(confirm.buttons.map((b: any) => b.text)).toEqual(['vault_remove_only', 'vault_cancel'])
-    expect(mockRemoveKey).toHaveBeenCalledWith('12340001')
+    expect(mockBeginRemoval).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340001')
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
   test('removing a key from a funded vault removes, then opens the re-lock sheet on its own — no choice offered', async () => {
     mockGetMeta.mockResolvedValue(META3)
+    mockBeginRemoval.mockResolvedValue({ complete: false, meta: META2 })
     mockBalance = 300_000
     mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('Car · 12 340 003')))
     await settle()
-    expect(mockRemoveKey).toHaveBeenCalledWith('12340003')
+    expect(mockBeginRemoval).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340003')
     expect(screen.getByText('vault_relock_choose')).toBeTruthy()
   })
 
@@ -342,45 +362,20 @@ describe('enrolled', () => {
     await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
     expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_last_keys')
-    expect(mockRemoveKey).not.toHaveBeenCalled()
+    expect(mockBeginRemoval).not.toHaveBeenCalled()
   })
 
-  test('removal is refused with relock-required when orphanedIfRemoved reports an orphan', async () => {
+  test('removal failure from the authoritative two-phase service is shown and never opens re-lock', async () => {
     mockGetMeta.mockResolvedValue(META3)
-    mockOrphanedIfRemoved.mockResolvedValueOnce(1)
-    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
+    const { VaultError } = jest.requireActual('../../core/services/vault/types')
+    mockBeginRemoval.mockRejectedValueOnce(new VaultError('relock-required'))
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
-    expect(mockOrphanedIfRemoved).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', PUB('a'))
-    expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_relock_required')
-    expect(mockRemoveKey).not.toHaveBeenCalled()
-  })
-
-  test('removal is refused without a built wallet: the orphan check is never skipped', async () => {
-    mockGetMeta.mockResolvedValue(META3)
-    mockWallet.managers = {}
-    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
-    const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
-    await settle()
-    expect(mockShowAlert).toHaveBeenCalledTimes(2)
-    expect(mockShowAlert.mock.calls[1][0].title).toBe('vault_remove_title:{"nickname":"Desk"}')
-    expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_generic')
-    expect(mockOrphanedIfRemoved).not.toHaveBeenCalled()
-    expect(mockRemoveKey).not.toHaveBeenCalled()
-  })
-
-  test('removal is refused when the orphan check itself throws', async () => {
-    mockGetMeta.mockResolvedValue(META3)
-    mockOrphanedIfRemoved.mockRejectedValueOnce(new TypeError('listOutputs is not a function'))
-    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('ok')
-    const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
-    await settle()
-    expect(mockShowAlert).toHaveBeenCalledTimes(2)
-    expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_generic')
-    expect(mockRemoveKey).not.toHaveBeenCalled()
+    expect(mockShowAlert).toHaveBeenCalledTimes(3)
+    expect(mockShowAlert.mock.calls[2][0].message).toBe('vault_err_relock_required')
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
   test('rename saves through vaultStore.renameKey', async () => {
@@ -438,7 +433,7 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
-  test('a re-lock that is still capped after the pass bound does not toast done', async () => {
+  test('a re-lock that makes no progress stops after the second authenticated pass', async () => {
     mockBalance = 300_000
     mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
     mockRelock.mockResolvedValue({ txid: 'a', cappedInputs: 1, unreachable: NO_UNREACHABLE })
@@ -446,24 +441,12 @@ describe('enrolled', () => {
     await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
     await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
     await settle()
-    expect(mockRelock).toHaveBeenCalledTimes(32)
+    expect(mockRelock).toHaveBeenCalledTimes(2)
     expect(mockShowToast).toHaveBeenCalledWith('vault_relock_capped:{"count":1}', { type: 'info' })
     expect(mockShowToast).not.toHaveBeenCalledWith('vault_relock_done', expect.anything())
     expect(mockShowAlert).not.toHaveBeenCalled()
-    expect(screen.queryByText('vault_relock_choose')).toBeNull()
-  })
-
-  test('Re-lock now without a built wallet shows the error in the sheet instead of doing nothing', async () => {
-    mockBalance = 300_000
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
-    mockWallet.managers = {}
-    const screen = await renderVault()
-    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
-    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
-    await settle()
-    expect(screen.getByText('vault_err_generic')).toBeTruthy()
     expect(screen.getByText('vault_relock_choose')).toBeTruthy()
-    expect(mockRelock).not.toHaveBeenCalled()
+    expect(screen.getByText('vault_err_template_invalid')).toBeTruthy()
   })
 
   test('a re-lock error stays in the sheet with its copy', async () => {
@@ -494,7 +477,68 @@ describe('enrolled', () => {
     screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('vault_disable_row')))
     await settle()
-    expect(mockDisable).toHaveBeenCalledTimes(1)
+    expect(mockDisableWhenSafe).toHaveBeenCalledWith(
+      mockWallet.managers.permissionsManager,
+      'admin.test',
+      expect.any(Function)
+    )
+    const clear = mockDisableWhenSafe.mock.calls[0][2]
+    const token = { identityKey: 'scope', chain: 'test', generation: 1 }
+    await clear(token)
+    expect(mockDisable).toHaveBeenCalledWith(token)
+  })
+
+  test('a recovered key requires a live adoption challenge and keeps the opening scope token', async () => {
+    const recovered = { ...META2, recovery: { required: true, adoptedSerials: [] } }
+    const adopted = { ...META2, recovery: { required: true, adoptedSerials: ['12340001'] } }
+    mockGetMeta.mockResolvedValueOnce(recovered).mockResolvedValueOnce(adopted)
+    const screen = await renderVault()
+    expect(screen.getAllByText('vault_err_key_not_adopted').length).toBeGreaterThan(0)
+
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
+    fireEvent.changeText(screen.getByLabelText('vault_enter_pin'), '654321')
+    await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+    await settle()
+
+    expect(mockAdopt).toHaveBeenCalledWith(expect.objectContaining({
+      record: META2.keys[0],
+      scopeToken: { identityKey: 'scope', chain: 'test', generation: 1 }
+    }))
+    await expect(mockAdopt.mock.calls[0][0].getPin()).resolves.toBe('654321')
+    expect(mockShowToast).toHaveBeenCalledWith('vault_recovery_verified', { type: 'success' })
+  })
+
+  test('recovery adoption gates deposits at two keys but permits withdrawal with one proven key', async () => {
+    mockGetMeta.mockResolvedValue({ ...META2, recovery: { required: true, adoptedSerials: ['12340001'] } })
+    const screen = await renderVault()
+    expect(actionAccessibilityState(screen, 'vault_deposit_cta')).toEqual({ disabled: true })
+    expect(actionAccessibilityState(screen, 'vault_withdraw_cta')).toEqual({ disabled: false })
+
+    screen.unmount()
+    mockGetMeta.mockResolvedValue({ ...META2, recovery: { required: true, adoptedSerials: ['12340001', '12340002'] } })
+    const redundant = await renderVault()
+    expect(actionAccessibilityState(redundant, 'vault_deposit_cta')).toEqual({ disabled: false })
+    expect(actionAccessibilityState(redundant, 'vault_withdraw_cta')).toEqual({ disabled: false })
+  })
+
+  test('pending key removal disables ordinary deposits and withdrawals and stays visible', async () => {
+    const pendingMeta = {
+      ...META2,
+      keys: [META2.keys[0]],
+      pendingRemoval: {
+        key: META2.keys[1],
+        keyIndex: 1,
+        startedAt: 2,
+        revision: 2,
+        state: 'prepared' as const
+      }
+    }
+    mockGetMeta.mockResolvedValue(pendingMeta)
+    const screen = await renderVault()
+    expect(actionAccessibilityState(screen, 'vault_deposit_cta')).toEqual({ disabled: true })
+    expect(actionAccessibilityState(screen, 'vault_withdraw_cta')).toEqual({ disabled: true })
+    expect(screen.getByText('Safe · 12 340 002')).toBeTruthy()
+    expect(screen.getByText('tx_still_pending')).toBeTruthy()
   })
 
   test('the export row runs the shared export action', async () => {
@@ -511,8 +555,4 @@ describe('enrolled', () => {
     expect(mockRouter.push).toHaveBeenCalledWith('/vault-transfer?direction=withdraw')
   })
 
-  test('the legacy staging reclaim still runs once for an enrolled vault', async () => {
-    await renderVault()
-    expect(mockReclaim).toHaveBeenCalledTimes(1)
-  })
 })

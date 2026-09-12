@@ -22,9 +22,11 @@ namespace margelo::nitro::yubikeypiv {
       prototype.registerHybridMethod("getKeyInfo", &HybridYubiKeyPivSpec::getKeyInfo);
       prototype.registerHybridMethod("verifyPin", &HybridYubiKeyPivSpec::verifyPin);
       prototype.registerHybridMethod("changePin", &HybridYubiKeyPivSpec::changePin);
+      prototype.registerHybridMethod("changePuk", &HybridYubiKeyPivSpec::changePuk);
+      prototype.registerHybridMethod("preflightDedicatedPiv", &HybridYubiKeyPivSpec::preflightDedicatedPiv);
       prototype.registerHybridMethod("generateVaultKey", &HybridYubiKeyPivSpec::generateVaultKey);
+      prototype.registerHybridMethod("protectManagementKey", &HybridYubiKeyPivSpec::protectManagementKey);
       prototype.registerHybridMethod("readVaultPublicKey", &HybridYubiKeyPivSpec::readVaultPublicKey);
-      prototype.registerHybridMethod("ecdh", &HybridYubiKeyPivSpec::ecdh);
       prototype.registerHybridMethod("signEcdsa", &HybridYubiKeyPivSpec::signEcdsa);
     });
   }

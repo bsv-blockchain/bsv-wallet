@@ -108,48 +108,64 @@ namespace margelo::nitro::yubikeypiv {
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> verifyPin(const std::string& pin) override {
-      auto __result = _swiftPart.verifyPin(pin);
+    inline std::shared_ptr<Promise<std::string>> verifyPin(const std::string& expectedSerial, const std::string& pin) override {
+      auto __result = _swiftPart.verifyPin(expectedSerial, pin);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> changePin(const std::string& oldPin, const std::string& newPin) override {
-      auto __result = _swiftPart.changePin(oldPin, newPin);
+    inline std::shared_ptr<Promise<std::string>> changePin(const std::string& expectedSerial, const std::string& oldPin, const std::string& newPin) override {
+      auto __result = _swiftPart.changePin(expectedSerial, oldPin, newPin);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> generateVaultKey(double slot, const std::string& touchPolicy, const std::string& pinPolicy) override {
-      auto __result = _swiftPart.generateVaultKey(std::forward<decltype(slot)>(slot), touchPolicy, pinPolicy);
+    inline std::shared_ptr<Promise<std::string>> changePuk(const std::string& expectedSerial, const std::string& oldPuk, const std::string& newPuk) override {
+      auto __result = _swiftPart.changePuk(expectedSerial, oldPuk, newPuk);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> readVaultPublicKey(double slot) override {
-      auto __result = _swiftPart.readVaultPublicKey(std::forward<decltype(slot)>(slot));
+    inline std::shared_ptr<Promise<std::string>> preflightDedicatedPiv(const std::string& expectedSerial) override {
+      auto __result = _swiftPart.preflightDedicatedPiv(expectedSerial);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> ecdh(double slot, const std::string& pin, const std::string& peerPublicKey) override {
-      auto __result = _swiftPart.ecdh(std::forward<decltype(slot)>(slot), pin, peerPublicKey);
+    inline std::shared_ptr<Promise<std::string>> generateVaultKey(const std::string& expectedSerial) override {
+      auto __result = _swiftPart.generateVaultKey(expectedSerial);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> signEcdsa(double slot, const std::string& pin, const std::string& digest) override {
-      auto __result = _swiftPart.signEcdsa(std::forward<decltype(slot)>(slot), pin, digest);
+    inline std::shared_ptr<Promise<std::string>> protectManagementKey(const std::string& expectedSerial) override {
+      auto __result = _swiftPart.protectManagementKey(expectedSerial);
+      if (__result.hasError()) [[unlikely]] {
+        std::rethrow_exception(__result.error());
+      }
+      auto __value = std::move(__result.value());
+      return __value;
+    }
+    inline std::shared_ptr<Promise<std::string>> readVaultPublicKey(const std::string& expectedSerial) override {
+      auto __result = _swiftPart.readVaultPublicKey(expectedSerial);
+      if (__result.hasError()) [[unlikely]] {
+        std::rethrow_exception(__result.error());
+      }
+      auto __value = std::move(__result.value());
+      return __value;
+    }
+    inline std::shared_ptr<Promise<std::string>> signEcdsa(const std::string& expectedSerial, const std::string& pin, const std::string& digest) override {
+      auto __result = _swiftPart.signEcdsa(expectedSerial, pin, digest);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }

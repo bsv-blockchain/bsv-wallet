@@ -10,6 +10,7 @@
     "src",
     "ios",
     "android",
+    "attestation",
     "nitrogen/generated",
     "nitro.json",
     "YubiKeyPiv.podspec"

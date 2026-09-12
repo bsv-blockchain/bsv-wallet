@@ -18,10 +18,11 @@ import type { VaultErrorCode } from '../../core/services/vault/types'
 
 const ALL_CODES: VaultErrorCode[] = [
   'unsupported-platform', 'no-key', 'wrong-key', 'pin-required', 'pin-invalid', 'pin-locked',
-  'touch-timeout', 'key-removed-mid-op', 'mgmt-key-custom', 'slot-occupied', 'template-invalid',
+  'puk-invalid', 'puk-locked', 'touch-timeout', 'key-removed-mid-op', 'ceremony-active',
+  'scope-changed', 'mgmt-key-custom', 'attestation-invalid', 'slot-occupied', 'enrollment-partial', 'template-invalid',
   'serial-mismatch', 'user-cancelled', 'not-enrolled', 'driver-unavailable', 'vault-empty',
   'amount-exceeds-balance', 'below-dust', 'no-transaction', 'nfc-lost', 'too-many-inputs',
-  'requires-online', 'not-released', 'backup-off', 'not-enough-keys', 'key-already-enrolled',
+  'requires-online', 'not-released', 'not-enough-keys', 'key-already-enrolled', 'key-not-adopted',
   'too-many-keys', 'last-keys', 'relock-required', 'key-not-committed', 'key-cannot-cover',
   'too-small-to-relock', 'bad-version'
 ]
@@ -55,7 +56,13 @@ describe('vaultErrorCopy', () => {
     expect(vaultErrorCopy('key-removed-mid-op')).toBe('vault_err_key_removed_mid_op')
     expect(vaultErrorCopy('driver-unavailable')).toBe('vault_err_driver_unavailable')
     expect(vaultErrorCopy('mgmt-key-custom')).toBe('vault_err_mgmt_key_custom')
+    expect(vaultErrorCopy('attestation-invalid')).toBe('vault_err_attestation_invalid')
     expect(vaultErrorCopy('pin-required')).toBe('vault_err_pin_required')
+    expect(vaultErrorCopy('puk-locked')).toBe('vault_err_puk_locked')
+    expect(vaultErrorCopy('ceremony-active')).toBe('vault_err_ceremony_active')
+    expect(vaultErrorCopy('scope-changed')).toBe('vault_err_scope_changed')
+    expect(vaultErrorCopy('enrollment-partial')).toBe('vault_err_enrollment_partial')
+    expect(vaultErrorCopy('key-not-adopted')).toBe('vault_err_key_not_adopted')
     expect(vaultErrorCopy('not-released')).toBe('vault_err_not_released')
     expect(vaultErrorCopy('bad-version')).toBe('vault_err_bad_version')
   })
@@ -107,6 +114,11 @@ describe('vaultErrorCopy', () => {
   test('pin-invalid appends the attempts-left line when a count is given', () => {
     expect(vaultErrorCopy('pin-invalid', { count: 2 })).toBe('vault_err_pin_invalid vault_pin_retries:{"count":2}')
     expect(vaultErrorCopy('pin-invalid')).toBe('vault_err_pin_invalid')
+  })
+
+  test('puk-invalid appends the attempts-left line when a count is given', () => {
+    expect(vaultErrorCopy('puk-invalid', { count: 1 })).toBe('vault_err_puk_invalid vault_pin_retries:{"count":1}')
+    expect(vaultErrorCopy('puk-invalid')).toBe('vault_err_puk_invalid')
   })
 
   test('the retryable set is exactly the two tap-again codes', () => {

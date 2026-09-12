@@ -56,12 +56,14 @@ namespace margelo::nitro::yubikeypiv {
       virtual void setKeyListener(const std::function<void(const std::string& /* eventType */, const std::string& /* serial */, const std::string& /* transport */)>& listener) = 0;
       virtual void clearKeyListener() = 0;
       virtual std::shared_ptr<Promise<std::string>> getKeyInfo() = 0;
-      virtual std::shared_ptr<Promise<std::string>> verifyPin(const std::string& pin) = 0;
-      virtual std::shared_ptr<Promise<std::string>> changePin(const std::string& oldPin, const std::string& newPin) = 0;
-      virtual std::shared_ptr<Promise<std::string>> generateVaultKey(double slot, const std::string& touchPolicy, const std::string& pinPolicy) = 0;
-      virtual std::shared_ptr<Promise<std::string>> readVaultPublicKey(double slot) = 0;
-      virtual std::shared_ptr<Promise<std::string>> ecdh(double slot, const std::string& pin, const std::string& peerPublicKey) = 0;
-      virtual std::shared_ptr<Promise<std::string>> signEcdsa(double slot, const std::string& pin, const std::string& digest) = 0;
+      virtual std::shared_ptr<Promise<std::string>> verifyPin(const std::string& expectedSerial, const std::string& pin) = 0;
+      virtual std::shared_ptr<Promise<std::string>> changePin(const std::string& expectedSerial, const std::string& oldPin, const std::string& newPin) = 0;
+      virtual std::shared_ptr<Promise<std::string>> changePuk(const std::string& expectedSerial, const std::string& oldPuk, const std::string& newPuk) = 0;
+      virtual std::shared_ptr<Promise<std::string>> preflightDedicatedPiv(const std::string& expectedSerial) = 0;
+      virtual std::shared_ptr<Promise<std::string>> generateVaultKey(const std::string& expectedSerial) = 0;
+      virtual std::shared_ptr<Promise<std::string>> protectManagementKey(const std::string& expectedSerial) = 0;
+      virtual std::shared_ptr<Promise<std::string>> readVaultPublicKey(const std::string& expectedSerial) = 0;
+      virtual std::shared_ptr<Promise<std::string>> signEcdsa(const std::string& expectedSerial, const std::string& pin, const std::string& digest) = 0;
 
     protected:
       // Hybrid Setup

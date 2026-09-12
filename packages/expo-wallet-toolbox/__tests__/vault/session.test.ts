@@ -24,6 +24,26 @@ describe('withKeySession', () => {
     expect(stopSpy).not.toHaveBeenCalled()
   })
 
+  test('one process-wide hardware lease rejects overlap and releases after teardown', async () => {
+    const firstDriver = new MockYubiKey()
+    const secondDriver = new MockYubiKey()
+    let finish!: () => void
+    const first = withKeySession(
+      firstDriver,
+      () =>
+        new Promise<string>(resolve => {
+          finish = () => resolve('first')
+        })
+    )
+
+    await expect(withKeySession(secondDriver, async () => 'second')).rejects.toMatchObject({
+      code: 'ceremony-active'
+    })
+    finish()
+    await expect(first).resolves.toBe('first')
+    await expect(withKeySession(secondDriver, async () => 'second')).resolves.toBe('second')
+  })
+
   test('NFC: waits for attach, runs work, then stops; forwards the alert text', async () => {
     const m = nfcMock()
     const stopSpy = jest.spyOn(m, 'stop')
@@ -43,6 +63,19 @@ describe('withKeySession', () => {
     expect(await p).toBe('ok')
     expect(order).toEqual(['waiting', 'work'])
     expect(stopSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('NFC: a synchronous start failure still tears down and releases the global lease', async () => {
+    const broken = nfcMock()
+    jest.spyOn(broken, 'start').mockImplementation(() => {
+      throw new Error('start failed')
+    })
+    const stop = jest.spyOn(broken, 'stop')
+    await expect(withKeySession(broken, async () => 'never')).rejects.toThrow('start failed')
+    expect(stop).toHaveBeenCalledTimes(1)
+
+    const next = new MockYubiKey()
+    await expect(withKeySession(next, async () => 'next')).resolves.toBe('next')
   })
 
   test('NFC: the user cancelling the system sheet rejects with user-cancelled and stops', async () => {
@@ -66,9 +99,13 @@ describe('withKeySession', () => {
   test('NFC: the key detaching while work is in flight rejects with key-removed-mid-op', async () => {
     const m = nfcMock()
     let finish!: () => void
-    const p = withKeySession(m, () => new Promise<string>(resolve => {
-      finish = () => resolve('late')
-    }))
+    const p = withKeySession(
+      m,
+      () =>
+        new Promise<string>(resolve => {
+          finish = () => resolve('late')
+        })
+    )
     await flush()
     m.insertKey('MOCK-1')
     await flush()

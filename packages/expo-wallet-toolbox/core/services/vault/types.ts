@@ -2,9 +2,11 @@
  * Vault domain types — shared by the store, the ceremony controller, the
  * transfers and the UI. No React, no I/O.
  *
- * There is no sealed blob and no seed anywhere in this design (spec D2): the
- * enrolled YubiKeys are the keys, and each output's salt lives in the wallet
- * database's customInstructions.
+ * There is no sealed private YubiKey material or seed-derived spending
+ * authority: the enrolled YubiKeys are the spending keys. The wallet root
+ * derives public uniqueness salts. Each output carries its salt in the locking
+ * script; customInstructions mirror it for indexed discovery and are accepted
+ * only after exact script and salt-derivation verification.
  */
 
 export type VaultErrorCode =
@@ -14,10 +16,23 @@ export type VaultErrorCode =
   | 'pin-required'
   | 'pin-invalid'
   | 'pin-locked'
+  | 'puk-invalid'
+  | 'puk-locked'
   | 'touch-timeout'
   | 'key-removed-mid-op'
+  /** Another transfer still owns the single process-wide hardware signer. */
+  | 'ceremony-active'
+  /** Wallet or chain changed while a scoped vault operation was in flight. */
+  | 'scope-changed'
   | 'mgmt-key-custom'
+  /** Factory F9 or generated-slot manufacturer attestation was missing,
+   * malformed, mismatched, or outside the pinned Yubico production chains. */
+  | 'attestation-invalid'
   | 'slot-occupied'
+  /** A slot key exists, but management-key rotation did not confirm. The
+   * attached VaultEnrollmentPartialError record can be challenged/recovered;
+   * it must never be silently persisted as enrolled. */
+  | 'enrollment-partial'
   /** A vault key digest, DER signature, pubkey or script failed a structural
    * check (r1comb.ts throws it for malformed SEC1 points, DER, or a lock that
    * is not an R1C lock). Distinct from 'wrong-key', which vaultErrorFromNative
@@ -43,14 +58,14 @@ export type VaultErrorCode =
   /** `vaultEnabled` is off in this build (spec §0 / D15): no enrollment,
    *  deposit, re-vault or re-lock may create a vault output. */
   | 'not-released'
-  /** Encrypted wallet backup push is switched off (D13): a deposit's salt lives
-   *  only in the wallet DB, so no YubiKey could open it after a phone loss. */
-  | 'backup-off'
   /** Fewer than VAULT_MIN_KEYS keys — defensive; the wizard cannot persist it. */
   | 'not-enough-keys'
   /** The tapped serial is already in meta.keys or in the wizard's pending list.
    *  The message carries the serial. */
   | 'key-already-enrolled'
+  /** Restored metadata exists, but this serial has not yet passed the fresh
+   * possession challenge on this device. */
+  | 'key-not-adopted'
   /** VAULT_MAX_KEYS keys already enrolled. */
   | 'too-many-keys'
   /** Removing this key would leave fewer than VAULT_MIN_KEYS. */
@@ -65,7 +80,8 @@ export type VaultErrorCode =
   | 'key-cannot-cover'
   /** acc − feeEstimate < VAULT_DEPOSIT_MIN: nothing worth re-locking. */
   | 'too-small-to-relock'
-  /** The signable transaction is not version 2 — refused before any signature. */
+  /** The signable transaction is not consensus-bound version 1 — refused
+   *  before any signature. */
   | 'bad-version'
 
 export class VaultError extends Error {

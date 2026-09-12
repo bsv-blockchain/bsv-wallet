@@ -209,4 +209,32 @@ describe('the queries behind the balance', () => {
     // No query that would pull the rows themselves back into JS.
     expect(seen.some(q => q.startsWith('SELECT *') && q.includes('"outputs"'))).toBe(false)
   })
+
+  it('reports one stable total across a full first page and a short second page', async () => {
+    const vault = await seedBasket('admin vault')
+    for (let i = 0; i < 65; i++) {
+      await seedOutput({ status: 'completed', basketId: vault, satoshis: 1_000 + i, vout: i })
+    }
+    const args = {
+      basket: 'admin vault',
+      tags: [],
+      tagQueryMode: 'any',
+      includeCustomInstructions: true,
+      limit: 64
+    }
+
+    const first = await listOutputsSql(storage, { userId: 1, identityKey: 'k' } as never, {
+      ...args,
+      offset: 0
+    } as never)
+    const second = await listOutputsSql(storage, { userId: 1, identityKey: 'k' } as never, {
+      ...args,
+      offset: 64
+    } as never)
+
+    expect(first.outputs).toHaveLength(64)
+    expect(second.outputs).toHaveLength(1)
+    expect(first.totalOutputs).toBe(65)
+    expect(second.totalOutputs).toBe(65)
+  })
 })

@@ -15,7 +15,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import { ceremony } from '../services/vault/ceremonyHost'
 import { CeremonyState } from '../services/vault/ceremony'
-import { vaultStore } from '../services/vault/vaultStore'
 import { haptics } from '../hooks/useHaptics'
 import i18n from '../i18n/translations'
 
@@ -47,12 +46,6 @@ export const VaultProvider: React.FC<{ children: React.ReactNode; onToast?: Vaul
   const [state, setState] = useState<CeremonyState>(ceremony.state)
 
   useEffect(() => ceremony.subscribe(setState), [])
-
-  // One-time cleanup of the K1-era sealed blob (spec §3.2). Fire-and-forget:
-  // migrateLegacySeal swallows its own errors.
-  useEffect(() => {
-    void vaultStore.migrateLegacySeal()
-  }, [])
 
   // Effects of a completed ceremony: the haptic, and nothing else. `onArmed`
   // deliberately ignores its VaultSigner argument — the signer is owned by the

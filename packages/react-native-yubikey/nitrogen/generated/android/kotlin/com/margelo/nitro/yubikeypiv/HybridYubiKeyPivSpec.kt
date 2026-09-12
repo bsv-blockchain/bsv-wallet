@@ -26,13 +26,13 @@ import com.margelo.nitro.core.HybridObject
 )
 abstract class HybridYubiKeyPivSpec: HybridObject() {
   // Properties
-  
+
 
   // Methods
   @DoNotStrip
   @Keep
   abstract fun isSupported(): Boolean
-  
+
   @DoNotStrip
   @Keep
   abstract fun startDiscovery(message: String): Unit
@@ -60,27 +60,35 @@ abstract class HybridYubiKeyPivSpec: HybridObject() {
   
   @DoNotStrip
   @Keep
-  abstract fun verifyPin(pin: String): Promise<String>
+  abstract fun verifyPin(expectedSerial: String, pin: String): Promise<String>
+
+  @DoNotStrip
+  @Keep
+  abstract fun changePin(expectedSerial: String, oldPin: String, newPin: String): Promise<String>
+
+  @DoNotStrip
+  @Keep
+  abstract fun changePuk(expectedSerial: String, oldPuk: String, newPuk: String): Promise<String>
   
   @DoNotStrip
   @Keep
-  abstract fun changePin(oldPin: String, newPin: String): Promise<String>
+  abstract fun preflightDedicatedPiv(expectedSerial: String): Promise<String>
   
   @DoNotStrip
   @Keep
-  abstract fun generateVaultKey(slot: Double, touchPolicy: String, pinPolicy: String): Promise<String>
+  abstract fun generateVaultKey(expectedSerial: String): Promise<String>
   
   @DoNotStrip
   @Keep
-  abstract fun readVaultPublicKey(slot: Double): Promise<String>
+  abstract fun protectManagementKey(expectedSerial: String): Promise<String>
   
   @DoNotStrip
   @Keep
-  abstract fun ecdh(slot: Double, pin: String, peerPublicKey: String): Promise<String>
+  abstract fun readVaultPublicKey(expectedSerial: String): Promise<String>
   
   @DoNotStrip
   @Keep
-  abstract fun signEcdsa(slot: Double, pin: String, digest: String): Promise<String>
+  abstract fun signEcdsa(expectedSerial: String, pin: String, digest: String): Promise<String>
 
   // Default implementation of `HybridObject.toString()`
   override fun toString(): String {

@@ -3,9 +3,9 @@
  *
  * Pure: no I/O, no React, no process.env; imports only @bsv/sdk and
  * @noble/curves. Ported from docs/example-txs/spike/gen.mjs, gen2.mjs,
- * unlock.mjs and unlock2.mjs. The G-table / comb-loop / tail region of every
- * lock is byte-identical to the mined testnet fixture
- * docs/example-txs/51c5…579a_0.hex (asserted in __tests__/vault/r1comb.test.ts).
+ * unlock.mjs and unlock2.mjs. The fixed-base comb geometry is retained from
+ * the mined testnet fixture docs/example-txs/51c5…579a_0.hex; the mixed-add
+ * steps are completed here for the equality, inverse and infinity cases.
  *
  * Script numbers are BSV little-endian sign-magnitude; "minimal scriptnum" is
  * what BigNumber.toSm('little') produces. Every constant is emitted minimally.
@@ -13,7 +13,7 @@
  * SECURITY: nothing secret passes through this module — public keys, per-output
  * salts, signatures the card already produced, and script bytes.
  */
-import { Hash, LockingScript, OP, PrivateKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
+import { Hash, LockingScript, OP, PrivateKey, PublicKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
 
@@ -25,7 +25,7 @@ export const TABLE_SIZE = 32
 /** OP_NUM2BIN width per coordinate in the canonical (hashed) serialisation. */
 export const COORD_WIDTH = 33
 export const SALT_BYTES = 32
-/** Declared unlockingScriptLength; the measured hard maximum is 2,539 B. */
+/** Declared unlockingScriptLength; the measured hard maximum is 2,506 B. */
 export const R1C_UNLOCK_LEN = 2560
 export const R1C_MAX_KEYS = 5
 /** BIP143 preimage length with subscript `ac` (2 B) and scope 0x41. */
@@ -33,10 +33,10 @@ export const R1C_PREIMAGE_LEN = 158
 /** SIGHASH_ALL | SIGHASH_FORKID — the only scope the template supports. */
 export const R1C_SIGHASH = 0x41
 
-/** Exact lock size: 27,855 B at N = 1; 27,831 + 25N B for N = 2..5 (ANALYSIS.md §9.2). */
+/** Exact hardened lock size: 45,221 B at N = 1; 45,197 + 25N B for N = 2..5. */
 export function R1C_LOCK_LEN(n: number): number {
-  if (n === 1) return 27855
-  if (Number.isInteger(n) && n >= 2 && n <= R1C_MAX_KEYS) return 27831 + 25 * n
+  if (n === 1) return 45221
+  if (Number.isInteger(n) && n >= 2 && n <= R1C_MAX_KEYS) return 45197 + 25 * n
   throw new VaultError('template-invalid', `R1C_LOCK_LEN: N must be 1..${R1C_MAX_KEYS}, got ${String(n)}`)
 }
 
@@ -44,10 +44,15 @@ export function R1C_LOCK_LEN(n: number): number {
 const P256_CURVE = p256.Point.CURVE()
 export const P256_P: bigint = P256_CURVE.p
 export const P256_N: bigint = P256_CURVE.n
+/** Largest canonical low-S P-256 signature scalar. */
+export const P256_LOW_S_MAX: bigint = (P256_N - 1n) / 2n
 /** secp256k1 group order — the OP_PUSH_TX leg only. */
 export const SECP_N: bigint = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n
 /** secp256k1 generator x — the OP_PUSH_TX signature's r (nonce k = 1). */
 export const SECP_GX: bigint = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n
+/** Public constants used by the two total OP_PUSH_TX signature branches. */
+const PUSH_TX_C1 = 1n << 248n
+const PUSH_TX_C2 = PUSH_TX_C1 + 1n
 const RECODE_BITS = COMB_ROWS * COMB_COLS // 258 signed digits
 /** 2^258 − 1: the recode constant at H2 (ANALYSIS.md §5.2). */
 export const RECODE_CONST: bigint = (1n << BigInt(RECODE_BITS)) - 1n
@@ -71,6 +76,33 @@ const bytesOf = (h: string): number[] => Utils.toArray(h, 'hex') as number[]
 const beToBig = (b: number[]): bigint => BigInt('0x' + (b.length > 0 ? Utils.toHex(b) : '0'))
 const leToBig = (b: number[]): bigint => beToBig([...b].reverse())
 const invalid = (message: string): VaultError => new VaultError('template-invalid', message)
+
+/** Network recorded beside a Vault output and checked against wallet scope. */
+export type VaultSaltChain = 'main' | 'test' | 'teratest'
+
+/**
+ * Canonical `createHmac` data for a Vault output: the enrolled YubiKey serial
+ * numbers concatenated in commitment order with a one-byte count and a
+ * one-byte length before each ASCII serial. The framing keeps variable-length
+ * lists injective (`["1", "23"]` cannot collide with `["12", "3"]`).
+ */
+export function vaultSaltHmacData(serials: readonly string[]): number[] {
+  if (serials.length < 1 || serials.length > R1C_MAX_KEYS) {
+    throw invalid(`Vault salt requires 1..${R1C_MAX_KEYS} YubiKey serials`)
+  }
+  const encoded: number[] = [serials.length]
+  for (const serial of serials) {
+    if (!/^[A-Za-z0-9._:-]{1,64}$/.test(serial)) {
+      throw invalid('Vault salt requires canonical YubiKey serials')
+    }
+    const bytes = Utils.toArray(serial, 'utf8') as number[]
+    encoded.push(bytes.length, ...bytes)
+  }
+  if (new Set(serials).size !== serials.length) {
+    throw invalid('Vault salt requires distinct YubiKey serials')
+  }
+  return encoded
+}
 
 // ───────────────────────── script-number encoding ─────────────────────────
 /** Raw data push with the minimal push opcode (direct length, PUSHDATA1/2/4). */
@@ -195,10 +227,13 @@ function tableOf(base: P256Point): AffinePoint[] {
 }
 
 let gTableCache: AffinePoint[] | null = null
+const copyTable = (table: readonly AffinePoint[]): AffinePoint[] => table.map(({ x, y }) => ({ x, y }))
 /** table(G) — computed once on first use (32 scalar multiplications), then constant. */
 export function gTable(): AffinePoint[] {
   if (gTableCache === null) gTableCache = tableOf(p256.Point.BASE)
-  return gTableCache
+  // Never expose the cache itself: callers may freely mutate the returned table
+  // without changing future locks or commitments.
+  return copyTable(gTableCache)
 }
 
 const TABLE_CACHE_MAX = 8
@@ -207,14 +242,14 @@ const qTableCache = new Map<string, AffinePoint[]>()
 export function combTable(pubkeyHex33: string): AffinePoint[] {
   const key = compressPubkey(pubkeyHex33)
   const hit = qTableCache.get(key)
-  if (hit !== undefined) return hit
+  if (hit !== undefined) return copyTable(hit)
   const table = tableOf(p256.Point.fromHex(key))
   if (qTableCache.size >= TABLE_CACHE_MAX) {
     const oldest = qTableCache.keys().next().value
     if (oldest !== undefined) qTableCache.delete(oldest)
   }
   qTableCache.set(key, table)
-  return table
+  return copyTable(table)
 }
 
 // ───────────────────────── commitment (spec §2.2) ─────────────────────────
@@ -259,34 +294,63 @@ export function recode(u: bigint): bigint {
 const K_Q = 2 * TABLE_SIZE
 
 /**
- * H0–H4 (+ OP_HASH160): identical for every lock. Stack in (unlock): [r u2' u1' Q0..Q63 salt s sInv preimage]
- * alt []; stack out: [r u2' u1' Q0..Q63 H] alt [preimage n], where H = hash160(salt ‖ canonical table).
+ * H0–H3: identical for every lock. Stack in (unlock): [r u2' u1' Q0..Q63 s sInv preimage]
+ * alt []; stack out: [r u2' u1' Q0..Q63] alt [preimage n].
  */
-let headerPrefixCache: number[] | null = null
-function emitHeaderPrefix(): number[] {
-  if (headerPrefixCache !== null) return headerPrefixCache
+let headerBeforeSaltCache: number[] | null = null
+function emitHeaderBeforeSalt(): number[] {
+  if (headerBeforeSaltCache !== null) return headerBeforeSaltCache
   const out: number[] = []
-  // H0: e = unsigned-LE(hash256(preimage)); preimage -> alt
-  out.push(...asm('OP_DUP OP_HASH256 <00> OP_CAT OP_BIN2NUM OP_SWAP OP_TOALTSTACK'))
-  // H1: n -> alt; s*sInv == 1; u1 = e*sInv; u2 = r*sInv (r sits under salt + 64 coords + u1' + u2'); drop s, sInv
-  //     [.. salt s sInv u1]: u1(0) sInv(1) s(2) salt(3) Q63(4) .. Q0(3+K) u1'(4+K) u2'(5+K) r(6+K)
+  // Canonical witness shape: reject extra bottom pushes as well as missing fields.
+  out.push(...asm('OP_DEPTH {DEPTH} OP_NUMEQUALVERIFY', { DEPTH: 3 + K_Q + 3 }))
+  // H0: bind withdrawals to transaction version 1 at consensus level, then
+  // e = unsigned-LE(hash256(preimage)); preimage -> alt. OP_PUSH_TX later binds
+  // this exact preimage to the transaction being evaluated.
+  out.push(...asm(`
+    OP_DUP 4 OP_SPLIT OP_DROP <01000000> OP_EQUALVERIFY
+    OP_DUP OP_HASH256 <00> OP_CAT OP_BIN2NUM OP_SWAP OP_TOALTSTACK
+  `))
+  // H1: n -> alt; enforce canonical r, low-S s and sInv before any modular
+  // arithmetic; s*sInv == 1; u1 = e*sInv; u2 = r*sInv. The r checks are
+  // consensus-critical: without 1 <= r < p and r != n, CRT can give r one
+  // residue modulo n for scalar multiplication and another modulo p for the
+  // final affine-x check, permitting a signature-free spend.
+  //     [.. s sInv u1]: u1(0) sInv(1) s(2) Q63(3) .. Q0(2+K) u1'(3+K) u2'(4+K) r(5+K)
   out.push(...asm(`
     {N} OP_TOALTSTACK
+    2 OP_PICK 1 {HALFP1} OP_WITHIN OP_VERIFY
+    OP_OVER 1 OP_FROMALTSTACK OP_DUP OP_TOALTSTACK OP_WITHIN OP_VERIFY
+    {RDEPTH} OP_PICK OP_DUP 1 {P} OP_WITHIN OP_VERIFY
+      OP_FROMALTSTACK OP_DUP OP_TOALTSTACK OP_NUMNOTEQUAL OP_VERIFY
     2 OP_PICK 2 OP_PICK OP_MUL MODP 1 OP_NUMEQUALVERIFY
     OP_OVER OP_MUL MODP
     {RDEPTH} OP_PICK 2 OP_PICK OP_MUL MODP
     2 OP_ROLL OP_DROP 2 OP_ROLL OP_DROP
-  `, { N: P256_N, RDEPTH: K_Q + 6 }))
-  // H2: recode u2 then u1 -> [.. salt u1' u2']
+  `, { N: P256_N, HALFP1: P256_LOW_S_MAX + 1n, P: P256_P, RDEPTH: K_Q + 5 }))
+  // H2: recode u2 then u1 -> [.. Q63 u1' u2']
   const one = 'OP_DUP 2 OP_MOD OP_NOTIF {N} OP_ADD OP_ENDIF {C} OP_ADD 2 OP_DIV OP_SWAP'
   out.push(...asm(`${one} ${one}`, { N: P256_N, C: RECODE_CONST }))
-  // H3: computed u2' == pushed u2' (depth K+4), then computed u1' == pushed u1' (depth K+2) -> [r u2' u1' Q.. salt]
-  out.push(...asm('{DU2} OP_PICK OP_NUMEQUALVERIFY {DU1} OP_PICK OP_NUMEQUALVERIFY', { DU2: K_Q + 4, DU1: K_Q + 2 }))
-  // H4: acc = salt; acc ||= NUM2BIN33(Q_m) for m = 0..63 (Q_m at depth K − m); H = hash160(acc)
+  // H3: computed u2' == pushed u2' (depth K+3), then computed u1' == pushed u1' (depth K+1) -> [r u2' u1' Q..]
+  out.push(...asm('{DU2} OP_PICK OP_NUMEQUALVERIFY {DU1} OP_PICK OP_NUMEQUALVERIFY', { DU2: K_Q + 3, DU1: K_Q + 1 }))
+  headerBeforeSaltCache = out
+  return out
+}
+
+/** H4 suffix after the lock pushes its baked salt: hash160(salt || canonical table). */
+let headerAfterSaltCache: number[] | null = null
+function emitHeaderAfterSalt(): number[] {
+  if (headerAfterSaltCache !== null) return headerAfterSaltCache
+  const out: number[] = []
   for (let m = 0; m < K_Q; m++) out.push(...asm('{D} OP_PICK {W} OP_NUM2BIN OP_CAT', { D: K_Q - m, W: COORD_WIDTH }))
   out.push(OP.OP_HASH160)
-  headerPrefixCache = out
+  headerAfterSaltCache = out
   return out
+}
+
+/** H0–H4, including the lock-baked public salt that authenticates the commitment domain and separates scripts. */
+function emitHeaderPrefix(salt: number[]): number[] {
+  if (salt.length !== SALT_BYTES) throw invalid(`emitHeaderPrefix: salt must be ${SALT_BYTES} bytes`)
+  return [...emitHeaderBeforeSalt(), ...pushData(salt), ...emitHeaderAfterSalt()]
 }
 
 /** H5: H must equal one of the N baked 20-byte commitments. 22 B (N = 1) or 25N − 2 B (N >= 2). */
@@ -303,7 +367,7 @@ function emitH5(commitments: number[][]): number[] {
   return out
 }
 
-// ───────────────────────── shared suffix: G table, pre-loop, comb loop, tail (verbatim from gen.mjs) ─────────────────────────
+// ───────────────────────── hardened suffix: G table, pre-loop, complete comb loop, tail ─────────────────────────
 function emitGTable(): number[] {
   const out: number[] = []
   for (const { x, y } of gTable()) out.push(...encNum(x), ...encNum(y))
@@ -317,7 +381,6 @@ function emitPreloop(): number[] {
 
 // Jacobian doubling, a = -3 (dbl-2001-b): M = 3(X-Z^2)(X+Z^2), S = 4XY^2,
 // X3 = M^2 - 2S, Y3 = M(S - X3) - 8Y^4, Z3 = 2YZ. Only X3, Y3, Z3 are reduced.
-// The `1 OP_ROLL 1 OP_ROLL` pairs and the trailing 3x `2 OP_ROLL` are no-ops kept for byte-exactness.
 const DOUBLE = `
   OP_DUP OP_DUP OP_MUL
   3 OP_PICK OP_OVER OP_SUB
@@ -353,10 +416,6 @@ const DIGITS_AND_LOOKUP = `
   OP_NOTIF OP_FROMALTSTACK OP_DUP OP_TOALTSTACK OP_SWAP OP_SUB OP_ENDIF
 `
 
-// Identity guard (column 0, first add only): if Z == 0 replace the accumulator by (x, y, 1).
-const GUARD_PREFIX = '2 OP_PICK 0 OP_NUMEQUAL OP_IF OP_TOALTSTACK OP_TOALTSTACK OP_DROP OP_DROP OP_DROP OP_FROMALTSTACK OP_FROMALTSTACK 1 OP_ELSE'
-const GUARD_SUFFIX = 'OP_ENDIF'
-
 // Mixed Jacobian + affine addition: U2 = xZ^2, S2 = yZ^3, H = U2 - X, R = S2 - Y,
 // X3 = R^2 - H^3 - 2XH^2, Y3 = R(XH^2 - X3) - YH^3, Z3 = ZH. Only X3, Y3, Z3 are reduced.
 const MADD = `
@@ -381,6 +440,44 @@ const MADD = `
   2 OP_ROLL 2 OP_ROLL 2 OP_ROLL
 `
 
+// Complete wrapper for mixed addition. The fast formula above is undefined
+// when the accumulator is infinity or H = 0. Handle those cases explicitly:
+// infinity + P = P; P + P = DOUBLE(P); P + (-P) = infinity. This is required
+// for availability for every valid key/signature, rather than relying on the
+// exceptional relations being improbable.
+const COMPLETE_MADD = `
+  2 OP_PICK 0 OP_NUMEQUAL
+  OP_IF
+    OP_TOALTSTACK OP_TOALTSTACK OP_DROP OP_DROP OP_DROP
+    OP_FROMALTSTACK OP_FROMALTSTACK 1
+  OP_ELSE
+    2 OP_PICK OP_DUP OP_MUL MODP
+    2 OP_PICK OP_MUL
+    5 OP_PICK OP_SUB MODP NORM
+    0 OP_NUMEQUAL
+    OP_IF
+      2 OP_PICK OP_DUP OP_MUL MODP
+      3 OP_PICK OP_MUL
+      1 OP_PICK OP_MUL
+      4 OP_PICK OP_SUB MODP NORM
+      0 OP_NUMEQUAL
+      OP_IF
+        OP_2DROP
+        ${DOUBLE}
+      OP_ELSE
+        OP_2DROP OP_2DROP OP_DROP 1 1 0
+      OP_ENDIF
+    OP_ELSE
+      ${MADD}
+    OP_ENDIF
+  OP_ENDIF
+`
+
+/** Complete Jacobian-plus-affine addition fragment; p must be the altstack top. */
+export function completeMixedAddScript(): number[] {
+  return asm(COMPLETE_MADD)
+}
+
 /** Stack layout beneath the accumulator: [r u2' u1' C[0..K-1]] with K = 128 table coordinates (Q[0..63] then G[0..63]). */
 const K_CONSTS = 2 * 2 * TABLE_SIZE            // 128
 const BELOW = 3 + K_CONSTS                     // 131 items under the accumulator (X Y Z)
@@ -391,21 +488,21 @@ const tableBase = (half: 0 | 1): number => BELOW + 1 - 2 * TABLE_SIZE * half
 /** Shift for column c, row k: bit position 43k + 42 − c of the recoded scalar = 257 − c − 43k. */
 export const shiftFor = (c: number, k: number): number => COMB_COLS * (COMB_ROWS - 1 - k) + (COMB_COLS - 1 - c)
 
-function emitAdd(half: 0 | 1, c: number, guarded: boolean): number[] {
+function emitAdd(half: 0 | 1, c: number): number[] {
   const params: Record<string, AsmParam> = {
     DEPTH0: scalarDepth(half), DEPTH1: scalarDepth(half) + 1, DEPTH2: scalarDepth(half) + 2, BASE: tableBase(half)
   }
   for (let k = 0; k < COMB_ROWS; k++) params[`SHIFT${k}`] = shiftFor(c, k)
-  return asm(`${DIGITS_AND_LOOKUP} ${guarded ? GUARD_PREFIX : ''} ${MADD} ${guarded ? GUARD_SUFFIX : ''}`, params)
+  return [...asm(DIGITS_AND_LOOKUP, params), ...completeMixedAddScript()]
 }
 
-/** 43 columns, Horner: acc = 2·acc + d2(c)·TQ[j2] + d1(c)·TG[j1]; only column 0's first add is identity-guarded. */
+/** 43 columns, Horner: acc = 2·acc + d2(c)·TQ[j2] + d1(c)·TG[j1], with complete mixed additions. */
 function emitCombLoop(): number[] {
   const out: number[] = []
   for (let c = 0; c < COMB_COLS; c++) {
     out.push(...asm(DOUBLE))
-    out.push(...emitAdd(0, c, c === 0))     // index-1 scalar (u2') with C[0..63] (Q)
-    out.push(...emitAdd(1, c, false))       // index-2 scalar (u1') with C[64..127] (G)
+    out.push(...emitAdd(0, c))     // index-1 scalar (u2') with C[0..63] (Q)
+    out.push(...emitAdd(1, c))     // index-2 scalar (u1') with C[64..127] (G)
   }
   return out
 }
@@ -419,17 +516,32 @@ function derIntBytes(v: bigint): number[] {
   return [0x02, b.length, ...b]
 }
 
-/** The OP_PUSH_TX dummy key d·G on secp256k1, d = 2^248·Gx⁻¹ mod n_k1 (public by construction). */
-let pushTxPubKeyCache: number[] | null = null
-function pushTxPubKey(): number[] {
-  if (pushTxPubKeyCache === null) {
-    const d = mod((1n << 248n) * modinv(SECP_GX, SECP_N), SECP_N)
-    pushTxPubKeyCache = new PrivateKey(d.toString(16).padStart(64, '0'), 16).toPublicKey().encode(true) as number[]
+/**
+ * An OP_PUSH_TX dummy key d·G on secp256k1 for the public constant C,
+ * d = C·Gx⁻¹ mod n_k1. With nonce k = 1 the corresponding signature is
+ * (r, s) = (Gx, e + C mod n_k1). Nothing about these keys is secret.
+ */
+const pushTxPubKeyCache = new Map<bigint, number[]>()
+function pushTxPubKey(constant: bigint): number[] {
+  let key = pushTxPubKeyCache.get(constant)
+  if (!key) {
+    const d = mod(constant * modinv(SECP_GX, SECP_N), SECP_N)
+    key = new PrivateKey(d.toString(16).padStart(64, '0'), 16).toPublicKey().encode(true) as number[]
+    pushTxPubKeyCache.set(constant, key)
   }
-  return pushTxPubKeyCache
+  return key.slice()
 }
 
-/** Tail: Z != 0 and X == r·Z² (mod p); clear the stack; OP_PUSH_TX with k = 1 on secp256k1 (ANALYSIS.md §6). */
+/**
+ * Tail: Z != 0 and X == r·Z² (mod p); clear the stack; total OP_PUSH_TX with
+ * k = 1 on secp256k1 (ANALYSIS.md §6).
+ *
+ * Ordinarily C1 = 2^248 and dummy key d1 produce s = e + C1 (mod n). For the
+ * single digest where that scalar is zero, the script selects C2 = C1 + 1 and
+ * dummy key d2, which produces s = 1. Two distinct constants cannot both be
+ * zero for one e, so the covenant signature is defined for every digest; no
+ * probabilistic transaction-sequence retry is part of spend availability.
+ */
 function emitTail(): number[] {
   // r (item index 0) with [.. X Y Z Z^2] on top (BELOW + 4 items) is at depth BELOW + 3 = 134
   const rCheck = asm(`
@@ -446,7 +558,8 @@ function emitTail(): number[] {
     ...new Array<number>(Math.floor(leftover / 2)).fill(OP.OP_2DROP),
     ...(leftover % 2 === 1 ? [OP.OP_DROP] : [])
   ]
-  // e_k1 = BE(hash256(preimage)); s = lowS((e_k1 + 2^248) mod n_k1); r = Gx (k = 1)
+  // e_k1 = BE(hash256(preimage)); normally s = lowS((e_k1 + C1) mod n_k1).
+  // If that is zero, use C2 and its public key, for which s is exactly 1.
   const rev31 = new Array<string>(31).fill('OP_SWAP OP_CAT').join(' ')
   const pushTx = asm(`
     OP_FROMALTSTACK {SIGHASH} OP_TOALTSTACK OP_HASH256
@@ -457,24 +570,28 @@ function emitTail(): number[] {
     {NK} OP_TUCK 2 OP_DIV OP_OVER OP_LESSTHAN
     OP_IF OP_OVER OP_MOD OP_OVER 2 OP_DIV OP_OVER OP_LESSTHAN OP_IF OP_SUB OP_ELSE OP_NIP OP_ENDIF
     OP_ELSE OP_NIP OP_ENDIF
-    ${new Array<string>(31).fill('OP_DUP OP_0NOTEQUAL OP_SPLIT').join(' ')}
+    OP_DUP OP_0NOTEQUAL
+    OP_IF {PUBKEY1} OP_SWAP
+    OP_ELSE OP_DROP {PUBKEY2} 1 OP_ENDIF
+    ${new Array<string>(31).fill('OP_SIZE OP_0NOTEQUAL OP_SPLIT').join(' ')}
     ${rev31}
     OP_SIZE OP_SWAP OP_CAT
     {DERPREFIX} OP_SWAP OP_CAT
     OP_SIZE OP_SWAP OP_CAT
     <30> OP_SWAP OP_CAT
     OP_FROMALTSTACK OP_CAT
-    {PUBKEY} OP_CODESEPARATOR OP_CHECKSIG
+    OP_SWAP OP_CODESEPARATOR OP_CHECKSIG
   `, {
     SIGHASH: [R1C_SIGHASH], NK: SECP_N,
     DERPREFIX: [...derIntBytes(SECP_GX), 0x02],   // 02 20 <Gx> 02  (s INTEGER tag appended)
-    PUBKEY: pushTxPubKey()
+    PUBKEY1: pushTxPubKey(PUSH_TX_C1),
+    PUBKEY2: pushTxPubKey(PUSH_TX_C2)
   })
   return [...rCheck, ...clear, ...pushTx]
 }
 
 let sharedSuffixCache: number[] | null = null
-/** G table + pre-loop + comb loop + tail: 27,160 B, byte-identical to fixture chunks [87..150] ++ [215..end]. Computed once. */
+/** G table + pre-loop + complete comb loop + total covenant tail: 44,388 B. Computed once. */
 export function sharedSuffix(): number[] {
   if (sharedSuffixCache === null) sharedSuffixCache = [...emitGTable(), ...emitPreloop(), ...emitCombLoop(), ...emitTail()]
   return sharedSuffixCache.slice()
@@ -493,26 +610,33 @@ function parseCommitments(commitments: unknown): number[][] {
   return lower.map(bytesOf)
 }
 
-/** N in 1..5 commitments (40-hex each), in the order given. Byte-exact per spec §2.3; length asserted against R1C_LOCK_LEN. */
-export function buildLock(a: { commitments: string[] }): LockingScript {
+/** N in 1..5 commitments and a public 32-byte per-output salt. The salt is baked into the lock. */
+export function buildLock(a: { commitments: string[]; saltHex64: string }): LockingScript {
   const cs = parseCommitments(a.commitments)
-  const bytes = [...emitHeaderPrefix(), ...emitH5(cs), ...sharedSuffix()]
+  const salt = saltBytes(a.saltHex64)
+  const bytes = [...emitHeaderPrefix(salt), ...emitH5(cs), ...sharedSuffix()]
   const expected = R1C_LOCK_LEN(cs.length)
   if (bytes.length !== expected) throw invalid(`buildLock: emitted ${bytes.length} bytes, expected ${expected}`)
   return new LockingScript(Script.fromBinary(bytes).chunks)
 }
 
 /**
- * Parse region H5 of a lock built by buildLock → the commitments in order (lowercase hex).
- * Fail-closed: the header prefix, the H5 skeleton AND the whole shared suffix must be byte-identical
- * to what buildLock emits for the extracted commitments; anything else is 'template-invalid'.
+ * Parse and validate a lock built by buildLock. The baked salt, H5 skeleton and
+ * whole shared suffix must all be byte-identical to a rebuilt lock.
  */
-export function bakedCommitments(lock: Script): string[] {
+function parseBakedLock(lock: Script): { commitments: string[]; salt: string } {
   const bin = lock.toBinary()
   let n = -1
   for (let k = 1; k <= R1C_MAX_KEYS; k++) if (bin.length === R1C_LOCK_LEN(k)) n = k
   if (n < 0) throw invalid(`bakedCommitments: ${bin.length} bytes is not an R1C lock length`)
-  const prefix = emitHeaderPrefix()
+  const beforeSalt = emitHeaderBeforeSalt()
+  const saltPush = bin.slice(beforeSalt.length, beforeSalt.length + SALT_BYTES + 1)
+  if (saltPush.length !== SALT_BYTES + 1 || saltPush[0] !== SALT_BYTES) {
+    throw invalid('bakedCommitments: malformed baked salt')
+  }
+  const saltBytesFromLock = saltPush.slice(1)
+  const salt = Utils.toHex(saltBytesFromLock)
+  const prefix = emitHeaderPrefix(saltBytesFromLock)
   const suffix = sharedSuffix()
   const h5 = bin.slice(prefix.length, bin.length - suffix.length)
   const cs: number[][] = []
@@ -526,7 +650,17 @@ export function bakedCommitments(lock: Script): string[] {
   if (rebuilt.length !== bin.length || rebuilt.some((b, i) => b !== bin[i])) {
     throw invalid('bakedCommitments: not an R1C lock')
   }
-  return cs.map(c => Utils.toHex(c))
+  return { commitments: cs.map(c => Utils.toHex(c)), salt }
+}
+
+/** Commitments baked into an exact current R1C lock, in order. */
+export function bakedCommitments(lock: Script): string[] {
+  return parseBakedLock(lock).commitments
+}
+
+/** Public per-output salt baked into an exact current R1C lock. */
+export function bakedSalt(lock: Script): string {
+  return parseBakedLock(lock).salt
 }
 
 // ───────────────────────── sighash preimage and signer digest (spec §2.5) ─────────────────────────
@@ -537,9 +671,11 @@ function requirePreimage(preimage: number[], where: string): void {
   if (!Array.isArray(preimage) || preimage.length !== R1C_PREIMAGE_LEN) {
     throw invalid(`${where}: preimage must be ${R1C_PREIMAGE_LEN} bytes`)
   }
+  const version = new Utils.Reader(preimage.slice(0, 4)).readUInt32LE()
+  if (version !== 1) throw invalid(`${where}: vault withdrawals require transaction version 1; this preimage carries version ${version}`)
 }
 
-/** BIP143 preimage, subscript `ac`, scope 0x41, for input `inputIndex` of `tx` whose source output carried `sourceSatoshis`. 158 bytes. */
+/** Version-1 BIP143 preimage, subscript `ac`, scope 0x41, for input `inputIndex` of `tx` whose source output carried `sourceSatoshis`. */
 export function sighashPreimage(tx: Transaction, inputIndex: number, sourceSatoshis: number): number[] {
   const input = tx.inputs[inputIndex]
   if (input === undefined) throw invalid(`sighashPreimage: input ${inputIndex} does not exist`)
@@ -559,7 +695,7 @@ export function sighashPreimage(tx: Transaction, inputIndex: number, sourceSatos
     lockTime: tx.lockTime,
     scope: R1C_SIGHASH
   })
-  if (preimage.length !== R1C_PREIMAGE_LEN) throw invalid(`sighashPreimage: expected ${R1C_PREIMAGE_LEN} bytes, got ${preimage.length}`)
+  requirePreimage(preimage, 'sighashPreimage')
   return preimage
 }
 
@@ -570,39 +706,28 @@ export function signerDigest(preimage: number[]): string {
 }
 
 // ───────────────────────── OP_PUSH_TX model (ANALYSIS.md §6) ─────────────────────────
-/** The s the tail assembles: lowS((BE(hash256(preimage)) + 2^248) mod n_k1). r is fixed at Gx (k = 1). */
+/**
+ * The nonzero s the tail assembles. It uses lowS((BE(hash256(preimage)) +
+ * C1) mod n_k1), except that the zero case selects C2 and therefore s = 1.
+ * In both branches r is fixed at Gx (nonce k = 1).
+ */
 export function pushTxSignatureS(preimage: number[]): bigint {
   const e = beToBig(Hash.hash256(preimage))
-  const t = mod(e + (1n << 248n), SECP_N)
+  const first = mod(e + PUSH_TX_C1, SECP_N)
+  const t = first === 0n ? mod(e + PUSH_TX_C2, SECP_N) : first
   return t > (SECP_N - 1n) / 2n ? SECP_N - t : t
 }
 
 /**
- * Model of the byte-peel loop `(DUP 0NOTEQUAL SPLIT)×31`: it reads the not-yet-peeled remainder of the s scriptnum
- * as a NUMBER at k = 0..30. Returns the first k whose remainder is a non-minimal script number (a trailing 0x00/0x80
- * with no high bit beneath it), or −1 when every remainder is minimal. An empty remainder is fine (== 0).
- */
-export function peelLoopNonMinimalAt(sLE: number[]): number {
-  for (let k = 0; k <= 30; k++) {
-    const rem = sLE.slice(k)
-    if (rem.length === 0) continue
-    const last = rem[rem.length - 1]
-    if ((last & 0x7f) === 0 && (rem.length === 1 || (rem[rem.length - 2] & 0x80) === 0)) return k
-  }
-  return -1
-}
-
-/**
- * D4b screen — evaluate BEFORE asking the card to sign. ok = false when the OP_PUSH_TX s the lock will assemble
- * is zero (2^-256) or peel-nonminimal (2^-16: scriptnum(s) <= 31 bytes ending in a sign byte). Under strict
- * MINIMALDATA such a spend aborts at the peel loop; the remedy is to perturb the transaction (Plan 2 bumps the
- * input's sequence) and re-screen. Pure function of the preimage; independent of the P-256 signature.
+ * Pre-sign check for the fixed OP_PUSH_TX signature. The byte-reversal loop
+ * uses OP_SIZE rather than parsing arbitrary suffix bytes as script numbers,
+ * so every positive low-S encoding is accepted. The two-key covenant branch
+ * makes s nonzero for every digest; `ok` is retained for caller compatibility.
  */
 export function pushTxDerCheck(preimage: number[]): { ok: boolean; s: bigint } {
   requirePreimage(preimage, 'pushTxDerCheck')
   const s = pushTxSignatureS(preimage)
-  if (s === 0n) return { ok: false, s }
-  return { ok: peelLoopNonMinimalAt(scriptNum(s)) === -1, s }
+  return { ok: true, s }
 }
 
 // ───────────────────────── DER ─────────────────────────
@@ -633,12 +758,20 @@ export function decodeDerSignature(der: number[]): { r: bigint; s: bigint } {
 // ───────────────────────── strict verification flags ─────────────────────────
 /**
  * Explicit @bsv/sdk Spend flags. With flags given, every rule is flag-driven and ignores the transaction
- * version: MINIMALDATA (minimal pushes and script numbers — the rule the OP_PUSH_TX peel loop can trip),
+ * version: MINIMALDATA (minimal pushes and script numbers),
  * UTXO_AFTER_CHRONICLE (post-Genesis limits off, OP_RSHIFTNUM/OP_2MUL live), SIGHASH_FORKID + STRICTENC
- * (strict DER, defined hash type, FORKID required). A version-2 vault spend is judged exactly as strictly as
- * the version-1 mined fixture.
+ * (strict DER, defined hash type, FORKID required), and CLEANSTACK + SIGPUSHONLY + LOW_S to rule out
+ * otherwise-valid witness encodings. Vault withdrawals are version 1 as an additional network-policy guard.
  */
-export const R1C_VERIFY_FLAGS: readonly string[] = ['MINIMALDATA', 'UTXO_AFTER_CHRONICLE', 'SIGHASH_FORKID', 'STRICTENC']
+export const R1C_VERIFY_FLAGS: readonly string[] = [
+  'MINIMALDATA',
+  'UTXO_AFTER_CHRONICLE',
+  'SIGHASH_FORKID',
+  'STRICTENC',
+  'CLEANSTACK',
+  'SIGPUSHONLY',
+  'LOW_S'
+]
 
 // ───────────────────────── fullR / buildUnlock (spec §2.4) ─────────────────────────
 /**
@@ -660,19 +793,21 @@ export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHe
 }
 
 /**
- * The 71-push unlocking script: r, u2', u1', 64 coords of table(Q), salt, s, s⁻¹, preimage (spec §2.4).
- * Refuses: wrong preimage length, preimage version ≠ 2 (spec §2.6 — Plan 2 maps this to 'bad-version' upstream),
- * bad salt / key / DER, R = O. It does NOT verify the signature against Q: the interpreter is the arbiter
+ * The 70-push unlocking script: r, u2', u1', 64 coords of table(Q), s, s⁻¹, preimage (spec §2.4).
+ * Refuses: wrong preimage length, preimage version ≠ 1,
+ * bad key / DER, R = O. It does NOT verify the signature against Q: the interpreter is the arbiter
  * (Plan 2 runs verifyVaultInput on every input before signAction).
  */
-export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript {
+export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string }): UnlockingScript {
   const { preimage } = a
   requirePreimage(preimage, 'buildUnlock')
-  const version = new Utils.Reader(preimage.slice(0, 4)).readUInt32LE()
-  if (version !== 2) throw invalid(`buildUnlock: withdrawals are version-2 transactions; this preimage carries version ${version}`)
-  const salt = saltBytes(a.saltHex64)
   const key = compressPubkey(a.pubkeyHex33)
-  const { r: rSig, s } = decodeDerSignature(a.derSig)
+  const decoded = decodeDerSignature(a.derSig)
+  const rSig = decoded.r
+  // (r, n-s) verifies whenever (r, s) does and has the same R.x. Normalising
+  // here lets hardware return either valid form while the consensus script has
+  // one canonical scalar representation.
+  const s = decoded.s > P256_LOW_S_MAX ? P256_N - decoded.s : decoded.s
   const Rx = fullR({ preimage, rSig, s, pubkeyHex33: key })
   if (Rx === null) throw invalid('buildUnlock: R is the point at infinity')
   const e = leToBig(Hash.hash256(preimage))
@@ -681,7 +816,7 @@ export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex
   const u2 = mod(Rx * sInv, P256_N)   // the lock derives u2 from the PUSHED r (≡ rSig mod n), so recode that
   const bytes: number[] = [...encNum(Rx), ...encNum(recode(u2)), ...encNum(recode(u1))]
   for (const { x, y } of combTable(key)) bytes.push(...encNum(x), ...encNum(y))
-  bytes.push(...pushData(salt), ...encNum(s), ...encNum(sInv), ...pushData(preimage))
+  bytes.push(...encNum(s), ...encNum(sInv), ...pushData(preimage))
   if (bytes.length > R1C_UNLOCK_LEN) throw invalid(`buildUnlock: ${bytes.length} bytes exceeds R1C_UNLOCK_LEN`)
   return new UnlockingScript(Script.fromBinary(bytes).chunks)
 }
@@ -718,27 +853,44 @@ export function verifyVaultInput(a: {
   return true
 }
 
-// ───────────────────────── customInstructions v4 (spec §2.7) ─────────────────────────
-/** What a vault output records about itself. `keys` are the pubkeys whose commitments the lock bakes, in commitment order. */
-export interface VaultInstructionsV4 {
-  v: 4
-  type: 'R1C'
-  /** 32-byte salt shared by every commitment in this output, 64 lowercase hex. */
-  salt: string
-  /** 1..5 compressed P-256 pubkeys, 66 lowercase hex each, commitment order. */
-  keys: string[]
+// ───────────────────────── self-describing customInstructions v6 ─────────────────────────
+export interface VaultInstructionKey {
+  serial: string
+  slot: number
+  pubkey: string
+  nickname: string
+  enrolledAt: number
 }
-export type VaultInstructions = VaultInstructionsV4
+
+/** Recoverable key metadata in the exact commitment order of this output. */
+export interface VaultInstructionsV6 {
+  v: 6
+  type: 'R1C'
+  /** Wallet createHmac result; exact 32 bytes baked into the lock. */
+  salt: string
+  /** Canonical positive decimal wallet key index (`"1"`, `"2"`, ...). */
+  saltKeyId: string
+  /** Network scope of the output. */
+  chain: VaultSaltChain
+  vaultId: string
+  revision: number
+  createdAt: number
+  keys: VaultInstructionKey[]
+}
+export type VaultInstructions = VaultInstructionsV6
 
 const MAX_CUSTOM_INSTRUCTIONS_CHARS = 4096
+const exactFields = (v: Record<string, unknown>, fields: readonly string[]): boolean => {
+  const actual = Object.keys(v)
+  return actual.length === fields.length && fields.every(field => Object.prototype.hasOwnProperty.call(v, field))
+}
+const positiveSafeInteger = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0
 
 /**
- * Parse an output's customInstructions, or null for anything that is not exactly a v4 R1C record with a valid
- * lowercase salt and 1..5 distinct, valid, lowercase compressed keys. Fails closed on purpose: an undecodable
- * record is an output the app cannot construct a spend for, and ignoring it beats building a doomed transaction.
- * v3 `K1` and v2 `R1K1` records are rejected here.
+ * Parse exact v6 output recovery metadata. Older and extended shapes fail
+ * closed: future code must explicitly version any semantic change.
  */
-export function decodeVaultInstructions(ci?: string): VaultInstructionsV4 | null {
+export function decodeVaultInstructions(ci?: string): VaultInstructionsV6 | null {
   if (typeof ci !== 'string' || ci.length === 0 || ci.length > MAX_CUSTOM_INSTRUCTIONS_CHARS) return null
   let parsed: unknown
   try {
@@ -748,26 +900,84 @@ export function decodeVaultInstructions(ci?: string): VaultInstructionsV4 | null
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   const p = parsed as Record<string, unknown>
-  if (p.v !== 4 || p.type !== 'R1C') return null
+  if (!exactFields(p, ['v', 'type', 'salt', 'saltKeyId', 'chain', 'vaultId', 'revision', 'createdAt', 'keys'])) return null
+  if (p.v !== 6 || p.type !== 'R1C') return null
   if (typeof p.salt !== 'string' || !/^[0-9a-f]{64}$/.test(p.salt)) return null
+  if (typeof p.vaultId !== 'string' || !/^[0-9a-f]{64}$/.test(p.vaultId)) return null
+  if (
+    typeof p.saltKeyId !== 'string' ||
+    !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)
+  ) return null
+  if (p.chain !== 'main' && p.chain !== 'test' && p.chain !== 'teratest') return null
+  const saltIndex = Number(p.saltKeyId)
+  if (!positiveSafeInteger(saltIndex)) return null
+  if (!positiveSafeInteger(p.revision) || !positiveSafeInteger(p.createdAt)) return null
   if (!Array.isArray(p.keys) || p.keys.length < 1 || p.keys.length > R1C_MAX_KEYS) return null
-  const keys: string[] = []
-  for (const k of p.keys) {
-    if (typeof k !== 'string' || !/^0[23][0-9a-f]{64}$/.test(k)) return null
+  const keys: VaultInstructionKey[] = []
+  for (const raw of p.keys) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const k = raw as Record<string, unknown>
+    if (!exactFields(k, ['serial', 'slot', 'pubkey', 'nickname', 'enrolledAt'])) return null
+    if (typeof k.serial !== 'string' || !/^[A-Za-z0-9._:-]{1,64}$/.test(k.serial)) return null
+    if (k.slot !== 0x82) return null
+    if (typeof k.pubkey !== 'string' || !/^0[23][0-9a-f]{64}$/.test(k.pubkey)) return null
+    if (
+      typeof k.nickname !== 'string' || k.nickname.length < 1 || k.nickname.length > 64 ||
+      k.nickname !== k.nickname.trim() || /[\u0000-\u001f\u007f]/.test(k.nickname)
+    ) return null
+    if (!positiveSafeInteger(k.enrolledAt)) return null
     try {
-      if (compressPubkey(k) !== k) return null
+      if (compressPubkey(k.pubkey) !== k.pubkey) return null
     } catch {
       return null
     }
-    keys.push(k)
+    keys.push({
+      serial: k.serial,
+      slot: k.slot,
+      pubkey: k.pubkey,
+      nickname: k.nickname,
+      enrolledAt: k.enrolledAt
+    })
   }
-  if (new Set(keys).size !== keys.length) return null
-  return { v: 4, type: 'R1C', salt: p.salt, keys }
+  if (new Set(keys.map(k => k.serial)).size !== keys.length) return null
+  if (new Set(keys.map(k => k.pubkey)).size !== keys.length) return null
+  try {
+    vaultSaltHmacData(keys.map(k => k.serial))
+  } catch {
+    return null
+  }
+  return {
+    v: 6,
+    type: 'R1C',
+    salt: p.salt,
+    saltKeyId: p.saltKeyId,
+    chain: p.chain,
+    vaultId: p.vaultId,
+    revision: p.revision,
+    createdAt: p.createdAt,
+    keys
+  }
 }
 
-/** Serialise a v4 record. Throws VaultError('template-invalid') rather than write anything decodeVaultInstructions would refuse. */
-export function encodeVaultInstructions(i: VaultInstructionsV4): string {
-  const s = JSON.stringify({ v: 4, type: 'R1C', salt: i.salt, keys: i.keys })
-  if (decodeVaultInstructions(s) === null) throw invalid('encodeVaultInstructions: record would not decode (salt/keys must be valid lowercase hex, 1..5 distinct keys)')
+/** Serialise only the canonical v6 fields, after applying the decoder's validation. */
+export function encodeVaultInstructions(i: VaultInstructionsV6): string {
+  const s = JSON.stringify({
+    v: 6,
+    type: 'R1C',
+    salt: i.salt,
+    saltKeyId: i.saltKeyId,
+    chain: i.chain,
+    vaultId: i.vaultId,
+    revision: i.revision,
+    createdAt: i.createdAt,
+    keys: i.keys.map(k => ({
+      serial: k.serial,
+      slot: k.slot,
+      pubkey: k.pubkey,
+      nickname: k.nickname,
+      enrolledAt: k.enrolledAt
+    }))
+  })
+  if (decodeVaultInstructions(s) === null) throw invalid('encodeVaultInstructions: record would not decode as canonical v6 vault metadata')
   return s
 }

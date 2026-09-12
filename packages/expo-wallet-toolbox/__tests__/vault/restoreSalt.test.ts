@@ -1,9 +1,11 @@
 /**
  * Vault salts across backup and database import (spec §7 "Restore").
  *
- * A vault deposit's salt and key list live in exactly one place: the output's
- * customInstructions (spec §3.5) — nothing else on the phone can reconstruct
- * them. Restore correctness therefore reduces to two independent claims:
+ * A current vault output is self-describing: the salt is committed directly
+ * in its locking script, while its exact v6 customInstructions carry the
+ * vault id, revision, and full public key records used to rebuild local state.
+ * The transfer layer accepts those records only after byte-for-byte lock
+ * reconstruction. Restore correctness therefore includes two storage claims:
  *
  *  1. The encrypted backup chunk codec (encodeChunk/decodeChunk,
  *     core/backup/codec.ts) round-trips that string byte-for-byte.
@@ -35,7 +37,12 @@ import { decodeChunk, emptyChunk, encodeChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { createTables } from '../../core/storage/schema/createTables'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
-import { decodeVaultInstructions, encodeVaultInstructions, type VaultInstructionsV4 } from '../../core/services/vault/r1comb'
+import {
+  decodeVaultInstructions,
+  encodeVaultInstructions,
+  vaultSaltFromPublicKey,
+  type VaultInstructionsV6
+} from '../../core/services/vault/r1comb'
 
 const KEY = new PrivateKey(7).toArray('be', 32)
 const NOW = '2026-09-10T00:00:00.000Z'
@@ -43,13 +50,26 @@ const NOW = '2026-09-10T00:00:00.000Z'
 // encodeVaultInstructions rejects any key that is not a real P-256 point (compressPubkey
 // re-derives it and compares), so the fixture keys are actual compressed pubkeys for fixed
 // scalars rather than arbitrary hex — same pattern __tests__/vault/r1comb.test.ts uses.
-const VAULT: VaultInstructionsV4 = {
-  v: 4,
+const PUBKEYS = [
+  Utils.toHex(Array.from(p256.getPublicKey(Uint8Array.from({ length: 32 }, () => 1), true))),
+  Utils.toHex(Array.from(p256.getPublicKey(Uint8Array.from({ length: 32 }, () => 2), true)))
+]
+
+const SALT_PUBLIC_KEY = new PrivateKey(7).toPublicKey().toString()
+const VAULT_ID = 'cd'.repeat(32)
+const VAULT: VaultInstructionsV6 = {
+  v: 6,
   type: 'R1C',
-  salt: 'ab'.repeat(32),
+  salt: vaultSaltFromPublicKey(SALT_PUBLIC_KEY, 'main'),
+  saltPublicKey: SALT_PUBLIC_KEY,
+  saltKeyId: '1',
+  chain: 'main',
+  vaultId: VAULT_ID,
+  revision: 1,
+  createdAt: Date.parse(NOW),
   keys: [
-    Utils.toHex(Array.from(p256.getPublicKey(Uint8Array.from({ length: 32 }, () => 1), true))),
-    Utils.toHex(Array.from(p256.getPublicKey(Uint8Array.from({ length: 32 }, () => 2), true)))
+    { serial: '10000001', slot: 0x82, pubkey: PUBKEYS[0], nickname: 'Primary', enrolledAt: Date.parse(NOW) },
+    { serial: '10000002', slot: 0x82, pubkey: PUBKEYS[1], nickname: 'Backup', enrolledAt: Date.parse(NOW) }
   ]
 }
 
@@ -132,7 +152,7 @@ describe('vault salts survive a database file copy and reopen (import)', () => {
     copyFileSync(sourcePath, importedPath)
     raw = new DatabaseSync(importedPath)
     db = adapt(raw)
-    const storage = new StorageExpoSQLite({ chain: 'test' } as never)
+    const storage = new StorageExpoSQLite({ chain: 'main' } as never)
     ;(storage as unknown as { db: unknown }).db = db
 
     const results = await storage.findOutputs({ partial: { userId: 1 } } as never)

@@ -46,7 +46,6 @@
         "EXPO_PUBLIC_DEFAULT_STORAGE_URL": "https://store-us-1.bsvb.tech",
         "EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL": "https://messagebox.babbage.systems",
         "EXPO_PUBLIC_DEFAULT_CHAIN": "main",
-        "EXPO_PUBLIC_ADMIN_ORIGINATOR": "admin.com",
         "EXPO_PUBLIC_DEFAULT_HOMEPAGE": "https://mobile.bsvb.tech/landing.html",
         "EXPO_PUBLIC_ARC_URL": "https://arcade-v2-us-1.bsvblockchain.tech",
         "EXPO_PUBLIC_CHAINTRACKS_URL": "https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1",
@@ -57,8 +56,7 @@
         "EXPO_PUBLIC_TERATEST_ARC_URL": "https://arcade-v2-ttn-us-1.bsvblockchain.tech",
         "EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL": "https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1",
         "EXPO_PUBLIC_TERATEST_WOC_API_KEY": "testnet_8a709373c94c6e372b90458fee766b04",
-        "EXPO_PUBLIC_BACKUP_URL": "https://backup.bsvblockchain.tech",
-        "EXPO_PUBLIC_VAULT_ENABLED": "true"
+        "EXPO_PUBLIC_BACKUP_URL": "https://backup.bsvblockchain.tech"
       }
     },
     "production-apk": {

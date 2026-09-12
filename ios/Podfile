@@ -25,6 +25,11 @@ prepare_react_native_project!
 target 'BSVWallet' do
   use_expo_modules!
 
+  # YubiKit 4.4.1 fixes a double-completion bug in PIV signing. That release
+  # was tagged upstream but was not published to the CocoaPods trunk, so pin
+  # the official Yubico tag explicitly; YubiKeyPiv.podspec also requires it.
+  pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git', :tag => '4.4.1'
+
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else

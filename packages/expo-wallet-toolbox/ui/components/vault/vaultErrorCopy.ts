@@ -55,10 +55,16 @@ const KEY: Record<VaultErrorCode, string> = {
   'pin-required': 'vault_err_pin_required',
   'pin-invalid': 'vault_err_pin_invalid',
   'pin-locked': 'vault_err_pin_locked',
+  'puk-invalid': 'vault_err_puk_invalid',
+  'puk-locked': 'vault_err_puk_locked',
   'touch-timeout': 'vault_err_touch_timeout',
   'key-removed-mid-op': 'vault_err_key_removed_mid_op',
+  'ceremony-active': 'vault_err_ceremony_active',
+  'scope-changed': 'vault_err_scope_changed',
   'mgmt-key-custom': 'vault_err_mgmt_key_custom',
+  'attestation-invalid': 'vault_err_attestation_invalid',
   'slot-occupied': 'vault_err_slot_occupied',
+  'enrollment-partial': 'vault_err_enrollment_partial',
   'template-invalid': 'vault_err_template_invalid',
   'serial-mismatch': 'vault_err_serial_mismatch',
   'user-cancelled': 'vault_err_user_cancelled',
@@ -72,9 +78,9 @@ const KEY: Record<VaultErrorCode, string> = {
   'too-many-inputs': 'vault_err_too_many_inputs',
   'requires-online': 'vault_err_requires_online',
   'not-released': 'vault_err_not_released',
-  'backup-off': 'vault_err_backup_off',
   'not-enough-keys': 'vault_err_not_enough_keys',
   'key-already-enrolled': 'vault_err_key_already_enrolled',
+  'key-not-adopted': 'vault_err_key_not_adopted',
   'too-many-keys': 'vault_err_too_many_keys',
   'last-keys': 'vault_err_last_keys',
   'relock-required': 'vault_err_relock_required',
@@ -126,6 +132,7 @@ export function vaultErrorCopy(code: VaultErrorCode | undefined, params: VaultEr
           })
         : t('vault_err_amount_exceeds_balance')
     case 'pin-invalid':
+    case 'puk-invalid':
       return typeof params.count === 'number'
         ? `${t(KEY[code])} ${t('vault_pin_retries', { count: params.count })}`
         : t(KEY[code])

@@ -50,10 +50,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
  * at all. See eas.json.
  *
  * vaultEnabled: the YubiKey vault's release gate (its spec §0 / §5.5). Only
- * the literal string "true" turns it on. The development, dev-physical and
- * production profiles set EXPO_PUBLIC_VAULT_ENABLED (production since
- * 2026-09-11 so TestFlight builds can exercise the vault on device); remove it
- * from production to ship a store build with the vault hidden.
+ * the literal string "true" turns it on. Development profiles may opt in;
+ * production stays hidden until the security release gate is approved.
  */
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,

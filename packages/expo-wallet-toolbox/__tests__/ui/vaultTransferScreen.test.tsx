@@ -15,12 +15,7 @@ let mockParams: { direction?: string } = {}
 let mockMeta: unknown = null
 let mockBalance: number | null = 0
 let mockVaultEnabled = true
-let mockBackupOn = true
 let mockWallet: any
-// A jest.fn (not the plain arrow the other flags use) so a single test can
-// override it with a promise it controls, to simulate a tap landing while
-// this AsyncStorage read is still in flight.
-const mockIsBackupPushEnabled = jest.fn(async () => mockBackupOn)
 
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
@@ -39,7 +34,6 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     getVaultBalance: (...a: unknown[]) => mockGetVaultBalance(...a),
     sounds: { vaultDeposit: jest.fn(), vaultWithdraw: jest.fn() },
     isVaultEnabled: () => mockVaultEnabled,
-    isBackupPushEnabled: (...a: unknown[]) => mockIsBackupPushEnabled(...a),
     getOnline: async () => true,
     estimateRelockFee: () => 3080,
     R1C_LOCK_LEN: () => 27881,
@@ -54,7 +48,10 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 jest.mock('../../ui/components/ui/PressableScale', () => {
   const React = require('react')
   const { Pressable } = require('react-native')
-  return ({ children, onPress, ...props }: any) => React.createElement(Pressable, { onPress, ...props }, children)
+  const PressableScaleMock = ({ children, onPress, ...props }: any) =>
+    React.createElement(Pressable, { onPress, ...props }, children)
+  PressableScaleMock.displayName = 'PressableScaleMock'
+  return PressableScaleMock
 })
 jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: (...a: unknown[]) => mockShowAlert(...a) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...a: unknown[]) => mockShowToast(...a) }))
@@ -120,7 +117,6 @@ beforeEach(() => {
   mockMeta = META
   mockBalance = 0
   mockVaultEnabled = true
-  mockBackupOn = true
   mockDeposit.mockReset().mockResolvedValue({ txid: 'd' })
   mockWithdraw.mockReset().mockResolvedValue(OK_RESULT)
   // Default: the chosen key can select the whole balance. Remainder tests
@@ -133,7 +129,6 @@ beforeEach(() => {
   // Tests that need the settle loop to complete give it the exact expected
   // figure with mockResolvedValueOnce so it matches — and returns — first try.
   mockGetVaultBalance.mockReset().mockRejectedValue(new Error('getVaultBalance not mocked for this test'))
-  mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockShowAlert.mockReset()
   mockWallet = {
     managers: { permissionsManager: { createAction: jest.fn() } },
@@ -193,11 +188,11 @@ describe('deposit', () => {
     expect(mockDeposit).toHaveBeenCalledTimes(1)
   })
 
-  test('a double tap during the backup check deposits only once', async () => {
+  test('a double tap while the deposit is in flight deposits only once', async () => {
     mockBalance = 500_000
-    let resolveBackup: (v: boolean) => void = () => {}
-    mockIsBackupPushEnabled.mockImplementationOnce(
-      () => new Promise<boolean>(resolve => { resolveBackup = resolve })
+    let resolveDeposit: (v: { txid: string }) => void = () => {}
+    mockDeposit.mockImplementationOnce(
+      () => new Promise<{ txid: string }>(resolve => { resolveDeposit = resolve })
     )
     const screen = await renderTransfer('deposit')
     fireEvent.changeText(screen.getByTestId('amount'), '200000')
@@ -206,33 +201,11 @@ describe('deposit', () => {
       fireEvent.press(screen.getByText('vault_deposit_cta'))
     })
     await act(async () => {
-      resolveBackup(true)
+      resolveDeposit({ txid: 'd' })
       await new Promise(r => setImmediate(r))
     })
     await settle()
-    expect(mockIsBackupPushEnabled).toHaveBeenCalledTimes(1)
     expect(mockDeposit).toHaveBeenCalledTimes(1)
-  })
-
-  test('backup off: the alert with the settings CTA, no deposit', async () => {
-    mockBackupOn = false
-    mockShowAlert.mockResolvedValueOnce('settings')
-    const screen = await renderTransfer('deposit')
-    await typeAndRun(screen, '150000', 'vault_deposit_cta')
-    expect(mockShowAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'vault_backup_off_title', message: 'vault_backup_off_body' })
-    )
-    expect(mockRouter.push).toHaveBeenCalledWith('/wallet-config')
-    expect(mockDeposit).not.toHaveBeenCalled()
-  })
-
-  test('the service refusing with backup-off lands on the same alert', async () => {
-    mockBalance = 500_000
-    mockDeposit.mockRejectedValueOnce(new VaultError('backup-off'))
-    mockShowAlert.mockResolvedValueOnce('cancel')
-    const screen = await renderTransfer('deposit')
-    await typeAndRun(screen, '150000', 'vault_deposit_cta')
-    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'vault_backup_off_title' }))
   })
 
   test('flag off: not-released copy inline and an inert CTA', async () => {

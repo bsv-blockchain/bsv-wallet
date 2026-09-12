@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native'
 import { observer } from 'mobx-react-lite'
 import { WalletClient } from '@bsv/sdk'
-import type { WalletProtocol } from '@bsv/sdk'
 import * as SecureStore from 'expo-secure-store'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
@@ -19,11 +18,19 @@ import {
   guardVaultAccess,
   capWalletArgs,
   ADMIN_ORIGINATOR,
+  parseExternalOrigin,
   connectionStore,
   type Connection,
   useWalletConnection,
   lastSeqKey
 } from '@bsv/expo-wallet-toolbox'
+import {
+  buildRelayWebSocketUrl,
+  validateMobileIdentityKey,
+  validateRelayUrl,
+  validateStoredConnectionFields,
+  validateStoredConnectionSequence
+} from '../../core/services/walletConnectionValidation'
 
 /**
  * expo-clipboard ships an untransformed ESM build (its Clipboard.js imports
@@ -113,14 +120,10 @@ function parsePairingUri(raw: string): ParseResult {
       return { params: null, error: 'This QR code has expired — ask the desktop to generate a new one' }
     }
 
-    let originUrl: URL
     try {
-      originUrl = new URL(origin)
-    } catch {
-      return { params: null, error: 'Origin URL is not valid' }
-    }
-    if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') {
-      return { params: null, error: 'Origin must use http:// or https://' }
+      parseExternalOrigin(origin)
+    } catch (e) {
+      return { params: null, error: e instanceof Error ? e.message : 'Origin URL is not valid' }
     }
 
     if (!/^0[23][0-9a-fA-F]{64}$/.test(backendIdentityKey)) {
@@ -143,12 +146,8 @@ function parsePairingUri(raw: string): ParseResult {
   }
 }
 
-function domainFromOrigin(origin: string): string {
-  try {
-    return new URL(origin).hostname
-  } catch {
-    return origin
-  }
+function displayDomain(origin: string): string {
+  try { return parseExternalOrigin(origin).originator } catch { return 'Invalid origin' }
 }
 
 export const ConnectionsScreen = observer(function ConnectionsScreen() {
@@ -188,10 +187,13 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       showToast(`${t('wallet_not_ready')}: ${t('please_log_in_first')}`, { type: 'error' })
       return
     }
-    const originator = domainFromOrigin(result.params.origin)
-    const wallet = new WalletClient(capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)), originator)
     try {
-      await connect(result.params, wallet)
+      const external = parseExternalOrigin(result.params.origin)
+      const wallet = new WalletClient(
+        capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
+        external.originator
+      )
+      await connect({ ...result.params, origin: external.origin }, wallet)
     } catch (err) {
       showToast(`${t('connection_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
     }
@@ -202,14 +204,24 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
 
     if (!managers.permissionsManager) return
     try {
-      const protocolID = JSON.parse(conn.protocolID) as WalletProtocol
-      const wallet = new WalletClient(capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)), domainFromOrigin(conn.origin))
-      const ws = new WebSocket(`${conn.relay}/ws?topic=${conn.sessionId}&role=mobile`)
+      const validated = validateStoredConnectionFields(conn)
+      const relay = validateRelayUrl(conn.relay)
+      const storedSeq = await SecureStore.getItemAsync(lastSeqKey(validated.topic))
+      const initialSeq = validateStoredConnectionSequence(storedSeq)
+      const wallet = new WalletClient(
+        capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
+        validated.external.originator
+      )
+      const identityResult = await wallet.getPublicKey({ identityKey: true })
+      const currentMobileIdentityKey = validateMobileIdentityKey(identityResult.publicKey)
+      if (currentMobileIdentityKey !== validated.mobileIdentityKey) {
+        throw new Error('Stored connection belongs to a different wallet identity')
+      }
+      const ws = new WebSocket(buildRelayWebSocketUrl(relay, validated.topic))
 
       ws.onopen = async () => {
         try {
-          const storedSeq = await SecureStore.getItemAsync(lastSeqKey(conn.sessionId))
-          const seq = storedSeq ? Number(storedSeq) + 1 : 1
+          const seq = initialSeq + 1
           const payload = JSON.stringify({
             id: crypto.randomUUID(),
             seq,
@@ -218,14 +230,14 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
           })
           const plaintext = Array.from(new TextEncoder().encode(payload))
           const { ciphertext } = await wallet.encrypt({
-            protocolID,
-            keyID: conn.sessionId,
-            counterparty: conn.backendIdentityKey,
+            protocolID: validated.protocolID,
+            keyID: validated.topic,
+            counterparty: validated.backendIdentityKey,
             plaintext
           })
           ws.send(
             JSON.stringify({
-              topic: conn.sessionId,
+              topic: validated.topic,
               ciphertext: Buffer.from(ciphertext).toString('base64url')
             })
           )
@@ -241,8 +253,13 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
 
   async function handleReconnect(conn: Connection) {
     if (!managers.permissionsManager) return
-    const wallet = new WalletClient(capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)), domainFromOrigin(conn.origin))
     try {
+      const external = parseExternalOrigin(conn.origin)
+      const wallet = new WalletClient(
+        capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
+        external.originator
+      )
+      conn = { ...conn, origin: external.origin }
       await reconnect(conn, wallet)
     } catch (err) {
       showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
@@ -279,7 +296,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
                 {active.map((item, idx) => (
                   <ListRow
                     key={item.sessionId}
-                    label={domainFromOrigin(item.origin)}
+                    label={displayDomain(item.origin)}
                     value={new Date(item.connectedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                     icon="wifi-outline"
                     iconColor={colors.success}
@@ -303,7 +320,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
                 {inactive.map((item, idx) => (
                   <ListRow
                     key={item.sessionId}
-                    label={domainFromOrigin(item.origin)}
+                    label={displayDomain(item.origin)}
                     icon="wifi-outline"
                     iconColor={colors.textTertiary}
                     showChevron={false}

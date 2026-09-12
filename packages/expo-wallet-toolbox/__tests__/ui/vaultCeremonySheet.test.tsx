@@ -139,14 +139,14 @@ test('submitting the PIN hands it to the controller and clears the field at once
   expect(screen.getByPlaceholderText('••••••').props.value).toBe('')
 })
 
-test('a PIN shorter than four digits is not submitted and stays in the field', async () => {
+test('a PIN shorter than six digits is not submitted and stays in the field', async () => {
   mockState = { phase: 'pin-entry' }
   const screen = render(<VaultCeremonySheet />)
   await settle()
-  fireEvent.changeText(screen.getByPlaceholderText('••••••'), '123')
+  fireEvent.changeText(screen.getByPlaceholderText('••••••'), '12345')
   fireEvent.press(screen.getByText('vault_unlock_cta'))
   expect(mockSubmitPin).not.toHaveBeenCalled()
-  expect(screen.getByPlaceholderText('••••••').props.value).toBe('123')
+  expect(screen.getByPlaceholderText('••••••').props.value).toBe('12345')
 })
 
 test('a wrong PIN shows the attempts left under the error', async () => {

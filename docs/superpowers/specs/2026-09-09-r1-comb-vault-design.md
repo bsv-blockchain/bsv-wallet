@@ -1,598 +1,579 @@
-# 1-of-N YubiKey Vault on the P-256 Comb Verifier — Design
+# 1-of-N YubiKey Vault on the P-256 Comb Verifier — future-only v6 design
 
 **Date:** 2026-09-09
-**Status:** Approved in conversation; revised after a five-lens adversarial review (70 findings,
-all resolved below); pending written sign-off.
-**Supersedes:** `2026-08-21-k1-vault-design.md` (K1-only vault) and, transitively,
-`2026-08-15-r1k1-vault-design.md` (the 960 KB R1-K1 template).
-**Evidence:** `docs/example-txs/spike/ANALYSIS.md` — verification-tagged dissection of the
-29,584-byte testnet script this design builds on, plus the throwaway generators (`gen2.mjs`,
-`unlock2.mjs`) that prototype the exact on-chain format below.
+**Revised:** 2026-09-11 after the Vault security review
+**Status:** Unreleased implementation candidate. The release blockers in §1 remain open.
+**Compatibility:** This design starts at Vault metadata and output-instruction version 6. No
+earlier Vault output or metadata format will be read, migrated, or preserved.
 
-## Summary
+## 1. Scope and release decision
 
-Vault outputs are locked by a ~28 KB script that verifies a **NIST P-256 ECDSA signature in
-Script** and accepts a signature from **any one of N enrolled YubiKeys** (N = 2..5). The
-YubiKeys' PIV keys sign on-chain directly; nothing about the vault key ever exists on the phone.
-There is **no seed, no passphrase, no K1 leg**. Losing a YubiKey is recovered by using another
-enrolled one. Losing all of them loses the funds. Deposits need no hardware; a withdrawal is one
-YubiKey tap.
+Vault outputs use a Bitcoin locking script that verifies a NIST P-256 ECDSA signature from any
+one of up to five enrolled YubiKeys. The product requires at least two enrolled keys before it
+creates an output. A deposit requires no YubiKey; a withdrawal requires one enrolled YubiKey,
+its PIN, and its touch policy.
 
-Per output the lock bakes N `hash160` commitments to (salt ‖ signer's comb table); the unlocking
-script reveals the table of whichever key signs. Outputs are unlinkable on-chain until spent.
+The private P-256 keys are generated in PIV retired slot `0x82` and never cross the YubiKey
+boundary. There is no seed-derived spending path, recovery phrase path, passphrase path, K1
+spending leg, or hidden maintenance key. If every enrolled YubiKey is lost or unusable, the
+output is intentionally unspendable.
 
-Recovery needs **two** things: any enrolled YubiKey **and** this wallet's database (this phone, or
-its encrypted backup), because each output's salt lives only in the wallet. This is the same
-dependency every other output in this wallet already has; the vault makes it explicit and gates
-deposits on backup being on.
+The current script closes the known arithmetic and covenant liveness exceptions: mixed point
+addition handles every exceptional case and the OP_PUSH_TX covenant has a deterministic
+second-key fallback. Subject to the stated trust assumptions, an accepted witness therefore
+requires a valid signature from one of the committed P-256 public keys, and every valid
+low-S signature from one of those keys has a canonical witness that the script accepts.
 
-## 0. Release gate (before the feature flag is turned on)
+This statement does not replace the release gate. Keep Vault output creation disabled until all
+of these items are complete:
 
-The script is known to be accepted by real nodes through one testnet spend (`4766…4b80`, block
-1,755,177, a **version-1** transaction with one input). Everything else — the generalized layout,
-version-2 relaxation, multi-input spends, mixed vault + P2PKH inputs — is proven only against the
-`@bsv/sdk` 2.4.1 `Spend` interpreter (its Chronicle model is the SDK's, not a node's). A vault
-output whose spend the network refuses is a funds-lock trap, so:
+1. **Exact-template network proof.** Broadcast token-value spends of the exact current
+   `r1comb.ts` output on the supported network and node policy. Cover N = 2 through N = 5,
+   every key position, mixed wallet and Vault inputs, multiple Vault inputs, re-lock, remainder,
+   and the deterministic covenant fallback branch. Pin the raw transactions and txids.
+2. **Production hardware proof.** Generated bindings currently pass the Android Gradle native
+   and JVM checks, an unsigned iOS build against YubiKit 4.4.1, and the Swift pinned-certificate
+   smoke. These are compile and synthetic-fixture evidence, not a physical token or APDU test.
+   Run enrollment, attestation, deposit, withdrawal by each key, interrupted NFC/USB sessions,
+   add/remove/re-lock, backup, clean-device restore, and post-restore spend with production
+   YubiKeys.
+3. **Recovery and allocation design.** Implement and test clean-device discovery of the exact
+   ordered YubiKey descriptor and numeric salt-index high-water. Either serialize all devices
+   sharing a mnemonic through an authoritative allocator or explicitly constrain Vault to one
+   synchronized writer; two disconnected devices can otherwise select the same next index.
+4. **Independent review.** Re-review the exact generated script bytes, the wallet-toolbox patch,
+   native attestation verifiers and trust bundle, external-wallet guard, storage backstop, and
+   final recovery/allocation protocol. The feature flag must remain off in distributable builds until the
+   evidence is recorded.
 
-1. Spend-proof the **exact shipped template** (the same `r1comb.ts` the app runs) on **testnet**,
-   then on **mainnet** with token amounts, recording every txid in this spec's changelog:
-   - N = 2 lock; one spend per enrolled key; one 3-input spend; one spend mixing ≥ 1 vault input
-     with ≥ 1 wallet-funded P2PKH input (withdraw slightly more than the vault inputs cover);
-   - all spends as **version-2** transactions;
-   - one **deliberately constructed** spend whose OP_PUSH_TX `s` fails `pushTxDerCheck` (grind
-     the vault input's sequence until the predicate is false), broadcast as version 2 — this is
-     the only way to prove the version-2 MINIMALDATA relaxation the design relies on (§1 D4);
-   - first with a software P-256 key (`scripts/r1c-spend-proof.ts`), then from a dev build with
-     two real YubiKeys, including a 32-input withdrawal on iOS NFC to pin the per-tap batch size
-     (§4.2).
-2. Only then set `vaultEnabled` (§5.6). While it is off the Vault button is hidden and the
-   route shows "Not available yet"; no enrollment, deposit, re-vault or re-lock can happen.
+## 2. Security model
 
-Facts this design takes from the analysis and treats as settled once step 1 passes on mainnet:
-Chronicle (SV Node 1.2.0) mainnet activation 2026-04-07 at block 943,816 (opcodes
-`OP_2MUL`/`OP_RSHIFTNUM` live); version > 1 relaxes MINIMALDATA (SDK model). Resource use vs
-documented policy (ANALYSIS.md §10): lock 27,956 B at N = 5 vs arcade `MaxScriptSizePolicy`
-500,000 (5.6 %); executed ops ≈ 15,300 vs 1,000,000; largest numeric operand 352 B vs
-`MaxScriptNumLengthPolicy` 10,000; peak stack ≈ 6 KB vs 100 MB; spend tx ≈ 2.6 KB per input vs
-10 MB.
+### 2.1 Protected assets
 
-## 1. Decisions
+- Vault satoshis must move only under a valid signature from a public key committed by that
+  output.
+- The wallet must never create two Vault outputs with the same locking-script hash.
+- The wallet must preserve or publicly recover enough authenticated metadata to identify every
+  ordered YubiKey public key and rebuild each exact lock after device loss.
+- External origins must not discover, reserve, sign, abort, release, or internalize Vault
+  actions or outputs through the general wallet interface.
+- Interrupted enrollment, signing, and broadcast must fail closed without silently
+  discarding the last known authoritative state.
 
-| # | Decision | Rationale |
-|---|---|---|
-| D1 | **Commit-to-table 1-of-N** (approach A): Q comb tables live in the unlocking script; the lock bakes N `hash160(salt ‖ canonical table)` commitments | Lock size independent of the key; keys hidden until spend; 25 B per extra key instead of 2.1 KB (approach B) |
-| D2 | **No seed, no passphrase, no K1 leg.** All seed machinery deleted | The YubiKey is the key. The K1 leg's on-phone xprv exposure was the reason to leave K1 |
-| D3 | **2 ≤ N ≤ 5 keys**, sequential wizard, Finish only after key 2 | One key = no recovery. Five caps wizard length and lock growth |
-| D4 | **Withdrawals are version-2 transactions** (`createAction` arg `version: 2`) | Chronicle relaxes MINIMALDATA, LOW_S, CLEANSTACK, SIGPUSHONLY and NULLDUMMY for version > 1 in the SDK model; strict DER and STRICTENC stay on and are always satisfied by the assembled OP_PUSH_TX signature (s = 0 excepted, 2⁻²⁵⁶). That removes the script's only non-negligible intrinsic failure, a 2⁻¹⁶ MINIMALDATA abort in the OP_PUSH_TX serialisation loop. Opcodes are height-activated, not version-gated (the v1 fixture proves it) |
-| D4b | **Keep `pushTxDerCheck` as a fail-closed pre-sign screen until §0's constructed case has a mainnet txid**, then drop it | The relaxation is verified only in the SDK. The screen is one hash of the preimage; a hit (2⁻¹⁶) is cleared by re-creating the action with a different sequence on the vault input |
-| D5 | **No range checks on r, s, s⁻¹** ("hardened" header rejected). Third-party unlock malleability is accepted | Under version 2 the malleability surface is broad regardless (junk pushes, non-minimal encodings, `r + k·p·n`); range checks would not restore txid stability. Funds cannot be redirected — the P-256 signature covers the preimage. Consequence documented in §6 |
-| D6 | **Touch policy `cached`, PIN policy `once`**; keys are always freshly generated (no adoption of an existing slot key) | One touch covers a batch of signatures within the card's 15 s window. iOS cannot read retired-slot occupancy, and an adopted key may carry touch `always`/`never`, breaking the one-tap flow |
-| D7 | **`VAULT_DEPOSIT_MIN = 100_000` sat** | A 28 KB output costs ≈ 2,800–2,900 sat to create at 100 sat/kB (spend ≈ 260 sat); 100 k keeps creation under 3 % |
-| D8 | **Whole sighash preimage in the unlocking script** | Lock is amount/locktime/sequence-agnostic and multi-input capable. Costs ≈ 90 B per input over the fixture's in-script rebuild (160 B preimage vs 70 B hashOutputs + outpoint); the fixture's rebuild forces one input per transaction, which would make consolidation and re-lock one transaction (and one new 28 KB output) per UTXO. The unlock's size (≈ 2.5 KB) comes from the Q table (D1), not from D8. Reconfirmed 2026-09-09 |
-| D9 | **Template code lives in the toolbox** (`core/services/vault/r1comb.ts`), no `@bsv/templates` | `@bsv/templates` 1.10.x has only the 960 KB `R1K1Wallet` |
-| D10 | **Deposits are hardware-free** | Only public keys are needed to build a lock |
-| D11 | **Per-output random 32-byte salt; commit to every key enrolled at deposit time** | Unlinkable outputs; a spend reveals only the signing key's table |
-| D12 | **Encodings stay minimal and deterministic** even though v2 does not require it | One canonical unlock per (tx, key); keeps v1 viable if ever needed |
-| D13 | **Deposits require the encrypted wallet backup to be enabled** | The per-output salt exists only in the wallet DB; phone loss + backup off = funds gone with every key in hand |
-| D14 | **The signing key is chosen in-app before the tap; the tap only verifies serial + PIN and signs precomputed digests** | Keeps the NFC session short and network-free; avoids holding the card through `listOutputs`/`createAction` |
-| D15 | **The whole feature sits behind one host-config flag `vaultEnabled`** (default off) | Closes the funds-lock trap for every path that creates a vault output, and never lets a user enrol into a feature that cannot deposit |
+### 2.2 Adversaries considered
 
-### Non-goals
+The design considers a caller that controls all BRC-100 arguments, lies about basket names and
+labels, supplies malformed BEEF or custom instructions, races an external request against an
+admin request, interrupts any async boundary, or presents a modified or counterfeit PIV token.
 
-- Migrating K1 (`v: 3`) or R1-K1 outputs. Neither shipped; dev-device funds are test funds.
-- Database-at-rest encryption. Vault UTXOs (outpoints, amounts, salts) remain visible in SQLite.
-- Changing the main wallet's key handling. Publishing to `@bsv/templates`.
-- Threshold (2-of-N) signing and per-output key tweaking (the card cannot sign for a tweaked key).
+### 2.3 Trusted boundaries
 
-## 2. On-chain format
+The following remain trusted:
 
-Curve: NIST P-256. `p`, `n`, `a = p − 3`, `b`, `G` as in ANALYSIS.md §2. Script numbers are BSV
-little-endian sign-magnitude; "minimal scriptnum" = `BigNumber.toSm('little')`.
+- P-256, secp256k1, SHA-256, HASH160, and the SDK's correctly implemented Script and BIP143
+  semantics;
+- the supported network enforcing the required post-Chronicle opcodes and transaction policy;
+- the app's authenticated internal origin, patched wallet core, SQLite provider, platform
+  SecureStore, and native YubiKey bridge;
+- the bundled Yubico production attestation roots and the correctness of YubiKey firmware.
 
-### 2.1 Comb table
+A compromised phone can ask a present, unlocked YubiKey to sign an attacker-selected digest.
+PIN and touch provide physical authorization, but the phone UI is still trusted to describe the
+transaction honestly.
 
-For a point `P`, `table(P) = [T_j·P for j = 0..31]` with
-`T_j = 2^215 + Σ_{k=0}^{4} (bit_k(j) ? +1 : −1)·2^(43k)`. Each entry is an affine point;
-coordinates are emitted as minimal scriptnums: 33 B iff ≥ 2^255, 32 B for [2^247, 2^255), 31 B
-for [2^239, 2^247), shorter below (≈ 22 % of keys have at least one sub-32-byte coordinate). The
-G table is a module constant computed at load; a key's Q table is computed once per key and cached
-in memory for the ceremony's lifetime (32 scalar multiplications; ≈ 50–90 ms on a laptop, device
-figure to be measured in §0). It is never persisted — it is derivable from the pubkey.
+## 3. On-chain authorization
 
-### 2.2 Commitment
+### 3.1 Keys, table, and commitment
 
-```
-canonical(table) = le33(x_0) ‖ le33(y_0) ‖ … ‖ le33(x_31) ‖ le33(y_31)      (64 × 33 = 2,112 B)
-commitment(Q, salt) = hash160(salt ‖ canonical(table(Q)))                      (20 B)
+The curve is NIST P-256. For a public point `Q`, the verifier uses a 6-row, 43-column signed
+comb and a 32-entry affine table. The canonical table encoding is:
+
+```text
+canonicalTable(Q) =
+  le33(x_0) || le33(y_0) || ... || le33(x_31) || le33(y_31)
+                                                    64 * 33 = 2,112 bytes
+
+commitment(Q, salt) = HASH160(salt || canonicalTable(Q))
 ```
 
-`le33(v)` = the value as exactly 33 little-endian bytes (what `OP_NUM2BIN 33` produces). Fixed
-width makes the serialisation injective over integer values; hashing the raw variable-length
-pushes does not (ANALYSIS.md §9.1 "Why each change", adv-review B4). `salt` is exactly 32 bytes
-(app-enforced; the script hashes whatever length was committed).
+`le33` is exactly the 33-byte little-endian value produced by `OP_NUM2BIN 33`. Fixed-width
+encoding prevents two integer sequences from sharing an ambiguous byte serialization.
+`salt` is exactly 32 public bytes and is embedded in the locking script. H5 accepts the hash
+for any one committed key.
 
-### 2.3 Locking script
+The salt does not add spending authority and need not be secret. Distinct salts change the
+commitments and exact script bytes for otherwise identical key tables, giving different script
+hashes under the assumed collision resistance of SHA-256.
 
-`buildLock({ commitments: hex20[] })`, 1 ≤ N ≤ 5, commitments in enrollment order (order is
-informational — spending needs only the signer's salt and Q; the H5 chain accepts any match).
-Layout (ANALYSIS.md §9.1):
+### 3.2 Exact locking-script format
 
-| Region | Content | Bytes |
-|---|---|---|
-| H0 | `DUP HASH256 <00> CAT BIN2NUM SWAP TOALTSTACK` — e = LE(hash256(preimage)); preimage → alt | 8 |
-| H1 | `<n> TOALTSTACK` · `s·s⁻¹ ≡ 1 (mod n)` NUMEQUALVERIFY · `u1 = e·s⁻¹`, `u2 = r·s⁻¹` · drop s, s⁻¹ | 68 |
-| H2 | recode u2, u1: `DUP 2 MOD NOTIF <n> ADD ENDIF <2^258−1> ADD 2 DIV SWAP` ×2 | 156 |
-| H3 | pushed `u2'`, `u1'` must equal the recomputed ones (`<68> PICK NUMEQUALVERIFY <66> PICK NUMEQUALVERIFY`) | 8 |
-| H4 | 64 × `<64−m> PICK <33> NUM2BIN CAT` onto the salt → canonical bytes; `OP_HASH160` | 433 |
-| H5 | N = 1: `<C0> EQUALVERIFY`. N ≥ 2: `(DUP <Ci> EQUAL SWAP)×(N−1) <C_{N−1}> EQUAL BOOLOR×(N−1) VERIFY` | 22 (N = 1); 25N − 2 (N ≥ 2) |
-| G table | 64 pushes, `table(G)` | 2,136 |
-| pre-loop | `<p> FROMALTSTACK DROP TOALTSTACK 1 1 0` (acc = Jacobian ∞; alt = [preimage, p]) | 40 |
-| comb loop | 43 columns × (DOUBLE, ADD_Q, ADD_G) — **byte-identical to the fixture's loop** | 24,450 |
-| tail | `Z ≠ 0 ∧ X ≡ r·Z² (mod p)` VERIFY; clear stack; OP_PUSH_TX: reverse hash → `e_k1`, `s = e_k1 + 2^248 mod n_k1`, low-S, DER with `r = Gx`, `‖ 41`, `<dummy pubkey> OP_CODESEPARATOR OP_CHECKSIG` | 534 |
+`buildLock({ commitments, saltHex64 })` accepts one through five distinct 20-byte commitments
+and one 32-byte salt. Product flows pass two through five commitments.
 
-Sizes: **27,855 B at N = 1; 27,831 + 25N B for N ≥ 2** → 27,881 / 27,906 / 27,931 / 27,956 for
-N = 2..5. `R1C_LOCK_LEN(N)` is exact and asserted in tests. `bakedCommitments(lock)` parses H5
-back into the N commitments (used at spend time, §4.2).
+| Region | Purpose | Exact bytes |
+|---|---|---:|
+| H0-H4, including salt | Exact witness depth; version-1 preimage; scalar checks and recoding; canonical Q-table hash | 811 |
+| H5, N = 1 | One commitment equality | 22 |
+| H5, N >= 2 | OR chain over N commitments | `25N - 2` |
+| Shared suffix | G table, pre-loop, complete 43-column comb, projective result check, total covenant tail | 44,388 |
 
-The dummy OP_PUSH_TX key is `d = 2^248·Gx⁻¹ mod n_k1` on secp256k1, public by construction; the
-signature the script assembles is valid only for the in-script preimage, and `OP_CHECKSIG` over the
-real preimage is what binds them. It is not a spend path.
+The exact total is:
 
-### 2.4 Unlocking script
+| Committed keys | Lock bytes |
+|---:|---:|
+| 1 | 45,221 |
+| 2 | 45,247 |
+| 3 | 45,272 |
+| 4 | 45,297 |
+| 5 | 45,322 |
 
-71 pushes, bottom → top, all minimal:
+For N >= 2, `R1C_LOCK_LEN(N) = 45,197 + 25N`. Exact parsing first checks one of these
+lengths, extracts the baked salt and commitments, and then regenerates and compares the entire
+template byte for byte. A matching length or basket label alone never identifies an R1C output.
 
-```
-#0  r        full affine x of R = u1·G + u2·Q            (32/33 B; NOT the signature's r mod n)
-#1  u2'      recode(r·s⁻¹ mod n)                          (33 B)
-#2  u1'      recode(e·s⁻¹ mod n)                          (33 B)
-#3..#66      x_0 y_0 … x_31 y_31 of table(Q)             (64 × ≤ 33 B)
-#67 salt     32 raw bytes
-#68 s, #69 s⁻¹ mod n                                      (32/33 B each)
-#70 preimage 158 raw bytes (PUSHDATA1)
-```
+### 3.3 Canonical signature witness
 
-`recode(u) = ((u odd ? u : u + n) + 2^258 − 1) / 2`. Measured 2,494–2,516 B; hard maximum
-2,539 B (every push at its largest encoding); **`R1C_UNLOCK_LEN = 2_560`** is the declared
-`unlockingScriptLength` (the toolbox only rejects a spend longer than the declaration).
+The unlocking script contains exactly 70 minimal pushes, bottom to top:
 
-`r` is the full x-coordinate of `R` recomputed by the app from `(e, r_sig, s, Q)` (`x ≥ n` has
-probability ≈ 2⁻¹²⁹; pushing `x mod n` would then fail the projective check).
-
-### 2.5 Sighash preimage and signer digest
-
-- Preimage = BIP143 preimage with **scriptCode = `01 ac`** (the subscript after the lock's
-  `OP_CODESEPARATOR` is the single `OP_CHECKSIG`) and **scope `0x41`** (ALL | FORKID):
-  `TransactionSignature.format({ …, subscript: Script.fromHex('ac'), scope: 0x41 })`.
-- P-256 leg: the script uses `e = LE(hash256(preimage))`. An ECDSA signer reads its digest
-  big-endian, so the app hands the YubiKey **`reverse(hash256(preimage))`** via `signEcdsa`
-  (raw-digest signing on both platforms; the card returns DER, not low-S normalised).
-- The app decodes `(r_sig, s)`, computes `s⁻¹ = s^(n−2) mod n`, recomputes `R`, and emits the
-  pushes. High-S is accepted by the script; no normalisation.
-
-### 2.6 Transaction rules and the version invariant
-
-- **Withdrawals and re-locks pass `version: 2` in `createAction` args.** `@bsv/sdk` 2.4.1
-  declares `CreateActionArgs.version` (default 1); the toolbox builds the signable transaction
-  with `new Transaction(args.version, …)`, stores it, and later completes and broadcasts that same
-  in-memory transaction — `signAction` accepts unlocking scripts only, never transaction bytes.
-  Deposits stay at the default version 1.
-- **Invariant the signatures depend on:** every preimage is computed from
-  `Transaction.fromAtomicBEEF(created.signableTransaction.tx)` exactly as returned (version,
-  locktime, inputs, sequences, outputs); the app asserts `tx.version === 2` **before** the first
-  card signature (else `abortAction` + `VaultError('bad-version')`), and never sets
-  `sequenceNumber` on a `spends[i]` entry. This holds because the toolbox serialises the same
-  object for the signable BEEF and for broadcast, only inserting unlocking scripts in between.
-- Sighash `0x41` only. Any sequence, any locktime, any input index, any number of inputs and
-  outputs. Fee model unchanged (100 sat/kB); the 28 KB source script travels in `inputBEEF`/EF
-  but is not fee-bearing.
-- The toolbox re-runs `Spend` on every input **after** `processAction` has committed the
-  transaction, so it is not a pre-commit gate; the app's own validation (§4.2 step 7) is.
-
-### 2.7 customInstructions v4
-
-Written on every vault output, read on every spend. JSON string (vault convention):
-
-```json
-{ "v": 4, "type": "R1C", "salt": "<64 hex>", "keys": ["<66 hex compressed P-256, lowercase>", "..."] }
+```text
+0        full affine x-coordinate r of R = u1*G + u2*Q
+1        recode(u2)
+2        recode(u1)
+3..66    x_0, y_0, ... x_31, y_31 of table(Q)
+67       low-S P-256 s
+68       s^-1 mod n
+69       158-byte BIP143 preimage
 ```
 
-`keys` = the pubkeys whose commitments the lock bakes, in commitment order (informational). Pubkeys
-per output — not key IDs into meta — keep an output self-describing after keys are added, removed
-or renamed. ≤ 4096 chars (5 keys ≈ 450). `decodeVaultInstructions` fails closed on anything else
-(v3 `K1` records are rejected). Balance and coin selection count **only** decodable v4 outputs;
-undecodable outputs in the basket are ignored everywhere, including the zero-balance check for
-Disable.
+The salt is already in the lock and is not a witness item. The measured hard witness maximum is
+2,506 bytes; `R1C_UNLOCK_LEN = 2,560` is the declared upper bound.
 
-## 3. Key material and custody
+The header enforces:
 
-### 3.1 Per YubiKey
+- exactly 70 witness items, with no extra bottom-stack values;
+- transaction version 1, by comparing the first four preimage bytes with `01000000`;
+- `1 <= r < p` and `r != n`;
+- `1 <= s <= (n - 1) / 2`;
+- `1 <= sInv < n` and `s * sInv = 1 mod n`;
+- equality between the supplied recoded scalars and the values recomputed from the preimage,
+  `r`, and `sInv`;
+- a canonical table hash equal to one of the baked commitments.
 
-PIV slot `0x82`, P-256, **always freshly generated** with `generateVaultKey(0x82, 'cached',
-'once')` (both native mappings accept these strings). Whatever the slot held before is replaced,
-and the key step says so ("Anything already stored in this YubiKey's vault slot will be
-replaced"). iOS cannot read retired-slot occupancy, so this is also the only behaviour both
-platforms can deliver. The natives return a 65-byte SEC1 point; the app **compresses it**
-(`p256.Point.fromHex(...).toHex(true)`, lowercase) before recording, and all comparisons use that
-canonical form. `signEcdsa` is PIN- and touch-gated; both natives verify the PIN inside every call.
+The `r` checks are consensus-critical. Without them, Chinese-remainder representations can
+carry one residue modulo the P-256 group order into scalar multiplication and another modulo the
+field prime into the final x-coordinate comparison. Low-S and the exact stack shape remove
+otherwise valid witness variants.
 
-### 3.2 Vault meta v5
+The local `scripts/run-r1c-crt-forgery.cjs` regression harness currently reports
+`accepted: false`, `oldCrtForgeryRejected: true`, `usedYubiKey: false`, and
+`validP256Signature: false` for a 65-byte forged `r` and a 2,437-byte unlocking script. It imports
+the production `r1comb.ts` builder and verifier, so it is regression evidence rather than an
+independent verifier or oracle. Its generic `OP_VERIFY` failure also does not, by itself, identify
+the exact failing opcode.
+
+### 3.4 Complete comb arithmetic
+
+Each of 43 columns doubles the Jacobian accumulator, adds the selected affine Q-table point, and
+adds the selected affine G-table point. The mixed-add wrapper handles all cases explicitly:
+
+- accumulator at infinity;
+- ordinary unequal-point addition;
+- equal-point doubling;
+- inverse points, producing infinity.
+
+The final check requires a non-infinity result and verifies `X = r * Z^2 mod p`. Valid P-256
+ECDSA gives `R = u1*G + u2*Q`; the table commitment determines Q, and the final equality binds
+the full affine x-coordinate used by the header.
+
+### 3.5 Preimage and local verification
+
+The only supported transaction version is 1. The BIP143 scriptCode is the byte `ac`, the
+subscript after the lock's `OP_CODESEPARATOR`, and the sighash scope is `0x41`
+(ALL | FORKID). The card signs `reverse(hash256(preimage))` as a raw 32-byte P-256 digest.
+The app parses strict DER, normalizes high-S to low-S, builds the witness, and verifies each input
+locally before `signAction`.
+
+Local `Spend` validation explicitly enables:
+
+```text
+MINIMALDATA
+UTXO_AFTER_CHRONICLE
+SIGHASH_FORKID
+STRICTENC
+CLEANSTACK
+SIGPUSHONLY
+LOW_S
+```
+
+The transaction bytes used for all preimages come from the signable AtomicBEEF. Version,
+locktime, every input, sequence, output, source value, and source script are rechecked before
+the card signs and again where the held signed transaction is inspected.
+
+### 3.6 Deterministic OP_PUSH_TX covenant
+
+The tail constructs a secp256k1 signature for the same preimage and checks it after
+`OP_CODESEPARATOR`. Both covenant private scalars are public constants; this leg binds the
+preimage to the transaction and is not an alternate secret spending path.
+
+Let `C1 = 2^248` and `C2 = C1 + 1`. The normal branch uses the public key corresponding to
+`C1` and:
+
+```text
+s = lowS((e + C1) mod n_k1)
+```
+
+For the one digest that makes the first scalar zero, the script selects the second public key.
+Then `(e + C2) mod n_k1 = 1`, so the signature is defined. Two distinct constants cannot both
+produce zero for one digest. The tail serializes every positive low-S scalar safely, so
+`pushTxDerCheck` now always returns `ok: true`; the retained retry loop is dead defensive
+scaffolding and is not part of availability.
+
+## 4. Output instructions and local authority
+
+Every new output carries exact JSON `customInstructions`:
 
 ```ts
-interface VaultKeyRecord { serial: string; slot: 0x82; pubkey: string /* 33 B hex, lowercase */; nickname: string; enrolledAt: number }
-interface VaultMetaV5 { v: 5; createdAt: number; lastUsedAt?: number; lastUsedSerial?: string; keys: VaultKeyRecord[] }
+interface VaultInstructionsV6 {
+  v: 6
+  type: 'R1C'
+  salt: string
+  saltPublicKey: string
+  saltKeyId: string
+  chain: 'main' | 'test' | 'teratest'
+  vaultId: string
+  revision: number
+  createdAt: number
+  keys: Array<{
+    serial: string
+    slot: 0x82
+    pubkey: string
+    nickname: string
+    enrolledAt: number
+  }>
+}
 ```
 
-AsyncStorage `vault_meta_v1` (key name unchanged; `getMeta` returns null unless `v === 5`, so a
-device holding a v4 record shows "not enrolled"). `isEnrolled()` becomes meta-only. The SecureStore
-`vault_seal_v1` entry is removed by an explicit `vaultStore.migrateLegacySeal()` called once from
-`VaultProvider` mount; `getSeal` disappears from the ceremony store view.
+`salt` must equal the chain-domain-separated SHA-256 of the canonical compressed
+secp256k1 `saltPublicKey` and the 32 bytes baked into the lock. `chain` is
+part of that domain and must match the active wallet network. `saltKeyId` must be a
+canonical positive decimal integer (`"1"`, `"2"`, ...) within the JavaScript safe-integer
+range. Key records are in
+commitment order. The decoder requires the exact field set, canonical lowercase encodings,
+valid curve points, valid ranges, unique serials and public keys, and at most 4,096 characters.
+Unknown fields, older versions, and partially valid records are rejected.
 
-### 3.3 Enrollment (sequential wizard)
+Local authoritative metadata is version 6:
 
-Steps: `intro` → `key` (× k, with sub-states `pin`, `tap`, `name`, `error`) → `more` → `done`.
-Nothing is persisted on the phone until Finish; cards are written as each key step completes.
+```ts
+interface VaultMetaV6 {
+  v: 6
+  vaultId: string
+  revision: number
+  createdAt: number
+  lastUsedAt?: number
+  lastUsedSerial?: string
+  pendingRemoval?: VaultPendingRemoval
+  recovery?: { required: true; adoptedSerials: string[] }
+  keys: VaultKeyRecord[]
+}
+```
 
-1. **Intro.** Copy: what the vault is; "You need at least two YubiKeys"; "Keep them in
-   different places — two keys stored together are one key"; "Keep the wallet's encrypted backup
-   on — it holds the record of each deposit"; acknowledgement checkbox labelled *"I understand:
-   only my YubiKeys open this vault. My recovery phrase does not. If I lose all of them, the money
-   is gone."* Begin is enabled by the checkbox. If backup push is off, Begin routes to settings
-   first (D13).
-2. **Key k** (title "Key {{k}} of up to 5"). PIN entry (and default-PIN change when `123456`)
-   **before** the tap. Then one card session: `getKeyInfo` → refuse if the serial is in
-   `meta.keys` **or in this wizard's pending list** (`key-already-enrolled`: *"You've already
-   added this YubiKey ({{nickname}}). Tap a different one."*; a pending duplicate additionally
-   offers *"Set it up again"*, which regenerates and replaces the pending record) → refuse if
-   `pinRetries === 0` (`pin-locked`) → `changePin`/`verifyPin` → `generateVaultKey` → compress
-   the returned pubkey → pending record. On NFC a wrong PIN costs a full re-tap, so PIN errors
-   return to the PIN sub-state with the retries count. Session faults (`session-failed`,
-   `detached`, timeout) reject the step with **Cancel / Try again**; `withKeySession` is changed to
-   reject on those events instead of waiting forever.
-3. **Name** (optional): "Name this key", default "Key {{k}}", hint "e.g. Desk, Safe, Parents'
-   house". Keys are shown everywhere as `{{nickname}} · …{{serialTail4}}`.
-4. **More.** After key 2: "Add another key?" (up to 5) or **Finish**, which persists meta v5
-   atomically.
-5. **Leaving.** With ≥ 1 pending key, back/leave confirms: *"Leave set-up? The {{count}}
-   YubiKey(s) you set up won't be saved yet. They keep their keys, so you can add them again in a
-   minute."* Pending records (public data only) survive backgrounding within the session.
-6. **PIN locked mid-wizard** (`pin-locked`): stay on key k, keep pending keys; copy *"This
-   YubiKey's PIN is blocked. Unblock it with its PUK in Yubico Authenticator, or set up with a
-   different YubiKey."* Buttons: Use a different YubiKey / Try again.
+It is stored under a wallet-identity-and-chain-scoped `vault_meta_v6` key in platform
+SecureStore with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`. A scope generation token prevents an async
+operation that began for one wallet or chain from committing into another.
 
-### 3.4 Managing keys (enrolled vault screen)
+Output instructions hold the full public recovery record in the wallet database. Current
+recovery accepts them only after the
+real source value and exact lock authenticate the baked salt and the ordered P-256 public-key
+commitments reconstructed from the record. The lock does not authenticate `saltKeyId` or its
+BRC-42 provenance, serials, nicknames, or enrollment timestamps; those remain wallet recovery
+metadata. Recovery refuses a different `vaultId`, conflicting `createdAt`, stale revisions, or
+divergent key sets at the same revision. A clean-device restore marks recovered keys as
+unadopted. The user must prove live possession of at least two recorded YubiKeys before
+`depositToVault` accepts net-new funds. A withdrawal remainder or re-lock may create a
+replacement output with one adopted signing key that the source output already authorizes.
 
-The screen loads `listOutputs({ basket, includeCustomInstructions: true, limit: 1000 })` and
-compares each output's `keys` with the current `meta.keys` pubkeys. Whenever any output's set
-differs (either direction) it shows a badge — *"{{count}} deposits not yet open to {{nickname}}"*
-or *"{{count}} deposits still open to a removed key"* — and the **Re-lock** action (§4.3).
+## 5. Per-output salt and script-hash uniqueness
 
-- **Add key** (disabled at 5; `addKey` throws `too-many-keys` defensively): the §3.3 key step,
-  appended to `keys`. Done state: *"{{nickname}} can open deposits made from now on. Re-lock the
-  vault so it can open everything."* [Re-lock now]. The re-lock sheet's reason line: *"Tap one of
-  your existing keys ({{names}}) — not the one you just added."*
-- **Remove key**: allowed only while ≥ 2 remain (`removeKey` at 2 throws `last-keys`) **and only
-  if every vault output would still be committed to at least one remaining key**; otherwise
-  refused with `relock-required` (*"Re-lock the vault first so your other keys can open every
-  deposit."*). Confirmation: title *"Remove {{nickname}}?"*, body *"This stops the wallet using
-  {{nickname}}. Money already in the vault stays openable by it until you re-lock (≈ {{fee}}
-  sats)."*, buttons **Remove and re-lock now** (primary) / Remove only / Cancel. A removed serial
-  is refused by the ceremony (`serial-mismatch`); on-chain the key can still spend the outputs it
-  was committed to, which is why re-lock is the real revocation.
-- **Rename**: nickname only.
-- **Export wallet data**: replaces the old "Recover with phrase" row. Same action and label as
-  the Settings row (`exportAllWalletDatabases(storage)` from `ui/exportDatabases.ts`, i18n
-  `export_wallet_data`, `share-outline` icon, spinner while exporting) — the vault screen is where
-  the user is thinking about recovery, so the export lives here too. Explainer beneath it:
-  *"Every vault deposit carries a unique piece of data that is needed to open it, along with your
-  YubiKeys. It is stored in this wallet's database. Keep the encrypted backup on, and export a copy
-  of the wallet data after making deposits."*
-- **Disable vault**: only when the decodable-v4 balance is zero; clears meta. Copy: *"This
-  forgets the vault's key list on this phone. The keys stay on your YubiKeys."*
-- Footnote under the key list, always visible: *"Only these keys open the vault. Your recovery
-  phrase does not."*
+Every output uses a wallet-derived public key under BRC-42 protocol:
 
-### 3.5 Recovery model
+```text
+protocolID = [2, "vault salt"]
+keyID      = canonicalDecimal(index)  // "1", "2", ...
+saltKey    = compressed getPublicKey(protocolID, keyID, self)
+salt       = SHA256(utf8("R1C vault salt v1\0" || chain || "\0") || saltKey)
+```
 
-Recovery needs **any enrolled YubiKey and this wallet's database** (this phone, its encrypted
-backup — the backup log includes outputs and their `customInstructions`, hence the salts — or an
-exported wallet database file). Neither alone recovers anything. There is no phrase, no
-passphrase, no third path. The vault screen therefore offers **Export wallet data** in place of
-the old phrase-recovery row (§3.4), and §7 includes restore-from-backup and import-exported-
-database tests that end in a vault spend.
+The exact key ID is the canonical decimal `index`. It is one greater than the greatest
+authenticated index found in current Vault outputs and the full Vault action history, across
+all enrollments for the wallet and chain. The derived compressed secp256k1 public key, key ID,
+chain, salt, and full v6 record are retained in the output instructions; the salt is also
+embedded in the lock. The same wallet root, protocol, self-counterparty setting, decimal ID,
+and chain therefore rederive the same public key and salt. Chain domain separation prevents the
+same mnemonic, index, and ordered YubiKey set from reproducing a script hash on another network.
 
-## 4. Flows
+Before choosing the next salt, the transfer service builds an authenticated inventory from
+current outputs and all Vault actions, including spent, pending, completed, and failed history.
+It tracks salt owners, key ID owners, exact script hashes, and the script-to-key-ID binding. It
+also rederives every recorded salt public key before allowing that record to advance the
+high-water mark, so forged metadata cannot force an arbitrary next index. The one next candidate
+is accepted only if its key ID, salt, and script hash are all new; any collision fails closed.
 
-### 4.1 Deposit (no hardware)
+The process-wide FIFO serializes simultaneous calls in one running app, and complete visible
+history prevents sequential reuse. This is not a distributed allocator. Two disconnected or
+stale devices sharing one mnemonic can both observe N and broadcast N+1; with the same ordered
+key set they would create the same locking-script hash. A release must therefore add a shared
+compare-and-swap/on-chain allocator or enforce a single synchronized Vault writer. Local
+history can reject a collision only after the other action becomes visible.
 
-1. `requireOnline`. Refuse unless `vaultEnabled` (`not-released`), unless backup push is on
-   (`backup-off`: title *"Turn backup on first"*, body *"Each vault deposit has a one-time
-   secret stored only in this wallet. If this phone is lost and backup is off, no YubiKey can open
-   the vault."*, CTA *Open settings*), unless `meta.keys.length ≥ 2` (`not-enough-keys`,
-   defensive — the wizard cannot persist fewer). The floor is rendered inline under the amount
-   input in the display currency (*"Minimum deposit {{floorDisplay}} ({{floorSats}} sats).
-   Creating a vault deposit costs about {{feeDisplay}}."*) with the CTA disabled below it;
-   `below-dust` remains the defensive server-side error with the same copy.
-2. First deposit into an empty vault confirms: *"First vault deposit — {{amount}} will be
-   openable only with {{count}} YubiKeys ({{names}}). Your recovery phrase won't help."*
-   [Deposit] / [Cancel].
-3. `salt = randomBytes(32)`; `commitments = meta.keys.map(k => commitment(k.pubkey, salt))`;
-   `lockingScript = buildLock({ commitments })`.
-4. One `createAction`: output `{ satoshis, lockingScript, basket: 'admin vault', tags: ['vault'],
-   customInstructions: v4 }`, labels `['vault', 'vault-deposit']` (the toolbox patch keys
-   UTXO-pool suppression on that label), `randomizeOutputs: false`, `acceptDelayedBroadcast:
-   false`. No staging transaction: the two-transaction deposit existed for a 960 KB script.
-5. Deposits need a built wallet; the Vault screen itself does not. The Deposit button (not the
-   Vault button) runs the lazy wallet-creation path (`ensureWalletExists`) when needed.
+The deterministic salt sequence is only one recovery input. The exact lock also depends on the
+complete ordered P-256 YubiKey public-key set, which the mnemonic cannot derive, and
+`customInstructions` are wallet metadata rather than transaction bytes. Numeric salt IDs do not
+by themselves implement clean-device output discovery or mnemonic-plus-one-YubiKey recovery.
 
-### 4.2 Withdraw (one tap per batch)
+## 6. YubiKey enrollment and custody
 
-1. **Choose the key** in-app: a list of enrolled keys (default: `lastUsedSerial`). PIN entry.
-2. `listOutputs({ basket: 'admin vault', include: 'entire transactions',
-   includeCustomInstructions: true, limit: 1000 })`; decode v4; **filter** to outputs whose `keys`
-   contain the chosen pubkey; **sort** largest first; **cap** at `VAULT_MAX_INPUTS` (32). For each
-   selected output read its real lock from `list.BEEF` and require
-   `commitment(chosenPubkey, salt) ∈ bakedCommitments(lock)` (else `key-not-committed`
-   naming the outpoint — customInstructions are never trusted over the lock).
-3. Amount checks against the chosen key's reachable total: none reachable → `key-not-committed`;
-   `amount > reachable` while `reachable < total` → `key-cannot-cover` (*"{{nickname}} can open
-   {{reachable}} of the {{total}} in the vault. Withdraw up to {{reachable}}, or use {{otherNames}}
-   instead."*); `amount > selected` because of the cap → `too-many-inputs`.
-4. Remainder rule is user-visible: if `0 < balance − amount < VAULT_DEPOSIT_MIN` the screen
-   confirms before running: *"Withdrawing {{amount}} leaves {{remainder}}, which is below the
-   100,000-sat vault minimum. The whole vault will move to your everyday balance."* [Withdraw
-   everything] / [Change amount]. A remainder ≥ the floor is re-vaulted with a fresh salt committed
-   to the **current** key set.
-5. `createAction` with `version: 2`, `inputs: [{ outpoint, unlockingScriptLength: R1C_UNLOCK_LEN
-   }]`, `inputBEEF`, `trustSelf: 'known'`, `acceptDelayedBroadcast: false`. Parse the signable
-   transaction; assert version 2 (§2.6); compute every input's preimage and digest; run
-   `pushTxDerCheck` on each (D4b) — on a hit, `abortAction` and re-create with `sequenceNumber`
-   bumped on that vault input (loop bound 8).
-6. **Tap** (ceremony `requestVaultSigner(reason, chosenSerial)`): `getKeyInfo` → serial must
-   equal the chosen key (`serial-mismatch`: *"That's {{tappedName}}. You chose {{chosenName}} —
-   tap it, or go back and choose {{tappedName}}."*; a tapped serial not in meta at all gets the
-   same code with *"This YubiKey isn't one of this vault's keys ({{names}})."*) → `verifyPin` →
-   `signEcdsa` for each digest of the batch. Batches: at most `VAULT_INPUTS_PER_TAP` digests per
-   tap (provisional 16; pinned by the §0 device run against the 15 s touch cache and CoreNFC's
-   60 s session), with the NFC alert text set per tap from JS (localised: *"Hold your YubiKey
-   here to sign — batch {{b}} of {{n}}"*; enrollment passes *"Hold your YubiKey here to set it
-   up"*). A mid-batch `touch-timeout` / `nfc-lost` / `key-removed-mid-op` keeps the
-   `createAction` reservation and the signatures gathered so far, re-opens the session (serial
-   and PIN re-checked) and **resumes at input k**; only a user cancel or a non-retryable error
-   aborts (`abortAction`, release). Android USB is one session for the whole loop.
-7. After the last batch, off-card: decode DER, `fullR`, build each 71-push unlock, validate every
-   input locally with `Spend` **using explicit strict flags including MINIMALDATA** (honest unlocks
-   are minimal, so this is strictly stronger than the node's v2 rules), then `signAction({
-   reference, spends, options: { acceptDelayedBroadcast: true } })`. Past the point of no abort.
-8. **Result**: `VaultSpendResult { txid, cappedInputs, unreachable: { count, satoshis, keys:
-   {nickname, serialTail}[] } }`. The transfer screen shows an **alert after the transfer**, not a
-   toast: *"Part of the vault needs another key — moved {{moved}}. {{count}} deposits holding
-   {{amount}} can only be opened by {{names}}. Withdraw again with one of those keys."*; the cap
-   case separately: *"{{count}} more deposits remain — withdraw again to move them."* The
-   ceremony sheet shows per-input progress (`VaultProgress = { phase: 'preparing', signed?,
-   total? }` — a conscious extension of the pinned `CeremonyState` key set) between batches and
-   after the NFC sheet dismisses; it cannot render under the iOS system sheet.
+Enrollment is allowed only after the user acknowledges that the whole PIV application is
+factory-reset and dedicated to Vault. PIV PIN, PUK, management credentials, and several checks
+are application-wide, so sharing that PIV application with unrelated credentials is unsafe.
 
-### 4.3 Re-lock vault with all keys
+Before the first mutating APDU, native code must:
 
-A distinct spend mode, **not** `withdrawFromVault('all')` (whose remainder is zero and would sweep
-the vault into the hot wallet): `relockVault(chosenSerial)` selects as in §4.2 steps 1–3
-(`amount = 'all'`), then creates **one** output `{ satoshis: acc − feeEstimate, lockingScript:
-buildLock(current keys, fresh salt), basket: 'admin vault', customInstructions: v4 }` and no
-withdrawal. `feeEstimate` uses the toolbox's own arithmetic (`ceil(size / 1000) · 100` over
-`R1C_UNLOCK_LEN` per input and the new lock) plus 10 %; any surplus becomes ordinary default-basket
-change (folded into the fee when below dust). If `acc − feeEstimate < VAULT_DEPOSIT_MIN` the
-re-lock is refused (`too-small-to-relock`: *"This vault holds less than 100,000 sats, which is too
-small to re-lock. Withdraw it instead and deposit again."*). Runs one pass per tap while
-`cappedInputs > 0`; stops and asks for another key when only `unreachable` outputs remain. Cost
-≈ 2,900 sat per pass plus ≈ 260 sat per input. Test: default-basket balance changes by at most the
-surplus.
+1. bind the live session to the expected serial and reject a blocked or invalid PIN;
+2. prove that Vault slot `0x82` and every user slot the platform supports inspecting are empty;
+3. verify the device's factory F9 certificate offline through the bundled, pinned production
+   Yubico trust graph;
+4. enforce certificate validity, basic constraints, CA and key-usage rules, supported signature
+   algorithms, critical extensions, certificate signatures, and the device serial;
+5. authenticate the factory-default management key.
 
-### 4.4 Errors
+Failure, absence, ambiguity, an unknown issuer, or a custom management key is
+`attestation-invalid` and stops enrollment. The verifier does not use AIA fetching, system
+trust, or remote roots.
 
-New `VaultErrorCode`s: `not-released`, `backup-off`, `not-enough-keys` (defensive),
-`key-already-enrolled`, `too-many-keys`, `last-keys`, `relock-required`, `key-not-committed`,
-`key-cannot-cover`, `too-small-to-relock`, `bad-version`. Kept: `serial-mismatch` (card not the
-chosen / not enrolled — copy can name keys), `wrong-key` (native fallback only, still reclassified
-to `nfc-lost` on NFC dropouts), `mgmt-key-custom`, `pin-*`, `touch-timeout`, `nfc-lost`,
-`key-removed-mid-op`, `too-many-inputs`, `below-dust` (now live), `requires-online`,
-`user-cancelled`, `vault-empty`, `amount-exceeds-balance`, `template-invalid`. Removed:
-`seal-corrupt`, `bad-passphrase`, `bad-mnemonic`, `bad-derivation-index`, `backup-required`,
-`no-key` if unused after the driver change. The two copy tables (`VaultCeremonySheet`
-`ERROR_COPY`, `translateVaultError`) merge into one `vaultErrorCopy(code, params)`.
+PIV attestation support starts at YubiKey firmware 4.3. Earlier firmware, a missing or
+overwritten F9 certificate, and preview or otherwise unknown certificate chains fail closed.
+Certificate validity is evaluated against the handset clock, so a materially incorrect clock
+can reject a genuine device.
 
-Copy that must change with the model: `vault_hero_body` (needs two or more YubiKey 5 NFC),
-`vault_deposit_sub` (*"From your everyday balance. No YubiKey needed."*), `vault_withdraw_sub`
-(*"Back to your everyday balance. Tap any of your vault keys."*), `vault_key_section`
-(*"Security keys ({{count}} of 5)"*), `vault_disable_message`, `vault_err_pin_locked` (withdraw:
-*"This YubiKey's PIN is blocked. Use another of your vault keys, or unblock this one with its PUK
-in Yubico Authenticator."*), `vault_err_wrong_key`.
+Native code generates a fresh P-256 key in slot `0x82` with PIN policy once and touch policy
+cached. In the same native session it verifies a slot attestation that binds the exact returned
+point, slot, serial, PIN/touch policies, device F9 certificate, and pinned production root. It
+then replaces the default management key with native CSPRNG material that never crosses the JS
+bridge. A factory-default PIN must be changed, and the PUK is rotated.
 
-## 5. Code changes
+Durable quarantine or draft state is written before each irreversible PIN, PUK, generation, and
+management-key transition. An uncertain outcome is never retried as though the slot were empty.
+After management-key protection, the key signs a fresh random challenge and the app verifies the
+signature against the attested public key. Only that manufacturer-attested, protected,
+possession-proven record can enter authoritative Vault metadata.
 
-### 5.1 New
+Signing is serial-bound. The ceremony verifies the presented serial and public key, checks PIN,
+then asks slot `0x82` to sign each precomputed digest. The signer is scoped to one operation and
+released in a `finally` block.
 
-- `core/services/vault/r1comb.ts` — `combTable(P)`, `canonicalTableBytes`, `commitment`,
-  `buildLock({commitments})`, `bakedCommitments(lock)`, `R1C_LOCK_LEN(n)`, `R1C_UNLOCK_LEN`,
-  `sighashPreimage(tx, inputIndex, sourceSatoshis)` (subscript fixed to `ac`),
-  `signerDigest(preimage)`, `pushTxDerCheck(preimage)` (D4b), `fullR(e, rSig, s, Q)`,
-  `buildUnlock({ preimage, derSig, Q, salt })`, `encodeVaultInstructions` /
-  `decodeVaultInstructions` (v4), `compressPubkey`. Pure; imports only `@bsv/sdk` and
-  `@noble/curves`. Ported from `docs/example-txs/spike/gen2.mjs` + `unlock2.mjs`.
-- `scripts/r1c-spend-proof.ts` — §0 proof with a software P-256 key (replaces
-  `scripts/k1-spend-proof.ts`, which is deleted).
+Current native evidence consists of passing Android Gradle native/JVM checks, an unsigned iOS
+build against YubiKit 4.4.1, and the Swift pinned-certificate smoke. Android JVM tests use
+synthetic F9/slot graphs and cover negative key, serial, policy, root, and DER cases. The iOS
+smoke exercises pinned-bundle loading and mutation rejection while compilation checks the native
+call sites. None of this exercises a physical YubiKey or real NFC/USB APDUs.
 
-### 5.2 Modified
+## 7. Transfer state machines
 
-- `types.ts` — error codes (§4.4); `SealedBlob` removed.
-- `vaultStore.ts` — meta v5; `isEnrolled` meta-only; `migrateLegacySeal`; `addKey`, `removeKey`,
-  `renameKey`, `noteLastUsed`.
-- `VaultKeyService.ts` — `enrollKey(pin, { pendingSerials }) → VaultKeyRecord` (one card, no
-  persistence), `finalizeEnrollment(records[])`, `disableVault`. `recoverVaultHD`,
-  `resealToNewKey`, the seed-zeroing choreography deleted.
-- `session.ts` — `withKeySession` rejects on `session-failed` (→ `user-cancelled`/`no-key`),
-  `detached` (→ `key-removed-mid-op`) and the attach timeout.
-- `ceremony.ts` / `ceremonyHost.ts` — `VaultKeyHandle { hd }` becomes
-  `VaultSigner { serial, pubkey, sign(digest32) → DER, release() }`; `requestVaultSigner(reason,
-  chosenSerial)`; the serial check compares against the chosen key; the existing retryable-tap
-  loop (`RETRYABLE_TAP_ERRORS`) is generalised to resume a signing batch; `VaultProgress` gains
-  `signed`/`total`; `CeremonyState` pinned keys extended accordingly; `getSeal` removed from the
-  store view. `VaultContext` is otherwise unchanged (`transfers.ts` obtains the signer from
-  `ceremonyHost`, not the context).
-- `driver.ts` — `generateVaultKey(slot)` passes `'cached', 'once'`; `start(message?)` forwards a
-  localised NFC alert text; `ecdh` removed from `VaultDriver`. Native: `startDiscovery(message)`
-  replaces the hardcoded English alert; optional `setSessionMessage(text)` if YubiKit exposes the
-  active `NFCReaderSession.alertMessage` — otherwise the text is fixed per tap and progress is
-  shown between taps only.
-- `mockYubiKey.ts` / `devMock.ts` — per-serial records `{ priv, pub, pin, pinRetries,
-  pinVerified, slotOccupied }` keyed by the current serial; `insertKey(serial)` switches; `ecdh`
-  and the `softwareEcdh` import removed; a module-held instance with `setMockPresentKey(serial)`;
-  the DEV wallet-config row gains a present-key selector (MOCK-DEV-1/2/3). Tests asserting
-  `'always'` flip to `'cached'`; the ecdh/seal suites go.
-- `transfers.ts` — deposit without ceremony (§4.1); withdraw with chosen key, filter → sort → cap,
-  BEEF commitment check, batching, resume, strict local `Spend` (§4.2); `relockVault` (§4.3);
-  `VAULT_DEPOSIT_MIN = 100_000`; `VAULT_INPUTS_PER_TAP`; `VaultSpendResult` extended; `VaultWallet`
-  shrinks to `createAction / signAction / listOutputs / abortAction / listActions`.
-  `sweepVaultWithHD` deleted. **`reclaimStagingOutputs`, `VAULT_STAGING_BASKET`, the staging codec
-  and `StorageExpoSQLite.releaseVaultStagingStrandedByInvalidTx` are kept as legacy** (the code
-  cites a 2026-08-21 production deposit failure and a 2026-08-22 device crash; whether any
-  non-dev wallet ran the two-transaction deposit is unconfirmed) until the user confirms nothing
-  is stranded, after which a follow-up removes them and `vault_reclaim_done`.
-- `toolboxConfig.ts` — `vaultEnabled?: boolean` (default false) with `isVaultEnabled()`; read by
-  the home screen, the vault route, deposit, re-vault and re-lock; injected via options in tests so
-  `transfers.test.ts` stays config-free; host passes it from `EXPO_PUBLIC_VAULT_ENABLED` in
-  `app/_layout.tsx` and `eas.json` profiles.
-- `WalletHomeScreen.tsx` — the Vault button (already un-hidden in the working tree) renders only
-  when `isVaultEnabled()`; it keeps plain `router.push('/vault')` (enrollment needs no wallet);
-  `SettingsScreen`'s `/vault` row follows the same flag.
-- Public barrels: `core/index.ts` drops `sealing`, `k1`, `vaultDerivation`, `vaultPassphrase`
-  exports; `ui/index.ts` drops `PhraseBackupSheet`, `PassphraseField`, `VaultRecoverScreen`. This
-  is a **breaking `@bsv/expo-wallet-toolbox` release (0.5.0)** with a changelog entry.
+All Vault metadata changes and output mutations run through one process-wide FIFO and a captured
+wallet/chain scope token. Current-output scans request at most 64 outputs per page and consume
+each page's BEEF immediately. Action-history scans use 8-row pages when source scripts are
+included and 200-row pages for lightweight metadata. If a provider supplies a total, it must
+remain stable and scanning continues to that total; without a total, a short or empty page ends
+the scan. Scanners reject oversized, repeated, or non-advancing pages and authenticate
+instructions against real source scripts. Withdrawal keeps full proof material only for its at
+most 32 selected inputs. No hard total-history cap may hide valid outputs. Compact identity,
+salt, and seen sets still grow with history, recovered current-output metadata grows with the
+live output set, scan time remains linear, and a single page's BEEF size is still
+provider-sensitive.
 
-### 5.3 Deleted
+### 7.1 Deposit
 
-`sealing.ts`, `vaultDerivation.ts`, `vaultPassphrase.ts`, `k1.ts`,
-`ui/screens/VaultRecoverScreen.tsx`, `ui/components/vault/PassphraseField.tsx`,
-`ui/components/vault/PhraseBackupSheet.tsx` (used only by the old wizard), `app/vault-recover.tsx`
-and its `_layout` entry, `scripts/k1-spend-proof.ts`, the `backup-required` gate in
-`transfers.ts` and its `VaultTransferScreen` branch, `EnrollWizard`'s attestation imports, and the
-tests of the deleted modules. **`backupAttestation.ts` and its test stay** (used by
-WalletHomeScreen, WalletCheckScreen, WalletContext, auth screens). Stale prose to fix: `guard.ts`
-header, `WalletContext.tsx` vault comments, the Swift/Kotlin comments claiming `ALWAYS`.
+1. Require the feature flag, online state, valid v6 metadata with two to five keys, no pending
+   removal, and recovered-key adoption.
+2. Scan current and historical Vault state and allocate a unique salt as in §5.
+3. Build one exact R1C output at index zero. The wallet may add at most one standard P2PKH change
+   output.
+4. Create a version-1 action with `noSend: true` and `signAndProcess: false`.
+5. Inspect the unsigned plan, call `signAction({ options: { noSend: true } })`, parse the exact
+   signed AtomicBEEF, recompute its txid, and inspect value, inputs, outputs, fee, script, and
+   instructions again.
+6. Release only that txid with `sendWith`. Success requires exactly one case-insensitive txid
+   match and status `sending` or `unproven`.
 
-### 5.4 UI
+A missing, duplicate, unrelated, failed, or unknown `sendWithResults` entry is an ambiguous
+failure. The held action remains reserved. Before `sendWith` starts, a locally detected error in
+the explicitly `noSend` deposit may abort its reservation. Once `sendWith` begins, cleanup must
+never call `abortAction`.
 
-- `EnrollWizard` rewritten to §3.3.
-- `VaultScreen`: keys list with badges, add / remove / rename / re-lock, balance, deposit /
-  withdraw, **Export wallet data** row with its explainer (§3.4; the handler is lifted from
-  `WalletConfigScreen.handleExportData` into a shared hook so both screens share it), footnote,
-  disable. States: `vaultEnabled` off → hero with *"Not available yet — vault
-  deposits are switched off in this release."* and a disabled CTA; driver unsupported → existing
-  "Needs a YubiKey" notice; not enrolled → hero; enrolled → balance.
-- `VaultTransferScreen`: key chooser (withdraw), floor/fee inline, remainder confirm,
-  first-deposit confirm, `backup-off` alert, post-transfer alerts (§4.2 step 8).
-- `VaultCeremonySheet`: per-batch progress; error copy via `vaultErrorCopy`.
-- i18n: **all twelve locales** in `core/i18n/translations.tsx` (parity-tested). ≈ 65 new keys
-  (≈ 780 strings) and ≈ 48 dead keys (backup/phrase steps, passphrase, recover screen, deposit
-  gate, single-key strings) deleted in the same commit as the code they belong to; fix the
-  `vault_enroll_phase_pin-check` key mismatch in passing.
+### 7.2 Withdrawal
 
-### 5.5 Rollout switch
+The user selects an enrolled key before the card tap. The service selects only outputs whose
+exact lock commits to that key, supplies authenticated source transactions in BEEF, caps the
+input count, and validates the complete proposed version-1 transaction before requesting any
+signature. It signs in bounded hardware batches, builds the 70-push witness per input, and runs
+strict local Script verification.
 
-`vaultEnabled` (§5.2) gates the home button, the Settings row, the vault route's hero, deposit,
-re-vault-on-withdraw and re-lock — every path that creates a vault output and every path that
-enrols hardware. Withdrawals of pre-existing outputs are never gated. Default off; on for dev
-builds; on in production only after §0.
+A withdrawal that creates only ordinary wallet output has no new Vault recovery record and may
+go directly through the wallet broadcaster. If the selected inputs leave a Vault remainder, the
+replacement is a new v6 output with a new §5 salt; the held-sign and `sendWith` rules apply.
 
-## 6. Security model
+### 7.3 Re-lock, add, and remove
 
-**Kept / gained vs K1.** Signing keys never leave hardware; no key material in phone memory;
-phone compromise cannot spend. No offline brute-force target. Every withdrawal needs PIN + physical
-key presence; touch is cached for at most 15 s after a touch on the same card.
+Adding a key increments the metadata revision. Existing outputs do not authorize it until they
+are re-locked. Re-lock spends authenticated outputs with one currently authorized key and makes
+one replacement output committed to the current key list with a new salt.
 
-**Lost.** Losing every enrolled YubiKey loses the funds; the wallet phrase does not help. Losing
-the wallet database with backup off loses the salts and therefore the funds even with the keys.
-Both are stated on the intro screen, the vault screen and the first-deposit confirmation, and D13
-refuses deposits while backup is off.
+Removal is two phase. A durable `pendingRemoval` tombstone retains the removed public record
+until every affected output has been re-locked and the broadcast outcome is known. Deposits and
+other conflicting mutations remain blocked meanwhile. The tombstone prevents a crash from
+forgetting a key that still has on-chain authority.
 
-**On-chain.** No spend without a committed key: the commitment covers salt and all 64 coordinates
-at fixed width; forging requires a `hash160` second preimage or an ECDSA forgery against Q. No
-value of `r`, `s`, `s⁻¹` (zero, `n`, `p`, negatives, huge) passes without a valid signature
-(ANALYSIS.md adv-review A–E; s = 0 fails H1, degenerate r fails the tail). Outputs are unlinkable
-until spent; a spend reveals the signing key's table (hence Q); salts are per output so only the
-spent output is linked. The dummy OP_PUSH_TX private key is public and grants nothing.
+### 7.4 Crash and ambiguity handling
 
-**Accepted (D5): third-party unlock malleability.** Under version 2 a relayer can rewrite a
-valid unlock (sign flips, `s + k·n`, `r + k·p·n`, zero-padded numbers, junk pushes, trailing
-no-ops) and the transaction confirms under a different txid. Funds go where the signer said; but
-the wallet records the change output and any re-vaulted output under the original txid and has no
-reconciliation for a confirmation under another — those outputs would be invisible to the wallet
-until recovered by hand. This is accepted on the position that BSV relayers and miners do not
-malleate in practice. If that position changes, the mitigation is the wallet-side reconciliation
-(match confirmed transactions by input set and output scripts), not script range checks, which
-cannot close the v2 surface.
+Unsigned, txid-less reservations that are authenticated as this feature's own actions may be
+aborted. Signed `noSend` actions are never aborted based only on local status, because an
+earlier `sendWith` call may have reached the network before the process died.
 
-**Residual risks.** (1) Node acceptance of the template, of version-2 relaxation and of
-multi-input spends is proven only in the SDK until §0 runs — hence the flag and D4b. (2) The comb
-loop has no special case for the accumulator hitting ±table point (Z becomes 0, spend fails);
-≈ 2⁻²⁵⁰ per add; the app clears it by re-creating the action with a bumped sequence (fresh e,
-fresh digits regardless of the card's nonce scheme). (3) A wrong `r` would fail on-chain; the app
-validates every unlock locally before `signAction`. (4) Response-side `listOutputs` has no size
-cap (known deferred item); 32 outputs ≈ 900 KB of BEEF.
+Vault recovery code deliberately never calls `sendWith` again for a signed transaction found
+after a crash. Current code blocks Vault mutation and transfer flows on a signed held deposit
+until a future, separately reviewed primitive can prove authoritative network state. Read-only
+balance and preview operations remain available. This rule does not disable ordinary broadcaster
+handling after the initial accepted `sendWith` call.
 
-## 7. Testing
+## 8. Recovery and optional backup
 
-Jest (`packages/expo-wallet-toolbox/__tests__/vault/`):
+Vault transfer broadcasts do not depend on the encrypted-backup preference, a private backup
+upload, a completion marker, or a host-supplied backup receipt. Ordinary wallet backup remains
+available and advisable because the current recovery implementation reads the wallet database's
+authenticated action history and `customInstructions`.
 
-- **Golden**: `buildLock` for N = 1..5 → exact `R1C_LOCK_LEN(N)` and pinned sha256s; the shared
-  suffix (G table → end) equals the fixture's chunks `[87..150] ++ [215..end]`
-  (`docs/example-txs/51c5…_0.hex`); `bakedCommitments(buildLock(c)) == c`.
-- **Round trip** through `Spend` (strict flags): random keys, N = 1..5, each member spends; 1–3
-  vault inputs mixed with P2PKH inputs; version 2; random sequence / locktime / amounts; high-S
-  and low-S; constructed `x ≥ n`; 31-byte coordinates; `pushTxDerCheck` agreement with the
-  interpreter on constructed failing preimages under v1 strict flags.
-- **Negative**: uncommitted key, wrong salt, tampered table, foreign signature, cross-input
-  preimage, v1 transaction refused by `buildUnlock`, v3 customInstructions rejected.
-- **Codec / store**: v4 encode/decode fail-closed; meta v5 round trip; v4 meta → not enrolled;
-  `migrateLegacySeal` deletes the seal; balance ignores undecodable outputs.
-- **Enrollment with the multi-key mock**: enrol 2 then 3 keys; same serial twice →
-  `key-already-enrolled`; PIN lock mid-wizard keeps pending keys; session failure rejects the step;
-  leave with pending keys persists nothing; Finish after 1 key impossible.
-- **Transfers with the mock**: deposit commits to all keys; deposit refused when backup off /
-  flag off / below floor; withdraw with key 2 selects only its outputs and reports `unreachable`;
-  `key-cannot-cover`; filter-before-cap; BEEF commitment mismatch → `key-not-committed` before any
-  signature; `version: 2` asserted on the signable tx; batch resume after a mocked `touch-timeout`
-  at input k with the reservation kept; re-lock leaves default-basket balance unchanged (≤
-  surplus), refuses below the floor, and after add/remove every output carries the current set;
-  remove refused when it would orphan an output; remove refused at 2.
-- **Restore**: restore a wallet from its backup log on a fresh store, then spend a vault output;
-  import an exported wallet database file on a fresh install, then spend a vault output. The vault
-  screen's export row renders and invokes `exportAllWalletDatabases`.
+The numeric salt ID makes the secp256k1 salt public key and 32-byte salt reproducible from the
+same wallet primary key:
 
-Device / network (§0): `scripts/r1c-spend-proof.ts` on testnet and mainnet including the
-constructed peel-nonminimal v2 case and the mixed-input case; dev build with two YubiKeys; 32-input
-withdrawal on iOS NFC to pin `VAULT_INPUTS_PER_TAP`. Record txids in the changelog.
+```text
+[2, "vault salt"], keyID "1", "2", ..., counterparty "self", forSelf true
+```
 
-## 8. Migration
+That fact does not determine the exact R1C locking script. The script also commits to every
+P-256 YubiKey public key in enrollment order. Those independent keys are not derived from the
+mnemonic, and their full records are currently present only in wallet metadata. The raw Bitcoin
+transaction contains the salt and opaque HASH160 table commitments, not `saltKeyId`, the
+YubiKey public keys, or their order.
 
-None. K1 (`v: 3`) and R1-K1 outputs never reached production. A device with a v4 meta record shows
-"not enrolled" and can enrol fresh; `migrateLegacySeal` removes the seal. **Sweep any dev device
-holding K1 vault funds before installing this build** — the K1 sweep tooling is deleted with the
-rest and the balance view will ignore v3 outputs.
+Consequently, the current clean-device recovery path still requires restored wallet history or
+another authenticated descriptor/discovery source. A future claim that mnemonic plus one
+surviving YubiKey is sufficient must first ship a public recovery path that:
 
-## 9. Out of scope
+1. locates candidate raw transactions without trusting local `customInstructions`;
+2. obtains the complete ordered historical YubiKey public-key descriptor;
+3. rederives the claimed numeric salt public key and verifies its chain-domain-separated SHA-256
+   against the exact lock;
+4. validates transaction bytes, proof, UTXO state, exact template, value, network, and the
+   presented YubiKey commitment before internalization;
+5. defines a safe high-water/gap rule and a cross-device allocation protocol.
 
-Threshold (2-of-N) signing (two verifiers ≈ 55 KB; a later spec); per-output key tweaking;
-response-side `listOutputs` caps; wallet-side reconciliation of malleated confirmations (§6).
+A backup-free recovery test must begin with a clean database and retain only the mnemonic and
+one output-authorized YubiKey. It must discover, internalize, and spend a real fixture. Until
+that test exists, documentation and UI must not promise mnemonic-only or mnemonic-plus-one-key
+Vault discovery.
 
-## Changelog
+## 9. External wallet and storage isolation
 
-- 2026-09-09 — initial version; D1–D12 approved in conversation.
-- 2026-09-09 — revised after review: re-lock defined as its own spend mode; salt/backup dependency
-  made explicit (D13); key chosen before the tap, batching and resume (D14); single feature flag
-  (D15); no key adoption (D6); `pushTxDerCheck` kept until proven (D4b); version-2 mechanism and
-  invariant pinned (§2.6); removal cannot orphan outputs; twelve locales; staging reclaim kept as
-  legacy pending confirmation.
-- 2026-09-09 — user review: vault screen gains an **Export wallet data** row (same action as
-  Settings) with an explainer that each deposit carries unique data needed for recovery alongside
-  the YubiKeys; replaces the old phrase-recovery row (§3.4, §3.5, §5.4, §7).
+Every wallet object handed to an external origin is wrapped by `guardVaultAccess`. The host
+accepts pairing origins only as canonical bare HTTPS origins and rejects credentials, path,
+query, fragment, malformed ports, and the reserved admin origin.
+
+The guard:
+
+- scans and filters external `listActions` results so Vault labels, admin-basket outputs, R1C
+  inputs, and related recovery identifiers are not returned;
+- rejects external Vault protocol requests, `privileged` calls, known Vault outpoints,
+  references, txids, and `sendWith` releases;
+- rejects external creation or internalization of an exact R1C output;
+- validates and caps external arguments before expensive serialization or history scans;
+- serializes external inventory-scan/use and internal admin output mutations in one FIFO,
+  closing the scan-to-mutation race. Admission is capped at 16 queued untrusted external calls;
+  trusted admin work is not independently capped and can queue behind admitted external work.
+
+The raw wallet is an internal trust boundary and must never be exposed. Admin authorization is
+derived in patched wallet core from the authenticated `originator` and recorded only in the
+internal `__bsvVaultAdminAuthorized` field. Caller-supplied action fields cannot grant it.
+
+The SQLite provider supplies the final input backstop. After wallet core resolves the immutable
+source locking script from authenticated local storage or verified BEEF, it calls
+`validateResolvedActionInput`. Any exact R1C source is rejected unless the host-derived admin
+marker is true. This closes the case where an output appears after the external history scan and
+also prevents a caller from lying about the source script.
+
+## 10. Security conclusions and residual risks
+
+- **Unauthorized spend:** The script's only accepting path combines an authenticated committed
+  Q table, strict P-256 scalar relations, complete point arithmetic, final x-coordinate equality,
+  and transaction-bound OP_PUSH_TX. No alternate K1 or recovery path exists.
+- **One-key availability:** A valid signature from any committed key is sufficient. Complete
+  mixed addition, low-S normalization, byte-safe DER assembly, and the second covenant branch
+  remove the known data-dependent failures.
+- **Script-hash separation:** A fresh public salt changes every commitment and the exact script
+  bytes, giving computational script-hash separation under SHA-256 collision resistance. The
+  salt is public and the R1C template remains recognizable. Once an output is spent, its Q table
+  and the signing public key become public; the private key remains inside the YubiKey. This is
+  privacy, not access control.
+- **Recovery:** The wallet can deterministically rederive each numeric salt, but safe recovery
+  also needs the complete ordered YubiKey public-key descriptor and a way to discover the raw
+  transactions. Current recovery obtains those from authenticated wallet history. Two live
+  adopted keys are required before accepting a net-new deposit after recovery. One adopted key
+  already authorized by an output can spend it and create a replacement remainder or re-lock
+  output.
+- **Metadata integrity:** Strict v6 parsing and lock regeneration prevent a basket label or
+  database field from changing on-chain authority. Historical salt public keys are rederived
+  before their numeric IDs may advance the allocation high-water mark.
+- **Hardware authenticity:** Manufacturer attestation narrows enrollment to genuine supported
+  YubiKeys in the required state. The bundled roots, native parsers, firmware, and platform NFC
+  or USB stacks remain high-value review targets.
+- **Network policy:** SDK interpretation is necessary but insufficient evidence. The exact
+  45,247-45,322-byte production locks require real-node proof before release.
+- **Operational denial of service:** An attacker or broken wallet provider can make services
+  unavailable. Fail-closed behavior protects funds from unauthorized release but cannot
+  guarantee service availability. Streaming avoids retaining cumulative scripts and
+  full BEEF, but compact history maps, linear scan time, recovered live-output records, and the
+  byte size of one provider page remain mobile resource risks that require stress testing.
+
+## 11. Validation matrix
+
+Before release, automated and device tests must cover:
+
+- exact lock lengths and golden hashes for every N, byte-exact parser rejection, commitment
+  order, salt binding, and all mixed-add exceptional branches;
+- valid spends across random keys, inputs, outputs, sequences, and locktimes under the exact
+  strict flags; malformed depth, version, r, s, inverse, tables, commitments, preimage, and
+  covenant branch failures;
+- independent CRT-forgery and valid-witness vectors evaluated by a verifier or oracle that does
+  not import the production builder/verifier; the current script is a local regression harness;
+- deterministic exercise of both OP_PUSH_TX public-key branches;
+- exact v6 decoder rejection of missing, extra, legacy, noncanonical, duplicate, mismatched,
+  stale, and conflicting records;
+- salt uniqueness across live, spent, failed, pending, restored, and concurrent output histories,
+  canonical decimal-index boundaries, same-process simultaneous deposits, cross-network domain
+  separation, derivation-metadata poisoning, re-enrollment continuity, and the
+  disconnected-device collision limitation;
+- hostile external calls, pagination changes, TOCTOU schedules, malformed BEEF, forged basket
+  names, references, txids, and storage-level R1C input rejection;
+- fake, expired, wrong-root, wrong-serial, wrong-slot, wrong-policy, wrong-key, unsupported
+  critical-extension, and custom-management-key attestation cases on both native platforms;
+- crashes at every enrollment mutation and every transfer phase;
+- missing, duplicate, unrelated, failed, and ambiguous `sendWithResults`;
+- clean-database recovery from only the mnemonic and one output-authorized YubiKey, including
+  historical key-set changes, index gaps, malicious discovery results, and exact chain-state
+  validation.
+
+No positive pre-v6 fixture, migration branch, decoder fallback, or compatibility allowance
+belongs in the release implementation. Explicit negative fixtures that prove earlier Vault
+versions are rejected remain required. Test devices using older experimental Vault data must
+start with a clean Vault state. This does not permit deletion or incompatibility of ordinary
+wallet state or encrypted backup logs.

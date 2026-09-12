@@ -6,8 +6,6 @@ import {
   buildFindSql,
   columnsExcluding,
   rangeReadSql,
-  RELEASE_STALE_VAULT_STAGING_SPENTBY_SQL,
-  RELEASE_STRANDED_VAULT_STAGING_SQL,
   spendingReferencesSql,
   splitOutpoint
 } from './methods/findSql'
@@ -94,6 +92,7 @@ import {
 import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
 import { getOnline } from '../net/online'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
+import { isR1CLockingScript } from '../services/vault/guard'
 
 export interface StorageExpoSQLiteOptions extends StorageProviderOptions {
   databaseName?: string
@@ -133,6 +132,25 @@ export class StorageExpoSQLite extends StorageProvider {
     super(options)
     const keySuffix = (options.identityKey || 'default').slice(-8)
     this.dbName = options.databaseName || `wallet-${keySuffix}-${this.chain}net.db`
+  }
+
+  /**
+   * Final Vault authorization check for explicit transaction inputs.
+   *
+   * The toolbox invokes this only after it has resolved the immutable source
+   * locking script from authenticated local storage or verified BEEF. This is
+   * the database-side backstop for history-scan races: even if an R1C output
+   * appears between an external guard scan and createAction, the reservation
+   * cannot proceed without the host-derived internal-admin marker.
+   */
+  async validateResolvedActionInput(
+    vargs: { __bsvVaultAdminAuthorized?: boolean },
+    input: { lockingScript?: { toHex(): string } }
+  ): Promise<void> {
+    const lockingScript = input.lockingScript?.toHex()
+    if (lockingScript && isR1CLockingScript(lockingScript) && vargs.__bsvVaultAdminAuthorized !== true) {
+      throw new Error('Vault R1C inputs require internal wallet authorization')
+    }
   }
 
   // ============================================================================
@@ -1363,7 +1381,7 @@ export class StorageExpoSQLite extends StorageProvider {
    * getSyncChunk reads to build a backup chunk.
    */
   async getProvenTxsForUser(args: FindForUserSincePagedArgs): Promise<TableProvenTx[]> {
-    const db = this.getDB()
+    const db = this.getDB(args.trx)
     let query = `SELECT pt.* FROM proven_txs pt
       WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.provenTxId = pt.provenTxId AND t.userId = ?)`
     const params: any[] = [args.userId]
@@ -1381,7 +1399,7 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   async getProvenTxReqsForUser(args: FindForUserSincePagedArgs): Promise<TableProvenTxReq[]> {
-    const db = this.getDB()
+    const db = this.getDB(args.trx)
     let query = `SELECT ptr.* FROM proven_tx_reqs ptr
       WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.txid = ptr.txid AND t.userId = ?)`
     const params: any[] = [args.userId]
@@ -1399,7 +1417,7 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   async getTxLabelMapsForUser(args: FindForUserSincePagedArgs): Promise<TableTxLabelMap[]> {
-    const db = this.getDB()
+    const db = this.getDB(args.trx)
     let query = `SELECT tlm.* FROM tx_labels_map tlm
       WHERE EXISTS (SELECT 1 FROM tx_labels tl WHERE tl.txLabelId = tlm.txLabelId AND tl.userId = ?)`
     const params: any[] = [args.userId]
@@ -1417,7 +1435,7 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   async getOutputTagMapsForUser(args: FindForUserSincePagedArgs): Promise<TableOutputTagMap[]> {
-    const db = this.getDB()
+    const db = this.getDB(args.trx)
     let query = `SELECT otm.* FROM output_tags_map otm
       WHERE EXISTS (SELECT 1 FROM output_tags ot WHERE ot.outputTagId = otm.outputTagId AND ot.userId = ?)`
     const params: any[] = [args.userId]
@@ -1518,41 +1536,6 @@ export class StorageExpoSQLite extends StorageProvider {
     return rows
       .filter(r => typeof r.reference === 'string' && typeof r.status === 'string')
       .map(r => ({ reference: r.reference as string, status: r.status as string }))
-  }
-
-  /**
-   * Release every input a definitively-invalid vault deposit tx2 still holds.
-   * Returns how many outputs were made spendable again.
-   *
-   * The shape being healed (production, 2026-08-21): tx2 was rejected by every
-   * broadcaster (proven_tx_reqs.status = 'invalid', transactions.status =
-   * 'failed'), the toolbox's own release of its inputs was then OVERRIDDEN by
-   * markStaleInputsAsSpent — which asked the indexers about tx1's staging
-   * output seconds after tx1 broadcast, and indexer lag said "not a UTXO" —
-   * and abortAction cannot help because 'failed' is in its unAbortable list.
-   * The staging coin (and any change the toolbox pulled in as extra funding)
-   * sits spendable=0 forever while it is live on chain.
-   *
-   * The predicate is deliberately narrow, every clause load-bearing:
-   *  - spentBy transaction has status 'failed' AND its proven_tx_req is
-   *    'invalid' — the network REJECTED the spender outright; it can never be
-   *    mined, so releasing its inputs cannot enable a real double-spend. A
-   *    'failed' tx without an 'invalid' req (e.g. a broadcast that timed out
-   *    but may have propagated) is NOT touched.
-   *  - the spender carries the 'vault-deposit' label — this heal exists for
-   *    the deposit flow and must not reinterpret failures of anything else.
-   */
-  async releaseVaultStagingStrandedByInvalidTx(): Promise<number> {
-    if (!this.isAvailable()) await this.makeAvailable()
-    const r = await this.getDB().runAsync(RELEASE_STRANDED_VAULT_STAGING_SQL, [])
-    // The other arm: coins already spendable=1 but with a stale spentBy still
-    // naming the failed spender (updateOutput's spentBy: undefined is dropped
-    // by sqlUpdate). createAction refuses those with WERR_REVIEW_ACTIONS, so
-    // they are just as stuck as the spendable=0 arm until cleared.
-    const r2 = await this.getDB().runAsync(RELEASE_STALE_VAULT_STAGING_SPENTBY_SQL, [])
-    const released = (r?.changes ?? 0) + (r2?.changes ?? 0)
-    if (released > 0) console.log('[vault] released %d output(s) stranded by invalid deposit tx', released)
-    return released
   }
 
   /** Size of the database file on disk, or null when it cannot be read. */

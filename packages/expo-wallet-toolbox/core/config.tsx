@@ -39,4 +39,12 @@ export const DEFAULT_MESSAGEBOX_URL = 'https://gmb.bsvblockchain.tech'
  * every request fail authentication.
  */
 export const DEFAULT_CHAIN: AppChain = 'main'
-export const ADMIN_ORIGINATOR = 'admin.com'
+/**
+ * Internal authority label passed only by the wallet shell.
+ *
+ * Keep this deliberately outside the hostname namespace. The permissions
+ * manager grants this originator administrative access, so using an ordinary
+ * DNS name would let whoever controls that host acquire the same authority
+ * through a paired connection.
+ */
+export const ADMIN_ORIGINATOR = 'urn:bsv-wallet:internal-admin'

@@ -2,7 +2,7 @@
  * ceremonyHost — the process-wide CeremonyController singleton. Wiring only:
  * the controller's behaviour is ceremony.test.ts's business. This proves the
  * host constructs ONE controller with the release constants, a store view
- * that narrows vaultStore's meta v5 to the ceremony's key list, and thin
+ * that narrows vaultStore's scoped meta v6 to the ceremony's key list, and thin
  * forwarders for requestVaultSigner / noteVaultProgress. The controller is
  * replaced by a recording fake so no driver or card is involved.
  */
@@ -15,20 +15,39 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
-jest.mock('expo-secure-store', () => ({
-  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
-  getItemAsync: jest.fn(async () => null),
-  setItemAsync: jest.fn(async () => {}),
-  deleteItemAsync: jest.fn(async () => {})
-}))
+jest.mock('expo-secure-store', () => {
+  const store: Record<string, string> = {}
+  return {
+    AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'afudo',
+    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo',
+    getItemAsync: jest.fn(async (key: string) => store[key] ?? null),
+    setItemAsync: jest.fn(async (key: string, value: string) => {
+      store[key] = value
+    }),
+    deleteItemAsync: jest.fn(async (key: string) => {
+      delete store[key]
+    }),
+    __clear: () => {
+      for (const key of Object.keys(store)) delete store[key]
+    }
+  }
+})
 jest.mock('../../core/services/vault/ceremony', () => {
   class FakeCeremonyController {
     static instances: FakeCeremonyController[] = []
@@ -49,6 +68,9 @@ jest.mock('../../core/services/vault/ceremony', () => {
 })
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as SecureStore from 'expo-secure-store'
+import { Utils } from '@bsv/sdk'
+import { p256 } from '@noble/curves/nist.js'
 import { CeremonyController } from '../../core/services/vault/ceremony'
 import { getVaultDriver } from '../../core/services/vault/driver'
 import { vaultStore } from '../../core/services/vault/vaultStore'
@@ -76,7 +98,12 @@ const instances = (CeremonyController as unknown as { instances: FakeInstance[] 
 
 beforeEach(async () => {
   await AsyncStorage.clear()
+  ;(SecureStore as typeof SecureStore & { __clear(): void }).__clear()
+  vaultStore.clearScope()
+  vaultStore.configureScope({ identityKey: '02' + 'ab'.repeat(32), chain: 'main' })
 })
+
+afterEach(() => vaultStore.clearScope())
 
 test('constants: two-minute retention, sixteen inputs per tap', () => {
   expect(VAULT_RETENTION_MS).toBe(120_000)
@@ -93,26 +120,30 @@ test('constructs exactly one controller, wired to the live driver getter and the
   expect(deps.attachTimeoutMs).toBeUndefined() // the ceremony's own 65 s default applies
 })
 
-test('the store view narrows meta v5 to { keys: [{ serial, slot, pubkey }] } and nothing else', async () => {
+test('the store view narrows meta v6 to { keys: [{ serial, slot, pubkey }] } and nothing else', async () => {
   const view = instances[0].deps.store
   expect(await view.getMeta()).toBeNull()
 
+  const pubkey = (n: number) => Utils.toHex(Array.from(p256.Point.BASE.multiply(BigInt(n)).toBytes(true)))
+
   await vaultStore.setMeta({
-    v: 5,
+    v: 6,
+    vaultId: '11'.repeat(32),
+    revision: 1,
     createdAt: 1,
     lastUsedAt: 2,
     lastUsedSerial: '10000002',
     keys: [
-      { serial: '10000001', slot: 0x82, pubkey: '02' + 'aa'.repeat(32), nickname: 'Desk', enrolledAt: 1 },
-      { serial: '10000002', slot: 0x82, pubkey: '03' + 'bb'.repeat(32), nickname: 'Safe', enrolledAt: 2 }
+      { serial: '10000001', slot: 0x82, pubkey: pubkey(1), nickname: 'Desk', enrolledAt: 1 },
+      { serial: '10000002', slot: 0x82, pubkey: pubkey(2), nickname: 'Safe', enrolledAt: 2 }
     ]
   })
   // toEqual, not toMatchObject: nicknames and timestamps must NOT leak into
   // the ceremony's view — it needs serial, slot and pubkey only.
   expect(await view.getMeta()).toEqual({
     keys: [
-      { serial: '10000001', slot: 0x82, pubkey: '02' + 'aa'.repeat(32) },
-      { serial: '10000002', slot: 0x82, pubkey: '03' + 'bb'.repeat(32) }
+      { serial: '10000001', slot: 0x82, pubkey: pubkey(1) },
+      { serial: '10000002', slot: 0x82, pubkey: pubkey(2) }
     ]
   })
 })

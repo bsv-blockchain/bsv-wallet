@@ -4,11 +4,11 @@
  *   enroll mode:  intro → key (× k; sub-states pin · tap · name · error) → more → done
  *   add-key mode: key → done
  *
- * Nothing is persisted until Finish (enroll) or until the single key step
- * completes (add-key). `pending` holds public records only — serial, slot,
- * pubkey, nickname, enrolledAt — in component state, so it survives
- * backgrounding but not leaving. Every prompt (the PIN, and a new PIN when the
- * card still carries the factory default) is gathered BEFORE the tap, because
+ * Public, non-authoritative recovery handles are persisted in wallet-scoped
+ * SecureStore as soon as a slot key exists. Ready handles are restored into
+ * this wizard after a crash; protected handles repeat only a live possession
+ * challenge. PINs and PUKs are never stored. Every credential prompt is
+ * gathered BEFORE the tap, because
  * the iOS NFC sheet covers the app for the whole card session. The PIN lives
  * in input state only while its key step is open: it is kept across an
  * error → Try again (a re-tap needs it) and cleared the moment the step is
@@ -21,9 +21,9 @@
  * session is open it is swallowed: the tap's outcome must land somewhere.
  *
  * Whatever meta is stored is loaded in BOTH modes and its serials are always
- * passed to `enrollKey` as `pendingSerials` (spec §3.3 step 2): that refusal is
- * the only thing between an enrolled card and `generateVaultKey`, which wipes
- * the slot. In enroll mode a stored meta is a host-state anomaly — its keys are
+ * passed to `enrollKey` as `pendingSerials` (spec §3.3 step 2). The service
+ * probes the slot and refuses any occupied token; enrollment never overwrites
+ * an existing PIV key. In enroll mode a stored meta is a host-state anomaly — its keys are
  * refused (loud, safe) but never counted toward the ordinal or the cap, since
  * Finish replaces whatever is stored.
  */
@@ -40,16 +40,20 @@ import {
   radii,
   typography,
   enrollKey,
+  resumeEnrollmentDraft,
   finalizeEnrollment,
   addVaultKey,
   vaultStore,
   VAULT_MIN_KEYS,
   VAULT_MAX_KEYS,
   VaultError,
-  isBackupPushEnabled,
+  VaultEnrollmentPartialError,
   haptics,
   i18n,
   type VaultKeyRecord,
+  type VaultEnrollmentDraftEntry,
+  type VaultEnrollmentQuarantine,
+  type VaultScopeToken,
   type VaultErrorCode,
   type EnrollPhase
 } from '@bsv/expo-wallet-toolbox'
@@ -61,7 +65,7 @@ const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
  * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
  * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
  * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes (expo-router, expo-blur).
+ * package's other native-module-boundary fixes.
  */
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
 let ioniconsComponent: IoniconsComponent | undefined
@@ -73,37 +77,22 @@ function loadIonicons(): IoniconsComponent {
   return ioniconsComponent
 }
 
-/**
- * expo-router is required lazily rather than imported at module scope: this
- * file is barrel-exported from the package's `ui` entry point, and a static
- * top-level `import` of expo-router pulls in its own untransformed JSX
- * source (Navigator.js etc.), which Jest cannot parse for any consumer of the
- * barrel, even one that never navigates. Same pattern as VaultScreen.tsx.
- */
-type ExpoRouterModule = typeof import('expo-router')
-let expoRouterMod: ExpoRouterModule | undefined
-function loadExpoRouter(): ExpoRouterModule {
-  if (!expoRouterMod) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    expoRouterMod = require('expo-router') as ExpoRouterModule
-  }
-  return expoRouterMod
-}
-
 type Step = 'intro' | 'key' | 'more' | 'done'
 type KeySub = 'pin' | 'tap' | 'name' | 'error'
 
 /** The PIV factory PIN. Typing it means the card was never personalised, so a new PIN is demanded before the tap. */
 const DEFAULT_PIV_PIN = '123456'
-const PIN_MIN = 6
+const DEFAULT_PIV_PUK = '12345678'
 const PIN_MAX = 8
-const pinLengthOk = (p: string) => p.length >= PIN_MIN && p.length <= PIN_MAX
+const pivCodeOk = (p: string) => /^[0-9]{6,8}$/.test(p)
 
 interface KeyStepError {
   code: VaultErrorCode | undefined
   copy: string
-  /** Serial of a key pending in THIS run that the tapped card duplicates — offers "Set it up again". */
-  pendingDuplicate?: string
+  /** Generation may have completed, so retrying on this token must not reach
+   * another enrollment attempt. The service will also refuse its occupied
+   * slot; the UI sends the user straight to a fresh token. */
+  mustUseDifferent?: boolean
 }
 
 /**
@@ -125,28 +114,39 @@ export interface EnrollWizardProps {
 export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCancel }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
-  const { router } = loadExpoRouter()
+  // Every public record collected in this wizard belongs to the wallet/chain
+  // scope that opened it. Holding one token for the whole lifetime prevents a
+  // late enrollment result from being persisted after logout or a network
+  // switch has mounted a different vault.
+  const scopeTokenRef = useRef<VaultScopeToken | null>(null)
+  if (!scopeTokenRef.current) scopeTokenRef.current = vaultStore.captureScopeToken()
+  const scopeToken = scopeTokenRef.current
 
   const [step, setStep] = useState<Step>(mode === 'enroll' ? 'intro' : 'key')
   const [sub, setSub] = useState<KeySub>('pin')
   const [ack, setAck] = useState(false)
+  /** Whole-PIV acknowledgement. Enrollment rotates global PIV credentials,
+   * so this starts false even when the recovery-risk acknowledgement is set. */
+  const [pivAck, setPivAck] = useState(false)
   /** Keys already in the stored meta, loaded in both modes. Their serials are
    * always refused; they count toward the ordinal and the cap in add-key mode
    * only (see the file comment). */
   const [metaKeys, setMetaKeys] = useState<VaultKeyRecord[]>([])
   /** Keys set up in this run and not yet persisted. Public data only. */
   const [pending, setPending] = useState<VaultKeyRecord[]>([])
+  const [recoverableDrafts, setRecoverableDrafts] = useState<VaultEnrollmentDraftEntry[]>([])
+  const [blockedDrafts, setBlockedDrafts] = useState<(VaultEnrollmentDraftEntry | VaultEnrollmentQuarantine)[]>([])
   const [pin, setPin] = useState('')
   const [newPin, setNewPin] = useState('')
+  const [puk, setPuk] = useState('')
+  const [newPuk, setNewPuk] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
   const [phase, setPhase] = useState<EnrollPhase | null>(null)
   /** The record the card just produced, awaiting its nickname. */
   const [fresh, setFresh] = useState<VaultKeyRecord | null>(null)
   const [name, setName] = useState('')
-  /** Index in `pending` the record being named replaces ("Set it up again"); null = append. */
-  const [replaceIndex, setReplaceIndex] = useState<number | null>(null)
   const [keyError, setKeyError] = useState<KeyStepError | null>(null)
-  /** A write (finalizeEnrollment / addVaultKey) or the backup check is in flight. */
+  /** A write (finalizeEnrollment / addVaultKey) is in flight. */
   const [busy, setBusy] = useState(false)
   const [stepError, setStepError] = useState<string | null>(null)
   const [addedNickname, setAddedNickname] = useState('')
@@ -157,27 +157,56 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
 
   useEffect(() => {
     let alive = true
-    vaultStore
-      .getMeta()
-      .then(m => {
-        if (alive && m) setMetaKeys(m.keys)
+    Promise.all([
+      vaultStore.getMeta(scopeToken),
+      vaultStore.getEnrollmentDrafts(scopeToken),
+      vaultStore.getEnrollmentQuarantines(scopeToken)
+    ])
+      .then(([m, drafts, quarantines]) => {
+        if (!alive) return
+        const enrolledSerials = new Set(m?.keys.map(key => key.serial) ?? [])
+        const unused = drafts.filter(entry => !enrolledSerials.has(entry.record.serial))
+        const ready = unused.filter(entry => entry.assurance === 'ready')
+        const challenge = unused.filter(entry => entry.assurance === 'challenge-required')
+        const blocked = unused.filter(entry => entry.assurance === 'management-uncertain')
+        if (m) setMetaKeys(m.keys)
+        setRecoverableDrafts(challenge)
+        setBlockedDrafts([...blocked, ...quarantines])
+        if (mode === 'enroll') {
+          setPending(current => {
+            const serials = new Set(current.map(key => key.serial))
+            return [...current, ...ready.map(entry => entry.record).filter(record => !serials.has(record.serial))]
+          })
+        } else if (ready[0]) {
+          setFresh(ready[0].record)
+          setName(ready[0].record.nickname)
+          setSub('name')
+        }
       })
-      .catch(() => {
-        /* addVaultKey reports 'not-enrolled' if meta is truly unreadable */
+      .catch(e => {
+        if (alive && e instanceof VaultError && e.code === 'scope-changed') onCancel()
       })
     return () => {
       alive = false
     }
-  }, [])
+  }, [mode, onCancel, scopeToken])
 
   /** Stored keys that count toward the ordinal and the 5-key cap: all of them
    * when adding to a vault, none while enrolling one (Finish overwrites). */
   const enrolledCount = mode === 'add-key' ? metaKeys.length : 0
   const total = enrolledCount + pending.length
-  /** Ordinal of the key on screen: the next slot, or the pending slot being redone. */
-  const k = replaceIndex === null ? total + 1 : enrolledCount + replaceIndex + 1
+  /** Ordinal of the next key on screen. Existing/occupied tokens are never overwritten. */
+  const k = total + 1
   const needsNewPin = pin === DEFAULT_PIV_PIN
-  const pinOk = pinLengthOk(pin) && (!needsNewPin || (pinLengthOk(newPin) && newPin !== DEFAULT_PIV_PIN))
+  const effectivePin = needsNewPin ? newPin : pin
+  const pinOk =
+    pivCodeOk(pin) &&
+    (!needsNewPin || (pivCodeOk(newPin) && newPin !== DEFAULT_PIV_PIN)) &&
+    pivCodeOk(puk) &&
+    pivCodeOk(newPuk) &&
+    newPuk !== DEFAULT_PIV_PUK &&
+    newPuk !== puk &&
+    newPuk !== effectivePin
   /** Keys that would be lost by leaving: pending ones plus a just-generated, not-yet-named one. */
   const unsaved = pending.length + (fresh ? 1 : 0)
 
@@ -185,6 +214,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const clearKeyInputs = () => {
     setPin('')
     setNewPin('')
+    setPuk('')
+    setNewPuk('')
     setPinError(null)
     setFresh(null)
     setName('')
@@ -231,36 +262,17 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   }, [leave])
 
   // ── intro → key 1 ───────────────────────────────────────────────────
-  const begin = useCallback(async () => {
-    if (!ack || busy) return
-    setBusy(true)
-    try {
-      // D13: the salts of every future deposit live only in this wallet's
-      // database, so enrolment refuses to start while the encrypted backup is
-      // off. Settings is where it is switched on; push keeps this screen behind.
-      if (!(await isBackupPushEnabled())) {
-        const choice = await showAlert({
-          title: t('vault_backup_off_title'),
-          message: t('vault_backup_off_body'),
-          buttons: [
-            { text: t('vault_backup_off_cta'), key: 'settings' },
-            { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
-          ]
-        })
-        if (choice === 'settings') router.push('/wallet-config')
-        return
-      }
-      setStep('key')
-      setSub('pin')
-    } finally {
-      setBusy(false)
-    }
-  }, [ack, busy, router])
+  const begin = useCallback(() => {
+    if (!ack || !pivAck || busy) return
+    vaultStore.assertScopeToken(scopeToken)
+    setStep(pending.length > 0 ? 'more' : 'key')
+    if (pending.length === 0) setSub('pin')
+  }, [ack, pivAck, busy, pending.length, scopeToken])
 
   // ── the card session ────────────────────────────────────────────────
   const runTap = useCallback(
-    async (replaceSerial?: string) => {
-      if (tapInFlight.current) return
+    async () => {
+      if (tapInFlight.current || !pivAck) return
       tapInFlight.current = true
       setSub('tap')
       setPhase(null)
@@ -271,24 +283,32 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       const known = [...metaKeys.map(r => r.serial), ...pending.map(r => r.serial)]
       try {
         const record = await enrollKey({
-          // "Set it up again" drops the duplicate's own serial so the service
-          // regenerates on that card instead of refusing it a second time.
-          pendingSerials: replaceSerial === undefined ? known : known.filter(s => s !== replaceSerial),
+          scopeToken,
+          acknowledgeDedicatedPivApplication: true,
+          pendingSerials: known,
           onPhase: setPhase,
           getPin: async () => pin,
           ...(needsNewPin ? { requestPinChange: async () => ({ oldPin: pin, newPin }) } : {}),
+          requestPukChange: async () => ({ oldPuk: puk, newPuk }),
           // Localised iOS NFC sheet text for this tap (enrollKey forwards it to
           // withKeySession → driver.start). Omitting it would fall back to the
           // native default wording.
           nfcMessage: t('vault_nfc_enroll_message')
         })
         haptics.success()
-        setReplaceIndex(replaceSerial === undefined ? null : pending.findIndex(p => p.serial === replaceSerial))
         setFresh(record)
         setName('')
         setSub('name')
       } catch (e) {
         haptics.error()
+        try {
+          vaultStore.assertScopeToken(scopeToken)
+        } catch {
+          clearKeyInputs()
+          showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
+          onCancel()
+          return
+        }
         const err = e instanceof VaultError ? e : undefined
         // A wrong PIN is feedback on the PIN, so it belongs on the PIN field,
         // and the wrong digits must not linger in it. Nothing has been written
@@ -297,7 +317,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         if (err?.code === 'pin-invalid') {
           setPin('')
           setNewPin('')
+          setPuk('')
+          setNewPuk('')
           setPinError(vaultErrorCopy('pin-invalid', { count: err.retriesLeft }))
+          setSub('pin')
+          return
+        }
+        if (err?.code === 'puk-invalid') {
+          setPuk('')
+          setPinError(vaultErrorCopy('puk-invalid', { count: err.retriesLeft }))
           setSub('pin')
           return
         }
@@ -307,6 +335,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           setSub('pin')
           return
         }
+        // Every partial personalization result is represented by a durable
+        // scoped draft or quarantine. Never guess which global PIV credential
+        // is current and never re-enter generic enrollment on the same token;
+        // a challenge-required draft is resumed through the explicit path
+        // loaded above after reconnect/reopen.
         const tapped = duplicateSerial(err)
         const dupPending = tapped ? pending.find(p => p.serial === tapped) : undefined
         const dupEnrolled = tapped ? metaKeys.find(p => p.serial === tapped) : undefined
@@ -322,17 +355,75 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           // Enrolment-specific: there is no "use another of your vault keys"
           // yet, so the remedy is the PUK or a different card.
           copy = t('vault_err_pin_locked_enroll')
+        } else if (err instanceof VaultEnrollmentPartialError) {
+          copy = t('vault_enrollment_reset_required')
         } else {
           copy = vaultErrorCopy(err?.code)
         }
-        setKeyError({ code: err?.code, copy, pendingDuplicate: dupPending?.serial })
+        setKeyError({
+          code: err?.code,
+          copy,
+          mustUseDifferent: err instanceof VaultEnrollmentPartialError
+        })
         setSub('error')
       } finally {
         tapInFlight.current = false
       }
     },
-    [metaKeys, pending, pin, newPin, needsNewPin]
+    [metaKeys, pending, pin, newPin, puk, newPuk, needsNewPin, onCancel, pivAck, scopeToken]
   )
+
+  /** Resume only the non-mutating possession challenge for a protected draft.
+   * The service re-reads the scoped draft and exact serial/pubkey before it
+   * opens the YubiKey session. */
+  const resumeDraft = useCallback(async (entry: VaultEnrollmentDraftEntry) => {
+    if (tapInFlight.current || !pivAck || !pivCodeOk(pin)) return
+    tapInFlight.current = true
+    setSub('tap')
+    setPhase(null)
+    setKeyError(null)
+    setStepError(null)
+    try {
+      const record = await resumeEnrollmentDraft({
+        entry,
+        scopeToken,
+        onPhase: setPhase,
+        getPin: async () => pin,
+        nfcMessage: t('vault_nfc_enroll_message')
+      })
+      vaultStore.assertScopeToken(scopeToken)
+      setRecoverableDrafts(current => current.filter(draft => draft.record.serial !== record.serial))
+      setFresh(record)
+      setName(record.nickname)
+      setSub('name')
+      haptics.success()
+    } catch (e) {
+      haptics.error()
+      try {
+        vaultStore.assertScopeToken(scopeToken)
+      } catch {
+        clearKeyInputs()
+        showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
+        onCancel()
+        return
+      }
+      const err = e instanceof VaultError ? e : undefined
+      if (err?.code === 'pin-invalid') {
+        setPin('')
+        setPinError(vaultErrorCopy('pin-invalid', { count: err.retriesLeft }))
+        setSub('pin')
+        return
+      }
+      setKeyError({
+        code: err?.code,
+        copy: err instanceof VaultEnrollmentPartialError ? t('vault_enrollment_reset_required') : vaultErrorCopy(err?.code),
+        mustUseDifferent: err instanceof VaultEnrollmentPartialError
+      })
+      setSub('error')
+    } finally {
+      tapInFlight.current = false
+    }
+  }, [onCancel, pin, pivAck, scopeToken])
 
   // ── naming → more / addVaultKey ─────────────────────────────────────
   const saveName = useCallback(async () => {
@@ -342,28 +433,34 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       setBusy(true)
       setStepError(null)
       try {
-        await addVaultKey(record)
+        await addVaultKey(record, scopeToken)
         clearKeyInputs()
         haptics.success()
         showToast(t('vault_key_added_toast'), { type: 'success' })
         setAddedNickname(record.nickname)
         setStep('done')
       } catch (e) {
-        // The record is dropped with the inputs: the remedy is a fresh tap.
         haptics.error()
-        clearKeyInputs()
-        setStepError(vaultErrorCopy(e instanceof VaultError ? e.code : undefined))
-        setSub('pin')
+        const err = e instanceof VaultError ? e : undefined
+        if (err?.code === 'scope-changed') {
+          clearKeyInputs()
+          showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
+          onCancel()
+          return
+        }
+        // `fresh` is also a scoped ready draft. Keep the name screen intact so
+        // a transient SecureStore write failure can be retried without
+        // touching or regenerating the now-occupied token.
+        setStepError(vaultErrorCopy(err?.code))
       } finally {
         setBusy(false)
       }
       return
     }
-    setPending(prev => (replaceIndex === null ? [...prev, record] : prev.map((p, i) => (i === replaceIndex ? record : p))))
-    setReplaceIndex(null)
+    setPending(prev => [...prev, record])
     clearKeyInputs()
     setStep('more')
-  }, [fresh, busy, name, k, mode, replaceIndex])
+  }, [fresh, busy, name, k, mode, onCancel, scopeToken])
 
   // ── finish (enroll mode) ────────────────────────────────────────────
   const finish = useCallback(async () => {
@@ -371,7 +468,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     setBusy(true)
     setStepError(null)
     try {
-      await finalizeEnrollment(pending)
+      await finalizeEnrollment(pending, scopeToken)
       // No tone here (see useConfirmationSound): vaultDeposit/vaultWithdraw
       // name an actual transfer, and enrolling isn't one.
       haptics.success()
@@ -383,7 +480,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     } finally {
       setBusy(false)
     }
-  }, [pending, busy])
+  }, [pending, busy, scopeToken])
 
   const addAnother = useCallback(() => {
     setStepError(null)
@@ -403,6 +500,19 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
         {unsaved > 0 ? t('vault_leave_setup') : t('vault_cancel')}
       </Text>
+    </PressableScale>
+  )
+
+  const pivAcknowledgement = (
+    <PressableScale
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: pivAck }}
+      haptic="tap"
+      onPress={() => setPivAck(value => !value)}
+      style={[styles.ackRow, { borderColor: pivAck ? colors.accent : colors.separator }]}
+    >
+      <Ionicons name={pivAck ? 'checkbox' : 'square-outline'} size={24} color={pivAck ? colors.accent : colors.textTertiary} />
+      <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_intro_piv_ack')}</Text>
     </PressableScale>
   )
 
@@ -427,7 +537,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           <Ionicons name={ack ? 'checkbox' : 'square-outline'} size={24} color={ack ? colors.accent : colors.textTertiary} />
           <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_intro_ack')}</Text>
         </PressableScale>
-        <ActionButton label={t('vault_intro_begin')} enabled={ack} busy={busy} onPress={() => void begin()} />
+        {pivAcknowledgement}
+        {blockedDrafts.length > 0 && (
+          <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_reset_required')}</Text>
+        )}
+        <ActionButton label={t('vault_intro_begin')} enabled={ack && pivAck} busy={busy} onPress={() => void begin()} />
         <PressableScale onPress={onCancel} style={styles.secondary}>
           <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_cancel')}</Text>
         </PressableScale>
@@ -442,6 +556,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
           <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_key_step_replace')}</Text>
+          {mode === 'add-key' && pivAcknowledgement}
 
           <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_enter_pin')}</Text>
           {/* Which PIN, and what it is if they have never set one: the prompt
@@ -482,8 +597,46 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
               />
             </>
           )}
+          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_enter_puk')}</Text>
+          <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_enter_puk_sub')}</Text>
+          <TextInput
+            accessibilityLabel={t('vault_enter_puk')}
+            style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+            value={puk}
+            onChangeText={setPuk}
+            placeholder="••••••••"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="number-pad"
+            secureTextEntry={puk.length > 0}
+            maxLength={PIN_MAX}
+          />
+          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_set_new_puk')}</Text>
+          <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_default_puk_warning')}</Text>
+          <TextInput
+            accessibilityLabel={t('vault_set_new_puk')}
+            style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+            value={newPuk}
+            onChangeText={setNewPuk}
+            placeholder="••••••••"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="number-pad"
+            secureTextEntry={newPuk.length > 0}
+            maxLength={PIN_MAX}
+          />
           {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
           {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          {recoverableDrafts.map(entry => (
+            <ActionButton
+              key={entry.record.serial}
+              label={`${t('vault_enrollment_resume')} · …${entry.record.serial.slice(-4)}`}
+              variant="outline"
+              enabled={pivAck && pivCodeOk(pin) && !busy}
+              onPress={() => void resumeDraft(entry)}
+            />
+          ))}
+          {blockedDrafts.length > 0 && (
+            <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_reset_required')}</Text>
+          )}
           {/* NFC only: a brand-new YubiKey ships in restricted NFC mode (Yubico's
               anti-scan-in-transit policy) and stays that way until it is plugged
               into USB-C for a few seconds — a one-time, per-key step done outside
@@ -492,7 +645,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           {Platform.OS === 'ios' && (
             <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_nfc_activation_hint')}</Text>
           )}
-          <ActionButton label={t('vault_continue')} enabled={pinOk && !busy} onPress={() => void runTap()} />
+          <ActionButton label={t('vault_continue')} enabled={pivAck && pinOk && !busy} onPress={() => void runTap()} />
           {leaveLink}
         </ScrollView>
       )
@@ -538,7 +691,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
 
     // sub === 'error'
     const code = keyError?.code
-    const setupAgain = keyError?.pendingDuplicate
     return (
       <View style={styles.body}>
         <Ionicons name="alert-circle-outline" size={48} color={colors.error} style={styles.hero} />
@@ -548,17 +700,10 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             <ActionButton label={t('vault_key_use_different')} onPress={useDifferentKey} />
             <ActionButton label={t('vault_retry')} variant="outline" onPress={() => void runTap()} />
           </>
-        ) : code === 'key-already-enrolled' ? (
-          <>
-            {setupAgain !== undefined && (
-              <ActionButton label={t('vault_key_setup_again')} onPress={() => void runTap(setupAgain)} />
-            )}
-            <ActionButton
-              label={t('vault_key_use_different')}
-              variant={setupAgain !== undefined ? 'outline' : 'primary'}
-              onPress={useDifferentKey}
-            />
-          </>
+        ) : code === 'key-already-enrolled' || code === 'puk-locked' || keyError?.mustUseDifferent ? (
+          <ActionButton label={t('vault_key_use_different')} onPress={useDifferentKey} />
+        ) : code === 'enrollment-partial' ? (
+          <ActionButton label={t('vault_retry')} onPress={() => setSub('pin')} />
         ) : (
           <ActionButton label={t('vault_retry')} onPress={() => void runTap()} />
         )}

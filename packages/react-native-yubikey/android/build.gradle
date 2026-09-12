@@ -50,6 +50,13 @@ android {
     targetCompatibility JavaVersion.VERSION_17
   }
   kotlinOptions { jvmTarget = '17' }
+  sourceSets {
+    // One source-of-truth bundle shared with iOS. It contains an exact,
+    // fingerprint-checked allowlist of Yubico production PIV attestation CAs;
+    // the verifier never falls back to Android's system trust store.
+    main.assets.srcDirs += ['../attestation']
+    test.resources.srcDirs += ['../attestation']
+  }
 }
 
 dependencies {
@@ -67,6 +74,7 @@ dependencies {
   // packages CMake links against.
   //noinspection GradleDynamicVersion
   implementation "com.facebook.react:react-native:+"
+  testImplementation 'junit:junit:4.13.2'
 }
 
 // Nitro's generated sources, CMake wiring, and package registration.

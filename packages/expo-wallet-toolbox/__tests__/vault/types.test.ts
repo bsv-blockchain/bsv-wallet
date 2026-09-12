@@ -7,7 +7,6 @@ import { VaultError, VaultErrorCode, vaultErrorFromNative } from '../../core/ser
 
 const R1C_CODES: VaultErrorCode[] = [
   'not-released',
-  'backup-off',
   'not-enough-keys',
   'key-already-enrolled',
   'too-many-keys',
@@ -16,6 +15,7 @@ const R1C_CODES: VaultErrorCode[] = [
   'key-not-committed',
   'key-cannot-cover',
   'too-small-to-relock',
+  'attestation-invalid',
   'bad-version'
 ]
 
@@ -33,6 +33,11 @@ describe('VaultErrorCode (R1C)', () => {
     const e = vaultErrorFromNative(new Error('VAULT_ERR:key-not-committed:abcd.0'))
     expect(e.code).toBe('key-not-committed')
     expect(e.message).toBe('abcd.0')
+  })
+
+  it('preserves the fail-closed manufacturer-attestation code from native', () => {
+    const e = vaultErrorFromNative(new Error('VAULT_ERR:attestation-invalid:unknown manufacturer chain'))
+    expect(e.code).toBe('attestation-invalid')
   })
 
   it('a default message falls back to the code itself', () => {

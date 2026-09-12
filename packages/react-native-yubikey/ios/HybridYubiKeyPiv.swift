@@ -1,5 +1,6 @@
 import CoreNFC
 import Foundation
+import Security
 import YubiKit
 
 /**
@@ -40,6 +41,9 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     d.owner = self
     return d
   }()
+  private static let attestationAuthorities = Result {
+    try YubicoPivAttestation.loadBundledAuthorities()
+  }
 
   // MARK: - Capability
 
@@ -158,39 +162,39 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     return promise
   }
 
-  func verifyPin(pin: String) throws -> Promise<String> {
+  func verifyPin(expectedSerial: String, pin: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    try Self.requirePivCode(pin, label: "PIN")
     let promise = Promise<String>()
     withSession(promise) { session in
-      session.verifyPin(pin) { retriesLeft, error in
-        // A wrong PIN is a normal, resolvable result for this probe (the spec
-        // returns {ok, retriesLeft}); only transport faults reject.
-        if error != nil {
-          promise.resolve(withResult: "{\"ok\":false,\"retriesLeft\":\(retriesLeft)}")
-        } else {
-          promise.resolve(withResult: "{\"ok\":true,\"retriesLeft\":null}")
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        session.verifyPin(pin) { retriesLeft, error in
+          // A wrong PIN is a normal, resolvable result for this probe (the spec
+          // returns {ok, retriesLeft}); only transport faults reject.
+          if error != nil, retriesLeft >= 0 {
+            promise.resolve(withResult: "{\"ok\":false,\"retriesLeft\":\(retriesLeft)}")
+          } else if let error {
+            promise.reject(withError: Self.mapError(error))
+          } else {
+            promise.resolve(withResult: "{\"ok\":true,\"retriesLeft\":null}")
+          }
         }
       }
     }
     return promise
   }
 
-  func changePin(oldPin: String, newPin: String) throws -> Promise<String> {
+  func changePin(expectedSerial: String, oldPin: String, newPin: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    try Self.requirePivCode(oldPin, label: "PIN")
+    try Self.requirePivCode(newPin, label: "PIN")
     let promise = Promise<String>()
     let settled = SettleGuard()
     withSession(promise) { session in
-      // Per the module spec, changePin is grouped with generateKey under the
-      // management-key gate. (PIV's CHANGE REFERENCE DATA itself only needs the
-      // old PIN; the management-key auth is here because the spec asks for it,
-      // and it is what surfaces mgmt-key-custom on a personalised key.)
-      self.authenticateManagementKey(session, promise) {
-        // Verify the old PIN through the shared gate BEFORE setPin, so a wrong
-        // or locked PIN reports pin-invalid:retries=N / pin-locked here like
-        // ecdh and signEcdsa. setPin's own completion cannot do this: YubiKit
-        // 4.4.0's changeReference: drops the retry count (its public completion
-        // carries only the error), and for any NON-PIN fault never invokes the
-        // completion at all. The verify burns the same one retry a failed
-        // CHANGE REFERENCE would, and on success setPin below re-sends the
-        // just-verified value, so its swallowed PIN-failure path is unreachable.
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        // CHANGE REFERENCE DATA needs only the old PIN. Keeping this independent
+        // of management-key authentication is essential after Vault replaces and
+        // discards the factory management key.
         Self.verifyPinGated(session, pin: oldPin, settled, promise) {
           session.setPin(newPin, oldPin: oldPin) { error in
             if let error { return settled.reject(promise, Self.mapError(error)) }
@@ -202,25 +206,131 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     return promise
   }
 
-  func generateVaultKey(slot: Double, touchPolicy: String, pinPolicy: String) throws -> Promise<String> {
+  func changePuk(expectedSerial: String, oldPuk: String, newPuk: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    try Self.requirePivCode(oldPuk, label: "PUK")
+    try Self.requirePivCode(newPuk, label: "PUK")
     let promise = Promise<String>()
-    guard let pivSlot = YKFPIVSlot(rawValue: UInt(slot)) else {
-      promise.reject(withError: Self.vaultError("no-key", "bad slot"))
+    withSession(promise) { session in
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        session.setPuk(newPuk, oldPuk: oldPuk) { error in
+          if let error {
+            let ns = error as NSError
+            if ns.code == 6 || ns.code == 0x6983 {
+              return promise.reject(withError: Self.vaultError("puk-locked", "no attempts remaining"))
+            }
+            if ns.code == 5 || (ns.code >= 0x63C0 && ns.code <= 0x63CF) {
+              let retries = ns.code >= 0x63C0 ? ns.code & 0x0f : -1
+              let detail = retries >= 0 ? "retries=\(retries)" : "PUK not accepted"
+              return promise.reject(withError: Self.vaultError("puk-invalid", detail))
+            }
+            return promise.reject(withError: Self.mapError(error))
+          }
+          promise.resolve(withResult: "{\"ok\":true,\"retriesLeft\":null}")
+        }
+      }
+    }
+    return promise
+  }
+
+  func preflightDedicatedPiv(expectedSerial: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    let promise = Promise<String>()
+    withSession(promise) { session in
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        // Verify the immutable factory F9 certificate against the bundled,
+        // production-only Yubico trust graph before any global PIV credential
+        // mutation. Only then authenticate the factory management key and prove
+        // the user slots empty.
+        self.requireFactoryAttestation(session, expectedSerial, promise) { _ in
+          self.authenticateManagementKey(session, promise) {
+            self.inspectEmptyUserSlots(session, index: 0, promise: promise)
+          }
+        }
+      }
+    }
+    return promise
+  }
+
+  func generateVaultKey(expectedSerial: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    let promise = Promise<String>()
+    guard let pivSlot = YKFPIVSlot(rawValue: Self.vaultSlot) else {
+      promise.reject(withError: Self.vaultError("template-invalid", "Vault slot 0x82 is unavailable"))
       return promise
     }
     withSession(promise) { session in
-      self.authenticateManagementKey(session, promise) {
-        session.generateKey(
-          in: pivSlot,
-          type: .ECCP256,
-          pinPolicy: Self.toPinPolicy(pinPolicy),
-          touchPolicy: Self.toTouchPolicy(touchPolicy)
-        ) { publicKey, error in
-          if let error { return promise.reject(withError: Self.mapError(error)) }
-          guard let publicKey, let hex = Self.secKeyToSec1Hex(publicKey) else {
-            return promise.reject(withError: Self.vaultError("wrong-key", "could not export public key"))
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        self.authenticateManagementKey(session, promise) {
+          session.generateKey(
+            in: pivSlot,
+            type: .ECCP256,
+            pinPolicy: .once,
+            touchPolicy: .cached
+          ) { publicKey, error in
+            if let error { return promise.reject(withError: Self.mapError(error)) }
+            guard let publicKey, let sec1 = Self.secKeyToSec1(publicKey) else {
+              return promise.reject(withError: Self.vaultError("wrong-key", "could not export public key"))
+            }
+            // ATTEST and the factory F9 read stay on this exact session. Do not
+            // return a public key to JS until its slot, key, serial, and policies
+            // have all been bound by the verified manufacturer chain.
+            session.attestKey(in: pivSlot) { statement, attestError in
+              if let attestError {
+                return promise.reject(withError: Self.vaultError(
+                  "attestation-invalid", "generated slot could not be attested: \(attestError.localizedDescription)"))
+              }
+              guard let statement else {
+                return promise.reject(withError: Self.vaultError(
+                  "attestation-invalid", "generated slot returned no attestation"))
+              }
+              self.requireFactoryAttestation(session, expectedSerial, promise) { f9 in
+                do {
+                  let authorities = try Self.attestationAuthorities.get()
+                  try YubicoPivAttestation.verifyGeneratedVaultKey(
+                    statement,
+                    f9: f9,
+                    generatedSec1: sec1,
+                    expectedSerial: expectedSerial,
+                    authorities: authorities
+                  )
+                } catch {
+                  return promise.reject(withError: Self.vaultError(
+                    "attestation-invalid", "generated Vault key failed manufacturer attestation"))
+                }
+                promise.resolve(withResult: "{\"publicKey\":\"\(sec1.hexString)\",\"manufacturerAttestation\":\"verified\"}")
+              }
+            }
           }
-          promise.resolve(withResult: "{\"publicKey\":\"\(hex)\"}")
+        }
+      }
+    }
+    return promise
+  }
+
+  func protectManagementKey(expectedSerial: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    let promise = Promise<String>()
+    withSession(promise) { session in
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        self.authenticateManagementKey(session, promise) {
+          let version = session.version
+          let fw57 = version.major > 5 || (version.major == 5 && version.minor >= 7)
+          let type: YKFPIVManagementKeyType = fw57 ? .aes192() : .tripleDES()
+          // Both the pre-5.7 TDES key and the 5.7+ AES-192 key are 24 bytes.
+          var replacement = Data(count: 24)
+          let status = replacement.withUnsafeMutableBytes { bytes in
+            SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
+          }
+          guard status == errSecSuccess else {
+            replacement.resetBytes(in: 0..<replacement.count)
+            return promise.reject(withError: Self.vaultError("driver-unavailable", "native CSPRNG failed"))
+          }
+          session.setManagementKey(replacement, type: type, requiresTouch: false) { error in
+            replacement.resetBytes(in: 0..<replacement.count)
+            if let error { return promise.reject(withError: Self.mapError(error)) }
+            promise.resolve(withResult: "{\"ok\":true}")
+          }
         }
       }
     }
@@ -235,9 +345,10 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   /// 0x82, which is not in this set.
   private static let certReadableSlots: Set<UInt> = [0x9a, 0x9c, 0x9d, 0x9e, 0xf9]
 
-  func readVaultPublicKey(slot: Double) throws -> Promise<String> {
+  func readVaultPublicKey(expectedSerial: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
     let promise = Promise<String>()
-    let rawSlot = UInt(slot)
+    let rawSlot = Self.vaultSlot
     guard let pivSlot = YKFPIVSlot(rawValue: rawSlot) else {
       promise.reject(withError: Self.vaultError("no-key", "bad slot"))
       return promise
@@ -246,101 +357,41 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     // `certReadableSlots`). For a retired slot like the vault's 0x82,
     // getCertificateInSlot would RAISE and crash the app, and YubiKit 4.4 offers
     // no other slot-occupancy read (getSlotMetadata is later/Android-only). So on
-    // iOS the retired-slot occupancy is genuinely unknowable: report empty (the
-    // enroll flow then generates over the slot) rather than crash. The overwrite
-    // guard therefore only holds on the standard slots + Android; documented as
-    // best-effort on iOS.
+    // iOS the retired-slot certificate is unreadable, so report no readable
+    // public key. Enrollment separately sends a random signing probe and only
+    // generates after the card returns explicit reference-not-found (0x6a88).
     guard Self.certReadableSlots.contains(rawSlot) else {
-      promise.resolve(withResult: "{\"publicKey\":null}")
-      return promise
-    }
-    withSession(promise) { session in
-      // Standard slot: PIV tooling writes an X.509 cert alongside the key, so a
-      // present cert means "occupied — don't overwrite". A bare keypair with no
-      // cert still reads as empty.
-      session.getCertificateIn(pivSlot) { certificate, error in
-        guard error == nil, let certificate,
-              let pub = SecCertificateCopyKey(certificate),
-              let hex = Self.secKeyToSec1Hex(pub) else {
-          return promise.resolve(withResult: "{\"publicKey\":null}")
+      withSession(promise) { session in
+        self.withExpectedSerial(session, expectedSerial, promise) {
+          promise.resolve(withResult: "{\"publicKey\":null}")
         }
-        promise.resolve(withResult: "{\"publicKey\":\"\(hex)\"}")
       }
-    }
-    return promise
-  }
-
-  func ecdh(slot: Double, pin: String, peerPublicKey: String) throws -> Promise<String> {
-    let promise = Promise<String>()
-    guard let pivSlot = YKFPIVSlot(rawValue: UInt(slot)) else {
-      promise.reject(withError: Self.vaultError("no-key", "bad slot"))
       return promise
     }
-    // Decode BEFORE any card command so a malformed peer key never burns a PIN
-    // retry. The explicit 65-byte / 0x04 shape check runs first so an off-length
-    // or compressed point is named as such, rather than surfacing as whatever
-    // SecKeyCreateWithData happens to report for it.
-    guard let peerData = Data(hexString: peerPublicKey),
-          peerData.count == 65, peerData.first == 0x04 else {
-      promise.reject(withError: Self.vaultError(
-        "template-invalid", "peer public key must be 65-byte SEC1 uncompressed (0x04 || X || Y)"))
-      return promise
-    }
-    // Invalid-curve defence: an off-curve point handed to a KeyAgreement lets an
-    // attacker pull the computation into a small group and leak bits of the
-    // slot's private key. SecKeyCreateWithData IS the on-curve check here —
-    // verified empirically against the Security framework, which rejects a
-    // bit-flipped coordinate, all-zero coordinates, out-of-field values and a
-    // transposed X/Y, while accepting real keys. (Android has no equivalent
-    // free check and does the curve equation by hand — see requireOnCurveP256.)
-    guard let peerKey = Self.sec1HexToSecKey(peerData) else {
-      promise.reject(withError: Self.vaultError("template-invalid", "peer public key is not a point on secp256r1"))
-      return promise
-    }
-
-    // calculateSecretKeyInSlot: itself `return`s after every early completion
-    // (unlike signWithKeyInSlot:, whose padding-error path falls through — see
-    // SettleGuard), so a double settle is not expected here. The guard is kept
-    // anyway: it also covers the nested verifyPin completion, costs one atomic
-    // flag, and a double settle on a Nitro Promise is a hard crash.
-    let settled = SettleGuard()
     withSession(promise) { session in
-      // pin-policy ONCE gate: neither YubiKit nor the card verifies for us, and
-      // withSession may hand back a session on which nothing has been verified.
-      // A wrong/locked PIN is classified by verifyPinGated.
-      Self.verifyPinGated(session, pin: pin, settled, promise) {
-        // TOUCH-gated by the slot's touch policy (generateVaultKey enrols with
-        // CACHED, spec D6): blocks until the user taps unless a touch within
-        // the card's 15 s window is still valid; an unmet touch surfaces as
-        // touch-timeout via mapError. (ecdh itself is unused by the R1C vault.)
-        //
-        // The result is the RAW x-coordinate of the shared point — 32 bytes, no
-        // KDF, no hashing. YubiKit returns exactly what the card's GENERAL
-        // AUTHENTICATE (exponentiation) returns and this passes it through
-        // unmodified; the vault's sealing layer owns any derivation.
-        // NOTE the argument label: the ObjC selector is
-        // calculateSecretKeyInSlot:peerPublicKey:, which the Swift importer
-        // splits to `calculateSecretKey(in:peerPublicKey:)` — `inSlot:` does
-        // NOT compile (verified against the installed 4.4.0 pod headers).
-        session.calculateSecretKey(in: pivSlot, peerPublicKey: peerKey) { secret, error in
-          if let error { return settled.reject(promise, Self.mapError(error)) }
-          guard let secret, secret.count == 32 else {
-            // A nil/short result without an error should not resolve as a
-            // "secret" — an under-length x-coordinate would silently produce a
-            // wrong seal key. Mirrors signEcdsa's empty-signature guard.
-            return settled.reject(promise, Self.vaultError("touch-timeout", "no shared secret returned"))
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        // Standard slot: PIV tooling writes an X.509 cert alongside the key, so a
+        // present cert means "occupied — don't overwrite". A bare keypair with no
+        // cert still reads as empty.
+        session.getCertificateIn(pivSlot) { certificate, error in
+          guard error == nil, let certificate,
+                let pub = SecCertificateCopyKey(certificate),
+                let hex = Self.secKeyToSec1Hex(pub) else {
+            return promise.resolve(withResult: "{\"publicKey\":null}")
           }
-          settled.resolve(promise, "{\"secret\":\"\(secret.hexString)\"}")
+          promise.resolve(withResult: "{\"publicKey\":\"\(hex)\"}")
         }
       }
     }
     return promise
   }
 
-  func signEcdsa(slot: Double, pin: String, digest: String) throws -> Promise<String> {
+  func signEcdsa(expectedSerial: String, pin: String, digest: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    try Self.requirePivCode(pin, label: "PIN")
     let promise = Promise<String>()
-    guard let pivSlot = YKFPIVSlot(rawValue: UInt(slot)) else {
-      promise.reject(withError: Self.vaultError("no-key", "bad slot"))
+    guard let pivSlot = YKFPIVSlot(rawValue: Self.vaultSlot) else {
+      promise.reject(withError: Self.vaultError("template-invalid", "Vault slot 0x82 is unavailable"))
       return promise
     }
     // MUST be exactly 32 bytes, checked BEFORE any card command. YKFPIVPadding
@@ -355,26 +406,28 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     // Guards YubiKit 4.4.0's double-callback in signWithKeyInSlot: (see SettleGuard).
     let settled = SettleGuard()
     withSession(promise) { session in
-      // pin-policy ONCE gate: neither YubiKit nor the card verifies for us.
-      // A wrong/locked PIN is classified by verifyPinGated (it used to fall
-      // through mapError and come out as wrong-key with no retry count).
-      Self.verifyPinGated(session, pin: pin, settled, promise) {
-        // .ecdsaSignatureDigestX962SHA256 is the DIGEST variant — YKFPIVPadding
-        // passes it through unhashed (`hash = [data mutableCopy]`). Never use the
-        // ...MessageX962... variants: those hash locally with CommonCrypto and
-        // would sign the wrong value. Signature is the card's raw DER bytes,
-        // returned unmodified (P-256 signatures here are NOT low-S normalised).
-        session.signWithKey(
-          in: pivSlot,
-          type: .ECCP256,
-          algorithm: .ecdsaSignatureDigestX962SHA256,
-          message: digestData
-        ) { signature, error in
-          if let error { return settled.reject(promise, Self.mapError(error)) }
-          guard let signature, !signature.isEmpty else {
-            return settled.reject(promise, Self.vaultError("touch-timeout", "no signature returned"))
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        // pin-policy ONCE gate: neither YubiKit nor the card verifies for us.
+        // A wrong/locked PIN is classified by verifyPinGated (it used to fall
+        // through mapError and come out as wrong-key with no retry count).
+        Self.verifyPinGated(session, pin: pin, settled, promise) {
+          // .ecdsaSignatureDigestX962SHA256 is the DIGEST variant — YKFPIVPadding
+          // passes it through unhashed (`hash = [data mutableCopy]`). Never use the
+          // ...MessageX962... variants: those hash locally with CommonCrypto and
+          // would sign the wrong value. Signature is the card's raw DER bytes,
+          // returned unmodified (P-256 signatures here are NOT low-S normalised).
+          session.signWithKey(
+            in: pivSlot,
+            type: .ECCP256,
+            algorithm: .ecdsaSignatureDigestX962SHA256,
+            message: digestData
+          ) { signature, error in
+            if let error { return settled.reject(promise, Self.mapError(error)) }
+            guard let signature, !signature.isEmpty else {
+              return settled.reject(promise, Self.vaultError("touch-timeout", "no signature returned"))
+            }
+            settled.resolve(promise, "{\"signature\":\"\(signature.hexString)\"}")
           }
-          settled.resolve(promise, "{\"signature\":\"\(signature.hexString)\"}")
         }
       }
     }
@@ -382,6 +435,18 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   }
 
   // MARK: - Helpers
+
+  private static func requirePivCode(_ value: String, label: String) throws {
+    guard value.range(of: "^[0-9]{6,8}$", options: .regularExpression) != nil else {
+      throw vaultError("template-invalid", "PIV \(label) must be 6 to 8 ASCII digits")
+    }
+  }
+
+  private static func requireExpectedSerial(_ value: String) throws {
+    guard value.range(of: "^[A-Za-z0-9._:-]{1,64}$", options: .regularExpression) != nil else {
+      throw vaultError("template-invalid", "invalid expected YubiKey serial")
+    }
+  }
 
   /// Opens a `YKFPIVSession` on the held connection and hands it to `work`;
   /// rejects with no-key when nothing is on a reader, or maps a session-open
@@ -400,8 +465,29 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     }
   }
 
-  /// Authenticate with the firmware-default management key so generateKey (and,
-  /// per spec, changePin) can proceed, then run `next`. Pre-5.7 keys default to
+  /// Bind each command to the selected card on the same PIV session that will
+  /// execute it. This remains required on iOS because the active connection can
+  /// change between separate bridge calls, even though NFC normally presents
+  /// only one token at a time.
+  private func withExpectedSerial(
+    _ session: YKFPIVSession,
+    _ expectedSerial: String,
+    _ promise: Promise<String>,
+    _ next: @escaping () -> Void
+  ) {
+    session.getSerialNumber { serial, error in
+      if let error { return promise.reject(withError: Self.mapError(error)) }
+      let actual = String(serial)
+      guard actual == expectedSerial else {
+        return promise.reject(withError: Self.vaultError(
+          "serial-mismatch", "presented key \(actual), expected \(expectedSerial)"))
+      }
+      next()
+    }
+  }
+
+  /// Authenticate with the firmware-default management key so generation or
+  /// management-key rotation can proceed, then run `next`. Pre-5.7 keys default to
   /// TDES, fw >= 5.7 to AES-192; both ship the same 24-byte default value. A
   /// failure means a custom management key we cannot supply → mgmt-key-custom.
   private func authenticateManagementKey(
@@ -422,8 +508,71 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     }
   }
 
-  /// The PIN gate shared by every PIN-consuming operation (ecdh, signEcdsa,
-  /// changePin): verify `pin` on `session`, rejecting a failure through
+  private func inspectEmptyUserSlots(
+    _ session: YKFPIVSession,
+    index: Int,
+    promise: Promise<String>
+  ) {
+    guard index < Self.userPivSlots.count else {
+      promise.resolve(withResult: "{\"ok\":true,\"inspection\":\"attestation\",\"manufacturerAttestation\":\"verified\"}")
+      return
+    }
+    let rawSlot = Self.userPivSlots[index]
+    guard let slot = YKFPIVSlot(rawValue: rawSlot) else {
+      promise.reject(withError: Self.vaultError("slot-occupied", "could not address PIV slot"))
+      return
+    }
+    session.attestKey(in: slot) { certificate, error in
+      if error == nil, certificate != nil {
+        promise.reject(withError: Self.vaultError(
+          "slot-occupied", "PIV slot 0x\(String(rawSlot, radix: 16)) is occupied"))
+        return
+      }
+      if let error {
+        let ns = error as NSError
+        if ns.code == 0x6A88 {
+          self.inspectEmptyUserSlots(session, index: index + 1, promise: promise)
+          return
+        }
+      }
+      // Imported keys, an overwritten/missing attestation slot, and transport
+      // ambiguity cannot prove emptiness, so global PIN/PUK changes are refused.
+      promise.reject(withError: Self.vaultError(
+        "slot-occupied", "could not prove PIV slot 0x\(String(rawSlot, radix: 16)) empty"))
+    }
+  }
+
+  private func requireFactoryAttestation(
+    _ session: YKFPIVSession,
+    _ expectedSerial: String,
+    _ promise: Promise<String>,
+    _ next: @escaping (SecCertificate) -> Void
+  ) {
+    guard let slot = YKFPIVSlot(rawValue: 0xf9) else {
+      promise.reject(withError: Self.vaultError("attestation-invalid", "factory attestation slot unavailable"))
+      return
+    }
+    session.getCertificateIn(slot) { certificate, error in
+      guard error == nil, let certificate else {
+        promise.reject(withError: Self.vaultError("attestation-invalid", "factory attestation certificate is missing"))
+        return
+      }
+      do {
+        let authorities = try Self.attestationAuthorities.get()
+        try YubicoPivAttestation.verifyFactoryCertificate(
+          certificate,
+          expectedSerial: expectedSerial,
+          authorities: authorities
+        )
+      } catch {
+        promise.reject(withError: Self.vaultError("attestation-invalid", "factory attestation certificate is not trusted"))
+        return
+      }
+      next(certificate)
+    }
+  }
+
+  /// The PIN gate shared by signing operations: verify `pin` on `session`, rejecting a failure through
   /// `settled`, and run `next` only on success.
   ///
   /// The retry count MUST be read from the completion's first argument, not
@@ -461,24 +610,6 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     }
   }
 
-  private static func toTouchPolicy(_ p: String) -> YKFPIVTouchPolicy {
-    switch p.lowercased() {
-    case "always": return .always
-    case "cached": return .cached
-    case "never": return .never
-    default: return .default
-    }
-  }
-
-  private static func toPinPolicy(_ p: String) -> YKFPIVPinPolicy {
-    switch p.lowercased() {
-    case "once": return .once
-    case "always": return .always
-    case "never": return .never
-    default: return .default
-    }
-  }
-
   private static func vaultError(_ code: String, _ detail: String) -> NSError {
     NSError(domain: "YubiKeyPiv", code: 1,
             userInfo: [NSLocalizedDescriptionKey: "VAULT_ERR:\(code):\(detail)"])
@@ -498,7 +629,10 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     case 0x6983: return vaultError("pin-locked", "authentication method blocked")
     case 0x63C0...0x63CF: // 0x63Cx = PIN verify failed, x = retries left
       return vaultError("pin-invalid", "retries=\(ns.code & 0x0F)")
-    case 0x6A88, 0x6A80: return vaultError("no-key", "reference data not found")
+    // Only REFERENCE DATA NOT FOUND proves an empty slot. INCORRECT DATA
+    // (0x6a80) can also mean an occupied slot with an algorithm mismatch.
+    case 0x6A88: return vaultError("no-key", "reference data not found")
+    case 0x6A80: return vaultError("wrong-key", "incorrect data or parameters")
     case 0x6982, 0x6985: return vaultError("touch-timeout", "conditions of use not satisfied")
     default:
       let desc = ns.localizedDescription.lowercased()
@@ -515,28 +649,22 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   /// EC public `SecKey` -> SEC1 uncompressed hex (0x04 || X || Y). Security's
   /// external representation for an EC public key IS ANSI X9.63 uncompressed,
   /// so this is a straight export + hex encode.
-  private static func secKeyToSec1Hex(_ key: SecKey) -> String? {
+  private static func secKeyToSec1(_ key: SecKey) -> Data? {
     var error: Unmanaged<CFError>?
-    guard let data = SecKeyCopyExternalRepresentation(key, &error) as Data? else { return nil }
-    return data.hexString
+    guard let data = SecKeyCopyExternalRepresentation(key, &error) as Data?,
+          data.count == 65, data.first == 0x04 else { return nil }
+    return data
   }
 
-  /// SEC1 uncompressed EC point (0x04 || X || Y, already decoded to bytes) ->
-  /// public `SecKey`. The inverse of `secKeyToSec1Hex`: Security's external
-  /// representation for an EC public key IS ANSI X9.63 uncompressed, so the
-  /// bytes go in as-is. Returns nil when Security will not accept the bytes as a
-  /// P-256 public key — which includes points that are not ON the curve, making
-  /// this `ecdh`'s invalid-curve guard (the 65-byte / 0x04 shape is checked by
-  /// the caller first).
-  private static func sec1HexToSecKey(_ data: Data) -> SecKey? {
-    let attrs: [String: Any] = [
-      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-      kSecAttrKeyClass as String: kSecAttrKeyClassPublic,
-      kSecAttrKeySizeInBits as String: 256
-    ]
-    var error: Unmanaged<CFError>?
-    return SecKeyCreateWithData(data as CFData, attrs as CFDictionary, &error)
+  private static func secKeyToSec1Hex(_ key: SecKey) -> String? {
+    secKeyToSec1(key)?.hexString
   }
+
+  private static let vaultSlot: UInt = 0x82
+  /** Every user-key slot; 0xf9 is the factory attestation key and is expected
+   * to be occupied on a dedicated/factory-reset PIV application. */
+  private static let userPivSlots: [UInt] =
+    Array(UInt(0x82)...UInt(0x95)) + [UInt(0x9a), UInt(0x9c), UInt(0x9d), UInt(0x9e)]
 
   /// Firmware-default PIV management key (0x0102…08 ×3, 24 bytes).
   private static let defaultManagementKey = Data([
@@ -548,9 +676,9 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
 
 // MARK: - Settle guard
 
-/// Guards against YubiKit 4.4.0's double-callback in signWithKeyInSlot:.
-/// On a padding error it invokes the completion block and then falls through
-/// to invoke it AGAIN — a double settle on a Nitro Promise is a crash.
+/// Defense in depth against any native callback firing twice. YubiKit 4.4.1
+/// fixes the known signWithKeyInSlot double-completion defect, but a duplicate
+/// completion must never settle a Nitro Promise twice.
 private final class SettleGuard {
   private var settled = false
   private let lock = NSLock()

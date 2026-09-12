@@ -18,6 +18,13 @@ import { VaultError } from './types'
 type TouchBehavior = 'instant' | 'timeout'
 
 const DEFAULT_PIN = '123456'
+const DEFAULT_PUK = '12345678'
+const VAULT_SLOT = 0x82
+const PIV_CODE = /^[0-9]{6,8}$/
+
+function requirePivCode(value: string, label: 'PIN' | 'PUK'): void {
+  if (!PIV_CODE.test(value)) throw new VaultError('template-invalid', `PIV ${label} must be 6 to 8 ASCII digits`)
+}
 
 interface MockKeyRecord {
   priv: Uint8Array | null
@@ -25,9 +32,26 @@ interface MockKeyRecord {
   pin: string
   pinRetries: number
   pinVerified: boolean
+  puk: string
+  pukRetries: number
+  managementProtected: boolean
+  /** Explicit DEV/test simulation of the native manufacturer chain gate. */
+  manufacturerAttested: boolean
+  otherPivSlotOccupied: boolean
 }
 
-const freshRecord = (): MockKeyRecord => ({ priv: null, pub: null, pin: DEFAULT_PIN, pinRetries: 3, pinVerified: false })
+const freshRecord = (): MockKeyRecord => ({
+  priv: null,
+  pub: null,
+  pin: DEFAULT_PIN,
+  pinRetries: 3,
+  pinVerified: false,
+  puk: DEFAULT_PUK,
+  pukRetries: 3,
+  managementProtected: false,
+  manufacturerAttested: true,
+  otherPivSlotOccupied: false
+})
 
 export class MockYubiKey implements VaultDriver {
   private listeners = new Set<(e: KeyEvent) => void>()
@@ -93,6 +117,17 @@ export class MockYubiKey implements VaultDriver {
     r.pub = Utils.toHex(Array.from(p256.getPublicKey(r.priv, false)))
   }
 
+  /** Simulate an unrelated certificate/key in any other user PIV slot. */
+  occupyOtherPivSlot(): void {
+    this.record().otherPivSlotOccupied = true
+  }
+
+  /** DEV/test only: simulate a missing, overwritten, or unknown factory F9
+   * certificate. Production never gets this software driver. */
+  setManufacturerAttested(attested: boolean): void {
+    this.record().manufacturerAttested = attested
+  }
+
   /** The last NFC alert text passed to start(), for tests. */
   get startMessage(): string | undefined {
     return this.lastStartMessage
@@ -133,8 +168,9 @@ export class MockYubiKey implements VaultDriver {
     return { serial: this.serial, firmwareVersion: '5.7.1', pinRetries: this.record().pinRetries }
   }
 
-  async verifyPin(pin: string): Promise<{ ok: boolean; retriesLeft: number }> {
-    this.requirePresent()
+  async verifyPin(expectedSerial: string, pin: string): Promise<{ ok: boolean; retriesLeft: number }> {
+    requirePivCode(pin, 'PIN')
+    this.requireExpectedSerial(expectedSerial)
     const r = this.record()
     if (r.pinRetries <= 0) throw new VaultError('pin-locked', 'PIN is blocked')
     if (pin === r.pin) {
@@ -147,8 +183,10 @@ export class MockYubiKey implements VaultDriver {
     return { ok: false, retriesLeft: r.pinRetries }
   }
 
-  async changePin(oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }> {
-    this.requirePresent()
+  async changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }> {
+    requirePivCode(oldPin, 'PIN')
+    requirePivCode(newPin, 'PIN')
+    this.requireExpectedSerial(expectedSerial)
     const r = this.record()
     if (r.pinRetries <= 0) throw new VaultError('pin-locked', 'PIN is blocked')
     if (oldPin !== r.pin) {
@@ -160,16 +198,63 @@ export class MockYubiKey implements VaultDriver {
     return { ok: true, retriesLeft: 3 }
   }
 
-  async generateVaultKey(_slot: number): Promise<{ publicKey: string }> {
-    this.requirePresent()
+  async changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<{ ok: boolean; retriesLeft: number }> {
+    requirePivCode(oldPuk, 'PUK')
+    requirePivCode(newPuk, 'PUK')
+    this.requireExpectedSerial(expectedSerial)
     const r = this.record()
-    r.priv = p256.utils.randomSecretKey()
-    r.pub = Utils.toHex(Array.from(p256.getPublicKey(r.priv, false)))
-    return { publicKey: r.pub }
+    if (r.pukRetries <= 0) throw new VaultError('puk-locked', 'PUK is blocked')
+    if (oldPuk !== r.puk) {
+      r.pukRetries -= 1
+      throw new VaultError('puk-invalid', 'Wrong PUK', r.pukRetries)
+    }
+    r.puk = newPuk
+    r.pukRetries = 3
+    return { ok: true, retriesLeft: 3 }
   }
 
-  async readVaultPublicKey(_slot: number): Promise<{ publicKey: string } | null> {
-    this.requirePresent()
+  async preflightDedicatedPiv(expectedSerial: string): Promise<{
+    ok: true
+    inspection: 'metadata'
+    manufacturerAttestation: 'verified'
+  }> {
+    this.requireExpectedSerial(expectedSerial)
+    const r = this.record()
+    if (!r.manufacturerAttested) {
+      throw new VaultError('attestation-invalid', 'Factory manufacturer attestation is not trusted')
+    }
+    if (r.managementProtected) throw new VaultError('mgmt-key-custom', 'Default management key rejected')
+    if (r.priv || r.otherPivSlotOccupied) {
+      throw new VaultError('slot-occupied', 'The PIV application already contains a user key')
+    }
+    return { ok: true, inspection: 'metadata', manufacturerAttestation: 'verified' }
+  }
+
+  async generateVaultKey(expectedSerial: string): Promise<{
+    publicKey: string
+    manufacturerAttestation: 'verified'
+  }> {
+    this.requireExpectedSerial(expectedSerial)
+    const r = this.record()
+    if (r.managementProtected) throw new VaultError('mgmt-key-custom', 'Management key is protected')
+    if (!r.manufacturerAttested) {
+      throw new VaultError('attestation-invalid', 'Generated key manufacturer attestation failed')
+    }
+    r.priv = p256.utils.randomSecretKey()
+    r.pub = Utils.toHex(Array.from(p256.getPublicKey(r.priv, false)))
+    return { publicKey: r.pub, manufacturerAttestation: 'verified' }
+  }
+
+  async protectManagementKey(expectedSerial: string): Promise<{ ok: true }> {
+    this.requireExpectedSerial(expectedSerial)
+    const r = this.record()
+    if (r.managementProtected) throw new VaultError('mgmt-key-custom', 'Management key is already protected')
+    r.managementProtected = true
+    return { ok: true }
+  }
+
+  async readVaultPublicKey(expectedSerial: string): Promise<{ publicKey: string } | null> {
+    this.requireExpectedSerial(expectedSerial)
     const r = this.record()
     return r.pub ? { publicKey: r.pub } : null
   }
@@ -186,13 +271,17 @@ export class MockYubiKey implements VaultDriver {
    * script accepts both (spec §2.5). A mock that only emitted low-S could not
    * catch downstream code that mishandles a non-canonical signature.
    */
-  async signEcdsa(_slot: number, pin: string, digest: string): Promise<{ signature: string }> {
-    this.requirePresent()
+  async signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<{ signature: string }> {
+    this.requireExpectedSerial(expectedSerial)
     const r = this.record()
     if (!r.pinVerified) {
       if (!pin) throw new VaultError('pin-required', 'PIN required before signing')
-      const res = await this.verifyPin(pin)
-      if (!res.ok) throw new VaultError('pin-invalid', 'Wrong PIN', res.retriesLeft)
+      requirePivCode(pin, 'PIN')
+      const res = await this.verifyPin(expectedSerial, pin)
+      if (!res.ok) {
+        if (res.retriesLeft <= 0) throw new VaultError('pin-locked', 'PIN is blocked', 0)
+        throw new VaultError('pin-invalid', 'Wrong PIN', res.retriesLeft)
+      }
     }
     if (!r.priv) throw new VaultError('no-key', 'No key in slot')
 
@@ -210,6 +299,19 @@ export class MockYubiKey implements VaultDriver {
   // ---- internals -------------------------------------------------------
   private requirePresent(): void {
     if (!this.present) throw new VaultError('no-key', 'No YubiKey present')
+  }
+
+  private requireExpectedSerial(expectedSerial: string): void {
+    if (!/^[A-Za-z0-9._:-]{1,64}$/.test(expectedSerial)) {
+      throw new VaultError('template-invalid', 'Invalid expected YubiKey serial')
+    }
+    this.requirePresent()
+    if (this.serial !== expectedSerial) {
+      throw new VaultError('serial-mismatch', `Presented key ${this.serial}, expected ${expectedSerial}`, undefined, {
+        tapped: this.serial,
+        chosen: expectedSerial
+      })
+    }
   }
 
   private emit(e: KeyEvent): void {

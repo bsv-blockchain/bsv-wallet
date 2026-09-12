@@ -86,9 +86,9 @@ namespace margelo::nitro::yubikeypiv {
       return __promise;
     }();
   }
-  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::verifyPin(const std::string& pin) {
-    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* pin */)>("verifyPin");
-    auto __result = method(_javaPart, jni::make_jstring(pin));
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::verifyPin(const std::string& expectedSerial, const std::string& pin) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */, jni::alias_ref<jni::JString> /* pin */)>("verifyPin");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial), jni::make_jstring(pin));
     return [&]() {
       auto __promise = Promise<std::string>::create();
       __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
@@ -102,9 +102,9 @@ namespace margelo::nitro::yubikeypiv {
       return __promise;
     }();
   }
-  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::changePin(const std::string& oldPin, const std::string& newPin) {
-    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* oldPin */, jni::alias_ref<jni::JString> /* newPin */)>("changePin");
-    auto __result = method(_javaPart, jni::make_jstring(oldPin), jni::make_jstring(newPin));
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::changePin(const std::string& expectedSerial, const std::string& oldPin, const std::string& newPin) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */, jni::alias_ref<jni::JString> /* oldPin */, jni::alias_ref<jni::JString> /* newPin */)>("changePin");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial), jni::make_jstring(oldPin), jni::make_jstring(newPin));
     return [&]() {
       auto __promise = Promise<std::string>::create();
       __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
@@ -118,9 +118,9 @@ namespace margelo::nitro::yubikeypiv {
       return __promise;
     }();
   }
-  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::generateVaultKey(double slot, const std::string& touchPolicy, const std::string& pinPolicy) {
-    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(double /* slot */, jni::alias_ref<jni::JString> /* touchPolicy */, jni::alias_ref<jni::JString> /* pinPolicy */)>("generateVaultKey");
-    auto __result = method(_javaPart, slot, jni::make_jstring(touchPolicy), jni::make_jstring(pinPolicy));
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::changePuk(const std::string& expectedSerial, const std::string& oldPuk, const std::string& newPuk) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */, jni::alias_ref<jni::JString> /* oldPuk */, jni::alias_ref<jni::JString> /* newPuk */)>("changePuk");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial), jni::make_jstring(oldPuk), jni::make_jstring(newPuk));
     return [&]() {
       auto __promise = Promise<std::string>::create();
       __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
@@ -134,9 +134,9 @@ namespace margelo::nitro::yubikeypiv {
       return __promise;
     }();
   }
-  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::readVaultPublicKey(double slot) {
-    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(double /* slot */)>("readVaultPublicKey");
-    auto __result = method(_javaPart, slot);
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::preflightDedicatedPiv(const std::string& expectedSerial) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */)>("preflightDedicatedPiv");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial));
     return [&]() {
       auto __promise = Promise<std::string>::create();
       __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
@@ -150,9 +150,9 @@ namespace margelo::nitro::yubikeypiv {
       return __promise;
     }();
   }
-  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::ecdh(double slot, const std::string& pin, const std::string& peerPublicKey) {
-    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(double /* slot */, jni::alias_ref<jni::JString> /* pin */, jni::alias_ref<jni::JString> /* peerPublicKey */)>("ecdh");
-    auto __result = method(_javaPart, slot, jni::make_jstring(pin), jni::make_jstring(peerPublicKey));
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::generateVaultKey(const std::string& expectedSerial) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */)>("generateVaultKey");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial));
     return [&]() {
       auto __promise = Promise<std::string>::create();
       __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
@@ -166,9 +166,41 @@ namespace margelo::nitro::yubikeypiv {
       return __promise;
     }();
   }
-  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::signEcdsa(double slot, const std::string& pin, const std::string& digest) {
-    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(double /* slot */, jni::alias_ref<jni::JString> /* pin */, jni::alias_ref<jni::JString> /* digest */)>("signEcdsa");
-    auto __result = method(_javaPart, slot, jni::make_jstring(pin), jni::make_jstring(digest));
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::protectManagementKey(const std::string& expectedSerial) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */)>("protectManagementKey");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial));
+    return [&]() {
+      auto __promise = Promise<std::string>::create();
+      __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
+        auto __result = jni::static_ref_cast<jni::JString>(__boxedResult);
+        __promise->resolve(__result->toStdString());
+      });
+      __result->cthis()->addOnRejectedListener([=](const jni::alias_ref<jni::JThrowable>& __throwable) {
+        jni::JniException __jniError(__throwable);
+        __promise->reject(std::make_exception_ptr(__jniError));
+      });
+      return __promise;
+    }();
+  }
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::readVaultPublicKey(const std::string& expectedSerial) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */)>("readVaultPublicKey");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial));
+    return [&]() {
+      auto __promise = Promise<std::string>::create();
+      __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {
+        auto __result = jni::static_ref_cast<jni::JString>(__boxedResult);
+        __promise->resolve(__result->toStdString());
+      });
+      __result->cthis()->addOnRejectedListener([=](const jni::alias_ref<jni::JThrowable>& __throwable) {
+        jni::JniException __jniError(__throwable);
+        __promise->reject(std::make_exception_ptr(__jniError));
+      });
+      return __promise;
+    }();
+  }
+  std::shared_ptr<Promise<std::string>> JHybridYubiKeyPivSpec::signEcdsa(const std::string& expectedSerial, const std::string& pin, const std::string& digest) {
+    static const auto method = _javaPart->javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* expectedSerial */, jni::alias_ref<jni::JString> /* pin */, jni::alias_ref<jni::JString> /* digest */)>("signEcdsa");
+    auto __result = method(_javaPart, jni::make_jstring(expectedSerial), jni::make_jstring(pin), jni::make_jstring(digest));
     return [&]() {
       auto __promise = Promise<std::string>::create();
       __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {

@@ -235,6 +235,7 @@ export * from './services/walletServiceConfig'
 export * from './services/arcadeBroadcastProvider'
 export * from './services/walletArgLimits'
 export * from './services/capWalletArgs'
+export * from './services/externalOrigin'
 
 // Encrypted wallet backup log
 export * from './backup/RemoteSyncReader'
@@ -255,8 +256,8 @@ export { TaskBackupPush } from './monitor/TaskBackupPush'
 // Hardware vault: YubiKey PIV custody (1-of-N P-256 comb vault, spec
 // docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md), ceremony state
 // machine, the r1comb template module, session helper, transfers
-// (deposit / withdraw / re-lock / legacy staging reclaim), persistence (meta
-// v5), access guard, backup attestation.
+// (deposit / withdraw / re-lock), wallet-and-chain-scoped SecureStore
+// persistence, access guard, and backup attestation.
 //
 // 'driver.ts' and 'random.ts' both reach for a native module
 // (react-native-yubikey, expo-crypto) with a `require(...)` INSIDE a

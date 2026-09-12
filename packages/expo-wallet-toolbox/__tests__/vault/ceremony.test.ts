@@ -51,9 +51,9 @@ async function makeCeremony(
   const mock = new MockYubiKey()
   if (opts.sessionBased) (mock as unknown as { sessionBased: boolean }).sessionBased = true
   mock.insertKey(SERIAL_A)
-  const { publicKey: rawA } = await mock.generateVaultKey(VAULT_SLOT)
+  const { publicKey: rawA } = await mock.generateVaultKey(SERIAL_A)
   mock.insertKey(SERIAL_B)
-  const { publicKey: rawB } = await mock.generateVaultKey(VAULT_SLOT)
+  const { publicKey: rawB } = await mock.generateVaultKey(SERIAL_B)
   mock.removeKey()
   const pubA = compressPubkey(rawA)
   const pubB = compressPubkey(rawB)
@@ -134,14 +134,13 @@ describe('CeremonyController: arming', () => {
     expect(c.state.phase).toBe('error')
   })
 
-  test('two concurrent requestSigner calls for the same serial share one ceremony and resolve to the SAME signer', async () => {
+  test('a concurrent requestSigner for the same serial is refused so ownership is never shared', async () => {
     const h = await makeCeremony()
     const p1 = h.ceremony.requestSigner('op A', SERIAL_A)
-    const p2 = h.ceremony.requestSigner('op B', SERIAL_A)
+    await expect(h.ceremony.requestSigner('op B', SERIAL_A)).rejects.toMatchObject({ code: 'ceremony-active' })
     h.mock.insertKey(SERIAL_A)
     h.ceremony.submitPin(PIN)
-    const [s1, s2] = await Promise.all([p1, p2])
-    expect(s1).toBe(s2) // release() is idempotent by construction because of this
+    const s1 = await p1
     s1.release()
   })
 
@@ -149,9 +148,7 @@ describe('CeremonyController: arming', () => {
     const h = await makeCeremony()
     const p1 = h.ceremony.requestSigner('op A', SERIAL_A)
     const err = await h.ceremony.requestSigner('op B', SERIAL_B).catch(e => e)
-    expect(err).toMatchObject({ code: 'serial-mismatch' })
-    expect(err.message).toContain(SERIAL_A)
-    expect(err.message).toContain(SERIAL_B)
+    expect(err).toMatchObject({ code: 'ceremony-active' })
     // Ceremony A is unaffected.
     h.mock.insertKey(SERIAL_A)
     h.ceremony.submitPin(PIN)
@@ -501,8 +498,8 @@ describe('vault signer', () => {
       expect(verifies(await signer.sign(digestAt(i)), digestAt(i), h.pubA)).toBe(true)
     }
     expect(signSpy).toHaveBeenCalledTimes(3)
-    expect(signSpy).toHaveBeenNthCalledWith(1, VAULT_SLOT, PIN, digestAt(0))
-    expect(signSpy).toHaveBeenNthCalledWith(3, VAULT_SLOT, PIN, digestAt(2))
+    expect(signSpy).toHaveBeenNthCalledWith(1, SERIAL_A, PIN, digestAt(0))
+    expect(signSpy).toHaveBeenNthCalledWith(3, SERIAL_A, PIN, digestAt(2))
     expect(verifyPinSpy).toHaveBeenCalledTimes(1) // 'once' PIN policy: verified at arm only
     expect(startSpy).not.toHaveBeenCalled() // persistent reader with the key present: no session to open
     signer.release()
@@ -801,40 +798,20 @@ describe('CeremonyController: one singleton, sequential ceremonies', () => {
     signer3.release()
   })
 
-  test("a late release() from a stale signer must not steal a successor's PENDING attach-wait", async () => {
+  test('refuses a successor until the active signer releases, protecting the process-wide native session', async () => {
     const h = await makeCeremony({ sessionBased: true })
     const c = h.ceremony
 
-    // Ceremony A arms normally.
     const signerA = await armA(h, 'withdraw A')
     expect(c.state.phase).toBe('armed')
+    const startSpy = jest.spyOn(h.mock, 'start')
+    await expect(c.requestSigner('withdraw B', SERIAL_A)).rejects.toMatchObject({ code: 'ceremony-active' })
+    expect(startSpy).not.toHaveBeenCalled()
+    expect(c.state.phase).toBe('armed')
+    expect(verifies(await signerA.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
 
-    // Ceremony B starts — a SECOND, independent ceremony — before A's caller
-    // has released: the realistic "slow finalize/broadcast" case the module
-    // doc describes. The mock's start() would normally re-detect the
-    // still-"present" key SYNCHRONOUSLY (see MockYubiKey.start), which
-    // resolves B's own attach-wait before this test ever gets a chance to
-    // interleave anything. Stubbing start() removes that synchronous shortcut
-    // and opens the genuine window: B is now parked awaiting a fresh attach
-    // event, same as a real NFC tap that has not landed yet.
-    const startSpy = jest.spyOn(h.mock, 'start').mockImplementation(() => {})
-    const p2 = c.requestSigner('withdraw B', SERIAL_A)
-    c.submitPin(PIN)
-    await flush()
-    expect(c.state.phase).toBe('waiting-for-key') // B is genuinely pending, not yet armed
-
-    // *** A's caller finally releases here — squarely inside B's pending
-    // attach-wait. This is exactly the scenario the KeyEventSession box (a
-    // per-attempt subscription, not one shared controller-wide field) exists
-    // to protect: with a single shared field, A's release() unsubscribing it
-    // would remove the listener B just registered for its own arm, and B's
-    // `await waiter.promise` below would then hang forever. ***
     signerA.release()
-
-    // The physical tap for B lands.
-    startSpy.mockRestore()
-    h.mock.insertKey(SERIAL_A)
-    const signerB = await p2
+    const signerB = await armA(h, 'withdraw B')
     expect(signerB).not.toBe(signerA) // a genuinely new session, not shared
     expect(c.state.phase).toBe('armed')
     expect(verifies(await signerB.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
@@ -842,19 +819,13 @@ describe('CeremonyController: one singleton, sequential ceremonies', () => {
     signerB.release()
   })
 
-  test('an attempt cancelled while its verifyPin is in flight cannot arm behind the successor that replaced it', async () => {
-    // The resurrection race. cancel() sets running=false while attempt #1 is
-    // still parked inside driver.verifyPin — a native call cancel() cannot
-    // interrupt — and the requestSigner() that follows both starts attempt #2
-    // AND resets `cancelled` to false. When #1's PIN check finally answers,
-    // every "am I still wanted?" flag reads clean. Without the generation
-    // check, #1 then installs its own signer over #2's, arms a second timer,
-    // and fires onArmed with a signer nobody asked for.
-    const h = await makeCeremony()
+  test('cancel during native verify keeps exclusivity through old-session teardown before a successor starts', async () => {
+    const h = await makeCeremony({ sessionBased: true })
     const c = h.ceremony
     const armedSigners: unknown[] = []
     c.onArmed = s => armedSigners.push(s)
     const signSpy = jest.spyOn(h.mock, 'signEcdsa')
+    const stopSpy = jest.spyOn(h.mock, 'stop')
 
     // Park attempt #1 inside verifyPin until we say so.
     const realVerify = h.mock.verifyPin.bind(h.mock)
@@ -877,40 +848,30 @@ describe('CeremonyController: one singleton, sequential ceremonies', () => {
     c.cancel()
     await rejected
 
-    // A second ceremony starts immediately — this one gets the real verifyPin.
+    // A successor cannot start while the cancelled native call still owns the
+    // process-wide session; otherwise #1's late finally/stop would kill #2.
     verifySpy.mockImplementation(realVerify)
-    const p2 = c.requestSigner('op 2', SERIAL_A)
-    c.submitPin(PIN)
-    const signer2 = await p2
-    expect(c.state.phase).toBe('armed')
-    expect(armedSigners).toEqual([signer2])
+    await expect(c.requestSigner('op 2', SERIAL_A)).rejects.toMatchObject({ code: 'ceremony-active' })
+    expect(stopSpy).not.toHaveBeenCalled()
 
-    // *** #1's abandoned PIN check answers here, well after it was replaced. ***
+    // #1 returns and completes its own native teardown.
     answerPin!()
     await flush()
+    expect(stopSpy).toHaveBeenCalledTimes(1)
+    expect(c.state.phase).toBe('idle')
 
-    // Nothing changed hands: #2 is still the one and only armed session, and
-    // #1 never reached a caller, a timer, or onArmed.
+    const signer2 = await armA(h, 'op 2')
     expect(armedSigners).toEqual([signer2])
     expect(c.state.phase).toBe('armed')
     expect(signSpy).not.toHaveBeenCalled()
-    // #1 also cleaned up after itself: no orphaned key-event listener. (A
-    // persistent reader's ceremony drops its own listener once armed, so an
-    // armed, tidy controller holds none at all.)
-    expect((h.mock as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0)
-
-    // And #2 still owns the controller's state: it signs, and its release relocks.
     expect(verifies(await signer2.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
     signer2.release()
     expect(c.state.phase).toBe('idle')
+    expect(stopSpy).toHaveBeenCalledTimes(2)
     await expect(signer2.sign(DIGEST)).rejects.toMatchObject({ code: 'key-removed-mid-op' })
   })
 
-  test('a superseded attempt that FAILS never rejects the successor waiting behind it', async () => {
-    // Same race, error arm: #1's abandoned PIN check comes back as a hard
-    // failure. Its rejection belongs to a ceremony nobody is waiting on any
-    // more, so it must not reject #2's caller or repaint the phase out from
-    // under an armed session.
+  test('a cancelled native failure finishes quietly before a successor is allowed', async () => {
     const h = await makeCeremony()
     const c = h.ceremony
     const realVerify = h.mock.verifyPin.bind(h.mock)
@@ -931,26 +892,18 @@ describe('CeremonyController: one singleton, sequential ceremonies', () => {
     await rejected
 
     verifySpy.mockImplementation(realVerify)
-    const p2 = c.requestSigner('op 2', SERIAL_A)
-    c.submitPin(PIN)
-    const signer2 = await p2
-    expect(c.state.phase).toBe('armed')
-
+    await expect(c.requestSigner('op 2', SERIAL_A)).rejects.toMatchObject({ code: 'ceremony-active' })
     failPin!()
     await flush()
 
-    // #2 is untouched: still armed, still usable, no error painted.
-    expect(c.state.phase).toBe('armed')
+    expect(c.state.phase).toBe('idle')
     expect(c.state.error).toBeUndefined()
+    const signer2 = await armA(h, 'op 2')
     expect(verifies(await signer2.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
     signer2.release()
   })
 
-  test('an attempt superseded while parked in getKeyInfo never repaints the successor or touches the card', async () => {
-    // Same class, different park point: driver.getKeyInfo is a native call
-    // cancel() cannot interrupt either. Resuming unguarded, attempt #1 would
-    // walk into collectPin and set the phase back to 'pin-entry' over the
-    // successor's armed session.
+  test('a cancelled getKeyInfo retains ownership until it returns and cleans up', async () => {
     const h = await makeCeremony()
     const c = h.ceremony
     const realInfo = h.mock.getKeyInfo.bind(h.mock)
@@ -973,20 +926,12 @@ describe('CeremonyController: one singleton, sequential ceremonies', () => {
     await rejected
 
     infoSpy.mockImplementation(realInfo)
-    const p2 = c.requestSigner('op 2', SERIAL_A)
-    c.submitPin(PIN)
-    const signer2 = await p2
-    expect(c.state.phase).toBe('armed')
-
-    const phasesAfterArm: string[] = []
-    const unsubscribe = c.subscribe(s => phasesAfterArm.push(s.phase))
-    answerInfo!() // #1's serial read finally answers
+    await expect(c.requestSigner('op 2', SERIAL_A)).rejects.toMatchObject({ code: 'ceremony-active' })
+    answerInfo!()
     await flush()
-    unsubscribe()
-
-    expect(phasesAfterArm.every(p => p === 'armed')).toBe(true) // no 'connecting' / 'pin-entry' repaint
-    expect(c.state.phase).toBe('armed')
+    expect(c.state.phase).toBe('idle')
     expect(signSpy).not.toHaveBeenCalled()
+    const signer2 = await armA(h, 'op 2')
     signer2.release()
   })
 
@@ -1020,39 +965,32 @@ describe('CeremonyController: one singleton, sequential ceremonies', () => {
     expect(verifies(await signer2.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
     signer2.release()
   })
-})
 
-describe('CeremonyController: stale signer', () => {
-  test("a stale, unreleased signer's sign() is refused once a successor has armed — no repaint, no timer, no touch", async () => {
-    // No caller produces this today (transfers releases in a finally and the
-    // UI serialises transfers); this pins the hardening so a stale signer can
-    // never paint 'awaiting-touch', restart the retention window or install
-    // a retry/attach waiter over the successor's session.
+  test('cancel during an in-flight signature holds the global lease until the native call unwinds', async () => {
     const h = await makeCeremony()
-    const c = h.ceremony
-    const signSpy = jest.spyOn(h.mock, 'signEcdsa')
-    const signerA = await armA(h, 'op A')
-    // A second, independent ceremony arms while A's caller has not released.
-    const signerB = await armA(h, 'op B')
-    expect(signerB).not.toBe(signerA)
-    expect(c.state.phase).toBe('armed')
-    const armedUntil = c.state.armedUntil
+    const signer1 = await armA(h, 'op 1')
+    let started!: () => void
+    const signStarted = new Promise<void>(resolve => {
+      started = resolve
+    })
+    let finish!: () => void
+    jest.spyOn(h.mock, 'signEcdsa').mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = () => resolve({ signature: '00' })
+          started()
+        })
+    )
+    const pending = signer1.sign(DIGEST)
+    await signStarted
 
-    const phases: string[] = []
-    const unsubscribe = c.subscribe(s => phases.push(s.phase))
-    await expect(signerA.sign(DIGEST, { index: 0, total: 1 })).rejects.toMatchObject({ code: 'key-removed-mid-op' })
-    unsubscribe()
-    expect(phases.every(p => p === 'armed')).toBe(true) // nothing painted over B
-    expect(c.state.progress).toBeUndefined() // B's position untouched
-    expect(c.state.armedUntil).toBe(armedUntil) // B's window not refreshed
-    expect(signSpy).not.toHaveBeenCalled()
+    h.ceremony.cancel()
+    await expect(h.ceremony.requestSigner('op 2', SERIAL_A)).rejects.toMatchObject({ code: 'ceremony-active' })
+    finish()
+    await expect(pending).rejects.toMatchObject({ code: 'key-removed-mid-op' })
 
-    // B is unaffected and still signs; A's late release is a no-op against the controller.
-    expect(verifies(await signerB.sign(DIGEST), DIGEST, h.pubA)).toBe(true)
-    signerB.release()
-    expect(c.state.phase).toBe('idle')
-    signerA.release()
-    expect(c.state.phase).toBe('idle')
+    const signer2 = await armA(h, 'op 2')
+    signer2.release()
   })
 })
 

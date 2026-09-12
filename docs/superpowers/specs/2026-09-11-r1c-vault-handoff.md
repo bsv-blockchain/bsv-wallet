@@ -1,44 +1,182 @@
-# R1C vault — implementation handoff (feat/r1c-vault)
+# R1C Vault — future-only v6 security handoff
 
-Written by the SDD controller at the end of Plans 1–3. The `.superpowers/sdd/*/progress.md` ledgers hold the per-task record; this file is the durable summary for the maintainer.
+**Date:** 2026-09-11
+**Branch:** `codex/r1c-vault-security-fix`
+**Release state:** Not production-ready. Keep Vault output creation disabled until the blockers
+below are implemented, independently reviewed, and exercised on real nodes and hardware.
+**Compatibility decision:** There are no released Vault outputs. Version 6 is the only accepted
+Vault metadata and output-instruction format; do not add Vault migration or legacy fallbacks.
 
-## What landed
+The normative design is
+`docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md`. This handoff distinguishes code
+present on the branch from work still required for release.
 
-- **Plan 1 — template module** (`core/services/vault/r1comb.ts`, 166+ tests): P-256 comb verifier lock (27,855 B for N=1, +25 B per extra key), commit-to-table `hash160(salt ‖ table)`, unlock assembly (71 pushes, `R1C_UNLOCK_LEN = 2560`), `customInstructions` v4 `{v:4,type:'R1C',salt,keys}`. K1 template, sealing, vaultDerivation, vaultPassphrase deleted.
-- **Plan 2 — services** (13 tasks): error codes + `details`; `vaultEnabled` flag / `isVaultEnabled()`; meta v5 key list; driver/session/mock per serial; `VaultSigner` ceremony with batches of `VAULT_INPUTS_PER_TAP = 16`; `enrollKey` / `finalizeEnrollment` / `addVaultKey` / `disableVault`; hardware-free `depositToVault`; `withdrawFromVault(w, o, amount | 'all', reason, chosenSerial, opts)`; `relockVault`, `estimateRelockFee`, `getVaultKeyCoverage`, `orphanedIfRemoved`; `scripts/r1c-spend-proof.ts`; native NFC alert text via nitrogen; CHANGELOG 0.5.0; restore-salt regression test.
-- **Plan 3 — UI** (12 tasks): 80 new i18n keys × 12 locales; `vaultErrorCopy` (exhaustive over the 33-code union); `useExportWalletData`, `useVaultCoverage`; `KeyChooser` / `vaultKeyLabel`; `EnrollWizard` (intro → key × k → more → done, add-key mode); `VaultCeremonySheet` batch progress; `VaultScreen` (four states, badges, add/rename/remove/re-lock, export row, disable); `VaultTransferScreen` (floor/fee line, first-deposit + remainder confirms, key chooser, post-transfer alerts); phrase-era files + 54 dead keys deleted; home button + Settings row gated on the flag; host wiring — `EXPO_PUBLIC_VAULT_ENABLED` on the `development` and `dev-physical` EAS profiles only.
+## Current design
 
-Verification at d790087 (after the final fix wave — commits ae923b3, 05bc8ac, d790087): jest 823/823 (vault + ui + i18n + toolboxConfig), package `tsc` 0 errors, eslint 0 errors/0 warnings on touched files. Branch: 45 commits over merge-base 35187b4.
+- The product enrolls two through five YubiKeys. Each holds a fresh P-256 key in PIV retired
+  slot `0x82`; any one committed key can spend. There is no seed, phrase, passphrase, K1, or
+  service spending leg.
+- A lock commits to `HASH160(salt || canonicalTable(Q))` for every enrolled key. The 32-byte
+  public salt is baked into the lock.
+- Exact lock sizes are 45,221 bytes for N = 1 and `45,197 + 25N` for N = 2..5: 45,247,
+  45,272, 45,297, and 45,322 bytes. Product output creation requires N >= 2.
+- The unlock has exactly 70 pushes, a measured maximum of 2,506 bytes, and a declared
+  `R1C_UNLOCK_LEN` of 2,560.
+- Vault spends use transaction version 1 with strict `MINIMALDATA`, `UTXO_AFTER_CHRONICLE`,
+  `SIGHASH_FORKID`, `STRICTENC`, `CLEANSTACK`, `SIGPUSHONLY`, and `LOW_S` verification.
+- The complete mixed-add wrapper handles infinity, equality/doubling, inverse points, and
+  ordinary addition. The OP_PUSH_TX tail has a deterministic second-key branch for the one
+  digest that makes the first constructed scalar zero.
+- Each output carries exact `customInstructions` v6 with the salt, salt public key, numeric salt
+  key ID, chain, vault identity/revision, and full ordered YubiKey records. The exact lock authenticates
+  the salt and reconstructed P-256 commitments. It does not authenticate the BRC-42 origin of
+  `saltKeyId`, serials, nicknames, or timestamps.
+- Local Vault authority is scoped by wallet identity and chain and stored in
+  this-device-only SecureStore. Recovery metadata is accepted only after byte-exact
+  authentication against a real R1C lock.
 
-## Rulings the controller made (not decided by the user)
+## Security work present on this branch
 
-1. Plan 3 tasks were pipelined behind in-flight reviews when their files were disjoint; two implementers never committed concurrently.
-2. Plan 2 Task 13's brief used fake P-256 pubkeys; the encoder's fail-closed point check rejects them, so real fixed-scalar points were used instead.
-3. **EnrollWizard passes meta serials in `pendingSerials` in BOTH modes** (implementer had dropped them in enroll mode). Reason: `finalizeEnrollment` overwrites meta unconditionally, so the wizard was the only thing between an enrolled card and `generateVaultKey` (spec §3.3 step 2). The final fix wave moves that refusal into `enrollKey` itself and adds a `finalizeEnrollment` guard (reusing the `key-already-enrolled` code — a new code would have needed 12 locale strings).
-4. Hardware back on the wizard's `done` step calls `onDone`; back is swallowed while a tap is in flight.
-5. VaultScreen: wizard `onCancel` reloads meta; Remove fails closed without a built wallet; the 32-pass re-lock bound never toasts "done" after "capped"; "Re-lock now" without a wallet shows an in-sheet error (option A).
-6. VaultTransferScreen: `run()` is ref-guarded for its whole lifetime (deposit could double-fire during the backup-preference read); the CTA stays inert until the first balance read.
-7. **Remainder confirm computed against the chosen key's selectable total** via a new reservation-free `previewVaultWithdrawal` (final fix wave) — spec §4.2 step 4 was being evaluated against the whole vault balance.
-8. Deferred, not fixed blind: **iOS `didDisconnectNFC` during an in-flight batch relocks the ceremony instead of offering Retry/resume** (final review Important 3). Changing relock/detach semantics without a device run was judged riskier than leaving it; it is on the §0 device checklist.
-9. `VaultSpendResult` has no `withdrawn` figure; the transfer screen's "moved" amount can be off for 'all' + capped + unreachable. Deferred (cosmetic alert figure).
-10. `VAULT_INPUTS_PER_TAP = 16` is provisional until the 32-input NFC run.
-11. Legacy `reclaimStagingOutputs` kept exactly as it was (pending the user's decision on the staging reclaim).
+### Script and comb verifier
 
-## Follow-ups (not blocking merge; open as issues)
+`core/services/vault/r1comb.ts` contains the hardened exact template:
 
-- `VaultSpendResult.withdrawn`; the transfer screen's NFC reason and "moved" figure still use the whole balance (now cheap to fix from `previewVaultWithdrawal().selectedTotal`); `VaultKeyCoverage.missingKeyOutputs` (badge over-counts when removed + missing coexist); the withdraw preview runs before the busy spinner (no spinner during the ~900 KB `listOutputs`, re-entry is blocked).
-- `ceremony.ts` "another ceremony already running" throws `serial-mismatch` without details → misleading copy; needs its own code.
-- EnrollWizard add-key `done` CTA always reads "Re-lock now" even when the host skips re-lock on an empty vault (`willRelock` prop).
-- `toLocaleString('en-US')` in two alerts; deposit lazy-wallet-creation path untested; `core/logging.ts` pre-existing `process.env.COLORTERM` read; `router.push('/vault' as any)` pattern.
-- Spec text drift: §4.2 step 8 `unreachable.keys` shape; §3.3 step 2 should name `enrollKey` as the enforcer; §4.2 step 6 detach-mid-batch behaviour; §5.2 `VaultWallet` legacy methods.
+- exact witness depth and transaction-version checks;
+- canonical `r`, low-S `s`, canonical inverse, and inverse equality checks that close the
+  cross-modulus/CRT forgery;
+- complete mixed Jacobian-plus-affine addition;
+- deterministic two-branch covenant signature construction;
+- lock-baked salt and byte-exact lock regeneration;
+- exact v6 instructions and strict local Spend flags;
+- golden lengths/hashes, malformed-script cases, exceptional arithmetic cases, and randomized
+  version-1 spend tests.
 
-## Release gate (spec §0) — remains manual
+The local `scripts/run-r1c-crt-forgery.cjs` regression imports the production verifier and
+confirms that the old signature-free witness is rejected. It is useful regression evidence but
+is not an independent verifier or consensus oracle.
 
-1. Run `scripts/r1c-spend-proof.ts` on testnet, then mainnet with token amounts; record all txids in the spec changelog; on S5 success remove the D4b `pushTxDerCheck` screen and its retry loop together.
-2. Dev build with two real YubiKeys: enrol (incl. factory-PIN change), deposit, single-input withdrawal by each key, add a third key + re-lock, remove a key (orphan refusal, then re-lock), 32-input withdrawal on iOS NFC to pin `VAULT_INPUTS_PER_TAP`; confirm `cached` touch policy covers a 16-signature batch.
-3. Device check of both NFC detach paths (field drop mid-command; late `didDisconnectNFC` after `stopDiscovery()` at a batch boundary).
-4. Native compile / `npx nitrogen` regen in the main checkout (generated files were hand-edited on this branch).
-5. End-to-end restore on hardware (encrypted backup and exported `.db`), then spend with an enrolled YubiKey.
-6. Sweep any dev device holding K1 (`v: 3`) vault funds before installing this build (spec §8).
+### Numeric HD salt allocation
 
-2026-09-11: at the maintainer's request the `production` EAS profile now also sets `EXPO_PUBLIC_VAULT_ENABLED` so TestFlight builds show the vault for device testing. This supersedes the earlier "dev profiles only" rule; remove the entry from `production` before any App Store release that should hide the vault, or record items 1–5 first.
+`core/services/vault/transfers.ts` derives each salt public key with:
+
+```text
+protocolID   = [2, "vault salt"]
+keyID        = "1", "2", ...
+counterparty = "self"
+forSelf      = true
+saltKey      = compressed derived public key
+salt         = SHA256(utf8("R1C vault salt v1\0" || chain || "\0") || saltKey)
+```
+
+Before allocation, the service scans authenticated current outputs and complete Vault action
+history, including pending, spent, failed, and completed rows. It tracks salt, key-ID, script
+hash, and script-to-key-ID ownership. Every recorded numeric key ID is rederived through the
+wallet and its public key must match the record before that ID can advance the high-water mark.
+The next candidate is rejected if its ID, salt, or script hash has already been used. The
+canonical chain is included in the public salt hash, preventing the same mnemonic, numeric ID,
+and ordered YubiKey set from reproducing one script hash across networks.
+
+Current-output scans consume 64-output BEEF pages immediately. Script-bearing action history
+uses 8-row pages and lightweight history uses 200-row pages. A provider total must remain stable
+and be fully consumed. Without a total, a short or empty page terminates the scan. Oversized,
+repeated, and non-advancing pages are rejected. Withdrawal retains full proofs only for its at
+most 32 selected inputs.
+
+The process FIFO prevents duplicate allocation by simultaneous calls in one app process. It is
+not a distributed allocator. Two disconnected devices sharing one mnemonic can both see N and
+broadcast N+1; if they use the same ordered YubiKey set, they create the same script hash. Before
+release, either all such devices must use an authoritative compare-and-swap/on-chain allocator,
+or the product must enforce one synchronized Vault writer.
+
+### Recovery boundary
+
+The numeric HD sequence deterministically reproduces the secp256k1 salt public key and salt. It
+does not determine the exact R1C lock. Each lock also depends on the complete ordered set of
+independently generated P-256 YubiKey public keys. The raw transaction contains the salt and
+opaque HASH160 table commitments, while `customInstructions` are wallet database metadata.
+
+Current recovery therefore still depends on authenticated wallet history or backup for the
+ordered descriptor and transaction discovery. A future backup-free claim requires a public,
+authenticated descriptor/discovery path, exact transaction and UTXO validation, a safe numeric
+index gap/high-water rule, and a clean-database test that starts with only the mnemonic and one
+output-authorized YubiKey and ends with a valid spend.
+
+### External and native boundaries
+
+`core/services/vault/guard.ts` filters protected reads and denies external Vault protocols,
+privileged arguments, known Vault outpoints, references, txids, `sendWith`, and exact R1C
+creation/internalization. Admin mutations and external inventory scan/use share a FIFO to close
+the scan-to-mutation race. The patched wallet core derives admin authority from the authenticated
+originator; SQLite rejects an exact R1C source unless that host-derived marker is present.
+
+Enrollment verifies factory and slot attestation through bundled Yubico roots, binds serial,
+slot, point and PIN/touch policy, rotates the PUK, replaces the default management key with
+native CSPRNG material, and proves possession. Durable draft/quarantine state precedes
+irreversible APDUs. Current evidence is compile and synthetic-fixture evidence; no physical
+YubiKey or real NFC/USB APDU flow was tested.
+
+### Transfer and crash behavior
+
+Deposits and spends that create a Vault output use `noSend`. The service checks the unsigned
+plan, signs while retaining `noSend`, parses the exact signed AtomicBEEF, recomputes the txid,
+and rechecks inputs, outputs, values, fees, locks, and instructions before calling `sendWith`.
+Release succeeds only for exactly one case-insensitive matching txid with status `sending` or
+`unproven`.
+
+Private-backup configuration, a backup upload, and a host receipt are not broadcast gates.
+Ordinary encrypted backup remains optional and advisable because current recovery uses wallet
+history.
+
+An authenticated unsigned, txid-less reservation may be aborted. Once `sendWith` begins, the
+code never aborts the action. Vault recovery code neither calls `sendWith` again nor aborts a
+signed held action found after a crash; it blocks mutating Vault flows for manual network-state
+reconciliation. This does not disable ordinary broadcaster handling after the initial accepted
+`sendWith` call. Keeping staged validation preserves inspection of the final signed bytes
+before their initial broadcast.
+
+## Release blockers
+
+### 1. Recovery and cross-device allocation
+
+- Provide authenticated discovery of raw transactions and the exact ordered historical YubiKey
+  descriptor without assuming a local database.
+- Verify transaction bytes, proof, UTXO state, exact v6 template, salt derivation, network, value,
+  and presented-key membership before internalization.
+- Define a safe numeric index high-water/gap rule.
+- Add an authoritative multi-device allocator or enforce one synchronized writer.
+- Pass clean-database recovery and disconnected-device collision tests.
+
+### 2. Node, hardware, and native proof
+
+- Spend the exact 45 KB template on supported node/miner policy with token values for N = 2..5,
+  every key position, mixed and multiple inputs, remainder, re-lock, and the forced second
+  covenant branch.
+- Run enrollment and attestation rejection cases on supported production YubiKeys, iOS and
+  Android, NFC and supported USB transports.
+- Exercise interruption at every PIN, PUK, key-generation, management-key, challenge, signing,
+  and broadcast boundary.
+- Complete an independent review of the exact generated lock and native attestation code.
+
+### 3. Signed-action operations
+
+Automatic crash rebroadcast is intentionally absent. Define an operator/user workflow that can
+resolve a signed held action from authoritative network state without aborting a transaction
+that might have escaped or submitting altered bytes.
+
+## Future-only policy
+
+Retain explicit negative fixtures proving that pre-v6 records are rejected. Do not add v3, v4,
+or v5 decoders, migration logic, compatibility spends, or a staging reclaim path. Development
+devices must use clean Vault state when testing v6. This decision applies to Vault outputs and
+does not authorize compatibility changes to ordinary wallet backup data.
+
+## Maintainer cautions
+
+- A public salt changes script bytes; it is not secret and grants no authority.
+- Numeric HD salt derivation alone does not reconstruct an exact lock.
+- `customInstructions` are metadata. Authenticate them against the real source lock and value.
+- A basket or action label never proves Vault ownership.
+- Do not expose the unwrapped raw wallet or infer admin authority from caller-controlled data.
+- Do not abort a signed or possibly broadcast transaction to free a reservation.
+- Do not claim distributed salt uniqueness until allocation is serialized across devices.
+- Do not enable the feature in a production distribution until every release blocker is closed.

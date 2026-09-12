@@ -5,6 +5,24 @@ import { WalletClient, PrivateKey, ProtoWallet, Utils } from '@bsv/sdk'
 import type { WalletProtocol } from '@bsv/sdk'
 import connectionStore from '../stores/ConnectionStore'
 import type { Connection } from '../stores/ConnectionStore'
+import {
+  buildPairingSignatureMessage,
+  buildRelayWebSocketUrl,
+  MAX_IN_FLIGHT_RPC,
+  MAX_RELAY_RESPONSE_BYTES,
+  parseBoundedWireEnvelope,
+  parseRelayResponse,
+  requireBoundedPlaintext,
+  validateCanonicalExternalOrigin,
+  validateConnectParams,
+  validateBackendIdentityKey,
+  validatePairingTopic,
+  validateStoredConnectionSequence,
+  validateStoredConnectionFields,
+  type ConnectParams
+} from '../services/walletConnectionValidation'
+
+export type { ConnectParams } from '../services/walletConnectionValidation'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -35,15 +53,6 @@ export interface SessionMeta {
   backendIdentityKey: string
   mobileIdentityKey:  string
   protocolID:         WalletProtocol
-}
-
-export interface ConnectParams {
-  topic:              string
-  backendIdentityKey: string
-  protocolID:         string   // JSON-encoded WalletProtocol
-  origin:             string
-  expiry?:            string   // Unix seconds — required for signature verification
-  sig?:               string   // base64url DER ECDSA signature
 }
 
 interface WalletConnectionContextValue {
@@ -80,15 +89,13 @@ async function decryptPayload(
 ): Promise<string> {
   const ciphertext = Array.from(Buffer.from(ciphertextB64, 'base64url'))
   const { plaintext } = await wallet.decrypt({ protocolID, keyID, counterparty, ciphertext })
-  return new TextDecoder().decode(new Uint8Array(plaintext))
+  return new TextDecoder().decode(new Uint8Array(requireBoundedPlaintext(plaintext)))
 }
 
-async function verifyQrSignature(params: ConnectParams): Promise<void> {
+async function verifyQrSignature(params: Required<ConnectParams>): Promise<void> {
   if (!params.sig) throw new Error('QR code is not signed — do not connect')
   const anyoneWallet = new ProtoWallet(new PrivateKey(1))
-  const payload = Array.from(new TextEncoder().encode(
-    `${params.topic}|${params.backendIdentityKey}|${params.origin}|${params.expiry}`
-  ))
+  const payload = Array.from(new TextEncoder().encode(buildPairingSignatureMessage(params)))
   const signature = Utils.toArray(params.sig.replace(/-/g, '+').replace(/_/g, '/'), 'base64') as number[]
   const { valid } = await anyoneWallet.verifySignature({
     data:         payload,
@@ -100,12 +107,63 @@ async function verifyQrSignature(params: ConnectParams): Promise<void> {
   if (!valid) throw new Error('QR code signature is invalid — do not connect')
 }
 
-async function fetchRelay(origin: string, topic: string): Promise<string> {
-  const res = await fetch(`${origin}/api/session/${topic}`)
-  if (!res.ok) throw new Error(`Could not fetch session from origin: HTTP ${res.status}`)
-  const data = await res.json() as { relay?: string }
-  if (!data.relay) throw new Error('Origin server did not return a relay URL')
-  return data.relay
+async function readBoundedRelayResponse(res: Response): Promise<string> {
+  const declared = res.headers.get('content-length')
+  if (declared !== null) {
+    if (!/^[0-9]+$/.test(declared) || Number(declared) > MAX_RELAY_RESPONSE_BYTES) {
+      throw new Error('Origin server relay response is too large')
+    }
+  }
+
+  // Modern React Native exposes a WHATWG response stream. Bound it while it is
+  // consumed; the fallback still validates before JSON.parse on runtimes whose
+  // fetch implementation exposes only text().
+  const reader = res.body?.getReader?.()
+  if (reader) {
+    const chunks: Uint8Array[] = []
+    let total = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > MAX_RELAY_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => {})
+        throw new Error('Origin server relay response is too large')
+      }
+      chunks.push(value)
+    }
+    const joined = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      joined.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return new TextDecoder().decode(joined)
+  }
+
+  const text = await res.text()
+  if (text.length > MAX_RELAY_RESPONSE_BYTES || new TextEncoder().encode(text).length > MAX_RELAY_RESPONSE_BYTES) {
+    throw new Error('Origin server relay response is too large')
+  }
+  return text
+}
+
+export async function fetchRelay(origin: string, topic: string): Promise<string> {
+  const validatedTopic = validatePairingTopic(topic)
+  const external = validateCanonicalExternalOrigin(origin)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(`${external.origin}/api/session/${encodeURIComponent(validatedTopic)}`, {
+      signal: controller.signal,
+      redirect: 'error'
+    })
+    if (!res.ok) throw new Error(`Could not fetch session from origin: HTTP ${res.status}`)
+    const raw = await readBoundedRelayResponse(res)
+    return parseRelayResponse(raw)
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -249,11 +307,16 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     wsRef.current      = ws
     lastSeqRef.current = initialSeq
     let firstMessageFired = false
+    let inFlightRpc = 0
 
     ws.onmessage = async event => {
+      if (inFlightRpc >= MAX_IN_FLIGHT_RPC) {
+        console.warn('[WalletConnection] dropping message: too many requests in flight')
+        return
+      }
+      inFlightRpc++
       try {
-        const envelope = JSON.parse(event.data as string) as WireEnvelope
-        if (!envelope.ciphertext) return
+        const envelope = parseBoundedWireEnvelope(event.data, meta.topic)
 
         let plaintext: string
         try {
@@ -266,11 +329,14 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         }
 
         const msg = JSON.parse(plaintext) as RpcRequest | RpcResponse
-        if (typeof msg.seq !== 'number' || msg.seq <= lastSeqRef.current) {
-          console.warn('[WalletConnection] dropping message: seq', msg.seq, '<= lastSeq', lastSeqRef.current)
+        const sequence = msg !== null && typeof msg === 'object' && !Array.isArray(msg)
+          ? (msg as { seq?: unknown }).seq
+          : undefined
+        if (typeof sequence !== 'number' || !Number.isSafeInteger(sequence) || sequence <= lastSeqRef.current) {
+          console.warn('[WalletConnection] dropping message: seq', sequence, '<= lastSeq', lastSeqRef.current)
           return
         }
-        lastSeqRef.current = msg.seq
+        lastSeqRef.current = sequence
 
         if (!firstMessageFired) {
           firstMessageFired = true
@@ -278,11 +344,14 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         }
 
         if ('method' in msg && msg.method === 'pairing_ack') return
-        if ('method' in msg && msg.id) {
-          void handleRpc(msg as RpcRequest, meta, ws, wallet)
+        if ('method' in msg && typeof msg.method === 'string' &&
+            typeof msg.id === 'string' && msg.id.length > 0 && msg.id.length <= 128) {
+          await handleRpc(msg as RpcRequest, meta, ws, wallet)
         }
       } catch {
         // malformed outer envelope — drop silently
+      } finally {
+        inFlightRpc--
       }
     }
 
@@ -332,29 +401,34 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     setErrorMsg(null)
 
     let relay: string
+    let validated: ReturnType<typeof validateConnectParams>
     try {
+      // This provider is a public embedding boundary. Validate every field here
+      // even when a host screen already parsed the QR.
+      validated = validateConnectParams(params)
       // Verify QR signature before trusting the origin or opening any connection
-      await verifyQrSignature(params)
+      await verifyQrSignature(validated.params)
 
       // Fetch relay URL from origin over HTTPS — TLS cert is the trust anchor
-      relay = await fetchRelay(params.origin, params.topic)
+      relay = await fetchRelay(validated.external.origin, validated.params.topic)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Connection failed')
       setStatus('error')
       throw err
     }
 
-    const protocolID = JSON.parse(params.protocolID) as WalletProtocol
-    const { publicKey: mobileIdentityKey } = await wallet.getPublicKey({ identityKey: true })
+    const protocolID = validated.protocolID
+    const identityResult = await wallet.getPublicKey({ identityKey: true })
+    const mobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
 
     const meta: SessionMeta = {
-      topic: params.topic, origin: params.origin, relay,
-      backendIdentityKey: params.backendIdentityKey, mobileIdentityKey,
+      topic: validated.params.topic, origin: validated.external.origin, relay,
+      backendIdentityKey: validated.params.backendIdentityKey, mobileIdentityKey,
       protocolID,
     }
     setSessionMeta(meta)
 
-    const ws = new WebSocket(`${relay}/ws?topic=${params.topic}&role=mobile`)
+    const ws = new WebSocket(buildRelayWebSocketUrl(relay, validated.params.topic))
 
     ws.onopen = async () => {
       try {
@@ -362,12 +436,15 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
           id: crypto.randomUUID(), seq: 1, method: 'pairing_approved',
           params: {
             mobileIdentityKey,
+            protocolID: validated.params.protocolID,
             walletMeta: { name: walletName, platform: 'mobile' },
             permissions: Array.from(IMPLEMENTED_METHODS),
           },
         })
-        const ciphertext = await encryptPayload(wallet, protocolID, params.topic, params.backendIdentityKey, payload)
-        ws.send(JSON.stringify({ topic: params.topic, mobileIdentityKey, ciphertext } satisfies WireEnvelope))
+        const ciphertext = await encryptPayload(
+          wallet, protocolID, validated.params.topic, validated.params.backendIdentityKey, payload
+        )
+        ws.send(JSON.stringify({ topic: validated.params.topic, mobileIdentityKey, ciphertext } satisfies WireEnvelope))
       } catch {
         setErrorMsg('Failed to send pairing message')
         setStatus('error')
@@ -376,9 +453,9 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
 
     wireSocket(ws, wallet, meta, 0, () => {
       connectionStore.add({
-        sessionId: params.topic, origin: params.origin, relay,
-        backendIdentityKey: params.backendIdentityKey, mobileIdentityKey,
-        protocolID: params.protocolID,
+        sessionId: validated.params.topic, origin: validated.external.origin, relay,
+        backendIdentityKey: validated.params.backendIdentityKey, mobileIdentityKey,
+        protocolID: validated.params.protocolID,
         connectedAt: Date.now(), status: 'active',
       })
       setStatus('connected')
@@ -391,39 +468,47 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     setStatus('connecting')
     setErrorMsg(null)
 
+    // Stored connection data is untrusted after import or database tampering.
+    const validated = validateStoredConnectionFields(connection)
+    const identityResult = await wallet.getPublicKey({ identityKey: true })
+    const currentMobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
+    if (currentMobileIdentityKey !== validated.mobileIdentityKey) {
+      throw new Error('Stored connection belongs to a different wallet identity')
+    }
     // Fetch relay URL from origin over HTTPS — relay may have moved since last connection
-    const relay = await fetchRelay(connection.origin, connection.sessionId)
+    const relay = await fetchRelay(validated.external.origin, validated.topic)
 
-    const protocolID = JSON.parse(connection.protocolID) as WalletProtocol
-    const storedSeq  = await SecureStore.getItemAsync(lastSeqKey(connection.sessionId))
-    const initialSeq = storedSeq ? Number(storedSeq) : 0
+    const protocolID = validated.protocolID
+    const storedSeq  = await SecureStore.getItemAsync(lastSeqKey(validated.topic))
+    const initialSeq = validateStoredConnectionSequence(storedSeq)
 
     const meta: SessionMeta = {
-      topic: connection.sessionId, origin: connection.origin, relay,
-      backendIdentityKey: connection.backendIdentityKey,
-      mobileIdentityKey:  connection.mobileIdentityKey,
+      topic: validated.topic, origin: validated.external.origin, relay,
+      backendIdentityKey: validated.backendIdentityKey,
+      mobileIdentityKey:  validated.mobileIdentityKey,
       protocolID,
     }
     setSessionMeta(meta)
 
-    const ws = new WebSocket(`${relay}/ws?topic=${connection.sessionId}&role=mobile`)
+    const ws = new WebSocket(buildRelayWebSocketUrl(relay, validated.topic))
 
     ws.onopen = async () => {
       try {
         const payload = JSON.stringify({
           id: crypto.randomUUID(), seq: initialSeq + 1, method: 'pairing_approved',
           params: {
-            mobileIdentityKey: connection.mobileIdentityKey,
+            mobileIdentityKey: validated.mobileIdentityKey,
+            protocolID: validated.protocolIDRaw,
             walletMeta: { name: walletName, platform: 'mobile' },
             permissions: Array.from(IMPLEMENTED_METHODS),
           },
         })
         const ciphertext = await encryptPayload(
-          wallet, protocolID, connection.sessionId, connection.backendIdentityKey, payload,
+          wallet, protocolID, validated.topic, validated.backendIdentityKey, payload,
         )
         ws.send(JSON.stringify({
-          topic: connection.sessionId,
-          mobileIdentityKey: connection.mobileIdentityKey,
+          topic: validated.topic,
+          mobileIdentityKey: validated.mobileIdentityKey,
           ciphertext,
         } satisfies WireEnvelope))
       } catch {
@@ -433,7 +518,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     }
 
     wireSocket(ws, wallet, meta, initialSeq, () => {
-      connectionStore.setStatus(connection.sessionId, 'active')
+      connectionStore.setStatus(validated.topic, 'active')
       setStatus('connected')
     })
   }, [walletName]) // eslint-disable-line react-hooks/exhaustive-deps

@@ -60,12 +60,14 @@ namespace margelo::nitro::yubikeypiv {
     void setKeyListener(const std::function<void(const std::string& /* eventType */, const std::string& /* serial */, const std::string& /* transport */)>& listener) override;
     void clearKeyListener() override;
     std::shared_ptr<Promise<std::string>> getKeyInfo() override;
-    std::shared_ptr<Promise<std::string>> verifyPin(const std::string& pin) override;
-    std::shared_ptr<Promise<std::string>> changePin(const std::string& oldPin, const std::string& newPin) override;
-    std::shared_ptr<Promise<std::string>> generateVaultKey(double slot, const std::string& touchPolicy, const std::string& pinPolicy) override;
-    std::shared_ptr<Promise<std::string>> readVaultPublicKey(double slot) override;
-    std::shared_ptr<Promise<std::string>> ecdh(double slot, const std::string& pin, const std::string& peerPublicKey) override;
-    std::shared_ptr<Promise<std::string>> signEcdsa(double slot, const std::string& pin, const std::string& digest) override;
+    std::shared_ptr<Promise<std::string>> verifyPin(const std::string& expectedSerial, const std::string& pin) override;
+    std::shared_ptr<Promise<std::string>> changePin(const std::string& expectedSerial, const std::string& oldPin, const std::string& newPin) override;
+    std::shared_ptr<Promise<std::string>> changePuk(const std::string& expectedSerial, const std::string& oldPuk, const std::string& newPuk) override;
+    std::shared_ptr<Promise<std::string>> preflightDedicatedPiv(const std::string& expectedSerial) override;
+    std::shared_ptr<Promise<std::string>> generateVaultKey(const std::string& expectedSerial) override;
+    std::shared_ptr<Promise<std::string>> protectManagementKey(const std::string& expectedSerial) override;
+    std::shared_ptr<Promise<std::string>> readVaultPublicKey(const std::string& expectedSerial) override;
+    std::shared_ptr<Promise<std::string>> signEcdsa(const std::string& expectedSerial, const std::string& pin, const std::string& digest) override;
 
   private:
     jni::global_ref<JHybridYubiKeyPivSpec::JavaPart> _javaPart;

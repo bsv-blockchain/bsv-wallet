@@ -34,13 +34,13 @@ New:
 
 - `r1comb`: `buildLock`, `bakedCommitments`, `commitment`, `buildUnlock`,
   `verifyVaultInput`, `sighashPreimage`, `signerDigest`, `pushTxDerCheck`,
-  `compressPubkey`, the v4 `VaultInstructions` codec, `R1C_LOCK_LEN`,
+  `compressPubkey`, the exact v6 `VaultInstructions` codec, `R1C_LOCK_LEN`,
   `R1C_UNLOCK_LEN` (on-chain format: spec
   `docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md` §2; codec in
   `core/services/vault/r1comb.ts`).
-- `vaultStore` meta v5: `VaultKeyRecord`, `VaultMetaV5`, `addKey`,
-  `removeKey`, `renameKey`, `noteLastUsed`, `migrateLegacySeal`;
-  `isEnrolled()` is meta-only.
+- `vaultStore` meta v6: wallet-and-network-scoped `VaultKeyRecord`, recovery
+  adoption state, two-phase removal tombstones, enrollment drafts and
+  quarantine state; `isEnrolled()` is meta-only.
 - `VaultKeyService`: `enrollKey`, `finalizeEnrollment(records)`,
   `addVaultKey`, `VAULT_MIN_KEYS`, `VAULT_MAX_KEYS`, `EnrollPhase`.
 - Ceremony: `VaultSigner { serial, pubkey, sign(digest, progress?), release() }`,
@@ -55,8 +55,8 @@ New:
   confirmation before the tap; `relockVault`; `estimateRelockFee`;
   `getVaultKeyCoverage`; `orphanedIfRemoved`;
   `VaultSpendResult { txid, cappedInputs, unreachable }`;
-  `VaultTransferOptions.vaultEnabled` / `backupEnabled`; error codes
-  `not-released`, `backup-off`, `not-enough-keys`, `key-already-enrolled`,
+  `VaultTransferOptions.vaultEnabled`; error codes
+  `not-released`, `not-enough-keys`, `key-already-enrolled`,
   `too-many-keys`, `last-keys`, `relock-required`, `key-not-committed`,
   `key-cannot-cover`, `too-small-to-relock`, `bad-version`; `VaultError.details`.
 - `configureToolbox({ vaultEnabled })` and `isVaultEnabled()` — the release
@@ -70,34 +70,58 @@ New:
 
 Behaviour changes:
 
-- Vault outputs are version-2 spends of a ~28 KB lock committed to every
-  enrolled key; deposits stay version 1. `VAULT_DEPOSIT_MIN` is 100,000 sat.
-- A deposit is refused while backup push is off (`backup-off`) or the
-  release flag is off (`not-released`). Withdrawing pre-existing outputs is
-  never gated; creating a re-vault output or a re-lock is.
+- Vault outputs and spends use transaction version 1. The exact lock is about
+  45 KB and commits to every enrolled key. `VAULT_DEPOSIT_MIN` is 100,000 sat.
+- Every output gets a public 32-byte salt equal to a chain-domain-separated
+  SHA-256 digest of a wallet-derived secp256k1 public key under protocol
+  `[2, "vault salt"]`. Exact v6 instructions record the canonical chain.
+  Its key ID is the next canonical decimal integer (`"1"`, `"2"`, ...).
+  Authenticated current and historical output scans rederive each claimed salt
+  public key before using its index and reject salt, key-ID, locking-script and
+  script-hash reuse. The in-process FIFO serializes simultaneous calls. This is
+  not a distributed allocator: disconnected devices sharing a mnemonic can
+  select the same next index, so release requires an authoritative allocator or
+  an enforced single synchronized Vault writer. Chain separation prevents the
+  same mnemonic, index and ordered keys from reproducing a script on another
+  network.
+- Inventory scans consume each page as it arrives: current-output BEEF pages use
+  64 outputs, script-bearing action-history pages use 8 rows, and lightweight
+  action-history pages use 200 rows. A withdrawal retains full proofs only for
+  its at most 32 selected inputs. Compact identity, salt and pagination sets can
+  still grow with history; there is deliberately no total-history cap that can
+  hide an otherwise valid Vault output.
+- Vault transfer broadcast is independent of private-backup configuration. A
+  deposit or output-producing spend is built and signed as `noSend`, its exact
+  signed AtomicBEEF is revalidated, and that exact txid is then released with
+  `sendWith`. A signed held action discovered after a crash is neither aborted
+  nor automatically rebroadcast; it requires manual network-state
+  reconciliation. The release flag still defaults off (`not-released`).
+- Numeric HD salt derivation reproduces the salt but does not reconstruct an
+  exact lock by itself. Clean-device recovery also needs the complete ordered
+  historical P-256 YubiKey public-key descriptor and transaction discovery;
+  current recovery obtains that data from authenticated wallet history.
 - Withdrawals name a key before the tap; only outputs committed to that key
   are spent, each checked against its real lock; the card signs one digest
   per input in batches of 16 per NFC tap, resuming after a dropped tap.
-- `generateVaultKey` enrols with touch policy `cached` (was `always`) and
-  always generates a fresh key (no adoption).
+- Enrollment always generates a fresh P-256 key in PIV slot `0x82`.
+  `generateVaultKey` verifies the same-session pinned Yubico attestation, exact
+  key and PIN-once/touch-cached policy. The enclosing enrollment flow changes a
+  factory-default PIN when needed, rotates the PUK, replaces the default
+  management key and proves possession. Recovery adopts a surviving card only
+  after a fresh possession challenge.
 - `enrollKey` refuses a serial already in the stored key list itself
   (meta ∪ `pendingSerials`), inside the card session and before the PIN is
   spent or the slot is regenerated; `finalizeEnrollment` refuses
   (`key-already-enrolled`) while a vault is already enrolled, so Finish never
   replaces a live key list.
-- A device holding v4 meta reads as not enrolled; the legacy SecureStore seal
-  is deleted on `VaultProvider` mount. Sweep any dev device holding K1 vault
-  funds BEFORE installing this version — the K1 sweep tooling is gone.
-- Kept as legacy pending confirmation that nothing is stranded:
-  `reclaimStagingOutputs`, `VAULT_STAGING_BASKET`,
-  `StorageExpoSQLite.releaseVaultStagingStrandedByInvalidTx`.
-  `VaultWallet.getPublicKey` and `createSignature` survive only for that
-  reclaim.
+- Vault format v6 is future-only. Earlier experimental metadata and outputs are
+  rejected; there is no decoder, migration, staging reclaim or compatibility
+  spend path.
 
 ### Vault UI (breaking)
 
 - `EnrollWizard` is the sequential multi-key wizard (`mode: 'enroll' | 'add-key'`):
-  intro with the acknowledgement and the backup-push gate, one card session per
+  intro with the acknowledgement, one card session per
   key with the PIN gathered before the tap, naming, Add another / Finish with
   two keys minimum, leave-confirm while keys are pending.
 - `VaultScreen` shows the key list (`nickname · …serialTail4`), coverage badges,

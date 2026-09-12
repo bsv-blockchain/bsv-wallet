@@ -1,17 +1,16 @@
 /**
  * Argument-size cap for wallets handed to EXTERNAL callers.
  *
- * Composed at each external surface exactly like guardVaultAccess: the in-tab
- * CWI bridge, the desktop-pairing WalletClient, and the saved-connection
- * WalletClients. Wrap outside the vault guard so a refusal costs nothing —
- * neither a permission prompt nor a storage touch.
+ * Composed at each external surface exactly like guardVaultAccess. The current
+ * app exposes desktop-pairing and saved-connection WalletClients; an embedding
+ * host must wrap any additional bridge it adds. Wrap outside the vault guard so
+ * a refusal costs neither a permission prompt nor a storage touch.
  *
  * WHERE THIS MUST NOT GO. Not in guardVaultAccess, not in SimpleWalletManager,
- * not in WalletPermissionsManager, and not in the toolbox. The vault's K1
- * traffic is ordinary-sized today — a 25-byte P2PKH locking script and a
- * ~107-byte unlocking script per input — and would pass any limit here
- * unmodified. The exemption is kept anyway so the vault stays insulated from
- * any future tightening of these limits on the shared path.
+ * not in WalletPermissionsManager, and not in the toolbox. Vault transactions
+ * carry roughly 45 KB R1C locks and up to 2.5 KB unlocks per selected input;
+ * applying general bridge limits on the internal path could break them. The
+ * exemption keeps the vault insulated from future tightening of those limits.
  *
  * The vault is exempt STRUCTURALLY rather than by an originator comparison: it
  * calls managers.permissionsManager directly and never receives a capped wallet.

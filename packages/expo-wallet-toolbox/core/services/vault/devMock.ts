@@ -17,6 +17,13 @@ let instance: MockYubiKey | null = null
 let present: MockPresentKey = 'MOCK-DEV-1'
 
 export function setMockDriverEnabled(on: boolean): void {
+  // Keep the software signer unreachable even if a release caller invokes the
+  // exported convenience function directly instead of going through the
+  // WalletConfigScreen's render gate.
+  if (!__DEV__) {
+    setMockDriver(null)
+    return
+  }
   if (on) {
     if (!instance) instance = new MockYubiKey()
     instance.insertKey(present)

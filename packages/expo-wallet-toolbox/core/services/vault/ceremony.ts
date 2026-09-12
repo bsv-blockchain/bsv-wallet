@@ -18,26 +18,15 @@
  * a tapped card whose serial is not the chosen one (`serial-mismatch`) on EVERY
  * session, including the reopened ones described below.
  *
- * Concurrency: one ceremony ARMING at a time — `requestSigner()` calls that
- * overlap a single in-flight arm attempt (two callers racing while `running`
- * is true) share that one attempt and all resolve to the SAME VaultSigner,
- * provided they name the same serial; a joiner naming a different serial is
- * rejected with `serial-mismatch` at once, without disturbing the in-flight
- * attempt. release() on the shared signer is idempotent by construction, so
- * whichever caller releases last simply no-ops. That guarantee does NOT extend
- * across separate ceremonies: once an attempt finishes arming, `running` goes
- * back to false, and the NEXT requestSigner() call starts an entirely new
- * ceremony with its own signer — even if the previous one has not been
- * released yet. Two live, independently-armed signers can therefore coexist
- * for a stretch (see ceremony.test.ts's "late release() from a stale signer"
- * case); what is guaranteed is that a signer released late can only affect its
- * OWN subscription, never a successor's — see makeHandle's `release()` doc for
- * the one exception (the shared native transport).
+ * Concurrency: one Vault hardware operation at a time. Every overlapping
+ * `requestSigner()` is rejected with `ceremony-active`, even for the same
+ * serial. The process-wide lease is shared with enrollment and adoption and
+ * remains held until the native listener/session is completely torn down.
  *
  * Session lifetime: arming means "the chosen card answered with the right
  * serial and accepted the PIN", not "the operation is done." A session-based
- * transport's driver.stop() (which dismisses the iOS NFC sheet) is therefore
- * NOT called when the ceremony completes; it moves to VaultSigner.release(),
+ * transport's driver.stop() is therefore not called when arming completes; it
+ * moves to VaultSigner.release() (and also dismisses the iOS NFC sheet),
  * so the session's lifetime still brackets the caller's whole signing loop.
  * The one exception is the error path: if arming itself fails, no signer
  * exists to own the session, so run()'s finally closes it there.
@@ -71,6 +60,7 @@
  */
 import { Utils } from '@bsv/sdk'
 import { VaultDriver } from './driver'
+import { acquireVaultHardwareLease } from './hardwareLease'
 import { VaultError, VaultErrorCode } from './types'
 
 export type CeremonyPhase =
@@ -142,8 +132,7 @@ export interface VaultSigner {
    * a detach, the retention ceiling, or the caller).
    */
   sign(digestHex: string, progress?: { index: number; total: number }): Promise<number[]>
-  /** Idempotent: safe to call more than once, and safe for concurrent callers
-   * that were all handed the same signer to release independently. */
+  /** Idempotent for the owning caller's cleanup paths. */
   release(): void
 }
 
@@ -156,7 +145,7 @@ interface CeremonyKey {
 }
 
 /** The store's key list, narrowed to what a tap needs. ceremonyHost maps
- * vaultStore's meta v5 onto it; tests hand in a literal. */
+ * vaultStore's scoped meta v6 onto it; tests hand in a literal. */
 export interface CeremonyStoreView {
   getMeta(): Promise<{ keys: CeremonyKey[] } | null>
 }
@@ -202,9 +191,7 @@ export class CeremonyController {
   private rejecters: ((e: unknown) => void)[] = []
   private running = false
   private reason = ''
-  /** The serial the in-flight (or most recent) ceremony was asked for. Read
-   * by run() to pick the key out of the store, and by requestSigner() to
-   * refuse a joiner naming a different key. */
+  /** The serial the in-flight (or most recent) ceremony was asked for. */
   private chosenSerial = ''
 
   /** Monotonic id of the newest arm attempt. `running` alone cannot tell an
@@ -254,11 +241,9 @@ export class CeremonyController {
 
   /** Deadline for a session-based transport's waiting-for-key. CoreNFC caps a
    * tag-reader session at 60 s; if nothing (attach OR failure) has arrived in
-   * 65 s the session is dead and its ending was swallowed somewhere below us —
-   * YubiKit drops several such paths internally (readingAvailable false at
-   * start, a session invalidated before it ever became active), so no delegate
-   * fix can make this watchdog redundant. Persistent readers (Android USB)
-   * are exempt: waiting for an insert legitimately has no deadline. */
+   * 65 s the session is dead and its ending was swallowed somewhere below us.
+   * This also bounds an Android ceremony that sees neither an inserted USB key
+   * nor an NFC tap. Persistent test readers are exempt. */
   private static readonly DEFAULT_ATTACH_TIMEOUT_MS = 65_000
 
   /** Signatures one session-based tap covers before the ceremony closes the
@@ -284,29 +269,29 @@ export class CeremonyController {
     return () => this.subscribers.delete(cb)
   }
 
-  /** Ask for the chosen key as a signer. Concurrent calls naming the same
-   * serial share one ceremony and all receive the SAME signer, so release() is
-   * idempotent by construction; a concurrent call naming a DIFFERENT serial is
-   * refused at once with serial-mismatch (one sheet can only run one tap). */
+  /** Ask for the chosen key as a signer. Every overlapping request is refused:
+   * one caller must have sole ownership of both the signer and the process-wide
+   * native discovery/session object through release and teardown. */
   requestSigner(reason: string, chosenSerial: string): Promise<VaultSigner> {
     return new Promise<VaultSigner>((resolve, reject) => {
-      if (this.running && chosenSerial !== this.chosenSerial) {
-        reject(
-          new VaultError(
-            'serial-mismatch',
-            `A ceremony for key ${this.chosenSerial} is already in progress; asked for key ${chosenSerial}`
-          )
-        )
+      if (this.activeHandle || this.running) {
+        reject(new VaultError('ceremony-active', 'A vault signing operation is already active'))
+        return
+      }
+      let releaseLease: () => void
+      try {
+        releaseLease = acquireVaultHardwareLease()
+      } catch (e) {
+        reject(e)
         return
       }
       this.waiters.push(resolve)
       this.rejecters.push(reject)
-      if (this.running) return // join the in-flight ceremony
       this.reason = reason
       this.chosenSerial = chosenSerial
       this.cancelled = false
       this.running = true
-      void this.run()
+      void this.run(releaseLease)
     })
   }
 
@@ -365,7 +350,9 @@ export class CeremonyController {
     this.attachWaiter?.reject(err)
     if (this.running) {
       this.failAll(err)
-      this.running = false
+      // run() owns this flag through its finally. A native operation may still
+      // be returning, and its finally may still need to stop the process-wide
+      // transport. requestSigner refuses successors while cancelled+running.
       this.set({ phase: 'idle' })
     }
     if (this.activeHandle) {
@@ -419,13 +406,12 @@ export class CeremonyController {
   }
 
   /**
-   * Why this outlives `run()` for a session-based transport: WalletContext's
-   * own persistent-reader listener explicitly skips `sessionBased` drivers
-   * (it exists only to relock Android USB on unplug), so a session's OWN
-   * subscription (in its own KeyEventSession box) is the only thing that can
-   * ever learn a tap-session detached while a handle is armed. A persistent
-   * reader has that separate always-on listener, so its ceremony-owned
-   * subscription is dropped right after arming.
+   * Why this outlives `run()` for a session-based transport: WalletContext
+   * skips ceremony-owned native discovery, so this subscription is the only
+   * source of Android USB-unplug events while a handle is armed. NFC loss
+   * during a command also rejects from the native operation. A persistent test
+   * reader has a separate always-on listener, so its ceremony subscription is
+   * dropped right after arming.
    */
   private subscribeKeyEvents(driver: VaultDriver, session: KeyEventSession): void {
     session.off?.()
@@ -441,7 +427,7 @@ export class CeremonyController {
     session.off = undefined
   }
 
-  private async run(): Promise<void> {
+  private async run(releaseLease: () => void): Promise<void> {
     // This attempt's identity for the rest of its life — see `generation`.
     const gen = ++this.generation
     // Synchronous with requestSigner(): anything queued BEFORE this ceremony
@@ -454,6 +440,7 @@ export class CeremonyController {
     if (!driver) {
       this.failAll(new VaultError('driver-unavailable'))
       this.running = false
+      releaseLease()
       return
     }
     // This attempt's own driver-event subscription box: a key connecting (an
@@ -480,13 +467,12 @@ export class CeremonyController {
         throw new VaultError('not-enrolled', `Key ${this.chosenSerial} is not one of this vault's keys`)
       }
 
-      // NFC (session-based) collects the PIN BEFORE the tap and verifies it in
-      // that one tap (the scan sheet covers the app, so no PIN entry mid-tap).
-      // A persistent USB reader can interleave PIN entry and the serial/PIN
-      // checks.
+      // Native discovery collects the PIN first and verifies it after one USB
+      // or NFC device connects. This is required by iOS's modal scan sheet and
+      // gives Android the same single-ceremony, single-device contract.
       const signer = driver.sessionBased
-        ? await this.armViaTap(driver, key, session, gen)
-        : await this.armViaReader(driver, key, session, gen)
+        ? await this.armViaTap(driver, key, session, gen, releaseLease)
+        : await this.armViaReader(driver, key, session, gen, releaseLease)
       this.throwIfCancelled()
 
       // Have we been superseded while parked on the tap? `cancelled` cannot
@@ -517,9 +503,8 @@ export class CeremonyController {
       this.resolveAll(signer)
       this.onArmed?.(signer)
 
-      // Persistent readers hand relock-on-unplug to WalletContext's
-      // longer-lived listener — drop ours now. Session-based transports keep
-      // listening: see subscribeKeyEvents' doc above.
+      // Persistent test readers hand detach handling to their longer-lived
+      // owner. Session-based native drivers keep listening through release.
       if (!driver.sessionBased) this.unsubscribeKeyEvents(session)
     } catch (e) {
       // Anything that is not a VaultError gets relabelled 'driver-unavailable',
@@ -534,7 +519,7 @@ export class CeremonyController {
       // waiters were already failed by the cancel() that superseded it, so
       // there is nobody left to tell. The finally still closes its session.
       if (gen !== this.generation) return
-      if (err.code === 'user-cancelled') {
+      if (this.cancelled || err.code === 'user-cancelled') {
         this.set({ phase: 'idle' })
       } else {
         this.set({ phase: 'error', error: { code: err.code, retriesLeft: err.retriesLeft } })
@@ -544,7 +529,7 @@ export class CeremonyController {
       // Only the CURRENT attempt owns `running`. A superseded attempt clearing
       // it would declare the successor's still-in-flight ceremony finished, so
       // the next requestSigner() would start a third attempt alongside it
-      // instead of joining the second.
+      // instead of recognizing that the second still owns the controller.
       if (gen === this.generation) this.running = false
       // `armed` (this attempt's own outcome), NOT this.activeHandle (whoever
       // the CONTROLLER currently considers active): an unreleased predecessor
@@ -568,6 +553,7 @@ export class CeremonyController {
             /* stop is best-effort */
           }
         }
+        releaseLease()
       }
     }
   }
@@ -580,13 +566,14 @@ export class CeremonyController {
     }
   }
 
-  /** Persistent reader (Android USB): key present, PIN entry and token ops
+  /** Persistent test reader: key presence, PIN entry and token operations can
    * interleave, so a wrong PIN is retried in place. */
   private async armViaReader(
     driver: VaultDriver,
     key: CeremonyKey,
     session: KeyEventSession,
-    gen: number
+    gen: number,
+    releaseLease: () => void
   ): Promise<VaultSigner> {
     this.throwIfStale(gen)
     this.set({ phase: 'connecting' })
@@ -612,8 +599,8 @@ export class CeremonyController {
     }
     if (!info) throw new VaultError('no-key')
     this.requireChosenSerial(info.serial, key)
-    const pin = await this.collectPin(driver, gen)
-    return this.makeHandle(driver, key, pin, session, gen)
+    const pin = await this.collectPin(driver, key, gen)
+    return this.makeHandle(driver, key, pin, session, gen, releaseLease)
   }
 
   /** The serial check, run on EVERY session (initial arm, and each reopen on
@@ -640,19 +627,19 @@ export class CeremonyController {
    * notifyKeyDetached and relocks. */
   private static readonly RETRYABLE_TAP_ERRORS = new Set(['touch-timeout', 'nfc-lost', 'key-removed-mid-op'])
 
-  /** NFC tap (iOS): PIN first in-app (the scan sheet is modal), then one tap
-   * connects, checks the serial and verifies the PIN. A wrong PIN aborts the
-   * ceremony — we cannot re-prompt beneath an open system NFC sheet. No
-   * touch is spent here: the first signature is the first touch. */
+  /** Ceremony-scoped native discovery: collect the PIN first, then connect one
+   * USB/NFC device, check its serial and verify the PIN. A wrong PIN aborts the
+   * ceremony because iOS cannot re-prompt beneath an open system NFC sheet. */
   private async armViaTap(
     driver: VaultDriver,
     key: CeremonyKey,
     session: KeyEventSession,
-    gen: number
+    gen: number,
+    releaseLease: () => void
   ): Promise<VaultSigner> {
     const pin = await this.collectPinValue(gen)
     await this.openTapSession(driver, key, pin, session, gen)
-    return this.makeHandle(driver, key, pin, session, gen)
+    return this.makeHandle(driver, key, pin, session, gen, releaseLease)
   }
 
   /** Open (or reopen) an NFC session and get as far as a verified PIN. Used
@@ -700,9 +687,12 @@ export class CeremonyController {
     // getKeyInfo is a native call cancel() cannot interrupt.
     this.throwIfStale(gen)
     this.requireChosenSerial(info.serial, key)
-    const res = await driver.verifyPin(pin)
+    const res = await driver.verifyPin(key.serial, pin)
     this.throwIfStale(gen)
-    if (!res.ok) throw new VaultError('pin-invalid', 'Wrong PIN', res.retriesLeft)
+    if (!res.ok) {
+      if (res.retriesLeft <= 0) throw new VaultError('pin-locked', 'PIN is blocked', 0)
+      throw new VaultError('pin-invalid', 'Wrong PIN', res.retriesLeft)
+    }
   }
 
   /** Collect a PIN value from the UI only (no token verify) — used by the NFC
@@ -719,7 +709,7 @@ export class CeremonyController {
     return this.pinWaiter.promise
   }
 
-  private async collectPin(driver: VaultDriver, gen: number): Promise<string> {
+  private async collectPin(driver: VaultDriver, key: CeremonyKey, gen: number): Promise<string> {
     for (;;) {
       this.throwIfStale(gen)
       this.set({ phase: 'pin-entry', error: this.state.error })
@@ -731,7 +721,7 @@ export class CeremonyController {
         this.pinWaiter = defer<string>()
         pin = await this.pinWaiter.promise
       }
-      const res = await driver.verifyPin(pin)
+      const res = await driver.verifyPin(key.serial, pin)
       // verifyPin is a native call cancel() cannot interrupt: without this, an
       // attempt superseded while parked in it would resume and repaint the
       // SUCCESSOR's phase back to 'pin-entry' over its armed session, then walk
@@ -741,6 +731,7 @@ export class CeremonyController {
         this.set({ phase: 'pin-entry', error: undefined })
         return pin
       }
+      if (res.retriesLeft <= 0) throw new VaultError('pin-locked', 'PIN is blocked', 0)
       this.set({ phase: 'pin-entry', error: { code: 'pin-invalid', retriesLeft: res.retriesLeft } })
     }
   }
@@ -749,7 +740,7 @@ export class CeremonyController {
    * Wrap the verified card in the armed signer.
    *
    * `sign()` is where every touch is spent, so it carries the retry loop that
-   * used to guard the single ECDH: a retryable rejection (RETRYABLE_TAP_ERRORS)
+   * guards each card signature: a retryable rejection (RETRYABLE_TAP_ERRORS)
    * parks on the Retry prompt, then — on a session-based transport — closes
    * the dead session and opens a fresh one via openTapSession (serial re-
    * checked, PIN re-verified) before signing the SAME digest again. Nothing
@@ -775,33 +766,21 @@ export class CeremonyController {
    * release() is identity-checked against the controller's `activeHandle`:
    * whichever call reaches it first does the real cleanup — the transport
    * session AND, only if this is still the current signer, the shared arm
-   * timer, activeHandle, phase and progress. That makes a signer released late
-   * (after a successor has already armed) a no-op against the CONTROLLER's own
-   * state and against the SUBSCRIPTION (each attempt owns its own
-   * KeyEventSession box, so unsubscribing here can never touch a successor's
-   * listener — see KeyEventSession).
-   *
-   * That scoping does NOT extend to the native transport itself:
-   * `driver.stop()` (via the real adapter, `driver.ts`'s `adaptNative.stop`)
-   * calls `native.stopDiscovery()` + `native.clearKeyListener()`, which are
-   * process-wide — there is exactly one NFC/USB discovery session at the
-   * native layer, not one per KeyEventSession box. A late release() on a
-   * session-based transport therefore CAN silence a successor's still-open
-   * native session even though it cannot touch the successor's JS-level
-   * subscription or controller state. In practice this window is narrow (the
-   * successor's own subsequent driver.start() reopens discovery), but it is
-   * a real gap, not a theoretical one — do not read the subscription-safety
-   * property above as a transport-safety one too.
+   * timer, activeHandle, phase and progress. `requestSigner` prevents any
+   * successor from starting before this handle releases, which also protects
+   * the native process-wide discovery/session object from a late stop().
    */
   private makeHandle(
     driver: VaultDriver,
     key: CeremonyKey,
     pin: string,
     session: KeyEventSession,
-    gen: number
+    gen: number,
+    releaseLease: () => void
   ): VaultSigner {
     const inputsPerTap = this.deps.inputsPerTap ?? CeremonyController.DEFAULT_INPUTS_PER_TAP
     let released = false
+    let signing = false
     /** Successful signatures in the CURRENT transport session. Only consulted
      * on session-based transports. */
     let signedThisSession = 0
@@ -829,59 +808,69 @@ export class CeremonyController {
       pubkey: key.pubkey,
       sign: async (digestHex, progress) => {
         if (released) throw deadSigner()
-        // Stale-but-unreleased: a successor ceremony has armed since this
-        // signer was handed out (see the module doc on coexisting signers).
-        // Refuse before painting a phase, restarting the retention timer or
-        // installing a retry/attach waiter over the successor's session. No
-        // caller can produce this today (transfers releases in a finally);
-        // hardening only.
-        if (this.activeHandle !== signer) throw deadSigner()
-        if (progress) this.noteSigning(progress)
-        // Batch boundary (spec §4.2 step 6). The progress published just above
-        // is what the sheet shows under 'waiting-for-key' ("batch b of n").
-        if (driver.sessionBased && signedThisSession >= inputsPerTap) {
-          await reopen()
-          if (released) throw deadSigner()
-        }
-        for (;;) {
-          if (released) throw deadSigner()
-          this.set({ phase: 'awaiting-touch', error: undefined })
-          try {
-            const { signature } = await driver.signEcdsa(key.slot, pin, digestHex)
-            // signEcdsa is a native call cancel() cannot interrupt: if the
-            // signer was released while we were parked, the answer is not ours
-            // to hand out.
+        if (signing) throw new VaultError('ceremony-active', 'A Vault signature is already in progress')
+        signing = true
+        try {
+          // Stale-but-unreleased: a successor ceremony has armed since this
+          // signer was handed out.
+          // Refuse before painting a phase, restarting the retention timer or
+          // installing a retry/attach waiter over the successor's session. No
+          // caller can produce this today (transfers releases in a finally);
+          // hardening only.
+          if (this.activeHandle !== signer) throw deadSigner()
+          if (progress) this.noteSigning(progress)
+          // Batch boundary (spec §4.2 step 6). The progress published just above
+          // is what the sheet shows under 'waiting-for-key' ("batch b of n").
+          if (driver.sessionBased && signedThisSession >= inputsPerTap) {
+            await reopen()
             if (released) throw deadSigner()
-            signedThisSession++
-            return Utils.toArray(signature, 'hex')
-          } catch (e) {
-            if (released) throw deadSigner()
-            const err = e instanceof VaultError ? e : new VaultError('nfc-lost')
-            if (!CeremonyController.RETRYABLE_TAP_ERRORS.has(err.code)) {
-              // A hard failure is not retryable — paint it so the sheet can
-              // explain, and rethrow so the caller aborts and releases;
-              // release() then takes the phase back to idle.
-              this.set({ phase: 'error', error: { code: err.code, retriesLeft: err.retriesLeft } })
-              throw err
-            }
-            // Park on the Retry prompt. retryWaiter resolves on retry(); it
-            // rejects on cancel() (user-cancelled), on notifyKeyDetached or the
-            // retention ceiling (key-removed-mid-op) — each of which has
-            // already released this signer by the time the rejection lands.
-            this.set({ phase: 'error', error: { code: err.code } })
-            this.retryWaiter = defer<void>()
-            await this.retryWaiter.promise
-            if (released) throw deadSigner()
-            if (driver.sessionBased) await reopen()
-            // loop: sign the SAME digest again
           }
+          for (;;) {
+            if (released) throw deadSigner()
+            this.set({ phase: 'awaiting-touch', error: undefined })
+            try {
+              const { signature } = await driver.signEcdsa(key.serial, pin, digestHex)
+              // signEcdsa is a native call cancel() cannot interrupt: if the
+              // signer was released while we were parked, the answer is not ours
+              // to hand out.
+              if (released) throw deadSigner()
+              signedThisSession++
+              return Utils.toArray(signature, 'hex')
+            } catch (e) {
+              if (released) throw deadSigner()
+              const err = e instanceof VaultError ? e : new VaultError('nfc-lost')
+              if (!CeremonyController.RETRYABLE_TAP_ERRORS.has(err.code)) {
+                // A hard failure is not retryable — paint it so the sheet can
+                // explain, and rethrow so the caller aborts and releases;
+                // release() then takes the phase back to idle.
+                this.set({ phase: 'error', error: { code: err.code, retriesLeft: err.retriesLeft } })
+                throw err
+              }
+              // Park on the Retry prompt. retryWaiter resolves on retry(); it
+              // rejects on cancel() (user-cancelled), on notifyKeyDetached or the
+              // retention ceiling (key-removed-mid-op) — each of which has
+              // already released this signer by the time the rejection lands.
+              this.set({ phase: 'error', error: { code: err.code } })
+              this.retryWaiter = defer<void>()
+              await this.retryWaiter.promise
+              if (released) throw deadSigner()
+              if (driver.sessionBased) await reopen()
+              // loop: sign the SAME digest again
+            }
+          }
+        } finally {
+          signing = false
+          // release() may have cancelled while a native signature/reopen was
+          // still in flight. Keep the global lease until that continuation has
+          // observed cancellation and completely unwound.
+          if (released) releaseLease()
         }
       },
       release: () => {
         if (released) return
         released = true
-        // Session-based transports (iOS NFC) held the scan session open for the
-        // caller's whole signing loop; this is what finally dismisses the sheet.
+        // Session-based native transports hold discovery for the caller's whole
+        // signing loop; this closes it and also dismisses the iOS sheet.
         // Unsubscribe first so our own stop() cannot echo back as a detach and
         // re-enter this relock path. Scoped to THIS signer's own session box —
         // see KeyEventSession — so a late release() here can never touch a
@@ -906,6 +895,7 @@ export class CeremonyController {
         // strings can't be wiped, but there is no reason to keep pinning the
         // value in the module singleton once release() has run.
         pin = ''
+        if (!signing) releaseLease()
       }
     }
     return signer

@@ -123,6 +123,27 @@ describe('transaction()', () => {
     expect(main.log.some(s => /monitor_events/.test(s))).toBe(false)
   })
 
+  it('keeps every backup relation read on the transaction snapshot', async () => {
+    await storage.transaction(async trx => {
+      const args = { userId: 1, trx }
+      await storage.getProvenTxsForUser(args)
+      await storage.getProvenTxReqsForUser(args)
+      await storage.getTxLabelMapsForUser(args)
+      await storage.getOutputTagMapsForUser(args)
+    })
+
+    expect(main.txns).toHaveLength(1)
+    const reads = main.txns[0].log.filter(sql => /^SELECT /.test(sql))
+    expect(reads).toHaveLength(4)
+    expect(reads).toEqual([
+      expect.stringContaining('FROM proven_txs'),
+      expect.stringContaining('FROM proven_tx_reqs'),
+      expect.stringContaining('FROM tx_labels_map'),
+      expect.stringContaining('FROM output_tags_map')
+    ])
+    expect(main.log).toEqual([])
+  })
+
   it('keeps sqliteDb pointing at the main connection while a transaction is open', async () => {
     let seen: unknown
     await storage.transaction(async () => {

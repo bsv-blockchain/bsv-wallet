@@ -1,3 +1,45 @@
+diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/Wallet.js b/node_modules/@bsv/wallet-toolbox-mobile/out/src/Wallet.js
+index 608da7f..bcb1332 100644
+--- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/Wallet.js
++++ b/node_modules/@bsv/wallet-toolbox-mobile/out/src/Wallet.js
+@@ -270,11 +270,18 @@ class Wallet {
+         sdk_1.Validation.validateOriginator(originator);
+         const { vargs } = this.validateAuthAndArgs(args, sdk_1.Validation.validateListActionsArgs);
+         const r = await this.storage.listActions(vargs);
+-        // Implement security policy to block customInstructions from output results.
+-        for (const action of r.actions) {
+-            if (action.outputs != null) {
+-                for (const output of action.outputs) {
+-                    output.customInstructions = undefined;
++        // Custom instructions are wallet-private metadata. The first-party
++        // Vault needs its own authenticated history in order to prove that a
++        // derived salt was never reused, but connected applications must keep
++        // seeing the upstream redacted shape.
++        const vaultAdmin = this.__bsvVaultAdminOriginator !== undefined &&
++            originator === this.__bsvVaultAdminOriginator;
++        if (!vaultAdmin) {
++            for (const action of r.actions) {
++                if (action.outputs != null) {
++                    for (const output of action.outputs) {
++                        output.customInstructions = undefined;
++                    }
+                 }
+             }
+         }
+@@ -593,6 +600,13 @@ class Wallet {
+             }
+             const { auth, vargs } = this.validateAuthAndArgs(args, sdk_1.Validation.validateCreateActionArgs, logger);
+             logger?.log('validated args');
++            // BSV Browser Vault authorization is decided from the originator
++            // supplied by WalletClient, never from caller-controlled action
++            // fields. Carry that decision only inside the validated storage
++            // request so the provider can reject R1C inputs atomically at its
++            // authenticated source-script boundary.
++            vargs.__bsvVaultAdminAuthorized = this.__bsvVaultAdminOriginator !== undefined &&
++                originator === this.__bsvVaultAdminOriginator;
+             vargs.includeAllSourceTransactions = this.includeAllSourceTransactions;
+             if ((this.randomVals != null) && this.randomVals.length > 1) {
+                 vargs.randomVals = [...this.randomVals];
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/WalletPermissionsManager.js b/node_modules/@bsv/wallet-toolbox-mobile/out/src/WalletPermissionsManager.js
 index 17cbea2..2a21776 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/WalletPermissionsManager.js
@@ -44,9 +86,10 @@ index 17cbea2..2a21776 100644
              });
          }
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/signer/methods/buildSignableTransaction.js b/node_modules/@bsv/wallet-toolbox-mobile/out/src/signer/methods/buildSignableTransaction.js
+index 8540a7c..e11a10e 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/signer/methods/buildSignableTransaction.js
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/src/signer/methods/buildSignableTransaction.js
-@@ -188,7 +188,14 @@
+@@ -188,7 +188,14 @@ function verifyRequestedOutputsUnchanged(storageOutputs, args) {
          if (requestedScript.length === 0 || requestedScript !== providedScript) {
              throw new WERR_errors_1.WERR_INVALID_PARAMETER('output.lockingScript', `equal to the caller-requested locking script. Storage returned a different locking script for output index ${i}; the recipient may have been substituted.`);
          }
@@ -282,24 +325,142 @@ index 4569453..032f38c 100644
  }
  //# sourceMappingURL=completeSignedTransaction.js.map
 \ No newline at end of file
+diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/StorageProvider.js b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/StorageProvider.js
+index c9b8de6..c234104 100644
+--- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/StorageProvider.js
++++ b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/StorageProvider.js
+@@ -564,8 +564,24 @@ class StorageProvider extends StorageReaderWriter_1.StorageReaderWriter {
+     async relinquishOutput(auth, args) {
+         const vargs = sdk_1.Validation.validateRelinquishOutputArgs(args);
+         const { txid, vout } = sdk_1.Validation.parseWalletOutpoint(vargs.output);
+-        const output = (0, utilityHelpers_1.verifyOne)(await this.findOutputs({ partial: { userId: auth.userId, txid, vout } }));
+-        return await this.updateOutput(output.outputId, { basketId: undefined });
++        return await this.transaction(async (trx) => {
++            const output = (0, utilityHelpers_1.verifyOne)(await this.findOutputs({
++                partial: { userId: auth.userId, txid, vout },
++                trx
++            }));
++            const basket = (0, utilityHelpers_1.verifyOne)(await this.findOutputBaskets({
++                partial: { userId: auth.userId, name: vargs.basket },
++                trx
++            }));
++            // The basket in the request is an authorization claim, not the
++            // identity of the stored output. Verify it against storage before
++            // removing anything; otherwise access to any ordinary basket can
++            // be used to relinquish an admin-basket output by outpoint.
++            if (output.basketId !== basket.basketId) {
++                throw new WERR_errors_1.WERR_INVALID_PARAMETER('basket', 'the basket that currently contains the output');
++            }
++            return await this.updateOutput(output.outputId, { basketId: undefined }, trx);
++        });
+     }
+     async processSyncChunk(args, chunk) {
+         const user = (0, utilityHelpers_1.verifyTruthy)(await this.findUserByIdentityKey(args.identityKey));
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/createAction.js b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/createAction.js
+index ab8101e..f1ee46b 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/createAction.js
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/createAction.js
-@@ -629,7 +629,16 @@
+@@ -565,6 +565,12 @@ async function resolveInputScript(storage, userId, vargs, input, beef, preloaded
+         input.satoshis = sdk_1.Validation.validateSatoshis(so.satoshis, 'so.satoshis');
+         input.lockingScript = so.lockingScript;
+     }
++    // Optional host policy hook. It runs only after the source output has been
++    // resolved from authenticated local storage or verified BEEF, so a caller
++    // cannot lie about the locking script to bypass a protected-input rule.
++    if (typeof storage.validateResolvedActionInput === 'function') {
++        await storage.validateResolvedActionInput(vargs, input);
++    }
+ }
+ async function validateNoSendChange(storage, userId, vargs, changeBasket) {
+     const r = [];
+@@ -629,7 +635,14 @@ async function fundNewTransactionSdk(storage, userId, vargs, ctx) {
          changeFirstSatoshis: Math.max(1, Math.round(ctx.changeBasket.minimumDesiredUTXOValue / 4)),
          changeLockingScriptLength: 25,
          changeUnlockingScriptLength: 107,
 -        targetNetCount: ctx.changeBasket.numberOfDesiredUTXOs - ctx.availableChangeCount,
-+        // PATCH(bsv-browser): a vault deposit's tx2 is funded to its exact fee so
-+        // it stays single-input/single-output — the point of the two-transaction
-+        // deposit is that the ~960 KB vault script never gains spendable sibling
-+        // outputs (any change here would drag the whole script into the inputBEEF
-+        // of every later payment that spends it). UTXO-pool growth (targetNetCount)
-+        // would add funding inputs and split change into this transaction, so it
-+        // is suppressed for the vault-deposit label.
++        // PATCH(bsv-browser): keep a Vault deposit's transaction plan minimal.
++        // UTXO-pool growth (targetNetCount) would add funding inputs and split
++        // unrelated change into a transaction carrying the large R1C output,
++        // increasing later BEEF and review costs. The Vault path validates the
++        // complete signed plan before releasing it from noSend.
 +        targetNetCount: (vargs.labels ?? []).includes('vault-deposit')
 +            ? undefined
 +            : ctx.changeBasket.numberOfDesiredUTXOs - ctx.availableChangeCount,
          randomVals: vargs.randomVals
      };
      const noSendChange = [...ctx.noSendChangeIn];
+diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.d.ts b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.d.ts
+index 9d934ee..0affefe 100644
+--- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.d.ts
++++ b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.d.ts
+@@ -89,14 +89,14 @@ export declare function restoreInputsToSpendable(storage: StorageProvider, trans
+  *
+  * "basket insertion" Merge Rules:
+  * 1. The "default" basket may not be specified as the insertion basket.
+- * 2. Managed change may not be reclassified as a basket insertion.
++ * 2. An existing output may only be internalized idempotently into its current
++ *    basket. Basket insertion is not an output-reclassification API.
+  * 3. Basket insertions do not affect wallet balance and are typed "custom".
+  *
+  * "wallet payment" Merge Rules:
+  * 1. Targeting an existing managed output is idempotent.
+- * 2. Targeting an existing custom output converts it to managed BRC-29
+- *    change and increases wallet balance. This includes verified recovery of
+- *    a legacy custom row that was incorrectly placed in the default basket.
++ * 2. Targeting a custom output converts it to managed BRC-29 change after
++ *    the signer layer verifies its exact locking script.
+  */
+ export declare function internalizeAction(storage: StorageProvider, auth: AuthId, args: InternalizeActionArgs): Promise<StorageInternalizeActionResult>;
+ //# sourceMappingURL=internalizeAction.d.ts.map
+diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.js b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.js
+index 6a70185..5898de2 100644
+--- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.js
++++ b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.js
+@@ -127,14 +127,14 @@ async function restoreInputsToSpendable(storage, transitions) {
+  *
+  * "basket insertion" Merge Rules:
+  * 1. The "default" basket may not be specified as the insertion basket.
+- * 2. Managed change may not be reclassified as a basket insertion.
++ * 2. An existing output may only be internalized idempotently into its current
++ *    basket. Basket insertion is not an output-reclassification API.
+  * 3. Basket insertions do not affect wallet balance and are typed "custom".
+  *
+  * "wallet payment" Merge Rules:
+  * 1. Targeting an existing managed output is idempotent.
+- * 2. Targeting an existing custom output converts it to managed BRC-29
+- *    change and increases wallet balance. This includes verified recovery of
+- *    a legacy custom row that was incorrectly placed in the default basket.
++ * 2. Targeting a custom output converts it to managed BRC-29 change after
++ *    the signer layer verifies its exact locking script.
+  */
+ async function internalizeAction(storage, auth, args) {
+     const ctx = new InternalizeActionContext(storage, auth, args);
+@@ -289,9 +289,12 @@ class InternalizeActionContext {
+                 if ((0, managedChange_1.isManagedChangeOutput)(basket.eo)) {
+                     throw new WERR_errors_1.WERR_INVALID_PARAMETER('outputs', `output ${basket.vout} is wallet-managed change and cannot be reclassified as a basket insertion`);
+                 }
+-                // An incompatible legacy row in the default basket may be moved to a
+-                // non-default recovery basket. It was not part of managed balance, so
+-                // this metadata repair has no satoshi adjustment.
++                const currentBasket = (0, utilityHelpers_1.verifyOne)(await this.storage.findOutputBaskets({
++                    partial: { userId: this.userId, basketId: basket.eo.basketId }
++                }));
++                if (currentBasket.name !== basket.basket) {
++                    throw new WERR_errors_1.WERR_INVALID_PARAMETER('outputs', `output ${basket.vout} is already assigned to basket ${currentBasket.name} and cannot be reclassified`);
++                }
+             }
+         }
+         for (const payment of this.walletPayments) {
+@@ -302,9 +305,9 @@ class InternalizeActionContext {
+                         payment.ignore = true;
+                     }
+                     else {
+-                        // Verified signer processing established that this is BRC-29.
+-                        // Promote a custom row (including legacy custom-in-default rows)
+-                        // to managed change and add it to balance.
++                        // The signer layer verified this exact output as BRC-29.
++                        // Promote the custom row to managed change and add it
++                        // to balance; an R1C Vault lock cannot pass that check.
+                         this.satoshis += payment.txo.satoshis;
+                     }
+                 }

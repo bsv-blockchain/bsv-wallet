@@ -6,8 +6,9 @@
  * Deposit needs no hardware: the wallet builds an R1C output committed to every
  * enrolled key and broadcasts it (depositToVault). The screen shows the floor
  * and the fee inline, confirms the FIRST deposit into an empty vault, and
- * refuses while the encrypted backup is off — every deposit's salt lives only
- * in this wallet's database (D13).
+ * respects the release flag. Each salt is baked into its lock and cross-checked
+ * against v6 custom instructions. Encrypted backup remains recovery advice
+ * because it preserves authenticated key records and wallet history.
  *
  * Withdraw asks which key will be tapped BEFORE anything runs (the NFC sheet is
  * modal), previews what the chosen key can select (previewVaultWithdrawal —
@@ -50,7 +51,6 @@ import {
   estimateRelockFee,
   R1C_LOCK_LEN,
   isVaultEnabled,
-  isBackupPushEnabled,
   type VaultWallet,
   type VaultMeta,
   type VaultSpendResult,
@@ -148,8 +148,7 @@ export function VaultTransferScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Guards run()'s whole lifetime, not just the `busy` render state: without
-  // it a second tap that lands before the first `await` (e.g. the
-  // isBackupPushEnabled read below, which precedes setBusy(true)) re-enters
+  // it a second tap that lands before React commits the busy state can re-enter
   // run() while canRun is still true and busy is still false.
   const runningRef = useRef(false)
 
@@ -171,9 +170,13 @@ export function VaultTransferScreen() {
       if (!alive) return
       setMeta(m)
       if (!m || m.keys.length === 0) return
-      // Default to the key used last; a removed serial falls back to the first.
-      const lastUsed = m.keys.find(k => k.serial === m.lastUsedSerial)
-      setChosenSerial((lastUsed ?? m.keys[0]).serial)
+      // Restored records are offered only after this device has proved live
+      // possession. Default to the last eligible key, then the first.
+      const eligible = m.recovery?.required
+        ? m.keys.filter(k => m.recovery!.adoptedSerials.includes(k.serial))
+        : m.keys
+      const lastUsed = eligible.find(k => k.serial === m.lastUsedSerial)
+      setChosenSerial((lastUsed ?? eligible[0])?.serial)
     })
     return () => {
       alive = false
@@ -182,19 +185,32 @@ export function VaultTransferScreen() {
 
   // Memoised: several useCallback deps below read it, and a fresh `[]` on
   // every render would invalidate them all.
-  const keys = useMemo(() => meta?.keys ?? [], [meta])
+  const allKeys = useMemo(() => meta?.keys ?? [], [meta])
+  const keys = useMemo(
+    () => meta?.recovery?.required
+      ? allKeys.filter(key => meta.recovery!.adoptedSerials.includes(key.serial))
+      : allKeys,
+    [meta, allKeys]
+  )
   const chosen = keys.find(k => k.serial === chosenSerial)
   const allNames = keys.map(vaultKeyLabel).join(', ')
 
   // The lock's own size at the toolbox rate, plus its 10 % margin. The funding
   // input adds ~15 sat on top; "about" is the right word for the copy.
-  const depositFee = estimateRelockFee(0, R1C_LOCK_LEN(Math.min(VAULT_MAX_KEYS, Math.max(1, keys.length))))
+  const depositFee = estimateRelockFee(0, R1C_LOCK_LEN(Math.min(VAULT_MAX_KEYS, Math.max(1, allKeys.length))))
 
   const sats = parseInt(amount, 10)
   const validAmount = isDeposit
     ? Number.isFinite(sats) && sats >= VAULT_DEPOSIT_MIN
     : isMax || (Number.isFinite(sats) && sats > 0)
-  const canRun = validAmount && !busy && !!pm && balance !== null && (isDeposit ? released : chosen !== undefined)
+  const transfersBlocked = !!meta?.pendingRemoval
+  const canRun =
+    validAmount &&
+    !busy &&
+    !transfersBlocked &&
+    !!pm &&
+    balance !== null &&
+    (isDeposit ? released : chosen !== undefined)
 
   /** `nickname · …tail4` for each referenced key; a key no longer in meta shows its pubkey tail. */
   const namesFor = useCallback(
@@ -207,21 +223,6 @@ export function VaultTransferScreen() {
         .join(', '),
     [keys]
   )
-
-  const backupOffAlert = useCallback(async () => {
-    haptics.error()
-    const choice = await showAlert({
-      title: t('vault_backup_off_title'),
-      message: t('vault_backup_off_body'),
-      buttons: [
-        { text: t('vault_backup_off_cta'), key: 'settings' },
-        { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
-      ]
-    })
-    // push (not replace) keeps this screen on the stack so the user can come
-    // back and retry the deposit after switching backup on.
-    if (choice === 'settings') router.push('/wallet-config')
-  }, [router])
 
   /** Everything vaultErrorCopy can name for this screen's errors. */
   const errorParams = useCallback(
@@ -262,12 +263,6 @@ export function VaultTransferScreen() {
     setError(null)
     try {
       if (isDeposit) {
-        // D13 first: the salt of this deposit will live only in this wallet's
-        // database, so an unbacked wallet must not create it.
-        if (!(await isBackupPushEnabled())) {
-          await backupOffAlert()
-          return
-        }
         // The first deposit is the moment the recovery model becomes real
         // money: say it once, with the names of the keys that hold it.
         if (total === 0) {
@@ -377,12 +372,6 @@ export function VaultTransferScreen() {
     } catch (e) {
       console.error('[vault] transfer failed:', e instanceof Error ? e.message : e, e)
       const code = e instanceof VaultError ? e.code : undefined
-      if (code === 'backup-off') {
-        // The service's own D13 refusal lands on the same alert as the
-        // pre-check, with the same way out.
-        await backupOffAlert()
-        return
-      }
       haptics.error()
       setError(vaultErrorCopy(code, errorParams(e)))
     } finally {
@@ -403,7 +392,6 @@ export function VaultTransferScreen() {
     storage,
     fmt,
     namesFor,
-    backupOffAlert,
     errorParams,
     refresh,
     router
@@ -462,6 +450,14 @@ export function VaultTransferScreen() {
 
         {isDeposit && !released && (
           <Text style={[styles.floor, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>
+        )}
+
+        {transfersBlocked && (
+          <Text style={[styles.floor, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>
+        )}
+
+        {!isDeposit && meta?.recovery?.required && keys.length === 0 && (
+          <Text style={[styles.floor, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
         )}
 
         {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}

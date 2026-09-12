@@ -1,6 +1,15 @@
 import { PrivateKey, Utils } from '@bsv/sdk'
 import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
-import { CHUNK_ENTITIES, decodeChunk, emptyChunk, encodeChunk, isEmptyChunk } from '../../core/backup/codec'
+import {
+  CHUNK_ENTITIES,
+  decodeBackupRecord,
+  decodeChunk,
+  emptyChunk,
+  encodeChunk,
+  encodeSnapshotComplete,
+  isEmptyChunk,
+  isSnapshotCompleteRecordSize
+} from '../../core/backup/codec'
 import { BACKUP_PROTOCOL, backupKeyId } from '../../core/backup/constants'
 import { deriveBackupWallet } from '../../core/backup/derive'
 
@@ -24,6 +33,20 @@ function chunkWithBinary (): SyncChunk {
 }
 
 describe('backup chunk codec', () => {
+  it('round-trips an encrypted snapshot-complete marker with an index-visible odd size', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const marker = {
+      deviceId: 'a'.repeat(32),
+      generation: 3,
+      dataHeadSeq: 7,
+      dataHeadSha256: 'b'.repeat(64)
+    }
+    const encoded = await encodeSnapshotComplete(w, marker, 'main')
+
+    expect(isSnapshotCompleteRecordSize(encoded.length)).toBe(true)
+    expect(await decodeBackupRecord(w, encoded, 'main')).toEqual({ type: 'snapshot-complete', marker })
+  })
+
   it('round-trips binary fields byte-exactly', async () => {
     const w = deriveBackupWallet(KEY, 'main')
     const decoded = await decodeChunk(w, await encodeChunk(w, chunkWithBinary(), 'main'), 'main')
@@ -162,7 +185,6 @@ describe('backup chunk codec', () => {
       keyID: backupKeyId('main'),
       counterparty: 'self'
     })
-
     await expect(decodeChunk(w, ciphertext, 'main')).rejects.toThrow(/chain/)
   })
 

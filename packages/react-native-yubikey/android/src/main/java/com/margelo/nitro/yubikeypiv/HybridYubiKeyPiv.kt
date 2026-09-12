@@ -1,5 +1,6 @@
 package com.margelo.nitro.yubikeypiv
 
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
@@ -13,13 +14,12 @@ import com.yubico.yubikit.android.transport.nfc.NfcYubiKeyDevice
 import com.yubico.yubikit.android.transport.usb.UsbConfiguration
 import com.yubico.yubikit.android.transport.usb.UsbYubiKeyDevice
 import com.yubico.yubikit.core.YubiKeyDevice
-import com.yubico.yubikit.core.keys.EllipticCurveValues
 import com.yubico.yubikit.core.keys.PublicKeyValues
 import com.yubico.yubikit.core.smartcard.ApduException
 import com.yubico.yubikit.core.smartcard.SmartCardConnection
-// 3.2.0: InvalidPinException lives in core.application, not piv.
 import com.yubico.yubikit.core.application.InvalidPinException
 import com.yubico.yubikit.piv.KeyType
+import com.yubico.yubikit.piv.ManagementKeyType
 import com.yubico.yubikit.piv.PinPolicy
 import com.yubico.yubikit.piv.PivSession
 import com.yubico.yubikit.piv.Slot
@@ -27,9 +27,12 @@ import com.yubico.yubikit.piv.TouchPolicy
 import java.io.IOException
 import java.math.BigInteger
 import java.security.AlgorithmParameters
+import java.security.SecureRandom
 import java.security.spec.ECFieldFp
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.ECParameterSpec
+import java.security.cert.X509Certificate
+import java.util.concurrent.CountDownLatch
 
 /**
  * YubiKeyPiv over YubiKit-Android's PIV application (CCID).
@@ -44,27 +47,44 @@ import java.security.spec.ECParameterSpec
  * `mapError`) so the JS vault layer can branch on a stable machine code rather
  * than parse YubiKit's own English.
  *
- * Discovery bookkeeping (`listener`, `currentDevice`) is confined to the
- * main-thread Handler — YubiKitManager delivers USB/NFC discovery on the main
- * thread and we post everything we initiate onto the same thread, making the
- * discovery state machine single-threaded by construction (the same discipline
- * the Swift side gets from serial completion queues). The per-operation
- * `requestConnection` callbacks run on YubiKit's own executor; they only touch
- * the Promise they were handed, never the shared discovery state.
+ * Discovery bookkeeping is serialized on the main thread. Each JS ceremony
+ * starts and stops its own discovery window; stopDiscovery is synchronous with
+ * respect to that bookkeeping so the process-wide hardware lease cannot be
+ * handed to a successor before the old native discovery has been torn down.
+ * Per-operation requestConnection callbacks run on YubiKit's executor and use
+ * a volatile snapshot of the selected device.
  */
 class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
   private val main = Handler(Looper.getMainLooper())
+  private val pivCode = Regex("^[0-9]{6,8}$")
+  private val serialCode = Regex("^[A-Za-z0-9._:-]{1,64}$")
 
   private val manager: YubiKitManager? by lazy {
     val ctx = NitroModules.applicationContext ?: return@lazy null
     YubiKitManager(ctx.applicationContext)
   }
 
+  private val attestationAuthorities by lazy {
+    val ctx = NitroModules.applicationContext
+      ?: throw VaultException("attestation-invalid", "application context unavailable for pinned CA bundle")
+    try {
+      ctx.assets.open(ATTESTATION_ASSET).use(YubicoPivAttestation::loadAuthorities)
+    } catch (e: VaultException) {
+      throw e
+    } catch (_: Throwable) {
+      throw VaultException("attestation-invalid", "pinned Yubico CA bundle failed validation")
+    }
+  }
+
   /** JS listener: (eventType, serial, transport). Confined to `main`. */
   private var listener: ((String, String, String) -> Unit)? = null
-  /** The key currently on a reader (USB plugged, or NFC held). Confined to `main`. */
+  /** Main-thread writes; operation threads take a volatile snapshot. */
+  @Volatile
   private var currentDevice: YubiKeyDevice? = null
+  private var currentTransport: String? = null
   private var discovering = false
+  private var discoveryGeneration = 0L
+  private var nfcActivity: Activity? = null
 
   // ── discovery ──
 
@@ -79,21 +99,33 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
   /** `message` is the iOS NFC alert text; Android's system NFC has no
    *  per-session prompt and USB has none, so it is accepted and ignored. */
   override fun startDiscovery(message: String) {
-    main.post {
-      if (discovering) return@post
-      val m = manager ?: return@post
+    onMainSync {
+      if (discovering) return@onMainSync
+      val m = manager ?: return@onMainSync
       discovering = true
+      val generation = ++discoveryGeneration
 
       // USB: the SDK owns the runtime permission dialog. Each plug-in delivers
-      // a UsbYubiKeyDevice that stays live until unplugged.
+      // a UsbYubiKeyDevice that stays live until unplugged. Enabling discovery
+      // also reports keys that were already inserted.
       m.startUsbDiscovery(UsbConfiguration()) { device ->
-        main.post { currentDevice = device }
-        readSerialAndEmit(device, "usb")
-        (device as? UsbYubiKeyDevice)?.setOnClosed {
-          main.post {
-            if (currentDevice === device) currentDevice = null
-            emit("removed", "", "usb")
+        main.post {
+          if (!isActive(generation)) {
+            device.close()
+            return@post
           }
+          currentDevice = device
+          currentTransport = "usb"
+          device.setOnClosed {
+            main.post {
+              if (isActive(generation) && currentDevice === device) {
+                currentDevice = null
+                currentTransport = null
+                listener?.invoke("removed", "", "usb")
+              }
+            }
+          }
+          readSerialAndEmit(device, "usb", generation)
         }
       }
 
@@ -102,18 +134,18 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
       try {
         val activity = (NitroModules.applicationContext as? ReactApplicationContext)?.currentActivity
         if (activity != null) {
+          nfcActivity = activity
           m.startNfcDiscovery(NfcConfiguration(), activity) { device ->
-            main.post { currentDevice = device }
-            readSerialAndEmit(device, "nfc")
-            // An NFC tap is a transient session: when the tag leaves the field
-            // we must emit `removed` so the JS layer relocks the PKM, exactly
-            // like USB unplug. NfcYubiKeyDevice.remove(...) fires once the tag
-            // is gone. Without this the 120s PKM window outlives the tap.
-            (device as? NfcYubiKeyDevice)?.remove {
-              main.post {
-                if (currentDevice === device) currentDevice = null
-                emit("removed", "", "nfc")
+            main.post {
+              if (!isActive(generation)) {
+                // Its discovery executor was already shut down by teardown.
+                // Do not call remove(Runnable): that is an imperative close,
+                // never a detach-listener registration.
+                return@post
               }
+              currentDevice = device
+              currentTransport = "nfc"
+              readSerialAndEmit(device, "nfc", generation)
             }
           }
         }
@@ -126,42 +158,86 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
   }
 
   override fun stopDiscovery() {
-    main.post {
-      if (!discovering) return@post
+    onMainSync {
+      if (!discovering) return@onMainSync
+      discovering = false
+      ++discoveryGeneration
       val m = manager
+      val held = currentDevice
+      currentDevice = null
+      currentTransport = null
+      // YubiKit 3.1 has no NFC detach callback. remove(Runnable) immediately
+      // makes this transient handle unusable, so call it only as explicit
+      // ceremony teardown. A physical lift during an operation is reported as
+      // IOException by requestConnection and is handled in withPiv below.
+      (held as? NfcYubiKeyDevice)?.remove {}
       try { m?.stopUsbDiscovery() } catch (_: Throwable) {}
       try {
-        val activity = (NitroModules.applicationContext as? ReactApplicationContext)?.currentActivity
+        val activity = nfcActivity
         if (activity != null) m?.stopNfcDiscovery(activity)
       } catch (_: Throwable) {}
-      currentDevice = null
-      discovering = false
+      nfcActivity = null
     }
   }
 
   override fun setKeyListener(listener: (String, String, String) -> Unit) {
-    main.post { this.listener = listener }
+    onMainSync { this.listener = listener }
   }
 
   override fun clearKeyListener() {
-    main.post { this.listener = null }
+    onMainSync { this.listener = null }
   }
 
-  private fun emit(eventType: String, serial: String, transport: String) {
-    val l = listener ?: return
-    main.post { l(eventType, serial, transport) }
+  /** Run discovery mutations synchronously on Android's main thread. Nitro can
+   * invoke these methods off-main; waiting here makes `stop()` a real teardown
+   * barrier before JS releases the process-wide hardware lease. */
+  private fun onMainSync(block: () -> Unit) {
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      block()
+      return
+    }
+    val done = CountDownLatch(1)
+    var failure: Throwable? = null
+    main.post {
+      try {
+        block()
+      } catch (t: Throwable) {
+        failure = t
+      } finally {
+        done.countDown()
+      }
+    }
+    try {
+      done.await()
+    } catch (e: InterruptedException) {
+      Thread.currentThread().interrupt()
+      throw e
+    }
+    failure?.let { throw it }
   }
+
+  /** Called only on the main thread. */
+  private fun isActive(generation: Long): Boolean = discovering && discoveryGeneration == generation
 
   /** Open a throwaway session just to read the serial for a connected event. */
-  private fun readSerialAndEmit(device: YubiKeyDevice, transport: String) {
+  private fun readSerialAndEmit(device: YubiKeyDevice, transport: String, generation: Long) {
     device.requestConnection(SmartCardConnection::class.java) { result ->
       val serial = try {
         val piv = PivSession(result.value)
         piv.serialNumber.toString()
       } catch (_: Throwable) {
-        ""
+        null
       }
-      emit("connected", serial, transport)
+      main.post {
+        if (!isActive(generation) || currentDevice !== device) return@post
+        if (serial != null && serialCode.matches(serial)) {
+          listener?.invoke("connected", serial, transport)
+        } else {
+          currentDevice = null
+          currentTransport = null
+          listener?.invoke("failed", "", transport)
+        }
+      }
     }
   }
 
@@ -178,9 +254,18 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     return promise
   }
 
-  override fun verifyPin(pin: String): Promise<String> {
+  override fun verifyPin(expectedSerial: String, pin: String): Promise<String> {
     val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    if (!pivCode.matches(pin)) {
+      promise.reject(vaultError("template-invalid", "PIV PIN must be 6 to 8 ASCII digits"))
+      return promise
+    }
     withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
       try {
         piv.verifyPin(pin.toCharArray())
         "{\"ok\":true,\"retriesLeft\":null}"
@@ -193,9 +278,18 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     return promise
   }
 
-  override fun changePin(oldPin: String, newPin: String): Promise<String> {
+  override fun changePin(expectedSerial: String, oldPin: String, newPin: String): Promise<String> {
     val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    if (!pivCode.matches(oldPin) || !pivCode.matches(newPin)) {
+      promise.reject(vaultError("template-invalid", "PIV PIN must be 6 to 8 ASCII digits"))
+      return promise
+    }
     withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
       // PIV CHANGE REFERENCE DATA needs only the old PIN — NOT management-key
       // auth. Gating it on the management key would wrongly reject a key that
       // has a custom management key but a still-default PIN.
@@ -211,112 +305,200 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     return promise
   }
 
-  override fun generateVaultKey(slot: Double, touchPolicy: String, pinPolicy: String): Promise<String> {
+  override fun changePuk(expectedSerial: String, oldPuk: String, newPuk: String): Promise<String> {
     val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    if (!pivCode.matches(oldPuk) || !pivCode.matches(newPuk)) {
+      promise.reject(vaultError("template-invalid", "PIV PUK must be 6 to 8 ASCII digits"))
+      return promise
+    }
     withPiv(promise) { piv ->
-      authenticateManagementKey(piv)
-      // 3.2.0: generateKey(...) returns PublicKeyValues (generateKeyValues is
-      // @Deprecated / removed).
-      val pub = piv.generateKey(
-        Slot.fromValue(slot.toInt()),
-        KeyType.ECCP256,
-        toPinPolicy(pinPolicy),
-        toTouchPolicy(touchPolicy)
-      )
-      "{\"publicKey\":\"${(pub as PublicKeyValues.Ec).encodedPoint.toHex()}\"}"
+      requireExpectedSerial(piv, expectedSerial)
+      try {
+        piv.changePuk(oldPuk.toCharArray(), newPuk.toCharArray())
+      } catch (e: InvalidPinException) {
+        val n = e.attemptsRemaining
+        if (n <= 0) throw VaultException("puk-locked", "no attempts remaining")
+        throw VaultException("puk-invalid", "retries=$n")
+      }
+      "{\"ok\":true,\"retriesLeft\":null}"
     }
     return promise
   }
 
-  override fun readVaultPublicKey(slot: Double): Promise<String> {
+  override fun preflightDedicatedPiv(expectedSerial: String): Promise<String> {
     val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
     withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
+      // Prove the immutable factory F9 certificate is a production Yubico
+      // credential before changing the PIN, PUK, or management key. This is
+      // offline and never consults Android's system trust store or an AIA URL.
+      requireFactoryAttestation(piv, expectedSerial)
+      // Authentication is read-only and happens before any PIN/PUK mutation.
+      // A custom or transport-ambiguous management-key result fails closed.
+      authenticateManagementKey(piv)
+      val userSlots = Slot.values().filter { it != Slot.ATTESTATION }
+      val inspection = when {
+        piv.supports(PivSession.FEATURE_METADATA) -> {
+          for (slot in userSlots) {
+            try {
+              piv.getSlotMetadata(slot)
+              throw VaultException("slot-occupied", "PIV slot 0x${Integer.toHexString(slot.value)} is occupied")
+            } catch (e: ApduException) {
+              if ((e.sw.toInt() and 0xffff) != 0x6a88) {
+                throw VaultException(
+                  "slot-occupied",
+                  "could not prove PIV slot 0x${Integer.toHexString(slot.value)} empty"
+                )
+              }
+            }
+          }
+          "metadata"
+        }
+        piv.supports(PivSession.FEATURE_ATTESTATION) -> {
+          for (slot in userSlots) {
+            try {
+              piv.attestKey(slot)
+              throw VaultException("slot-occupied", "PIV slot 0x${Integer.toHexString(slot.value)} is occupied")
+            } catch (e: ApduException) {
+              if ((e.sw.toInt() and 0xffff) != 0x6a88) {
+                throw VaultException(
+                  "slot-occupied",
+                  "could not prove PIV slot 0x${Integer.toHexString(slot.value)} empty"
+                )
+              }
+            }
+          }
+          "attestation"
+        }
+        else -> throw VaultException("slot-occupied", "this YubiKey cannot prove its user PIV slots are empty")
+      }
+      "{\"ok\":true,\"inspection\":\"$inspection\",\"manufacturerAttestation\":\"verified\"}"
+    }
+    return promise
+  }
+
+  override fun generateVaultKey(expectedSerial: String): Promise<String> {
+    val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
+      authenticateManagementKey(piv)
+      // YubiKit 3.1 generateKey(...) returns PublicKeyValues.
+      val pub = piv.generateKey(
+        Slot.fromValue(VAULT_SLOT),
+        KeyType.ECCP256,
+        PinPolicy.ONCE,
+        TouchPolicy.CACHED
+      )
+      val encoded = (pub as? PublicKeyValues.Ec)?.encodedPoint
+        ?: throw VaultException("wrong-key", "generated key was not P-256")
       try {
-        val meta = piv.getSlotMetadata(Slot.fromValue(slot.toInt()))
+        requireOnCurveP256(encoded)
+      } catch (_: Throwable) {
+        throw VaultException("wrong-key", "generated key was not a canonical P-256 point")
+      }
+      // ATTEST and the F9 read occur on this same PivSession as generation.
+      // The statement must bind the exact returned point to slot 0x82 with the
+      // requested policies and this session's serial, and F9 must still chain
+      // through the pinned production allowlist.
+      val statement = try {
+        piv.attestKey(Slot.fromValue(VAULT_SLOT))
+      } catch (e: ApduException) {
+        if ((e.sw.toInt() and 0xffff) == 0x6a88) {
+          throw VaultException("attestation-invalid", "generated slot could not be attested")
+        }
+        throw e
+      }
+      val f9 = readFactoryCertificate(piv)
+      try {
+        YubicoPivAttestation.verifyGeneratedVaultKey(
+          statement,
+          f9,
+          encoded,
+          expectedSerial,
+          attestationAuthorities
+        )
+      } catch (_: Throwable) {
+        throw VaultException("attestation-invalid", "generated Vault key failed manufacturer attestation")
+      }
+      "{\"publicKey\":\"${encoded.toHex()}\",\"manufacturerAttestation\":\"verified\"}"
+    }
+    return promise
+  }
+
+  override fun protectManagementKey(expectedSerial: String): Promise<String> {
+    val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
+      authenticateManagementKey(piv)
+      val v = piv.version
+      val major = v.major.toInt()
+      val minor = v.minor.toInt()
+      val type = if (major > 5 || (major == 5 && minor >= 7)) {
+        ManagementKeyType.AES192
+      } else {
+        ManagementKeyType.TDES
+      }
+      val replacement = ByteArray(type.keyLength)
+      try {
+        SecureRandom().nextBytes(replacement)
+        // The credential is intentionally unrecoverable: Vault needs the PIV
+        // signing key, never future administrative access to the token.
+        piv.setManagementKey(type, replacement, false)
+      } finally {
+        replacement.fill(0)
+      }
+      "{\"ok\":true}"
+    }
+    return promise
+  }
+
+  override fun readVaultPublicKey(expectedSerial: String): Promise<String> {
+    val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
+      try {
+        val meta = piv.getSlotMetadata(Slot.fromValue(VAULT_SLOT))
         val pub = meta.publicKeyValues as PublicKeyValues.Ec
         "{\"publicKey\":\"${pub.encodedPoint.toHex()}\"}"
-      } catch (_: ApduException) {
-        // Empty slot (reference-data-not-found) is not an error here.
-        "{\"publicKey\":null}"
+      } catch (e: ApduException) {
+        // Only REFERENCE DATA NOT FOUND proves the slot is empty. Incorrect
+        // data/algorithm and all other APDU statuses fail closed.
+        if ((e.sw.toInt() and 0xffff) == 0x6a88) "{\"publicKey\":null}" else throw e
       }
     }
     return promise
   }
 
-  override fun ecdh(slot: Double, pin: String, peerPublicKey: String): Promise<String> {
+  override fun signEcdsa(expectedSerial: String, pin: String, digest: String): Promise<String> {
     val promise = Promise<String>()
-    // Decode + shape-check BEFORE any card command so a malformed peer key never
-    // burns a PIN retry — the same discipline as signEcdsa's digest check.
-    val peerBytes = try {
-      hexToBytes(peerPublicKey)
-    } catch (t: Throwable) {
-      promise.reject(vaultError("template-invalid", "peer public key ${t.message ?: "must be hex"}"))
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
       return promise
     }
-    // fromEncodedPoint derives the coordinate width from the ARRAY length
-    // ((len - 1) / 2), not from the curve, so an off-length blob does not fail —
-    // it silently yields differently-sized X/Y and therefore a different key.
-    // It does reject a missing 0x04 marker, but only by throwing
-    // IllegalArgumentException, which inside the block below would land AFTER
-    // verifyPin and burn a retry. Both checks therefore happen here.
-    if (peerBytes.size != 65 || peerBytes[0] != 0x04.toByte()) {
-      promise.reject(
-        vaultError(
-          "template-invalid",
-          "peer public key must be 65-byte SEC1 uncompressed (0x04 || X || Y), got ${peerBytes.size} bytes"
-        )
-      )
+    if (!pivCode.matches(pin)) {
+      promise.reject(vaultError("template-invalid", "PIV PIN must be 6 to 8 ASCII digits"))
       return promise
     }
-    // Invalid-curve defence. Neither the shape check above nor fromEncodedPoint
-    // below establishes that the point actually lies ON secp256r1, and handing
-    // an off-curve point to a KeyAgreement is the classic invalid-curve attack:
-    // the card ends up computing in a small group of the attacker's choosing and
-    // the resulting "secret" leaks bits of the slot's private key. The card is
-    // expected to reject it as well, but that is the card's guarantee to keep —
-    // this one is ours (iOS gets it for free from SecKeyCreateWithData) and it
-    // costs two 256-bit modular exponentiations, once per unlock. Runs BEFORE
-    // the PIN so a bad point never burns a retry either.
-    try {
-      requireOnCurveP256(peerBytes)
-    } catch (_: Throwable) {
-      promise.reject(vaultError("template-invalid", "peer public key is not a point on secp256r1"))
-      return promise
-    }
-
-    withPiv(promise) { piv ->
-      // withPiv opens a FRESH PivSession per call, so the PIN must be verified
-      // inside every operation — this is not redundant with an earlier verify.
-      piv.verifyPin(pin.toCharArray())
-      // calculateSecret takes PublicKeyValues, not a java.security ECPublicKey.
-      // Verified with javap against the PINNED piv-3.1.0.jar:
-      //   public byte[] calculateSecret(Slot, PublicKeyValues)
-      // (3.1.0's piv/core jars are in fact byte-identical to 3.2.0's — same
-      // SHA-1 — so only the AAR's minCompileSdk metadata differs, which is why
-      // this file's 3.2.0-era API usage is correct on the 3.1.0 pin.)
-      val peer = PublicKeyValues.Ec.fromEncodedPoint(EllipticCurveValues.SECP256R1, peerBytes)
-      // TOUCH-gated by the slot's touch policy (generateVaultKey enrols with
-      // CACHED, spec D6): blocks until the user taps unless a touch within the
-      // card's 15 s window is still valid; an unmet touch surfaces as
-      // SW 0x6982/0x6985, which mapError folds into touch-timeout.
-      //
-      // The result is the RAW x-coordinate of the shared point — 32 bytes, no
-      // KDF and no hashing on either side. The vault's sealing layer owns any
-      // derivation, so this returns the card's bytes unmodified.
-      val secret = piv.calculateSecret(Slot.fromValue(slot.toInt()), peer)
-      if (secret.size != 32) {
-        // Mirrors iOS and signEcdsa: a short/empty result without a thrown error
-        // must not resolve as a "secret" — an under-length x-coordinate would
-        // silently derive a wrong seal key.
-        throw VaultException("touch-timeout", "no shared secret returned")
-      }
-      "{\"secret\":\"${secret.toHex()}\"}"
-    }
-    return promise
-  }
-
-  override fun signEcdsa(slot: Double, pin: String, digest: String): Promise<String> {
-    val promise = Promise<String>()
     // MUST be exactly 32 bytes: rawSignOrDecrypt silently TRUNCATES an over-long
     // EC payload (Arrays.copyOf to the key's 32-byte length) and left zero-pads a
     // short one, so an off-length digest signs the wrong message rather than
@@ -336,6 +518,7 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     }
 
     withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
       // withPiv opens a FRESH PivSession per call, so the PIN must be verified
       // inside every operation — this is not redundant with an earlier verify.
       piv.verifyPin(pin.toCharArray())
@@ -344,7 +527,7 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
       // rawSignOrDecrypt sends the digest verbatim (no local hashing/re-encoding)
       // and the card returns raw DER (SEQUENCE { r, s }), NOT low-S normalised —
       // returned here unmodified.
-      val der = piv.rawSignOrDecrypt(Slot.fromValue(slot.toInt()), KeyType.ECCP256, digestBytes)
+      val der = piv.rawSignOrDecrypt(Slot.fromValue(VAULT_SLOT), KeyType.ECCP256, digestBytes)
       if (der.isEmpty()) {
         // Mirrors iOS: an empty result without a thrown error should not
         // resolve as a "signature" — surface it as touch-timeout rather than
@@ -374,14 +557,30 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
         val piv = PivSession(result.value) // result.value throws IOException if the connect failed
         promise.resolve(block(piv))
       } catch (t: Throwable) {
+        if (t is IOException) forgetRemovedDevice(device)
         promise.reject(mapError(t))
+      }
+    }
+  }
+
+  /** YubiKit 3.1 exposes no NFC detach listener. A failed connection is the
+   * authoritative signal that a transient tag left the field; forget only the
+   * exact handle this operation captured so a newer tap cannot be cleared by
+   * an older callback. */
+  private fun forgetRemovedDevice(device: YubiKeyDevice) {
+    main.post {
+      if (currentDevice === device) {
+        val transport = currentTransport ?: device.transport.name.lowercase()
+        currentDevice = null
+        currentTransport = null
+        listener?.invoke("removed", "", transport)
       }
     }
   }
 
   /**
    * Authenticate with the firmware-default management key so generateKey can
-   * run. On yubikit-android 3.2.0 `authenticate(byte[])` reads the key's
+   * run. In yubikit-android 3.1.0 `authenticate(byte[])` reads the key's
    * algorithm from card metadata itself, so we pass only the 24-byte default
    * value (the same default for both the pre-5.7 TDES and fw >= 5.7 AES-192
    * cards). A rejection means the key has a custom management key we cannot
@@ -395,18 +594,42 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     }
   }
 
-  private fun toTouchPolicy(p: String): TouchPolicy = when (p.lowercase()) {
-    "always" -> TouchPolicy.ALWAYS
-    "cached" -> TouchPolicy.CACHED
-    "never" -> TouchPolicy.NEVER
-    else -> TouchPolicy.DEFAULT
+  private fun readFactoryCertificate(piv: PivSession): X509Certificate {
+    return try {
+      piv.getCertificate(Slot.ATTESTATION)
+    } catch (e: ApduException) {
+      if ((e.sw.toInt() and 0xffff) == 0x6a88) {
+        throw VaultException("attestation-invalid", "factory attestation certificate is missing")
+      }
+      throw e
+    }
   }
 
-  private fun toPinPolicy(p: String): PinPolicy = when (p.lowercase()) {
-    "once" -> PinPolicy.ONCE
-    "always" -> PinPolicy.ALWAYS
-    "never" -> PinPolicy.NEVER
-    else -> PinPolicy.DEFAULT
+  private fun requireFactoryAttestation(piv: PivSession, expectedSerial: String): X509Certificate {
+    val certificate = readFactoryCertificate(piv)
+    try {
+      YubicoPivAttestation.verifyFactoryCertificate(
+        certificate,
+        expectedSerial,
+        attestationAuthorities
+      )
+    } catch (e: VaultException) {
+      throw e
+    } catch (_: Throwable) {
+      throw VaultException("attestation-invalid", "factory attestation certificate is not trusted")
+    }
+    return certificate
+  }
+
+  /** Bind each PIN-consuming, signing, reading, or mutating command to the
+   * selected card on the same PivSession that executes the command. Android
+   * opens a fresh connection per method and multiple USB tokens can change
+   * `currentDevice` between calls, so a JS-only serial check is insufficient. */
+  private fun requireExpectedSerial(piv: PivSession, expectedSerial: String) {
+    val actual = piv.serialNumber.toString()
+    if (actual != expectedSerial) {
+      throw VaultException("serial-mismatch", "presented key $actual, expected $expectedSerial")
+    }
   }
 
   /** Small carrier so a code path can name its own VAULT_ERR code + detail. */
@@ -424,7 +647,10 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     is ApduException -> {
       when (t.sw.toInt() and 0xffff) {
         0x6983 -> Error("VAULT_ERR:pin-locked:authentication method blocked")
-        0x6a88, 0x6a80 -> Error("VAULT_ERR:no-key:reference data not found")
+        // Only REFERENCE DATA NOT FOUND proves an empty slot. INCORRECT DATA
+        // (0x6a80) can also mean an occupied slot with an algorithm mismatch.
+        0x6a88 -> Error("VAULT_ERR:no-key:reference data not found")
+        0x6a80 -> Error("VAULT_ERR:wrong-key:incorrect data or parameters")
         // 0x6982 (security status not satisfied) / 0x6985 (conditions not
         // satisfied) is what a required-but-unmet touch surfaces as over CCID.
         0x6982, 0x6985 -> Error("VAULT_ERR:touch-timeout:conditions of use not satisfied")
@@ -435,46 +661,22 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     else -> Error("VAULT_ERR:wrong-key:${t.message}")
   }
 
-  /**
-   * Throw unless `point` (65-byte SEC1 uncompressed, already shape-checked) is a
-   * point on secp256r1.
-   *
-   * The equation is checked HERE, in explicit BigInteger arithmetic, rather than
-   * by round-tripping the coordinates through
-   * `KeyFactory.generatePublic(ECPublicKeySpec)`. That is deliberate and was
-   * measured, not assumed: the JCE does NOT promise on-curve validation at
-   * key-spec construction, and the JDK's own SunEC provider demonstrably
-   * performs none — it accepts a bit-flipped off-curve point and even all-zero
-   * coordinates. Conscrypt happens to be stricter, but a security check must not
-   * rest on which provider a given OS image ships. Doing the arithmetic makes
-   * the guarantee ours on every provider and every API level.
-   *
-   * Only p, a and b are taken from the JCE (via a named curve, so the domain
-   * parameters are never hard-coded here). secp256r1 has cofactor 1, so
-   * "on the curve and not the identity" is exactly "in the prime-order
-   * subgroup" — no scalar multiplication is needed. The identity has no
-   * uncompressed 0x04 encoding, and (0, 0) fails the equation because b != 0.
-   *
-   * Throws IllegalArgumentException (the same failure mode as `hexToBytes`);
-   * the caller maps ANY throwable to template-invalid, so this fails closed.
-   */
+  /** Validate the generated SEC1 encoding and P-256 curve equation before it
+   * crosses the bridge as an enrollment candidate. */
   private fun requireOnCurveP256(point: ByteArray) {
+    require(point.size == 65 && point[0] == 0x04.toByte()) { "not uncompressed SEC1" }
     val params = AlgorithmParameters.getInstance("EC").run {
       init(ECGenParameterSpec("secp256r1"))
       getParameterSpec(ECParameterSpec::class.java)
     }
     val curve = params.curve
-    val p = (curve.field as ECFieldFp).p
+    val modulus = (curve.field as ECFieldFp).p
     val x = BigInteger(1, point.copyOfRange(1, 33))
     val y = BigInteger(1, point.copyOfRange(33, 65))
-    // Coordinates must be field elements. BigInteger(1, ..) is never negative,
-    // so this is really the upper bound — it rejects e.g. an all-0xff blob.
-    require(x < p && y < p) { "coordinate not in the field" }
-    // y^2 == x^3 + ax + b  (mod p). BigInteger.TWO is API 31+ and minSdk is 24,
-    // so both constants go through valueOf.
-    val lhs = y.modPow(BigInteger.valueOf(2), p)
-    val rhs = x.modPow(BigInteger.valueOf(3), p).add(curve.a.multiply(x)).add(curve.b).mod(p)
-    require(lhs == rhs) { "point is not on the curve" }
+    require(x < modulus && y < modulus) { "coordinate outside field" }
+    val lhs = y.modPow(BigInteger.valueOf(2), modulus)
+    val rhs = x.modPow(BigInteger.valueOf(3), modulus).add(curve.a.multiply(x)).add(curve.b).mod(modulus)
+    require(lhs == rhs) { "point is off curve" }
   }
 
   private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
@@ -494,6 +696,8 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
   }
 
   companion object {
+    private const val VAULT_SLOT = 0x82
+    private const val ATTESTATION_ASSET = "yubico-vault-attestation.pem"
     /** Firmware-default PIV management key (0x0102…08 ×3, 24 bytes). */
     private val DEFAULT_MANAGEMENT_KEY = byteArrayOf(
       0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,

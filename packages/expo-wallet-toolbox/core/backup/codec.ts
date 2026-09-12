@@ -140,6 +140,10 @@ export async function encodeChunk (
   chunk: SyncChunk,
   chain: BackupChain
 ): Promise<number[]> {
+  // Keep the established sync-chunk wire format. Completion markers need a
+  // separately negotiated/versioned log epoch before they can be appended;
+  // changing every ordinary ciphertext here would make existing backups and
+  // older clients mutually unreadable.
   const json = stringifyJsonRpc({ chain, chunk: packBytes(chunk) }, true)
   const { ciphertext } = await wallet.encrypt({
     plaintext: Utils.toArray(json, 'utf8'),
@@ -148,6 +152,87 @@ export async function encodeChunk (
     counterparty: 'self'
   })
   return ciphertext
+}
+
+/**
+ * The authenticated end of one consistent backup window.
+ *
+ * The marker commits to the log entry immediately before it. The append-only
+ * hash chain therefore commits transitively to the whole complete prefix, and
+ * the device/generation fields prevent a valid marker from being transplanted
+ * to a different log.
+ */
+export interface SnapshotCompleteMarker {
+  deviceId: string
+  generation: number
+  dataHeadSeq: number
+  dataHeadSha256?: string
+}
+
+export type DecodedBackupRecord =
+  | { type: 'sync-chunk', chunk: SyncChunk }
+  | { type: 'snapshot-complete', marker: SnapshotCompleteMarker }
+
+type BackupRecordType = DecodedBackupRecord['type']
+
+/**
+ * Frame encrypted records so the opaque server's existing `size` metadata can
+ * distinguish candidate completion records without learning their contents:
+ * sync chunks always have even byte length and completion markers odd length.
+ * A one-byte footer records whether a zero padding byte was added.
+ */
+function frameCiphertext (ciphertext: number[], type: BackupRecordType): number[] {
+  const wantedParity = type === 'snapshot-complete' ? 1 : 0
+  const padding = ((ciphertext.length + 1) & 1) === wantedParity ? 0 : 1
+  return padding === 0 ? [...ciphertext, 0] : [...ciphertext, 0, 1]
+}
+
+function unframeCiphertext (record: readonly number[]): { ciphertext: number[], type: BackupRecordType } {
+  if (record.length < 2) throw new Error('backup record has invalid framing')
+  const padding = record[record.length - 1]
+  if (padding !== 0 && padding !== 1) throw new Error('backup record has invalid padding')
+  if (padding === 1 && record[record.length - 2] !== 0) throw new Error('backup record has invalid padding')
+  const ciphertext = Array.from(record.slice(0, record.length - 1 - padding))
+  if (ciphertext.length === 0) throw new Error('backup record has no ciphertext')
+  return {
+    ciphertext,
+    type: (record.length & 1) === 1 ? 'snapshot-complete' : 'sync-chunk'
+  }
+}
+
+function validMarker (value: unknown): value is SnapshotCompleteMarker {
+  if (value == null || typeof value !== 'object') return false
+  const marker = value as Partial<SnapshotCompleteMarker>
+  return (
+    typeof marker.deviceId === 'string' && /^[a-f0-9]{32}$/.test(marker.deviceId) &&
+    Number.isSafeInteger(marker.generation) && (marker.generation ?? 0) > 0 &&
+    Number.isSafeInteger(marker.dataHeadSeq) && (marker.dataHeadSeq ?? -1) >= 0 &&
+    (marker.dataHeadSeq === 0
+      ? marker.dataHeadSha256 == null
+      : typeof marker.dataHeadSha256 === 'string' && /^[a-f0-9]{64}$/.test(marker.dataHeadSha256))
+  )
+}
+
+/** Encrypt an authenticated snapshot-complete record for the current log head. */
+export async function encodeSnapshotComplete (
+  wallet: CompletedProtoWallet,
+  marker: SnapshotCompleteMarker,
+  chain: BackupChain
+): Promise<number[]> {
+  if (!validMarker(marker)) throw new Error('invalid backup snapshot-complete marker')
+  const json = stringifyJsonRpc({ format: 1, chain, type: 'snapshot-complete', marker }, true)
+  const { ciphertext } = await wallet.encrypt({
+    plaintext: Utils.toArray(json, 'utf8'),
+    protocolID: BACKUP_PROTOCOL,
+    keyID: backupKeyId(chain),
+    counterparty: 'self'
+  })
+  return frameCiphertext(ciphertext, 'snapshot-complete')
+}
+
+/** Odd framed lengths identify encrypted completion-marker candidates in an index. */
+export function isSnapshotCompleteRecordSize (size: number): boolean {
+  return Number.isSafeInteger(size) && size > 0 && (size & 1) === 1
 }
 
 /**
@@ -172,6 +257,66 @@ export async function decodeChunk (
     )
   }
   return unpackBytes(envelope.chunk) as SyncChunk
+}
+
+/** Decrypt, authenticate and strictly parse either backup record kind. */
+export async function decodeBackupRecord (
+  wallet: CompletedProtoWallet,
+  recordBytes: number[],
+  chain: BackupChain
+): Promise<DecodedBackupRecord> {
+  let framed: { ciphertext: number[], type: BackupRecordType }
+  let plaintext: number[]
+  try {
+    framed = unframeCiphertext(recordBytes)
+    ;({ plaintext } = await wallet.decrypt({
+      ciphertext: framed.ciphertext,
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId(chain),
+      counterparty: 'self'
+    }))
+  } catch {
+    // Compatibility read for the established unframed sync-chunk record. The
+    // authenticated decrypt decides whether the bytes are really legacy; an
+    // opaque last byte that resembles a footer is never trusted by itself.
+    const legacy = await wallet.decrypt({
+      ciphertext: recordBytes,
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId(chain),
+      counterparty: 'self'
+    })
+    const envelope = parseJsonRpc(Utils.toUTF8(legacy.plaintext), true) as { chain?: unknown, chunk?: unknown }
+    if (envelope?.chain !== chain) {
+      throw new Error(
+        `backup blob is labeled for chain '${String(envelope?.chain)}' but '${chain}' was expected — refusing to restore across networks`
+      )
+    }
+    if (envelope.chunk == null || typeof envelope.chunk !== 'object') throw new Error('backup sync chunk is invalid')
+    return { type: 'sync-chunk', chunk: unpackBytes(envelope.chunk) as SyncChunk }
+  }
+  const envelope = parseJsonRpc(Utils.toUTF8(plaintext), true) as {
+    format?: unknown
+    chain?: unknown
+    type?: unknown
+    chunk?: unknown
+    marker?: unknown
+  }
+  if (envelope?.chain !== chain) {
+    throw new Error(
+      `backup blob is labeled for chain '${String(envelope?.chain)}' but '${chain}' was expected — refusing to restore across networks`
+    )
+  }
+  if (envelope.format !== 1 || envelope.type !== framed.type) {
+    throw new Error('backup record type or format is invalid')
+  }
+  if (envelope.type === 'snapshot-complete') {
+    if (!validMarker(envelope.marker)) throw new Error('backup snapshot-complete marker is invalid')
+    return { type: 'snapshot-complete', marker: envelope.marker }
+  }
+  if (envelope.type !== 'sync-chunk' || envelope.chunk == null || typeof envelope.chunk !== 'object') {
+    throw new Error('backup sync chunk is invalid')
+  }
+  return { type: 'sync-chunk', chunk: unpackBytes(envelope.chunk) as SyncChunk }
 }
 
 /** The twelve entity arrays a SyncChunk carries, in the protocol's dependency order. */

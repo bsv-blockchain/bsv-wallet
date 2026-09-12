@@ -27,11 +27,11 @@ test('setMockPresentKey switches the present serial on the live mock', async () 
 test('keys generated on a serial survive a disable/enable cycle', async () => {
   setMockDriverEnabled(true)
   setMockPresentKey('MOCK-DEV-3')
-  const { publicKey } = await getVaultDriver()!.generateVaultKey(0x82)
+  const { publicKey } = await getVaultDriver()!.generateVaultKey('MOCK-DEV-3')
   setMockDriverEnabled(false)
   expect(getVaultDriver()).toBeNull()
   setMockDriverEnabled(true)
-  expect((await getVaultDriver()!.readVaultPublicKey(0x82))!.publicKey).toBe(publicKey)
+  expect((await getVaultDriver()!.readVaultPublicKey('MOCK-DEV-3'))!.publicKey).toBe(publicKey)
   expect(getMockPresentKey()).toBe('MOCK-DEV-3')
 })
 

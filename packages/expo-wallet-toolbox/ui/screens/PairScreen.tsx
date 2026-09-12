@@ -17,7 +17,8 @@ import {
   useWalletConnection,
   guardVaultAccess,
   capWalletArgs,
-  ADMIN_ORIGINATOR
+  ADMIN_ORIGINATOR,
+  parseExternalOrigin
 } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -36,10 +37,6 @@ function loadExpoRouter(): ExpoRouterModule {
     expoRouterMod = require('expo-router') as ExpoRouterModule
   }
   return expoRouterMod
-}
-
-function domainFromOrigin(origin: string): string {
-  try { return new URL(origin).hostname } catch { return origin }
 }
 
 export function PairScreen() {
@@ -107,18 +104,21 @@ export function PairScreen() {
       setPreConnectError('Wallet not ready — please log in first')
       return
     }
-    const originator = domainFromOrigin(params.origin)
-    // Guarded exactly like every sibling call site (connections.tsx): this is
-    // an external surface (the desktop/browser pairing peer dispatches
-    // BRC-100 methods by name), so it must never receive the unguarded
-    // manager — see guard.ts for what that would otherwise expose.
-    const wallet = new WalletClient(capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)), originator)
     try {
+      const external = parseExternalOrigin(params.origin)
+      // Guarded exactly like every sibling call site (connections.tsx): this is
+      // an external surface (the desktop/browser pairing peer dispatches
+      // BRC-100 methods by name), so it must never receive the unguarded
+      // manager — see guard.ts for what that would otherwise expose.
+      const wallet = new WalletClient(
+        capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
+        external.originator
+      )
       await connect({
         topic:              params.topic,
         backendIdentityKey: params.backendIdentityKey,
         protocolID:         params.protocolID,
-        origin:             params.origin,
+        origin:             external.origin,
         expiry:             params.expiry,
         sig:                params.sig,
       }, wallet)

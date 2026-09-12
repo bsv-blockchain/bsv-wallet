@@ -9,14 +9,10 @@
  *                                        coverage badges, add / rename / remove / re-lock,
  *                                        export wallet data, disable
  *
- * An ENROLLED vault with the flag off keeps the enrolled view — withdrawals of
- * pre-existing outputs are never gated (spec §5.5) — with deposit, add-key and
- * re-lock inert and the same "Not available yet" notice under the actions.
- *
- * Enrolment needs no built wallet. The Deposit button (not the Vault button)
- * runs the same lazy wallet-creation path as WalletHomeScreen; its
- * ensureWalletExists (ui/screens/WalletHomeScreen.tsx:268–298) is repeated
- * here rather than shared because this is the only other place that needs it.
+ * An enrolled vault remains visible with the release flag off. Wallet-scoped
+ * metadata means setup first creates or unlocks the wallet identity. A fresh
+ * device restores records only from authenticated live locks, then requires a
+ * physical possession challenge for each YubiKey before that key can sign.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native'
@@ -43,9 +39,11 @@ import {
   typography,
   useWallet,
   useLocalStorage,
-  reclaimStagingOutputs,
   relockVault,
-  orphanedIfRemoved,
+  recoverVaultMetaFromOutputs,
+  adoptVaultKey,
+  beginVaultKeyRemoval,
+  finalizeVaultKeyRemoval,
   estimateRelockFee,
   R1C_LOCK_LEN,
   type VaultWallet,
@@ -53,11 +51,14 @@ import {
   vaultStore,
   type VaultMeta,
   type VaultKeyRecord,
+  type VaultScopeToken,
+  type AdoptPhase,
   VAULT_MIN_KEYS,
   VAULT_MAX_KEYS,
   getVaultDriver,
   isVaultEnabled,
   disableVault,
+  disableVaultWhenSafe,
   getOnline,
   generateMnemonicWallet,
   backupAttestation,
@@ -104,13 +105,6 @@ function loadExpoRouter(): ExpoRouterModule {
   return expoRouterMod
 }
 
-/**
- * Upper bound on re-lock passes in one go. Each pass moves at least one and at
- * most VAULT_MAX_INPUTS (32) outputs, and listOutputs is capped at 1000, so
- * 32 passes covers the largest vault the transfer layer can see.
- */
-const MAX_RELOCK_PASSES = 32
-
 /** Swallows the sheet's dismiss while a re-lock is in flight. */
 const noop = (): void => {}
 
@@ -119,6 +113,9 @@ interface RelockRequest {
   reason: string
   /** A serial to leave out of the chooser — the key just added, which cannot open the old outputs. */
   exclude?: string
+  /** Present for two-phase removal. Metadata remains until every real output
+   * has been re-locked without this key and reconciled by the service. */
+  revoke?: VaultKeyRecord
 }
 
 export function VaultScreen() {
@@ -145,46 +142,60 @@ export function VaultScreen() {
   const [relockError, setRelockError] = useState<string | null>(null)
   const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
   const [creatingWallet, setCreatingWallet] = useState(false)
+  const [walletCreationIntent, setWalletCreationIntent] = useState<'deposit' | 'enroll'>('deposit')
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+  const [adopting, setAdopting] = useState<{ record: VaultKeyRecord; scopeToken: VaultScopeToken } | null>(null)
+  const [adoptionPin, setAdoptionPin] = useState('')
+  const [adoptionPhase, setAdoptionPhase] = useState<AdoptPhase | null>(null)
+  const [adoptionBusy, setAdoptionBusy] = useState(false)
+  const [adoptionError, setAdoptionError] = useState<string | null>(null)
 
   const enabled = isVaultEnabled()
   const supported = getVaultDriver()?.isSupported() ?? false
   const enrolled = meta != null
+  const pm = managers?.permissionsManager
 
   const reload = useCallback(async (): Promise<VaultMeta | null> => {
-    const m = await vaultStore.getMeta()
-    metaRef.current = m
-    setMeta(m)
-    return m
-  }, [])
+    try {
+      if (!pm) {
+        metaRef.current = null
+        setMeta(null)
+        setRecoveryError(null)
+        return null
+      }
+      let m = await vaultStore.getMeta()
+      if (!m) m = await recoverVaultMetaFromOutputs(pm as unknown as VaultWallet, adminOriginator)
+      metaRef.current = m
+      setMeta(m)
+      setRecoveryError(null)
+      return m
+    } catch (error) {
+      metaRef.current = null
+      setRecoveryError(vaultErrorCopy(error instanceof VaultError ? error.code : undefined))
+      throw error
+    }
+  }, [pm, adminOriginator])
 
   useEffect(() => {
-    void reload()
+    void reload().catch(error => console.error('[vault] recovery scan failed:', error))
   }, [reload])
 
-  // Recover money the retired two-transaction deposit stranded (tx1 landed,
-  // tx2 failed). Stranded coins are invisible to BOTH balances — the main
-  // balance counts only the default basket, the vault balance only the vault
-  // basket — so this cannot wait for the user to notice anything. One attempt
-  // per screen visit; a wallet with nothing stranded returns without touching
-  // anything. No ceremony: staging keys are ordinary wallet-derived keys.
-  const pm = managers?.permissionsManager
+  const retryRecovery = useCallback(() => {
+    setRecoveryError(null)
+    setMeta(undefined)
+    void reload().catch(error => console.error('[vault] recovery scan failed:', error))
+  }, [reload])
+
   useEffect(() => {
-    if (!enrolled || !pm) return
+    if (!pm || !meta?.pendingRemoval) return
     let stale = false
-    reclaimStagingOutputs(pm as unknown as VaultWallet, adminOriginator, {
-      releaseStrandedStaging: storage ? () => storage.releaseVaultStagingStrandedByInvalidTx() : undefined,
-      findSpendingReferences: storage ? outpoints => storage.findSpendingReferences(outpoints) : undefined
-    })
-      .then(r => {
-        if (stale || r.reclaimed === 0) return
-        console.log(`[vault] reclaimed ${r.reclaimed} staging output(s), ${r.satoshis} sats · txid=${r.txid}`)
-        showToast(t('vault_reclaim_done'), { type: 'success' })
+    void finalizeVaultKeyRemoval(pm as unknown as VaultWallet, adminOriginator)
+      .then(async complete => {
+        if (!stale && complete) await reload()
       })
-      .catch(e => console.log('[vault] staging reclaim failed:', (e as Error)?.message))
-    return () => {
-      stale = true
-    }
-  }, [enrolled, pm, adminOriginator, storage])
+      .catch(error => console.error('[vault] pending key-removal reconciliation failed:', error))
+    return () => { stale = true }
+  }, [pm, meta?.pendingRemoval, adminOriginator, reload])
 
   // ── helpers ─────────────────────────────────────────────────────────
   /** `nickname · …tail4` for each referenced key; a key no longer in meta shows its pubkey tail. */
@@ -192,12 +203,71 @@ export function VaultScreen() {
     (refs: { serial?: string; pubkey: string }[]): string =>
       refs
         .map(r => {
-          const rec = metaRef.current?.keys.find(k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey)
+          const current = metaRef.current
+          const rec = [...(current?.keys ?? []), ...(current?.pendingRemoval ? [current.pendingRemoval.key] : [])]
+            .find(k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey)
           return rec ? vaultKeyLabel(rec) : `…${r.pubkey.slice(-4)}`
         })
         .join(', '),
     []
   )
+
+  const closeAdoption = useCallback(() => {
+    if (adoptionBusy) return
+    setAdopting(null)
+    setAdoptionPin('')
+    setAdoptionPhase(null)
+    setAdoptionError(null)
+  }, [adoptionBusy])
+
+  const openAdoption = useCallback((record: VaultKeyRecord) => {
+    try {
+      setAdopting({ record, scopeToken: vaultStore.captureScopeToken() })
+      setAdoptionPin('')
+      setAdoptionPhase(null)
+      setAdoptionError(null)
+    } catch (error) {
+      showToast(vaultErrorCopy(error instanceof VaultError ? error.code : undefined), { type: 'error' })
+    }
+  }, [])
+
+  const runAdoption = useCallback(async () => {
+    if (!adopting || adoptionBusy || !/^[0-9]{6,8}$/.test(adoptionPin)) return
+    setAdoptionBusy(true)
+    setAdoptionError(null)
+    try {
+      await adoptVaultKey({
+        record: adopting.record,
+        scopeToken: adopting.scopeToken,
+        onPhase: setAdoptionPhase,
+        getPin: async () => adoptionPin,
+        nfcMessage: t('vault_nfc_adopt_message')
+      })
+      await reload()
+      haptics.success()
+      showToast(t('vault_recovery_verified'), { type: 'success' })
+      setAdopting(null)
+      setAdoptionPin('')
+      setAdoptionPhase(null)
+    } catch (error) {
+      haptics.error()
+      const vaultError = error instanceof VaultError ? error : undefined
+      if (vaultError?.code === 'scope-changed') {
+        setAdopting(null)
+        setAdoptionPin('')
+        setAdoptionPhase(null)
+        showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
+        return
+      }
+      if (vaultError?.code === 'pin-invalid') setAdoptionPin('')
+      setAdoptionError(vaultErrorCopy(vaultError?.code, {
+        count: vaultError?.retriesLeft,
+        names: metaRef.current?.keys.map(vaultKeyLabel).join(', ') || undefined
+      }))
+    } finally {
+      setAdoptionBusy(false)
+    }
+  }, [adopting, adoptionBusy, adoptionPin, reload])
 
   const transferOpts = useCallback(
     () => ({
@@ -239,15 +309,21 @@ export function VaultScreen() {
     try {
       const w = pm as unknown as VaultWallet
       let result: VaultSpendResult
-      let passes = 0
-      // One pass per tap while the cap left outputs behind (spec §4.3). The
-      // ceremony sheet runs each tap; this loop only re-invokes the spend.
+      let previousCapped = Number.POSITIVE_INFINITY
+      // Keep moving capped outputs until the authenticated scan is exhausted.
+      // A strict progress check avoids both a fixed page/output ceiling and an
+      // infinite retry if the wallet monitor stops advancing reservations.
       do {
-        result = await relockVault(w, adminOriginator, relock.reason, relockSerial, transferOpts())
-        passes += 1
+        result = await relockVault(w, adminOriginator, relock.reason, relockSerial, {
+          ...transferOpts(),
+          revokePubkey: relock.revoke?.pubkey
+        })
+        if (result.cappedInputs >= previousCapped) {
+          throw new VaultError('template-invalid', 'Vault re-lock made no progress')
+        }
+        previousCapped = result.cappedInputs
         if (result.cappedInputs > 0) showToast(t('vault_relock_capped', { count: result.cappedInputs }), { type: 'info' })
-      } while (result.cappedInputs > 0 && passes < MAX_RELOCK_PASSES)
-      closeRelock()
+      } while (result.cappedInputs > 0)
       refresh()
       refreshCoverage()
       if (result.unreachable.count > 0) {
@@ -261,11 +337,30 @@ export function VaultScreen() {
           }),
           buttons: [{ text: t('vault_ok'), key: 'ok' }]
         })
+        // Keep the revocation sheet open and choose a remaining key that can
+        // reach the untouched outputs. The target stays in pendingRemoval.
+        if (relock.revoke) {
+          const next = metaRef.current?.keys.find(
+            k => k.serial !== relock.revoke?.serial && result.unreachable.keys.some(r => r.pubkey === k.pubkey)
+          )
+          setRelockSerial(next?.serial)
+        } else {
+          closeRelock()
+        }
       } else if (result.cappedInputs === 0) {
-        // Not when the pass bound tripped with outputs still behind the cap:
-        // the capped toast just asked for another pass, and "done" would
-        // contradict it.
-        showToast(t('vault_relock_done'), { type: 'success' })
+        if (relock.revoke) {
+          const removed = await finalizeVaultKeyRemoval(w, adminOriginator)
+          await reload()
+          if (removed) {
+            haptics.warning()
+            showToast(t('vault_key_removed_toast'), { type: 'info' })
+          } else {
+            showToast(t('tx_still_pending'), { type: 'info' })
+          }
+        } else {
+          showToast(t('vault_relock_done'), { type: 'success' })
+        }
+        closeRelock()
       }
     } catch (e) {
       console.error('[vault] re-lock failed:', e instanceof Error ? e.message : e, e)
@@ -278,7 +373,7 @@ export function VaultScreen() {
     } finally {
       setRelocking(false)
     }
-  }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor])
+  }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor, reload])
 
   // ── wizard hand-offs ────────────────────────────────────────────────
   /**
@@ -347,27 +442,9 @@ export function VaultScreen() {
         await showAlert({ title, message: vaultErrorCopy('last-keys'), buttons: [{ text: t('vault_ok'), key: 'ok' }] })
         return
       }
-      // Every output must stay committed to at least one remaining key
-      // (spec §3.4) — checked exactly, against each output's real committed
-      // key set, not approximated from the coverage record. Fail closed: with
-      // no built wallet (fresh install, or stored but not yet built) the
-      // outputs cannot be read, and an unread vault may hold some, so the
-      // check is refused rather than skipped.
       const ok = [{ text: t('vault_ok'), key: 'ok' }]
       if (!pm) {
         await showAlert({ title, message: vaultErrorCopy(undefined), buttons: ok })
-        return
-      }
-      let orphans: number
-      try {
-        orphans = await orphanedIfRemoved(pm as unknown as VaultWallet, adminOriginator, rec.pubkey)
-      } catch (e) {
-        haptics.error()
-        await showAlert({ title, message: vaultErrorCopy(e instanceof VaultError ? e.code : undefined), buttons: ok })
-        return
-      }
-      if (orphans > 0) {
-        await showAlert({ title, message: vaultErrorCopy('relock-required'), buttons: [{ text: t('vault_ok'), key: 'ok' }] })
         return
       }
       const fee = estimateRelockFee(Math.max(coverage?.outputs ?? 1, 1), R1C_LOCK_LEN(m.keys.length - 1))
@@ -382,7 +459,15 @@ export function VaultScreen() {
       })
       if (choice !== 'remove') return
       try {
-        await vaultStore.removeKey(rec.serial)
+        const started = await beginVaultKeyRemoval(pm as unknown as VaultWallet, adminOriginator, rec.serial)
+        await reload()
+        refreshCoverage()
+        if (started.complete) {
+          haptics.warning()
+          showToast(t('vault_key_removed_toast'), { type: 'info' })
+          return
+        }
+        openRelock({ reason: t('vault_relock_reason_generic'), revoke: rec })
       } catch (e) {
         haptics.error()
         await showAlert({
@@ -392,22 +477,8 @@ export function VaultScreen() {
         })
         return
       }
-      haptics.warning()
-      showToast(t('vault_key_removed_toast'), { type: 'info' })
-      await reload()
-      refreshCoverage()
-      // A removed key can still open everything deposited before it left
-      // (spec §3.4); re-locking with a remaining key is how that stops being
-      // true. Not optional here (the flag still gates it — re-locking CREATES
-      // a vault output, same as openGenericRelock): a funded vault goes
-      // straight to the sheet rather than offering it as a coin-flip choice
-      // in the alert above, so the encouraged next step is picking one of the
-      // keys that are actually left.
-      if (enabled && (balance ?? 0) > 0) {
-        openRelock({ reason: t('vault_relock_reason_generic') })
-      }
     },
-    [coverage, pm, adminOriginator, enabled, balance, reload, refreshCoverage, openRelock]
+    [coverage, pm, adminOriginator, reload, refreshCoverage, openRelock]
   )
 
   const keyActions = useCallback(
@@ -434,7 +505,7 @@ export function VaultScreen() {
   const confirmDisable = useCallback(async () => {
     // Refuse while funds remain: disabling forgets the key list, and with it
     // the only in-app way to sign for those outputs.
-    if ((balance ?? 0) > 0) {
+    if (!pm || balance === null || loading || balance > 0) {
       await showAlert({
         title: t('vault_disable_blocked_title'),
         message: t('vault_disable_blocked_message'),
@@ -451,18 +522,32 @@ export function VaultScreen() {
       ]
     })
     if (choice !== 'confirm') return
-    await disableVault()
+    let disabled = false
+    try {
+      disabled = await disableVaultWhenSafe(pm as unknown as VaultWallet, adminOriginator, disableVault)
+    } catch (e) {
+      console.error('[vault] safe disable check failed:', e instanceof Error ? e.message : e)
+    }
+    if (!disabled) {
+      haptics.error()
+      await showAlert({
+        title: t('vault_disable_blocked_title'),
+        message: t('vault_disable_blocked_message'),
+        buttons: [{ text: t('vault_ok'), key: 'ok' }]
+      })
+      return
+    }
     haptics.warning()
     showToast(t('vault_disabled_toast'), { type: 'info' })
     await reload()
-  }, [balance, reload])
+  }, [pm, balance, loading, adminOriginator, reload])
 
-  // ── deposit: lazy wallet creation ───────────────────────────────────
+  // ── wallet-scoped setup / deposit ───────────────────────────────────
   /**
    * Apple HIG: never ask for Face ID/Touch ID before the user has done
-   * something that explains why. Enrolment needs no wallet, so a user can
-   * reach this screen on a fresh install with none; the Deposit tap is the
-   * moment that explains the prompt. Same flow as WalletHomeScreen's
+   * something that explains why. Vault metadata is scoped to the wallet
+   * identity and chain, so both enrollment and deposits create/unlock the
+   * wallet first. Same flow as WalletHomeScreen's
    * destinationPress → BiometricAdvisoryModal → ensureWalletExists.
    */
   const creatingWalletRef = useRef(false)
@@ -509,8 +594,24 @@ export function VaultScreen() {
     } catch {
       return
     }
+    setWalletCreationIntent('deposit')
     setShowBiometricAdvisory(true)
   }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, router])
+
+  const onBeginEnrollment = useCallback(async () => {
+    if (managers.permissionsManager) {
+      setWizard('enroll')
+      return
+    }
+    if (!secretsReady || walletBuilding) return
+    try {
+      if (await hasStoredIdentity()) return
+    } catch {
+      return
+    }
+    setWalletCreationIntent('enroll')
+    setShowBiometricAdvisory(true)
+  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity])
 
   const onAdvisoryContinue = useCallback(() => {
     // Kept up (with a spinner in place of the label) until wallet creation
@@ -522,12 +623,15 @@ export function VaultScreen() {
         await new Promise(resolve => setTimeout(resolve, 0))
         const created = await ensureWalletExists()
         setShowBiometricAdvisory(false)
-        if (created) router.push('/vault-transfer?direction=deposit')
+        if (created) {
+          if (walletCreationIntent === 'enroll') setWizard('enroll')
+          else router.push('/vault-transfer?direction=deposit')
+        }
       } finally {
         setCreatingWallet(false)
       }
     })()
-  }, [ensureWalletExists, router])
+  }, [ensureWalletExists, router, walletCreationIntent])
 
   // ── header ──────────────────────────────────────────────────────────
   // While the wizard is up, back means "leave set-up" and goes through the
@@ -546,6 +650,21 @@ export function VaultScreen() {
       <View style={styles.iconBtn} />
     </View>
   )
+
+  if (recoveryError) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
+        {Header}
+        <View style={styles.centered}>
+          <Ionicons name="alert-circle-outline" size={44} color={colors.error} />
+          <Text style={[styles.p, { color: colors.textPrimary }]}>{recoveryError}</Text>
+          <PressableScale haptic="tap" onPress={retryRecovery} style={[styles.primary, { backgroundColor: colors.accent }]}>
+            <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_retry')}</Text>
+          </PressableScale>
+        </View>
+      </View>
+    )
+  }
 
   if (meta === undefined) {
     return (
@@ -589,7 +708,7 @@ export function VaultScreen() {
               <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_hero_body')}</Text>
               <PressableScale
                 haptic="confirm"
-                onPress={canEnroll ? () => setWizard('enroll') : undefined}
+                onPress={canEnroll ? () => void onBeginEnrollment() : undefined}
                 accessibilityState={{ disabled: !canEnroll }}
                 style={[
                   styles.primary,
@@ -619,12 +738,26 @@ export function VaultScreen() {
             <View style={styles.heroSpacerBottom} />
           </ScrollView>
         </View>
+        <BiometricAdvisoryModal
+          visible={showBiometricAdvisory}
+          loading={creatingWallet}
+          onCancel={() => setShowBiometricAdvisory(false)}
+          onContinue={onAdvisoryContinue}
+        />
       </View>
     )
   }
 
   // ── enrolled ─────────────────────────────────────────────────────────
-  const canAdd = enabled && meta.keys.length < VAULT_MAX_KEYS
+  const canAdd = enabled && !meta.pendingRemoval && meta.keys.length < VAULT_MAX_KEYS
+  const adoptedSerials = new Set(meta.recovery?.adoptedSerials ?? [])
+  const recoveryRequired = meta.recovery?.required === true
+  const adoptedKeyCount = meta.keys.filter(key => adoptedSerials.has(key.serial)).length
+  const hasAdoptedKey = !recoveryRequired || adoptedKeyCount > 0
+  const hasRecoveryRedundancy = !recoveryRequired || adoptedKeyCount >= VAULT_MIN_KEYS
+  const transfersBlocked = !!meta.pendingRemoval
+  const canDeposit = enabled && !transfersBlocked && hasRecoveryRedundancy
+  const canWithdraw = !transfersBlocked && hasAdoptedKey
   const missingNames = coverage
     ? meta.keys
         .filter(k => coverage.missingKeys.includes(k.pubkey))
@@ -632,7 +765,9 @@ export function VaultScreen() {
         .join(', ')
     : ''
   const relockCandidates = relock?.exclude ? meta.keys.filter(k => k.serial !== relock.exclude) : meta.keys
-  const openGenericRelock = enabled ? () => openRelock({ reason: t('vault_relock_reason_generic') }) : undefined
+  const openGenericRelock = enabled
+    ? () => openRelock({ reason: t('vault_relock_reason_generic'), revoke: meta.pendingRemoval?.key })
+    : undefined
 
   return (
     <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
@@ -654,20 +789,21 @@ export function VaultScreen() {
         <View style={styles.actions}>
           <PressableScale
             haptic="confirm"
-            onPress={enabled ? () => void onDeposit() : undefined}
-            accessibilityState={{ disabled: !enabled }}
-            style={[styles.actionBtn, { backgroundColor: enabled ? colors.accent : colors.backgroundElevated }]}
+            onPress={canDeposit ? () => void onDeposit() : undefined}
+            accessibilityState={{ disabled: !canDeposit }}
+            style={[styles.actionBtn, { backgroundColor: canDeposit ? colors.accent : colors.backgroundElevated }]}
           >
-            <Ionicons name="arrow-down" size={18} color={enabled ? colors.textOnAccent : colors.textTertiary} />
-            <Text style={[styles.actionLabel, { color: enabled ? colors.textOnAccent : colors.textTertiary }]}>
+            <Ionicons name="arrow-down" size={18} color={canDeposit ? colors.textOnAccent : colors.textTertiary} />
+            <Text style={[styles.actionLabel, { color: canDeposit ? colors.textOnAccent : colors.textTertiary }]}>
               {t('vault_deposit_cta')}
             </Text>
           </PressableScale>
-          {/* Never gated (spec §5.5): what is already in the vault must always
-              be withdrawable, flag or no flag. */}
+          {/* The release flag never gates existing funds. Pending key removal
+              and per-key recovery adoption still block unsafe withdrawals. */}
           <PressableScale
             haptic="confirm"
-            onPress={() => router.push('/vault-transfer?direction=withdraw')}
+            onPress={canWithdraw ? () => router.push('/vault-transfer?direction=withdraw') : undefined}
+            accessibilityState={{ disabled: !canWithdraw }}
             style={[
               styles.actionBtn,
               { backgroundColor: colors.backgroundElevated, borderColor: colors.separator, borderWidth: StyleSheet.hairlineWidth }
@@ -678,8 +814,15 @@ export function VaultScreen() {
           </PressableScale>
         </View>
         {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>}
+        {transfersBlocked && <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>}
+        {recoveryRequired && !hasRecoveryRedundancy && (
+          <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
+        )}
 
-        <GroupedSection header={t('vault_key_section', { count: meta.keys.length })} footer={t('vault_footnote')}>
+        <GroupedSection
+          header={t('vault_key_section', { count: meta.keys.length + (meta.pendingRemoval ? 1 : 0) })}
+          footer={t('vault_footnote')}
+        >
           {coverage && coverage.missingKeys.length > 0 && (
             <ListRow
               label={t('vault_badge_missing', { count: coverage.stale, nickname: missingNames })}
@@ -698,18 +841,33 @@ export function VaultScreen() {
               onPress={openGenericRelock}
             />
           )}
-          {meta.keys.map((rec, i) => (
+          {meta.keys.map((rec, i) => {
+            const adopted = !recoveryRequired || adoptedSerials.has(rec.serial)
+            return (
+              <ListRow
+                key={rec.serial}
+                label={`${rec.nickname} · ${formatVaultSerial(rec.serial)}`}
+                subtitle={adopted ? new Date(rec.enrolledAt).toLocaleDateString() : t('vault_err_key_not_adopted')}
+                icon={adopted ? 'key-outline' : 'shield-checkmark-outline'}
+                iconColor={adopted ? colors.permissionSpending : colors.warning}
+                showChevron={false}
+                onPress={adopted ? () => void keyActions(rec) : () => openAdoption(rec)}
+                isLast={i === meta.keys.length - 1 && !canAdd}
+              />
+            )
+          })}
+          {meta.pendingRemoval && (
             <ListRow
-              key={rec.serial}
-              label={`${rec.nickname} · ${formatVaultSerial(rec.serial)}`}
-              subtitle={new Date(rec.enrolledAt).toLocaleDateString()}
-              icon="key-outline"
-              iconColor={colors.permissionSpending}
+              key={`pending-${meta.pendingRemoval.key.serial}`}
+              label={`${meta.pendingRemoval.key.nickname} · ${formatVaultSerial(meta.pendingRemoval.key.serial)}`}
+              subtitle={t('tx_still_pending')}
+              icon="time-outline"
+              iconColor={colors.warning}
               showChevron={false}
-              onPress={() => void keyActions(rec)}
-              isLast={i === meta.keys.length - 1 && !canAdd}
+              onPress={openGenericRelock}
+              isLast={!canAdd}
             />
-          ))}
+          )}
           {canAdd && (
             <ListRow label={t('vault_add_key_row')} icon="add-circle-outline" iconColor={colors.info} onPress={openAddKey} isLast />
           )}
@@ -772,6 +930,63 @@ export function VaultScreen() {
             <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_rename_save')}</Text>
           </PressableScale>
           <PressableScale onPress={() => setRenaming(null)} style={styles.secondary}>
+            <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_cancel')}</Text>
+          </PressableScale>
+        </View>
+      </Sheet>
+
+      {/* Fresh-device recovery: prove this exact recovered key with a random
+          challenge before the transfer chooser is allowed to offer it. */}
+      <Sheet
+        visible={adopting !== null}
+        onClose={adoptionBusy ? noop : closeAdoption}
+        title={adopting ? vaultKeyLabel(adopting.record) : ''}
+        fitContent
+      >
+        <View style={styles.sheetBody}>
+          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_err_key_not_adopted')}</Text>
+          <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_enter_pin')}</Text>
+          <TextInput
+            accessibilityLabel={t('vault_enter_pin')}
+            style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+            value={adoptionPin}
+            onChangeText={text => {
+              setAdoptionError(null)
+              setAdoptionPin(text)
+            }}
+            placeholder="••••••"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="number-pad"
+            secureTextEntry={adoptionPin.length > 0}
+            maxLength={8}
+            editable={!adoptionBusy}
+            autoFocus
+          />
+          {adoptionBusy && (
+            <View style={styles.adoptionProgress}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={[styles.p, { color: colors.textSecondary }]}>
+                {adoptionPhase === 'challenging' ? t('vault_touch_when_blinks') : t('vault_reading_key')}
+              </Text>
+            </View>
+          )}
+          {adoptionError && <Text style={[styles.err, { color: colors.error }]}>{adoptionError}</Text>}
+          <PressableScale
+            haptic="confirm"
+            onPress={!adoptionBusy && /^[0-9]{6,8}$/.test(adoptionPin) ? () => void runAdoption() : undefined}
+            accessibilityState={{ disabled: adoptionBusy || !/^[0-9]{6,8}$/.test(adoptionPin) }}
+            style={[
+              styles.primary,
+              { backgroundColor: colors.accent, opacity: !adoptionBusy && /^[0-9]{6,8}$/.test(adoptionPin) ? 1 : 0.5 }
+            ]}
+          >
+            {adoptionBusy ? (
+              <ActivityIndicator color={colors.textOnAccent} />
+            ) : (
+              <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_continue')}</Text>
+            )}
+          </PressableScale>
+          <PressableScale onPress={adoptionBusy ? undefined : closeAdoption} style={styles.secondary}>
             <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_cancel')}</Text>
           </PressableScale>
         </View>
@@ -866,6 +1081,7 @@ const styles = StyleSheet.create({
   actionLabel: { ...typography.headline },
   sheetBody: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.lg },
   sheetLabel: { ...typography.headline },
+  adoptionProgress: { alignItems: 'center', gap: spacing.sm },
   input: {
     width: '100%',
     borderRadius: radii.md,

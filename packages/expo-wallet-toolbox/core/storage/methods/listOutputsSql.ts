@@ -133,7 +133,10 @@ export async function listOutputsSql(
       isQueryModeAll
     )
   } else {
-    r.totalOutputs = outputs.length
+    // A short page proves this is the end, but its length is only the suffix
+    // after `offset`. Return the stable total for the whole result set, as the
+    // BRC-100 pagination contract and listActionsSql both require.
+    r.totalOutputs = offset + outputs.length
   }
 
   // Apply specOp processing

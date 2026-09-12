@@ -11,20 +11,26 @@ export interface YubiKeyPiv extends HybridObject<{ ios: 'swift'; android: 'kotli
   setKeyListener(listener: (eventType: string, serial: string, transport: string) => void): void
   clearKeyListener(): void
   getKeyInfo(): Promise<string> // JSON {serial, firmwareVersion, pinRetries}
-  verifyPin(pin: string): Promise<string> // JSON {ok, retriesLeft}
-  changePin(oldPin: string, newPin: string): Promise<string>
-  generateVaultKey(slot: number, touchPolicy: string, pinPolicy: string): Promise<string> // JSON {publicKey} 65B SEC1 hex uncompressed
-  readVaultPublicKey(slot: number): Promise<string> // JSON {publicKey|null}
-  /** On-token ECDH (PIV KeyAgreement) between the slot's P-256 private key and
-   * `peerPublicKey` (65-byte SEC1 uncompressed hex, 0x04 || X || Y).
-   *
-   * Resolves JSON {secret} — the 32-byte x-coordinate of the shared point as
-   * hex, exactly what the card returns (NO KDF applied on either side; the
-   * vault's sealing layer owns that). TOUCH-gated, PIN-gated. */
-  ecdh(slot: number, pin: string, peerPublicKey: string): Promise<string>
+  /** Every operation after discovery is bound to the serial selected by JS.
+   * Native verifies it on the same PIV session immediately before use. */
+  verifyPin(expectedSerial: string, pin: string): Promise<string> // JSON {ok, retriesLeft}
+  changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<string>
+  changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<string>
+  /** Verify the factory F9 certificate through the pinned production Yubico
+   * chain, authenticate the factory management key, and reject any occupied
+   * user PIV slot the SDK can inspect. Offline and non-mutating. */
+  preflightDedicatedPiv(expectedSerial: string): Promise<string> // JSON {ok:true,inspection,manufacturerAttestation:'verified'}
+  /** Fixed to PIV slot 0x82, P-256, PIN once, touch cached. Resolves only
+   * after same-session manufacturer attestation of the generated key. */
+  generateVaultKey(expectedSerial: string): Promise<string> // JSON {publicKey,manufacturerAttestation:'verified'}
+  /** Authenticate the factory management key, replace it with native CSPRNG
+   * material, then discard that material without crossing the JS bridge. */
+  protectManagementKey(expectedSerial: string): Promise<string>
+  /** Reads only the fixed Vault slot 0x82. */
+  readVaultPublicKey(expectedSerial: string): Promise<string> // JSON {publicKey|null}
   /** Sign a pre-computed 32-byte digest with the slot's P-256 key.
    *
    * `digest` is 64 hex chars, passed to the card UNCHANGED — no hashing on
    * either side. Resolves JSON {signature} as DER hex. TOUCH-gated. */
-  signEcdsa(slot: number, pin: string, digest: string): Promise<string>
+  signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<string>
 }

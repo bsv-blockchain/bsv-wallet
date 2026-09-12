@@ -159,6 +159,8 @@ import {
 import { getExchangeRate } from '../services/exchangeRate'
 import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
+import { vaultStore } from '../services/vault/vaultStore'
+import { guardVaultAccess } from '../services/vault/guard'
 import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-mobile'
 import { StorageExpoSQLite } from '../storage'
 import { makeBuildGeneration } from './buildGeneration'
@@ -1085,6 +1087,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
 
         const wallet = new Wallet(signer, services, undefined, privilegedKeyManager)
+        // Consumed only by the toolbox storage-boundary hook. The value is set
+        // by trusted host code and compared with WalletClient's originator;
+        // external action fields cannot manufacture this authorization bit.
+        Object.defineProperty(wallet, '__bsvVaultAdminOriginator', {
+          value: adminOriginator,
+          enumerable: false,
+          configurable: false,
+          writable: false
+        })
 
         // Every write to the transaction/output tables refreshes the money on
         // screen immediately. The monitor's onTransactionStatusChanged only
@@ -1292,7 +1303,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           permissionsManager.bindCallback('onCertificateAccessRequested', certificateAccessCallback)
         }
 
-        newManagers.permissionsManager = permissionsManager
+        // Publish one idempotently guarded manager for both trusted in-app
+        // Vault calls and external WalletClient calls. Admin output mutations
+        // therefore share the guard's FIFO with external inventory scan+use;
+        // external call sites may safely apply guardVaultAccess again.
+        newManagers.permissionsManager = guardVaultAccess(permissionsManager, adminOriginator)
 
         // Start background monitor for transaction status updates (sending → unproven → completed)
         try {
@@ -1723,6 +1738,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           logWithTimestamp(F, 'Discarding a build the network switch overtook')
           return null
         }
+        vaultStore.configureScope({ identityKey: keyDeriver.identityKey, chain: backupChain })
         updateManagers(m => ({ ...m, ...newManagers }))
         logWithTimestamp(F, 'Wallet build completed successfully')
 
@@ -1925,6 +1941,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     restoreIntentRef.current = opts?.restoreFromBackup === true
     // Any build already in flight belongs to the configuration being replaced.
     const token = buildGenRef.current.bump()
+    // Invalidate Vault operations before the first teardown await. Otherwise a
+    // signer/listing already in flight can resume against the departing wallet.
+    vaultStore.clearScope()
+    vaultCeremony.cancel()
 
     // Stop any running monitor and let its current pass drain before the
     // storage teardown below closes the connection under it.
@@ -1954,6 +1974,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     setStorage(null)
 
     // Tear down current wallet state (but keep mnemonic / config)
+    vaultStore.clearScope()
     updateManagers({})
     walletBuiltRef.current = false
     setWalletBuilt(false)
@@ -1980,6 +2001,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       if (network === selectedNetwork) return
       logWithTimestamp(F, `Switching network from ${selectedNetwork} to ${network}`)
       buildGenRef.current.bump()
+      vaultStore.clearScope()
+      vaultCeremony.cancel()
 
       // Stop any running monitor and let its current pass drain before the
       // storage teardown below closes the connection under it.
@@ -2004,6 +2027,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       setStorage(null)
 
       // Tear down current wallet state (but keep mnemonic)
+      vaultStore.clearScope()
       updateManagers({})
       walletBuiltRef.current = false
       setWalletBuilt(false)
@@ -2270,16 +2294,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     return () => subscription.remove()
   }, [])
 
-  // Relock-on-unplug, for PERSISTENT readers only (Android USB). Start discovery
-  // at launch and, when the key is pulled, tell the ceremony (its onRelock
-  // fires the close sound/haptic) so an armed or mid-signature vault session
-  // ends with the hardware rather than lingering.
+  // Relock-on-unplug for injected persistent readers. Native iOS and Android
+  // drivers are ceremony-scoped: the ceremony owns discovery and its listener
+  // through signer release, including Android USB unplug events.
   //
-  // Session-based transports (iOS NFC) are skipped here: they have no persistent
-  // presence — the scan session is opened per ceremony and closed on arm — so
-  // starting discovery at launch would pop the NFC sheet, and a session-end
-  // "detach" is normal, not an unplug. The ceremony's own session-scoped
-  // listener (see ceremony.ts) handles relock there instead.
+  // Session-based drivers are skipped here so no hardware reader or NFC sheet
+  // is opened at launch. See ceremony.ts for their scoped listener lifecycle.
   useEffect(() => {
     const driver = getVaultDriver()
     if (!driver || driver.sessionBased) return
@@ -2316,11 +2336,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       monitorRef.current = null
       offlineChaintracksRef.current = undefined
       headerStoreRef.current = undefined
+      vaultStore.clearScope()
+      vaultCeremony.cancel()
     }
   }, [])
 
   const logout = useCallback(() => {
     logWithTimestamp(F, 'Logout')
+    // Synchronous on purpose: invalidate transfer tokens and release any PIN /
+    // hardware session before monitor or storage teardown yields.
+    vaultStore.clearScope()
+    vaultCeremony.cancel()
     ;(async () => {
       // Tear the wallet down the same way rebuildWallet does. Logout used to
       // skip this, which orphaned a running monitor AND left the SQLite
@@ -2344,6 +2370,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       }
       setStorage(null)
 
+      vaultStore.clearScope()
       updateManagers({})
       setConfigStatus('initial')
       walletBuiltRef.current = false
