@@ -202,8 +202,12 @@ describe('MockYubiKey.signEcdsa', () => {
 
   it('rejects a digest that is not exactly 32 bytes', async () => {
     const mock = await armed()
-    await expect(mock.signEcdsa('MOCK-1', '123456', 'ab'.repeat(31))).rejects.toMatchObject({ code: 'template-invalid' })
-    await expect(mock.signEcdsa('MOCK-1', '123456', 'ab'.repeat(33))).rejects.toMatchObject({ code: 'template-invalid' })
+    await expect(mock.signEcdsa('MOCK-1', '123456', 'ab'.repeat(31))).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    await expect(mock.signEcdsa('MOCK-1', '123456', 'ab'.repeat(33))).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
   })
 
   it('rejects a mismatched serial before generation or signing', async () => {
@@ -389,5 +393,38 @@ describe('native adapter', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getVaultDriver } = require('../../core/services/vault/driver')
     expect((getVaultDriver() as unknown as Record<string, unknown>).ecdh).toBeUndefined()
+  })
+})
+
+// ── resetPivApplication (task 4) ──
+describe('MockYubiKey.resetPivApplication', () => {
+  it('returns a personalised card to factory PIN, PUK and retry counters', async () => {
+    const key = new MockYubiKey()
+    key.insertKey('MOCK-RST')
+    key.personalise('998877', '11112222')
+    await expect(key.verifyPin('MOCK-RST', '123456')).resolves.toEqual({ ok: false, retriesLeft: 2 })
+
+    await expect(key.resetPivApplication('MOCK-RST')).resolves.toEqual({ ok: true })
+
+    expect(key.isFactory('MOCK-RST')).toBe(true)
+    await expect(key.verifyPin('MOCK-RST', '123456')).resolves.toEqual({ ok: true, retriesLeft: 3 })
+  })
+
+  it('discards the generated slot key, so the card reads as empty afterwards', async () => {
+    const key = new MockYubiKey()
+    key.insertKey('MOCK-RST')
+    await key.verifyPin('MOCK-RST', '123456')
+    await key.generateVaultKey('MOCK-RST')
+    await expect(key.readVaultPublicKey('MOCK-RST')).resolves.not.toBeNull()
+
+    await key.resetPivApplication('MOCK-RST')
+
+    await expect(key.readVaultPublicKey('MOCK-RST')).resolves.toBeNull()
+  })
+
+  it('refuses a serial other than the one presented', async () => {
+    const key = new MockYubiKey()
+    key.insertKey('MOCK-RST')
+    await expect(key.resetPivApplication('MOCK-OTHER')).rejects.toMatchObject({ code: 'serial-mismatch' })
   })
 })

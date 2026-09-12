@@ -47,7 +47,10 @@ export interface VaultDriver {
    * only Vault slot 0x82; every other user slot remains protected. Native also verifies
    * the factory F9 certificate through the pinned production Yubico chain,
    * offline. Never mutates. */
-  preflightDedicatedPiv(expectedSerial: string, allowOccupiedVaultSlot?: boolean): Promise<{
+  preflightDedicatedPiv(
+    expectedSerial: string,
+    allowOccupiedVaultSlot?: boolean
+  ): Promise<{
     ok: true
     inspection: 'metadata' | 'attestation'
     manufacturerAttestation: 'verified'
@@ -64,6 +67,12 @@ export interface VaultDriver {
    * it. Called immediately after vault-key generation, in the same session.
    */
   protectManagementKey(expectedSerial: string): Promise<{ ok: true }>
+  /** Reset the entire PIV application to factory state, destroying every key
+   * and certificate in it — Vault slot 0x82 included. Both native SDKs block
+   * the PIN and PUK before the RESET APDU, so the retry counters are spent
+   * whatever the outcome. Never call this for a serial that is already an
+   * enrolled vault key; see pivReset.ts. */
+  resetPivApplication(expectedSerial: string): Promise<{ ok: true }>
   readVaultPublicKey(expectedSerial: string): Promise<{ publicKey: string } | null>
   /** Sign a pre-computed 32-byte digest (64 hex chars) with the slot's P-256
    * key. Returns a DER signature as hex. TOUCH-gated, PIN-gated. */
@@ -85,6 +94,7 @@ interface NativeYubiKeyPiv {
   preflightDedicatedPiv(expectedSerial: string, allowOccupiedVaultSlot: boolean): Promise<string>
   generateVaultKey(expectedSerial: string): Promise<string>
   protectManagementKey(expectedSerial: string): Promise<string>
+  resetPivApplication(expectedSerial: string): Promise<string>
   readVaultPublicKey(expectedSerial: string): Promise<string>
   signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<string>
 }
@@ -185,6 +195,7 @@ function adaptNative(native: NativeYubiKeyPiv): VaultDriver {
     // input. 'once' lets the PIN verified at session start cover the batch.
     generateVaultKey: serial => parse(native.generateVaultKey(serial)),
     protectManagementKey: serial => parse(native.protectManagementKey(serial)),
+    resetPivApplication: serial => parse(native.resetPivApplication(serial)),
     readVaultPublicKey: async serial => {
       const r = await parse<{ publicKey: string | null }>(native.readVaultPublicKey(serial))
       return r.publicKey ? { publicKey: r.publicKey } : null

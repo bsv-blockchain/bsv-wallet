@@ -183,7 +183,11 @@ export class MockYubiKey implements VaultDriver {
     return { ok: false, retriesLeft: r.pinRetries }
   }
 
-  async changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }> {
+  async changePin(
+    expectedSerial: string,
+    oldPin: string,
+    newPin: string
+  ): Promise<{ ok: boolean; retriesLeft: number }> {
     requirePivCode(oldPin, 'PIN')
     requirePivCode(newPin, 'PIN')
     this.requireExpectedSerial(expectedSerial)
@@ -198,7 +202,11 @@ export class MockYubiKey implements VaultDriver {
     return { ok: true, retriesLeft: 3 }
   }
 
-  async changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<{ ok: boolean; retriesLeft: number }> {
+  async changePuk(
+    expectedSerial: string,
+    oldPuk: string,
+    newPuk: string
+  ): Promise<{ ok: boolean; retriesLeft: number }> {
     requirePivCode(oldPuk, 'PUK')
     requirePivCode(newPuk, 'PUK')
     this.requireExpectedSerial(expectedSerial)
@@ -213,7 +221,10 @@ export class MockYubiKey implements VaultDriver {
     return { ok: true, retriesLeft: 3 }
   }
 
-  async preflightDedicatedPiv(expectedSerial: string, allowOccupiedVaultSlot = false): Promise<{
+  async preflightDedicatedPiv(
+    expectedSerial: string,
+    allowOccupiedVaultSlot = false
+  ): Promise<{
     ok: true
     inspection: 'metadata'
     manufacturerAttestation: 'verified'
@@ -251,6 +262,39 @@ export class MockYubiKey implements VaultDriver {
     if (r.managementProtected) throw new VaultError('mgmt-key-custom', 'Management key is already protected')
     r.managementProtected = true
     return { ok: true }
+  }
+
+  async resetPivApplication(expectedSerial: string): Promise<{ ok: true }> {
+    this.requireExpectedSerial(expectedSerial)
+    // The real card blocks the PIN and PUK before RESET, so nothing here is
+    // conditional on knowing either code — that is the whole point of reset.
+    this.keys.set(expectedSerial, freshRecord())
+    return { ok: true }
+  }
+
+  /** DEV/test control: drive a card away from factory state, the way a
+   * YubiKey that has been used for something else arrives. */
+  personalise(pin: string, puk: string): void {
+    requirePivCode(pin, 'PIN')
+    requirePivCode(puk, 'PUK')
+    const r = this.record()
+    r.pin = pin
+    r.puk = puk
+    r.managementProtected = true
+  }
+
+  /** DEV/test control: is this card in just-installed state? */
+  isFactory(serial = this.serial): boolean {
+    const r = this.keys.get(serial)
+    if (!r) return false
+    return (
+      r.pin === DEFAULT_PIN &&
+      r.puk === DEFAULT_PUK &&
+      r.pinRetries === 3 &&
+      r.pukRetries === 3 &&
+      !r.managementProtected &&
+      r.priv === null
+    )
   }
 
   async readVaultPublicKey(expectedSerial: string): Promise<{ publicKey: string } | null> {
