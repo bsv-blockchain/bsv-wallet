@@ -26,69 +26,73 @@ import com.margelo.nitro.core.HybridObject
 )
 abstract class HybridYubiKeyPivSpec: HybridObject() {
   // Properties
-
+  
 
   // Methods
   @DoNotStrip
   @Keep
   abstract fun isSupported(): Boolean
-
+  
   @DoNotStrip
   @Keep
   abstract fun startDiscovery(message: String): Unit
-
+  
   @DoNotStrip
   @Keep
   abstract fun stopDiscovery(): Unit
-
+  
   abstract fun setKeyListener(listener: (eventType: String, serial: String, transport: String) -> Unit): Unit
-
+  
   @DoNotStrip
   @Keep
   private fun setKeyListener_cxx(listener: Func_void_std__string_std__string_std__string): Unit {
     val __result = setKeyListener(listener)
     return __result
   }
-
+  
   @DoNotStrip
   @Keep
   abstract fun clearKeyListener(): Unit
-
+  
   @DoNotStrip
   @Keep
   abstract fun getKeyInfo(): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun verifyPin(expectedSerial: String, pin: String): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun changePin(expectedSerial: String, oldPin: String, newPin: String): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun changePuk(expectedSerial: String, oldPuk: String, newPuk: String): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun preflightDedicatedPiv(expectedSerial: String, allowOccupiedVaultSlot: Boolean): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun generateVaultKey(expectedSerial: String): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun protectManagementKey(expectedSerial: String): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun readVaultPublicKey(expectedSerial: String): Promise<String>
-
+  
   @DoNotStrip
   @Keep
   abstract fun signEcdsa(expectedSerial: String, pin: String, digest: String): Promise<String>
+  
+  @DoNotStrip
+  @Keep
+  abstract fun resetPivApplication(expectedSerial: String): Promise<String>
 
   // Default implementation of `HybridObject.toString()`
   override fun toString(): String {

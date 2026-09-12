@@ -34,4 +34,10 @@ export interface YubiKeyPiv extends HybridObject<{ ios: 'swift'; android: 'kotli
    * `digest` is 64 hex chars, passed to the card UNCHANGED — no hashing on
    * either side. Resolves JSON {signature} as DER hex. TOUCH-gated. */
   signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<string>
+  /** Reset the whole PIV application to just-installed state. Destroys every
+   * key, certificate and credential in it, Vault slot 0x82 included. Both
+   * SDKs block the PIN and the PUK first — PIV requires both blocked before
+   * RESET — so the card's retry counters are spent regardless of outcome.
+   * Needs neither a verified PIN nor an authenticated management key. */
+  resetPivApplication(expectedSerial: string): Promise<string> // JSON {ok:true}
 }

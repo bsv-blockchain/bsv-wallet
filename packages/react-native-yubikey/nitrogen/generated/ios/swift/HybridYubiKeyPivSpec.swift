@@ -27,6 +27,7 @@ public protocol HybridYubiKeyPivSpec_protocol: HybridObject {
   func protectManagementKey(expectedSerial: String) throws -> Promise<String>
   func readVaultPublicKey(expectedSerial: String) throws -> Promise<String>
   func signEcdsa(expectedSerial: String, pin: String, digest: String) throws -> Promise<String>
+  func resetPivApplication(expectedSerial: String) throws -> Promise<String>
 }
 
 public extension HybridYubiKeyPivSpec_protocol {

@@ -541,6 +541,29 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     return promise
   }
 
+  override fun resetPivApplication(expectedSerial: String): Promise<String> {
+    val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
+      // PivSession.reset() blocks the PIN and the PUK itself, then sends
+      // INS_RESET. It needs neither authenticate() nor verifyPin(). It refuses
+      // outright on a key with biometrics configured, throwing a plain
+      // IllegalArgumentException that mapError would otherwise report as
+      // 'wrong-key'.
+      try {
+        piv.reset()
+      } catch (e: IllegalArgumentException) {
+        throw VaultException("template-invalid", e.message ?: "PIV reset refused by this YubiKey")
+      }
+      "{\"ok\":true}"
+    }
+    return promise
+  }
+
   // ── helpers ──
 
   /**

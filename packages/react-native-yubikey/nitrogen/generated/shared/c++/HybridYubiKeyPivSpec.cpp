@@ -28,6 +28,7 @@ namespace margelo::nitro::yubikeypiv {
       prototype.registerHybridMethod("protectManagementKey", &HybridYubiKeyPivSpec::protectManagementKey);
       prototype.registerHybridMethod("readVaultPublicKey", &HybridYubiKeyPivSpec::readVaultPublicKey);
       prototype.registerHybridMethod("signEcdsa", &HybridYubiKeyPivSpec::signEcdsa);
+      prototype.registerHybridMethod("resetPivApplication", &HybridYubiKeyPivSpec::resetPivApplication);
     });
   }
 

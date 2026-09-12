@@ -84,7 +84,7 @@ open class HybridYubiKeyPivSpec_cxx {
     }
   }
 
-
+  
 
   /**
    * Get the memory size of the Swift class (plus size of any other allocations)
@@ -121,7 +121,7 @@ open class HybridYubiKeyPivSpec_cxx {
   }
 
   // Properties
-
+  
 
   // Methods
   @inline(__always)
@@ -135,7 +135,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_bool_(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func startDiscovery(message: std.string) -> bridge.Result_void_ {
     do {
@@ -146,7 +146,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_void_(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func stopDiscovery() -> bridge.Result_void_ {
     do {
@@ -157,7 +157,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_void_(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func setKeyListener(listener: bridge.Func_void_std__string_std__string_std__string) -> bridge.Result_void_ {
     do {
@@ -173,7 +173,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_void_(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func clearKeyListener() -> bridge.Result_void_ {
     do {
@@ -184,7 +184,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_void_(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func getKeyInfo() -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -203,7 +203,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func verifyPin(expectedSerial: std.string, pin: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -222,7 +222,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func changePin(expectedSerial: std.string, oldPin: std.string, newPin: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -241,7 +241,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func changePuk(expectedSerial: std.string, oldPuk: std.string, newPuk: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -260,7 +260,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func preflightDedicatedPiv(expectedSerial: std.string, allowOccupiedVaultSlot: Bool) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -279,7 +279,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func generateVaultKey(expectedSerial: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -298,7 +298,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func protectManagementKey(expectedSerial: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -317,7 +317,7 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func readVaultPublicKey(expectedSerial: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
@@ -336,11 +336,30 @@ open class HybridYubiKeyPivSpec_cxx {
       return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
     }
   }
-
+  
   @inline(__always)
   public final func signEcdsa(expectedSerial: std.string, pin: std.string, digest: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
       let __result = try self.__implementation.signEcdsa(expectedSerial: String(expectedSerial), pin: String(pin), digest: String(digest))
+      let __resultCpp = { () -> bridge.std__shared_ptr_Promise_std__string__ in
+        let __promise = bridge.create_std__shared_ptr_Promise_std__string__()
+        let __promiseHolder = bridge.wrap_std__shared_ptr_Promise_std__string__(__promise)
+        __result
+          .then({ __result in __promiseHolder.resolve(std.string(__result)) })
+          .catch({ __error in __promiseHolder.reject(__error.toCpp()) })
+        return __promise
+      }()
+      return bridge.create_Result_std__shared_ptr_Promise_std__string___(__resultCpp)
+    } catch (let __error) {
+      let __exceptionPtr = __error.toCpp()
+      return bridge.create_Result_std__shared_ptr_Promise_std__string___(__exceptionPtr)
+    }
+  }
+  
+  @inline(__always)
+  public final func resetPivApplication(expectedSerial: std.string) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
+    do {
+      let __result = try self.__implementation.resetPivApplication(expectedSerial: String(expectedSerial))
       let __resultCpp = { () -> bridge.std__shared_ptr_Promise_std__string__ in
         let __promise = bridge.create_std__shared_ptr_Promise_std__string__()
         let __promiseHolder = bridge.wrap_std__shared_ptr_Promise_std__string__(__promise)

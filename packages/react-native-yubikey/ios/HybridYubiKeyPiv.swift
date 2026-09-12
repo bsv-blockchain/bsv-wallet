@@ -434,6 +434,34 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     return promise
   }
 
+  func resetPivApplication(expectedSerial: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    let promise = Promise<String>()
+    let settled = SettleGuard()
+    withSession(promise) { session in
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        // YubiKit's reset blocks the PIN, then the PUK, then sends RESET. It
+        // needs no verified PIN and no management-key auth. But blockPuk's
+        // changeReference: helper only calls its completion when the card's
+        // status word maps to a retry count >= 0 (YKFPIVSession.m:781); any
+        // other word drops the completion and this promise would never settle.
+        // SettleGuard only prevents a DOUBLE settle, so add a watchdog: the JS
+        // side must always get an answer, and the card is already unusable by
+        // the time blockPuk runs.
+        let watchdog = DispatchWorkItem {
+          settled.reject(promise, Self.vaultError("nfc-lost", "PIV reset did not report completion"))
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: watchdog)
+        session.reset { error in
+          watchdog.cancel()
+          if let error { return settled.reject(promise, Self.mapError(error)) }
+          settled.resolve(promise, "{\"ok\":true}")
+        }
+      }
+    }
+    return promise
+  }
+
   // MARK: - Helpers
 
   private static func requirePivCode(_ value: String, label: String) throws {
