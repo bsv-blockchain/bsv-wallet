@@ -227,6 +227,10 @@ const resources = {
       vault_pin_confirm_label: 'Enter it again',
       vault_pin_mismatch: 'Those two PINs do not match.',
       vault_pin_not_default: 'Pick something other than 123456.',
+      vault_puk_title: 'Your recovery code',
+      vault_puk_body:
+        'Write this down and keep it somewhere safe. It is the only way to unlock this key if the PIN is forgotten, and it will not be shown again.',
+      vault_puk_ack: 'I have written this down',
       vault_setup_step: 'Step {{n}} of {{total}}',
       vault_enrollment_resume: 'Resume saved key',
       vault_enrollment_reset_required:
@@ -336,6 +340,7 @@ const resources = {
       vault_nfc_activation_hint:
         'First time with this YubiKey? Plug it into a USB-C port for a few seconds first — new keys ship with NFC switched off until then.',
       vault_continue: 'Continue',
+      vault_back: 'Back',
       vault_enrolled_toast: 'Vault ready',
       // ceremony
       vault_insert_key: 'Insert your YubiKey',
@@ -991,6 +996,9 @@ const resources = {
       vault_pin_confirm_label: '再次输入',
       vault_pin_mismatch: '两次输入的 PIN 码不一致。',
       vault_pin_not_default: '请选择 123456 以外的数字。',
+      vault_puk_title: '您的恢复码',
+      vault_puk_body: '请抄下并妥善保管。忘记 PIN 码时，这是解锁此密钥的唯一方式，且不会再次显示。',
+      vault_puk_ack: '我已抄下',
       vault_setup_step: '第 {{n}} 步，共 {{total}} 步',
       vault_enrollment_resume: '继续已保存的密钥',
       vault_enrollment_reset_required:
@@ -1092,6 +1100,7 @@ const resources = {
       vault_nfc_activation_hint:
         '首次使用这个 YubiKey？请先将它插入 USB-C 接口几秒钟——新密钥出厂时 NFC 处于关闭状态，插入后才会开启。',
       vault_continue: '继续',
+      vault_back: '返回',
       vault_enrolled_toast: '保险库已就绪',
       vault_insert_key: '插入您的 YubiKey',
       vault_hold_key_nfc: '请将 YubiKey 贴近手机顶部',
@@ -1697,6 +1706,10 @@ const resources = {
       vault_pin_confirm_label: 'इसे दोबारा दर्ज करें',
       vault_pin_mismatch: 'दोनों PIN मेल नहीं खाते।',
       vault_pin_not_default: '123456 के अलावा कुछ चुनें।',
+      vault_puk_title: 'आपका रिकवरी कोड',
+      vault_puk_body:
+        'इसे लिखकर सुरक्षित जगह रखें। PIN भूल जाने पर इस कुंजी को खोलने का यही एकमात्र तरीका है, और यह दोबारा नहीं दिखाया जाएगा।',
+      vault_puk_ack: 'मैंने इसे लिख लिया है',
       vault_setup_step: 'चरण {{n}} / {{total}}',
       vault_enrollment_resume: 'सहेजी गई कुंजी जारी रखें',
       vault_enrollment_reset_required:
@@ -1806,6 +1819,7 @@ const resources = {
       vault_nfc_activation_hint:
         'इस YubiKey का पहली बार उपयोग कर रहे हैं? पहले इसे कुछ सेकंड के लिए USB-C पोर्ट में लगाएँ — नई कुंजियाँ NFC बंद करके भेजी जाती हैं, तब तक यह चालू नहीं होता।',
       vault_continue: 'जारी रखें',
+      vault_back: 'वापस',
       vault_enrolled_toast: 'वॉल्ट तैयार',
       vault_insert_key: 'अपनी YubiKey डालें',
       vault_hold_key_nfc: 'अपनी YubiKey को फ़ोन के ऊपरी हिस्से से सटाकर रखें',
@@ -2436,6 +2450,10 @@ const resources = {
       vault_pin_confirm_label: 'Introdúcelo otra vez',
       vault_pin_mismatch: 'Esos dos PIN no coinciden.',
       vault_pin_not_default: 'Elige algo distinto de 123456.',
+      vault_puk_title: 'Tu código de recuperación',
+      vault_puk_body:
+        'Anótalo y guárdalo en un lugar seguro. Es la única forma de desbloquear esta llave si olvidas el PIN, y no volverá a mostrarse.',
+      vault_puk_ack: 'Lo he anotado',
       vault_setup_step: 'Paso {{n}} de {{total}}',
       vault_enrollment_resume: 'Reanudar clave guardada',
       vault_enrollment_reset_required:
@@ -2550,6 +2568,7 @@ const resources = {
       vault_nfc_activation_hint:
         '¿Es la primera vez que usas esta YubiKey? Conéctala primero a un puerto USB-C durante unos segundos — las llaves nuevas vienen con el NFC desactivado hasta entonces.',
       vault_continue: 'Continuar',
+      vault_back: 'Atrás',
       vault_enrolled_toast: 'Caja fuerte lista',
       vault_insert_key: 'Inserta tu YubiKey',
       vault_hold_key_nfc: 'Acerca tu YubiKey a la parte superior del teléfono',
@@ -3188,6 +3207,10 @@ const resources = {
       vault_pin_confirm_label: 'Saisissez-le à nouveau',
       vault_pin_mismatch: 'Ces deux codes PIN ne correspondent pas.',
       vault_pin_not_default: 'Choisissez autre chose que 123456.',
+      vault_puk_title: 'Votre code de récupération',
+      vault_puk_body:
+        'Notez-le et conservez-le en lieu sûr. C’est le seul moyen de débloquer cette clé en cas d’oubli du code PIN, et il ne sera plus affiché.',
+      vault_puk_ack: 'Je l’ai noté',
       vault_setup_step: 'Étape {{n}} sur {{total}}',
       vault_enrollment_resume: 'Reprendre la clé enregistrée',
       vault_enrollment_reset_required:
@@ -3300,6 +3323,7 @@ const resources = {
       vault_nfc_activation_hint:
         "C'est la première fois avec cette YubiKey ? Branchez-la d'abord sur un port USB-C pendant quelques secondes — les nouvelles clés sont livrées avec le NFC désactivé jusque-là.",
       vault_continue: 'Continuer',
+      vault_back: 'Retour',
       vault_enrolled_toast: 'Coffre prêt',
       vault_insert_key: 'Insérez votre YubiKey',
       vault_hold_key_nfc: 'Approchez votre YubiKey du haut de votre téléphone',
@@ -3939,6 +3963,10 @@ const resources = {
       vault_pin_confirm_label: 'أدخله مرة أخرى',
       vault_pin_mismatch: 'الرمزان غير متطابقين.',
       vault_pin_not_default: 'اختر رمزًا غير 123456.',
+      vault_puk_title: 'رمز الاسترداد الخاص بك',
+      vault_puk_body:
+        'دوّنه واحتفظ به في مكان آمن. إنه الطريقة الوحيدة لفتح هذا المفتاح إذا نسيت رمز PIN، ولن يُعرض مرة أخرى.',
+      vault_puk_ack: 'لقد دوّنته',
       vault_setup_step: 'الخطوة {{n}} من {{total}}',
       vault_enrollment_resume: 'متابعة المفتاح المحفوظ',
       vault_enrollment_reset_required:
@@ -4046,6 +4074,7 @@ const resources = {
       vault_nfc_activation_hint:
         'هل هذه أول مرة تستخدم فيها مفتاح YubiKey هذا؟ وصّله أولاً بمنفذ USB-C لبضع ثوانٍ — المفاتيح الجديدة تُشحن وتقنية NFC معطّلة فيها حتى ذلك الحين.',
       vault_continue: 'متابعة',
+      vault_back: 'رجوع',
       vault_enrolled_toast: 'الخزنة جاهزة',
       vault_insert_key: 'أدخل مفتاح YubiKey',
       vault_hold_key_nfc: 'قرّب YubiKey من أعلى هاتفك',
@@ -4660,6 +4689,10 @@ const resources = {
       vault_pin_confirm_label: 'Introduza-o novamente',
       vault_pin_mismatch: 'Os dois PIN não coincidem.',
       vault_pin_not_default: 'Escolha algo diferente de 123456.',
+      vault_puk_title: 'O seu código de recuperação',
+      vault_puk_body:
+        'Anote-o e guarde-o num local seguro. É a única forma de desbloquear esta chave se esquecer o PIN, e não voltará a ser mostrado.',
+      vault_puk_ack: 'Já o anotei',
       vault_setup_step: 'Passo {{n}} de {{total}}',
       vault_enrollment_resume: 'Retomar chave guardada',
       vault_enrollment_reset_required:
@@ -4772,6 +4805,7 @@ const resources = {
       vault_nfc_activation_hint:
         'Primeira vez com esta YubiKey? Ligue-a primeiro a uma porta USB-C por alguns segundos — as chaves novas vêm com o NFC desativado até então.',
       vault_continue: 'Continuar',
+      vault_back: 'Voltar',
       vault_enrolled_toast: 'Cofre pronto',
       vault_insert_key: 'Insira a sua YubiKey',
       vault_hold_key_nfc: 'Encoste a sua YubiKey ao topo do telemóvel',
@@ -5407,6 +5441,10 @@ const resources = {
       vault_pin_confirm_label: 'আবার লিখুন',
       vault_pin_mismatch: 'দুটি PIN মিলছে না।',
       vault_pin_not_default: '123456 ছাড়া অন্য কিছু বাছুন।',
+      vault_puk_title: 'আপনার পুনরুদ্ধার কোড',
+      vault_puk_body:
+        'এটি লিখে নিরাপদ জায়গায় রাখুন। PIN ভুলে গেলে এই কী খোলার এটিই একমাত্র উপায়, এবং এটি আর দেখানো হবে না।',
+      vault_puk_ack: 'আমি লিখে নিয়েছি',
       vault_setup_step: 'ধাপ {{n}} / {{total}}',
       vault_enrollment_resume: 'সংরক্ষিত কী চালিয়ে যান',
       vault_enrollment_reset_required:
@@ -5514,6 +5552,7 @@ const resources = {
       vault_nfc_activation_hint:
         'এই YubiKey প্রথমবার ব্যবহার করছেন? প্রথমে এটি কয়েক সেকেন্ডের জন্য USB-C পোর্টে লাগান — নতুন কী-গুলো NFC বন্ধ অবস্থায় পাঠানো হয়, ততক্ষণ পর্যন্ত এটি চালু হয় না।',
       vault_continue: 'চালিয়ে যান',
+      vault_back: 'ফিরে যান',
       vault_enrolled_toast: 'ভল্ট প্রস্তুত',
       vault_insert_key: 'আপনার YubiKey ঢোকান',
       vault_hold_key_nfc: 'আপনার YubiKey ফোনের উপরের অংশে ধরে রাখুন',
@@ -6142,6 +6181,10 @@ const resources = {
       vault_pin_confirm_label: 'Введите ещё раз',
       vault_pin_mismatch: 'PIN-коды не совпадают.',
       vault_pin_not_default: 'Выберите что-нибудь кроме 123456.',
+      vault_puk_title: 'Ваш код восстановления',
+      vault_puk_body:
+        'Запишите его и храните в надёжном месте. Это единственный способ разблокировать ключ, если PIN-код забыт, и повторно он показан не будет.',
+      vault_puk_ack: 'Я записал его',
       vault_setup_step: 'Шаг {{n}} из {{total}}',
       vault_enrollment_resume: 'Продолжить сохранённый ключ',
       vault_enrollment_reset_required:
@@ -6252,6 +6295,7 @@ const resources = {
       vault_nfc_activation_hint:
         'Впервые используете этот YubiKey? Сначала подключите его к порту USB-C на несколько секунд — новые ключи поставляются с отключённым NFC, пока это не будет сделано.',
       vault_continue: 'Продолжить',
+      vault_back: 'Назад',
       vault_enrolled_toast: 'Хранилище готово',
       vault_insert_key: 'Вставьте ваш YubiKey',
       vault_hold_key_nfc: 'Приложите YubiKey к верхней части телефона',
@@ -6886,6 +6930,10 @@ const resources = {
       vault_pin_confirm_label: 'Masukkan sekali lagi',
       vault_pin_mismatch: 'Kedua PIN tidak sama.',
       vault_pin_not_default: 'Pilih selain 123456.',
+      vault_puk_title: 'Kode pemulihan Anda',
+      vault_puk_body:
+        'Catat dan simpan di tempat aman. Ini satu-satunya cara membuka kunci ini bila PIN terlupa, dan tidak akan ditampilkan lagi.',
+      vault_puk_ack: 'Saya sudah mencatatnya',
       vault_setup_step: 'Langkah {{n}} dari {{total}}',
       vault_enrollment_resume: 'Lanjutkan kunci tersimpan',
       vault_enrollment_reset_required:
@@ -6998,6 +7046,7 @@ const resources = {
       vault_nfc_activation_hint:
         'Pertama kali memakai YubiKey ini? Colokkan dulu ke port USB-C selama beberapa detik — kunci baru dikirim dengan NFC nonaktif sampai saat itu.',
       vault_continue: 'Lanjutkan',
+      vault_back: 'Kembali',
       vault_enrolled_toast: 'Brankas siap',
       vault_insert_key: 'Masukkan YubiKey Anda',
       vault_hold_key_nfc: 'Tempelkan YubiKey ke bagian atas ponsel Anda',
@@ -7634,6 +7683,10 @@ const resources = {
       vault_pin_confirm_label: 'もう一度入力',
       vault_pin_mismatch: '2 つの PIN が一致しません。',
       vault_pin_not_default: '123456 以外を選んでください。',
+      vault_puk_title: '復旧コード',
+      vault_puk_body:
+        '書き留めて安全な場所に保管してください。PIN を忘れたときにこのキーを解除できる唯一の方法で、二度と表示されません。',
+      vault_puk_ack: '書き留めました',
       vault_setup_step: 'ステップ {{n}}／{{total}}',
       vault_enrollment_resume: '保存済みキーを再開',
       vault_enrollment_reset_required:
@@ -7745,6 +7798,7 @@ const resources = {
       vault_nfc_activation_hint:
         'このYubiKeyを初めて使いますか？まず数秒間USB-Cポートに挿してください——新しいキーはNFCが無効の状態で出荷され、挿すまで有効になりません。',
       vault_continue: '続ける',
+      vault_back: '戻る',
       vault_enrolled_toast: '保管庫の準備ができました',
       vault_insert_key: 'YubiKey を挿入してください',
       vault_hold_key_nfc: 'YubiKey をスマートフォンの上部にかざしてください',
@@ -8388,6 +8442,10 @@ const resources = {
       vault_pin_confirm_label: 'Wpisz go ponownie',
       vault_pin_mismatch: 'Te dwa PIN-y nie są takie same.',
       vault_pin_not_default: 'Wybierz coś innego niż 123456.',
+      vault_puk_title: 'Twój kod odzyskiwania',
+      vault_puk_body:
+        'Zapisz go i trzymaj w bezpiecznym miejscu. To jedyny sposób na odblokowanie tego klucza po zapomnieniu PIN-u, a nie zostanie pokazany ponownie.',
+      vault_puk_ack: 'Zapisałem go',
       vault_setup_step: 'Krok {{n}} z {{total}}',
       vault_enrollment_resume: 'Wznów zapisany klucz',
       vault_enrollment_reset_required:
@@ -8499,6 +8557,7 @@ const resources = {
       vault_nfc_activation_hint:
         'Pierwszy raz używasz tego YubiKey? Podłącz go najpierw do portu USB-C na kilka sekund — nowe klucze są wysyłane z wyłączonym NFC, dopóki to nie nastąpi.',
       vault_continue: 'Kontynuuj',
+      vault_back: 'Wstecz',
       vault_enrolled_toast: 'Sejf gotowy',
       vault_insert_key: 'Włóż YubiKey',
       vault_hold_key_nfc: 'Przyłóż YubiKey do górnej części telefonu',

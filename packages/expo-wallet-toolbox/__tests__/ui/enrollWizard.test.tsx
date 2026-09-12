@@ -145,6 +145,13 @@ function choosePin(screen: ReturnType<typeof render>, pin = '654321') {
   fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), pin)
 }
 
+/** From the pin sub-state: choose a PIN, accept the generated code, reach the tap. */
+function enterCredentials(screen: ReturnType<typeof render>, pin = '654321') {
+  choosePin(screen, pin)
+  fireEvent.press(screen.getByText('vault_continue'))
+  fireEvent.press(screen.getByText('vault_puk_ack'))
+}
+
 async function enrolOneKey(screen: ReturnType<typeof render>, name: string) {
   const pivAck = screen.queryByText('vault_intro_piv_ack')
   if (pivAck) fireEvent.press(pivAck)
@@ -222,7 +229,9 @@ test('resumes a protected draft with a live PIN challenge before naming it', asy
   mockDrafts = [draft]
   mockResumeEnrollmentDraft.mockResolvedValueOnce(draft.record)
   const { screen } = await beginEnroll()
-  enterCredentials(screen)
+  // The resume button lives on the PIN page, so stop there rather than
+  // advancing to the recovery-code page.
+  choosePin(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_enrollment_resume · …T001')))
   await settle()
   expect(mockResumeEnrollmentDraft).toHaveBeenCalledWith(expect.objectContaining({ entry: draft }))
@@ -462,24 +471,61 @@ test('a wrong PIN returns to the PIN field with the attempts left', async () => 
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
   expect(screen.getByText('vault_err_pin_invalid vault_pin_retries:{"count":2}')).toBeTruthy()
-  expect(screen.getByLabelText('vault_enter_pin')).toBeTruthy()
+  expect(screen.getByLabelText('vault_pin_choose_title')).toBeTruthy()
 })
 
-test('the factory PIN demands a new PIN before the tap and passes both to enrollKey', async () => {
-  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
+test('the recovery code page shows step 2 of 4 and gates Continue on the acknowledgement', async () => {
   const { screen } = await beginEnroll()
-  enterCredentials(screen, '123456')
-  expect(screen.getByLabelText('vault_set_new_pin')).toBeTruthy()
-  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
-  expect(mockEnrollKey).not.toHaveBeenCalled()
-  fireEvent.changeText(screen.getByLabelText('vault_set_new_pin'), '778899')
+  choosePin(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
+
+  expect(screen.getByText('vault_puk_title')).toBeTruthy()
+  expect(screen.getByText('vault_setup_step:{"n":2,"total":4}')).toBeTruthy()
+
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  expect(mockEnrollKey).not.toHaveBeenCalled()
+
+  fireEvent.press(screen.getByText('vault_puk_ack'))
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  expect(mockEnrollKey).toHaveBeenCalled()
+})
+
+test('the factory codes are supplied below the UI and the generated PUK is 8 digits', async () => {
+  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
+  const { screen } = await beginEnroll()
+  enterCredentials(screen, '778899')
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
   const args = mockEnrollKey.mock.calls[0][0]
   expect(args.acknowledgeDedicatedPivApplication).toBe(true)
   await expect(args.getPin()).resolves.toBe('123456')
   await expect(args.requestPinChange(3)).resolves.toEqual({ oldPin: '123456', newPin: '778899' })
-  await expect(args.requestPukChange()).resolves.toEqual({ oldPuk: '12345678', newPuk: '87654321' })
+  const puk = await args.requestPukChange()
+  expect(puk.oldPuk).toBe('12345678')
+  expect(puk.newPuk).toMatch(/^[0-9]{8}$/)
+  expect(puk.newPuk).not.toBe('12345678')
+  expect(puk.newPuk).not.toBe('778899')
+})
+
+test('the code shown on screen is the one sent to the service', async () => {
+  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
+  const { screen } = await beginEnroll()
+  choosePin(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
+  const shown = screen.getByLabelText('vault_puk_title').props.children as string
+  fireEvent.press(screen.getByText('vault_puk_ack'))
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
+  await expect(mockEnrollKey.mock.calls[0][0].requestPukChange()).resolves.toEqual({
+    oldPuk: '12345678',
+    newPuk: shown
+  })
 })
 
 test('leaving with a pending key asks first; Stay keeps the wizard, Leave cancels it', async () => {

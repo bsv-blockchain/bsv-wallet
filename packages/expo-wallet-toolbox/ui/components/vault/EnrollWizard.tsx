@@ -706,6 +706,46 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       )
     }
 
+    if (sub === 'puk') {
+      return (
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
+          <StepProgress sub={sub} />
+          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_puk_title')}</Text>
+          {/* Shown once and never stored, exactly like the PIN. The
+              acknowledgement is a tick rather than a plain button because
+              losing this code silently is the failure this page exists to
+              prevent. */}
+          <Text
+            accessibilityLabel={t('vault_puk_title')}
+            selectable
+            style={[styles.code, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+          >
+            {newPuk}
+          </Text>
+          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_puk_body')}</Text>
+          <PressableScale
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: pukAck }}
+            haptic="tap"
+            onPress={() => setPukAck(value => !value)}
+            style={[styles.ackRow, { borderColor: pukAck ? colors.accent : colors.separator }]}
+          >
+            <Ionicons
+              name={pukAck ? 'checkbox' : 'square-outline'}
+              size={24}
+              color={pukAck ? colors.accent : colors.textTertiary}
+            />
+            <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_puk_ack')}</Text>
+          </PressableScale>
+          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          <ActionButton label={t('vault_continue')} enabled={pukAck && pinOk && !busy} onPress={() => void runTap()} />
+          <ActionButton label={t('vault_back')} variant="outline" onPress={() => setSub('pin')} />
+          {leaveLink}
+        </ScrollView>
+      )
+    }
+
     if (sub === 'tap') {
       return (
         <View style={styles.body}>
@@ -962,6 +1002,15 @@ const styles = StyleSheet.create({
     letterSpacing: 8,
     borderRadius: radii.md,
     paddingVertical: spacing.md
+  },
+  code: {
+    width: '80%',
+    alignSelf: 'center',
+    textAlign: 'center',
+    ...typography.title2,
+    letterSpacing: 6,
+    borderRadius: radii.md,
+    paddingVertical: spacing.lg
   },
   list: { borderRadius: radii.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   listRow: {
