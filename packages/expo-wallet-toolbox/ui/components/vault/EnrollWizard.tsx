@@ -271,7 +271,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
 
   // ── the card session ────────────────────────────────────────────────
   const runTap = useCallback(
-    async () => {
+    async (replaceOccupiedVaultSlot = false) => {
       if (tapInFlight.current || !pivAck) return
       tapInFlight.current = true
       setSub('tap')
@@ -293,7 +293,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           // Localised iOS NFC sheet text for this tap (enrollKey forwards it to
           // withKeySession → driver.start). Omitting it would fall back to the
           // native default wording.
-          nfcMessage: t('vault_nfc_enroll_message')
+          nfcMessage: t('vault_nfc_enroll_message'),
+          replaceOccupiedVaultSlot
         })
         haptics.success()
         setFresh(record)
@@ -695,7 +696,16 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       <View style={styles.body}>
         <Ionicons name="alert-circle-outline" size={48} color={colors.error} style={styles.hero} />
         <Text style={[styles.h1, { color: colors.textPrimary }]}>{keyError?.copy ?? t('vault_err_generic')}</Text>
-        {code === 'pin-locked' ? (
+        {code === 'slot-occupied' ? (
+          <>
+            <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_replace_key_warning')}</Text>
+            <ActionButton
+              label={t('vault_replace_key_confirm')}
+              onPress={() => void runTap(true)}
+            />
+            <ActionButton label={t('vault_key_use_different')} variant="outline" onPress={useDifferentKey} />
+          </>
+        ) : code === 'pin-locked' ? (
           <>
             <ActionButton label={t('vault_key_use_different')} onPress={useDifferentKey} />
             <ActionButton label={t('vault_retry')} variant="outline" onPress={() => void runTap()} />

@@ -220,7 +220,8 @@ const resources = {
         "I confirm this YubiKey's entire PIV application is factory-reset or dedicated to Vault. Setup changes its global PIV PIN, PUK, and management key, may affect every PIV slot, and I will securely record the new PUK.",
       vault_intro_begin: 'Begin',
       vault_key_step_title: 'Key {{k}} of up to 5',
-      vault_key_step_replace: 'Use a factory-reset YubiKey dedicated to Vault. Setup stops if any PIV slot is occupied.',
+      vault_key_step_replace:
+        'Use a factory-reset YubiKey dedicated to Vault. If its Vault slot contains an old key, setup will warn before replacing it.',
       vault_enrollment_resume: 'Resume saved key',
       vault_enrollment_reset_required:
         "This YubiKey's PIV setup ended in an uncertain state. Do not guess credentials or retry it: guessing can block the entire PIV application. Use another key and recover or factory-reset this one with an administrator.",
@@ -376,6 +377,9 @@ const resources = {
       vault_err_pin_required: 'Enter your PIN.',
       vault_err_unsupported_platform: 'YubiKey support is unavailable on this device.',
       vault_err_slot_occupied: 'The key slot is already in use.',
+      vault_replace_key_warning:
+        'Replacing it permanently destroys the existing P-256 private key. Any vault funds that require that key could become unspendable.',
+      vault_replace_key_confirm: 'Replace existing key',
       vault_err_enrollment_partial:
         'YubiKey setup stopped after changing the key. Follow the retry instructions; this key was not added to the Vault.',
       vault_err_key_not_adopted:

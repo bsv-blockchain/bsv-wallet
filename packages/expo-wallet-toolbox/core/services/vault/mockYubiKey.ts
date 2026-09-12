@@ -213,7 +213,7 @@ export class MockYubiKey implements VaultDriver {
     return { ok: true, retriesLeft: 3 }
   }
 
-  async preflightDedicatedPiv(expectedSerial: string): Promise<{
+  async preflightDedicatedPiv(expectedSerial: string, allowOccupiedVaultSlot = false): Promise<{
     ok: true
     inspection: 'metadata'
     manufacturerAttestation: 'verified'
@@ -224,7 +224,7 @@ export class MockYubiKey implements VaultDriver {
       throw new VaultError('attestation-invalid', 'Factory manufacturer attestation is not trusted')
     }
     if (r.managementProtected) throw new VaultError('mgmt-key-custom', 'Default management key rejected')
-    if (r.priv || r.otherPivSlotOccupied) {
+    if ((!allowOccupiedVaultSlot && r.priv) || r.otherPivSlotOccupied) {
       throw new VaultError('slot-occupied', 'The PIV application already contains a user key')
     }
     return { ok: true, inspection: 'metadata', manufacturerAttestation: 'verified' }

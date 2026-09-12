@@ -386,6 +386,24 @@ test('a blocked PIN keeps the pending keys and offers a different YubiKey or a r
   expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
 })
 
+test('an occupied Vault slot requires explicit replacement and retries with consent', async () => {
+  mockEnrollKey
+    .mockRejectedValueOnce(new VaultError('slot-occupied'))
+    .mockResolvedValueOnce(record('12340001', 'b'))
+  const { screen } = await beginEnroll()
+  enterCredentials(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
+  expect(screen.getByText('vault_replace_key_warning')).toBeTruthy()
+  expect(mockEnrollKey.mock.calls[0][0].replaceOccupiedVaultSlot).toBe(false)
+  await act(async () => fireEvent.press(screen.getByText('vault_replace_key_confirm')))
+  await settle()
+
+  expect(mockEnrollKey.mock.calls[1][0].replaceOccupiedVaultSlot).toBe(true)
+  expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
+})
+
 test('a wrong PIN returns to the PIN field with the attempts left', async () => {
   mockEnrollKey.mockRejectedValueOnce(new VaultError('pin-invalid', undefined, 2))
   const { screen } = await beginEnroll()

@@ -17,9 +17,10 @@ export interface YubiKeyPiv extends HybridObject<{ ios: 'swift'; android: 'kotli
   changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<string>
   changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<string>
   /** Verify the factory F9 certificate through the pinned production Yubico
-   * chain, authenticate the factory management key, and reject any occupied
-   * user PIV slot the SDK can inspect. Offline and non-mutating. */
-  preflightDedicatedPiv(expectedSerial: string): Promise<string> // JSON {ok:true,inspection,manufacturerAttestation:'verified'}
+   * chain, authenticate the factory management key, and reject occupied user
+   * PIV slots. Explicit replacement may exempt only Vault slot 0x82. Offline
+   * and non-mutating. */
+  preflightDedicatedPiv(expectedSerial: string, allowOccupiedVaultSlot: boolean): Promise<string> // JSON {ok:true,inspection,manufacturerAttestation:'verified'}
   /** Fixed to PIV slot 0x82, P-256, PIN once, touch cached. Resolves only
    * after same-session manufacturer attestation of the generated key. */
   generateVaultKey(expectedSerial: string): Promise<string> // JSON {publicKey,manufacturerAttestation:'verified'}

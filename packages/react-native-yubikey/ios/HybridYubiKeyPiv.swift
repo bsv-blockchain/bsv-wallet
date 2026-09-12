@@ -233,7 +233,7 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     return promise
   }
 
-  func preflightDedicatedPiv(expectedSerial: String) throws -> Promise<String> {
+  func preflightDedicatedPiv(expectedSerial: String, allowOccupiedVaultSlot: Bool) throws -> Promise<String> {
     try Self.requireExpectedSerial(expectedSerial)
     let promise = Promise<String>()
     withSession(promise) { session in
@@ -244,7 +244,7 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
         // the user slots empty.
         self.requireFactoryAttestation(session, expectedSerial, promise) { _ in
           self.authenticateManagementKey(session, promise) {
-            self.inspectEmptyUserSlots(session, index: 0, promise: promise)
+            self.inspectEmptyUserSlots(session, index: 0, allowOccupiedVaultSlot: allowOccupiedVaultSlot, promise: promise)
           }
         }
       }
@@ -511,6 +511,7 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   private func inspectEmptyUserSlots(
     _ session: YKFPIVSession,
     index: Int,
+    allowOccupiedVaultSlot: Bool,
     promise: Promise<String>
   ) {
     guard index < Self.userPivSlots.count else {
@@ -518,6 +519,10 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       return
     }
     let rawSlot = Self.userPivSlots[index]
+    if allowOccupiedVaultSlot && rawSlot == Self.vaultSlot {
+      inspectEmptyUserSlots(session, index: index + 1, allowOccupiedVaultSlot: allowOccupiedVaultSlot, promise: promise)
+      return
+    }
     guard let slot = YKFPIVSlot(rawValue: rawSlot) else {
       promise.reject(withError: Self.vaultError("slot-occupied", "could not address PIV slot"))
       return
@@ -531,7 +536,7 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       if let error {
         let ns = error as NSError
         if ns.code == 0x6A88 {
-          self.inspectEmptyUserSlots(session, index: index + 1, promise: promise)
+          self.inspectEmptyUserSlots(session, index: index + 1, allowOccupiedVaultSlot: allowOccupiedVaultSlot, promise: promise)
           return
         }
       }

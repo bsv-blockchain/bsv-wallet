@@ -352,7 +352,7 @@ describe('native adapter', () => {
       inspection: 'attestation',
       manufacturerAttestation: 'verified'
     })
-    expect(calls).toEqual([['preflightDedicatedPiv', 'S1']])
+    expect(calls).toEqual([['preflightDedicatedPiv', 'S1', false]])
   })
 
   it('forwards the expected serial to every fixed-slot operation', async () => {

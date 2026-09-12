@@ -132,8 +132,8 @@ namespace margelo::nitro::yubikeypiv {
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> preflightDedicatedPiv(const std::string& expectedSerial) override {
-      auto __result = _swiftPart.preflightDedicatedPiv(expectedSerial);
+    inline std::shared_ptr<Promise<std::string>> preflightDedicatedPiv(const std::string& expectedSerial, bool allowOccupiedVaultSlot) override {
+      auto __result = _swiftPart.preflightDedicatedPiv(expectedSerial, std::forward<decltype(allowOccupiedVaultSlot)>(allowOccupiedVaultSlot));
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }

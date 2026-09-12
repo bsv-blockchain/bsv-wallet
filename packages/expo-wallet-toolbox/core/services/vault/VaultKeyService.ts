@@ -161,13 +161,17 @@ function requireVerifiedPin(result: { ok: boolean; retriesLeft: number }, detail
  * that something occupies the slot. Only the card's explicit no-key response
  * authorizes generation.
  */
-async function requireEmptyVaultSlot(serial: string, pin: string): Promise<void> {
+async function requireEmptyVaultSlot(serial: string, pin: string, allowReplacement: boolean): Promise<void> {
   const driver = getVaultDriver()
   if (!driver) throw new VaultError('driver-unavailable')
   const readable = await driver.readVaultPublicKey(serial)
-  if (readable) throw new VaultError('slot-occupied', 'Vault slot already contains a key')
+  if (readable) {
+    if (allowReplacement) return
+    throw new VaultError('slot-occupied', 'Vault slot already contains a key')
+  }
   try {
     await driver.signEcdsa(serial, pin, Utils.toHex(randomBytes(32)))
+    if (allowReplacement) return
     throw new VaultError('slot-occupied', 'Vault slot already contains a key')
   } catch (e) {
     if (e instanceof VaultError && e.code === 'no-key') return
@@ -216,6 +220,9 @@ export async function enrollKey(args: {
   nfcMessage?: string
   /** Bind a multi-key wizard to the wallet+chain scope it opened under. */
   scopeToken?: VaultScopeToken
+  /** Explicit consent to destroy and replace an existing key in Vault's fixed
+   * slot 0x82. Other occupied PIV slots remain a hard failure. */
+  replaceOccupiedVaultSlot?: boolean
 }): Promise<VaultKeyRecord> {
   const driver = getVaultDriver()
   if (!driver) throw new VaultError('driver-unavailable')
@@ -298,14 +305,14 @@ export async function enrollKey(args: {
       const verified = await driver.verifyPin(info.serial, pin0)
       requireVerifiedPin(verified)
       args.onPhase('checking-slot')
-      await requireEmptyVaultSlot(info.serial, pin0)
+      await requireEmptyVaultSlot(info.serial, pin0, args.replaceOccupiedVaultSlot === true)
       // PIN/PUK and management credentials are global to the whole PIV
       // application, not slot 0x82. Native must cryptographically verify the
       // factory F9 chain, authenticate the default management key, and reject
       // every occupied user slot it can reliably inspect before mutation. The
       // explicit dedicated-token acknowledgement still matters because a
       // genuine factory-attested token can contain unrelated user credentials.
-      const preflight = await driver.preflightDedicatedPiv(info.serial)
+      const preflight = await driver.preflightDedicatedPiv(info.serial, args.replaceOccupiedVaultSlot === true)
       if (
         preflight.ok !== true ||
         preflight.manufacturerAttestation !== 'verified' ||

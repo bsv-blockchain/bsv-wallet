@@ -42,11 +42,12 @@ export interface VaultDriver {
   changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }>
   /** Rotate the PIV unblock code. Neither value may be logged or persisted. */
   changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<{ ok: boolean; retriesLeft: number }>
-  /** Authenticate the default management key and best-effort reject occupied
-   * user slots before global PIV credentials are changed. Native also verifies
+  /** Authenticate the default management key and reject occupied user slots
+   * before global PIV credentials are changed. Explicit replacement may exempt
+   * only Vault slot 0x82; every other user slot remains protected. Native also verifies
    * the factory F9 certificate through the pinned production Yubico chain,
    * offline. Never mutates. */
-  preflightDedicatedPiv(expectedSerial: string): Promise<{
+  preflightDedicatedPiv(expectedSerial: string, allowOccupiedVaultSlot?: boolean): Promise<{
     ok: true
     inspection: 'metadata' | 'attestation'
     manufacturerAttestation: 'verified'
@@ -81,7 +82,7 @@ interface NativeYubiKeyPiv {
   verifyPin(expectedSerial: string, pin: string): Promise<string>
   changePin(expectedSerial: string, oldPin: string, newPin: string): Promise<string>
   changePuk(expectedSerial: string, oldPuk: string, newPuk: string): Promise<string>
-  preflightDedicatedPiv(expectedSerial: string): Promise<string>
+  preflightDedicatedPiv(expectedSerial: string, allowOccupiedVaultSlot: boolean): Promise<string>
   generateVaultKey(expectedSerial: string): Promise<string>
   protectManagementKey(expectedSerial: string): Promise<string>
   readVaultPublicKey(expectedSerial: string): Promise<string>
@@ -176,7 +177,8 @@ function adaptNative(native: NativeYubiKeyPiv): VaultDriver {
     verifyPin: (serial, pin) => parse(native.verifyPin(serial, pin)),
     changePin: (serial, o, n) => parse(native.changePin(serial, o, n)),
     changePuk: (serial, o, n) => parse(native.changePuk(serial, o, n)),
-    preflightDedicatedPiv: serial => parse(native.preflightDedicatedPiv(serial)),
+    preflightDedicatedPiv: (serial, allowOccupiedVaultSlot = false) =>
+      parse(native.preflightDedicatedPiv(serial, allowOccupiedVaultSlot)),
     // 'cached' (spec D6): the card signs every vault input on-chain, up to
     // VAULT_INPUTS_PER_TAP digests per tap, so one touch must cover a batch —
     // the card keeps a touch valid for 15 s. 'always' would need a touch per

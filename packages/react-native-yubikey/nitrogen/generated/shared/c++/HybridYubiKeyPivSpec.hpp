@@ -59,7 +59,7 @@ namespace margelo::nitro::yubikeypiv {
       virtual std::shared_ptr<Promise<std::string>> verifyPin(const std::string& expectedSerial, const std::string& pin) = 0;
       virtual std::shared_ptr<Promise<std::string>> changePin(const std::string& expectedSerial, const std::string& oldPin, const std::string& newPin) = 0;
       virtual std::shared_ptr<Promise<std::string>> changePuk(const std::string& expectedSerial, const std::string& oldPuk, const std::string& newPuk) = 0;
-      virtual std::shared_ptr<Promise<std::string>> preflightDedicatedPiv(const std::string& expectedSerial) = 0;
+      virtual std::shared_ptr<Promise<std::string>> preflightDedicatedPiv(const std::string& expectedSerial, bool allowOccupiedVaultSlot) = 0;
       virtual std::shared_ptr<Promise<std::string>> generateVaultKey(const std::string& expectedSerial) = 0;
       virtual std::shared_ptr<Promise<std::string>> protectManagementKey(const std::string& expectedSerial) = 0;
       virtual std::shared_ptr<Promise<std::string>> readVaultPublicKey(const std::string& expectedSerial) = 0;

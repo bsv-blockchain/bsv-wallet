@@ -329,7 +329,7 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     return promise
   }
 
-  override fun preflightDedicatedPiv(expectedSerial: String): Promise<String> {
+  override fun preflightDedicatedPiv(expectedSerial: String, allowOccupiedVaultSlot: Boolean): Promise<String> {
     val promise = Promise<String>()
     if (!serialCode.matches(expectedSerial)) {
       promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
@@ -344,7 +344,9 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
       // Authentication is read-only and happens before any PIN/PUK mutation.
       // A custom or transport-ambiguous management-key result fails closed.
       authenticateManagementKey(piv)
-      val userSlots = Slot.values().filter { it != Slot.ATTESTATION }
+      val userSlots = Slot.values().filter {
+        it != Slot.ATTESTATION && !(allowOccupiedVaultSlot && it.value == VAULT_SLOT)
+      }
       val inspection = when {
         piv.supports(PivSession.FEATURE_METADATA) -> {
           for (slot in userSlots) {

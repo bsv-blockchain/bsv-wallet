@@ -22,7 +22,7 @@ public protocol HybridYubiKeyPivSpec_protocol: HybridObject {
   func verifyPin(expectedSerial: String, pin: String) throws -> Promise<String>
   func changePin(expectedSerial: String, oldPin: String, newPin: String) throws -> Promise<String>
   func changePuk(expectedSerial: String, oldPuk: String, newPuk: String) throws -> Promise<String>
-  func preflightDedicatedPiv(expectedSerial: String) throws -> Promise<String>
+  func preflightDedicatedPiv(expectedSerial: String, allowOccupiedVaultSlot: Bool) throws -> Promise<String>
   func generateVaultKey(expectedSerial: String) throws -> Promise<String>
   func protectManagementKey(expectedSerial: String) throws -> Promise<String>
   func readVaultPublicKey(expectedSerial: String) throws -> Promise<String>

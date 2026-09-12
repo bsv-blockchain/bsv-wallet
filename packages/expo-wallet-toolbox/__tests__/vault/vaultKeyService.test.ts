@@ -646,6 +646,21 @@ describe('enrollKey', () => {
     expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
   })
 
+  test('replaces only the occupied Vault slot after explicit consent', async () => {
+    mock.occupySlot()
+    const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
+    const record = await enrollKey(args({ replaceOccupiedVaultSlot: true }))
+    expect(record.pubkey).not.toBe(compressPubkey(existing))
+    expect(record.pubkey).toBe(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey))
+  })
+
+  test('explicit Vault-slot replacement does not permit another occupied PIV slot', async () => {
+    mock.occupyOtherPivSlot()
+    await expect(enrollKey(args({ replaceOccupiedVaultSlot: true }))).rejects.toMatchObject({
+      code: 'slot-occupied'
+    })
+  })
+
   test('malformed key material after generation is an explicit partial state and the occupied slot is not retried', async () => {
     const realGenerate = mock.generateVaultKey.bind(mock)
     const generate = jest.spyOn(mock, 'generateVaultKey').mockImplementationOnce(async slot => {
