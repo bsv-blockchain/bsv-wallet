@@ -154,6 +154,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const tapInFlight = useRef(false)
   /** One leave-confirm at a time. */
   const leaving = useRef(false)
+  /** The PIN field, focused on a delay below instead of via `autoFocus`. */
+  const pinInputRef = useRef<TextInput>(null)
 
   useEffect(() => {
     let alive = true
@@ -260,6 +262,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     })
     return () => subscription.remove()
   }, [leave])
+
+  // Focus the PIN field on a delay rather than via `autoFocus`, which grabs
+  // focus before this step's mount/layout settles and drops the first
+  // keystroke (see the matching fix + comment in VaultCeremonySheet).
+  useEffect(() => {
+    if (step !== 'key' || sub !== 'pin') return
+    const timer = setTimeout(() => pinInputRef.current?.focus(), 150)
+    return () => clearTimeout(timer)
+  }, [step, sub])
 
   // ── intro → key 1 ───────────────────────────────────────────────────
   const begin = useCallback(() => {
@@ -564,6 +575,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
               is otherwise ambiguous with the phone's own passcode. */}
           <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_enter_pin_sub')}</Text>
           <TextInput
+            ref={pinInputRef}
             accessibilityLabel={t('vault_enter_pin')}
             style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
             value={pin}
@@ -574,12 +586,12 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             placeholder="••••••"
             placeholderTextColor={colors.textTertiary}
             keyboardType="number-pad"
-            // Masking only once there is something to mask: iOS renders a
-            // secure field's PLACEHOLDER with masked-glyph metrics, which
-            // stretches the bullets apart before any digit is typed.
-            secureTextEntry={pin.length > 0}
+            // Always secure: toggling this prop on based on `pin.length` (the
+            // previous approach, taken to dodge iOS's wider glyph metrics for
+            // a secure field's PLACEHOLDER) forces the native field to remount
+            // on the very first keystroke, dropping that keystroke.
+            secureTextEntry
             maxLength={PIN_MAX}
-            autoFocus
           />
           {needsNewPin && (
             <>
@@ -593,7 +605,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
                 placeholder="••••••"
                 placeholderTextColor={colors.textTertiary}
                 keyboardType="number-pad"
-                secureTextEntry={newPin.length > 0}
+                secureTextEntry
                 maxLength={PIN_MAX}
               />
             </>
@@ -608,7 +620,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             placeholder="••••••••"
             placeholderTextColor={colors.textTertiary}
             keyboardType="number-pad"
-            secureTextEntry={puk.length > 0}
+            secureTextEntry
             maxLength={PIN_MAX}
           />
           <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_set_new_puk')}</Text>
@@ -621,7 +633,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             placeholder="••••••••"
             placeholderTextColor={colors.textTertiary}
             keyboardType="number-pad"
-            secureTextEntry={newPuk.length > 0}
+            secureTextEntry
             maxLength={PIN_MAX}
           />
           {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}

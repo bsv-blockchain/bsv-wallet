@@ -128,16 +128,26 @@ export const VaultCeremonySheet: React.FC = () => {
   }, [phase, reducedMotion, pulse])
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }))
 
-  // Reset the PIN field whenever we (re)enter pin-entry, and focus the
-  // input on a delay: `autoFocus` grabs focus before the sheet's mount/
-  // layout settles, which on both platforms drops the first keystroke
-  // (it lands while the native field is still wiring up).
+  // Reset the PIN field whenever we (re)enter pin-entry. Usually the sheet is
+  // already open by then (pin-entry follows waiting-for-key/connecting), so
+  // focus can happen right away; but if pin-entry is reached while the sheet
+  // is still sliding in, wait for the open spring to settle first (below) —
+  // `autoFocus` or a fixed delay both risk focusing mid-slide, which drops
+  // the first keystroke (it lands while the native field is still wiring up).
   const pinInputRef = useRef<TextInput>(null)
+  const sheetSettled = useRef(false)
+  const wantsPinFocus = useRef(false)
+  useEffect(() => {
+    if (!visible) sheetSettled.current = false
+  }, [visible])
   useEffect(() => {
     if (phase !== 'pin-entry') return
     setPin('')
-    const timer = setTimeout(() => pinInputRef.current?.focus(), 150)
-    return () => clearTimeout(timer)
+    if (sheetSettled.current) {
+      pinInputRef.current?.focus()
+    } else {
+      wantsPinFocus.current = true
+    }
   }, [phase])
 
   // The vault's key labels, for serial-mismatch copy. Read once per ceremony
@@ -199,7 +209,19 @@ export const VaultCeremonySheet: React.FC = () => {
   const iconColor = phase === 'error' ? colors.error : colors.accent
 
   return (
-    <Sheet visible={visible} onClose={busy ? noop : cancel} title={t('vault_title')} fitContent>
+    <Sheet
+      visible={visible}
+      onClose={busy ? noop : cancel}
+      title={t('vault_title')}
+      fitContent
+      onOpenComplete={() => {
+        sheetSettled.current = true
+        if (wantsPinFocus.current) {
+          wantsPinFocus.current = false
+          pinInputRef.current?.focus()
+        }
+      }}
+    >
       <View style={styles.body}>
         {reason ? <Text style={[styles.reason, { color: colors.textSecondary }]}>{reason}</Text> : null}
 

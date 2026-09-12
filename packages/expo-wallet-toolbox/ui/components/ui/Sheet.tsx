@@ -32,6 +32,10 @@ interface SheetProps {
   fullPage?: boolean
   /** When true the sheet sizes to its content (up to heightPercent max). */
   fitContent?: boolean
+  /** Fires once the open spring settles. Use this (not a fixed timeout) to
+   * focus a field inside the sheet — focusing before the sheet has finished
+   * moving into place drops the first keystroke typed into it. */
+  onOpenComplete?: () => void
   children?: React.ReactNode
 }
 
@@ -52,6 +56,7 @@ const Sheet: React.FC<SheetProps> = ({
   heightPercent = 0.75,
   fullPage = false,
   fitContent = false,
+  onOpenComplete,
   children
 }) => {
   const { colors } = useTheme()
@@ -81,7 +86,9 @@ const Sheet: React.FC<SheetProps> = ({
       setRendered(true)
       if (!wasVisibleRef.current) {
         translateY.value = sheetHeight
-        translateY.value = withSpring(0, { mass: 1, stiffness: 280, damping: 32 })
+        translateY.value = withSpring(0, { mass: 1, stiffness: 280, damping: 32 }, finished => {
+          if (finished && onOpenComplete) runOnJS(onOpenComplete)()
+        })
       }
     } else {
       translateY.value = withSpring(sheetHeight, { mass: 1, stiffness: 400, damping: 38 }, finished => {
