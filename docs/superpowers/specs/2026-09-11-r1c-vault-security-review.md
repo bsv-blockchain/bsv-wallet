@@ -317,17 +317,19 @@ bytes.
 
 ## Verification evidence
 
-Final checks after the HMAC-salt, lifecycle-provenance, and private-backup-gate changes:
+Final checks after the salt-free lock-template change, HMAC-salt checks, lifecycle provenance,
+and private-backup gate changes:
 
 - Expo wallet toolbox TypeScript: passed.
 - React Native YubiKey TypeScript: passed.
-- ESLint on the changed Vault source and proof harness: passed with no errors or warnings.
-- All 26 Vault, Vault-facing UI, storage-ownership, and backup-codec suites: **772 of 772 tests
-  passed**. The focused transfer suite accounts for **146 of 146**, including foreign-HMAC and
-  wallet-scope-change regressions before held-action cleanup or key-removal finalization.
-- Offline exact-spend proof matrix: **19 authorized spends accepted and 9 outsider/tamper spends
-  rejected**, covering N = 2 through 5, every signer position, re-lock, remainder, transaction
-  tampering, and the deterministic OP_PUSH_TX fallback.
+- ESLint on the changed Vault source and proof harness: passed with no errors.
+- All 13 Vault suites: **597 of 597 tests passed**. The focused transfer suite accounts for
+  **147 of 147**, including foreign-HMAC, wallet-scope-change, and record-salt/lock-commitment
+  mismatch regressions before held-action cleanup or key-removal finalization.
+- Offline exact-spend proof matrix: **19 authorized spends accepted and 13 outsider/tamper spends
+  rejected**, covering N = 2 through 5, every signer position, wrong witness salts, re-lock,
+  remainder, transaction tampering, and the deterministic OP_PUSH_TX fallback.
+- The standalone CRT-forgery harness rejects the old 65-byte CRT integer witness.
 - Strict standalone proof-harness TypeScript: passed.
 
 Earlier review evidence on the same hardened branch includes rejection of the old 65-byte CRT

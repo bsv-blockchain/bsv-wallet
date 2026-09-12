@@ -2755,12 +2755,12 @@ function isUnbroadcastPendingRemovalRelock(
   action: VaultActionRow,
   meta: VaultMeta,
   expectedChain: VaultScopeToken['chain'],
-  saltInventory?: VaultSaltInventory
+  saltInventory: VaultSaltInventory
 ): boolean {
   const pending = meta.pendingRemoval
   if (!pending || action.status !== 'unsigned' || !!action.txid || !action.reference) return false
   if (!actionCarriesCurrentRelock(action, meta, expectedChain, saltInventory)) return false
-  return actionSpendsPendingRemovalKey(action, meta, saltInventory ?? emptyVaultSaltInventory())
+  return actionSpendsPendingRemovalKey(action, meta, saltInventory)
 }
 
 /** Reconcile a durable pending removal. A bounded broadcast marker is inferred
