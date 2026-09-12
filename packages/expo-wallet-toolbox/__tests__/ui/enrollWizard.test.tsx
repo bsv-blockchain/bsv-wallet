@@ -203,6 +203,17 @@ test('Continue stays inert until both PIN fields match a valid non-default code'
   expect(screen.getByText('vault_puk_title')).toBeTruthy()
 })
 
+test('a too-short PIN says why instead of leaving Continue silently inert', async () => {
+  const { screen } = await beginEnroll()
+  fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), '1234')
+  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), '1234')
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  // The length rule doubles as the error, so it is on screen twice: the hint
+  // under the field, and the message under the pair.
+  expect(screen.getAllByText('vault_pin_choose_sub')).toHaveLength(2)
+  expect(screen.queryByText('vault_puk_title')).toBeNull()
+})
+
 test('the factory PIN is refused as a choice', async () => {
   const { screen } = await beginEnroll()
   fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), '123456')
@@ -464,14 +475,21 @@ test('an occupied Vault slot requires explicit replacement and retries with cons
   expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
 })
 
-test('a wrong PIN returns to the PIN field with the attempts left', async () => {
+test('a card whose PIV PIN is not the factory one is sent away, never retried', async () => {
+  // The wizard supplies '123456' itself, so pin-invalid means the card is not
+  // factory-reset. Offering a retry would present '123456' again and walk three
+  // failures into pin-locked.
   mockEnrollKey.mockRejectedValueOnce(new VaultError('pin-invalid', undefined, 2))
   const { screen } = await beginEnroll()
   enterCredentials(screen, '111111')
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
-  expect(screen.getByText('vault_err_pin_invalid vault_pin_retries:{"count":2}')).toBeTruthy()
-  expect(screen.getByLabelText('vault_pin_choose_title')).toBeTruthy()
+  expect(screen.getByText('vault_enrollment_reset_required')).toBeTruthy()
+  expect(screen.getByText('vault_key_use_different')).toBeTruthy()
+  expect(screen.queryByText('vault_retry')).toBeNull()
+  expect(screen.queryByText(/vault_pin_retries/)).toBeNull()
+  expect(screen.queryByLabelText('vault_pin_choose_title')).toBeNull()
+  expect(mockEnrollKey).toHaveBeenCalledTimes(1)
 })
 
 test('the recovery code page shows step 2 of 4 and gates Continue on the acknowledgement', async () => {
@@ -510,6 +528,53 @@ test('the factory codes are supplied below the UI and the generated PUK is 8 dig
   expect(puk.newPuk).not.toBe('778899')
 })
 
+test('the recovery code is announced digit by digit, not swallowed by the heading', async () => {
+  const { screen } = await beginEnroll()
+  choosePin(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
+  const shown = screen.getByTestId('vault-recovery-code')
+  const digits = shown.props.children as string
+  // An accessibilityLabel replaces the content, so it must be the digits —
+  // spaced, so they are read one at a time rather than as one big number.
+  expect(shown.props.accessibilityLabel).toBe(digits.split('').join(' '))
+  expect(screen.queryByLabelText('vault_puk_title')).toBeNull()
+})
+
+test('going back and forward again keeps the code the user was told to write down', async () => {
+  const { screen } = await beginEnroll()
+  choosePin(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  const first = screen.getByTestId('vault-recovery-code').props.children as string
+
+  await act(async () => fireEvent.press(screen.getByText('vault_back')))
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  expect(screen.getByTestId('vault-recovery-code').props.children).toBe(first)
+})
+
+test('a PIN changed to equal the shown code draws a fresh code instead of dead-ending', async () => {
+  // validatePukChange refuses newPuk === pin before the session opens, and the
+  // error page would offer only a Retry that fails identically forever.
+  const { screen } = await beginEnroll()
+  choosePin(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  const first = screen.getByTestId('vault-recovery-code').props.children as string
+
+  await act(async () => fireEvent.press(screen.getByText('vault_back')))
+  fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), first)
+  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), first)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
+  const second = screen.getByTestId('vault-recovery-code').props.children as string
+  expect(second).toMatch(/^[0-9]{8}$/)
+  expect(second).not.toBe(first)
+})
+
 test('the code shown on screen is the one sent to the service', async () => {
   mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
   const { screen } = await beginEnroll()
@@ -517,7 +582,7 @@ test('the code shown on screen is the one sent to the service', async () => {
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
 
-  const shown = screen.getByLabelText('vault_puk_title').props.children as string
+  const shown = screen.getByTestId('vault-recovery-code').props.children as string
   fireEvent.press(screen.getByText('vault_puk_ack'))
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()

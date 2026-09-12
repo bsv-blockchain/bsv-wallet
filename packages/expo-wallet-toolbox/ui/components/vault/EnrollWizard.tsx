@@ -357,28 +357,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           return
         }
         const err = e instanceof VaultError ? e : undefined
-        // The factory PIN was refused, so this card is not the factory-reset
-        // one the acknowledgement claimed. Nothing has been written to it
-        // (preflight and verifyPin both run before generateVaultKey), so the
-        // key step simply starts over — the recovery code on screen was never
-        // applied to a card, so it is discarded with the rest. On NFC it costs
-        // a re-tap.
-        if (err?.code === 'pin-invalid') {
-          setNewPin('')
-          setConfirmPin('')
-          setNewPuk('')
-          setPukAck(false)
-          setPinError(vaultErrorCopy('pin-invalid', { count: err.retriesLeft }))
-          setSub('pin')
-          return
-        }
-        if (err?.code === 'puk-invalid') {
-          setNewPuk('')
-          setPukAck(false)
-          setPinError(vaultErrorCopy('puk-invalid', { count: err.retriesLeft }))
-          setSub('pin')
-          return
-        }
         // The user dismissed the system NFC sheet: not an error to explain.
         // Everything gathered stays, and the page that starts the tap is the
         // recovery-code one, so Continue can simply be pressed again.
@@ -406,6 +384,17 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           // Enrolment-specific: there is no "use another of your vault keys"
           // yet, so the remedy is the PUK or a different card.
           copy = t('vault_err_pin_locked_enroll')
+        } else if (err?.code === 'pin-invalid') {
+          // The factory PIN is supplied below the UI, so this is never "you
+          // mistyped": the card's PIV PIN is not 123456, i.e. the application
+          // is not the factory-reset one the acknowledgement claimed. Retrying
+          // would present 123456 again — it can only fail, and three of them
+          // reach pin-locked on a PIV application that may hold unrelated
+          // credentials. So this token is sent away rather than retried, and
+          // the retry count is dropped: it means nothing when the app, not the
+          // user, picks the PIN. The reset copy is literally true here, and is
+          // where the reset offer attaches.
+          copy = t('vault_enrollment_reset_required')
         } else if (err instanceof VaultEnrollmentPartialError) {
           copy = t('vault_enrollment_reset_required')
         } else {
@@ -414,7 +403,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         setKeyError({
           code: err?.code,
           copy,
-          mustUseDifferent: err instanceof VaultEnrollmentPartialError
+          mustUseDifferent: err instanceof VaultEnrollmentPartialError || err?.code === 'pin-invalid'
         })
         setSub('error')
       } finally {
@@ -622,7 +611,10 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       const advance = () => {
         if (!pivAck || busy) return
         if (!pinChosen) {
-          setPinError(newPin === DEFAULT_PIV_PIN ? t('vault_pin_not_default') : null)
+          // Never leave this silent: Continue is live so that pressing it is
+          // what produces the message, and a cleared error would read as the
+          // button simply not working.
+          setPinError(newPin === DEFAULT_PIV_PIN ? t('vault_pin_not_default') : t('vault_pin_choose_sub'))
           return
         }
         if (confirmPin !== newPin) {
@@ -631,8 +623,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         }
         setPinError(null)
         // Generated once per visit to the PUK page, so going back and forward
-        // does not silently hand the user a different code to write down.
-        if (!newPuk) setNewPuk(generateRecoveryCode(newPin))
+        // does not silently hand the user a different code to write down. The
+        // one exception is a PIN that now equals the code: the service refuses
+        // that pair (validatePukChange) before the session opens, and the error
+        // page offers only a Retry that would fail identically forever.
+        if (!newPuk || newPuk === newPin) setNewPuk(generateRecoveryCode(newPin))
         setSub('puk')
       }
       return (
@@ -716,8 +711,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
               acknowledgement is a tick rather than a plain button because
               losing this code silently is the failure this page exists to
               prevent. */}
+          {/* Spaced digits, not the heading: an accessibilityLabel REPLACES the
+              content, so labelling this with the title announced "Your recovery
+              code" twice and never read the digits — on the one page whose
+              whole job is getting eight digits into the user's head. Spacing
+              them makes VoiceOver/TalkBack read them one at a time instead of
+              as a single eight-digit number. */}
           <Text
-            accessibilityLabel={t('vault_puk_title')}
+            testID="vault-recovery-code"
+            accessibilityLabel={newPuk.split('').join(' ')}
             selectable
             style={[styles.code, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
           >
