@@ -278,6 +278,7 @@ export * from './services/vault/backupAttestation'
 export * from './services/vault/ceremony'
 export * from './services/vault/ceremonyHost'
 export * from './services/vault/VaultKeyService'
+export * from './services/vault/pivReset'
 export * from './services/vault/transfers'
 
 // Connection/pairing state (QR-paired desktop sessions), the vault ceremony
@@ -316,6 +317,12 @@ export * from './hooks/useConfirmationSound'
 // takes an optional onToast prop (see WalletContext.tsx's WalletContextToast
 // type) rather than importing a ui Toast component directly — core must
 // never import from ui, same boundary as VaultContext's onToast above.
-export { WalletContextProvider, useWallet, WalletContext, WalletManagersContext, useWalletManagers } from './context/WalletContext'
+export {
+  WalletContextProvider,
+  useWallet,
+  WalletContext,
+  WalletManagersContext,
+  useWalletManagers
+} from './context/WalletContext'
 export type { WalletManagersSlice } from './context/WalletContext'
 export { usePermissionQueue } from './hooks/usePermissionQueue'
