@@ -9,7 +9,8 @@ Vault metadata and output-instruction format; do not add Vault migration or lega
 
 The normative design is
 `docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md`. This handoff distinguishes code
-present on the branch from work still required for release.
+present on the branch from work still required for release. The corresponding security review is
+`docs/superpowers/specs/2026-09-11-r1c-vault-security-review.md`.
 
 ## Current design
 
