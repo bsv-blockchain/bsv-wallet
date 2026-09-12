@@ -208,7 +208,7 @@ Consequences for the two questions:
   serials are unknown, so the standalone-tool recovery described at the end of §2 becomes
   conditional on the backup, and situation 2 becomes strictly harder. The normative design,
   handoff, and security review have been updated for the replacement template.
-- Validation after the change: all 13 Vault suites pass (597 tests at the time of this report),
+- Validation after the change: all 13 Vault suites pass (598 tests at the time of this report),
   the dedicated CRT harness rejects the forgery, and the local proof accepts 19 authorized spends
   while rejecting 13 outsider or tamper cases, including wrong witness salts.
 

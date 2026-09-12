@@ -107,6 +107,10 @@ Behaviour changes:
   reconciliation. The toolbox release flag still defaults off (`not-released`);
   the app's EAS production profile now enables it explicitly for TestFlight and
   production builds.
+- Vault recovery ignores completed pre-release Vault action history before
+  interpreting source scripts, so historical labels cannot make the newly
+  enabled Vault screen fail on entry. Pending current-template actions remain
+  subject to exact-script validation.
 - HMAC salt derivation requires the wallet root, numeric ID, and complete
   ordered serial list, and does not reconstruct an exact lock by itself.
   Clean-device recovery also needs the ordered historical P-256 YubiKey

@@ -323,8 +323,9 @@ and private-backup gate changes:
 - Expo wallet toolbox TypeScript: passed.
 - React Native YubiKey TypeScript: passed.
 - ESLint on the changed Vault source and proof harness: passed with no errors.
-- All 13 Vault suites: **597 of 597 tests passed**. The focused transfer suite accounts for
-  **147 of 147**, including foreign-HMAC, wallet-scope-change, and record-salt/lock-commitment
+- All 13 Vault suites: **598 of 598 tests passed**. The focused transfer suite accounts for
+  **148 of 148**, including foreign-HMAC, wallet-scope-change, record-salt/lock-commitment,
+  and completed pre-release action-history
   mismatch regressions before held-action cleanup or key-removal finalization.
 - Offline exact-spend proof matrix: **19 authorized spends accepted and 13 outsider/tamper spends
   rejected**, covering N = 2 through 5, every signer position, wrong witness salts, re-lock,

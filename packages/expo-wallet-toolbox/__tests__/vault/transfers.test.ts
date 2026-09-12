@@ -2519,6 +2519,26 @@ describe('authenticated vault scans', () => {
     await expect(orphanedIfRemoved(wallet, ADMIN, PUB_A)).rejects.toMatchObject({ code: 'scope-changed' })
   })
 
+  it('ignores completed pre-release Vault action history while opening an unenrolled vault', async () => {
+    serveVaultOutputs([])
+    const legacySource = new P2PKH().lock(Utils.toArray('44'.repeat(20), 'hex')).toHex()
+    wallet.listActions.mockResolvedValue({
+      actions: [{
+        reference: 'completed-legacy-vault-action',
+        status: 'completed',
+        labels: ['vault', 'vault-withdraw'],
+        inputs: [{
+          sourceOutpoint: `${'45'.repeat(32)}.0`,
+          sourceSatoshis: 100_000,
+          sourceLockingScript: legacySource
+        }]
+      }]
+    })
+
+    await expect(recoverVaultMetaFromOutputs(wallet, ADMIN)).resolves.toBeNull()
+    expect(await vaultStore.getMeta()).toBeNull()
+  })
+
   it('rejects a byte-exact Vault output from a different network domain', async () => {
     const fixture = vaultFixture(100_000, [PUB_A, PUB_B], [PUB_A, PUB_B], 'main')
     serveVaultOutputs([fixture])

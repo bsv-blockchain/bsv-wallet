@@ -785,13 +785,17 @@ async function inspectHiddenVaultReservations(
     includeInputs: true,
     includeInputSourceLockingScripts: true
   }, action => {
+    // Completed history cannot reserve or hide an output. Ignore it before
+    // interpreting old labels or source scripts; pre-release Vault actions
+    // may use a different template and are not recovery authority.
+    if (action.status === 'completed') return
     const inputs = action.inputs ?? []
     const r1cInputs = inputs.filter(input => isR1CSourceScript(input.sourceLockingScript))
     const claimsVaultSpend = actionClaimsVaultSpend(action)
     if (claimsVaultSpend && (inputs.length === 0 || r1cInputs.length !== inputs.length)) {
       throw new VaultError('template-invalid', 'Vault action history has missing or malformed R1C source scripts')
     }
-    if (r1cInputs.length === 0 || action.status === 'completed') return
+    if (r1cInputs.length === 0) return
     for (const input of r1cInputs) {
       if (
         input.sourceSatoshis !== undefined &&
