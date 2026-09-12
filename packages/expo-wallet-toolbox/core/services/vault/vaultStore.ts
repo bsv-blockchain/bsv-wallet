@@ -22,6 +22,11 @@ const VAULT_SLOT = 0x82
 
 export type VaultScopeChain = 'main' | 'test' | 'teratest'
 
+/** Every chain a vault can be namespaced under. One YubiKey is one physical
+ * object, so a destructive maintenance operation has to look at all of them —
+ * see `enrolledSerialsAcrossChains`. */
+const SCOPE_CHAINS: readonly VaultScopeChain[] = ['main', 'test', 'teratest']
+
 export interface VaultStoreScope {
   /** Compressed secp256k1 wallet identity key, lowercase hex. */
   identityKey: string
@@ -151,10 +156,20 @@ function scopedKey(scope = activeScope): string | null {
   return scope ? `${META_KEY_PREFIX}_${scope.chain}_${scope.identityKey}` : null
 }
 
+/** The shape of a captured meta storage key: `<prefix>_<chain>_<identityKey>`. */
+const SCOPE_KEY_PATTERN = /^vault_meta_v6_(main|test|teratest)_(0[23][0-9a-f]{64})$/
+
 function enrollmentDraftKey(token: VaultScopeToken): string {
-  const match = /^vault_meta_v6_(main|test|teratest)_(0[23][0-9a-f]{64})$/.exec(token.storageKey)
+  const match = SCOPE_KEY_PATTERN.exec(token.storageKey)
   if (!match) throw new VaultError('template-invalid', 'Invalid captured vault scope')
   return `${ENROLLMENT_DRAFT_KEY_PREFIX}_${match[1]}_${match[2]}`
+}
+
+/** The wallet identity a captured scope belongs to, without its chain half. */
+function identityKeyFromToken(token: VaultScopeToken): string {
+  const match = SCOPE_KEY_PATTERN.exec(token.storageKey)
+  if (!match) throw new VaultError('template-invalid', 'Invalid captured vault scope')
+  return match[2]
 }
 
 function captureScope(required: true): VaultScopeToken
@@ -169,11 +184,7 @@ function captureScope(required: boolean): VaultScopeToken | null {
 }
 
 function assertScope(token: VaultScopeToken): void {
-  if (
-    token.generation !== scopeGeneration ||
-    token.storageKey !== scopedKey() ||
-    token.chain !== activeScope?.chain
-  ) {
+  if (token.generation !== scopeGeneration || token.storageKey !== scopedKey() || token.chain !== activeScope?.chain) {
     throw new VaultError('scope-changed', 'Wallet or network changed during the vault operation')
   }
 }
@@ -331,19 +342,26 @@ export function isVaultMeta(value: unknown): value is VaultMeta {
   return true
 }
 
-async function readMeta(token: VaultScopeToken): Promise<VaultMeta | null> {
-  assertScope(token)
-  const raw = await SecureStore.getItemAsync(token.storageKey, SECURE_OPTIONS)
-  assertScope(token)
+/** Parse one stored namespace. Corrupt is never "absent": a caller that acts on
+ * an empty answer must fail instead of reading a smaller key list than the
+ * truth. */
+function parseStoredMeta(raw: string | null, corruptMessage: string): VaultMeta | null {
   if (!raw) return null
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    throw new VaultError('template-invalid', 'Stored vault enrollment metadata is corrupt')
+    throw new VaultError('template-invalid', corruptMessage)
   }
-  if (!isVaultMeta(parsed)) throw new VaultError('template-invalid', 'Stored vault enrollment metadata is corrupt')
+  if (!isVaultMeta(parsed)) throw new VaultError('template-invalid', corruptMessage)
   return parsed
+}
+
+async function readMeta(token: VaultScopeToken): Promise<VaultMeta | null> {
+  assertScope(token)
+  const raw = await SecureStore.getItemAsync(token.storageKey, SECURE_OPTIONS)
+  assertScope(token)
+  return parseStoredMeta(raw, 'Stored vault enrollment metadata is corrupt')
 }
 
 async function writeMeta(token: VaultScopeToken, meta: unknown): Promise<void> {
@@ -516,11 +534,12 @@ export const vaultStore = {
       const existingIndex = entries.findIndex(
         item => item.record.serial === entry.record.serial && item.record.pubkey === entry.record.pubkey
       )
-      const saved: VaultEnrollmentDraftEntry = existingIndex < 0
-        ? { assurance: entry.assurance, record: { ...entry.record } }
-        : draftAssuranceRank(entries[existingIndex].assurance) >= draftAssuranceRank(entry.assurance)
-          ? entries[existingIndex]
-          : { assurance: entry.assurance, record: { ...entry.record } }
+      const saved: VaultEnrollmentDraftEntry =
+        existingIndex < 0
+          ? { assurance: entry.assurance, record: { ...entry.record } }
+          : draftAssuranceRank(entries[existingIndex].assurance) >= draftAssuranceRank(entry.assurance)
+            ? entries[existingIndex]
+            : { assurance: entry.assurance, record: { ...entry.record } }
       if (existingIndex < 0) entries.push(saved)
       else entries[existingIndex] = saved
       const retainedQuarantines = quarantines.filter(item => item.serial !== entry.record.serial)
@@ -674,6 +693,44 @@ export const vaultStore = {
   async getMeta(scopeToken?: VaultScopeToken): Promise<VaultMeta | null> {
     const token = scopeToken ?? captureScope(false)
     return token ? readMeta(token) : null
+  },
+
+  /**
+   * Every YubiKey serial this wallet identity has enrolled under ANY chain,
+   * including one mid-removal. Deliberately crosses the chain half of the
+   * namespace — and only that half.
+   *
+   * Metadata is namespaced per wallet+chain because a deposit must never be
+   * redirected across wallets. A YubiKey is not: it is one physical object that
+   * can be a live signer for the mainnet vault while the app is showing
+   * testnet. `getMeta` sees one namespace, so it answers "empty" for a card
+   * that is holding real money — which is safe for a read and catastrophic for
+   * an erase. Destructive maintenance (services/vault/pivReset.ts) must ask
+   * this instead.
+   *
+   * Returns serials only: no other namespace's metadata leaves this function.
+   * Fails closed — unreadable or corrupt metadata in ANY chain throws rather
+   * than reporting a shorter list, because the caller destroys a key when the
+   * answer comes back without it. Does NOT cross wallet identities; that
+   * residual needs a device-wide serial index (SecureStore cannot be
+   * enumerated) and is tracked outside this module.
+   */
+  async enrolledSerialsAcrossChains(scopeToken?: VaultScopeToken): Promise<string[]> {
+    const token = scopeToken ?? captureScope(true)
+    const identityKey = identityKeyFromToken(token)
+    assertScope(token)
+    const serials = new Set<string>()
+    for (const chain of SCOPE_CHAINS) {
+      const storageKey = `${META_KEY_PREFIX}_${chain}_${identityKey}`
+      const raw = await SecureStore.getItemAsync(storageKey, SECURE_OPTIONS)
+      const meta = parseStoredMeta(raw, `Stored vault enrollment metadata is corrupt (${chain})`)
+      for (const key of meta?.keys ?? []) serials.add(key.serial)
+      if (meta?.pendingRemoval) serials.add(meta.pendingRemoval.key.serial)
+    }
+    // The read spanned chains, never wallets: the operation still must not
+    // outlive the wallet it was captured for.
+    assertScope(token)
+    return [...serials]
   },
 
   async setMeta(meta: VaultMeta, scopeToken?: VaultScopeToken): Promise<void> {

@@ -14,6 +14,27 @@
  * deliberately not overridable by any caller flag — unlike
  * `replaceOccupiedVaultSlot`, which consents to replacing a slot that is by
  * definition not yet part of the vault.
+ *
+ * "Enrolled" is read wider than `getMeta` reads it, on purpose:
+ *
+ *  - a key in `pendingRemoval` is NOT in `meta.keys` (isVaultMeta enforces
+ *    their disjointness), but it is still recoverable — `cancelUnbroadcastKeyRemoval`
+ *    splices it back into the active list — so wiping it would leave the vault
+ *    listing an active signer whose card holds no key;
+ *  - metadata is namespaced per wallet+chain, but a YubiKey is one physical
+ *    object. The card enrolled in the mainnet vault is the same card the
+ *    testnet enrollment wizard sees as unknown, so the refusal set comes from
+ *    `vaultStore.enrolledSerialsAcrossChains`, not `getMeta`.
+ *
+ * What that still cannot see is a vault belonging to a DIFFERENT wallet
+ * identity on this device: SecureStore cannot be enumerated, so proving that
+ * negative needs a device-wide serial index this module does not have. Against
+ * that residual there is one last, purely local signal — a key sitting in slot
+ * 0x82 means this card is a vault key for SOME vault — so an occupied slot is
+ * refused unless the caller passes `acknowledgeUnrecognizedVaultKey`. That one
+ * IS overridable, because a card left over from a vault the user has already
+ * abandoned is the whole reason this service exists; the enrolled-serial
+ * refusal above is not.
  */
 import { getVaultDriver } from './driver'
 import { withKeySession } from './session'
@@ -31,6 +52,10 @@ export async function resetPivApplication(args: {
   /** Explicit acknowledgement that this destroys every credential on the
    * token, not only Vault's slot. */
   acknowledgeDestroysAllCredentials: true
+  /** Consent to wiping a card whose Vault slot already holds a key that belongs
+   * to no vault this device can see — an abandoned vault, or one enrolled under
+   * another wallet identity. Never a way past the enrolled-serial refusal. */
+  acknowledgeUnrecognizedVaultKey?: true
   scopeToken?: VaultScopeToken
   nfcMessage?: string
   onPhase?: (p: PivResetPhase) => void
@@ -46,8 +71,11 @@ export async function resetPivApplication(args: {
   const scopeToken = args.scopeToken ?? vaultStore.captureScopeToken()
 
   const refuse = async () => {
-    const meta = await vaultStore.getMeta(scopeToken)
-    const enrolled = new Set<string>([...(meta?.keys.map(k => k.serial) ?? []), ...(args.refuseSerials ?? [])])
+    // Across every chain, and including a key mid-removal. See the header.
+    const enrolled = new Set<string>([
+      ...(await vaultStore.enrolledSerialsAcrossChains(scopeToken)),
+      ...(args.refuseSerials ?? [])
+    ])
     if (enrolled.has(args.serial)) {
       // The message IS the serial, matching enrollKey's convention.
       throw new VaultError('key-already-enrolled', args.serial, undefined, { serial: args.serial })
@@ -73,6 +101,19 @@ export async function resetPivApplication(args: {
       // first check and the tap, and this is the last chance before an
       // irreversible destruction.
       await refuse()
+      vaultStore.assertScopeToken(scopeToken)
+
+      // Guard 3: the card's own answer, for the vaults no namespace on this
+      // device can show us. Reused code, not new copy: 'slot-occupied' is
+      // already enrollment's "slot 0x82 is not empty".
+      if (args.acknowledgeUnrecognizedVaultKey !== true && (await driver.readVaultPublicKey(args.serial))) {
+        throw new VaultError(
+          'slot-occupied',
+          'This YubiKey already holds a vault key that belongs to no vault on this device',
+          undefined,
+          { serial: args.serial }
+        )
+      }
       vaultStore.assertScopeToken(scopeToken)
 
       args.onPhase?.('resetting')
