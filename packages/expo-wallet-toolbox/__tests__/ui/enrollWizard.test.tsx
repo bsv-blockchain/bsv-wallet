@@ -683,6 +683,22 @@ const pressConfirm = async (screen: ReturnType<typeof render>) => {
   await settle()
 }
 
+/**
+ * Whether the destructive button reports itself disabled to the a11y tree.
+ *
+ * The button is gated in two places — `enabled=` in the render and a `return`
+ * at the top of `runReset` — so "resetPivApplication was not called" passes
+ * with either layer alone and cannot see a single-layer regression. This pins
+ * the render layer by itself. The handler-side `return` is defence in depth
+ * and is not independently observable through the UI: while the render gate
+ * holds, `onPress` is undefined and there is no way to reach the handler.
+ */
+const confirmDisabled = (screen: ReturnType<typeof render>) => {
+  let node = screen.getByText('vault_reset_confirm').parent
+  while (node && node.props?.accessibilityState === undefined) node = node.parent
+  return node?.props.accessibilityState?.disabled
+}
+
 test.each<VaultErrorCode>([
   'mgmt-key-custom',
   'pin-invalid',
@@ -704,6 +720,10 @@ test('a counterfeit key is never offered a reset', async () => {
 
   const { screen } = await failTapWith('attestation-invalid', { serial: '12340001' })
   expect(screen.queryByText('vault_reset_offer')).toBeNull()
+  // And no Retry: the F9 chain failed, so re-tapping the same token can only
+  // fail again, under copy that already says to fetch a genuine key.
+  expect(screen.getByText('vault_key_use_different')).toBeTruthy()
+  expect(screen.queryByText('vault_retry')).toBeNull()
 })
 
 test('an already-enrolled key is never offered a reset', async () => {
@@ -712,6 +732,7 @@ test('an already-enrolled key is never offered a reset', async () => {
   control.screen.unmount()
 
   const { screen } = await failTapWith('key-already-enrolled', { serial: '12340001' })
+  screen.debug({ message: 'after resume failure' })
   expect(screen.queryByText('vault_reset_offer')).toBeNull()
 })
 
@@ -719,18 +740,29 @@ test('without a serial there is nothing to bind a reset to, so none is offered',
   const { screen } = await failTapWith('mgmt-key-custom')
   expect(screen.queryByText('vault_reset_offer')).toBeNull()
   // The same code WITH a serial does offer one (above), so this is the missing
-  // binding and not the feature simply being absent.
-  expect(screen.getByText('vault_retry')).toBeTruthy()
+  // binding and not the feature simply being absent. A custom management key
+  // cannot be retried into success either, so the only way on is another card.
+  expect(screen.getByText('vault_key_use_different')).toBeTruthy()
+  expect(screen.queryByText('vault_retry')).toBeNull()
+})
+
+test('a card with a known serial gets both the reset and a way past it', async () => {
+  const { screen } = await failTapWith('mgmt-key-custom', { serial: '12340001' })
+  expect(screen.getByText('vault_reset_offer')).toBeTruthy()
+  expect(screen.getByText('vault_key_use_different')).toBeTruthy()
 })
 
 test('the reset page gates the destructive button on the acknowledgement', async () => {
   const { screen } = await openResetPage()
 
   expect(screen.getByText('vault_reset_title')).toBeTruthy()
+  // Render layer, pinned on its own.
+  expect(confirmDisabled(screen)).toBe(true)
   await pressConfirm(screen)
   expect(mockResetPiv).not.toHaveBeenCalled()
 
   fireEvent.press(screen.getByText('vault_reset_ack'))
+  expect(confirmDisabled(screen)).toBe(false)
   await pressConfirm(screen)
   expect(mockResetPiv).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -807,6 +839,90 @@ test('an unrecognized vault key on the card takes its own second consent', async
   await pressConfirm(screen)
   expect(mockResetPiv).toHaveBeenCalledTimes(2)
   expect(mockResetPiv.mock.calls[1][0].acknowledgeUnrecognizedVaultKey).toBe(true)
+})
+
+test('the refused first attempt reports that nothing was erased', async () => {
+  // pivReset guard 3 runs before the RESET APDU, so this is the one rejection
+  // where the card is provably untouched — and the user has just pressed a
+  // destructive button and watched a card session open and close.
+  mockResetPiv.mockRejectedValueOnce(new VaultError('slot-occupied', undefined, undefined, { serial: '12340001' }))
+  const { screen } = await openResetPage()
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  expect(screen.getByText('vault_reset_nothing_erased')).toBeTruthy()
+  expect(confirmDisabled(screen)).toBe(true)
+})
+
+test('a key holding this device’s own draft is not called an unrecognized vault key', async () => {
+  // The draft belongs to a partial enrollment this device recorded, so the
+  // unknown-vault wording would be false — and teaching the user to tick the
+  // one overridable guard for their own half-finished key is how they come to
+  // tick it by reflex for somebody else's live one.
+  mockDrafts = [{ record: record('12340001', 'a'), assurance: 'challenge-required' }]
+  mockResetPiv.mockRejectedValueOnce(new VaultError('slot-occupied', undefined, undefined, { serial: '12340001' }))
+  const { screen } = await openResetPage()
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  expect(screen.getByText('vault_reset_own_draft_ack')).toBeTruthy()
+  expect(screen.queryByText('vault_reset_unknown_ack')).toBeNull()
+  // And the non-destructive way out, with the PIN warning attached.
+  expect(screen.getByText('vault_enrollment_resume · …0001')).toBeTruthy()
+  expect(screen.getAllByText('vault_enrollment_resume_pin_hint').length).toBeGreaterThan(0)
+})
+
+test('a reset offer never survives onto a different card’s failure', async () => {
+  // Card A fails a partial carrying its serial, so a reset is offered for A.
+  // Try again leaves the error page WITHOUT clearing the step, the user then
+  // resumes saved card B from the PIN page, and that fails too. The offer on
+  // the resulting error page must not still be bound to A — erasing the wrong
+  // key is the worst outcome this plan has.
+  mockDrafts = [{ record: record('99990002', 'b'), assurance: 'challenge-required' }]
+  mockEnrollKey.mockRejectedValueOnce(
+    new VaultError('enrollment-partial', undefined, undefined, { serial: '12340001' })
+  )
+  mockResumeEnrollmentDraft.mockRejectedValueOnce(new VaultError('mgmt-key-custom'))
+
+  const { screen } = await beginEnroll()
+  enterCredentials(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+  expect(screen.getByText('vault_reset_offer')).toBeTruthy()
+
+  await act(async () => fireEvent.press(screen.getByText('vault_retry')))
+  await settle()
+  choosePin(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_enrollment_resume · …0002')))
+  await settle()
+
+  // The resume really did run and really did land on the error page — without
+  // these the assertion below could pass by never reaching it at all.
+  expect(mockResumeEnrollmentDraft).toHaveBeenCalledTimes(1)
+  expect(screen.getByText('vault_err_mgmt_key_custom')).toBeTruthy()
+  expect(screen.queryByText('vault_reset_offer')).toBeNull()
+})
+
+test('a reset drops the Resume button for the key it just erased', async () => {
+  // pivReset discards the erased serial's draft and quarantine. A wizard that
+  // never re-reads them keeps offering to resume a key that no longer exists.
+  mockDrafts = [{ record: record('12340001', 'a'), assurance: 'challenge-required' }]
+  mockResetPiv.mockResolvedValueOnce(undefined)
+  const { screen } = await openResetPage()
+  // The re-tap fails on a code that routes to "use a different YubiKey", which
+  // is how the PIN page — where Resume lives — becomes reachable again.
+  mockEnrollKey.mockRejectedValueOnce(new VaultError('attestation-invalid'))
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  mockDrafts = []
+  await pressConfirm(screen)
+
+  await act(async () => fireEvent.press(screen.getByText('vault_key_use_different')))
+  await settle()
+  expect(screen.getByLabelText('vault_pin_choose_title')).toBeTruthy()
+  expect(screen.queryByText(/vault_enrollment_resume/)).toBeNull()
 })
 
 test('unreadable vault records refuse the reset before any card contact, and say so', async () => {

@@ -127,6 +127,18 @@ interface KeyStepError {
    * another enrollment attempt. The service will also refuse its occupied
    * slot; the UI sends the user straight to a fresh token. */
   mustUseDifferent?: boolean
+  /**
+   * The card THIS failure may offer to erase, or absent for no offer.
+   *
+   * Deliberately a field of the error and not separate state. A reset offer
+   * bound to the wrong card is the worst outcome in this feature, and separate
+   * state survives whatever the code forgets to clear: every exit from the
+   * error page would have to remember, and nothing enforces that. Living here,
+   * the binding is replaced wholesale every time a failure is recorded and
+   * disappears with `setKeyError(null)` — a stale serial cannot outlive the
+   * failure that produced it.
+   */
+  resetSerial?: string
 }
 
 /**
@@ -167,6 +179,33 @@ const RESETTABLE: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
  */
 const NEVER_RESETTABLE: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
   'key-already-enrolled',
+  'attestation-invalid'
+])
+
+/**
+ * Codes whose retry can never succeed, so the error page must send the token
+ * away instead of offering a Try again that is a dead button.
+ *
+ * `pin-invalid` (Task 8): the app supplies the factory PIN, so this means the
+ * PIV application is not the factory one — presenting 123456 again can only
+ * fail, three times over into `pin-locked`.
+ *
+ * `mgmt-key-custom`: the management key is not the factory one either, and
+ * nothing about a re-tap changes that.
+ *
+ * `attestation-invalid`: the factory F9 chain did not verify. The token is
+ * counterfeit or tampered with, and `vault_err_attestation_invalid` already
+ * tells the user to fetch a genuine key — a Retry button underneath it
+ * contradicts the very copy above it.
+ *
+ * A reset offer, where one is allowed at all, renders ABOVE this branch: a
+ * card with a known serial gets [Reset this key] + [Use a different YubiKey],
+ * which is the right pair. A counterfeit gets only the latter, because
+ * `attestation-invalid` is in NEVER_RESETTABLE.
+ */
+const MUST_USE_DIFFERENT: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
+  'pin-invalid',
+  'mgmt-key-custom',
   'attestation-invalid'
 ])
 
@@ -233,9 +272,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const [fresh, setFresh] = useState<VaultKeyRecord | null>(null)
   const [name, setName] = useState('')
   const [keyError, setKeyError] = useState<KeyStepError | null>(null)
-  /** The serial the failed attempt reported; a reset tap binds to exactly it.
-   * Null whenever no reset may be offered, which is also what hides the offer. */
-  const [resetSerial, setResetSerial] = useState<string | null>(null)
   /** "This erases everything on this key" — the whole-token consequence. */
   const [resetAck, setResetAck] = useState(false)
   /** The card answered that its Vault slot holds a key no vault on this device
@@ -304,13 +340,12 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const unsaved = pending.length + (fresh ? 1 : 0)
 
   /**
-   * Everything the reset page gathered. Consent is destructive and specific:
-   * it is never carried from one card to the next, nor from one attempt to the
-   * next, and a stale `resetSerial` would offer to erase a card the user is no
-   * longer looking at.
+   * The ticks the reset page gathered. Consent is destructive and specific: it
+   * is never carried from one card to the next, nor from one attempt to the
+   * next. (The card it is consent ABOUT lives on `keyError.resetSerial`, which
+   * cannot go stale — see KeyStepError.)
    */
   const clearResetConsent = () => {
-    setResetSerial(null)
     setResetAck(false)
     setResetUnknownSlot(false)
     setResetUnknownAck(false)
@@ -385,6 +420,37 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     setStep(pending.length > 0 ? 'more' : 'key')
     if (pending.length === 0) setSub('pin')
   }, [ack, pivAck, busy, pending.length, scopeToken])
+
+  /**
+   * Re-read the scoped draft and quarantine LISTS, and only those.
+   *
+   * The mount effect also folds ready drafts into `pending` (or into `fresh`
+   * plus a jump to the name page in add-key mode); doing that again mid-run
+   * would move the page out from under the user. What has to stay current is
+   * what the wizard believes this device still holds a record of: a partial
+   * enrollment writes a new draft or quarantine during the run, and a reset
+   * deletes one (pivReset's discardEnrollmentDraft / ...Quarantine). Both
+   * change what the user must be told before erasing a card, and a stale list
+   * also leaves a Resume button pointing at a key that no longer exists.
+   */
+  const reloadDraftLists = useCallback(async () => {
+    try {
+      const [meta, drafts, quarantines] = await Promise.all([
+        vaultStore.getMeta(scopeToken),
+        vaultStore.getEnrollmentDrafts(scopeToken),
+        vaultStore.getEnrollmentQuarantines(scopeToken)
+      ])
+      const enrolledSerials = new Set(meta?.keys.map(key => key.serial) ?? [])
+      const unused = drafts.filter(entry => !enrolledSerials.has(entry.record.serial))
+      setRecoverableDrafts(unused.filter(entry => entry.assurance === 'challenge-required'))
+      setBlockedDrafts([...unused.filter(entry => entry.assurance === 'management-uncertain'), ...quarantines])
+    } catch {
+      // Advisory only. These lists drive what the user is TOLD; every action
+      // taken on them (resume, reset) re-reads the store below the UI, so a
+      // failed refresh degrades to the previous lists rather than to a wrong
+      // decision.
+    }
+  }, [scopeToken])
 
   // ── the card session ────────────────────────────────────────────────
   const runTap = useCallback(
@@ -477,22 +543,28 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         } else {
           copy = vaultErrorCopy(err?.code)
         }
-        // A reset can only be bound to a specific card, and only offered for
-        // failures a factory reset actually fixes. Without a serial there is
-        // nothing to bind to — the reset tap has no other way to learn which
-        // card failed — so no offer is made at all.
-        setResetSerial(tapped && err && RESETTABLE.has(err.code) && !NEVER_RESETTABLE.has(err.code) ? tapped : null)
         setKeyError({
           code: err?.code,
           copy,
-          mustUseDifferent: err instanceof VaultEnrollmentPartialError || err?.code === 'pin-invalid'
+          mustUseDifferent: err instanceof VaultEnrollmentPartialError || (!!err && MUST_USE_DIFFERENT.has(err.code)),
+          // A reset can only be bound to a specific card, and only offered for
+          // failures a factory reset actually fixes. Without a serial there is
+          // nothing to bind to — the reset tap has no other way to learn which
+          // card failed — so no offer is made at all.
+          resetSerial: tapped && err && RESETTABLE.has(err.code) && !NEVER_RESETTABLE.has(err.code) ? tapped : undefined
         })
         setSub('error')
+        if (err instanceof VaultEnrollmentPartialError) {
+          // A partial has just written a draft or a quarantine for this exact
+          // serial. The reset page has to know that before it can describe
+          // what erasing the card would destroy.
+          void reloadDraftLists()
+        }
       } finally {
         tapInFlight.current = false
       }
     },
-    [metaKeys, pending, newPin, newPuk, onCancel, pivAck, scopeToken]
+    [metaKeys, pending, newPin, newPuk, onCancel, pivAck, scopeToken, reloadDraftLists]
   )
 
   /** Resume only the non-mutating possession challenge for a protected draft.
@@ -506,10 +578,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       setPhase(null)
       setKeyError(null)
       setStepError(null)
-      // No reset is offered from the resume path, and crucially a serial left
-      // over from an earlier failed tap must not follow this one onto the error
-      // page: the offer would then name a different card than the one that
-      // just failed.
       clearResetConsent()
       try {
         const record = await resumeEnrollmentDraft({
@@ -550,7 +618,13 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             err instanceof VaultEnrollmentPartialError
               ? t('vault_enrollment_reset_required')
               : vaultErrorCopy(err?.code),
-          mustUseDifferent: err instanceof VaultEnrollmentPartialError
+          // Same dead-button argument as the enrollment tap: `pin-invalid` is
+          // already handled above, and the rest of the set cannot be retried
+          // into success from here either.
+          mustUseDifferent: err instanceof VaultEnrollmentPartialError || (!!err && MUST_USE_DIFFERENT.has(err.code))
+          // No `resetSerial`: no reset is offered from the resume path, and
+          // because the binding lives on this object there is no earlier
+          // serial that could follow the user here.
         })
         setSub('error')
       } finally {
@@ -619,6 +693,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
 
   const addAnother = useCallback(() => {
     setStepError(null)
+    // A destructive tick must never survive into the next key's step.
+    clearResetConsent()
     setStep('key')
     setSub('pin')
   }, [])
@@ -645,6 +721,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
    * the user answers that exact question before it is sent.
    */
   const runReset = useCallback(async () => {
+    // Read straight off the failure being shown: the serial erased is by
+    // construction the one that failed, and the one rendered above the button.
+    const resetSerial = keyError?.resetSerial
     if (!resetSerial || !resetAck || resetting || tapInFlight.current) return
     if (resetUnknownSlot && !resetUnknownAck) return
     setResetting(true)
@@ -703,11 +782,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         return
       }
       if (err?.code === 'slot-occupied') {
-        // The card's own answer (pivReset guard 3, before the erase): its
-        // Vault slot holds a key no vault on this device claims. Ask the
-        // second question rather than showing it as a failure.
+        // The card's own answer (pivReset guard 3, pivReset.ts:109-116), which
+        // runs BEFORE driver.resetPivApplication. This is the one rejection
+        // where "nothing was erased" is provable, and the user has just
+        // pressed a destructive button and watched a card session open and
+        // close — so it is reported, not merely implied by a new checkbox
+        // appearing. A checkbox states a consequence; it does not report an
+        // outcome.
         setResetUnknownSlot(true)
-        setStepError(null)
+        setStepError(t('vault_reset_nothing_erased'))
         return
       }
       setStepError(
@@ -727,12 +810,17 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     showToast(t('vault_reset_done'), { type: 'success' })
     clearResetConsent()
     setKeyError(null)
+    // pivReset deletes this serial's draft and quarantine as part of the reset.
+    // Without this the PIN page keeps offering "Resume · …xxxx" for a key that
+    // no longer exists — a dead-end button of exactly the kind this plan spent
+    // its last two tasks removing.
+    await reloadDraftLists()
     // The PIN and recovery code chosen for this key are still valid: the card
     // is back at factory state and neither was ever written to it, so this
     // goes straight back to the tap rather than asking for them again.
     await runTap()
   }, [
-    resetSerial,
+    keyError,
     resetAck,
     resetUnknownSlot,
     resetUnknownAck,
@@ -741,7 +829,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     pending,
     scopeToken,
     onCancel,
-    runTap
+    runTap,
+    reloadDraftLists
   ])
 
   const leaveLink = (
@@ -998,6 +1087,21 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     }
 
     if (sub === 'reset') {
+      // The same field `runReset` reads, so the serial shown above the button
+      // is the serial erased, with no second copy that could disagree.
+      const resetSerial = keyError?.resetSerial
+      // Is the key in this card's Vault slot one THIS device has a record of —
+      // a draft or a quarantine from an earlier attempt, possibly this very
+      // run's? If so, "a vault key that no vault on this device claims" is
+      // simply false, and telling the user that trains them to tick the only
+      // guard in pivReset a caller can override. They would then meet the case
+      // it exists for — another identity's live vault key — with the habit
+      // already formed.
+      const knownDraft =
+        resetSerial !== undefined &&
+        (recoverableDrafts.some(entry => entry.record.serial === resetSerial) ||
+          blockedDrafts.some(item => ('record' in item ? item.record.serial : item.serial) === resetSerial))
+      const resumableDraft = recoverableDrafts.find(entry => entry.record.serial === resetSerial)
       return (
         <ScrollView contentContainerStyle={styles.body}>
           <Ionicons name="warning-outline" size={48} color={colors.warning} style={styles.hero} />
@@ -1020,10 +1124,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             />
             <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_reset_ack')}</Text>
           </PressableScale>
+          {/* Directly above the question it explains. On `slot-occupied` this
+              is the pre-erase line: the user pressed a destructive button and
+              watched a card session open and close, and needs to be told the
+              erase did not happen before being asked anything else. */}
+          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
           {/* Shown only once the card itself has reported an occupied Vault
-              slot. A separate question, because it is a separate loss: the key
-              in that slot belongs to SOME vault, just not one this device can
-              see. */}
+              slot. A separate question, because it is a separate loss — and
+              which loss it is depends on whether this device knows the key in
+              that slot. */}
           {resetUnknownSlot && (
             <PressableScale
               accessibilityRole="checkbox"
@@ -1037,10 +1146,28 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
                 size={24}
                 color={resetUnknownAck ? colors.error : colors.textTertiary}
               />
-              <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_reset_unknown_ack')}</Text>
+              <Text style={[styles.ackText, { color: colors.textPrimary }]}>
+                {knownDraft ? t('vault_reset_own_draft_ack') : t('vault_reset_unknown_ack')}
+              </Text>
             </PressableScale>
           )}
-          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          {/* The non-destructive way out of the case above: this device holds a
+              resumable record for the very key the reset would erase. Carries
+              the same PIN warning as the PIN page, because resuming sends the
+              PIN in state and only an earlier run's PIN will open that card. */}
+          {resetUnknownSlot && resumableDraft && (
+            <>
+              <Text style={[styles.hint, { color: colors.textSecondary }]}>
+                {t('vault_enrollment_resume_pin_hint')}
+              </Text>
+              <ActionButton
+                label={`${t('vault_enrollment_resume')} · …${resumableDraft.record.serial.slice(-4)}`}
+                variant="outline"
+                enabled={pinOk && !resetting}
+                onPress={() => void resumeDraft(resumableDraft)}
+              />
+            </>
+          )}
           <ActionButton
             label={resetting ? t('vault_resetting') : t('vault_reset_confirm')}
             enabled={resetAck && (!resetUnknownSlot || resetUnknownAck) && !resetting}
@@ -1065,10 +1192,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       <View style={styles.body}>
         <Ionicons name="alert-circle-outline" size={48} color={colors.error} style={styles.hero} />
         <Text style={[styles.h1, { color: colors.textPrimary }]}>{keyError?.copy ?? t('vault_err_generic')}</Text>
-        {/* Only set for a card whose failure a factory reset can actually fix
+        {/* Set only for a card whose failure a factory reset can actually fix
             (RESETTABLE minus NEVER_RESETTABLE), and only when the failure named
-            the card. */}
-        {resetSerial ? (
+            the card. It is a field of THIS failure, so it cannot be a leftover
+            from an earlier one. */}
+        {keyError?.resetSerial ? (
           <ActionButton
             label={t('vault_reset_offer')}
             variant="outline"
@@ -1092,7 +1220,17 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         ) : code === 'key-already-enrolled' || code === 'puk-locked' || keyError?.mustUseDifferent ? (
           <ActionButton label={t('vault_key_use_different')} onPress={useDifferentKey} />
         ) : code === 'enrollment-partial' ? (
-          <ActionButton label={t('vault_retry')} onPress={() => setSub('pin')} />
+          // The one exit from the error page that does not go through
+          // clearKeyInputs, so the destructive ticks are dropped explicitly:
+          // the next thing reached from the PIN page may be a resume of a
+          // DIFFERENT card, and consent must not be waiting for it.
+          <ActionButton
+            label={t('vault_retry')}
+            onPress={() => {
+              clearResetConsent()
+              setSub('pin')
+            }}
+          />
         ) : (
           <ActionButton label={t('vault_retry')} onPress={() => void runTap()} />
         )}
