@@ -2549,6 +2549,23 @@ describe('authenticated vault scans', () => {
     }, ADMIN)
   })
 
+  it('rejects a valid HMAC record whose salt does not rebuild the source lock commitments', async () => {
+    const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
+    const ci = decodeVaultInstructions(fixture.customInstructions)!
+    const replacement = fixtureSalt(2, ['A-1', 'B-1'])
+    fixture.customInstructions = encodeVaultInstructions({
+      ...ci,
+      salt: replacement.salt,
+      saltKeyId: replacement.saltKeyId
+    })
+    serveVaultOutputs([fixture])
+
+    await expect(getVaultBalance(wallet, ADMIN)).rejects.toMatchObject({
+      code: 'template-invalid',
+      message: expect.stringContaining('recovery metadata does not match its real lock')
+    })
+  })
+
   it('refuses recovery metadata whose numeric salt key belongs to another wallet', async () => {
     const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
     serveVaultOutputs([fixture])

@@ -181,17 +181,17 @@ working-tree change alters this.
 4. Surface in the UI that the PIN is not backed up anywhere and that a blocked PIN needs the PUK.
 5. Close handoff blockers 1–3 before enabling deposits in any production distribution.
 
-## 5. Working-tree divergence at time of writing
+## 5. Breaking salt-revealing template implemented after this review
 
-When this report was written the working tree carried uncommitted changes to `r1comb.ts`,
-`transfers.ts`, `__tests__/vault/r1comb.test.ts`, and `scripts/r1c-spend-proof.ts` that move the
-salt out of the lock and into the witness:
+After the reviewed revision, the template was changed to move the salt out of the lock and into
+the witness. There is no migration or dual-template spend path:
 
 - The unlocking script becomes 71 pushes; the salt is the top item, moved to alt in H0 and pulled
   back in H4 with an `OP_SIZE 32 OP_NUMEQUALVERIFY` check before the `HASH160`.
 - The lock no longer contains the salt. Exact sizes become 45,199 bytes for N = 1 and
-  `45,175 + 25N` for N = 2..5; `R1C_UNLOCK_LEN` becomes 2,600; `bakedSalt` is removed and
-  `buildUnlock` takes `saltHex64`.
+  `45,175 + 25N` for N = 2..5; the measured witness maximum becomes 2,539 under the unchanged
+  `R1C_UNLOCK_LEN` declaration of 2,560; `bakedSalt` is removed and `buildUnlock` takes
+  `saltHex64`.
 - `verifyInstructionsAgainstLock` now rebuilds the whole lock from `customInstructions` and compares
   bytes instead of reading the salt out of the lock.
 
@@ -200,20 +200,17 @@ Consequences for the two questions:
 - **Question 1 is unchanged in substance.** The attacker now controls the salt as well as the table,
   but the target is still a fixed 20-byte commitment chosen by the depositor, so the requirement is
   still a HASH160 second preimage. The binding, range, comb, and OP_PUSH_TX stages are untouched.
-  The byte-exact figures in §1 describe the reviewed revision, not the working tree.
+  The byte-exact figures in §1 describe the reviewed revision, not the replacement template.
 - **Question 2 gets one more dependency.** The salt is no longer on chain until that output is
   spent. Spending needs it from `customInstructions` in the wallet database, or re-derived with
   `createHmac` from the wallet root, the numeric salt key ID, and the complete ordered serial list
   of every key committed to that output. With only one YubiKey in hand and no database, the other
   serials are unknown, so the standalone-tool recovery described at the end of §2 becomes
-  conditional on the backup, and situation 2 becomes strictly harder. The design spec, the handoff,
-  and the 2026-09-11 review all still describe the baked-salt template and will need updating if
-  this change lands.
-- Working-tree test status for the two changed suites at the time of writing: `r1comb.test.ts`
-  passes; `transfers.test.ts` has 5 failures (one stale `bakedSalt` assertion in the deposit test,
-  four in "two-phase key removal reconciliation", which the rewritten
-  `actionSpendsPendingRemovalKey` no longer satisfies). The failure count moved between two runs a
-  few minutes apart, so the change was still in progress. Nothing in §1–§4 relies on it.
+  conditional on the backup, and situation 2 becomes strictly harder. The normative design,
+  handoff, and security review have been updated for the replacement template.
+- Validation after the change: all 13 Vault suites pass (596 tests at the time of this report),
+  the dedicated CRT harness rejects the forgery, and the local proof accepts 19 authorized spends
+  while rejecting 13 outsider or tamper cases, including wrong witness salts.
 
 ## Sources
 

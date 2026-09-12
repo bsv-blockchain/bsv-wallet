@@ -556,7 +556,7 @@ also prevents a caller from lying about the source script.
   YubiKeys in the required state. The bundled roots, native parsers, firmware, and platform NFC
   or USB stacks remain high-value review targets.
 - **Network policy:** SDK interpretation is necessary but insufficient evidence. The exact
-  45,247-45,322-byte production locks require real-node proof before release.
+  45,225-45,300-byte production locks require real-node proof before release.
 - **Operational denial of service:** An attacker or broken wallet provider can make services
   unavailable. Fail-closed behavior protects funds from unauthorized release but cannot
   guarantee service availability. Streaming avoids retaining cumulative scripts and

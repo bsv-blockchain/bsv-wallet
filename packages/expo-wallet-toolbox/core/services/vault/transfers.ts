@@ -7,8 +7,8 @@
  * comb commitment for every enrolled key. The HMAC uses [2, "vault salt"],
  * counterparty "self", the rolling key ID "1", "2", ... and the canonically
  * framed YubiKey serials in commitment order. The lock contains only salted
- * table commitments; versioned customInstructions retain the derivation ID, salt and full key
- * records for authenticated indexing and recovery. Funding and change stay
+ * table commitments; versioned customInstructions retain the derivation ID,
+ * salt and full key records for authenticated indexing and recovery. Funding and change stay
  * with the toolbox, out of the default basket. The release and private-backup
  * configuration gates must be enabled before creating any vault output.
  *
