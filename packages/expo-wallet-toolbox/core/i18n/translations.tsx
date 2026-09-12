@@ -305,7 +305,8 @@ const resources = {
       vault_err_too_many_keys: 'A vault holds at most five keys.',
       vault_err_last_keys: 'A vault needs at least two keys. Add another key before removing this one.',
       vault_err_relock_required: 'Re-lock the vault first so your other keys can open every deposit.',
-      vault_err_key_not_committed: "{{nickname}} can't open any of the deposits in this vault. Use another of your vault keys.",
+      vault_err_key_not_committed:
+        "{{nickname}} can't open any of the deposits in this vault. Use another of your vault keys.",
       vault_err_key_cannot_cover:
         '{{nickname}} can open {{reachable}} of the {{total}} in the vault. Withdraw up to {{reachable}}, or use {{otherNames}} instead.',
       vault_err_too_small_to_relock:
@@ -364,8 +365,10 @@ const resources = {
       vault_err_puk_invalid: 'Wrong PUK.',
       vault_err_puk_locked: "This YubiKey's PUK is blocked. Use a fresh YubiKey.",
       vault_err_key_removed_mid_op: 'The key was removed. Insert it and try again.',
-      vault_err_ceremony_active: 'Another Vault operation is still using the YubiKey. Wait for it to finish and try again.',
-      vault_err_scope_changed: 'The wallet or network changed during this Vault operation. Start again in the current wallet.',
+      vault_err_ceremony_active:
+        'Another Vault operation is still using the YubiKey. Wait for it to finish and try again.',
+      vault_err_scope_changed:
+        'The wallet or network changed during this Vault operation. Start again in the current wallet.',
       vault_err_no_key: 'No YubiKey detected.',
       vault_err_driver_unavailable: 'YubiKey support is unavailable on this device.',
       vault_err_mgmt_key_custom: 'This key has a custom management key and cannot be used automatically.',
@@ -842,7 +845,8 @@ const resources = {
       pay_offline_kv_pending: '{{count}} nearby payment(s) waiting to be added to this wallet.',
       pay_offline_kv_stuck: '{{count}} nearby payment(s) could not be added. Ask the sender to send again.',
       pay_offline_kv_corrupt: 'Damaged payment data was found on this device.',
-      pay_offline_kv_corrupt_body: 'The affected payments were set aside on this device, not deleted. Some of them may already have been added to your balance, so only ask a sender to send again if their payment is still missing.',
+      pay_offline_kv_corrupt_body:
+        'The affected payments were set aside on this device, not deleted. Some of them may already have been added to your balance, so only ask a sender to send again if their payment is still missing.',
       pay_offline_show_code: 'Show code again',
       pay_parked_cancel: 'Cancel payment',
       pay_parked_already_sent: 'This payment was already sent',
@@ -962,17 +966,21 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: '暂不可用 — 此版本已关闭保险库存入。',
       vault_intro_title: '设置您的保险库',
-      vault_intro_what: '保险库将资金锁定到您自己的 YubiKey。保险库密钥的任何部分都不会存在于这部手机上；您的任何一把密钥都能打开它。',
+      vault_intro_what:
+        '保险库将资金锁定到您自己的 YubiKey。保险库密钥的任何部分都不会存在于这部手机上；您的任何一把密钥都能打开它。',
       vault_intro_two_keys: '您至少需要两把 YubiKey。',
       vault_intro_apart: '请把它们放在不同的地方 — 放在一起的两把密钥等于一把。',
       vault_intro_backup: '请保持钱包的加密备份开启 — 它会保存经过验证的恢复记录。',
-      vault_intro_ack: '我明白：只有我的 YubiKey 能打开这个保险库，我的恢复助记词不能。如果我丢失了全部密钥，这些钱就没了。',
-      vault_intro_piv_ack: '我确认这把 YubiKey 的整个 PIV 应用已恢复出厂设置或专用于保险库。设置会更改全局 PIV PIN、PUK 和管理密钥，可能影响所有 PIV 槽位；我会安全记录新的 PUK。',
+      vault_intro_ack:
+        '我明白：只有我的 YubiKey 能打开这个保险库，我的恢复助记词不能。如果我丢失了全部密钥，这些钱就没了。',
+      vault_intro_piv_ack:
+        '我确认这把 YubiKey 的整个 PIV 应用已恢复出厂设置或专用于保险库。设置会更改全局 PIV PIN、PUK 和管理密钥，可能影响所有 PIV 槽位；我会安全记录新的 PUK。',
       vault_intro_begin: '开始',
       vault_key_step_title: '第 {{k}} 把密钥（最多 5 把）',
       vault_key_step_replace: '请使用专供保险库且已恢复出厂设置的 YubiKey。任何 PIV 槽位已被占用时，设置都会停止。',
       vault_enrollment_resume: '继续已保存的密钥',
-      vault_enrollment_reset_required: '这把 YubiKey 的 PIV 设置结果无法确定。不要猜测凭据或重试，否则可能锁定整个 PIV 应用。请使用另一把密钥，并由管理员恢复或重置此密钥。',
+      vault_enrollment_reset_required:
+        '这把 YubiKey 的 PIV 设置结果无法确定。不要猜测凭据或重试，否则可能锁定整个 PIV 应用。请使用另一把密钥，并由管理员恢复或重置此密钥。',
       vault_nfc_enroll_message: '将 YubiKey 靠在这里以完成设置',
       vault_nfc_adopt_message: '将这把恢复的 YubiKey 靠在这里以验证',
       vault_nfc_sign_batch: '将 YubiKey 靠在这里以签名 — 第 {{b}} 批，共 {{n}} 批',
@@ -1012,27 +1020,35 @@ const resources = {
       vault_rename_title: '重命名 {{nickname}}',
       vault_rename_save: '保存',
       vault_remove_title: '移除 {{nickname}}？',
-      vault_remove_body: '钱包将不再使用 {{nickname}}。保险库中已有的资金在您重新锁定之前仍可由它打开（约 {{fee}} sats）。',
+      vault_remove_body:
+        '钱包将不再使用 {{nickname}}。保险库中已有的资金在您重新锁定之前仍可由它打开（约 {{fee}} sats）。',
       vault_remove_only: '仅移除',
       vault_key_removed_toast: '密钥已移除',
-      vault_export_explainer: '每笔保险库存入的锁定脚本都包含公开的唯一性盐值。请保持加密备份开启，以便新设备恢复并验证使用您的 YubiKey 所需的密钥记录。',
+      vault_export_explainer:
+        '每笔保险库存入的锁定脚本都包含公开的唯一性盐值。请保持加密备份开启，以便新设备恢复并验证使用您的 YubiKey 所需的密钥记录。',
       vault_footnote: '只有这些密钥能打开保险库。您的恢复助记词不能。',
       vault_floor_line: '最低存入 {{floorDisplay}}（{{floorSats}} sats）。创建一笔保险库存入约需 {{feeDisplay}}。',
       vault_first_deposit_title: '首次保险库存入',
-      vault_first_deposit_body: '首次保险库存入 — {{amount}} 将只能由 {{count}} 把 YubiKey（{{names}}）打开。您的恢复助记词无济于事。',
+      vault_first_deposit_body:
+        '首次保险库存入 — {{amount}} 将只能由 {{count}} 把 YubiKey（{{names}}）打开。您的恢复助记词无济于事。',
       vault_backup_off_title: '请先开启私密备份',
-      vault_backup_off_body: '钱包创建新的保险库输出前，必须开启私密备份。备份会保存恢复所需的经过验证的 YubiKey 记录和钱包历史。您仍可全部取出，而不创建保险库找零。',
+      vault_backup_off_body:
+        '钱包创建新的保险库输出前，必须开启私密备份。备份会保存恢复所需的经过验证的 YubiKey 记录和钱包历史。您仍可全部取出，而不创建保险库找零。',
       vault_backup_off_cta: '打开备份设置',
       vault_choose_key: '您将轻触哪把密钥？',
       vault_remainder_title: '全部取出？',
-      vault_remainder_body: '取出 {{amount}} 后将剩余 {{remainder}}，低于 100,000 sat 的保险库最低额。整个保险库将转入您的日常余额。',
+      vault_remainder_body:
+        '取出 {{amount}} 后将剩余 {{remainder}}，低于 100,000 sat 的保险库最低额。整个保险库将转入您的日常余额。',
       vault_remainder_all: '全部取出',
       vault_remainder_change: '修改金额',
       vault_unreachable_title: '保险库的一部分需要另一把密钥',
-      vault_unreachable_body: '保险库的一部分需要另一把密钥 — 已移动 {{moved}}。{{count}} 笔存入（共 {{amount}}）只能由 {{names}} 打开。请用其中一把密钥再次取出。',
+      vault_unreachable_body:
+        '保险库的一部分需要另一把密钥 — 已移动 {{moved}}。{{count}} 笔存入（共 {{amount}}）只能由 {{names}} 打开。请用其中一把密钥再次取出。',
       vault_sign_progress: '已签名 {{signed}} / {{total}}',
-      vault_err_pin_locked_enroll: '这把 YubiKey 的 PIN 已被锁定。请在 Yubico Authenticator 中用其 PUK 解锁，或改用另一把 YubiKey 设置。',
-      vault_err_serial_mismatch_chosen: '这是 {{tappedName}}。您选择的是 {{chosenName}} — 请轻触它，或返回并选择 {{tappedName}}。',
+      vault_err_pin_locked_enroll:
+        '这把 YubiKey 的 PIN 已被锁定。请在 Yubico Authenticator 中用其 PUK 解锁，或改用另一把 YubiKey 设置。',
+      vault_err_serial_mismatch_chosen:
+        '这是 {{tappedName}}。您选择的是 {{chosenName}} — 请轻触它，或返回并选择 {{tappedName}}。',
       vault_err_key_already_enrolled: '您已经添加过这把 YubiKey（{{nickname}}）。请轻触另一把。',
       vault_err_not_released: '此版本已关闭保险库存入。',
       vault_err_backup_off: '创建新的保险库输出前，请先开启加密私密备份。您仍可全部取出。',
@@ -1041,7 +1057,8 @@ const resources = {
       vault_err_last_keys: '保险库至少需要两把密钥。请先添加另一把再移除这把。',
       vault_err_relock_required: '请先重新锁定保险库，让您的其他密钥能打开每笔存入。',
       vault_err_key_not_committed: '{{nickname}} 无法打开此保险库中的任何存入。请使用您的另一把保险库密钥。',
-      vault_err_key_cannot_cover: '{{nickname}} 可以打开保险库中 {{total}} 里的 {{reachable}}。请最多取出 {{reachable}}，或改用 {{otherNames}}。',
+      vault_err_key_cannot_cover:
+        '{{nickname}} 可以打开保险库中 {{total}} 里的 {{reachable}}。请最多取出 {{reachable}}，或改用 {{otherNames}}。',
       vault_err_too_small_to_relock: '此保险库的余额不足 100,000 sats，太少而无法重新锁定。请改为取出后再存入。',
       vault_err_bad_version: '交易以错误的格式构建。尚未签名 — 请重试。',
       vault_shares_unavailable: '没有可打印的密钥材料。',
@@ -1056,7 +1073,8 @@ const resources = {
       vault_set_new_puk: '设置新的 PUK',
       vault_default_puk_warning: '请选择一个单独的 6–8 位 PUK 并安全保存；它可重置被锁定的 PIN。',
       vault_touch_when_blinks: '密钥闪烁时请轻触金色触点。',
-      vault_nfc_activation_hint: '首次使用这个 YubiKey？请先将它插入 USB-C 接口几秒钟——新密钥出厂时 NFC 处于关闭状态，插入后才会开启。',
+      vault_nfc_activation_hint:
+        '首次使用这个 YubiKey？请先将它插入 USB-C 接口几秒钟——新密钥出厂时 NFC 处于关闭状态，插入后才会开启。',
       vault_continue: '继续',
       vault_enrolled_toast: '保险库已就绪',
       vault_insert_key: '插入您的 YubiKey',
@@ -1083,7 +1101,8 @@ const resources = {
       vault_err_wrong_key: '这把 YubiKey 不是此保险库的密钥之一。',
       vault_err_serial_mismatch: '这把 YubiKey 不是此保险库的密钥之一（{{names}}）。',
       vault_err_touch_timeout: '未检测到轻触。请重试并轻触金色触点。',
-      vault_err_pin_locked: '这把 YubiKey 的 PIN 已被锁定。请使用您的另一把保险库密钥，或在 Yubico Authenticator 中用其 PUK 解锁。',
+      vault_err_pin_locked:
+        '这把 YubiKey 的 PIN 已被锁定。请使用您的另一把保险库密钥，或在 Yubico Authenticator 中用其 PUK 解锁。',
       vault_err_pin_invalid: 'PIN 码错误。',
       vault_err_puk_invalid: 'PUK 码错误。',
       vault_err_puk_locked: '这把 YubiKey 的 PUK 已被锁定。请使用一把新的 YubiKey。',
@@ -1100,6 +1119,8 @@ const resources = {
       vault_err_pin_required: '请输入您的 PIN 码。',
       vault_err_unsupported_platform: '此设备不支持 YubiKey。',
       vault_err_slot_occupied: '密钥槽已被占用。',
+      vault_replace_key_warning: '替换它将永久销毁现有的 P-256 私钥。任何需要该密钥的保险库资金可能变得无法花费。',
+      vault_replace_key_confirm: '替换现有密钥',
       vault_err_enrollment_partial: '更改密钥后 YubiKey 设置中断。请按照重试说明操作；此密钥尚未添加到保险库。',
       vault_err_key_not_adopted: '在使用这把恢复的 YubiKey 提款前，请先在此设备上验证您持有它。',
       vault_err_too_many_inputs:
@@ -1520,7 +1541,8 @@ const resources = {
       pay_offline_kv_pending: '有 {{count}} 笔附近付款等待加入此钱包。',
       pay_offline_kv_stuck: '有 {{count}} 笔附近付款无法添加。请让付款方重新发送。',
       pay_offline_kv_corrupt: '在此设备上发现了损坏的付款数据。',
-      pay_offline_kv_corrupt_body: '受影响的付款已被移到此设备上的一旁保存，并未删除。其中一些可能已经计入你的余额，因此只有在某笔付款仍然缺失时，才请付款方重新发送。',
+      pay_offline_kv_corrupt_body:
+        '受影响的付款已被移到此设备上的一旁保存，并未删除。其中一些可能已经计入你的余额，因此只有在某笔付款仍然缺失时，才请付款方重新发送。',
       pay_offline_show_code: '再次显示付款码',
       pay_parked_cancel: '取消付款',
       pay_parked_already_sent: '此付款已发送',
@@ -1641,17 +1663,22 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'अभी उपलब्ध नहीं — इस रिलीज़ में वॉल्ट जमा बंद हैं।',
       vault_intro_title: 'अपना वॉल्ट सेट करें',
-      vault_intro_what: 'वॉल्ट पैसे को आपकी अपनी YubiKeys से लॉक करता है। वॉल्ट कुंजी का कोई भी हिस्सा इस फ़ोन पर कभी मौजूद नहीं होता; आपकी कोई भी एक कुंजी इसे खोलती है।',
+      vault_intro_what:
+        'वॉल्ट पैसे को आपकी अपनी YubiKeys से लॉक करता है। वॉल्ट कुंजी का कोई भी हिस्सा इस फ़ोन पर कभी मौजूद नहीं होता; आपकी कोई भी एक कुंजी इसे खोलती है।',
       vault_intro_two_keys: 'आपको कम से कम दो YubiKeys चाहिए।',
       vault_intro_apart: 'उन्हें अलग-अलग जगहों पर रखें — एक साथ रखी दो कुंजियाँ एक कुंजी के बराबर हैं।',
       vault_intro_backup: 'वॉलेट का एन्क्रिप्टेड बैकअप चालू रखें — यह प्रमाणित रिकवरी रिकॉर्ड सुरक्षित रखता है।',
-      vault_intro_ack: 'मैं समझता/समझती हूँ: केवल मेरी YubiKeys यह वॉल्ट खोलती हैं। मेरा रिकवरी फ़्रेज़ नहीं। यदि मैं सभी खो दूँ, तो पैसा चला जाएगा।',
-      vault_intro_piv_ack: 'मैं पुष्टि करता/करती हूँ कि इस YubiKey का पूरा PIV ऐप फ़ैक्टरी-रीसेट है या वॉल्ट के लिए समर्पित है। सेटअप वैश्विक PIV PIN, PUK और प्रबंधन कुंजी बदलता है, सभी PIV स्लॉट को प्रभावित कर सकता है, और मैं नया PUK सुरक्षित रूप से दर्ज करूँगा/करूँगी।',
+      vault_intro_ack:
+        'मैं समझता/समझती हूँ: केवल मेरी YubiKeys यह वॉल्ट खोलती हैं। मेरा रिकवरी फ़्रेज़ नहीं। यदि मैं सभी खो दूँ, तो पैसा चला जाएगा।',
+      vault_intro_piv_ack:
+        'मैं पुष्टि करता/करती हूँ कि इस YubiKey का पूरा PIV ऐप फ़ैक्टरी-रीसेट है या वॉल्ट के लिए समर्पित है। सेटअप वैश्विक PIV PIN, PUK और प्रबंधन कुंजी बदलता है, सभी PIV स्लॉट को प्रभावित कर सकता है, और मैं नया PUK सुरक्षित रूप से दर्ज करूँगा/करूँगी।',
       vault_intro_begin: 'शुरू करें',
       vault_key_step_title: 'कुंजी {{k}}, अधिकतम 5 में से',
-      vault_key_step_replace: 'वॉल्ट के लिए समर्पित, फ़ैक्टरी-रीसेट YubiKey का उपयोग करें। कोई भी PIV स्लॉट भरा होने पर सेटअप रुक जाएगा।',
+      vault_key_step_replace:
+        'वॉल्ट के लिए समर्पित, फ़ैक्टरी-रीसेट YubiKey का उपयोग करें। कोई भी PIV स्लॉट भरा होने पर सेटअप रुक जाएगा।',
       vault_enrollment_resume: 'सहेजी गई कुंजी जारी रखें',
-      vault_enrollment_reset_required: 'इस YubiKey की PIV सेटअप स्थिति अनिश्चित है। क्रेडेंशियल का अनुमान लगाकर दोबारा प्रयास न करें; इससे पूरा PIV ऐप ब्लॉक हो सकता है। दूसरी कुंजी इस्तेमाल करें और इसे प्रशासक से रिकवर या फ़ैक्टरी-रीसेट कराएँ।',
+      vault_enrollment_reset_required:
+        'इस YubiKey की PIV सेटअप स्थिति अनिश्चित है। क्रेडेंशियल का अनुमान लगाकर दोबारा प्रयास न करें; इससे पूरा PIV ऐप ब्लॉक हो सकता है। दूसरी कुंजी इस्तेमाल करें और इसे प्रशासक से रिकवर या फ़ैक्टरी-रीसेट कराएँ।',
       vault_nfc_enroll_message: 'सेट करने के लिए अपनी YubiKey यहाँ रखें',
       vault_nfc_adopt_message: 'सत्यापित करने के लिए इस पुनर्प्राप्त YubiKey को यहाँ रखें',
       vault_nfc_sign_batch: 'हस्ताक्षर के लिए अपनी YubiKey यहाँ रखें — बैच {{b}}/{{n}}',
@@ -1667,10 +1694,12 @@ const resources = {
       vault_more_need_two: 'समाप्त करने से पहले दूसरी कुंजी जोड़ें — एक कुंजी का मतलब कोई रिकवरी नहीं।',
       vault_leave_setup: 'सेटअप छोड़ें',
       vault_leave_title: 'सेटअप छोड़ें?',
-      vault_leave_body: 'आपने जो {{count}} YubiKey सेट की हैं, वे अभी सहेजी नहीं जाएँगी। उनकी कुंजियाँ बनी रहती हैं, इसलिए आप उन्हें कुछ ही मिनट में फिर जोड़ सकते हैं।',
+      vault_leave_body:
+        'आपने जो {{count}} YubiKey सेट की हैं, वे अभी सहेजी नहीं जाएँगी। उनकी कुंजियाँ बनी रहती हैं, इसलिए आप उन्हें कुछ ही मिनट में फिर जोड़ सकते हैं।',
       vault_leave_confirm: 'छोड़ें',
       vault_leave_stay: 'रहें',
-      vault_done_body: '{{count}} कुंजियाँ यह वॉल्ट खोल सकती हैं। केवल ये कुंजियाँ इसे खोलती हैं — आपका रिकवरी फ़्रेज़ नहीं।',
+      vault_done_body:
+        '{{count}} कुंजियाँ यह वॉल्ट खोल सकती हैं। केवल ये कुंजियाँ इसे खोलती हैं — आपका रिकवरी फ़्रेज़ नहीं।',
       vault_done_cta: 'हो गया',
       vault_add_key_row: 'कुंजी जोड़ें',
       vault_add_key_done: '{{nickname}} अब से की गई जमाओं को खोल सकती है। वॉल्ट को री-लॉक करें ताकि यह सब कुछ खोल सके।',
@@ -1680,10 +1709,12 @@ const resources = {
       vault_relock_now: 'अभी री-लॉक करें',
       vault_relock_choose: 'री-लॉक करने के लिए आप कौन-सी कुंजी टैप करेंगे?',
       vault_relock_reason: 'अपनी मौजूदा कुंजियों में से एक टैप करें ({{names}}) — वह नहीं जो आपने अभी जोड़ी।',
-      vault_relock_reason_generic: 'हस्ताक्षर के लिए अपनी YubiKey यहाँ रखें — वॉल्ट को अपनी वर्तमान कुंजियों पर री-लॉक करें',
+      vault_relock_reason_generic:
+        'हस्ताक्षर के लिए अपनी YubiKey यहाँ रखें — वॉल्ट को अपनी वर्तमान कुंजियों पर री-लॉक करें',
       vault_relock_done: 'वॉल्ट आपकी वर्तमान कुंजियों पर री-लॉक हो गया',
       vault_relock_capped: '{{count}} और जमा बाकी हैं — उन्हें ले जाने के लिए फिर री-लॉक करें।',
-      vault_relock_unreachable: '{{count}} जमा केवल {{names}} से खुल सकती हैं। उनमें से किसी एक कुंजी से फिर री-लॉक करें।',
+      vault_relock_unreachable:
+        '{{count}} जमा केवल {{names}} से खुल सकती हैं। उनमें से किसी एक कुंजी से फिर री-लॉक करें।',
       vault_badge_missing: '{{count}} जमा अभी {{nickname}} के लिए खुली नहीं हैं',
       vault_badge_removed: '{{count}} जमा अभी भी हटाई गई कुंजी से खुल सकती हैं',
       vault_key_action_rename: 'नाम बदलें',
@@ -1691,37 +1722,50 @@ const resources = {
       vault_rename_title: '{{nickname}} का नाम बदलें',
       vault_rename_save: 'सहेजें',
       vault_remove_title: '{{nickname}} हटाएँ?',
-      vault_remove_body: 'इससे वॉलेट {{nickname}} का उपयोग बंद कर देगा। वॉल्ट में पहले से मौजूद पैसा री-लॉक करने तक इससे खुलता रहेगा (≈ {{fee}} sats)।',
+      vault_remove_body:
+        'इससे वॉलेट {{nickname}} का उपयोग बंद कर देगा। वॉल्ट में पहले से मौजूद पैसा री-लॉक करने तक इससे खुलता रहेगा (≈ {{fee}} sats)।',
       vault_remove_only: 'केवल हटाएँ',
       vault_key_removed_toast: 'कुंजी हटाई गई',
-      vault_export_explainer: 'हर वॉल्ट जमा की लॉकिंग स्क्रिप्ट में उसका सार्वजनिक विशिष्टता सॉल्ट होता है। एन्क्रिप्टेड बैकअप चालू रखें, ताकि नया डिवाइस आपकी YubiKeys के उपयोग के लिए आवश्यक कुंजी रिकॉर्ड पुनर्स्थापित और प्रमाणित कर सके।',
+      vault_export_explainer:
+        'हर वॉल्ट जमा की लॉकिंग स्क्रिप्ट में उसका सार्वजनिक विशिष्टता सॉल्ट होता है। एन्क्रिप्टेड बैकअप चालू रखें, ताकि नया डिवाइस आपकी YubiKeys के उपयोग के लिए आवश्यक कुंजी रिकॉर्ड पुनर्स्थापित और प्रमाणित कर सके।',
       vault_footnote: 'केवल ये कुंजियाँ वॉल्ट खोलती हैं। आपका रिकवरी फ़्रेज़ नहीं।',
-      vault_floor_line: 'न्यूनतम जमा {{floorDisplay}} ({{floorSats}} sats)। वॉल्ट जमा बनाने में लगभग {{feeDisplay}} लगता है।',
+      vault_floor_line:
+        'न्यूनतम जमा {{floorDisplay}} ({{floorSats}} sats)। वॉल्ट जमा बनाने में लगभग {{feeDisplay}} लगता है।',
       vault_first_deposit_title: 'पहली वॉल्ट जमा',
-      vault_first_deposit_body: 'पहली वॉल्ट जमा — {{amount}} केवल {{count}} YubiKeys ({{names}}) से खुल पाएगा। आपका रिकवरी फ़्रेज़ मदद नहीं करेगा।',
+      vault_first_deposit_body:
+        'पहली वॉल्ट जमा — {{amount}} केवल {{count}} YubiKeys ({{names}}) से खुल पाएगा। आपका रिकवरी फ़्रेज़ मदद नहीं करेगा।',
       vault_backup_off_title: 'पहले निजी बैकअप चालू करें',
-      vault_backup_off_body: 'वॉलेट के नया वॉल्ट आउटपुट बनाने से पहले निजी बैकअप चालू होना चाहिए। इसमें रिकवरी के लिए आवश्यक प्रमाणित YubiKey रिकॉर्ड और वॉलेट इतिहास सुरक्षित रहते हैं। आप वॉल्ट चेंज बनाए बिना अब भी सब कुछ निकाल सकते हैं।',
+      vault_backup_off_body:
+        'वॉलेट के नया वॉल्ट आउटपुट बनाने से पहले निजी बैकअप चालू होना चाहिए। इसमें रिकवरी के लिए आवश्यक प्रमाणित YubiKey रिकॉर्ड और वॉलेट इतिहास सुरक्षित रहते हैं। आप वॉल्ट चेंज बनाए बिना अब भी सब कुछ निकाल सकते हैं।',
       vault_backup_off_cta: 'बैकअप सेटिंग्स खोलें',
       vault_choose_key: 'आप कौन-सी कुंजी टैप करेंगे?',
       vault_remainder_title: 'सब कुछ निकालें?',
-      vault_remainder_body: '{{amount}} निकालने पर {{remainder}} बचेगा, जो 100,000-sat वॉल्ट न्यूनतम से कम है। पूरा वॉल्ट आपके रोज़मर्रा के बैलेंस में चला जाएगा।',
+      vault_remainder_body:
+        '{{amount}} निकालने पर {{remainder}} बचेगा, जो 100,000-sat वॉल्ट न्यूनतम से कम है। पूरा वॉल्ट आपके रोज़मर्रा के बैलेंस में चला जाएगा।',
       vault_remainder_all: 'सब कुछ निकालें',
       vault_remainder_change: 'राशि बदलें',
       vault_unreachable_title: 'वॉल्ट के एक हिस्से को दूसरी कुंजी चाहिए',
-      vault_unreachable_body: 'वॉल्ट के एक हिस्से को दूसरी कुंजी चाहिए — {{moved}} ले जाया गया। {{amount}} वाली {{count}} जमा केवल {{names}} से खुल सकती हैं। उनमें से किसी एक कुंजी से फिर निकालें।',
+      vault_unreachable_body:
+        'वॉल्ट के एक हिस्से को दूसरी कुंजी चाहिए — {{moved}} ले जाया गया। {{amount}} वाली {{count}} जमा केवल {{names}} से खुल सकती हैं। उनमें से किसी एक कुंजी से फिर निकालें।',
       vault_sign_progress: '{{total}} में से {{signed}} हस्ताक्षरित',
-      vault_err_pin_locked_enroll: 'इस YubiKey का PIN ब्लॉक है। Yubico Authenticator में इसके PUK से अनब्लॉक करें, या दूसरी YubiKey से सेट करें।',
-      vault_err_serial_mismatch_chosen: 'यह {{tappedName}} है। आपने {{chosenName}} चुनी थी — उसे टैप करें, या वापस जाकर {{tappedName}} चुनें।',
+      vault_err_pin_locked_enroll:
+        'इस YubiKey का PIN ब्लॉक है। Yubico Authenticator में इसके PUK से अनब्लॉक करें, या दूसरी YubiKey से सेट करें।',
+      vault_err_serial_mismatch_chosen:
+        'यह {{tappedName}} है। आपने {{chosenName}} चुनी थी — उसे टैप करें, या वापस जाकर {{tappedName}} चुनें।',
       vault_err_key_already_enrolled: 'आप यह YubiKey ({{nickname}}) पहले ही जोड़ चुके हैं। दूसरी टैप करें।',
       vault_err_not_released: 'इस रिलीज़ में वॉल्ट जमा बंद हैं।',
-      vault_err_backup_off: 'नया वॉल्ट आउटपुट बनाने से पहले एन्क्रिप्टेड निजी बैकअप चालू करें। आप अब भी सब कुछ निकाल सकते हैं।',
+      vault_err_backup_off:
+        'नया वॉल्ट आउटपुट बनाने से पहले एन्क्रिप्टेड निजी बैकअप चालू करें। आप अब भी सब कुछ निकाल सकते हैं।',
       vault_err_not_enough_keys: 'इस वॉल्ट में दो से कम कुंजियाँ हैं। इसे फिर से सेट करें।',
       vault_err_too_many_keys: 'एक वॉल्ट में अधिकतम पाँच कुंजियाँ हो सकती हैं।',
       vault_err_last_keys: 'वॉल्ट को कम से कम दो कुंजियाँ चाहिए। इसे हटाने से पहले दूसरी कुंजी जोड़ें।',
       vault_err_relock_required: 'पहले वॉल्ट री-लॉक करें ताकि आपकी अन्य कुंजियाँ हर जमा खोल सकें।',
-      vault_err_key_not_committed: '{{nickname}} इस वॉल्ट की कोई भी जमा नहीं खोल सकती। अपनी दूसरी वॉल्ट कुंजी उपयोग करें।',
-      vault_err_key_cannot_cover: '{{nickname}} वॉल्ट के {{total}} में से {{reachable}} खोल सकती है। अधिकतम {{reachable}} निकालें, या {{otherNames}} उपयोग करें।',
-      vault_err_too_small_to_relock: 'इस वॉल्ट में 100,000 sats से कम है, जो री-लॉक के लिए बहुत कम है। इसे निकालें और फिर जमा करें।',
+      vault_err_key_not_committed:
+        '{{nickname}} इस वॉल्ट की कोई भी जमा नहीं खोल सकती। अपनी दूसरी वॉल्ट कुंजी उपयोग करें।',
+      vault_err_key_cannot_cover:
+        '{{nickname}} वॉल्ट के {{total}} में से {{reachable}} खोल सकती है। अधिकतम {{reachable}} निकालें, या {{otherNames}} उपयोग करें।',
+      vault_err_too_small_to_relock:
+        'इस वॉल्ट में 100,000 sats से कम है, जो री-लॉक के लिए बहुत कम है। इसे निकालें और फिर जमा करें।',
       vault_err_bad_version: 'लेन-देन गलत फ़ॉर्मैट में बना। कुछ भी हस्ताक्षरित नहीं हुआ — फिर कोशिश करें।',
       vault_shares_unavailable: 'प्रिंट करने के लिए कोई कुंजी सामग्री उपलब्ध नहीं है।',
       vault_enroll_begin: 'वॉल्ट सेट करें',
@@ -1735,7 +1779,8 @@ const resources = {
       vault_set_new_puk: 'नया PUK सेट करें',
       vault_default_puk_warning: 'अलग 6–8 अंकों का PUK चुनें और सुरक्षित रखें; इससे ब्लॉक PIN रीसेट किया जा सकता है।',
       vault_touch_when_blinks: 'कुंजी के झपकने पर सुनहरे संपर्क को स्पर्श करें।',
-      vault_nfc_activation_hint: 'इस YubiKey का पहली बार उपयोग कर रहे हैं? पहले इसे कुछ सेकंड के लिए USB-C पोर्ट में लगाएँ — नई कुंजियाँ NFC बंद करके भेजी जाती हैं, तब तक यह चालू नहीं होता।',
+      vault_nfc_activation_hint:
+        'इस YubiKey का पहली बार उपयोग कर रहे हैं? पहले इसे कुछ सेकंड के लिए USB-C पोर्ट में लगाएँ — नई कुंजियाँ NFC बंद करके भेजी जाती हैं, तब तक यह चालू नहीं होता।',
       vault_continue: 'जारी रखें',
       vault_enrolled_toast: 'वॉल्ट तैयार',
       vault_insert_key: 'अपनी YubiKey डालें',
@@ -1762,25 +1807,33 @@ const resources = {
       vault_err_wrong_key: 'यह YubiKey इस वॉल्ट की कुंजियों में से नहीं है।',
       vault_err_serial_mismatch: 'यह YubiKey इस वॉल्ट की कुंजियों में से नहीं है ({{names}})।',
       vault_err_touch_timeout: 'कोई स्पर्श नहीं मिला। पुनः प्रयास करें और सुनहरे संपर्क को स्पर्श करें।',
-      vault_err_pin_locked: 'इस YubiKey का PIN ब्लॉक है। अपनी दूसरी वॉल्ट कुंजी उपयोग करें, या Yubico Authenticator में इसके PUK से इसे अनब्लॉक करें।',
+      vault_err_pin_locked:
+        'इस YubiKey का PIN ब्लॉक है। अपनी दूसरी वॉल्ट कुंजी उपयोग करें, या Yubico Authenticator में इसके PUK से इसे अनब्लॉक करें।',
       vault_err_pin_invalid: 'गलत PIN।',
       vault_err_puk_invalid: 'गलत PUK।',
       vault_err_puk_locked: 'इस YubiKey का PUK ब्लॉक है। नई YubiKey उपयोग करें।',
-      vault_err_ceremony_active: 'एक अन्य वॉल्ट कार्य अभी YubiKey का उपयोग कर रहा है। उसके पूरा होने की प्रतीक्षा करें और फिर प्रयास करें।',
+      vault_err_ceremony_active:
+        'एक अन्य वॉल्ट कार्य अभी YubiKey का उपयोग कर रहा है। उसके पूरा होने की प्रतीक्षा करें और फिर प्रयास करें।',
       vault_err_scope_changed: 'इस वॉल्ट कार्य के दौरान वॉलेट या नेटवर्क बदल गया। मौजूदा वॉलेट में फिर शुरू करें।',
       vault_err_key_removed_mid_op: 'कुंजी हटा दी गई। इसे डालें और पुनः प्रयास करें।',
       vault_err_no_key: 'कोई YubiKey नहीं मिली।',
       vault_err_driver_unavailable: 'इस उपकरण पर YubiKey समर्थन उपलब्ध नहीं है।',
       vault_err_mgmt_key_custom: 'इस कुंजी में कस्टम प्रबंधन कुंजी है और इसे स्वचालित रूप से उपयोग नहीं किया जा सकता।',
-      vault_err_attestation_invalid: 'इस YubiKey के निर्माता प्रमाण की पुष्टि नहीं हो सकी। ऐसे असली, फ़ैक्टरी-प्रमाणित YubiKey का उपयोग करें जिसका PIV प्रमाण स्लॉट बदला न गया हो।',
+      vault_err_attestation_invalid:
+        'इस YubiKey के निर्माता प्रमाण की पुष्टि नहीं हो सकी। ऐसे असली, फ़ैक्टरी-प्रमाणित YubiKey का उपयोग करें जिसका PIV प्रमाण स्लॉट बदला न गया हो।',
       vault_err_generic: 'कुछ गलत हो गया। कृपया पुनः प्रयास करें।',
       vault_err_template_invalid: 'वॉल्ट खोलने की कोशिश में कुछ गड़बड़ हुई। कृपया पुनः प्रयास करें।',
       vault_err_not_enrolled: 'कोई वॉल्ट सेट नहीं है।',
       vault_err_pin_required: 'अपना PIN दर्ज करें।',
       vault_err_unsupported_platform: 'इस उपकरण पर YubiKey समर्थन उपलब्ध नहीं है।',
       vault_err_slot_occupied: 'कुंजी स्लॉट पहले से उपयोग में है।',
-      vault_err_enrollment_partial: 'कुंजी बदलने के बाद YubiKey सेटअप रुक गया। पुनः प्रयास के निर्देश मानें; यह कुंजी वॉल्ट में नहीं जोड़ी गई।',
-      vault_err_key_not_adopted: 'इस पुनर्प्राप्त YubiKey से निकासी करने से पहले इस डिवाइस पर इसका कब्ज़ा सत्यापित करें।',
+      vault_replace_key_warning:
+        'इसे बदलने पर मौजूदा P-256 निजी कुंजी स्थायी रूप से नष्ट हो जाएगी। उस कुंजी पर निर्भर वॉल्ट राशि अख़र्च योग्य हो सकती है।',
+      vault_replace_key_confirm: 'मौजूदा कुंजी बदलें',
+      vault_err_enrollment_partial:
+        'कुंजी बदलने के बाद YubiKey सेटअप रुक गया। पुनः प्रयास के निर्देश मानें; यह कुंजी वॉल्ट में नहीं जोड़ी गई।',
+      vault_err_key_not_adopted:
+        'इस पुनर्प्राप्त YubiKey से निकासी करने से पहले इस डिवाइस पर इसका कब्ज़ा सत्यापित करें।',
       vault_err_too_many_inputs:
         'एक बार में ले जाने के लिए बहुत अधिक वॉल्ट जमा हैं। पहले छोटी राशि निकालें — प्रत्येक निकासी वॉल्ट को समेकित भी करती है, इसलिए अगली बार अधिक राशि जा सकेगी।',
       vault_err_requires_online:
@@ -1795,7 +1848,8 @@ const resources = {
       vault_pin_invalid_retry_generic: 'गलत PIN। पुनः प्रयास के लिए फिर से निकालें दबाएँ।',
       vault_disable_row: 'वॉल्ट अक्षम करें',
       vault_disable_title: 'वॉल्ट अक्षम करें?',
-      vault_disable_message: 'इससे इस फ़ोन पर वॉल्ट की कुंजी सूची भुला दी जाएगी। कुंजियाँ आपकी YubiKeys पर बनी रहती हैं।',
+      vault_disable_message:
+        'इससे इस फ़ोन पर वॉल्ट की कुंजी सूची भुला दी जाएगी। कुंजियाँ आपकी YubiKeys पर बनी रहती हैं।',
       vault_disable_confirm: 'अक्षम करें',
       vault_disabled_toast: 'वॉल्ट अक्षम',
       vault_disable_blocked_title: 'पहले राशि निकालें',
@@ -2216,7 +2270,8 @@ const resources = {
       pay_offline_kv_pending: '{{count}} आस-पास के भुगतान इस वॉलेट में जुड़ने के इंतज़ार में हैं।',
       pay_offline_kv_stuck: '{{count}} नज़दीकी भुगतान जोड़े नहीं जा सके। भेजने वाले से दोबारा भेजने को कहें।',
       pay_offline_kv_corrupt: 'इस डिवाइस पर क्षतिग्रस्त भुगतान डेटा मिला।',
-      pay_offline_kv_corrupt_body: 'प्रभावित भुगतान इस डिवाइस पर अलग रख दिए गए हैं, मिटाए नहीं गए। इनमें से कुछ पहले ही आपके बैलेंस में जुड़ चुके हो सकते हैं, इसलिए भेजने वाले से दोबारा भेजने को तभी कहें जब उनका भुगतान अब भी नहीं मिला हो।',
+      pay_offline_kv_corrupt_body:
+        'प्रभावित भुगतान इस डिवाइस पर अलग रख दिए गए हैं, मिटाए नहीं गए। इनमें से कुछ पहले ही आपके बैलेंस में जुड़ चुके हो सकते हैं, इसलिए भेजने वाले से दोबारा भेजने को तभी कहें जब उनका भुगतान अब भी नहीं मिला हो।',
       pay_offline_show_code: 'कोड फिर दिखाएँ',
       pay_parked_cancel: 'भुगतान रद्द करें',
       pay_parked_already_sent: 'यह भुगतान पहले ही भेज दिया गया है',
@@ -2338,17 +2393,23 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Aún no disponible: los depósitos a la caja fuerte están desactivados en esta versión.',
       vault_intro_title: 'Configura tu caja fuerte',
-      vault_intro_what: 'La caja fuerte bloquea el dinero con tus propias YubiKeys. Nada de la clave de la caja fuerte existe jamás en este teléfono; cualquiera de tus llaves la abre.',
+      vault_intro_what:
+        'La caja fuerte bloquea el dinero con tus propias YubiKeys. Nada de la clave de la caja fuerte existe jamás en este teléfono; cualquiera de tus llaves la abre.',
       vault_intro_two_keys: 'Necesitas al menos dos YubiKeys.',
       vault_intro_apart: 'Guárdalas en lugares distintos: dos llaves guardadas juntas son una sola llave.',
-      vault_intro_backup: 'Mantén activada la copia de seguridad cifrada de la billetera: conserva el registro de recuperación autenticado.',
-      vault_intro_ack: 'Entiendo: solo mis YubiKeys abren esta caja fuerte. Mi frase de recuperación no. Si las pierdo todas, el dinero se pierde.',
-      vault_intro_piv_ack: 'Confirmo que toda la aplicación PIV de esta YubiKey está restablecida de fábrica o dedicada a la caja fuerte. La configuración cambia el PIN, el PUK y la clave de gestión PIV globales, puede afectar a todas las ranuras PIV, y guardaré el nuevo PUK de forma segura.',
+      vault_intro_backup:
+        'Mantén activada la copia de seguridad cifrada de la billetera: conserva el registro de recuperación autenticado.',
+      vault_intro_ack:
+        'Entiendo: solo mis YubiKeys abren esta caja fuerte. Mi frase de recuperación no. Si las pierdo todas, el dinero se pierde.',
+      vault_intro_piv_ack:
+        'Confirmo que toda la aplicación PIV de esta YubiKey está restablecida de fábrica o dedicada a la caja fuerte. La configuración cambia el PIN, el PUK y la clave de gestión PIV globales, puede afectar a todas las ranuras PIV, y guardaré el nuevo PUK de forma segura.',
       vault_intro_begin: 'Empezar',
       vault_key_step_title: 'Llave {{k}} de hasta 5',
-      vault_key_step_replace: 'Usa una YubiKey restablecida de fábrica y dedicada a la caja fuerte. La configuración se detiene si alguna ranura PIV está ocupada.',
+      vault_key_step_replace:
+        'Usa una YubiKey restablecida de fábrica y dedicada a la caja fuerte. La configuración se detiene si alguna ranura PIV está ocupada.',
       vault_enrollment_resume: 'Reanudar clave guardada',
-      vault_enrollment_reset_required: 'La configuración PIV de esta YubiKey quedó en un estado incierto. No adivines credenciales ni vuelvas a intentarlo: podrías bloquear toda la aplicación PIV. Usa otra llave y pide a un administrador que recupere o restablezca esta.',
+      vault_enrollment_reset_required:
+        'La configuración PIV de esta YubiKey quedó en un estado incierto. No adivines credenciales ni vuelvas a intentarlo: podrías bloquear toda la aplicación PIV. Usa otra llave y pide a un administrador que recupere o restablezca esta.',
       vault_nfc_enroll_message: 'Acerca tu YubiKey aquí para configurarla',
       vault_nfc_adopt_message: 'Acerca esta YubiKey recuperada para verificarla',
       vault_nfc_sign_batch: 'Acerca tu YubiKey aquí para firmar: lote {{b}} de {{n}}',
@@ -2361,26 +2422,32 @@ const resources = {
       vault_more_body: 'Hasta 5 llaves. Cualquiera de ellas abre toda la caja fuerte por sí sola.',
       vault_more_add: 'Añadir otra llave',
       vault_more_finish: 'Terminar',
-      vault_more_need_two: 'Añade una segunda llave antes de terminar: una sola llave significa que no hay recuperación.',
+      vault_more_need_two:
+        'Añade una segunda llave antes de terminar: una sola llave significa que no hay recuperación.',
       vault_leave_setup: 'Salir de la configuración',
       vault_leave_title: '¿Salir de la configuración?',
-      vault_leave_body: 'Las {{count}} YubiKey(s) que configuraste todavía no se guardarán. Conservan sus claves, así que podrás añadirlas de nuevo en un minuto.',
+      vault_leave_body:
+        'Las {{count}} YubiKey(s) que configuraste todavía no se guardarán. Conservan sus claves, así que podrás añadirlas de nuevo en un minuto.',
       vault_leave_confirm: 'Salir',
       vault_leave_stay: 'Quedarme',
-      vault_done_body: '{{count}} llaves pueden abrir esta caja fuerte. Solo estas llaves la abren; tu frase de recuperación no.',
+      vault_done_body:
+        '{{count}} llaves pueden abrir esta caja fuerte. Solo estas llaves la abren; tu frase de recuperación no.',
       vault_done_cta: 'Listo',
       vault_add_key_row: 'Añadir llave',
-      vault_add_key_done: '{{nickname}} puede abrir los depósitos hechos a partir de ahora. Vuelve a bloquear la caja fuerte para que pueda abrirlo todo.',
+      vault_add_key_done:
+        '{{nickname}} puede abrir los depósitos hechos a partir de ahora. Vuelve a bloquear la caja fuerte para que pueda abrirlo todo.',
       vault_key_added_toast: 'Llave añadida',
       vault_recovery_verified: 'Llave recuperada verificada en este dispositivo',
       vault_relock_row: 'Volver a bloquear la caja fuerte',
       vault_relock_now: 'Volver a bloquear ahora',
       vault_relock_choose: '¿Qué llave tocarás para volver a bloquear?',
       vault_relock_reason: 'Toca una de tus llaves existentes ({{names}}), no la que acabas de añadir.',
-      vault_relock_reason_generic: 'Acerca tu YubiKey aquí para firmar: volver a bloquear la caja fuerte con tus llaves actuales',
+      vault_relock_reason_generic:
+        'Acerca tu YubiKey aquí para firmar: volver a bloquear la caja fuerte con tus llaves actuales',
       vault_relock_done: 'Caja fuerte bloqueada de nuevo con tus llaves actuales',
       vault_relock_capped: 'Quedan {{count}} depósitos más: vuelve a bloquear otra vez para moverlos.',
-      vault_relock_unreachable: '{{count}} depósitos solo pueden abrirse con {{names}}. Vuelve a bloquear con una de esas llaves.',
+      vault_relock_unreachable:
+        '{{count}} depósitos solo pueden abrirse con {{names}}. Vuelve a bloquear con una de esas llaves.',
       vault_badge_missing: '{{count}} depósitos aún no abiertos para {{nickname}}',
       vault_badge_removed: '{{count}} depósitos aún abiertos para una llave eliminada',
       vault_key_action_rename: 'Renombrar',
@@ -2388,38 +2455,53 @@ const resources = {
       vault_rename_title: 'Renombrar {{nickname}}',
       vault_rename_save: 'Guardar',
       vault_remove_title: '¿Eliminar {{nickname}}?',
-      vault_remove_body: 'La billetera dejará de usar {{nickname}}. El dinero que ya está en la caja fuerte seguirá pudiendo abrirse con ella hasta que vuelvas a bloquear (≈ {{fee}} sats).',
+      vault_remove_body:
+        'La billetera dejará de usar {{nickname}}. El dinero que ya está en la caja fuerte seguirá pudiendo abrirse con ella hasta que vuelvas a bloquear (≈ {{fee}} sats).',
       vault_remove_only: 'Solo eliminar',
       vault_key_removed_toast: 'Llave eliminada',
-      vault_export_explainer: 'Cada depósito en la caja fuerte incluye su salt público de unicidad en el script de bloqueo. Mantén activada la copia de seguridad cifrada para que un dispositivo nuevo pueda restaurar y autenticar los registros de claves necesarios para usar tus YubiKeys.',
+      vault_export_explainer:
+        'Cada depósito en la caja fuerte incluye su salt público de unicidad en el script de bloqueo. Mantén activada la copia de seguridad cifrada para que un dispositivo nuevo pueda restaurar y autenticar los registros de claves necesarios para usar tus YubiKeys.',
       vault_footnote: 'Solo estas llaves abren la caja fuerte. Tu frase de recuperación no.',
-      vault_floor_line: 'Depósito mínimo {{floorDisplay}} ({{floorSats}} sats). Crear un depósito en la caja fuerte cuesta unos {{feeDisplay}}.',
+      vault_floor_line:
+        'Depósito mínimo {{floorDisplay}} ({{floorSats}} sats). Crear un depósito en la caja fuerte cuesta unos {{feeDisplay}}.',
       vault_first_deposit_title: 'Primer depósito en la caja fuerte',
-      vault_first_deposit_body: 'Primer depósito en la caja fuerte: {{amount}} solo podrá abrirse con {{count}} YubiKeys ({{names}}). Tu frase de recuperación no servirá.',
+      vault_first_deposit_body:
+        'Primer depósito en la caja fuerte: {{amount}} solo podrá abrirse con {{count}} YubiKeys ({{names}}). Tu frase de recuperación no servirá.',
       vault_backup_off_title: 'Activa la copia privada',
-      vault_backup_off_body: 'La copia privada debe estar activada antes de que la billetera cree otra salida de la caja fuerte. Conserva los registros autenticados de las YubiKey y el historial de la billetera necesarios para la recuperación. Aún puedes retirar todo sin crear cambio en la caja fuerte.',
+      vault_backup_off_body:
+        'La copia privada debe estar activada antes de que la billetera cree otra salida de la caja fuerte. Conserva los registros autenticados de las YubiKey y el historial de la billetera necesarios para la recuperación. Aún puedes retirar todo sin crear cambio en la caja fuerte.',
       vault_backup_off_cta: 'Abrir ajustes de copia',
       vault_choose_key: '¿Qué llave tocarás?',
       vault_remainder_title: '¿Retirar todo?',
-      vault_remainder_body: 'Retirar {{amount}} deja {{remainder}}, por debajo del mínimo de 100,000 sats de la caja fuerte. Toda la caja fuerte pasará a tu saldo diario.',
+      vault_remainder_body:
+        'Retirar {{amount}} deja {{remainder}}, por debajo del mínimo de 100,000 sats de la caja fuerte. Toda la caja fuerte pasará a tu saldo diario.',
       vault_remainder_all: 'Retirar todo',
       vault_remainder_change: 'Cambiar importe',
       vault_unreachable_title: 'Parte de la caja fuerte necesita otra llave',
-      vault_unreachable_body: 'Parte de la caja fuerte necesita otra llave: se movieron {{moved}}. {{count}} depósitos con {{amount}} solo pueden abrirse con {{names}}. Retira de nuevo con una de esas llaves.',
+      vault_unreachable_body:
+        'Parte de la caja fuerte necesita otra llave: se movieron {{moved}}. {{count}} depósitos con {{amount}} solo pueden abrirse con {{names}}. Retira de nuevo con una de esas llaves.',
       vault_sign_progress: 'Firmados {{signed}} de {{total}}',
-      vault_err_pin_locked_enroll: 'El PIN de esta YubiKey está bloqueado. Desbloquéalo con su PUK en Yubico Authenticator o configura con otra YubiKey.',
-      vault_err_serial_mismatch_chosen: 'Esa es {{tappedName}}. Elegiste {{chosenName}}: tócala, o vuelve atrás y elige {{tappedName}}.',
+      vault_err_pin_locked_enroll:
+        'El PIN de esta YubiKey está bloqueado. Desbloquéalo con su PUK en Yubico Authenticator o configura con otra YubiKey.',
+      vault_err_serial_mismatch_chosen:
+        'Esa es {{tappedName}}. Elegiste {{chosenName}}: tócala, o vuelve atrás y elige {{tappedName}}.',
       vault_err_key_already_enrolled: 'Ya añadiste esta YubiKey ({{nickname}}). Toca otra distinta.',
       vault_err_not_released: 'Los depósitos a la caja fuerte están desactivados en esta versión.',
-      vault_err_backup_off: 'Activa la copia privada cifrada antes de crear otra salida de la caja fuerte. Aún puedes retirar todo.',
+      vault_err_backup_off:
+        'Activa la copia privada cifrada antes de crear otra salida de la caja fuerte. Aún puedes retirar todo.',
       vault_err_not_enough_keys: 'Esta caja fuerte tiene menos de dos llaves. Configúrala de nuevo.',
       vault_err_too_many_keys: 'Una caja fuerte admite como máximo cinco llaves.',
       vault_err_last_keys: 'Una caja fuerte necesita al menos dos llaves. Añade otra antes de eliminar esta.',
-      vault_err_relock_required: 'Vuelve a bloquear la caja fuerte primero, para que tus otras llaves puedan abrir cada depósito.',
-      vault_err_key_not_committed: '{{nickname}} no puede abrir ninguno de los depósitos de esta caja fuerte. Usa otra de tus llaves.',
-      vault_err_key_cannot_cover: '{{nickname}} puede abrir {{reachable}} de los {{total}} de la caja fuerte. Retira hasta {{reachable}} o usa {{otherNames}}.',
-      vault_err_too_small_to_relock: 'Esta caja fuerte tiene menos de 100,000 sats, demasiado poco para volver a bloquear. Retíralo y deposita de nuevo.',
-      vault_err_bad_version: 'La transacción se construyó en un formato incorrecto. No se firmó nada: inténtalo de nuevo.',
+      vault_err_relock_required:
+        'Vuelve a bloquear la caja fuerte primero, para que tus otras llaves puedan abrir cada depósito.',
+      vault_err_key_not_committed:
+        '{{nickname}} no puede abrir ninguno de los depósitos de esta caja fuerte. Usa otra de tus llaves.',
+      vault_err_key_cannot_cover:
+        '{{nickname}} puede abrir {{reachable}} de los {{total}} de la caja fuerte. Retira hasta {{reachable}} o usa {{otherNames}}.',
+      vault_err_too_small_to_relock:
+        'Esta caja fuerte tiene menos de 100,000 sats, demasiado poco para volver a bloquear. Retíralo y deposita de nuevo.',
+      vault_err_bad_version:
+        'La transacción se construyó en un formato incorrecto. No se firmó nada: inténtalo de nuevo.',
       vault_shares_unavailable: 'No hay material de clave disponible para imprimir.',
       vault_enroll_begin: 'Configurar caja fuerte',
       vault_enroll_phase_connecting: 'Leyendo tu llave…',
@@ -2430,9 +2512,11 @@ const resources = {
       vault_set_new_pin: 'Establece un nuevo PIN',
       vault_default_pin_warning: 'Tu llave aún tiene el PIN predeterminado. Elige uno nuevo (6–8 dígitos).',
       vault_set_new_puk: 'Establece un PUK nuevo',
-      vault_default_puk_warning: 'Elige un PUK distinto de 6–8 dígitos y guárdalo de forma segura; permite restablecer un PIN bloqueado.',
+      vault_default_puk_warning:
+        'Elige un PUK distinto de 6–8 dígitos y guárdalo de forma segura; permite restablecer un PIN bloqueado.',
       vault_touch_when_blinks: 'Toca el contacto dorado cuando la llave parpadee.',
-      vault_nfc_activation_hint: '¿Es la primera vez que usas esta YubiKey? Conéctala primero a un puerto USB-C durante unos segundos — las llaves nuevas vienen con el NFC desactivado hasta entonces.',
+      vault_nfc_activation_hint:
+        '¿Es la primera vez que usas esta YubiKey? Conéctala primero a un puerto USB-C durante unos segundos — las llaves nuevas vienen con el NFC desactivado hasta entonces.',
       vault_continue: 'Continuar',
       vault_enrolled_toast: 'Caja fuerte lista',
       vault_insert_key: 'Inserta tu YubiKey',
@@ -2459,12 +2543,15 @@ const resources = {
       vault_err_wrong_key: 'Esta YubiKey no es una de las llaves de esta caja fuerte.',
       vault_err_serial_mismatch: 'Esta YubiKey no es una de las llaves de esta caja fuerte ({{names}}).',
       vault_err_touch_timeout: 'No se detectó ningún toque. Inténtalo de nuevo y toca el contacto dorado.',
-      vault_err_pin_locked: 'El PIN de esta YubiKey está bloqueado. Usa otra de tus llaves de la caja fuerte, o desbloquéala con su PUK en Yubico Authenticator.',
+      vault_err_pin_locked:
+        'El PIN de esta YubiKey está bloqueado. Usa otra de tus llaves de la caja fuerte, o desbloquéala con su PUK en Yubico Authenticator.',
       vault_err_pin_invalid: 'PIN incorrecto.',
       vault_err_puk_invalid: 'PUK incorrecto.',
       vault_err_puk_locked: 'El PUK de esta YubiKey está bloqueado. Usa una YubiKey nueva.',
-      vault_err_ceremony_active: 'Otra operación de la caja fuerte sigue usando la YubiKey. Espera a que termine e inténtalo de nuevo.',
-      vault_err_scope_changed: 'La cartera o la red cambió durante esta operación. Empieza de nuevo en la cartera actual.',
+      vault_err_ceremony_active:
+        'Otra operación de la caja fuerte sigue usando la YubiKey. Espera a que termine e inténtalo de nuevo.',
+      vault_err_scope_changed:
+        'La cartera o la red cambió durante esta operación. Empieza de nuevo en la cartera actual.',
       vault_err_key_removed_mid_op: 'Se retiró la llave. Insértala e inténtalo de nuevo.',
       vault_err_no_key: 'No se detectó ninguna YubiKey.',
       vault_err_driver_unavailable: 'La compatibilidad con YubiKey no está disponible en este dispositivo.',
@@ -2478,8 +2565,13 @@ const resources = {
       vault_err_pin_required: 'Introduce tu PIN.',
       vault_err_unsupported_platform: 'La compatibilidad con YubiKey no está disponible en este dispositivo.',
       vault_err_slot_occupied: 'La ranura de la llave ya está en uso.',
-      vault_err_enrollment_partial: 'La configuración de la YubiKey se detuvo después de modificarla. Sigue las instrucciones para reintentar; la llave no se añadió a la caja fuerte.',
-      vault_err_key_not_adopted: 'Verifica que tienes esta YubiKey recuperada en este dispositivo antes de usarla para retirar.',
+      vault_replace_key_warning:
+        'Sustituirla destruye de forma permanente la clave privada P-256 existente. Los fondos de la caja fuerte que necesiten esa clave podrían volverse inutilizables.',
+      vault_replace_key_confirm: 'Sustituir la clave existente',
+      vault_err_enrollment_partial:
+        'La configuración de la YubiKey se detuvo después de modificarla. Sigue las instrucciones para reintentar; la llave no se añadió a la caja fuerte.',
+      vault_err_key_not_adopted:
+        'Verifica que tienes esta YubiKey recuperada en este dispositivo antes de usarla para retirar.',
       vault_err_too_many_inputs:
         'Demasiados depósitos de la caja fuerte para mover a la vez. Retira primero una cantidad menor: cada retiro también consolida la caja, así que el siguiente podrá mover más.',
       vault_err_requires_online:
@@ -2494,7 +2586,8 @@ const resources = {
       vault_pin_invalid_retry_generic: 'PIN incorrecto. Toca Retirar de nuevo para reintentar.',
       vault_disable_row: 'Desactivar caja fuerte',
       vault_disable_title: '¿Desactivar caja fuerte?',
-      vault_disable_message: 'Esto olvida la lista de llaves de la caja fuerte en este teléfono. Las claves permanecen en tus YubiKeys.',
+      vault_disable_message:
+        'Esto olvida la lista de llaves de la caja fuerte en este teléfono. Las claves permanecen en tus YubiKeys.',
       vault_disable_confirm: 'Desactivar',
       vault_disabled_toast: 'Caja fuerte desactivada',
       vault_disable_blocked_title: 'Retira los fondos primero',
@@ -2921,7 +3014,8 @@ const resources = {
       pay_offline_kv_stuck:
         'No se pudieron añadir {{count}} pago(s) cercano(s). Pide a quien pagó que lo envíe otra vez.',
       pay_offline_kv_corrupt: 'Se encontraron datos de pago dañados en este dispositivo.',
-      pay_offline_kv_corrupt_body: 'Los pagos afectados se apartaron en este dispositivo, no se borraron. Puede que algunos ya se hayan sumado a tu saldo, así que pide a alguien que vuelva a enviar solo si su pago sigue sin aparecer.',
+      pay_offline_kv_corrupt_body:
+        'Los pagos afectados se apartaron en este dispositivo, no se borraron. Puede que algunos ya se hayan sumado a tu saldo, así que pide a alguien que vuelva a enviar solo si su pago sigue sin aparecer.',
       pay_offline_show_code: 'Mostrar el código otra vez',
       pay_parked_cancel: 'Cancelar el pago',
       pay_parked_already_sent: 'Este pago ya se envió',
@@ -3022,7 +3116,8 @@ const resources = {
       vault_title: 'Coffre',
       vault_row_title: 'Coffre',
       vault_hero_title: 'Avoirs sécurisés',
-      vault_hero_body: 'Stockage à froid pour le long terme, verrouillé avec vos propres YubiKeys. Nécessite deux YubiKey 5 NFC ou plus.',
+      vault_hero_body:
+        'Stockage à froid pour le long terme, verrouillé avec vos propres YubiKeys. Nécessite deux YubiKey 5 NFC ou plus.',
       vault_unsupported_title: 'Nécessite une YubiKey',
       vault_unsupported_body: 'Deux YubiKey 5 NFC ou plus, et un téléphone capable de les lire.',
       vault_balance_label: 'le coffre contient',
@@ -3042,17 +3137,23 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Pas encore disponible — les dépôts dans le coffre sont désactivés dans cette version.',
       vault_intro_title: 'Configurer votre coffre',
-      vault_intro_what: 'Le coffre verrouille l’argent avec vos propres YubiKeys. Rien de la clé du coffre n’existe jamais sur ce téléphone ; n’importe laquelle de vos clés l’ouvre.',
+      vault_intro_what:
+        'Le coffre verrouille l’argent avec vos propres YubiKeys. Rien de la clé du coffre n’existe jamais sur ce téléphone ; n’importe laquelle de vos clés l’ouvre.',
       vault_intro_two_keys: 'Il vous faut au moins deux YubiKeys.',
       vault_intro_apart: 'Gardez-les à des endroits différents — deux clés rangées ensemble n’en font qu’une.',
-      vault_intro_backup: 'Laissez la sauvegarde chiffrée du portefeuille activée — elle conserve le dossier de récupération authentifié.',
-      vault_intro_ack: 'Je comprends : seules mes YubiKeys ouvrent ce coffre. Ma phrase de récupération, non. Si je les perds toutes, l’argent est perdu.',
-      vault_intro_piv_ack: "Je confirme que toute l’application PIV de cette YubiKey est réinitialisée ou dédiée au coffre. La configuration modifie le PIN, le PUK et la clé de gestion PIV globaux, peut affecter tous les emplacements PIV, et je conserverai le nouveau PUK en lieu sûr.",
+      vault_intro_backup:
+        'Laissez la sauvegarde chiffrée du portefeuille activée — elle conserve le dossier de récupération authentifié.',
+      vault_intro_ack:
+        'Je comprends : seules mes YubiKeys ouvrent ce coffre. Ma phrase de récupération, non. Si je les perds toutes, l’argent est perdu.',
+      vault_intro_piv_ack:
+        'Je confirme que toute l’application PIV de cette YubiKey est réinitialisée ou dédiée au coffre. La configuration modifie le PIN, le PUK et la clé de gestion PIV globaux, peut affecter tous les emplacements PIV, et je conserverai le nouveau PUK en lieu sûr.',
       vault_intro_begin: 'Commencer',
       vault_key_step_title: 'Clé {{k}} sur 5 maximum',
-      vault_key_step_replace: 'Utilisez une YubiKey réinitialisée et dédiée au coffre. La configuration s’arrête si un emplacement PIV est occupé.',
+      vault_key_step_replace:
+        'Utilisez une YubiKey réinitialisée et dédiée au coffre. La configuration s’arrête si un emplacement PIV est occupé.',
       vault_enrollment_resume: 'Reprendre la clé enregistrée',
-      vault_enrollment_reset_required: 'La configuration PIV de cette YubiKey est dans un état incertain. Ne devinez pas les identifiants et ne réessayez pas : vous pourriez bloquer toute l’application PIV. Utilisez une autre clé et faites récupérer ou réinitialiser celle-ci par un administrateur.',
+      vault_enrollment_reset_required:
+        'La configuration PIV de cette YubiKey est dans un état incertain. Ne devinez pas les identifiants et ne réessayez pas : vous pourriez bloquer toute l’application PIV. Utilisez une autre clé et faites récupérer ou réinitialiser celle-ci par un administrateur.',
       vault_nfc_enroll_message: 'Tenez votre YubiKey ici pour la configurer',
       vault_nfc_adopt_message: 'Tenez cette YubiKey récupérée ici pour la vérifier',
       vault_nfc_sign_batch: 'Tenez votre YubiKey ici pour signer — lot {{b}} sur {{n}}',
@@ -3068,23 +3169,28 @@ const resources = {
       vault_more_need_two: 'Ajoutez une deuxième clé avant de terminer — une seule clé, c’est aucune récupération.',
       vault_leave_setup: 'Quitter la configuration',
       vault_leave_title: 'Quitter la configuration ?',
-      vault_leave_body: 'Les {{count}} YubiKey(s) que vous avez configurées ne seront pas encore enregistrées. Elles conservent leurs clés, vous pourrez donc les rajouter dans une minute.',
+      vault_leave_body:
+        'Les {{count}} YubiKey(s) que vous avez configurées ne seront pas encore enregistrées. Elles conservent leurs clés, vous pourrez donc les rajouter dans une minute.',
       vault_leave_confirm: 'Quitter',
       vault_leave_stay: 'Rester',
-      vault_done_body: '{{count}} clés peuvent ouvrir ce coffre. Seules ces clés l’ouvrent — pas votre phrase de récupération.',
+      vault_done_body:
+        '{{count}} clés peuvent ouvrir ce coffre. Seules ces clés l’ouvrent — pas votre phrase de récupération.',
       vault_done_cta: 'Terminé',
       vault_add_key_row: 'Ajouter une clé',
-      vault_add_key_done: '{{nickname}} peut ouvrir les dépôts effectués à partir de maintenant. Reverrouillez le coffre pour qu’elle puisse tout ouvrir.',
+      vault_add_key_done:
+        '{{nickname}} peut ouvrir les dépôts effectués à partir de maintenant. Reverrouillez le coffre pour qu’elle puisse tout ouvrir.',
       vault_key_added_toast: 'Clé ajoutée',
       vault_recovery_verified: 'Clé récupérée vérifiée sur cet appareil',
       vault_relock_row: 'Reverrouiller le coffre',
       vault_relock_now: 'Reverrouiller maintenant',
       vault_relock_choose: 'Quelle clé allez-vous approcher pour reverrouiller ?',
       vault_relock_reason: 'Approchez l’une de vos clés existantes ({{names}}) — pas celle que vous venez d’ajouter.',
-      vault_relock_reason_generic: 'Tenez votre YubiKey ici pour signer — reverrouiller le coffre avec vos clés actuelles',
+      vault_relock_reason_generic:
+        'Tenez votre YubiKey ici pour signer — reverrouiller le coffre avec vos clés actuelles',
       vault_relock_done: 'Coffre reverrouillé avec vos clés actuelles',
       vault_relock_capped: 'Il reste {{count}} dépôts — reverrouillez à nouveau pour les déplacer.',
-      vault_relock_unreachable: '{{count}} dépôts ne peuvent être ouverts que par {{names}}. Reverrouillez à nouveau avec l’une de ces clés.',
+      vault_relock_unreachable:
+        '{{count}} dépôts ne peuvent être ouverts que par {{names}}. Reverrouillez à nouveau avec l’une de ces clés.',
       vault_badge_missing: '{{count}} dépôts pas encore ouverts à {{nickname}}',
       vault_badge_removed: '{{count}} dépôts encore ouverts à une clé retirée',
       vault_key_action_rename: 'Renommer',
@@ -3092,37 +3198,51 @@ const resources = {
       vault_rename_title: 'Renommer {{nickname}}',
       vault_rename_save: 'Enregistrer',
       vault_remove_title: 'Retirer {{nickname}} ?',
-      vault_remove_body: 'Le portefeuille cessera d’utiliser {{nickname}}. L’argent déjà dans le coffre reste ouvrable par cette clé jusqu’au reverrouillage (≈ {{fee}} sats).',
+      vault_remove_body:
+        'Le portefeuille cessera d’utiliser {{nickname}}. L’argent déjà dans le coffre reste ouvrable par cette clé jusqu’au reverrouillage (≈ {{fee}} sats).',
       vault_remove_only: 'Retirer seulement',
       vault_key_removed_toast: 'Clé retirée',
-      vault_export_explainer: 'Chaque dépôt dans le coffre contient son sel public d’unicité dans le script de verrouillage. Laissez la sauvegarde chiffrée activée afin qu’un nouvel appareil puisse restaurer et authentifier les fiches de clés nécessaires pour utiliser vos YubiKeys.',
+      vault_export_explainer:
+        'Chaque dépôt dans le coffre contient son sel public d’unicité dans le script de verrouillage. Laissez la sauvegarde chiffrée activée afin qu’un nouvel appareil puisse restaurer et authentifier les fiches de clés nécessaires pour utiliser vos YubiKeys.',
       vault_footnote: 'Seules ces clés ouvrent le coffre. Votre phrase de récupération, non.',
-      vault_floor_line: 'Dépôt minimum {{floorDisplay}} ({{floorSats}} sats). Créer un dépôt dans le coffre coûte environ {{feeDisplay}}.',
+      vault_floor_line:
+        'Dépôt minimum {{floorDisplay}} ({{floorSats}} sats). Créer un dépôt dans le coffre coûte environ {{feeDisplay}}.',
       vault_first_deposit_title: 'Premier dépôt dans le coffre',
-      vault_first_deposit_body: 'Premier dépôt dans le coffre — {{amount}} ne pourra être ouvert qu’avec {{count}} YubiKeys ({{names}}). Votre phrase de récupération ne servira à rien.',
+      vault_first_deposit_body:
+        'Premier dépôt dans le coffre — {{amount}} ne pourra être ouvert qu’avec {{count}} YubiKeys ({{names}}). Votre phrase de récupération ne servira à rien.',
       vault_backup_off_title: 'Activez la sauvegarde privée',
-      vault_backup_off_body: 'La sauvegarde privée doit être activée avant que le portefeuille crée une nouvelle sortie du coffre. Elle conserve les fiches YubiKey authentifiées et l’historique du portefeuille nécessaires à la récupération. Vous pouvez toujours tout retirer sans créer de monnaie dans le coffre.',
+      vault_backup_off_body:
+        'La sauvegarde privée doit être activée avant que le portefeuille crée une nouvelle sortie du coffre. Elle conserve les fiches YubiKey authentifiées et l’historique du portefeuille nécessaires à la récupération. Vous pouvez toujours tout retirer sans créer de monnaie dans le coffre.',
       vault_backup_off_cta: 'Ouvrir les réglages de sauvegarde',
       vault_choose_key: 'Quelle clé allez-vous approcher ?',
       vault_remainder_title: 'Tout retirer ?',
-      vault_remainder_body: 'Retirer {{amount}} laisse {{remainder}}, en dessous du minimum de 100 000 sats du coffre. Tout le coffre passera dans votre solde courant.',
+      vault_remainder_body:
+        'Retirer {{amount}} laisse {{remainder}}, en dessous du minimum de 100 000 sats du coffre. Tout le coffre passera dans votre solde courant.',
       vault_remainder_all: 'Tout retirer',
       vault_remainder_change: 'Changer le montant',
       vault_unreachable_title: 'Une partie du coffre nécessite une autre clé',
-      vault_unreachable_body: 'Une partie du coffre nécessite une autre clé — {{moved}} déplacés. {{count}} dépôts totalisant {{amount}} ne peuvent être ouverts que par {{names}}. Retirez à nouveau avec l’une de ces clés.',
+      vault_unreachable_body:
+        'Une partie du coffre nécessite une autre clé — {{moved}} déplacés. {{count}} dépôts totalisant {{amount}} ne peuvent être ouverts que par {{names}}. Retirez à nouveau avec l’une de ces clés.',
       vault_sign_progress: '{{signed}} sur {{total}} signés',
-      vault_err_pin_locked_enroll: 'Le PIN de cette YubiKey est bloqué. Débloquez-le avec son PUK dans Yubico Authenticator, ou configurez avec une autre YubiKey.',
-      vault_err_serial_mismatch_chosen: 'C’est {{tappedName}}. Vous avez choisi {{chosenName}} — approchez-la, ou revenez en arrière et choisissez {{tappedName}}.',
+      vault_err_pin_locked_enroll:
+        'Le PIN de cette YubiKey est bloqué. Débloquez-le avec son PUK dans Yubico Authenticator, ou configurez avec une autre YubiKey.',
+      vault_err_serial_mismatch_chosen:
+        'C’est {{tappedName}}. Vous avez choisi {{chosenName}} — approchez-la, ou revenez en arrière et choisissez {{tappedName}}.',
       vault_err_key_already_enrolled: 'Vous avez déjà ajouté cette YubiKey ({{nickname}}). Approchez-en une autre.',
       vault_err_not_released: 'Les dépôts dans le coffre sont désactivés dans cette version.',
-      vault_err_backup_off: 'Activez la sauvegarde privée chiffrée avant de créer une nouvelle sortie du coffre. Vous pouvez toujours tout retirer.',
+      vault_err_backup_off:
+        'Activez la sauvegarde privée chiffrée avant de créer une nouvelle sortie du coffre. Vous pouvez toujours tout retirer.',
       vault_err_not_enough_keys: 'Ce coffre a moins de deux clés. Reconfigurez-le.',
       vault_err_too_many_keys: 'Un coffre accepte au plus cinq clés.',
       vault_err_last_keys: 'Un coffre a besoin d’au moins deux clés. Ajoutez-en une autre avant de retirer celle-ci.',
-      vault_err_relock_required: 'Reverrouillez d’abord le coffre pour que vos autres clés puissent ouvrir chaque dépôt.',
-      vault_err_key_not_committed: '{{nickname}} ne peut ouvrir aucun des dépôts de ce coffre. Utilisez une autre de vos clés.',
-      vault_err_key_cannot_cover: '{{nickname}} peut ouvrir {{reachable}} sur les {{total}} du coffre. Retirez jusqu’à {{reachable}}, ou utilisez {{otherNames}}.',
-      vault_err_too_small_to_relock: 'Ce coffre contient moins de 100 000 sats, trop peu pour reverrouiller. Retirez-le plutôt et déposez à nouveau.',
+      vault_err_relock_required:
+        'Reverrouillez d’abord le coffre pour que vos autres clés puissent ouvrir chaque dépôt.',
+      vault_err_key_not_committed:
+        '{{nickname}} ne peut ouvrir aucun des dépôts de ce coffre. Utilisez une autre de vos clés.',
+      vault_err_key_cannot_cover:
+        '{{nickname}} peut ouvrir {{reachable}} sur les {{total}} du coffre. Retirez jusqu’à {{reachable}}, ou utilisez {{otherNames}}.',
+      vault_err_too_small_to_relock:
+        'Ce coffre contient moins de 100 000 sats, trop peu pour reverrouiller. Retirez-le plutôt et déposez à nouveau.',
       vault_err_bad_version: 'La transaction a été construite dans le mauvais format. Rien n’a été signé — réessayez.',
       vault_shares_unavailable: 'Aucun matériel de clé disponible à imprimer.',
       vault_enroll_begin: 'Configurer le coffre',
@@ -3134,7 +3254,8 @@ const resources = {
       vault_set_new_pin: 'Définir un nouveau PIN',
       vault_default_pin_warning: 'Votre clé a encore le PIN par défaut. Choisissez-en un nouveau (6–8 chiffres).',
       vault_set_new_puk: 'Définir un nouveau PUK',
-      vault_default_puk_warning: 'Choisissez un PUK distinct de 6 à 8 chiffres et conservez-le en lieu sûr ; il peut réinitialiser un PIN bloqué.',
+      vault_default_puk_warning:
+        'Choisissez un PUK distinct de 6 à 8 chiffres et conservez-le en lieu sûr ; il peut réinitialiser un PIN bloqué.',
       vault_touch_when_blinks: 'Touchez le contact doré lorsque la clé clignote.',
       vault_nfc_activation_hint:
         "C'est la première fois avec cette YubiKey ? Branchez-la d'abord sur un port USB-C pendant quelques secondes — les nouvelles clés sont livrées avec le NFC désactivé jusque-là.",
@@ -3164,27 +3285,35 @@ const resources = {
       vault_err_wrong_key: 'Cette YubiKey n’est pas l’une des clés de ce coffre.',
       vault_err_serial_mismatch: 'Cette YubiKey n’est pas l’une des clés de ce coffre ({{names}}).',
       vault_err_touch_timeout: 'Aucun contact détecté. Réessayez et touchez le contact doré.',
-      vault_err_pin_locked: 'Le PIN de cette YubiKey est bloqué. Utilisez une autre de vos clés du coffre, ou débloquez celle-ci avec son PUK dans Yubico Authenticator.',
+      vault_err_pin_locked:
+        'Le PIN de cette YubiKey est bloqué. Utilisez une autre de vos clés du coffre, ou débloquez celle-ci avec son PUK dans Yubico Authenticator.',
       vault_err_pin_invalid: 'PIN incorrect.',
       vault_err_puk_invalid: 'PUK incorrect.',
       vault_err_puk_locked: 'Le PUK de cette YubiKey est bloqué. Utilisez une YubiKey neuve.',
-      vault_err_ceremony_active: "Une autre opération du coffre utilise encore la YubiKey. Attendez qu'elle se termine et réessayez.",
-      vault_err_scope_changed: "Le portefeuille ou le réseau a changé pendant cette opération. Recommencez dans le portefeuille actuel.",
+      vault_err_ceremony_active:
+        "Une autre opération du coffre utilise encore la YubiKey. Attendez qu'elle se termine et réessayez.",
+      vault_err_scope_changed:
+        'Le portefeuille ou le réseau a changé pendant cette opération. Recommencez dans le portefeuille actuel.',
       vault_err_key_removed_mid_op: 'La clé a été retirée. Insérez-la et réessayez.',
       vault_err_no_key: 'Aucune YubiKey détectée.',
       vault_err_driver_unavailable: "La prise en charge de YubiKey n'est pas disponible sur cet appareil.",
       vault_err_mgmt_key_custom:
         'Cette clé possède une clé de gestion personnalisée et ne peut pas être utilisée automatiquement.',
       vault_err_attestation_invalid:
-        "L’attestation du fabricant de cette YubiKey n’a pas pu être vérifiée. Utilisez une YubiKey authentique, attestée en usine, dont l’emplacement d’attestation PIV est intact.",
+        'L’attestation du fabricant de cette YubiKey n’a pas pu être vérifiée. Utilisez une YubiKey authentique, attestée en usine, dont l’emplacement d’attestation PIV est intact.',
       vault_err_generic: "Une erreur s'est produite. Veuillez réessayer.",
       vault_err_template_invalid: "Un problème est survenu lors de la tentative d'accès au coffre. Veuillez réessayer.",
       vault_err_not_enrolled: "Aucun coffre n'est configuré.",
       vault_err_pin_required: 'Saisissez votre PIN.',
       vault_err_unsupported_platform: "La prise en charge de YubiKey n'est pas disponible sur cet appareil.",
       vault_err_slot_occupied: "L'emplacement de la clé est déjà utilisé.",
-      vault_err_enrollment_partial: "La configuration de la YubiKey s'est arrêtée après sa modification. Suivez les instructions de nouvel essai ; cette clé n'a pas été ajoutée au coffre.",
-      vault_err_key_not_adopted: 'Vérifiez que vous possédez cette YubiKey récupérée sur cet appareil avant de l’utiliser pour retirer.',
+      vault_replace_key_warning:
+        'La remplacer détruit définitivement la clé privée P-256 existante. Les fonds du coffre qui dépendent de cette clé pourraient devenir indépensables.',
+      vault_replace_key_confirm: 'Remplacer la clé existante',
+      vault_err_enrollment_partial:
+        "La configuration de la YubiKey s'est arrêtée après sa modification. Suivez les instructions de nouvel essai ; cette clé n'a pas été ajoutée au coffre.",
+      vault_err_key_not_adopted:
+        'Vérifiez que vous possédez cette YubiKey récupérée sur cet appareil avant de l’utiliser pour retirer.',
       vault_err_too_many_inputs:
         "Trop de dépôts du coffre à déplacer d'un coup. Retirez d'abord un montant plus petit : chaque retrait consolide aussi le coffre, donc le suivant pourra en déplacer davantage.",
       vault_err_requires_online:
@@ -3200,7 +3329,8 @@ const resources = {
       vault_pin_invalid_retry_generic: 'Code PIN incorrect. Touchez à nouveau Retirer pour réessayer.',
       vault_disable_row: 'Désactiver le coffre',
       vault_disable_title: 'Désactiver le coffre ?',
-      vault_disable_message: 'Cela oublie la liste des clés du coffre sur ce téléphone. Les clés restent sur vos YubiKeys.',
+      vault_disable_message:
+        'Cela oublie la liste des clés du coffre sur ce téléphone. Les clés restent sur vos YubiKeys.',
       vault_disable_confirm: 'Désactiver',
       vault_disabled_toast: 'Coffre désactivé',
       vault_disable_blocked_title: "Retirez d'abord les fonds",
@@ -3630,7 +3760,8 @@ const resources = {
       pay_offline_kv_stuck:
         'Impossible d’ajouter {{count}} paiement(s) à proximité. Demandez à l’expéditeur de renvoyer.',
       pay_offline_kv_corrupt: 'Des données de paiement endommagées ont été trouvées sur cet appareil.',
-      pay_offline_kv_corrupt_body: 'Les paiements concernés ont été mis de côté sur cet appareil, pas supprimés. Certains ont peut-être déjà été ajoutés à votre solde : ne demandez un nouvel envoi que si le paiement manque toujours.',
+      pay_offline_kv_corrupt_body:
+        'Les paiements concernés ont été mis de côté sur cet appareil, pas supprimés. Certains ont peut-être déjà été ajoutés à votre solde : ne demandez un nouvel envoi que si le paiement manque toujours.',
       pay_offline_show_code: 'Réafficher le code',
       pay_parked_cancel: 'Annuler le paiement',
       pay_parked_already_sent: 'Ce paiement a déjà été envoyé',
@@ -3750,17 +3881,22 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'غير متاح بعد — إيداعات الخزنة معطّلة في هذا الإصدار.',
       vault_intro_title: 'إعداد خزنتك',
-      vault_intro_what: 'تقفل الخزنة الأموال بمفاتيح YubiKey الخاصة بك. لا يوجد أي جزء من مفتاح الخزنة على هذا الهاتف أبدًا؛ وأي مفتاح من مفاتيحك يفتحها.',
+      vault_intro_what:
+        'تقفل الخزنة الأموال بمفاتيح YubiKey الخاصة بك. لا يوجد أي جزء من مفتاح الخزنة على هذا الهاتف أبدًا؛ وأي مفتاح من مفاتيحك يفتحها.',
       vault_intro_two_keys: 'تحتاج إلى مفتاحَي YubiKey على الأقل.',
       vault_intro_apart: 'احتفظ بها في أماكن مختلفة — مفتاحان محفوظان معًا هما مفتاح واحد.',
       vault_intro_backup: 'أبقِ النسخة الاحتياطية المشفّرة للمحفظة مفعّلة — فهي تحفظ سجل الاسترداد الموثّق.',
-      vault_intro_ack: 'أفهم: مفاتيح YubiKey الخاصة بي فقط تفتح هذه الخزنة. عبارة الاسترداد لا تفتحها. إذا فقدتها كلها، تضيع الأموال.',
-      vault_intro_piv_ack: 'أؤكد أن تطبيق PIV بالكامل في مفتاح YubiKey هذا أُعيد إلى إعدادات المصنع أو مخصص للخزنة. يغيّر الإعداد رمز PIN ورمز PUK ومفتاح الإدارة العام لتطبيق PIV، وقد يؤثر في جميع خانات PIV، وسأحفظ رمز PUK الجديد بأمان.',
+      vault_intro_ack:
+        'أفهم: مفاتيح YubiKey الخاصة بي فقط تفتح هذه الخزنة. عبارة الاسترداد لا تفتحها. إذا فقدتها كلها، تضيع الأموال.',
+      vault_intro_piv_ack:
+        'أؤكد أن تطبيق PIV بالكامل في مفتاح YubiKey هذا أُعيد إلى إعدادات المصنع أو مخصص للخزنة. يغيّر الإعداد رمز PIN ورمز PUK ومفتاح الإدارة العام لتطبيق PIV، وقد يؤثر في جميع خانات PIV، وسأحفظ رمز PUK الجديد بأمان.',
       vault_intro_begin: 'ابدأ',
       vault_key_step_title: 'المفتاح {{k}} من 5 كحدّ أقصى',
-      vault_key_step_replace: 'استخدم مفتاح YubiKey معادًا إلى إعدادات المصنع ومخصصًا للخزنة. يتوقف الإعداد إذا كانت أي خانة PIV مستخدمة.',
+      vault_key_step_replace:
+        'استخدم مفتاح YubiKey معادًا إلى إعدادات المصنع ومخصصًا للخزنة. يتوقف الإعداد إذا كانت أي خانة PIV مستخدمة.',
       vault_enrollment_resume: 'متابعة المفتاح المحفوظ',
-      vault_enrollment_reset_required: 'انتهى إعداد PIV لهذا المفتاح في حالة غير مؤكدة. لا تخمّن بيانات الاعتماد ولا تعِد المحاولة، فقد يؤدي ذلك إلى قفل تطبيق PIV بالكامل. استخدم مفتاحًا آخر واستعن بمسؤول لاستعادة هذا المفتاح أو إعادته إلى إعدادات المصنع.',
+      vault_enrollment_reset_required:
+        'انتهى إعداد PIV لهذا المفتاح في حالة غير مؤكدة. لا تخمّن بيانات الاعتماد ولا تعِد المحاولة، فقد يؤدي ذلك إلى قفل تطبيق PIV بالكامل. استخدم مفتاحًا آخر واستعن بمسؤول لاستعادة هذا المفتاح أو إعادته إلى إعدادات المصنع.',
       vault_nfc_enroll_message: 'ضع مفتاح YubiKey هنا لإعداده',
       vault_nfc_adopt_message: 'ضع مفتاح YubiKey المستعاد هنا للتحقق منه',
       vault_nfc_sign_batch: 'ضع مفتاح YubiKey هنا للتوقيع — الدفعة {{b}} من {{n}}',
@@ -3776,7 +3912,8 @@ const resources = {
       vault_more_need_two: 'أضف مفتاحًا ثانيًا قبل الإنهاء — مفتاح واحد يعني عدم وجود استرداد.',
       vault_leave_setup: 'مغادرة الإعداد',
       vault_leave_title: 'مغادرة الإعداد؟',
-      vault_leave_body: 'لن تُحفظ مفاتيح YubiKey ({{count}}) التي أعددتها بعد. تحتفظ بمفاتيحها، فيمكنك إضافتها مجددًا خلال دقيقة.',
+      vault_leave_body:
+        'لن تُحفظ مفاتيح YubiKey ({{count}}) التي أعددتها بعد. تحتفظ بمفاتيحها، فيمكنك إضافتها مجددًا خلال دقيقة.',
       vault_leave_confirm: 'مغادرة',
       vault_leave_stay: 'البقاء',
       vault_done_body: '{{count}} مفاتيح يمكنها فتح هذه الخزنة. هذه المفاتيح فقط تفتحها — وليس عبارة الاسترداد.',
@@ -3800,37 +3937,50 @@ const resources = {
       vault_rename_title: 'إعادة تسمية {{nickname}}',
       vault_rename_save: 'حفظ',
       vault_remove_title: 'إزالة {{nickname}}؟',
-      vault_remove_body: 'ستتوقف المحفظة عن استخدام {{nickname}}. تبقى الأموال الموجودة في الخزنة قابلة للفتح به حتى تعيد القفل (≈ {{fee}} ساتوشي).',
+      vault_remove_body:
+        'ستتوقف المحفظة عن استخدام {{nickname}}. تبقى الأموال الموجودة في الخزنة قابلة للفتح به حتى تعيد القفل (≈ {{fee}} ساتوشي).',
       vault_remove_only: 'إزالة فقط',
       vault_key_removed_toast: 'تمت إزالة المفتاح',
-      vault_export_explainer: 'يتضمن نص القفل لكل إيداع في الخزنة قيمة الملح العامة الخاصة به. أبقِ النسخة الاحتياطية المشفّرة مفعّلة كي يتمكن جهاز جديد من استعادة سجلات المفاتيح اللازمة لاستخدام مفاتيح YubiKey والتحقق منها.',
+      vault_export_explainer:
+        'يتضمن نص القفل لكل إيداع في الخزنة قيمة الملح العامة الخاصة به. أبقِ النسخة الاحتياطية المشفّرة مفعّلة كي يتمكن جهاز جديد من استعادة سجلات المفاتيح اللازمة لاستخدام مفاتيح YubiKey والتحقق منها.',
       vault_footnote: 'هذه المفاتيح فقط تفتح الخزنة. عبارة الاسترداد لا تفتحها.',
-      vault_floor_line: 'الحدّ الأدنى للإيداع {{floorDisplay}} ({{floorSats}} ساتوشي). يكلّف إنشاء إيداع في الخزنة نحو {{feeDisplay}}.',
+      vault_floor_line:
+        'الحدّ الأدنى للإيداع {{floorDisplay}} ({{floorSats}} ساتوشي). يكلّف إنشاء إيداع في الخزنة نحو {{feeDisplay}}.',
       vault_first_deposit_title: 'أول إيداع في الخزنة',
-      vault_first_deposit_body: 'أول إيداع في الخزنة — لن يمكن فتح {{amount}} إلا بـ {{count}} مفاتيح YubiKey ({{names}}). عبارة الاسترداد لن تفيد.',
+      vault_first_deposit_body:
+        'أول إيداع في الخزنة — لن يمكن فتح {{amount}} إلا بـ {{count}} مفاتيح YubiKey ({{names}}). عبارة الاسترداد لن تفيد.',
       vault_backup_off_title: 'فعّل النسخة الاحتياطية الخاصة',
-      vault_backup_off_body: 'يجب تفعيل النسخة الاحتياطية الخاصة قبل أن تنشئ المحفظة مخرج خزنة جديدًا. فهي تحفظ سجلات YubiKey الموثّقة وسجل المحفظة اللازمين للاسترداد. ولا يزال بإمكانك سحب كل شيء من دون إنشاء باقي في الخزنة.',
+      vault_backup_off_body:
+        'يجب تفعيل النسخة الاحتياطية الخاصة قبل أن تنشئ المحفظة مخرج خزنة جديدًا. فهي تحفظ سجلات YubiKey الموثّقة وسجل المحفظة اللازمين للاسترداد. ولا يزال بإمكانك سحب كل شيء من دون إنشاء باقي في الخزنة.',
       vault_backup_off_cta: 'فتح إعدادات النسخ الاحتياطي',
       vault_choose_key: 'أي مفتاح ستلمس؟',
       vault_remainder_title: 'سحب كل شيء؟',
-      vault_remainder_body: 'سحب {{amount}} يترك {{remainder}}، وهو أقل من الحدّ الأدنى للخزنة 100,000 ساتوشي. ستنتقل الخزنة كاملة إلى رصيدك اليومي.',
+      vault_remainder_body:
+        'سحب {{amount}} يترك {{remainder}}، وهو أقل من الحدّ الأدنى للخزنة 100,000 ساتوشي. ستنتقل الخزنة كاملة إلى رصيدك اليومي.',
       vault_remainder_all: 'سحب كل شيء',
       vault_remainder_change: 'تغيير المبلغ',
       vault_unreachable_title: 'جزء من الخزنة يحتاج إلى مفتاح آخر',
-      vault_unreachable_body: 'جزء من الخزنة يحتاج إلى مفتاح آخر — نُقل {{moved}}. {{count}} إيداعًا بقيمة {{amount}} لا يفتحها سوى {{names}}. اسحب مجددًا بأحد تلك المفاتيح.',
+      vault_unreachable_body:
+        'جزء من الخزنة يحتاج إلى مفتاح آخر — نُقل {{moved}}. {{count}} إيداعًا بقيمة {{amount}} لا يفتحها سوى {{names}}. اسحب مجددًا بأحد تلك المفاتيح.',
       vault_sign_progress: 'تم توقيع {{signed}} من {{total}}',
-      vault_err_pin_locked_enroll: 'رمز PIN لهذا المفتاح محظور. أزل الحظر بـ PUK في Yubico Authenticator، أو أعدّ بمفتاح YubiKey آخر.',
-      vault_err_serial_mismatch_chosen: 'هذا هو {{tappedName}}. اخترت {{chosenName}} — المسه، أو ارجع واختر {{tappedName}}.',
+      vault_err_pin_locked_enroll:
+        'رمز PIN لهذا المفتاح محظور. أزل الحظر بـ PUK في Yubico Authenticator، أو أعدّ بمفتاح YubiKey آخر.',
+      vault_err_serial_mismatch_chosen:
+        'هذا هو {{tappedName}}. اخترت {{chosenName}} — المسه، أو ارجع واختر {{tappedName}}.',
       vault_err_key_already_enrolled: 'لقد أضفت هذا المفتاح من قبل ({{nickname}}). المس مفتاحًا آخر.',
       vault_err_not_released: 'إيداعات الخزنة معطّلة في هذا الإصدار.',
-      vault_err_backup_off: 'فعّل النسخة الاحتياطية الخاصة المشفّرة قبل إنشاء مخرج خزنة جديد. ولا يزال بإمكانك سحب كل شيء.',
+      vault_err_backup_off:
+        'فعّل النسخة الاحتياطية الخاصة المشفّرة قبل إنشاء مخرج خزنة جديد. ولا يزال بإمكانك سحب كل شيء.',
       vault_err_not_enough_keys: 'هذه الخزنة لديها أقل من مفتاحين. أعد إعدادها.',
       vault_err_too_many_keys: 'تتّسع الخزنة لخمسة مفاتيح كحدّ أقصى.',
       vault_err_last_keys: 'تحتاج الخزنة إلى مفتاحين على الأقل. أضف مفتاحًا آخر قبل إزالة هذا.',
       vault_err_relock_required: 'أعد قفل الخزنة أولًا حتى تتمكن مفاتيحك الأخرى من فتح كل إيداع.',
-      vault_err_key_not_committed: 'لا يمكن لـ {{nickname}} فتح أي من إيداعات هذه الخزنة. استخدم مفتاحًا آخر من مفاتيح خزنتك.',
-      vault_err_key_cannot_cover: 'يمكن لـ {{nickname}} فتح {{reachable}} من أصل {{total}} في الخزنة. اسحب حتى {{reachable}}، أو استخدم {{otherNames}} بدلًا منه.',
-      vault_err_too_small_to_relock: 'تحوي هذه الخزنة أقل من 100,000 ساتوشي، وهو أقل من أن يُعاد قفله. اسحبها بدلًا من ذلك ثم أودع مجددًا.',
+      vault_err_key_not_committed:
+        'لا يمكن لـ {{nickname}} فتح أي من إيداعات هذه الخزنة. استخدم مفتاحًا آخر من مفاتيح خزنتك.',
+      vault_err_key_cannot_cover:
+        'يمكن لـ {{nickname}} فتح {{reachable}} من أصل {{total}} في الخزنة. اسحب حتى {{reachable}}، أو استخدم {{otherNames}} بدلًا منه.',
+      vault_err_too_small_to_relock:
+        'تحوي هذه الخزنة أقل من 100,000 ساتوشي، وهو أقل من أن يُعاد قفله. اسحبها بدلًا من ذلك ثم أودع مجددًا.',
       vault_err_bad_version: 'بُنيت المعاملة بتنسيق خاطئ. لم يُوقَّع شيء — حاول مجددًا.',
       vault_shares_unavailable: 'لا توجد مادة مفتاح متاحة للطباعة.',
       vault_enroll_begin: 'إعداد الخزنة',
@@ -3842,9 +3992,11 @@ const resources = {
       vault_set_new_pin: 'تعيين رمز PIN جديد',
       vault_default_pin_warning: 'لا يزال مفتاحك يستخدم رمز PIN الافتراضي. اختر رمزًا جديدًا (6–8 أرقام).',
       vault_set_new_puk: 'عيّن رمز PUK جديدًا',
-      vault_default_puk_warning: 'اختر رمز PUK منفصلًا من 6 إلى 8 أرقام واحفظه بأمان؛ يمكنه إعادة تعيين رمز PIN المحظور.',
+      vault_default_puk_warning:
+        'اختر رمز PUK منفصلًا من 6 إلى 8 أرقام واحفظه بأمان؛ يمكنه إعادة تعيين رمز PIN المحظور.',
       vault_touch_when_blinks: 'المس نقطة التلامس الذهبية عندما يومض المفتاح.',
-      vault_nfc_activation_hint: 'هل هذه أول مرة تستخدم فيها مفتاح YubiKey هذا؟ وصّله أولاً بمنفذ USB-C لبضع ثوانٍ — المفاتيح الجديدة تُشحن وتقنية NFC معطّلة فيها حتى ذلك الحين.',
+      vault_nfc_activation_hint:
+        'هل هذه أول مرة تستخدم فيها مفتاح YubiKey هذا؟ وصّله أولاً بمنفذ USB-C لبضع ثوانٍ — المفاتيح الجديدة تُشحن وتقنية NFC معطّلة فيها حتى ذلك الحين.',
       vault_continue: 'متابعة',
       vault_enrolled_toast: 'الخزنة جاهزة',
       vault_insert_key: 'أدخل مفتاح YubiKey',
@@ -3871,7 +4023,8 @@ const resources = {
       vault_err_wrong_key: 'هذا المفتاح ليس من مفاتيح هذه الخزنة.',
       vault_err_serial_mismatch: 'هذا المفتاح ليس من مفاتيح هذه الخزنة ({{names}}).',
       vault_err_touch_timeout: 'لم يتم اكتشاف لمسة. أعد المحاولة والمس نقطة التلامس الذهبية.',
-      vault_err_pin_locked: 'رمز PIN لهذا المفتاح محظور. استخدم مفتاحًا آخر من مفاتيح خزنتك، أو أزل حظره بـ PUK في Yubico Authenticator.',
+      vault_err_pin_locked:
+        'رمز PIN لهذا المفتاح محظور. استخدم مفتاحًا آخر من مفاتيح خزنتك، أو أزل حظره بـ PUK في Yubico Authenticator.',
       vault_err_pin_invalid: 'رمز PIN غير صحيح.',
       vault_err_puk_invalid: 'رمز PUK غير صحيح.',
       vault_err_puk_locked: 'رمز PUK لهذا المفتاح محظور. استخدم مفتاح YubiKey جديدًا.',
@@ -3881,14 +4034,19 @@ const resources = {
       vault_err_no_key: 'لم يتم اكتشاف أي YubiKey.',
       vault_err_driver_unavailable: 'دعم YubiKey غير متوفر على هذا الجهاز.',
       vault_err_mgmt_key_custom: 'يحتوي هذا المفتاح على مفتاح إدارة مخصص ولا يمكن استخدامه تلقائيًا.',
-      vault_err_attestation_invalid: 'تعذّر التحقق من شهادة الشركة المصنّعة لمفتاح YubiKey هذا. استخدم مفتاح YubiKey أصليًا موثّقًا من المصنع مع خانة توثيق PIV غير معدّلة.',
+      vault_err_attestation_invalid:
+        'تعذّر التحقق من شهادة الشركة المصنّعة لمفتاح YubiKey هذا. استخدم مفتاح YubiKey أصليًا موثّقًا من المصنع مع خانة توثيق PIV غير معدّلة.',
       vault_err_generic: 'حدث خطأ ما. يرجى إعادة المحاولة.',
       vault_err_template_invalid: 'حدث خطأ أثناء محاولة الوصول إلى الخزنة. يرجى المحاولة مرة أخرى.',
       vault_err_not_enrolled: 'لا توجد خزنة مُعدّة.',
       vault_err_pin_required: 'أدخل رمز PIN.',
       vault_err_unsupported_platform: 'دعم YubiKey غير متوفر على هذا الجهاز.',
       vault_err_slot_occupied: 'خانة المفتاح مستخدمة بالفعل.',
-      vault_err_enrollment_partial: 'توقف إعداد YubiKey بعد تغيير المفتاح. اتبع تعليمات إعادة المحاولة؛ لم تتم إضافة هذا المفتاح إلى الخزنة.',
+      vault_replace_key_warning:
+        'استبدالها يدمّر نهائيًا مفتاح P-256 الخاص الحالي. قد تصبح أموال الخزنة التي تعتمد على ذلك المفتاح غير قابلة للإنفاق.',
+      vault_replace_key_confirm: 'استبدال المفتاح الحالي',
+      vault_err_enrollment_partial:
+        'توقف إعداد YubiKey بعد تغيير المفتاح. اتبع تعليمات إعادة المحاولة؛ لم تتم إضافة هذا المفتاح إلى الخزنة.',
       vault_err_key_not_adopted: 'تحقق من حيازتك لمفتاح YubiKey المستعاد على هذا الجهاز قبل استخدامه للسحب.',
       vault_err_too_many_inputs:
         'عدد إيداعات الخزنة كبير جداً للنقل مرة واحدة. اسحب مبلغاً أصغر أولاً — كل عملية سحب تدمج الخزنة أيضاً، فيصبح بالإمكان نقل مبلغ أكبر لاحقاً.',
@@ -4312,7 +4470,8 @@ const resources = {
       pay_offline_kv_pending: '{{count}} دفعة قريبة في انتظار الإضافة إلى هذه المحفظة.',
       pay_offline_kv_stuck: 'تعذّرت إضافة {{count}} دفعة قريبة. اطلب من المُرسِل الإرسال مرة أخرى.',
       pay_offline_kv_corrupt: 'تم العثور على بيانات دفع تالفة على هذا الجهاز.',
-      pay_offline_kv_corrupt_body: 'تم وضع المدفوعات المتأثرة جانبًا على هذا الجهاز ولم تُحذف. ربما أُضيف بعضها إلى رصيدك بالفعل، لذا اطلب من المُرسِل الإرسال مرة أخرى فقط إذا كانت دفعته ما زالت مفقودة.',
+      pay_offline_kv_corrupt_body:
+        'تم وضع المدفوعات المتأثرة جانبًا على هذا الجهاز ولم تُحذف. ربما أُضيف بعضها إلى رصيدك بالفعل، لذا اطلب من المُرسِل الإرسال مرة أخرى فقط إذا كانت دفعته ما زالت مفقودة.',
       pay_offline_show_code: 'إظهار الرمز مرة أخرى',
       pay_parked_cancel: 'إلغاء الدفعة',
       pay_parked_already_sent: 'تم إرسال هذه الدفعة بالفعل',
@@ -4413,7 +4572,8 @@ const resources = {
       vault_title: 'Cofre',
       vault_row_title: 'Cofre',
       vault_hero_title: 'Fundos protegidos',
-      vault_hero_body: 'Armazenamento a frio de longo prazo, trancado com as suas próprias YubiKeys. Requer duas ou mais YubiKey 5 NFC.',
+      vault_hero_body:
+        'Armazenamento a frio de longo prazo, trancado com as suas próprias YubiKeys. Requer duas ou mais YubiKey 5 NFC.',
       vault_unsupported_title: 'Requer uma YubiKey',
       vault_unsupported_body: 'Duas ou mais YubiKey 5 NFC, mais um telefone que consiga lê-las.',
       vault_balance_label: 'o cofre tem',
@@ -4433,17 +4593,23 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Ainda não disponível — os depósitos no cofre estão desativados nesta versão.',
       vault_intro_title: 'Configure o seu cofre',
-      vault_intro_what: 'O cofre tranca o dinheiro com as suas próprias YubiKeys. Nada da chave do cofre existe neste telefone; qualquer uma das suas chaves o abre.',
+      vault_intro_what:
+        'O cofre tranca o dinheiro com as suas próprias YubiKeys. Nada da chave do cofre existe neste telefone; qualquer uma das suas chaves o abre.',
       vault_intro_two_keys: 'Você precisa de pelo menos duas YubiKeys.',
       vault_intro_apart: 'Guarde-as em lugares diferentes — duas chaves guardadas juntas são uma só.',
-      vault_intro_backup: 'Mantenha o backup criptografado da carteira ativado — ele preserva o registro de recuperação autenticado.',
-      vault_intro_ack: 'Eu entendo: só as minhas YubiKeys abrem este cofre. A minha frase de recuperação não. Se eu perder todas, o dinheiro se perde.',
-      vault_intro_piv_ack: 'Confirmo que toda a aplicação PIV desta YubiKey foi reposta de fábrica ou é dedicada ao cofre. A configuração altera o PIN, o PUK e a chave de gestão PIV globais, pode afetar todos os slots PIV, e guardarei o novo PUK em segurança.',
+      vault_intro_backup:
+        'Mantenha o backup criptografado da carteira ativado — ele preserva o registro de recuperação autenticado.',
+      vault_intro_ack:
+        'Eu entendo: só as minhas YubiKeys abrem este cofre. A minha frase de recuperação não. Se eu perder todas, o dinheiro se perde.',
+      vault_intro_piv_ack:
+        'Confirmo que toda a aplicação PIV desta YubiKey foi reposta de fábrica ou é dedicada ao cofre. A configuração altera o PIN, o PUK e a chave de gestão PIV globais, pode afetar todos os slots PIV, e guardarei o novo PUK em segurança.',
       vault_intro_begin: 'Começar',
       vault_key_step_title: 'Chave {{k}} de até 5',
-      vault_key_step_replace: 'Use uma YubiKey reposta de fábrica e dedicada ao cofre. A configuração para se algum slot PIV estiver ocupado.',
+      vault_key_step_replace:
+        'Use uma YubiKey reposta de fábrica e dedicada ao cofre. A configuração para se algum slot PIV estiver ocupado.',
       vault_enrollment_resume: 'Retomar chave guardada',
-      vault_enrollment_reset_required: 'A configuração PIV desta YubiKey terminou num estado incerto. Não adivinhe credenciais nem tente novamente: isso pode bloquear toda a aplicação PIV. Use outra chave e peça a um administrador para recuperar ou repor esta.',
+      vault_enrollment_reset_required:
+        'A configuração PIV desta YubiKey terminou num estado incerto. Não adivinhe credenciais nem tente novamente: isso pode bloquear toda a aplicação PIV. Use outra chave e peça a um administrador para recuperar ou repor esta.',
       vault_nfc_enroll_message: 'Encoste a sua YubiKey aqui para configurá-la',
       vault_nfc_adopt_message: 'Encoste esta YubiKey recuperada aqui para verificá-la',
       vault_nfc_sign_batch: 'Encoste a sua YubiKey aqui para assinar — lote {{b}} de {{n}}',
@@ -4459,23 +4625,28 @@ const resources = {
       vault_more_need_two: 'Adicione uma segunda chave antes de concluir — uma só chave significa nenhuma recuperação.',
       vault_leave_setup: 'Sair da configuração',
       vault_leave_title: 'Sair da configuração?',
-      vault_leave_body: 'As {{count}} YubiKey(s) que você configurou ainda não serão salvas. Elas mantêm as suas chaves, então você pode adicioná-las de novo em um minuto.',
+      vault_leave_body:
+        'As {{count}} YubiKey(s) que você configurou ainda não serão salvas. Elas mantêm as suas chaves, então você pode adicioná-las de novo em um minuto.',
       vault_leave_confirm: 'Sair',
       vault_leave_stay: 'Ficar',
-      vault_done_body: '{{count}} chaves podem abrir este cofre. Só estas chaves o abrem — a sua frase de recuperação não.',
+      vault_done_body:
+        '{{count}} chaves podem abrir este cofre. Só estas chaves o abrem — a sua frase de recuperação não.',
       vault_done_cta: 'Concluído',
       vault_add_key_row: 'Adicionar chave',
-      vault_add_key_done: '{{nickname}} pode abrir os depósitos feitos a partir de agora. Retranque o cofre para que ela possa abrir tudo.',
+      vault_add_key_done:
+        '{{nickname}} pode abrir os depósitos feitos a partir de agora. Retranque o cofre para que ela possa abrir tudo.',
       vault_key_added_toast: 'Chave adicionada',
       vault_recovery_verified: 'Chave recuperada verificada neste dispositivo',
       vault_relock_row: 'Retrancar o cofre',
       vault_relock_now: 'Retrancar agora',
       vault_relock_choose: 'Qual chave você vai encostar para retrancar?',
       vault_relock_reason: 'Encoste uma das suas chaves existentes ({{names}}) — não a que você acabou de adicionar.',
-      vault_relock_reason_generic: 'Encoste a sua YubiKey aqui para assinar — retrancar o cofre com as suas chaves atuais',
+      vault_relock_reason_generic:
+        'Encoste a sua YubiKey aqui para assinar — retrancar o cofre com as suas chaves atuais',
       vault_relock_done: 'Cofre retrancado com as suas chaves atuais',
       vault_relock_capped: 'Restam {{count}} depósitos — retranque de novo para movê-los.',
-      vault_relock_unreachable: '{{count}} depósitos só podem ser abertos por {{names}}. Retranque de novo com uma dessas chaves.',
+      vault_relock_unreachable:
+        '{{count}} depósitos só podem ser abertos por {{names}}. Retranque de novo com uma dessas chaves.',
       vault_badge_missing: '{{count}} depósitos ainda não abertos para {{nickname}}',
       vault_badge_removed: '{{count}} depósitos ainda abertos para uma chave removida',
       vault_key_action_rename: 'Renomear',
@@ -4483,37 +4654,51 @@ const resources = {
       vault_rename_title: 'Renomear {{nickname}}',
       vault_rename_save: 'Salvar',
       vault_remove_title: 'Remover {{nickname}}?',
-      vault_remove_body: 'A carteira deixará de usar {{nickname}}. O dinheiro que já está no cofre continua podendo ser aberto por ela até você retrancar (≈ {{fee}} sats).',
+      vault_remove_body:
+        'A carteira deixará de usar {{nickname}}. O dinheiro que já está no cofre continua podendo ser aberto por ela até você retrancar (≈ {{fee}} sats).',
       vault_remove_only: 'Só remover',
       vault_key_removed_toast: 'Chave removida',
-      vault_export_explainer: 'Cada depósito no cofre inclui seu salt público de unicidade no script de bloqueio. Mantenha o backup criptografado ativado para que um novo dispositivo possa restaurar e autenticar os registros de chaves necessários para usar suas YubiKeys.',
+      vault_export_explainer:
+        'Cada depósito no cofre inclui seu salt público de unicidade no script de bloqueio. Mantenha o backup criptografado ativado para que um novo dispositivo possa restaurar e autenticar os registros de chaves necessários para usar suas YubiKeys.',
       vault_footnote: 'Só estas chaves abrem o cofre. A sua frase de recuperação não.',
-      vault_floor_line: 'Depósito mínimo {{floorDisplay}} ({{floorSats}} sats). Criar um depósito no cofre custa cerca de {{feeDisplay}}.',
+      vault_floor_line:
+        'Depósito mínimo {{floorDisplay}} ({{floorSats}} sats). Criar um depósito no cofre custa cerca de {{feeDisplay}}.',
       vault_first_deposit_title: 'Primeiro depósito no cofre',
-      vault_first_deposit_body: 'Primeiro depósito no cofre — {{amount}} só poderá ser aberto com {{count}} YubiKeys ({{names}}). A sua frase de recuperação não vai ajudar.',
+      vault_first_deposit_body:
+        'Primeiro depósito no cofre — {{amount}} só poderá ser aberto com {{count}} YubiKeys ({{names}}). A sua frase de recuperação não vai ajudar.',
       vault_backup_off_title: 'Ative o backup privado',
-      vault_backup_off_body: 'O backup privado deve estar ativo antes que a carteira crie outra saída do cofre. Ele guarda os registros autenticados das YubiKeys e o histórico da carteira necessários para a recuperação. Você ainda pode sacar tudo sem criar troco no cofre.',
+      vault_backup_off_body:
+        'O backup privado deve estar ativo antes que a carteira crie outra saída do cofre. Ele guarda os registros autenticados das YubiKeys e o histórico da carteira necessários para a recuperação. Você ainda pode sacar tudo sem criar troco no cofre.',
       vault_backup_off_cta: 'Abrir configurações de backup',
       vault_choose_key: 'Qual chave você vai encostar?',
       vault_remainder_title: 'Sacar tudo?',
-      vault_remainder_body: 'Sacar {{amount}} deixa {{remainder}}, abaixo do mínimo de 100.000 sats do cofre. O cofre inteiro vai para o seu saldo do dia a dia.',
+      vault_remainder_body:
+        'Sacar {{amount}} deixa {{remainder}}, abaixo do mínimo de 100.000 sats do cofre. O cofre inteiro vai para o seu saldo do dia a dia.',
       vault_remainder_all: 'Sacar tudo',
       vault_remainder_change: 'Alterar valor',
       vault_unreachable_title: 'Parte do cofre precisa de outra chave',
-      vault_unreachable_body: 'Parte do cofre precisa de outra chave — {{moved}} movidos. {{count}} depósitos com {{amount}} só podem ser abertos por {{names}}. Saque de novo com uma dessas chaves.',
+      vault_unreachable_body:
+        'Parte do cofre precisa de outra chave — {{moved}} movidos. {{count}} depósitos com {{amount}} só podem ser abertos por {{names}}. Saque de novo com uma dessas chaves.',
       vault_sign_progress: '{{signed}} de {{total}} assinados',
-      vault_err_pin_locked_enroll: 'O PIN desta YubiKey está bloqueado. Desbloqueie-o com o PUK no Yubico Authenticator, ou configure com outra YubiKey.',
-      vault_err_serial_mismatch_chosen: 'Essa é {{tappedName}}. Você escolheu {{chosenName}} — encoste-a, ou volte e escolha {{tappedName}}.',
+      vault_err_pin_locked_enroll:
+        'O PIN desta YubiKey está bloqueado. Desbloqueie-o com o PUK no Yubico Authenticator, ou configure com outra YubiKey.',
+      vault_err_serial_mismatch_chosen:
+        'Essa é {{tappedName}}. Você escolheu {{chosenName}} — encoste-a, ou volte e escolha {{tappedName}}.',
       vault_err_key_already_enrolled: 'Você já adicionou esta YubiKey ({{nickname}}). Encoste outra.',
       vault_err_not_released: 'Os depósitos no cofre estão desativados nesta versão.',
-      vault_err_backup_off: 'Ative o backup privado criptografado antes de criar outra saída do cofre. Você ainda pode sacar tudo.',
+      vault_err_backup_off:
+        'Ative o backup privado criptografado antes de criar outra saída do cofre. Você ainda pode sacar tudo.',
       vault_err_not_enough_keys: 'Este cofre tem menos de duas chaves. Configure-o de novo.',
       vault_err_too_many_keys: 'Um cofre aceita no máximo cinco chaves.',
       vault_err_last_keys: 'Um cofre precisa de pelo menos duas chaves. Adicione outra antes de remover esta.',
-      vault_err_relock_required: 'Retranque o cofre primeiro para que as suas outras chaves possam abrir cada depósito.',
-      vault_err_key_not_committed: '{{nickname}} não consegue abrir nenhum dos depósitos deste cofre. Use outra das suas chaves.',
-      vault_err_key_cannot_cover: '{{nickname}} consegue abrir {{reachable}} dos {{total}} do cofre. Saque até {{reachable}}, ou use {{otherNames}}.',
-      vault_err_too_small_to_relock: 'Este cofre tem menos de 100.000 sats, pouco demais para retrancar. Saque-o e deposite de novo.',
+      vault_err_relock_required:
+        'Retranque o cofre primeiro para que as suas outras chaves possam abrir cada depósito.',
+      vault_err_key_not_committed:
+        '{{nickname}} não consegue abrir nenhum dos depósitos deste cofre. Use outra das suas chaves.',
+      vault_err_key_cannot_cover:
+        '{{nickname}} consegue abrir {{reachable}} dos {{total}} do cofre. Saque até {{reachable}}, ou use {{otherNames}}.',
+      vault_err_too_small_to_relock:
+        'Este cofre tem menos de 100.000 sats, pouco demais para retrancar. Saque-o e deposite de novo.',
       vault_err_bad_version: 'A transação foi montada no formato errado. Nada foi assinado — tente de novo.',
       vault_shares_unavailable: 'Não há material de chave disponível para imprimir.',
       vault_enroll_begin: 'Configurar cofre',
@@ -4525,9 +4710,11 @@ const resources = {
       vault_set_new_pin: 'Defina um novo PIN',
       vault_default_pin_warning: 'A sua chave ainda tem o PIN padrão. Escolha um novo (6–8 dígitos).',
       vault_set_new_puk: 'Definir um novo PUK',
-      vault_default_puk_warning: 'Escolha um PUK distinto de 6–8 dígitos e guarde-o em segurança; ele pode repor um PIN bloqueado.',
+      vault_default_puk_warning:
+        'Escolha um PUK distinto de 6–8 dígitos e guarde-o em segurança; ele pode repor um PIN bloqueado.',
       vault_touch_when_blinks: 'Toque no contato dourado quando a chave piscar.',
-      vault_nfc_activation_hint: 'Primeira vez com esta YubiKey? Ligue-a primeiro a uma porta USB-C por alguns segundos — as chaves novas vêm com o NFC desativado até então.',
+      vault_nfc_activation_hint:
+        'Primeira vez com esta YubiKey? Ligue-a primeiro a uma porta USB-C por alguns segundos — as chaves novas vêm com o NFC desativado até então.',
       vault_continue: 'Continuar',
       vault_enrolled_toast: 'Cofre pronto',
       vault_insert_key: 'Insira a sua YubiKey',
@@ -4554,11 +4741,13 @@ const resources = {
       vault_err_wrong_key: 'Esta YubiKey não é uma das chaves deste cofre.',
       vault_err_serial_mismatch: 'Esta YubiKey não é uma das chaves deste cofre ({{names}}).',
       vault_err_touch_timeout: 'Nenhum toque detectado. Tente novamente e toque no contato dourado.',
-      vault_err_pin_locked: 'O PIN desta YubiKey está bloqueado. Use outra das suas chaves do cofre, ou desbloqueie esta com o PUK no Yubico Authenticator.',
+      vault_err_pin_locked:
+        'O PIN desta YubiKey está bloqueado. Use outra das suas chaves do cofre, ou desbloqueie esta com o PUK no Yubico Authenticator.',
       vault_err_pin_invalid: 'PIN incorreto.',
       vault_err_puk_invalid: 'PUK incorreto.',
       vault_err_puk_locked: 'O PUK desta YubiKey está bloqueado. Use uma YubiKey nova.',
-      vault_err_ceremony_active: 'Outra operação do cofre ainda está usando a YubiKey. Aguarde a conclusão e tente novamente.',
+      vault_err_ceremony_active:
+        'Outra operação do cofre ainda está usando a YubiKey. Aguarde a conclusão e tente novamente.',
       vault_err_scope_changed: 'A carteira ou a rede mudou durante esta operação. Recomece na carteira atual.',
       vault_err_key_removed_mid_op: 'A chave foi removida. Insira-a e tente novamente.',
       vault_err_no_key: 'Nenhuma YubiKey detectada.',
@@ -4573,8 +4762,13 @@ const resources = {
       vault_err_pin_required: 'Digite o seu PIN.',
       vault_err_unsupported_platform: 'O suporte a YubiKey não está disponível neste dispositivo.',
       vault_err_slot_occupied: 'O slot da chave já está em uso.',
-      vault_err_enrollment_partial: 'A configuração da YubiKey parou depois de alterá-la. Siga as instruções para tentar novamente; esta chave não foi adicionada ao cofre.',
-      vault_err_key_not_adopted: 'Verifique que possui esta YubiKey recuperada neste dispositivo antes de usá-la para retirar.',
+      vault_replace_key_warning:
+        'Substituí-la destrói permanentemente a chave privada P-256 existente. Os fundos do cofre que dependem dessa chave podem ficar impossíveis de gastar.',
+      vault_replace_key_confirm: 'Substituir a chave existente',
+      vault_err_enrollment_partial:
+        'A configuração da YubiKey parou depois de alterá-la. Siga as instruções para tentar novamente; esta chave não foi adicionada ao cofre.',
+      vault_err_key_not_adopted:
+        'Verifique que possui esta YubiKey recuperada neste dispositivo antes de usá-la para retirar.',
       vault_err_too_many_inputs:
         'Depósitos demais no cofre para mover de uma vez. Retire um valor menor primeiro — cada retirada também consolida o cofre, então a próxima poderá mover mais.',
       vault_err_requires_online:
@@ -4590,7 +4784,8 @@ const resources = {
       vault_pin_invalid_retry_generic: 'PIN errado. Toque em Retirar novamente para tentar outra vez.',
       vault_disable_row: 'Desativar cofre',
       vault_disable_title: 'Desativar cofre?',
-      vault_disable_message: 'Isto esquece a lista de chaves do cofre neste telefone. As chaves permanecem nas suas YubiKeys.',
+      vault_disable_message:
+        'Isto esquece a lista de chaves do cofre neste telefone. As chaves permanecem nas suas YubiKeys.',
       vault_disable_confirm: 'Desativar',
       vault_disabled_toast: 'Cofre desativado',
       vault_disable_blocked_title: 'Retire os fundos primeiro',
@@ -5015,7 +5210,8 @@ const resources = {
       pay_offline_kv_pending: '{{count}} pagamento(s) por proximidade à espera de serem adicionados a esta carteira.',
       pay_offline_kv_stuck: 'Não foi possível adicionar {{count}} pagamento(s) próximo(s). Peça para enviarem de novo.',
       pay_offline_kv_corrupt: 'Foram encontrados dados de pagamento danificados neste dispositivo.',
-      pay_offline_kv_corrupt_body: 'Os pagamentos afetados foram guardados à parte neste dispositivo, não foram apagados. Alguns podem já ter entrado no seu saldo, por isso peça para enviarem de novo apenas se o pagamento continuar a faltar.',
+      pay_offline_kv_corrupt_body:
+        'Os pagamentos afetados foram guardados à parte neste dispositivo, não foram apagados. Alguns podem já ter entrado no seu saldo, por isso peça para enviarem de novo apenas se o pagamento continuar a faltar.',
       pay_offline_show_code: 'Mostrar o código novamente',
       pay_parked_cancel: 'Cancelar pagamento',
       pay_parked_already_sent: 'Este pagamento já foi enviado',
@@ -5116,7 +5312,8 @@ const resources = {
       vault_title: 'ভল্ট',
       vault_row_title: 'ভল্ট',
       vault_hero_title: 'সুরক্ষিত হোল্ডিং',
-      vault_hero_body: 'দীর্ঘমেয়াদের জন্য কোল্ড স্টোরেজ, আপনার নিজের YubiKey দিয়ে লক করা। দুটি বা তার বেশি YubiKey 5 NFC লাগবে।',
+      vault_hero_body:
+        'দীর্ঘমেয়াদের জন্য কোল্ড স্টোরেজ, আপনার নিজের YubiKey দিয়ে লক করা। দুটি বা তার বেশি YubiKey 5 NFC লাগবে।',
       vault_unsupported_title: 'YubiKey প্রয়োজন',
       vault_unsupported_body: 'দুটি বা তার বেশি YubiKey 5 NFC, এবং সেগুলি পড়তে পারে এমন একটি ফোন।',
       vault_balance_label: 'ভল্টে আছে',
@@ -5136,17 +5333,22 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'এখনও উপলব্ধ নয় — এই রিলিজে ভল্টে জমা বন্ধ রাখা হয়েছে।',
       vault_intro_title: 'আপনার ভল্ট সেট আপ করুন',
-      vault_intro_what: 'ভল্ট আপনার নিজের YubiKey দিয়ে টাকা লক করে। ভল্ট কী-এর কোনো অংশই কখনও এই ফোনে থাকে না; আপনার যেকোনো একটি কী এটি খোলে।',
+      vault_intro_what:
+        'ভল্ট আপনার নিজের YubiKey দিয়ে টাকা লক করে। ভল্ট কী-এর কোনো অংশই কখনও এই ফোনে থাকে না; আপনার যেকোনো একটি কী এটি খোলে।',
       vault_intro_two_keys: 'আপনার কমপক্ষে দুটি YubiKey লাগবে।',
       vault_intro_apart: 'এগুলি আলাদা জায়গায় রাখুন — একসাথে রাখা দুটি কী মানে একটি কী।',
       vault_intro_backup: 'ওয়ালেটের এনক্রিপ্টেড ব্যাকআপ চালু রাখুন — এটি প্রমাণীকৃত পুনরুদ্ধার রেকর্ড সংরক্ষণ করে।',
-      vault_intro_ack: 'আমি বুঝেছি: কেবল আমার YubiKey-গুলিই এই ভল্ট খোলে। আমার রিকভারি ফ্রেজ নয়। সবগুলি হারালে টাকা চিরতরে হারিয়ে যাবে।',
-      vault_intro_piv_ack: 'আমি নিশ্চিত করছি যে এই YubiKey-এর পুরো PIV অ্যাপটি ফ্যাক্টরি-রিসেট বা ভল্টের জন্য নির্দিষ্ট। সেটআপ গ্লোবাল PIV PIN, PUK ও ম্যানেজমেন্ট কী বদলায়, সব PIV স্লটকে প্রভাবিত করতে পারে, এবং আমি নতুন PUK নিরাপদে সংরক্ষণ করব।',
+      vault_intro_ack:
+        'আমি বুঝেছি: কেবল আমার YubiKey-গুলিই এই ভল্ট খোলে। আমার রিকভারি ফ্রেজ নয়। সবগুলি হারালে টাকা চিরতরে হারিয়ে যাবে।',
+      vault_intro_piv_ack:
+        'আমি নিশ্চিত করছি যে এই YubiKey-এর পুরো PIV অ্যাপটি ফ্যাক্টরি-রিসেট বা ভল্টের জন্য নির্দিষ্ট। সেটআপ গ্লোবাল PIV PIN, PUK ও ম্যানেজমেন্ট কী বদলায়, সব PIV স্লটকে প্রভাবিত করতে পারে, এবং আমি নতুন PUK নিরাপদে সংরক্ষণ করব।',
       vault_intro_begin: 'শুরু করুন',
       vault_key_step_title: 'কী {{k}}, সর্বোচ্চ ৫টির মধ্যে',
-      vault_key_step_replace: 'ভল্টের জন্য নির্দিষ্ট, ফ্যাক্টরি-রিসেট YubiKey ব্যবহার করুন। কোনো PIV স্লট দখল করা থাকলে সেটআপ থেমে যাবে।',
+      vault_key_step_replace:
+        'ভল্টের জন্য নির্দিষ্ট, ফ্যাক্টরি-রিসেট YubiKey ব্যবহার করুন। কোনো PIV স্লট দখল করা থাকলে সেটআপ থেমে যাবে।',
       vault_enrollment_resume: 'সংরক্ষিত কী চালিয়ে যান',
-      vault_enrollment_reset_required: 'এই YubiKey-এর PIV সেটআপ অনিশ্চিত অবস্থায় শেষ হয়েছে। পরিচয়পত্র অনুমান করে আবার চেষ্টা করবেন না; এতে পুরো PIV অ্যাপ ব্লক হতে পারে। অন্য কী ব্যবহার করুন এবং প্রশাসকের সাহায্যে এটি পুনরুদ্ধার বা ফ্যাক্টরি-রিসেট করুন।',
+      vault_enrollment_reset_required:
+        'এই YubiKey-এর PIV সেটআপ অনিশ্চিত অবস্থায় শেষ হয়েছে। পরিচয়পত্র অনুমান করে আবার চেষ্টা করবেন না; এতে পুরো PIV অ্যাপ ব্লক হতে পারে। অন্য কী ব্যবহার করুন এবং প্রশাসকের সাহায্যে এটি পুনরুদ্ধার বা ফ্যাক্টরি-রিসেট করুন।',
       vault_nfc_enroll_message: 'সেট আপ করতে আপনার YubiKey এখানে ধরুন',
       vault_nfc_adopt_message: 'যাচাই করতে উদ্ধার করা এই YubiKey এখানে ধরুন',
       vault_nfc_sign_batch: 'সই করতে আপনার YubiKey এখানে ধরুন — ব্যাচ {{b}}/{{n}}',
@@ -5162,7 +5364,8 @@ const resources = {
       vault_more_need_two: 'শেষ করার আগে দ্বিতীয় কী যোগ করুন — একটি কী মানে কোনো পুনরুদ্ধার নেই।',
       vault_leave_setup: 'সেটআপ ছেড়ে যান',
       vault_leave_title: 'সেটআপ ছেড়ে যাবেন?',
-      vault_leave_body: 'আপনি যে {{count}}টি YubiKey সেট আপ করেছেন তা এখনও সংরক্ষিত হবে না। তাদের কী থেকে যায়, তাই এক মিনিটের মধ্যে আবার যোগ করতে পারবেন।',
+      vault_leave_body:
+        'আপনি যে {{count}}টি YubiKey সেট আপ করেছেন তা এখনও সংরক্ষিত হবে না। তাদের কী থেকে যায়, তাই এক মিনিটের মধ্যে আবার যোগ করতে পারবেন।',
       vault_leave_confirm: 'ছেড়ে যান',
       vault_leave_stay: 'থাকুন',
       vault_done_body: '{{count}}টি কী এই ভল্ট খুলতে পারে। কেবল এই কী-গুলিই এটি খোলে — আপনার রিকভারি ফ্রেজ নয়।',
@@ -5178,7 +5381,8 @@ const resources = {
       vault_relock_reason_generic: 'সই করতে আপনার YubiKey এখানে ধরুন — আপনার বর্তমান কী-গুলিতে ভল্ট পুনরায় লক করুন',
       vault_relock_done: 'ভল্ট আপনার বর্তমান কী-গুলিতে পুনরায় লক হয়েছে',
       vault_relock_capped: 'আরও {{count}}টি জমা বাকি — সরাতে আবার পুনরায় লক করুন।',
-      vault_relock_unreachable: '{{count}}টি জমা কেবল {{names}} দিয়ে খোলা যায়। সেগুলির একটি দিয়ে আবার পুনরায় লক করুন।',
+      vault_relock_unreachable:
+        '{{count}}টি জমা কেবল {{names}} দিয়ে খোলা যায়। সেগুলির একটি দিয়ে আবার পুনরায় লক করুন।',
       vault_badge_missing: '{{count}}টি জমা এখনও {{nickname}}-এর জন্য খোলা নয়',
       vault_badge_removed: '{{count}}টি জমা এখনও একটি সরানো কী দিয়ে খোলা যায়',
       vault_key_action_rename: 'নাম বদলান',
@@ -5186,37 +5390,50 @@ const resources = {
       vault_rename_title: '{{nickname}}-এর নাম বদলান',
       vault_rename_save: 'সংরক্ষণ',
       vault_remove_title: '{{nickname}} সরাবেন?',
-      vault_remove_body: 'ওয়ালেট আর {{nickname}} ব্যবহার করবে না। ভল্টে থাকা টাকা পুনরায় লক না করা পর্যন্ত এটি দিয়ে খোলা যাবে (≈ {{fee}} sats)।',
+      vault_remove_body:
+        'ওয়ালেট আর {{nickname}} ব্যবহার করবে না। ভল্টে থাকা টাকা পুনরায় লক না করা পর্যন্ত এটি দিয়ে খোলা যাবে (≈ {{fee}} sats)।',
       vault_remove_only: 'কেবল সরান',
       vault_key_removed_toast: 'কী সরানো হয়েছে',
-      vault_export_explainer: 'প্রতিটি ভল্ট জমার লকিং স্ক্রিপ্টে তার প্রকাশ্য ইউনিকনেস সল্ট থাকে। এনক্রিপ্টেড ব্যাকআপ চালু রাখুন, যাতে নতুন ডিভাইস আপনার YubiKey ব্যবহারের জন্য প্রয়োজনীয় কী রেকর্ড পুনরুদ্ধার ও প্রমাণীকরণ করতে পারে।',
+      vault_export_explainer:
+        'প্রতিটি ভল্ট জমার লকিং স্ক্রিপ্টে তার প্রকাশ্য ইউনিকনেস সল্ট থাকে। এনক্রিপ্টেড ব্যাকআপ চালু রাখুন, যাতে নতুন ডিভাইস আপনার YubiKey ব্যবহারের জন্য প্রয়োজনীয় কী রেকর্ড পুনরুদ্ধার ও প্রমাণীকরণ করতে পারে।',
       vault_footnote: 'কেবল এই কী-গুলিই ভল্ট খোলে। আপনার রিকভারি ফ্রেজ নয়।',
-      vault_floor_line: 'সর্বনিম্ন জমা {{floorDisplay}} ({{floorSats}} sats)। একটি ভল্ট জমা তৈরিতে প্রায় {{feeDisplay}} খরচ হয়।',
+      vault_floor_line:
+        'সর্বনিম্ন জমা {{floorDisplay}} ({{floorSats}} sats)। একটি ভল্ট জমা তৈরিতে প্রায় {{feeDisplay}} খরচ হয়।',
       vault_first_deposit_title: 'প্রথম ভল্ট জমা',
-      vault_first_deposit_body: 'প্রথম ভল্ট জমা — {{amount}} কেবল {{count}}টি YubiKey ({{names}}) দিয়ে খোলা যাবে। আপনার রিকভারি ফ্রেজ কাজে আসবে না।',
+      vault_first_deposit_body:
+        'প্রথম ভল্ট জমা — {{amount}} কেবল {{count}}টি YubiKey ({{names}}) দিয়ে খোলা যাবে। আপনার রিকভারি ফ্রেজ কাজে আসবে না।',
       vault_backup_off_title: 'প্রথমে ব্যক্তিগত ব্যাকআপ চালু করুন',
-      vault_backup_off_body: 'ওয়ালেট নতুন ভল্ট আউটপুট তৈরি করার আগে ব্যক্তিগত ব্যাকআপ চালু থাকতে হবে। এটি পুনরুদ্ধারের জন্য প্রয়োজনীয় প্রমাণীকৃত YubiKey রেকর্ড এবং ওয়ালেট ইতিহাস সংরক্ষণ করে। ভল্ট চেঞ্জ তৈরি না করে আপনি এখনও সব তুলে নিতে পারেন।',
+      vault_backup_off_body:
+        'ওয়ালেট নতুন ভল্ট আউটপুট তৈরি করার আগে ব্যক্তিগত ব্যাকআপ চালু থাকতে হবে। এটি পুনরুদ্ধারের জন্য প্রয়োজনীয় প্রমাণীকৃত YubiKey রেকর্ড এবং ওয়ালেট ইতিহাস সংরক্ষণ করে। ভল্ট চেঞ্জ তৈরি না করে আপনি এখনও সব তুলে নিতে পারেন।',
       vault_backup_off_cta: 'ব্যাকআপ সেটিংস খুলুন',
       vault_choose_key: 'কোন কী ট্যাপ করবেন?',
       vault_remainder_title: 'সব তুলে নেবেন?',
-      vault_remainder_body: '{{amount}} তুললে {{remainder}} থাকবে, যা ১০০,০০০ sat ভল্ট ন্যূনতমের নিচে। পুরো ভল্ট আপনার দৈনন্দিন ব্যালেন্সে চলে যাবে।',
+      vault_remainder_body:
+        '{{amount}} তুললে {{remainder}} থাকবে, যা ১০০,০০০ sat ভল্ট ন্যূনতমের নিচে। পুরো ভল্ট আপনার দৈনন্দিন ব্যালেন্সে চলে যাবে।',
       vault_remainder_all: 'সব তুলে নিন',
       vault_remainder_change: 'পরিমাণ বদলান',
       vault_unreachable_title: 'ভল্টের একটি অংশে অন্য কী দরকার',
-      vault_unreachable_body: 'ভল্টের একটি অংশে অন্য কী দরকার — {{moved}} সরানো হয়েছে। {{amount}} ধারণকারী {{count}}টি জমা কেবল {{names}} দিয়ে খোলা যায়। সেগুলির একটি দিয়ে আবার তুলুন।',
+      vault_unreachable_body:
+        'ভল্টের একটি অংশে অন্য কী দরকার — {{moved}} সরানো হয়েছে। {{amount}} ধারণকারী {{count}}টি জমা কেবল {{names}} দিয়ে খোলা যায়। সেগুলির একটি দিয়ে আবার তুলুন।',
       vault_sign_progress: '{{total}}টির মধ্যে {{signed}}টি সই হয়েছে',
-      vault_err_pin_locked_enroll: 'এই YubiKey-এর PIN ব্লক করা। Yubico Authenticator-এ এর PUK দিয়ে আনব্লক করুন, অথবা অন্য YubiKey দিয়ে সেট আপ করুন।',
-      vault_err_serial_mismatch_chosen: 'এটি {{tappedName}}। আপনি {{chosenName}} বেছেছিলেন — সেটি ট্যাপ করুন, অথবা ফিরে গিয়ে {{tappedName}} বাছুন।',
+      vault_err_pin_locked_enroll:
+        'এই YubiKey-এর PIN ব্লক করা। Yubico Authenticator-এ এর PUK দিয়ে আনব্লক করুন, অথবা অন্য YubiKey দিয়ে সেট আপ করুন।',
+      vault_err_serial_mismatch_chosen:
+        'এটি {{tappedName}}। আপনি {{chosenName}} বেছেছিলেন — সেটি ট্যাপ করুন, অথবা ফিরে গিয়ে {{tappedName}} বাছুন।',
       vault_err_key_already_enrolled: 'আপনি এই YubiKey ({{nickname}}) আগেই যোগ করেছেন। অন্য একটি ট্যাপ করুন।',
       vault_err_not_released: 'এই রিলিজে ভল্টে জমা বন্ধ রাখা হয়েছে।',
-      vault_err_backup_off: 'নতুন ভল্ট আউটপুট তৈরির আগে এনক্রিপ্টেড ব্যক্তিগত ব্যাকআপ চালু করুন। আপনি এখনও সব তুলে নিতে পারেন।',
+      vault_err_backup_off:
+        'নতুন ভল্ট আউটপুট তৈরির আগে এনক্রিপ্টেড ব্যক্তিগত ব্যাকআপ চালু করুন। আপনি এখনও সব তুলে নিতে পারেন।',
       vault_err_not_enough_keys: 'এই ভল্টে দুটির কম কী আছে। আবার সেট আপ করুন।',
       vault_err_too_many_keys: 'একটি ভল্টে সর্বোচ্চ পাঁচটি কী থাকতে পারে।',
       vault_err_last_keys: 'ভল্টে কমপক্ষে দুটি কী দরকার। এটি সরানোর আগে আরেকটি যোগ করুন।',
       vault_err_relock_required: 'প্রথমে ভল্ট পুনরায় লক করুন যাতে আপনার অন্য কী-গুলি প্রতিটি জমা খুলতে পারে।',
-      vault_err_key_not_committed: '{{nickname}} এই ভল্টের কোনো জমাই খুলতে পারে না। আপনার অন্য একটি ভল্ট কী ব্যবহার করুন।',
-      vault_err_key_cannot_cover: '{{nickname}} ভল্টের {{total}}-এর মধ্যে {{reachable}} খুলতে পারে। সর্বোচ্চ {{reachable}} তুলুন, অথবা {{otherNames}} ব্যবহার করুন।',
-      vault_err_too_small_to_relock: 'এই ভল্টে ১০০,০০০ sats-এর কম আছে, যা পুনরায় লক করার জন্য খুব কম। বরং তুলে নিয়ে আবার জমা দিন।',
+      vault_err_key_not_committed:
+        '{{nickname}} এই ভল্টের কোনো জমাই খুলতে পারে না। আপনার অন্য একটি ভল্ট কী ব্যবহার করুন।',
+      vault_err_key_cannot_cover:
+        '{{nickname}} ভল্টের {{total}}-এর মধ্যে {{reachable}} খুলতে পারে। সর্বোচ্চ {{reachable}} তুলুন, অথবা {{otherNames}} ব্যবহার করুন।',
+      vault_err_too_small_to_relock:
+        'এই ভল্টে ১০০,০০০ sats-এর কম আছে, যা পুনরায় লক করার জন্য খুব কম। বরং তুলে নিয়ে আবার জমা দিন।',
       vault_err_bad_version: 'লেনদেনটি ভুল ফরম্যাটে তৈরি হয়েছে। কিছুই সই হয়নি — আবার চেষ্টা করুন।',
       vault_shares_unavailable: 'প্রিন্ট করার মতো কোনো কী উপাদান নেই।',
       vault_enroll_begin: 'ভল্ট সেট আপ করুন',
@@ -5230,7 +5447,8 @@ const resources = {
       vault_set_new_puk: 'নতুন PUK সেট করুন',
       vault_default_puk_warning: 'আলাদা 6–8 সংখ্যার PUK বেছে নিরাপদে রাখুন; এটি ব্লক হওয়া PIN রিসেট করতে পারে।',
       vault_touch_when_blinks: 'কী জ্বলে উঠলে সোনালি সংযোগস্থল স্পর্শ করুন।',
-      vault_nfc_activation_hint: 'এই YubiKey প্রথমবার ব্যবহার করছেন? প্রথমে এটি কয়েক সেকেন্ডের জন্য USB-C পোর্টে লাগান — নতুন কী-গুলো NFC বন্ধ অবস্থায় পাঠানো হয়, ততক্ষণ পর্যন্ত এটি চালু হয় না।',
+      vault_nfc_activation_hint:
+        'এই YubiKey প্রথমবার ব্যবহার করছেন? প্রথমে এটি কয়েক সেকেন্ডের জন্য USB-C পোর্টে লাগান — নতুন কী-গুলো NFC বন্ধ অবস্থায় পাঠানো হয়, ততক্ষণ পর্যন্ত এটি চালু হয় না।',
       vault_continue: 'চালিয়ে যান',
       vault_enrolled_toast: 'ভল্ট প্রস্তুত',
       vault_insert_key: 'আপনার YubiKey ঢোকান',
@@ -5257,7 +5475,8 @@ const resources = {
       vault_err_wrong_key: 'এই YubiKey এই ভল্টের কী-গুলির একটি নয়।',
       vault_err_serial_mismatch: 'এই YubiKey এই ভল্টের কী-গুলির একটি নয় ({{names}})।',
       vault_err_touch_timeout: 'কোনো স্পর্শ শনাক্ত হয়নি। আবার চেষ্টা করুন এবং সোনালি সংযোগস্থল স্পর্শ করুন।',
-      vault_err_pin_locked: 'এই YubiKey-এর PIN ব্লক করা। আপনার অন্য একটি ভল্ট কী ব্যবহার করুন, অথবা Yubico Authenticator-এ এর PUK দিয়ে আনব্লক করুন।',
+      vault_err_pin_locked:
+        'এই YubiKey-এর PIN ব্লক করা। আপনার অন্য একটি ভল্ট কী ব্যবহার করুন, অথবা Yubico Authenticator-এ এর PUK দিয়ে আনব্লক করুন।',
       vault_err_pin_invalid: 'ভুল PIN।',
       vault_err_puk_invalid: 'ভুল PUK।',
       vault_err_puk_locked: 'এই YubiKey-এর PUK ব্লক করা। একটি নতুন YubiKey ব্যবহার করুন।',
@@ -5268,15 +5487,21 @@ const resources = {
       vault_err_driver_unavailable: 'এই ডিভাইসে YubiKey সমর্থন উপলব্ধ নেই।',
       vault_err_mgmt_key_custom:
         'এই কী-তে একটি কাস্টম ম্যানেজমেন্ট কী আছে এবং এটি স্বয়ংক্রিয়ভাবে ব্যবহার করা যায় না।',
-      vault_err_attestation_invalid: 'এই YubiKey-এর প্রস্তুতকারক প্রত্যয়ন যাচাই করা যায়নি। অপরিবর্তিত PIV প্রত্যয়ন স্লটসহ আসল, কারখানা-প্রত্যয়িত YubiKey ব্যবহার করুন।',
+      vault_err_attestation_invalid:
+        'এই YubiKey-এর প্রস্তুতকারক প্রত্যয়ন যাচাই করা যায়নি। অপরিবর্তিত PIV প্রত্যয়ন স্লটসহ আসল, কারখানা-প্রত্যয়িত YubiKey ব্যবহার করুন।',
       vault_err_generic: 'কিছু ভুল হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।',
       vault_err_template_invalid: 'ভল্টে প্রবেশের চেষ্টায় সমস্যা হয়েছে। আবার চেষ্টা করুন।',
       vault_err_not_enrolled: 'কোনো ভল্ট সেট আপ করা নেই।',
       vault_err_pin_required: 'আপনার PIN লিখুন।',
       vault_err_unsupported_platform: 'এই ডিভাইসে YubiKey সমর্থন উপলব্ধ নেই।',
       vault_err_slot_occupied: 'কী স্লট ইতিমধ্যে ব্যবহৃত হচ্ছে।',
-      vault_err_enrollment_partial: 'কী পরিবর্তনের পরে YubiKey সেটআপ থেমেছে। পুনরায় চেষ্টার নির্দেশ মানুন; এই কী ভল্টে যোগ হয়নি।',
-      vault_err_key_not_adopted: 'উত্তোলনে ব্যবহার করার আগে এই ডিভাইসে উদ্ধার করা YubiKey আপনার কাছে আছে তা যাচাই করুন।',
+      vault_replace_key_warning:
+        'এটি প্রতিস্থাপন করলে বিদ্যমান P-256 প্রাইভেট কী স্থায়ীভাবে ধ্বংস হবে। সেই কীর উপর নির্ভরশীল ভল্টের তহবিল খরচের অযোগ্য হয়ে যেতে পারে।',
+      vault_replace_key_confirm: 'বিদ্যমান কী প্রতিস্থাপন করুন',
+      vault_err_enrollment_partial:
+        'কী পরিবর্তনের পরে YubiKey সেটআপ থেমেছে। পুনরায় চেষ্টার নির্দেশ মানুন; এই কী ভল্টে যোগ হয়নি।',
+      vault_err_key_not_adopted:
+        'উত্তোলনে ব্যবহার করার আগে এই ডিভাইসে উদ্ধার করা YubiKey আপনার কাছে আছে তা যাচাই করুন।',
       vault_err_too_many_inputs:
         'একবারে সরানোর জন্য অনেক বেশি ভল্ট ডিপোজিট। আগে ছোট পরিমাণ তুলুন — প্রতিটি উত্তোলন ভল্টকে একত্রিতও করে, তাই পরেরবার আরও বেশি সরানো যাবে।',
       vault_err_requires_online:
@@ -5711,7 +5936,8 @@ const resources = {
       pay_offline_kv_pending: '{{count}}টি কাছাকাছি পেমেন্ট এই ওয়ালেটে যুক্ত হওয়ার অপেক্ষায়।',
       pay_offline_kv_stuck: '{{count}}টি কাছাকাছি পেমেন্ট যোগ করা যায়নি। প্রেরককে আবার পাঠাতে বলুন।',
       pay_offline_kv_corrupt: 'এই ডিভাইসে ক্ষতিগ্রস্ত পেমেন্ট ডেটা পাওয়া গেছে।',
-      pay_offline_kv_corrupt_body: 'ক্ষতিগ্রস্ত পেমেন্টগুলো এই ডিভাইসে আলাদা করে রাখা হয়েছে, মুছে ফেলা হয়নি। এর কিছু হয়তো ইতিমধ্যেই আপনার ব্যালেন্সে যোগ হয়ে গেছে, তাই কোনো পেমেন্ট এখনও না পেলে তবেই প্রেরককে আবার পাঠাতে বলুন।',
+      pay_offline_kv_corrupt_body:
+        'ক্ষতিগ্রস্ত পেমেন্টগুলো এই ডিভাইসে আলাদা করে রাখা হয়েছে, মুছে ফেলা হয়নি। এর কিছু হয়তো ইতিমধ্যেই আপনার ব্যালেন্সে যোগ হয়ে গেছে, তাই কোনো পেমেন্ট এখনও না পেলে তবেই প্রেরককে আবার পাঠাতে বলুন।',
       pay_offline_show_code: 'কোড আবার দেখান',
       pay_parked_cancel: 'পেমেন্ট বাতিল করুন',
       pay_parked_already_sent: 'এই পেমেন্ট ইতিমধ্যে পাঠানো হয়েছে',
@@ -5812,7 +6038,8 @@ const resources = {
       vault_title: 'Хранилище',
       vault_row_title: 'Хранилище',
       vault_hero_title: 'Защищённые активы',
-      vault_hero_body: 'Холодное хранение на долгий срок, запертое вашими собственными YubiKey. Нужны два или более YubiKey 5 NFC.',
+      vault_hero_body:
+        'Холодное хранение на долгий срок, запертое вашими собственными YubiKey. Нужны два или более YubiKey 5 NFC.',
       vault_unsupported_title: 'Требуется YubiKey',
       vault_unsupported_body: 'Два или более YubiKey 5 NFC и телефон, который может их считать.',
       vault_balance_label: 'в хранилище',
@@ -5832,17 +6059,23 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Пока недоступно — пополнение хранилища отключено в этой версии.',
       vault_intro_title: 'Настройте хранилище',
-      vault_intro_what: 'Хранилище запирает деньги вашими собственными YubiKey. Ничего из ключа хранилища никогда не хранится на этом телефоне; любой из ваших ключей открывает его.',
+      vault_intro_what:
+        'Хранилище запирает деньги вашими собственными YubiKey. Ничего из ключа хранилища никогда не хранится на этом телефоне; любой из ваших ключей открывает его.',
       vault_intro_two_keys: 'Нужно как минимум два YubiKey.',
       vault_intro_apart: 'Храните их в разных местах — два ключа, лежащие вместе, это один ключ.',
-      vault_intro_backup: 'Не выключайте зашифрованную резервную копию кошелька — она сохраняет аутентифицированные данные восстановления.',
-      vault_intro_ack: 'Я понимаю: только мои YubiKey открывают это хранилище. Моя фраза восстановления — нет. Если я потеряю их все, деньги пропадут.',
-      vault_intro_piv_ack: 'Я подтверждаю, что всё приложение PIV на этом YubiKey сброшено до заводских настроек или выделено для хранилища. Настройка меняет глобальные PIN, PUK и ключ управления PIV, может затронуть все слоты PIV, а новый PUK я сохраню в безопасном месте.',
+      vault_intro_backup:
+        'Не выключайте зашифрованную резервную копию кошелька — она сохраняет аутентифицированные данные восстановления.',
+      vault_intro_ack:
+        'Я понимаю: только мои YubiKey открывают это хранилище. Моя фраза восстановления — нет. Если я потеряю их все, деньги пропадут.',
+      vault_intro_piv_ack:
+        'Я подтверждаю, что всё приложение PIV на этом YubiKey сброшено до заводских настроек или выделено для хранилища. Настройка меняет глобальные PIN, PUK и ключ управления PIV, может затронуть все слоты PIV, а новый PUK я сохраню в безопасном месте.',
       vault_intro_begin: 'Начать',
       vault_key_step_title: 'Ключ {{k}} из не более 5',
-      vault_key_step_replace: 'Используйте YubiKey, сброшенный до заводских настроек и выделенный для хранилища. Настройка остановится, если занят любой слот PIV.',
+      vault_key_step_replace:
+        'Используйте YubiKey, сброшенный до заводских настроек и выделенный для хранилища. Настройка остановится, если занят любой слот PIV.',
       vault_enrollment_resume: 'Продолжить сохранённый ключ',
-      vault_enrollment_reset_required: 'Настройка PIV этого YubiKey завершилась в неопределённом состоянии. Не угадывайте данные и не повторяйте попытку: это может заблокировать всё приложение PIV. Используйте другой ключ, а этот восстановите или сбросьте с помощью администратора.',
+      vault_enrollment_reset_required:
+        'Настройка PIV этого YubiKey завершилась в неопределённом состоянии. Не угадывайте данные и не повторяйте попытку: это может заблокировать всё приложение PIV. Используйте другой ключ, а этот восстановите или сбросьте с помощью администратора.',
       vault_nfc_enroll_message: 'Приложите YubiKey сюда, чтобы настроить его',
       vault_nfc_adopt_message: 'Приложите восстановленный YubiKey сюда для проверки',
       vault_nfc_sign_batch: 'Приложите YubiKey сюда для подписи — пакет {{b}} из {{n}}',
@@ -5858,13 +6091,16 @@ const resources = {
       vault_more_need_two: 'Добавьте второй ключ перед завершением — один ключ означает отсутствие восстановления.',
       vault_leave_setup: 'Выйти из настройки',
       vault_leave_title: 'Выйти из настройки?',
-      vault_leave_body: 'Настроенные вами YubiKey ({{count}}) пока не будут сохранены. Ключи на них остаются, так что вы сможете добавить их снова через минуту.',
+      vault_leave_body:
+        'Настроенные вами YubiKey ({{count}}) пока не будут сохранены. Ключи на них остаются, так что вы сможете добавить их снова через минуту.',
       vault_leave_confirm: 'Выйти',
       vault_leave_stay: 'Остаться',
-      vault_done_body: '{{count}} ключей могут открыть это хранилище. Только эти ключи открывают его — фраза восстановления нет.',
+      vault_done_body:
+        '{{count}} ключей могут открыть это хранилище. Только эти ключи открывают его — фраза восстановления нет.',
       vault_done_cta: 'Готово',
       vault_add_key_row: 'Добавить ключ',
-      vault_add_key_done: '{{nickname}} может открывать пополнения, сделанные с этого момента. Перезапирайте хранилище, чтобы он мог открыть всё.',
+      vault_add_key_done:
+        '{{nickname}} может открывать пополнения, сделанные с этого момента. Перезапирайте хранилище, чтобы он мог открыть всё.',
       vault_key_added_toast: 'Ключ добавлен',
       vault_recovery_verified: 'Восстановленный ключ проверен на этом устройстве',
       vault_relock_row: 'Перезапереть хранилище',
@@ -5874,7 +6110,8 @@ const resources = {
       vault_relock_reason_generic: 'Приложите YubiKey сюда для подписи — перезапереть хранилище на текущие ключи',
       vault_relock_done: 'Хранилище перезаперто на текущие ключи',
       vault_relock_capped: 'Осталось ещё {{count}} пополнений — перезапирайте снова, чтобы перенести их.',
-      vault_relock_unreachable: '{{count}} пополнений могут открыть только {{names}}. Перезапирайте снова одним из этих ключей.',
+      vault_relock_unreachable:
+        '{{count}} пополнений могут открыть только {{names}}. Перезапирайте снова одним из этих ключей.',
       vault_badge_missing: '{{count}} пополнений ещё не открыты для {{nickname}}',
       vault_badge_removed: '{{count}} пополнений всё ещё открыты для удалённого ключа',
       vault_key_action_rename: 'Переименовать',
@@ -5882,37 +6119,50 @@ const resources = {
       vault_rename_title: 'Переименовать {{nickname}}',
       vault_rename_save: 'Сохранить',
       vault_remove_title: 'Удалить {{nickname}}?',
-      vault_remove_body: 'Кошелёк перестанет использовать {{nickname}}. Деньги, уже лежащие в хранилище, остаются доступны этому ключу до перезапирания (≈ {{fee}} сат).',
+      vault_remove_body:
+        'Кошелёк перестанет использовать {{nickname}}. Деньги, уже лежащие в хранилище, остаются доступны этому ключу до перезапирания (≈ {{fee}} сат).',
       vault_remove_only: 'Только удалить',
       vault_key_removed_toast: 'Ключ удалён',
-      vault_export_explainer: 'Скрипт блокировки каждого пополнения хранилища содержит общедоступную соль уникальности. Не выключайте зашифрованную резервную копию, чтобы новое устройство могло восстановить и проверить записи ключей, необходимые для использования ваших YubiKey.',
+      vault_export_explainer:
+        'Скрипт блокировки каждого пополнения хранилища содержит общедоступную соль уникальности. Не выключайте зашифрованную резервную копию, чтобы новое устройство могло восстановить и проверить записи ключей, необходимые для использования ваших YubiKey.',
       vault_footnote: 'Только эти ключи открывают хранилище. Фраза восстановления — нет.',
-      vault_floor_line: 'Минимальное пополнение {{floorDisplay}} ({{floorSats}} сат). Создание пополнения хранилища стоит около {{feeDisplay}}.',
+      vault_floor_line:
+        'Минимальное пополнение {{floorDisplay}} ({{floorSats}} сат). Создание пополнения хранилища стоит около {{feeDisplay}}.',
       vault_first_deposit_title: 'Первое пополнение хранилища',
-      vault_first_deposit_body: 'Первое пополнение хранилища — {{amount}} можно будет открыть только {{count}} ключами YubiKey ({{names}}). Фраза восстановления не поможет.',
+      vault_first_deposit_body:
+        'Первое пополнение хранилища — {{amount}} можно будет открыть только {{count}} ключами YubiKey ({{names}}). Фраза восстановления не поможет.',
       vault_backup_off_title: 'Включите приватную копию',
-      vault_backup_off_body: 'Приватная копия должна быть включена до создания нового выхода хранилища. Она сохраняет проверенные записи YubiKey и историю кошелька, необходимые для восстановления. Вы по-прежнему можете вывести всё без создания сдачи в хранилище.',
+      vault_backup_off_body:
+        'Приватная копия должна быть включена до создания нового выхода хранилища. Она сохраняет проверенные записи YubiKey и историю кошелька, необходимые для восстановления. Вы по-прежнему можете вывести всё без создания сдачи в хранилище.',
       vault_backup_off_cta: 'Открыть настройки копии',
       vault_choose_key: 'Какой ключ вы приложите?',
       vault_remainder_title: 'Вывести всё?',
-      vault_remainder_body: 'После вывода {{amount}} останется {{remainder}} — меньше минимума хранилища в 100 000 сат. Всё хранилище перейдёт на ваш обычный баланс.',
+      vault_remainder_body:
+        'После вывода {{amount}} останется {{remainder}} — меньше минимума хранилища в 100 000 сат. Всё хранилище перейдёт на ваш обычный баланс.',
       vault_remainder_all: 'Вывести всё',
       vault_remainder_change: 'Изменить сумму',
       vault_unreachable_title: 'Части хранилища нужен другой ключ',
-      vault_unreachable_body: 'Части хранилища нужен другой ключ — перенесено {{moved}}. {{count}} пополнений на {{amount}} могут открыть только {{names}}. Выведите снова одним из этих ключей.',
+      vault_unreachable_body:
+        'Части хранилища нужен другой ключ — перенесено {{moved}}. {{count}} пополнений на {{amount}} могут открыть только {{names}}. Выведите снова одним из этих ключей.',
       vault_sign_progress: 'Подписано {{signed}} из {{total}}',
-      vault_err_pin_locked_enroll: 'PIN этого YubiKey заблокирован. Разблокируйте его PUK-кодом в Yubico Authenticator или настройте другой YubiKey.',
-      vault_err_serial_mismatch_chosen: 'Это {{tappedName}}. Вы выбрали {{chosenName}} — приложите его или вернитесь и выберите {{tappedName}}.',
+      vault_err_pin_locked_enroll:
+        'PIN этого YubiKey заблокирован. Разблокируйте его PUK-кодом в Yubico Authenticator или настройте другой YubiKey.',
+      vault_err_serial_mismatch_chosen:
+        'Это {{tappedName}}. Вы выбрали {{chosenName}} — приложите его или вернитесь и выберите {{tappedName}}.',
       vault_err_key_already_enrolled: 'Вы уже добавили этот YubiKey ({{nickname}}). Приложите другой.',
       vault_err_not_released: 'Пополнение хранилища отключено в этой версии.',
-      vault_err_backup_off: 'Включите зашифрованную приватную копию перед созданием нового выхода хранилища. Вы по-прежнему можете вывести всё.',
+      vault_err_backup_off:
+        'Включите зашифрованную приватную копию перед созданием нового выхода хранилища. Вы по-прежнему можете вывести всё.',
       vault_err_not_enough_keys: 'В этом хранилище меньше двух ключей. Настройте его заново.',
       vault_err_too_many_keys: 'В хранилище может быть не более пяти ключей.',
       vault_err_last_keys: 'Хранилищу нужно как минимум два ключа. Добавьте другой ключ, прежде чем удалять этот.',
       vault_err_relock_required: 'Сначала перезапирайте хранилище, чтобы другие ключи могли открыть каждое пополнение.',
-      vault_err_key_not_committed: '{{nickname}} не может открыть ни одно пополнение в этом хранилище. Используйте другой ключ хранилища.',
-      vault_err_key_cannot_cover: '{{nickname}} может открыть {{reachable}} из {{total}} в хранилище. Выведите не более {{reachable}} или используйте {{otherNames}}.',
-      vault_err_too_small_to_relock: 'В этом хранилище меньше 100 000 сат — слишком мало для перезапирания. Выведите их и пополните снова.',
+      vault_err_key_not_committed:
+        '{{nickname}} не может открыть ни одно пополнение в этом хранилище. Используйте другой ключ хранилища.',
+      vault_err_key_cannot_cover:
+        '{{nickname}} может открыть {{reachable}} из {{total}} в хранилище. Выведите не более {{reachable}} или используйте {{otherNames}}.',
+      vault_err_too_small_to_relock:
+        'В этом хранилище меньше 100 000 сат — слишком мало для перезапирания. Выведите их и пополните снова.',
       vault_err_bad_version: 'Транзакция собрана в неверном формате. Ничего не подписано — попробуйте снова.',
       vault_shares_unavailable: 'Нет ключевого материала для печати.',
       vault_enroll_begin: 'Настроить хранилище',
@@ -5924,9 +6174,11 @@ const resources = {
       vault_set_new_pin: 'Задать новый PIN-код',
       vault_default_pin_warning: 'На вашем ключе всё ещё стандартный PIN-код. Выберите новый (6–8 цифр).',
       vault_set_new_puk: 'Установить новый PUK',
-      vault_default_puk_warning: 'Выберите отдельный PUK из 6–8 цифр и храните его безопасно; он позволяет сбросить заблокированный PIN.',
+      vault_default_puk_warning:
+        'Выберите отдельный PUK из 6–8 цифр и храните его безопасно; он позволяет сбросить заблокированный PIN.',
       vault_touch_when_blinks: 'Коснитесь золотого контакта, когда ключ замигает.',
-      vault_nfc_activation_hint: 'Впервые используете этот YubiKey? Сначала подключите его к порту USB-C на несколько секунд — новые ключи поставляются с отключённым NFC, пока это не будет сделано.',
+      vault_nfc_activation_hint:
+        'Впервые используете этот YubiKey? Сначала подключите его к порту USB-C на несколько секунд — новые ключи поставляются с отключённым NFC, пока это не будет сделано.',
       vault_continue: 'Продолжить',
       vault_enrolled_toast: 'Хранилище готово',
       vault_insert_key: 'Вставьте ваш YubiKey',
@@ -5953,11 +6205,13 @@ const resources = {
       vault_err_wrong_key: 'Этот YubiKey не входит в ключи этого хранилища.',
       vault_err_serial_mismatch: 'Этот YubiKey не входит в ключи этого хранилища ({{names}}).',
       vault_err_touch_timeout: 'Касание не обнаружено. Повторите и коснитесь золотого контакта.',
-      vault_err_pin_locked: 'PIN этого YubiKey заблокирован. Используйте другой ключ хранилища или разблокируйте этот PUK-кодом в Yubico Authenticator.',
+      vault_err_pin_locked:
+        'PIN этого YubiKey заблокирован. Используйте другой ключ хранилища или разблокируйте этот PUK-кодом в Yubico Authenticator.',
       vault_err_pin_invalid: 'Неверный PIN-код.',
       vault_err_puk_invalid: 'Неверный PUK-код.',
       vault_err_puk_locked: 'PUK этого YubiKey заблокирован. Используйте новый YubiKey.',
-      vault_err_ceremony_active: 'Другая операция хранилища всё ещё использует YubiKey. Дождитесь её завершения и повторите попытку.',
+      vault_err_ceremony_active:
+        'Другая операция хранилища всё ещё использует YubiKey. Дождитесь её завершения и повторите попытку.',
       vault_err_scope_changed: 'Во время операции изменился кошелёк или сеть. Начните заново в текущем кошельке.',
       vault_err_key_removed_mid_op: 'Ключ извлечён. Вставьте его и повторите.',
       vault_err_no_key: 'YubiKey не обнаружен.',
@@ -5972,8 +6226,13 @@ const resources = {
       vault_err_pin_required: 'Введите PIN-код.',
       vault_err_unsupported_platform: 'Поддержка YubiKey недоступна на этом устройстве.',
       vault_err_slot_occupied: 'Слот ключа уже занят.',
-      vault_err_enrollment_partial: 'Настройка YubiKey остановилась после изменения ключа. Следуйте указаниям для повтора; этот ключ не добавлен в хранилище.',
-      vault_err_key_not_adopted: 'Подтвердите владение восстановленным YubiKey на этом устройстве перед выводом средств с его помощью.',
+      vault_replace_key_warning:
+        'Замена безвозвратно уничтожит существующий закрытый ключ P-256. Средства хранилища, которым нужен этот ключ, могут стать непотратимыми.',
+      vault_replace_key_confirm: 'Заменить существующий ключ',
+      vault_err_enrollment_partial:
+        'Настройка YubiKey остановилась после изменения ключа. Следуйте указаниям для повтора; этот ключ не добавлен в хранилище.',
+      vault_err_key_not_adopted:
+        'Подтвердите владение восстановленным YubiKey на этом устройстве перед выводом средств с его помощью.',
       vault_err_too_many_inputs:
         'Слишком много вкладов сейфа для одного перевода. Сначала снимите меньшую сумму — каждое снятие также объединяет сейф, поэтому следующее переведёт больше.',
       vault_err_requires_online:
@@ -5989,7 +6248,8 @@ const resources = {
       vault_pin_invalid_retry_generic: 'Неверный PIN. Нажмите «Вывести» ещё раз, чтобы повторить.',
       vault_disable_row: 'Отключить хранилище',
       vault_disable_title: 'Отключить хранилище?',
-      vault_disable_message: 'Это стирает список ключей хранилища на этом телефоне. Сами ключи остаются на ваших YubiKey.',
+      vault_disable_message:
+        'Это стирает список ключей хранилища на этом телефоне. Сами ключи остаются на ваших YubiKey.',
       vault_disable_confirm: 'Отключить',
       vault_disabled_toast: 'Хранилище отключено',
       vault_disable_blocked_title: 'Сначала выведите средства',
@@ -6412,7 +6672,8 @@ const resources = {
       pay_offline_kv_pending: 'Платежей поблизости, ожидающих добавления в этот кошелёк: {{count}}.',
       pay_offline_kv_stuck: 'Не удалось добавить {{count}} ближайших платежей. Попросите отправителя отправить снова.',
       pay_offline_kv_corrupt: 'На этом устройстве найдены повреждённые данные платежа.',
-      pay_offline_kv_corrupt_body: 'Затронутые платежи отложены на этом устройстве, а не удалены. Некоторые из них могли уже попасть в ваш баланс, поэтому просите отправителя отправить снова только если его платёж всё ещё не пришёл.',
+      pay_offline_kv_corrupt_body:
+        'Затронутые платежи отложены на этом устройстве, а не удалены. Некоторые из них могли уже попасть в ваш баланс, поэтому просите отправителя отправить снова только если его платёж всё ещё не пришёл.',
       pay_offline_show_code: 'Показать код снова',
       pay_parked_cancel: 'Отменить платёж',
       pay_parked_already_sent: 'Этот платёж уже отправлен',
@@ -6513,7 +6774,8 @@ const resources = {
       vault_title: 'Brankas',
       vault_row_title: 'Brankas',
       vault_hero_title: 'Aset Terlindungi',
-      vault_hero_body: 'Penyimpanan dingin jangka panjang, dikunci dengan YubiKey milik Anda sendiri. Memerlukan dua YubiKey 5 NFC atau lebih.',
+      vault_hero_body:
+        'Penyimpanan dingin jangka panjang, dikunci dengan YubiKey milik Anda sendiri. Memerlukan dua YubiKey 5 NFC atau lebih.',
       vault_unsupported_title: 'Memerlukan YubiKey',
       vault_unsupported_body: 'Dua YubiKey 5 NFC atau lebih, plus ponsel yang bisa membacanya.',
       vault_balance_label: 'Brankas berisi',
@@ -6533,17 +6795,23 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Belum tersedia — setoran brankas dimatikan pada rilis ini.',
       vault_intro_title: 'Siapkan brankas Anda',
-      vault_intro_what: 'Brankas mengunci uang dengan YubiKey milik Anda sendiri. Tidak ada bagian dari kunci brankas yang pernah ada di ponsel ini; salah satu kunci Anda saja cukup untuk membukanya.',
+      vault_intro_what:
+        'Brankas mengunci uang dengan YubiKey milik Anda sendiri. Tidak ada bagian dari kunci brankas yang pernah ada di ponsel ini; salah satu kunci Anda saja cukup untuk membukanya.',
       vault_intro_two_keys: 'Anda memerlukan setidaknya dua YubiKey.',
       vault_intro_apart: 'Simpan di tempat yang berbeda — dua kunci yang disimpan bersama sama dengan satu kunci.',
-      vault_intro_backup: 'Biarkan cadangan terenkripsi dompet tetap aktif — cadangan ini menyimpan catatan pemulihan yang terautentikasi.',
-      vault_intro_ack: 'Saya mengerti: hanya YubiKey saya yang membuka brankas ini. Frasa pemulihan saya tidak. Jika semuanya hilang, uangnya hilang.',
-      vault_intro_piv_ack: 'Saya mengonfirmasi bahwa seluruh aplikasi PIV YubiKey ini telah direset pabrik atau dikhususkan untuk brankas. Penyiapan mengubah PIN, PUK, dan kunci manajemen PIV global, dapat memengaruhi semua slot PIV, dan saya akan menyimpan PUK baru dengan aman.',
+      vault_intro_backup:
+        'Biarkan cadangan terenkripsi dompet tetap aktif — cadangan ini menyimpan catatan pemulihan yang terautentikasi.',
+      vault_intro_ack:
+        'Saya mengerti: hanya YubiKey saya yang membuka brankas ini. Frasa pemulihan saya tidak. Jika semuanya hilang, uangnya hilang.',
+      vault_intro_piv_ack:
+        'Saya mengonfirmasi bahwa seluruh aplikasi PIV YubiKey ini telah direset pabrik atau dikhususkan untuk brankas. Penyiapan mengubah PIN, PUK, dan kunci manajemen PIV global, dapat memengaruhi semua slot PIV, dan saya akan menyimpan PUK baru dengan aman.',
       vault_intro_begin: 'Mulai',
       vault_key_step_title: 'Kunci {{k}} dari maksimal 5',
-      vault_key_step_replace: 'Gunakan YubiKey yang telah direset pabrik dan dikhususkan untuk brankas. Penyiapan berhenti jika ada slot PIV yang terisi.',
+      vault_key_step_replace:
+        'Gunakan YubiKey yang telah direset pabrik dan dikhususkan untuk brankas. Penyiapan berhenti jika ada slot PIV yang terisi.',
       vault_enrollment_resume: 'Lanjutkan kunci tersimpan',
-      vault_enrollment_reset_required: 'Penyiapan PIV YubiKey ini berakhir dalam keadaan tidak pasti. Jangan menebak kredensial atau mencoba lagi karena seluruh aplikasi PIV dapat terblokir. Gunakan kunci lain dan minta administrator memulihkan atau mereset kunci ini.',
+      vault_enrollment_reset_required:
+        'Penyiapan PIV YubiKey ini berakhir dalam keadaan tidak pasti. Jangan menebak kredensial atau mencoba lagi karena seluruh aplikasi PIV dapat terblokir. Gunakan kunci lain dan minta administrator memulihkan atau mereset kunci ini.',
       vault_nfc_enroll_message: 'Tempelkan YubiKey Anda di sini untuk menyiapkannya',
       vault_nfc_adopt_message: 'Tempelkan YubiKey yang dipulihkan ini untuk memverifikasinya',
       vault_nfc_sign_batch: 'Tempelkan YubiKey Anda di sini untuk menandatangani — kelompok {{b}} dari {{n}}',
@@ -6559,23 +6827,29 @@ const resources = {
       vault_more_need_two: 'Tambahkan kunci kedua sebelum selesai — satu kunci berarti tidak ada pemulihan.',
       vault_leave_setup: 'Keluar dari penyiapan',
       vault_leave_title: 'Keluar dari penyiapan?',
-      vault_leave_body: '{{count}} YubiKey yang Anda siapkan belum akan disimpan. Kuncinya tetap ada, jadi Anda bisa menambahkannya lagi sebentar lagi.',
+      vault_leave_body:
+        '{{count}} YubiKey yang Anda siapkan belum akan disimpan. Kuncinya tetap ada, jadi Anda bisa menambahkannya lagi sebentar lagi.',
       vault_leave_confirm: 'Keluar',
       vault_leave_stay: 'Tetap di sini',
-      vault_done_body: '{{count}} kunci dapat membuka brankas ini. Hanya kunci-kunci ini yang membukanya — frasa pemulihan Anda tidak.',
+      vault_done_body:
+        '{{count}} kunci dapat membuka brankas ini. Hanya kunci-kunci ini yang membukanya — frasa pemulihan Anda tidak.',
       vault_done_cta: 'Selesai',
       vault_add_key_row: 'Tambah kunci',
-      vault_add_key_done: '{{nickname}} dapat membuka setoran yang dibuat mulai sekarang. Kunci ulang brankas agar ia bisa membuka semuanya.',
+      vault_add_key_done:
+        '{{nickname}} dapat membuka setoran yang dibuat mulai sekarang. Kunci ulang brankas agar ia bisa membuka semuanya.',
       vault_key_added_toast: 'Kunci ditambahkan',
       vault_recovery_verified: 'Kunci yang dipulihkan telah diverifikasi di perangkat ini',
       vault_relock_row: 'Kunci ulang brankas',
       vault_relock_now: 'Kunci ulang sekarang',
       vault_relock_choose: 'Kunci mana yang akan Anda tempelkan untuk mengunci ulang?',
-      vault_relock_reason: 'Tempelkan salah satu kunci Anda yang sudah ada ({{names}}) — bukan yang baru saja Anda tambahkan.',
-      vault_relock_reason_generic: 'Tempelkan YubiKey Anda di sini untuk menandatangani — kunci ulang brankas ke kunci Anda saat ini',
+      vault_relock_reason:
+        'Tempelkan salah satu kunci Anda yang sudah ada ({{names}}) — bukan yang baru saja Anda tambahkan.',
+      vault_relock_reason_generic:
+        'Tempelkan YubiKey Anda di sini untuk menandatangani — kunci ulang brankas ke kunci Anda saat ini',
       vault_relock_done: 'Brankas dikunci ulang ke kunci Anda saat ini',
       vault_relock_capped: '{{count}} setoran lagi tersisa — kunci ulang lagi untuk memindahkannya.',
-      vault_relock_unreachable: '{{count}} setoran hanya bisa dibuka oleh {{names}}. Kunci ulang lagi dengan salah satu kunci itu.',
+      vault_relock_unreachable:
+        '{{count}} setoran hanya bisa dibuka oleh {{names}}. Kunci ulang lagi dengan salah satu kunci itu.',
       vault_badge_missing: '{{count}} setoran belum terbuka untuk {{nickname}}',
       vault_badge_removed: '{{count}} setoran masih terbuka untuk kunci yang dihapus',
       vault_key_action_rename: 'Ubah nama',
@@ -6583,37 +6857,50 @@ const resources = {
       vault_rename_title: 'Ubah nama {{nickname}}',
       vault_rename_save: 'Simpan',
       vault_remove_title: 'Hapus {{nickname}}?',
-      vault_remove_body: 'Dompet akan berhenti menggunakan {{nickname}}. Uang yang sudah ada di brankas tetap bisa dibuka olehnya sampai Anda mengunci ulang (≈ {{fee}} sat).',
+      vault_remove_body:
+        'Dompet akan berhenti menggunakan {{nickname}}. Uang yang sudah ada di brankas tetap bisa dibuka olehnya sampai Anda mengunci ulang (≈ {{fee}} sat).',
       vault_remove_only: 'Hapus saja',
       vault_key_removed_toast: 'Kunci dihapus',
-      vault_export_explainer: 'Setiap setoran brankas memuat salt keunikan publik di dalam skrip penguncinya. Biarkan cadangan terenkripsi tetap aktif agar perangkat baru dapat memulihkan dan mengautentikasi catatan kunci yang diperlukan untuk memakai YubiKey Anda.',
+      vault_export_explainer:
+        'Setiap setoran brankas memuat salt keunikan publik di dalam skrip penguncinya. Biarkan cadangan terenkripsi tetap aktif agar perangkat baru dapat memulihkan dan mengautentikasi catatan kunci yang diperlukan untuk memakai YubiKey Anda.',
       vault_footnote: 'Hanya kunci-kunci ini yang membuka brankas. Frasa pemulihan Anda tidak.',
-      vault_floor_line: 'Setoran minimum {{floorDisplay}} ({{floorSats}} sat). Membuat setoran brankas berbiaya sekitar {{feeDisplay}}.',
+      vault_floor_line:
+        'Setoran minimum {{floorDisplay}} ({{floorSats}} sat). Membuat setoran brankas berbiaya sekitar {{feeDisplay}}.',
       vault_first_deposit_title: 'Setoran brankas pertama',
-      vault_first_deposit_body: 'Setoran brankas pertama — {{amount}} hanya bisa dibuka dengan {{count}} YubiKey ({{names}}). Frasa pemulihan Anda tidak akan membantu.',
+      vault_first_deposit_body:
+        'Setoran brankas pertama — {{amount}} hanya bisa dibuka dengan {{count}} YubiKey ({{names}}). Frasa pemulihan Anda tidak akan membantu.',
       vault_backup_off_title: 'Aktifkan cadangan pribadi',
-      vault_backup_off_body: 'Cadangan pribadi harus aktif sebelum dompet membuat output brankas baru. Cadangan ini menyimpan catatan YubiKey terautentikasi dan riwayat dompet yang diperlukan untuk pemulihan. Anda tetap dapat menarik semuanya tanpa membuat kembalian brankas.',
+      vault_backup_off_body:
+        'Cadangan pribadi harus aktif sebelum dompet membuat output brankas baru. Cadangan ini menyimpan catatan YubiKey terautentikasi dan riwayat dompet yang diperlukan untuk pemulihan. Anda tetap dapat menarik semuanya tanpa membuat kembalian brankas.',
       vault_backup_off_cta: 'Buka pengaturan cadangan',
       vault_choose_key: 'Kunci mana yang akan Anda tempelkan?',
       vault_remainder_title: 'Tarik semuanya?',
-      vault_remainder_body: 'Menarik {{amount}} menyisakan {{remainder}}, di bawah minimum brankas 100.000 sat. Seluruh brankas akan pindah ke saldo harian Anda.',
+      vault_remainder_body:
+        'Menarik {{amount}} menyisakan {{remainder}}, di bawah minimum brankas 100.000 sat. Seluruh brankas akan pindah ke saldo harian Anda.',
       vault_remainder_all: 'Tarik semuanya',
       vault_remainder_change: 'Ubah jumlah',
       vault_unreachable_title: 'Sebagian brankas memerlukan kunci lain',
-      vault_unreachable_body: 'Sebagian brankas memerlukan kunci lain — {{moved}} dipindahkan. {{count}} setoran senilai {{amount}} hanya bisa dibuka oleh {{names}}. Tarik lagi dengan salah satu kunci itu.',
+      vault_unreachable_body:
+        'Sebagian brankas memerlukan kunci lain — {{moved}} dipindahkan. {{count}} setoran senilai {{amount}} hanya bisa dibuka oleh {{names}}. Tarik lagi dengan salah satu kunci itu.',
       vault_sign_progress: '{{signed}} dari {{total}} ditandatangani',
-      vault_err_pin_locked_enroll: 'PIN YubiKey ini terblokir. Buka blokirnya dengan PUK di Yubico Authenticator, atau siapkan dengan YubiKey lain.',
-      vault_err_serial_mismatch_chosen: 'Itu {{tappedName}}. Anda memilih {{chosenName}} — tempelkan itu, atau kembali dan pilih {{tappedName}}.',
+      vault_err_pin_locked_enroll:
+        'PIN YubiKey ini terblokir. Buka blokirnya dengan PUK di Yubico Authenticator, atau siapkan dengan YubiKey lain.',
+      vault_err_serial_mismatch_chosen:
+        'Itu {{tappedName}}. Anda memilih {{chosenName}} — tempelkan itu, atau kembali dan pilih {{tappedName}}.',
       vault_err_key_already_enrolled: 'Anda sudah menambahkan YubiKey ini ({{nickname}}). Tempelkan yang lain.',
       vault_err_not_released: 'Setoran brankas dimatikan pada rilis ini.',
-      vault_err_backup_off: 'Aktifkan cadangan pribadi terenkripsi sebelum membuat output brankas baru. Anda tetap dapat menarik semuanya.',
+      vault_err_backup_off:
+        'Aktifkan cadangan pribadi terenkripsi sebelum membuat output brankas baru. Anda tetap dapat menarik semuanya.',
       vault_err_not_enough_keys: 'Brankas ini memiliki kurang dari dua kunci. Siapkan lagi.',
       vault_err_too_many_keys: 'Brankas menampung paling banyak lima kunci.',
       vault_err_last_keys: 'Brankas memerlukan setidaknya dua kunci. Tambahkan kunci lain sebelum menghapus yang ini.',
       vault_err_relock_required: 'Kunci ulang brankas dahulu agar kunci Anda yang lain bisa membuka setiap setoran.',
-      vault_err_key_not_committed: '{{nickname}} tidak bisa membuka satu pun setoran di brankas ini. Gunakan kunci brankas Anda yang lain.',
-      vault_err_key_cannot_cover: '{{nickname}} bisa membuka {{reachable}} dari {{total}} di brankas. Tarik hingga {{reachable}}, atau gunakan {{otherNames}}.',
-      vault_err_too_small_to_relock: 'Brankas ini berisi kurang dari 100.000 sat, terlalu kecil untuk dikunci ulang. Tarik saja lalu setor lagi.',
+      vault_err_key_not_committed:
+        '{{nickname}} tidak bisa membuka satu pun setoran di brankas ini. Gunakan kunci brankas Anda yang lain.',
+      vault_err_key_cannot_cover:
+        '{{nickname}} bisa membuka {{reachable}} dari {{total}} di brankas. Tarik hingga {{reachable}}, atau gunakan {{otherNames}}.',
+      vault_err_too_small_to_relock:
+        'Brankas ini berisi kurang dari 100.000 sat, terlalu kecil untuk dikunci ulang. Tarik saja lalu setor lagi.',
       vault_err_bad_version: 'Transaksi dibangun dalam format yang salah. Tidak ada yang ditandatangani — coba lagi.',
       vault_shares_unavailable: 'Tidak ada materi kunci yang bisa dicetak.',
       vault_enroll_begin: 'Siapkan brankas',
@@ -6625,9 +6912,11 @@ const resources = {
       vault_set_new_pin: 'Atur PIN baru',
       vault_default_pin_warning: 'Kunci Anda masih menggunakan PIN bawaan. Pilih yang baru (6–8 digit).',
       vault_set_new_puk: 'Atur PUK baru',
-      vault_default_puk_warning: 'Pilih PUK terpisah 6–8 digit dan simpan dengan aman; PUK dapat mereset PIN yang terblokir.',
+      vault_default_puk_warning:
+        'Pilih PUK terpisah 6–8 digit dan simpan dengan aman; PUK dapat mereset PIN yang terblokir.',
       vault_touch_when_blinks: 'Sentuh kontak emas saat kunci berkedip.',
-      vault_nfc_activation_hint: 'Pertama kali memakai YubiKey ini? Colokkan dulu ke port USB-C selama beberapa detik — kunci baru dikirim dengan NFC nonaktif sampai saat itu.',
+      vault_nfc_activation_hint:
+        'Pertama kali memakai YubiKey ini? Colokkan dulu ke port USB-C selama beberapa detik — kunci baru dikirim dengan NFC nonaktif sampai saat itu.',
       vault_continue: 'Lanjutkan',
       vault_enrolled_toast: 'Brankas siap',
       vault_insert_key: 'Masukkan YubiKey Anda',
@@ -6654,25 +6943,33 @@ const resources = {
       vault_err_wrong_key: 'YubiKey ini bukan salah satu kunci brankas ini.',
       vault_err_serial_mismatch: 'YubiKey ini bukan salah satu kunci brankas ini ({{names}}).',
       vault_err_touch_timeout: 'Tidak ada sentuhan terdeteksi. Coba lagi dan sentuh kontak emas.',
-      vault_err_pin_locked: 'PIN YubiKey ini terblokir. Gunakan kunci brankas Anda yang lain, atau buka blokirnya dengan PUK di Yubico Authenticator.',
+      vault_err_pin_locked:
+        'PIN YubiKey ini terblokir. Gunakan kunci brankas Anda yang lain, atau buka blokirnya dengan PUK di Yubico Authenticator.',
       vault_err_pin_invalid: 'PIN salah.',
       vault_err_puk_invalid: 'PUK salah.',
       vault_err_puk_locked: 'PUK YubiKey ini terblokir. Gunakan YubiKey baru.',
-      vault_err_ceremony_active: 'Operasi brankas lain masih menggunakan YubiKey. Tunggu hingga selesai lalu coba lagi.',
+      vault_err_ceremony_active:
+        'Operasi brankas lain masih menggunakan YubiKey. Tunggu hingga selesai lalu coba lagi.',
       vault_err_scope_changed: 'Dompet atau jaringan berubah selama operasi ini. Mulai lagi di dompet saat ini.',
       vault_err_key_removed_mid_op: 'Kunci dicabut. Masukkan dan coba lagi.',
       vault_err_no_key: 'YubiKey tidak terdeteksi.',
       vault_err_driver_unavailable: 'Dukungan YubiKey tidak tersedia di perangkat ini.',
       vault_err_mgmt_key_custom: 'Kunci ini memiliki kunci manajemen khusus dan tidak dapat digunakan secara otomatis.',
-      vault_err_attestation_invalid: 'Pengesahan produsen YubiKey ini tidak dapat diverifikasi. Gunakan YubiKey asli yang disahkan pabrik dengan slot pengesahan PIV yang belum diubah.',
+      vault_err_attestation_invalid:
+        'Pengesahan produsen YubiKey ini tidak dapat diverifikasi. Gunakan YubiKey asli yang disahkan pabrik dengan slot pengesahan PIV yang belum diubah.',
       vault_err_generic: 'Terjadi kesalahan. Silakan coba lagi.',
       vault_err_template_invalid: 'Terjadi kesalahan saat mencoba mengakses brankas. Silakan coba lagi.',
       vault_err_not_enrolled: 'Belum ada brankas yang disiapkan.',
       vault_err_pin_required: 'Masukkan PIN Anda.',
       vault_err_unsupported_platform: 'Dukungan YubiKey tidak tersedia di perangkat ini.',
       vault_err_slot_occupied: 'Slot kunci sudah digunakan.',
-      vault_err_enrollment_partial: 'Penyiapan YubiKey berhenti setelah kunci diubah. Ikuti petunjuk mencoba lagi; kunci ini belum ditambahkan ke brankas.',
-      vault_err_key_not_adopted: 'Verifikasi kepemilikan YubiKey yang dipulihkan ini di perangkat sebelum menggunakannya untuk penarikan.',
+      vault_replace_key_warning:
+        'Menggantinya akan menghancurkan kunci privat P-256 yang ada secara permanen. Dana brankas yang memerlukan kunci itu bisa menjadi tidak dapat dibelanjakan.',
+      vault_replace_key_confirm: 'Ganti kunci yang ada',
+      vault_err_enrollment_partial:
+        'Penyiapan YubiKey berhenti setelah kunci diubah. Ikuti petunjuk mencoba lagi; kunci ini belum ditambahkan ke brankas.',
+      vault_err_key_not_adopted:
+        'Verifikasi kepemilikan YubiKey yang dipulihkan ini di perangkat sebelum menggunakannya untuk penarikan.',
       vault_err_too_many_inputs:
         'Terlalu banyak setoran vault untuk dipindahkan sekaligus. Tarik jumlah lebih kecil dulu — setiap penarikan juga mengonsolidasi vault, jadi berikutnya bisa lebih banyak.',
       vault_err_requires_online:
@@ -7112,7 +7409,8 @@ const resources = {
       pay_offline_kv_pending: '{{count}} pembayaran terdekat menunggu untuk ditambahkan ke dompet ini.',
       pay_offline_kv_stuck: '{{count}} pembayaran terdekat tidak bisa ditambahkan. Minta pengirim mengirim ulang.',
       pay_offline_kv_corrupt: 'Ditemukan data pembayaran yang rusak di perangkat ini.',
-      pay_offline_kv_corrupt_body: 'Pembayaran yang terdampak disimpan terpisah di perangkat ini, bukan dihapus. Sebagian mungkin sudah masuk ke saldo Anda, jadi minta pengirim mengirim ulang hanya jika pembayarannya masih belum ada.',
+      pay_offline_kv_corrupt_body:
+        'Pembayaran yang terdampak disimpan terpisah di perangkat ini, bukan dihapus. Sebagian mungkin sudah masuk ke saldo Anda, jadi minta pengirim mengirim ulang hanya jika pembayarannya masih belum ada.',
       pay_offline_show_code: 'Tampilkan kode lagi',
       pay_parked_cancel: 'Batalkan pembayaran',
       pay_parked_already_sent: 'Pembayaran ini sudah terkirim',
@@ -7216,7 +7514,8 @@ const resources = {
       vault_title: '保管庫',
       vault_row_title: '保管庫',
       vault_hero_title: '安全な保有資産',
-      vault_hero_body: '長期保有向けのコールドストレージ。あなた自身の YubiKey でロックします。YubiKey 5 NFC が 2 本以上必要です。',
+      vault_hero_body:
+        '長期保有向けのコールドストレージ。あなた自身の YubiKey でロックします。YubiKey 5 NFC が 2 本以上必要です。',
       vault_unsupported_title: 'YubiKey が必要です',
       vault_unsupported_body: 'YubiKey 5 NFC が 2 本以上と、それを読み取れるスマートフォン。',
       vault_balance_label: '保管庫の保有額',
@@ -7236,17 +7535,23 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'まだ利用できません — このリリースでは保管庫への入金は無効になっています。',
       vault_intro_title: '保管庫を設定する',
-      vault_intro_what: '保管庫はあなた自身の YubiKey で資金をロックします。保管庫の鍵はこのスマートフォン上に一切存在せず、どの鍵一本でも開けられます。',
+      vault_intro_what:
+        '保管庫はあなた自身の YubiKey で資金をロックします。保管庫の鍵はこのスマートフォン上に一切存在せず、どの鍵一本でも開けられます。',
       vault_intro_two_keys: 'YubiKey が少なくとも 2 本必要です。',
       vault_intro_apart: '別々の場所に保管してください — 一緒に保管した 2 本の鍵は 1 本と同じです。',
-      vault_intro_backup: 'ウォレットの暗号化バックアップをオンにしておいてください — 認証済みの復旧記録が保存されます。',
-      vault_intro_ack: '理解しました：この保管庫を開けられるのは自分の YubiKey だけで、リカバリーフレーズでは開けられません。すべて失えば資金は失われます。',
-      vault_intro_piv_ack: 'この YubiKey の PIV アプリ全体が工場出荷状態にリセット済み、または保管庫専用であることを確認します。設定により全体の PIV PIN、PUK、管理キーが変更され、すべての PIV スロットに影響する可能性があります。新しい PUK は安全に記録します。',
+      vault_intro_backup:
+        'ウォレットの暗号化バックアップをオンにしておいてください — 認証済みの復旧記録が保存されます。',
+      vault_intro_ack:
+        '理解しました：この保管庫を開けられるのは自分の YubiKey だけで、リカバリーフレーズでは開けられません。すべて失えば資金は失われます。',
+      vault_intro_piv_ack:
+        'この YubiKey の PIV アプリ全体が工場出荷状態にリセット済み、または保管庫専用であることを確認します。設定により全体の PIV PIN、PUK、管理キーが変更され、すべての PIV スロットに影響する可能性があります。新しい PUK は安全に記録します。',
       vault_intro_begin: '開始',
       vault_key_step_title: '鍵 {{k}}（最大 5 本）',
-      vault_key_step_replace: '工場出荷状態にリセットした保管庫専用の YubiKey を使用してください。PIV スロットが一つでも使用中なら設定は停止します。',
+      vault_key_step_replace:
+        '工場出荷状態にリセットした保管庫専用の YubiKey を使用してください。PIV スロットが一つでも使用中なら設定は停止します。',
       vault_enrollment_resume: '保存済みキーを再開',
-      vault_enrollment_reset_required: 'この YubiKey の PIV 設定は結果を確認できない状態で終了しました。認証情報を推測して再試行しないでください。PIV アプリ全体がロックされる恐れがあります。別のキーを使い、このキーは管理者と復旧または初期化してください。',
+      vault_enrollment_reset_required:
+        'この YubiKey の PIV 設定は結果を確認できない状態で終了しました。認証情報を推測して再試行しないでください。PIV アプリ全体がロックされる恐れがあります。別のキーを使い、このキーは管理者と復旧または初期化してください。',
       vault_nfc_enroll_message: '設定するには YubiKey をここにかざしてください',
       vault_nfc_adopt_message: '復元したこの YubiKey をここにかざして確認してください',
       vault_nfc_sign_batch: '署名するには YubiKey をここにかざしてください — バッチ {{b}}/{{n}}',
@@ -7262,13 +7567,16 @@ const resources = {
       vault_more_need_two: '完了する前に 2 本目の鍵を追加してください — 鍵が 1 本では復旧できません。',
       vault_leave_setup: '設定をやめる',
       vault_leave_title: '設定をやめますか？',
-      vault_leave_body: '設定した {{count}} 本の YubiKey はまだ保存されません。鍵は本体に残るので、すぐにまた追加できます。',
+      vault_leave_body:
+        '設定した {{count}} 本の YubiKey はまだ保存されません。鍵は本体に残るので、すぐにまた追加できます。',
       vault_leave_confirm: 'やめる',
       vault_leave_stay: '続ける',
-      vault_done_body: '{{count}} 本の鍵でこの保管庫を開けられます。開けられるのはこれらの鍵だけで、リカバリーフレーズでは開けられません。',
+      vault_done_body:
+        '{{count}} 本の鍵でこの保管庫を開けられます。開けられるのはこれらの鍵だけで、リカバリーフレーズでは開けられません。',
       vault_done_cta: '完了',
       vault_add_key_row: '鍵を追加',
-      vault_add_key_done: '{{nickname}} は今後の入金を開けられます。すべてを開けられるように保管庫を再ロックしてください。',
+      vault_add_key_done:
+        '{{nickname}} は今後の入金を開けられます。すべてを開けられるように保管庫を再ロックしてください。',
       vault_key_added_toast: '鍵を追加しました',
       vault_recovery_verified: '復元した鍵をこのデバイスで確認しました',
       vault_relock_row: '保管庫を再ロック',
@@ -7278,7 +7586,8 @@ const resources = {
       vault_relock_reason_generic: '署名するには YubiKey をここにかざしてください — 保管庫を現在の鍵に再ロックする',
       vault_relock_done: '保管庫を現在の鍵に再ロックしました',
       vault_relock_capped: 'あと {{count}} 件の入金が残っています — 移動するには再度再ロックしてください。',
-      vault_relock_unreachable: '{{count}} 件の入金は {{names}} でしか開けられません。それらの鍵のいずれかで再度再ロックしてください。',
+      vault_relock_unreachable:
+        '{{count}} 件の入金は {{names}} でしか開けられません。それらの鍵のいずれかで再度再ロックしてください。',
       vault_badge_missing: '{{count}} 件の入金がまだ {{nickname}} で開けられません',
       vault_badge_removed: '{{count}} 件の入金がまだ削除済みの鍵で開けられます',
       vault_key_action_rename: '名前を変更',
@@ -7286,38 +7595,52 @@ const resources = {
       vault_rename_title: '{{nickname}} の名前を変更',
       vault_rename_save: '保存',
       vault_remove_title: '{{nickname}} を削除しますか？',
-      vault_remove_body: 'ウォレットは {{nickname}} の使用を停止します。保管庫に既にある資金は、再ロックするまでこの鍵で開けられたままです（約 {{fee}} sats）。',
+      vault_remove_body:
+        'ウォレットは {{nickname}} の使用を停止します。保管庫に既にある資金は、再ロックするまでこの鍵で開けられたままです（約 {{fee}} sats）。',
       vault_remove_only: '削除のみ',
       vault_key_removed_toast: '鍵を削除しました',
-      vault_export_explainer: '保管庫への各入金では、公開された一意性ソルトがロックスクリプトに含まれます。暗号化バックアップをオンにしておくと、新しい端末で YubiKey の使用に必要な鍵記録を復元して認証できます。',
+      vault_export_explainer:
+        '保管庫への各入金では、公開された一意性ソルトがロックスクリプトに含まれます。暗号化バックアップをオンにしておくと、新しい端末で YubiKey の使用に必要な鍵記録を復元して認証できます。',
       vault_footnote: '保管庫を開けられるのはこれらの鍵だけです。リカバリーフレーズでは開けられません。',
-      vault_floor_line: '最低入金額 {{floorDisplay}}（{{floorSats}} sats）。保管庫への入金の作成には約 {{feeDisplay}} かかります。',
+      vault_floor_line:
+        '最低入金額 {{floorDisplay}}（{{floorSats}} sats）。保管庫への入金の作成には約 {{feeDisplay}} かかります。',
       vault_first_deposit_title: '保管庫への初回入金',
-      vault_first_deposit_body: '保管庫への初回入金 — {{amount}} は {{count}} 本の YubiKey（{{names}}）でしか開けられなくなります。リカバリーフレーズは役に立ちません。',
+      vault_first_deposit_body:
+        '保管庫への初回入金 — {{amount}} は {{count}} 本の YubiKey（{{names}}）でしか開けられなくなります。リカバリーフレーズは役に立ちません。',
       vault_backup_off_title: 'プライベートバックアップをオンにしてください',
-      vault_backup_off_body: 'ウォレットが新しい保管庫出力を作成する前に、プライベートバックアップをオンにする必要があります。復旧に必要な認証済み YubiKey 記録とウォレット履歴が保存されます。保管庫のおつりを作成せずに、すべてを引き出すことはできます。',
+      vault_backup_off_body:
+        'ウォレットが新しい保管庫出力を作成する前に、プライベートバックアップをオンにする必要があります。復旧に必要な認証済み YubiKey 記録とウォレット履歴が保存されます。保管庫のおつりを作成せずに、すべてを引き出すことはできます。',
       vault_backup_off_cta: 'バックアップ設定を開く',
       vault_choose_key: 'どの鍵をかざしますか？',
       vault_remainder_title: 'すべて引き出しますか？',
-      vault_remainder_body: '{{amount}} を引き出すと {{remainder}} が残り、保管庫の最低額 100,000 sat を下回ります。保管庫全体が普段の残高に移動します。',
+      vault_remainder_body:
+        '{{amount}} を引き出すと {{remainder}} が残り、保管庫の最低額 100,000 sat を下回ります。保管庫全体が普段の残高に移動します。',
       vault_remainder_all: 'すべて引き出す',
       vault_remainder_change: '金額を変更',
       vault_unreachable_title: '保管庫の一部には別の鍵が必要です',
-      vault_unreachable_body: '保管庫の一部には別の鍵が必要です — {{moved}} を移動しました。{{amount}} 分の {{count}} 件の入金は {{names}} でしか開けられません。それらの鍵のいずれかで再度引き出してください。',
+      vault_unreachable_body:
+        '保管庫の一部には別の鍵が必要です — {{moved}} を移動しました。{{amount}} 分の {{count}} 件の入金は {{names}} でしか開けられません。それらの鍵のいずれかで再度引き出してください。',
       vault_sign_progress: '{{total}} 件中 {{signed}} 件に署名済み',
-      vault_err_pin_locked_enroll: 'この YubiKey の PIN はブロックされています。Yubico Authenticator で PUK を使って解除するか、別の YubiKey で設定してください。',
-      vault_err_serial_mismatch_chosen: 'これは {{tappedName}} です。選択したのは {{chosenName}} です — それをかざすか、戻って {{tappedName}} を選択してください。',
+      vault_err_pin_locked_enroll:
+        'この YubiKey の PIN はブロックされています。Yubico Authenticator で PUK を使って解除するか、別の YubiKey で設定してください。',
+      vault_err_serial_mismatch_chosen:
+        'これは {{tappedName}} です。選択したのは {{chosenName}} です — それをかざすか、戻って {{tappedName}} を選択してください。',
       vault_err_key_already_enrolled: 'この YubiKey（{{nickname}}）は既に追加済みです。別の鍵をかざしてください。',
       vault_err_not_released: 'このリリースでは保管庫への入金は無効になっています。',
-      vault_err_backup_off: '新しい保管庫出力を作成する前に、暗号化プライベートバックアップをオンにしてください。すべてを引き出すことはできます。',
+      vault_err_backup_off:
+        '新しい保管庫出力を作成する前に、暗号化プライベートバックアップをオンにしてください。すべてを引き出すことはできます。',
       vault_err_not_enough_keys: 'この保管庫の鍵は 2 本未満です。もう一度設定してください。',
       vault_err_too_many_keys: '保管庫の鍵は最大 5 本です。',
       vault_err_last_keys: '保管庫には少なくとも 2 本の鍵が必要です。この鍵を削除する前に別の鍵を追加してください。',
       vault_err_relock_required: '他の鍵ですべての入金を開けられるように、まず保管庫を再ロックしてください。',
-      vault_err_key_not_committed: '{{nickname}} ではこの保管庫の入金をどれも開けられません。別の保管庫の鍵を使ってください。',
-      vault_err_key_cannot_cover: '{{nickname}} は保管庫の {{total}} のうち {{reachable}} を開けられます。{{reachable}} まで引き出すか、代わりに {{otherNames}} を使ってください。',
-      vault_err_too_small_to_relock: 'この保管庫の残高は 100,000 sats 未満で、再ロックするには少なすぎます。代わりに引き出してから再度入金してください。',
-      vault_err_bad_version: 'トランザクションが誤った形式で作成されました。何も署名されていません — もう一度お試しください。',
+      vault_err_key_not_committed:
+        '{{nickname}} ではこの保管庫の入金をどれも開けられません。別の保管庫の鍵を使ってください。',
+      vault_err_key_cannot_cover:
+        '{{nickname}} は保管庫の {{total}} のうち {{reachable}} を開けられます。{{reachable}} まで引き出すか、代わりに {{otherNames}} を使ってください。',
+      vault_err_too_small_to_relock:
+        'この保管庫の残高は 100,000 sats 未満で、再ロックするには少なすぎます。代わりに引き出してから再度入金してください。',
+      vault_err_bad_version:
+        'トランザクションが誤った形式で作成されました。何も署名されていません — もう一度お試しください。',
       vault_shares_unavailable: '印刷できる鍵データがありません。',
       vault_enroll_begin: '保管庫を設定',
       vault_enroll_phase_connecting: 'キーを読み取っています…',
@@ -7328,9 +7651,11 @@ const resources = {
       vault_set_new_pin: '新しい PIN を設定',
       vault_default_pin_warning: 'キーはまだ初期 PIN のままです。新しいものを選んでください（6〜8 桁）。',
       vault_set_new_puk: '新しい PUK を設定',
-      vault_default_puk_warning: 'PIN とは別の 6〜8 桁の PUK を選び、安全に保管してください。ロックされた PIN のリセットに使います。',
+      vault_default_puk_warning:
+        'PIN とは別の 6〜8 桁の PUK を選び、安全に保管してください。ロックされた PIN のリセットに使います。',
       vault_touch_when_blinks: 'キーが点滅したら金色の接点にタッチしてください。',
-      vault_nfc_activation_hint: 'このYubiKeyを初めて使いますか？まず数秒間USB-Cポートに挿してください——新しいキーはNFCが無効の状態で出荷され、挿すまで有効になりません。',
+      vault_nfc_activation_hint:
+        'このYubiKeyを初めて使いますか？まず数秒間USB-Cポートに挿してください——新しいキーはNFCが無効の状態で出荷され、挿すまで有効になりません。',
       vault_continue: '続ける',
       vault_enrolled_toast: '保管庫の準備ができました',
       vault_insert_key: 'YubiKey を挿入してください',
@@ -7357,24 +7682,31 @@ const resources = {
       vault_err_wrong_key: 'この YubiKey はこの保管庫の鍵ではありません。',
       vault_err_serial_mismatch: 'この YubiKey はこの保管庫の鍵ではありません（{{names}}）。',
       vault_err_touch_timeout: 'タッチが検出されませんでした。もう一度金色の接点にタッチしてください。',
-      vault_err_pin_locked: 'この YubiKey の PIN はブロックされています。別の保管庫の鍵を使うか、Yubico Authenticator で PUK を使って解除してください。',
+      vault_err_pin_locked:
+        'この YubiKey の PIN はブロックされています。別の保管庫の鍵を使うか、Yubico Authenticator で PUK を使って解除してください。',
       vault_err_pin_invalid: 'PIN が正しくありません。',
       vault_err_puk_invalid: 'PUK が正しくありません。',
       vault_err_puk_locked: 'この YubiKey の PUK はブロックされています。新しい YubiKey を使用してください。',
       vault_err_ceremony_active: '別の保管庫操作がまだ YubiKey を使用しています。完了を待ってから再試行してください。',
-      vault_err_scope_changed: 'この操作中にウォレットまたはネットワークが変わりました。現在のウォレットでもう一度開始してください。',
+      vault_err_scope_changed:
+        'この操作中にウォレットまたはネットワークが変わりました。現在のウォレットでもう一度開始してください。',
       vault_err_key_removed_mid_op: 'キーが取り外されました。挿入してもう一度お試しください。',
       vault_err_no_key: 'YubiKey が検出されませんでした。',
       vault_err_driver_unavailable: 'このデバイスでは YubiKey がサポートされていません。',
       vault_err_mgmt_key_custom: 'このキーにはカスタム管理キーが設定されており、自動的に使用できません。',
-      vault_err_attestation_invalid: 'この YubiKey のメーカー証明を検証できませんでした。PIV 証明スロットが変更されていない、工場証明済みの正規 YubiKey を使用してください。',
+      vault_err_attestation_invalid:
+        'この YubiKey のメーカー証明を検証できませんでした。PIV 証明スロットが変更されていない、工場証明済みの正規 YubiKey を使用してください。',
       vault_err_generic: '問題が発生しました。もう一度お試しください。',
       vault_err_template_invalid: '保管庫へのアクセス中に問題が発生しました。もう一度お試しください。',
       vault_err_not_enrolled: '保管庫が設定されていません。',
       vault_err_pin_required: 'PIN を入力してください。',
       vault_err_unsupported_platform: 'このデバイスでは YubiKey がサポートされていません。',
       vault_err_slot_occupied: 'キースロットはすでに使用されています。',
-      vault_err_enrollment_partial: '鍵の変更後に YubiKey の設定が停止しました。再試行の案内に従ってください。この鍵は保管庫に追加されていません。',
+      vault_replace_key_warning:
+        '置き換えると既存の P-256 秘密鍵は完全に破棄されます。その鍵を必要とする保管庫の残高は使用できなくなる可能性があります。',
+      vault_replace_key_confirm: '既存のキーを置き換える',
+      vault_err_enrollment_partial:
+        '鍵の変更後に YubiKey の設定が停止しました。再試行の案内に従ってください。この鍵は保管庫に追加されていません。',
       vault_err_key_not_adopted: '復元したこの YubiKey を出金に使う前に、このデバイスで所持を確認してください。',
       vault_err_too_many_inputs:
         '一度に移動する保管庫の預入が多すぎます。まず少額を引き出してください — 引き出しごとに保管庫が統合されるため、次はより多く移動できます。',
@@ -7823,7 +8155,8 @@ const resources = {
       pay_offline_kv_pending: 'このウォレットへの追加を待っている近くの支払いが {{count}} 件あります。',
       pay_offline_kv_stuck: '{{count}} 件の近くの支払いを追加できませんでした。送り主に再送を依頼してください。',
       pay_offline_kv_corrupt: 'この端末で破損した支払いデータが見つかりました。',
-      pay_offline_kv_corrupt_body: '該当する支払いはこの端末に取り分けてあり、削除されていません。すでに残高に加算されているものもあるため、支払いがまだ届いていない場合にのみ、送り主に再送を依頼してください。',
+      pay_offline_kv_corrupt_body:
+        '該当する支払いはこの端末に取り分けてあり、削除されていません。すでに残高に加算されているものもあるため、支払いがまだ届いていない場合にのみ、送り主に再送を依頼してください。',
       pay_offline_show_code: 'コードをもう一度表示',
       pay_parked_cancel: '支払いをキャンセル',
       pay_parked_already_sent: 'この支払いはすでに送信されました',
@@ -7927,7 +8260,8 @@ const resources = {
       vault_title: 'Sejf',
       vault_row_title: 'Sejf',
       vault_hero_title: 'Bezpieczne środki',
-      vault_hero_body: 'Zimne przechowywanie na długi termin, zablokowane Twoimi własnymi kluczami YubiKey. Wymaga dwóch lub więcej YubiKey 5 NFC.',
+      vault_hero_body:
+        'Zimne przechowywanie na długi termin, zablokowane Twoimi własnymi kluczami YubiKey. Wymaga dwóch lub więcej YubiKey 5 NFC.',
       vault_unsupported_title: 'Wymaga YubiKey',
       vault_unsupported_body: 'Dwa lub więcej YubiKey 5 NFC oraz telefon, który potrafi je odczytać.',
       vault_balance_label: 'sejf zawiera',
@@ -7947,17 +8281,23 @@ const resources = {
       // ── R1C vault: not-released state, wizard, key management, transfers ──
       vault_not_released_body: 'Jeszcze niedostępne — wpłaty do sejfu są wyłączone w tym wydaniu.',
       vault_intro_title: 'Skonfiguruj swój sejf',
-      vault_intro_what: 'Sejf zamyka pieniądze Twoimi własnymi kluczami YubiKey. Żaden fragment klucza sejfu nigdy nie istnieje na tym telefonie; otwiera go dowolny z Twoich kluczy.',
+      vault_intro_what:
+        'Sejf zamyka pieniądze Twoimi własnymi kluczami YubiKey. Żaden fragment klucza sejfu nigdy nie istnieje na tym telefonie; otwiera go dowolny z Twoich kluczy.',
       vault_intro_two_keys: 'Potrzebujesz co najmniej dwóch kluczy YubiKey.',
       vault_intro_apart: 'Trzymaj je w różnych miejscach — dwa klucze przechowywane razem to jeden klucz.',
-      vault_intro_backup: 'Zostaw włączoną zaszyfrowaną kopię zapasową portfela — zachowuje ona uwierzytelniony zapis odzyskiwania.',
-      vault_intro_ack: 'Rozumiem: ten sejf otwierają tylko moje klucze YubiKey. Moja fraza odzyskiwania — nie. Jeśli stracę je wszystkie, pieniądze przepadną.',
-      vault_intro_piv_ack: 'Potwierdzam, że cała aplikacja PIV tego YubiKey została przywrócona do ustawień fabrycznych albo jest przeznaczona wyłącznie do sejfu. Konfiguracja zmienia globalny PIN, PUK i klucz zarządzania PIV, może wpłynąć na wszystkie sloty PIV, a nowy PUK zapiszę w bezpiecznym miejscu.',
+      vault_intro_backup:
+        'Zostaw włączoną zaszyfrowaną kopię zapasową portfela — zachowuje ona uwierzytelniony zapis odzyskiwania.',
+      vault_intro_ack:
+        'Rozumiem: ten sejf otwierają tylko moje klucze YubiKey. Moja fraza odzyskiwania — nie. Jeśli stracę je wszystkie, pieniądze przepadną.',
+      vault_intro_piv_ack:
+        'Potwierdzam, że cała aplikacja PIV tego YubiKey została przywrócona do ustawień fabrycznych albo jest przeznaczona wyłącznie do sejfu. Konfiguracja zmienia globalny PIN, PUK i klucz zarządzania PIV, może wpłynąć na wszystkie sloty PIV, a nowy PUK zapiszę w bezpiecznym miejscu.',
       vault_intro_begin: 'Rozpocznij',
       vault_key_step_title: 'Klucz {{k}} z maks. 5',
-      vault_key_step_replace: 'Użyj YubiKey przywróconego do ustawień fabrycznych i przeznaczonego dla sejfu. Konfiguracja zatrzyma się, jeśli którykolwiek slot PIV jest zajęty.',
+      vault_key_step_replace:
+        'Użyj YubiKey przywróconego do ustawień fabrycznych i przeznaczonego dla sejfu. Konfiguracja zatrzyma się, jeśli którykolwiek slot PIV jest zajęty.',
       vault_enrollment_resume: 'Wznów zapisany klucz',
-      vault_enrollment_reset_required: 'Konfiguracja PIV tego YubiKey zakończyła się w niepewnym stanie. Nie zgaduj danych i nie próbuj ponownie, bo możesz zablokować całą aplikację PIV. Użyj innego klucza, a ten odzyskaj lub zresetuj z pomocą administratora.',
+      vault_enrollment_reset_required:
+        'Konfiguracja PIV tego YubiKey zakończyła się w niepewnym stanie. Nie zgaduj danych i nie próbuj ponownie, bo możesz zablokować całą aplikację PIV. Użyj innego klucza, a ten odzyskaj lub zresetuj z pomocą administratora.',
       vault_nfc_enroll_message: 'Przyłóż tutaj klucz YubiKey, aby go skonfigurować',
       vault_nfc_adopt_message: 'Przyłóż tutaj odzyskany klucz YubiKey, aby go zweryfikować',
       vault_nfc_sign_batch: 'Przyłóż tutaj klucz YubiKey, aby podpisać — partia {{b}} z {{n}}',
@@ -7973,23 +8313,28 @@ const resources = {
       vault_more_need_two: 'Dodaj drugi klucz przed zakończeniem — jeden klucz oznacza brak odzyskiwania.',
       vault_leave_setup: 'Opuść konfigurację',
       vault_leave_title: 'Opuścić konfigurację?',
-      vault_leave_body: 'Skonfigurowane klucze YubiKey ({{count}}) nie zostaną jeszcze zapisane. Zachowują swoje klucze, więc za chwilę możesz dodać je ponownie.',
+      vault_leave_body:
+        'Skonfigurowane klucze YubiKey ({{count}}) nie zostaną jeszcze zapisane. Zachowują swoje klucze, więc za chwilę możesz dodać je ponownie.',
       vault_leave_confirm: 'Opuść',
       vault_leave_stay: 'Zostań',
-      vault_done_body: '{{count}} kluczy może otworzyć ten sejf. Otwierają go tylko te klucze — Twoja fraza odzyskiwania nie.',
+      vault_done_body:
+        '{{count}} kluczy może otworzyć ten sejf. Otwierają go tylko te klucze — Twoja fraza odzyskiwania nie.',
       vault_done_cta: 'Gotowe',
       vault_add_key_row: 'Dodaj klucz',
-      vault_add_key_done: '{{nickname}} może otwierać wpłaty dokonane od teraz. Zablokuj sejf ponownie, aby mógł otworzyć wszystko.',
+      vault_add_key_done:
+        '{{nickname}} może otwierać wpłaty dokonane od teraz. Zablokuj sejf ponownie, aby mógł otworzyć wszystko.',
       vault_key_added_toast: 'Klucz dodany',
       vault_recovery_verified: 'Odzyskany klucz zweryfikowano na tym urządzeniu',
       vault_relock_row: 'Zablokuj sejf ponownie',
       vault_relock_now: 'Zablokuj ponownie teraz',
       vault_relock_choose: 'Który klucz przyłożysz, aby zablokować ponownie?',
       vault_relock_reason: 'Przyłóż jeden z istniejących kluczy ({{names}}) — nie ten, który właśnie dodałeś.',
-      vault_relock_reason_generic: 'Przyłóż tutaj klucz YubiKey, aby podpisać — zablokuj sejf ponownie na obecne klucze',
+      vault_relock_reason_generic:
+        'Przyłóż tutaj klucz YubiKey, aby podpisać — zablokuj sejf ponownie na obecne klucze',
       vault_relock_done: 'Sejf zablokowany ponownie na obecne klucze',
       vault_relock_capped: 'Pozostało jeszcze {{count}} wpłat — zablokuj ponownie, aby je przenieść.',
-      vault_relock_unreachable: '{{count}} wpłat może otworzyć tylko {{names}}. Zablokuj ponownie jednym z tych kluczy.',
+      vault_relock_unreachable:
+        '{{count}} wpłat może otworzyć tylko {{names}}. Zablokuj ponownie jednym z tych kluczy.',
       vault_badge_missing: '{{count}} wpłat jeszcze nieotwartych dla {{nickname}}',
       vault_badge_removed: '{{count}} wpłat nadal otwartych dla usuniętego klucza',
       vault_key_action_rename: 'Zmień nazwę',
@@ -7997,37 +8342,50 @@ const resources = {
       vault_rename_title: 'Zmień nazwę {{nickname}}',
       vault_rename_save: 'Zapisz',
       vault_remove_title: 'Usunąć {{nickname}}?',
-      vault_remove_body: 'Portfel przestanie używać {{nickname}}. Pieniądze już w sejfie pozostają dostępne dla tego klucza do ponownego zablokowania (≈ {{fee}} sat).',
+      vault_remove_body:
+        'Portfel przestanie używać {{nickname}}. Pieniądze już w sejfie pozostają dostępne dla tego klucza do ponownego zablokowania (≈ {{fee}} sat).',
       vault_remove_only: 'Tylko usuń',
       vault_key_removed_toast: 'Klucz usunięty',
-      vault_export_explainer: 'Skrypt blokujący każdej wpłaty do sejfu zawiera publiczną sól unikalności. Zostaw włączoną zaszyfrowaną kopię zapasową, aby nowe urządzenie mogło przywrócić i uwierzytelnić zapisy kluczy potrzebne do użycia Twoich YubiKey.',
+      vault_export_explainer:
+        'Skrypt blokujący każdej wpłaty do sejfu zawiera publiczną sól unikalności. Zostaw włączoną zaszyfrowaną kopię zapasową, aby nowe urządzenie mogło przywrócić i uwierzytelnić zapisy kluczy potrzebne do użycia Twoich YubiKey.',
       vault_footnote: 'Sejf otwierają tylko te klucze. Twoja fraza odzyskiwania — nie.',
-      vault_floor_line: 'Minimalna wpłata {{floorDisplay}} ({{floorSats}} sat). Utworzenie wpłaty do sejfu kosztuje około {{feeDisplay}}.',
+      vault_floor_line:
+        'Minimalna wpłata {{floorDisplay}} ({{floorSats}} sat). Utworzenie wpłaty do sejfu kosztuje około {{feeDisplay}}.',
       vault_first_deposit_title: 'Pierwsza wpłata do sejfu',
-      vault_first_deposit_body: 'Pierwsza wpłata do sejfu — {{amount}} będzie można otworzyć tylko {{count}} kluczami YubiKey ({{names}}). Twoja fraza odzyskiwania nie pomoże.',
+      vault_first_deposit_body:
+        'Pierwsza wpłata do sejfu — {{amount}} będzie można otworzyć tylko {{count}} kluczami YubiKey ({{names}}). Twoja fraza odzyskiwania nie pomoże.',
       vault_backup_off_title: 'Włącz prywatną kopię',
-      vault_backup_off_body: 'Prywatna kopia musi być włączona, zanim portfel utworzy nowe wyjście sejfu. Przechowuje uwierzytelnione zapisy YubiKey i historię portfela potrzebne do odzyskania. Nadal możesz wypłacić wszystko bez tworzenia reszty w sejfie.',
+      vault_backup_off_body:
+        'Prywatna kopia musi być włączona, zanim portfel utworzy nowe wyjście sejfu. Przechowuje uwierzytelnione zapisy YubiKey i historię portfela potrzebne do odzyskania. Nadal możesz wypłacić wszystko bez tworzenia reszty w sejfie.',
       vault_backup_off_cta: 'Otwórz ustawienia kopii',
       vault_choose_key: 'Który klucz przyłożysz?',
       vault_remainder_title: 'Wypłacić wszystko?',
-      vault_remainder_body: 'Wypłata {{amount}} pozostawia {{remainder}}, czyli mniej niż minimum sejfu 100 000 sat. Cały sejf przejdzie na Twoje codzienne saldo.',
+      vault_remainder_body:
+        'Wypłata {{amount}} pozostawia {{remainder}}, czyli mniej niż minimum sejfu 100 000 sat. Cały sejf przejdzie na Twoje codzienne saldo.',
       vault_remainder_all: 'Wypłać wszystko',
       vault_remainder_change: 'Zmień kwotę',
       vault_unreachable_title: 'Część sejfu wymaga innego klucza',
-      vault_unreachable_body: 'Część sejfu wymaga innego klucza — przeniesiono {{moved}}. {{count}} wpłat o wartości {{amount}} może otworzyć tylko {{names}}. Wypłać ponownie jednym z tych kluczy.',
+      vault_unreachable_body:
+        'Część sejfu wymaga innego klucza — przeniesiono {{moved}}. {{count}} wpłat o wartości {{amount}} może otworzyć tylko {{names}}. Wypłać ponownie jednym z tych kluczy.',
       vault_sign_progress: 'Podpisano {{signed}} z {{total}}',
-      vault_err_pin_locked_enroll: 'PIN tego klucza YubiKey jest zablokowany. Odblokuj go kodem PUK w Yubico Authenticator lub skonfiguruj inny klucz YubiKey.',
-      vault_err_serial_mismatch_chosen: 'To {{tappedName}}. Wybrałeś {{chosenName}} — przyłóż go albo wróć i wybierz {{tappedName}}.',
+      vault_err_pin_locked_enroll:
+        'PIN tego klucza YubiKey jest zablokowany. Odblokuj go kodem PUK w Yubico Authenticator lub skonfiguruj inny klucz YubiKey.',
+      vault_err_serial_mismatch_chosen:
+        'To {{tappedName}}. Wybrałeś {{chosenName}} — przyłóż go albo wróć i wybierz {{tappedName}}.',
       vault_err_key_already_enrolled: 'Ten klucz YubiKey ({{nickname}}) został już dodany. Przyłóż inny.',
       vault_err_not_released: 'Wpłaty do sejfu są wyłączone w tym wydaniu.',
-      vault_err_backup_off: 'Włącz zaszyfrowaną prywatną kopię przed utworzeniem nowego wyjścia sejfu. Nadal możesz wypłacić wszystko.',
+      vault_err_backup_off:
+        'Włącz zaszyfrowaną prywatną kopię przed utworzeniem nowego wyjścia sejfu. Nadal możesz wypłacić wszystko.',
       vault_err_not_enough_keys: 'Ten sejf ma mniej niż dwa klucze. Skonfiguruj go ponownie.',
       vault_err_too_many_keys: 'Sejf może mieć najwyżej pięć kluczy.',
       vault_err_last_keys: 'Sejf wymaga co najmniej dwóch kluczy. Dodaj inny klucz, zanim usuniesz ten.',
       vault_err_relock_required: 'Najpierw zablokuj sejf ponownie, aby pozostałe klucze mogły otworzyć każdą wpłatę.',
-      vault_err_key_not_committed: '{{nickname}} nie może otworzyć żadnej wpłaty w tym sejfie. Użyj innego klucza sejfu.',
-      vault_err_key_cannot_cover: '{{nickname}} może otworzyć {{reachable}} z {{total}} w sejfie. Wypłać do {{reachable}} albo użyj {{otherNames}}.',
-      vault_err_too_small_to_relock: 'Ten sejf zawiera mniej niż 100 000 sat — za mało, by zablokować go ponownie. Zamiast tego wypłać i wpłać ponownie.',
+      vault_err_key_not_committed:
+        '{{nickname}} nie może otworzyć żadnej wpłaty w tym sejfie. Użyj innego klucza sejfu.',
+      vault_err_key_cannot_cover:
+        '{{nickname}} może otworzyć {{reachable}} z {{total}} w sejfie. Wypłać do {{reachable}} albo użyj {{otherNames}}.',
+      vault_err_too_small_to_relock:
+        'Ten sejf zawiera mniej niż 100 000 sat — za mało, by zablokować go ponownie. Zamiast tego wypłać i wpłać ponownie.',
       vault_err_bad_version: 'Transakcja została zbudowana w złym formacie. Nic nie podpisano — spróbuj ponownie.',
       vault_shares_unavailable: 'Brak materiału klucza do wydrukowania.',
       vault_enroll_begin: 'Skonfiguruj sejf',
@@ -8039,9 +8397,11 @@ const resources = {
       vault_set_new_pin: 'Ustaw nowy PIN',
       vault_default_pin_warning: 'Twój klucz nadal ma domyślny PIN. Wybierz nowy (6–8 cyfr).',
       vault_set_new_puk: 'Ustaw nowy PUK',
-      vault_default_puk_warning: 'Wybierz osobny PUK z 6–8 cyfr i zapisz go bezpiecznie; pozwala zresetować zablokowany PIN.',
+      vault_default_puk_warning:
+        'Wybierz osobny PUK z 6–8 cyfr i zapisz go bezpiecznie; pozwala zresetować zablokowany PIN.',
       vault_touch_when_blinks: 'Dotknij złotego styku, gdy klucz zamiga.',
-      vault_nfc_activation_hint: 'Pierwszy raz używasz tego YubiKey? Podłącz go najpierw do portu USB-C na kilka sekund — nowe klucze są wysyłane z wyłączonym NFC, dopóki to nie nastąpi.',
+      vault_nfc_activation_hint:
+        'Pierwszy raz używasz tego YubiKey? Podłącz go najpierw do portu USB-C na kilka sekund — nowe klucze są wysyłane z wyłączonym NFC, dopóki to nie nastąpi.',
       vault_continue: 'Kontynuuj',
       vault_enrolled_toast: 'Sejf gotowy',
       vault_insert_key: 'Włóż YubiKey',
@@ -8068,25 +8428,34 @@ const resources = {
       vault_err_wrong_key: 'Ten klucz YubiKey nie jest jednym z kluczy tego sejfu.',
       vault_err_serial_mismatch: 'Ten klucz YubiKey nie jest jednym z kluczy tego sejfu ({{names}}).',
       vault_err_touch_timeout: 'Nie wykryto dotknięcia. Spróbuj ponownie i dotknij złotego styku.',
-      vault_err_pin_locked: 'PIN tego klucza YubiKey jest zablokowany. Użyj innego klucza sejfu albo odblokuj ten kodem PUK w Yubico Authenticator.',
+      vault_err_pin_locked:
+        'PIN tego klucza YubiKey jest zablokowany. Użyj innego klucza sejfu albo odblokuj ten kodem PUK w Yubico Authenticator.',
       vault_err_pin_invalid: 'Nieprawidłowy PIN.',
       vault_err_puk_invalid: 'Nieprawidłowy PUK.',
       vault_err_puk_locked: 'PUK tego klucza YubiKey jest zablokowany. Użyj nowego klucza YubiKey.',
-      vault_err_ceremony_active: 'Inna operacja sejfu nadal używa klucza YubiKey. Poczekaj na jej zakończenie i spróbuj ponownie.',
-      vault_err_scope_changed: 'Podczas tej operacji zmienił się portfel lub sieć. Zacznij ponownie w bieżącym portfelu.',
+      vault_err_ceremony_active:
+        'Inna operacja sejfu nadal używa klucza YubiKey. Poczekaj na jej zakończenie i spróbuj ponownie.',
+      vault_err_scope_changed:
+        'Podczas tej operacji zmienił się portfel lub sieć. Zacznij ponownie w bieżącym portfelu.',
       vault_err_key_removed_mid_op: 'Klucz został wyjęty. Włóż go i spróbuj ponownie.',
       vault_err_no_key: 'Nie wykryto YubiKey.',
       vault_err_driver_unavailable: 'Obsługa YubiKey jest niedostępna na tym urządzeniu.',
       vault_err_mgmt_key_custom: 'Ten klucz ma niestandardowy klucz zarządzania i nie może być użyty automatycznie.',
-      vault_err_attestation_invalid: 'Nie udało się zweryfikować atestacji producenta tego klucza YubiKey. Użyj oryginalnego, fabrycznie atestowanego klucza YubiKey z niezmienionym gniazdem atestacji PIV.',
+      vault_err_attestation_invalid:
+        'Nie udało się zweryfikować atestacji producenta tego klucza YubiKey. Użyj oryginalnego, fabrycznie atestowanego klucza YubiKey z niezmienionym gniazdem atestacji PIV.',
       vault_err_generic: 'Coś poszło nie tak. Spróbuj ponownie.',
       vault_err_template_invalid: 'Coś poszło nie tak przy próbie dostępu do sejfu. Spróbuj ponownie.',
       vault_err_not_enrolled: 'Nie skonfigurowano żadnego sejfu.',
       vault_err_pin_required: 'Wprowadź PIN.',
       vault_err_unsupported_platform: 'Obsługa YubiKey jest niedostępna na tym urządzeniu.',
       vault_err_slot_occupied: 'Gniazdo klucza jest już zajęte.',
-      vault_err_enrollment_partial: 'Konfiguracja YubiKey zatrzymała się po zmianie klucza. Postępuj zgodnie z instrukcją ponowienia; klucz nie został dodany do sejfu.',
-      vault_err_key_not_adopted: 'Zweryfikuj posiadanie odzyskanego klucza YubiKey na tym urządzeniu przed użyciem go do wypłaty.',
+      vault_replace_key_warning:
+        'Zastąpienie trwale niszczy istniejący klucz prywatny P-256. Środki w sejfie wymagające tego klucza mogą stać się niemożliwe do wydania.',
+      vault_replace_key_confirm: 'Zastąp istniejący klucz',
+      vault_err_enrollment_partial:
+        'Konfiguracja YubiKey zatrzymała się po zmianie klucza. Postępuj zgodnie z instrukcją ponowienia; klucz nie został dodany do sejfu.',
+      vault_err_key_not_adopted:
+        'Zweryfikuj posiadanie odzyskanego klucza YubiKey na tym urządzeniu przed użyciem go do wypłaty.',
       vault_err_too_many_inputs:
         'Zbyt wiele wpłat sejfu do przeniesienia naraz. Najpierw wypłać mniejszą kwotę — każda wypłata konsoliduje też sejf, więc następna przeniesie więcej.',
       vault_err_requires_online:
@@ -8544,7 +8913,8 @@ const resources = {
       pay_offline_kv_pending: 'Płatności w pobliżu czekające na dodanie do tego portfela: {{count}}.',
       pay_offline_kv_stuck: 'Nie udało się dodać {{count}} płatności w pobliżu. Poproś nadawcę o ponowne wysłanie.',
       pay_offline_kv_corrupt: 'Na tym urządzeniu znaleziono uszkodzone dane płatności.',
-      pay_offline_kv_corrupt_body: 'Objęte tym płatności zostały odłożone na tym urządzeniu, a nie usunięte. Część z nich mogła już trafić do Twojego salda, więc poproś nadawcę o ponowne wysłanie tylko wtedy, gdy jego płatność nadal nie dotarła.',
+      pay_offline_kv_corrupt_body:
+        'Objęte tym płatności zostały odłożone na tym urządzeniu, a nie usunięte. Część z nich mogła już trafić do Twojego salda, więc poproś nadawcę o ponowne wysłanie tylko wtedy, gdy jego płatność nadal nie dotarła.',
       pay_offline_show_code: 'Pokaż kod ponownie',
       pay_parked_cancel: 'Anuluj płatność',
       pay_parked_already_sent: 'Ta płatność została już wysłana',
