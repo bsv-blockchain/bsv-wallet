@@ -189,17 +189,17 @@ async function requireEmptyVaultSlot(serial: string, pin: string, allowReplaceme
   const readable = await driver.readVaultPublicKey(serial)
   if (readable) {
     if (allowReplacement) return
-    throw new VaultError('slot-occupied', 'Vault slot already contains a key')
+    throw withSerial(new VaultError('slot-occupied', 'Vault slot already contains a key'), serial)
   }
   try {
     await driver.signEcdsa(serial, pin, Utils.toHex(randomBytes(32)))
     if (allowReplacement) return
-    throw new VaultError('slot-occupied', 'Vault slot already contains a key')
+    throw withSerial(new VaultError('slot-occupied', 'Vault slot already contains a key'), serial)
   } catch (e) {
     if (e instanceof VaultError && e.code === 'no-key') return
     if (e instanceof VaultError && (e.code === 'key-removed-mid-op' || e.code === 'nfc-lost')) throw e
     if (e instanceof VaultError && e.code === 'slot-occupied') throw e
-    throw new VaultError('slot-occupied', 'Vault slot is not provably empty')
+    throw withSerial(new VaultError('slot-occupied', 'Vault slot is not provably empty'), serial)
   }
 }
 
@@ -379,7 +379,10 @@ export async function enrollKey(args: {
             } catch (storageError) {
               throw new VaultEnrollmentPartialError('pin-change-uncertain', storageError, undefined, true)
             }
-            throw e
+            // Symmetric with the changePuk twin below: a definite credential
+            // rejection leaves the card unchanged, so it reaches the UI as a
+            // plain pin-invalid/pin-locked and must name the key it came from.
+            throw withSerial(e, info.serial)
           }
           throw new VaultEnrollmentPartialError('pin-change-uncertain', e, undefined, true)
         }

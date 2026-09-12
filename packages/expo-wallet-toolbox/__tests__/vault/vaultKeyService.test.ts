@@ -730,6 +730,96 @@ describe('enrollKey', () => {
     })
   })
 
+  // The three tests below pin the slot PROBE, not the preflight. Preflight now
+  // runs first and refuses an occupied card before the probe is reached, so
+  // without these the probe's refusals are unreachable from any test and could
+  // be deleted unnoticed. The probe is the iOS-safe second line: it catches a
+  // slot key that native cannot attest or even read back — an imported key, an
+  // overwritten attestation slot, an ambiguous transport — which is exactly the
+  // case where preflight says "I cannot prove this slot is occupied".
+  const preflightPasses = (key: MockYubiKey = mock) =>
+    jest.spyOn(key, 'preflightDedicatedPiv').mockResolvedValue({
+      ok: true,
+      inspection: 'metadata',
+      manufacturerAttestation: 'verified'
+    })
+
+  test('the slot probe refuses a readable slot key that preflight waved through', async () => {
+    mock.occupySlot()
+    const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
+    preflightPasses()
+    const changePuk = jest.spyOn(mock, 'changePuk')
+    const generate = jest.spyOn(mock, 'generateVaultKey')
+
+    await expect(enrollKey(args())).rejects.toMatchObject({
+      code: 'slot-occupied',
+      details: { serial: 'MOCK-1' }
+    })
+
+    expect(changePuk).not.toHaveBeenCalled()
+    expect(generate).not.toHaveBeenCalled()
+    expect((await mock.readVaultPublicKey('MOCK-1'))!.publicKey).toBe(existing)
+  })
+
+  test('the slot probe refuses a slot whose certificate reads back even when nothing signs', async () => {
+    // A PIV slot can hold a certificate whose private key is gone or never
+    // matched: the public key reads back, but a signature attempt answers
+    // no-key — which the probe alone would read as "empty, generate away".
+    // That readable key is what recovery binds to, so the slot is occupied.
+    // This is the one case the signing probe cannot backstop, so it is what
+    // holds the certificate-read refusal in place.
+    jest.spyOn(mock, 'readVaultPublicKey').mockResolvedValue({ publicKey: rec(3).pubkey })
+    const generate = jest.spyOn(mock, 'generateVaultKey')
+
+    await expect(enrollKey(args())).rejects.toMatchObject({
+      code: 'slot-occupied',
+      details: { serial: 'MOCK-1' }
+    })
+
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  test('the slot probe refuses a slot only a signature can prove is occupied (the iOS case)', async () => {
+    mock.occupySlot()
+    preflightPasses()
+    // YubiKit 4.4 cannot read retired-slot metadata: the read comes back empty
+    // even though the slot holds a key that signs perfectly well.
+    jest.spyOn(mock, 'readVaultPublicKey').mockResolvedValue(null)
+    const generate = jest.spyOn(mock, 'generateVaultKey')
+
+    await expect(enrollKey(args())).rejects.toMatchObject({
+      code: 'slot-occupied',
+      details: { serial: 'MOCK-1' }
+    })
+
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  test('the slot probe refuses a slot it cannot prove empty when the probe itself fails', async () => {
+    // Neither a readable key nor a clean no-key answer: only the card's explicit
+    // no-key response may authorize generating over slot 0x82.
+    jest.spyOn(mock, 'signEcdsa').mockRejectedValueOnce(new VaultError('touch-timeout', 'Touch not detected'))
+    const generate = jest.spyOn(mock, 'generateVaultKey')
+
+    const err = await enrollKey(args()).catch(e => e)
+    expect(err).toMatchObject({ code: 'slot-occupied', details: { serial: 'MOCK-1' } })
+    expect(err.message).toBe('Vault slot is not provably empty')
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  test('a definite PIN rejection from the PIN change carries the serial', async () => {
+    // Low-reachability (the same PIN verified moments earlier) and therefore
+    // exactly the path that would never be caught in manual testing. The reset
+    // offer must not have to guess which pin-invalid names a key.
+    jest.spyOn(mock, 'changePin').mockRejectedValueOnce(new VaultError('pin-invalid', 'Wrong PIN', 2))
+
+    await expect(enrollKey(args())).rejects.toMatchObject({
+      code: 'pin-invalid',
+      retriesLeft: 2,
+      details: { serial: 'MOCK-1' }
+    })
+  })
+
   test('malformed key material after generation is an explicit partial state and the occupied slot is not retried', async () => {
     const realGenerate = mock.generateVaultKey.bind(mock)
     const generate = jest.spyOn(mock, 'generateVaultKey').mockImplementationOnce(async slot => {
