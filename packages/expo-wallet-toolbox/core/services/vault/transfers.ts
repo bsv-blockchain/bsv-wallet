@@ -6,8 +6,8 @@
  * Deposit: NO hardware. A vault output has a wallet-derived HMAC salt and one
  * comb commitment for every enrolled key. The HMAC uses [2, "vault salt"],
  * counterparty "self", the rolling key ID "1", "2", ... and the canonically
- * framed YubiKey serials in commitment order. The salt is baked into the lock;
- * versioned customInstructions retain the derivation ID, salt and full key
+ * framed YubiKey serials in commitment order. The lock contains only salted
+ * table commitments; versioned customInstructions retain the derivation ID, salt and full key
  * records for authenticated indexing and recovery. Funding and change stay
  * with the toolbox, out of the default basket. The release and private-backup
  * configuration gates must be enabled before creating any vault output.
@@ -36,9 +36,9 @@
  *
  * SECURITY: no private key material passes through this module — ever. A VaultSigner
  * (serial, public key, sign()) arrives from ceremonyHost for the length of ONE
- * withdrawal or re-lock and is released in a finally. Each salt is public in
- * its locking script as soon as the output is published; it provides domain
- * separation between locks, not secrecy.
+ * withdrawal or re-lock and is released in a finally. Each salt is revealed
+ * only by a spend's unlocking script; it provides domain separation between
+ * locks, not spending authority.
  */
 import { Beef, Hash, LockingScript, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { isBackupPushEnabled } from '../../backup/preference'
@@ -51,7 +51,6 @@ import {
   SALT_BYTES,
   VaultInstructions,
   bakedCommitments,
-  bakedSalt,
   buildLock,
   buildUnlock,
   commitment,
@@ -387,19 +386,18 @@ interface VerifiedVaultOutput {
 
 function verifyInstructionsAgainstLock(ci: VaultInstructions, lockingScript: LockingScript, where: string): void {
   let baked: string[]
-  let salt: string
   try {
     baked = bakedCommitments(lockingScript)
-    salt = bakedSalt(lockingScript)
   } catch {
     throw new VaultError('template-invalid', `${where} is not an R1C lock`)
-  }
-  if (salt !== ci.salt) {
-    throw new VaultError('template-invalid', `${where} recovery salt does not match its real lock`)
   }
   const expected = ci.keys.map(key => commitment(key.pubkey, ci.salt))
   if (baked.length !== expected.length || baked.some((c, i) => c !== expected[i])) {
     throw new VaultError('template-invalid', `${where} recovery metadata does not match its real lock`)
+  }
+  const rebuilt = buildLock({ commitments: expected, saltHex64: ci.salt })
+  if (rebuilt.toHex() !== lockingScript.toHex()) {
+    throw new VaultError('template-invalid', `${where} recovery metadata does not rebuild its real lock`)
   }
 }
 
@@ -760,9 +758,8 @@ function isR1CSourceScript(scriptHex: string | undefined): boolean {
   if (!scriptHex) return false
   try {
     const lock = LockingScript.fromHex(scriptHex)
-    const salt = bakedSalt(lock)
     const commitments = bakedCommitments(lock)
-    return /^[0-9a-f]{64}$/.test(salt) && commitments.length >= 1 && commitments.length <= 5
+    return commitments.length >= 1 && commitments.length <= 5
   } catch {
     return false
   }
@@ -825,6 +822,7 @@ async function inspectHiddenVaultReservations(
 interface VaultSaltInventory {
   derivationClaims: Map<string, { saltKeyId: string; serials: string[]; salt: string }>
   outputFingerprints: Map<string, string>
+  outputRecords: Map<string, { lockingScript: string; pubkeys: Set<string> }>
   maxKeyIndex: number
 }
 
@@ -832,6 +830,7 @@ function emptyVaultSaltInventory(): VaultSaltInventory {
   return {
     derivationClaims: new Map(),
     outputFingerprints: new Map(),
+    outputRecords: new Map(),
     maxKeyIndex: 0
   }
 }
@@ -881,6 +880,10 @@ function rememberVaultSalt(
   const claimId = JSON.stringify([ci.saltKeyId, Utils.toHex(vaultSaltHmacData(serials)), ci.salt])
   inventory.derivationClaims.set(claimId, { saltKeyId: ci.saltKeyId, serials, salt: ci.salt })
   inventory.outputFingerprints.set(outputId, outputFingerprint)
+  inventory.outputRecords.set(outputId.toLowerCase(), {
+    lockingScript: lock.toHex(),
+    pubkeys: new Set(ci.keys.map(key => key.pubkey))
+  })
   inventory.maxKeyIndex = Math.max(inventory.maxKeyIndex, saltKeyIndex(ci))
 }
 
@@ -914,7 +917,7 @@ async function deriveVaultSalt(
 
 /** Do not let unauthenticated derivation metadata choose the next HD index.
  * Every current or historical key ID and ordered serial list must reproduce
- * its baked salt before its index may advance the high-water mark. */
+ * its recorded HMAC salt before its index may advance the high-water mark. */
 async function verifyVaultSaltDerivations(
   w: VaultWallet,
   adminOriginator: string,
@@ -1246,7 +1249,7 @@ export async function getVaultBalance(w: VaultWallet, adminOriginator: string): 
 }
 
 /** Restore a missing scoped cache only from currently spendable outputs whose
- * real source values, exact R1C locks, baked salts, v6 recovery records, and
+ * real source values, exact R1C locks, salted commitments, v6 recovery records, and
  * wallet salt-key derivations all authenticate. Conflict selection belongs to
  * VaultKeyService; possession of a restored key is still required separately
  * before any spend. */
@@ -2233,7 +2236,12 @@ async function spendVaultOutputs(
         // infinity — a 2^-256 event; it unwinds through the abort below.
         unlocks.push({
           inputIndex,
-          unlockingScript: buildUnlock({ preimage, derSig: der, pubkeyHex33: signer.pubkey })
+          unlockingScript: buildUnlock({
+            preimage,
+            derSig: der,
+            pubkeyHex33: signer.pubkey,
+            saltHex64: selected[i].ci.salt
+          })
         })
       }
     } finally {
@@ -2715,7 +2723,11 @@ function actionCarriesCurrentRelock(
 /** Every source of a removal re-lock must be an exact R1C output that still
  * authorizes the tombstoned key. This binds action-history evidence to the
  * authority being revoked rather than trusting a label or replacement alone. */
-function actionSpendsPendingRemovalKey(action: VaultActionRow, meta: VaultMeta): boolean {
+function actionSpendsPendingRemovalKey(
+  action: VaultActionRow,
+  meta: VaultMeta,
+  inventory: VaultSaltInventory
+): boolean {
   const pending = meta.pendingRemoval
   const inputs = action.inputs ?? []
   if (!pending || inputs.length === 0) return false
@@ -2723,8 +2735,11 @@ function actionSpendsPendingRemovalKey(action: VaultActionRow, meta: VaultMeta):
     if (!input.sourceOutpoint || !input.sourceLockingScript) return false
     try {
       const lock = LockingScript.fromHex(input.sourceLockingScript)
-      const salt = bakedSalt(lock)
-      return bakedCommitments(lock).includes(commitment(pending.key.pubkey, salt))
+      bakedCommitments(lock)
+      const record = inventory.outputRecords.get(input.sourceOutpoint.toLowerCase())
+      return record !== undefined &&
+        record.lockingScript === lock.toHex() &&
+        record.pubkeys.has(pending.key.pubkey)
     } catch {
       return false
     }
@@ -2745,7 +2760,7 @@ function isUnbroadcastPendingRemovalRelock(
   const pending = meta.pendingRemoval
   if (!pending || action.status !== 'unsigned' || !!action.txid || !action.reference) return false
   if (!actionCarriesCurrentRelock(action, meta, expectedChain, saltInventory)) return false
-  return actionSpendsPendingRemovalKey(action, meta)
+  return actionSpendsPendingRemovalKey(action, meta, saltInventory ?? emptyVaultSaltInventory())
 }
 
 /** Reconcile a durable pending removal. A bounded broadcast marker is inferred
@@ -2783,6 +2798,7 @@ export async function finalizeVaultKeyRemoval(
     let completedMatchingRelock = false
     let actionStateBlocks = false
     const actionSaltInventory = emptyVaultSaltInventory()
+    await addHistoricalVaultSaltInventory(w, adminOriginator, actionSaltInventory, meta, scopeToken)
     await scanVaultActions(w, adminOriginator, {
       labels: [],
       includeLabels: true,
@@ -2795,7 +2811,7 @@ export async function finalizeVaultKeyRemoval(
         unsignedRelockReferences.push(action.reference!)
       }
       if (action.txid && actionCarriesCurrentRelock(action, meta, scopeToken.chain, actionSaltInventory)) {
-        if (!actionSpendsPendingRemovalKey(action, meta)) invalidCurrentRelock = true
+        if (!actionSpendsPendingRemovalKey(action, meta, actionSaltInventory)) invalidCurrentRelock = true
         else {
           matchingRelock = true
           if (action.status === 'completed') completedMatchingRelock = true

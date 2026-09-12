@@ -72,7 +72,7 @@ Behaviour changes:
 
 - Vault outputs and spends use transaction version 1. The exact lock is about
   45 KB and commits to every enrolled key. `VAULT_DEPOSIT_MIN` is 100,000 sat.
-- Every output gets a public 32-byte salt from wallet `createHmac` under
+- Every output gets a 32-byte salt from wallet `createHmac` under
   `[2, "vault salt"]`, using counterparty `self`, the next canonical decimal
   key ID (`"1"`, `"2"`, ...), and the canonically framed ordered YubiKey
   serials as data. Authenticated current and historical scans rederive every
@@ -83,9 +83,13 @@ Behaviour changes:
   calls. Disconnected devices sharing a mnemonic can select the same next index;
   the same wallet/index/key set can therefore
   reproduce a script, including across networks. Such outputs remain separate
-  UTXOs spendable only by their committed keys. The salt is a privacy aid, not
-  an access-control requirement, and the HMAC is one-way: it does not recover
-  its serial-number input.
+  UTXOs spendable only by their committed keys. The lock contains only
+  `HASH160(salt || canonicalTable(Q))` commitments; its 71-push unlock reveals
+  the salt as a final, exact 32-byte item. The salt is a privacy aid, not an
+  access-control requirement, and the HMAC is one-way: it does not recover its
+  serial-number input. Exact lock sizes are 45,199 bytes for one key and
+  `45,175 + 25N` for two through five keys; the measured unlock maximum is
+  2,539 bytes under the existing 2,560-byte declaration.
 - Inventory scans consume each page as it arrives: current-output BEEF pages use
   64 outputs, script-bearing action-history pages use 8 rows, and lightweight
   action-history pages use 200 rows. A withdrawal retains full proofs only for

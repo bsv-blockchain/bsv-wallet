@@ -97,8 +97,9 @@ commitment(Q, salt) = HASH160(salt || canonicalTable(Q))
 
 `le33` is exactly the 33-byte little-endian value produced by `OP_NUM2BIN 33`. Fixed-width
 encoding prevents two integer sequences from sharing an ambiguous byte serialization.
-`salt` is exactly 32 public bytes and is embedded in the locking script. H5 accepts the hash
-for any one committed key.
+`salt` is exactly 32 bytes. It is absent from an unspent locking script and is revealed as the
+last unlocking-script item when that output is spent. H5 accepts the hash for any one committed
+key.
 
 The salt does not add spending authority and need not be secret. Distinct salts change the
 commitments and exact script bytes for otherwise identical key tables, giving different script
@@ -111,7 +112,7 @@ and one 32-byte salt. Product flows pass two through five commitments.
 
 | Region | Purpose | Exact bytes |
 |---|---|---:|
-| H0-H4, including salt | Exact witness depth; version-1 preimage; scalar checks and recoding; canonical Q-table hash | 811 |
+| H0-H4 | Exact witness depth; version-1 preimage; scalar checks and recoding; 32-byte witness-salt check; canonical Q-table hash | 789 |
 | H5, N = 1 | One commitment equality | 22 |
 | H5, N >= 2 | OR chain over N commitments | `25N - 2` |
 | Shared suffix | G table, pre-loop, complete 43-column comb, projective result check, total covenant tail | 44,388 |
@@ -120,19 +121,20 @@ The exact total is:
 
 | Committed keys | Lock bytes |
 |---:|---:|
-| 1 | 45,221 |
-| 2 | 45,247 |
-| 3 | 45,272 |
-| 4 | 45,297 |
-| 5 | 45,322 |
+| 1 | 45,199 |
+| 2 | 45,225 |
+| 3 | 45,250 |
+| 4 | 45,275 |
+| 5 | 45,300 |
 
-For N >= 2, `R1C_LOCK_LEN(N) = 45,197 + 25N`. Exact parsing first checks one of these
-lengths, extracts the baked salt and commitments, and then regenerates and compares the entire
-template byte for byte. A matching length or basket label alone never identifies an R1C output.
+For N >= 2, `R1C_LOCK_LEN(N) = 45,175 + 25N`. Exact parsing first checks one of these
+lengths, extracts the commitments, and then regenerates the salt-free header and shared suffix
+to compare the entire template byte for byte. The salt cannot be extracted from an unspent lock.
+A matching length or basket label alone never identifies an R1C output.
 
 ### 3.3 Canonical signature witness
 
-The unlocking script contains exactly 70 minimal pushes, bottom to top:
+The unlocking script contains exactly 71 minimal pushes, bottom to top:
 
 ```text
 0        full affine x-coordinate r of R = u1*G + u2*Q
@@ -142,21 +144,23 @@ The unlocking script contains exactly 70 minimal pushes, bottom to top:
 67       low-S P-256 s
 68       s^-1 mod n
 69       158-byte BIP143 preimage
+70       32-byte salt
 ```
 
-The salt is already in the lock and is not a witness item. The measured hard witness maximum is
-2,506 bytes; `R1C_UNLOCK_LEN = 2,560` is the declared upper bound.
+The measured hard witness maximum is 2,539 bytes; `R1C_UNLOCK_LEN = 2,560` is the declared
+upper bound.
 
 The header enforces:
 
-- exactly 70 witness items, with no extra bottom-stack values;
+- exactly 71 witness items, with no extra bottom-stack values;
 - transaction version 1, by comparing the first four preimage bytes with `01000000`;
 - `1 <= r < p` and `r != n`;
 - `1 <= s <= (n - 1) / 2`;
 - `1 <= sInv < n` and `s * sInv = 1 mod n`;
 - equality between the supplied recoded scalars and the values recomputed from the preimage,
   `r`, and `sInv`;
-- a canonical table hash equal to one of the baked commitments.
+- a minimally pushed salt whose byte length is exactly 32;
+- `HASH160(salt || canonicalTable(Q))` equal to one of the baked commitments.
 
 The `r` checks are consensus-critical. Without them, Chinese-remainder representations can
 carry one residue modulo the P-256 group order into scalar multiplication and another modulo the
@@ -252,7 +256,7 @@ interface VaultInstructionsV6 {
 ```
 
 `salt` must equal the wallet `createHmac` result for `saltKeyId` and the canonically framed,
-ordered serials in `keys`, and it must equal the 32 bytes baked into the lock. `chain` scopes
+ordered serials in `keys`. Its commitments must rebuild the exact source lock. `chain` scopes
 the output to the active wallet network; it is metadata and is not part of the HMAC input.
 `saltKeyId` must be a canonical positive decimal integer (`"1"`, `"2"`, ...) within the
 JavaScript safe-integer range. Key records are in commitment order. The decoder requires the
@@ -282,8 +286,8 @@ operation that began for one wallet or chain from committing into another.
 
 Output instructions hold the full public recovery record in the wallet database. Current
 recovery accepts them only after the
-real source value and exact lock authenticate the baked salt and the ordered P-256 public-key
-commitments reconstructed from the record. The lock does not authenticate `saltKeyId` or its
+real source value and exact lock authenticate the ordered salted P-256 public-key commitments
+reconstructed from the record. The lock does not authenticate `saltKeyId` or its
 BRC-42 provenance, serials, nicknames, or enrollment timestamps; those remain wallet recovery
 metadata. Recovery refuses a different `vaultId`, conflicting `createdAt`, stale revisions, or
 divergent key sets at the same revision. A clean-device restore marks recovered keys as
@@ -308,7 +312,8 @@ one-byte length. This injective framing avoids ambiguous raw concatenations such
 and `12 || 3`. The exact key ID is the canonical decimal `index`, one greater than the greatest
 authenticated index found in current Vault outputs and the full Vault action history for the
 wallet and chain. The key ID, chain, salt, and full v6 key records are retained in the output
-instructions; the salt is embedded in the lock.
+instructions. It is absent from the locking script and appears on chain in the unlocking script
+only after spend.
 
 The HMAC covers the wallet domain, canonical decimal ID, and ordered serial list, but it is
 one-way: its 32-byte result does not contain or recover those serials. Chain, vault ID, revision,
@@ -425,7 +430,7 @@ never call `abortAction`.
 The user selects an enrolled key before the card tap. The service selects only outputs whose
 exact lock commits to that key, supplies authenticated source transactions in BEEF, caps the
 input count, and validates the complete proposed version-1 transaction before requesting any
-signature. It signs in bounded hardware batches, builds the 70-push witness per input, and runs
+signature. It signs in bounded hardware batches, builds the 71-push witness per input, and runs
 strict local Script verification.
 
 A withdrawal that creates only ordinary wallet output has no new Vault recovery record and may
@@ -476,8 +481,8 @@ The HMAC is one-way and does not recover its serial-number input. More broadly, 
 salt derivation does not determine the exact R1C locking script. The script also commits to every
 P-256 YubiKey public key in enrollment order. Those independent keys are not derived from the
 mnemonic, and their full records are currently present only in wallet metadata. The raw Bitcoin
-transaction contains the salt and opaque HASH160 table commitments, not `saltKeyId`, the
-YubiKey serials, public keys, or their order.
+unspent transaction contains only opaque HASH160 table commitments, not the salt, `saltKeyId`,
+the YubiKey serials, public keys, or their order. A spend reveals the salt and one table.
 
 Consequently, the current clean-device recovery path still requires restored wallet history or
 another authenticated descriptor/discovery source. A future claim that mnemonic plus one
@@ -532,11 +537,11 @@ also prevents a caller from lying about the source script.
 - **One-key availability:** A valid signature from any committed key is sufficient. Complete
   mixed addition, low-S normalization, byte-safe DER assembly, and the second covenant branch
   remove the known data-dependent failures.
-- **Script-hash separation:** A fresh public salt changes every commitment and the exact script
+- **Script-hash separation:** A fresh salt changes every commitment and the exact script
   bytes, giving computational script-hash separation under SHA-256 collision resistance. The
-  salt is public and the R1C template remains recognizable. Once an output is spent, its Q table
-  and the signing public key become public; the private key remains inside the YubiKey. This is
-  privacy, not access control.
+  R1C template remains recognizable, while the salt is hidden until spend. Once an output is
+  spent, its salt, Q table, and signing public key become public; the private key remains inside
+  the YubiKey. This is privacy, not access control.
 - **Recovery:** The wallet can deterministically rederive each numeric salt only when it also
   has the complete ordered serial list. Safe recovery needs that plus the ordered YubiKey
   public-key descriptor and a way to discover the raw

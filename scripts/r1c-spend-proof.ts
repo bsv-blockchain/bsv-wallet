@@ -33,7 +33,6 @@ import {
   R1C_UNLOCK_LEN,
   buildLock,
   bakedCommitments,
-  bakedSalt,
   commitment,
   compressPubkey,
   sighashPreimage,
@@ -167,8 +166,8 @@ async function allocateLock(context: SaltContext, keys: SoftKey[]): Promise<Allo
   context.keyIds.add(saltKeyId)
   context.scriptHashes.add(scriptHash)
   if (lock.toBinary().length !== R1C_LOCK_LEN(keys.length)) throw new Error('R1C lock length drift')
-  if (bakedSalt(lock) !== salt || bakedCommitments(lock).join(',') !== commitments.join(',')) {
-    throw new Error('R1C lock did not round-trip its salt and commitments')
+  if (bakedCommitments(lock).join(',') !== commitments.join(',')) {
+    throw new Error('R1C lock did not round-trip its commitments')
   }
   const customInstructions = encodeVaultInstructions({
     v: 6,
@@ -222,7 +221,6 @@ async function deposit(label: string): Promise<VaultCoin> {
   if (lockLen !== R1C_LOCK_LEN(2)) throw new Error(`template drift: lock is ${lockLen} B, expected ${R1C_LOCK_LEN(2)} — aborting before any funds move`)
   const baked = bakedCommitments(lock)
   if (baked.join(',') !== commitments.join(',')) throw new Error('bakedCommitments does not round-trip the commitments')
-  if (bakedSalt(lock) !== salt) throw new Error('bakedSalt does not round-trip the output salt')
   console.log(`\n${label}: lock ${lockLen} B; customInstructions ${customInstructions}`)
 
   const coins = wallet.splice(0)
@@ -281,7 +279,12 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
     const digest = signerDigest(preimages[i])
     const compact = p256.sign(Uint8Array.from(Utils.toArray(digest, 'hex') as number[]), o.signer.priv, { prehash: false, lowS: false })
     const der = Array.from(p256.Signature.fromBytes(compact).toBytes('der'))
-    const unlock = buildUnlock({ preimage: preimages[i], derSig: der, pubkeyHex33: o.signer.pub })
+    const unlock = buildUnlock({
+      preimage: preimages[i],
+      derSig: der,
+      pubkeyHex33: o.signer.pub,
+      saltHex64: vaults[i].salt
+    })
     const len = unlock.toBinary().length
     if (len > R1C_UNLOCK_LEN) throw new Error(`${label}: unlock is ${len} B > R1C_UNLOCK_LEN`)
     tx.inputs[i].unlockingScript = unlock
@@ -334,14 +337,16 @@ function unlockWith(
   tx: Transaction,
   coin: VaultCoin,
   signatureKey: SoftKey,
-  tablePubkey = signatureKey.pub
+  tablePubkey = signatureKey.pub,
+  saltHex64 = coin.salt
 ): void {
   const preimage = sighashPreimage(tx, 0, coin.satoshis)
   if (!pushTxDerCheck(preimage).ok) throw new Error('OP_PUSH_TX totality check unexpectedly failed')
   tx.inputs[0].unlockingScript = buildUnlock({
     preimage,
     derSig: signatureFor(preimage, signatureKey),
-    pubkeyHex33: tablePubkey
+    pubkeyHex33: tablePubkey,
+    saltHex64
   })
 }
 
@@ -399,6 +404,11 @@ async function runLocalProof(): Promise<void> {
     const wrongSignature = localSpendTransaction(coin)
     unlockWith(wrongSignature, coin, outsider, authorized[0].pub)
     requireLocalRejection(`N=${n} outsider signature`, () => verifyLocal(wrongSignature, coin))
+    rejected++
+
+    const wrongSalt = localSpendTransaction(coin)
+    unlockWith(wrongSalt, coin, authorized[0], authorized[0].pub, 'ff'.repeat(32))
+    requireLocalRejection(`N=${n} wrong witness salt`, () => verifyLocal(wrongSalt, coin))
     rejected++
   }
 

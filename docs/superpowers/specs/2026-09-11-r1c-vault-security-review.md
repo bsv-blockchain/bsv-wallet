@@ -65,7 +65,7 @@ policy that accepts the roughly 45 KB script.
 | SALT-03 | Forged derivation metadata poisoning the high-water mark or recovery | **Fixed** | Each recorded numeric ID, ordered serial list, and HMAC is rederived before the ID may advance allocation or metadata recovery. |
 | SALT-04 | Cross-network script reuse | **Accepted privacy residual** | Chain scopes metadata but is not HMAC data, so otherwise identical inputs can reproduce a lock on another network without granting authority. |
 | REC-01 | Mnemonic-only exact-lock recovery claim | **Not implemented** | Salt derivation also needs the numeric ID and ordered serial list, while the ordered P-256 descriptor and transaction discovery remain separate inputs. |
-| META-01 | Shallow or unauthenticated metadata | **Fixed locally** | Exact v6 decoding and byte-exact lock regeneration bind the public salt and ordered P-256 commitments to the real source output. |
+| META-01 | Shallow or unauthenticated metadata | **Fixed locally** | Exact v6 decoding, wallet HMAC rederivation, and byte-exact lock regeneration bind the recorded salt and ordered P-256 commitments to the real source output. |
 | STATE-01 | Wallet/network state crossover | **Fixed** | Vault metadata, drafts, quarantine state, and async commits are scoped by wallet identity and chain. |
 | EXT-01 | External wallet API bypass | **Fixed in reviewed boundaries** | The guard, authenticated-origin admin marker, shared mutation FIFO, and SQLite source-script backstop deny external Vault discovery and mutation paths. |
 | PIV-01 | Default credentials and unverified hardware | **Fixed in code; hardware evidence open** | Enrollment verifies pinned manufacturer/slot attestation, changes a default PIN, rotates the PUK, replaces the management key, and proves possession. Physical-device coverage is still required. |
@@ -93,14 +93,14 @@ then combined the two with CRT.
 
 The current header enforces:
 
-- exactly 70 witness items;
+- exactly 71 witness items, with the final item a minimally pushed 32-byte salt;
 - transaction version 1 in the preimage;
 - `1 <= rFull < p` and `rFull != n`;
 - `1 <= s <= (n - 1) / 2`;
 - `1 <= sInv < n` and `s * sInv mod n == 1`;
 - equality between supplied scalar recodings and values recomputed from the preimage, `rFull`,
   and `sInv`;
-- a canonical table hash equal to one baked commitment.
+- `HASH160(salt || canonicalTable(Q))` equal to one baked commitment.
 
 Because P-256 has `p < 2n`, the permitted `rFull` interval has only one value whose residue
 modulo `n` is zero: `n` itself, which is explicitly rejected. The script computes
@@ -136,12 +136,12 @@ normal branch constructs a signature with `C1`; for the sole digest that makes i
 the second branch produces scalar one. The two public branches add transaction binding, not
 secret spending authority.
 
-Current exact lock sizes are 45,221 bytes for N = 1 and `45,197 + 25N` for N = 2 through 5,
-ending at 45,322 bytes. The measured largest witness is 2,506 bytes under a declared 2,560-byte
+Current exact lock sizes are 45,199 bytes for N = 1 and `45,175 + 25N` for N = 2 through 5,
+ending at 45,300 bytes. The measured largest witness is 2,539 bytes under a declared 2,560-byte
 maximum. The current one- and two-key golden SHA-256 hashes are:
 
-- N = 1: `fdd8f7edf3dc48ea2a81b1ad4746edfb48aa2fba1ca551abc3e3eea159f90b3f`
-- N = 2: `71f5f5dd230432afdd48fbf7dd5181b1778c24a85ad1d32faa29e7d9a1891f11`
+- N = 1: `9a1ed4f8ed6c91fb0d40eb3e2bc00dc30d4148c0546bbd067ae822717a4fbd85`
+- N = 2: `17f01ea134c1663b8601fe1b91a6e99eea6412dd727928bed5e1518b3c248cec`
 
 Local SDK interpretation is strong regression evidence. It does not certify consensus,
 standardness, propagation, fee policy, or future miner policy. Exact-byte spends must be tested
@@ -175,8 +175,8 @@ is persisted.
 Every current or historical Vault output record used as provenance or mutation evidence has its
 instructions checked against the real lock and its HMAC rederived before allocation, recovery,
 held-action cleanup, key-removal finalization, or metadata deletion may proceed. Input-only
-action records carry no salt claim and are constrained separately by their source R1C scripts
-and action state.
+input-only action records carry no salt claim, so lifecycle mutation cross-references each input
+outpoint and source script with its authenticated historical v6 output record.
 
 This normally separates sequential outputs and handles simultaneous calls in one process because
 the Vault mutation FIFO encloses scan, allocation, action creation, and release. It does not
@@ -271,7 +271,7 @@ transaction discovered after a crash. Ordinary broadcaster handling after the in
 ## Withdrawal, remainder, re-lock, and removal
 
 Withdrawal streams every current Vault output in authenticated pages and checks each listed row
-against its real source transaction, value, exact lock, baked salt, and v6 record. It selects
+against its real source transaction, value, exact lock, rederived salt, and v6 record. It selects
 only outputs whose commitments include the chosen YubiKey, keeps a stable largest-first set of at
 most 32 inputs, and retains BEEF ancestry only for selected inputs.
 

@@ -10,7 +10,9 @@ Vault metadata and output-instruction format; do not add Vault migration or lega
 The normative design is
 `docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md`. This handoff distinguishes code
 present on the branch from work still required for release. The corresponding security review is
-`docs/superpowers/specs/2026-09-11-r1c-vault-security-review.md`.
+`docs/superpowers/specs/2026-09-11-r1c-vault-security-review.md`. A follow-up opcode-level review of
+the lock's spend paths, and of the situations in which a holder of the mnemonic, backup database, and
+one YubiKey still cannot spend, is `docs/superpowers/specs/2026-09-12-r1c-lock-spend-path-review.md`.
 
 ## Current design
 
@@ -18,10 +20,10 @@ present on the branch from work still required for release. The corresponding se
   slot `0x82`; any one committed key can spend. There is no seed, phrase, passphrase, K1, or
   service spending leg.
 - A lock commits to `HASH160(salt || canonicalTable(Q))` for every enrolled key. The 32-byte
-  public salt is baked into the lock.
-- Exact lock sizes are 45,221 bytes for N = 1 and `45,197 + 25N` for N = 2..5: 45,247,
-  45,272, 45,297, and 45,322 bytes. Product output creation requires N >= 2.
-- The unlock has exactly 70 pushes, a measured maximum of 2,506 bytes, and a declared
+  salt is absent from the lock and revealed as the last witness item on spend.
+- Exact lock sizes are 45,199 bytes for N = 1 and `45,175 + 25N` for N = 2..5: 45,225,
+  45,250, 45,275, and 45,300 bytes. Product output creation requires N >= 2.
+- The unlock has exactly 71 pushes, a measured maximum of 2,539 bytes, and a declared
   `R1C_UNLOCK_LEN` of 2,560.
 - Vault spends use transaction version 1 with strict `MINIMALDATA`, `UTXO_AFTER_CHRONICLE`,
   `SIGHASH_FORKID`, `STRICTENC`, `CLEANSTACK`, `SIGPUSHONLY`, and `LOW_S` verification.
@@ -101,9 +103,9 @@ spendable by a committed YubiKey.
 
 The HMAC salt is reproducible from the wallet root only when the numeric ID and complete ordered
 serial list are also known. It does not determine the exact R1C lock. Each lock also depends on
-the complete ordered set of independently generated P-256 YubiKey public keys. The raw
-transaction contains the salt and opaque HASH160 table commitments, while `customInstructions`
-are wallet database metadata.
+the complete ordered set of independently generated P-256 YubiKey public keys. An unspent raw
+transaction contains only opaque HASH160 table commitments; the spend reveals the salt and one
+table. `customInstructions` are wallet database metadata.
 
 Current recovery therefore still depends on authenticated wallet history or backup for the
 ordered descriptor and transaction discovery. A future backup-free claim requires a public,
@@ -182,7 +184,7 @@ does not authorize compatibility changes to ordinary wallet backup data.
 
 ## Maintainer cautions
 
-- A public salt changes script bytes; it is not secret and grants no authority.
+- A salt changes script bytes, stays hidden until spend, and grants no authority.
 - The keyed HMAC is one-way. Its output does not contain the serial-number input.
 - HMAC salt derivation alone does not reconstruct an exact lock.
 - `customInstructions` are metadata. Authenticate them against the real source lock and value.

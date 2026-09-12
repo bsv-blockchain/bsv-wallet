@@ -2,7 +2,7 @@
  * R1C template module tests — the cryptographic arbiter for the vault script.
  *
  * The historical mined fixture pins the comb tables and interpreter baseline.
- * Current-lock hashes pin the range checks, baked salt, complete mixed-add
+ * Current-lock hashes pin the range checks, salted commitments, complete mixed-add
  * paths, and byte-safe OP_PUSH_TX tail. Round trips run the real @bsv/sdk Spend
  * interpreter with explicit strict flags.
  */
@@ -15,7 +15,7 @@ import {
   P256_N, P256_P, P256_LOW_S_MAX, SECP_GX, SECP_N, RECODE_CONST,
   asm, encNum, pushData, scriptNum,
   compressPubkey, combTable, combTableScalar, gTable, le33, canonicalTableBytes, commitment,
-  buildLock, bakedCommitments, bakedSalt, completeMixedAddScript, recode, sharedSuffix, shiftFor,
+  buildLock, bakedCommitments, completeMixedAddScript, recode, sharedSuffix, shiftFor,
   sighashPreimage, signerDigest, pushTxSignatureS, pushTxDerCheck, decodeDerSignature, R1C_PREIMAGE_LEN, R1C_SIGHASH,
   fullR, buildUnlock, verifyVaultInput, R1C_VERIFY_FLAGS, vaultSaltHmacData,
   encodeVaultInstructions, decodeVaultInstructions, type VaultInstructionKey, type VaultInstructionsV6
@@ -46,12 +46,12 @@ describe('r1comb constants', () => {
     expect(RECODE_CONST).toBe((1n << 258n) - 1n)
   })
 
-  it('R1C_LOCK_LEN is 45221 for N=1 and 45197 + 25N for N=2..5, throws otherwise', () => {
-    expect(R1C_LOCK_LEN(1)).toBe(45221)
-    expect(R1C_LOCK_LEN(2)).toBe(45247)
-    expect(R1C_LOCK_LEN(3)).toBe(45272)
-    expect(R1C_LOCK_LEN(4)).toBe(45297)
-    expect(R1C_LOCK_LEN(5)).toBe(45322)
+  it('R1C_LOCK_LEN is 45199 for N=1 and 45175 + 25N for N=2..5, throws otherwise', () => {
+    expect(R1C_LOCK_LEN(1)).toBe(45199)
+    expect(R1C_LOCK_LEN(2)).toBe(45225)
+    expect(R1C_LOCK_LEN(3)).toBe(45250)
+    expect(R1C_LOCK_LEN(4)).toBe(45275)
+    expect(R1C_LOCK_LEN(5)).toBe(45300)
     for (const bad of [0, 6, -1, 1.5, NaN]) {
       expect(() => R1C_LOCK_LEN(bad)).toThrow(VaultError)
       try { R1C_LOCK_LEN(bad) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
@@ -323,9 +323,9 @@ const GOLDEN_C2 = [
   commitment(p256.Point.BASE.multiply(2n).toHex(true), GOLDEN_LOCK_SALT)
 ]
 /** sha256 of the current hardened N=2 lock for GOLDEN_C2 and GOLDEN_LOCK_SALT. */
-const GOLDEN_SHA256_N2 = '71f5f5dd230432afdd48fbf7dd5181b1778c24a85ad1d32faa29e7d9a1891f11'
+const GOLDEN_SHA256_N2 = '17f01ea134c1663b8601fe1b91a6e99eea6412dd727928bed5e1518b3c248cec'
 /** Same hardened-lock pin for N = 1 with GOLDEN_C2[0] only. */
-const GOLDEN_SHA256_N1 = 'fdd8f7edf3dc48ea2a81b1ad4746edfb48aa2fba1ca551abc3e3eea159f90b3f'
+const GOLDEN_SHA256_N1 = '9a1ed4f8ed6c91fb0d40eb3e2bc00dc30d4148c0546bbd067ae822717a4fbd85'
 /** OP_PUSH_TX dummy key d·G, d = 2^248·Gx⁻¹ mod n_k1 (ANALYSIS.md §6.1, fixture chunk 23064). */
 const PUSH_TX_PUBKEY = '02b405d7f0322a89d0f9f3a98e6f938fdc1c969a8d1382a2bf66a71ae74a1e83b0'
 
@@ -369,7 +369,7 @@ describe('buildLock goldens', () => {
     const commitments = [...Array(N)].map((_, i) => fakeCommitment(i))
     const lock = buildLock({ commitments, saltHex64: GOLDEN_LOCK_SALT })
     expect(lock.toBinary()).toHaveLength(R1C_LOCK_LEN(N))
-    expect(lock.chunks).toHaveLength(N === 1 ? 40540 : 40536 + 5 * N)
+    expect(lock.chunks).toHaveLength(N === 1 ? 40549 : 40545 + 5 * N)
     // the lock ends with the shared suffix
     const bin = lock.toBinary()
     expect(hex(bin.slice(bin.length - 44388))).toBe(hex(sharedSuffix()))
@@ -384,12 +384,13 @@ describe('buildLock goldens', () => {
     )
   })
 
-  it('bakes the salt into the lock so equal commitments still have distinct script hashes', () => {
-    const commitments = [fakeCommitment(0)]
-    const lockA = buildLock({ commitments, saltHex64: '11'.repeat(SALT_BYTES) })
-    const lockB = buildLock({ commitments, saltHex64: '22'.repeat(SALT_BYTES) })
-    expect(bakedSalt(lockA)).toBe('11'.repeat(SALT_BYTES))
-    expect(bakedSalt(lockB)).toBe('22'.repeat(SALT_BYTES))
+  it('same keys with different salts have different locks without revealing either salt', () => {
+    const saltA = '11'.repeat(SALT_BYTES)
+    const saltB = '22'.repeat(SALT_BYTES)
+    const lockA = buildLock({ commitments: [commitment(FIXTURE_Q, saltA)], saltHex64: saltA })
+    const lockB = buildLock({ commitments: [commitment(FIXTURE_Q, saltB)], saltHex64: saltB })
+    expect(hex(lockA.toBinary())).not.toContain(saltA)
+    expect(hex(lockB.toBinary())).not.toContain(saltB)
     expect(hex(Hash.sha256(lockA.toBinary()))).not.toBe(hex(Hash.sha256(lockB.toBinary())))
   })
 
@@ -409,12 +410,13 @@ describe('buildLock goldens', () => {
 
   it('H5 layout: N=1 is <C0> EQUALVERIFY; N>=2 is (DUP <Ci> EQUAL SWAP)×(N−1) <C_last> EQUAL BOOLOR×(N−1) VERIFY', () => {
     const one = buildLock({ commitments: [fakeCommitment(0)], saltHex64: GOLDEN_LOCK_SALT }).chunks
-    expect(one[426].op).toBe(0xa9) // OP_HASH160
-    expect(hex(one[427].data!)).toBe(fakeCommitment(0))
-    expect(one[428].op).toBe(0x88) // OP_EQUALVERIFY
+    const h5 = one.findIndex(chunk => chunk.op === OP.OP_HASH160)
+    expect(h5).toBeGreaterThan(0)
+    expect(hex(one[h5 + 1].data!)).toBe(fakeCommitment(0))
+    expect(one[h5 + 2].op).toBe(0x88) // OP_EQUALVERIFY
     const three = buildLock({ commitments: [0, 1, 2].map(fakeCommitment), saltHex64: GOLDEN_LOCK_SALT }).chunks
-    expect(three[426].op).toBe(0xa9)
-    expect(three.slice(427, 427 + 4 * 2 + 2 + 2 + 1).map(k => (k.data !== undefined ? hex(k.data) : k.op))).toEqual([
+    expect(three[h5].op).toBe(0xa9)
+    expect(three.slice(h5 + 1, h5 + 1 + 4 * 2 + 2 + 2 + 1).map(k => (k.data !== undefined ? hex(k.data) : k.op))).toEqual([
       0x76, fakeCommitment(0), 0x87, 0x7c,
       0x76, fakeCommitment(1), 0x87, 0x7c,
       fakeCommitment(2), 0x87,
@@ -446,7 +448,6 @@ describe('bakedCommitments', () => {
     const salt = randSalt()
     const lock = buildLock({ commitments, saltHex64: salt })
     expect(bakedCommitments(lock)).toEqual(commitments)
-    expect(bakedSalt(lock)).toBe(salt)
     // also from a re-parsed copy (what a BEEF gives Plan 2)
     expect(bakedCommitments(Script.fromHex(lock.toHex()))).toEqual(commitments)
   })
@@ -463,12 +464,9 @@ describe('bakedCommitments', () => {
     ['R1C lock with a trailing OP_NOP', () => { const b = buildLock({ commitments: GOLDEN_C2, saltHex64: GOLDEN_LOCK_SALT }).toBinary(); return Script.fromBinary([...b, OP.OP_NOP]) }],
     ['R1C lock with one suffix byte flipped', () => { const b = buildLock({ commitments: GOLDEN_C2, saltHex64: GOLDEN_LOCK_SALT }).toBinary(); b[10_000] ^= 0x01; return Script.fromBinary(b) }],
     ['R1C lock with one header byte flipped', () => { const b = buildLock({ commitments: GOLDEN_C2, saltHex64: GOLDEN_LOCK_SALT }).toBinary(); b[3] ^= 0x01; return Script.fromBinary(b) }],
-    ['R1C lock with a malformed baked salt push', () => {
+    ['legacy-shaped R1C lock that still pushes a salt', () => {
       const b = buildLock({ commitments: GOLDEN_C2, saltHex64: GOLDEN_LOCK_SALT }).toBinary()
-      const i = hex(b).indexOf('20' + GOLDEN_LOCK_SALT) / 2
-      expect(i).toBeGreaterThan(0)
-      b[i] = 0x21
-      return Script.fromBinary(b)
+      return Script.fromBinary([...b.slice(0, 100), ...pushData(Utils.toArray(GOLDEN_LOCK_SALT, 'hex') as number[]), ...b.slice(100)])
     }],
     ['R1C lock whose H5 BOOLOR was replaced by OP_BOOLAND', () => { const b = buildLock({ commitments: GOLDEN_C2, saltHex64: GOLDEN_LOCK_SALT }).toBinary(); const i = b.length - 44388 - 2; expect(b[i]).toBe(0x9b); b[i] = 0x9a; return Script.fromBinary(b) }]
   ])('throws template-invalid on %s', (_name, mk) => {
@@ -747,12 +745,12 @@ describe('round trips through Spend (version 1, strict flags)', () => {
       if (nOut >= 3) tx.addOutput({ satoshis: 200, lockingScript: p2pkhOut() })
       const [preimage] = screenedPreimages(tx, [{ index: 0, sats }])
       expect(hex(preimage.slice(0, 4))).toBe('01000000')
-      const unlock = buildUnlock({ preimage, derSig: signDer(signer.priv, signerDigest(preimage)), pubkeyHex33: signer.pub })
-      expect(unlock.chunks).toHaveLength(70)
-      expect(unlock.toBinary().length).toBeLessThanOrEqual(2506)
+      const unlock = buildUnlock({ preimage, derSig: signDer(signer.priv, signerDigest(preimage)), pubkeyHex33: signer.pub, saltHex64: salt })
+      expect(unlock.chunks).toHaveLength(71)
+      expect(unlock.toBinary().length).toBeLessThanOrEqual(2539)
       expect(unlock.toBinary().length).toBeLessThanOrEqual(R1C_UNLOCK_LEN)
-      expect(bakedSalt(lock)).toBe(salt)
       expect(hex(unlock.chunks[69].data!)).toBe(hex(preimage))
+      expect(hex(unlock.chunks[70].data!)).toBe(salt)
       // pushes #1/#2 are the recoded scalars for the pushed r and e
       const r = fromScriptNum(unlock.chunks[0].data!)
       const s = fromScriptNum(unlock.chunks[67].data!)
@@ -792,7 +790,8 @@ describe('round trips through Spend (version 1, strict flags)', () => {
     const unlock = buildUnlock({
       preimage,
       derSig: signDer(member.priv, signerDigest(preimage)),
-      pubkeyHex33: member.pub
+      pubkeyHex33: member.pub,
+      saltHex64: salt
     })
     expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
   })
@@ -815,8 +814,8 @@ describe('round trips through Spend (version 1, strict flags)', () => {
     tx.addOutput({ satoshis: satsA + satsB + satsP - 1000, lockingScript: p2pkhOut() })
     tx.addOutput({ satoshis: 100, lockingScript: NONCE_OUT() })
     const [preA, preB] = screenedPreimages(tx, [{ index: 0, sats: satsA }, { index: 2, sats: satsB }])
-    tx.inputs[0].unlockingScript = buildUnlock({ preimage: preA, derSig: signDer(b.priv, signerDigest(preA)), pubkeyHex33: b.pub })
-    tx.inputs[2].unlockingScript = buildUnlock({ preimage: preB, derSig: signDer(c.priv, signerDigest(preB)), pubkeyHex33: c.pub })
+    tx.inputs[0].unlockingScript = buildUnlock({ preimage: preA, derSig: signDer(b.priv, signerDigest(preA)), pubkeyHex33: b.pub, saltHex64: saltA })
+    tx.inputs[2].unlockingScript = buildUnlock({ preimage: preB, derSig: signDer(c.priv, signerDigest(preB)), pubkeyHex33: c.pub, saltHex64: saltB })
     await tx.sign()   // signs only the templated input; inputs without a template are left as set
     expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: satsA, lockingScript: lockA, unlockingScript: tx.inputs[0].unlockingScript! })).toBe(true)
     expect(verifyVaultInput({ tx, inputIndex: 2, sourceSatoshis: satsB, lockingScript: lockB, unlockingScript: tx.inputs[2].unlockingScript! })).toBe(true)
@@ -848,11 +847,11 @@ describe('round trips through Spend (version 1, strict flags)', () => {
     const high = P256_N - low
     expect(high > (P256_N - 1n) / 2n).toBe(true)
     for (const sv of [low, high]) {
-      const unlock = buildUnlock({ preimage, derSig: Array.from(new p256.Signature(r, sv).toBytes('der')), pubkeyHex33: m.pub })
+      const unlock = buildUnlock({ preimage, derSig: Array.from(new p256.Signature(r, sv).toBytes('der')), pubkeyHex33: m.pub, saltHex64: salt })
       expect(fromScriptNum(unlock.chunks[67].data!)).toBe(low)
       expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
     }
-    const good = buildUnlock({ preimage, derSig: Array.from(new p256.Signature(r, low).toBytes('der')), pubkeyHex33: m.pub })
+    const good = buildUnlock({ preimage, derSig: Array.from(new p256.Signature(r, low).toBytes('der')), pubkeyHex33: m.pub, saltHex64: salt })
     const rFull = fromScriptNum(good.chunks[0].data!)
     const highInv = modinvT(high, P256_N)
     const e = beBig(Utils.toArray(signerDigest(preimage), 'hex') as number[])
@@ -883,7 +882,7 @@ describe('round trips through Spend (version 1, strict flags)', () => {
     tx.addInput({ sourceTransaction: src, sourceOutputIndex: 1, sequence: 0xffffffff })
     tx.addOutput({ satoshis: 22_000, lockingScript: p2pkhOut() })
     const [preimage] = screenedPreimages(tx, [{ index: 0, sats }])
-    const unlock = buildUnlock({ preimage, derSig: signDer(found.priv, signerDigest(preimage)), pubkeyHex33: found.pub })
+    const unlock = buildUnlock({ preimage, derSig: signDer(found.priv, signerDigest(preimage)), pubkeyHex33: found.pub, saltHex64: salt })
     expect(unlock.chunks.slice(3, 67).some(ch => ch.data!.length <= 31)).toBe(true)
     expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
   })
@@ -922,7 +921,7 @@ describe('round trips through Spend (version 1, strict flags)', () => {
       expect(fullR({ preimage, rSig, s, pubkeyHex33: qHex })).toBe(x)
       const salt = randSalt()
       const lock = buildLock({ commitments: [commitment(qHex, salt)], saltHex64: salt })
-      const unlock = buildUnlock({ preimage, derSig: Array.from(sig.toBytes('der')), pubkeyHex33: qHex })
+      const unlock = buildUnlock({ preimage, derSig: Array.from(sig.toBytes('der')), pubkeyHex33: qHex, saltHex64: salt })
       expect(hex(unlock.chunks[0].data!)).toBe(hex(scriptNum(x)))
       expect(fromScriptNum(unlock.chunks[0].data!) >= n).toBe(true)
       expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
@@ -956,9 +955,9 @@ describe('round trips through Spend (version 1, strict flags)', () => {
 
     const bytes = [...encNum(forgedR), ...encNum(recode(t)), ...encNum(recode(e))]
     for (const point of combTable(FIXTURE_Q)) bytes.push(...encNum(point.x), ...encNum(point.y))
-    bytes.push(...encNum(s), ...encNum(sInv), ...pushData(preimage))
+    bytes.push(...encNum(s), ...encNum(sInv), ...pushData(preimage), ...pushData(Utils.toArray(salt, 'hex') as number[]))
     const forged = new UnlockingScript(Script.fromBinary(bytes).chunks)
-    expect(forged.chunks).toHaveLength(70)
+    expect(forged.chunks).toHaveLength(71)
     expect(() => verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: forged })).toThrow(/Script evaluation error/)
   })
 })
@@ -981,17 +980,22 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     tx.addOutput({ satoshis: 49_000, lockingScript: p2pkhOut() })
     tx.addOutput({ satoshis: 100, lockingScript: NONCE_OUT() })
     ;[preimage] = screenedPreimages(tx, [{ index: 0, sats }])
-    good = buildUnlock({ preimage, derSig: signDer(b.priv, signerDigest(preimage)), pubkeyHex33: b.pub })
+    good = buildUnlock({ preimage, derSig: signDer(b.priv, signerDigest(preimage)), pubkeyHex33: b.pub, saltHex64: salt })
     expect(verify(tx, good)).toBe(true)   // positive control
   })
 
-  it('a lock with the wrong baked salt fails at H5', () => {
-    const wrongLock = buildLock({ commitments: [commitment(a.pub, salt), commitment(b.pub, salt)], saltHex64: randSalt() })
-    expect(() => verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: wrongLock, unlockingScript: good })).toThrow(/Script evaluation error/)
+  it('the wrong salt in the unlock fails at H5', () => {
+    const wrong = buildUnlock({
+      preimage,
+      derSig: signDer(b.priv, signerDigest(preimage)),
+      pubkeyHex33: b.pub,
+      saltHex64: randSalt()
+    })
+    expect(() => verify(tx, wrong)).toThrow(/Script evaluation error/)
   })
 
   it('key not committed: outsider signs with its own table and the right salt (H5)', () => {
-    const u = buildUnlock({ preimage, derSig: signDer(outsider.priv, signerDigest(preimage)), pubkeyHex33: outsider.pub })
+    const u = buildUnlock({ preimage, derSig: signDer(outsider.priv, signerDigest(preimage)), pubkeyHex33: outsider.pub, saltHex64: salt })
     expect(() => verify(tx, u)).toThrow(/Script evaluation error/)
   })
 
@@ -1001,7 +1005,7 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
   })
 
   it("signature from another key, presented as b's (tail r-check)", () => {
-    const u = buildUnlock({ preimage, derSig: signDer(outsider.priv, signerDigest(preimage)), pubkeyHex33: b.pub })
+    const u = buildUnlock({ preimage, derSig: signDer(outsider.priv, signerDigest(preimage)), pubkeyHex33: b.pub, saltHex64: salt })
     expect(() => verify(tx, u)).toThrow(/Script evaluation error/)
   })
 
@@ -1029,11 +1033,26 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     expect(() => verify(tx, withPush(good, 68, scriptNum(sInv + P256_N)))).toThrow(/Script evaluation error/)
   })
 
-  it('rejects extra bottom/top pushes and an unlocking-script NOP', () => {
+  it('rejects missing/extra witness items and an unlocking-script NOP', () => {
+    const missingSalt = new UnlockingScript(Script.fromBinary(good.toBinary().slice(0, -33)).chunks)
     const extraBottom = new UnlockingScript(Script.fromBinary([...encNum(1), ...good.toBinary()]).chunks)
     const extraTop = new UnlockingScript(Script.fromBinary([...good.toBinary(), ...encNum(1)]).chunks)
     const trailingNop = new UnlockingScript(Script.fromBinary([...good.toBinary(), OP.OP_NOP]).chunks)
-    for (const altered of [extraBottom, extraTop, trailingNop]) {
+    for (const altered of [missingSalt, extraBottom, extraTop, trailingNop]) {
+      expect(() => verify(tx, altered)).toThrow(/Script evaluation error/)
+    }
+  })
+
+  it('rejects a salt with the wrong size, a non-minimal salt push, and a small-integer opcode', () => {
+    const shortSalt = withPush(good, 70, new Array(31).fill(1))
+    const longSalt = withPush(good, 70, new Array(33).fill(1))
+    const raw = good.toBinary()
+    const saltBytes = good.chunks[70].data!
+    const nonMinimalSalt = new UnlockingScript(Script.fromBinary([
+      ...raw.slice(0, -33), OP.OP_PUSHDATA1, SALT_BYTES, ...saltBytes
+    ]).chunks)
+    const smallIntegerSalt = new UnlockingScript(Script.fromBinary([...raw.slice(0, -33), OP.OP_1]).chunks)
+    for (const altered of [shortSalt, longSalt, nonMinimalSalt, smallIntegerSalt]) {
       expect(() => verify(tx, altered)).toThrow(/Script evaluation error/)
     }
   })
@@ -1066,8 +1085,8 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     tx2.addInput({ sourceTransaction: src2, sourceOutputIndex: 0, sequence: 0xffffffff })
     tx2.addOutput({ satoshis: 2 * sats - 1000, lockingScript: p2pkhOut() })
     const [p0, p1] = screenedPreimages(tx2, [{ index: 0, sats }, { index: 1, sats: sats + 7 }])
-    const u0 = buildUnlock({ preimage: p0, derSig: signDer(a.priv, signerDigest(p0)), pubkeyHex33: a.pub })
-    const u1 = buildUnlock({ preimage: p1, derSig: signDer(a.priv, signerDigest(p1)), pubkeyHex33: a.pub })
+    const u0 = buildUnlock({ preimage: p0, derSig: signDer(a.priv, signerDigest(p0)), pubkeyHex33: a.pub, saltHex64: salt })
+    const u1 = buildUnlock({ preimage: p1, derSig: signDer(a.priv, signerDigest(p1)), pubkeyHex33: a.pub, saltHex64: salt })
     expect(verifyVaultInput({ tx: tx2, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: u0 })).toBe(true)
     expect(verifyVaultInput({ tx: tx2, inputIndex: 1, sourceSatoshis: sats + 7, lockingScript: lock, unlockingScript: u1 })).toBe(true)
     expect(() => verifyVaultInput({ tx: tx2, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: u1 })).toThrow(/Script evaluation error/)
@@ -1112,7 +1131,7 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     const digest = hex([...Hash.hash256(p)].reverse())
     const decoded = decodeDerSignature(signDer(b.priv, digest))
     const s = decoded.s > P256_LOW_S_MAX ? P256_N - decoded.s : decoded.s
-    expect(() => buildUnlock({ preimage: p, derSig: Array.from(new p256.Signature(decoded.r, s).toBytes('der')), pubkeyHex33: b.pub })).toThrow(/version 1/)
+    expect(() => buildUnlock({ preimage: p, derSig: Array.from(new p256.Signature(decoded.r, s).toBytes('der')), pubkeyHex33: b.pub, saltHex64: salt })).toThrow(/version 1/)
     const sInv = modinvT(s, P256_N)
     const e = modT(beBig([...Hash.hash256(p)].reverse()), P256_N)
     const u1 = modT(e * sInv, P256_N)
@@ -1123,7 +1142,7 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     const u2 = modT(rFull * sInv, P256_N)
     const witnessBytes = [...encNum(rFull), ...encNum(recode(u2)), ...encNum(recode(u1))]
     for (const point of combTable(b.pub)) witnessBytes.push(...encNum(point.x), ...encNum(point.y))
-    witnessBytes.push(...encNum(s), ...encNum(sInv), ...pushData(p))
+    witnessBytes.push(...encNum(s), ...encNum(sInv), ...pushData(p), ...pushData(Utils.toArray(salt, 'hex') as number[]))
     const v2Witness = new UnlockingScript(Script.fromBinary(witnessBytes).chunks)
 
     const v2LockBytes = lock.toBinary()
@@ -1139,9 +1158,10 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
   it('buildUnlock rejects a short preimage, a bad key and garbage DER with template-invalid', () => {
     const der = signDer(b.priv, signerDigest(preimage))
     for (const bad of [
-      () => buildUnlock({ preimage: preimage.slice(1), derSig: der, pubkeyHex33: b.pub }),
-      () => buildUnlock({ preimage, derSig: der, pubkeyHex33: '02' + 'ff'.repeat(32) }),
-      () => buildUnlock({ preimage, derSig: der.slice(1), pubkeyHex33: b.pub })
+      () => buildUnlock({ preimage: preimage.slice(1), derSig: der, pubkeyHex33: b.pub, saltHex64: salt }),
+      () => buildUnlock({ preimage, derSig: der, pubkeyHex33: '02' + 'ff'.repeat(32), saltHex64: salt }),
+      () => buildUnlock({ preimage, derSig: der.slice(1), pubkeyHex33: b.pub, saltHex64: salt }),
+      () => buildUnlock({ preimage, derSig: der, pubkeyHex33: b.pub, saltHex64: '00' })
     ]) {
       expect(bad).toThrow(VaultError)
       try { bad() } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }

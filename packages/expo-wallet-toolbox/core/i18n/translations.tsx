@@ -277,7 +277,7 @@ const resources = {
         'Minimum deposit {{floorDisplay}} ({{floorSats}} sats). Creating a vault deposit costs about {{feeDisplay}}.',
       vault_first_deposit_title: 'First vault deposit',
       vault_first_deposit_body:
-        "First vault deposit — {{amount}} will be openable only with {{count}} YubiKeys ({{names}}). Your recovery phrase won't help. Each deposit carries its public salt in the lock, but recovery also needs authenticated key records and wallet history.",
+        "First vault deposit — {{amount}} will be openable only with {{count}} YubiKeys ({{names}}). Your recovery phrase won't help. Each deposit hides its salt until spend, but recovery also needs authenticated key records and wallet history.",
       vault_backup_off_title: 'Turn private backup on',
       vault_backup_off_body:
         'Private backup must be on before the wallet creates another Vault output. It stores the authenticated YubiKey records and wallet history needed for recovery. You can still withdraw everything without creating Vault change.',

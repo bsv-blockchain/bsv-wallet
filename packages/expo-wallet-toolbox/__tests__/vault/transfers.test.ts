@@ -19,7 +19,6 @@ import {
   R1C_LOCK_LEN,
   R1C_UNLOCK_LEN,
   bakedCommitments,
-  bakedSalt,
   buildLock,
   commitment,
   decodeVaultInstructions,
@@ -731,13 +730,13 @@ describe('depositToVault', () => {
     expect(ci).toMatchObject({ vaultId: VAULT_ID, revision: 2, createdAt: 1 })
     expect(ci.keys).toEqual([KEY_A, KEY_B]) // commitment order = meta order
 
-    // The lock really bakes both commitments, in that order — not just the
-    // record claiming so.
+    // The lock really bakes both salted commitments, in that order, without
+    // revealing the salt carried by the recovery record.
     expect(bakedCommitments(LockingScript.fromHex(out.lockingScript))).toEqual([
       commitment(PUB_A, ci.salt),
       commitment(PUB_B, ci.salt)
     ])
-    expect(bakedSalt(LockingScript.fromHex(out.lockingScript))).toBe(ci.salt)
+    expect(out.lockingScript).not.toContain(ci.salt)
   })
 
   it('rolls the deterministic derivation index and produces a distinct salt and script', async () => {
@@ -2267,14 +2266,35 @@ describe('two-phase key removal reconciliation', () => {
       lockingScript: output.lockingScript,
       outputIndex: 0,
       basket: VAULT_BASKET
-    }]
+    }],
+    sourceFixtures: sources
   })
 
   const serveHistory = (actions: any[]): void => {
+    const sourceFixtures = new Map<string, VaultFixture>()
+    for (const action of actions) {
+      for (const source of action.sourceFixtures ?? []) sourceFixtures.set(source.outpoint, source)
+    }
+    const sourceActions = [...sourceFixtures.values()].map(source => ({
+      txid: source.outpoint.split('.')[0],
+      reference: `source-${source.outpoint.slice(0, 8)}`,
+      status: 'completed',
+      labels: ['vault', 'vault-deposit'],
+      inputs: [],
+      outputs: [{
+        satoshis: source.satoshis,
+        spendable: false,
+        customInstructions: source.customInstructions,
+        lockingScript: source.lockingScript.toHex(),
+        outputIndex: Number(source.outpoint.split('.')[1]),
+        basket: VAULT_BASKET
+      }]
+    }))
+    const completeHistory = [...actions, ...sourceActions]
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(specOpFailedActions)
-        ? actions.filter(action => action.status === 'failed')
-        : actions.filter(action => action.status !== 'failed')
+        ? completeHistory.filter(action => action.status === 'failed')
+        : completeHistory.filter(action => action.status !== 'failed')
     }))
   }
 
@@ -2420,7 +2440,7 @@ describe('two-phase key removal reconciliation', () => {
 
     await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).rejects.toMatchObject({
       code: 'template-invalid',
-      message: 'Vault re-lock action belongs to a different network'
+      message: 'Vault output belongs to a different network'
     })
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect((await vaultStore.getMeta())!.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })

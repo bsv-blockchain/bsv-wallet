@@ -1,9 +1,10 @@
 /**
  * Vault salts across backup and database import (spec §7 "Restore").
  *
- * A current vault output is self-describing: the salt is committed directly
- * in its locking script, while its exact v6 customInstructions carry the
- * vault id, revision, and full public key records used to rebuild local state.
+ * A current vault output's salt is retained by its exact v6 customInstructions;
+ * the unspent locking script contains only salted table commitments. The same
+ * record carries the vault id, revision, and full public key records used to
+ * rebuild local state and the exact expected lock.
  * The transfer layer accepts those records only after byte-for-byte lock
  * reconstruction. Restore correctness therefore includes two storage claims:
  *

@@ -3,8 +3,8 @@
  * Settings › "Export Wallet Data" and the Vault screen's row of the same name
  * (spec §3.4: the vault screen is where the user is thinking about recovery,
  * and encrypted export preserves the recovery metadata/history mirrored by
- * each output. The public salt is also baked into the lock and cross-checked
- * against its v6 custom instructions).
+ * each output. The salt in v6 custom instructions is rederived through the
+ * wallet HMAC and used to rebuild the lock's salted commitments).
  *
  * Lifted from WalletConfigScreen.handleExportData so both screens share one
  * implementation: one export at a time, `exporting` for the spinner, failures

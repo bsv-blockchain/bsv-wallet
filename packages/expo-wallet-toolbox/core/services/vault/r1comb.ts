@@ -25,7 +25,7 @@ export const TABLE_SIZE = 32
 /** OP_NUM2BIN width per coordinate in the canonical (hashed) serialisation. */
 export const COORD_WIDTH = 33
 export const SALT_BYTES = 32
-/** Declared unlockingScriptLength; the measured hard maximum is 2,506 B. */
+/** Declared unlockingScriptLength; the measured hard maximum is 2,539 B including the salt. */
 export const R1C_UNLOCK_LEN = 2560
 export const R1C_MAX_KEYS = 5
 /** BIP143 preimage length with subscript `ac` (2 B) and scope 0x41. */
@@ -33,10 +33,10 @@ export const R1C_PREIMAGE_LEN = 158
 /** SIGHASH_ALL | SIGHASH_FORKID — the only scope the template supports. */
 export const R1C_SIGHASH = 0x41
 
-/** Exact hardened lock size: 45,221 B at N = 1; 45,197 + 25N B for N = 2..5. */
+/** Exact hardened lock size for the salt-revealing witness template. */
 export function R1C_LOCK_LEN(n: number): number {
-  if (n === 1) return 45221
-  if (Number.isInteger(n) && n >= 2 && n <= R1C_MAX_KEYS) return 45197 + 25 * n
+  if (n === 1) return 45199
+  if (Number.isInteger(n) && n >= 2 && n <= R1C_MAX_KEYS) return 45175 + 25 * n
   throw new VaultError('template-invalid', `R1C_LOCK_LEN: N must be 1..${R1C_MAX_KEYS}, got ${String(n)}`)
 }
 
@@ -294,21 +294,24 @@ export function recode(u: bigint): bigint {
 const K_Q = 2 * TABLE_SIZE
 
 /**
- * H0–H3: identical for every lock. Stack in (unlock): [r u2' u1' Q0..Q63 s sInv preimage]
- * alt []; stack out: [r u2' u1' Q0..Q63] alt [preimage n].
+ * H0–H3: identical for every lock. Stack in (unlock):
+ * [r u2' u1' Q0..Q63 s sInv preimage salt]. The preimage and salt are
+ * staged on alt in that order, then n is placed above them. Stack out:
+ * [r u2' u1' Q0..Q63] alt [preimage salt n].
  */
 let headerBeforeSaltCache: number[] | null = null
 function emitHeaderBeforeSalt(): number[] {
   if (headerBeforeSaltCache !== null) return headerBeforeSaltCache
   const out: number[] = []
   // Canonical witness shape: reject extra bottom pushes as well as missing fields.
-  out.push(...asm('OP_DEPTH {DEPTH} OP_NUMEQUALVERIFY', { DEPTH: 3 + K_Q + 3 }))
+  out.push(...asm('OP_DEPTH {DEPTH} OP_NUMEQUALVERIFY', { DEPTH: 3 + K_Q + 4 }))
   // H0: bind withdrawals to transaction version 1 at consensus level, then
   // e = unsigned-LE(hash256(preimage)); preimage -> alt. OP_PUSH_TX later binds
   // this exact preimage to the transaction being evaluated.
   out.push(...asm(`
-    OP_DUP 4 OP_SPLIT OP_DROP <01000000> OP_EQUALVERIFY
-    OP_DUP OP_HASH256 <00> OP_CAT OP_BIN2NUM OP_SWAP OP_TOALTSTACK
+    OP_OVER 4 OP_SPLIT OP_DROP <01000000> OP_EQUALVERIFY
+    OP_OVER OP_HASH256 <00> OP_CAT OP_BIN2NUM
+    2 OP_ROLL OP_TOALTSTACK OP_SWAP OP_TOALTSTACK
   `))
   // H1: n -> alt; enforce canonical r, low-S s and sInv before any modular
   // arithmetic; s*sInv == 1; u1 = e*sInv; u2 = r*sInv. The r checks are
@@ -336,21 +339,22 @@ function emitHeaderBeforeSalt(): number[] {
   return out
 }
 
-/** H4 suffix after the lock pushes its baked salt: hash160(salt || canonical table). */
+/** H4: recover and consume the witness salt, then hash160(salt || canonical table). */
 let headerAfterSaltCache: number[] | null = null
 function emitHeaderAfterSalt(): number[] {
   if (headerAfterSaltCache !== null) return headerAfterSaltCache
-  const out: number[] = []
+  // alt enters [preimage salt n]. Preserve n above preimage for emitPreloop,
+  // while returning salt to the main stack for its exact byte-length check.
+  const out: number[] = [...asm('OP_FROMALTSTACK OP_FROMALTSTACK OP_SWAP OP_TOALTSTACK OP_SIZE {SALT_BYTES} OP_NUMEQUALVERIFY', { SALT_BYTES })]
   for (let m = 0; m < K_Q; m++) out.push(...asm('{D} OP_PICK {W} OP_NUM2BIN OP_CAT', { D: K_Q - m, W: COORD_WIDTH }))
   out.push(OP.OP_HASH160)
   headerAfterSaltCache = out
   return out
 }
 
-/** H0–H4, including the lock-baked public salt that authenticates the commitment domain and separates scripts. */
-function emitHeaderPrefix(salt: number[]): number[] {
-  if (salt.length !== SALT_BYTES) throw invalid(`emitHeaderPrefix: salt must be ${SALT_BYTES} bytes`)
-  return [...emitHeaderBeforeSalt(), ...pushData(salt), ...emitHeaderAfterSalt()]
+/** H0–H4. The salt is supplied by the unlocking script and never appears here. */
+function emitHeaderPrefix(): number[] {
+  return [...emitHeaderBeforeSalt(), ...emitHeaderAfterSalt()]
 }
 
 /** H5: H must equal one of the N baked 20-byte commitments. 22 B (N = 1) or 25N − 2 B (N >= 2). */
@@ -610,33 +614,26 @@ function parseCommitments(commitments: unknown): number[][] {
   return lower.map(bytesOf)
 }
 
-/** N in 1..5 commitments and a public 32-byte per-output salt. The salt is baked into the lock. */
+/** N in 1..5 salted table commitments. saltHex64 is validated but never emitted into the lock. */
 export function buildLock(a: { commitments: string[]; saltHex64: string }): LockingScript {
   const cs = parseCommitments(a.commitments)
-  const salt = saltBytes(a.saltHex64)
-  const bytes = [...emitHeaderPrefix(salt), ...emitH5(cs), ...sharedSuffix()]
+  saltBytes(a.saltHex64)
+  const bytes = [...emitHeaderPrefix(), ...emitH5(cs), ...sharedSuffix()]
   const expected = R1C_LOCK_LEN(cs.length)
   if (bytes.length !== expected) throw invalid(`buildLock: emitted ${bytes.length} bytes, expected ${expected}`)
   return new LockingScript(Script.fromBinary(bytes).chunks)
 }
 
 /**
- * Parse and validate a lock built by buildLock. The baked salt, H5 skeleton and
- * whole shared suffix must all be byte-identical to a rebuilt lock.
+ * Parse and validate a lock built by buildLock. The H5 skeleton and whole
+ * salt-free template must be byte-identical to a rebuilt lock.
  */
-function parseBakedLock(lock: Script): { commitments: string[]; salt: string } {
+function parseBakedLock(lock: Script): { commitments: string[] } {
   const bin = lock.toBinary()
   let n = -1
   for (let k = 1; k <= R1C_MAX_KEYS; k++) if (bin.length === R1C_LOCK_LEN(k)) n = k
   if (n < 0) throw invalid(`bakedCommitments: ${bin.length} bytes is not an R1C lock length`)
-  const beforeSalt = emitHeaderBeforeSalt()
-  const saltPush = bin.slice(beforeSalt.length, beforeSalt.length + SALT_BYTES + 1)
-  if (saltPush.length !== SALT_BYTES + 1 || saltPush[0] !== SALT_BYTES) {
-    throw invalid('bakedCommitments: malformed baked salt')
-  }
-  const saltBytesFromLock = saltPush.slice(1)
-  const salt = Utils.toHex(saltBytesFromLock)
-  const prefix = emitHeaderPrefix(saltBytesFromLock)
+  const prefix = emitHeaderPrefix()
   const suffix = sharedSuffix()
   const h5 = bin.slice(prefix.length, bin.length - suffix.length)
   const cs: number[][] = []
@@ -650,17 +647,12 @@ function parseBakedLock(lock: Script): { commitments: string[]; salt: string } {
   if (rebuilt.length !== bin.length || rebuilt.some((b, i) => b !== bin[i])) {
     throw invalid('bakedCommitments: not an R1C lock')
   }
-  return { commitments: cs.map(c => Utils.toHex(c)), salt }
+  return { commitments: cs.map(c => Utils.toHex(c)) }
 }
 
 /** Commitments baked into an exact current R1C lock, in order. */
 export function bakedCommitments(lock: Script): string[] {
   return parseBakedLock(lock).commitments
-}
-
-/** Public per-output salt baked into an exact current R1C lock. */
-export function bakedSalt(lock: Script): string {
-  return parseBakedLock(lock).salt
 }
 
 // ───────────────────────── sighash preimage and signer digest (spec §2.5) ─────────────────────────
@@ -793,12 +785,13 @@ export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHe
 }
 
 /**
- * The 70-push unlocking script: r, u2', u1', 64 coords of table(Q), s, s⁻¹, preimage (spec §2.4).
+ * The 71-push unlocking script: r, u2', u1', 64 coords of table(Q), s, s⁻¹,
+ * preimage, and the 32-byte salt (spec §2.4).
  * Refuses: wrong preimage length, preimage version ≠ 1,
  * bad key / DER, R = O. It does NOT verify the signature against Q: the interpreter is the arbiter
  * (Plan 2 runs verifyVaultInput on every input before signAction).
  */
-export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string }): UnlockingScript {
+export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript {
   const { preimage } = a
   requirePreimage(preimage, 'buildUnlock')
   const key = compressPubkey(a.pubkeyHex33)
@@ -816,7 +809,7 @@ export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex
   const u2 = mod(Rx * sInv, P256_N)   // the lock derives u2 from the PUSHED r (≡ rSig mod n), so recode that
   const bytes: number[] = [...encNum(Rx), ...encNum(recode(u2)), ...encNum(recode(u1))]
   for (const { x, y } of combTable(key)) bytes.push(...encNum(x), ...encNum(y))
-  bytes.push(...encNum(s), ...encNum(sInv), ...pushData(preimage))
+  bytes.push(...encNum(s), ...encNum(sInv), ...pushData(preimage), ...pushData(saltBytes(a.saltHex64)))
   if (bytes.length > R1C_UNLOCK_LEN) throw invalid(`buildUnlock: ${bytes.length} bytes exceeds R1C_UNLOCK_LEN`)
   return new UnlockingScript(Script.fromBinary(bytes).chunks)
 }
@@ -866,7 +859,7 @@ export interface VaultInstructionKey {
 export interface VaultInstructionsV6 {
   v: 6
   type: 'R1C'
-  /** Wallet createHmac result; exact 32 bytes baked into the lock. */
+  /** Wallet createHmac result; revealed by the unlocking script and committed through H5. */
   salt: string
   /** Canonical positive decimal wallet key index (`"1"`, `"2"`, ...). */
   saltKeyId: string
