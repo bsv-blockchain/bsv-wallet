@@ -19,9 +19,12 @@ const mockRefreshCoverage = jest.fn()
 const mockExportData = jest.fn()
 let mockVaultEnabled = true
 let mockSupported = true
+let mockBackupOn = true
+let mockBackupUrl = 'https://backup.example.test'
 let mockBalance: number | null = 0
 let mockCoverage: unknown = null
 let mockWallet: any
+const mockIsBackupPushEnabled = jest.fn(async () => mockBackupOn)
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
@@ -37,6 +40,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   },
   getVaultDriver: () => ({ isSupported: () => mockSupported }),
   isVaultEnabled: () => mockVaultEnabled,
+  isBackupPushEnabled: () => mockIsBackupPushEnabled(),
+  getBackupUrl: () => mockBackupUrl,
   disableVault: (...a: unknown[]) => mockDisable(...a),
   disableVaultWhenSafe: (...a: unknown[]) => mockDisableWhenSafe(...a),
   relockVault: (...a: unknown[]) => mockRelock(...a),
@@ -172,6 +177,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockVaultEnabled = true
   mockSupported = true
+  mockBackupOn = true
+  mockBackupUrl = 'https://backup.example.test'
   mockBalance = 0
   mockCoverage = CLEAN
   mockGetMeta.mockReset().mockResolvedValue(META2)
@@ -184,6 +191,7 @@ beforeEach(() => {
   mockDisable.mockReset().mockResolvedValue(undefined)
   mockDisableWhenSafe.mockReset().mockResolvedValue(true)
   mockShowAlert.mockReset()
+  mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockWallet = {
     managers: { permissionsManager: { listOutputs: jest.fn() } },
     adminOriginator: 'admin.test',
@@ -460,6 +468,25 @@ describe('enrolled', () => {
     await settle()
     expect(screen.getByText('vault_err_too_small_to_relock')).toBeTruthy()
     expect(screen.getByText('vault_relock_choose')).toBeTruthy()
+  })
+
+  test('backup-off during re-lock opens backup settings and leaves the sheet available to retry', async () => {
+    mockBalance = 300_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    const { VaultError } = jest.requireActual('../../core/services/vault/types')
+    mockRelock.mockRejectedValueOnce(new VaultError('backup-off'))
+    mockShowAlert.mockResolvedValueOnce('settings')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
+    await settle()
+    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'vault_backup_off_title',
+      message: 'vault_backup_off_body'
+    }))
+    expect(mockRouter.push).toHaveBeenCalledWith('/wallet-config?section=backup')
+    expect(screen.getByText('vault_relock_choose')).toBeTruthy()
+    expect(screen.queryByText('vault_err_backup_off')).toBeNull()
   })
 
   test('disable is refused while the vault holds funds and clears meta when empty', async () => {

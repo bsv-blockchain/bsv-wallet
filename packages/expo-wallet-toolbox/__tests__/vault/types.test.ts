@@ -7,6 +7,7 @@ import { VaultError, VaultErrorCode, vaultErrorFromNative } from '../../core/ser
 
 const R1C_CODES: VaultErrorCode[] = [
   'not-released',
+  'backup-off',
   'not-enough-keys',
   'key-already-enrolled',
   'too-many-keys',

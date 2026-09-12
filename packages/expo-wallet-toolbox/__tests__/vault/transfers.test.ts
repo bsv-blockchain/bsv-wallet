@@ -12,7 +12,7 @@
  *
  * Plan 1's r1comb.ts must exist.
  */
-import { Beef, KeyDeriver, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
+import { Beef, Hash, KeyDeriver, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { specOpFailedActions } from '@bsv/wallet-toolbox-mobile/out/src/sdk/types'
 import {
@@ -26,7 +26,7 @@ import {
   encodeVaultInstructions,
   sighashPreimage,
   signerDigest,
-  vaultSaltFromPublicKey,
+  vaultSaltHmacData,
   type VaultSaltChain,
   verifyVaultInput
 } from '../../core/services/vault/r1comb'
@@ -74,10 +74,15 @@ jest.mock('../../core/services/vault/ceremonyHost', () => ({
 // injected ones; both are asserted below, so they are mocked rather than left
 // to configureToolbox / AsyncStorage state.
 jest.mock('../../core/toolboxConfig', () => ({
+  getBackupUrl: jest.fn(() => 'https://backup.example'),
   isVaultEnabled: jest.fn(() => true)
 }))
+jest.mock('../../core/backup/preference', () => ({
+  isBackupPushEnabled: jest.fn(async () => true)
+}))
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { isVaultEnabled } from '../../core/toolboxConfig'
+import { isBackupPushEnabled } from '../../core/backup/preference'
+import { getBackupUrl, isVaultEnabled } from '../../core/toolboxConfig'
 import { noteVaultProgress, requestVaultSigner } from '../../core/services/vault/ceremonyHost'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import type { VaultSigner } from '../../core/services/vault/ceremony'
@@ -109,16 +114,14 @@ const SCOPE_IDENTITY = `02${'22'.repeat(32)}`
 const SALT_DERIVER = new KeyDeriver(new PrivateKey(42))
 let fixtureSaltIndex = 1000
 
-function fixtureSalt(index = fixtureSaltIndex++, chain: VaultSaltChain = 'test'): {
+function fixtureSalt(index = fixtureSaltIndex++, serials: readonly string[] = ['A-1', 'B-1']): {
   salt: string
-  saltPublicKey: string
   saltKeyId: string
 } {
   const saltKeyId = String(index)
-  const saltPublicKey = SALT_DERIVER.derivePublicKey([...VAULT_SALT_PROTOCOL], saltKeyId, 'self', true).toString()
+  const key = SALT_DERIVER.deriveSymmetricKey([...VAULT_SALT_PROTOCOL], saltKeyId, 'self')
   return {
-    salt: vaultSaltFromPublicKey(saltPublicKey, chain),
-    saltPublicKey,
+    salt: Utils.toHex(Hash.sha256hmac(key.toArray(), vaultSaltHmacData(serials))),
     saltKeyId
   }
 }
@@ -160,7 +163,7 @@ const stitchBeef = (fx: { src: Transaction }[]): number[] => {
 // ── fake wallet ───────────────────────────────────────────────────────────
 
 let wallet: VaultWallet & {
-  getPublicKey: jest.Mock
+  createHmac: jest.Mock
   createAction: jest.Mock
   signAction: jest.Mock
   listOutputs: jest.Mock
@@ -175,8 +178,11 @@ beforeEach(async () => {
   vaultStore.clearScope()
   vaultStore.configureScope({ identityKey: SCOPE_IDENTITY, chain: 'test' })
   wallet = {
-    getPublicKey: jest.fn(async (args: any) => ({
-      publicKey: SALT_DERIVER.derivePublicKey(args.protocolID, args.keyID, args.counterparty, args.forSelf).toString()
+    createHmac: jest.fn(async (args: any) => ({
+      hmac: Hash.sha256hmac(
+        SALT_DERIVER.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
     })),
     createAction: jest.fn(async (args: any) => {
       if (args?.options?.sendWith) {
@@ -216,6 +222,8 @@ beforeEach(async () => {
     listActions: jest.fn(async () => ({ actions: [] }))
   }
   ;(isVaultEnabled as jest.Mock).mockReturnValue(true)
+  ;(getBackupUrl as jest.Mock).mockReturnValue('https://backup.example')
+  ;(isBackupPushEnabled as jest.Mock).mockResolvedValue(true)
   ;(noteVaultProgress as jest.Mock).mockClear()
   ;(requestVaultSigner as jest.Mock).mockReset()
   lastSignable = undefined
@@ -253,7 +261,11 @@ function vaultFixture(
   lockKeys: string[] = keys,
   chain: VaultSaltChain = 'test'
 ): VaultFixture {
-  const { salt, saltPublicKey, saltKeyId } = fixtureSalt(undefined, chain)
+  const instructionKeys = keys.map((pubkey, i) => {
+    const known = [KEY_A, KEY_B, KEY_C].find(key => key.pubkey === pubkey)
+    return known ?? { serial: `fixture-${i}-${pubkey.slice(-6)}`, slot: 0x82, pubkey, nickname: `Fixture ${i + 1}`, enrolledAt: i + 10 }
+  })
+  const { salt, saltKeyId } = fixtureSalt(undefined, instructionKeys.map(key => key.serial))
   const lockingScript = buildLock({ commitments: lockKeys.map(pk => commitment(pk, salt)), saltHex64: salt })
   const src = new Transaction()
   src.addOutput({ satoshis, lockingScript })
@@ -268,16 +280,12 @@ function vaultFixture(
       v: 6,
       type: 'R1C',
       salt,
-      saltPublicKey,
       saltKeyId,
       chain,
       vaultId: VAULT_ID,
       revision: 1,
       createdAt: 1,
-      keys: keys.map((pubkey, i) => {
-        const known = [KEY_A, KEY_B, KEY_C].find(key => key.pubkey === pubkey)
-        return known ?? { serial: `fixture-${i}-${pubkey.slice(-6)}`, slot: 0x82, pubkey, nickname: `Fixture ${i + 1}`, enrolledAt: i + 10 }
-      })
+      keys: instructionKeys
     })
   }
 }
@@ -450,7 +458,7 @@ describe('depositToVault', () => {
     status: 'unsigned' | 'nosend' = 'nosend',
     chain: VaultSaltChain = 'test'
   ) => {
-    const { salt, saltPublicKey, saltKeyId } = fixtureSalt(900, chain)
+    const { salt, saltKeyId } = fixtureSalt(900)
     const lockingScript = buildLock({
       commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
       saltHex64: salt
@@ -472,7 +480,6 @@ describe('depositToVault', () => {
           v: 6,
           type: 'R1C',
           salt,
-          saltPublicKey,
           saltKeyId,
           chain,
           vaultId: VAULT_ID,
@@ -630,6 +637,42 @@ describe('depositToVault', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
 
+  it('fails closed without aborting an unsigned held deposit whose salt belongs to another wallet', async () => {
+    await seedMeta()
+    wallet.listActions.mockResolvedValue({ actions: [heldDepositAction('unsigned')] })
+    const foreignDeriver = new KeyDeriver(new PrivateKey(43))
+    wallet.createHmac.mockImplementation(async (args: any) => ({
+      hmac: Hash.sha256hmac(
+        foreignDeriver.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
+    }))
+
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({
+      code: 'template-invalid',
+      message: expect.stringContaining('does not belong to this wallet')
+    })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
+  it('does not abort a held deposit if wallet scope changes during its salt check', async () => {
+    await seedMeta()
+    wallet.listActions.mockResolvedValue({ actions: [heldDepositAction('unsigned')] })
+    wallet.createHmac.mockImplementation(async (args: any) => {
+      const hmac = Hash.sha256hmac(
+        SALT_DERIVER.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
+      vaultStore.configureScope({ identityKey: `03${'44'.repeat(32)}`, chain: 'main' })
+      return { hmac }
+    })
+
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'scope-changed' })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
   it('refuses to disable over an exact signed noSend deposit and never frees its inputs', async () => {
     await seedMeta()
     let held = true
@@ -662,7 +705,7 @@ describe('depositToVault', () => {
     expect(clear).not.toHaveBeenCalled()
   })
 
-  it('bakes a wallet-derived public-key salt and every enrolled key into a v6 recovery record', async () => {
+  it('bakes a wallet-derived HMAC salt and every enrolled key into a v6 recovery record', async () => {
     await seedMeta()
     await depositToVault(wallet, ADMIN, 250_000)
     const out = depositArgs().outputs[0]
@@ -675,17 +718,16 @@ describe('depositToVault', () => {
     expect(ci.v).toBe(6)
     expect(ci.type).toBe('R1C')
     expect(ci.salt).toMatch(/^[0-9a-f]{64}$/)
-    expect(ci.saltPublicKey).toMatch(/^0[23][0-9a-f]{64}$/)
-    expect(ci.salt).toBe(vaultSaltFromPublicKey(ci.saltPublicKey, 'test'))
+    expect(ci.salt).toBe(fixtureSalt(1, ['A-1', 'B-1']).salt)
     expect(ci.chain).toBe('test')
     expect(ci.saltKeyId).toBe('1')
-    expect(wallet.getPublicKey).toHaveBeenCalledWith(expect.objectContaining({
+    expect(wallet.createHmac).toHaveBeenCalledWith({
       protocolID: [2, 'vault salt'],
       keyID: ci.saltKeyId,
       counterparty: 'self',
-      forSelf: true,
+      data: vaultSaltHmacData(['A-1', 'B-1']),
       seekPermission: false
-    }), ADMIN)
+    }, ADMIN)
     expect(ci).toMatchObject({ vaultId: VAULT_ID, revision: 2, createdAt: 1 })
     expect(ci.keys).toEqual([KEY_A, KEY_B]) // commitment order = meta order
 
@@ -725,7 +767,7 @@ describe('depositToVault', () => {
     expect(outs[0].lockingScript).not.toBe(outs[1].lockingScript)
   })
 
-  it('domain-separates the same mnemonic, numeric key ID, and YubiKey set by network', async () => {
+  it('allows the same mnemonic, numeric key ID, and YubiKey set to reuse a salt across networks', async () => {
     await seedMeta()
     await depositToVault(wallet, ADMIN, 250_000)
 
@@ -742,9 +784,17 @@ describe('depositToVault', () => {
     )
     expect(testRecord).toMatchObject({ saltKeyId: '1', chain: 'test' })
     expect(mainRecord).toMatchObject({ saltKeyId: '1', chain: 'main' })
-    expect(mainRecord.saltPublicKey).toBe(testRecord.saltPublicKey)
-    expect(mainRecord.salt).not.toBe(testRecord.salt)
-    expect(outputs[1].lockingScript).not.toBe(outputs[0].lockingScript)
+    expect(mainRecord.salt).toBe(testRecord.salt)
+    expect(outputs[1].lockingScript).toBe(outputs[0].lockingScript)
+  })
+
+  it('frames concatenated YubiKey serials so different lists cannot share HMAC data', () => {
+    expect(vaultSaltHmacData(['1', '23'])).not.toEqual(vaultSaltHmacData(['12', '3']))
+    expect(vaultSaltHmacData(['A-1', 'B-1'])).toEqual([
+      2,
+      3, ...Utils.toArray('A-1', 'utf8'),
+      3, ...Utils.toArray('B-1', 'utf8')
+    ])
   })
 
   it('serializes simultaneous deposits so each observes the previous HD salt index', async () => {
@@ -786,22 +836,21 @@ describe('depositToVault', () => {
     expect(ids).toEqual(['1', '2'])
   })
 
-  it('fails before createAction if the wallet cannot derive a canonical salt public key', async () => {
+  it('fails before createAction if the wallet cannot derive a canonical salt HMAC', async () => {
     await seedMeta()
-    wallet.getPublicKey.mockResolvedValue({ publicKey: `02${'ff'.repeat(32)}` })
+    wallet.createHmac.mockResolvedValue({ hmac: [0xff] })
     await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'template-invalid' })
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
 
-  it('never reuses a derived salt or script hash from a completed and already-spent Vault output', async () => {
+  it('rolls past a completed and already-spent Vault output salt index', async () => {
     await seedMeta()
-    const { salt, saltPublicKey, saltKeyId } = fixtureSalt(1)
+    const { salt, saltKeyId } = fixtureSalt(1)
     const lock = buildLock({ commitments: [PUB_A, PUB_B].map(pubkey => commitment(pubkey, salt)), saltHex64: salt })
     const customInstructions = encodeVaultInstructions({
       v: 6,
       type: 'R1C',
       salt,
-      saltPublicKey,
       saltKeyId,
       chain: 'test',
       vaultId: VAULT_ID,
@@ -826,17 +875,19 @@ describe('depositToVault', () => {
             }]
           }]
     }))
-    wallet.getPublicKey.mockResolvedValue({ publicKey: saltPublicKey })
-
-    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'template-invalid' })
-    expect(wallet.getPublicKey).toHaveBeenCalledTimes(2)
-    expect(wallet.createAction).not.toHaveBeenCalled()
+    await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
+    expect(wallet.createHmac).toHaveBeenCalledTimes(2)
+    const created = depositArgs().outputs[0]
+    const createdInstructions = decodeVaultInstructions(created.customInstructions)!
+    expect(createdInstructions.saltKeyId).toBe('2')
+    expect(createdInstructions.salt).not.toBe(salt)
+    expect(created.lockingScript).not.toBe(lock.toHex())
   })
 
   it('keeps prior-enrollment salts globally unique without blocking a drained Vault from being enrolled again', async () => {
     await seedMeta()
     const priorVaultId = 'ef'.repeat(32)
-    const { salt, saltPublicKey, saltKeyId } = fixtureSalt(41)
+    const { salt, saltKeyId } = fixtureSalt(41)
     const lockingScript = buildLock({
       commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
       saltHex64: salt
@@ -857,7 +908,6 @@ describe('depositToVault', () => {
                 v: 6,
                 type: 'R1C',
                 salt,
-                saltPublicKey,
                 saltKeyId,
                 chain: 'test',
                 vaultId: priorVaultId,
@@ -881,7 +931,7 @@ describe('depositToVault', () => {
     expect(wallet.listActions.mock.calls.some(([args]) => Array.isArray(args.labels) && args.labels.length === 0)).toBe(true)
   })
 
-  it('rejects historical salt metadata whose numeric key ID does not derive its recorded public key', async () => {
+  it('rejects historical salt metadata whose numeric key ID does not derive its recorded HMAC', async () => {
     await seedMeta()
     const claimed = fixtureSalt(42)
     const saltKeyId = '41'
@@ -903,7 +953,6 @@ describe('depositToVault', () => {
                 v: 6,
                 type: 'R1C',
                 salt: claimed.salt,
-                saltPublicKey: claimed.saltPublicKey,
                 saltKeyId,
                 chain: 'test',
                 vaultId: VAULT_ID,
@@ -927,7 +976,7 @@ describe('depositToVault', () => {
 
   it('rejects historical metadata that forks the active revision to a different ordered key set', async () => {
     await seedMeta()
-    const { salt, saltPublicKey, saltKeyId } = fixtureSalt(41)
+    const { salt, saltKeyId } = fixtureSalt(41, [KEY_A.serial, KEY_C.serial])
     const keys = [KEY_A, KEY_C]
     const lockingScript = buildLock({
       commitments: keys.map(key => commitment(key.pubkey, salt)),
@@ -947,7 +996,6 @@ describe('depositToVault', () => {
                 v: 6,
                 type: 'R1C',
                 salt,
-                saltPublicKey,
                 saltKeyId,
                 chain: 'test',
                 vaultId: VAULT_ID,
@@ -1161,6 +1209,34 @@ describe('depositToVault', () => {
       await expect(
         depositToVault(wallet, ADMIN, 250_000, { isOnline: async () => false })
       ).rejects.toMatchObject({ code: 'requires-online' })
+      expect(wallet.createAction).not.toHaveBeenCalled()
+    })
+
+    it('backup-off when no private backup service is configured', async () => {
+      await seedMeta()
+      ;(isBackupPushEnabled as jest.Mock).mockClear()
+      ;(getBackupUrl as jest.Mock).mockReturnValueOnce('')
+      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'backup-off' })
+      expect(isBackupPushEnabled).not.toHaveBeenCalled()
+      expect(wallet.listOutputs).not.toHaveBeenCalled()
+      expect(wallet.createAction).not.toHaveBeenCalled()
+    })
+
+    it('backup-off when private backup push is opted out', async () => {
+      await seedMeta()
+      ;(isBackupPushEnabled as jest.Mock).mockResolvedValueOnce(false)
+      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'backup-off' })
+      expect(wallet.listOutputs).not.toHaveBeenCalled()
+      expect(wallet.createAction).not.toHaveBeenCalled()
+    })
+
+    it('uses the injected private-backup gate before reading metadata or allocating a salt', async () => {
+      await seedMeta()
+      const backupEnabled = jest.fn(async () => false)
+      await expect(depositToVault(wallet, ADMIN, 250_000, { backupEnabled })).rejects.toMatchObject({ code: 'backup-off' })
+      expect(backupEnabled).toHaveBeenCalledTimes(1)
+      expect(wallet.createHmac).not.toHaveBeenCalled()
+      expect(wallet.listOutputs).not.toHaveBeenCalled()
       expect(wallet.createAction).not.toHaveBeenCalled()
     })
 
@@ -1544,6 +1620,16 @@ describe('withdrawFromVault', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
 
     await expect(withdrawAll({ vaultEnabled: () => false })).resolves.toMatchObject({ txid: expect.any(String) })
+  }, 60_000)
+
+  it('requires private backup only when a withdrawal creates a re-vaulted remainder', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])])
+    await expect(
+      withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1', { backupEnabled: async () => false })
+    ).rejects.toMatchObject({ code: 'backup-off' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+
+    await expect(withdrawAll({ backupEnabled: async () => false })).resolves.toMatchObject({ txid: expect.any(String) })
   }, 60_000)
 
   // ── the version invariant and D4b (spec §2.6, §4.2 step 5) ─────────────
@@ -2119,6 +2205,13 @@ describe('relockVault', () => {
     expect(wallet.listOutputs).not.toHaveBeenCalled()
   })
 
+  it('requires private backup before a re-lock lists or taps Vault outputs', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
+    await expect(relock({ backupEnabled: async () => false })).rejects.toMatchObject({ code: 'backup-off' })
+    expect(wallet.listOutputs).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  })
+
   it('selects like a withdrawal: outputs the chosen key cannot open are reported as unreachable, so the screen can ask for another key', async () => {
     const mine = vaultFixture(500_000, [PUB_A, PUB_B])
     const theirs = vaultFixture(400_000, [PUB_B])
@@ -2190,7 +2283,7 @@ describe('two-phase key removal reconciliation', () => {
     chain: VaultSaltChain = 'test'
   ): Promise<any> => {
     const meta = (await vaultStore.getMeta())!
-    const { salt, saltPublicKey, saltKeyId } = fixtureSalt(undefined, chain)
+    const { salt, saltKeyId } = fixtureSalt(undefined, meta.keys.map(key => key.serial))
     const lockingScript = buildLock({
       commitments: meta.keys.map(key => commitment(key.pubkey, salt)),
       saltHex64: salt
@@ -2202,7 +2295,6 @@ describe('two-phase key removal reconciliation', () => {
         v: 6,
         type: 'R1C',
         salt,
-        saltPublicKey,
         saltKeyId,
         chain,
         vaultId: meta.vaultId,
@@ -2333,6 +2425,47 @@ describe('two-phase key removal reconciliation', () => {
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect((await vaultStore.getMeta())!.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
   }, 90_000)
+
+  it('rejects current relock evidence whose salt belongs to another wallet and preserves the tombstone', async () => {
+    const old = await beginRemoval()
+    const replacement = await replacementForCurrentMeta()
+    serveVaultOutputs([])
+    serveHistory([historyAction(replacement, old, 'completed')])
+    const foreignDeriver = new KeyDeriver(new PrivateKey(43))
+    wallet.createHmac.mockImplementation(async (args: any) => ({
+      hmac: Hash.sha256hmac(
+        foreignDeriver.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
+    }))
+
+    await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).rejects.toMatchObject({
+      code: 'template-invalid',
+      message: expect.stringContaining('does not belong to this wallet')
+    })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect((await vaultStore.getMeta())!.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
+  }, 90_000)
+
+  it('does not mark or finalize a removal if wallet scope changes during the relock salt check', async () => {
+    const old = await beginRemoval()
+    const replacement = await replacementForCurrentMeta()
+    serveVaultOutputs([])
+    serveHistory([historyAction(replacement, old, 'completed')])
+    wallet.createHmac.mockImplementation(async (args: any) => {
+      const hmac = Hash.sha256hmac(
+        SALT_DERIVER.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
+      vaultStore.configureScope({ identityKey: `03${'44'.repeat(32)}`, chain: 'main' })
+      return { hmac }
+    })
+
+    await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).rejects.toMatchObject({ code: 'scope-changed' })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    vaultStore.configureScope({ identityKey: SCOPE_IDENTITY, chain: 'test' })
+    expect((await vaultStore.getMeta())!.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
+  }, 90_000)
 })
 
 // ── coverage / removal / balance ─────────────────────────────────────────
@@ -2387,26 +2520,24 @@ describe('authenticated vault scans', () => {
       recovery: { required: true, adoptedSerials: [] }
     })
     const ci = decodeVaultInstructions(fixture.customInstructions)!
-    expect(wallet.getPublicKey).toHaveBeenCalledWith(expect.objectContaining({
+    expect(wallet.createHmac).toHaveBeenCalledWith({
       protocolID: [2, 'vault salt'],
       keyID: ci.saltKeyId,
       counterparty: 'self',
-      forSelf: true,
+      data: vaultSaltHmacData(['A-1', 'B-1']),
       seekPermission: false
-    }), ADMIN)
+    }, ADMIN)
   })
 
   it('refuses recovery metadata whose numeric salt key belongs to another wallet', async () => {
     const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
     serveVaultOutputs([fixture])
     const foreignDeriver = new KeyDeriver(new PrivateKey(43))
-    wallet.getPublicKey.mockImplementation(async (args: any) => ({
-      publicKey: foreignDeriver.derivePublicKey(
-        args.protocolID,
-        args.keyID,
-        args.counterparty,
-        args.forSelf
-      ).toString()
+    wallet.createHmac.mockImplementation(async (args: any) => ({
+      hmac: Hash.sha256hmac(
+        foreignDeriver.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
     }))
 
     await expect(recoverVaultMetaFromOutputs(wallet, ADMIN)).rejects.toMatchObject({
@@ -2414,6 +2545,23 @@ describe('authenticated vault scans', () => {
       message: expect.stringContaining('does not belong to this wallet')
     })
     expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  it('never counts an output whose HMAC salt belongs to another wallet', async () => {
+    const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
+    serveVaultOutputs([fixture])
+    const foreignDeriver = new KeyDeriver(new PrivateKey(43))
+    wallet.createHmac.mockImplementation(async (args: any) => ({
+      hmac: Hash.sha256hmac(
+        foreignDeriver.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
+    }))
+
+    await expect(getVaultBalance(wallet, ADMIN)).rejects.toMatchObject({
+      code: 'template-invalid',
+      message: expect.stringContaining('does not belong to this wallet')
+    })
   })
 
   const removedPubkey = Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), true)))
@@ -2469,7 +2617,7 @@ describe('authenticated vault scans', () => {
     expect(await getVaultBalance(wallet, ADMIN)).toBe(0)
   })
 
-  it('fails every authenticated scan when two distinct outputs reuse one locking-script hash', async () => {
+  it('accepts two distinct outputs that reuse one locking-script hash', async () => {
     const first = vaultFixture(100_000, [PUB_A, PUB_B])
     const secondSource = new Transaction()
     secondSource.addOutput({ satoshis: first.satoshis, lockingScript: first.lockingScript })
@@ -2485,7 +2633,7 @@ describe('authenticated vault scans', () => {
     }
     await seedVault([first, second])
 
-    await expect(getVaultBalance(wallet, ADMIN)).rejects.toMatchObject({ code: 'template-invalid' })
+    await expect(getVaultBalance(wallet, ADMIN)).resolves.toBe(200_000)
   })
 
   it('continues after a short page while the stable reported total says rows remain', async () => {

@@ -25,7 +25,7 @@
  * Every other spend must pass verifyVaultInput locally; the script aborts on the first local or ARC rejection.
  * Spends chain on unconfirmed parents — fine for ARC (mempool chains).
  */
-import { ARC, Hash, P2PKH, PrivateKey, ProtoWallet, PublicKey, SatoshisPerKilobyte, Transaction, Utils } from '@bsv/sdk'
+import { ARC, Hash, P2PKH, PrivateKey, ProtoWallet, SatoshisPerKilobyte, Transaction, Utils } from '@bsv/sdk'
 import type { LockingScript } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import {
@@ -44,7 +44,7 @@ import {
   pushTxSignatureS,
   SECP_N,
   type VaultSaltChain,
-  vaultSaltFromPublicKey,
+  vaultSaltHmacData,
   verifyVaultInput,
   encodeVaultInstructions
 } from '../packages/expo-wallet-toolbox/core/services/vault/r1comb'
@@ -142,17 +142,21 @@ const keyRecord = (context: SaltContext, key: SoftKey, index: number) => ({
 async function allocateLock(context: SaltContext, keys: SoftKey[]): Promise<AllocatedLock> {
   const keyIndex = context.nextKeyIndex++
   const saltKeyId = String(keyIndex)
-  const { publicKey: saltPublicKey } = await context.wallet.getPublicKey({
+  const serials = keys.map(key => key.serial)
+  const { hmac } = await context.wallet.createHmac({
     protocolID: [2, 'vault salt'],
     keyID: saltKeyId,
     counterparty: 'self',
-    forSelf: true,
+    data: vaultSaltHmacData(serials),
     seekPermission: false
   })
-  if (!/^0[23][0-9a-f]{64}$/.test(saltPublicKey) || PublicKey.fromString(saltPublicKey).toString() !== saltPublicKey) {
-    throw new Error('wallet returned a non-canonical salt public key')
+  if (
+    !Array.isArray(hmac) || hmac.length !== 32 ||
+    hmac.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 0xff)
+  ) {
+    throw new Error('wallet returned a non-canonical Vault salt HMAC')
   }
-  const salt = vaultSaltFromPublicKey(saltPublicKey, proofChain)
+  const salt = Utils.toHex(hmac)
   const commitments = keys.map(key => commitment(key.pub, salt))
   const lock = buildLock({ commitments, saltHex64: salt })
   const scriptHash = Utils.toHex(Hash.sha256(lock.toBinary()))
@@ -170,7 +174,6 @@ async function allocateLock(context: SaltContext, keys: SoftKey[]): Promise<Allo
     v: 6,
     type: 'R1C',
     salt,
-    saltPublicKey,
     saltKeyId,
     chain: proofChain,
     vaultId: context.vaultId,

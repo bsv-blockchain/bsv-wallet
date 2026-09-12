@@ -6,9 +6,9 @@
  * Deposit needs no hardware: the wallet builds an R1C output committed to every
  * enrolled key and broadcasts it (depositToVault). The screen shows the floor
  * and the fee inline, confirms the FIRST deposit into an empty vault, and
- * respects the release flag. Each salt is baked into its lock and cross-checked
- * against v6 custom instructions. Encrypted backup remains recovery advice
- * because it preserves authenticated key records and wallet history.
+ * refuses while encrypted private backup is unavailable. The salt is
+ * deterministic and public in the lock; backup preserves the authenticated
+ * YubiKey records and wallet history a replacement device needs for recovery.
  *
  * Withdraw asks which key will be tapped BEFORE anything runs (the NFC sheet is
  * modal), previews what the chosen key can select (previewVaultWithdrawal —
@@ -51,6 +51,8 @@ import {
   estimateRelockFee,
   R1C_LOCK_LEN,
   isVaultEnabled,
+  isBackupPushEnabled,
+  getBackupUrl,
   type VaultWallet,
   type VaultMeta,
   type VaultSpendResult,
@@ -155,6 +157,7 @@ export function VaultTransferScreen() {
   const isDeposit = direction !== 'withdraw'
   const isMax = amount === SEND_MAX_VALUE
   const released = isVaultEnabled()
+  const backupConfigured = getBackupUrl() !== ''
   const pm = managers?.permissionsManager
   const currency = settings?.currency || 'BSV'
   // The same formatter AmountDisplay wraps; a component cannot be interpolated
@@ -163,6 +166,14 @@ export function VaultTransferScreen() {
     (sats: number) => formatAmount(sats, currency, satoshisPerUSD, { usdToFiat }),
     [currency, satoshisPerUSD, usdToFiat]
   )
+  const privateBackupEnabled = useCallback(async (): Promise<boolean> => {
+    if (!backupConfigured) return false
+    try {
+      return await isBackupPushEnabled()
+    } catch {
+      return false
+    }
+  }, [backupConfigured])
 
   useEffect(() => {
     let alive = true
@@ -224,6 +235,23 @@ export function VaultTransferScreen() {
     [keys]
   )
 
+  const backupOffAlert = useCallback(async () => {
+    haptics.error()
+    const choice = await showAlert({
+      title: t('vault_backup_off_title'),
+      message: t('vault_backup_off_body'),
+      buttons: backupConfigured
+        ? [
+            { text: t('vault_backup_off_cta'), key: 'settings' },
+            { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+          ]
+        : [{ text: t('vault_ok'), key: 'ok' }]
+    })
+    // Keep this screen on the stack so the user can switch backup on, return,
+    // and retry the same transfer.
+    if (choice === 'settings') router.push('/wallet-config?section=backup' as never)
+  }, [backupConfigured, router])
+
   /** Everything vaultErrorCopy can name for this screen's errors. */
   const errorParams = useCallback(
     (e: unknown): VaultErrorParams => {
@@ -263,6 +291,13 @@ export function VaultTransferScreen() {
     setError(null)
     try {
       if (isDeposit) {
+        // Check before first-deposit confirmation so the user is never asked
+        // to approve a transfer the service must reject. The service receives
+        // the same callback and checks again at the output-creation boundary.
+        if (!(await privateBackupEnabled())) {
+          await backupOffAlert()
+          return
+        }
         // The first deposit is the moment the recovery model becomes real
         // money: say it once, with the names of the keys that hold it.
         if (total === 0) {
@@ -277,7 +312,10 @@ export function VaultTransferScreen() {
           if (choice !== 'deposit') return
         }
         setBusy(true)
-        await depositToVault(w, adminOriginator, sats, { isOnline: getOnline })
+        await depositToVault(w, adminOriginator, sats, {
+          isOnline: getOnline,
+          backupEnabled: privateBackupEnabled
+        })
         // The success toast carries the success haptic (Toast.tsx); the tone
         // is the vault's own (see useConfirmationSound's pairing rules).
         sounds.vaultDeposit()
@@ -320,7 +358,8 @@ export function VaultTransferScreen() {
             // Lets the reservation heal find the reserving transaction with one
             // indexed query instead of paging every action in the wallet.
             findSpendingReferences: storage ? outpoints => storage.findSpendingReferences(outpoints) : undefined,
-            isOnline: getOnline
+            isOnline: getOnline,
+            backupEnabled: privateBackupEnabled
           }
         )
         // The withdrawal itself succeeded whether or not everything moved —
@@ -372,6 +411,10 @@ export function VaultTransferScreen() {
     } catch (e) {
       console.error('[vault] transfer failed:', e instanceof Error ? e.message : e, e)
       const code = e instanceof VaultError ? e.code : undefined
+      if (code === 'backup-off') {
+        await backupOffAlert()
+        return
+      }
       haptics.error()
       setError(vaultErrorCopy(code, errorParams(e)))
     } finally {
@@ -392,6 +435,8 @@ export function VaultTransferScreen() {
     storage,
     fmt,
     namesFor,
+    privateBackupEnabled,
+    backupOffAlert,
     errorParams,
     refresh,
     router

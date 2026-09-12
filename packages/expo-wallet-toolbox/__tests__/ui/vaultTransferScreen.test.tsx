@@ -15,7 +15,10 @@ let mockParams: { direction?: string } = {}
 let mockMeta: unknown = null
 let mockBalance: number | null = 0
 let mockVaultEnabled = true
+let mockBackupOn = true
+let mockBackupUrl = 'https://backup.example.test'
 let mockWallet: any
+const mockIsBackupPushEnabled = jest.fn(async () => mockBackupOn)
 
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
@@ -34,6 +37,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     getVaultBalance: (...a: unknown[]) => mockGetVaultBalance(...a),
     sounds: { vaultDeposit: jest.fn(), vaultWithdraw: jest.fn() },
     isVaultEnabled: () => mockVaultEnabled,
+    isBackupPushEnabled: () => mockIsBackupPushEnabled(),
+    getBackupUrl: () => mockBackupUrl,
     getOnline: async () => true,
     estimateRelockFee: () => 3080,
     R1C_LOCK_LEN: () => 27881,
@@ -117,6 +122,8 @@ beforeEach(() => {
   mockMeta = META
   mockBalance = 0
   mockVaultEnabled = true
+  mockBackupOn = true
+  mockBackupUrl = 'https://backup.example.test'
   mockDeposit.mockReset().mockResolvedValue({ txid: 'd' })
   mockWithdraw.mockReset().mockResolvedValue(OK_RESULT)
   // Default: the chosen key can select the whole balance. Remainder tests
@@ -129,6 +136,7 @@ beforeEach(() => {
   // Tests that need the settle loop to complete give it the exact expected
   // figure with mockResolvedValueOnce so it matches — and returns — first try.
   mockGetVaultBalance.mockReset().mockRejectedValue(new Error('getVaultBalance not mocked for this test'))
+  mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockShowAlert.mockReset()
   mockWallet = {
     managers: { permissionsManager: { createAction: jest.fn() } },
@@ -188,11 +196,11 @@ describe('deposit', () => {
     expect(mockDeposit).toHaveBeenCalledTimes(1)
   })
 
-  test('a double tap while the deposit is in flight deposits only once', async () => {
+  test('a double tap while the backup precheck is in flight deposits only once', async () => {
     mockBalance = 500_000
-    let resolveDeposit: (v: { txid: string }) => void = () => {}
-    mockDeposit.mockImplementationOnce(
-      () => new Promise<{ txid: string }>(resolve => { resolveDeposit = resolve })
+    let resolveBackup: (v: boolean) => void = () => {}
+    mockIsBackupPushEnabled.mockImplementationOnce(
+      () => new Promise<boolean>(resolve => { resolveBackup = resolve })
     )
     const screen = await renderTransfer('deposit')
     fireEvent.changeText(screen.getByTestId('amount'), '200000')
@@ -201,11 +209,52 @@ describe('deposit', () => {
       fireEvent.press(screen.getByText('vault_deposit_cta'))
     })
     await act(async () => {
-      resolveDeposit({ txid: 'd' })
+      resolveBackup(true)
       await new Promise(r => setImmediate(r))
     })
     await settle()
+    expect(mockIsBackupPushEnabled).toHaveBeenCalledTimes(1)
     expect(mockDeposit).toHaveBeenCalledTimes(1)
+  })
+
+  test('backup off: explains the recovery records, opens backup settings, and deposits nothing', async () => {
+    mockBackupOn = false
+    mockShowAlert.mockResolvedValueOnce('settings')
+    const screen = await renderTransfer('deposit')
+    await typeAndRun(screen, '150000', 'vault_deposit_cta')
+    expect(mockShowAlert).toHaveBeenCalledWith({
+      title: 'vault_backup_off_title',
+      message: 'vault_backup_off_body',
+      buttons: [
+        { text: 'vault_backup_off_cta', key: 'settings' },
+        { text: 'vault_cancel', key: 'cancel', style: 'cancel' }
+      ]
+    })
+    expect(mockRouter.push).toHaveBeenCalledWith('/wallet-config?section=backup')
+    expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
+  test('no configured backup service: explains the requirement without offering an unusable settings route', async () => {
+    mockBackupUrl = ''
+    mockShowAlert.mockResolvedValueOnce('ok')
+    const screen = await renderTransfer('deposit')
+    await typeAndRun(screen, '150000', 'vault_deposit_cta')
+    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({
+      buttons: [{ text: 'vault_ok', key: 'ok' }]
+    }))
+    expect(mockIsBackupPushEnabled).not.toHaveBeenCalled()
+    expect(mockRouter.push).not.toHaveBeenCalled()
+    expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
+  test('a service backup-off refusal lands on the same alert', async () => {
+    mockBalance = 500_000
+    mockDeposit.mockRejectedValueOnce(new VaultError('backup-off'))
+    mockShowAlert.mockResolvedValueOnce('cancel')
+    const screen = await renderTransfer('deposit')
+    await typeAndRun(screen, '150000', 'vault_deposit_cta')
+    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'vault_backup_off_title' }))
+    expect(screen.queryByText('vault_err_backup_off')).toBeNull()
   })
 
   test('flag off: not-released copy inline and an inert CTA', async () => {
@@ -240,6 +289,29 @@ describe('withdraw', () => {
     const screen = await renderTransfer('withdraw')
     await typeAndRun(screen, '50000', 'vault_withdraw_cta')
     expect(mockWithdraw).not.toHaveBeenCalled()
+  })
+
+  test('private backup off does not block withdrawing everything without Vault change', async () => {
+    mockBalance = 500_000
+    mockBackupOn = false
+    mockGetVaultBalance.mockResolvedValueOnce(0)
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '2099999999999999', 'vault_withdraw_cta')
+    expect(mockPreview).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340002', 'all')
+    expect(mockWithdraw.mock.calls[0][2]).toBe('all')
+    expect(mockIsBackupPushEnabled).not.toHaveBeenCalled()
+    expect(mockShowAlert).not.toHaveBeenCalled()
+  })
+
+  test('backup-off while preserving a withdrawal remainder opens backup settings', async () => {
+    mockBalance = 500_000
+    mockWithdraw.mockRejectedValueOnce(new VaultError('backup-off'))
+    mockShowAlert.mockResolvedValueOnce('settings')
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '100000', 'vault_withdraw_cta')
+    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'vault_backup_off_title' }))
+    expect(mockRouter.push).toHaveBeenCalledWith('/wallet-config?section=backup')
+    expect(mockRouter.back).not.toHaveBeenCalled()
   })
 
   test('passes the chosen serial to withdrawFromVault, and follows a change of choice', async () => {

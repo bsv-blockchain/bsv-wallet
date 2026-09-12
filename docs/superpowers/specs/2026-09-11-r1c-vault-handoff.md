@@ -27,8 +27,8 @@ present on the branch from work still required for release.
 - The complete mixed-add wrapper handles infinity, equality/doubling, inverse points, and
   ordinary addition. The OP_PUSH_TX tail has a deterministic second-key branch for the one
   digest that makes the first constructed scalar zero.
-- Each output carries exact `customInstructions` v6 with the salt, salt public key, numeric salt
-  key ID, chain, vault identity/revision, and full ordered YubiKey records. The exact lock authenticates
+- Each output carries exact `customInstructions` v6 with the salt, numeric salt key ID, chain,
+  vault identity/revision, and full ordered YubiKey records. The exact lock authenticates
   the salt and reconstructed P-256 commitments. It does not authenticate the BRC-42 origin of
   `saltKeyId`, serials, nicknames, or timestamps.
 - Local Vault authority is scoped by wallet identity and chain and stored in
@@ -55,26 +55,33 @@ The local `scripts/run-r1c-crt-forgery.cjs` regression imports the production ve
 confirms that the old signature-free witness is rejected. It is useful regression evidence but
 is not an independent verifier or consensus oracle.
 
-### Numeric HD salt allocation
+### Wallet HMAC salt allocation
 
-`core/services/vault/transfers.ts` derives each salt public key with:
+`core/services/vault/transfers.ts` derives each salt with:
 
 ```text
 protocolID   = [2, "vault salt"]
 keyID        = "1", "2", ...
 counterparty = "self"
-forSelf      = true
-saltKey      = compressed derived public key
-salt         = SHA256(utf8("R1C vault salt v1\0" || chain || "\0") || saltKey)
+data         = count || len(serial[0]) || serial[0] || ...
+salt         = createHmac(protocolID, keyID, counterparty, data)
 ```
 
+The one-byte count and length-prefixed ASCII serials preserve enrollment/commitment order and
+prevent ambiguous concatenations. The HMAC covers the wallet domain, numeric ID, and ordered
+serial list, but it is one-way and cannot recover that list. Chain, enrollment metadata, and
+P-256 public keys are checked through their separate scope and exact instructions-to-lock
+bindings.
+
 Before allocation, the service scans authenticated current outputs and complete Vault action
-history, including pending, spent, failed, and completed rows. It tracks salt, key-ID, script
-hash, and script-to-key-ID ownership. Every recorded numeric key ID is rederived through the
-wallet and its public key must match the record before that ID can advance the high-water mark.
-The next candidate is rejected if its ID, salt, or script hash has already been used. The
-canonical chain is included in the public salt hash, preventing the same mnemonic, numeric ID,
-and ordered YubiKey set from reproducing one script hash across networks.
+history, including pending, spent, failed, and completed rows. Every recorded numeric key ID,
+ordered serial list, and salt claim is rederived through the wallet before that ID can advance
+the high-water mark.
+
+Every current or historical Vault output record used as provenance or mutation evidence has its
+instructions checked against the real lock and its HMAC rederived before allocation, recovery,
+held-action cleanup, removal finalization, or metadata deletion may proceed. Input-only action
+records have no HMAC claim and are validated through their source scripts and state.
 
 Current-output scans consume 64-output BEEF pages immediately. Script-bearing action history
 uses 8-row pages and lightweight history uses 200-row pages. A provider total must remain stable
@@ -84,16 +91,18 @@ most 32 selected inputs.
 
 The process FIFO prevents duplicate allocation by simultaneous calls in one app process. It is
 not a distributed allocator. Two disconnected devices sharing one mnemonic can both see N and
-broadcast N+1; if they use the same ordered YubiKey set, they create the same script hash. Before
-release, either all such devices must use an authoritative compare-and-swap/on-chain allocator,
-or the product must enforce one synchronized Vault writer.
+use N+1; if they use the same ordered YubiKey set, they create the same script hash. Since chain
+is metadata rather than HMAC data, the same collision can occur across networks. This privacy
+loss does not merge the UTXOs or grant spending authority; both outputs remain independently
+spendable by a committed YubiKey.
 
 ### Recovery boundary
 
-The numeric HD sequence deterministically reproduces the secp256k1 salt public key and salt. It
-does not determine the exact R1C lock. Each lock also depends on the complete ordered set of
-independently generated P-256 YubiKey public keys. The raw transaction contains the salt and
-opaque HASH160 table commitments, while `customInstructions` are wallet database metadata.
+The HMAC salt is reproducible from the wallet root only when the numeric ID and complete ordered
+serial list are also known. It does not determine the exact R1C lock. Each lock also depends on
+the complete ordered set of independently generated P-256 YubiKey public keys. The raw
+transaction contains the salt and opaque HASH160 table commitments, while `customInstructions`
+are wallet database metadata.
 
 Current recovery therefore still depends on authenticated wallet history or backup for the
 ordered descriptor and transaction discovery. A future backup-free claim requires a public,
@@ -123,9 +132,10 @@ and rechecks inputs, outputs, values, fees, locks, and instructions before calli
 Release succeeds only for exactly one case-insensitive matching txid with status `sending` or
 `unproven`.
 
-Private-backup configuration, a backup upload, and a host receipt are not broadcast gates.
-Ordinary encrypted backup remains optional and advisable because current recovery uses wallet
-history.
+Creating a Vault output requires a configured private-backup endpoint and enabled encrypted
+backup push. This applies to deposits, re-locks, and withdrawal remainders; a full withdrawal
+remains available. The current asynchronous backup system does not issue an authenticated
+receipt proving that the exact newly created action was uploaded before `sendWith`.
 
 An authenticated unsigned, txid-less reservation may be aborted. Once `sendWith` begins, the
 code never aborts the action. Vault recovery code neither calls `sendWith` again nor aborts a
@@ -136,15 +146,14 @@ before their initial broadcast.
 
 ## Release blockers
 
-### 1. Recovery and cross-device allocation
+### 1. Recovery
 
 - Provide authenticated discovery of raw transactions and the exact ordered historical YubiKey
   descriptor without assuming a local database.
 - Verify transaction bytes, proof, UTXO state, exact v6 template, salt derivation, network, value,
   and presented-key membership before internalization.
 - Define a safe numeric index high-water/gap rule.
-- Add an authoritative multi-device allocator or enforce one synchronized writer.
-- Pass clean-database recovery and disconnected-device collision tests.
+- Pass clean-database recovery tests.
 
 ### 2. Node, hardware, and native proof
 
@@ -173,10 +182,12 @@ does not authorize compatibility changes to ordinary wallet backup data.
 ## Maintainer cautions
 
 - A public salt changes script bytes; it is not secret and grants no authority.
-- Numeric HD salt derivation alone does not reconstruct an exact lock.
+- The keyed HMAC is one-way. Its output does not contain the serial-number input.
+- HMAC salt derivation alone does not reconstruct an exact lock.
 - `customInstructions` are metadata. Authenticate them against the real source lock and value.
 - A basket or action label never proves Vault ownership.
 - Do not expose the unwrapped raw wallet or infer admin authority from caller-controlled data.
 - Do not abort a signed or possibly broadcast transaction to free a reservation.
-- Do not claim distributed salt uniqueness until allocation is serialized across devices.
+- Do not claim global script-hash uniqueness; shared wallet roots, indices, and key sets, or
+  reuse across networks, can reproduce a script.
 - Do not enable the feature in a production distribution until every release blocker is closed.

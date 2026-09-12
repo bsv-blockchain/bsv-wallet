@@ -40,7 +40,6 @@ import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import {
   decodeVaultInstructions,
   encodeVaultInstructions,
-  vaultSaltFromPublicKey,
   type VaultInstructionsV6
 } from '../../core/services/vault/r1comb'
 
@@ -55,13 +54,11 @@ const PUBKEYS = [
   Utils.toHex(Array.from(p256.getPublicKey(Uint8Array.from({ length: 32 }, () => 2), true)))
 ]
 
-const SALT_PUBLIC_KEY = new PrivateKey(7).toPublicKey().toString()
 const VAULT_ID = 'cd'.repeat(32)
 const VAULT: VaultInstructionsV6 = {
   v: 6,
   type: 'R1C',
-  salt: vaultSaltFromPublicKey(SALT_PUBLIC_KEY, 'main'),
-  saltPublicKey: SALT_PUBLIC_KEY,
+  salt: 'ef'.repeat(32),
   saltKeyId: '1',
   chain: 'main',
   vaultId: VAULT_ID,

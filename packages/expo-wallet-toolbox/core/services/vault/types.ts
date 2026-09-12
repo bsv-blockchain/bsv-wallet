@@ -4,9 +4,10 @@
  *
  * There is no sealed private YubiKey material or seed-derived spending
  * authority: the enrolled YubiKeys are the spending keys. The wallet root
- * derives public uniqueness salts. Each output carries its salt in the locking
- * script; customInstructions mirror it for indexed discovery and are accepted
- * only after exact script and salt-derivation verification.
+ * derives deterministic HMAC salts from the ordered serial list.
+ * Each output carries its salt in the locking script; customInstructions
+ * mirror it for indexed discovery and are accepted only after exact script and
+ * salt-derivation verification.
  */
 
 export type VaultErrorCode =
@@ -58,6 +59,9 @@ export type VaultErrorCode =
   /** `vaultEnabled` is off in this build (spec §0 / D15): no enrollment,
    *  deposit, re-vault or re-lock may create a vault output. */
   | 'not-released'
+  /** No private backup service is configured, or encrypted backup push is
+   * opted out. New Vault outputs retain recovery metadata in that backup. */
+  | 'backup-off'
   /** Fewer than VAULT_MIN_KEYS keys — defensive; the wizard cannot persist it. */
   | 'not-enough-keys'
   /** The tapped serial is already in meta.keys or in the wizard's pending list.

@@ -78,6 +78,7 @@ const KEY: Record<VaultErrorCode, string> = {
   'too-many-inputs': 'vault_err_too_many_inputs',
   'requires-online': 'vault_err_requires_online',
   'not-released': 'vault_err_not_released',
+  'backup-off': 'vault_err_backup_off',
   'not-enough-keys': 'vault_err_not_enough_keys',
   'key-already-enrolled': 'vault_err_key_already_enrolled',
   'key-not-adopted': 'vault_err_key_not_adopted',

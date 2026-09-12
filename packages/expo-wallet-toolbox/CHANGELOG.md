@@ -55,8 +55,8 @@ New:
   confirmation before the tap; `relockVault`; `estimateRelockFee`;
   `getVaultKeyCoverage`; `orphanedIfRemoved`;
   `VaultSpendResult { txid, cappedInputs, unreachable }`;
-  `VaultTransferOptions.vaultEnabled`; error codes
-  `not-released`, `not-enough-keys`, `key-already-enrolled`,
+  `VaultTransferOptions.vaultEnabled` and `backupEnabled`; error codes
+  `not-released`, `backup-off`, `not-enough-keys`, `key-already-enrolled`,
   `too-many-keys`, `last-keys`, `relock-required`, `key-not-committed`,
   `key-cannot-cover`, `too-small-to-relock`, `bad-version`; `VaultError.details`.
 - `configureToolbox({ vaultEnabled })` and `isVaultEnabled()` — the release
@@ -72,34 +72,40 @@ Behaviour changes:
 
 - Vault outputs and spends use transaction version 1. The exact lock is about
   45 KB and commits to every enrolled key. `VAULT_DEPOSIT_MIN` is 100,000 sat.
-- Every output gets a public 32-byte salt equal to a chain-domain-separated
-  SHA-256 digest of a wallet-derived secp256k1 public key under protocol
-  `[2, "vault salt"]`. Exact v6 instructions record the canonical chain.
-  Its key ID is the next canonical decimal integer (`"1"`, `"2"`, ...).
-  Authenticated current and historical output scans rederive each claimed salt
-  public key before using its index and reject salt, key-ID, locking-script and
-  script-hash reuse. The in-process FIFO serializes simultaneous calls. This is
-  not a distributed allocator: disconnected devices sharing a mnemonic can
-  select the same next index, so release requires an authoritative allocator or
-  an enforced single synchronized Vault writer. Chain separation prevents the
-  same mnemonic, index and ordered keys from reproducing a script on another
-  network.
+- Every output gets a public 32-byte salt from wallet `createHmac` under
+  `[2, "vault salt"]`, using counterparty `self`, the next canonical decimal
+  key ID (`"1"`, `"2"`, ...), and the canonically framed ordered YubiKey
+  serials as data. Authenticated current and historical scans rederive every
+  claimed HMAC before its index can advance the high-water mark. Output records
+  used for recovery or lifecycle mutation must also pass exact
+  instructions-to-lock validation and wallet HMAC rederivation before cleanup,
+  finalization, or metadata deletion. The in-process FIFO serializes simultaneous
+  calls. Disconnected devices sharing a mnemonic can select the same next index;
+  the same wallet/index/key set can therefore
+  reproduce a script, including across networks. Such outputs remain separate
+  UTXOs spendable only by their committed keys. The salt is a privacy aid, not
+  an access-control requirement, and the HMAC is one-way: it does not recover
+  its serial-number input.
 - Inventory scans consume each page as it arrives: current-output BEEF pages use
   64 outputs, script-bearing action-history pages use 8 rows, and lightweight
   action-history pages use 200 rows. A withdrawal retains full proofs only for
   its at most 32 selected inputs. Compact identity, salt and pagination sets can
   still grow with history; there is deliberately no total-history cap that can
   hide an otherwise valid Vault output.
-- Vault transfer broadcast is independent of private-backup configuration. A
-  deposit or output-producing spend is built and signed as `noSend`, its exact
+- Vault output creation requires a configured private-backup endpoint and
+  enabled encrypted backup push. This configuration gate does not prove that
+  the exact new record reached the backup host; the asynchronous backup system
+  exposes no per-action receipt. A deposit or output-producing spend is built
+  and signed as `noSend`, its exact
   signed AtomicBEEF is revalidated, and that exact txid is then released with
   `sendWith`. A signed held action discovered after a crash is neither aborted
   nor automatically rebroadcast; it requires manual network-state
   reconciliation. The release flag still defaults off (`not-released`).
-- Numeric HD salt derivation reproduces the salt but does not reconstruct an
-  exact lock by itself. Clean-device recovery also needs the complete ordered
-  historical P-256 YubiKey public-key descriptor and transaction discovery;
-  current recovery obtains that data from authenticated wallet history.
+- HMAC salt derivation requires the wallet root, numeric ID, and complete
+  ordered serial list, and does not reconstruct an exact lock by itself.
+  Clean-device recovery also needs the ordered historical P-256 YubiKey
+  public-key descriptor and transaction discovery; current recovery obtains
+  that data from authenticated wallet history.
 - Withdrawals name a key before the tap; only outputs committed to that key
   are spent, each checked against its real lock; the card signs one digest
   per input in batches of 16 per NFC tap, resuming after a dropped tap.

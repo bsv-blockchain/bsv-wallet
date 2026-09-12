@@ -57,6 +57,8 @@ import {
   VAULT_MAX_KEYS,
   getVaultDriver,
   isVaultEnabled,
+  isBackupPushEnabled,
+  getBackupUrl,
   disableVault,
   disableVaultWhenSafe,
   getOnline,
@@ -151,8 +153,8 @@ export function VaultScreen() {
   const [adoptionError, setAdoptionError] = useState<string | null>(null)
 
   const enabled = isVaultEnabled()
+  const backupConfigured = getBackupUrl() !== ''
   const supported = getVaultDriver()?.isSupported() ?? false
-  const enrolled = meta != null
   const pm = managers?.permissionsManager
 
   const reload = useCallback(async (): Promise<VaultMeta | null> => {
@@ -211,6 +213,30 @@ export function VaultScreen() {
         .join(', '),
     []
   )
+
+  const privateBackupEnabled = useCallback(async (): Promise<boolean> => {
+    if (!backupConfigured) return false
+    try {
+      return await isBackupPushEnabled()
+    } catch {
+      return false
+    }
+  }, [backupConfigured])
+
+  const backupOffAlert = useCallback(async () => {
+    haptics.error()
+    const choice = await showAlert({
+      title: t('vault_backup_off_title'),
+      message: t('vault_backup_off_body'),
+      buttons: backupConfigured
+        ? [
+            { text: t('vault_backup_off_cta'), key: 'settings' },
+            { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+          ]
+        : [{ text: t('vault_ok'), key: 'ok' }]
+    })
+    if (choice === 'settings') router.push('/wallet-config?section=backup' as never)
+  }, [backupConfigured, router])
 
   const closeAdoption = useCallback(() => {
     if (adoptionBusy) return
@@ -274,9 +300,10 @@ export function VaultScreen() {
       // Lets the reservation heal find the reserving transaction with one
       // indexed query instead of paging every action in the wallet.
       findSpendingReferences: storage ? (outpoints: string[]) => storage.findSpendingReferences(outpoints) : undefined,
-      isOnline: getOnline
+      isOnline: getOnline,
+      backupEnabled: privateBackupEnabled
     }),
-    [storage]
+    [storage, privateBackupEnabled]
   )
 
   // ── re-lock ─────────────────────────────────────────────────────────
@@ -364,16 +391,21 @@ export function VaultScreen() {
       }
     } catch (e) {
       console.error('[vault] re-lock failed:', e instanceof Error ? e.message : e, e)
+      const code = e instanceof VaultError ? e.code : undefined
+      if (code === 'backup-off') {
+        await backupOffAlert()
+        return
+      }
       haptics.error()
       setRelockError(
-        vaultErrorCopy(e instanceof VaultError ? e.code : undefined, {
+        vaultErrorCopy(code, {
           names: metaRef.current?.keys.map(vaultKeyLabel).join(', ') || undefined
         })
       )
     } finally {
       setRelocking(false)
     }
-  }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor, reload])
+  }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor, reload, backupOffAlert])
 
   // ── wizard hand-offs ────────────────────────────────────────────────
   /**
@@ -798,8 +830,9 @@ export function VaultScreen() {
               {t('vault_deposit_cta')}
             </Text>
           </PressableScale>
-          {/* The release flag never gates existing funds. Pending key removal
-              and per-key recovery adoption still block unsafe withdrawals. */}
+          {/* Existing funds remain withdrawable with private backup off. A
+              full withdrawal creates no new Vault output; partial withdrawal
+              may ask the user to enable backup before preserving a remainder. */}
           <PressableScale
             haptic="confirm"
             onPress={canWithdraw ? () => router.push('/vault-transfer?direction=withdraw') : undefined}

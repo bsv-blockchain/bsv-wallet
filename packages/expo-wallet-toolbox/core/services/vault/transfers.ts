@@ -448,8 +448,8 @@ interface VerifiedVaultScan<T> {
 
 /** Authenticate every current Vault output against its real source
  * transaction, reducing it immediately so page BEEF and 45 KB scripts can be
- * reclaimed. The compact salt inventory remains global to the scan because a
- * duplicate anywhere must fail every safety decision. */
+ * reclaimed. The compact inventory retains every distinct HMAC claim so each
+ * output's wallet provenance is authenticated before the result is returned. */
 async function reduceVerifiedVaultOutputs<T>(
   w: VaultWallet,
   adminOriginator: string,
@@ -479,6 +479,9 @@ async function reduceVerifiedVaultOutputs<T>(
       reduce(state, output, sources)
     }
   }, scopeToken)
+  assertVaultScope(scopeToken)
+  await verifyVaultSaltDerivations(w, adminOriginator, inventory)
+  assertVaultScope(scopeToken)
   if (pendingMode !== 'allow') {
     const repaired = await inspectHiddenVaultReservations(
       w,
@@ -619,7 +622,8 @@ const actionTouchesVault = (action: VaultActionRow): boolean => {
 function isValidHeldVaultDeposit(
   action: VaultActionRow,
   meta: VaultMeta,
-  expectedChain: VaultScopeToken['chain']
+  expectedChain: VaultScopeToken['chain'],
+  saltInventory?: VaultSaltInventory
 ): boolean {
   const labels = new Set(action.labels ?? [])
   if (!labels.has('vault-deposit') || labels.has('vault-withdraw') || labels.has('vault-relock')) return false
@@ -666,8 +670,10 @@ function isValidHeldVaultDeposit(
     ci.revision > meta.revision
   ) return false
   if (ci.revision === meta.revision && !sameInstructionKeys(meta.keys, ci.keys)) return false
+  let lock: LockingScript
   try {
-    verifyInstructionsAgainstLock(ci, LockingScript.fromHex(output.lockingScript), 'Held Vault deposit')
+    lock = LockingScript.fromHex(output.lockingScript)
+    verifyInstructionsAgainstLock(ci, lock, 'Held Vault deposit')
   } catch {
     return false
   }
@@ -685,6 +691,15 @@ function isValidHeldVaultDeposit(
     } catch {
       return false
     }
+  }
+  if (saltInventory) {
+    rememberVaultSalt(
+      saltInventory,
+      ci,
+      lock,
+      vaultActionOutputId(action, output.outputIndex),
+      expectedChain
+    )
   }
   return true
 }
@@ -705,6 +720,7 @@ async function reconcileHeldVaultDeposits(
   const expectedChain = scopeToken?.chain ?? vaultStore.getScope()?.chain
   if (!expectedChain) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
   const unsigned: string[] = []
+  const saltInventory = emptyVaultSaltInventory()
   let signed = 0
   await scanVaultActions(w, adminOriginator, {
     labels: [],
@@ -716,12 +732,15 @@ async function reconcileHeldVaultDeposits(
   }, action => {
     const labels = new Set(action.labels ?? [])
     if (!labels.has('vault-deposit') || action.status === 'completed' || action.status === 'failed') return
-    if (!PENDING_ACTION_STATUSES.has(action.status) || !isValidHeldVaultDeposit(action, meta, expectedChain)) {
+    if (!PENDING_ACTION_STATUSES.has(action.status) || !isValidHeldVaultDeposit(action, meta, expectedChain, saltInventory)) {
       throw new VaultError('relock-required', 'A Vault deposit has an unknown or potentially broadcast state')
     }
     if (action.status === 'unsigned') unsigned.push(action.reference!)
     else signed++
   }, scopeToken)
+  assertVaultScope(scopeToken)
+  await verifyVaultSaltDerivations(w, adminOriginator, saltInventory)
+  assertVaultScope(scopeToken)
   if (signed > 1) {
     throw new VaultError('relock-required', 'Multiple signed Vault deposits require manual reconciliation')
   }
@@ -815,6 +834,20 @@ function emptyVaultSaltInventory(): VaultSaltInventory {
     outputFingerprints: new Map(),
     maxKeyIndex: 0
   }
+}
+
+/** Stable identity for a Vault output represented in action history. */
+function vaultActionOutputId(action: VaultActionRow, outputIndex: number): string {
+  if (!Number.isSafeInteger(outputIndex) || outputIndex < 0) {
+    throw new VaultError('template-invalid', 'Vault action history contains an invalid output index')
+  }
+  const actionId = typeof action.txid === 'string' && /^[0-9a-fA-F]{64}$/.test(action.txid)
+    ? action.txid.toLowerCase()
+    : action.reference
+      ? `ref:${action.reference}`
+      : undefined
+  if (!actionId) throw new VaultError('template-invalid', 'Vault action history output has no stable transaction identity')
+  return `${actionId}.${outputIndex}`
 }
 
 function saltKeyIndex(ci: VaultInstructions): number {
@@ -937,17 +970,7 @@ async function addHistoricalVaultSaltInventory(
       ) {
         throw new VaultError('template-invalid', 'Vault history conflicts with the active vault enrollment')
       }
-      const outputIndex = output.outputIndex
-      if (!Number.isSafeInteger(outputIndex) || outputIndex < 0) {
-        throw new VaultError('template-invalid', 'Vault history contains an invalid output index')
-      }
-      const actionId = typeof action.txid === 'string' && /^[0-9a-fA-F]{64}$/.test(action.txid)
-        ? action.txid.toLowerCase()
-        : action.reference
-          ? `ref:${action.reference}`
-          : undefined
-      if (!actionId) throw new VaultError('template-invalid', 'Vault history output has no stable transaction identity')
-      rememberVaultSalt(inventory, ci, lock, `${actionId}.${outputIndex}`, expectedChain)
+      rememberVaultSalt(inventory, ci, lock, vaultActionOutputId(action, output.outputIndex), expectedChain)
     }
   }, scopeToken, true)
   assertVaultScope(scopeToken)
@@ -1326,6 +1349,16 @@ export async function disableVaultWhenSafe(
       }
     }, scopeToken, true)
     if (blocked) return false
+    // A completed output can be absent from listOutputs but still be the only
+    // durable recovery record for this enrollment. Authenticate every history
+    // HMAC before allowing its local descriptor to be cleared.
+    await addHistoricalVaultSaltInventory(
+      w,
+      adminOriginator,
+      emptyVaultSaltInventory(),
+      meta,
+      scopeToken
+    )
     // The monitor is outside the JS mutex. Re-read immediately before the
     // destructive metadata clear so an output that became visible during the
     // action scan blocks the operation.
@@ -1342,12 +1375,12 @@ export async function disableVaultWhenSafe(
 /**
  * One new vault output committed to `keys` (spec §4.1 step 3, §2.7).
  *
- * Each salt is the chain-domain-separated 32-byte hash of a wallet-derived
- * public key under the next positive decimal key ID. Subject to the BRC-42
- * derivation and SHA-256
- * assumptions, a unique key ID makes commitments and script hashes distinct
- * when the enrolled key set is unchanged; it does not conceal that the output
- * uses the R1C template. The key list is written into the output's
+ * Each salt is the wallet's 32-byte createHmac result under the next positive
+ * decimal key ID, with the ordered YubiKey serial list as canonically framed
+ * input. A unique key ID normally makes commitments and script hashes distinct
+ * when the enrolled key set is unchanged. Disconnected devices can reuse an
+ * index, and identical scripts remain valid and independently spendable. The
+ * key list is written into the output's
  * customInstructions in commitment order — informational (the lock is the
  * truth; the withdraw path re-checks it), but it is what lets balance,
  * selection and coverage work without parsing a 45 KB script. Used by the
@@ -1377,16 +1410,8 @@ async function newVaultOutput(
     throw new VaultError('template-invalid', 'Vault salt key index is exhausted')
   }
   const saltKeyId = String(keyIndex)
-  const saltPublicKey = await deriveVaultSaltPublicKey(w, adminOriginator, saltKeyId)
-  const salt = vaultSaltFromPublicKey(saltPublicKey, chain)
-  if (inventory.saltOwners.has(salt) || inventory.keyIdOwners.has(saltKeyId)) {
-    throw new VaultError('template-invalid', 'The next Vault salt derivation is already in use')
-  }
+  const salt = await deriveVaultSalt(w, adminOriginator, saltKeyId, meta.keys.map(key => key.serial))
   const lockingScript = buildLock({ commitments: pubkeys.map(pk => commitment(pk, salt)), saltHex64: salt })
-  const scriptHash = Utils.toHex(Hash.sha256(lockingScript.toBinary()))
-  if (inventory.scriptHashes.has(scriptHash)) {
-    throw new VaultError('template-invalid', 'The next Vault locking-script hash is already in use')
-  }
   const output: VaultOutputSpec = {
     satoshis,
     lockingScript: lockingScript.toHex(),
@@ -1396,7 +1421,6 @@ async function newVaultOutput(
       v: 6,
       type: 'R1C',
       salt,
-      saltPublicKey,
       saltKeyId,
       chain,
       vaultId: meta.vaultId,
@@ -1418,6 +1442,26 @@ async function newVaultOutput(
 function requireReleased(opts: VaultTransferOptions | undefined, what: string): void {
   const enabled = opts?.vaultEnabled ?? isVaultEnabled
   if (!enabled()) throw new VaultError('not-released', `${what} is switched off in this build`)
+}
+
+/** A real private-backup configuration needs both a host endpoint and the
+ * user's permission to push. The preference alone defaults to true and is not
+ * evidence that any backup service exists. */
+async function defaultPrivateBackupEnabled(): Promise<boolean> {
+  try {
+    return getBackupUrl() !== '' && await isBackupPushEnabled()
+  } catch {
+    return false
+  }
+}
+
+/** Gate creation of an R1C output. This confirms configuration only; the
+ * asynchronous backup monitor does not provide an exact-record receipt. */
+async function requirePrivateBackup(opts: VaultTransferOptions | undefined, what: string): Promise<void> {
+  const enabled = opts?.backupEnabled ?? defaultPrivateBackupEnabled
+  if (!(await enabled())) {
+    throw new VaultError('backup-off', `${what} requires encrypted private backup`)
+  }
 }
 
 /** The enrolled key list, or the refusal an output-creating operation owes. */
@@ -1541,9 +1585,9 @@ function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
  * Once createAction persists an output, pending and failed history retain its
  * ID so a later output cannot reuse it.
  *
- * The HD salt derivation is deterministic, but the full ordered YubiKey public
- * key descriptor remains separate wallet metadata. Backup is therefore useful
- * recovery advice, not a precondition for moving funds.
+ * Salt derivation is deterministic, but the full ordered YubiKey serial/public
+ * key descriptor remains separate wallet metadata. A configured, enabled
+ * encrypted private backup is therefore a precondition for moving new funds.
  */
 export async function depositToVault(
   w: VaultWallet,
@@ -1559,6 +1603,8 @@ export async function depositToVault(
     throw new VaultError('below-dust', `Vault deposits must be at least ${VAULT_DEPOSIT_MIN} satoshis`)
   }
   await requireOnline(opts)
+  assertVaultScope(scopeToken)
+  await requirePrivateBackup(opts, 'Vault deposit')
   assertVaultScope(scopeToken)
   const meta = await requireMeta(scopeToken)
   if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal before depositing')
@@ -2355,6 +2401,8 @@ export async function withdrawFromVault(
     // Re-vaulting CREATES a vault output, which the release flag gates (spec
     // §5.5). Withdrawing pre-existing outputs — 'all' — never is.
     requireReleased(opts, 'Re-vaulting a remainder')
+    await requirePrivateBackup(opts, 'Re-vaulting a remainder')
+    assertVaultScope(scopeToken)
     await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
     outputs.push(await newVaultOutput(
       w,
@@ -2427,6 +2475,8 @@ export async function relockVault(
   assertVaultScope(scopeToken)
   requireReleased(opts, 'Re-locking the vault')
   await requireOnline(opts)
+  assertVaultScope(scopeToken)
+  await requirePrivateBackup(opts, 'Re-locking the vault')
   assertVaultScope(scopeToken)
   const meta = await requireMeta(scopeToken)
   await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
@@ -2619,7 +2669,8 @@ export async function beginVaultKeyRemoval(
 function actionCarriesCurrentRelock(
   action: VaultActionRow,
   meta: VaultMeta,
-  expectedChain: VaultScopeToken['chain']
+  expectedChain: VaultScopeToken['chain'],
+  saltInventory?: VaultSaltInventory
 ): boolean {
   if (action.status === 'failed' || !action.labels?.includes('vault-relock')) return false
   const vaultOutputs = (action.outputs ?? []).filter(output => output.basket === VAULT_BASKET)
@@ -2643,12 +2694,22 @@ function actionCarriesCurrentRelock(
     throw new VaultError('template-invalid', 'Vault re-lock action has a malformed locking script')
   }
   verifyInstructionsAgainstLock(ci, lock, `Vault re-lock ${action.txid ?? action.reference ?? ''}`)
-  return (
+  const carriesCurrentRelock = (
     ci.vaultId === meta.vaultId &&
     ci.createdAt === meta.createdAt &&
     ci.revision === meta.revision &&
     sameInstructionKeys(meta.keys, ci.keys)
   )
+  if (carriesCurrentRelock && saltInventory) {
+    rememberVaultSalt(
+      saltInventory,
+      ci,
+      lock,
+      vaultActionOutputId(action, output.outputIndex),
+      expectedChain
+    )
+  }
+  return carriesCurrentRelock
 }
 
 /** Every source of a removal re-lock must be an exact R1C output that still
@@ -2678,11 +2739,12 @@ function actionSpendsPendingRemovalKey(action: VaultActionRow, meta: VaultMeta):
 function isUnbroadcastPendingRemovalRelock(
   action: VaultActionRow,
   meta: VaultMeta,
-  expectedChain: VaultScopeToken['chain']
+  expectedChain: VaultScopeToken['chain'],
+  saltInventory?: VaultSaltInventory
 ): boolean {
   const pending = meta.pendingRemoval
   if (!pending || action.status !== 'unsigned' || !!action.txid || !action.reference) return false
-  if (!actionCarriesCurrentRelock(action, meta, expectedChain)) return false
+  if (!actionCarriesCurrentRelock(action, meta, expectedChain, saltInventory)) return false
   return actionSpendsPendingRemovalKey(action, meta)
 }
 
@@ -2720,6 +2782,7 @@ export async function finalizeVaultKeyRemoval(
     let matchingRelock = false
     let completedMatchingRelock = false
     let actionStateBlocks = false
+    const actionSaltInventory = emptyVaultSaltInventory()
     await scanVaultActions(w, adminOriginator, {
       labels: [],
       includeLabels: true,
@@ -2728,10 +2791,10 @@ export async function finalizeVaultKeyRemoval(
       includeOutputs: true,
       includeOutputLockingScripts: true
     }, action => {
-      if (isUnbroadcastPendingRemovalRelock(action, meta, scopeToken.chain)) {
+      if (isUnbroadcastPendingRemovalRelock(action, meta, scopeToken.chain, actionSaltInventory)) {
         unsignedRelockReferences.push(action.reference!)
       }
-      if (action.txid && actionCarriesCurrentRelock(action, meta, scopeToken.chain)) {
+      if (action.txid && actionCarriesCurrentRelock(action, meta, scopeToken.chain, actionSaltInventory)) {
         if (!actionSpendsPendingRemovalKey(action, meta)) invalidCurrentRelock = true
         else {
           matchingRelock = true
@@ -2750,6 +2813,10 @@ export async function finalizeVaultKeyRemoval(
         actionStateBlocks = true
       }
     }, scopeToken, true)
+
+    assertVaultScope(scopeToken)
+    await verifyVaultSaltDerivations(w, adminOriginator, actionSaltInventory)
+    assertVaultScope(scopeToken)
 
     // A process death between createAction and signAction is provably
     // unbroadcast only in the strict unsigned/no-txid shape above. Release that

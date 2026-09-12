@@ -13,7 +13,7 @@
  * SECURITY: nothing secret passes through this module — public keys, per-output
  * salts, signatures the card already produced, and script bytes.
  */
-import { Hash, LockingScript, OP, PrivateKey, PublicKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
+import { Hash, LockingScript, OP, PrivateKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
 

@@ -60,7 +60,7 @@ import { PrivateKey, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { setMockDriver } from '../../core/services/vault/driver'
-import { compressPubkey, vaultSaltFromPublicKey } from '../../core/services/vault/r1comb'
+import { compressPubkey } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import {
@@ -809,13 +809,11 @@ describe('adoptVaultKey', () => {
 })
 
 describe('metaFromVerifiedOutputs', () => {
-  const saltPublicKey = new PrivateKey(7).toPublicKey().toString()
-  const salt = vaultSaltFromPublicKey(saltPublicKey, 'main')
+  const salt = 'ab'.repeat(32)
   const instructions = (revision: number, keys: VaultKeyRecord[], over: Record<string, unknown> = {}) => ({
     v: 6 as const,
     type: 'R1C' as const,
     salt,
-    saltPublicKey,
     saltKeyId: '1',
     chain: 'main' as const,
     vaultId: '11'.repeat(32),

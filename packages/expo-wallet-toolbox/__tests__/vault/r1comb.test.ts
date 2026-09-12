@@ -17,7 +17,7 @@ import {
   compressPubkey, combTable, combTableScalar, gTable, le33, canonicalTableBytes, commitment,
   buildLock, bakedCommitments, bakedSalt, completeMixedAddScript, recode, sharedSuffix, shiftFor,
   sighashPreimage, signerDigest, pushTxSignatureS, pushTxDerCheck, decodeDerSignature, R1C_PREIMAGE_LEN, R1C_SIGHASH,
-  fullR, buildUnlock, verifyVaultInput, R1C_VERIFY_FLAGS, vaultSaltFromPublicKey,
+  fullR, buildUnlock, verifyVaultInput, R1C_VERIFY_FLAGS, vaultSaltHmacData,
   encodeVaultInstructions, decodeVaultInstructions, type VaultInstructionKey, type VaultInstructionsV6
 } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
@@ -1163,11 +1163,10 @@ describe('customInstructions v6 recovery codec', () => {
     nickname: `Vault key ${i + 1}`,
     enrolledAt: createdAt + i
   }))
-  const saltPublicKey = new PrivateKey(7).toPublicKey().toString()
-  const salt = vaultSaltFromPublicKey(saltPublicKey, 'test')
+  const salt = 'ab'.repeat(32)
   const saltKeyId = '1'
   const record = (keys = keys5.slice(0, 2)): VaultInstructionsV6 => ({
-    v: 6, type: 'R1C', salt, saltPublicKey, saltKeyId, chain: 'test', vaultId, revision: 1, createdAt, keys
+    v: 6, type: 'R1C', salt, saltKeyId, chain: 'test', vaultId, revision: 1, createdAt, keys
   })
 
   it.each([1, 2, 3, 4, 5])('round-trips %i full key records in commitment order', n => {
@@ -1181,7 +1180,7 @@ describe('customInstructions v6 recovery codec', () => {
   it('accepts reordered JSON fields but rejects extra top-level or key fields', () => {
     const rec = record([keys5[0]])
     expect(decodeVaultInstructions(JSON.stringify({
-      keys: rec.keys, createdAt, revision: 1, vaultId, chain: 'test', saltKeyId, saltPublicKey, salt, type: 'R1C', v: 6
+      keys: rec.keys, createdAt, revision: 1, vaultId, chain: 'test', saltKeyId, salt, type: 'R1C', v: 6
     }))).toEqual(rec)
     expect(decodeVaultInstructions(JSON.stringify({ ...rec, extra: true }))).toBeNull()
     expect(decodeVaultInstructions(JSON.stringify({ ...rec, keys: [{ ...rec.keys[0], extra: true }] }))).toBeNull()
@@ -1190,10 +1189,8 @@ describe('customInstructions v6 recovery codec', () => {
   it.each<[string, (r: VaultInstructionsV6) => unknown]>([
     ['legacy v5', r => ({ v: 5, type: 'R1C', salt: r.salt, vaultId: r.vaultId, revision: r.revision, createdAt: r.createdAt, keys: r.keys })],
     ['uppercase salt', r => ({ ...r, salt: r.salt.toUpperCase() })],
-    ['salt/public-key mismatch', r => ({ ...r, salt: '00'.repeat(32) })],
-    ['invalid salt public key', r => ({ ...r, saltPublicKey: `02${'ff'.repeat(32)}` })],
+    ['legacy salt public key field', r => ({ ...r, saltPublicKey: new PrivateKey(7).toPublicKey().toString() })],
     ['unsupported salt chain', r => ({ ...r, chain: 'regtest' })],
-    ['cross-chain salt mismatch', r => ({ ...r, chain: 'main' })],
     ['zero salt key index', r => ({ ...r, saltKeyId: '0' })],
     ['leading-zero salt key index', r => ({ ...r, saltKeyId: '01' })],
     ['signed salt key index', r => ({ ...r, saltKeyId: '+1' })],
@@ -1222,6 +1219,15 @@ describe('customInstructions v6 recovery codec', () => {
     ['array', '[]'], ['null', 'null'], ['over 4096 chars', JSON.stringify({ ...record(), pad: 'x'.repeat(4100) })]
   ])('fails closed on %s', (_name, encoded) => {
     expect(decodeVaultInstructions(encoded)).toBeNull()
+  })
+
+  it('frames concatenated serials without variable-length boundary collisions', () => {
+    expect(vaultSaltHmacData(['1', '23'])).not.toEqual(vaultSaltHmacData(['12', '3']))
+    expect(vaultSaltHmacData(['YK-1', 'YK-2'])).toEqual([
+      2,
+      4, ...Utils.toArray('YK-1', 'utf8'),
+      4, ...Utils.toArray('YK-2', 'utf8')
+    ])
   })
 
   it('encoder refuses invalid canonical values and strips runtime-only extra fields', () => {

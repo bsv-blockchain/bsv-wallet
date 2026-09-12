@@ -22,7 +22,7 @@ const ALL_CODES: VaultErrorCode[] = [
   'scope-changed', 'mgmt-key-custom', 'attestation-invalid', 'slot-occupied', 'enrollment-partial', 'template-invalid',
   'serial-mismatch', 'user-cancelled', 'not-enrolled', 'driver-unavailable', 'vault-empty',
   'amount-exceeds-balance', 'below-dust', 'no-transaction', 'nfc-lost', 'too-many-inputs',
-  'requires-online', 'not-released', 'not-enough-keys', 'key-already-enrolled', 'key-not-adopted',
+  'requires-online', 'not-released', 'backup-off', 'not-enough-keys', 'key-already-enrolled', 'key-not-adopted',
   'too-many-keys', 'last-keys', 'relock-required', 'key-not-committed', 'key-cannot-cover',
   'too-small-to-relock', 'bad-version'
 ]
@@ -64,6 +64,7 @@ describe('vaultErrorCopy', () => {
     expect(vaultErrorCopy('enrollment-partial')).toBe('vault_err_enrollment_partial')
     expect(vaultErrorCopy('key-not-adopted')).toBe('vault_err_key_not_adopted')
     expect(vaultErrorCopy('not-released')).toBe('vault_err_not_released')
+    expect(vaultErrorCopy('backup-off')).toBe('vault_err_backup_off')
     expect(vaultErrorCopy('bad-version')).toBe('vault_err_bad_version')
   })
 

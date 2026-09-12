@@ -63,8 +63,6 @@ export interface PushCursor {
   seq: number
   /** sha256 of the last appended chunk, chaining the log so gaps are detectable. */
   prevSha256?: string
-  /** Sequence of the last durable snapshot-complete marker in this generation. */
-  completedSeq?: number
   /** Chunks appended in this generation, used to decide when to rotate. */
   chunksInGeneration: number
 }
@@ -77,7 +75,6 @@ export function freshCursor (generation = 1): PushCursor {
     generation,
     seq: 0,
     prevSha256: undefined,
-    completedSeq: undefined,
     chunksInGeneration: 0
   }
 }
@@ -109,7 +106,6 @@ export async function loadCursor (chain: BackupChain, pseudonym: string, deviceI
       generation: parsed.generation ?? 1,
       seq: parsed.seq ?? 0,
       prevSha256: parsed.prevSha256,
-      completedSeq: parsed.completedSeq,
       chunksInGeneration: parsed.chunksInGeneration ?? 0
     }
   } catch {
