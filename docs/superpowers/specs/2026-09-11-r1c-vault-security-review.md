@@ -356,6 +356,11 @@ Do not enable Vault output creation in a production distribution until:
    exact recovery record before `sendWith`, or clean-device discovery no longer depends on that
    private action metadata.
 
+On 2026-09-12 the product owner authorized enabling `EXPO_PUBLIC_VAULT_ENABLED` in the EAS
+production profile for TestFlight and production-build testing. The criteria above remain the
+reviewer's record of the operational evidence still to collect; enabling the flag does not mark
+those items complete.
+
 The script-level authorization result is strong: no unauthorized accepting path was found after
 the CRT, comb, transaction-binding, and one-of-N fixes. The remaining blockers are necessary to
 make the recovery and operational promises true under device loss and real network policy.
