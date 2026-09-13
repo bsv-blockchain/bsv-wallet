@@ -959,6 +959,22 @@ test('an interrupted reset never claims the key was left untouched', async () =>
   expect(screen.queryByText('vault_err_key_removed_mid_op')).toBeNull()
 })
 
+test('a bare driver failure warns rather than promising the key was untouched', async () => {
+  // `driver-unavailable` is vaultErrorFromNative's fallback for ANY native
+  // rejection that is not a VAULT_ERR: string, so it also carries a bridge or
+  // serialization failure raised AFTER the RESET APDU landed. Reassuring copy
+  // here is the one hedge in this screen that can be wrong in the unsafe
+  // direction: the key is blank and the user has been told it is not.
+  mockResetPiv.mockRejectedValueOnce(new VaultError('driver-unavailable', 'bridge died'))
+  const { screen } = await openResetPage()
+
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await pressConfirm(screen)
+
+  expect(screen.getByText('vault_reset_uncertain')).toBeTruthy()
+  expect(screen.queryByText('vault_err_driver_unavailable')).toBeNull()
+})
+
 test('a reset refused as an enrolled key says which mistake was prevented', async () => {
   mockResetPiv.mockRejectedValueOnce(new VaultError('key-already-enrolled', '12340001'))
   const { screen } = await openResetPage()

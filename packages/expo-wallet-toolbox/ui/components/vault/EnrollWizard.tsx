@@ -225,12 +225,19 @@ const MUST_USE_DIFFERENT: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>(
  * (`scope-changed`, `key-removed-mid-op`, `nfc-lost`, and `template-invalid`
  * from the post-reset draft/quarantine cleanup), and no code distinguishes
  * that from a refusal before contact.
+ *
+ * `driver-unavailable` is deliberately NOT a member, even though pivReset does
+ * raise it before contact when no driver is installed. It is also
+ * `vaultErrorFromNative`'s fallback for ANY native rejection that is not a
+ * `VAULT_ERR:` string (types.ts), so a bridge or serialization failure AFTER
+ * the RESET APDU landed arrives under this same code. It is the one candidate
+ * that can hedge in the unsafe direction — telling the user nothing was erased
+ * when the key is already blank — so it takes the warning copy instead.
  */
 const RESET_BEFORE_ERASE: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
   'key-already-enrolled',
   'slot-occupied',
   'serial-mismatch',
-  'driver-unavailable',
   'user-cancelled'
 ])
 
