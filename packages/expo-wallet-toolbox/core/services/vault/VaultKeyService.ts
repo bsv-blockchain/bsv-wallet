@@ -100,6 +100,24 @@ export class VaultEnrollmentPartialError extends VaultError {
   }
 }
 
+/**
+ * Does this firmware answer GET METADATA (PIV INS 0xF7)?
+ *
+ * That command is the only non-inferential way to ask whether a PIV slot holds
+ * a key, and it landed in firmware 5.3. Below it every remaining answer is
+ * inferred from a status word, and 5.7.4 proved those move: an empty retired
+ * slot that once answered ATTEST with 0x6A88 now answers 0x6A80. Enrollment
+ * generates a key it must afterwards be able to prove was the only one, so it
+ * refuses to guess rather than silently overwriting something.
+ *
+ * `firmwareVersion` is "major.minor.micro", straight from getKeyInfo.
+ */
+function supportsSlotMetadata(firmwareVersion: string): boolean {
+  const [major, minor] = firmwareVersion.split('.').map(part => Number.parseInt(part, 10))
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return false
+  return major > 5 || (major === 5 && minor >= 3)
+}
+
 function requirePivCode(value: string, label: 'PIN' | 'PUK'): void {
   if (!PIV_CODE.test(value)) {
     throw new VaultError('template-invalid', `PIV ${label} must be 6 to 8 ASCII digits`)
@@ -216,27 +234,35 @@ function requireVerifiedPin(result: { ok: boolean; retriesLeft: number }, detail
 }
 
 /**
- * Detect any existing slot key without relying on a readable certificate.
- * A valid signature, a touch requirement, or an algorithm mismatch all prove
- * that something occupies the slot. Only the card's explicit no-key response
- * authorizes generation.
+ * Refuse to generate over an occupied Vault slot.
+ *
+ * Asks the card through `isVaultSlotOccupied`, which both natives answer with
+ * GET METADATA. This replaced a random-digest `signEcdsa` probe that treated a
+ * `no-key` rejection as proof of emptiness — and `no-key` is derived from status
+ * word 0x6A88, which firmware 5.7.4+ no longer returns for an empty retired
+ * slot (it answers 0x6A80). The probe was also fail-OPEN in one direction:
+ * native reports `no-key` when the card has simply LEFT THE FIELD, which the
+ * old code read as "the slot is empty, generate away".
+ *
+ * The PIN is no longer needed here — occupancy needs no VERIFY, and enrollKey
+ * has already verified the PIN by this point.
  */
-async function requireEmptyVaultSlot(serial: string, pin: string, allowReplacement: boolean): Promise<void> {
+async function requireEmptyVaultSlot(serial: string, allowReplacement: boolean): Promise<void> {
+  // Explicit consent to destroy whatever occupies slot 0x82. Asking anyway only
+  // created a way for an ambiguous answer to block a replacement the user had
+  // already agreed to.
+  if (allowReplacement) return
   const driver = getVaultDriver()
   if (!driver) throw new VaultError('driver-unavailable')
-  const readable = await driver.readVaultPublicKey(serial)
-  if (readable) {
-    if (allowReplacement) return
+  // A readable certificate is occupancy even when nothing signs: the public key
+  // it exposes is what recovery binds to. GET METADATA answers about the KEY, so
+  // it would call such a slot empty — this check is not redundant with the one
+  // below, and only ever adds occupancy.
+  if (await driver.readVaultPublicKey(serial)) {
     throw withSerial(new VaultError('slot-occupied', 'Vault slot already contains a key'), serial)
   }
-  try {
-    await driver.signEcdsa(serial, pin, Utils.toHex(randomBytes(32)))
-    if (allowReplacement) return
-    throw withSerial(new VaultError('slot-occupied', 'Vault slot already contains a key'), serial)
-  } catch (e) {
-    if (e instanceof VaultError && e.code === 'no-key') return
-    if (e instanceof VaultError && (e.code === 'key-removed-mid-op' || e.code === 'nfc-lost')) throw e
-    if (e instanceof VaultError && e.code === 'slot-occupied') throw e
+  const { occupied } = await driver.isVaultSlotOccupied(serial)
+  if (occupied) {
     throw withSerial(new VaultError('slot-occupied', 'Vault slot is not provably empty'), serial)
   }
 }
@@ -365,6 +391,14 @@ export async function enrollKey(args: {
       }
       // A blocked PIN can't be enrolled — surface it before burning anything.
       if (info.pinRetries === 0) throw withSerial(new VaultError('pin-locked', 'PIN is blocked'), info.serial)
+      // Refuse a key too old to prove its slots empty, with its own message
+      // rather than the slot-occupied one a failed occupancy read would give.
+      if (!supportsSlotMetadata(info.firmwareVersion)) {
+        throw withSerial(
+          new VaultError('unsupported-platform', 'This YubiKey needs firmware 5.3 or later'),
+          info.serial
+        )
+      }
       // PIN/PUK and management credentials are global to the whole PIV
       // application, not slot 0x82. Native must cryptographically verify the
       // factory F9 chain, authenticate the default management key, and reject
@@ -402,7 +436,7 @@ export async function enrollKey(args: {
         throw withSerial(e, info.serial)
       }
       args.onPhase('checking-slot')
-      await requireEmptyVaultSlot(info.serial, pin0, args.replaceOccupiedVaultSlot === true)
+      await requireEmptyVaultSlot(info.serial, args.replaceOccupiedVaultSlot === true)
       // Everything above is read-only. This is the last guard before the
       // first irreversible token mutation.
       vaultStore.assertScopeToken(scopeToken)

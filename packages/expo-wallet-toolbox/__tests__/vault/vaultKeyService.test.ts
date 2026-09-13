@@ -435,13 +435,15 @@ describe('enrollKey', () => {
   })
 
   test('binds each native command to the serial read for this enrollment', async () => {
-    // The swap rides on the slot-occupancy probe, the LAST read-only card call
-    // before personalization: preflight and verifyPin now run ahead of it and
-    // would catch the new serial themselves, leaving changePin unreached.
-    const realSign = mock.signEcdsa.bind(mock)
-    jest.spyOn(mock, 'signEcdsa').mockImplementationOnce(async (...signArgs) => {
+    // The swap rides on the slot-occupancy read, the LAST read-only card call
+    // before personalization: preflight and verifyPin run ahead of it and would
+    // catch the new serial themselves, leaving changePin unreached. (It used to
+    // ride on a signEcdsa probe; that probe was replaced by GET METADATA when
+    // firmware 5.7.4+ stopped answering 0x6A88 for an empty slot.)
+    const realOccupancy = mock.isVaultSlotOccupied.bind(mock)
+    jest.spyOn(mock, 'isVaultSlotOccupied').mockImplementationOnce(async (...occArgs) => {
       try {
-        return await realSign(...signArgs)
+        return await realOccupancy(...occArgs)
       } finally {
         // A second USB token becomes current between bridge calls. Every later
         // destructive command must compare the serial inside its own session.
@@ -577,11 +579,15 @@ describe('enrollKey', () => {
     const started = new Promise<void>(resolve => {
       probeStarted = resolve
     })
-    let rejectProbe!: (error: unknown) => void
-    jest.spyOn(mock, 'signEcdsa').mockImplementationOnce(
+    // The occupancy read is parked open, then answered EMPTY once the scope has
+    // moved: the point is that a clean "go ahead" still aborts, not that the
+    // read itself failed. (It answers, rather than rejecting, because emptiness
+    // is now a resolved value — the old signing probe signalled it by throwing.)
+    let resolveProbe!: (value: { occupied: boolean }) => void
+    jest.spyOn(mock, 'isVaultSlotOccupied').mockImplementationOnce(
       () =>
-        new Promise((_, reject) => {
-          rejectProbe = reject
+        new Promise(resolve => {
+          resolveProbe = resolve
           probeStarted()
         })
     )
@@ -592,7 +598,7 @@ describe('enrollKey', () => {
     const enrollment = enrollKey(args())
     await started
     vaultStore.configureScope({ identityKey: '03' + 'cd'.repeat(32), chain: 'test' })
-    rejectProbe(new VaultError('no-key', 'No key in slot'))
+    resolveProbe({ occupied: false })
 
     await expect(enrollment).rejects.toMatchObject({ code: 'scope-changed' })
     expect(changePin).not.toHaveBeenCalled()
@@ -831,10 +837,36 @@ describe('enrollKey', () => {
     expect(generate).not.toHaveBeenCalled()
   })
 
+  test('a YubiKey too old to prove its slots empty is refused by firmware, not by a slot message', async () => {
+    // GET METADATA is firmware 5.3+. Below it every way to ask "is 0x82 empty"
+    // is inferred from a status word, and 5.7.4 proved those move — an empty
+    // retired slot that answered ATTEST 0x6A88 now answers 0x6A80. Enrollment
+    // refuses to guess, and says why rather than reporting a phantom occupancy.
+    jest.spyOn(mock, 'getKeyInfo').mockResolvedValue({ serial: 'MOCK-1', firmwareVersion: '5.2.7', pinRetries: 3 })
+    const occupancy = jest.spyOn(mock, 'isVaultSlotOccupied')
+    const generate = jest.spyOn(mock, 'generateVaultKey')
+
+    await expect(enrollKey(args())).rejects.toMatchObject({
+      code: 'unsupported-platform',
+      details: { serial: 'MOCK-1' }
+    })
+
+    expect(occupancy).not.toHaveBeenCalled()
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  test('a firmware at the 5.3 boundary is accepted', async () => {
+    jest.spyOn(mock, 'getKeyInfo').mockResolvedValue({ serial: 'MOCK-1', firmwareVersion: '5.3.0', pinRetries: 3 })
+
+    await expect(enrollKey(args())).resolves.toMatchObject({ serial: 'MOCK-1' })
+  })
+
   test('the slot probe refuses a slot it cannot prove empty when the probe itself fails', async () => {
-    // Neither a readable key nor a clean no-key answer: only the card's explicit
-    // no-key response may authorize generating over slot 0x82.
-    jest.spyOn(mock, 'signEcdsa').mockRejectedValueOnce(new VaultError('touch-timeout', 'Touch not detected'))
+    // Both natives resolve ambiguity themselves now — GET METADATA fails closed,
+    // so anything that is not an explicit REFERENCE DATA NOT FOUND arrives here
+    // as occupied. What this pins is that JS does not second-guess that answer
+    // and generate anyway.
+    jest.spyOn(mock, 'isVaultSlotOccupied').mockResolvedValueOnce({ occupied: true })
     const generate = jest.spyOn(mock, 'generateVaultKey')
 
     const err = await enrollKey(args()).catch(e => e)

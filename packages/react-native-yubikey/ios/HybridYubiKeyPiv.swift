@@ -403,20 +403,12 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   func isVaultSlotOccupied(expectedSerial: String) throws -> Promise<String> {
     try Self.requireExpectedSerial(expectedSerial)
     let promise = Promise<String>()
-    guard let pivSlot = YKFPIVSlot(rawValue: Self.vaultSlot) else {
-      promise.reject(withError: Self.vaultError("template-invalid", "Vault slot 0x82 is unavailable"))
-      return promise
-    }
     withSession(promise) { session in
       self.withExpectedSerial(session, expectedSerial, promise) {
-        session.attestKey(in: pivSlot) { certificate, error in
-          if error == nil, certificate != nil {
-            return promise.resolve(withResult: "{\"occupied\":true}")
-          }
-          if let error, (error as NSError).code == 0x6A88 {
-            return promise.resolve(withResult: "{\"occupied\":false}")
-          }
-          promise.resolve(withResult: "{\"occupied\":true}")
+        self.readSlotOccupancy(session, slot: Self.vaultSlot) { occupancy in
+          // Fail closed: only an explicit REFERENCE DATA NOT FOUND reports free.
+          // The sole caller is about to erase whatever is in this slot.
+          promise.resolve(withResult: "{\"occupied\":\(occupancy != .empty)}")
         }
       }
     }
@@ -573,6 +565,50 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     }
   }
 
+  /// Three-state answer to "does this PIV slot hold a key", asked of the card
+  /// with GET METADATA (INS 0xF7) instead of inferred from another command's
+  /// status word.
+  ///
+  /// Measured on a YubiKey 5C NFC, firmware 5.8.0: ATTEST answers an EMPTY
+  /// retired slot with 0x6A80, while GET METADATA answers 0x6A88. The old rule
+  /// — "only 0x6A88 from ATTEST proves empty" — therefore read every empty slot
+  /// on 5.7.4+ firmware as occupied, and no modern YubiKey could enrol.
+  ///
+  /// FAILS CLOSED. Only the card's explicit REFERENCE DATA NOT FOUND reports
+  /// empty, and only when it arrived as a YubiKit session error: YKFSessionError
+  /// passes the raw 16-bit status word through as its `code`, but a CoreNFC or
+  /// Foundation error could carry 27272 by coincidence, and reading that as
+  /// "empty" is the one direction that fails OPEN. Every other outcome —
+  /// another status word, a transport fault, a firmware without GET METADATA —
+  /// reports `.indeterminate`, which both callers treat as occupied.
+  private func readSlotOccupancy(
+    _ session: YKFPIVSession,
+    slot rawSlot: UInt,
+    _ completion: @escaping (SlotOccupancy) -> Void
+  ) {
+    // GET METADATA is firmware 5.3+. Below it the card answers INS-not-supported
+    // and every remaining way to ask is an inference, so refuse to guess.
+    guard session.features.metadata.isSupported(bySession: session) else {
+      completion(.indeterminate)
+      return
+    }
+    guard let interface = activeConnection?.smartCardInterface,
+          let apdu = YKFAPDU(cla: 0x00, ins: 0xF7, p1: 0x00, p2: UInt8(rawSlot), data: Data(), type: .short)
+    else {
+      completion(.indeterminate)
+      return
+    }
+    interface.executeCommand(apdu) { data, error in
+      if let error {
+        let ns = error as NSError
+        completion(ns.domain == YKFSessionErrorDomain && ns.code == 0x6A88 ? .empty : .indeterminate)
+        return
+      }
+      // A metadata body means the slot has a key. An empty body proves nothing.
+      completion((data?.isEmpty ?? true) ? .indeterminate : .occupied)
+    }
+  }
+
   private func inspectEmptyUserSlots(
     _ session: YKFPIVSession,
     index: Int,
@@ -592,23 +628,23 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       promise.reject(withError: Self.vaultError("slot-occupied", "could not address PIV slot"))
       return
     }
-    session.attestKey(in: slot) { certificate, error in
-      if error == nil, certificate != nil {
+    // Asked with GET METADATA, not inferred from ATTEST's status word: ATTEST
+    // answers an EMPTY retired slot with 0x6A80 on firmware 5.7.4+, which the
+    // old rule read as occupied — refusing every modern YubiKey here.
+    readSlotOccupancy(session, slot: rawSlot) { occupancy in
+      switch occupancy {
+      case .empty:
+        self.inspectEmptyUserSlots(
+          session, index: index + 1, allowOccupiedVaultSlot: allowOccupiedVaultSlot, promise: promise)
+      case .occupied:
         promise.reject(withError: Self.vaultError(
           "slot-occupied", "PIV slot 0x\(String(rawSlot, radix: 16)) is occupied"))
-        return
+      case .indeterminate:
+        // An imported key, a firmware without GET METADATA, or transport
+        // ambiguity cannot prove emptiness, so global PIN/PUK changes are refused.
+        promise.reject(withError: Self.vaultError(
+          "slot-occupied", "could not prove PIV slot 0x\(String(rawSlot, radix: 16)) empty"))
       }
-      if let error {
-        let ns = error as NSError
-        if ns.code == 0x6A88 {
-          self.inspectEmptyUserSlots(session, index: index + 1, allowOccupiedVaultSlot: allowOccupiedVaultSlot, promise: promise)
-          return
-        }
-      }
-      // Imported keys, an overwritten/missing attestation slot, and transport
-      // ambiguity cannot prove emptiness, so global PIN/PUK changes are refused.
-      promise.reject(withError: Self.vaultError(
-        "slot-occupied", "could not prove PIV slot 0x\(String(rawSlot, radix: 16)) empty"))
     }
   }
 
@@ -736,6 +772,10 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
   private static func secKeyToSec1Hex(_ key: SecKey) -> String? {
     secKeyToSec1(key)?.hexString
   }
+
+  /// What the card said about a slot. `.indeterminate` is never "probably
+  /// empty": every caller treats it as occupied.
+  private enum SlotOccupancy { case occupied, empty, indeterminate }
 
   private static let vaultSlot: UInt = 0x82
   /** Every user-key slot; 0xf9 is the factory attestation key and is expected
