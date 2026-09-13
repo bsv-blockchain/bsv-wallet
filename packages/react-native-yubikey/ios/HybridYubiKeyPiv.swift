@@ -635,7 +635,14 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
           authorities: authorities
         )
       } catch {
-        promise.reject(withError: Self.vaultError("attestation-invalid", "factory attestation certificate is not trusted"))
+        // Carry WHICH check failed. verifyFactoryCertificate has four distinct
+        // rejection reasons (unknown critical extension, serial mismatch,
+        // validity window, unknown issuer) and collapsing them into one string
+        // cost a full device-debugging session: the real answer was "no device
+        // serial on F9", invisible behind this catch.
+        let reason = (error as? YubicoPivAttestation.VerificationError)?.errorDescription ?? "\(error)"
+        promise.reject(withError: Self.vaultError(
+          "attestation-invalid", "factory attestation certificate is not trusted: \(reason)"))
         return
       }
       next(certificate)

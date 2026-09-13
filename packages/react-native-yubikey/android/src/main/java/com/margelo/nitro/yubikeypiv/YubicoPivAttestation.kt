@@ -86,7 +86,23 @@ internal object YubicoPivAttestation {
   ) {
     val parsed = parseCertificateDer(f9.encoded)
     requireKnownCriticalExtensions(f9)
-    require(serialFrom(parsed) == expectedSerial) { "factory attestation serial mismatch" }
+    // The device serial is OPTIONAL on the F9 intermediate, and absent on every
+    // modern key. Firmware 5.7.4+ moved to the Attestation Root 1 chain (through
+    // PIV Attestation A/B/B2) whose F9 carries only the firmware extension and
+    // Basic Constraints; the serial now lives on the PER-SLOT attestation
+    // statement instead. Verified against a YubiKey 5C NFC on 5.8.0: its F9 has
+    // no 1.3.6.1.4.1.41482.3.7, while its slot 0x82 statement carries
+    // 3.7 = 0x025375CD (39024077) and 3.8 = 02 03.
+    //
+    // Requiring it here rejected EVERY 5.7.4+ YubiKey as "not trusted". Nothing
+    // is given up by accepting its absence: verifyGeneratedVaultKey still
+    // requires the serial on the slot statement, still requires that statement
+    // to be signed by this F9, and this F9 must still chain to a pinned root —
+    // so the card, its key and its PIN/touch policies stay cryptographically
+    // bound at generation. Legacy keys that DO carry it are still checked.
+    if (parsed.extensions[SERIAL_OID] != null) {
+      require(serialFrom(parsed) == expectedSerial) { "factory attestation serial mismatch" }
+    }
     f9.checkValidity(now)
 
     if (authorities.legacyRoots.any { issuedBy(f9, it, now) }) return
