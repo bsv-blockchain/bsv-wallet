@@ -631,7 +631,9 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       inspectEmptyUserSlots(session, index: index + 1, allowOccupiedVaultSlot: allowOccupiedVaultSlot, promise: promise)
       return
     }
-    guard let slot = YKFPIVSlot(rawValue: rawSlot) else {
+    // Still validated, but the value is no longer needed: the occupancy read
+    // sends a raw APDU keyed by the slot BYTE rather than a YKFPIVSlot.
+    guard YKFPIVSlot(rawValue: rawSlot) != nil else {
       promise.reject(withError: Self.vaultError("slot-occupied", "could not address PIV slot"))
       return
     }
