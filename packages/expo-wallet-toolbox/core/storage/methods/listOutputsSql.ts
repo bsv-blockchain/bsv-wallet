@@ -8,6 +8,7 @@ import type { AuthId } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorag
 import type { StorageExpoSQLite } from '../StorageExpoSQLite'
 import { getListOutputsSpecOp } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/ListOutputsSpecOp'
 import { devLog, isLoggingEnabled } from '../../logging'
+import { BALANCE_TX_STATUS } from './walletBalanceSql'
 
 export async function listOutputsSql(
   storage: StorageExpoSQLite,
@@ -83,7 +84,7 @@ export async function listOutputsSql(
   // Build find args — specOps with ignoreLimit fetch ALL outputs
   const findArgs: any = {
     partial,
-    txStatus: ['completed', 'unproven', 'nosend'],
+    txStatus: BALANCE_TX_STATUS,
     noScript: true
   }
   if (!specOp || !specOp.ignoreLimit) {
@@ -128,7 +129,7 @@ export async function listOutputsSql(
   // Count total
   if (outputs.length === limit) {
     r.totalOutputs = await storage.countOutputs(
-      { partial, txStatus: ['completed', 'unproven', 'nosend'], noScript: true } as any,
+      { partial, txStatus: BALANCE_TX_STATUS, noScript: true } as any,
       tagIds.length > 0 ? tagIds : undefined,
       isQueryModeAll
     )

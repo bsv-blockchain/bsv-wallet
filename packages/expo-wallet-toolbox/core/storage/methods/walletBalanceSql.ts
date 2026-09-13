@@ -17,11 +17,23 @@
  * the lock the writes need.
  */
 
-/** The basket the toolbox counts as the wallet balance, and the transaction
- * states in which an output's satoshis are really yours. Mirrors what
- * `listOutputsSql` builds for every other outputs query. */
+/**
+ * The basket the toolbox counts as the wallet balance, and the transaction
+ * states in which an output's satoshis are really yours. `listOutputsSql`
+ * imports this rather than repeating it, so there is one definition.
+ *
+ * The rule is "signed and committed": 'nosend' is signed and deliberately
+ * held, 'sending' is signed and already handed to the broadcaster, 'unproven'
+ * is on-chain awaiting its proof, 'completed' is mined. Omitting 'sending'
+ * made a transaction's own outputs vanish for the seconds between the
+ * broadcast and the monitor promoting the row to 'unproven' — the wallet's
+ * change, and a vault withdrawal's re-lock remainder, both read as gone.
+ *
+ * 'unprocessed' stays out deliberately (see walletBalanceSql.test.ts), as do
+ * 'unsigned', 'nonfinal' and 'failed'.
+ */
 export const BALANCE_BASKET = 'default'
-export const BALANCE_TX_STATUS = ['completed', 'unproven', 'nosend']
+export const BALANCE_TX_STATUS = ['completed', 'unproven', 'sending', 'nosend']
 
 /** The slice of StorageExpoSQLite this needs. Structural, so a caller can pass
  * the real provider and a test can pass one backed by any SQLite handle. */

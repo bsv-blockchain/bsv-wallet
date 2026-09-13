@@ -24,22 +24,27 @@ import { useWallet, useVault, getVaultBalance, type VaultWallet } from '@bsv/exp
 /**
  * How long the store keeps showing a transfer's expected figure while reads
  * still disagree with it. The freeze above covers the ceremony itself; this
- * covers the tail AFTER it, where the spent input has already left the listing
- * but the output the transfer created has not arrived yet — a read there is
- * successful and wrong, and committing it is exactly the zero we are avoiding.
- * Ten tries at 300 ms is the same budget the transfer screen used to spend
- * blocking the user on this screen; it now runs in the background instead.
+ * covers the tail AFTER it, where a read is successful and wrong.
+ *
+ * Measured in TIME, not in reads. Every mounted screen answers every
+ * invalidation and the monitor bumps txStatusVersion besides, so a budget
+ * counted in reads is spent in a second or two by sheer traffic — nothing to
+ * do with how long the wallet actually takes to agree. Retries back off so a
+ * long window costs a handful of reads rather than a hundred; each one is a
+ * full authenticated vault scan over 45 KB scripts.
  */
-const SETTLE_ATTEMPTS = 10
-const SETTLE_DELAY_MS = 300
+const SETTLE_WINDOW_MS = 30_000
+const SETTLE_FIRST_DELAY_MS = 300
+const SETTLE_MAX_DELAY_MS = 5_000
 
 /** The manager `cached` was read through; a different one reads as unknown. */
 let cacheKey: unknown = null
 let cached: number | null = null
-/** The figure a transfer says is coming, and how many disagreeing reads may
- * still be discarded before the store believes them instead. */
+/** The figure a transfer says is coming, and the moment the store stops
+ * discarding reads that disagree with it. */
 let expected: number | null = null
-let attemptsLeft = 0
+let expectedUntil = 0
+let settleDelay = SETTLE_FIRST_DELAY_MS
 let settleTimer: ReturnType<typeof setTimeout> | undefined
 /** Bumped to ask every mounted reader to fetch again. */
 let version = 0
@@ -62,7 +67,8 @@ const bumpVersion = (): void => {
 
 const clearSettle = (): void => {
   expected = null
-  attemptsLeft = 0
+  expectedUntil = 0
+  settleDelay = SETTLE_FIRST_DELAY_MS
   if (settleTimer !== undefined) {
     clearTimeout(settleTimer)
     settleTimer = undefined
@@ -81,7 +87,7 @@ export function expectVaultBalance(satoshis: number): void {
   clearSettle()
   cached = satoshis
   expected = satoshis
-  attemptsLeft = SETTLE_ATTEMPTS
+  expectedUntil = Date.now() + SETTLE_WINDOW_MS
   notify()
 }
 
@@ -89,13 +95,14 @@ export function expectVaultBalance(satoshis: number): void {
  * said was coming and the budget for waiting it out is not yet spent. */
 function commitRead(key: unknown, satoshis: number): void {
   if (key !== cacheKey) clearSettle()
-  if (expected !== null && satoshis !== expected && attemptsLeft > 0) {
-    attemptsLeft--
+  if (expected !== null && satoshis !== expected && Date.now() < expectedUntil) {
     if (settleTimer === undefined) {
+      const delay = settleDelay
+      settleDelay = Math.min(settleDelay * 2, SETTLE_MAX_DELAY_MS)
       settleTimer = setTimeout(() => {
         settleTimer = undefined
         bumpVersion()
-      }, SETTLE_DELAY_MS)
+      }, delay)
     }
     return
   }

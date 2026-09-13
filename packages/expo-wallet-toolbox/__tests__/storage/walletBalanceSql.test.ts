@@ -125,6 +125,18 @@ describe('readWalletBalance', () => {
     expect(await readWalletBalance(storage, 1)).toBe(1230)
   })
 
+  // A transaction at 'sending' has been signed AND handed to the broadcaster.
+  // Its outputs are further along than the 'nosend' ones already counted above,
+  // so hiding them made a wallet's own change — and a vault's re-lock
+  // remainder — vanish for the seconds between the broadcast and the monitor
+  // promoting the row to 'unproven'.
+  it('counts an output whose transaction is still being sent', async () => {
+    const dflt = await seedBasket(BALANCE_BASKET)
+    await seedOutput({ status: 'sending', basketId: dflt, satoshis: 400_000 })
+
+    expect(await readWalletBalance(storage, 1)).toBe(400_000)
+  })
+
   it('is zero, not null, for a wallet whose basket exists but holds nothing spendable', async () => {
     const dflt = await seedBasket(BALANCE_BASKET)
     await seedOutput({ status: 'completed', basketId: dflt, satoshis: 500, spendable: false })
@@ -208,6 +220,21 @@ describe('the queries behind the balance', () => {
     expect(seen.some(q => q.includes('SUM("satoshis")'))).toBe(true)
     // No query that would pull the rows themselves back into JS.
     expect(seen.some(q => q.startsWith('SELECT *') && q.includes('"outputs"'))).toBe(false)
+  })
+
+  it('lists an output whose transaction is still being sent', async () => {
+    const vault = await seedBasket('admin vault')
+    await seedOutput({ status: 'sending', basketId: vault, satoshis: 400_000 })
+
+    const r = await listOutputsSql(storage, { userId: 1, identityKey: 'k' } as never, {
+      basket: 'admin vault',
+      tags: [],
+      tagQueryMode: 'any',
+      limit: 10,
+      offset: 0
+    } as never)
+
+    expect(r.outputs.map(o => o.satoshis)).toEqual([400_000])
   })
 
   it('reports one stable total across a full first page and a short second page', async () => {

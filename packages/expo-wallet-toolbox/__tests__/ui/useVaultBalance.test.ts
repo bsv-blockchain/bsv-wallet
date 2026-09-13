@@ -286,21 +286,44 @@ describe('settling an expected balance', () => {
     expect(result.current.balance).toBe(90)
   })
 
-  test('gives up and adopts the read once the settle budget is spent', async () => {
-    const { result } = await seedRead(500)
+  test('holds through repeated reads from every mounted reader', async () => {
+    fetchBalance.mockResolvedValue(500)
+    const vaultScreen = renderHook(() => useVaultBalance())
+    const transferScreen = renderHook(() => useVaultBalance())
+    await settle()
+    fetchBalance.mockResolvedValue(0)
     act(() => expectVaultBalance(320))
 
-    // SETTLE_ATTEMPTS disagreeing reads are discarded...
-    for (let attempt = 0; attempt < 10; attempt++) {
-      act(() => result.current.refresh())
+    // listOutputs omits the outputs of a transaction still at 'sending', so
+    // every read in that window is a truthful 0. Two readers answer each
+    // round, and the monitor bumps txStatusVersion besides, so a budget
+    // counted in READS is spent in a second or two — long before the status
+    // flips. The hold has to be measured in time instead.
+    for (let round = 0; round < 12; round++) {
+      act(() => vaultScreen.result.current.refresh())
       await settle()
-      expect(result.current.balance).toBe(320)
     }
 
-    // ...and the next one is believed.
+    expect(vaultScreen.result.current.balance).toBe(320)
+    expect(transferScreen.result.current.balance).toBe(320)
+  })
+
+  test('gives up once the settle window has elapsed', async () => {
+    const start = Date.now()
+    const { result } = await seedRead(500)
+    act(() => expectVaultBalance(320))
     act(() => result.current.refresh())
     await settle()
-    expect(result.current.balance).toBe(0)
+    expect(result.current.balance).toBe(320)
+
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(start + 10 * 60_000)
+    try {
+      act(() => result.current.refresh())
+      await settle()
+      expect(result.current.balance).toBe(0)
+    } finally {
+      clock.mockRestore()
+    }
   })
 })
 
