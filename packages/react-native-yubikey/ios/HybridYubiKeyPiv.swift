@@ -295,8 +295,15 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
                     authorities: authorities
                   )
                 } catch {
+                  // Carry WHICH check rejected it. verifyGeneratedVaultKey has
+                  // six distinct reasons (serial, policy bytes, subject CN,
+                  // pubkey mismatch, issuer signature, unknown critical
+                  // extension) and collapsing them into one string is the same
+                  // mistake requireFactoryAttestation made — it cost a device
+                  // session to find that the answer there was "no device serial".
+                  let reason = (error as? YubicoPivAttestation.VerificationError)?.errorDescription ?? "\(error)"
                   return promise.reject(withError: Self.vaultError(
-                    "attestation-invalid", "generated Vault key failed manufacturer attestation"))
+                    "attestation-invalid", "generated Vault key failed manufacturer attestation: \(reason)"))
                 }
                 promise.resolve(withResult: "{\"publicKey\":\"\(sec1.hexString)\",\"manufacturerAttestation\":\"verified\"}")
               }
