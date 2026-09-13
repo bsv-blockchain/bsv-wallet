@@ -198,6 +198,12 @@ const NEVER_RESETTABLE: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
  * tells the user to fetch a genuine key — a Retry button underneath it
  * contradicts the very copy above it.
  *
+ * `pin-locked`: raised from `info.pinRetries === 0`, read off the card before
+ * anything is presented to it. A re-tap re-reads the same zero — only the PUK
+ * or a factory reset moves that counter — so a Retry here is the same dead
+ * button as the three above, and a worse one, because [Reset this key] renders
+ * directly over it.
+ *
  * A reset offer, where one is allowed at all, renders ABOVE this branch: a
  * card with a known serial gets [Reset this key] + [Use a different YubiKey],
  * which is the right pair. A counterfeit gets only the latter, because
@@ -206,7 +212,8 @@ const NEVER_RESETTABLE: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
 const MUST_USE_DIFFERENT: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
   'pin-invalid',
   'mgmt-key-custom',
-  'attestation-invalid'
+  'attestation-invalid',
+  'pin-locked'
 ])
 
 /**
@@ -1230,11 +1237,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_replace_key_warning')}</Text>
             <ActionButton label={t('vault_replace_key_confirm')} onPress={() => void runTap(true)} />
             <ActionButton label={t('vault_key_use_different')} variant="outline" onPress={chooseDifferentKey} />
-          </>
-        ) : code === 'pin-locked' ? (
-          <>
-            <ActionButton label={t('vault_key_use_different')} onPress={chooseDifferentKey} />
-            <ActionButton label={t('vault_retry')} variant="outline" onPress={() => void runTap()} />
           </>
         ) : code === 'key-already-enrolled' || code === 'puk-locked' || keyError?.mustUseDifferent ? (
           <ActionButton label={t('vault_key_use_different')} onPress={chooseDifferentKey} />

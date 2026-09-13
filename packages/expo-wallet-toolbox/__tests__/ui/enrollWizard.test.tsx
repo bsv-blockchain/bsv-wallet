@@ -448,11 +448,14 @@ test('hardware back is swallowed while a tap is in flight; the resolved record s
   expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
 })
 
-test('a blocked PIN keeps the pending keys and offers a different YubiKey or a retry', async () => {
+test('a blocked PIN keeps the pending keys and is never offered a dead Retry', async () => {
+  // `pin-locked` is raised from info.pinRetries === 0, read off the card. A
+  // re-tap re-reads the same zero, so a Retry under this copy can only fail —
+  // and [Reset this key], which DOES clear the counter, renders right above it.
   mockEnrollKey
     .mockResolvedValueOnce(record('12340001', 'a'))
-    .mockRejectedValueOnce(new VaultError('pin-locked'))
-    .mockResolvedValueOnce(record('12340002', 'b'))
+    .mockRejectedValueOnce(new VaultError('pin-locked', undefined, undefined, { serial: '12340002' }))
+    .mockResolvedValueOnce(record('12340003', 'b'))
   const { screen } = await beginEnroll()
   await enrolOneKey(screen, 'Desk')
   await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
@@ -460,8 +463,13 @@ test('a blocked PIN keeps the pending keys and offers a different YubiKey or a r
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
   expect(screen.getByText('vault_err_pin_locked_enroll')).toBeTruthy()
-  expect(screen.getByText('vault_key_use_different')).toBeTruthy()
-  await act(async () => fireEvent.press(screen.getByText('vault_retry')))
+  expect(screen.getByText('vault_reset_offer')).toBeTruthy()
+  expect(screen.queryByText('vault_retry')).toBeNull()
+  // The key already set up in this run survives, and another card can be used.
+  await act(async () => fireEvent.press(screen.getByText('vault_key_use_different')))
+  await settle()
+  enterCredentials(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
   expect(mockEnrollKey).toHaveBeenCalledTimes(3)
   expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
