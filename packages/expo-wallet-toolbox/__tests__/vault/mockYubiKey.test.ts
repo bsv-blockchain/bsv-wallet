@@ -315,6 +315,7 @@ describe('native adapter', () => {
       })
     },
     readVaultPublicKey: async () => '{"publicKey":null}',
+    isVaultSlotOccupied: async () => '{"occupied":true}',
     protectManagementKey: async () => '{"ok":true}',
     signEcdsa: async () => '{}'
   })
@@ -342,6 +343,20 @@ describe('native adapter', () => {
     })
 
     expect(calls[0]).toEqual(['generateVaultKey', 'S1'])
+  })
+
+  it('parses the native slot-occupancy answer, which is not the key read', async () => {
+    // The native fake reports an unreadable retired-slot certificate (the iOS
+    // shape) alongside an occupied slot. The adapter must keep those separate,
+    // or pivReset's last guard reads the wrong one.
+    const calls: unknown[][] = []
+    jest.doMock('react-native-yubikey', () => ({ getYubiKeyPiv: () => nativeFake(calls) }))
+    jest.resetModules()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getVaultDriver } = require('../../core/services/vault/driver')
+
+    await expect(getVaultDriver()!.readVaultPublicKey('S1')).resolves.toBeNull()
+    await expect(getVaultDriver()!.isVaultSlotOccupied('S1')).resolves.toEqual({ occupied: true })
   })
 
   it('forwards the read-only whole-PIV preflight', async () => {
@@ -420,6 +435,28 @@ describe('MockYubiKey.resetPivApplication', () => {
     await key.resetPivApplication('MOCK-RST')
 
     await expect(key.readVaultPublicKey('MOCK-RST')).resolves.toBeNull()
+  })
+
+  it('reports the slot unoccupied afterwards, the answer pivReset guard 3 asks for', async () => {
+    // A different question from the key read, because the real drivers answer
+    // it by a different route: iOS cannot read a retired slot's certificate at
+    // all and attests the slot instead.
+    const key = new MockYubiKey()
+    key.insertKey('MOCK-RST')
+    await expect(key.isVaultSlotOccupied('MOCK-RST')).resolves.toEqual({ occupied: false })
+    await key.verifyPin('MOCK-RST', '123456')
+    await key.generateVaultKey('MOCK-RST')
+    await expect(key.isVaultSlotOccupied('MOCK-RST')).resolves.toEqual({ occupied: true })
+
+    await key.resetPivApplication('MOCK-RST')
+
+    await expect(key.isVaultSlotOccupied('MOCK-RST')).resolves.toEqual({ occupied: false })
+  })
+
+  it('refuses an occupancy read for a serial other than the one presented', async () => {
+    const key = new MockYubiKey()
+    key.insertKey('MOCK-RST')
+    await expect(key.isVaultSlotOccupied('MOCK-OTHER')).rejects.toMatchObject({ code: 'serial-mismatch' })
   })
 
   it('refuses a serial other than the one presented', async () => {

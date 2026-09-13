@@ -88,6 +88,10 @@ abstract class HybridYubiKeyPivSpec: HybridObject() {
   
   @DoNotStrip
   @Keep
+  abstract fun isVaultSlotOccupied(expectedSerial: String): Promise<String>
+  
+  @DoNotStrip
+  @Keep
   abstract fun signEcdsa(expectedSerial: String, pin: String, digest: String): Promise<String>
   
   @DoNotStrip

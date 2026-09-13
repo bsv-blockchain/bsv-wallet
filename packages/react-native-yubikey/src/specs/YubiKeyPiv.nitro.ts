@@ -27,8 +27,22 @@ export interface YubiKeyPiv extends HybridObject<{ ios: 'swift'; android: 'kotli
   /** Authenticate the factory management key, replace it with native CSPRNG
    * material, then discard that material without crossing the JS bridge. */
   protectManagementKey(expectedSerial: string): Promise<string>
-  /** Reads only the fixed Vault slot 0x82. */
+  /** Reads only the fixed Vault slot 0x82. May report `null` for a key that IS
+   * present: iOS cannot read a retired slot's certificate at all, so a caller
+   * asking "is this slot empty?" must use `isVaultSlotOccupied` instead. */
   readVaultPublicKey(expectedSerial: string): Promise<string> // JSON {publicKey|null}
+  /** Whether Vault slot 0x82 holds a key, answered by the card itself.
+   *
+   * Deliberately NOT `readVaultPublicKey() !== null`: that returns a public
+   * key, and on iOS a retired slot has no readable certificate to return one
+   * from. This asks the narrower question both platforms can actually answer —
+   * iOS by attesting the slot, Android from its slot metadata.
+   *
+   * FAILS CLOSED. Only the card's explicit REFERENCE DATA NOT FOUND (0x6A88)
+   * reports `false`. An imported key, an overwritten attestation slot or any
+   * other status reports `true`, because none of them prove the slot is empty
+   * and the caller is about to destroy whatever is in it. */
+  isVaultSlotOccupied(expectedSerial: string): Promise<string> // JSON {occupied}
   /** Sign a pre-computed 32-byte digest with the slot's P-256 key.
    *
    * `digest` is 64 hex chars, passed to the card UNCHANGED — no hashing on

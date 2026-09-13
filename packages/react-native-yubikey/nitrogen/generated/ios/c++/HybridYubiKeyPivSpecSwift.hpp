@@ -164,6 +164,14 @@ namespace margelo::nitro::yubikeypiv {
       auto __value = std::move(__result.value());
       return __value;
     }
+    inline std::shared_ptr<Promise<std::string>> isVaultSlotOccupied(const std::string& expectedSerial) override {
+      auto __result = _swiftPart.isVaultSlotOccupied(expectedSerial);
+      if (__result.hasError()) [[unlikely]] {
+        std::rethrow_exception(__result.error());
+      }
+      auto __value = std::move(__result.value());
+      return __value;
+    }
     inline std::shared_ptr<Promise<std::string>> signEcdsa(const std::string& expectedSerial, const std::string& pin, const std::string& digest) override {
       auto __result = _swiftPart.signEcdsa(expectedSerial, pin, digest);
       if (__result.hasError()) [[unlikely]] {

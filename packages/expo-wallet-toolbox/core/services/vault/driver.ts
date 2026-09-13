@@ -73,7 +73,21 @@ export interface VaultDriver {
    * whatever the outcome. Never call this for a serial that is already an
    * enrolled vault key; see pivReset.ts. */
   resetPivApplication(expectedSerial: string): Promise<{ ok: true }>
+  /** The Vault slot's public key, or null when none can be READ.
+   *
+   * Null is not proof of an empty slot. iOS cannot read a retired slot's
+   * certificate at all and returns null for every 0x82, occupied or not — so
+   * "is the slot empty?" must go to `isVaultSlotOccupied`, and callers here
+   * only ever use a non-null result to compare against a key they already
+   * hold. */
   readVaultPublicKey(expectedSerial: string): Promise<{ publicKey: string } | null>
+  /** Whether the Vault slot holds a key, answered by the card on both
+   * platforms (iOS attests the slot, Android reads its metadata).
+   *
+   * FAILS CLOSED: only the card's explicit reference-not-found reports false.
+   * An imported key, a missing attestation slot or any other status reports
+   * true, because none of them prove the slot empty. */
+  isVaultSlotOccupied(expectedSerial: string): Promise<{ occupied: boolean }>
   /** Sign a pre-computed 32-byte digest (64 hex chars) with the slot's P-256
    * key. Returns a DER signature as hex. TOUCH-gated, PIN-gated. */
   signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<{ signature: string }>
@@ -96,6 +110,7 @@ interface NativeYubiKeyPiv {
   protectManagementKey(expectedSerial: string): Promise<string>
   resetPivApplication(expectedSerial: string): Promise<string>
   readVaultPublicKey(expectedSerial: string): Promise<string>
+  isVaultSlotOccupied(expectedSerial: string): Promise<string>
   signEcdsa(expectedSerial: string, pin: string, digest: string): Promise<string>
 }
 
@@ -200,6 +215,9 @@ function adaptNative(native: NativeYubiKeyPiv): VaultDriver {
       const r = await parse<{ publicKey: string | null }>(native.readVaultPublicKey(serial))
       return r.publicKey ? { publicKey: r.publicKey } : null
     },
+    // No `?? true` fallback: a native module too old to implement this would
+    // report every slot empty, which is the answer that authorizes an erase.
+    isVaultSlotOccupied: serial => parse<{ occupied: boolean }>(native.isVaultSlotOccupied(serial)),
     signEcdsa: (serial, pin, digest) => parse(native.signEcdsa(serial, pin, digest))
   }
 }

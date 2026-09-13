@@ -353,13 +353,16 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       promise.reject(withError: Self.vaultError("no-key", "bad slot"))
       return promise
     }
-    // Cert-based occupancy is only readable for the five standard slots (see
+    // Cert-based reads are only possible for the five standard slots (see
     // `certReadableSlots`). For a retired slot like the vault's 0x82,
-    // getCertificateInSlot would RAISE and crash the app, and YubiKit 4.4 offers
-    // no other slot-occupancy read (getSlotMetadata is later/Android-only). So on
-    // iOS the retired-slot certificate is unreadable, so report no readable
-    // public key. Enrollment separately sends a random signing probe and only
-    // generates after the card returns explicit reference-not-found (0x6a88).
+    // getCertificateInSlot would RAISE and crash the app, so on iOS the
+    // retired-slot certificate is unreadable and no public key can be returned.
+    //
+    // This is NOT the same as "the slot is empty", and callers must not read it
+    // that way: `isVaultSlotOccupied` below answers occupancy through
+    // `attestKey`, which does work on a retired slot. Enrollment separately
+    // sends a random signing probe and only generates after the card returns
+    // explicit reference-not-found (0x6a88).
     guard Self.certReadableSlots.contains(rawSlot) else {
       withSession(promise) { session in
         self.withExpectedSerial(session, expectedSerial, promise) {
@@ -380,6 +383,40 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
             return promise.resolve(withResult: "{\"publicKey\":null}")
           }
           promise.resolve(withResult: "{\"publicKey\":\"\(hex)\"}")
+        }
+      }
+    }
+    return promise
+  }
+
+  /// Is Vault slot 0x82 occupied? Answered by attesting the slot, the one
+  /// occupancy read YubiKit 4.4 offers for a RETIRED slot — the same call
+  /// `inspectEmptyUserSlots` already makes against this exact slot, so it is
+  /// known to work here where `getCertificateInSlot:` would trap the app.
+  ///
+  /// FAILS CLOSED, matching `inspectEmptyUserSlots`: only the card's explicit
+  /// REFERENCE DATA NOT FOUND (0x6A88) reports empty. An attestation that
+  /// succeeds proves a key; an imported key, a missing or overwritten F9
+  /// attestation slot, and transport ambiguity all prove nothing, and the sole
+  /// caller is about to erase whatever is in this slot, so each of those
+  /// reports occupied.
+  func isVaultSlotOccupied(expectedSerial: String) throws -> Promise<String> {
+    try Self.requireExpectedSerial(expectedSerial)
+    let promise = Promise<String>()
+    guard let pivSlot = YKFPIVSlot(rawValue: Self.vaultSlot) else {
+      promise.reject(withError: Self.vaultError("template-invalid", "Vault slot 0x82 is unavailable"))
+      return promise
+    }
+    withSession(promise) { session in
+      self.withExpectedSerial(session, expectedSerial, promise) {
+        session.attestKey(in: pivSlot) { certificate, error in
+          if error == nil, certificate != nil {
+            return promise.resolve(withResult: "{\"occupied\":true}")
+          }
+          if let error, (error as NSError).code == 0x6A88 {
+            return promise.resolve(withResult: "{\"occupied\":false}")
+          }
+          promise.resolve(withResult: "{\"occupied\":true}")
         }
       }
     }

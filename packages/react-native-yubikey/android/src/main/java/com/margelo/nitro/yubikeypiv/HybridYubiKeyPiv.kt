@@ -491,6 +491,37 @@ class HybridYubiKeyPiv : HybridYubiKeyPivSpec() {
     return promise
   }
 
+  /**
+   * Is Vault slot 0x82 occupied? Same slot metadata read as
+   * `readVaultPublicKey`, but it answers occupancy rather than returning a key,
+   * so it stays true on a card whose metadata is present but whose public key
+   * is not an EC point this build can decode. iOS cannot read a retired slot's
+   * certificate at all and answers this through attestation instead, which is
+   * why occupancy is its own method rather than a null check on the key read.
+   *
+   * FAILS CLOSED, exactly as above: only REFERENCE DATA NOT FOUND (0x6a88)
+   * reports empty. Every other APDU status reports occupied, and a transport
+   * failure still rejects — the caller is about to erase this slot, so nothing
+   * short of the card saying "no key here" may report one absent.
+   */
+  override fun isVaultSlotOccupied(expectedSerial: String): Promise<String> {
+    val promise = Promise<String>()
+    if (!serialCode.matches(expectedSerial)) {
+      promise.reject(vaultError("template-invalid", "invalid expected YubiKey serial"))
+      return promise
+    }
+    withPiv(promise) { piv ->
+      requireExpectedSerial(piv, expectedSerial)
+      try {
+        piv.getSlotMetadata(Slot.fromValue(VAULT_SLOT))
+        "{\"occupied\":true}"
+      } catch (e: ApduException) {
+        if ((e.sw.toInt() and 0xffff) == 0x6a88) "{\"occupied\":false}" else "{\"occupied\":true}"
+      }
+    }
+    return promise
+  }
+
   override fun signEcdsa(expectedSerial: String, pin: String, digest: String): Promise<String> {
     val promise = Promise<String>()
     if (!serialCode.matches(expectedSerial)) {

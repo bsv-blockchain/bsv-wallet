@@ -311,6 +311,19 @@ export class MockYubiKey implements VaultDriver {
     return r.pub ? { publicKey: r.pub } : null
   }
 
+  /** The card's own occupancy answer for slot 0x82.
+   *
+   * Separate from `readVaultPublicKey` because the real drivers answer it by a
+   * different route — iOS attests the slot, since it cannot read a retired
+   * slot's certificate and would report every 0x82 as keyless otherwise. The
+   * software card has no such asymmetry, so here the two agree; the split
+   * exists so a caller that needs occupancy is asking the question both
+   * platforms can actually answer. */
+  async isVaultSlotOccupied(expectedSerial: string): Promise<{ occupied: boolean }> {
+    this.requireExpectedSerial(expectedSerial)
+    return { occupied: this.record().pub !== null }
+  }
+
   /** Software stand-in for the card's GENERAL AUTHENTICATE.
    *
    * Emits DER, exactly like both real platforms, so a DER-parsing bug cannot
