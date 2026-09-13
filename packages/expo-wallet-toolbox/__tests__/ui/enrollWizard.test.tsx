@@ -732,7 +732,6 @@ test('an already-enrolled key is never offered a reset', async () => {
   control.screen.unmount()
 
   const { screen } = await failTapWith('key-already-enrolled', { serial: '12340001' })
-  screen.debug({ message: 'after resume failure' })
   expect(screen.queryByText('vault_reset_offer')).toBeNull()
 })
 
