@@ -825,7 +825,7 @@ test('the reset page gates the destructive button on the acknowledgement', async
   )
 })
 
-test('a successful reset returns to the tap step without re-asking for the PIN', async () => {
+test('a successful reset waits for the user to start the next tap, and never re-asks for the PIN', async () => {
   mockResetPiv.mockResolvedValueOnce(undefined)
   const { screen } = await openResetPage()
   // Queued after the failing tap so it is the RE-tap that succeeds.
@@ -834,7 +834,16 @@ test('a successful reset returns to the tap step without re-asking for the PIN',
   fireEvent.press(screen.getByText('vault_reset_ack'))
   await pressConfirm(screen)
 
+  // NOT straight back into a tap: CoreNFC refuses a new reader session while the
+  // reset's is still invalidating, so an automatic re-tap hangs on a sheet that
+  // never connects. The user's press is the spacing that makes it work.
+  expect(mockEnrollKey).toHaveBeenCalledTimes(1)
   expect(screen.queryByLabelText('vault_pin_choose_title')).toBeNull()
+  expect(screen.getByText('vault_puk_title')).toBeTruthy()
+
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
   expect(mockEnrollKey).toHaveBeenCalledTimes(2)
   // The same PIN and recovery code, because the card is back at factory state
   // and neither was ever written to it.
@@ -971,6 +980,10 @@ test('a reset drops the Resume button for the key it just erased', async () => {
   fireEvent.press(screen.getByText('vault_reset_ack'))
   mockDrafts = []
   await pressConfirm(screen)
+
+  // The reset lands on the recovery-code page; the user starts the next tap.
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
 
   await act(async () => fireEvent.press(screen.getByText('vault_key_use_different')))
   await settle()

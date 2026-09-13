@@ -484,7 +484,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           scopeToken,
           acknowledgeDedicatedPivApplication: true,
           pendingSerials: known,
-          onPhase: setPhase,
+          // TEMP DIAG: the phase stream says how far the card session got.
+          onPhase: p => {
+            if (__DEV__) console.log(`[vault][diag] phase=${p}`)
+            setPhase(p)
+          },
           // The intro's whole-PIV acknowledgement already asserts a
           // factory-reset, dedicated PIV application, and preflight
           // authenticates the factory management key before any mutation. So
@@ -505,6 +509,27 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         setSub('name')
       } catch (e) {
         haptics.error()
+        // TEMP DIAG: the real error behind whatever copy the screen shows.
+        if (__DEV__) {
+          const ve = e instanceof VaultError ? e : undefined
+          console.log(
+            `[vault][diag] enrollKey threw code=${ve?.code ?? '(not VaultError)'} name=${
+              (e as Error)?.name
+            } msg=${JSON.stringify((e as Error)?.message)} details=${JSON.stringify(ve?.details)} cause=${JSON.stringify(
+              (() => {
+                const c = (e as { cause?: unknown })?.cause
+                if (!c) return null
+                const cv = c instanceof VaultError ? c : undefined
+                return {
+                  code: cv?.code,
+                  name: (c as Error)?.name,
+                  message: (c as Error)?.message,
+                  retriesLeft: cv?.retriesLeft
+                }
+              })()
+            )}`
+          )
+        }
         try {
           vaultStore.assertScopeToken(scopeToken)
         } catch {
@@ -800,6 +825,14 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     } catch (e) {
       haptics.error()
       const err = e instanceof VaultError ? e : undefined
+      // TEMP DIAG: the real error behind the reset failure.
+      if (__DEV__) {
+        console.log(
+          `[vault][diag] resetPivApplication threw code=${err?.code ?? '(not VaultError)'} msg=${JSON.stringify(
+            (e as Error)?.message
+          )} details=${JSON.stringify(err?.details)}`
+        )
+      }
       if (err?.code === 'scope-changed') {
         clearKeyInputs()
         // Not the usual scope-changed line. This assertion also runs AFTER the
@@ -843,10 +876,17 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     // no longer exists — a dead-end button of exactly the kind this plan spent
     // its last two tasks removing.
     await reloadDraftLists()
-    // The PIN and recovery code chosen for this key are still valid: the card
-    // is back at factory state and neither was ever written to it, so this
-    // goes straight back to the tap rather than asking for them again.
-    await runTap()
+    // Back to the recovery-code page, whose Continue starts the next tap — NOT
+    // straight into runTap(). CoreNFC refuses a new reader session until the
+    // previous one has finished invalidating, and the reset's session closed
+    // milliseconds ago, so an immediate re-tap hangs on a sheet that never
+    // connects. Requiring the user's press is both the spacing that makes it
+    // work and what the toast already tells them to do.
+    //
+    // The PIN and recovery code chosen for this key are still valid: the card is
+    // back at factory state and neither was ever written to it, so this does not
+    // ask for them again.
+    setSub('puk')
   }, [
     keyError,
     resetAck,
@@ -1017,6 +1057,31 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           {/* Same hedge as the intro banner, and for the same reason. */}
           {blockedDrafts.length > 0 && (
             <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_state_uncertain')}</Text>
+          )}
+          {/* TEMP DIAG (remove before commit): a quarantine is cleared only by a
+              successful in-app pivReset, so a card reset with `ykman piv reset`
+              stays locked out with no in-app escape. That is a real gap worth
+              fixing properly; this is the debugging shortcut in the meantime. */}
+          {__DEV__ && blockedDrafts.length > 0 && (
+            <ActionButton
+              label="DEV: clear stored quarantine"
+              variant="outline"
+              onPress={() => {
+                void (async () => {
+                  for (const item of blockedDrafts) {
+                    const serial = 'record' in item ? item.record.serial : item.serial
+                    try {
+                      await vaultStore.discardEnrollmentDraft(serial, scopeToken)
+                      await vaultStore.discardEnrollmentQuarantine(serial, scopeToken)
+                      console.log(`[vault][diag] DEV cleared quarantine + draft for ${serial}`)
+                    } catch (e) {
+                      console.log(`[vault][diag] DEV clear failed: ${JSON.stringify((e as Error)?.message)}`)
+                    }
+                  }
+                  await reloadDraftLists()
+                })()
+              }}
+            />
           )}
           {/* NFC only: a brand-new YubiKey ships in restricted NFC mode (Yubico's
               anti-scan-in-transit policy) and stays that way until it is plugged
