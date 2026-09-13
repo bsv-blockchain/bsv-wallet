@@ -752,7 +752,7 @@ async function reconcileHeldVaultDeposits(
     // for — until the merkle proof arrives.
     if (BROADCAST_ACTION_STATUSES.has(action.status)) return
     if (!PENDING_ACTION_STATUSES.has(action.status) || !isValidHeldVaultDeposit(action, meta, expectedChain, saltInventory)) {
-      throw new VaultError('relock-required', 'A Vault deposit has an unknown or potentially broadcast state')
+      throw new VaultError('action-pending', 'A Vault deposit has an unknown or potentially broadcast state')
     }
     if (action.status === 'unsigned') unsigned.push(action.reference!)
     else signed++
@@ -761,7 +761,7 @@ async function reconcileHeldVaultDeposits(
   await verifyVaultSaltDerivations(w, adminOriginator, saltInventory)
   assertVaultScope(scopeToken)
   if (signed > 1) {
-    throw new VaultError('relock-required', 'Multiple signed Vault deposits require manual reconciliation')
+    throw new VaultError('action-pending', 'Multiple signed Vault deposits require manual reconciliation')
   }
   let abortedUnsigned = 0
   for (const reference of unsigned) {
@@ -771,7 +771,7 @@ async function reconcileHeldVaultDeposits(
     abortedUnsigned++
   }
   if (signed === 0) return { abortedUnsigned }
-  throw new VaultError('relock-required', 'A signed Vault deposit needs manual broadcast-state reconciliation')
+  throw new VaultError('action-pending', 'A signed Vault deposit needs manual broadcast-state reconciliation')
 }
 
 /** Return true only for an exact current R1C lock. */
@@ -838,7 +838,7 @@ async function inspectHiddenVaultReservations(
     // 'unproven' — and, because the transfer screen waits for the balance to
     // settle, would report a completed withdrawal as a failure.
     if (BROADCAST_ACTION_STATUSES.has(action.status)) return
-    throw new VaultError('relock-required', 'A pending or failed action is holding a Vault output')
+    throw new VaultError('action-pending', 'A pending or failed action is holding a Vault output')
   }, scopeToken)
   for (const reference of abortable) {
     assertVaultScope(scopeToken)
@@ -2719,11 +2719,23 @@ export async function beginVaultKeyRemoval(
       w,
       adminOriginator,
       { includeLabels: true },
-      action => { if (PENDING_ACTION_STATUSES.has(action.status)) pendingAction = true },
+      // Only an action that has NOT reached the network blocks: it reserves
+      // the very outputs the removal re-lock has to spend. A broadcast one
+      // reserves nothing — its vault output is an ordinary unconfirmed UTXO
+      // the listOutputs scan below authenticates like any other. 'unproven' is
+      // what the activity list shows as "Accepted" and stands until the merkle
+      // proof arrives, so blocking on it refused every removal on a funded
+      // vault and told the user to re-lock — the step this refusal itself
+      // prevented.
+      action => {
+        if (PENDING_ACTION_STATUSES.has(action.status) && !BROADCAST_ACTION_STATUSES.has(action.status)) {
+          pendingAction = true
+        }
+      },
       scopeToken
     )
     if (pendingAction) {
-      throw new VaultError('relock-required', 'Wait for pending vault actions before removing a key')
+      throw new VaultError('action-pending', 'Wait for pending vault actions before removing a key')
     }
     const remaining = new Set(meta.keys.filter(key => key.serial !== serial).map(key => key.pubkey))
     const before = await reduceVerifiedVaultOutputs(
@@ -2754,7 +2766,7 @@ export async function beginVaultKeyRemoval(
     )
     if (after.outputs > 0) {
       await vaultStore.cancelUnbroadcastKeyRemoval(scopeToken)
-      throw new VaultError('relock-required', 'A vault output appeared while removing the key')
+      throw new VaultError('action-pending', 'A vault output appeared while removing the key')
     }
     return { complete: true, meta: await vaultStore.finalizeEmptyKeyRemoval(scopeToken) }
   })

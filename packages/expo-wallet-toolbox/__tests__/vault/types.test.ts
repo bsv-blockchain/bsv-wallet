@@ -14,6 +14,7 @@ const R1C_CODES: VaultErrorCode[] = [
   'too-many-keys',
   'last-keys',
   'relock-required',
+  'action-pending',
   'key-not-committed',
   'key-cannot-cover',
   'too-small-to-relock',

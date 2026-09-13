@@ -86,6 +86,7 @@ const KEY: Record<VaultErrorCode, string> = {
   'too-many-keys': 'vault_err_too_many_keys',
   'last-keys': 'vault_err_last_keys',
   'relock-required': 'vault_err_relock_required',
+  'action-pending': 'vault_err_action_pending',
   'key-not-committed': 'vault_err_key_not_committed',
   'key-cannot-cover': 'vault_err_key_cannot_cover',
   'too-small-to-relock': 'vault_err_too_small_to_relock',

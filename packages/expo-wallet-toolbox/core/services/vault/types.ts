@@ -79,8 +79,16 @@ export type VaultErrorCode =
   | 'too-many-keys'
   /** Removing this key would leave fewer than VAULT_MIN_KEYS. */
   | 'last-keys'
-  /** Removing this key would orphan an output only it can open — re-lock first. */
+  /** Removing this key would orphan an output only it can open — re-lock first.
+   *  Strictly that meaning: a re-lock is the remedy the copy names, so a
+   *  refusal that a re-lock cannot clear belongs on 'action-pending'. */
   | 'relock-required'
+  /** An unfinished vault transaction is in the way — a signed but unbroadcast
+   *  deposit still reserving its inputs, a pending or failed action holding a
+   *  vault output, or a deposit whose state cannot be classified. Unlike
+   *  'relock-required' a re-lock is NOT the remedy (and is itself refused):
+   *  the transaction has to settle, or be reconciled, first. */
+  | 'action-pending'
   /** The chosen key is not among the commitments baked into an output's real
    *  lock (or no reachable output exists). The message names the outpoint. */
   | 'key-not-committed'

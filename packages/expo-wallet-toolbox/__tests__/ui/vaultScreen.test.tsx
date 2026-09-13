@@ -345,6 +345,30 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
+  test('a funded vault drops the key from the list at once and asks for a re-lock naming the keys that remain', async () => {
+    mockBalance = 300_000
+    mockGetMeta.mockResolvedValue(META3)
+    const PENDING = {
+      ...META3,
+      keys: [META3.keys[1], META3.keys[2]],
+      pendingRemoval: { key: META3.keys[0], state: 'prepared', startedAt: 1 }
+    }
+    mockBeginRemoval.mockImplementation(async () => {
+      mockGetMeta.mockResolvedValue(PENDING)
+      return { complete: false, meta: PENDING }
+    })
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
+    await settle()
+
+    expect(mockBeginRemoval).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340001')
+    expect(screen.getByText('vault_relock_choose')).toBeTruthy()
+    expect(
+      screen.getByText('vault_relock_reason_remaining:{"names":"Safe · …0002, Car · …0003"}')
+    ).toBeTruthy()
+  })
+
   // beginVaultKeyRemoval writes a durable pendingRemoval tombstone, and ONLY a
   // re-lock clears it — but a re-lock creates a vault output, which is what the
   // availability gate refuses. Starting the removal would therefore wedge the
@@ -611,7 +635,10 @@ describe('enrolled', () => {
     expect(actionAccessibilityState(screen, 'vault_deposit_cta')).toEqual({ disabled: true })
     expect(actionAccessibilityState(screen, 'vault_withdraw_cta')).toEqual({ disabled: true })
     expect(screen.getByText('Safe · 12 340 002')).toBeTruthy()
-    expect(screen.getByText('tx_still_pending')).toBeTruthy()
+    // Not 'tx_still_pending': this row is a key the vault has stopped using,
+    // not a transaction waiting for confirmation, and only a re-lock ends it.
+    expect(screen.getByText('vault_key_pending_removal')).toBeTruthy()
+    expect(screen.queryByText('tx_still_pending')).toBeNull()
   })
 
   test('the export row runs the shared export action', async () => {

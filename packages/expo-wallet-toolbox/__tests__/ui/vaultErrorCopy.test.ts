@@ -23,7 +23,7 @@ const ALL_CODES: VaultErrorCode[] = [
   'serial-mismatch', 'user-cancelled', 'not-enrolled', 'driver-unavailable', 'vault-empty',
   'amount-exceeds-balance', 'below-dust', 'no-transaction', 'nfc-lost', 'too-many-inputs',
   'requires-online', 'not-released', 'not-on-mainnet', 'backup-off', 'not-enough-keys', 'key-already-enrolled',
-  'key-not-adopted', 'too-many-keys', 'last-keys', 'relock-required', 'key-not-committed', 'key-cannot-cover',
+  'key-not-adopted', 'too-many-keys', 'last-keys', 'relock-required', 'action-pending', 'key-not-committed', 'key-cannot-cover',
   'too-small-to-relock', 'bad-version'
 ]
 

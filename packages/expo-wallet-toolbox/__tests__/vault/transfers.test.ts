@@ -561,7 +561,7 @@ describe('depositToVault', () => {
       return {}
     })
 
-    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'relock-required' })
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'action-pending' })
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
@@ -593,7 +593,7 @@ describe('depositToVault', () => {
         actions: args.labels?.includes(specOpFailedActions) ? [] : [heldDepositAction(status)]
       }))
 
-      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'relock-required' })
+      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'action-pending' })
       expect(wallet.abortAction).not.toHaveBeenCalled()
       expect(wallet.createAction).not.toHaveBeenCalled()
     }
@@ -667,7 +667,7 @@ describe('depositToVault', () => {
     malformed.outputs[0].lockingScript = new P2PKH().lock(Utils.toArray('d9'.repeat(20), 'hex')).toHex()
     wallet.listActions.mockResolvedValue({ actions: [malformed] })
 
-    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'relock-required' })
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'action-pending' })
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
@@ -676,7 +676,7 @@ describe('depositToVault', () => {
     await seedMeta()
     wallet.listActions.mockResolvedValue({ actions: [heldDepositAction('unsigned', 'main')] })
 
-    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'relock-required' })
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'action-pending' })
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
@@ -729,7 +729,7 @@ describe('depositToVault', () => {
     })
     const clear = jest.fn(async (_token?: unknown) => {})
 
-    await expect(disableVaultWhenSafe(wallet, ADMIN, clear)).rejects.toMatchObject({ code: 'relock-required' })
+    await expect(disableVaultWhenSafe(wallet, ADMIN, clear)).rejects.toMatchObject({ code: 'action-pending' })
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect(clear).not.toHaveBeenCalled()
   })
@@ -2472,6 +2472,41 @@ describe('relockVault', () => {
   }, 120_000)
 })
 
+describe('key removal pending-action gate', () => {
+  const funded = () => seedVault([vaultFixture(500_000, [PUB_A, PUB_B, KEY_C.pubkey])], [KEY_A, KEY_B, KEY_C])
+
+  it('starts a removal while the deposit that funded the vault is still unproven', async () => {
+    await funded()
+    wallet.listActions.mockImplementation(async () => ({ actions: [heldDepositAction('unproven')] }))
+
+    const begun = await beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)
+
+    expect(begun.complete).toBe(false)
+    expect(begun.meta.keys).toEqual([KEY_A, KEY_B])
+    expect(begun.meta.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
+  }, 90_000)
+
+  it('starts a removal while the deposit that funded the vault is still sending', async () => {
+    await funded()
+    wallet.listActions.mockImplementation(async () => ({ actions: [heldDepositAction('sending')] }))
+
+    const begun = await beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)
+
+    expect(begun.complete).toBe(false)
+    expect(begun.meta.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
+  }, 90_000)
+
+  it('still refuses while an unbroadcast vault action reserves the outputs a re-lock must spend', async () => {
+    await funded()
+    wallet.listActions.mockImplementation(async () => ({
+      actions: [{ txid: 'e1'.repeat(32), reference: 'held-relock-ref', status: 'nosend', labels: ['vault', 'vault-relock'] }]
+    }))
+
+    await expect(beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)).rejects.toMatchObject({ code: 'action-pending' })
+    expect((await vaultStore.getMeta())!.pendingRemoval).toBeUndefined()
+  }, 90_000)
+})
+
 describe('two-phase key removal reconciliation', () => {
   const beginRemoval = async (): Promise<VaultFixture[]> => {
     const fixtures = [vaultFixture(500_000, [PUB_A, PUB_B, KEY_C.pubkey])]
@@ -2789,7 +2824,7 @@ describe('authenticated vault scans', () => {
             }]
       }))
 
-      await expect(getVaultBalance(wallet, ADMIN)).rejects.toMatchObject({ code: 'relock-required' })
+      await expect(getVaultBalance(wallet, ADMIN)).rejects.toMatchObject({ code: 'action-pending' })
     }
   )
 

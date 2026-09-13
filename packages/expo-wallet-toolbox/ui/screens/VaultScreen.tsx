@@ -529,7 +529,14 @@ export function VaultScreen() {
           showToast(t('vault_key_removed_toast'), { type: 'info' })
           return
         }
-        openRelock({ reason: t('vault_relock_reason_generic'), revoke: rec })
+        // The tombstone already dropped this key from the list; the sheet asks
+        // for the re-lock that makes the keys still on it open every deposit.
+        openRelock({
+          reason: t('vault_relock_reason_remaining', {
+            names: m.keys.filter(k => k.serial !== rec.serial).map(vaultKeyLabel).join(', ')
+          }),
+          revoke: rec
+        })
       } catch (e) {
         haptics.error()
         await showAlert({
@@ -938,7 +945,7 @@ export function VaultScreen() {
             <ListRow
               key={`pending-${meta.pendingRemoval.key.serial}`}
               label={`${meta.pendingRemoval.key.nickname} · ${formatVaultSerial(meta.pendingRemoval.key.serial)}`}
-              subtitle={t('tx_still_pending')}
+              subtitle={t('vault_key_pending_removal')}
               icon="time-outline"
               iconColor={colors.warning}
               showChevron={false}

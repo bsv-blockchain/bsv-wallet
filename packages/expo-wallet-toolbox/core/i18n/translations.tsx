@@ -289,6 +289,8 @@ const resources = {
       vault_relock_choose: 'Which key will you tap to re-lock?',
       vault_relock_reason: 'Tap one of your existing keys ({{names}}) — not the one you just added.',
       vault_relock_reason_generic: 'Hold your YubiKey here to sign — re-lock the vault to your current keys',
+      vault_relock_reason_remaining: 'Re-lock to only your remaining keys: {{names}}.',
+      vault_key_pending_removal: 'Removed — re-lock to finish',
       vault_relock_done: 'Vault re-locked to your current keys',
       vault_relock_capped: '{{count}} more deposits remain — re-lock again to move them.',
       vault_relock_unreachable:
@@ -339,6 +341,7 @@ const resources = {
       vault_err_too_many_keys: 'A vault holds at most five keys.',
       vault_err_last_keys: 'A vault needs at least two keys. Add another key before removing this one.',
       vault_err_relock_required: 'Re-lock the vault first so your other keys can open every deposit.',
+      vault_err_action_pending: 'A vault transaction has not finished yet. Try again once it settles.',
       vault_err_key_not_committed:
         "{{nickname}} can't open any of the deposits in this vault. Use another of your vault keys.",
       vault_err_key_cannot_cover:
@@ -1070,6 +1073,8 @@ const resources = {
       vault_relock_choose: '您将用哪把密钥重新锁定？',
       vault_relock_reason: '请轻触您现有的密钥之一（{{names}}）— 不是刚添加的那把。',
       vault_relock_reason_generic: '将 YubiKey 靠在这里以签名 — 将保险库重新锁定到您当前的密钥',
+      vault_relock_reason_remaining: '仅重新锁定到您剩余的密钥：{{names}}。',
+      vault_key_pending_removal: '已移除 — 重新锁定以完成',
       vault_relock_done: '保险库已重新锁定到当前密钥',
       vault_relock_capped: '还剩 {{count}} 笔存入 — 再次重新锁定以移动它们。',
       vault_relock_unreachable: '{{count}} 笔存入只能由 {{names}} 打开。请用其中一把密钥再次重新锁定。',
@@ -1117,6 +1122,7 @@ const resources = {
       vault_err_too_many_keys: '一个保险库最多可有五把密钥。',
       vault_err_last_keys: '保险库至少需要两把密钥。请先添加另一把再移除这把。',
       vault_err_relock_required: '请先重新锁定保险库，让您的其他密钥能打开每笔存入。',
+      vault_err_action_pending: '保险库交易尚未完成。待其结束后再试。',
       vault_err_key_not_committed: '{{nickname}} 无法打开此保险库中的任何存入。请使用您的另一把保险库密钥。',
       vault_err_key_cannot_cover:
         '{{nickname}} 可以打开保险库中 {{total}} 里的 {{reachable}}。请最多取出 {{reachable}}，或改用 {{otherNames}}。',
@@ -1802,6 +1808,8 @@ const resources = {
       vault_relock_reason: 'अपनी मौजूदा कुंजियों में से एक टैप करें ({{names}}) — वह नहीं जो आपने अभी जोड़ी।',
       vault_relock_reason_generic:
         'हस्ताक्षर के लिए अपनी YubiKey यहाँ रखें — वॉल्ट को अपनी वर्तमान कुंजियों पर री-लॉक करें',
+      vault_relock_reason_remaining: 'केवल आपकी शेष कुंजियों पर री-लॉक करें: {{names}}।',
+      vault_key_pending_removal: 'हटाया गया — पूरा करने के लिए री-लॉक करें',
       vault_relock_done: 'वॉल्ट आपकी वर्तमान कुंजियों पर री-लॉक हो गया',
       vault_relock_capped: '{{count}} और जमा बाकी हैं — उन्हें ले जाने के लिए फिर री-लॉक करें।',
       vault_relock_unreachable:
@@ -1852,6 +1860,7 @@ const resources = {
       vault_err_too_many_keys: 'एक वॉल्ट में अधिकतम पाँच कुंजियाँ हो सकती हैं।',
       vault_err_last_keys: 'वॉल्ट को कम से कम दो कुंजियाँ चाहिए। इसे हटाने से पहले दूसरी कुंजी जोड़ें।',
       vault_err_relock_required: 'पहले वॉल्ट री-लॉक करें ताकि आपकी अन्य कुंजियाँ हर जमा खोल सकें।',
+      vault_err_action_pending: 'वॉल्ट का एक लेन-देन अभी पूरा नहीं हुआ है। पूरा होने पर फिर कोशिश करें।',
       vault_err_key_not_committed:
         '{{nickname}} इस वॉल्ट की कोई भी जमा नहीं खोल सकती। अपनी दूसरी वॉल्ट कुंजी उपयोग करें।',
       vault_err_key_cannot_cover:
@@ -2566,6 +2575,8 @@ const resources = {
       vault_relock_reason: 'Toca una de tus llaves existentes ({{names}}), no la que acabas de añadir.',
       vault_relock_reason_generic:
         'Acerca tu YubiKey aquí para firmar: volver a bloquear la caja fuerte con tus llaves actuales',
+      vault_relock_reason_remaining: 'Vuelve a bloquear solo con tus claves restantes: {{names}}.',
+      vault_key_pending_removal: 'Eliminada: vuelve a bloquear para terminar',
       vault_relock_done: 'Caja fuerte bloqueada de nuevo con tus llaves actuales',
       vault_relock_capped: 'Quedan {{count}} depósitos más: vuelve a bloquear otra vez para moverlos.',
       vault_relock_unreachable:
@@ -2618,6 +2629,8 @@ const resources = {
       vault_err_last_keys: 'Una caja fuerte necesita al menos dos llaves. Añade otra antes de eliminar esta.',
       vault_err_relock_required:
         'Vuelve a bloquear la caja fuerte primero, para que tus otras llaves puedan abrir cada depósito.',
+      vault_err_action_pending:
+        'Una transacción de la bóveda aún no ha terminado. Inténtalo de nuevo cuando se complete.',
       vault_err_key_not_committed:
         '{{nickname}} no puede abrir ninguno de los depósitos de esta caja fuerte. Usa otra de tus llaves.',
       vault_err_key_cannot_cover:
@@ -3340,6 +3353,8 @@ const resources = {
       vault_relock_reason: 'Approchez l’une de vos clés existantes ({{names}}) — pas celle que vous venez d’ajouter.',
       vault_relock_reason_generic:
         'Tenez votre YubiKey ici pour signer — reverrouiller le coffre avec vos clés actuelles',
+      vault_relock_reason_remaining: 'Re-verrouillez uniquement avec vos clés restantes : {{names}}.',
+      vault_key_pending_removal: 'Retirée — re-verrouillez pour terminer',
       vault_relock_done: 'Coffre reverrouillé avec vos clés actuelles',
       vault_relock_capped: 'Il reste {{count}} dépôts — reverrouillez à nouveau pour les déplacer.',
       vault_relock_unreachable:
@@ -3392,6 +3407,8 @@ const resources = {
       vault_err_last_keys: 'Un coffre a besoin d’au moins deux clés. Ajoutez-en une autre avant de retirer celle-ci.',
       vault_err_relock_required:
         'Reverrouillez d’abord le coffre pour que vos autres clés puissent ouvrir chaque dépôt.',
+      vault_err_action_pending:
+        'Une transaction du coffre n’est pas encore terminée. Réessayez une fois qu’elle est réglée.',
       vault_err_key_not_committed:
         '{{nickname}} ne peut ouvrir aucun des dépôts de ce coffre. Utilisez une autre de vos clés.',
       vault_err_key_cannot_cover:
@@ -4107,6 +4124,8 @@ const resources = {
       vault_relock_choose: 'أي مفتاح ستلمس لإعادة القفل؟',
       vault_relock_reason: 'المس أحد مفاتيحك الحالية ({{names}}) — وليس الذي أضفته للتو.',
       vault_relock_reason_generic: 'ضع مفتاح YubiKey هنا للتوقيع — إعادة قفل الخزنة على مفاتيحك الحالية',
+      vault_relock_reason_remaining: 'أعد القفل على مفاتيحك المتبقية فقط: {{names}}.',
+      vault_key_pending_removal: 'تمت الإزالة — أعد القفل لإتمامها',
       vault_relock_done: 'أُعيد قفل الخزنة على مفاتيحك الحالية',
       vault_relock_capped: 'بقي {{count}} إيداعًا — أعد القفل مجددًا لنقلها.',
       vault_relock_unreachable: '{{count}} إيداعًا لا يفتحها سوى {{names}}. أعد القفل مجددًا بأحد تلك المفاتيح.',
@@ -4157,6 +4176,7 @@ const resources = {
       vault_err_too_many_keys: 'تتّسع الخزنة لخمسة مفاتيح كحدّ أقصى.',
       vault_err_last_keys: 'تحتاج الخزنة إلى مفتاحين على الأقل. أضف مفتاحًا آخر قبل إزالة هذا.',
       vault_err_relock_required: 'أعد قفل الخزنة أولًا حتى تتمكن مفاتيحك الأخرى من فتح كل إيداع.',
+      vault_err_action_pending: 'لم تنتهِ إحدى معاملات الخزنة بعد. أعد المحاولة بعد اكتمالها.',
       vault_err_key_not_committed:
         'لا يمكن لـ {{nickname}} فتح أي من إيداعات هذه الخزنة. استخدم مفتاحًا آخر من مفاتيح خزنتك.',
       vault_err_key_cannot_cover:
@@ -4854,6 +4874,8 @@ const resources = {
       vault_relock_reason: 'Encoste uma das suas chaves existentes ({{names}}) — não a que você acabou de adicionar.',
       vault_relock_reason_generic:
         'Encoste a sua YubiKey aqui para assinar — retrancar o cofre com as suas chaves atuais',
+      vault_relock_reason_remaining: 'Bloqueie novamente apenas com as suas chaves restantes: {{names}}.',
+      vault_key_pending_removal: 'Removida — bloqueie novamente para concluir',
       vault_relock_done: 'Cofre retrancado com as suas chaves atuais',
       vault_relock_capped: 'Restam {{count}} depósitos — retranque de novo para movê-los.',
       vault_relock_unreachable:
@@ -4906,6 +4928,7 @@ const resources = {
       vault_err_last_keys: 'Um cofre precisa de pelo menos duas chaves. Adicione outra antes de remover esta.',
       vault_err_relock_required:
         'Retranque o cofre primeiro para que as suas outras chaves possam abrir cada depósito.',
+      vault_err_action_pending: 'Uma transação do cofre ainda não terminou. Tente novamente quando ela concluir.',
       vault_err_key_not_committed:
         '{{nickname}} não consegue abrir nenhum dos depósitos deste cofre. Use outra das suas chaves.',
       vault_err_key_cannot_cover:
@@ -5617,6 +5640,8 @@ const resources = {
       vault_relock_choose: 'পুনরায় লক করতে কোন কী ট্যাপ করবেন?',
       vault_relock_reason: 'আপনার বিদ্যমান কী-গুলির একটি ট্যাপ করুন ({{names}}) — যেটি এখনই যোগ করলেন সেটি নয়।',
       vault_relock_reason_generic: 'সই করতে আপনার YubiKey এখানে ধরুন — আপনার বর্তমান কী-গুলিতে ভল্ট পুনরায় লক করুন',
+      vault_relock_reason_remaining: 'কেবল আপনার অবশিষ্ট কী-গুলিতে পুনরায় লক করুন: {{names}}।',
+      vault_key_pending_removal: 'সরানো হয়েছে — শেষ করতে পুনরায় লক করুন',
       vault_relock_done: 'ভল্ট আপনার বর্তমান কী-গুলিতে পুনরায় লক হয়েছে',
       vault_relock_capped: 'আরও {{count}}টি জমা বাকি — সরাতে আবার পুনরায় লক করুন।',
       vault_relock_unreachable:
@@ -5667,6 +5692,7 @@ const resources = {
       vault_err_too_many_keys: 'একটি ভল্টে সর্বোচ্চ পাঁচটি কী থাকতে পারে।',
       vault_err_last_keys: 'ভল্টে কমপক্ষে দুটি কী দরকার। এটি সরানোর আগে আরেকটি যোগ করুন।',
       vault_err_relock_required: 'প্রথমে ভল্ট পুনরায় লক করুন যাতে আপনার অন্য কী-গুলি প্রতিটি জমা খুলতে পারে।',
+      vault_err_action_pending: 'ভল্টের একটি লেনদেন এখনও শেষ হয়নি। শেষ হলে আবার চেষ্টা করুন।',
       vault_err_key_not_committed:
         '{{nickname}} এই ভল্টের কোনো জমাই খুলতে পারে না। আপনার অন্য একটি ভল্ট কী ব্যবহার করুন।',
       vault_err_key_cannot_cover:
@@ -6376,6 +6402,8 @@ const resources = {
       vault_relock_choose: 'Каким ключом вы будете перезапирать?',
       vault_relock_reason: 'Приложите один из существующих ключей ({{names}}) — не тот, что вы только что добавили.',
       vault_relock_reason_generic: 'Приложите YubiKey сюда для подписи — перезапереть хранилище на текущие ключи',
+      vault_relock_reason_remaining: 'Перезаприте только на оставшиеся ключи: {{names}}.',
+      vault_key_pending_removal: 'Удалён — перезаприте, чтобы завершить',
       vault_relock_done: 'Хранилище перезаперто на текущие ключи',
       vault_relock_capped: 'Осталось ещё {{count}} пополнений — перезапирайте снова, чтобы перенести их.',
       vault_relock_unreachable:
@@ -6427,6 +6455,7 @@ const resources = {
       vault_err_too_many_keys: 'В хранилище может быть не более пяти ключей.',
       vault_err_last_keys: 'Хранилищу нужно как минимум два ключа. Добавьте другой ключ, прежде чем удалять этот.',
       vault_err_relock_required: 'Сначала перезапирайте хранилище, чтобы другие ключи могли открыть каждое пополнение.',
+      vault_err_action_pending: 'Транзакция хранилища ещё не завершена. Повторите попытку, когда она завершится.',
       vault_err_key_not_committed:
         '{{nickname}} не может открыть ни одно пополнение в этом хранилище. Используйте другой ключ хранилища.',
       vault_err_key_cannot_cover:
@@ -7145,6 +7174,8 @@ const resources = {
         'Tempelkan salah satu kunci Anda yang sudah ada ({{names}}) — bukan yang baru saja Anda tambahkan.',
       vault_relock_reason_generic:
         'Tempelkan YubiKey Anda di sini untuk menandatangani — kunci ulang brankas ke kunci Anda saat ini',
+      vault_relock_reason_remaining: 'Kunci ulang hanya ke kunci Anda yang tersisa: {{names}}.',
+      vault_key_pending_removal: 'Dihapus — kunci ulang untuk menyelesaikan',
       vault_relock_done: 'Brankas dikunci ulang ke kunci Anda saat ini',
       vault_relock_capped: '{{count}} setoran lagi tersisa — kunci ulang lagi untuk memindahkannya.',
       vault_relock_unreachable:
@@ -7196,6 +7227,7 @@ const resources = {
       vault_err_too_many_keys: 'Brankas menampung paling banyak lima kunci.',
       vault_err_last_keys: 'Brankas memerlukan setidaknya dua kunci. Tambahkan kunci lain sebelum menghapus yang ini.',
       vault_err_relock_required: 'Kunci ulang brankas dahulu agar kunci Anda yang lain bisa membuka setiap setoran.',
+      vault_err_action_pending: 'Sebuah transaksi brankas belum selesai. Coba lagi setelah selesai.',
       vault_err_key_not_committed:
         '{{nickname}} tidak bisa membuka satu pun setoran di brankas ini. Gunakan kunci brankas Anda yang lain.',
       vault_err_key_cannot_cover:
@@ -7913,6 +7945,8 @@ const resources = {
       vault_relock_choose: '再ロックにはどの鍵をかざしますか？',
       vault_relock_reason: '既存の鍵のいずれか（{{names}}）をかざしてください — 今追加した鍵ではありません。',
       vault_relock_reason_generic: '署名するには YubiKey をここにかざしてください — 保管庫を現在の鍵に再ロックする',
+      vault_relock_reason_remaining: '残りの鍵だけに再ロックします：{{names}}。',
+      vault_key_pending_removal: '削除済み — 完了するには再ロック',
       vault_relock_done: '保管庫を現在の鍵に再ロックしました',
       vault_relock_capped: 'あと {{count}} 件の入金が残っています — 移動するには再度再ロックしてください。',
       vault_relock_unreachable:
@@ -7964,6 +7998,7 @@ const resources = {
       vault_err_too_many_keys: '保管庫の鍵は最大 5 本です。',
       vault_err_last_keys: '保管庫には少なくとも 2 本の鍵が必要です。この鍵を削除する前に別の鍵を追加してください。',
       vault_err_relock_required: '他の鍵ですべての入金を開けられるように、まず保管庫を再ロックしてください。',
+      vault_err_action_pending: '保管庫の取引がまだ完了していません。完了してからもう一度お試しください。',
       vault_err_key_not_committed:
         '{{nickname}} ではこの保管庫の入金をどれも開けられません。別の保管庫の鍵を使ってください。',
       vault_err_key_cannot_cover:
@@ -8690,6 +8725,8 @@ const resources = {
       vault_relock_reason: 'Przyłóż jeden z istniejących kluczy ({{names}}) — nie ten, który właśnie dodałeś.',
       vault_relock_reason_generic:
         'Przyłóż tutaj klucz YubiKey, aby podpisać — zablokuj sejf ponownie na obecne klucze',
+      vault_relock_reason_remaining: 'Zablokuj ponownie tylko na pozostałych kluczach: {{names}}.',
+      vault_key_pending_removal: 'Usunięty — zablokuj ponownie, aby zakończyć',
       vault_relock_done: 'Sejf zablokowany ponownie na obecne klucze',
       vault_relock_capped: 'Pozostało jeszcze {{count}} wpłat — zablokuj ponownie, aby je przenieść.',
       vault_relock_unreachable:
@@ -8741,6 +8778,7 @@ const resources = {
       vault_err_too_many_keys: 'Sejf może mieć najwyżej pięć kluczy.',
       vault_err_last_keys: 'Sejf wymaga co najmniej dwóch kluczy. Dodaj inny klucz, zanim usuniesz ten.',
       vault_err_relock_required: 'Najpierw zablokuj sejf ponownie, aby pozostałe klucze mogły otworzyć każdą wpłatę.',
+      vault_err_action_pending: 'Transakcja sejfu jeszcze się nie zakończyła. Spróbuj ponownie, gdy się zakończy.',
       vault_err_key_not_committed:
         '{{nickname}} nie może otworzyć żadnej wpłaty w tym sejfie. Użyj innego klucza sejfu.',
       vault_err_key_cannot_cover:
