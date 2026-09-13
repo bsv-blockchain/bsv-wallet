@@ -2342,7 +2342,10 @@ describe('relockVault', () => {
     expect(r).toEqual({ txid: expect.any(String), cappedInputs: 0, unreachable: { count: 0, satoshis: 0, keys: [] } })
 
     const [caArgs] = wallet.createAction.mock.calls[0]
-    expect(caArgs.description).toBe('Re-lock vault')
+    // Fixed regardless of the caller's `reason` (the ceremony's NFC prompt
+    // text, 'Re-lock vault' here), so the key-tapping instruction never shows
+    // as the action's description in the activity list.
+    expect(caArgs.description).toBe('Vault relock')
     expect(caArgs.version).toBe(1)
     expect(caArgs.labels).toEqual(['vault', 'vault-relock'])
     expect(caArgs.inputs).toHaveLength(2)

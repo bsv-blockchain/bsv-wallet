@@ -2615,11 +2615,10 @@ export async function relockVault(
       )],
       labels: ['vault', 'vault-relock'],
       inputDescription: 'Vault re-lock',
-      // Unchanged from before `description` split off `reason` generally
-      // (see VaultSpendPlan): re-lock keeps the caller's reason as the
-      // action's own description, since it isn't in scope of the
-      // deposit/withdrawal description fix.
-      description: reason
+      // Fixed, like the deposit and withdrawal descriptions (see
+      // VaultSpendPlan): the caller's `reason` is NFC-prompt copy that names
+      // the keys to tap, which read as nonsense in the activity list.
+      description: 'Vault relock'
     },
     opts,
     scopeToken

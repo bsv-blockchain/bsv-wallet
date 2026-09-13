@@ -117,7 +117,8 @@ function loadExpoRouter(): ExpoRouterModule {
 const noop = (): void => {}
 
 interface RelockRequest {
-  /** The reason line the ceremony sheet shows and relockVault records. */
+  /** The reason line the ceremony sheet shows and relockVault passes to the
+   * card scan. Not the action's description — that is fixed. */
   reason: string
   /** A serial to leave out of the chooser — the key just added, which cannot open the old outputs. */
   exclude?: string
