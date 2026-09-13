@@ -111,6 +111,16 @@ Behaviour changes:
   interpreting source scripts, so historical labels cannot make the newly
   enabled Vault screen fail on entry. Pending current-template actions remain
   subject to exact-script validation.
+- Disabling a drained Vault reads only live actions as reservations. Storage
+  restores the sources of a terminally failed action and clears their
+  `spentBy`, so an aborted withdrawal or re-lock lists no inputs at all;
+  requiring exact R1C sources from it reported empty history as malformed
+  (`template-invalid`) and refused to disable an empty Vault for good. Exact
+  source-script validation and the failed-action blocker now apply to pending
+  actions and to failed actions that still list inputs — the shapes that can
+  actually hide a Vault output. Completed history no longer has its inputs
+  interpreted; its outputs are still authenticated. A failed disable check
+  also reports its own error instead of claiming the Vault still holds funds.
 - HMAC salt derivation requires the wallet root, numeric ID, and complete
   ordered serial list, and does not reconstruct an exact lock by itself.
   Clean-device recovery also needs the ordered historical P-256 YubiKey

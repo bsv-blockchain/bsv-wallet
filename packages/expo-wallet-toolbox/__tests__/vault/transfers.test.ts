@@ -749,6 +749,84 @@ describe('depositToVault', () => {
     expect(clear).not.toHaveBeenCalled()
   })
 
+  /**
+   * Storage restores the sources of a terminally failed action and clears
+   * their `spentBy`, so listActions reports that action with NO inputs at all
+   * (reviewStatusIdb: "sets outputs to spendable true, spentBy undefined if
+   * spentBy is a terminal failed transaction"). An aborted withdrawal or
+   * re-lock therefore reaches this scan claiming a vault spend it can no
+   * longer evidence — which must not be read as malformed history, and must
+   * not brick disablement of an empty vault forever.
+   */
+  it('disables a drained vault whose history holds an aborted withdrawal', async () => {
+    await seedMeta()
+    const abortedWithdraw = {
+      txid: 'a1'.repeat(32),
+      reference: 'aborted-withdraw-ref',
+      status: 'failed',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [],
+      outputs: []
+    }
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(specOpFailedActions) ? [abortedWithdraw] : []
+    }))
+    const clear = jest.fn(async (_token?: unknown) => {})
+
+    await expect(disableVaultWhenSafe(wallet, ADMIN, clear)).resolves.toBe(true)
+    expect(clear).toHaveBeenCalled()
+  })
+
+  it('keeps refusing while an aborted withdrawal still reserves its vault source', async () => {
+    await seedMeta()
+    const { salt } = fixtureSalt(901)
+    const stillReserved = {
+      txid: 'a2'.repeat(32),
+      reference: 'stuck-withdraw-ref',
+      status: 'failed',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [{
+        sourceOutpoint: `${'a3'.repeat(32)}.0`,
+        sourceSatoshis: 250_000,
+        sourceLockingScript: buildLock({
+          commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+          saltHex64: salt
+        }).toHex()
+      }],
+      outputs: []
+    }
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(specOpFailedActions) ? [stillReserved] : []
+    }))
+    const clear = jest.fn(async (_token?: unknown) => {})
+
+    await expect(disableVaultWhenSafe(wallet, ADMIN, clear)).resolves.toBe(false)
+    expect(clear).not.toHaveBeenCalled()
+  })
+
+  it('ignores completed legacy vault spends when clearing enrollment metadata', async () => {
+    await seedMeta()
+    const legacySpend = {
+      txid: 'a4'.repeat(32),
+      reference: 'legacy-withdraw-ref',
+      status: 'completed',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [{
+        sourceOutpoint: `${'a5'.repeat(32)}.0`,
+        sourceSatoshis: 250_000,
+        sourceLockingScript: new P2PKH().lock(Utils.toArray('a6'.repeat(20), 'hex')).toHex()
+      }],
+      outputs: []
+    }
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(specOpFailedActions) ? [] : [legacySpend]
+    }))
+    const clear = jest.fn(async (_token?: unknown) => {})
+
+    await expect(disableVaultWhenSafe(wallet, ADMIN, clear)).resolves.toBe(true)
+    expect(clear).toHaveBeenCalled()
+  })
+
   it('bakes a wallet-derived HMAC salt and every enrolled key into a v6 recovery record', async () => {
     await seedMeta()
     await depositToVault(wallet, ADMIN, 250_000)

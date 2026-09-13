@@ -546,6 +546,21 @@ describe('enrolled', () => {
     expect(mockDisable).toHaveBeenCalledWith(token)
   })
 
+  test('a failed disable check reports the error instead of claiming the vault holds funds', async () => {
+    const { VaultError } = jest.requireActual('../../core/services/vault/types')
+    mockBalance = 0
+    mockDisableWhenSafe.mockRejectedValueOnce(new VaultError('template-invalid', 'unreadable history'))
+    mockShowAlert.mockResolvedValueOnce('confirm')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_disable_row')))
+    await settle()
+    expect(mockShowAlert).toHaveBeenLastCalledWith(expect.objectContaining({
+      title: 'vault_disable_title',
+      message: 'vault_err_template_invalid'
+    }))
+    expect(mockDisable).not.toHaveBeenCalled()
+  })
+
   test('a recovered key requires a live adoption challenge and keeps the opening scope token', async () => {
     const recovered = { ...META2, recovery: { required: true, adoptedSerials: [] } }
     const adopted = { ...META2, recovery: { required: true, adoptedSerials: ['12340001'] } }

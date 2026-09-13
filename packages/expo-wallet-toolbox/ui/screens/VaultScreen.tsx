@@ -587,7 +587,16 @@ export function VaultScreen() {
     try {
       disabled = await disableVaultWhenSafe(pm as unknown as VaultWallet, adminOriginator, disableVault)
     } catch (e) {
+      // A failed check is not a funded vault. Saying "withdraw funds first"
+      // over a read error sends the user to look for money that is not there.
       console.error('[vault] safe disable check failed:', e instanceof Error ? e.message : e)
+      haptics.error()
+      await showAlert({
+        title: t('vault_disable_title'),
+        message: vaultErrorCopy(e instanceof VaultError ? e.code : undefined),
+        buttons: [{ text: t('vault_ok'), key: 'ok' }]
+      })
+      return
     }
     if (!disabled) {
       haptics.error()
