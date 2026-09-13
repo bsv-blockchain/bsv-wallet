@@ -258,6 +258,8 @@ const resources = {
       vault_enrollment_resume: 'Resume saved key',
       vault_enrollment_reset_required:
         'This YubiKey is no longer in its factory state, so it cannot be enrolled as it is. Its PIV application has to be erased back to factory before it can hold a vault key.',
+      vault_enrollment_state_uncertain:
+        'A setup attempt was interrupted, so there is no way to be sure what state it left the YubiKey in. That key will not be used again until its PIV application has been erased back to factory.',
       vault_nfc_enroll_message: 'Hold your YubiKey here to set it up',
       vault_nfc_adopt_message: 'Hold this recovered YubiKey here to verify it',
       vault_nfc_sign_batch: 'Hold your YubiKey here to sign — batch {{b}} of {{n}}',
@@ -1041,6 +1043,8 @@ const resources = {
       vault_enrollment_resume: '继续已保存的密钥',
       vault_enrollment_reset_required:
         '这把 YubiKey 已不再处于出厂状态，因此无法按现状注册。必须先将其 PIV 应用擦除并恢复出厂状态，它才能保存保险库密钥。',
+      vault_enrollment_state_uncertain:
+        '一次设置尝试被中断，因此无法确定这把 YubiKey 被留在了什么状态。在其 PIV 应用被擦除并恢复出厂状态之前，设置不会再使用这把密钥。',
       vault_nfc_enroll_message: '将 YubiKey 靠在这里以完成设置',
       vault_nfc_adopt_message: '将这把恢复的 YubiKey 靠在这里以验证',
       vault_nfc_sign_batch: '将 YubiKey 靠在这里以签名 — 第 {{b}} 批，共 {{n}} 批',
@@ -1770,6 +1774,8 @@ const resources = {
       vault_enrollment_resume: 'सहेजी गई कुंजी जारी रखें',
       vault_enrollment_reset_required:
         'यह YubiKey अब फ़ैक्टरी स्थिति में नहीं है, इसलिए इसे मौजूदा हालत में नामांकित नहीं किया जा सकता। वॉल्ट कुंजी रखने से पहले इसके PIV ऐप्लिकेशन को मिटाकर फ़ैक्टरी स्थिति में लाना होगा।',
+      vault_enrollment_state_uncertain:
+        'एक सेटअप प्रयास बीच में रुक गया, इसलिए यह पक्का नहीं कहा जा सकता कि YubiKey किस स्थिति में छूटी। जब तक उसका PIV ऐप्लिकेशन मिटाकर फ़ैक्टरी स्थिति में नहीं लाया जाता, उस कुंजी का दोबारा उपयोग नहीं होगा।',
       vault_nfc_enroll_message: 'सेट करने के लिए अपनी YubiKey यहाँ रखें',
       vault_nfc_adopt_message: 'सत्यापित करने के लिए इस पुनर्प्राप्त YubiKey को यहाँ रखें',
       vault_nfc_sign_batch: 'हस्ताक्षर के लिए अपनी YubiKey यहाँ रखें — बैच {{b}}/{{n}}',
@@ -2532,6 +2538,8 @@ const resources = {
       vault_enrollment_resume: 'Reanudar clave guardada',
       vault_enrollment_reset_required:
         'Esta YubiKey ya no está en su estado de fábrica, así que no puede inscribirse tal cual. Hay que borrar su aplicación PIV y devolverla al estado de fábrica antes de que pueda guardar una clave de la caja fuerte.',
+      vault_enrollment_state_uncertain:
+        'Un intento de configuración se interrumpió, así que no hay forma de saber en qué estado quedó la YubiKey. Esa llave no se volverá a usar hasta que su aplicación PIV se borre y vuelva al estado de fábrica.',
       vault_nfc_enroll_message: 'Acerca tu YubiKey aquí para configurarla',
       vault_nfc_adopt_message: 'Acerca esta YubiKey recuperada para verificarla',
       vault_nfc_sign_batch: 'Acerca tu YubiKey aquí para firmar: lote {{b}} de {{n}}',
@@ -3307,6 +3315,8 @@ const resources = {
       vault_enrollment_resume: 'Reprendre la clé enregistrée',
       vault_enrollment_reset_required:
         'Cette YubiKey n’est plus dans son état d’usine ; elle ne peut donc pas être enrôlée telle quelle. Son application PIV doit être effacée et ramenée à l’état d’usine avant de pouvoir contenir une clé du coffre.',
+      vault_enrollment_state_uncertain:
+        'Une tentative de configuration a été interrompue ; impossible de savoir dans quel état la YubiKey a été laissée. Cette clé ne sera plus utilisée tant que son application PIV n’aura pas été effacée et ramenée à l’état d’usine.',
       vault_nfc_enroll_message: 'Tenez votre YubiKey ici pour la configurer',
       vault_nfc_adopt_message: 'Tenez cette YubiKey récupérée ici pour la vérifier',
       vault_nfc_sign_batch: 'Tenez votre YubiKey ici pour signer — lot {{b}} sur {{n}}',
@@ -4077,6 +4087,8 @@ const resources = {
       vault_enrollment_resume: 'متابعة المفتاح المحفوظ',
       vault_enrollment_reset_required:
         'لم يعد مفتاح YubiKey هذا في حالة المصنع، لذا لا يمكن تسجيله كما هو. يجب مسح تطبيق PIV الخاص به وإعادته إلى حالة المصنع قبل أن يتمكن من حفظ مفتاح الخزنة.',
+      vault_enrollment_state_uncertain:
+        'توقفت محاولة إعداد في منتصفها، لذا لا سبيل للتأكد من الحالة التي تُرك عليها مفتاح YubiKey. لن يُستخدم هذا المفتاح مرة أخرى حتى يُمسح تطبيق PIV الخاص به ويعود إلى حالة المصنع.',
       vault_nfc_enroll_message: 'ضع مفتاح YubiKey هنا لإعداده',
       vault_nfc_adopt_message: 'ضع مفتاح YubiKey المستعاد هنا للتحقق منه',
       vault_nfc_sign_batch: 'ضع مفتاح YubiKey هنا للتوقيع — الدفعة {{b}} من {{n}}',
@@ -4821,6 +4833,8 @@ const resources = {
       vault_enrollment_resume: 'Retomar chave guardada',
       vault_enrollment_reset_required:
         'Esta YubiKey já não está no estado de fábrica, por isso não pode ser inscrita tal como está. A sua aplicação PIV tem de ser apagada e reposta de fábrica antes de poder guardar uma chave do cofre.',
+      vault_enrollment_state_uncertain:
+        'Uma tentativa de configuração foi interrompida, por isso não há como saber em que estado a YubiKey ficou. Essa chave não voltará a ser usada até que a sua aplicação PIV seja apagada e reposta de fábrica.',
       vault_nfc_enroll_message: 'Encoste a sua YubiKey aqui para configurá-la',
       vault_nfc_adopt_message: 'Encoste esta YubiKey recuperada aqui para verificá-la',
       vault_nfc_sign_batch: 'Encoste a sua YubiKey aqui para assinar — lote {{b}} de {{n}}',
@@ -5587,6 +5601,8 @@ const resources = {
       vault_enrollment_resume: 'সংরক্ষিত কী চালিয়ে যান',
       vault_enrollment_reset_required:
         'এই YubiKey আর ফ্যাক্টরি অবস্থায় নেই, তাই একে বর্তমান অবস্থায় নথিভুক্ত করা যাবে না। ভল্ট কী রাখার আগে এর PIV অ্যাপ্লিকেশন মুছে ফ্যাক্টরি অবস্থায় ফেরাতে হবে।',
+      vault_enrollment_state_uncertain:
+        'একটি সেটআপ চেষ্টা মাঝপথে থেমে যাওয়ায় YubiKey কোন অবস্থায় রয়ে গেছে তা নিশ্চিত করা যাচ্ছে না। এর PIV অ্যাপ্লিকেশন মুছে ফ্যাক্টরি অবস্থায় না ফেরানো পর্যন্ত ওই কী আর ব্যবহার করা হবে না।',
       vault_nfc_enroll_message: 'সেট আপ করতে আপনার YubiKey এখানে ধরুন',
       vault_nfc_adopt_message: 'যাচাই করতে উদ্ধার করা এই YubiKey এখানে ধরুন',
       vault_nfc_sign_batch: 'সই করতে আপনার YubiKey এখানে ধরুন — ব্যাচ {{b}}/{{n}}',
@@ -6344,6 +6360,8 @@ const resources = {
       vault_enrollment_resume: 'Продолжить сохранённый ключ',
       vault_enrollment_reset_required:
         'Этот YubiKey больше не находится в заводском состоянии, поэтому его нельзя зарегистрировать как есть. Прежде чем он сможет хранить ключ хранилища, его приложение PIV нужно стереть и вернуть к заводскому состоянию.',
+      vault_enrollment_state_uncertain:
+        'Попытка настройки прервалась, поэтому невозможно определить, в каком состоянии остался YubiKey. Этот ключ не будет использован снова, пока его приложение PIV не будет стёрто и возвращено к заводскому состоянию.',
       vault_nfc_enroll_message: 'Приложите YubiKey сюда, чтобы настроить его',
       vault_nfc_adopt_message: 'Приложите восстановленный YubiKey сюда для проверки',
       vault_nfc_sign_batch: 'Приложите YubiKey сюда для подписи — пакет {{b}} из {{n}}',
@@ -7111,6 +7129,8 @@ const resources = {
       vault_enrollment_resume: 'Lanjutkan kunci tersimpan',
       vault_enrollment_reset_required:
         'YubiKey ini tidak lagi dalam keadaan pabrik, sehingga tidak dapat didaftarkan apa adanya. Aplikasi PIV-nya harus dihapus dan dikembalikan ke keadaan pabrik sebelum dapat menyimpan kunci brankas.',
+      vault_enrollment_state_uncertain:
+        'Upaya penyiapan terhenti, sehingga tidak ada cara untuk memastikan dalam keadaan apa YubiKey itu ditinggalkan. Kunci tersebut tidak akan dipakai lagi sampai aplikasi PIV-nya dihapus dan dikembalikan ke keadaan pabrik.',
       vault_nfc_enroll_message: 'Tempelkan YubiKey Anda di sini untuk menyiapkannya',
       vault_nfc_adopt_message: 'Tempelkan YubiKey yang dipulihkan ini untuk memverifikasinya',
       vault_nfc_sign_batch: 'Tempelkan YubiKey Anda di sini untuk menandatangani — kelompok {{b}} dari {{n}}',
@@ -7881,6 +7901,8 @@ const resources = {
       vault_enrollment_resume: '保存済みキーを再開',
       vault_enrollment_reset_required:
         'この YubiKey は初期状態ではないため、このままでは登録できません。保管庫の鍵を保存するには、PIV アプリを消去して初期状態に戻す必要があります。',
+      vault_enrollment_state_uncertain:
+        'セットアップの試行が中断されたため、その YubiKey がどの状態で残されたか確認できません。PIV アプリを消去して初期状態に戻すまで、その鍵は再び使用されません。',
       vault_nfc_enroll_message: '設定するには YubiKey をここにかざしてください',
       vault_nfc_adopt_message: '復元したこの YubiKey をここにかざして確認してください',
       vault_nfc_sign_batch: '署名するには YubiKey をここにかざしてください — バッチ {{b}}/{{n}}',
@@ -8657,6 +8679,8 @@ const resources = {
       vault_enrollment_resume: 'Wznów zapisany klucz',
       vault_enrollment_reset_required:
         'Ten klucz YubiKey nie jest już w stanie fabrycznym, więc nie można go zarejestrować w obecnej postaci. Aby mógł przechowywać klucz sejfu, jego aplikacja PIV musi zostać wymazana i przywrócona do stanu fabrycznego.',
+      vault_enrollment_state_uncertain:
+        'Próba konfiguracji została przerwana, więc nie ma pewności, w jakim stanie pozostał klucz YubiKey. Ten klucz nie zostanie ponownie użyty, dopóki jego aplikacja PIV nie zostanie wymazana i przywrócona do stanu fabrycznego.',
       vault_nfc_enroll_message: 'Przyłóż tutaj klucz YubiKey, aby go skonfigurować',
       vault_nfc_adopt_message: 'Przyłóż tutaj odzyskany klucz YubiKey, aby go zweryfikować',
       vault_nfc_sign_batch: 'Przyłóż tutaj klucz YubiKey, aby podpisać — partia {{b}} z {{n}}',

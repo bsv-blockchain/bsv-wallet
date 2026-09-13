@@ -539,7 +539,14 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           // where the reset offer attaches.
           copy = t('vault_enrollment_reset_required')
         } else if (err instanceof VaultEnrollmentPartialError) {
-          copy = t('vault_enrollment_reset_required')
+          // Deliberately the hedged copy, not the reset-required one. enrollKey
+          // throws this carrying any stage, including `pin-change-uncertain` —
+          // which VaultKeyService records BEFORE calling changePin, so a process
+          // death in that window leaves a card that may still be at factory
+          // state. Claiming it is not would be a lie in that case. The remedy
+          // is the same either way, so the copy states the uncertainty instead
+          // of guessing past it.
+          copy = t('vault_enrollment_state_uncertain')
         } else {
           copy = vaultErrorCopy(err?.code)
         }
@@ -614,9 +621,16 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         }
         setKeyError({
           code: err?.code,
+          // resumeEnrollmentDraft only ever throws `key-generated` or
+          // `key-protected`, so the card here is certainly mutated and the
+          // reset-required copy would be literally true. The hedged copy is
+          // used anyway: it is also true (the management-key state is exactly
+          // what is unknown), no reset is offered from this path, and one rule
+          // — proven state gets the definite copy, recorded uncertainty gets
+          // the hedged one — is easier to keep right than a per-site judgement.
           copy:
             err instanceof VaultEnrollmentPartialError
-              ? t('vault_enrollment_reset_required')
+              ? t('vault_enrollment_state_uncertain')
               : vaultErrorCopy(err?.code),
           // Same dead-button argument as the enrollment tap: `pin-invalid` is
           // already handled above, and the rest of the set cannot be retried
@@ -884,8 +898,12 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_intro_ack')}</Text>
         </PressableScale>
         {pivAcknowledgement}
+        {/* `blockedDrafts` mixes management-uncertain drafts (certainly mutated)
+            with quarantines, and the earliest quarantine stage is recorded
+            before the card is touched — so this banner cannot claim the key is
+            non-factory. It also names no key, because none is in hand here. */}
         {blockedDrafts.length > 0 && (
-          <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_reset_required')}</Text>
+          <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_state_uncertain')}</Text>
         )}
         <ActionButton label={t('vault_intro_begin')} enabled={ack && pivAck} busy={busy} onPress={() => void begin()} />
         <PressableScale onPress={onCancel} style={styles.secondary}>
@@ -982,8 +1000,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
               onPress={() => void resumeDraft(entry)}
             />
           ))}
+          {/* Same hedge as the intro banner, and for the same reason. */}
           {blockedDrafts.length > 0 && (
-            <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_reset_required')}</Text>
+            <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_state_uncertain')}</Text>
           )}
           {/* NFC only: a brand-new YubiKey ships in restricted NFC mode (Yubico's
               anti-scan-in-transit policy) and stays that way until it is plugged

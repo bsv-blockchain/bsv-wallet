@@ -261,7 +261,9 @@ test('surfaces quarantined personalization and offers no blind retry', async () 
   mockQuarantines = [{ serial: 'BLOCK001', stage: 'puk-change-uncertain', recordedAt: 1 }]
   const screen = render(<EnrollWizard mode="enroll" onDone={jest.fn()} onCancel={jest.fn()} />)
   await settle()
-  expect(screen.getByText('vault_enrollment_reset_required')).toBeTruthy()
+  // The hedged copy, not the reset-required one: a quarantine can be recorded
+  // before the card is touched, so the banner must not claim it is non-factory.
+  expect(screen.getByText('vault_enrollment_state_uncertain')).toBeTruthy()
   expect(screen.queryByText(/vault_enrollment_resume/)).toBeNull()
 })
 
@@ -274,7 +276,7 @@ test.each(['pin-change-uncertain', 'pin-changed', 'puk-change-uncertain', 'puk-c
     enterCredentials(screen)
     await act(async () => fireEvent.press(screen.getByText('vault_continue')))
     await settle()
-    expect(screen.getByText('vault_enrollment_reset_required')).toBeTruthy()
+    expect(screen.getByText('vault_enrollment_state_uncertain')).toBeTruthy()
     expect(screen.getByText('vault_key_use_different')).toBeTruthy()
     expect(screen.queryByText('vault_retry')).toBeNull()
   }
