@@ -42,8 +42,8 @@ import { useMemo } from 'react'
 const TONES = {
   paymentReceive: require('../../assets/sounds/payment-receive.wav'),
   paymentSend: require('../../assets/sounds/payment-send.wav'),
-  vaultDeposit: require('../../assets/sounds/vault-deposit.mp3'),
-  vaultWithdraw: require('../../assets/sounds/vault-withdraw.mp3'),
+  vaultDeposit: require('../../assets/sounds/vault-deposit.wav'),
+  vaultWithdraw: require('../../assets/sounds/vault-withdraw.wav'),
 } as const
 
 type ToneName = keyof typeof TONES
