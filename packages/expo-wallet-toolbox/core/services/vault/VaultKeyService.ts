@@ -128,6 +128,44 @@ function withSerial(error: unknown, serial: string): unknown {
   return new VaultError(error.code, error.message, error.retriesLeft, { ...error.details, serial })
 }
 
+/**
+ * Name the tapped card on a partial-enrollment failure that carries no record.
+ *
+ * The counterpart to `withSerial` for the one class it deliberately refuses to
+ * touch. A partial only gets `details.serial` from its `record`, and every
+ * stage BEFORE key generation has no record — which is exactly the set that
+ * persists a quarantine. Unnamed, the wizard's `resetSerial` stays undefined
+ * and no reset is offered; but a quarantined serial short-circuits every later
+ * enrollment tap, and a reset is the only thing that clears one. So without
+ * this the card is both unenrollable and unresettable in-app, under copy
+ * telling the user to reset it.
+ *
+ * `pin-change-uncertain` is named too, deliberately, even though it is the one
+ * stage where the card may still be factory. The quarantine is written BEFORE
+ * the changePin APDU, so nothing may have happened — but it is written all the
+ * same, and nothing else erases it. Withholding the offer there would brick
+ * exactly the card that was never modified. Resetting a still-factory PIV
+ * application costs nothing the user has not already agreed to: preflight
+ * refused every occupied user slot before this point, so there is nothing else
+ * on it. The wizard keeps the hedged `vault_enrollment_state_uncertain` copy
+ * for this stage rather than the reset-required one, so the offer is made
+ * without claiming the card was changed.
+ *
+ * Mutated in place rather than rebuilt: `details` is a plain field, and
+ * constructing a fresh VaultEnrollmentPartialError would have to re-thread
+ * `stage`, `record`, `recoverySaved` and `cause` — the failure mode withSerial
+ * exists to avoid. Applied once around the whole card session so a throw site
+ * added later cannot forget it. An existing `details.serial` is never
+ * overwritten.
+ */
+function withPartialSerial(error: unknown, serial: string | undefined): unknown {
+  if (serial === undefined) return error
+  if (!(error instanceof VaultEnrollmentPartialError)) return error
+  if (error.details?.serial !== undefined) return error
+  error.details = { ...error.details, serial }
+  return error
+}
+
 function validatePukChange(change: { oldPuk: string; newPuk: string }, pin: string): void {
   requirePivCode(change.oldPuk, 'PUK')
   requirePivCode(change.newPuk, 'PUK')
@@ -296,6 +334,10 @@ export async function enrollKey(args: {
   vaultStore.assertScopeToken(scopeToken)
 
   // ── Token phase: one session / one NFC tap ──
+  /** The serial this session's card reported, for the `withPartialSerial` tag
+   * on the way out. Written once, from the card, before anything is presented
+   * to it — so a partial raised anywhere below can name the card it belongs to. */
+  let tappedSerial: string | undefined
   const record = await withKeySession(
     driver,
     async () => {
@@ -304,6 +346,7 @@ export async function enrollKey(args: {
       if (!isVaultSerial(info.serial)) {
         throw new VaultError('template-invalid', 'YubiKey returned an invalid serial number')
       }
+      tappedSerial = info.serial
       if (refused.has(info.serial)) {
         // The message IS the serial: the wizard resolves it to a nickname.
         throw new VaultError('key-already-enrolled', info.serial, undefined, { serial: info.serial })
@@ -554,7 +597,12 @@ export async function enrollKey(args: {
     },
     () => args.onPhase('connecting'),
     { nfcMessage: args.nfcMessage }
-  )
+  ).catch(e => {
+    // One tag for the whole session, rather than one per throw site: the
+    // pre-generation stages have no record to name the card with, and they are
+    // precisely the ones that leave a quarantine behind.
+    throw withPartialSerial(e, tappedSerial)
+  })
   try {
     // A scope switch can land while withKeySession is closing native
     // discovery after the challenge. Preserve the exact public record so the

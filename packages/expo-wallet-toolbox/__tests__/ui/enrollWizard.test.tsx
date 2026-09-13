@@ -24,9 +24,13 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     extends jest.requireActual('../../core/services/vault/types').VaultError
   {
     stage: string
-    constructor(stage: string) {
+    constructor(stage: string, serial?: string) {
       super('enrollment-partial')
       this.stage = stage
+      // Mirrors the real class plus enrollKey's withPartialSerial tag: a stage
+      // before key generation has no record, so the serial is the only thing
+      // that can bind a reset offer to the card that failed.
+      this.details = { stage, ...(serial ? { serial } : {}) }
     }
   },
   // Real entropy (WebCrypto under Node): the wizard generates the recovery
@@ -281,6 +285,46 @@ test.each(['pin-change-uncertain', 'pin-changed', 'puk-change-uncertain', 'puk-c
     expect(screen.queryByText('vault_retry')).toBeNull()
   }
 )
+
+test.each(['pin-change-uncertain', 'pin-changed', 'puk-change-uncertain', 'puk-changed', 'generation-uncertain'])(
+  'a %s partial names its card, so the reset its copy points at is actually offered',
+  async stage => {
+    // These stages are exactly the ones that leave a quarantine behind, and a
+    // quarantined serial short-circuits every later enrollment tap: the reset
+    // is the only thing that clears one. `pin-change-uncertain` is included
+    // deliberately — the card may still be factory there, but the quarantine is
+    // written all the same, and the hedged copy above never claims otherwise.
+    const Partial = jest.requireMock('@bsv/expo-wallet-toolbox').VaultEnrollmentPartialError
+    mockEnrollKey.mockRejectedValueOnce(new Partial(stage, '12340001'))
+    const { screen } = await beginEnroll()
+    enterCredentials(screen)
+    await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+    await settle()
+    expect(screen.getByText('vault_enrollment_state_uncertain')).toBeTruthy()
+    expect(screen.getByText('vault_reset_offer')).toBeTruthy()
+  }
+)
+
+test('a tap on a quarantined card reaches a reset bound to that exact serial', async () => {
+  // The spec's headline dead end. VaultKeyService short-circuits on the stored
+  // quarantine before the card is touched and throws a partial with no record,
+  // so the serial reaches the wizard only through enrollKey's tag. Without it
+  // the offer never renders and the card is unenrollable AND unresettable.
+  const Partial = jest.requireMock('@bsv/expo-wallet-toolbox').VaultEnrollmentPartialError
+  mockEnrollKey.mockRejectedValueOnce(new Partial('puk-change-uncertain', '12340001'))
+  const { screen } = await beginEnroll()
+  enterCredentials(screen)
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  await settle()
+
+  fireEvent.press(screen.getByText('vault_reset_offer'))
+  await settle()
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await act(async () => fireEvent.press(screen.getByText('vault_reset_confirm')))
+  await settle()
+
+  expect(mockResetPiv).toHaveBeenCalledWith(expect.objectContaining({ serial: '12340001' }))
+})
 
 test('Finish is disabled with one key and enabled with two; finalizeEnrollment gets both records', async () => {
   mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a')).mockResolvedValueOnce(record('12340002', 'b'))

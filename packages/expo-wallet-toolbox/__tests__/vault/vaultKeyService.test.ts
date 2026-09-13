@@ -396,10 +396,31 @@ describe('enrollKey', () => {
     expect(tagged).toBe(partial)
     expect(tagged).toBeInstanceOf(VaultEnrollmentPartialError)
     expect(tagged).toMatchObject({ code: 'enrollment-partial', stage: 'pin-changed', recoverySaved: true })
+    // The serial is added to the SAME object rather than a rebuilt one, which
+    // is the only way a partial can name its card without losing those fields.
+    expect(tagged.details).toMatchObject({ serial: 'MOCK-1' })
 
     const foreign = new Error('bridge exploded')
     jest.spyOn(mock, 'preflightDedicatedPiv').mockRejectedValueOnce(foreign)
     await expect(enrollKey(args())).rejects.toBe(foreign)
+  })
+
+  test('a quarantined token names itself, so the only remedy it has can be offered', async () => {
+    // Every later tap of a quarantined card short-circuits here, before the PIV
+    // application is touched, and a PIV reset is the only thing that clears a
+    // quarantine. The partial thrown carries no record, so without the tag the
+    // wizard has no serial to bind a reset to — the card is left permanently
+    // unenrollable AND unresettable in-app, under copy telling the user to
+    // reset it.
+    await vaultStore.preserveEnrollmentQuarantine('MOCK-1', 'pin-change-uncertain', vaultStore.captureScopeToken())
+    const blocked = await enrollKey(args()).catch(e => e)
+    expect(blocked).toBeInstanceOf(VaultEnrollmentPartialError)
+    expect(blocked).toMatchObject({
+      code: 'enrollment-partial',
+      stage: 'pin-change-uncertain',
+      recoverySaved: true,
+      details: { serial: 'MOCK-1' }
+    })
   })
 
   test('a serial already named on the error is kept, not overwritten by the tapped one', async () => {
@@ -458,7 +479,12 @@ describe('enrollKey', () => {
       expect.objectContaining({ serial: 'MOCK-1', stage: 'pin-change-uncertain' })
     ])
     rejectChange(new Error('power lost during PIN APDU'))
-    await expect(enrollment).rejects.toMatchObject({ stage: 'pin-change-uncertain', recoverySaved: true })
+    await expect(enrollment).rejects.toMatchObject({
+      stage: 'pin-change-uncertain',
+      recoverySaved: true,
+      // Named, or the wizard can offer no reset for the quarantine just written.
+      details: { serial: 'MOCK-1' }
+    })
   })
 
   test('writes a PUK-change crash marker before issuing the PUK APDU', async () => {
@@ -481,7 +507,12 @@ describe('enrollKey', () => {
       expect.objectContaining({ serial: 'MOCK-1', stage: 'puk-change-uncertain' })
     ])
     rejectChange(new Error('power lost during PUK APDU'))
-    await expect(enrollment).rejects.toMatchObject({ stage: 'puk-change-uncertain', recoverySaved: true })
+    await expect(enrollment).rejects.toMatchObject({
+      stage: 'puk-change-uncertain',
+      recoverySaved: true,
+      // Named, or the wizard can offer no reset for the quarantine just written.
+      details: { serial: 'MOCK-1' }
+    })
   })
 
   test('writes a generation crash marker before issuing the key-generation APDU', async () => {
@@ -503,7 +534,12 @@ describe('enrollKey', () => {
       expect.objectContaining({ serial: 'MOCK-1', stage: 'generation-uncertain' })
     ])
     rejectGeneration(new Error('power lost during key-generation APDU'))
-    await expect(enrollment).rejects.toMatchObject({ stage: 'generation-uncertain', recoverySaved: true })
+    await expect(enrollment).rejects.toMatchObject({
+      stage: 'generation-uncertain',
+      recoverySaved: true,
+      // Named, or the wizard can offer no reset for the quarantine just written.
+      details: { serial: 'MOCK-1' }
+    })
   })
 
   test('rejects malformed nickname and device serial before any token mutation', async () => {
