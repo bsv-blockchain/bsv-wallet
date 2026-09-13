@@ -262,14 +262,11 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
     withSession(promise) { session in
       self.withExpectedSerial(session, expectedSerial, promise) {
         self.authenticateManagementKey(session, promise) {
-          session.generateKey(
-            in: pivSlot,
-            type: .ECCP256,
-            pinPolicy: .once,
-            touchPolicy: .cached
-          ) { publicKey, error in
-            if let error { return promise.reject(withError: Self.mapError(error)) }
-            guard let publicKey, let sec1 = Self.secKeyToSec1(publicKey) else {
+          // NOT session.generateKey: YubiKit drops the PIN and touch policies on
+          // the floor. See generateVaultKeyPair.
+          self.generateVaultKeyPair(session, slot: Self.vaultSlot) { generated in
+            guard case .success(let sec1) = generated else {
+              if case .failure(let error) = generated { return promise.reject(withError: error) }
               return promise.reject(withError: Self.vaultError("wrong-key", "could not export public key"))
             }
             // ATTEST and the factory F9 read stay on this exact session. Do not
@@ -570,6 +567,87 @@ final class HybridYubiKeyPiv: HybridYubiKeyPivSpec {
       }
       next()
     }
+  }
+
+  /// GENERATE ASYMMETRIC KEYPAIR with the PIN and touch policies actually applied.
+  ///
+  /// YubiKit 4.4's `generateKeyInSlot:type:pinPolicy:touchPolicy:` validates both
+  /// policies and then never encodes them: it builds the 0xAC container with the
+  /// algorithm TLV alone (YKFPIVSession.m:263-267, while `putKeyInSlot` at
+  /// :388-391 does send tags 0xAA/0xAB). The card therefore applies its own
+  /// defaults for a retired slot — PIN-once and touch-NEVER.
+  ///
+  /// Measured on a YubiKey 5C NFC, firmware 5.8.0: a key generated through
+  /// YubiKit attests 1.3.6.1.4.1.41482.3.8 = `02 01`, while the SAME card
+  /// generated with `ykman --pin-policy once --touch-policy cached` attests
+  /// `02 03`. A vault key that signs without a touch is precisely what this app
+  /// must never create, and `verifyGeneratedVaultKey` correctly refused every
+  /// key YubiKit produced — so the APDU is built here instead.
+  private func generateVaultKeyPair(
+    _ session: YKFPIVSession,
+    slot rawSlot: UInt,
+    _ completion: @escaping (Result<Data, Error>) -> Void
+  ) {
+    // 0xAC { 0x80 alg, 0xAA pinPolicy, 0xAB touchPolicy } — each value one byte.
+    let body = Data([
+      0x80, 0x01, UInt8(YKFPIVKeyType.ECCP256.rawValue),
+      0xAA, 0x01, UInt8(YKFPIVPinPolicy.once.rawValue),
+      0xAB, 0x01, UInt8(YKFPIVTouchPolicy.cached.rawValue)
+    ])
+    var payload = Data([0xAC, UInt8(body.count)])
+    payload.append(body)
+    guard let interface = activeConnection?.smartCardInterface,
+          let apdu = YKFAPDU(cla: 0x00, ins: 0x47, p1: 0x00, p2: UInt8(rawSlot), data: payload, type: .extended)
+    else {
+      completion(.failure(Self.vaultError("driver-unavailable", "no smart card interface for key generation")))
+      return
+    }
+    // Generation is slow on-card; YubiKit uses 120s for the same command.
+    interface.executeCommand(apdu, timeout: 120.0) { data, error in
+      if let error { return completion(.failure(Self.mapError(error))) }
+      guard let data, let point = Self.eccPointFromGenerateResponse(data) else {
+        return completion(.failure(Self.vaultError("wrong-key", "key generation returned no usable public point")))
+      }
+      completion(.success(point))
+    }
+  }
+
+  /// Pull the uncompressed EC point (TLV 0x86) out of a GENERATE response,
+  /// which wraps it in 0x7F49. Walked rather than scanned: 0x86 can occur
+  /// inside the key bytes themselves.
+  private static func eccPointFromGenerateResponse(_ data: Data) -> Data? {
+    func readLength(_ bytes: Data, _ i: inout Int) -> Int? {
+      guard i < bytes.count else { return nil }
+      let first = bytes[bytes.startIndex + i]
+      i += 1
+      if first < 0x80 { return Int(first) }
+      let count = Int(first & 0x7F)
+      guard count > 0, count <= 4, i + count <= bytes.count else { return nil }
+      var value = 0
+      for _ in 0..<count {
+        value = (value << 8) | Int(bytes[bytes.startIndex + i])
+        i += 1
+      }
+      return value
+    }
+    var i = 0
+    // Outer 0x7F49 carries a two-byte tag.
+    guard data.count > 2, data[data.startIndex] == 0x7F, data[data.startIndex + 1] == 0x49 else { return nil }
+    i = 2
+    guard let outerLength = readLength(data, &i), i + outerLength <= data.count else { return nil }
+    let inner = data.subdata(in: (data.startIndex + i)..<(data.startIndex + i + outerLength))
+    var j = 0
+    while j < inner.count {
+      let tag = inner[inner.startIndex + j]
+      j += 1
+      guard let length = readLength(inner, &j), j + length <= inner.count else { return nil }
+      if tag == 0x86 {
+        let value = inner.subdata(in: (inner.startIndex + j)..<(inner.startIndex + j + length))
+        return value.count == 65 && value.first == 0x04 ? value : nil
+      }
+      j += length
+    }
+    return nil
   }
 
   /// Three-state answer to "does this PIV slot hold a key", asked of the card
