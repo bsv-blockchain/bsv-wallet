@@ -456,56 +456,59 @@ const validateSpends = (fx: VaultFixture[]): void => {
 const withdrawAll = (opts?: Parameters<typeof withdrawFromVault>[5]) =>
   withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw all', 'A-1', opts)
 
+/** A vault-deposit action as listActions reports it, in a chosen pending
+ * state. `unsigned` alone carries no txid; every other pending state has
+ * one. */
+const heldDepositAction = (
+  status: 'unsigned' | 'nosend' | 'unproven' | 'sending' | 'unprocessed' | 'nonfinal' = 'nosend',
+  chain: VaultSaltChain = 'test'
+) => {
+  const { salt, saltKeyId } = fixtureSalt(900)
+  const lockingScript = buildLock({
+    commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+    saltHex64: salt
+  }).toHex()
+  return {
+    ...(status === 'unsigned' ? {} : { txid: 'd5'.repeat(32) }),
+    reference: 'held-deposit-ref',
+    status,
+    labels: ['vault', 'vault-deposit'],
+    inputs: [{
+      sourceOutpoint: `${'d6'.repeat(32)}.0`,
+      sourceSatoshis: 260_000,
+      sourceLockingScript: new P2PKH().lock(Utils.toArray('d7'.repeat(20), 'hex')).toHex()
+    }],
+    outputs: [{
+      satoshis: 250_000,
+      spendable: true,
+      customInstructions: encodeVaultInstructions({
+        v: 6,
+        type: 'R1C',
+        salt,
+        saltKeyId,
+        chain,
+        vaultId: VAULT_ID,
+        revision: 2,
+        createdAt: 1,
+        keys: [KEY_A, KEY_B]
+      }),
+      lockingScript,
+      outputIndex: 0,
+      basket: VAULT_BASKET
+    }, {
+      satoshis: 9_500,
+      spendable: true,
+      lockingScript: new P2PKH().lock(Utils.toArray('d8'.repeat(20), 'hex')).toHex(),
+      outputIndex: 1,
+      basket: 'default'
+    }]
+  }
+}
+
 // ── deposit ───────────────────────────────────────────────────────────────
 
 describe('depositToVault', () => {
   const depositArgs = () => wallet.createAction.mock.calls[0][0] as any
-
-  const heldDepositAction = (
-    status: 'unsigned' | 'nosend' = 'nosend',
-    chain: VaultSaltChain = 'test'
-  ) => {
-    const { salt, saltKeyId } = fixtureSalt(900)
-    const lockingScript = buildLock({
-      commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
-      saltHex64: salt
-    }).toHex()
-    return {
-      ...(status === 'nosend' ? { txid: 'd5'.repeat(32) } : {}),
-      reference: 'held-deposit-ref',
-      status,
-      labels: ['vault', 'vault-deposit'],
-      inputs: [{
-        sourceOutpoint: `${'d6'.repeat(32)}.0`,
-        sourceSatoshis: 260_000,
-        sourceLockingScript: new P2PKH().lock(Utils.toArray('d7'.repeat(20), 'hex')).toHex()
-      }],
-      outputs: [{
-        satoshis: 250_000,
-        spendable: true,
-        customInstructions: encodeVaultInstructions({
-          v: 6,
-          type: 'R1C',
-          salt,
-          saltKeyId,
-          chain,
-          vaultId: VAULT_ID,
-          revision: 2,
-          createdAt: 1,
-          keys: [KEY_A, KEY_B]
-        }),
-        lockingScript,
-        outputIndex: 0,
-        basket: VAULT_BASKET
-      }, {
-        satoshis: 9_500,
-        spendable: true,
-        lockingScript: new P2PKH().lock(Utils.toArray('d8'.repeat(20), 'hex')).toHex(),
-        outputIndex: 1,
-        basket: 'default'
-      }]
-    }
-  }
 
   it('builds and inspects one version-1 noSend transaction before releasing it, without hardware or a backup receipt', async () => {
     await seedMeta()
@@ -562,6 +565,40 @@ describe('depositToVault', () => {
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
+
+  // A deposit that reached the network is NOT a held reservation. Its vault
+  // output is a real unconfirmed UTXO the ordinary listOutputs path
+  // authenticates, so it must not block the next transfer — 'unproven' reads
+  // as "Accepted" in the activity list and can persist for many minutes.
+  it.each(['sending', 'unproven'] as const)(
+    'lets a broadcast deposit awaiting its proof (%s) through instead of demanding a re-lock',
+    async status => {
+      await seedMeta()
+      wallet.listActions.mockImplementation(async (args: any) => ({
+        actions: args.labels?.includes(specOpFailedActions) ? [] : [heldDepositAction(status)]
+      }))
+
+      await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+    }
+  )
+
+  // The states the doc comment is actually about: signed, never handed to the
+  // network, so a crash may or may not have let the transaction escape.
+  it.each(['nosend', 'unprocessed', 'nonfinal'] as const)(
+    'still refuses to act while a signed but unbroadcast deposit (%s) is outstanding',
+    async status => {
+      await seedMeta()
+      wallet.listActions.mockImplementation(async (args: any) => ({
+        actions: args.labels?.includes(specOpFailedActions) ? [] : [heldDepositAction(status)]
+      }))
+
+      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'relock-required' })
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+      expect(wallet.createAction).not.toHaveBeenCalled()
+    }
+  )
+
 
   it('rejects a wallet action response larger than the requested page before retaining its rows', async () => {
     await seedMeta()
@@ -1418,6 +1455,50 @@ describe('withdrawFromVault', () => {
     validateSpends(fx)
   }, 60_000)
 
+  // The toolbox splits default-basket change across several outputs to grow
+  // its UTXO pool (generateChange's targetNetCount, capped at 8 per
+  // transaction). createAction exempts only the 'vault-deposit' label, so a
+  // real withdrawal arrives with up to 8 change outputs and the plan check
+  // must bound them in aggregate rather than assume exactly one.
+  //
+  // The figures are a mainnet withdrawal that this check refused: 500,000
+  // in, a 400,000 re-vault remainder, and change split eight ways for 95,185.
+  it('accepts the wallet\'s eight-way change split on a withdrawal', async () => {
+    const split = [2_461, 40, 978, 4_348, 250, 5_579, 57_230, 24_299]
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
+    tamperNextSignable(tx => {
+      tx.outputs.pop()
+      split.forEach((satoshis, i) => {
+        tx.addOutput({
+          satoshis,
+          lockingScript: new P2PKH().lock(Utils.toArray(`${(0xa0 + i).toString(16)}`.repeat(20), 'hex'))
+        })
+      })
+    })
+
+    const r = await withdrawFromVault(wallet, ADMIN, 100_000, 'Withdraw', 'A-1')
+    expect(r.txid).toBe(lastSignable!.id('hex'))
+    // One re-vault remainder plus the whole split, and the 4,815-satoshi fee
+    // the real attempt carried stays inside the ceiling.
+    expect(lastSignable!.outputs).toHaveLength(1 + split.length)
+    expect(lastSignable!.outputs[0].satoshis).toBe(400_000)
+    expect(split.reduce((a, b) => a + b, 0)).toBe(95_185)
+  }, 60_000)
+
+  it('still rejects implicit outputs that together overspend the approved inputs', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])])
+    tamperNextSignable(tx => {
+      // plan.outputs[0] is the 400,000 re-vault remainder; the change that
+      // follows it may not be topped up past what the inputs fund.
+      tx.outputs[1].satoshis = 600_001
+    })
+    await expect(withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
+      code: 'no-transaction'
+    })
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  }, 60_000)
+
+
   it('rejects a toolbox-injected funding input before the YubiKey signs', async () => {
     const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B])]
     await seedVault(fx, [KEY_A, KEY_B], { fundingFirst: true })
@@ -1716,10 +1797,32 @@ describe('withdrawFromVault', () => {
       await expectRejectedBeforeTap()
     })
 
-    it('rejects an injected external output', async () => {
+    // A P2PKH output indistinguishable from the wallet's own change is NOT
+    // detectable here and never was: BRC-100 gives no derivation proof for any
+    // implicit change script, so the single output this used to insist on was
+    // exactly as unprovable. What still holds is the shape and the aggregate
+    // value — more outputs than the wallet's change split can produce, a
+    // non-P2PKH one, or a total past what the inputs fund.
+    it('rejects more implicit outputs than the wallet core can produce', async () => {
       await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
       tamperNextSignable(tx => {
-        tx.addOutput({ satoshis: 1, lockingScript: new P2PKH().lock(Utils.toArray('77'.repeat(20), 'hex')) })
+        const change = tx.outputs.pop()!
+        for (let i = 0; i < 9; i++) {
+          tx.addOutput({
+            satoshis: i === 0 ? change.satoshis! - 8 : 1,
+            lockingScript: new P2PKH().lock(Utils.toArray(`${(0xb0 + i).toString(16)}`.repeat(20), 'hex'))
+          })
+        }
+      })
+      await expectRejectedBeforeTap()
+    })
+
+    it('rejects a non-P2PKH implicit output', async () => {
+      await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
+      tamperNextSignable(tx => {
+        const change = tx.outputs.pop()!
+        tx.addOutput({ satoshis: change.satoshis! - 1, lockingScript: new P2PKH().lock(Utils.toArray('77'.repeat(20), 'hex')) })
+        tx.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex('006a') })
       })
       await expectRejectedBeforeTap()
     })

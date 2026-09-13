@@ -528,6 +528,15 @@ function requireOutputMetaConsistency(outputs: readonly VerifiedVaultOutput[], m
 
 const PENDING_ACTION_STATUSES = new Set(['unsigned', 'nosend', 'nonfinal', 'unprocessed', 'sending', 'unproven'])
 
+/**
+ * The pending statuses in which the transaction has already been handed to the
+ * network: it has a txid and its outputs are ordinary unconfirmed UTXOs. These
+ * are LIVE transactions, not reservations — `unprocessed` is deliberately
+ * absent, because the toolbox advances a request to `sending` only once it has
+ * actually posted it.
+ */
+const BROADCAST_ACTION_STATUSES = new Set(['sending', 'unproven'])
+
 /** Authenticate pagination while consuming one action at a time. Detailed
  * action rows may contain several 45 KB source/output scripts, so callers must
  * retain only the small facts or references they need after this callback. */
@@ -710,7 +719,8 @@ function isValidHeldVaultDeposit(
  * Unsigned/no-txid actions are provably unbroadcast and are aborted. Signed
  * noSend actions are never automatically sent or aborted: a crash may have
  * happened during sendWith, so either action could duplicate or conflict with
- * a transaction that already escaped.
+ * a transaction that already escaped. A deposit already posted to the network
+ * (BROADCAST_ACTION_STATUSES) is not a reservation at all and is ignored.
  */
 async function reconcileHeldVaultDeposits(
   w: VaultWallet,
@@ -733,6 +743,14 @@ async function reconcileHeldVaultDeposits(
   }, action => {
     const labels = new Set(action.labels ?? [])
     if (!labels.has('vault-deposit') || action.status === 'completed' || action.status === 'failed') return
+    // A deposit that reached the network is a live unconfirmed deposit, not a
+    // held reservation: there is nothing to abort and nothing to reconcile,
+    // and its vault output is authenticated on the ordinary listOutputs path
+    // like any other. `unproven` is what the activity list shows as
+    // "Accepted" and can stand for many minutes, so treating it as held would
+    // block every vault transfer — including the re-lock the refusal asks
+    // for — until the merkle proof arrives.
+    if (BROADCAST_ACTION_STATUSES.has(action.status)) return
     if (!PENDING_ACTION_STATUSES.has(action.status) || !isValidHeldVaultDeposit(action, meta, expectedChain, saltInventory)) {
       throw new VaultError('relock-required', 'A Vault deposit has an unknown or potentially broadcast state')
     }
@@ -1967,12 +1985,31 @@ const isStandardP2PKH = (lockingScript: LockingScript): boolean => {
 }
 
 /**
+ * How many implicit default-basket change outputs a vault SPEND may carry.
+ *
+ * The wallet core grows its UTXO pool by splitting change across several
+ * outputs (`generateChange`'s `targetNetCount`, itself capped per transaction
+ * at `maxChangeOutputsPerTransaction`, currently 8). createAction exempts the
+ * `vault-deposit` label from that growth, so a deposit still arrives with a
+ * single change output and validateDepositPlan stays strict; `vault-withdraw`
+ * and `vault-relock` are NOT exempted and arrive with up to eight. Mirror the
+ * toolbox's cap rather than assume one, and raise this if the toolbox ever
+ * raises its own.
+ */
+const VAULT_MAX_IMPLICIT_CHANGE = 8
+
+/**
  * Validate the wallet core's proposed transaction before the display-less
  * YubiKey signs it. Vault sources and caller-approved explicit outputs are
  * exact. The one irreducible trust boundary is ownership of the toolbox's
- * implicit default-basket change script: BRC-100 exposes no derivation proof
- * for it. We therefore permit at most one standard P2PKH change output, bound
- * its value by the selected inputs minus explicit outputs, and cap the fee.
+ * implicit default-basket change scripts: BRC-100 exposes no derivation proof
+ * for them. We therefore permit only standard P2PKH change outputs, bound
+ * their TOTAL by the selected inputs minus explicit outputs, and cap the fee.
+ *
+ * The count is not part of that boundary — one unprovable change script is
+ * the same trust as eight — so it is capped only to keep the plan, and the
+ * size the fee ceiling is derived from, bounded. See
+ * VAULT_MAX_IMPLICIT_CHANGE for why a vault spend arrives with more than one.
  */
 function validateSignableVaultPlan(tx: Transaction, sel: VaultSelection, plan: VaultSpendPlan): void {
   const selectedByOutpoint = new Map<string, SelectedVaultOutput>()
@@ -2033,10 +2070,11 @@ function validateSignableVaultPlan(tx: Transaction, sel: VaultSelection, plan: V
   }
 
   const implicit = tx.outputs.slice(plan.outputs.length)
-  if (implicit.length > 1) throw new VaultError('no-transaction', 'Signable transaction injected an unexpected output')
+  if (implicit.length > VAULT_MAX_IMPLICIT_CHANGE) {
+    throw new VaultError('no-transaction', 'Signable transaction injected an unexpected output')
+  }
   let implicitValue = 0
-  if (implicit.length === 1) {
-    const change = implicit[0]
+  for (const change of implicit) {
     const changeSatoshis = change.satoshis
     if (
       typeof changeSatoshis !== 'number' ||
@@ -2046,7 +2084,10 @@ function validateSignableVaultPlan(tx: Transaction, sel: VaultSelection, plan: V
     ) {
       throw new VaultError('no-transaction', 'Signable transaction has invalid implicit wallet change')
     }
-    implicitValue = changeSatoshis
+    implicitValue += changeSatoshis
+    if (!Number.isSafeInteger(implicitValue)) {
+      throw new VaultError('no-transaction', 'Implicit change value overflow')
+    }
   }
 
   const inputValue = sumVaultSatoshis(sel.selected, 'Signable vault inputs')
