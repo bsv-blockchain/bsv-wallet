@@ -1,7 +1,7 @@
 /**
  * Vault enrollment wizard — spec §3.3.
  *
- *   enroll mode:  intro → key (× k; sub-states pin · puk · tap · name · error) → more → done
+ *   enroll mode:  intro → key (× k; sub-states pin · puk · tap · save · error) → more → done
  *   add-key mode: key → done
  *
  * Public, non-authoritative recovery handles are persisted in wallet-scoped
@@ -13,6 +13,11 @@
  * in input state only while its key step is open: it is kept across an
  * error → Try again (a re-tap needs it) and cleared the moment the step is
  * left, the card is swapped, or the PIN turns out to be wrong.
+ *
+ * A key is named on the user's behalf — Key 1, Key 2, … — and never asked
+ * about here: the name is cosmetic, it is renamed from the vault screen at any
+ * time, and a text field between a finished card and a saved key is one more
+ * thing to get wrong mid-ceremony.
  *
  * The host screen hides its own back chevron while this is mounted: leaving
  * goes through `leave()` — the leave-confirm alert when at least one key is
@@ -80,12 +85,13 @@ function loadIonicons(): IoniconsComponent {
 }
 
 type Step = 'intro' | 'key' | 'more' | 'done'
-type KeySub = 'pin' | 'puk' | 'tap' | 'name' | 'reset' | 'error'
+type KeySub = 'pin' | 'puk' | 'tap' | 'save' | 'reset' | 'error'
 
 /** Pages a single key's setup walks through, for the progress indicator. The
  * count is per key, not per wizard: the number of keys is chosen during the
- * run (2 to 5), so a whole-wizard bar would move at a rate nobody can predict. */
-const KEY_STEPS: readonly KeySub[] = ['pin', 'puk', 'tap', 'name']
+ * run (2 to 5), so a whole-wizard bar would move at a rate nobody can predict.
+ * `save` is not one of them: it is a write, not a page the user works through. */
+const KEY_STEPS: readonly KeySub[] = ['pin', 'puk', 'tap']
 
 /** The PIV factory codes. The intro's whole-PIV acknowledgement asserts a
  * factory-reset (or Vault-dedicated) PIV application, so these are supplied to
@@ -282,9 +288,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const [pukAck, setPukAck] = useState(false)
   const [pinError, setPinError] = useState<string | null>(null)
   const [phase, setPhase] = useState<EnrollPhase | null>(null)
-  /** The record the card just produced, awaiting its nickname. */
+  /** The record the card produced, while its write to the vault is in flight
+   * or has failed and can be retried. */
   const [fresh, setFresh] = useState<VaultKeyRecord | null>(null)
-  const [name, setName] = useState('')
   const [keyError, setKeyError] = useState<KeyStepError | null>(null)
   /** "This erases everything on this key" — the whole-token consequence. */
   const [resetAck, setResetAck] = useState(false)
@@ -305,42 +311,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const leaving = useRef(false)
   /** The PIN field, focused on a delay below instead of via `autoFocus`. */
   const pinInputRef = useRef<TextInput>(null)
-
-  useEffect(() => {
-    let alive = true
-    Promise.all([
-      vaultStore.getMeta(scopeToken),
-      vaultStore.getEnrollmentDrafts(scopeToken),
-      vaultStore.getEnrollmentQuarantines(scopeToken)
-    ])
-      .then(([m, drafts, quarantines]) => {
-        if (!alive) return
-        const enrolledSerials = new Set(m?.keys.map(key => key.serial) ?? [])
-        const unused = drafts.filter(entry => !enrolledSerials.has(entry.record.serial))
-        const ready = unused.filter(entry => entry.assurance === 'ready')
-        const challenge = unused.filter(entry => entry.assurance === 'challenge-required')
-        const blocked = unused.filter(entry => entry.assurance === 'management-uncertain')
-        if (m) setMetaKeys(m.keys)
-        setRecoverableDrafts(challenge)
-        setBlockedDrafts([...blocked, ...quarantines])
-        if (mode === 'enroll') {
-          setPending(current => {
-            const serials = new Set(current.map(key => key.serial))
-            return [...current, ...ready.map(entry => entry.record).filter(record => !serials.has(record.serial))]
-          })
-        } else if (ready[0]) {
-          setFresh(ready[0].record)
-          setName(ready[0].record.nickname)
-          setSub('name')
-        }
-      })
-      .catch(e => {
-        if (alive && e instanceof VaultError && e.code === 'scope-changed') onCancel()
-      })
-    return () => {
-      alive = false
-    }
-  }, [mode, onCancel, scopeToken])
 
   /** Stored keys that count toward the ordinal and the 5-key cap: all of them
    * when adding to a vault, none while enrolling one (Finish overwrites). */
@@ -374,9 +344,111 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     setPukAck(false)
     setPinError(null)
     setFresh(null)
-    setName('')
     clearResetConsent()
   }
+
+  // ── saving a finished key ───────────────────────────────────────────
+  /**
+   * Persist the key a card just produced, under the default name for its
+   * ordinal when the record carries none.
+   *
+   * The user is never asked for a name: a key is Key 1, Key 2, … and is
+   * renamed from the vault screen whenever they care to. In enroll mode this
+   * is a push into `pending` (nothing is written until Finish); in add-key
+   * mode it is the vault write, which can fail — hence the `save` page, whose
+   * only job is that failure and its retry.
+   */
+  const saveKey = useCallback(
+    async (produced: VaultKeyRecord) => {
+      const record: VaultKeyRecord = {
+        ...produced,
+        nickname: produced.nickname.trim() || t('vault_name_default', { k })
+      }
+      if (mode !== 'add-key') {
+        setPending(prev => [...prev, record])
+        clearKeyInputs()
+        setStep('more')
+        return
+      }
+      setFresh(record)
+      setSub('save')
+      setBusy(true)
+      setStepError(null)
+      try {
+        await addVaultKey(record, scopeToken)
+        clearKeyInputs()
+        haptics.success()
+        showToast(t('vault_key_added_toast'), { type: 'success' })
+        setAddedNickname(record.nickname)
+        setStep('done')
+      } catch (e) {
+        haptics.error()
+        const err = e instanceof VaultError ? e : undefined
+        if (err?.code === 'scope-changed') {
+          clearKeyInputs()
+          showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
+          onCancel()
+          return
+        }
+        // `fresh` is also a scoped ready draft. Keep it and stay on the save
+        // page so a transient SecureStore write failure can be retried without
+        // touching or regenerating the now-occupied token.
+        setStepError(vaultErrorCopy(err?.code))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [k, mode, onCancel, scopeToken]
+  )
+
+  /**
+   * Always the current `saveKey`, for the restore below to call.
+   *
+   * Depending on `saveKey` directly would re-run that effect whenever the
+   * ordinal it names keys after moves — and that ordinal comes from the very
+   * state the effect sets, so a restored draft could be written twice.
+   */
+  const saveKeyRef = useRef(saveKey)
+  useEffect(() => {
+    saveKeyRef.current = saveKey
+  }, [saveKey])
+
+  useEffect(() => {
+    let alive = true
+    Promise.all([
+      vaultStore.getMeta(scopeToken),
+      vaultStore.getEnrollmentDrafts(scopeToken),
+      vaultStore.getEnrollmentQuarantines(scopeToken)
+    ])
+      .then(([m, drafts, quarantines]) => {
+        if (!alive) return
+        const enrolledSerials = new Set(m?.keys.map(key => key.serial) ?? [])
+        const unused = drafts.filter(entry => !enrolledSerials.has(entry.record.serial))
+        const ready = unused.filter(entry => entry.assurance === 'ready')
+        const challenge = unused.filter(entry => entry.assurance === 'challenge-required')
+        const blocked = unused.filter(entry => entry.assurance === 'management-uncertain')
+        if (m) setMetaKeys(m.keys)
+        setRecoverableDrafts(challenge)
+        setBlockedDrafts([...blocked, ...quarantines])
+        if (mode === 'enroll') {
+          setPending(current => {
+            const serials = new Set(current.map(key => key.serial))
+            return [...current, ...ready.map(entry => entry.record).filter(record => !serials.has(record.serial))]
+          })
+        } else if (ready[0]) {
+          // A ready draft's card already holds its key, and its name was
+          // settled when it was drafted: there is nothing left to ask, so
+          // restoring it means writing it.
+          void saveKeyRef.current(ready[0].record)
+        }
+      })
+      .catch(e => {
+        if (alive && e instanceof VaultError && e.code === 'scope-changed') onCancel()
+      })
+    return () => {
+      alive = false
+    }
+  }, [mode, onCancel, scopeToken])
 
   // ── leaving ─────────────────────────────────────────────────────────
   const leave = useCallback(async () => {
@@ -484,6 +556,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           scopeToken,
           acknowledgeDedicatedPivApplication: true,
           pendingSerials: known,
+          nickname: t('vault_name_default', { k }),
           // TEMP DIAG: the phase stream says how far the card session got.
           onPhase: p => {
             if (__DEV__) console.log(`[vault][diag] phase=${p}`)
@@ -504,9 +577,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           replaceOccupiedVaultSlot
         })
         haptics.success()
-        setFresh(record)
-        setName('')
-        setSub('name')
+        await saveKey(record)
       } catch (e) {
         haptics.error()
         // TEMP DIAG: the real error behind whatever copy the screen shows.
@@ -610,7 +681,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         tapInFlight.current = false
       }
     },
-    [metaKeys, pending, newPin, newPuk, onCancel, pivAck, scopeToken, reloadDraftLists]
+    [k, metaKeys, pending, newPin, newPuk, onCancel, pivAck, saveKey, scopeToken, reloadDraftLists]
   )
 
   /** Resume only the non-mutating possession challenge for a protected draft.
@@ -636,10 +707,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         })
         vaultStore.assertScopeToken(scopeToken)
         setRecoverableDrafts(current => current.filter(draft => draft.record.serial !== record.serial))
-        setFresh(record)
-        setName(record.nickname)
-        setSub('name')
         haptics.success()
+        await saveKey(record)
       } catch (e) {
         haptics.error()
         try {
@@ -684,45 +753,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         tapInFlight.current = false
       }
     },
-    [onCancel, newPin, pinOk, pivAck, scopeToken]
+    [onCancel, newPin, pinOk, pivAck, saveKey, scopeToken]
   )
-
-  // ── naming → more / addVaultKey ─────────────────────────────────────
-  const saveName = useCallback(async () => {
-    if (!fresh || busy) return
-    const record: VaultKeyRecord = { ...fresh, nickname: name.trim() || t('vault_name_default', { k }) }
-    if (mode === 'add-key') {
-      setBusy(true)
-      setStepError(null)
-      try {
-        await addVaultKey(record, scopeToken)
-        clearKeyInputs()
-        haptics.success()
-        showToast(t('vault_key_added_toast'), { type: 'success' })
-        setAddedNickname(record.nickname)
-        setStep('done')
-      } catch (e) {
-        haptics.error()
-        const err = e instanceof VaultError ? e : undefined
-        if (err?.code === 'scope-changed') {
-          clearKeyInputs()
-          showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
-          onCancel()
-          return
-        }
-        // `fresh` is also a scoped ready draft. Keep the name screen intact so
-        // a transient SecureStore write failure can be retried without
-        // touching or regenerating the now-occupied token.
-        setStepError(vaultErrorCopy(err?.code))
-      } finally {
-        setBusy(false)
-      }
-      return
-    }
-    setPending(prev => [...prev, record])
-    clearKeyInputs()
-    setStep('more')
-  }, [fresh, busy, name, k, mode, onCancel, scopeToken])
 
   // ── finish (enroll mode) ────────────────────────────────────────────
   const finish = useCallback(async () => {
@@ -1157,30 +1189,30 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       )
     }
 
-    if (sub === 'name') {
+    if (sub === 'save') {
+      // add-key mode only — enroll mode's save is a synchronous push into
+      // `pending`. Nothing is asked here, so there is nothing to show but the
+      // write itself, and the retry if it fails. The card is done either way:
+      // the retry saves the record again, it never taps anything.
       return (
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          <Ionicons name="checkmark-circle" size={48} color={colors.success} style={styles.hero} />
-          <StepProgress sub={sub} />
-          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_name_title')}</Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{fresh ? `…${fresh.serial.slice(-4)}` : ''}</Text>
-          <TextInput
-            accessibilityLabel={t('vault_name_title')}
-            style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
-            value={name}
-            onChangeText={setName}
-            placeholder={t('vault_name_default', { k })}
-            placeholderTextColor={colors.textTertiary}
-            maxLength={32}
-            autoCapitalize="words"
-            returnKeyType="done"
-            onSubmitEditing={() => void saveName()}
-            autoFocus
-          />
-          <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_name_hint')}</Text>
-          <ActionButton label={t('vault_continue')} busy={busy} onPress={() => void saveName()} />
-          {leaveLink}
-        </ScrollView>
+        <View style={styles.body}>
+          {stepError ? (
+            <>
+              <Ionicons name="alert-circle-outline" size={48} color={colors.error} style={styles.hero} />
+              <Text style={[styles.h1, { color: colors.textPrimary }]}>{stepError}</Text>
+              <ActionButton
+                label={t('vault_retry')}
+                busy={busy}
+                onPress={() => {
+                  if (fresh) void saveKey(fresh)
+                }}
+              />
+              {leaveLink}
+            </>
+          ) : (
+            <ActivityIndicator color={colors.textPrimary} size="large" style={styles.hero} />
+          )}
+        </View>
       )
     }
 
@@ -1395,8 +1427,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
 }
 
 /**
- * Where this key's setup has got to. Per key, four steps: choose a PIN, note
- * the recovery code, tap, name it.
+ * Where this key's setup has got to. Per key, three steps: choose a PIN, note
+ * the recovery code, tap.
  */
 const StepProgress: React.FC<{ sub: KeySub }> = ({ sub }) => {
   const { colors } = useTheme()
@@ -1504,13 +1536,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg
   },
   ackText: { ...typography.subhead, flex: 1 },
-  input: {
-    width: '100%',
-    borderRadius: radii.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    ...typography.body
-  },
   pin: {
     width: '70%',
     alignSelf: 'center',

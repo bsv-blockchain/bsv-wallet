@@ -162,13 +162,11 @@ function enterCredentials(screen: ReturnType<typeof render>, pin = '654321') {
   fireEvent.press(screen.getByText('vault_puk_ack'))
 }
 
-async function enrolOneKey(screen: ReturnType<typeof render>, name: string) {
+/** From the pin sub-state: PIN, recovery code, tap. The key saves itself. */
+async function enrolOneKey(screen: ReturnType<typeof render>) {
   const pivAck = screen.queryByText('vault_intro_piv_ack')
   if (pivAck) fireEvent.press(pivAck)
   enterCredentials(screen)
-  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
-  await settle()
-  fireEvent.changeText(screen.getByLabelText('vault_name_title'), name)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
 }
@@ -187,9 +185,9 @@ test('Begin is inert until both the recovery and whole-PIV acknowledgements are 
   expect(screen.getByText('vault_key_step_title:{"k":1}')).toBeTruthy()
 })
 
-test('the PIN page shows step 1 of 4 and no PUK fields', async () => {
+test('the PIN page shows step 1 of 3 and no PUK fields', async () => {
   const { screen } = await beginEnroll()
-  expect(screen.getByText('vault_setup_step:{"n":1,"total":4}')).toBeTruthy()
+  expect(screen.getByText('vault_setup_step:{"n":1,"total":3}')).toBeTruthy()
   expect(screen.queryByLabelText('vault_enter_puk')).toBeNull()
   expect(screen.queryByLabelText('vault_set_new_puk')).toBeNull()
 })
@@ -245,7 +243,7 @@ test('restores ready scoped drafts into pending without touching the YubiKeys ag
   expect(mockEnrollKey).not.toHaveBeenCalled()
 })
 
-test('resumes a protected draft with a live PIN challenge before naming it', async () => {
+test('resumes a protected draft with a live PIN challenge and saves it unasked', async () => {
   const draft = { record: record('DRAFT001', 'a'), assurance: 'challenge-required' as const }
   mockDrafts = [draft]
   mockResumeEnrollmentDraft.mockResolvedValueOnce(draft.record)
@@ -257,7 +255,8 @@ test('resumes a protected draft with a live PIN challenge before naming it', asy
   await settle()
   expect(mockResumeEnrollmentDraft).toHaveBeenCalledWith(expect.objectContaining({ entry: draft }))
   await expect(mockResumeEnrollmentDraft.mock.calls[0][0].getPin()).resolves.toBe('654321')
-  expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
+  expect(screen.getByText('vault_more_title')).toBeTruthy()
+  expect(screen.getByText('vault_name_default:{"k":1} · …T001')).toBeTruthy()
   expect(mockEnrollKey).not.toHaveBeenCalled()
 })
 
@@ -327,10 +326,12 @@ test('a tap on a quarantined card reaches a reset bound to that exact serial', a
 })
 
 test('Finish is disabled with one key and enabled with two; finalizeEnrollment gets both records', async () => {
-  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a')).mockResolvedValueOnce(record('12340002', 'b'))
+  mockEnrollKey
+    .mockResolvedValueOnce({ ...record('12340001', 'a'), nickname: 'Desk' })
+    .mockResolvedValueOnce({ ...record('12340002', 'b'), nickname: 'Safe' })
   const { screen, onDone } = await beginEnroll()
 
-  await enrolOneKey(screen, 'Desk')
+  await enrolOneKey(screen)
   expect(mockEnrollKey).toHaveBeenLastCalledWith(expect.objectContaining({ pendingSerials: [] }))
   expect(screen.getByText('vault_more_title')).toBeTruthy()
   expect(screen.getByText('vault_more_need_two')).toBeTruthy()
@@ -339,7 +340,7 @@ test('Finish is disabled with one key and enabled with two; finalizeEnrollment g
 
   await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
   expect(screen.getByText('vault_key_step_title:{"k":2}')).toBeTruthy()
-  await enrolOneKey(screen, 'Safe')
+  await enrolOneKey(screen)
   expect(mockEnrollKey).toHaveBeenLastCalledWith(expect.objectContaining({ pendingSerials: ['12340001'] }))
   expect(screen.queryByText('vault_more_need_two')).toBeNull()
   expect(screen.getByText('Desk · …0001')).toBeTruthy()
@@ -358,17 +359,24 @@ test('Finish is disabled with one key and enabled with two; finalizeEnrollment g
   expect(onDone).toHaveBeenCalledTimes(1)
 })
 
-test('an empty name falls back to Key {{k}}', async () => {
+test('a key is named Key {{k}} with no question asked', async () => {
   mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
   const { screen } = await beginEnroll()
-  await enrolOneKey(screen, '')
+  await enrolOneKey(screen)
+  // The name goes INTO the enrollment, so a draft written by a partial carries
+  // the same one the list shows, and the wizard names the record it gets back
+  // whether or not the service filled it in.
+  expect(mockEnrollKey).toHaveBeenCalledWith(expect.objectContaining({ nickname: 'vault_name_default:{"k":1}' }))
+  expect(screen.getByText('vault_more_title')).toBeTruthy()
   expect(screen.getByText('vault_name_default:{"k":1} · …0001')).toBeTruthy()
 })
 
 test('a duplicate pending key is never regenerated or replaced', async () => {
-  mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a')).mockRejectedValueOnce(dupError('12340001'))
+  mockEnrollKey
+    .mockResolvedValueOnce({ ...record('12340001', 'a'), nickname: 'Desk' })
+    .mockRejectedValueOnce(dupError('12340001'))
   const { screen } = await beginEnroll()
-  await enrolOneKey(screen, 'Desk')
+  await enrolOneKey(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
 
   enterCredentials(screen)
@@ -427,9 +435,9 @@ test('enroll mode refuses a card the stored meta already holds, without counting
 test('hardware back on the enroll done step completes via onDone, with no leave-confirm', async () => {
   mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a')).mockResolvedValueOnce(record('12340002', 'b'))
   const { screen, onDone, onCancel } = await beginEnroll()
-  await enrolOneKey(screen, 'Desk')
+  await enrolOneKey(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
-  await enrolOneKey(screen, 'Safe')
+  await enrolOneKey(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_more_finish')))
   await settle()
   expect(screen.getByText('vault_done_cta')).toBeTruthy()
@@ -454,7 +462,7 @@ test('hardware back on the add-key done step hands off to the re-lock prompt via
   const onCancel = jest.fn()
   const screen = render(<EnrollWizard mode="add-key" onDone={onDone} onCancel={onCancel} />)
   await settle()
-  await enrolOneKey(screen, 'Car')
+  await enrolOneKey(screen)
   expect(screen.getByText('vault_relock_now')).toBeTruthy()
 
   expect(await pressBack()).toBe(true)
@@ -463,7 +471,7 @@ test('hardware back on the add-key done step hands off to the re-lock prompt via
   expect(mockShowAlert).not.toHaveBeenCalled()
 })
 
-test('hardware back is swallowed while a tap is in flight; the resolved record still reaches the name step', async () => {
+test('hardware back is swallowed while a tap is in flight; the resolved record is still saved', async () => {
   let resolveTap!: (r: ReturnType<typeof record>) => void
   mockEnrollKey.mockImplementationOnce(
     () =>
@@ -489,7 +497,7 @@ test('hardware back is swallowed while a tap is in flight; the resolved record s
     resolveTap(record('12340001', 'a'))
   })
   await settle()
-  expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
+  expect(screen.getByText('vault_name_default:{"k":1} · …0001')).toBeTruthy()
 })
 
 test('a blocked PIN keeps the pending keys and is never offered a dead Retry', async () => {
@@ -501,7 +509,7 @@ test('a blocked PIN keeps the pending keys and is never offered a dead Retry', a
     .mockRejectedValueOnce(new VaultError('pin-locked', undefined, undefined, { serial: '12340002' }))
     .mockResolvedValueOnce(record('12340003', 'b'))
   const { screen } = await beginEnroll()
-  await enrolOneKey(screen, 'Desk')
+  await enrolOneKey(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
   enterCredentials(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
@@ -516,7 +524,7 @@ test('a blocked PIN keeps the pending keys and is never offered a dead Retry', a
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
   expect(mockEnrollKey).toHaveBeenCalledTimes(3)
-  expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
+  expect(screen.getByText('vault_name_default:{"k":2} · …0003')).toBeTruthy()
 })
 
 test('an occupied Vault slot requires explicit replacement and retries with consent', async () => {
@@ -532,7 +540,7 @@ test('an occupied Vault slot requires explicit replacement and retries with cons
   await settle()
 
   expect(mockEnrollKey.mock.calls[1][0].replaceOccupiedVaultSlot).toBe(true)
-  expect(screen.getByLabelText('vault_name_title')).toBeTruthy()
+  expect(screen.getByText('vault_name_default:{"k":1} · …0001')).toBeTruthy()
 })
 
 test('a card whose PIV PIN is not the factory one is sent away, never retried', async () => {
@@ -552,14 +560,14 @@ test('a card whose PIV PIN is not the factory one is sent away, never retried', 
   expect(mockEnrollKey).toHaveBeenCalledTimes(1)
 })
 
-test('the recovery code page shows step 2 of 4 and gates Continue on the acknowledgement', async () => {
+test('the recovery code page shows step 2 of 3 and gates Continue on the acknowledgement', async () => {
   const { screen } = await beginEnroll()
   choosePin(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
 
   expect(screen.getByText('vault_puk_title')).toBeTruthy()
-  expect(screen.getByText('vault_setup_step:{"n":2,"total":4}')).toBeTruthy()
+  expect(screen.getByText('vault_setup_step:{"n":2,"total":3}')).toBeTruthy()
 
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   expect(mockEnrollKey).not.toHaveBeenCalled()
@@ -656,7 +664,7 @@ test('the code shown on screen is the one sent to the service', async () => {
 test('leaving with a pending key asks first; Stay keeps the wizard, Leave cancels it', async () => {
   mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
   const { screen, onCancel } = await beginEnroll()
-  await enrolOneKey(screen, 'Desk')
+  await enrolOneKey(screen)
 
   mockShowAlert.mockResolvedValueOnce('stay')
   await act(async () => fireEvent.press(screen.getByText('vault_leave_setup')))
@@ -690,12 +698,12 @@ test('add-key mode runs one key step, calls addVaultKey and ends on the re-lock 
       { ...record('12340002', 'b'), nickname: 'Safe' }
     ]
   }
-  mockEnrollKey.mockResolvedValueOnce(record('12340003', 'c'))
+  mockEnrollKey.mockResolvedValueOnce({ ...record('12340003', 'c'), nickname: 'Car' })
   const onDone = jest.fn()
   const screen = render(<EnrollWizard mode="add-key" onDone={onDone} onCancel={jest.fn()} />)
   await settle()
   expect(screen.queryByText('vault_intro_title')).toBeNull()
-  await enrolOneKey(screen, 'Car')
+  await enrolOneKey(screen)
   expect(mockAddVaultKey).toHaveBeenCalledWith(
     expect.objectContaining({ serial: '12340003', nickname: 'Car' }),
     expect.anything()
@@ -705,6 +713,40 @@ test('add-key mode runs one key step, calls addVaultKey and ends on the re-lock 
   fireEvent.press(screen.getByText('vault_relock_now'))
   expect(onDone).toHaveBeenCalledTimes(1)
   expect(mockFinalize).not.toHaveBeenCalled()
+})
+
+test('a failed add-key write is retried from the save page, without touching the card again', async () => {
+  // The token is already personalized and its slot occupied, so a retry that
+  // re-ran the tap would be refused by the service. Only the write repeats.
+  mockMeta = { v: 5, createdAt: 1, keys: [record('12340001', 'a'), record('12340002', 'b')] }
+  mockEnrollKey.mockResolvedValueOnce(record('12340003', 'c'))
+  mockAddVaultKey.mockRejectedValueOnce(new Error('secure store unavailable'))
+  const screen = render(<EnrollWizard mode="add-key" onDone={jest.fn()} onCancel={jest.fn()} />)
+  await settle()
+  await enrolOneKey(screen)
+  expect(screen.getByText('vault_err_generic')).toBeTruthy()
+
+  await act(async () => fireEvent.press(screen.getByText('vault_retry')))
+  await settle()
+  expect(mockEnrollKey).toHaveBeenCalledTimes(1)
+  expect(mockAddVaultKey).toHaveBeenCalledTimes(2)
+  expect(screen.getByText('vault_add_key_done:{"nickname":"vault_name_default:{\\"k\\":3}"}')).toBeTruthy()
+})
+
+test('a ready draft in add-key mode is written on sight, with nothing asked and no tap', async () => {
+  mockMeta = { v: 5, createdAt: 1, keys: [record('12340001', 'a'), record('12340002', 'b')] }
+  mockDrafts = [{ record: { ...record('DRAFT001', 'd'), nickname: 'Key 3' }, assurance: 'ready' }]
+  const screen = render(<EnrollWizard mode="add-key" onDone={jest.fn()} onCancel={jest.fn()} />)
+  await settle()
+  expect(mockAddVaultKey).toHaveBeenCalledWith(
+    expect.objectContaining({ serial: 'DRAFT001', nickname: 'Key 3' }),
+    expect.anything()
+  )
+  // Once. The restore reads state the write itself changes, so a re-running
+  // effect would add the same key twice.
+  expect(mockAddVaultKey).toHaveBeenCalledTimes(1)
+  expect(mockEnrollKey).not.toHaveBeenCalled()
+  expect(screen.getByText('vault_add_key_done:{"nickname":"Key 3"}')).toBeTruthy()
 })
 
 // ── the in-app PIV reset ──────────────────────────────────────────────
@@ -862,7 +904,7 @@ test('the reset passes stored AND pending serials so a vault key can never be er
   mockResetPiv.mockResolvedValueOnce(undefined)
 
   const { screen } = await beginEnroll()
-  await enrolOneKey(screen, 'Desk')
+  await enrolOneKey(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
   enterCredentials(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
@@ -1065,7 +1107,7 @@ test('Add another key disappears once five keys are set up', async () => {
   const { screen } = await beginEnroll()
   for (let i = 1; i <= 5; i++) {
     if (i > 1) await act(async () => fireEvent.press(screen.getByText('vault_more_add')))
-    await enrolOneKey(screen, `K${i}`)
+    await enrolOneKey(screen)
   }
   expect(screen.queryByText('vault_more_add')).toBeNull()
   expect(screen.getByText('vault_more_finish')).toBeTruthy()
