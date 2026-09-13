@@ -37,6 +37,33 @@ describe('VaultErrorCode (R1C)', () => {
     expect(e.message).toBe('abcd.0')
   })
 
+  it('reads the payload out of an iOS NSError description wrapper', () => {
+    // What actually reaches JS on iOS: Nitro surfaces NSError.description, not
+    // localizedDescription, so the payload is quoted inside a wrapper. An
+    // anchored ^VAULT_ERR: never matched this, and every iOS vault error became
+    // driver-unavailable ("YubiKey support is unavailable on this device").
+    const e = vaultErrorFromNative(
+      new Error(
+        'Error Domain=YubiKeyPiv Code=1 "VAULT_ERR:attestation-invalid:factory attestation certificate is not trusted" UserInfo={NSLocalizedDescription=VAULT_ERR:attestation-invalid:factory attestation certificate is not trusted}'
+      )
+    )
+    expect(e.code).toBe('attestation-invalid')
+    expect(e.message).toBe('factory attestation certificate is not trusted')
+  })
+
+  it('keeps retriesLeft when the payload is NSError-wrapped', () => {
+    const e = vaultErrorFromNative(
+      new Error('Error Domain=YubiKeyPiv Code=1 "VAULT_ERR:pin-invalid:retries=2" UserInfo={x=y}')
+    )
+    expect(e.code).toBe('pin-invalid')
+    expect(e.retriesLeft).toBe(2)
+  })
+
+  it('still returns driver-unavailable for a rejection carrying no payload', () => {
+    const e = vaultErrorFromNative(new Error('Error Domain=NSCocoaErrorDomain Code=4097 "connection invalid"'))
+    expect(e.code).toBe('driver-unavailable')
+  })
+
   it('preserves the fail-closed manufacturer-attestation code from native', () => {
     const e = vaultErrorFromNative(new Error('VAULT_ERR:attestation-invalid:unknown manufacturer chain'))
     expect(e.code).toBe('attestation-invalid')

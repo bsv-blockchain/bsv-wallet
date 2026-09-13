@@ -119,11 +119,30 @@ export class VaultError extends Error {
  * description it doesn't specifically recognize, which includes this one. */
 const NFC_LOST_PATTERN = /tag response error|no response|tag connection lost|session invalidated/i
 
-/** Parse a native-module rejection (`VAULT_ERR:<code>:<detail>`) into a
- * VaultError; anything unrecognized becomes a generic driver failure. */
+/**
+ * Parse a native-module rejection (`VAULT_ERR:<code>:<detail>`) into a
+ * VaultError; anything unrecognized becomes a generic driver failure.
+ *
+ * The payload is SEARCHED for, not anchored to the start of the message. iOS
+ * rejects with an NSError, and what reaches JS is that error's `description`,
+ * not its `localizedDescription` — so the real payload arrives wrapped:
+ *
+ *   Error Domain=YubiKeyPiv Code=1 "VAULT_ERR:attestation-invalid:…" UserInfo={…}
+ *
+ * An anchored `^VAULT_ERR:` never matched that, so EVERY iOS native vault error
+ * — wrong PIN, blocked PIN, occupied slot, failed attestation — collapsed into
+ * `driver-unavailable`, whose copy reads "YubiKey support is unavailable on
+ * this device." That told the user their phone lacked NFC when the real answer
+ * was on the card. Android is unaffected: it rejects with a bare string, which
+ * this still matches.
+ *
+ * The detail stops at a double quote so the NSError's trailing ` UserInfo={…}`
+ * does not get absorbed into it; an unwrapped Android message has no quote and
+ * runs to the end as before.
+ */
 export function vaultErrorFromNative(e: unknown): VaultError {
   const msg = e instanceof Error ? e.message : String(e)
-  const m = /^VAULT_ERR:([a-z-]+):?(.*)$/.exec(msg)
+  const m = /VAULT_ERR:([a-z-]+):?([^"]*)/.exec(msg)
   if (m) {
     let code = m[1] as VaultErrorCode
     const detailMatch = /retries=(\d+)/.exec(m[2])
