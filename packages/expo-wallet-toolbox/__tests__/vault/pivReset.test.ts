@@ -328,6 +328,55 @@ test('an explicit acknowledgement consents to wiping that unrecognized key', asy
   expect(mock.isFactory(SERIAL)).toBe(true)
 })
 
+test('the occupied-slot refusal holds on a driver that cannot read the slot key', async () => {
+  // The real iOS driver's shape. `getCertificateInSlot:` raises an ObjC
+  // exception for a retired slot and would trap the app, so readVaultPublicKey
+  // resolves null for EVERY 0x82 there — occupied or not. Asked that way this
+  // guard was dead on iOS, and with it the whole unrecognized-key consent,
+  // leaving the last line against another wallet identity's vault key absent
+  // on one of the two platforms. Occupancy comes from the card by a different
+  // route (attestation), so the two answers are independent here.
+  mock.occupySlot()
+  const held = (await mock.readVaultPublicKey(SERIAL))!.publicKey
+  jest.spyOn(mock, 'readVaultPublicKey').mockResolvedValue(null)
+  const reset = jest.spyOn(mock, 'resetPivApplication')
+
+  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+    code: 'slot-occupied',
+    details: { serial: SERIAL }
+  })
+
+  expect(reset).not.toHaveBeenCalled()
+  jest.restoreAllMocks()
+  expect((await mock.readVaultPublicKey(SERIAL))!.publicKey).toBe(held) // key intact
+})
+
+test('a slot the card cannot prove empty is refused, and the consent still gets past it', async () => {
+  // Both native drivers fail closed: only an explicit reference-not-found
+  // (0x6A88) reports empty, and an imported key, a missing attestation slot or
+  // an ambiguous status all report occupied. The software card has no way to
+  // produce that state, so the driver answer is the thing stubbed; what is
+  // pinned is that pivReset refuses on `occupied` alone — with slot 0x82
+  // genuinely empty and no key readable anywhere — and that the explicit
+  // acknowledgement is what gets past it.
+  expect(await mock.readVaultPublicKey(SERIAL)).toBeNull()
+  const occupied = jest.spyOn(mock, 'isVaultSlotOccupied').mockResolvedValue({ occupied: true })
+
+  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+    code: 'slot-occupied'
+  })
+
+  await resetPivApplication({
+    serial: SERIAL,
+    acknowledgeDestroysAllCredentials: true,
+    acknowledgeUnrecognizedVaultKey: true
+  })
+  expect(mock.isFactory(SERIAL)).toBe(true)
+  // The consented path never asks: the answer could not change the outcome,
+  // and on a session-based transport it is one more APDU before the erase.
+  expect(occupied).toHaveBeenCalledTimes(1)
+})
+
 test('refuses when a different card is presented for the reset tap', async () => {
   mock.personalise('998877', '11112222')
   mock.removeKey()

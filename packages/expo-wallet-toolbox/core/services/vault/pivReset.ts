@@ -35,6 +35,13 @@
  * IS overridable, because a card left over from a vault the user has already
  * abandoned is the whole reason this service exists; the enrolled-serial
  * refusal above is not.
+ *
+ * That occupancy question goes to `isVaultSlotOccupied`, which both platforms
+ * answer from the card (iOS attests the slot; Android reads its metadata) and
+ * which fails closed — only an explicit reference-not-found reports the slot
+ * empty. It is deliberately NOT `readVaultPublicKey() !== null`: that returns
+ * a public key, and iOS cannot read a retired slot's certificate at all, so it
+ * reports null for every 0x82 and this refusal would never fire there.
  */
 import { getVaultDriver } from './driver'
 import { withKeySession } from './session'
@@ -106,7 +113,14 @@ export async function resetPivApplication(args: {
       // Guard 3: the card's own answer, for the vaults no namespace on this
       // device can show us. Reused code, not new copy: 'slot-occupied' is
       // already enrollment's "slot 0x82 is not empty".
-      if (args.acknowledgeUnrecognizedVaultKey !== true && (await driver.readVaultPublicKey(args.serial))) {
+      //
+      // `isVaultSlotOccupied`, never `readVaultPublicKey`: the latter returns a
+      // public KEY, and iOS cannot read a retired slot's certificate, so it
+      // answers null for every 0x82 — occupied or not. Asked that way this
+      // guard was a no-op on iOS and the whole consent below it unreachable
+      // there. Occupancy fails closed on both platforms: anything short of the
+      // card saying "no key here" counts as occupied and takes the consent.
+      if (args.acknowledgeUnrecognizedVaultKey !== true && (await driver.isVaultSlotOccupied(args.serial)).occupied) {
         throw new VaultError(
           'slot-occupied',
           'This YubiKey already holds a vault key that belongs to no vault on this device',
