@@ -24,6 +24,28 @@ describe('withKeySession', () => {
     expect(stopSpy).not.toHaveBeenCalled()
   })
 
+  test('a native call that never settles releases the lease instead of pinning it forever', async () => {
+    // The attach watchdog only guards the wait for a tap. Past that, work() was
+    // unbounded — and YubiKit's blockPuk really does drop its completion for an
+    // unexpected status word, which is why the Swift reset carries its own
+    // watchdog. Without this bound the lease is held for the life of the
+    // process and every later Vault operation fails `ceremony-active`, with no
+    // recovery short of restarting the app. That was hit on a real device.
+    const m = nfcMock()
+    const stuck = withKeySession(m, () => new Promise<never>(() => {}), undefined, { workTimeoutMs: 20 })
+    await flush()
+    m.insertKey('MOCK-1')
+
+    await expect(stuck).rejects.toMatchObject({ code: 'nfc-lost' })
+
+    // The lease is free: a second operation runs rather than hitting ceremony-active.
+    const second = nfcMock()
+    const run = withKeySession(second, async () => 'ok')
+    await flush()
+    second.insertKey('MOCK-2')
+    await expect(run).resolves.toBe('ok')
+  })
+
   test('one process-wide hardware lease rejects overlap and releases after teardown', async () => {
     const firstDriver = new MockYubiKey()
     const secondDriver = new MockYubiKey()
