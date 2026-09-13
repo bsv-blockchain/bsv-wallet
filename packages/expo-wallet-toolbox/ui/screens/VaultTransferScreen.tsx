@@ -32,7 +32,7 @@ import { showToast } from '../components/ui/Toast'
 import { showAlert } from '../components/ui/AlertCard'
 import { KeyChooser, vaultKeyLabel } from '../components/vault/KeyChooser'
 import { vaultErrorCopy, type VaultErrorParams } from '../components/vault/vaultErrorCopy'
-import { useVaultBalance } from '../hooks/useVaultBalance'
+import { expectVaultBalance, useVaultBalance } from '../hooks/useVaultBalance'
 import {
   useTheme,
   spacing,
@@ -45,7 +45,6 @@ import {
   depositToVault,
   previewVaultWithdrawal,
   withdrawFromVault,
-  getVaultBalance,
   VAULT_DEPOSIT_MIN,
   VAULT_MAX_KEYS,
   estimateRelockFee,
@@ -111,19 +110,6 @@ function loadExpoRouter(): ExpoRouterModule {
  * structurally so this file depends on no service type; when absent the copy
  * degrades per vaultErrorCopy.
  */
-/**
- * A withdrawal spends the vault's one input and creates two outputs (the
- * withdrawn funds to the default basket, the change back into the vault
- * basket) — for a moment after broadcast the spent input is gone from a
- * balance read but the vault-change output has not landed yet, so a naive
- * read right after `withdrawFromVault` resolves can show 0. Rather than
- * navigate back to the vault screen while it would flash that, `run()` polls
- * here until the balance actually reflects the withdrawal (or gives up and
- * leaves anyway, so a slow read can never strand the user on this screen).
- */
-const VAULT_BALANCE_SETTLE_ATTEMPTS = 10
-const VAULT_BALANCE_SETTLE_DELAY_MS = 300
-
 function readErrorDetails(e: unknown): { reachable?: number; total?: number; tapped?: string; chosen?: string } {
   const details = (e as { details?: unknown } | null)?.details
   if (!details || typeof details !== 'object') return {}
@@ -323,6 +309,7 @@ export function VaultTransferScreen() {
           isOnline: getOnline,
           backupEnabled: privateBackupEnabled
         })
+        expectVaultBalance(total + sats)
         // The success toast carries the success haptic (Toast.tsx); the tone
         // is the vault's own (see useConfirmationSound's pairing rules).
         sounds.vaultDeposit()
@@ -377,6 +364,9 @@ export function VaultTransferScreen() {
         // Alerts, not toasts, for what did NOT move (spec §4.2 step 8): the
         // user has to act on both, and a toast can be missed.
         const moved = withdrawAll ? Math.max(0, total - result.unreachable.satoshis) : sats
+        // Publish what the vault now holds before the alerts below, so the
+        // screen behind them is already right and nothing has to read it back.
+        expectVaultBalance(Math.max(0, total - moved))
         let reported = false
         if (result.unreachable.count > 0) {
           reported = true
@@ -400,26 +390,6 @@ export function VaultTransferScreen() {
           })
         }
         if (!reported) showToast(t('vault_withdraw_done'), { type: 'success' })
-        // See VAULT_BALANCE_SETTLE_ATTEMPTS' doc: wait for the read to catch
-        // up with the withdrawal before leaving, so the vault screen never
-        // flashes a scary zero. `busy` (and this button's spinner) stays true
-        // for the whole wait — the withdrawal already happened; this is just
-        // holding the door for the balance to agree.
-        const expectedRemainder = Math.max(0, total - moved)
-        for (let attempt = 0; attempt < VAULT_BALANCE_SETTLE_ATTEMPTS; attempt++) {
-          try {
-            if (await getVaultBalance(w, adminOriginator) === expectedRemainder) break
-          } catch (e) {
-            // The money has already moved and the success tone has already
-            // played; this wait is cosmetic. Letting a refusing read reach the
-            // catch below would report a broadcast withdrawal as a failure —
-            // exactly the outcome this screen must never produce. Leave, and
-            // let the vault screen show whatever it can read.
-            console.warn('[vault] balance settle read failed:', e instanceof Error ? e.message : e)
-            break
-          }
-          await new Promise(resolve => setTimeout(resolve, VAULT_BALANCE_SETTLE_DELAY_MS))
-        }
       }
       setAmount('')
       refresh()
@@ -473,9 +443,14 @@ export function VaultTransferScreen() {
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         <View style={styles.balanceBlock}>
           <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>{t('vault_balance_label')}</Text>
-          <Text style={[styles.balance, { color: colors.textPrimary }]}>
-            <AmountDisplay>{balance ?? 0}</AmountDisplay>
-          </Text>
+          {/* Unknown is not zero — see the same guard on VaultScreen. */}
+          {balance === null ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <Text style={[styles.balance, { color: colors.textPrimary }]}>
+              <AmountDisplay>{balance}</AmountDisplay>
+            </Text>
+          )}
         </View>
 
         <Text style={[styles.sub, { color: colors.textSecondary }]}>

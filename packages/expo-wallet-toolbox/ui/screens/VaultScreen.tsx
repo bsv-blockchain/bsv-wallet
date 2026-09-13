@@ -838,11 +838,16 @@ export function VaultScreen() {
         <View style={styles.balanceBlock}>
           <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>{t('vault_balance_label')}</Text>
           <TouchableOpacity onPress={refresh} activeOpacity={0.7}>
-            {loading && balance === null ? (
+            {/* Unknown is not zero. `balance ?? 0` rendered both the same, so a
+                vault whose balance had not been read yet — or whose read
+                failed — looked emptied. Spin until there is a real figure;
+                `loading` no longer gates it, because a failed read leaves the
+                balance unknown with nothing in flight. */}
+            {balance === null ? (
               <ActivityIndicator color={colors.accent} />
             ) : (
               <Text style={[styles.balance, { color: colors.textPrimary }]}>
-                <AmountDisplay>{balance ?? 0}</AmountDisplay>
+                <AmountDisplay>{balance}</AmountDisplay>
               </Text>
             )}
           </TouchableOpacity>

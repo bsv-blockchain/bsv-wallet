@@ -11,6 +11,7 @@ const mockWithdraw = jest.fn()
 const mockPreview = jest.fn()
 const mockRefresh = jest.fn()
 const mockGetVaultBalance = jest.fn()
+const mockExpectBalance = jest.fn()
 let mockParams: { direction?: string } = {}
 let mockMeta: unknown = null
 let mockBalance: number | null = 0
@@ -75,7 +76,8 @@ jest.mock('../../ui/components/wallet/AmountDisplay', () => {
   return { __esModule: true, default: ({ children }: any) => React.createElement(Text, null, `${children} sats`) }
 })
 jest.mock('../../ui/hooks/useVaultBalance', () => ({
-  useVaultBalance: () => ({ balance: mockBalance, loading: false, refresh: mockRefresh })
+  useVaultBalance: () => ({ balance: mockBalance, loading: false, refresh: mockRefresh }),
+  expectVaultBalance: (...a: unknown[]) => mockExpectBalance(...a)
 }))
 
 import { VaultTransferScreen } from '../../ui/screens/VaultTransferScreen'
@@ -137,6 +139,7 @@ beforeEach(() => {
   // Tests that need the settle loop to complete give it the exact expected
   // figure with mockResolvedValueOnce so it matches — and returns — first try.
   mockGetVaultBalance.mockReset().mockRejectedValue(new Error('getVaultBalance not mocked for this test'))
+  mockExpectBalance.mockReset()
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockShowAlert.mockReset()
   mockWallet = {
@@ -146,6 +149,19 @@ beforeEach(() => {
     storage: null,
     settings: { currency: 'BSV' }
   }
+})
+
+// Unknown is not zero: `balance ?? 0` rendered both the same, so the screen
+// could open on a funded vault showing nothing.
+describe('balance header', () => {
+  test.each(['deposit', 'withdraw'] as const)(
+    'shows no zero balance on the %s screen while the figure is unknown',
+    async direction => {
+      mockBalance = null
+      const screen = await renderTransfer(direction)
+      expect(screen.queryByText('0 sats')).toBeNull()
+    }
+  )
 })
 
 describe('deposit', () => {
@@ -273,6 +289,15 @@ describe('deposit', () => {
     const screen = await renderTransfer('deposit')
     await typeAndRun(screen, '150000', 'vault_deposit_cta')
     expect(screen.getByText('vault_err_requires_online')).toBeTruthy()
+  })
+
+  test('publishes the balance a deposit produces', async () => {
+    mockBalance = 500_000
+    const screen = await renderTransfer('deposit')
+    await typeAndRun(screen, '150000', 'vault_deposit_cta')
+
+    expect(mockDeposit).toHaveBeenCalledTimes(1)
+    expect(mockExpectBalance).toHaveBeenCalledWith(650_000)
   })
 })
 
@@ -482,17 +507,35 @@ describe('withdraw', () => {
   // valid, but the balance read that follows it refused, that refusal reached
   // run()'s catch, and a COMPLETED withdrawal was reported on screen as a
   // failure. The settle wait is cosmetic and must never do that.
-  test('a refusing balance read does not turn a completed withdrawal into a failure', async () => {
+  // The screen knows the figure the withdrawal produces, so it publishes it and
+  // leaves. It used to poll getVaultBalance here instead, which blocked the
+  // user behind ten reads and — when one of them refused — reported a
+  // broadcast, on-chain withdrawal as a failure.
+  test('publishes the resulting balance and returns without reading it back', async () => {
     mockBalance = 500_000
-    mockGetVaultBalance.mockReset().mockRejectedValue(new VaultError('relock-required'))
     const screen = await renderTransfer('withdraw')
     await typeAndRun(screen, '50000', 'vault_withdraw_cta')
 
-    expect(mockWithdraw).toHaveBeenCalledTimes(1)
+    expect(mockExpectBalance).toHaveBeenCalledWith(450_000)
+    expect(mockGetVaultBalance).not.toHaveBeenCalled()
     expect(mockShowToast).toHaveBeenCalledWith('vault_withdraw_done', { type: 'success' })
-    // The catch neither navigates nor buzzes, so both prove it was not taken.
+    // The catch neither navigates nor publishes, so this proves it was not taken.
     expect(mockRouter.back).toHaveBeenCalled()
     expect(screen.queryByText('vault_err_generic')).toBeNull()
+  })
+
+  test('publishes the balance a partial withdrawal leaves behind', async () => {
+    mockBalance = 500_000
+    mockWithdraw.mockResolvedValueOnce({
+      ...OK_RESULT,
+      unreachable: { count: 1, satoshis: 120_000, keys: [{ serial: '12340001', pubkey: PUB('a') }] }
+    })
+    mockShowAlert.mockResolvedValueOnce('ok')
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '50000', 'vault_withdraw_cta')
+
+    // A typed amount moves exactly that much, whatever stayed unreachable.
+    expect(mockExpectBalance).toHaveBeenCalledWith(450_000)
   })
 
 

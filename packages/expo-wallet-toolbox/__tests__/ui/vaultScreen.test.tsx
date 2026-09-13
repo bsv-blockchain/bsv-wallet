@@ -232,6 +232,15 @@ describe('not enrolled', () => {
 })
 
 describe('enrolled', () => {
+  // `balance ?? 0` renders "unknown" and "empty" identically, so a vault that
+  // simply has not been read yet reads as one that has been emptied — the
+  // exact scare a withdrawal must not produce.
+  test('shows the spinner rather than a zero balance while the figure is unknown', async () => {
+    mockBalance = null
+    const screen = await renderVault()
+    expect(screen.queryByText('0 sats')).toBeNull()
+  })
+
   test('lists every key as nickname · full serial (grouped in threes) with the footnote and the key-count header', async () => {
     const screen = await renderVault()
     expect(screen.getByText('vault_key_section:{"count":2}')).toBeTruthy()

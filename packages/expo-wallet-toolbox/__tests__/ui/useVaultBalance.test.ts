@@ -20,7 +20,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 
 import { act, renderHook } from '@testing-library/react-native'
 import { getVaultBalance } from '@bsv/expo-wallet-toolbox'
-import { useVaultBalance } from '../../ui/hooks/useVaultBalance'
+import { expectVaultBalance, useVaultBalance } from '../../ui/hooks/useVaultBalance'
 
 const fetchBalance = getVaultBalance as jest.Mock
 
@@ -199,3 +199,108 @@ describe('useVaultBalance', () => {
     expect(fetchBalance).toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * A transfer knows the balance it is about to produce, so the screens publish
+ * it the moment the spend resolves rather than leaving every mounted reader
+ * showing a stale figure — or, on a reader that has never completed a read,
+ * the `balance ?? 0` that made a funded vault look emptied.
+ */
+describe('optimistic balance', () => {
+  test('publishes the expected figure immediately, without a read', async () => {
+    fetchBalance.mockResolvedValue(500)
+    const { result } = renderHook(() => useVaultBalance())
+    await settle()
+    expect(result.current.balance).toBe(500)
+
+    act(() => expectVaultBalance(320))
+    expect(result.current.balance).toBe(320)
+    expect(fetchBalance).toHaveBeenCalledTimes(1)
+  })
+
+  test('a reader mounting later starts from the shared figure, not from unknown', async () => {
+    fetchBalance.mockResolvedValue(500)
+    const vaultScreen = renderHook(() => useVaultBalance())
+    await settle()
+    expect(vaultScreen.result.current.balance).toBe(500)
+
+    // Pushing the transfer screen must not give it a blank balance to render
+    // as `balance ?? 0` for the one frame before its own read lands.
+    const transferScreen = renderHook(() => useVaultBalance())
+    expect(transferScreen.result.current.balance).toBe(500)
+  })
+
+  test('publishes it to every mounted reader, not just the one that transferred', async () => {
+    fetchBalance.mockResolvedValue(500)
+    const vaultScreen = renderHook(() => useVaultBalance())
+    const transferScreen = renderHook(() => useVaultBalance())
+    await settle()
+
+    act(() => expectVaultBalance(320))
+    expect(vaultScreen.result.current.balance).toBe(320)
+    expect(transferScreen.result.current.balance).toBe(320)
+  })
+})
+
+/**
+ * Between a broadcast transfer and its output becoming listable there is a
+ * window where a read SUCCEEDS and is wrong: the spent input has left the
+ * basket and the output the transfer created has not arrived. Committing that
+ * read is the "balance: 0" a withdrawal must never show. The store holds the
+ * expected figure across it, but only for a bounded budget — a transfer whose
+ * arithmetic is wrong must not pin the display forever.
+ */
+describe('settling an expected balance', () => {
+  const seedRead = async (first: number) => {
+    fetchBalance.mockResolvedValueOnce(first).mockResolvedValue(0)
+    const hook = renderHook(() => useVaultBalance())
+    await settle()
+    expect(hook.result.current.balance).toBe(first)
+    return hook
+  }
+
+  test('keeps the expected figure while reads still disagree', async () => {
+    const { result } = await seedRead(500)
+    act(() => expectVaultBalance(320))
+
+    act(() => result.current.refresh())
+    await settle()
+
+    expect(fetchBalance).toHaveBeenCalledTimes(2)
+    expect(result.current.balance).toBe(320)
+  })
+
+  test('adopts a read that agrees, and believes reads again afterwards', async () => {
+    const { result } = await seedRead(500)
+    fetchBalance.mockResolvedValue(320)
+    act(() => expectVaultBalance(320))
+
+    act(() => result.current.refresh())
+    await settle()
+    expect(result.current.balance).toBe(320)
+
+    // Expectation met and cleared, so an ordinary later change is adopted at once.
+    fetchBalance.mockResolvedValue(90)
+    act(() => result.current.refresh())
+    await settle()
+    expect(result.current.balance).toBe(90)
+  })
+
+  test('gives up and adopts the read once the settle budget is spent', async () => {
+    const { result } = await seedRead(500)
+    act(() => expectVaultBalance(320))
+
+    // SETTLE_ATTEMPTS disagreeing reads are discarded...
+    for (let attempt = 0; attempt < 10; attempt++) {
+      act(() => result.current.refresh())
+      await settle()
+      expect(result.current.balance).toBe(320)
+    }
+
+    // ...and the next one is believed.
+    act(() => result.current.refresh())
+    await settle()
+    expect(result.current.balance).toBe(0)
+  })
+})
+
