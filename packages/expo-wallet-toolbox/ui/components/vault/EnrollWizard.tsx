@@ -714,7 +714,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   }, [])
 
   /** A different card has a different PIN: start the step over. */
-  const useDifferentKey = () => {
+  const chooseDifferentKey = () => {
     setKeyError(null)
     clearKeyInputs()
     setSub('pin')
@@ -1198,7 +1198,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             enabled={!resetting}
             onPress={() => {
               setStepError(null)
-              useDifferentKey()
+              chooseDifferentKey()
             }}
           />
         </ScrollView>
@@ -1229,15 +1229,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           <>
             <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_replace_key_warning')}</Text>
             <ActionButton label={t('vault_replace_key_confirm')} onPress={() => void runTap(true)} />
-            <ActionButton label={t('vault_key_use_different')} variant="outline" onPress={useDifferentKey} />
+            <ActionButton label={t('vault_key_use_different')} variant="outline" onPress={chooseDifferentKey} />
           </>
         ) : code === 'pin-locked' ? (
           <>
-            <ActionButton label={t('vault_key_use_different')} onPress={useDifferentKey} />
+            <ActionButton label={t('vault_key_use_different')} onPress={chooseDifferentKey} />
             <ActionButton label={t('vault_retry')} variant="outline" onPress={() => void runTap()} />
           </>
         ) : code === 'key-already-enrolled' || code === 'puk-locked' || keyError?.mustUseDifferent ? (
-          <ActionButton label={t('vault_key_use_different')} onPress={useDifferentKey} />
+          <ActionButton label={t('vault_key_use_different')} onPress={chooseDifferentKey} />
         ) : code === 'enrollment-partial' ? (
           // The one exit from the error page that does not go through
           // clearKeyInputs, so the destructive ticks are dropped explicitly:
