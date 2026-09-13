@@ -791,7 +791,9 @@ function isR1CSourceScript(scriptHex: string | undefined): boolean {
  * make a Vault source disappear from balances and safety decisions. Scan all
  * action labels and authenticate source scripts instead. A strictly unsigned,
  * txid-less action is provably unbroadcast and may be aborted to restore its
- * sources; every broadcast, nosend, failed, or malformed state blocks.
+ * sources; a signed but unposted state (nosend, unprocessed, nonfinal) or a
+ * malformed one blocks. An action already posted to the network holds nothing
+ * back — see BROADCAST_ACTION_STATUSES at the skip below.
  */
 async function inspectHiddenVaultReservations(
   w: VaultWallet,
@@ -829,6 +831,13 @@ async function inspectHiddenVaultReservations(
       abortable.push(action.reference)
       return
     }
+    // A spend already posted to the network is not holding its source back: it
+    // has SPENT it, listOutputs is right to omit it, and whatever the spend
+    // created is listed in its place. Blocking here would fail every balance
+    // read, coverage check and transfer for as long as the spend sits at
+    // 'unproven' — and, because the transfer screen waits for the balance to
+    // settle, would report a completed withdrawal as a failure.
+    if (BROADCAST_ACTION_STATUSES.has(action.status)) return
     throw new VaultError('relock-required', 'A pending or failed action is holding a Vault output')
   }, scopeToken)
   for (const reference of abortable) {

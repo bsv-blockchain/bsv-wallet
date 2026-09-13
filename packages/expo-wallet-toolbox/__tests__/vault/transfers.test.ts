@@ -2649,6 +2649,69 @@ describe('two-phase key removal reconciliation', () => {
 // ── coverage / removal / balance ─────────────────────────────────────────
 
 describe('authenticated vault scans', () => {
+
+  // A withdrawal that reached the network has genuinely SPENT its vault
+  // source, so listOutputs is right to omit it and the re-vault remainder it
+  // created is already listed. Blocking on it made every balance read throw
+  // for the ~10 minutes the spend sat at 'unproven': the vault screen showed
+  // zero, and the transfer screen's settle loop turned a completed withdrawal
+  // into "re-lock the vault first".
+  it.each(['sending', 'unproven'] as const)(
+    'reads the balance while the withdrawal that created the remainder is still %s',
+    async status => {
+      await seedMeta()
+      const spent = vaultFixture(500_000, [PUB_A, PUB_B])
+      const remainder = vaultFixture(400_000, [PUB_A, PUB_B])
+      serveVaultOutputs([remainder])
+      wallet.listActions.mockImplementation(async (args: any) => ({
+        actions: args.labels?.includes(specOpFailedActions)
+          ? []
+          : [{
+              txid: '8b'.repeat(32),
+              reference: 'withdraw-ref',
+              status,
+              labels: ['vault', 'vault-withdraw'],
+              inputs: [{
+                sourceOutpoint: spent.outpoint,
+                sourceSatoshis: spent.satoshis,
+                sourceLockingScript: spent.lockingScript.toHex()
+              }],
+              outputs: []
+            }]
+      }))
+
+      await expect(getVaultBalance(wallet, ADMIN)).resolves.toBe(400_000)
+    }
+  )
+
+  // The states that really do hold a source back: signed, never posted.
+  it.each(['nosend', 'unprocessed', 'nonfinal'] as const)(
+    'still refuses to report a balance while a signed but unbroadcast spend (%s) holds a source',
+    async status => {
+      await seedMeta()
+      const spent = vaultFixture(500_000, [PUB_A, PUB_B])
+      serveVaultOutputs([vaultFixture(400_000, [PUB_A, PUB_B])])
+      wallet.listActions.mockImplementation(async (args: any) => ({
+        actions: args.labels?.includes(specOpFailedActions)
+          ? []
+          : [{
+              txid: '8b'.repeat(32),
+              reference: 'withdraw-ref',
+              status,
+              labels: ['vault', 'vault-withdraw'],
+              inputs: [{
+                sourceOutpoint: spent.outpoint,
+                sourceSatoshis: spent.satoshis,
+                sourceLockingScript: spent.lockingScript.toHex()
+              }],
+              outputs: []
+            }]
+      }))
+
+      await expect(getVaultBalance(wallet, ADMIN)).rejects.toMatchObject({ code: 'relock-required' })
+    }
+  )
+
   const switchNetworkDuringOutputRead = (): void => {
     wallet.listOutputs.mockImplementationOnce(async () => {
       vaultStore.configureScope({ identityKey: `03${'44'.repeat(32)}`, chain: 'main' })

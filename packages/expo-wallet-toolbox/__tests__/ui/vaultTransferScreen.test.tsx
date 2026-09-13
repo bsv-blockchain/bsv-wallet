@@ -478,6 +478,24 @@ describe('withdraw', () => {
     expect(mockRouter.back).toHaveBeenCalled()
   })
 
+  // Regression from a real mainnet withdrawal: the spend was broadcast and
+  // valid, but the balance read that follows it refused, that refusal reached
+  // run()'s catch, and a COMPLETED withdrawal was reported on screen as a
+  // failure. The settle wait is cosmetic and must never do that.
+  test('a refusing balance read does not turn a completed withdrawal into a failure', async () => {
+    mockBalance = 500_000
+    mockGetVaultBalance.mockReset().mockRejectedValue(new VaultError('relock-required'))
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '50000', 'vault_withdraw_cta')
+
+    expect(mockWithdraw).toHaveBeenCalledTimes(1)
+    expect(mockShowToast).toHaveBeenCalledWith('vault_withdraw_done', { type: 'success' })
+    // The catch neither navigates nor buzzes, so both prove it was not taken.
+    expect(mockRouter.back).toHaveBeenCalled()
+    expect(screen.queryByText('vault_err_generic')).toBeNull()
+  })
+
+
   test('a capped withdrawal alerts with the remaining count', async () => {
     mockBalance = 5_000_000
     mockWithdraw.mockResolvedValueOnce({ ...OK_RESULT, cappedInputs: 7 })

@@ -407,8 +407,17 @@ export function VaultTransferScreen() {
         // holding the door for the balance to agree.
         const expectedRemainder = Math.max(0, total - moved)
         for (let attempt = 0; attempt < VAULT_BALANCE_SETTLE_ATTEMPTS; attempt++) {
-          const current = await getVaultBalance(w, adminOriginator)
-          if (current === expectedRemainder) break
+          try {
+            if (await getVaultBalance(w, adminOriginator) === expectedRemainder) break
+          } catch (e) {
+            // The money has already moved and the success tone has already
+            // played; this wait is cosmetic. Letting a refusing read reach the
+            // catch below would report a broadcast withdrawal as a failure —
+            // exactly the outcome this screen must never produce. Leave, and
+            // let the vault screen show whatever it can read.
+            console.warn('[vault] balance settle read failed:', e instanceof Error ? e.message : e)
+            break
+          }
           await new Promise(resolve => setTimeout(resolve, VAULT_BALANCE_SETTLE_DELAY_MS))
         }
       }
