@@ -33,6 +33,14 @@ import {
   type PostOutcome
 } from '../../offline/plan'
 import { descendantsOf, type OrderableTx } from '../../offline/order'
+import { postTokenStep, reconcileSettlements, type TokenFrameSource } from '../../mandala/drain'
+import type {
+  AdmissionVerifier,
+  CoverFn,
+  SettlementStore,
+  SubmitFn,
+  TokenSettlementRow
+} from '../../mandala/types'
 import { devLog } from '../../logging'
 import { getOnline } from '../../net/online'
 
@@ -73,14 +81,71 @@ interface HeldAction {
   api: TableProvenTxReq
 }
 
+/**
+ * Everything the Mandala settlement drain needs that this module cannot do
+ * itself. Absent for a wallet with no token payments — then not one line of
+ * behaviour below changes.
+ *
+ * `cover` and `submit` are injected rather than imported because one is a pure
+ * verifier over local evidence and the other is a network call; keeping both
+ * out of here is what leaves this file a database-and-ordering module.
+ */
+export interface OfflineTokenDeps {
+  store: SettlementStore
+  cover: CoverFn
+  submit: SubmitFn
+  /**
+   * FIX H / wire contract §9.10. THIS WALLET's configured overlay identity key
+   * and the σ_I verifier that checks against it — the only thing that may let a
+   * cached admission skip a `/submit`, and the filter on what the evidence
+   * cache is allowed to keep at all. Absent and nothing is trusted: every
+   * ancestor is submitted, which is free and always correct.
+   */
+  overlayIdentityKey?: string
+  verifyAdmission?: AdmissionVerifier
+  /**
+   * FIX G: every durable token frame this device holds, re-read each pass so
+   * the evidence tables and the settlement rows are re-derived idempotently
+   * before anything is decided. Supplied by the caller because only it can
+   * open a payer-side sealed `framePayload`.
+   */
+  frames?: () => Promise<TokenFrameSource[]>
+}
+
 export async function processOfflineActions(args: {
   storage: StorageExpoSQLite
   /** Injected so tests can supply a missing ancestor without hitting the network. */
   refetchBeef?: (txid: string) => Promise<number[] | undefined>
+  /** Mandala settlement. Omit entirely and the drain behaves exactly as before. */
+  token?: OfflineTokenDeps
 }): Promise<ProcessOfflineActionsResult> {
-  const { storage, refetchBeef } = args
+  const { storage, refetchBeef, token } = args
   const db = storage.sqliteDb
   if (!db) return { sent: 0, rejected: 0, stopped: true, stalledOn: 'the database is not open' }
+
+  // Before anything is read or decided: re-derive the settlement evidence from
+  // the frame bytes that are already durable (FIX G). Purely local, so it runs
+  // even on a pass that turns out to be offline, and it is allowed to fail —
+  // it is a cache-population step, and the next tick repeats it.
+  if (token?.frames) {
+    try {
+      const r = await reconcileSettlements({
+        store: token.store,
+        sources: await token.frames(),
+        overlayIdentityKey: token.overlayIdentityKey,
+        verifyAdmission: token.verifyAdmission
+      })
+      if (r.errors.length > 0) devLog('[processOfflineActions] evidence reconciliation reported:', r.errors)
+      if (r.dropped > 0) {
+        // FIX H: counterparty-supplied σ_I that did not verify against this
+        // wallet's configured overlay key. Not an error and not a decline —
+        // the ancestors are simply submitted rather than skipped.
+        devLog(`[processOfflineActions] dropped ${r.dropped} unverifiable admission(s) from frame evidence`)
+      }
+    } catch (e) {
+      devLog('[processOfflineActions] could not reconcile token settlements:', e)
+    }
+  }
 
   // 'posting' is included so a run interrupted mid-flight resumes rather than
   // stranding its rows. Re-posting is safe: a transaction the network already has
@@ -185,7 +250,35 @@ export async function processOfflineActions(args: {
     }
     if (action) await updateOfflineAction(db, step.txid, { status: 'posting' })
 
-    const outcome = action ? await postOwned(storage, action.api) : await postForeign(storage, merged, step.txid)
+    // The ONE token branch. A transaction with a `token_settlements` row may
+    // not be broadcast until the issuer's overlay has admitted it and every
+    // unadmitted token ancestor it spends — so the ordinary post becomes
+    // `postTokenStep`'s injected `broadcast`, reached only after `/submit`
+    // says yes. Everything after this line — applyOutcome, the cascade, the
+    // requeue — is unchanged, because `postTokenStep` returns the same
+    // `PostOutcome` shape a BSV post does.
+    const read = token ? await readSettlement(token.store, step.txid) : { ok: true as const, row: undefined }
+    const broadcast = async () =>
+      action ? await postOwned(storage, action.api) : await postForeign(storage, merged, step.txid)
+    const outcome = !read.ok
+      ? // The read failed, so this step does not know whether it is a token
+        // transaction. Stall it: `serviceError` leaves every row where it was
+        // and retries the whole prefix next pass.
+        ('serviceError' as PostOutcome)
+      : read.row
+        ? await postTokenStep(
+            {
+              store: token!.store,
+              cover: token!.cover,
+              submit: token!.submit,
+              overlayIdentityKey: token!.overlayIdentityKey,
+              verifyAdmission: token!.verifyAdmission,
+              broadcast
+            },
+            read.row,
+            step
+          )
+        : await broadcast()
     // A cascade needs to see what spends the refused transaction, and beefs only
     // reach backwards, so the graph the queue built cannot contain a spender that
     // is not itself queued. Widened only when a cascade is actually about to run,
@@ -230,6 +323,35 @@ export async function processOfflineActions(args: {
     rejected,
     stopped: skip.size > 0,
     stalledOn: uniqueStalls.length > 0 ? uniqueStalls.join('; ') : undefined
+  }
+}
+
+/**
+ * Whether this txid has a settlement row — or whether the question could not be
+ * answered at all.
+ *
+ * The three outcomes are deliberately distinct, and the third is the fix. A
+ * thrown read (a locked database, a schema without these tables, a corrupt
+ * page) USED to fall back to `undefined`, which the caller cannot tell from
+ * "this is an ordinary BSV transaction" — so a read fault sent an unadmitted
+ * token tip straight to `broadcast()`, defeating the whole §4.3 gate on exactly
+ * the kind of transient fault the drain is built to survive. "I could not tell"
+ * must never resolve to "go ahead": the caller turns it into `serviceError`,
+ * the rows stay where they are, and the next pass asks again.
+ *
+ * The token guard in `StorageExpoSQLite.attemptToPostReqsToNetwork` reads the
+ * same table and would usually catch the same case — but it is reached only
+ * from `shareReqsWithWorld`, and `postForeign` does not go through it at all.
+ * Two independent barriers are worth having; one of them failing open is not.
+ */
+type SettlementRead = { ok: true; row: TokenSettlementRow | undefined } | { ok: false }
+
+async function readSettlement(store: SettlementStore, txid: string): Promise<SettlementRead> {
+  try {
+    return { ok: true, row: await store.getSettlement(txid) }
+  } catch (e) {
+    devLog(`[processOfflineActions] could not read the settlement row for ${txid}:`, e)
+    return { ok: false }
   }
 }
 

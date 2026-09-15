@@ -27,6 +27,46 @@ import { isValidBsvAddress } from './index'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
 
+/** Whether the address rail can carry a particular payment, and why not when it cannot. */
+export type AddressRailAvailability = { kind: 'available' } | { kind: 'unavailable'; reason: string }
+
+/**
+ * D4: the address rail cannot carry a Mandala token, ever.
+ *
+ * Not a policy and not a UI opinion — a protocol fact. A token output's owner
+ * key is ECDH-derived against the recipient's IDENTITY key
+ * (`MandalaToken.lockBRC29`), and the issuer's overlay refuses a transaction
+ * carrying an FT output whose owner it cannot name from a linkage. A base58
+ * address names a hash, not an identity, so there is nothing to derive against
+ * and nothing to reveal — the transaction would be refused if it were ever
+ * built, and the money would be locked to a script no one can spend if it
+ * were not.
+ *
+ * The reason text comes from the runtime (`recipientRefusal`, which is the
+ * lib's own `guardTokenRecipient`) rather than from a string here, so the
+ * wallet and the lib cannot come to say two different things about the same
+ * refusal. A caller with no runtime still gets a correct refusal, just a
+ * shorter one.
+ */
+export function addressRailAvailability(args: {
+  address: string
+  /** Set when the payment is denominated in a token rather than in satoshis. */
+  assetId?: string
+  /** `MandalaRuntime.recipientRefusal`. */
+  recipientRefusal?: (recipient: string) => string | null
+}): AddressRailAvailability {
+  if (args.assetId === undefined || args.assetId === '') {
+    return isValidBsvAddress(args.address) ? { kind: 'available' } : { kind: 'unavailable', reason: 'Invalid BSV address' }
+  }
+  const reason = args.recipientRefusal?.(args.address)
+  return {
+    kind: 'unavailable',
+    reason:
+      reason ??
+      'Mandala tokens can only be sent to an identity key, not to an address — the token output is derived against the recipient identity and the overlay refuses anything else'
+  }
+}
+
 export const LEGACY_DERIVATION_SUFFIX = Utils.toBase64(Utils.toArray('legacy', 'utf8'))
 
 /**

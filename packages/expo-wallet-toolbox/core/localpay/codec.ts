@@ -1,6 +1,7 @@
 import { SymmetricKey } from '@bsv/sdk'
+import type { AdmissionEntryWire } from '../mandala/types'
 
-export const FRAME_VERSION = 3
+export const FRAME_VERSION = 4
 
 export class CodecError extends Error {
   constructor(message: string) {
@@ -17,7 +18,27 @@ export interface TokenPayment {
   overlayIdentityKey: string      // 66-hex compressed pubkey
   certificates: Uint8Array[]      // opaque serialized VerifiableCertificates
   linkage: Array<{ txid: string; payload: Uint8Array }> // per-txid MandalaLinkagePayload bytes, whole chain
-  recipientLinkage: Uint8Array    // JSON SpecificLinkage bytes, verifier = payee
+  /**
+   * σ_I evidence for the ancestors this frame's chain bottoms out at — the
+   * AdmissionBundle's `admissions` map, flattened (offline-settlement spec
+   * §1.1/§2.1). One entry per COVERED ancestor: the overlay's own signature
+   * over `(txid, outputsToAdmit)`, which the payee verifies against the
+   * session's `overlayIdentityKey` before crediting.
+   *
+   * REPLACES v3's `recipientLinkage`. A payee-decryptable linkage is
+   * impossible under D2 sender blinding without leaking the payer's real
+   * identity key (BRC-72 decryption by the named verifier requires
+   * `counterparty: prover`), and σ_I bound to the admitted output set is
+   * strictly stronger evidence at roughly a tenth the size: it is the
+   * OVERLAY's assertion, not the payer's assertion about their own honesty.
+   * Removed, not renamed — a v3 decoder cannot read a v4 frame at all.
+   *
+   * `linkage` and `admissions` are keyed by disjoint txid sets in a
+   * well-formed bundle: a txid with σ_I needs no linkage forwarded (nobody
+   * will submit it again); a txid without σ_I needs linkage (so whoever
+   * reconnects first can build its /submit body) and is walked further.
+   */
+  admissions: AdmissionEntryWire[]
 }
 
 export interface PaymentFrame {
@@ -153,7 +174,22 @@ export function encodeFrame(f: PaymentFrame): Uint8Array {
       for (const byte of hexToBytes(entry.txid.toLowerCase())) out.push(byte)
       putBytes(out, entry.payload)
     }
-    putBytes(out, t.recipientLinkage)
+    putVarint(out, t.admissions.length)
+    for (const entry of t.admissions) {
+      if (entry.txid.length !== 64) throw new CodecError(`admission txid must be 64 hex chars, got ${entry.txid.length}`)
+      // Same shape check the overlay key already gets: a signerKey that is not
+      // a 33-byte compressed point can never verify, and one that is silently
+      // truncated on the wire would verify against a DIFFERENT key on the far
+      // side. Fail at encode, where there is still a payer to tell.
+      if (entry.signerKey.length !== 66) {
+        throw new CodecError(`admission signerKey must be 66 hex chars, got ${entry.signerKey.length}`)
+      }
+      for (const byte of hexToBytes(entry.txid.toLowerCase())) out.push(byte)
+      putVarint(out, entry.outputsToAdmit.length)
+      for (const vout of entry.outputsToAdmit) putVarint(out, vout)
+      putBytes(out, entry.signature)
+      for (const byte of hexToBytes(entry.signerKey.toLowerCase())) out.push(byte)
+    }
   }
   putBytes(out, f.transaction)
   return new Uint8Array(out)
@@ -190,8 +226,25 @@ export function decodeFrame(b: Uint8Array): PaymentFrame {
       pos.i += 32
       linkage.push({ txid, payload: getBytes(b, pos) })
     }
-    const recipientLinkage = getBytes(b, pos)
-    token = { assetId, overlayUrl, overlayIdentityKey, certificates, linkage, recipientLinkage }
+    const admissions: AdmissionEntryWire[] = []
+    const admissionCount = getVarint(b, pos)
+    for (let a = 0; a < admissionCount; a++) {
+      // Every field below consumes bytes and bounds-checks first, so a hostile
+      // count cannot make this loop spin: it throws the moment the buffer runs
+      // out, on the first entry that does not fit.
+      if (pos.i + 32 > b.length) throw new CodecError('truncated admission txid')
+      const txid = bytesToHex(b.slice(pos.i, pos.i + 32))
+      pos.i += 32
+      const voutCount = getVarint(b, pos)
+      const outputsToAdmit: number[] = []
+      for (let v = 0; v < voutCount; v++) outputsToAdmit.push(getVarint(b, pos))
+      const signature = getBytes(b, pos)
+      if (pos.i + 33 > b.length) throw new CodecError('truncated admission signerKey')
+      const signerKey = bytesToHex(b.slice(pos.i, pos.i + 33))
+      pos.i += 33
+      admissions.push({ txid, outputsToAdmit, signature, signerKey })
+    }
+    token = { assetId, overlayUrl, overlayIdentityKey, certificates, linkage, admissions }
   }
   const transaction = getBytes(b, pos)
   if (pos.i !== b.length) throw new CodecError('trailing bytes after frame')

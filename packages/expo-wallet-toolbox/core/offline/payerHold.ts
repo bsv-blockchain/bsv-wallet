@@ -52,16 +52,101 @@
  * shares nothing. What genuinely is shared — the `offline_actions` insert — is
  * reused directly via `insertOfflineAction`.
  */
-import { insertOfflineAction, updateOfflineAction } from '../storage/methods/offlineActions'
+import { findOfflineActionByTxid, insertOfflineAction, updateOfflineAction } from '../storage/methods/offlineActions'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
+import { devLog } from '../logging'
+import { createSettlementStore, type SettlementDb } from '../mandala/settlementStore'
+import type { EvidenceFrame, TokenHandedOverHook } from '../mandala/types'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 
-export async function holdSentPaymentOffline(args: {
-  storage: StorageExpoSQLite
-  txid: string
-  /** The full bsvpayf1: QR string, persisted so the code can be re-shown later. */
-  framePayload?: string
-}): Promise<void> {
+/**
+ * The PLAINTEXT frame and the hook that persists what it carries.
+ *
+ * `framePayload` is the frame SEALED with the nearby session's pre-shared key,
+ * and `offline/tokenFrames.ts` keeps that key IN MEMORY ONLY, deliberately — a
+ * durable copy of the key that opens every stored frame is exactly what nobody
+ * wants on disk. The consequence, until now, was that the payer's own
+ * `token_settlements` row existed only as a re-derivation from bytes it could
+ * no longer open after a restart: no row, and `processOfflineActions` reads the
+ * absence as "this is an ordinary BSV transaction" and broadcasts an unadmitted
+ * token tip.
+ *
+ * So the frame is handed over here, while it is still open, and the row plus
+ * its evidence are written from it. `tokenFrames.ts` stays exactly as it was —
+ * a best-effort fallback for the rows this process still holds a key for.
+ */
+export interface TokenHandoverDeps {
+  /** The open frame this hand-over is for. Absent on the BSV rail. */
+  frame?: EvidenceFrame
+  /** Implemented by the Mandala runtime; writes the row and the evidence. */
+  onTokenHandedOver?: TokenHandedOverHook
+}
+
+/**
+ * Advance this txid's settlement row `parked → handed_over` (§4.4, FIX F).
+ *
+ * The queue row's own `parked → queued` advance has a settlement twin, and it
+ * has to be issued explicitly for the same reason the queue one did:
+ * `upsertSettlement` never writes `state` on conflict (rule 1 in
+ * `settlementStore.ts`), so a hook re-running over an existing `parked` row
+ * leaves it `parked` — and `parked` is the one non-terminal state the drain
+ * refuses to submit, by design (FIX F). Without this the payer's optional
+ * submit (rule 6) could never start for a payment that was parked first.
+ *
+ * Best-effort, and it runs AFTER the queue row: the queue row is the durable
+ * fact, a settlement row is a re-derivable cache (FIX G), and the drain's own
+ * `reconcileSettlements` pass re-runs this population every tick. A wallet on a
+ * schema without these tables simply logs.
+ */
+async function advanceToHandedOver(storage: StorageExpoSQLite, txid: string): Promise<void> {
+  const db = storage.sqliteDb
+  if (!db) return
+  try {
+    await createSettlementStore(db as unknown as SettlementDb).advanceSettlement(txid, ['parked'], 'handed_over')
+  } catch (e) {
+    devLog(`[payerHold] could not advance the settlement row for ${txid} to handed_over:`, e)
+  }
+}
+
+/**
+ * Persist what the plaintext frame carries, for the state this call just put
+ * the payment in. Never throws: the queue row is already durable by the time
+ * this runs, and a payment that IS queued must not be reported as un-queued
+ * because a cache write failed.
+ */
+async function journalHandover(
+  deps: TokenHandoverDeps,
+  txid: string,
+  state: 'parked' | 'handed_over'
+): Promise<void> {
+  if (!deps.frame?.token || !deps.onTokenHandedOver) return
+  try {
+    await deps.onTokenHandedOver(deps.frame, txid, state)
+  } catch (e) {
+    devLog(`[payerHold] could not journal the ${state} settlement for ${txid}:`, e)
+  }
+}
+
+/**
+ * Statuses a second confirm may advance to 'queued'.
+ *
+ * 'parked' is the case FIX F names: the payer showed the code, walked away,
+ * came back and confirmed. 'queued' is included because re-confirming an
+ * already-queued payment must be a harmless no-op rather than a refusal.
+ * Everything past them — 'sent', 'rejected', 'acknowledged' — is a decided
+ * payment, and dragging one back to 'queued' would re-broadcast a transaction
+ * the wallet has already failed or cancelled.
+ */
+const ADVANCEABLE_TO_QUEUED = new Set(['parked', 'queued'])
+
+export async function holdSentPaymentOffline(
+  args: TokenHandoverDeps & {
+    storage: StorageExpoSQLite
+    txid: string
+    /** The full bsvpayf1: QR string, persisted so the code can be re-shown later. */
+    framePayload?: string
+  }
+): Promise<void> {
   const { storage, txid, framePayload } = args
   const db = storage.sqliteDb
   if (!db) throw new Error('the database is not open, cannot queue this payment for release')
@@ -80,9 +165,42 @@ export async function holdSentPaymentOffline(args: {
   const tx = (await storage.findTransactions({ partial: { txid }, noRawTx: true }))[0]
   if (!tx) throw new Error(`no transaction record for ${txid}, cannot queue it for release`)
 
+  // FIX F, part 1. `insertOfflineAction` is INSERT OR IGNORE on a UNIQUE txid:
+  // with a row already present it proves re-insert idempotency only, never a
+  // state advance. So a payer who parked, walked away, came back and confirmed
+  // had the insert silently ignored — the row stayed 'parked' forever while
+  // the promotion below still moved the transaction past 'nosend', leaving the
+  // payment neither drainable ('queued'/'posting' are all the drain reads) nor
+  // cancellable (`cancelParkedPayment` refuses anything past 'nosend'). An
+  // existing row is therefore ADVANCED rather than re-inserted.
+  const existing = await findOfflineActionByTxid(db, txid)
+  if (existing) {
+    if (!ADVANCEABLE_TO_QUEUED.has(existing.status)) {
+      // A decided payment. Neither the queue row nor the transaction may move.
+      devLog(`[holdSentPaymentOffline] ${txid} is already '${existing.status}', leaving it alone`)
+      return
+    }
+    // Same two writes and the same order as the insert path: the durable row
+    // first, the promotion after.
+    await updateOfflineAction(db, txid, { status: 'queued' })
+    TaskSendOffline.noteEnqueued()
+    await journalHandover(args, txid, 'handed_over')
+    await advanceToHandedOver(storage, txid)
+    // Only while still withheld: if the payee already broadcast and this device
+    // saw it, the transaction has moved on and this write would be a lie.
+    if (tx.status === 'nosend') await storage.updateTransactionStatus('unproven', tx.transactionId)
+    return
+  }
+
   // Insert before promote — see the ORDER MATTERS note above.
   await insertOfflineAction(db, { userId: tx.userId, txid, role: 'sent', framePayload })
   TaskSendOffline.noteEnqueued()
+  // Queue row first, settlement second, for the reason the ORDER MATTERS note
+  // gives: the queue row is what the drain finds, and it is durable. The
+  // advance is issued even on this path because a row may already exist at
+  // `parked` from a park that never got its queue row written.
+  await journalHandover(args, txid, 'handed_over')
+  await advanceToHandedOver(storage, txid)
   await storage.updateTransactionStatus('unproven', tx.transactionId)
 }
 
@@ -102,11 +220,13 @@ export async function holdSentPaymentOffline(args: {
  * their side and this device sees it confirm. If they did not, the payer can
  * cancel and nothing was ever spent.
  */
-export async function parkSentPaymentOffline(args: {
-  storage: StorageExpoSQLite
-  txid: string
-  framePayload?: string
-}): Promise<void> {
+export async function parkSentPaymentOffline(
+  args: TokenHandoverDeps & {
+    storage: StorageExpoSQLite
+    txid: string
+    framePayload?: string
+  }
+): Promise<void> {
   const { storage, txid, framePayload } = args
   const db = storage.sqliteDb
   if (!db) throw new Error('the database is not open, cannot park this payment')
@@ -117,6 +237,12 @@ export async function parkSentPaymentOffline(args: {
   // No promote, and no TaskSendOffline.noteEnqueued(): both are what turn a
   // stored frame into a broadcast.
   await insertOfflineAction(db, { userId: tx.userId, txid, role: 'sent', framePayload }, 'parked')
+  // The row is written at `parked`, which the drain will never submit (FIX F) —
+  // but it EXISTS, which is what `processOfflineActions` and
+  // `attemptToPostReqsToNetwork` both key their token branch on. That is the
+  // durability this call buys and the sealed `framePayload` cannot: after a
+  // restart the session PSK is gone and these bytes can no longer be opened.
+  await journalHandover(args, txid, 'parked')
 }
 
 
@@ -138,6 +264,11 @@ export async function releaseParkedPayment(args: { storage: StorageExpoSQLite; t
 
   await updateOfflineAction(db, txid, { status: 'queued' })
   TaskSendOffline.noteEnqueued()
+  // The settlement twin of the line above (§4.4). No frame is threaded here —
+  // this is the re-show-and-confirm path, and the row was already written from
+  // the plaintext frame when the payment was parked — so the state advance is
+  // the whole of it.
+  await advanceToHandedOver(storage, txid)
   // Already promoted if the payee broadcast and this device saw it; the write
   // is only correct while the transaction is still being withheld.
   if (tx.status === 'nosend') await storage.updateTransactionStatus('unproven', tx.transactionId)

@@ -28,12 +28,25 @@ export type DeclineReason =
   | 'save_failed'
   /** The frame did not decode — version skew, truncation, trailing bytes. */
   | 'decode_failed'
+  /**
+   * Token frames only: the frame's admission evidence does not COVER its own
+   * ancestry (offline-settlement spec §1.2). Some token ancestor bottoms out
+   * at neither a σ_I this device can verify against the session's overlay key
+   * nor bytes it can walk further — so the coin being offered is one the
+   * issuer's overlay has never vouched for.
+   *
+   * Distinct from `session_mismatch` because it is not retryable and not the
+   * payer's mistake about WHICH request they are paying: the payer must get
+   * their own chain admitted before this payment can be accepted by anyone.
+   */
+  | 'not_covered'
 
 const DECLINE_REASONS: readonly string[] = [
   'session_mismatch',
   'already_paid',
   'save_failed',
-  'decode_failed'
+  'decode_failed',
+  'not_covered'
 ]
 
 export function isDeclineReason(value: string): value is DeclineReason {

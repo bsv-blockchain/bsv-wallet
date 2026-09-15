@@ -92,6 +92,21 @@ export async function insertOfflineAction(
   )
 }
 
+/**
+ * The one row for a txid, or undefined.
+ *
+ * Separate from `findOfflineActions` because its caller
+ * (`holdSentPaymentOffline`) needs to tell "no row" from "a row in some state"
+ * before it decides between an insert and an advance — `INSERT OR IGNORE`
+ * proves re-insert idempotency only, never a state advance, and reading that
+ * distinction wrong is how a parked payment stayed parked forever (FIX F).
+ */
+export async function findOfflineActionByTxid(db: OfflineDb, txid: string): Promise<OfflineActionRow | undefined> {
+  return ((await db.getFirstAsync('SELECT * FROM offline_actions WHERE txid = ?', [txid])) ?? undefined) as
+    | OfflineActionRow
+    | undefined
+}
+
 export async function findOfflineActions(
   db: OfflineDb,
   filter: { status?: OfflineActionStatus[]; userId?: number } = {}

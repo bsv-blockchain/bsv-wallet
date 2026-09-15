@@ -23,6 +23,7 @@ import type { CreditFailureKind } from '../creditErrors'
 import { abbreviateKey } from '../counterparty'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
+import type { MandalaRuntime, TokenSendResult } from '../../mandala/runtime'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://gmb.bsvblockchain.tech'
@@ -565,6 +566,70 @@ export async function cancelOutboxPayment(args: {
   }
   await removeOutboxEntry(storage, entry.id)
   return { aborted }
+}
+
+// ── The token half of the handle rail (offline-settlement spec §4.5) ──
+//
+// Same rail, different pipeline. A satoshi payment is minted here and delivered
+// through the `payment_inbox` PeerPay box; a Mandala token payment is minted by
+// `@bsv/mandala`'s own overlay-first transfer and delivered through the
+// `'mandala-payments'` box — and unlike the nearby rail, the handle rail's
+// SENDER is online by construction, so it submits before it notifies and can
+// forward the tip's own σ_I in the body. That is why `TokenSendResult` carries
+// `settled`: it is the difference between "sent · settling" and "sent · settled
+// with {{issuer}}" on the payer's screen, decided by evidence rather than hope.
+//
+// Neither function reaches into the runtime's internals: both take the
+// narrowest slice of `MandalaRuntime` they need, so this module keeps knowing
+// nothing about overlays, baskets or settlement rows.
+
+/** The slice of `MandalaRuntime` the handle rail uses. */
+export type HandleTokenRuntime = Pick<
+  MandalaRuntime,
+  'available' | 'recipientRefusal' | 'sendToHandle' | 'receiveFromInbox'
+>
+
+/**
+ * Send tokens to a handle.
+ *
+ * Every refusal this function can make itself is made BEFORE the runtime is
+ * touched — no runtime, wrong network, a recipient that is not an identity key
+ * — because each of those is a fact about the request, not about the overlay,
+ * and an overlay round-trip cannot change any of them.
+ */
+export async function sendTokenViaHandle(args: {
+  runtime: HandleTokenRuntime | undefined
+  recipient: string
+  assetId: string
+  baseUnits: number
+}): Promise<TokenSendResult> {
+  const { runtime, recipient, assetId, baseUnits } = args
+  if (!runtime?.available) {
+    return { kind: 'unavailable', message: 'Stablecoins are not available on this network' }
+  }
+  const refusal = runtime.recipientRefusal(recipient)
+  if (refusal) return { kind: 'refused', code: 'ERR_RECIPIENT', message: refusal }
+  return await runtime.sendToHandle({ assetId, recipientIdentityKey: recipient, baseUnits })
+}
+
+/**
+ * The Mandala half of the handle rail's receive drain.
+ *
+ * Called beside `creditInboxOnce` on the same tick: the two inboxes are
+ * different message boxes on the same server, and a wallet that drained only
+ * one would leave real money sitting in the other. Never throws — a MessageBox
+ * that is down must not take the satoshi inbox down with it.
+ */
+export async function drainMandalaInbox(
+  runtime: HandleTokenRuntime | undefined
+): Promise<{ credited: number; failed: number }> {
+  if (!runtime?.available) return { credited: 0, failed: 0 }
+  try {
+    return await runtime.receiveFromInbox()
+  } catch (e) {
+    console.warn('[mandala] the token inbox drain failed:', e instanceof Error ? e.message : String(e))
+    return { credited: 0, failed: 0 }
+  }
 }
 
 /**

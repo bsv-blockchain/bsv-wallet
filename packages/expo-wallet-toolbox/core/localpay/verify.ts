@@ -1,8 +1,10 @@
-import { BigNumber, Curve, Hash, P2PKH, PublicKey, Transaction, Utils } from '@bsv/sdk'
+import { Hash, P2PKH, PublicKey, Transaction, Utils } from '@bsv/sdk'
 import { MandalaToken } from '@bsv/templates'
 import type { PaymentFrame } from './codec'
+import { coverFromFrame, type CoverVerifier } from '../mandala/bundle'
 import { PEERPAY_PROTOCOL_ID } from './pending'
 import { isRequestableAmount } from './session'
+import type { DeclineReason } from './types'
 
 // mandala's FT derivation protocol — the payer locks token outputs under it
 // with OUR payee-minted nonces as keyID, preserving the frame-to-session binding
@@ -10,16 +12,45 @@ export const FT_PROTOCOL_ID: [2, string] = [2, 'mandala token']
 
 export type VerifiedPayment =
   | { kind: 'bsv'; satoshis: number }
-  | { kind: 'token'; assetId: string; amount: number }
+  | {
+      kind: 'token'
+      assetId: string
+      amount: number
+      /**
+       * COVER's own answer: the chain transactions that still have to reach the
+       * overlay, parents first, tip last. The payee is the party nominally
+       * responsible for submitting them (settlement rule 3), so it is handed
+       * the list it proved rather than recomputing it later from storage.
+       */
+      mustSubmit: string[]
+    }
 
 /**
  * Why a frame could not be shown to pay this device.
  *
- * Two kinds, because the payee's decline reason differs: bytes that are not a
- * transaction are a decode problem the payer can retry from, whereas a
- * transaction that pays someone else is a frame that was never for us.
+ * Three kinds, because the payee's decline reason differs: bytes that are not a
+ * transaction are a decode problem the payer can retry from; a transaction that
+ * pays someone else is a frame that was never for us; and a token frame whose
+ * evidence does not COVER its own ancestry is a frame that pays us with a coin
+ * the issuer's overlay has never vouched for — retrying it will not help, and
+ * the payer needs to hear which of the three it was.
  */
-export type FrameVerifyKind = 'unparseable' | 'not_mine'
+export type FrameVerifyKind = 'unparseable' | 'not_mine' | 'not_covered'
+
+/**
+ * The decline code the payer is told, for each way verification can fail.
+ *
+ * One mapping, in one place, because it crosses the wire: the payee's screens
+ * and the QR path both refuse frames, and two hand-written switches would drift
+ * into telling the same payer two different stories about the same failure.
+ * Every code here means the payee queued NOTHING, so the payer may safely
+ * release the inputs its `noSend` action is holding.
+ */
+export function declineReasonFor(kind: FrameVerifyKind): DeclineReason {
+  if (kind === 'not_mine') return 'session_mismatch'
+  if (kind === 'not_covered') return 'not_covered'
+  return 'decode_failed'
+}
 
 export class FrameVerifyError extends Error {
   readonly kind: FrameVerifyKind
@@ -53,7 +84,35 @@ export interface DerivingWallet {
 export async function verifyFramePayment(
   wallet: DerivingWallet,
   frame: PaymentFrame,
-  originator: string
+  originator: string,
+  /**
+   * Token frames only. `cover` is the pure COVER walk (spec §1.2), injected
+   * because it lives in `@bsv/mandala` beside the overlay's own σ_I digest.
+   *
+   * Its ABSENCE refuses a token frame rather than crediting one: no verifier
+   * is no evidence, and a caller that forgot to wire it must not get a credit
+   * indistinguishable from a covered one. The BSV path never reads it.
+   */
+  opts?: {
+    cover?: CoverVerifier
+    /**
+     * Token frames only. THIS DEVICE's configured facts about the asset it
+     * agreed to be paid in — the session's own `asset` block, which the payee
+     * minted and the payer echoed back, not anything read off the frame.
+     *
+     * Wire contract §9.10: the verifier's trust anchor comes from its own
+     * configuration, and the bundle's `overlayIdentityKey` is DATA that must
+     * EQUAL it. Without this comparison a frame names its own overlay, and
+     * `coverFromFrame` — which builds the COVER bundle straight from
+     * `frame.token.overlayIdentityKey` — would happily verify every σ_I in the
+     * frame against a key the payer chose. A payer with any keypair could then
+     * sign its own admissions and be credited for a coin no issuer ever saw.
+     *
+     * Its ABSENCE refuses a token frame, exactly as a missing `cover` does: no
+     * configured asset is no anchor.
+     */
+    asset?: { overlayUrl: string; overlayIdentityKey: string }
+  }
 ): Promise<VerifiedPayment> {
   let tx: Transaction
   try {
@@ -130,73 +189,63 @@ export async function verifyFramePayment(
   if (!Number.isSafeInteger(decoded.amount) || decoded.amount < 1) {
     throw new FrameVerifyError('not_mine', `the named output carries no usable token amount: ${decoded.amount}`)
   }
-  return { kind: 'token', assetId: decoded.assetId, amount: decoded.amount }
-}
 
-/** The one wallet capability `verifyRecipientLinkage` needs: BRC-72 decryption. */
-export interface LinkageDecryptingWallet {
-  decrypt(args: unknown, originator?: string): Promise<{ plaintext: number[] }>
+  // Coverage runs LAST, and only for an output already proven to be ours.
+  // Ownership is the cheaper, more certain check, and running a third party's
+  // injected verifier over a stranger's frame would hand it bytes that were
+  // never this device's business.
+  //
+  // This is the whole offline-settlement gate: the coin is credited — spendable
+  // immediately, which is what makes chained offline re-spend work — the moment
+  // every token ancestor bottoms out at a σ_I this device can verify against
+  // THIS session's overlay key, or at bytes it can walk further. Anything else
+  // is refused here, before the settle path latches or writes anything, so the
+  // refusal stays a provable "queued nothing".
+  if (!opts?.cover) {
+    throw new FrameVerifyError('not_covered', 'no coverage verifier was supplied for a token frame')
+  }
+
+  // The trust anchor, BEFORE the walk (wire contract §9.10). `coverFromFrame`
+  // takes the bundle's `overlayIdentityKey` from the frame, so this equality is
+  // what makes that key the CONFIGURED one rather than the payer's choice —
+  // and the overlay URL goes with it, because the linkage payloads this frame
+  // carries are the bytes a later `/submit` is aimed at, and aiming them at an
+  // attacker's overlay is how a wallet is talked into treating a stranger's
+  // "admitted" as the issuer's.
+  const asset = opts.asset
+  if (!asset || !sameOverlay(frame.token, asset)) {
+    throw new FrameVerifyError(
+      'not_covered',
+      `the frame’s admission evidence does not cover it: unsafe_asset`
+    )
+  }
+
+  const covered = await coverFromFrame(frame, opts.cover)
+  if (!covered.ok) {
+    throw new FrameVerifyError('not_covered', `the frame’s admission evidence does not cover it: ${covered.reason}`)
+  }
+
+  return { kind: 'token', assetId: decoded.assetId, amount: decoded.amount, mustSubmit: covered.mustSubmit }
 }
 
 /**
- * Prove the payer minted honest linkage for OUR output: decrypt the
- * BRC-72 blob (we are its verifier), recover derivedKey = counterparty +
- * L·G, and require its hash160 to equal the output's pubKeyHash. This
- * shows the payer CAN produce valid linkage — the overlay's own verdict
- * at submission remains the real admission gate.
+ * Both overlay facts, compared the way each is actually written.
+ *
+ * The identity key is hex and case-insensitive — a frame writing it uppercase
+ * is the same overlay and must not be refused. The URL is compared exactly
+ * apart from a trailing slash: anything cleverer (host-only, scheme-agnostic)
+ * would start accepting `http://` for `https://`, or a path under the
+ * configured origin, which is precisely what this check exists to stop.
  */
-export async function verifyRecipientLinkage(
-  wallet: LinkageDecryptingWallet,
-  recipientLinkage: Uint8Array,
-  expectedPubKeyHash: number[],
-  originator: string
-): Promise<void> {
-  let linkage: {
-    prover: string; counterparty: string
-    protocolID: [number, string]; keyID: string; encryptedLinkage: number[]
-  }
-  try {
-    const parsed = JSON.parse(new TextDecoder().decode(recipientLinkage)) as Record<string, unknown>
-    if (
-      typeof parsed.prover !== 'string' || parsed.prover.length !== 66 ||
-      typeof parsed.counterparty !== 'string' || parsed.counterparty.length !== 66 ||
-      !Array.isArray(parsed.protocolID) || typeof parsed.keyID !== 'string' ||
-      !Array.isArray(parsed.encryptedLinkage)
-    ) throw new Error('missing linkage fields')
-    linkage = parsed as typeof linkage
-  } catch (e) {
-    throw new FrameVerifyError('unparseable', `recipientLinkage is not a readable SpecificLinkage: ${messageOf(e)}`)
-  }
-  let plaintext: number[]
-  try {
-    ;({ plaintext } = await wallet.decrypt(
-      {
-        ciphertext: linkage.encryptedLinkage,
-        protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
-        keyID: linkage.keyID,
-        counterparty: linkage.prover
-      },
-      originator
-    ))
-  } catch (e) {
-    throw new FrameVerifyError('not_mine', `recipientLinkage did not decrypt for this device: ${messageOf(e)}`)
-  }
-  let derivedPkh: number[]
-  try {
-    const curve = new Curve()
-    const sum = PublicKey.fromString(linkage.counterparty).add(curve.g.mul(new BigNumber(plaintext)))
-    derivedPkh = Hash.hash160(Utils.toArray(new PublicKey(sum.x, sum.y).toString(), 'hex'))
-  } catch (e) {
-    // `linkage.counterparty` is 66 hex chars by the shape check above, but
-    // hex-shaped is not curve-valid: hostile JSON can still name a point this
-    // library refuses to parse or add. That is a platform Error, not a
-    // FrameVerifyError, so it must be caught here to keep this module's
-    // every-failure-is-FrameVerifyError contract.
-    throw new FrameVerifyError('not_mine', `recipientLinkage counterparty key is unusable: ${messageOf(e)}`)
-  }
-  const matches = derivedPkh.length === expectedPubKeyHash.length &&
-    derivedPkh.every((b, i) => b === expectedPubKeyHash[i])
-  if (!matches) throw new FrameVerifyError('not_mine', 'recipientLinkage does not control the paid output')
+function sameOverlay(
+  token: { overlayUrl: string; overlayIdentityKey: string },
+  asset: { overlayUrl: string; overlayIdentityKey: string }
+): boolean {
+  const url = (u: string) => u.trim().replace(/\/+$/, '')
+  return (
+    token.overlayIdentityKey.toLowerCase() === asset.overlayIdentityKey.toLowerCase() &&
+    url(token.overlayUrl) === url(asset.overlayUrl)
+  )
 }
 
 function messageOf(e: unknown): string {

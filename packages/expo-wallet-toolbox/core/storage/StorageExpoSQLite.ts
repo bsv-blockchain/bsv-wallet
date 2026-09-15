@@ -1912,7 +1912,54 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   /**
-   * Offline, hold the requests. Online, behave exactly as before.
+   * Which of these txids the Mandala settlement drain owns.
+   *
+   * A missing table (a device that has not yet run the additive migration) or
+   * any other read failure yields the empty set, which is exactly the
+   * pre-feature behaviour — logged, never thrown, because a broken read here
+   * must not take down every broadcast in the wallet.
+   */
+  private async tokenSettlementTxids(txids: string[]): Promise<Set<string>> {
+    if (txids.length === 0 || !this.db) return new Set()
+    try {
+      const rows = (await this.db.getAllAsync(
+        `SELECT txid FROM token_settlements WHERE txid IN (${txids.map(() => '?').join(',')})`,
+        txids
+      )) as { txid: string }[]
+      return new Set(rows.map(r => r.txid))
+    } catch (e) {
+      devLog('[StorageExpoSQLite] could not read token_settlements, treating every req as plain BSV:', e)
+      return new Set()
+    }
+  }
+
+  /**
+   * Hold token requests whatever `groupOfflineHolds` says.
+   *
+   * The all-or-nothing refusal `groupOfflineHolds` offers is right for the BSV
+   * path — refusing there falls back to the ordinary broadcast. For a token req
+   * that fallback is precisely the harm this guard exists to prevent, so an
+   * ungroupable token req is simply not broadcast: it keeps its
+   * `token_settlements` row, which the drain owns independently of any queue
+   * bookkeeping (FIX I) and which `listStuckSettlements` surfaces if it never
+   * moves. The failure is loud in the log and recoverable; a premature
+   * broadcast is neither.
+   */
+  private async holdTokenReqs(reqs: EntityProvenTxReq[]): Promise<void> {
+    const holds = groupOfflineHolds(await this.resolveHoldPairs(reqs))
+    if (!holds) {
+      devLog(
+        '[StorageExpoSQLite] token req(s) could not be attributed for a queue row; withholding anyway:',
+        reqs.map(r => r.txid).join(', ')
+      )
+      return
+    }
+    for (const hold of holds.values()) await this.holdReqsOffline(hold.reqs, hold.userId, hold.role)
+  }
+
+  /**
+   * Offline, hold the requests. Online, behave exactly as before — EXCEPT for a
+   * token request, which is held either way.
    *
    * This override is reached only from `shareReqsWithWorld`
    * (`storage/methods/processAction.js:146`, a method call on storage), which
@@ -1921,11 +1968,28 @@ export class StorageExpoSQLite extends StorageProvider {
    * directly (`monitor/tasks/TaskSendWaiting.js:180`), so the monitor's
    * ordinary broadcast retries are deliberately NOT intercepted.
    *
-   * Narrower than "offline means hold": only requests whose transaction is
-   * already in a hold-safe status are parked, so in practice this holds the
-   * internalize path the feature needs and leaves the non-delayed `createAction`
-   * path with the `serviceError` and automatic `TaskSendWaiting` retry it has
-   * today. `groupOfflineHolds` makes that call; see `utils/offline/hold.ts`.
+   * **Token guard (offline-settlement spec §4.3, guard #2).** A transaction
+   * with a `token_settlements` row may only be broadcast by `postTokenStep`,
+   * after the issuer's overlay has admitted it and every unadmitted token
+   * ancestor it spends. Holding "only when offline" left the common shop case
+   * wide open — payee has Wi-Fi, payer none — because the payee's own
+   * `internalizeAction` then reached a real, unmediated broadcast. So token
+   * reqs are split off and held unconditionally, and the online branch is taken
+   * only for what is left. The result still covers every txid the caller handed
+   * in: reporting on a subset would make `internalizeAction` roll back a
+   * payment that was in fact accepted for delivery.
+   *
+   * Guard #3 follows from this one: because a token req is never handed to
+   * `sendWith` outside `postTokenStep`, it never reaches `unsent`/`sending`,
+   * which is all that keeps `TaskSendWaiting` — which bypasses this override
+   * entirely — from broadcasting it out from under the drain.
+   *
+   * Narrower than "offline means hold" on the BSV side: only requests whose
+   * transaction is already in a hold-safe status are parked, so in practice
+   * this holds the internalize path the feature needs and leaves the
+   * non-delayed `createAction` path with the `serviceError` and automatic
+   * `TaskSendWaiting` retry it has today. `groupOfflineHolds` makes that call;
+   * see `utils/offline/hold.ts`.
    *
    * The returned 'success' means "accepted for delivery", not "the network has
    * it"; see `utils/offline/hold.ts` for why nothing persisted claims otherwise.
@@ -1937,6 +2001,21 @@ export class StorageExpoSQLite extends StorageProvider {
   ): Promise<PostReqsToNetworkResult> {
     if (reqs.length === 0) return await super.attemptToPostReqsToNetwork(reqs, trx, logger)
 
+    const tokenTxids = await this.tokenSettlementTxids(reqs.map(r => r.txid))
+    const tokenReqs = tokenTxids.size > 0 ? reqs.filter(r => tokenTxids.has(r.txid)) : []
+    const rest = tokenTxids.size > 0 ? reqs.filter(r => !tokenTxids.has(r.txid)) : reqs
+
+    if (tokenReqs.length > 0) {
+      devLog(
+        `[StorageExpoSQLite] holding ${tokenReqs.length} token req(s) for the settlement drain, regardless of connectivity`
+      )
+      await this.holdTokenReqs(tokenReqs)
+      // Nothing else in the call: answer for the whole call without ever
+      // asking whether we are online, because the answer could not change it.
+      if (rest.length === 0) return { ...buildOfflineHoldResult(reqs), beef: new Beef(), log: '' }
+    }
+    const held = tokenReqs.length > 0 ? buildOfflineHoldResult(tokenReqs).details : []
+
     let online = true
     try {
       online = await getOnline()
@@ -1945,9 +2024,12 @@ export class StorageExpoSQLite extends StorageProvider {
       // online so the real post runs exactly as it did before this override.
       devLog('[StorageExpoSQLite] connectivity probe failed, assuming online:', e)
     }
-    if (online) return await super.attemptToPostReqsToNetwork(reqs, trx, logger)
+    if (online) {
+      const posted = await super.attemptToPostReqsToNetwork(rest, trx, logger)
+      return held.length > 0 ? { ...posted, details: [...posted.details, ...held] } : posted
+    }
 
-    const pairs = await this.resolveHoldPairs(reqs)
+    const pairs = await this.resolveHoldPairs(rest)
     const holds = groupOfflineHolds(pairs)
     if (!holds) {
       // Either a request could not be attributed to a user, so we could not
@@ -1960,10 +2042,13 @@ export class StorageExpoSQLite extends StorageProvider {
         '[StorageExpoSQLite] offline: not holding, delegating to the real post:',
         pairs.map(p => `${p.req.txid} ${p.tx ? `tx ${p.tx.status}` : 'unattributed'}`).join(', ')
       )
-      return await super.attemptToPostReqsToNetwork(reqs, trx, logger)
+      // `rest` only: the token reqs are already held above and must never be
+      // handed to a real post, whatever the rest of the batch turned out to be.
+      const posted = await super.attemptToPostReqsToNetwork(rest, trx, logger)
+      return held.length > 0 ? { ...posted, details: [...posted.details, ...held] } : posted
     }
 
-    devLog(`[StorageExpoSQLite] offline: holding ${reqs.length} req(s) for later delivery`)
+    devLog(`[StorageExpoSQLite] offline: holding ${rest.length} req(s) for later delivery`)
     for (const hold of holds.values()) {
       await this.holdReqsOffline(hold.reqs, hold.userId, hold.role)
     }

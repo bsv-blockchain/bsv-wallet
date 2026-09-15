@@ -1,5 +1,9 @@
 import { holdSentPaymentOffline, parkSentPaymentOffline, releaseParkedPayment } from '../../core/offline/payerHold'
-import { insertOfflineAction, updateOfflineAction } from '../../core/storage/methods/offlineActions'
+import {
+  findOfflineActionByTxid,
+  insertOfflineAction,
+  updateOfflineAction
+} from '../../core/storage/methods/offlineActions'
 import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 
@@ -7,10 +11,12 @@ import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 // here it's mocked so these tests pin exactly what `holdSentPaymentOffline`
 // hands it, without duplicating its own SQL coverage.
 jest.mock('../../core/storage/methods/offlineActions', () => ({
+  findOfflineActionByTxid: jest.fn().mockResolvedValue(undefined),
   insertOfflineAction: jest.fn().mockResolvedValue(undefined),
   updateOfflineAction: jest.fn().mockResolvedValue(undefined)
 }))
 
+const mockedFind = findOfflineActionByTxid as jest.Mock
 const mockedInsert = insertOfflineAction as jest.Mock
 const mockedUpdate = updateOfflineAction as jest.Mock
 
@@ -35,6 +41,10 @@ describe('holdSentPaymentOffline', () => {
   beforeEach(() => {
     mockedInsert.mockClear()
     mockedInsert.mockResolvedValue(undefined)
+    mockedUpdate.mockClear()
+    mockedUpdate.mockResolvedValue(undefined)
+    mockedFind.mockClear()
+    mockedFind.mockResolvedValue(undefined)
     TaskSendOffline.resetForTests()
   })
 
@@ -115,6 +125,94 @@ describe('holdSentPaymentOffline', () => {
     // ran first), so the drain can still find and post this txid even though
     // this call reports failure to its caller.
     expect(mockedInsert).toHaveBeenCalledTimes(1)
+  })
+
+  // FIX F, part 1. `insertOfflineAction` is INSERT OR IGNORE on a UNIQUE txid,
+  // so with a parked row already present the insert was silently ignored, the
+  // row stayed 'parked' forever, and the promotion below still moved the
+  // transaction past 'nosend' — leaving the payment neither drainable (the
+  // drain reads 'queued'/'posting') nor cancellable (cancel refuses anything
+  // past 'nosend'). Park → hold must leave the row queued and drainable.
+  describe('a second confirm of a parked payment', () => {
+    const parked = (status = 'parked') => ({
+      offlineActionId: 1,
+      created_at: 'n',
+      updated_at: 'n',
+      userId: 5,
+      txid: TXID,
+      seq: 1,
+      role: 'sent' as const,
+      senderIdentityKey: null,
+      receivedVia: null,
+      status,
+      rejectedReason: null,
+      poisonedByTxid: null,
+      framePayload: 'bsvpayf1:abc'
+    })
+
+    it('advances the parked row to queued instead of re-inserting it', async () => {
+      mockedFind.mockResolvedValue(parked())
+      const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
+
+      await holdSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+
+      expect(mockedInsert).not.toHaveBeenCalled()
+      expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
+      // Drainable: the row is queued AND the drain has been woken.
+      expect(TaskSendOffline.hasPending).toBe(true)
+      expect(storage.updateTransactionStatus).toHaveBeenCalledWith('unproven', 99)
+    })
+
+    it('keeps the durable row write ahead of the promotion', async () => {
+      mockedFind.mockResolvedValue(parked())
+      const calls: string[] = []
+      mockedUpdate.mockImplementation(async () => {
+        calls.push('update')
+      })
+      const updateTransactionStatus = jest.fn().mockImplementation(async () => {
+        calls.push('promote')
+      })
+      const storage = storageStub({
+        tx: { transactionId: 99, userId: 5, status: 'nosend' },
+        updateTransactionStatus
+      })
+
+      await holdSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+      expect(calls).toEqual(['update', 'promote'])
+    })
+
+    it('leaves an already-promoted transaction alone while still queueing the row', async () => {
+      mockedFind.mockResolvedValue(parked())
+      const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'unproven' } })
+
+      await holdSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+
+      expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
+      expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
+    })
+
+    it('re-confirming an already-queued payment is a harmless no-op', async () => {
+      mockedFind.mockResolvedValue(parked('queued'))
+      const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'unproven' } })
+
+      await holdSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+
+      expect(mockedInsert).not.toHaveBeenCalled()
+      expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
+    })
+
+    // Dragging a decided payment back to 'queued' would re-broadcast something
+    // the wallet has already failed or the user already cancelled.
+    it.each(['sent', 'rejected', 'acknowledged'])('refuses to rewind a %s row', async status => {
+      mockedFind.mockResolvedValue(parked(status))
+      const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
+
+      await holdSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
+
+      expect(mockedInsert).not.toHaveBeenCalled()
+      expect(mockedUpdate).not.toHaveBeenCalled()
+      expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
+    })
   })
 })
 

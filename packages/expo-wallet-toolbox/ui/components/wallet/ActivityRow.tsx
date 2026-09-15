@@ -98,6 +98,33 @@ interface Props {
   onSendAgain?: (action: ActivityAction) => void
   /** Cancel a parked payment: abort the action and retire its queue row. */
   onCancelParked?: (txid: string) => void
+  /**
+   * Token denomination for a `'mandala'`-labelled action.
+   *
+   * Absent, this row is byte-identical to the row it has always been. Present,
+   * it overrides three things and only those three:
+   *
+   *  · the DESCRIPTION, because the lib writes a developer string containing a
+   *    raw 36-byte token id and this row renders `action.description` verbatim;
+   *  · the AMOUNT, because `action.satoshis` for a token send is the net BSV
+   *    spent — printing "−64 sats" for a payment of 25.00 USDX would be a
+   *    plausible wrong number, which is worse than a blank. When the figure
+   *    cannot be recovered the row says so rather than falling through;
+   *  · the FACE, because under blinding the sender is a fresh key per payment
+   *    and `counterpartyOf` falls through to a txid rather than returning null
+   *    — so without suppression the wallet would draw a different plausible
+   *    face for every payment from the same person.
+   */
+  token?: {
+    title: string
+    /** The figure and its unit, or undefined when it could not be recovered. */
+    amount?: { value: string; unit: string }
+    incoming: boolean
+    /** True for a received token row: the sender is A′ and cannot be named. */
+    suppressFace: boolean
+    /** Settlement status line, in place of the chain-status words. */
+    statusText?: string
+  }
 }
 
 /** Statuses whose transaction is still local and therefore abortable: nothing
@@ -132,7 +159,8 @@ function ActivityRowBase({
   onAbort,
   onSendPaymentDetails,
   onSendAgain,
-  onCancelParked
+  onCancelParked,
+  token
 }: Props & { currency: string }) {
   const { t } = useTranslation()
   const { colors, isDark } = useTheme()
@@ -142,7 +170,7 @@ function ActivityRowBase({
   const view = txStatusView(action.status, offlineStatus)
   const settled = view.tone === 'settled'
   const tone = toneColor(view.tone, colors as unknown as Record<string, string>)
-  const incoming = action.satoshis >= 0
+  const incoming = token ? token.incoming : action.satoshis >= 0
 
   const { value, unit } = formatAmountParts(action.satoshis, currency, satoshisPerUSD, {
     abbreviate: true,
@@ -170,9 +198,14 @@ function ActivityRowBase({
   const { labels, senderIdentityKey, txid } = action
   const labelsKey = labels?.join('\n') ?? ''
   const face = useMemo(() => {
+    // We never draw a face for a party we cannot name. `counterpartyOf` does
+    // not return null for a mandala label — it falls through to a txid "so
+    // that every action still gets a stable, if anonymous, face" — which is
+    // exactly the wrong behaviour for a blinded sender.
+    if (token?.suppressFace) return null
     const cp = counterpartyOf({ labels: labelsKey === '' ? undefined : labelsKey.split('\n'), senderIdentityKey, txid })
     return cp ? { point: sigilPointOf(cp), hue: counterpartyHue(cp) } : null
-  }, [labelsKey, senderIdentityKey, txid])
+  }, [labelsKey, senderIdentityKey, txid, token?.suppressFace])
   // Resolved outside the memo: the hue is a property of the counterparty, the
   // colours it maps to are a property of the theme, and the theme can flip
   // under a mounted row. Two HSL conversions per render are not worth a dep.
@@ -219,7 +252,16 @@ function ActivityRowBase({
         style={styles.row}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={action.description || t('transactions')}
+        accessibilityLabel={
+          token
+            ? // Never the lib's developer description, which carries a raw
+              // 36-byte token id, and never silence for a figure we could not
+              // recover: "Sent USDX, amount unavailable" is the honest read.
+              `${token.title}, ${
+                token.amount ? `${token.amount.value} ${token.amount.unit}` : t('token_row_amount_pending')
+              }`
+            : action.description || t('transactions')
+        }
       >
         {/* The sigil fills the tile, so direction moves to the border tint
             alone: the same tints as the arrow tile, so a mixed list still
@@ -268,7 +310,7 @@ function ActivityRowBase({
 
         <View style={styles.middle}>
           <Text style={[styles.description, { color: colors.textPrimary }]} numberOfLines={1}>
-            {action.description || t('transactions')}
+            {token ? token.title : action.description || t('transactions')}
           </Text>
           <View style={styles.statusLine}>
             <View
@@ -281,17 +323,40 @@ function ActivityRowBase({
               style={[styles.statusText, { color: settled ? colors.textSecondary : tone }]}
               numberOfLines={1}
             >
-              {time ? `${t(view.key)} · ${time}` : t(view.key)}
+              {(() => {
+                const words = token?.statusText ?? t(view.key)
+                return time ? `${words} · ${time}` : words
+              })()}
             </Text>
           </View>
         </View>
 
         <View style={styles.amounts}>
-          <Text style={[styles.amount, { color: amountColor }]}>
-            {value}
-            {unit ? <Text style={[styles.amountUnit, { color: unitColor }]}> {unit}</Text> : null}
-          </Text>
-          <Text style={[styles.amountSecondary, { color: colors.textTertiary }]}>{secondary}</Text>
+          {token ? (
+            token.amount ? (
+              // No secondary denomination line: this wallet has no price for a
+              // token, and a converted figure would be invented.
+              <Text
+                style={[styles.amount, { color: amountColor }]}
+                accessibilityLabel={`${token.amount.value} ${token.amount.unit}`}
+              >
+                {token.amount.value}
+                <Text style={[styles.amountUnit, { color: unitColor }]}> {token.amount.unit}</Text>
+              </Text>
+            ) : (
+              <Text style={[styles.amountSecondary, { color: colors.textTertiary }]}>
+                {t('token_row_amount_pending')}
+              </Text>
+            )
+          ) : (
+            <>
+              <Text style={[styles.amount, { color: amountColor }]}>
+                {value}
+                {unit ? <Text style={[styles.amountUnit, { color: unitColor }]}> {unit}</Text> : null}
+              </Text>
+              <Text style={[styles.amountSecondary, { color: colors.textTertiary }]}>{secondary}</Text>
+            </>
+          )}
         </View>
       </PressableScale>
 

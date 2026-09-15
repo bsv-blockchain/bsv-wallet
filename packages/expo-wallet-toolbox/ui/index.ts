@@ -138,3 +138,46 @@ export { TrustScreen } from './screens/TrustScreen'
 export { LogsScreen } from './screens/LogsScreen'
 export { default as validateTrust } from './validateTrust'
 export { default as isImageUrl } from './isImageUrl'
+
+// ── Stablecoins ──────────────────────────────────────────────────────
+//
+// Every token surface in this package, and the one hook they all read from.
+// `useMandala()` resolves the runtime from `useWallet().mandala`; a host that
+// builds its own runtime (or a test) can wrap in `MandalaProvider` instead.
+// Nothing here imports `@bsv/mandala`: the runtime is the only door.
+export {
+  MandalaProvider,
+  useMandala,
+  useMandalaRuntime,
+  useTokenActivity,
+  tokenActivityByTxid,
+  type MandalaState,
+  type MandalaActivityState
+} from './hooks/useMandala'
+export {
+  formatTokenAmount,
+  formatTokenAmountWithUnit,
+  parseTokenAmount,
+  tokenAmountInputText,
+  tokenAmountMask,
+  tokenAmountParts
+} from './tokenFormat'
+export { tokenStatusKey, tokenStatusTone, tokenStatusDetailKey, type TokenStatusTone } from './tokenStatus'
+export { SEEN_ASSETS_KEY, SEEN_EVICTIONS_KEY, markSeen, readSeen, useSeenSet, type SeenSet } from './tokenSeen'
+export { default as AssetAmount, type AssetAmountProps } from './components/wallet/AssetAmount'
+export { default as AssetRow, type AssetRowProps } from './components/wallet/AssetRow'
+export { default as AssetSheet, type AssetSheetProps } from './components/wallet/AssetSheet'
+export { default as BalancesSection, type BalancesSectionProps } from './components/wallet/BalancesSection'
+export { announceEviction, evictionsFrom, type EvictionNotice } from './components/wallet/tokenEviction'
+export { default as AssetPicker, type AssetPickerProps } from './components/pay/AssetPicker'
+export { default as AdmissionNotice, type AdmissionNoticeProps } from './components/pay/AdmissionNotice'
+export {
+  tokenSendCopy,
+  tokenRefusalCopy,
+  tokenThrowCopy,
+  tokenUnavailableCopy,
+  type TokenSendCopy,
+  type TokenSendContext
+} from './components/pay/tokenSendCopy'
+export type { HandleReceiveProps } from './components/pay/HandleReceive'
+export type { AmountInputAsset } from './components/wallet/AmountInput'

@@ -31,6 +31,11 @@ import ResultBanner from './ResultBanner'
 import RecipientField from './RecipientField'
 import { useMessageBoxConfig } from './MessageBoxConfig'
 import { useRecipientInput, type RecipientTarget } from './useRecipientInput'
+import AssetPicker from './AssetPicker'
+import { tokenSendCopy, tokenThrowCopy, type TokenSendCopy } from './tokenSendCopy'
+import { useAssetStatus, useMandala } from '../../hooks/useMandala'
+import { useSpendableBalance } from '../../hooks/useSpendableBalance'
+import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
 import {
   useTheme,
   spacing,
@@ -183,6 +188,13 @@ export interface UniversalSendProps {
   initialTarget?: Extract<RecipientTarget, { kind: 'handle' }>
   /** Prefilled amount in satoshis from a peerpay link or `?sats=`. */
   initialSats?: number
+  /**
+   * The asset this payment is denominated in. `null` is BSV — the default, and
+   * what every existing flow assumes. Controlled by the Pay screen so the
+   * choice survives a hop into Get paid and back.
+   */
+  selectedAssetId?: string | null
+  onSelectAsset?: (assetId: string | null) => void
   /** Error text from a malformed peerpay link, shown as a banner. */
   initialNotice?: string | null
   /** Open the scanner as soon as the form mounts (deep link `cell=pay-nearby`). */
@@ -199,6 +211,8 @@ function UniversalSend({
   initialNotice,
   openScannerOnMount = false,
   onNearbySession,
+  selectedAssetId,
+  onSelectAsset,
   dismissTo = '/'
 }: UniversalSendProps) {
   const { t } = useTranslation()
@@ -206,6 +220,28 @@ function UniversalSend({
   const StatusBar = loadStatusBar()
   const { managers, adminOriginator, storage } = useWalletManagers()
   const wallet = managers?.permissionsManager || null
+
+  // ── the asset axis ──────────────────────────────────────────────────
+  // Every line below is gated on `asset`: with no token held, `balances` is
+  // empty, `asset` is null, the picker renders nothing and this form is
+  // byte-for-byte the form it was.
+  const mandala = useMandala()
+  const spendableSats = useSpendableBalance()
+  const [localAssetId, setLocalAssetId] = useState<string | null>(null)
+  const assetId = selectedAssetId !== undefined ? selectedAssetId : localAssetId
+  const setAssetId = onSelectAsset ?? setLocalAssetId
+  const balances = mandala.balances ?? []
+  const holding = balances.find(b => b.asset.assetId === assetId) ?? null
+  const asset = holding?.asset ?? null
+  const issuer = asset?.issuerName || t('token_issuer_fallback')
+  /**
+   * Regulatory/registry facts for the selected asset (paused, frozen, this
+   * wallet's own registration, whether the metadata even resolved), from the
+   * runtime's ~10s cache. `null` (unknown/loading) blocks nothing — ux §4.2
+   * rule 3: pre-flight may only ever say "no", never invent a "yes" and never
+   * gate on an answer it does not have yet.
+   */
+  const assetStatus = useAssetStatus(asset?.assetId ?? null).status
 
   // Read-only here: the server is configured in Settings › Advanced.
   const { messageBoxUrl } = useMessageBoxConfig(t)
@@ -218,8 +254,20 @@ function UniversalSend({
   )
   const [isSending, setIsSending] = useState(false)
   const [sendResult, setSendResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  /**
+   * The failed-token-send note, kept apart from `sendResult` because it carries
+   * an action ("Check again") that a plain banner has nowhere to put.
+   */
+  const [tokenFailure, setTokenFailure] = useState<TokenSendCopy | null>(null)
   /** The success moment, held until acknowledged — same screen as every rail. */
-  const [sent, setSent] = useState<{ amount: number; recipient?: string } | null>(null)
+  const [sent, setSent] = useState<{
+    amount: number
+    recipient?: string
+    /** Token mode: the figure in the asset's own units. */
+    amountText?: string
+    /** Whether the issuer has confirmed it yet — never claimed, only reported. */
+    statusNote?: string
+  } | null>(null)
   const [outbox, setOutbox] = useState<OutboxEntry[]>([])
   const [retryingId, setRetryingId] = useState<string | null>(null)
 
@@ -234,6 +282,34 @@ function UniversalSend({
     onNearbySession
   })
   const target = recipient.target
+
+  /**
+   * Whether the issuer's registry admits the typed recipient, for the ONE
+   * asset selected — the counterpart to `recipientRefusal`'s synchronous D4
+   * (address-shape) check, which never touches the registry at all. Asked
+   * only once the field has RESOLVED to an identity key: half-typed text is
+   * not a recipient, and `undefined` (unknown/still asking) never disables
+   * the CTA — only a proven `false` does (ux §4.2 rule 3).
+   */
+  const [recipientAdmitted, setRecipientAdmitted] = useState<boolean | undefined>(undefined)
+  useEffect(() => {
+    setRecipientAdmitted(undefined)
+    if (!asset || target?.kind !== 'handle' || !assetStatus) return
+    let live = true
+    void assetStatus
+      .recipientAdmitted(target.identityKey)
+      .then(admitted => {
+        if (live) setRecipientAdmitted(admitted)
+      })
+      .catch(() => {
+        // Fails open, same as every other pre-flight read: an unreachable
+        // registry is UNKNOWN, never a proven refusal.
+        if (live) setRecipientAdmitted(undefined)
+      })
+    return () => {
+      live = false
+    }
+  }, [asset, target, assetStatus])
 
   // A second deep link while mounted re-adopts the recipient (useRecipientInput);
   // the amount and the notice it carried must follow, or Pay sends the OLD
@@ -316,7 +392,15 @@ function UniversalSend({
       // The overlay stages its own haptic (inside Celebration) and tone; firing
       // haptics.success() here would double the beat. Only a human-readable
       // name goes on the success screen — a raw identity key is noise there.
-      setSent({ amount: paidSats, recipient: recipient.selectedIdentity?.name })
+      setSent({
+        amount: paidSats,
+        recipient: recipient.selectedIdentity?.name,
+        // The handle rail always drops the payment in the recipient's message
+        // box rather than handing it over in person — worth saying explicitly
+        // here, since it is the one thing an in-person (Nearby) payer never
+        // has to wonder about (ux §4.2/§8 "Success / arrival").
+        statusNote: t('pay_sent_handed_to_wallet')
+      })
     },
     [peerPayClient, storage, wallet, adminOriginator, messageBoxUrl, note, recipient.selectedIdentity, loadOutbox, t]
   )
@@ -335,29 +419,102 @@ function UniversalSend({
     [wallet, adminOriginator, t]
   )
 
+  /**
+   * The token send. One call, because the runtime owns the whole pipeline —
+   * coin selection, the blinded lock, the noSend build, the overlay submit, the
+   * journal and the abort on refusal. What this screen owns is the sentence the
+   * holder reads afterwards, and the rule that a refusal is the only outcome
+   * allowed to promise "nothing was sent".
+   */
+  const sendToken = useCallback(
+    async (to: Extract<RecipientTarget, { kind: 'handle' }>, baseUnits: number) => {
+      const runtime = mandala.runtime
+      if (!runtime || !asset) throw new Error(t('wallet_not_ready'))
+      const ctx = {
+        ticker: asset.ticker,
+        issuer: asset.issuerName,
+        issuerFallback: t('token_issuer_fallback')
+      }
+      const result = await runtime.sendToHandle({
+        assetId: asset.assetId,
+        recipientIdentityKey: to.identityKey,
+        baseUnits
+      })
+      if (result.kind !== 'sent') {
+        setTokenFailure(tokenSendCopy(result, ctx))
+        return
+      }
+      setSent({
+        amount: 0,
+        recipient: recipient.selectedIdentity?.name,
+        // Never falls back to the satoshi renderer: a token figure it could not
+        // format would print as satoshis, which is a wrong number rather than a
+        // missing one.
+        amountText: formatTokenAmountWithUnit(baseUnits, asset) ?? t('token_row_amount_pending'),
+        // `notified === false` takes priority: the money moved either way, but
+        // the recipient has not been TOLD it did (the lib's own notify retries
+        // in the background — see `TokenSendResult.notified`), and that is the
+        // more useful thing to tell the payer, whether or not the coin is
+        // settled yet. Settled or settling otherwise — and never a green check
+        // over a claim the wallet cannot make. `settled` is the runtime's own
+        // word for σ_I in hand; anything else is still on its way.
+        statusNote: !result.notified
+          ? t('pay_sent_not_notified')
+          : result.settled
+            ? t('token_sent_settled', { issuer })
+            : t('pay_sent_not_broadcast')
+      })
+      mandala.refresh()
+    },
+    [mandala, asset, issuer, recipient.selectedIdentity, t]
+  )
+
   const handleSend = useCallback(async () => {
     if (!target) return
     // Guard before any side effect: a wallet that is not ready must leave the
     // form exactly as typed, with a banner, not a cleared field and silence.
-    if (!wallet || !storage) {
+    // On the token path the runtime IS the wallet — it holds its own manager,
+    // storage and journal — so that is what has to be ready.
+    if (asset ? !mandala.runtime : !wallet || !storage) {
       flashResult({ type: 'error', message: t('wallet_not_ready') })
       return
     }
-    const sats = Math.round(Number(sendAmount))
-    if (!Number.isFinite(sats) || sats <= 0) {
+    // The same integer either way — satoshis on the BSV rail, base units of the
+    // asset on the token rail. The field emits whole units in both modes.
+    const amount = Math.round(Number(sendAmount))
+    if (!Number.isFinite(amount) || amount <= 0) {
       flashResult({ type: 'error', message: t('enter_valid_amount') })
       return
     }
     haptics.confirm()
     setIsSending(true)
+    setTokenFailure(null)
     try {
-      if (target.kind === 'handle') await sendHandle(target, sats)
-      else await sendAddress(target, sats)
+      if (asset) {
+        // D4: a token has no address rail, and `canSend` has already refused
+        // one. This is the second gate, because the first is a render.
+        if (target.kind !== 'handle') return
+        await sendToken(target, amount)
+      } else if (target.kind === 'handle') await sendHandle(target, amount)
+      else await sendAddress(target, amount)
       setSendAmount('')
       setNote('')
       recipient.clearRecipient()
     } catch (error: any) {
       if (await handleWalletCheck(error)) return
+      if (asset) {
+        // A throw out of the token path is NOT a refusal: the overlay may have
+        // admitted the transaction and lost the response, so the copy claims
+        // nothing and offers a balance check rather than a retry.
+        setTokenFailure(
+          tokenThrowCopy(error, {
+            ticker: asset.ticker,
+            issuer: asset.issuerName,
+            issuerFallback: t('token_issuer_fallback')
+          })
+        )
+        return
+      }
       const message =
         error instanceof RangeError
           ? t('enter_valid_amount')
@@ -373,12 +530,15 @@ function UniversalSend({
   }, [
     target,
     sendAmount,
+    asset,
+    sendToken,
     sendHandle,
     sendAddress,
     recipient,
     handleWalletCheck,
     flashResult,
     loadOutbox,
+    mandala.runtime,
     t,
     wallet,
     storage
@@ -480,7 +640,115 @@ function UniversalSend({
   // Address sends never touch the box, so they are not held hostage by it.
   const handleBlockedByOutbox = isHandle && outbox.length > 0
   const handleFormValid = isHandle && amountOk && !isSending && isConfigured
-  const canSend = isAddress ? amountOk && !isSending : handleFormValid && !handleBlockedByOutbox
+
+  // ── token pre-flight ────────────────────────────────────────────────
+  // Advisory, and it may only ever say "no". Nothing here promises a send will
+  // work; `resolveAssetState` and the registry both fail open, so a pre-flight
+  // that said "this will work" would be the one claim they cannot support.
+  const baseUnits = asset ? Math.round(Number(sendAmount)) || 0 : 0
+  const overBalance = !!holding && baseUnits > holding.baseUnits
+  /**
+   * The runtime's plain reason this recipient cannot be paid in this asset —
+   * an address (D4), an unregistered identity, a blocked one.
+   *
+   * Asked only once the field has RESOLVED to something. Half-typed text is not
+   * a recipient, and answering "no" to it would put a refusal on screen for a
+   * name the user is still in the middle of writing.
+   */
+  const recipientRefusal =
+    asset && mandala.runtime && target
+      ? mandala.runtime.recipientRefusal(target.kind === 'handle' ? target.identityKey : target.address)
+      : null
+  const tokenAddressRefused = !!asset && isAddress
+  // Every one of these is a KNOWN-false fact, never an unknown one: `assetStatus`
+  // is `null` until the first read lands and fails open on every later read, so
+  // `=== true`/`=== false` (never a bare truthiness check) is what keeps a cold
+  // read or an unreachable overlay from disabling the button on a guess.
+  const paused = assetStatus?.paused === true
+  const unidentified = assetStatus?.metadataResolved === false
+  const selfUnregistered = assetStatus?.selfAdmitted === false
+  // Only asked once the recipient resolved to a handle — an address is already
+  // refused by D4 above, and half-typed text is not a recipient yet.
+  const recipientRegistryRefused = !!asset && target?.kind === 'handle' && recipientAdmitted === false
+  const frozenBaseUnits = assetStatus?.frozenBaseUnits ?? 0
+  const tokenFormValid =
+    !!asset &&
+    isHandle &&
+    amountOk &&
+    !isSending &&
+    !overBalance &&
+    !recipientRefusal &&
+    !tokenAddressRefused &&
+    !paused &&
+    !unidentified &&
+    !selfUnregistered &&
+    !recipientRegistryRefused
+
+  const canSend = asset
+    ? tokenFormValid
+    : isAddress
+      ? amountOk && !isSending
+      : handleFormValid && !handleBlockedByOutbox
+
+  /**
+   * At most one note, in this order — the same order as ux design §4.2's
+   * pre-flight table: the reasons that block the CTA first (most specific
+   * first), then the two that are advisory only (frozen, needs-BSV) and never
+   * disable it. The BSV-fee note stays last and — this is the part that
+   * matters — it NEVER disables the button: `useSpendableBalance()` returns
+   * `null` on a cold open, `null < n` is `true` in JavaScript, and the
+   * authoritative answer is the toolbox's own funding throw, which comes back
+   * as the same sentence.
+   */
+  const tokenNote: {
+    key: string
+    values?: Record<string, string>
+    /** The runtime's own sentence, which wins over the key when it has one. */
+    text?: string
+    action?: 'get-bsv'
+  } | null = asset
+    ? tokenAddressRefused
+      ? // D4, stated plainly. The runtime's own reason wins when it has one:
+        // it knows which of the several reasons an address cannot be paid
+        // applies, and a specific true sentence beats a general true sentence.
+        { key: 'pay_asset_no_address', values: { ticker: asset.ticker }, text: recipientRefusal ?? undefined }
+      : paused
+        ? { key: 'pay_asset_paused', values: { issuer, ticker: asset.ticker } }
+        : unidentified
+          ? { key: 'pay_asset_unidentified' }
+          : selfUnregistered
+            ? { key: 'pay_asset_self_unregistered', values: { issuer, ticker: asset.ticker } }
+            : recipientRegistryRefused
+              ? // The runtime's registry only answers a yes/no boolean, not WHY —
+                // `accessMode` says which gate refused: a denylist hit is a block,
+                // anything else (an allowlist gate, or none reported) reads as
+                // "not registered yet", which is the truer default of the two.
+                {
+                  key:
+                    assetStatus?.accessMode === 'denylist'
+                      ? 'pay_asset_recipient_blocked'
+                      : 'pay_asset_recipient_unregistered',
+                  values: { issuer, ticker: asset.ticker }
+                }
+              : overBalance
+                ? { key: 'pay_asset_over_balance', values: { ticker: asset.ticker } }
+                : frozenBaseUnits > 0
+                  ? {
+                      key: 'pay_asset_frozen_note',
+                      values: { ticker: asset.ticker, amount: formatTokenAmount(frozenBaseUnits, asset.decimals) ?? '' }
+                    }
+                  : spendableSats === 0
+                    ? { key: 'pay_asset_needs_bsv', values: { ticker: asset.ticker }, action: 'get-bsv' }
+                    : null
+    : null
+
+  const ctaLabel =
+    asset && amountOk
+      ? t('pay_asset_cta', {
+          amount: formatTokenAmount(baseUnits, asset.decimals) ?? '',
+          ticker: asset.ticker
+        })
+      : undefined
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -491,6 +759,27 @@ function UniversalSend({
           onDismiss={recipient.clearSearchError}
           colors={colors}
         />
+      )}
+
+      {/* Asset first, above the recipient: it changes the unit of the amount,
+          the available figure and which recipient shapes are legal, so asking
+          it second would silently invalidate work already done. Absent when
+          nothing is held. */}
+      {balances.length > 0 && (
+        <PayField labelKey="pay_asset_label">
+          <AssetPicker
+            balances={balances}
+            selected={assetId}
+            onSelect={id => {
+              setAssetId(id)
+              // The typed figure means something different in the new unit;
+              // carrying it over would pay a different amount than it reads.
+              setSendAmount('')
+              setTokenFailure(null)
+            }}
+            bsvBalanceText={spendableSats == null ? null : String(spendableSats)}
+          />
+        </PayField>
       )}
 
       <PayField labelKey="recipient">
@@ -507,10 +796,32 @@ function UniversalSend({
           onSelectIdentity={recipient.selectIdentity}
           onClear={recipient.clearRecipient}
           onOpenScanner={recipient.openScanner}
+          assetTicker={asset?.ticker}
+          statusOverride={
+            recipientRefusal && !tokenAddressRefused
+              ? { text: recipientRefusal, tone: 'warning' }
+              : recipientRegistryRefused
+                ? {
+                    text: t(
+                      assetStatus?.accessMode === 'denylist' ? 'pay_asset_recipient_blocked' : 'pay_asset_recipient_unregistered',
+                      { issuer, ticker: asset?.ticker }
+                    ),
+                    tone: 'warning'
+                  }
+                : undefined
+          }
         />
       </PayField>
 
-      <PayAmountField value={sendAmount} onChangeText={setSendAmount} />
+      <PayAmountField
+        value={sendAmount}
+        onChangeText={setSendAmount}
+        asset={asset ? { ticker: asset.ticker, decimals: asset.decimals } : undefined}
+        maxValue={holding ? String(holding.baseUnits) : undefined}
+        availableText={
+          holding ? (formatTokenAmount(holding.baseUnits, holding.asset.decimals) ?? undefined) : undefined
+        }
+      />
 
       {isHandle && (
         <PayField labelKey="note">
@@ -528,17 +839,63 @@ function UniversalSend({
         </PayField>
       )}
 
-      {/* Load-bearing for an address: this rail cannot notify the payee. Nothing for a handle. */}
-      {isAddress && <ConsequenceNote textKey={CONSEQUENCE_KEYS.address} />}
+      {/* Load-bearing for an address: this rail cannot notify the payee. Nothing
+          for a handle, and nothing at all in token mode, where an address is
+          refused rather than warned about. */}
+      {isAddress && !asset && <ConsequenceNote textKey={CONSEQUENCE_KEYS.address} />}
 
-      {isHandle && !isConfigured && (
+      {tokenNote && (
+        <ConsequenceNote
+          textKey={tokenNote.key}
+          values={tokenNote.values}
+          text={tokenNote.text}
+          action={
+            tokenNote.action === 'get-bsv'
+              ? {
+                  label: t('pay_asset_get_bsv'),
+                  onPress: () => loadExpoRouter().router.push('/pay?direction=get' as never)
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {isHandle && !isConfigured && !asset && (
         <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('message_box_off_hint')}</Text>
       )}
-      {handleFormValid && handleBlockedByOutbox && (
+      {handleFormValid && handleBlockedByOutbox && !asset && (
         <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('finish_or_cancel_outgoing')}</Text>
       )}
 
-      <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} />
+      <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} label={ctaLabel} />
+
+      {/* A failed token send, in the app's own failure channel: error tone,
+          dismissible, and carrying at most one affordance. "Check again"
+          refreshes the balance rather than re-sending, because a retry after a
+          lost response builds a second spend of the same coins. */}
+      {tokenFailure && (
+        <ResultBanner
+          result={{ type: 'error', message: t(tokenFailure.key, tokenFailure.values) }}
+          onDismiss={() => setTokenFailure(null)}
+          colors={colors}
+          action={
+            tokenFailure.action === 'check-again'
+              ? {
+                  label: t('token_err_check_again'),
+                  onPress: () => {
+                    mandala.refresh()
+                    setTokenFailure(null)
+                  }
+                }
+              : tokenFailure.action === 'get-bsv'
+                ? {
+                    label: t('pay_asset_get_bsv'),
+                    onPress: () => loadExpoRouter().router.push('/pay?direction=get' as never)
+                  }
+                : undefined
+          }
+        />
+      )}
 
       {sendResult && <ResultBanner result={sendResult} onDismiss={() => setSendResult(null)} colors={colors} />}
 
@@ -572,6 +929,8 @@ function UniversalSend({
         <PaymentSuccessOverlay
           direction="sent"
           amount={sent.amount}
+          amountText={sent.amountText}
+          statusNote={sent.statusNote}
           recipientName={sent.recipient}
           onDismiss={() => setSent(null)}
           dismissTo={dismissTo}

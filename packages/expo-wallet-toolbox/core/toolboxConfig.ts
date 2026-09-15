@@ -16,6 +16,26 @@ export interface ToolboxServiceConfig {
 }
 
 /**
+ * The three endpoints a Mandala stablecoin deployment is addressed by, for one
+ * chain (offline-settlement spec §12: endpoints live in the host's toolbox
+ * config, never in an env read inside this package).
+ *
+ * All three are required together, and that is the point: `overlayUrl` without
+ * `overlayIdentityKey` is an overlay whose σ_I nothing can verify, which is
+ * indistinguishable from no overlay at all — so a half-stated chain entry is
+ * treated as an unstated one (`getMandalaEndpoints` returns undefined) rather
+ * than producing a runtime that can submit but never prove.
+ */
+export interface MandalaEndpointConfig {
+  /** Origin of the issuer's overlay, no trailing slash — `${overlayUrl}/submit` is posted to. */
+  overlayUrl: string
+  /** 66-hex compressed key; the ONLY key an admission signature may come from. */
+  overlayIdentityKey: string
+  /** MessageBox host for the `'mandala-payments'` box (the handle rail). */
+  messageBoxUrl: string
+}
+
+/**
  * Runtime configuration supplied by the host app.
  *
  * The toolbox reads no `process.env` of its own. Expo's Babel preset refuses to
@@ -52,6 +72,15 @@ export interface ToolboxConfig {
   /** Per-chain service endpoints and keys. Omitted chains use built-in defaults. */
   services?: Partial<Record<AppChain, ToolboxServiceConfig>>
   /**
+   * Per-chain Mandala stablecoin endpoints. There is deliberately NO default:
+   * an issuer's overlay and its identity key are deployment facts this package
+   * cannot guess, and guessing one would mean verifying admissions against the
+   * wrong key. A chain with no complete entry has no Mandala runtime
+   * (`useWallet().mandala` is undefined), which is the v1 state of every chain
+   * but `main`.
+   */
+  mandala?: Partial<Record<AppChain, MandalaEndpointConfig>>
+  /**
    * Release gate for the YubiKey vault (spec §0, D15). Default false: the home
    * button and Settings row are hidden, the vault route shows "Not available
    * yet", and no code path may enrol hardware or create a vault output. Turned
@@ -64,6 +93,7 @@ export interface ToolboxConfig {
 interface ResolvedConfig {
   backupUrl: string
   services: Partial<Record<AppChain, ToolboxServiceConfig>>
+  mandala: Partial<Record<AppChain, MandalaEndpointConfig>>
   vaultEnabled: boolean
 }
 
@@ -108,6 +138,7 @@ export function configureToolbox(config: ToolboxConfig): void {
   current = {
     backupUrl: config.backupUrl == null ? '' : normalizeBackupUrl(config.backupUrl),
     services: config.services ?? {},
+    mandala: config.mandala ?? {},
     vaultEnabled: config.vaultEnabled === true
   }
 }
@@ -131,6 +162,43 @@ export function getBackupUrl(): string {
 export function getServiceConfig(chain: AppChain): ToolboxServiceConfig {
   if (current === null) throw new Error(NOT_CONFIGURED)
   return current.services[chain] ?? {}
+}
+
+const COMPRESSED_KEY = /^0[23][0-9a-fA-F]{64}$/
+
+/**
+ * The Mandala endpoints for a chain, or undefined when this build has none.
+ *
+ * Deliberately NOT throwing when the toolbox is unconfigured, for the same
+ * reason `isVaultEnabled` does not: this is read while building the wallet and
+ * while rendering, and "unconfigured" must look like "Mandala off" rather than
+ * crash a wallet that never wanted stablecoins.
+ *
+ * A partial or malformed entry answers undefined rather than a half-usable
+ * object: an overlay URL with no verifiable identity key can submit but can
+ * never prove an admission, which is the one shape this feature must not have.
+ */
+export function getMandalaEndpoints(chain: AppChain): MandalaEndpointConfig | undefined {
+  const entry = current?.mandala[chain]
+  if (!entry) return undefined
+  const overlayUrl = entry.overlayUrl?.trim().replace(/\/+$/, '') ?? ''
+  const overlayIdentityKey = entry.overlayIdentityKey?.trim() ?? ''
+  const messageBoxUrl = entry.messageBoxUrl?.trim().replace(/\/+$/, '') ?? ''
+  if (overlayUrl === '' || messageBoxUrl === '') return undefined
+  if (!COMPRESSED_KEY.test(overlayIdentityKey)) return undefined
+  return { overlayUrl, overlayIdentityKey, messageBoxUrl }
+}
+
+/**
+ * Whether Mandala stablecoins are available on this network.
+ *
+ * Mainnet-only in v1 (ux §2), and on top of that the host must actually have
+ * stated the chain's endpoints. Chain is a parameter, not a module read, for
+ * the same reason `isVaultAvailable`'s is: screens must re-render when the user
+ * switches network.
+ */
+export function isMandalaAvailable(chain: AppChain): boolean {
+  return chain === 'main' && getMandalaEndpoints(chain) !== undefined
 }
 
 /**

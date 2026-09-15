@@ -25,12 +25,42 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 import AmountDisplay from '../wallet/AmountDisplay'
 
-export default function AvailableBalance({ withUnit = false }: { withUnit?: boolean }) {
+export default function AvailableBalance({
+  withUnit = false,
+  text,
+  note
+}: {
+  withUnit?: boolean
+  /**
+   * An already-formatted figure to render verbatim. When present the wallet's
+   * own spendable balance is not consulted at all — this component sources its
+   * BSV figure itself and takes no balance prop, so a token figure can reach
+   * this line no other way.
+   */
+  text?: string
+  /** A second line under the figure — today, the frozen subtotal (advisory). */
+  note?: string
+}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const { settings } = useWallet()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const balance = useSpendableBalance()
+
+  if (text !== undefined) {
+    return (
+      <>
+        <Text style={[styles.text, { color: colors.textSecondary }]} accessibilityRole="text">
+          <Text style={[styles.figure, { color: colors.textPrimary }]}>{text}</Text> {t('available')}
+        </Text>
+        {!!note && (
+          <Text style={[styles.note, { color: colors.textSecondary }]} accessibilityRole="text">
+            {note}
+          </Text>
+        )}
+      </>
+    )
+  }
 
   if (balance == null) return null
 
@@ -57,5 +87,6 @@ export default function AvailableBalance({ withUnit = false }: { withUnit?: bool
 
 const styles = StyleSheet.create({
   text: { ...typography.footnote, marginTop: spacing.sm },
-  figure: { ...typography.footnote, fontWeight: '600', fontVariant: ['tabular-nums'] }
+  figure: { ...typography.footnote, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  note: { ...typography.footnote, marginTop: spacing.xs }
 })

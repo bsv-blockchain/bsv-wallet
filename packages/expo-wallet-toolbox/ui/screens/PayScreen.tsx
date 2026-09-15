@@ -40,6 +40,8 @@ import {
   TaskSendOffline
 } from '@bsv/expo-wallet-toolbox'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
+import { useAssetStatus, useMandala } from '../hooks/useMandala'
+import { formatTokenAmountWithUnit } from '../tokenFormat'
 import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
 import { NearbyAdvisoryModal } from '../components/pay/NearbyAdvisoryModal'
 import type { DismissTarget } from '../dismissTarget'
@@ -139,6 +141,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
     identityKey?: string | string[]
     sats?: string | string[]
     peerpay?: string | string[]
+    asset?: string | string[]
   }>()
 
   const peerpay = firstParam(params.peerpay)
@@ -182,7 +185,54 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
   )
   /** Get side: the hub's raw amount, carried into the method. */
   const [requestSats, setRequestSats] = useState('')
-  const initialNearbyRequest = useMemo(() => ({ sats: requestSatsFrom(requestSats) }), [requestSats])
+
+  // ── the asset axis ──────────────────────────────────────────────────
+  // One piece of state for the whole screen, so the choice survives the hop
+  // from the hub into a method and back. `null` is BSV, and a wallet holding no
+  // token never leaves that value.
+  const mandala = useMandala()
+  const balances = mandala.balances ?? []
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(firstParam(params.asset) ?? null)
+  const holding = balances.find(b => b.asset.assetId === selectedAssetId) ?? null
+  const asset = holding?.asset ?? null
+  // Regulatory/registry facts for whichever asset is selected — RequestHub
+  // stays a plain prop-driven view, so this screen is the one that asks.
+  const selectedAssetStatus = useAssetStatus(asset?.assetId ?? null).status
+  // A deep link naming an asset this wallet does not hold selects BSV rather
+  // than a denomination with no balance behind it.
+  useEffect(() => {
+    if (selectedAssetId && mandala.balances && !holding) setSelectedAssetId(null)
+  }, [selectedAssetId, mandala.balances, holding])
+
+  /**
+   * The request, in the unit it was actually typed in.
+   *
+   * `requestSatsFrom(requestSats)` would read base units as satoshis the moment
+   * an asset is selected — a 25.00 USDX request rendering as "2,500 satoshis"
+   * on the payee's own screen and binding the payer to that figure. The
+   * discriminated shape makes the unit impossible to lose.
+   */
+  const request: { kind: 'bsv'; sats?: number } | { kind: 'token'; baseUnits?: number; assetId: string } = asset
+    ? { kind: 'token', baseUnits: requestSatsFrom(requestSats), assetId: asset.assetId }
+    : { kind: 'bsv', sats: requestSatsFrom(requestSats) }
+  const initialNearbyRequest = useMemo(
+    () => ({
+      sats: requestSatsFrom(requestSats),
+      ...(asset
+        ? {
+            asset: {
+              id: asset.assetId,
+              label: asset.label,
+              ticker: asset.ticker,
+              decimals: asset.decimals,
+              overlayUrl: asset.overlayUrl,
+              overlayIdentityKey: asset.overlayIdentityKey
+            }
+          }
+        : {})
+    }),
+    [requestSats, asset]
+  )
   // One camera raise per deep link; a cancelled advisory must not re-open it.
   const [scanOnMount, setScanOnMount] = useState(paramCell === 'pay-nearby')
 
@@ -380,19 +430,36 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
             initialNotice={peerPayNotice}
             openScannerOnMount={scanOnMount}
             onNearbySession={onNearbySession}
+            selectedAssetId={selectedAssetId}
+            onSelectAsset={setSelectedAssetId}
             dismissTo={dismissTo}
           />
         </>
       )
     }
-    const sats = requestSatsFrom(requestSats)
+    // Satoshis ONLY on the BSV branch. On the token branch the same digits are
+    // base units, and every satoshi-shaped prop below must not see them.
+    const sats = request.kind === 'bsv' ? request.sats : undefined
+    const requestedAmountText =
+      asset && request.kind === 'token' && request.baseUnits !== undefined
+        ? (formatTokenAmountWithUnit(request.baseUnits, asset) ?? undefined)
+        : undefined
     switch (method) {
       case 'get-nearby':
         return nearbyAdvisorySeen ? (
           <NearbyFlow role="payee" initialRequest={initialNearbyRequest} onExit={goBack} dismissTo={dismissTo} />
         ) : null
       case 'get-handle':
-        return <HandleReceive initialSats={sats} dismissTo={dismissTo} />
+        return (
+          <HandleReceive
+            initialSats={sats}
+            asset={asset ? { ticker: asset.ticker, issuerName: asset.issuerName } : null}
+            requestedAmountText={requestedAmountText}
+            assetMessageBoxUrl={selectedAssetStatus?.messageBoxUrl ?? null}
+            onBsvInstead={() => setSelectedAssetId(null)}
+            dismissTo={dismissTo}
+          />
+        )
       case 'get-address':
         return <AddressReceive initialSats={sats} dismissTo={dismissTo} />
       default:
@@ -404,6 +471,10 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
               onChangeRequestSats={setRequestSats}
               onPick={setMethod}
               online={online}
+              balances={balances}
+              selectedAssetId={selectedAssetId}
+              onSelectAsset={setSelectedAssetId}
+              assetStatus={selectedAssetStatus}
             />
           </>
         )

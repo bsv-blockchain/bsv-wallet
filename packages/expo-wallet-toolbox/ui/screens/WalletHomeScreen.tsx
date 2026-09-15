@@ -85,6 +85,14 @@ import { storageMatchesNetwork } from '../../core/net/chainMatch'
 import { makeMetadataDecryptor } from '../../core/peerpay/metadataDecryptor'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
+import { useMandala, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
+import type { TokenAssetStatus } from '../../core/mandala/runtime'
+import BalancesSection from '../components/wallet/BalancesSection'
+import AssetSheet from '../components/wallet/AssetSheet'
+import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
+import { SEEN_ASSETS_KEY, SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
+import { tokenStatusKey } from '../tokenStatus'
+import { formatTokenAmount } from '../tokenFormat'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
@@ -241,7 +249,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     settings,
     walletBuilt,
     walletBuilding,
-    buildWalletFromMnemonic
+    buildWalletFromMnemonic,
+    mandalaSettlement
   } = useWallet()
   const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
@@ -1040,15 +1049,105 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   }, [nextCheckMs])
   const queuedCount = queuedShown.length
   const queuedSent = useMemo(() => queuedShown.filter(r => r.role === 'sent'), [queuedShown])
+  // ── stablecoins ─────────────────────────────────────────────────────
+  // Every token surface below is conditional on a fact being true, and the
+  // first fact is "you hold one": with no runtime and no balances this screen
+  // renders exactly what it rendered before any of this existed.
+  const mandala = useMandala()
+  const tokenActivity = useTokenActivity()
+  const tokenByTxid = useMemo(() => tokenActivityByTxid(tokenActivity.rows), [tokenActivity.rows])
+  /**
+   * Regulatory/registry facts (paused, frozen, metadata resolved) per held
+   * asset, for the Balances row badges. Not `useAssetStatus`: that hook is
+   * for ONE asset at a fixed call site (Rules of Hooks forbids one hook call
+   * per row of a dynamic list), so this fetches the whole held set through
+   * the runtime directly — the same ~10s-cached `assetStatus` a single-asset
+   * caller would get, just batched. Refetched whenever the held set changes
+   * (a new balance, a wallet switch) and on focus, mirroring `useAssetStatus`.
+   */
+  const [assetStatusById, setAssetStatusById] = useState<Record<string, TokenAssetStatus>>({})
+  const [assetStatusNonce, setAssetStatusNonce] = useState(0)
+  const heldAssetIds = useMemo(() => (mandala.balances ?? []).map(b => b.asset.assetId), [mandala.balances])
+  useEffect(() => {
+    const runtime = mandala.runtime
+    if (!runtime || heldAssetIds.length === 0) {
+      setAssetStatusById({})
+      return
+    }
+    let live = true
+    void (async () => {
+      const entries = await Promise.all(
+        heldAssetIds.map(async id => {
+          try {
+            return [id, await runtime.assetStatus(id)] as const
+          } catch {
+            return null
+          }
+        })
+      )
+      if (!live) return
+      setAssetStatusById(prev => {
+        const next = { ...prev }
+        for (const entry of entries) {
+          if (entry) next[entry[0]] = entry[1]
+        }
+        return next
+      })
+    })()
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mandala.runtime, heldAssetIds.join(','), assetStatusNonce])
+  useFocusEffect(
+    useCallback(() => {
+      setAssetStatusNonce(n => n + 1)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  )
+  const seenAssets = useSeenSet(SEEN_ASSETS_KEY)
+  const seenEvictions = useSeenSet(SEEN_EVICTIONS_KEY)
+  const [sheetAssetId, setSheetAssetId] = useState<string | null>(null)
+  const sheetBalance = useMemo(
+    () => (mandala.balances ?? []).find(b => b.asset.assetId === sheetAssetId) ?? null,
+    [mandala.balances, sheetAssetId]
+  )
+
+  /**
+   * Money that left without a sentence. `showAlert`, once per transaction —
+   * the one modal this feature spends, because a balance that simply drops is
+   * the worst failure in the system on a phone.
+   */
+  useEffect(() => {
+    const pending = evictionsFrom(tokenActivity.rows, seenEvictions.seen)
+    if (pending.length === 0) return
+    let live = true
+    void (async () => {
+      for (const notice of pending) {
+        if (!live) return
+        // Marked before the await resolves: an alert the user dismisses by
+        // backgrounding the app must not re-fire on every foreground after.
+        seenEvictions.see(notice.txid)
+        await announceEviction(t, notice)
+      }
+    })()
+    return () => {
+      live = false
+    }
+    // `seenEvictions.see` is stable; `seen` is the gate and belongs here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenActivity.rows, seenEvictions.seen, t])
+
   const stuckBadges = useMemo(
     () =>
       homeBadges({
         attention: attentionCount,
         unsent: unsentCount,
         offlineQueued: queuedCount,
-        offlineRejected: rejected.length + sentRejected.length
+        offlineRejected: rejected.length + sentRejected.length,
+        tokenAttention: mandala.stuck.length
       }).filter(b => b.kind !== 'offline'),
-    [attentionCount, unsentCount, queuedCount, rejected.length, sentRejected.length]
+    [attentionCount, unsentCount, queuedCount, rejected.length, sentRejected.length, mandala.stuck.length]
   )
   const reloadOffline = useCallback(() => {
     void fetchOfflineRows()
@@ -1078,16 +1177,25 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       if (!storage || !pm || busyRow) return
       setBusyRow(txid)
       setBusyLabel(t('cancelling_payment'))
+      // FIX J: a token payment's cancel is overlay-authoritative — pass the
+      // settlement deps so `cancelParkedPayment` checks admission before
+      // aborting, refusing with 'already-sent' if the recipient's own submit
+      // already beat the cancel (rule 3: the RECIPIENT settles the hop).
+      // `mandalaSettlement` is `undefined` whenever Mandala is unavailable,
+      // which leaves a plain BSV cancel exactly as it behaves today.
+      const isTokenRow = tokenByTxid.has(txid)
       try {
         const outcome = await cancelParkedPayment({
           storage,
           wallet: pm as unknown as CancelParkedWallet,
           originator: adminOriginator,
-          txid
+          txid,
+          settlement: mandalaSettlement
         })
         if (outcome === 'cancelled') showToast(t('tx_abort_success'), { type: 'success' })
-        else if (outcome === 'already-sent') showToast(t('pay_parked_already_sent'), { type: 'info' })
-        else showToast(t('tx_abort_failed'), { type: 'error' })
+        else if (outcome === 'already-sent') {
+          showToast(t(isTokenRow ? 'token_cancel_already_sent' : 'pay_parked_already_sent'), { type: 'info' })
+        } else showToast(t('tx_abort_failed'), { type: 'error' })
         await onRefresh()
       } catch (e: unknown) {
         showToast(e instanceof Error ? e.message : t('unknown_error'), { type: 'error' })
@@ -1096,8 +1204,34 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         setBusyLabel(undefined)
       }
     },
-    [storage, managers.permissionsManager, adminOriginator, busyRow, onRefresh, t]
+    [storage, managers.permissionsManager, adminOriginator, busyRow, onRefresh, t, mandalaSettlement, tokenByTxid]
   )
+
+  /**
+   * The token half of each row, precomputed and keyed by txid.
+   *
+   * Built once per activity change rather than inline per render: `ActivityRow`
+   * is memoised on prop identity, and a fresh object per render would defeat that
+   * for exactly the rows a token holder scrolls past most.
+   */
+  const tokenProps = useMemo(() => {
+    const map = new Map<string, NonNullable<React.ComponentProps<typeof ActivityRow>['token']>>()
+    for (const [txid, row] of tokenByTxid) {
+      const figure = formatTokenAmount(row.baseUnits, row.asset.decimals, {
+        showPlus: row.role === 'received'
+      })
+      map.set(txid, {
+        title: t(row.role === 'sent' ? 'token_row_sent' : 'token_row_received', { ticker: row.asset.ticker }),
+        amount: figure ? { value: figure, unit: row.asset.ticker } : undefined,
+        incoming: row.role === 'received',
+        // Under blinding the sender is a fresh key every payment: a rotating
+        // face is worse than no face.
+        suppressFace: row.role === 'received',
+        statusText: t(tokenStatusKey(row.status))
+      })
+    }
+    return map
+  }, [tokenByTxid, t])
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item, index }) => {
@@ -1107,12 +1241,16 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       const key = item.txid || item.reference || `row-${index}`
       const offline = item.txid ? offlineByTxid.get(item.txid) : undefined
       const busy = busyRow === item.txid || (!!item.reference && busyRow === item.reference)
+      // Identification is by LABEL, not by holdings: a user who sends their
+      // last token keeps denomination across their whole history.
+      const token = item.labels?.includes('mandala') ? tokenProps.get(key) : undefined
 
       return (
         <ActivityRow
           currency={currency}
           action={item}
           rowKey={key}
+          token={token}
           offlineStatus={offline?.status}
           expanded={expandedRow === key}
           busy={busy}
@@ -1131,6 +1269,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       colors,
       currency,
       offlineByTxid,
+      tokenProps,
       busyRow,
       busyLabel,
       expandedRow,
@@ -1170,6 +1309,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    * answer to "how much do I have" and the way to pay were both a scroll back
    * up. Everything below them still scrolls with the activity it describes.
    */
+  /** True the moment any token balance exists — the gate for the label swap. */
+  const hasTokens = (mandala.balances?.length ?? 0) > 0
+
   const pinnedHeader = useMemo(
     () => (
       <View>
@@ -1179,7 +1321,13 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           style={styles.balanceBlock}
           accessibilityLabel={t('wallet_balance_refresh')}
         >
-          <Text style={[styles.balanceLabel, { color: colors.textTertiary }]}>{t('wallet_balance_you_have')}</Text>
+          {/* One conditional word. A holder with 1,240.00 USDX and no BSV must
+              not read "You have / 0 sats" at display size with their real money
+              in body text below — and the hero keeps the slot because it IS the
+              fee balance, which gates every token send. */}
+          <Text style={[styles.balanceLabel, { color: colors.textTertiary }]}>
+            {t(hasTokens ? 'wallet_balance_your_bsv' : 'wallet_balance_you_have')}
+          </Text>
           {balanceParts === null ? (
             <ActivityIndicator color={colors.textSecondary} style={styles.balanceSpinner} />
           ) : (
@@ -1238,12 +1386,35 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         </View>
       </View>
     ),
-    [balanceParts, balanceContext, colors, t, refreshBalance, router, selectedNetwork]
+    [balanceParts, balanceContext, colors, t, refreshBalance, router, selectedNetwork, hasTokens]
   )
+
+  /** The issuer a single stuck row is waiting on, when it can be named. */
+  const stuckIssuerName = useMemo(() => {
+    const first = mandala.stuck[0]
+    const held = first ? (mandala.balances ?? []).find(b => b.asset.assetId === first.assetId) : undefined
+    return held?.asset.issuerName || t('token_issuer_fallback')
+  }, [mandala.stuck, mandala.balances, t])
 
   const listHeader = useMemo(
     () => (
       <View>
+        {/* What you hold, above everything else in the list — and absent
+            entirely, header and all, for a wallet that has never held a token.
+            It sits in `listHeader`, outside the hero's whole-block touchable,
+            so no row is a tap target inside another tap target. */}
+        <BalancesSection
+          balances={mandala.balances}
+          spendableSats={balance}
+          newAssetIds={(mandala.balances ?? [])
+            .map(b => b.asset.assetId)
+            .filter(id => !seenAssets.isSeen(id))}
+          statusByAsset={assetStatusById}
+          onPress={assetId => {
+            seenAssets.see(assetId)
+            setSheetAssetId(assetId)
+          }}
+        />
         {pendingResends.length > 0 || stuckBadges.length > 0 ? (
           <View style={styles.resendBanner}>
             {pendingResends.length > 0 ? (
@@ -1276,14 +1447,33 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                     label={
                       badge.kind === 'attention'
                         ? t('home_payments_need_attention', { count: badge.count })
-                        : t('home_payments_unsent', { count: badge.count })
+                        : badge.kind === 'token_attention'
+                          ? // One stuck payment can name the issuer it is waiting
+                            // on; several cannot, so the plural says the true
+                            // thing instead of naming one of them.
+                            badge.count === 1
+                            ? t('token_attention_one', { issuer: stuckIssuerName })
+                            : t('token_attention_many', { count: badge.count })
+                          : t('home_payments_unsent', { count: badge.count })
                     }
-                    icon={badge.kind === 'attention' ? 'alert-circle-outline' : 'send-outline'}
+                    icon={
+                      badge.kind === 'attention'
+                        ? 'alert-circle-outline'
+                        : badge.kind === 'token_attention'
+                          ? 'time-outline'
+                          : 'send-outline'
+                    }
                     iconColor={colors.warning}
                     isLast={i === stuckBadges.length - 1}
-                    onPress={() =>
+                    onPress={() => {
+                      if (badge.kind === 'token_attention') {
+                        // The details are the asset's own sheet: who it is with,
+                        // what is settled and what is not.
+                        setSheetAssetId(mandala.stuck[0]?.assetId ?? null)
+                        return
+                      }
                       router.push(badge.kind === 'attention' ? '/pay?cell=get-handle' : '/pay?cell=pay-handle')
-                    }
+                    }}
                   />
                 ))}
               </GroupedSection>
@@ -1360,7 +1550,12 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       onRequestAgain,
       onCopyDetails,
       onDismiss,
-      onSendAgain
+      onSendAgain,
+      mandala.balances,
+      mandala.stuck,
+      balance,
+      seenAssets,
+      stuckIssuerName
     ]
   )
 
@@ -1487,6 +1682,28 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       <ImportFromBackupPrompt
         visible={!hasWallet && secretsReady && !walletBuilding && knownNoStoredIdentity}
         onImport={() => router.push('/auth/mnemonic?flow=import')}
+      />
+
+      {/* Raised only by a tap on a Balances row. Opening it is what clears that
+          row's "New — tap to see who issues it", so disclosure stops announcing
+          itself once it has been read. */}
+      <AssetSheet
+        // Keyed on the BALANCE, not on the id: a stuck row can name an asset
+        // this wallet no longer holds, and an empty sheet is worse than none.
+        visible={sheetBalance !== null}
+        balance={sheetBalance}
+        activity={tokenActivity.rows}
+        onClose={() => setSheetAssetId(null)}
+        onPay={assetId => {
+          setSheetAssetId(null)
+          router.push(`/pay?asset=${encodeURIComponent(assetId)}` as Parameters<typeof router.push>[0])
+        }}
+        onGetPaid={assetId => {
+          setSheetAssetId(null)
+          router.push(
+            `/pay?direction=get&asset=${encodeURIComponent(assetId)}` as Parameters<typeof router.push>[0]
+          )
+        }}
       />
     </View>
   )

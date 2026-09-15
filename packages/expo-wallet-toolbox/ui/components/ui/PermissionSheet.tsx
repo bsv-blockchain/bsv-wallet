@@ -42,7 +42,7 @@ function loadIonicons(): IoniconsComponent {
 // Types
 // ---------------------------------------------------------------------------
 
-type PermissionKind = 'protocol' | 'basket' | 'certificate' | 'spending' | 'group' | 'btms'
+type PermissionKind = 'protocol' | 'basket' | 'certificate' | 'spending' | 'group' | 'btms' | 'mandala'
 
 interface GroupProtocol {
   protocolID: [number, string]
@@ -105,6 +105,7 @@ function deriveActive(
     certificateRequests: any[]
     spendingRequests: any[]
     btmsRequests: any[]
+    mandalaRequests: any[]
     protocolAccessModalOpen: boolean
     basketAccessModalOpen: boolean
     certificateAccessModalOpen: boolean
@@ -134,8 +135,8 @@ function deriveActive(
     }
   }
 
-  // Priority: spending > certificate > protocol > basket > btms (spending is most
-  // time-sensitive). We show only one at a time — exactly like the originals.
+  // Priority: spending > certificate > protocol > basket > btms > mandala (spending
+  // is most time-sensitive). We show only one at a time — exactly like the originals.
 
   if (ctx.spendingAuthorizationModalOpen && ctx.spendingRequests.length > 0) {
     const r = ctx.spendingRequests[0]
@@ -258,6 +259,55 @@ function deriveActive(
     }
   }
 
+  // mandala: same shape as btms above — driven purely by queue length, resolved via advanceMandalaQueue
+  if (ctx.mandalaRequests.length > 0) {
+    const r = ctx.mandalaRequests[0]
+    let promptData: {
+      type?: string
+      action?: string
+      assetId?: string
+      tokenName?: string
+      sendAmount?: number
+      changeAmount?: number
+      creditAmount?: number
+    } = {}
+    try {
+      promptData = JSON.parse(r.message)
+    } catch {
+      // message not valid JSON — ignore, use defaults
+    }
+
+    let description: string
+    if (promptData.type === 'mandala_spend' && promptData.sendAmount != null) {
+      description = `wants to spend ${promptData.sendAmount} ${promptData.tokenName || 'Mandala tokens'}`
+    } else if (promptData.type === 'mandala_credit' && promptData.creditAmount != null) {
+      description = `wants to credit ${promptData.creditAmount} ${promptData.tokenName || 'Mandala tokens'} to your wallet`
+    } else if (promptData.type === 'mandala_access' && promptData.action === 'relinquishOutput') {
+      description = 'wants to remove a Mandala token holding from your wallet'
+    } else if (promptData.type === 'mandala_access') {
+      description = 'wants to see your Mandala token balance'
+    } else {
+      description = 'wants to access Mandala tokens'
+    }
+
+    const details: { label: string; value: string }[] = []
+    if (promptData.tokenName) details.push({ label: 'Token', value: promptData.tokenName })
+    if (promptData.sendAmount != null) details.push({ label: 'Send amount', value: String(promptData.sendAmount) })
+    if (promptData.changeAmount != null) details.push({ label: 'Change', value: String(promptData.changeAmount) })
+    if (promptData.creditAmount != null) details.push({ label: 'Credit amount', value: String(promptData.creditAmount) })
+    if (promptData.assetId) details.push({ label: 'Asset ID', value: truncate(promptData.assetId, 28) })
+
+    return {
+      kind: 'mandala',
+      // mandala requests are resolved via advanceMandalaQueue, not permissionsManager — use a sentinel requestID
+      requestID: '',
+      originator: r.originator || 'Unknown app',
+      title: 'Token Spend Request',
+      description,
+      details
+    }
+  }
+
   return null
 }
 
@@ -283,11 +333,13 @@ const PermissionSheet: React.FC = () => {
     certificateRequests,
     spendingRequests,
     btmsRequests,
+    mandalaRequests,
     advanceProtocolQueue,
     advanceBasketQueue,
     advanceCertificateQueue,
     advanceSpendingQueue,
     advanceBtmsQueue,
+    advanceMandalaQueue,
     managers,
     settings
   } = useContext(WalletContext)
@@ -341,6 +393,7 @@ const PermissionSheet: React.FC = () => {
           certificateRequests,
           spendingRequests,
           btmsRequests,
+          mandalaRequests,
           protocolAccessModalOpen,
           basketAccessModalOpen,
           certificateAccessModalOpen,
@@ -354,6 +407,7 @@ const PermissionSheet: React.FC = () => {
       certificateRequests,
       spendingRequests,
       btmsRequests,
+      mandalaRequests,
       protocolAccessModalOpen,
       basketAccessModalOpen,
       certificateAccessModalOpen,
@@ -399,6 +453,9 @@ const PermissionSheet: React.FC = () => {
     if (active.kind === 'btms') {
       // BTMS uses its own promise-based resolution — no permissionsManager.denyPermission
       advanceBtmsQueue(false)
+    } else if (active.kind === 'mandala') {
+      // Mandala uses its own promise-based resolution too — no permissionsManager.denyPermission
+      advanceMandalaQueue(false)
     } else {
       try {
         await managers.permissionsManager?.denyPermission(active.requestID)
@@ -434,6 +491,7 @@ const PermissionSheet: React.FC = () => {
     advanceCertificateQueue,
     advanceSpendingQueue,
     advanceBtmsQueue,
+    advanceMandalaQueue,
     setProtocolAccessModalOpen,
     setBasketAccessModalOpen,
     setCertificateAccessModalOpen,
@@ -451,6 +509,8 @@ const PermissionSheet: React.FC = () => {
 
     if (request.kind === 'btms') {
       advanceBtmsQueue(true)
+    } else if (request.kind === 'mandala') {
+      advanceMandalaQueue(true)
     } else if (request.kind === 'spending') {
       managers.permissionsManager?.grantPermission({
         requestID: request.requestID,
@@ -479,7 +539,7 @@ const PermissionSheet: React.FC = () => {
       }
     }
     setDetailsExpanded(false)
-    // Reset granted so that consecutive BTMS requests (sharing sentinel requestID '')
+    // Reset granted so that consecutive BTMS/Mandala requests (sharing sentinel requestID '')
     // don't leave the sheet permanently in granted state / deadlocked.
     setGranted(false)
   }, [
@@ -489,6 +549,7 @@ const PermissionSheet: React.FC = () => {
     advanceCertificateQueue,
     advanceSpendingQueue,
     advanceBtmsQueue,
+    advanceMandalaQueue,
     setProtocolAccessModalOpen,
     setBasketAccessModalOpen,
     setCertificateAccessModalOpen,

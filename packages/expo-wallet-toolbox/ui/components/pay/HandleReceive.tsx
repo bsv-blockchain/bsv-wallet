@@ -30,6 +30,11 @@ import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
 import { type DisplayableIdentity } from '@bsv/sdk'
 
 import ResultBanner from './ResultBanner'
+import AdmissionNotice from './AdmissionNotice'
+import { ConsequenceNote } from './PayForm'
+import { useMandala } from '../../hooks/useMandala'
+import { formatTokenAmountWithUnit } from '../../tokenFormat'
+import { SEEN_ASSETS_KEY, markSeen, readSeen } from '../../tokenSeen'
 import ReceivedOverlay from './PaymentSuccessOverlay'
 import { useMessageBoxConfig } from './MessageBoxConfig'
 import AmountDisplay from '../wallet/AmountDisplay'
@@ -347,10 +352,49 @@ function AttentionRow({
   )
 }
 
+export interface HandleReceiveProps {
+  /** Satoshis the code asks for. Never set while an asset is selected. */
+  initialSats?: number
+  /**
+   * The asset this request is denominated in, when one is selected. The link
+   * carries NO figure in that case: `?sats=` emitted while the payee was
+   * thinking in USDX would be read by the payer's wallet as satoshis, which is
+   * a unit-confusion money lie. The grammar already means "payer chooses" when
+   * the parameter is absent, so nothing is invented to say it.
+   */
+  asset?: { ticker: string; issuerName?: string } | null
+  /** The figure the code asks for, in the asset's own units, already formatted. */
+  requestedAmountText?: string
+  /**
+   * The runtime's plain reason this wallet cannot be paid in the selected
+   * asset, or null. When present the payment code is withheld entirely — see
+   * AdmissionNotice: a code that manufactures a refusal inside someone else's
+   * app, attributed to nothing, is the error-prevention failure this avoids.
+   */
+  admissionRefusal?: string | null
+  /**
+   * The selected asset's own registered MessageBox host (`useAssetStatus`,
+   * asked by the caller — this screen stays prop-driven for the same reason
+   * `RequestHub` is). Compared against this device's OWN configured host
+   * (`useMessageBoxConfig`, read locally): a mismatch means a payer sending
+   * this asset over the handle rail may deliver to a box this wallet is not
+   * listening on.
+   */
+  assetMessageBoxUrl?: string | null
+  /** Switch the request back to BSV, from inside the admission notice. */
+  onBsvInstead?: () => void
+  dismissTo?: DismissTarget
+}
+
 export default function HandleReceive({
   initialSats,
+  asset = null,
+  requestedAmountText,
+  admissionRefusal,
+  assetMessageBoxUrl = null,
+  onBsvInstead,
   dismissTo = '/'
-}: { initialSats?: number; dismissTo?: DismissTarget } = {}) {
+}: HandleReceiveProps = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -361,6 +405,7 @@ export default function HandleReceive({
   const online = useOnline()
 
   const [identityKey, setIdentityKey] = useState('')
+  const mandala = useMandala()
   const [identityError, setIdentityError] = useState(false)
   const [copied, setCopied] = useState(false)
   const { messageBoxUrl } = useMessageBoxConfig(t)
@@ -377,6 +422,17 @@ export default function HandleReceive({
    * pass; cleared only by the overlay's Done.
    */
   const [received, setReceived] = useState<{ amount: number; count: number } | null>(null)
+  /**
+   * A token payment that arrived while this screen was in front. Money arriving
+   * gets a screen, never a toast — the one thing a payee must not be unsure
+   * about is whether it landed — and the screen says, in the same breath, that
+   * the issuer has not confirmed it yet when that is true.
+   */
+  const [tokenReceived, setTokenReceived] = useState<{
+    amountText: string
+    statusNote?: string
+    firstHoldNote?: string
+  } | null>(null)
 
   /** Payments the wallet has failed to credit, keyed by message id. */
   const [attempts, setAttempts] = useState<Record<string, InboxAttempt>>({})
@@ -439,7 +495,12 @@ export default function HandleReceive({
   // BRC-125 with this app's url extension: the payer learns where to deliver
   // without an overlay lookup. Omitted when no server is configured, since
   // there is then nowhere to point them.
-  const link = identityKey ? peerPayLinkFor(identityKey, initialSats, isConfigured ? messageBoxUrl : undefined) : ''
+  // `peerPayLinkFor` already omits a non-positive figure, so passing undefined
+  // in asset mode is the whole of "the link carries no figure" — no parser
+  // change, no new grammar, no `?asset=`.
+  const link = identityKey
+    ? peerPayLinkFor(identityKey, asset ? undefined : initialSats, isConfigured ? messageBoxUrl : undefined)
+    : ''
 
   const handleCopy = useCallback(() => {
     if (!identityKey) return
@@ -561,6 +622,44 @@ export default function HandleReceive({
     fetchRef.current = fetchPayments
   }, [fetchPayments])
 
+  /**
+   * One pass over the Mandala inbox, and the arrival screen if it credited
+   * anything. The figure comes from the runtime's own activity — never from the
+   * message body — so what is shown is what was actually written to the wallet.
+   */
+  const tokenTick = useCallback(async () => {
+    const runtime = mandala.runtime
+    if (!runtime) return
+    try {
+      const { credited } = await runtime.receiveFromInbox()
+      if (credited <= 0) return
+      const rows = await runtime.activity(credited)
+      const arrival = rows.find(r => r.role === 'received')
+      if (!arrival) return
+      const issuer = arrival.asset.issuerName || t('token_issuer_fallback')
+      const seen = await readSeen(SEEN_ASSETS_KEY)
+      const firstHold = !seen.includes(arrival.asset.assetId)
+      if (firstHold) await markSeen(SEEN_ASSETS_KEY, arrival.asset.assetId)
+      setTokenReceived({
+        amountText: formatTokenAmountWithUnit(arrival.baseUnits, arrival.asset, { showPlus: true }) ?? '',
+        // Credited and spendable, and not yet confirmed — both true, and the
+        // receipt says both rather than claiming a settlement nobody has.
+        statusNote: arrival.status === 'settled' ? undefined : t('local_pay_token_not_cleared', { issuer }),
+        // Disclosure at the one moment the user is definitely looking.
+        firstHoldNote: firstHold
+          ? t('token_first_hold', { ticker: arrival.asset.ticker, issuer })
+          : undefined
+      })
+    } catch {
+      // A drain that could not run is not news on this screen: the monitor task
+      // and the next tick both retry, and the inbox rows below still render.
+    }
+  }, [mandala.runtime, t])
+  const tokenTickRef = useRef(tokenTick)
+  useEffect(() => {
+    tokenTickRef.current = tokenTick
+  }, [tokenTick])
+
   // ── Poll the inbox ──
   //
   // A payment arrives whenever the sender's wallet delivers it and MessageBox has
@@ -577,6 +676,11 @@ export default function HandleReceive({
       if (cancelled || !focusedRef.current) return
       if (AppState.currentState !== 'active') return
       void fetchRef.current({ silent: true })
+      // The token inbox is a SIBLING drain, not a widened one: Mandala delivers
+      // to its own message box and the two never meet. Same 5s focused tick,
+      // because a payee standing in front of this screen expects both kinds of
+      // money to appear on their own.
+      void tokenTickRef.current()
     }
 
     const interval = setInterval(tick, INBOX_POLL_MS)
@@ -666,6 +770,21 @@ export default function HandleReceive({
   const damagedIds = useMemo(() => new Set(damaged.map(d => d.messageId)), [damaged])
 
   /**
+   * Can this wallet actually be paid in the selected asset?
+   *
+   * Asked with this wallet's OWN identity key, because that is what a payer
+   * would be paying: the answer the payer's wallet would give, computed here,
+   * before a code that could never work is shown. `undefined` from the caller
+   * means "ask the runtime"; an explicit `null` means "already checked, fine".
+   */
+  const admission =
+    admissionRefusal !== undefined
+      ? admissionRefusal
+      : asset && mandala.runtime && identityKey
+        ? mandala.runtime.recipientRefusal(identityKey)
+        : null
+
+  /**
    * The rows worth showing: payments the wallet has given up on, environmental
    * failures still waiting on the network, plus inbox bodies that never parsed
    * into tokens. Everything else was credited.
@@ -686,58 +805,83 @@ export default function HandleReceive({
       {/* Your handle. The QR is the focal element — it is the thing physically
           held up to another device. */}
       {/* The figure the code asks for, as its price. Only when one was named. */}
-      {initialSats !== undefined && initialSats > 0 && (
-        <Text style={[styles.requestedAmount, { color: colors.textPrimary }]}>
-          <AmountDisplay>{initialSats}</AmountDisplay>
-        </Text>
-      )}
-      <View style={styles.qrHero}>
-        {identityKey ? (
-          <View style={styles.qrPlate}>
-            <QRCode value={link} size={240} color="#000" backgroundColor="#fff" />
-          </View>
-        ) : identityError ? (
-          <View style={styles.identityError}>
-            <Text style={[styles.identityErrorText, { color: colors.error }]}>{t('unknown_error')}</Text>
-            <PressableScale
-              onPress={() => void loadIdentityKey()}
-              haptic="tap"
-              style={styles.identityRetry}
-              accessibilityRole="button"
-              accessibilityLabel={t('activity_load_retry')}
-            >
-              <Text style={[styles.identityRetryLabel, { color: colors.accent }]}>{t('activity_load_retry')}</Text>
-            </PressableScale>
-          </View>
-        ) : (
-          <ActivityIndicator size="large" color={colors.textSecondary} />
-        )}
-      </View>
-
-      <Text style={[styles.keyText, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="middle">
-        {identityKey}
-      </Text>
-
-      <View style={styles.actionRow}>
-        <TouchableOpacity onPress={handleCopy} style={[styles.action, { backgroundColor: colors.fillTertiary }]}>
-          <Ionicons
-            name={copied ? 'checkmark' : 'copy-outline'}
-            size={18}
-            color={copied ? colors.success : colors.textSecondary}
-          />
-          <Text style={[styles.actionText, { color: copied ? colors.success : colors.textSecondary }]}>
-            {copied ? t('copied') : t('pay_copy')}
+      {requestedAmountText ? (
+        <Text style={[styles.requestedAmount, { color: colors.textPrimary }]}>{requestedAmountText}</Text>
+      ) : (
+        initialSats !== undefined &&
+        initialSats > 0 && (
+          <Text style={[styles.requestedAmount, { color: colors.textPrimary }]}>
+            <AmountDisplay>{initialSats}</AmountDisplay>
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={handleShare}
-          disabled={!link}
-          style={[styles.action, { backgroundColor: colors.fillTertiary, opacity: link ? 1 : 0.5 }]}
-        >
-          <Ionicons name="share-outline" size={18} color={colors.textSecondary} />
-          <Text style={[styles.actionText, { color: colors.textSecondary }]}>{t('pay_share_link')}</Text>
-        </TouchableOpacity>
-      </View>
+        )
+      )}
+      {/* This device may not be listening where a payer's handle-rail send
+          would actually deliver. Advisory: the code below still works for
+          every OTHER rail, and the mismatch may resolve itself (a Settings
+          change, a fresh registry read) before anyone acts on it. */}
+      {asset &&
+        !admission &&
+        !!assetMessageBoxUrl &&
+        isConfigured &&
+        assetMessageBoxUrl !== messageBoxUrl && <ConsequenceNote textKey="token_messagebox_mismatch" />}
+      {admission && asset ? (
+        <AdmissionNotice
+          ticker={asset.ticker}
+          issuerName={asset.issuerName}
+          reason={admission}
+          onBsvInstead={() => onBsvInstead?.()}
+        />
+      ) : (
+        <>
+          <View style={styles.qrHero}>
+            {identityKey ? (
+              <View style={styles.qrPlate}>
+                <QRCode value={link} size={240} color="#000" backgroundColor="#fff" />
+              </View>
+            ) : identityError ? (
+              <View style={styles.identityError}>
+                <Text style={[styles.identityErrorText, { color: colors.error }]}>{t('unknown_error')}</Text>
+                <PressableScale
+                  onPress={() => void loadIdentityKey()}
+                  haptic="tap"
+                  style={styles.identityRetry}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('activity_load_retry')}
+                >
+                  <Text style={[styles.identityRetryLabel, { color: colors.accent }]}>{t('activity_load_retry')}</Text>
+                </PressableScale>
+              </View>
+            ) : (
+              <ActivityIndicator size="large" color={colors.textSecondary} />
+            )}
+          </View>
+
+          <Text style={[styles.keyText, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="middle">
+            {identityKey}
+          </Text>
+
+          <View style={styles.actionRow}>
+            <TouchableOpacity onPress={handleCopy} style={[styles.action, { backgroundColor: colors.fillTertiary }]}>
+              <Ionicons
+                name={copied ? 'checkmark' : 'copy-outline'}
+                size={18}
+                color={copied ? colors.success : colors.textSecondary}
+              />
+              <Text style={[styles.actionText, { color: copied ? colors.success : colors.textSecondary }]}>
+                {copied ? t('copied') : t('pay_copy')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleShare}
+              disabled={!link}
+              style={[styles.action, { backgroundColor: colors.fillTertiary, opacity: link ? 1 : 0.5 }]}
+            >
+              <Ionicons name="share-outline" size={18} color={colors.textSecondary} />
+              <Text style={[styles.actionText, { color: colors.textSecondary }]}>{t('pay_share_link')}</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
 
       {/* Only the payments the wallet gave up on. Everything else was credited
           the moment it was seen, so there is nothing here to accept. */}
@@ -762,6 +906,17 @@ export default function HandleReceive({
           amount={received.amount}
           count={received.count}
           onDismiss={() => setReceived(null)}
+          dismissTo={dismissTo}
+        />
+      )}
+
+      {tokenReceived && (
+        <ReceivedOverlay
+          amount={0}
+          amountText={tokenReceived.amountText}
+          statusNote={tokenReceived.statusNote}
+          firstHoldNote={tokenReceived.firstHoldNote}
+          onDismiss={() => setTokenReceived(null)}
           dismissTo={dismissTo}
         />
       )}

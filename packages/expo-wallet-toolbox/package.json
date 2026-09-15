@@ -32,6 +32,7 @@
     "@bsv/air-gap": "^0.1.1",
     "@bsv/backup-cache-client": "^0.1.0",
     "@bsv/btms-permission-module": "^1.1.0",
+    "@bsv/mandala": "^0.1.0",
     "@bsv/message-box-client": "^2.2.1",
     "@bsv/react-native-localpay-transport": "*",
     "@bsv/sdk": "^2.4.1",

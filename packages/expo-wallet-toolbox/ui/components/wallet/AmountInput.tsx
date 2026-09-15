@@ -16,6 +16,7 @@ import {
   fiatFractionDigits,
   satoshisPerFiatUnit
 } from '@bsv/expo-wallet-toolbox'
+import { parseTokenAmount, tokenAmountInputText, tokenAmountMask } from '../../tokenFormat'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -36,6 +37,12 @@ function loadIonicons(): IoniconsComponent {
 
 export const SEND_MAX_VALUE = '2099999999999999'
 
+/** The denomination an amount is being typed in, when it is not satoshis. */
+export interface AmountInputAsset {
+  ticker: string
+  decimals: number
+}
+
 interface AmountInputProps {
   /**
    * Show the "Send Max" shortcut. Defaults to true for send flows.
@@ -51,6 +58,22 @@ interface AmountInputProps {
   maxLabelKey?: string
   value: string
   onChangeText: (text: string) => void
+  /**
+   * Token mode. When present the field takes and emits BASE UNITS of this
+   * asset instead of satoshis, and — this is the whole of the change — every
+   * fiat branch below goes inert, because `isFiat` is conjoined with
+   * `asset == null`. Without that single conjunction the fiat resync effect
+   * would take base units, divide them by a satoshi/fiat rate and clobber the
+   * figure the user typed.
+   */
+  asset?: AmountInputAsset
+  /**
+   * Token mode only: what Max writes. The satoshi sentinel is a satoshi-domain
+   * concept and never enters token code — here Max writes the real spendable
+   * figure, which is exact because a token output carries 1 satoshi and the
+   * fee comes out of BSV.
+   */
+  maxValue?: string
 }
 
 /**
@@ -67,7 +90,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   value,
   onChangeText,
   showMax = true,
-  maxLabelKey = 'entire_wallet_balance'
+  maxLabelKey = 'entire_wallet_balance',
+  asset,
+  maxValue
 }) => {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -77,22 +102,25 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const Ionicons = loadIonicons()
 
   const currency = settings?.currency || 'BSV'
-  const isFiat = isFiatCurrency(currency)
-  const fractionDigits = isFiat ? fiatFractionDigits(currency) : 0
-  const isSendMax = value === SEND_MAX_VALUE
+  // ONE conjunction, and it is what keeps three denominations from colliding:
+  // in asset mode every fiat branch below is unreachable, unchanged.
+  const isFiat = asset == null && isFiatCurrency(currency)
+  const fractionDigits = asset ? asset.decimals : isFiat ? fiatFractionDigits(currency) : 0
+  const isSendMax = asset == null && value === SEND_MAX_VALUE
 
-  // In fiat mode, we maintain a separate display value from the satoshi value
-  const [fiatDisplayValue, setFiatDisplayValue] = useState('')
-  const lastEmittedSats = useRef('')
+  // In fiat and asset modes alike, the text being typed is not the value being
+  // emitted, so the field keeps its own display string.
+  const [displayText, setDisplayText] = useState('')
+  const lastEmitted = useRef('')
 
   // Sync fiat display value when the satoshi value changes externally (e.g., cleared by parent)
   useEffect(() => {
     if (!isFiat) return
     // Avoid re-syncing when we caused the change ourselves
-    if (value === lastEmittedSats.current) return
+    if (value === lastEmitted.current) return
 
     if (!value || value === '0') {
-      setFiatDisplayValue('')
+      setDisplayText('')
     } else if (value === SEND_MAX_VALUE) {
       // Don't try to convert SEND_MAX_VALUE to fiat
     } else {
@@ -101,9 +129,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       if (!isNaN(sats) && per > 0) {
         const amount = sats / per
         if (fractionDigits === 0) {
-          setFiatDisplayValue(String(Math.round(amount)))
+          setDisplayText(String(Math.round(amount)))
         } else {
-          setFiatDisplayValue(
+          setDisplayText(
             amount % 1 === 0
               ? amount.toFixed(0)
               : amount.toFixed(fractionDigits).replace(/0+$/, '').replace(/\.$/, '')
@@ -111,17 +139,37 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         }
       }
     }
-    lastEmittedSats.current = value
+    lastEmitted.current = value
   }, [value, isFiat, currency, satoshisPerUSD, usdToFiat, fractionDigits])
 
+  // The asset-mode twin of the effect above, with the same self-resync guard.
+  // The two are mutually exclusive by mode and neither can run in the other's.
+  useEffect(() => {
+    if (!asset) return
+    if (value === lastEmitted.current) return
+    setDisplayText(!value || value === '0' ? '' : tokenAmountInputText(Number(value), asset.decimals))
+    lastEmitted.current = value
+  }, [value, asset])
+
   const handleChangeText = (text: string) => {
+    if (asset) {
+      if (text && !tokenAmountMask(asset.decimals).test(text)) return
+      setDisplayText(text)
+      const baseUnits = parseTokenAmount(text, asset.decimals)
+      // The field never emits a fraction: the wire takes whole base units, and
+      // a rounded figure would pay an amount other than the one on screen.
+      const next = baseUnits === null ? '' : String(baseUnits)
+      lastEmitted.current = next
+      onChangeText(next)
+      return
+    }
     if (isFiat) {
       const allowed = fractionDigits === 0 ? /^\d*$/ : new RegExp(`^\\d*\\.?\\d{0,${fractionDigits}}$`)
       if (text && !allowed.test(text)) return
-      setFiatDisplayValue(text)
+      setDisplayText(text)
       const sats = parseDisplayToSatoshis(text, currency, satoshisPerUSD, usdToFiat)
       const satsStr = text ? String(sats) : ''
-      lastEmittedSats.current = satsStr
+      lastEmitted.current = satsStr
       onChangeText(satsStr)
     } else {
       onChangeText(text)
@@ -137,7 +185,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         </View>
         <TouchableOpacity
           onPress={() => {
-            if (isFiat) setFiatDisplayValue('')
+            if (isFiat) setDisplayText('')
             onChangeText('')
           }}
           style={[styles.clearButton, { backgroundColor: colors.fill }]}
@@ -148,16 +196,20 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     )
   }
 
-  const displayValue = isFiat ? fiatDisplayValue : value
-  const placeholder = isFiat ? (fractionDigits === 0 ? '0' : '0.00') : '0'
-  const keyboardType = isFiat && fractionDigits > 0 ? ('decimal-pad' as const) : ('number-pad' as const)
-  const unitLabel = isFiat ? currency : 'satoshis'
+  const displayValue = isFiat || asset ? displayText : value
+  const placeholder = fractionDigits === 0 ? '0' : `0.${'0'.repeat(Math.min(fractionDigits, 8))}`
+  const keyboardType = fractionDigits > 0 ? ('decimal-pad' as const) : ('number-pad' as const)
+  const unitLabel = asset ? asset.ticker : isFiat ? currency : 'satoshis'
 
-  // Secondary converted-currency line: BSV when showing fiat, USD when showing BSV
-  const satsForConversion = value ? parseInt(value, 10) : 0
-  const secondaryText = isFiat
-    ? (satsForConversion > 0 ? formatAmount(satsForConversion, 'BSV', satoshisPerUSD) : null)
-    : (satsForConversion > 0 && satoshisPerUSD > 0 ? formatAmount(satsForConversion, 'USD', satoshisPerUSD) : null)
+  // Secondary converted-currency line: BSV when showing fiat, USD when showing BSV.
+  // Suppressed entirely in asset mode — this wallet has no price for a token,
+  // and a converted line under a stablecoin figure would be invented.
+  const satsForConversion = !asset && value ? parseInt(value, 10) : 0
+  const secondaryText = asset
+    ? null
+    : isFiat
+      ? (satsForConversion > 0 ? formatAmount(satsForConversion, 'BSV', satoshisPerUSD) : null)
+      : (satsForConversion > 0 && satoshisPerUSD > 0 ? formatAmount(satsForConversion, 'USD', satoshisPerUSD) : null)
 
   const entering = reducedMotion ? undefined : FadeInUp.duration(durations.instant)
   const exiting = reducedMotion ? undefined : FadeOutDown.duration(durations.instant)
@@ -181,7 +233,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         </View>
         {showMax && (
           <TouchableOpacity
-            onPress={() => onChangeText(SEND_MAX_VALUE)}
+            onPress={() => onChangeText(asset ? (maxValue ?? '') : SEND_MAX_VALUE)}
             style={[styles.maxButton, { backgroundColor: colors.fill }]}
           >
             <Text style={[styles.maxText, { color: colors.accent }]}>{t('send_max')}</Text>

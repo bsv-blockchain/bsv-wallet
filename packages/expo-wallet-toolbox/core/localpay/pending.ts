@@ -1,5 +1,7 @@
 import { Beef } from '@bsv/sdk'
 import type { PaymentFrame } from './codec'
+import { MANDALA_BASKET } from '../mandala/bundle'
+import { isRetriableInternalizeFailure } from '../mandala/drain'
 import { abbreviateKey } from '../pay/counterparty'
 
 export const PENDING_KEY = 'localpay_pending'
@@ -263,7 +265,18 @@ export async function updateStatus(
             // Counted on failure only: 'processing' is set on the way in to
             // every attempt, so counting there would burn the ceiling without
             // anything having gone wrong.
-            attempts: status === 'failed' ? (p.attempts ?? 0) + 1 : p.attempts
+            //
+            // FIX I. And not on EVERY failure either: a transient `Block header
+            // not found for height N` from a fresh-block BUMP this device has
+            // not caught up on is a header lag, not a bad frame — the money is
+            // real and the next tick credits it. Burning an attempt on it is
+            // how a good payment reached `MAX_PENDING_ATTEMPTS` and stopped
+            // being retried. A structurally bad BEEF is deliberately NOT
+            // matched by `isRetriableInternalizeFailure` and still counts.
+            attempts:
+              status === 'failed' && !isRetriableInternalizeFailure(failureReason)
+                ? (p.attempts ?? 0) + 1
+                : p.attempts
           }
         : p
     )
@@ -286,30 +299,127 @@ interface InternalizingWallet {
  */
 type AttributePayment = (txid: string, info: { senderIdentityKey: string; receivedVia?: string }) => Promise<void>
 
+/**
+ * Called once a TOKEN frame has been credited, with the frame and the txid
+ * that was credited.
+ *
+ * This is the moment this device becomes responsible for submitting the chain
+ * (settlement rule 3), so it is where the `token_settlements` row and the
+ * evidence the frame carried — its admissions and linkage payloads — have to
+ * be persisted. Supplied by the caller rather than called directly from here,
+ * for the same reason `attribute` is: this module knows about the KV-backed
+ * queue and nothing else, and should stay that way.
+ *
+ * Optional, and its failure is never the payment's failure: the coin is
+ * already credited by the time it runs, and the drain re-reads its own tables
+ * on every online tick.
+ */
+export type TokenCreditedHook = (frame: PaymentFrame, txid: string) => Promise<void>
+
+/**
+ * The prefix every pre-internalize settlement-write failure carries.
+ *
+ * `isRetriableInternalizeFailure` matches it, so a local storage fault here
+ * never burns `MAX_PENDING_ATTEMPTS` (FIX I): the frame is durable, the money
+ * is real, and the next tick repeats the same write.
+ */
+const SETTLEMENT_PREWRITE_FAILURE = 'could not record the settlement row before crediting'
+
+/**
+ * The FT derivation protocol a received token coin was locked under. Same
+ * triple `verify.ts` checked the output against — written into
+ * `customInstructions` because the basket-insertion path forces every
+ * derivation field to undefined, and this is the only slot that survives to
+ * the day the coin is spent.
+ */
+const FT_PROTOCOL_ID: [number, string] = [2, 'mandala token']
+
+/** What `internalizeAction` is told about one frame's output. */
+function internalizeOutput(frame: PaymentFrame): Record<string, unknown> {
+  if (frame.kind === 'token' && frame.token) {
+    // The toolbox never inspects a token script, credits no satoshis, and writes
+    // the output `spendable: true, change: false` immediately — which is exactly
+    // what makes a received-offline coin re-spendable before anyone has
+    // submitted anything (spec §1.6's chained offline hops).
+    return {
+      outputIndex: frame.outputIndex,
+      protocol: 'basket insertion',
+      insertionRemittance: {
+        basket: MANDALA_BASKET,
+        customInstructions: JSON.stringify({
+          protocolID: FT_PROTOCOL_ID,
+          keyID: `${frame.derivationPrefix} ${frame.derivationSuffix}`,
+          counterparty: frame.senderIdentityKey,
+          direction: 'received'
+        }),
+        tags: ['mandala', 'received', frame.token.assetId]
+      }
+    }
+  }
+  return {
+    outputIndex: frame.outputIndex,
+    protocol: 'wallet payment',
+    paymentRemittance: {
+      derivationPrefix: frame.derivationPrefix,
+      derivationSuffix: frame.derivationSuffix,
+      senderIdentityKey: frame.senderIdentityKey
+    }
+  }
+}
+
 export async function processPending(
   wallet: InternalizingWallet,
   storage: KVStorage,
   originator: string,
-  attribute?: AttributePayment
+  attribute?: AttributePayment,
+  onTokenCredited?: TokenCreditedHook,
+  /**
+   * TOKEN FRAMES ONLY, and it runs BEFORE `internalizeAction` — which is the
+   * entire point of it existing beside `onTokenCredited` (§4.2, §4.3 guard #2).
+   *
+   * `internalizeAction` forces a broadcast of its own through
+   * `shareReqsWithWorld` → `attemptToPostReqsToNetwork`, and the guard that
+   * stops an unadmitted token transaction going out there is a lookup of this
+   * txid in `token_settlements`. With the row written only afterwards — which
+   * is all `onTokenCredited` can do — the guard finds nothing on the FIRST
+   * internalize and falls straight through to a real, unmediated broadcast. The
+   * common shop case (payee has Wi-Fi, payer none) hits that path every time.
+   *
+   * So the row and the frame's evidence land first, and a failure here is a
+   * refusal to credit rather than an unguarded credit: the frame is already
+   * durable in `localpay_pending`, so the next tick retries the whole step and
+   * `isRetriableInternalizeFailure` keeps the ceiling from abandoning it.
+   */
+  onTokenHeld?: TokenCreditedHook
 ): Promise<{ id: string; success: boolean; error?: string }[]> {
   const results: { id: string; success: boolean; error?: string }[] = []
   for (const p of await getRetryable(storage)) {
     await updateStatus(storage, p.id, 'processing')
     try {
+      if (onTokenHeld && p.frame.kind === 'token') {
+        // Deliberately INSIDE the try: unlike every other settlement write in
+        // this file, this one gates the credit instead of following it.
+        let txid: string | undefined
+        try {
+          txid = Beef.fromBinary(p.frame.transaction).atomicTxid
+        } catch (e) {
+          // Unreadable bytes are not a settlement fault — let the internalize
+          // below reject them with its own, more precise message, which
+          // failure-matrix row 7 depends on being distinguishable.
+          console.warn('[localpay] token frame would not parse before the settlement write:', messageOf(e))
+        }
+        if (txid) {
+          try {
+            await onTokenHeld(p.frame, txid)
+          } catch (e) {
+            throw new Error(`${SETTLEMENT_PREWRITE_FAILURE}: ${messageOf(e)}`)
+          }
+        }
+      }
       await wallet.internalizeAction(
         {
           tx: Array.from(p.frame.transaction),
-          outputs: [
-            {
-              outputIndex: p.frame.outputIndex,
-              protocol: 'wallet payment',
-              paymentRemittance: {
-                derivationPrefix: p.frame.derivationPrefix,
-                derivationSuffix: p.frame.derivationSuffix,
-                senderIdentityKey: p.frame.senderIdentityKey
-              }
-            }
-          ],
+          outputs: [internalizeOutput(p.frame)],
           // The activity list uses the description as the row title, so it
           // names the payer. The counterparty itself is recovered from
           // outputs.senderIdentityKey, which is why the label stays rail-only.
@@ -320,6 +430,26 @@ export async function processPending(
       )
       await updateStatus(storage, p.id, 'completed')
       results.push({ id: p.id, success: true })
+
+      // The SECOND settlement write, and an idempotent re-derivation of the
+      // first: `onTokenHeld` already wrote the row before the internalize, and
+      // `upsertSettlement` never moves `state` on conflict, so this re-runs the
+      // same population harmlessly and is what still covers a caller that
+      // supplies only this hook. Isolated from the try/catch above for the same
+      // reason `attribute` is: the coin is credited by this point, so a failing
+      // write must not retroactively mark the payment 'failed' and
+      // re-internalize it.
+      if (onTokenCredited && p.frame.kind === 'token') {
+        try {
+          const txid = Beef.fromBinary(p.frame.transaction).atomicTxid
+          if (txid) await onTokenCredited(p.frame, txid)
+        } catch (e) {
+          // The drain owns the `token_settlements` row independently and
+          // re-reads its own tables on every online tick, so a lost write here
+          // costs a later reconciliation pass, not the payment.
+          console.warn('[localpay] token credited but settlement write failed:', e instanceof Error ? e.message : String(e))
+        }
+      }
 
       // Best-effort, and deliberately isolated from the try/catch above: by
       // this point the payment has already completed successfully, so a
@@ -354,6 +484,10 @@ export async function processPending(
     }
   }
   return results
+}
+
+function messageOf(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
 }
 
 export const SPENT_KEY = 'localpay_spent_sessions'

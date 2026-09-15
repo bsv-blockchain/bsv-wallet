@@ -106,6 +106,26 @@ function loadQuietEventSourceClass(): EventSourceCtor {
   return quietEventSourceClass
 }
 
+/**
+ * `MandalaTokenModuleDeps.resolveAssetMetadata`, over the lib's own registry
+ * lookup (`@bsv/mandala`'s `resolveAssetMetadata` — overlay lookup,
+ * SPV-verified genesis, memoized). Only ever affects the display (name AND,
+ * per adversarial-review finding 4, decimal formatting) in a permission
+ * prompt, never a decision to prompt or to grant, so a failure is null and
+ * the prompt falls back to the raw assetId in base units — including on a
+ * build where `configureMandala` has not run, where the lib throws rather
+ * than pretending the asset has no name.
+ */
+async function resolveMandalaAssetMetadata(assetId: string): Promise<MandalaAssetMetadata | null> {
+  try {
+    const meta = await resolveAssetMetadata(assetId)
+    if (!meta) return null
+    return { label: meta.label, ticker: meta.ticker, decimals: meta.decimals }
+  } catch {
+    return null
+  }
+}
+
 const DEFAULT_SETTINGS: WalletSettings = {
   ...LIB_DEFAULT_SETTINGS,
   trustSettings: {
@@ -136,12 +156,26 @@ const DEFAULT_SETTINGS: WalletSettings = {
 }
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
-import { getBackupUrl } from '../toolboxConfig'
+import { getBackupUrl, getMandalaEndpoints } from '../toolboxConfig'
 import { DEFAULT_AUTO_APPROVE_THRESHOLD, AUTO_APPROVE_COOLDOWN_MS, AUTO_APPROVE_STORAGE_KEY } from '../constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { UserContext } from './UserContext'
 import { useLocalStorage } from './LocalStorageProvider'
 import { usePermissionQueue } from '../hooks/usePermissionQueue'
+import { configureMandala, resolveAssetMetadata } from '@bsv/mandala'
+import { MessageBoxClient } from '@bsv/message-box-client'
+import { MandalaTokenModule, wrapCreateActionForTokenInputs, type MandalaAssetMetadata } from '../mandala/permissionModule'
+import { migrateMandalaBasketName } from '../mandala/basketMigration'
+import {
+  createMandalaKvStorage,
+  createMandalaRuntime,
+  type MandalaMessageBox
+} from '../mandala/createRuntime'
+import type { MandalaRuntime } from '../mandala/runtime'
+import { MANDALA_BASKET } from '../mandala/types'
+import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
+import { drainMandalaInbox } from '../pay/rails/handle'
+import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
 import {
   boundReviewProvenTxs,
@@ -270,11 +304,13 @@ export interface WalletContextValue {
   protocolRequests: ProtocolAccessRequest[]
   spendingRequests: SpendingRequest[]
   btmsRequests: BtmsRequest[]
+  mandalaRequests: MandalaRequest[]
   advanceBasketQueue: () => void
   advanceCertificateQueue: () => void
   advanceProtocolQueue: () => void
   advanceSpendingQueue: () => void
   advanceBtmsQueue: (approved: boolean) => void
+  advanceMandalaQueue: (approved: boolean) => void
   finalizeConfig: (wabConfig: WABConfig) => boolean
   setConfigStatus: (status: ConfigStatus) => void
   configStatus: ConfigStatus
@@ -299,6 +335,24 @@ export interface WalletContextValue {
    * "import from backup" over an auto-created wallet). */
   rebuildWallet: (opts?: { restoreFromBackup?: boolean }) => Promise<void>
   storage: StorageExpoSQLite | null
+  /**
+   * Mandala stablecoins, or undefined.
+   *
+   * Undefined until the wallet is built, and on every chain the host has not
+   * stated endpoints for (mainnet only in v1) — so `mandala === undefined` is
+   * exactly "this wallet cannot do stablecoins right now", which is what the UI
+   * renders. Consumed through `useMandala()`; nothing above this context may
+   * reach `@bsv/mandala` directly.
+   */
+  mandala: MandalaRuntime | undefined
+  /**
+   * `cancelParkedPayment`'s `settlement` argument, pre-assembled from
+   * `mandala` (FIX J — an online cancel of an already-admitted token payment
+   * refuses with `'already-sent'` rather than aborting inputs the overlay
+   * considers spent). `undefined` exactly when `mandala` is, which is also
+   * the argument a plain BSV cancel needs — nothing else has to branch on it.
+   */
+  mandalaSettlement: CancelParkedSettlementDeps | undefined
   /** Fetch BUMP from WoC and store merkle proof, advancing tx status to completed */
   refreshProof: (txid: string) => Promise<'confirmed' | 'pending' | 'failed'>
   /** Peek OfflineFirstChaintracks.lastMissHeight for credit-error classification. Does not clear. */
@@ -340,11 +394,13 @@ export const WalletContext = createContext<WalletContextValue>({
   protocolRequests: [],
   spendingRequests: [],
   btmsRequests: [],
+  mandalaRequests: [],
   advanceBasketQueue: () => {},
   advanceCertificateQueue: () => {},
   advanceProtocolQueue: () => {},
   advanceSpendingQueue: () => {},
   advanceBtmsQueue: () => {},
+  advanceMandalaQueue: () => {},
   finalizeConfig: () => false,
   setConfigStatus: () => {},
   configStatus: 'initial',
@@ -358,6 +414,8 @@ export const WalletContext = createContext<WalletContextValue>({
   switchNetwork: async () => {},
   rebuildWallet: async () => {},
   storage: null,
+  mandala: undefined,
+  mandalaSettlement: undefined,
   refreshProof: async () => 'pending',
   peekLastMissHeight: () => undefined,
   txStatusVersion: 0,
@@ -450,6 +508,16 @@ type BtmsRequest = {
   resolve: (approved: boolean) => void
 }
 
+/** Same shape as BtmsRequest — MandalaTokenModule's requestTokenAccess queue item. */
+type MandalaRequest = {
+  /** The originator (dApp domain) requesting Mandala token access */
+  originator: string
+  /** The raw message from MandalaTokenModule (JSON-encoded promptData) */
+  message: string
+  /** Resolve the pending Promise from MandalaTokenModule — true = approved */
+  resolve: (approved: boolean) => void
+}
+
 export interface WABConfig {
   wabUrl: string
   wabInfo?: any // Optional for noWAB (self-custodial) mode
@@ -520,6 +588,18 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   // buildWallet's getAuth() call below). null until a wallet is built, or if
   // getAuth() fails — callers treat null as "unscoped" rather than a gate.
   const [walletUserId, setWalletUserId] = useState<number | null>(null)
+  /**
+   * The Mandala stablecoin runtime, or undefined — before the wallet is built,
+   * and on every chain but the one the host stated endpoints for (mainnet in
+   * v1). `useMandala()` reads this; nothing else in the app may reach the lib.
+   *
+   * The ref beside it is what the monitor tasks read. They are registered once,
+   * inside the build, and close over whatever the ref holds at the moment they
+   * run — so a rebuild or a network switch cannot leave a task draining the
+   * previous wallet's settlement tables.
+   */
+  const [mandala, setMandala] = useState<MandalaRuntime | undefined>(undefined)
+  const mandalaRef = useRef<MandalaRuntime | undefined>(undefined)
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const monitorRef = useRef<Monitor | null>(null)
   // The offline-first chain tracker and the header store it wraps. Populated
@@ -737,6 +817,27 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       })
     },
     [btmsQueue.enqueue]
+  )
+
+  // Same usePermissionQueue pattern as BTMS above — a separate queue so a
+  // pending BTMS prompt and a pending Mandala prompt never resolve each
+  // other's promise.
+  const mandalaQueue = usePermissionQueue<MandalaRequest>(focusOpts)
+
+  const advanceMandalaQueue = useCallback(
+    (approved: boolean) => {
+      mandalaQueue.advance(head => head.resolve(approved))
+    },
+    [mandalaQueue.advance]
+  )
+
+  const mandalaPromptHandler = useCallback(
+    (originator: string, message: string): Promise<boolean> => {
+      return new Promise<boolean>(resolve => {
+        mandalaQueue.enqueue({ originator, message, resolve })
+      })
+    },
+    [mandalaQueue.enqueue]
   )
 
   const updateSettings = useCallback(
@@ -971,6 +1072,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const newManagers = {} as any
         // Deliberately the ref, not the state: see selectedNetworkRef.
         const chain = selectedNetworkRef.current
+        // Mandala is mainnet-only in v1 (ux §2) AND only where the host stated
+        // this chain's endpoints: an overlay URL with no verifiable identity
+        // key is an overlay whose admissions nothing can check, so a partial
+        // entry reads as no entry at all (see toolboxConfig).
+        const mandalaEndpoints = chain === 'main' ? getMandalaEndpoints(chain) : undefined
         // Toolbox chain id ('teratest' -> 'ttn'). App keeps 'teratest' for AsyncStorage keys / env / UI.
         const walletChain = toWalletChain(chain)
         // The backup log's network name. Distinct from walletChain ('ttn' for teratest):
@@ -1251,13 +1357,57 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             console.error('[WalletContext] Failed to add local storage provider:', error)
           }
 
+          let migrationUserId: number | undefined
           try {
             const auth = await storageManager.getAuth()
             setWalletUserId(auth.userId ?? null)
+            migrationUserId = auth.userId ?? undefined
           } catch {
             // Scoping is a filter, not a gate: with no id the queue reads fall
             // back to unscoped, which is today's behaviour.
             setWalletUserId(null)
+          }
+
+          // One-time basket rename ('mandala-tokens' -> MANDALA_BASKET), run
+          // after storage is attached (and any backup restore above has had
+          // its chance to write old-named rows) so a restored device's rows
+          // are migrated too, not just a freshly-created wallet's. Guarded
+          // internally by its own key_value_store marker; the per-user pass
+          // still runs on every build so a restored backup's old-named rows
+          // are caught even after the marker is set. See offline-settlement-final.md §8.3.
+          try {
+            await migrateMandalaBasketName(phoneStorage, migrationUserId)
+          } catch (error) {
+            console.error('[WalletContext] Mandala basket migration failed:', error)
+          }
+
+          // Hand `@bsv/mandala` this deployment's endpoints, this wallet's
+          // basket, and a DURABLE journal store — before any lib call can run.
+          //
+          // The storage adapter is the load-bearing half. The lib's journals
+          // are its recovery contract: an overlay-accepted, not-yet-broadcast
+          // transaction is recoverable only because the 'accepted' entry
+          // outlives the process that wrote it. React Native has no
+          // localStorage, so a host that injects nothing here gets a
+          // process-lifetime Map — i.e. no crash recovery at all — and the
+          // failure is silent. See lib/src/storage.ts.
+          //
+          // `basket` is the wallet's own deviation from the lib default
+          // ('mandala-tokens'): 'p mandala' is BRC-99 P-routed, which is what
+          // puts every listOutputs/createAction/internalizeAction against it
+          // through MandalaTokenModule regardless of originator (spec §8.3).
+          if (mandalaEndpoints) {
+            try {
+              configureMandala({
+                overlayUrl: mandalaEndpoints.overlayUrl,
+                overlayIdentityKey: mandalaEndpoints.overlayIdentityKey,
+                messageBoxUrl: mandalaEndpoints.messageBoxUrl,
+                basket: MANDALA_BASKET,
+                storage: createMandalaKvStorage(phoneStorage)
+              })
+            } catch (error) {
+              console.error('[WalletContext] configureMandala failed:', error)
+            }
           }
         }
         // TODO: Re-add remote storage support in future version
@@ -1265,6 +1415,39 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // Create BTMS permission module, wiring in the prompt handler so that
         // "p btms" operations surface a UI modal rather than silently denying.
         const btmsModule = loadBtmsPermissionModule().createBtmsModule({ wallet, promptHandler: btmsPromptHandler })
+
+        // Adversarial-review finding (2): every outpoint this wallet holds in
+        // MANDALA_BASKET, via the ADMIN-originator wallet -- i.e. this call
+        // itself passes through MandalaTokenModule with zero prompts (the
+        // module's own admin pass-through branch). Shared by the module's
+        // deps below AND by wrapCreateActionForTokenInputs's wrapper further
+        // down, so both use the exact same listing.
+        const listMandalaTokenOutpoints = async (): Promise<Set<string>> => {
+          try {
+            const { outputs } = await wallet.listOutputs(
+              { basket: MANDALA_BASKET, includeCustomInstructions: false, limit: 10000 } as never,
+              adminOriginator
+            )
+            return new Set(outputs.map((o: { outpoint: string }) => o.outpoint))
+          } catch {
+            // A wallet with no Mandala basket yet, or a storage fault -- treat
+            // as "no known token inputs" rather than blocking createAction;
+            // see permissionModule.ts's doc on this dep failing open.
+            return new Set()
+          }
+        }
+
+        // Mandala's own P-module (schemeID 'mandala', basket MANDALA_BASKET =
+        // 'p mandala') -- same routing mechanism as BTMS above
+        // (WalletPermissionsManager delegates by basket prefix regardless of
+        // originator), but decodes Mandala's own script layout rather than
+        // BTMS's PushDrop. See offline-settlement-final.md §8.
+        const mandalaModule = new MandalaTokenModule({
+          adminOriginator,
+          requestTokenAccess: mandalaPromptHandler,
+          resolveAssetMetadata: resolveMandalaAssetMetadata,
+          listTokenOutpoints: listMandalaTokenOutpoints
+        })
 
         // Setup permissions with provided callbacks and BTMS module.
         const permissionsManager = new WalletPermissionsManager(wallet, adminOriginator, {
@@ -1287,7 +1470,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           seekProtocolPermissionsForHMAC: false,
           seekProtocolPermissionsForSigning: false,
           seekSpendingPermissions: true,
-          permissionModules: { btms: btmsModule }
+          permissionModules: { btms: btmsModule, mandala: mandalaModule }
         } as any)
 
         if (protocolPermissionCallback) {
@@ -1307,7 +1490,65 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // Vault calls and external WalletClient calls. Admin output mutations
         // therefore share the guard's FIFO with external inventory scan+use;
         // external call sites may safely apply guardVaultAccess again.
-        newManagers.permissionsManager = guardVaultAccess(permissionsManager, adminOriginator)
+        //
+        // wrapCreateActionForTokenInputs wraps the RAW permissionsManager
+        // FIRST, and guardVaultAccess is applied to ITS result (never the
+        // other way around) -- adversarial-review finding (2):
+        // WalletPermissionsManager only P-routes a createAction call whose
+        // OUTPUTS or LABELS name a 'p ' scheme, never its inputs, so a
+        // createAction that spends 'p mandala' inputs with no basketed/
+        // decodable change output would otherwise reach
+        // MandalaTokenModule.onRequest for exactly zero callers of this
+        // manager. Wrapping outside-in (guard around this wrapper) would
+        // instead break guardVaultAccess's own re-wrap dedup, which several
+        // screens rely on (`guardVaultAccess(managers.permissionsManager,
+        // ADMIN_ORIGINATOR)` again) -- see permissionModule.ts's wrapper doc
+        // for the full mechanism.
+        newManagers.permissionsManager = guardVaultAccess(
+          wrapCreateActionForTokenInputs(permissionsManager, listMandalaTokenOutpoints, adminOriginator),
+          adminOriginator
+        )
+
+        // THE MANDALA RUNTIME'S ONE CONSTRUCTION SITE.
+        //
+        // Built here, after the permissions manager, because every lib call it
+        // makes must go through the P-module gate — a runtime holding the raw
+        // wallet would bypass exactly the routing §8.3 exists to establish. It
+        // is published only when `available`: a runtime on a chain with no
+        // endpoints could submit nowhere and verify nothing, and `undefined` is
+        // what the UI already renders as "not on this network".
+        if (phoneStorage) {
+          try {
+            const runtime = createMandalaRuntime({
+              wallet: newManagers.permissionsManager as never,
+              adminOriginator,
+              storage: phoneStorage,
+              chain,
+              endpoints: mandalaEndpoints,
+              // Lazy: constructing a runtime must do no I/O, and a wallet that
+              // never touches stablecoins never opens a MessageBox connection.
+              messageBox: mandalaEndpoints
+                ? async () =>
+                    new MessageBoxClient({
+                      host: mandalaEndpoints.messageBoxUrl,
+                      walletClient: newManagers.permissionsManager as never,
+                      enableLogging: false
+                    }) as unknown as MandalaMessageBox
+                : undefined,
+              // The payer's own frames are sealed with a nearby session PSK the
+              // drain never persists; this opens the ones whose session this
+              // process still holds. See offline/tokenFrames.ts.
+              decodeSealedFrame: sealedFramePayloadDecoder(),
+              refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
+            })
+            mandalaRef.current = runtime.available ? runtime : undefined
+            setMandala(runtime.available ? runtime : undefined)
+          } catch (error) {
+            console.error('[WalletContext] could not build the Mandala runtime:', error)
+            mandalaRef.current = undefined
+            setMandala(undefined)
+          }
+        }
 
         // Start background monitor for transaction status updates (sending → unproven → completed)
         try {
@@ -1361,9 +1602,36 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           if (phoneStorage) {
             monitor.addTask(
               new TaskSendOffline(monitor, async () => {
+                // FIX C recovery and the nearby-blinding reservation sweep ride
+                // this same tick, ahead of the submit-then-broadcast pass below
+                // so a row this recovers to `admitted` can broadcast in the
+                // SAME pass rather than waiting for the next one. Read from the
+                // ref for the same reason `token: mandalaRef.current?.tokenDeps`
+                // is below — a rebuild replaces the runtime under a task
+                // registered once. Both are best-effort and never throw.
+                await mandalaRef.current?.recoverStaleAdmissions()
+                // The LIB's own journals, on the same tick and with the same
+                // ref discipline: an overlay-accepted transfer whose broadcast
+                // never went out, a liftable refusal still holding its inputs,
+                // and the recipient notification a committed transfer owes its
+                // payee. Nothing else in this wallet drives them — the
+                // settlement drain below only knows `token_settlements` rows,
+                // and the handle rail writes none of these entries. Never
+                // throws (see `reconcileJournals`).
+                await mandalaRef.current?.reconcileJournals()
+                await mandalaRef.current?.pruneBlindingReservations()
                 const r = await processOfflineActions({
                   storage: phoneStorage!,
-                  refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
+                  refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline }),
+                  // The settlement drain, on the same cadence and in the same
+                  // pass as the BSV release. That is the whole of §4.3: a token
+                  // transaction takes the ordinary plan's place in dependency
+                  // order and simply has `/submit` in front of its broadcast,
+                  // so the recipient's `held` rows and the payer's
+                  // `handed_over` rows both settle on every online tick.
+                  // Read from the ref, not captured: a rebuild replaces the
+                  // runtime under a task that was registered once.
+                  token: mandalaRef.current?.tokenDeps
                 })
                 // The drain writes transaction statuses directly, below the
                 // monitor's onTransactionStatusChanged callback — bump the
@@ -1426,7 +1694,19 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                         internalizeIncoming(permissionsManager as never, client, adminOriginator, p, repairBeef)
                       )
                   })
-                  return { accepted: r.accepted, attention: r.attentionCount, pending: r.pending }
+                  // The SAME rail, a second box. A handle-rail token payment
+                  // is delivered into 'mandala-payments', not 'payment_inbox',
+                  // so a receive drain that read only the satoshi box would
+                  // leave real money sitting in the other one. Never throws
+                  // (see drainMandalaInbox) — a MessageBox fault on the token
+                  // side must not take the satoshi inbox down with it.
+                  const tokens = await drainMandalaInbox(mandalaRef.current)
+                  if (tokens.credited > 0) setTxStatusVersion(v => v + 1)
+                  return {
+                    accepted: r.accepted + tokens.credited,
+                    attention: r.attentionCount,
+                    pending: r.pending
+                  }
                 },
                 Date.now,
                 () => {
@@ -1762,6 +2042,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       spendingAuthorizationCallback,
       certificateAccessCallback,
       btmsPromptHandler,
+      mandalaPromptHandler,
       runHeaderSync,
       noteLedgerChanged,
       onToast
@@ -1972,6 +2253,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // the screens reading the OLD chain's database until the new build
     // replaced it — which is how a testnet wallet displayed mainnet money.
     setStorage(null)
+    // The runtime holds this build's settlement store, which is a handle on
+    // the database just destroyed. Dropping it here is what stops a monitor
+    // task or a screen draining the departed wallet's tables.
+    mandalaRef.current = undefined
+    setMandala(undefined)
+    forgetSessionPsks()
 
     // Tear down current wallet state (but keep mnemonic / config)
     vaultStore.clearScope()
@@ -2025,6 +2312,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         } catch {}
       }
       setStorage(null)
+      mandalaRef.current = undefined
+      setMandala(undefined)
+      forgetSessionPsks()
 
       // Tear down current wallet state (but keep mnemonic)
       vaultStore.clearScope()
@@ -2103,7 +2393,24 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           online = false
         }
         if (!canInternalizePending(online)) return
-        const results = await processPending(managers.permissionsManager as any, storage, adminOriginator)
+        const results = await processPending(
+          managers.permissionsManager as any,
+          storage,
+          adminOriginator,
+          undefined,
+          // A credited TOKEN frame is the moment this device becomes
+          // responsible for submitting its chain (settlement rule 3), so the
+          // row and the evidence the frame carried are written here — not
+          // inside the queue, which knows nothing about settlement. Its own
+          // failure is never the payment's: the coin is already credited, and
+          // the drain re-derives what this missed on the next online tick.
+          mandalaRef.current?.onTokenCredited,
+          // The same facts, written BEFORE the internalize — which is the only
+          // ordering the unadmitted-broadcast guard can actually read
+          // (§4.3 guard #2). This one IS allowed to refuse the credit: the
+          // frame stays durable in the queue and the next tick retries it.
+          mandalaRef.current?.onTokenHeld
+        )
         const successes = results.filter(r => r.success)
         if (successes.length > 0) {
           // The activity list and balance re-read on this version; without it
@@ -2369,6 +2676,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         } catch {}
       }
       setStorage(null)
+      mandalaRef.current = undefined
+      setMandala(undefined)
+      forgetSessionPsks()
 
       vaultStore.clearScope()
       updateManagers({})
@@ -2811,11 +3121,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       protocolRequests: protocolQueue.requests,
       spendingRequests: spendingQueue.requests,
       btmsRequests: btmsQueue.requests,
+      mandalaRequests: mandalaQueue.requests,
       advanceBasketQueue: basketQueue.advance,
       advanceCertificateQueue: certificateQueue.advance,
       advanceProtocolQueue: protocolQueue.advance,
       advanceSpendingQueue: spendingQueue.advance,
       advanceBtmsQueue,
+      advanceMandalaQueue,
       finalizeConfig,
       setConfigStatus,
       configStatus,
@@ -2829,6 +3141,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       switchNetwork,
       rebuildWallet,
       storage,
+      mandala,
+      mandalaSettlement: mandalaSettlementDeps(mandala),
       refreshProof,
       peekLastMissHeight,
       txStatusVersion,
@@ -2854,11 +3168,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       protocolQueue.requests,
       spendingQueue.requests,
       btmsQueue.requests,
+      mandalaQueue.requests,
       basketQueue.advance,
       certificateQueue.advance,
       protocolQueue.advance,
       spendingQueue.advance,
       advanceBtmsQueue,
+      advanceMandalaQueue,
       finalizeConfig,
       setConfigStatus,
       configStatus,
@@ -2872,6 +3188,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       switchNetwork,
       rebuildWallet,
       storage,
+      mandala,
       refreshProof,
       peekLastMissHeight,
       txStatusVersion,
@@ -2950,11 +3267,13 @@ export interface WalletQueuesSlice {
   protocolRequests: ProtocolAccessRequest[]
   spendingRequests: SpendingRequest[]
   btmsRequests: BtmsRequest[]
+  mandalaRequests: MandalaRequest[]
   advanceBasketQueue: () => void
   advanceCertificateQueue: () => void
   advanceProtocolQueue: () => void
   advanceSpendingQueue: () => void
   advanceBtmsQueue: (approved: boolean) => void
+  advanceMandalaQueue: (approved: boolean) => void
 }
 export const useWalletQueues = (): WalletQueuesSlice => {
   const ctx = useContext(WalletContext)
@@ -2965,11 +3284,13 @@ export const useWalletQueues = (): WalletQueuesSlice => {
       protocolRequests: ctx.protocolRequests,
       spendingRequests: ctx.spendingRequests,
       btmsRequests: ctx.btmsRequests,
+      mandalaRequests: ctx.mandalaRequests,
       advanceBasketQueue: ctx.advanceBasketQueue,
       advanceCertificateQueue: ctx.advanceCertificateQueue,
       advanceProtocolQueue: ctx.advanceProtocolQueue,
       advanceSpendingQueue: ctx.advanceSpendingQueue,
-      advanceBtmsQueue: ctx.advanceBtmsQueue
+      advanceBtmsQueue: ctx.advanceBtmsQueue,
+      advanceMandalaQueue: ctx.advanceMandalaQueue
     }),
     [
       ctx.basketRequests,
@@ -2977,11 +3298,13 @@ export const useWalletQueues = (): WalletQueuesSlice => {
       ctx.protocolRequests,
       ctx.spendingRequests,
       ctx.btmsRequests,
+      ctx.mandalaRequests,
       ctx.advanceBasketQueue,
       ctx.advanceCertificateQueue,
       ctx.advanceProtocolQueue,
       ctx.advanceSpendingQueue,
-      ctx.advanceBtmsQueue
+      ctx.advanceBtmsQueue,
+      ctx.advanceMandalaQueue
     ]
   )
 }

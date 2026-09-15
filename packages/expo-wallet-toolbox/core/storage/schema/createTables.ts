@@ -360,6 +360,96 @@ export async function createTables(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_offline_actions_seq ON offline_actions(seq);
     CREATE INDEX IF NOT EXISTS idx_offline_actions_txid ON offline_actions(txid);
   `)
+
+  await createMandalaSettlementTables(db)
+}
+
+/**
+ * The four Mandala settlement tables (offline-settlement spec §4.1).
+ *
+ * Additive only: nothing in `offline_actions`, `proven_tx_reqs` or the
+ * toolbox's own schema changes shape. `CREATE TABLE IF NOT EXISTS` is the whole
+ * migration — a device upgrading into this feature gets the tables empty on its
+ * next boot, and every row in them is re-derivable from frame bytes that are
+ * already durable elsewhere (FIX G), so there is nothing to backfill.
+ *
+ * Split into its own exported function so the settlement store's tests can
+ * stand the schema up without the rest of the wallet, and so a future migration
+ * runner has one named unit to call.
+ */
+export async function createMandalaSettlementTables(db: Pick<SQLiteDatabase, 'execAsync'>): Promise<void> {
+  // One row per token transaction this wallet has ever built, received, or
+  // forwarded evidence for — THE single owner of "what state is this token
+  // payment in" (spec §5). The `state` CHECK is deliberately the whole state
+  // machine: a state this file does not list is a bug that must fail at the
+  // write, not survive as an unreachable row nothing drains.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS token_settlements (
+      txid                  TEXT PRIMARY KEY,
+      role                  TEXT NOT NULL CHECK (role IN ('sent','received')),
+      assetId               TEXT NOT NULL,
+      state                 TEXT NOT NULL CHECK (state IN (
+                              'built','parked','handed_over','held',
+                              'submitting','admitted','broadcast','refused','orphaned')),
+      counterpartyKey       TEXT,
+      amountBaseUnits       INTEGER,
+      overlayUrl            TEXT NOT NULL,
+      overlayIdentityKey    TEXT NOT NULL,
+      admissionOutputsJson  TEXT,
+      admissionSignatureHex TEXT,
+      refusedCode           TEXT,
+      refusedPayloadHash    TEXT,
+      poisonedByTxid        TEXT,
+      createdAt             TEXT NOT NULL,
+      updatedAt             TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_token_settlements_state ON token_settlements(state);
+    CREATE INDEX IF NOT EXISTS idx_token_settlements_role ON token_settlements(role);
+    CREATE INDEX IF NOT EXISTS idx_token_settlements_createdAt ON token_settlements(createdAt);
+  `)
+
+  // Cached mirror of the AdmissionEntry values this device has SEEN. Purely a
+  // derivable cache (FIX G) — never a precondition for anything.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS token_admissions (
+      txid               TEXT PRIMARY KEY,
+      outputsToAdmitJson TEXT NOT NULL,
+      signatureHex       TEXT NOT NULL,
+      signerKey          TEXT NOT NULL,
+      source             TEXT NOT NULL CHECK (source IN ('minted','bundle','submitted','fetched')),
+      obtainedAt         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_token_admissions_signerKey ON token_admissions(signerKey);
+  `)
+
+  // Edge index for the recursive COVER walk, so coverage is a local SQL query
+  // rather than a re-parse of a whole BEEF on every pass. Token inputs only
+  // (FIX K): a plain BSV change input funding the fee is not a token ancestor.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS token_admission_edges (
+      childTxid  TEXT NOT NULL,
+      parentTxid TEXT NOT NULL,
+      parentVout INTEGER NOT NULL,
+      PRIMARY KEY (childTxid, parentTxid, parentVout)
+    );
+    CREATE INDEX IF NOT EXISTS idx_token_admission_edges_child ON token_admission_edges(childTxid);
+    CREATE INDEX IF NOT EXISTS idx_token_admission_edges_parent ON token_admission_edges(parentTxid);
+  `)
+
+  // Off-chain linkage payloads for UNADMITTED chain transactions: the exact
+  // bytes a downstream submitter needs to build the /submit body for a txid
+  // nobody has σ_I for yet. Carried verbatim hop by hop — this device can never
+  // decrypt one, only forward it.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS token_linkage_payloads (
+      txid               TEXT PRIMARY KEY,
+      payloadBytes       BLOB NOT NULL,
+      overlayUrl         TEXT NOT NULL,
+      overlayIdentityKey TEXT NOT NULL,
+      source             TEXT NOT NULL CHECK (source IN ('minted','forwarded')),
+      createdAt          TEXT NOT NULL
+    );
+  `)
 }
 
 /**

@@ -42,16 +42,126 @@ export {
   markSessionSpent,
   processPending,
   savePending,
-  type PendingPayment
+  type PendingPayment,
+  type TokenCreditedHook
 } from '../../localpay/pending'
-export { buildPaymentFrame, finalizeDelivery } from '../../localpay/build'
+/**
+ * The two settlement-durability hooks the rail's callers wire (§4.2, §4.3).
+ *
+ * `TokenHeldHook` runs BEFORE the receiver's `internalizeAction`, so the
+ * `token_settlements` row exists when guard #2 looks for it;
+ * `TokenHandedOverHook` runs at the payer's park/hold with the frame still in
+ * plaintext, so the payer's own row does not depend on a session key this
+ * process only holds in memory. Re-exported here because the rail is the single
+ * import site for nearby, and both are implemented by the Mandala runtime and
+ * consumed by `processPending` / `holdSentPaymentOffline` respectively.
+ */
+export type {
+  AdmissionVerifier,
+  EvidenceFrame,
+  EvidenceTokenBlock,
+  TokenHandedOverHook,
+  TokenHandoverState,
+  TokenHeldHook
+} from '../../mandala/types'
+export {
+  buildPaymentFrame,
+  finalizeDelivery,
+  selectTokenCoins,
+  type BuiltPayment,
+  type DeliveryOutcome,
+  type LockToPayee,
+  type SelectedTokenCoin,
+  type TokenBuildDeps
+} from '../../localpay/build'
 export {
   FrameVerifyError,
+  declineReasonFor,
   verifyFramePayment,
   type DerivingWallet,
-  type FrameVerifyKind
+  type FrameVerifyKind,
+  type VerifiedPayment
 } from '../../localpay/verify'
-export { holdSentPaymentOffline } from '../../offline/payerHold'
+/**
+ * The token half of the rail (offline-settlement spec §9).
+ *
+ * Same three moves the BSV path makes — build, hand over, hold — with the
+ * evidence that makes them safe offline attached to each:
+ *
+ *  · PAYER: `buildPaymentFrame` with `TokenBuildDeps` selects from
+ *    `MANDALA_BASKET`, builds `noSend`, and attaches the AdmissionBundle
+ *    `assembleBundle` collected. It submits NOTHING — hand-over comes first,
+ *    unconditionally, so a face-to-face payment never waits on a network.
+ *    `finalizeDelivery` then holds and returns `broadcast: 'pending'` for
+ *    every token payment, online or off (guard #1): the drain is the only
+ *    path to a real broadcast, and only after admission.
+ *  · PAYEE: `verifyFramePayment` proves the output is ours and then runs
+ *    `coverFromFrame` against the injected verifier; a frame that fails COVER
+ *    is refused at hand-over with `'not_covered'`, exactly like a
+ *    `not_mine`/`unparseable` decode failure. A frame that passes is credited
+ *    by `processPending` as a basket insertion, and `onTokenCredited` is where
+ *    the settlement row and the frame's evidence are persisted.
+ *  · BOTH: `readSettlementAck` reads σ_I off the confirm channel — verified
+ *    before it is believed, absent if it does not (FIX H) — and
+ *    `tokenSendState` turns that into the payer's 'sent-settling' /
+ *    'sent-settled' copy.
+ */
+export {
+  SETTLEMENT_ACK_PREFIX,
+  decodeSettlementAck,
+  encodeSettlementAck,
+  readSettlementAck,
+  tokenSendState,
+  type SettlementAck,
+  type TokenSendState,
+  type VerifyAdmissionFn
+} from '../../localpay/settlementAck'
+export {
+  MANDALA_BASKET,
+  assembleBundle,
+  coverFromFrame,
+  tokenParentsOf,
+  type AdmissionBundle,
+  type BundleStore,
+  type CoverBundle,
+  type CoverTip,
+  type CoverVerifier
+} from '../../mandala/bundle'
+/**
+ * The session key the drain cannot hold for itself.
+ *
+ * A payer's `offline_actions.framePayload` is SEALED with the nearby session's
+ * PSK, and the drain deliberately never persists that key — so the flow that
+ * mints or scans a session hands it to `rememberSessionPsk` for this process's
+ * lifetime, and the drain's decoder tries the keys it was given. See
+ * `offline/tokenFrames.ts` for exactly what an unopened row costs (a race the
+ * payer is always safe to lose: the RECIPIENT submits).
+ */
+export {
+  MAX_REMEMBERED_SESSION_KEYS,
+  forgetSessionPsks,
+  rememberSessionPsk,
+  sealedFramePayloadDecoder
+} from '../../offline/tokenFrames'
+/**
+ * The payer's three durability moves, all from one place.
+ *
+ * `holdSentPaymentOffline` was the only one re-exported here while
+ * `parkSentPaymentOffline` and `releaseParkedPayment` were reached through the
+ * package root — which is the second implementation path this module exists to
+ * prevent. `holdSentPaymentOffline` and `parkSentPaymentOffline` take the same
+ * `{ frame, onTokenHandedOver }` deps (they create the settlement row from the
+ * plaintext frame); `releaseParkedPayment` takes none — the row already exists
+ * from the park, so it only advances it parked → handed_over. All three are the
+ * same fork of one decision (confirm now, keep for later, confirm later), so
+ * they belong on one import site.
+ */
+export {
+  holdSentPaymentOffline,
+  parkSentPaymentOffline,
+  releaseParkedPayment,
+  type TokenHandoverDeps
+} from '../../offline/payerHold'
 export { awdlTransport } from '../../localpay/transport/awdl'
 export { nearbyTransport } from '../../localpay/transport/nearby'
 export { bleTransport } from '../../localpay/transport/ble'

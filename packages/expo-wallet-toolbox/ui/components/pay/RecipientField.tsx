@@ -43,6 +43,24 @@ interface RecipientFieldProps {
   readonly onSelectIdentity: (i: DisplayableIdentity) => void
   readonly onClear: () => void
   readonly onOpenScanner: () => void
+  /**
+   * Token mode. When an asset is selected, an address is not a recipient this
+   * payment can have: the output locks to an ECDH product of the recipient's
+   * identity key, so there is nothing an address could be turned into (D4).
+   *
+   * The refusal is INLINE and NON-DESTRUCTIVE — the typed text stays exactly
+   * where it is, in a warning tone with a plain reason, and switching the
+   * picker back to BSV makes it valid again with no retyping. Deleting the
+   * user's input to enforce a rule they have not been told about yet would be
+   * the wallet punishing them for a choice it made.
+   */
+  readonly assetTicker?: string
+  /**
+   * A status line the caller owns, for facts this component cannot know —
+   * today the recipient's standing with the issuer (blocked, unregistered).
+   * Rendered in place of the resolved-target line.
+   */
+  readonly statusOverride?: { readonly text: string; readonly tone: 'warning' | 'error' }
 }
 
 export default function RecipientField({
@@ -57,10 +75,14 @@ export default function RecipientField({
   onChangeText,
   onSelectIdentity,
   onClear,
-  onOpenScanner
+  onOpenScanner,
+  assetTicker,
+  statusOverride
 }: RecipientFieldProps) {
   const Ionicons = loadIonicons()
   const reducedMotion = useReducedMotion()
+  /** An address typed while a token is selected: refused, but not erased. */
+  const addressRefused = !!assetTicker && (target?.kind === 'address' || inlineError === 'invalid_bsv_address')
   if (selectedIdentity) {
     const identityEntering = reducedMotion
       ? undefined
@@ -92,8 +114,17 @@ export default function RecipientField({
     )
   }
   const showDropdown = (isSearching || searchResults.length > 0) && !target && !inlineError
-  const borderColor = inlineError ? colors.error : target ? colors.success : colors.separator
-  const borderWidth = inlineError || target ? 1 : StyleSheet.hairlineWidth
+  const overrideColor = statusOverride?.tone === 'error' ? colors.error : colors.warning
+  const borderColor = addressRefused
+    ? colors.warning
+    : statusOverride
+      ? overrideColor
+      : inlineError
+        ? colors.error
+        : target
+          ? colors.success
+          : colors.separator
+  const borderWidth = addressRefused || statusOverride || inlineError || target ? 1 : StyleSheet.hairlineWidth
   return (
     <>
       <View style={[styles.inputRow, { backgroundColor: colors.backgroundSecondary, borderColor, borderWidth }]}>
@@ -110,7 +141,21 @@ export default function RecipientField({
           <Ionicons name="qr-code-outline" size={20} color={colors.accent} />
         </TouchableOpacity>
       </View>
-      {inlineError ? (
+      {addressRefused ? (
+        // A sentence, not just a colour: no state in this app is communicated
+        // by colour alone.
+        <View style={styles.statusRow}>
+          <Ionicons name="alert-circle-outline" size={14} color={colors.warning} />
+          <Text style={[styles.statusText, { color: colors.warning }]}>
+            {t('pay_asset_address_status', { ticker: assetTicker })}
+          </Text>
+        </View>
+      ) : statusOverride ? (
+        <View style={styles.statusRow}>
+          <Ionicons name="alert-circle-outline" size={14} color={overrideColor} />
+          <Text style={[styles.statusText, { color: overrideColor }]}>{statusOverride.text}</Text>
+        </View>
+      ) : inlineError ? (
         <View style={styles.statusRow}>
           <Ionicons name="close-circle-outline" size={14} color={colors.error} />
           <Text style={[styles.statusText, { color: colors.error }]}>{t(inlineError)}</Text>

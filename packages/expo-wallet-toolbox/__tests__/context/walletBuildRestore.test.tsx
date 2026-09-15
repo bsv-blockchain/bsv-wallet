@@ -1,3 +1,10 @@
+// WalletContext reaches the vault store (and, through LocalStorageProvider,
+// the secrets policy), both of which import a native Expo module at load time.
+// Same two stubs every other suite that imports the provider installs — see
+// __tests__/ui/universalSend.test.tsx.
+jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
+jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake').fake)
+
 import React from 'react'
 import { act, render } from '@testing-library/react-native'
 import { PrivateKey } from '@bsv/sdk'
@@ -50,7 +57,10 @@ jest.mock('../../core/mnemonicWallet', () => ({
 }))
 jest.mock('../../core/services/exchangeRate', () => ({ getExchangeRate: async () => 50 }))
 jest.mock('../../core/services/vault/driver', () => ({ getVaultDriver: () => null }))
-jest.mock('../../core/services/vault/ceremonyHost', () => ({ VAULT_RETENTION_MS: 1000, ceremony: {} }))
+jest.mock('../../core/services/vault/ceremonyHost', () => ({
+  VAULT_RETENTION_MS: 1000,
+  ceremony: { cancel: () => {}, subscribe: () => () => {}, getState: () => undefined }
+}))
 jest.mock('../../core/headers/fs', () => ({ expoHeaderFs: {} }))
 jest.mock('../../core/net/online', () => ({
   getOnline: async () => false,

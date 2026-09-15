@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next'
 
 import AvailableBalance from './AvailableBalance'
 import { useTheme, radii, spacing, typography } from '@bsv/expo-wallet-toolbox'
-import { AmountInput } from '../wallet/AmountInput'
+import { AmountInput, type AmountInputAsset } from '../wallet/AmountInput'
 import PressableScale from '../ui/PressableScale'
 
 /**
@@ -59,31 +59,85 @@ export function PayAmountField({
   value,
   onChangeText,
   showMax = true,
-  showBalance = true
+  showBalance = true,
+  asset,
+  maxValue,
+  availableText,
+  availableNote
 }: {
   value: string
   onChangeText: (text: string) => void
   showMax?: boolean
   showBalance?: boolean
+  /** Token mode: the field takes and emits base units of this asset. */
+  asset?: AmountInputAsset
+  /** Token mode: what Max writes (the real spendable figure, not a sentinel). */
+  maxValue?: string
+  /**
+   * Token mode: the available figure, already formatted. `AvailableBalance`
+   * sources its own BSV figure and takes no balance prop, so this is the only
+   * way a token figure can appear under the field.
+   */
+  availableText?: string
+  /** A second line under the available figure — today, the frozen subtotal. */
+  availableNote?: string
 }) {
   return (
     <PayField labelKey="amount">
-      <AmountInput value={value} onChangeText={onChangeText} showMax={showMax} />
-      {showBalance && <AvailableBalance />}
+      <AmountInput value={value} onChangeText={onChangeText} showMax={showMax} asset={asset} maxValue={maxValue} />
+      {showBalance && <AvailableBalance text={availableText} note={availableNote} />}
     </PayField>
   )
 }
 
 /** The consequence, before the button — not after. Boxed so it reads as fact,
  * not fine print. */
-export function ConsequenceNote({ textKey }: { textKey: string }) {
+export function ConsequenceNote({
+  textKey,
+  values,
+  text,
+  action
+}: {
+  textKey: string
+  /**
+   * An already-resolved sentence that wins over the key — for a reason that
+   * comes from somewhere other than this app's own string table (today: the
+   * Mandala runtime's plain refusals).
+   */
+  text?: string
+  /**
+   * Interpolation values. Every token note carries `{{ticker}}` or
+   * `{{issuer}}`, and `t(key)` with no options renders the placeholders raw.
+   */
+  values?: Record<string, string | number>
+  /**
+   * The one inline affordance a note may carry — "Get BSV", "Check again".
+   * Its hit area is padded to the 44pt minimum because the note's own text is
+   * a footnote and a footnote-sized target is not a target.
+   */
+  action?: { label: string; onPress: () => void }
+}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   return (
     <View style={[styles.consequence, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
       <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
-      <Text style={[styles.consequenceText, { color: colors.textSecondary }]}>{t(textKey)}</Text>
+      <Text style={[styles.consequenceText, { color: colors.textSecondary }]}>{text ?? t(textKey, values)}</Text>
+      {action && (
+        <PressableScale
+          onPress={action.onPress}
+          haptic="tap"
+          hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
+          style={styles.consequenceAction}
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+        >
+          <Text style={[styles.consequenceActionText, { color: colors.accent }]} numberOfLines={1}>
+            {action.label}
+          </Text>
+        </PressableScale>
+      )}
     </View>
   )
 }
@@ -94,18 +148,27 @@ export function PayCta({
   disabled,
   busy,
   labelKey = 'pay',
+  label,
   icon = 'arrow-up'
 }: {
   onPress: () => void
   disabled: boolean
   busy: boolean
   labelKey?: string
+  /**
+   * A raw, already-interpolated label, which wins over `labelKey`. The token
+   * CTA names the exact figure and asset ("Send 25.00 USDX") and is the
+   * confirmation this flow has instead of a review screen — and `t(labelKey)`
+   * takes no options, so it could never produce that sentence from a key.
+   */
+  label?: string
   icon?: keyof IoniconsComponent['glyphMap']
 }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   const enabled = !disabled
+  const text = label ?? t(labelKey)
   return (
     <PressableScale
       onPress={onPress}
@@ -113,7 +176,7 @@ export function PayCta({
       haptic="confirm"
       style={[styles.cta, { backgroundColor: enabled ? colors.accent : colors.fill }]}
       accessibilityRole="button"
-      accessibilityLabel={t(labelKey)}
+      accessibilityLabel={text}
       accessibilityState={{ disabled }}
     >
       {busy ? (
@@ -122,7 +185,7 @@ export function PayCta({
         <>
           <Ionicons name={icon} size={20} color={enabled ? colors.textOnAccent : colors.textTertiary} />
           <Text style={[styles.ctaText, { color: enabled ? colors.textOnAccent : colors.textTertiary }]}>
-            {t(labelKey)}
+            {text}
           </Text>
         </>
       )}
@@ -187,6 +250,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg
   },
   consequenceText: { ...typography.footnote, flex: 1 },
+  consequenceAction: { paddingVertical: spacing.xs, paddingHorizontal: spacing.xs },
+  consequenceActionText: { ...typography.footnote, fontWeight: '600' },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',

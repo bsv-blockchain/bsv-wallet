@@ -32,11 +32,13 @@ export {
   isToolboxConfigured,
   getBackupUrl,
   getServiceConfig,
+  getMandalaEndpoints,
+  isMandalaAvailable,
   isVaultEnabled,
   isVaultAvailable,
   resetToolboxConfig
 } from './toolboxConfig'
-export type { ToolboxConfig, ToolboxServiceConfig } from './toolboxConfig'
+export type { ToolboxConfig, ToolboxServiceConfig, MandalaEndpointConfig } from './toolboxConfig'
 
 // Theme tokens and providers
 export { ThemeProvider, useTheme } from './theme/ThemeContext'
@@ -96,6 +98,66 @@ export * from './offline/hold'
 export * from './offline/order'
 export * from './offline/plan'
 export * from './offline/payerHold'
+export * from './offline/tokenFrames'
+export {
+  cancelParkedPayment,
+  type CancelParkedOutcome,
+  type CancelParkedStorage,
+  type CancelParkedWallet,
+  type CancelParkedSettlementDeps
+} from './offline/cancelParked'
+
+// Mandala token settlement — the four evidence tables, and the
+// submit-before-broadcast drain over them.
+export * from './mandala/types'
+export { createSettlementStore, type SettlementDb, type SqlSettlementStore } from './mandala/settlementStore'
+export {
+  deriveTokenEdges,
+  isRetriableInternalizeFailure,
+  listStuckSettlements,
+  populateEvidenceFromFrame,
+  postTokenStep,
+  reconcileSettlements,
+  NON_TERMINAL_SETTLEMENT_STATES,
+  TERMINAL_SETTLEMENT_STATES,
+  type EvidenceFrame,
+  type EvidencePopulated,
+  type EvidenceTokenBlock,
+  type EvidenceTrustAnchor,
+  type TokenFrameSource,
+  type TokenStepDeps
+} from './mandala/drain'
+// The runtime the UI consumes: its pure interface, and its one construction
+// site. `useMandala()` reads `useWallet().mandala`; nothing above this line in
+// an app may import `@bsv/mandala` itself.
+export type {
+  MandalaRuntime,
+  TokenActivityRow,
+  TokenActivityStatus,
+  TokenAssetInfo,
+  TokenBalance,
+  TokenSendResult
+} from './mandala/runtime'
+export {
+  activityStatusOf,
+  bindOriginator,
+  createMandalaKvStorage,
+  createMandalaRuntime,
+  verdictFromError,
+  type CreateMandalaRuntimeArgs,
+  type MandalaKvStorage,
+  type MandalaMessageBox
+} from './mandala/createRuntime'
+export {
+  assembleBundle,
+  coverFromFrame,
+  tokenParentsOf,
+  type AdmissionBundle,
+  type BundleStore,
+  type CoverBundle,
+  type CoverTip,
+  type CoverVerifier
+} from './mandala/bundle'
 
 // Local SQLite storage layer
 export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
@@ -103,10 +165,11 @@ export type { StorageExpoSQLiteOptions } from './storage/StorageExpoSQLite'
 export { createTables, ensureOfflineActionsColumns } from './storage/schema/createTables'
 export { initializeLocalStorage, isLocalStorage, getStorageDisplayName } from './storage/LocalStorageAdapter'
 export type { LocalStorageConfig } from './storage/LocalStorageAdapter'
-export { findOfflineActions, updateOfflineAction } from './storage/methods/offlineActions'
+export { findOfflineActions, findOfflineActionByTxid, updateOfflineAction } from './storage/methods/offlineActions'
 export type { OfflineActionRow, OfflineActionStatus, BindValue } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
-export { processOfflineActions } from './storage/methods/processOfflineActions'
+export { processOfflineActions, type OfflineTokenDeps } from './storage/methods/processOfflineActions'
+export { createMandalaSettlementTables } from './storage/schema/createTables'
 export * from './storage/skipQueuedAncestors'
 
 // Local secrets storage

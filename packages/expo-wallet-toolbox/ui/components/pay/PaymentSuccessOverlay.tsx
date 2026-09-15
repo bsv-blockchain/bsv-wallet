@@ -72,6 +72,24 @@ export interface ReceivedOverlayProps {
   /** Sent only: the resolved counterparty (name, handle, or abbreviated address). */
   recipientName?: string
   /**
+   * Token mode: the figure in the asset's own units, already formatted
+   * ("25.00 USDX"). It replaces the satoshi figure entirely — `AmountDisplay`
+   * would read `settings.currency` and print a token amount as satoshis or,
+   * worse, cross it into fiat at the BSV rate.
+   */
+  amountText?: string
+  /**
+   * One already-interpolated line about what has and has not happened yet:
+   * "Settling with Acme Bank", "not yet confirmed by Acme Bank", "we couldn't
+   * tell them yet". Never a claim of settlement the wallet does not have.
+   */
+  statusNote?: string
+  /**
+   * First time this wallet has ever held this asset: who issues it and what
+   * they can do. Disclosure at the one moment the user is definitely looking.
+   */
+  firstHoldNote?: string
+  /**
    * Where acknowledging the overlay sends the user. Defaults to `/`, the
    * wallet's own home route. A host that embeds the wallet as a sub-screen
    * (rather than as the app root) should pass its own wallet-home route here.
@@ -91,6 +109,9 @@ export default function PaymentSuccessOverlay({
   broadcast = true,
   direction = 'received',
   recipientName,
+  amountText,
+  statusNote,
+  firstHoldNote,
   dismissTo = '/',
   onDismiss
 }: ReceivedOverlayProps) {
@@ -178,7 +199,7 @@ export default function PaymentSuccessOverlay({
               adjustsFontSizeToFit
               accessibilityRole="text"
             >
-              <AmountDisplay>{amount}</AmountDisplay>
+              {amountText ?? <AmountDisplay>{amount}</AmountDisplay>}
             </Text>
           </Animated.View>
 
@@ -194,8 +215,24 @@ export default function PaymentSuccessOverlay({
             </Text>
           )}
 
+          {/* `pay_received_not_broadcast` is the RECEIVED-side sentence and was
+              rendered ungated by direction; a sent payment gets its own, because
+              "Received offline" over an outgoing payment is simply wrong. */}
           {!broadcast && (
-            <Text style={[styles.pending, { color: colors.textSecondary }]}>{t('pay_received_not_broadcast')}</Text>
+            <Text style={[styles.pending, { color: colors.textSecondary }]}>
+              {t(sent ? 'pay_sent_not_broadcast' : 'pay_received_not_broadcast')}
+            </Text>
+          )}
+
+          {!!statusNote && <Text style={[styles.pending, { color: colors.textSecondary }]}>{statusNote}</Text>}
+
+          {!!firstHoldNote && (
+            <Text
+              style={[styles.pending, styles.firstHold, { color: colors.textSecondary }]}
+              textBreakStrategy="balanced"
+            >
+              {firstHoldNote}
+            </Text>
           )}
         </View>
 
@@ -256,6 +293,10 @@ const styles = StyleSheet.create({
     ...typography.footnote,
     textAlign: 'center',
     marginTop: spacing.xs
+  },
+  firstHold: {
+    marginTop: spacing.lg,
+    maxWidth: 300
   },
   footer: {
     paddingBottom: spacing.md
