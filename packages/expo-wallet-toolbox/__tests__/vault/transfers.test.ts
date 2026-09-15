@@ -804,6 +804,67 @@ describe('depositToVault', () => {
     expect(clear).not.toHaveBeenCalled()
   })
 
+  /**
+   * A broadcast-but-unmined spend has a txid and ordinary unconfirmed UTXOs:
+   * it reserves nothing that listOutputs cannot see, which is why
+   * reconcileHeldVaultDeposits already skips BROADCAST_ACTION_STATUSES. A
+   * drained vault whose last withdrawal is still waiting for its merkle proof
+   * must not be refused disablement — the proof can be hours away, or never
+   * arrive locally at all.
+   */
+  it('disables a drained vault whose withdrawal is broadcast but unmined', async () => {
+    await seedMeta()
+    const { salt } = fixtureSalt(902)
+    const postedWithdraw = {
+      txid: 'a7'.repeat(32),
+      reference: 'unproven-withdraw-ref',
+      status: 'unproven',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [{
+        sourceOutpoint: `${'a8'.repeat(32)}.0`,
+        sourceSatoshis: 250_000,
+        sourceLockingScript: buildLock({
+          commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+          saltHex64: salt
+        }).toHex()
+      }],
+      outputs: []
+    }
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(specOpFailedActions) ? [] : [postedWithdraw]
+    }))
+    const clear = jest.fn(async (_token?: unknown) => {})
+
+    await expect(disableVaultWhenSafe(wallet, ADMIN, clear)).resolves.toBe(true)
+    expect(clear).toHaveBeenCalled()
+  })
+
+  it('keeps refusing while a signed but unposted withdrawal reserves its vault source', async () => {
+    await seedMeta()
+    const { salt } = fixtureSalt(903)
+    const heldWithdraw = {
+      reference: 'nosend-withdraw-ref',
+      status: 'nosend',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [{
+        sourceOutpoint: `${'a9'.repeat(32)}.0`,
+        sourceSatoshis: 250_000,
+        sourceLockingScript: buildLock({
+          commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+          saltHex64: salt
+        }).toHex()
+      }],
+      outputs: []
+    }
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(specOpFailedActions) ? [] : [heldWithdraw]
+    }))
+    const clear = jest.fn(async (_token?: unknown) => {})
+
+    await expect(disableVaultWhenSafe(wallet, ADMIN, clear)).resolves.toBe(false)
+    expect(clear).not.toHaveBeenCalled()
+  })
+
   it('ignores completed legacy vault spends when clearing enrollment metadata', async () => {
     await seedMeta()
     const legacySpend = {

@@ -1349,7 +1349,15 @@ export async function disableVaultWhenSafe(
       const inputs = action.inputs ?? []
       const r1cInputs = inputs.filter(input => isR1CSourceScript(input.sourceLockingScript))
       const claimsSpend = actionClaimsVaultSpend(action)
-      const pending = PENDING_ACTION_STATUSES.has(action.status)
+      // A posted transaction (BROADCAST_ACTION_STATUSES) reserves nothing this
+      // check cannot already see: it has a txid and its outputs are ordinary
+      // unconfirmed UTXOs, which is why reconcileHeldVaultDeposits skips the
+      // same statuses. Only a signed-but-unposted action can hold a Vault
+      // source back invisibly, and `unproven` can stand for hours — or never
+      // resolve locally — so treating it as live refuses a drained Vault its
+      // disablement for as long as the merkle proof is missing.
+      const reserving =
+        PENDING_ACTION_STATUSES.has(action.status) && !BROADCAST_ACTION_STATUSES.has(action.status)
       // Only a live action can still be holding a Vault source back, and its
       // source scripts are evidence for that decision only while it is live.
       // Settled history cannot satisfy this rule and must not be asked to:
@@ -1359,7 +1367,7 @@ export async function disableVaultWhenSafe(
       // inspectHiddenVaultReservations). Demanding exact R1C sources from
       // either shape reads an ordinary drained history as malformed and
       // refuses to disable an empty Vault for good.
-      if (pending && claimsSpend && (inputs.length === 0 || r1cInputs.length !== inputs.length)) {
+      if (reserving && claimsSpend && (inputs.length === 0 || r1cInputs.length !== inputs.length)) {
         throw new VaultError('template-invalid', 'Vault action history has missing or malformed R1C source scripts')
       }
       const vaultOutputs = (action.outputs ?? []).filter(output => output.basket === VAULT_BASKET)
@@ -1385,7 +1393,7 @@ export async function disableVaultWhenSafe(
         labels.has('vault-withdraw') ||
         labels.has('vault-relock') ||
         labels.has('vault-deposit')
-      if (pending && touchesVault) blocked = true
+      if (reserving && touchesVault) blocked = true
       if (action.status === 'failed') {
         // A failed deposit has no Vault source to hide. A failed spend still
         // listing inputs has NOT been unwound — storage drops `spentBy` in the
