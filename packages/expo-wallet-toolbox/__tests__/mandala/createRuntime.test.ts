@@ -302,9 +302,11 @@ describe('availability', () => {
     expect(build().available).toBe(true)
   })
 
-  it('is unavailable on every other chain, however complete the endpoints', () => {
-    expect(build({ chain: 'test' }).available).toBe(false)
-    expect(build({ chain: 'teratest' }).available).toBe(false)
+  it('is available on whichever chain the host stated endpoints for, and on no chain without them', () => {
+    expect(build({ chain: 'test' }).available).toBe(true)
+    expect(build({ chain: 'teratest' }).available).toBe(true)
+    expect(build({ chain: 'test', endpoints: undefined }).available).toBe(false)
+    expect(build({ chain: 'main', endpoints: undefined }).available).toBe(false)
   })
 
   it('publishes the CONFIGURED deployment as the one trust anchor a call site may state', () => {
@@ -718,7 +720,7 @@ describe('receiveFromInbox', () => {
   })
 
   it('credits nothing when the runtime is not available on this chain', async () => {
-    expect(await build({ chain: 'test' }).receiveFromInbox()).toEqual({ credited: 0, failed: 0 })
+    expect(await build({ chain: 'test', endpoints: undefined }).receiveFromInbox()).toEqual({ credited: 0, failed: 0 })
     expect(receiveTokens).not.toHaveBeenCalled()
   })
 })
@@ -2070,7 +2072,7 @@ describe('reconcileJournals — the handle rail’s recovery, on the drain tick'
   })
 
   it('does nothing at all on a chain this wallet has no Mandala for', async () => {
-    await build({ chain: 'test' }).reconcileJournals()
+    await build({ chain: 'test', endpoints: undefined }).reconcileJournals()
     expect(reconcileWallet).not.toHaveBeenCalled()
     expect(reconcileNotifications).not.toHaveBeenCalled()
   })
@@ -2282,7 +2284,7 @@ describe('repairAdmittedAborted — the wallet failed a transaction the chain ha
 
   it('does nothing on a chain this wallet has no Mandala for', async () => {
     const { storage, repair } = damagedStorage()
-    const runtime = build({ storage, chain: 'test' })
+    const runtime = build({ storage, chain: 'test', endpoints: undefined })
     await admittedRow(runtime)
 
     await expect(runtime.repairAdmittedAborted()).resolves.toBe(0)

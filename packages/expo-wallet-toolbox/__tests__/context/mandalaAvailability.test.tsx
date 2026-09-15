@@ -46,9 +46,10 @@ describe('the per-chain endpoint gate', () => {
     expect(isMandalaAvailable('main')).toBe(true)
   })
 
-  it('is mainnet-only, even when another chain has complete endpoints', () => {
-    configureToolbox({ backupUrl: null, mandala: { main: MAIN, test: MAIN } })
-    expect(isMandalaAvailable('test')).toBe(false)
+  it('is exactly the chains the host stated — a testnet-only rollout needs no code change', () => {
+    configureToolbox({ backupUrl: null, mandala: { test: MAIN } })
+    expect(isMandalaAvailable('test')).toBe(true)
+    expect(isMandalaAvailable('main')).toBe(false)
     expect(isMandalaAvailable('teratest')).toBe(false)
   })
 
@@ -112,6 +113,8 @@ describe('the runtime the build would publish agrees with the gate', () => {
       expect(runtimeFor(chain).available).toBe(isMandalaAvailable(chain))
     }
     expect(isMandalaAvailable('main')).toBe(true)
+    expect(isMandalaAvailable('test')).toBe(true)
+    expect(isMandalaAvailable('teratest')).toBe(false)
   })
 
   it('agrees that an unconfigured build has no runtime', () => {

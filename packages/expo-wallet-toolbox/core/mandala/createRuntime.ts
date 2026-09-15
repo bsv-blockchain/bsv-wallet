@@ -424,7 +424,8 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const { wallet, adminOriginator, storage, chain, endpoints } = args
   const now = args.now ?? (() => new Date())
   const db = storage.sqliteDb
-  const available = chain === 'main' && endpoints !== undefined && db !== undefined
+  // Any chain the host stated complete endpoints for; no chain is hardcoded.
+  const available = endpoints !== undefined && db !== undefined
   const overlayUrl = endpoints?.overlayUrl ?? ''
   const overlayIdentityKey = endpoints?.overlayIdentityKey ?? ''
   const messageBoxUrl = endpoints?.messageBoxUrl ?? ''

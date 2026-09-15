@@ -1069,11 +1069,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const newManagers = {} as any
         // Deliberately the ref, not the state: see selectedNetworkRef.
         const chain = selectedNetworkRef.current
-        // Mandala is mainnet-only in v1 (ux §2) AND only where the host stated
-        // this chain's endpoints: an overlay URL with no verifiable identity
-        // key is an overlay whose admissions nothing can check, so a partial
-        // entry reads as no entry at all (see toolboxConfig).
-        const mandalaEndpoints = chain === 'main' ? getMandalaEndpoints(chain) : undefined
+        // Mandala runs on exactly the chains the host stated endpoints for
+        // (currently testnet only, see app/_layout.tsx): an overlay URL with no
+        // verifiable identity key is an overlay whose admissions nothing can
+        // check, so a partial entry reads as no entry at all (see toolboxConfig).
+        const mandalaEndpoints = getMandalaEndpoints(chain)
         // Toolbox chain id ('teratest' -> 'ttn'). App keeps 'teratest' for AsyncStorage keys / env / UI.
         const walletChain = toWalletChain(chain)
         // The backup log's network name. Distinct from walletChain ('ttn' for teratest):
