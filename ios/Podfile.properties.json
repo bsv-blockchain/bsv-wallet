@@ -5,5 +5,5 @@
   "ios.useFrameworks": "static",
   "ios.forceStaticLinking": "[]",
   "apple.privacyManifestAggregationEnabled": "true",
-  "ios.deploymentTarget": "16.0"
+  "ios.deploymentTarget": "16.4"
 }

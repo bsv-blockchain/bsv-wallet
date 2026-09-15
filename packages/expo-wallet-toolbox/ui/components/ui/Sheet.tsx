@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     shadowRadius: 30
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 10
   },
   handleArea: {
