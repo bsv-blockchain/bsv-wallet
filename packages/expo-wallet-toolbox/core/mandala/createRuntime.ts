@@ -905,6 +905,13 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     // `loadBeefContaining`.
     const beef = await loadBeefContaining(txid)
     if (!beef) return { kind: 'unavailable', code: 'ERR_LOCAL_BYTES', retryable: true }
+    // Same hole as `cover`'s: a stored `inputBEEF` carries the token parents
+    // the lib supplied, not the fee parent the wallet allocated. The overlay's
+    // SPV check needs every input's source transaction, so complete the
+    // ancestry here too (2026-09-15: a4a6b346 came back 503 "missing an
+    // associated source transaction" on every pass).
+    const own = beef.findTxid(txid)?.tx
+    if (own) await completeAncestry(beef, own)
     let bytes: number[]
     try {
       bytes = beef.toBinaryAtomic(txid)

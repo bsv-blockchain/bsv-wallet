@@ -2717,3 +2717,36 @@ describe('settlePendingSends — the handle rail’s rows are driven on every ti
     expect((await runtime.store.getSettlement(txid))?.state).toBe('parked')
   })
 })
+
+describe('submit completes the tip’s ancestry from the wallet before posting', () => {
+  it('the posted BEEF carries a fee parent that inputBEEF did not', async () => {
+    const tokenParent = rootTx(100)
+    const feeParent = new Transaction()
+    feeParent.addOutput({ satoshis: 600, lockingScript: LockingScript.fromHex('51') })
+    const tip = txSpending([{ tx: tokenParent, vout: 0 }])
+    tip.addInput({ sourceTransaction: feeParent, sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('') })
+    const tipTxid = tip.id('hex')
+    const inputBEEF = new Beef()
+    inputBEEF.mergeTransaction(tokenParent)
+
+    let postedBeef: Beef | undefined
+    const fetchImpl = async (_url: unknown, init: unknown) => {
+      const { body } = init as { body: Uint8Array }
+      postedBeef = Beef.fromBinary(Array.from(body))
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            tm_mandala: { outputsToAdmit: [0], admissionSignature: signAdmission(tipTxid, [0]), admissionIdentityKey: OVERLAY_KEY }
+          })
+      }
+    }
+    const storage = fakeStorage(db, [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }], [feeParent])
+    const runtime = build({ storage, fetchImpl: fetchImpl as never })
+    const verdict = await runtime.tokenDeps.submit(tipTxid)
+    expect(verdict.kind).toBe('admitted')
+    expect(postedBeef?.findTxid(feeParent.id('hex'))?.tx).toBeDefined()
+    expect(postedBeef?.findTxid(tokenParent.id('hex'))?.tx).toBeDefined()
+  })
+})
