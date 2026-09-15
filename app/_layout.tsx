@@ -56,15 +56,26 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
   vaultEnabled: process.env.EXPO_PUBLIC_VAULT_ENABLED === 'true',
-  // Mandala stablecoins are mainnet-only in v1. Without a complete entry the
-  // token runtime stays undefined and the wallet neither drains the
-  // 'mandala-payments' MessageBox nor offers token assets in Pay / Get paid.
+  // Mandala stablecoin endpoints, per chain. A chain without a complete entry
+  // has no token runtime: the wallet neither drains the 'mandala-payments'
+  // MessageBox nor offers token assets in Pay / Get paid on that chain.
+  // `main` comes from EXPO_PUBLIC_MANDALA_* (unset in the production profile
+  // until a mainnet overlay is deployed); `test` from EXPO_PUBLIC_TEST_MANDALA_*
+  // (the flux testnet overlay, mandala-test-overlay.bsvblockchain.tech).
   mandala: {
     main: {
       overlayUrl: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_URL ?? '',
       overlayIdentityKey: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_IDENTITY_KEY ?? '',
       messageBoxUrl:
         process.env.EXPO_PUBLIC_MANDALA_MESSAGEBOX_URL ??
+        process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
+        'https://gmb.bsvblockchain.tech'
+    },
+    test: {
+      overlayUrl: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_URL ?? '',
+      overlayIdentityKey: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_IDENTITY_KEY ?? '',
+      messageBoxUrl:
+        process.env.EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL ??
         process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
         'https://gmb.bsvblockchain.tech'
     }
