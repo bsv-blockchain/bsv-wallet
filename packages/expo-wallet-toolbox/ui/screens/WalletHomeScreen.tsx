@@ -86,11 +86,8 @@ import { makeMetadataDecryptor } from '../../core/peerpay/metadataDecryptor'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
 import { useMandala, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
-import type { TokenAssetStatus } from '../../core/mandala/runtime'
-import BalancesSection from '../components/wallet/BalancesSection'
-import AssetSheet from '../components/wallet/AssetSheet'
 import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
-import { SEEN_ASSETS_KEY, SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
+import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
 import { tokenStatusKey } from '../tokenStatus'
 import { formatTokenAmount } from '../tokenFormat'
 import { exportTransactionsAsCsv } from '../exportTransactions'
@@ -1056,62 +1053,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const mandala = useMandala()
   const tokenActivity = useTokenActivity()
   const tokenByTxid = useMemo(() => tokenActivityByTxid(tokenActivity.rows), [tokenActivity.rows])
-  /**
-   * Regulatory/registry facts (paused, frozen, metadata resolved) per held
-   * asset, for the Balances row badges. Not `useAssetStatus`: that hook is
-   * for ONE asset at a fixed call site (Rules of Hooks forbids one hook call
-   * per row of a dynamic list), so this fetches the whole held set through
-   * the runtime directly — the same ~10s-cached `assetStatus` a single-asset
-   * caller would get, just batched. Refetched whenever the held set changes
-   * (a new balance, a wallet switch) and on focus, mirroring `useAssetStatus`.
-   */
-  const [assetStatusById, setAssetStatusById] = useState<Record<string, TokenAssetStatus>>({})
-  const [assetStatusNonce, setAssetStatusNonce] = useState(0)
-  const heldAssetIds = useMemo(() => (mandala.balances ?? []).map(b => b.asset.assetId), [mandala.balances])
-  useEffect(() => {
-    const runtime = mandala.runtime
-    if (!runtime || heldAssetIds.length === 0) {
-      setAssetStatusById({})
-      return
-    }
-    let live = true
-    void (async () => {
-      const entries = await Promise.all(
-        heldAssetIds.map(async id => {
-          try {
-            return [id, await runtime.assetStatus(id)] as const
-          } catch {
-            return null
-          }
-        })
-      )
-      if (!live) return
-      setAssetStatusById(prev => {
-        const next = { ...prev }
-        for (const entry of entries) {
-          if (entry) next[entry[0]] = entry[1]
-        }
-        return next
-      })
-    })()
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mandala.runtime, heldAssetIds.join(','), assetStatusNonce])
-  useFocusEffect(
-    useCallback(() => {
-      setAssetStatusNonce(n => n + 1)
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
-  )
-  const seenAssets = useSeenSet(SEEN_ASSETS_KEY)
   const seenEvictions = useSeenSet(SEEN_EVICTIONS_KEY)
-  const [sheetAssetId, setSheetAssetId] = useState<string | null>(null)
-  const sheetBalance = useMemo(
-    () => (mandala.balances ?? []).find(b => b.asset.assetId === sheetAssetId) ?? null,
-    [mandala.balances, sheetAssetId]
-  )
 
   /**
    * Money that left without a sentence. `showAlert`, once per transaction —
@@ -1224,9 +1166,13 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         title: t(row.role === 'sent' ? 'token_row_sent' : 'token_row_received', { ticker: row.asset.ticker }),
         amount: figure ? { value: figure, unit: row.asset.ticker } : undefined,
         incoming: row.role === 'received',
-        // Under blinding the sender is a fresh key every payment: a rotating
-        // face is worse than no face.
-        suppressFace: row.role === 'received',
+        // The same generative face a BSV row draws, keyed on the token row's
+        // OWN counterparty key rather than the wallet action's labels/sender
+        // (meaningless for a token transfer) — see TokenActivityRow.counterpartyKey.
+        // A received row is keyed on the sender's blinded per-payment key A′
+        // by design (spec D2): the image differs on every payment from the
+        // same payer, which is the point of the blinding, not a bug in it.
+        counterpartyKey: row.counterpartyKey,
         statusText: t(tokenStatusKey(row.status))
       })
     }
@@ -1399,22 +1345,6 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const listHeader = useMemo(
     () => (
       <View>
-        {/* What you hold, above everything else in the list — and absent
-            entirely, header and all, for a wallet that has never held a token.
-            It sits in `listHeader`, outside the hero's whole-block touchable,
-            so no row is a tap target inside another tap target. */}
-        <BalancesSection
-          balances={mandala.balances}
-          spendableSats={balance}
-          newAssetIds={(mandala.balances ?? [])
-            .map(b => b.asset.assetId)
-            .filter(id => !seenAssets.isSeen(id))}
-          statusByAsset={assetStatusById}
-          onPress={assetId => {
-            seenAssets.see(assetId)
-            setSheetAssetId(assetId)
-          }}
-        />
         {pendingResends.length > 0 || stuckBadges.length > 0 ? (
           <View style={styles.resendBanner}>
             {pendingResends.length > 0 ? (
@@ -1467,9 +1397,16 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                     isLast={i === stuckBadges.length - 1}
                     onPress={() => {
                       if (badge.kind === 'token_attention') {
-                        // The details are the asset's own sheet: who it is with,
-                        // what is settled and what is not.
-                        setSheetAssetId(mandala.stuck[0]?.assetId ?? null)
+                        // No per-asset sheet in v1 (2026-09-15 maintainer
+                        // decision): route to Pay with that asset selected, so
+                        // the holder lands on the form that can actually move
+                        // — or retry — the stuck payment.
+                        const assetId = mandala.stuck[0]?.assetId
+                        router.push(
+                          (assetId ? `/pay?asset=${encodeURIComponent(assetId)}` : '/pay') as Parameters<
+                            typeof router.push
+                          >[0]
+                        )
                         return
                       }
                       router.push(badge.kind === 'attention' ? '/pay?cell=get-handle' : '/pay?cell=pay-handle')
@@ -1551,10 +1488,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       onCopyDetails,
       onDismiss,
       onSendAgain,
-      mandala.balances,
       mandala.stuck,
-      balance,
-      seenAssets,
       stuckIssuerName
     ]
   )
@@ -1682,28 +1616,6 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       <ImportFromBackupPrompt
         visible={!hasWallet && secretsReady && !walletBuilding && knownNoStoredIdentity}
         onImport={() => router.push('/auth/mnemonic?flow=import')}
-      />
-
-      {/* Raised only by a tap on a Balances row. Opening it is what clears that
-          row's "New — tap to see who issues it", so disclosure stops announcing
-          itself once it has been read. */}
-      <AssetSheet
-        // Keyed on the BALANCE, not on the id: a stuck row can name an asset
-        // this wallet no longer holds, and an empty sheet is worse than none.
-        visible={sheetBalance !== null}
-        balance={sheetBalance}
-        activity={tokenActivity.rows}
-        onClose={() => setSheetAssetId(null)}
-        onPay={assetId => {
-          setSheetAssetId(null)
-          router.push(`/pay?asset=${encodeURIComponent(assetId)}` as Parameters<typeof router.push>[0])
-        }}
-        onGetPaid={assetId => {
-          setSheetAssetId(null)
-          router.push(
-            `/pay?direction=get&asset=${encodeURIComponent(assetId)}` as Parameters<typeof router.push>[0]
-          )
-        }}
       />
     </View>
   )

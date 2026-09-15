@@ -29,7 +29,8 @@ import {
   counterpartyOf,
   counterpartyHue,
   sigilPointOf,
-  sigilPalette
+  sigilPalette,
+  type Counterparty
 } from '@bsv/expo-wallet-toolbox'
 import { txStatusView, toneColor } from '../../txStatus'
 import PressableScale from '../ui/PressableScale'
@@ -110,18 +111,25 @@ interface Props {
    *    spent — printing "−64 sats" for a payment of 25.00 USDX would be a
    *    plausible wrong number, which is worse than a blank. When the figure
    *    cannot be recovered the row says so rather than falling through;
-   *  · the FACE, because under blinding the sender is a fresh key per payment
-   *    and `counterpartyOf` falls through to a txid rather than returning null
-   *    — so without suppression the wallet would draw a different plausible
-   *    face for every payment from the same person.
+   *  · the FACE, because the wallet action's own labels/senderIdentityKey are
+   *    meaningless for a token transfer (they describe the BSV coin-selection
+   *    tx, not the counterparty) — `counterpartyKey` is the row's own word for
+   *    who was on the other side, and the row draws the same generative sigil
+   *    a BSV row does, keyed on it directly rather than on `counterpartyOf`.
    */
   token?: {
     title: string
     /** The figure and its unit, or undefined when it could not be recovered. */
     amount?: { value: string; unit: string }
     incoming: boolean
-    /** True for a received token row: the sender is A′ and cannot be named. */
-    suppressFace: boolean
+    /**
+     * The counterparty's identity key — a received row's sender (the
+     * blinded, per-payment A′; deliberately a different key on every payment
+     * from the same payer, spec D2) or a sent row's payee. Undefined draws
+     * the plain direction arrow instead, the same fallback a BSV row gets for
+     * a counterparty it cannot name.
+     */
+    counterpartyKey?: string
     /** Settlement status line, in place of the chain-status words. */
     statusText?: string
   }
@@ -197,15 +205,24 @@ function ActivityRowBase({
   // is unambiguous.
   const { labels, senderIdentityKey, txid } = action
   const labelsKey = labels?.join('\n') ?? ''
+  // Scalars, not the `token` object itself: a fresh `token` reference every
+  // poll must not re-derive the face when nothing about it actually changed.
+  const isTokenRow = token !== undefined
+  const tokenCounterpartyKey = token?.counterpartyKey
   const face = useMemo(() => {
-    // We never draw a face for a party we cannot name. `counterpartyOf` does
-    // not return null for a mandala label — it falls through to a txid "so
-    // that every action still gets a stable, if anonymous, face" — which is
-    // exactly the wrong behaviour for a blinded sender.
-    if (token?.suppressFace) return null
+    // A token row is identified by its OWN counterparty key, never by
+    // `counterpartyOf(action)`: the action's labels/senderIdentityKey belong
+    // to the underlying BSV coin-selection transaction, not to who the token
+    // moved with. No key (an unresolvable/blinded counterparty) draws the
+    // plain arrow, same as any other row this hook cannot name.
+    if (isTokenRow) {
+      if (!tokenCounterpartyKey) return null
+      const cp: Counterparty = { kind: 'identityKey', value: tokenCounterpartyKey }
+      return { point: sigilPointOf(cp), hue: counterpartyHue(cp) }
+    }
     const cp = counterpartyOf({ labels: labelsKey === '' ? undefined : labelsKey.split('\n'), senderIdentityKey, txid })
     return cp ? { point: sigilPointOf(cp), hue: counterpartyHue(cp) } : null
-  }, [labelsKey, senderIdentityKey, txid, token?.suppressFace])
+  }, [labelsKey, senderIdentityKey, txid, isTokenRow, tokenCounterpartyKey])
   // Resolved outside the memo: the hue is a property of the counterparty, the
   // colours it maps to are a property of the theme, and the theme can flip
   // under a mounted row. Two HSL conversions per render are not worth a dep.

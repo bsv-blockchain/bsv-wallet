@@ -776,27 +776,6 @@ function UniversalSend({
         />
       )}
 
-      {/* Asset first, above the recipient: it changes the unit of the amount,
-          the available figure and which recipient shapes are legal, so asking
-          it second would silently invalidate work already done. Absent when
-          nothing is held. */}
-      {balances.length > 0 && (
-        <PayField labelKey="pay_asset_label">
-          <AssetPicker
-            balances={balances}
-            selected={assetId}
-            onSelect={id => {
-              setAssetId(id)
-              // The typed figure means something different in the new unit;
-              // carrying it over would pay a different amount than it reads.
-              setSendAmount('')
-              setTokenFailure(null)
-            }}
-            bsvBalanceText={spendableSats == null ? null : String(spendableSats)}
-          />
-        </PayField>
-      )}
-
       <PayField labelKey="recipient">
         <RecipientField
           selectedIdentity={recipient.selectedIdentity}
@@ -827,6 +806,29 @@ function UniversalSend({
           }
         />
       </PayField>
+
+      {/* Paying with — after the recipient, before the amount (2026-09-15
+          maintainer decision on form order). It still has to resolve before
+          the amount is asked: it decides the unit of the figure, the
+          available balance shown under it, and which of the recipient shapes
+          just chosen is even legal for a token (D4, above). Absent when
+          nothing is held. */}
+      {balances.length > 0 && (
+        <PayField labelKey="pay_asset_label">
+          <AssetPicker
+            balances={balances}
+            selected={assetId}
+            onSelect={id => {
+              setAssetId(id)
+              // The typed figure means something different in the new unit;
+              // carrying it over would pay a different amount than it reads.
+              setSendAmount('')
+              setTokenFailure(null)
+            }}
+            bsvBalanceText={spendableSats == null ? null : String(spendableSats)}
+          />
+        </PayField>
+      )}
 
       <PayAmountField
         value={sendAmount}

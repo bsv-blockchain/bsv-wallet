@@ -7,14 +7,16 @@
  *    "You have", no Balances block, no extra row;
  *  · the moment one is held, the hero's label becomes "Your BSV", because the
  *    hero is the fee balance and must not read as the answer to "how much money
- *    do I have" while 1,240.00 USDX sits in a row below it.
+ *    do I have" — but (2026-09-15 maintainer decision) there is no Balances
+ *    block or per-asset sheet at all any more: holdings are visible in the Pay
+ *    asset picker and in the activity list, not on Home.
  *
  * The barrel mock mirrors walletHomeVaultGate.test.tsx — WalletHomeScreen pulls
  * in the whole wallet surface — plus the Mandala runtime on the context, which
  * is where `useMandala()` reads it from.
  */
 import React from 'react'
-import { act, render } from '@testing-library/react-native'
+import { act, fireEvent, render } from '@testing-library/react-native'
 import { WalletHomeScreen } from '../../ui/screens/WalletHomeScreen'
 import { balanceOf, makeFakeMandala, settlementRow, USDX } from '../__mocks__/fakeMandalaRuntime'
 
@@ -77,7 +79,6 @@ jest.mock('../../ui/components/wallet/BackupReminderSheet', () => ({ BackupRemin
 jest.mock('../../ui/components/wallet/BiometricAdvisoryModal', () => ({ BiometricAdvisoryModal: () => null }))
 jest.mock('../../ui/components/wallet/ImportFromBackupPrompt', () => ({ ImportFromBackupPrompt: () => null }))
 jest.mock('../../ui/components/wallet/ActivityRow', () => () => null)
-jest.mock('../../ui/components/wallet/AssetSheet', () => () => null)
 jest.mock('../../ui/components/security/WalletLockNotice', () => () => null)
 jest.mock('../../ui/components/pay/OfflineNotice', () => () => null)
 jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => false }))
@@ -171,22 +172,17 @@ describe('WalletHomeScreen without stablecoins', () => {
 })
 
 describe('WalletHomeScreen holding a stablecoin', () => {
-  test('swaps the hero label and lists the asset beneath it', async () => {
+  test('swaps the hero label, with no Balances block anywhere on the screen', async () => {
     mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()] })
     const screen = render(<WalletHomeScreen />)
     await settle()
     expect(screen.getByText('wallet_balance_your_bsv')).toBeTruthy()
     expect(screen.queryByText('wallet_balance_you_have')).toBeNull()
-    expect(screen.getByText('token_balances_header')).toBeTruthy()
-    expect(screen.getByText('Acme Dollar')).toBeTruthy()
-    expect(screen.getByLabelText('1,240.00 USDX')).toBeTruthy()
-  })
-
-  test('qualifies money that arrived offline rather than printing it plainly', async () => {
-    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf(USDX, 124000, 4000)] })
-    const screen = render(<WalletHomeScreen />)
-    await settle()
-    expect(screen.getByText('local_pay_token_not_cleared:Acme Bank')).toBeTruthy()
+    // No Balances block, no per-asset row, no asset sheet (2026-09-15
+    // maintainer decision) — holdings live in the Pay asset picker instead.
+    expect(screen.queryByText('token_balances_header')).toBeNull()
+    expect(screen.queryByText('Acme Dollar')).toBeNull()
+    expect(screen.queryByLabelText('1,240.00 USDX')).toBeNull()
   })
 
   test('surfaces a payment that has been waiting to settle', async () => {
@@ -204,5 +200,13 @@ describe('WalletHomeScreen holding a stablecoin', () => {
     const screen = render(<WalletHomeScreen />)
     await settle()
     expect(screen.getByText('token_attention_many:2')).toBeTruthy()
+  })
+
+  test('routes the stuck-settlement badge to Pay with that asset, not to a sheet', async () => {
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()], stuck: [settlementRow()] })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByText('token_attention_one:Acme Bank'))
+    expect(mockRouter.push).toHaveBeenCalledWith(`/pay?asset=${encodeURIComponent(USDX.assetId)}`)
   })
 })

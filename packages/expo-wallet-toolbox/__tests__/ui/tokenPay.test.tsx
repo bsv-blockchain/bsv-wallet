@@ -353,9 +353,16 @@ describe('UniversalSend with stablecoins', () => {
     expect(s.queryByText('pay_asset_label')).toBeNull()
   })
 
-  it('offers the asset above the recipient once something is held', async () => {
+  it('offers the asset once something is held', async () => {
     const s = drawSend(makeFakeMandala())
     await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+  })
+
+  it('orders the form Recipient, then Paying with, then Amount (2026-09-15 maintainer decision)', async () => {
+    const s = drawSend(makeFakeMandala())
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    const labels = s.getAllByText(/^(recipient|pay_asset_label|amount)$/).map(el => el.props.children)
+    expect(labels).toEqual(['recipient', 'pay_asset_label', 'amount'])
   })
 
   it('names the exact figure on the button and sends it in base units', async () => {

@@ -1673,7 +1673,16 @@ function NearbyFlow({
             // Token sessions only: the still-plaintext frame and the hook that
             // journals it, so the payer's own settlement row survives a
             // restart (see `TokenHandoverDeps`). The BSV rail has neither.
-            ...(session.asset ? { frame: built.frame, onTokenHandedOver: mandala.runtime?.onTokenHandedOver } : {})
+            ...(session.asset
+              ? {
+                  frame: built.frame,
+                  onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                  // The noSend action's own reference, onto the settlement row:
+                  // it is what lets the abort guard tell a handed-over token
+                  // payment from an abandoned one (core/mandala/abortGuard.ts).
+                  reference: built.reference
+                }
+              : {})
           })
         },
         queueFailedAbort: async reference => {
@@ -1833,7 +1842,16 @@ function NearbyFlow({
             txid: built.txid,
             framePayload,
             // Token sessions only — see the hold callback below for why.
-            ...(session.asset ? { frame: built.frame, onTokenHandedOver: mandala.runtime?.onTokenHandedOver } : {})
+            ...(session.asset
+              ? {
+                  frame: built.frame,
+                  onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                  // The noSend action's own reference, onto the settlement row:
+                  // it is what lets the abort guard tell a handed-over token
+                  // payment from an abandoned one (core/mandala/abortGuard.ts).
+                  reference: built.reference
+                }
+              : {})
           })
         }
       } catch (e) {
@@ -1852,7 +1870,16 @@ function NearbyFlow({
           // Token sessions only: same reasoning as the executeSend hold call —
           // the plaintext frame and the journal hook, so a restart does not
           // strand this payer's settlement row.
-          ...(session.asset ? { frame: built.frame, onTokenHandedOver: mandala.runtime?.onTokenHandedOver } : {})
+          ...(session.asset
+            ? {
+                frame: built.frame,
+                onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                // The noSend action's own reference, onto the settlement row:
+                // it is what lets the abort guard tell a handed-over token
+                // payment from an abandoned one (core/mandala/abortGuard.ts).
+                reference: built.reference
+              }
+            : {})
         })
       },
       queueFailedAbort: async reference => {

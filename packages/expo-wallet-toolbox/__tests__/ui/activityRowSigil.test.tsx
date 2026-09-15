@@ -333,6 +333,71 @@ it('hands the sigil the same palette as the tile', () => {
   expect(svgXml(treeA)).toContain(`fill='${paletteA.foreground}'`)
 })
 
+// A token row's `token.counterpartyKey` is the row's own word for who was on
+// the other side (TokenActivityRow.counterpartyKey — the sender's blinded A′
+// on a receive, the payee on a send). It bypasses `counterpartyOf(action)`
+// entirely: the action's own labels/senderIdentityKey describe the
+// underlying BSV coin-selection tx, not the token counterparty, so reading
+// them for a token row would draw a plausible but wrong face. Same harness,
+// same real-SVG assertions as the BSV cases above — just with `token` set.
+describe('token rows', () => {
+  const TOKEN_SENDER = '02' + '33'.repeat(32)
+  const TOKEN_SENDER_2 = '03' + '44'.repeat(32)
+
+  const drawToken = (
+    token: React.ComponentProps<typeof ActivityRow>['token'],
+    over: Partial<ActivityAction> = {}
+  ) => {
+    const noop = () => {}
+    return render(
+      <ActivityRow
+        action={action(over)}
+        currency="BSV"
+        rowKey="k"
+        expanded={false}
+        busy={false}
+        onToggle={noop}
+        onExplorer={noop}
+        onRefreshTx={noop}
+        onAbort={noop}
+        token={token}
+      />
+    )
+  }
+
+  it('draws the same generative sigil a BSV row gets, keyed on its own counterparty key', () => {
+    // The action itself carries a `mandala` label and no sender — exactly the
+    // shape a real token action has — to prove the face comes from `token`,
+    // not from re-deriving off the action.
+    const tree = drawToken(
+      { title: 'received', incoming: true, counterpartyKey: TOKEN_SENDER },
+      { labels: ['mandala'], senderIdentityKey: undefined }
+    ).toJSON() as Tree
+    const types = collectTypes(tree)
+    expect(types).toContain('RNSVGSvgView')
+    expect(types).not.toContain('MaterialCommunityIcons')
+    expect(sigilPointOf).toHaveBeenCalledWith({ kind: 'identityKey', value: TOKEN_SENDER })
+  })
+
+  it('gives two blinded per-payment senders two different faces (spec D2: the image differs every payment)', () => {
+    const faceXml = (key: string) =>
+      svgXml(drawToken({ title: 'received', incoming: true, counterpartyKey: key }).toJSON() as Tree)
+    const a = faceXml(TOKEN_SENDER)
+    const b = faceXml(TOKEN_SENDER_2)
+    expect(a).toContain('<svg')
+    expect(b).toContain('<svg')
+    expect(a).not.toBe(b)
+  })
+
+  it('falls back to the plain direction arrow when the row names no counterparty at all', () => {
+    const tree = drawToken({ title: 'received', incoming: true }).toJSON() as Tree
+    const types = collectTypes(tree)
+    expect(types).toContain('MaterialCommunityIcons')
+    expect(types).not.toContain('RNSVGSvgView')
+    expect(sigilPointOf).not.toHaveBeenCalled()
+  })
+})
+
 it('asks for the detailed form of the sigil', () => {
   const tree = draw({ labels: ['peerpay', PAYEE_KEY] }).toJSON() as Tree
   // The row draws the full Urbit glyph set, not the simplified icon table: on

@@ -1,11 +1,12 @@
 /**
- * The Home balance surfaces for stablecoins.
+ * The token amount format helpers and the `AssetAmount` figure component.
  *
- * What these pin is the design's hardest rule — never print a number the wallet
- * cannot stand behind: fixed decimals rather than trimmed ones, a spinner
- * rather than a zero for an unknown balance, the "not yet confirmed" qualifier
- * on money that arrived offline, and nothing at all on a wallet that holds no
- * token.
+ * There is no Home Balances block any more (2026-09-15 maintainer decision —
+ * see walletHomeTokens.test.tsx for what Home renders instead), but the
+ * formatting rules these components exist to enforce still apply everywhere a
+ * token figure is drawn (the Pay asset picker, the amount field, activity):
+ * fixed decimals rather than trimmed ones, and a spinner rather than a zero
+ * for an unknown balance.
  */
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(() => Promise.resolve()),
@@ -30,10 +31,8 @@ import React from 'react'
 import { render } from '@testing-library/react-native'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
 import AssetAmount from '../../ui/components/wallet/AssetAmount'
-import AssetRow from '../../ui/components/wallet/AssetRow'
-import BalancesSection from '../../ui/components/wallet/BalancesSection'
 import { formatTokenAmount, parseTokenAmount, tokenAmountInputText } from '../../ui/tokenFormat'
-import { balanceOf, USDX, EURX } from '../__mocks__/fakeMandalaRuntime'
+import { USDX } from '../__mocks__/fakeMandalaRuntime'
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>)
 
@@ -96,64 +95,5 @@ describe('AssetAmount', () => {
     const s = wrap(<AssetAmount baseUnits={null} asset={USDX} />)
     expect(s.queryByText('0.00')).toBeNull()
     expect(s.UNSAFE_getByType(require('react-native').ActivityIndicator)).toBeTruthy()
-  })
-})
-
-describe('AssetRow', () => {
-  it('names the asset and its figure as one accessibility element', () => {
-    const s = wrap(<AssetRow balance={balanceOf()} onPress={jest.fn()} />)
-    expect(s.getByText('Acme Dollar')).toBeTruthy()
-    expect(s.getByLabelText('Acme Dollar, 1,240.00 USDX')).toBeTruthy()
-  })
-
-  it('offers the disclosure route on a first hold', () => {
-    const s = wrap(<AssetRow balance={balanceOf()} isNew onPress={jest.fn()} />)
-    expect(s.getByText('token_new_tap')).toBeTruthy()
-  })
-
-  it('qualifies money that arrived offline with the issuer who has not confirmed it', () => {
-    const s = wrap(<AssetRow balance={balanceOf(USDX, 124000, 4000)} isNew onPress={jest.fn()} />)
-    expect(s.getByText('local_pay_token_not_cleared:Acme Bank')).toBeTruthy()
-    // The qualifier wins the one subtitle slot: an unconfirmed figure is a
-    // fact about money, "new" is a fact about a sheet.
-    expect(s.queryByText('token_new_tap')).toBeNull()
-  })
-
-  it('falls back to a nameless issuer rather than printing a key', () => {
-    const anonymous = { ...USDX, issuerName: undefined }
-    const s = wrap(<AssetRow balance={balanceOf(anonymous, 100, 100)} onPress={jest.fn()} />)
-    expect(s.getByText('local_pay_token_not_cleared:token_issuer_fallback')).toBeTruthy()
-  })
-})
-
-describe('BalancesSection', () => {
-  it('renders nothing at all for a wallet that has never held a token', () => {
-    expect(wrap(<BalancesSection balances={[]} onPress={jest.fn()} />).toJSON()).toBeNull()
-    expect(wrap(<BalancesSection balances={null} onPress={jest.fn()} />).toJSON()).toBeNull()
-  })
-
-  it('lists one row per held asset under the Balances header', () => {
-    const s = wrap(<BalancesSection balances={[balanceOf(), balanceOf(EURX, 5000)]} onPress={jest.fn()} />)
-    expect(s.getByText('TOKEN_BALANCES_HEADER')).toBeTruthy()
-    expect(s.getByText('Acme Dollar')).toBeTruthy()
-    expect(s.getByText('Euro Coin')).toBeTruthy()
-  })
-
-  it('shows the fee footer only when the fee balance is provably zero', () => {
-    expect(wrap(<BalancesSection balances={[balanceOf()]} spendableSats={0} onPress={jest.fn()} />).getByText(
-      'token_fee_footer'
-    )).toBeTruthy()
-    // null is UNKNOWN, and `null < n` is true in JavaScript — the exact trap
-    // this check exists to avoid.
-    expect(
-      wrap(<BalancesSection balances={[balanceOf()]} spendableSats={null} onPress={jest.fn()} />).queryByText(
-        'token_fee_footer'
-      )
-    ).toBeNull()
-    expect(
-      wrap(<BalancesSection balances={[balanceOf()]} spendableSats={50_000_000} onPress={jest.fn()} />).queryByText(
-        'token_fee_footer'
-      )
-    ).toBeNull()
   })
 })

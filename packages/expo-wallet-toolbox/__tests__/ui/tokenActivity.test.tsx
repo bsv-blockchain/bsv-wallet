@@ -1,11 +1,12 @@
 /**
- * The token half of the activity list, the Asset sheet, the withdrawal alert,
- * and the hook all four read from.
+ * The token half of the activity list, the withdrawal alert, and the hook
+ * both read from.
  *
  * The rules under test are the ones that decide whether a number on screen is
- * true: a token row never falls through to the satoshi figure, a received row
- * never draws a face for a blinded sender, an unknown balance is a spinner and
- * not a zero, and money that left the wallet is announced exactly once.
+ * true: a token row never falls through to the satoshi figure, its face comes
+ * from its own counterparty key rather than the underlying BSV tx (and falls
+ * back to the plain arrow when it has none), an unknown balance is a spinner
+ * and not a zero, and money that left the wallet is announced exactly once.
  */
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(() => Promise.resolve()),
@@ -42,10 +43,10 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 }))
 
 import React from 'react'
-import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react-native'
+import { act, render, renderHook, waitFor } from '@testing-library/react-native'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
 import ActivityRow from '../../ui/components/wallet/ActivityRow'
-import AssetSheet from '../../ui/components/wallet/AssetSheet'
+import Sigil from '../../ui/components/ui/Sigil'
 import PaymentSuccessOverlay from '../../ui/components/pay/PaymentSuccessOverlay'
 import { announceEviction, evictionsFrom } from '../../ui/components/wallet/tokenEviction'
 import { MandalaProvider, useMandala, useTokenActivity } from '../../ui/hooks/useMandala'
@@ -118,7 +119,6 @@ describe('ActivityRow with a token', () => {
       title: 'token_row_sent:USDX',
       amount: { value: '−25.00', unit: 'USDX' },
       incoming: false,
-      suppressFace: false,
       statusText: 'token_status_settling'
     })
     expect(s.getByText('token_row_sent:USDX')).toBeTruthy()
@@ -132,7 +132,7 @@ describe('ActivityRow with a token', () => {
   })
 
   it('says the amount is unavailable rather than falling through to satoshis', () => {
-    const s = drawRow({ title: 'token_row_received:USDX', incoming: true, suppressFace: true })
+    const s = drawRow({ title: 'token_row_received:USDX', incoming: true })
     expect(s.getByText('token_row_amount_pending')).toBeTruthy()
   })
 
@@ -141,7 +141,6 @@ describe('ActivityRow with a token', () => {
       title: 'token_row_received:USDX',
       amount: { value: '+40.00', unit: 'USDX' },
       incoming: true,
-      suppressFace: true,
       statusText: 'token_status_settling'
     })
     expect(s.getByText(/token_status_settling/)).toBeTruthy()
@@ -151,62 +150,31 @@ describe('ActivityRow with a token', () => {
     const plain = drawRow()
     expect(plain.getByText('Receive 4000 of 615a06ab….0')).toBeTruthy()
   })
-})
 
-describe('AssetSheet', () => {
-  const drawSheet = (props: Partial<React.ComponentProps<typeof AssetSheet>> = {}) =>
-    wrap(
-      <AssetSheet
-        visible
-        balance={balanceOf()}
-        onClose={jest.fn()}
-        onPay={jest.fn()}
-        onGetPaid={jest.fn()}
-        {...props}
-      />
-    )
-
-  it('states the issuer, the balance and the four powers as capability', () => {
-    const s = drawSheet()
-    expect(s.getByLabelText('1,240.00 USDX')).toBeTruthy()
-    expect(s.getByText('Acme Bank')).toBeTruthy()
-    expect(s.getByText('token_power_pause:USDX')).toBeTruthy()
-    expect(s.getByText('token_power_freeze')).toBeTruthy()
-    expect(s.getByText('token_power_admit:USDX')).toBeTruthy()
-    expect(s.getByText('token_power_replace')).toBeTruthy()
-    expect(s.getByText('token_powers_limit:USDX')).toBeTruthy()
-  })
-
-  it('carries no verified chip and no backing, peg or reserve claim', () => {
-    const s = drawSheet()
-    expect(s.queryByText(/verified/i)).toBeNull()
-    expect(s.queryByText(/backed|peg|reserve/i)).toBeNull()
-  })
-
-  it('separates settled money from money the issuer has not confirmed', () => {
-    const s = drawSheet({ balance: balanceOf(USDX, 124000, 4000) })
-    expect(s.getByText('local_pay_token_not_cleared:Acme Bank')).toBeTruthy()
-  })
-
-  it('lists recent movements of THIS asset with their settlement words', () => {
-    const s = drawSheet({
-      activity: [
-        activityRow({ status: 'settling' }),
-        activityRow({ txid: 'b'.repeat(64), asset: { ...USDX, assetId: 'other' } })
-      ]
+  // The wallet action's own labels/senderIdentityKey describe the underlying
+  // BSV coin-selection tx, not who the token moved with — so a token row's
+  // face has to come from its OWN counterparty key (TokenActivityRow's
+  // `counterpartyKey`), the same generative sigil a BSV row draws, never the
+  // plain get-paid/arrow icon it used to be stuck with.
+  it('draws the same generative identity image as a BSV row when the counterparty is known', () => {
+    const s = drawRow({
+      title: 'token_row_received:USDX',
+      amount: { value: '+40.00', unit: 'USDX' },
+      incoming: true,
+      counterpartyKey: '02' + 'ab'.repeat(32),
+      statusText: 'token_status_settled'
     })
-    expect(s.getByText('token_row_received:USDX')).toBeTruthy()
-    expect(s.getByText('token_status_settling')).toBeTruthy()
+    expect(s.UNSAFE_getByType(Sigil)).toBeTruthy()
   })
 
-  it('routes Pay and Get paid to the flows, not to a per-asset screen', () => {
-    const onPay = jest.fn()
-    const onGetPaid = jest.fn()
-    const s = drawSheet({ onPay, onGetPaid })
-    fireEvent.press(s.getByLabelText('pay'))
-    fireEvent.press(s.getByLabelText('pay_direction_receive'))
-    expect(onPay).toHaveBeenCalledWith(USDX.assetId)
-    expect(onGetPaid).toHaveBeenCalledWith(USDX.assetId)
+  it('falls back to the plain direction icon only when the row names no counterparty', () => {
+    const s = drawRow({
+      title: 'token_row_received:USDX',
+      amount: { value: '+40.00', unit: 'USDX' },
+      incoming: true,
+      statusText: 'token_status_settled'
+    })
+    expect(s.UNSAFE_queryByType(Sigil)).toBeNull()
   })
 })
 
