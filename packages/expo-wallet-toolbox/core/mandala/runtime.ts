@@ -197,6 +197,13 @@ export interface MandalaRuntime {
    * returns how many rows changed state.
    */
   settlePendingSends(): Promise<number>
+
+  /**
+   * Fetch and cache a verified σ_I for every spendable token coin whose txid
+   * has none, so an offline hand-over always carries its ancestors' admissions.
+   * Rides the drain tick. Never throws; returns how many were fetched.
+   */
+  ensureAdmissionsForHoldings(): Promise<number>
   /**
    * Drives the LIB's own durable journals once: `reconcileWallet` (retryable
    * refusals, overlay-accepted-but-unbroadcast txs, pending aborts, the stuck

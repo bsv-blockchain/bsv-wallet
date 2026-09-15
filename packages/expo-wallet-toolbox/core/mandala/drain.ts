@@ -491,6 +491,24 @@ export async function postTokenStep(
     const verdict = await deps.submit(ancestorTxid)
 
     if (verdict.kind === 'admitted') {
+      // Belt and braces: `submit` already refused an unsigned or unverifiable
+      // answer, but when this drain has its own anchor (the runtime always
+      // injects one), nothing may advance a row to `admitted` on a σ_I that
+      // anchor cannot verify (2026-09-15 review). Without an anchor the
+      // verdict is `submit`'s to have checked.
+      if (
+        deps.verifyAdmission !== undefined &&
+        !(await entryIsTrustworthy(
+          { txid: ancestorTxid, outputsToAdmit: verdict.outputsToAdmit, signature: hexToBytes(verdict.signatureHex), signerKey: verdict.signerKey },
+          deps
+        ))
+      ) {
+        devLog(`[mandala] /submit of ${ancestorTxid} answered admitted without a verifiable σ_I; treated as unavailable`)
+        if (before && SUBMITTABLE_STATES.includes(before.state)) {
+          await store.advanceSettlement(ancestorTxid, ['submitting'], before.state)
+        }
+        return 'serviceError'
+      }
       await store.putAdmission({
         txid: ancestorTxid,
         outputsToAdmit: verdict.outputsToAdmit,

@@ -868,18 +868,30 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     })
   })
 
-  it('an admitted response with no σ_I records no usable signer, so nothing can mistake it for evidence', async () => {
+  it('an admitted response with no σ_I is NOT an admission: retryable ERR_NO_ADMISSION', async () => {
     const runtime = runtimeWith({
       ok: true,
       status: 200,
       body: JSON.stringify({ tm_mandala: { outputsToAdmit: [0] } })
     })
-    expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
-      kind: 'admitted',
-      outputsToAdmit: [0],
-      signatureHex: '',
-      signerKey: ''
+    expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({ kind: 'unavailable', code: 'ERR_NO_ADMISSION', retryable: true })
+  })
+
+  it('a σ_I by some other key, or over another admitted set, is ERR_BAD_ADMISSION', async () => {
+    const impostor = PrivateKey.fromRandom()
+    const foreign = impostor.sign(Utils.toArray(admissionMessageV2(tipTxid, [0]), 'utf8')).toDER('hex') as string
+    const byImpostor = runtimeWith({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [0], admissionSignature: foreign, admissionIdentityKey: impostor.toPublicKey().toString() } })
     })
+    expect(await byImpostor.tokenDeps.submit(tipTxid)).toEqual({ kind: 'unavailable', code: 'ERR_BAD_ADMISSION', retryable: true })
+    const wrongSet = runtimeWith({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [0, 1], admissionSignature: signAdmission(tipTxid, [0]), admissionIdentityKey: OVERLAY_KEY } })
+    })
+    expect(await wrongSet.tokenDeps.submit(tipTxid)).toEqual({ kind: 'unavailable', code: 'ERR_BAD_ADMISSION', retryable: true })
   })
 
   it('a 400 with a manager verdict is a FINAL refusal', async () => {
@@ -2748,5 +2760,44 @@ describe('submit completes the tip’s ancestry from the wallet before posting',
     expect(verdict.kind).toBe('admitted')
     expect(postedBeef?.findTxid(feeParent.id('hex'))?.tx).toBeDefined()
     expect(postedBeef?.findTxid(tokenParent.id('hex'))?.tx).toBeDefined()
+  })
+})
+
+describe('ensureAdmissionsForHoldings — every held coin carries a verified σ_I', () => {
+  it('fetches and caches the admission of a coin that has none, and skips coins that do', async () => {
+    const admittedTx = rootTx(10)
+    const bareTx = rootTx(20)
+    const runtime = build({}, [
+      { tx: admittedTx, vout: 0 },
+      { tx: bareTx, vout: 0 }
+    ])
+    await runtime.store.putAdmission({ txid: admittedTx.id('hex'), outputsToAdmit: [0], signatureHex: signAdmission(admittedTx.id('hex'), [0]), signerKey: OVERLAY_KEY, source: 'submitted', obtainedAt: new Date().toISOString() })
+    ;(libFetchAdmission as jest.Mock).mockImplementation(async (_url: string, txid: string) => ({
+      kind: 'admitted',
+      txid,
+      outputsToAdmit: [0],
+      signature: signAdmission(txid, [0]),
+      signerKey: OVERLAY_KEY,
+      at: Date.now()
+    }))
+    expect(await runtime.ensureAdmissionsForHoldings()).toBe(1)
+    expect((libFetchAdmission as jest.Mock).mock.calls.map(c => c[1])).toEqual([bareTx.id('hex')])
+    expect((await runtime.store.getAdmission(bareTx.id('hex')))).toMatchObject({ signerKey: OVERLAY_KEY, source: 'fetched' })
+  })
+
+  it('never caches an answer that does not verify under the configured key', async () => {
+    const bareTx = rootTx(20)
+    const runtime = build({}, [{ tx: bareTx, vout: 0 }])
+    const impostor = PrivateKey.fromRandom()
+    ;(libFetchAdmission as jest.Mock).mockImplementation(async (_url: string, txid: string) => ({
+      kind: 'admitted',
+      txid,
+      outputsToAdmit: [0],
+      signature: impostor.sign(Utils.toArray(admissionMessageV2(txid, [0]), 'utf8')).toDER('hex'),
+      signerKey: impostor.toPublicKey().toString(),
+      at: Date.now()
+    }))
+    expect(await runtime.ensureAdmissionsForHoldings()).toBe(0)
+    expect(await runtime.store.getAdmission(bareTx.id('hex'))).toBeUndefined()
   })
 })

@@ -342,6 +342,13 @@ const reconcileWalletWithOptions: ReconcileWithOptions = (wallet, options) =>
  * COALESCE keeps whatever the row already has: a re-derivation that could not
  * find a reference must not erase one an earlier pass recorded.
  */
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.length % 2 === 0 ? hex : ''
+  const out = new Uint8Array(clean.length / 2)
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16) || 0
+  return out
+}
+
 function referenceOf(result: unknown): { reference?: string } {
   const reference = (result as { reference?: unknown } | null)?.reference
   return typeof reference === 'string' && reference.length > 0 ? { reference } : {}
@@ -931,16 +938,93 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         linkage ? Array.from(linkage.payloadBytes) : undefined,
         facilitator()
       )
+      // The lib already refuses an unsigned or unverifiable answer
+      // (ERR_NO_ADMISSION / ERR_BAD_ADMISSION); this is the wallet's own
+      // check on top, against ITS configured key and verifier, so no
+      // answer can reach the settlement tables as an admission without a
+      // σ_I that verifies here. An admitted set alone proves nothing about
+      // whether the operator accepted the transaction (2026-09-15 review).
       const signatureHex = admitted.admissionSignature ?? ''
-      return {
-        kind: 'admitted',
-        outputsToAdmit: admitted.outputsToAdmit,
-        signatureHex,
-        signerKey: signatureHex === '' ? '' : (admitted.admissionIdentityKey ?? '')
+      const signerKey = admitted.admissionIdentityKey ?? ''
+      if (signatureHex === '' || signerKey === '') {
+        devLog(`[mandala] /submit of ${txid} admitted outputs but carried no admission signature; not an admission`)
+        return { kind: 'unavailable', code: 'ERR_NO_ADMISSION', retryable: true }
       }
+      const trusted = await verifyAdmission({
+        txid,
+        outputsToAdmit: admitted.outputsToAdmit,
+        signature: hexToBytes(signatureHex),
+        signerKey
+      })
+      if (!trusted) {
+        devLog(`[mandala] /submit of ${txid}: admission signature does not verify under the configured key; not an admission`)
+        return { kind: 'unavailable', code: 'ERR_BAD_ADMISSION', retryable: true }
+      }
+      return { kind: 'admitted', outputsToAdmit: admitted.outputsToAdmit, signatureHex, signerKey }
     } catch (e) {
       return verdictFromError(e)
     }
+  }
+
+  /**
+   * Every spendable token coin's txid has a verified σ_I cached — fetched from
+   * the overlay when it is missing.
+   *
+   * A coin can be in the basket with no admission on record: credited through
+   * the plain inbox path, restored from a backup, or admitted by a counterparty
+   * on this device's behalf. Such a coin spends fine online, but an OFFLINE
+   * hand-over of it would carry no σ_I for its ancestor, and the payee's COVER
+   * walk would have to submit the ancestor itself — impossible offline. So
+   * this pass asks `GET /admin/admission/:txid` for each coin's txid that has
+   * no trustworthy cached entry (FIX-H verified on the way in) and records it.
+   * Best-effort, at most one ask per txid per pass, never throws.
+   */
+  const ensureAdmissionsForHoldings = async (): Promise<number> => {
+    if (!available) return 0
+    let outputs: ListedTokenOutput[]
+    try {
+      outputs = await listTokenOutputs()
+    } catch (e) {
+      devLog('[mandala] could not list token holdings to complete their admissions:', e)
+      return 0
+    }
+    const byTxid = new Map<string, number[]>()
+    for (const o of outputs) {
+      if (!o.spendable) continue
+      byTxid.set(o.txid, [...(byTxid.get(o.txid) ?? []), o.vout])
+    }
+    let fetched = 0
+    for (const [txid, vouts] of byTxid) {
+      let cached: TokenAdmissionRow | undefined
+      try {
+        cached = await store.getAdmission(txid)
+      } catch (e) {
+        devLog(`[mandala] could not read the cached admission of ${txid}:`, e)
+        continue
+      }
+      if (cached && cached.signatureHex !== '' && cached.signerKey === overlayIdentityKey) continue
+      const verdict = await fetchAdmission(overlayUrl, txid)
+      if (verdict?.kind !== 'admitted') continue
+      try {
+        await store.putAdmission({
+          txid,
+          outputsToAdmit: verdict.outputsToAdmit,
+          signatureHex: verdict.signatureHex,
+          signerKey: verdict.signerKey,
+          source: 'fetched',
+          obtainedAt: now().toISOString()
+        })
+        fetched++
+      } catch (e) {
+        devLog(`[mandala] could not cache the fetched admission of ${txid}:`, e)
+        continue
+      }
+      const unadmitted = vouts.filter(v => !verdict.outputsToAdmit.includes(v))
+      if (unadmitted.length > 0) {
+        console.warn(`[mandala] ${txid} is admitted but not for held output(s) ${unadmitted.join(',')}; those coins will not cover offline`)
+      }
+    }
+    return fetched
   }
 
   /** DerSignature (string | number[] | Uint8Array), as the hex string OverlayVerdict wants. */
@@ -1792,6 +1876,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     fetchAdmission,
     settleNow,
     settlePendingSends,
+    ensureAdmissionsForHoldings,
     recoverStaleAdmissions,
     repairAdmittedAborted,
     pruneBlindingReservations,
@@ -2052,6 +2137,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       await repairAdmittedAborted()
       await reconcileJournals()
       await settlePendingSends()
+      await ensureAdmissionsForHoldings()
       await pruneBlindingReservations()
       await processOfflineActions({
         storage,

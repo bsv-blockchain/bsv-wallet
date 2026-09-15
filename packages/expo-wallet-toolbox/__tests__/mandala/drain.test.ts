@@ -378,10 +378,11 @@ describe('reconcileSettlements', () => {
 const TIP = 'aa'.repeat(32)
 const ANCESTOR = 'bb'.repeat(32)
 
+/** A real σ_I: the drain now refuses an admitted verdict its anchor cannot verify. */
 const admitted = (txid: string): OverlayVerdict => ({
   kind: 'admitted',
   outputsToAdmit: [0],
-  signatureHex: `3045${txid.slice(0, 4)}`,
+  signatureHex: Utils.toHex(Array.from(signAdmission(txid, [0]))),
   signerKey: OVERLAY_KEY
 })
 
@@ -447,8 +448,9 @@ describe('postTokenStep', () => {
     const settlement = await seed()
     await postTokenStep(deps(), settlement, step)
     expect(await store.getAdmission(TIP)).toMatchObject({ source: 'submitted', signerKey: OVERLAY_KEY })
+    const verdict = admitted(TIP)
     expect((await store.getSettlement(TIP))?.admissionSignatureHex).toBe(
-      admitted(TIP).kind === 'admitted' ? `3045${TIP.slice(0, 4)}` : ''
+      verdict.kind === 'admitted' ? verdict.signatureHex : ''
     )
   })
 

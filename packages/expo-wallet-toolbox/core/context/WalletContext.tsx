@@ -1647,6 +1647,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 // so the release pass below would never step them. Each one
                 // takes its `settleNow` step here instead (2026-09-15).
                 await mandalaRef.current?.settlePendingSends()
+                // Every held coin's σ_I on device, for the next offline hand-over.
+                await mandalaRef.current?.ensureAdmissionsForHoldings()
                 await mandalaRef.current?.pruneBlindingReservations()
                 const r = await processOfflineActions({
                   storage: phoneStorage!,
