@@ -76,8 +76,9 @@ export interface ToolboxConfig {
    * an issuer's overlay and its identity key are deployment facts this package
    * cannot guess, and guessing one would mean verifying admissions against the
    * wrong key. A chain with no complete entry has no Mandala runtime
-   * (`useWallet().mandala` is undefined), which is the v1 state of every chain
-   * but `main`.
+   * (`useWallet().mandala` is undefined). Which chains carry an entry is the
+   * host's whole policy — e.g. testnet only while the issuer's overlay is a
+   * testnet deployment.
    */
   mandala?: Partial<Record<AppChain, MandalaEndpointConfig>>
   /**
@@ -192,13 +193,15 @@ export function getMandalaEndpoints(chain: AppChain): MandalaEndpointConfig | un
 /**
  * Whether Mandala stablecoins are available on this network.
  *
- * Mainnet-only in v1 (ux §2), and on top of that the host must actually have
- * stated the chain's endpoints. Chain is a parameter, not a module read, for
- * the same reason `isVaultAvailable`'s is: screens must re-render when the user
- * switches network.
+ * Exactly the chains the host stated complete endpoints for — nothing else
+ * gates it. (v1 hardcoded mainnet on top of that, ux §2; since 2026-09-15 the
+ * host's `mandala` map is the whole policy, so a testnet-only rollout is a
+ * config choice, not a code change.) Chain is a parameter, not a module read,
+ * for the same reason `isVaultAvailable`'s is: screens must re-render when the
+ * user switches network.
  */
 export function isMandalaAvailable(chain: AppChain): boolean {
-  return chain === 'main' && getMandalaEndpoints(chain) !== undefined
+  return getMandalaEndpoints(chain) !== undefined
 }
 
 /**
