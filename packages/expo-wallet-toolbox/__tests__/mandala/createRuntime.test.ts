@@ -123,16 +123,26 @@ interface FakeReq {
   txid: string
   rawTx: number[]
   inputBEEF?: number[]
+  status?: string
 }
 
 /** The slice of `StorageExpoSQLite` the runtime touches. */
-function fakeStorage(db: ReturnType<typeof adapt>, reqs: FakeReq[] = []) {
+function fakeStorage(db: ReturnType<typeof adapt>, reqs: FakeReq[] = [], ancestry: Transaction[] = []) {
   return {
     sqliteDb: db,
     getKeyValue: async () => undefined,
     setKeyValue: async () => undefined,
     findProvenTxReqs: async ({ partial }: { partial: { txid?: string } }) =>
-      reqs.filter(r => partial.txid === undefined || r.txid === partial.txid)
+      reqs.filter(r => partial.txid === undefined || r.txid === partial.txid),
+    // The toolbox's own ancestry lookup: the bytes of a parent this wallet
+    // holds anywhere (proven, unproven change, …), merged into the caller's beef.
+    getValidBeefForTxid: async (txid: string, mergeToBeef?: Beef) => {
+      const tx = ancestry.find(t => t.id('hex') === txid)
+      if (!tx) return undefined
+      const beef = mergeToBeef ?? new Beef()
+      beef.mergeTransaction(tx)
+      return beef
+    }
   } as unknown as StorageExpoSQLite
 }
 
@@ -2068,7 +2078,7 @@ describe('reconcileJournals — the handle rail’s recovery, on the drain tick'
     await build().reconcileJournals()
 
     expect(reconcileWallet).toHaveBeenCalledTimes(1)
-    expect((reconcileWallet as jest.Mock).mock.calls[0][1]).toEqual({ sweep: false })
+    expect((reconcileWallet as jest.Mock).mock.calls[0][1]).toEqual({ sweep: false, broadcast: false })
   })
 
   it('passes the opt-out on every pass, including the one the drain tick makes', async () => {
@@ -2078,7 +2088,7 @@ describe('reconcileJournals — the handle rail’s recovery, on the drain tick'
 
     expect((reconcileWallet as jest.Mock).mock.calls).toHaveLength(2)
     for (const call of (reconcileWallet as jest.Mock).mock.calls) {
-      expect(call[1]).toEqual({ sweep: false })
+      expect(call[1]).toEqual({ sweep: false, broadcast: false })
     }
   })
 })
@@ -2578,3 +2588,132 @@ function txidOfSubmitBody(init: unknown): string {
   const beef = Beef.fromBinary(Array.from(body))
   return beef.atomicTxid ?? beef.txs[beef.txs.length - 1].txid
 }
+
+
+// ───────── 2026-09-15 incident: the fee input the walk could not see ─────────
+
+describe('cover completes the tip’s ancestry from the wallet before walking', () => {
+  it('a plain-BSV fee parent that is not in inputBEEF is fetched, not read as a hole', async () => {
+    // 8045794f: token inputs from an admitted parent (in inputBEEF), plus a fee
+    // input from UNMINED change of an earlier BSV send that the noSend action's
+    // stored inputBEEF never carried. FIX B made that invisible parent a hole
+    // and the immediate submit silently never happened.
+    const tokenParent = rootTx(100)
+    const feeParent = new Transaction()
+    feeParent.addOutput({ satoshis: 600, lockingScript: LockingScript.fromHex('51') })
+    const tip = txSpending([{ tx: tokenParent, vout: 0 }])
+    tip.addInput({ sourceTransaction: feeParent, sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('') })
+    const tipTxid = tip.id('hex')
+    const inputBEEF = new Beef()
+    inputBEEF.mergeTransaction(tokenParent)
+
+    const storage = fakeStorage(db, [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }], [feeParent])
+    const runtime = build({ storage })
+    await runtime.store.putAdmission({
+      txid: tokenParent.id('hex'),
+      outputsToAdmit: [0],
+      signatureHex: signAdmission(tokenParent.id('hex'), [0]),
+      signerKey: OVERLAY_KEY,
+      source: 'fetched',
+      obtainedAt: new Date().toISOString()
+    })
+    expect(await runtime.cover(tipTxid)).toEqual({ ok: true, mustSubmit: [tipTxid] })
+  })
+
+  it('a parent the wallet cannot produce either is still a hole', async () => {
+    const tokenParent = rootTx(100)
+    const feeParent = new Transaction()
+    feeParent.addOutput({ satoshis: 600, lockingScript: LockingScript.fromHex('51') })
+    const tip = txSpending([{ tx: tokenParent, vout: 0 }])
+    tip.addInput({ sourceTransaction: feeParent, sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('') })
+    const tipTxid = tip.id('hex')
+    const inputBEEF = new Beef()
+    inputBEEF.mergeTransaction(tokenParent)
+    const runtime = build({ storage: fakeStorage(db, [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }]) })
+    expect(await runtime.cover(tipTxid)).toEqual({ ok: false, reason: 'uncovered_ancestor' })
+  })
+})
+
+describe('settlePendingSends — the handle rail’s rows are driven on every tick', () => {
+  const admitting = (posted: string[]) => async (_url: unknown, init: unknown) => {
+    const { headers, body } = init as { headers?: Record<string, string>; body: Uint8Array }
+    let txid: string
+    if (headers?.['x-includes-off-chain-values'] === 'true') {
+      const reader = new Utils.Reader(Array.from(body))
+      const beef = Beef.fromBinary(reader.read(reader.readVarIntNum()))
+      txid = beef.atomicTxid ?? beef.txs[beef.txs.length - 1].txid
+    } else txid = txidOfSubmitBody(init)
+    posted.push(txid)
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          tm_mandala: { outputsToAdmit: [0], admissionSignature: signAdmission(txid, [0]), admissionIdentityKey: OVERLAY_KEY }
+        })
+    }
+  }
+
+  async function handedOverRow(runtime: MandalaRuntime, txid: string, state: 'handed_over' | 'admitted' = 'handed_over') {
+    await runtime.store.upsertSettlement({
+      txid,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state,
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY,
+      amountBaseUnits: 40
+    })
+  }
+
+  it('a handed_over row with no queue entry is submitted and broadcast by the tick', async () => {
+    const tip = rootTx(40)
+    const txid = tip.id('hex')
+    const posted: string[] = []
+    const broadcasts: string[] = []
+    const runtime = build(
+      { fetchImpl: admitting(posted) as never, broadcast: async (id: string) => { broadcasts.push(id); return 'success' } },
+      [],
+      [{ txid, rawTx: tip.toBinary(), status: 'nosend' }]
+    )
+    await handedOverRow(runtime, txid)
+    await runtime.store.putLinkage({ txid, payloadBytes: Uint8Array.from([1]), overlayUrl: ENDPOINTS.overlayUrl, overlayIdentityKey: OVERLAY_KEY, source: 'minted', createdAt: new Date().toISOString() })
+
+    expect(await runtime.settlePendingSends()).toBe(1)
+    expect(posted).toEqual([txid])
+    expect(broadcasts).toEqual([txid])
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('broadcast')
+  })
+
+  it('an admitted row whose request the network already has is closed as broadcast without a submit', async () => {
+    const tip = rootTx(40)
+    const txid = tip.id('hex')
+    const posted: string[] = []
+    const broadcasts: string[] = []
+    const runtime = build(
+      { fetchImpl: admitting(posted) as never, broadcast: async (id: string) => { broadcasts.push(id); return 'success' } },
+      [],
+      [{ txid, rawTx: tip.toBinary(), status: 'completed' }]
+    )
+    await handedOverRow(runtime, txid, 'admitted')
+    await runtime.store.putAdmission({ txid, outputsToAdmit: [0], signatureHex: signAdmission(txid, [0]), signerKey: OVERLAY_KEY, source: 'fetched', obtainedAt: new Date().toISOString() })
+    expect(await runtime.settlePendingSends()).toBe(1)
+    expect(posted).toEqual([])
+    // The cached σ_I stands in for the submit; the broadcast step runs, and in
+    // production `postOwnedByTxid` answers from the recorded request status
+    // ('completed' ⇒ success) without touching the network.
+    expect(broadcasts).toEqual([txid])
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('broadcast')
+  })
+
+  it('leaves built/parked rows and received rows alone', async () => {
+    const tip = rootTx(40)
+    const txid = tip.id('hex')
+    const posted: string[] = []
+    const runtime = build({ fetchImpl: admitting(posted) as never }, [], [{ txid, rawTx: tip.toBinary(), status: 'nosend' }])
+    await runtime.store.upsertSettlement({ txid, role: 'sent', assetId: ASSET_ID, state: 'parked', overlayUrl: ENDPOINTS.overlayUrl, overlayIdentityKey: OVERLAY_KEY })
+    expect(await runtime.settlePendingSends()).toBe(0)
+    expect(posted).toEqual([])
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('parked')
+  })
+})

@@ -330,7 +330,7 @@ export function verdictFromError(e: unknown): OverlayVerdict {
  * compile-time accommodation only; `abortGuard.ts` is what makes the sweep
  * harmless either way, and it is not optional.
  */
-type ReconcileOptions = { sweep?: boolean }
+type ReconcileOptions = { sweep?: boolean; broadcast?: boolean }
 type ReconcileWithOptions = (wallet: WalletInterface, options: ReconcileOptions) => ReturnType<typeof reconcileWallet>
 const reconcileWalletWithOptions: ReconcileWithOptions = (wallet, options) =>
   (reconcileWallet as unknown as ReconcileWithOptions)(wallet, options)
@@ -820,6 +820,38 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     }
   }
 
+  /**
+   * Pull into `beef` every parent of `tip` it does not already carry, from the
+   * wallet's own ancestry lookup.
+   *
+   * 2026-09-15 incident: a noSend action's stored `inputBEEF` is only what the
+   * lib passed to `createAction` — the token parents. The fee input the wallet
+   * itself allocated (change from an earlier, still-unmined BSV send) was not
+   * in it, and to the COVER walk a parent it cannot see is a hole (FIX B: it
+   * could be a token). The immediate submit therefore never went out, and it
+   * did so silently. The walk must see the same ancestry the wallet does.
+   *
+   * Best-effort per parent: a lookup that fails leaves that parent missing,
+   * and the walk reports the hole exactly as before.
+   */
+  const completeAncestry = async (beef: Beef, tip: Transaction): Promise<void> => {
+    const lookup = (
+      storage as unknown as {
+        getValidBeefForTxid?: (txid: string, mergeToBeef?: Beef) => Promise<Beef | undefined>
+      }
+    ).getValidBeefForTxid
+    if (typeof lookup !== 'function') return
+    for (const input of tip.inputs) {
+      const parentTxid = input.sourceTXID ?? input.sourceTransaction?.id('hex')
+      if (!parentTxid || beef.findTxid(parentTxid)?.tx !== undefined) continue
+      try {
+        await lookup.call(storage, parentTxid, beef)
+      } catch (e) {
+        devLog(`[mandala] could not load the ancestry of ${parentTxid} for the cover walk:`, e)
+      }
+    }
+  }
+
   const cover = async (tipTxid: string): Promise<CoverResult> => {
     if (overlayIdentityKey === '') return { ok: false, reason: 'unsafe_asset' }
     const beef = await loadBeef(tipTxid)
@@ -831,6 +863,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       return { ok: false, reason: 'shape' }
     }
     if (!tip) return { ok: false, reason: 'shape' }
+    await completeAncestry(beef, tip)
 
     const row = await store.getSettlement(tipTxid)
     const assetId = row?.assetId ?? assetIdOfTx(tip)
@@ -1234,6 +1267,43 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const isOnline = args.isOnline ?? (async () => true)
 
   /**
+   * Every drainable row the PAYER's handle rail owns, stepped once.
+   *
+   * `sendToHandle` writes a `token_settlements` row and no queue row, and the
+   * release drain only steps queue rows — so a hand-over whose immediate
+   * `settleNow` did not settle (offline, a cover hole, a 503) had NOTHING
+   * retrying it: `recoverStaleAdmissions` can fetch a σ_I the overlay already
+   * holds but never broadcasts, and the lib's own reconcile cannot broadcast
+   * through this wallet's hold at all (2026-09-15 incident). This is the
+   * missing retry: on every tick, each `sent` row still in a drain-owned state
+   * takes the same `settleNow` step it would have taken at send time. Rows the
+   * user owns (`built`/`parked`) are never touched (FIX F); received rows have
+   * their own queue entries. Never throws; returns how many rows moved.
+   */
+  const PAYER_DRAIN_STATES: TokenSettlementState[] = ['handed_over', 'submitting', 'admitted']
+  const settlePendingSends = async (): Promise<number> => {
+    if (!available) return 0
+    let rows: TokenSettlementRow[]
+    try {
+      rows = await store.listSettlements({ state: PAYER_DRAIN_STATES })
+    } catch (e) {
+      devLog('[mandala] could not list the payer rows to settle:', e)
+      return 0
+    }
+    let advanced = 0
+    for (const row of rows) {
+      if (row.role !== 'sent') continue
+      try {
+        const after = await settleNow(row.txid)
+        if (after !== row.state) advanced++
+      } catch (e) {
+        devLog(`[mandala] settling ${row.txid} on the tick failed; next tick retries:`, e)
+      }
+    }
+    return advanced
+  }
+
+  /**
    * The step's broadcast: the release engine's own owned post, by default.
    *
    * `postTokenStep` reaches this only once every ancestor in COVER's
@@ -1302,6 +1372,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       return 'unavailable'
     }
     if (after && after.state !== row.state) emit()
+    else devLog(`[mandala] settlement step for ${txid} left the row at '${row.state}'; the drain retries next tick`)
     return after?.state ?? 'unavailable'
   }
 
@@ -1671,7 +1742,14 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const reconcileJournals = async (): Promise<void> => {
     if (!available) return
     try {
-      const r = await reconcileWalletWithOptions(bound, { sweep: false })
+      // `broadcast: false`: the lib may re-submit its journaled bytes (the
+      // overlay is idempotent) but must NOT broadcast through
+      // `createAction({ sendWith })` — this wallet's storage holds every token
+      // request for the settlement drain, so that broadcast can never succeed
+      // here and only burned the lib's retry cap into a 'stranded' entry
+      // (2026-09-15). The drain's `postTokenStep` clears the entry when the
+      // transaction really goes out (`journalRemove`).
+      const r = await reconcileWalletWithOptions(bound, { sweep: false, broadcast: false })
       if (!r.skipped && (r.rebroadcast.length > 0 || r.aborted.length > 0 || r.resubmitted.length > 0 || r.swept > 0)) {
         devLog('[mandala] reconcileWallet recovered:', r)
         emit()
@@ -1706,6 +1784,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     cover,
     fetchAdmission,
     settleNow,
+    settlePendingSends,
     recoverStaleAdmissions,
     repairAdmittedAborted,
     pruneBlindingReservations,
@@ -1965,6 +2044,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       // already gone.
       await repairAdmittedAborted()
       await reconcileJournals()
+      await settlePendingSends()
       await pruneBlindingReservations()
       await processOfflineActions({
         storage,

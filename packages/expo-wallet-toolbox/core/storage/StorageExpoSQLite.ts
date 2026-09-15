@@ -73,7 +73,7 @@ import type {
 } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
 import type { ListActionsResult, ListOutputsResult, Validation, WalletLoggerInterface } from '@bsv/sdk'
 import { Beef, Transaction } from '@bsv/sdk'
-import type { EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/entities'
+import { EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/entities'
 import type { PostReqsToNetworkResult } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork'
 import { listActionsSql } from './methods/listActionsSql'
 import { listOutputsSql } from './methods/listOutputsSql'
@@ -2063,6 +2063,33 @@ export class StorageExpoSQLite extends StorageProvider {
       await insertOfflineAction(db, { userId, txid: req.txid, role })
     }
     TaskSendOffline.noteEnqueued()
+  }
+
+  /**
+   * Guard #2 for the monitor's own retry path.
+   *
+   * `TaskSendWaiting` posts 'unsent' requests through the module function, not
+   * through `attemptToPostReqsToNetwork` on this instance, so the hold below
+   * never saw them — and an internalized token payment lands exactly there:
+   * `internalizeAction` with delayed broadcast leaves its request 'unsent'. On
+   * 2026-09-15 a recipient wallet raw-broadcast four just-credited token
+   * transactions (one of them a known double-spend) before any `/submit`.
+   * `WalletContext` calls this from its `processUnsent` patch: every request
+   * with a `token_settlements` row is held for the drain and the caller is
+   * told which ones, so it posts only the rest. Never throws.
+   */
+  async holdTokenReqsForDrain(reqApis: TableProvenTxReq[]): Promise<Set<string>> {
+    try {
+      const tokenTxids = await this.tokenSettlementTxids(reqApis.map(r => r.txid))
+      if (tokenTxids.size === 0) return tokenTxids
+      const reqs = reqApis.filter(r => tokenTxids.has(r.txid)).map(r => new EntityProvenTxReq(r))
+      devLog(`[StorageExpoSQLite] holding ${reqs.length} token req(s) from the monitor's retry for the settlement drain`)
+      await this.holdTokenReqs(reqs)
+      return tokenTxids
+    } catch (e) {
+      devLog('[StorageExpoSQLite] could not hold token reqs from the monitor retry; withholding them anyway:', e)
+      return new Set(reqApis.map(r => r.txid))
+    }
   }
 
   /**

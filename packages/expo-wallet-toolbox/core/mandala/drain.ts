@@ -29,6 +29,7 @@ import { Beef, Utils } from '@bsv/sdk'
 import { MandalaToken } from '@bsv/templates'
 import { payloadHash } from '@bsv/mandala'
 import type { PostOutcome } from '../offline/plan'
+import { devLog } from '../logging'
 import {
   STUCK_AFTER_MS,
   type AdmissionEntryWire,
@@ -448,7 +449,9 @@ export async function postTokenStep(
   if (!cover.ok) {
     // An ancestor is still missing. Never a local refusal — the overlay is the
     // only authority on a final verdict (FIX D) — so the row stays exactly
-    // where it was and the next pass tries again.
+    // where it was and the next pass tries again. Said out loud: a silent
+    // stall here is what hid the 2026-09-15 fee-parent hole for four minutes.
+    devLog(`[mandala] cover of ${tip} incomplete (${cover.reason}); its settlement step is deferred`)
     return 'serviceError'
   }
 
@@ -504,6 +507,7 @@ export async function postTokenStep(
     }
 
     if (verdict.kind === 'unavailable') {
+      devLog(`[mandala] /submit of ${ancestorTxid} unavailable (${verdict.code}); the step is retried next pass`)
       // Liftable policy refusal or infra fault. Put the row back where it was
       // and stall the WHOLE step — never partially advance a chain past a
       // liftable stall; the whole prefix is retried next pass, idempotently.

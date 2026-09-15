@@ -1643,6 +1643,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 // and the handle rail writes none of these entries. Never
                 // throws (see `reconcileJournals`).
                 await mandalaRef.current?.reconcileJournals()
+                // The payer's handle-rail rows: no queue row exists for them,
+                // so the release pass below would never step them. Each one
+                // takes its `settleNow` step here instead (2026-09-15).
+                await mandalaRef.current?.settlePendingSends()
                 await mandalaRef.current?.pruneBlindingReservations()
                 const r = await processOfflineActions({
                   storage: phoneStorage!,
@@ -1805,11 +1809,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // the drain so the parent goes out first.
           if (phoneStorage) {
             const sendWaiting = monitor._tasks.find(t => t.name === 'SendWaiting') as
-              | { processUnsent?: (reqApis: Array<{ rawTx?: number[] }>, indent?: number) => Promise<string> }
+              | { processUnsent?: (reqApis: Array<{ txid: string; rawTx?: number[] }>, indent?: number) => Promise<string> }
               | undefined
             if (sendWaiting?.processUnsent) {
               const orig = sendWaiting.processUnsent.bind(sendWaiting)
-              sendWaiting.processUnsent = async (reqApis, indent) => {
+              sendWaiting.processUnsent = async (allReqApis, indent) => {
+                // Guard #2 for this path: a request with a `token_settlements`
+                // row is the settlement drain's to broadcast, after `/submit`,
+                // never the monitor's. Held here and dropped from this pass.
+                const heldTokenTxids = await phoneStorage.holdTokenReqsForDrain(allReqApis as never)
+                const reqApis = heldTokenTxids.size > 0 ? allReqApis.filter(r => !heldTokenTxids.has(r.txid)) : allReqApis
+                if (heldTokenTxids.size > 0) TaskSendOffline.requestNow()
                 let queuedTxids = new Set<string>()
                 try {
                   const db = phoneStorage.sqliteDb
@@ -1828,7 +1838,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 }
                 if (deferred > 0) TaskSendOffline.requestNow()
                 if (ready.length === 0) {
-                  return deferred > 0 ? `deferred ${deferred} req(s) behind queued ancestors\n` : ''
+                  const notes: string[] = []
+                  if (heldTokenTxids.size > 0) notes.push(`held ${heldTokenTxids.size} token req(s) for the settlement drain`)
+                  if (deferred > 0) notes.push(`deferred ${deferred} req(s) behind queued ancestors`)
+                  return notes.length > 0 ? `${notes.join('; ')}\n` : ''
                 }
                 return orig(ready, indent)
               }

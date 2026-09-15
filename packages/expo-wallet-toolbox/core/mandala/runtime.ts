@@ -188,6 +188,15 @@ export interface MandalaRuntime {
    * in-flight run and get the same answer.
    */
   settleNow(txid: string): Promise<TokenSettleState>
+
+  /**
+   * Step every drain-owned `sent` row once (`handed_over`/`submitting`/
+   * `admitted`), exactly as `settleNow` would. The handle rail writes no queue
+   * row, so without this a hand-over whose immediate submit did not settle
+   * had no retry at all (2026-09-15). Rides the drain tick. Never throws;
+   * returns how many rows changed state.
+   */
+  settlePendingSends(): Promise<number>
   /**
    * Drives the LIB's own durable journals once: `reconcileWallet` (retryable
    * refusals, overlay-accepted-but-unbroadcast txs, pending aborts, the stuck
