@@ -141,6 +141,9 @@ const resources = {
         '{{issuer}} does not allow payments to this person. Nothing was sent and your balance is unchanged.',
       token_err_refused_frozen:
         'Some of the {{ticker}} you were sending has just been frozen. Nothing was sent; your balance has been updated.',
+      token_err_send_failed:
+        'Couldn\'t send this payment: {{reason}}. Nothing left your wallet.',
+      token_err_reason_unknown: 'an unknown problem',
       token_err_unreachable:
         "We couldn't reach {{issuer}} to confirm this transfer. Check your {{ticker}} balance before trying again.",
       token_err_check_again: 'Check again',
@@ -1020,6 +1023,9 @@ const resources = {
       token_err_refused_paused: '{{issuer}} 已暂停 {{ticker}}。没有发送任何款项，你的余额未变。',
       token_err_refused_recipient: '{{issuer}} 不允许向此人付款。没有发送任何款项，你的余额未变。',
       token_err_refused_frozen: '你要发送的部分 {{ticker}} 刚刚被冻结。没有发送任何款项，余额已更新。',
+      token_err_send_failed:
+        '无法发送此付款：{{reason}}。没有任何款项离开你的钱包。',
+      token_err_reason_unknown: '未知问题',
       token_err_unreachable: '我们无法联系 {{issuer}} 确认此次转账。再次尝试前请查看你的 {{ticker}} 余额。',
       token_err_check_again: '重新检查',
       token_err_balance_changed: '准备过程中你的 {{ticker}} 余额发生了变化。请检查金额后重试。',
@@ -1835,6 +1841,9 @@ const resources = {
         '{{issuer}} इस व्यक्ति को भुगतान की अनुमति नहीं देता। कुछ भी नहीं भेजा गया और आपका शेष अपरिवर्तित है।',
       token_err_refused_frozen:
         'आप जो {{ticker}} भेज रहे थे उसका कुछ हिस्सा अभी फ़्रीज़ हो गया। कुछ भी नहीं भेजा गया; आपका शेष अपडेट कर दिया गया है।',
+      token_err_send_failed:
+        'यह भुगतान नहीं भेजा जा सका: {{reason}}। आपके वॉलेट से कुछ भी नहीं गया।',
+      token_err_reason_unknown: 'एक अज्ञात समस्या',
       token_err_unreachable:
         'हम इस स्थानांतरण की पुष्टि के लिए {{issuer}} तक नहीं पहुँच सके। दोबारा कोशिश करने से पहले अपना {{ticker}} शेष जाँचें।',
       token_err_check_again: 'फिर से जाँचें',
@@ -2697,6 +2706,9 @@ const resources = {
       token_err_refused_recipient: '{{issuer}} no permite pagos a esta persona. No se envió nada y tu saldo no cambió.',
       token_err_refused_frozen:
         'Parte del {{ticker}} que ibas a enviar acaba de ser congelado. No se envió nada; tu saldo se ha actualizado.',
+      token_err_send_failed:
+        'No se pudo enviar este pago: {{reason}}. Nada salió de tu billetera.',
+      token_err_reason_unknown: 'un problema desconocido',
       token_err_unreachable:
         'No pudimos contactar con {{issuer}} para confirmar esta transferencia. Revisa tu saldo de {{ticker}} antes de reintentar.',
       token_err_check_again: 'Comprobar de nuevo',
@@ -3575,6 +3587,9 @@ const resources = {
         "{{issuer}} n'autorise pas les paiements à cette personne. Rien n'a été envoyé et votre solde est inchangé.",
       token_err_refused_frozen:
         "Une partie des {{ticker}} que vous envoyiez vient d'être gelée. Rien n'a été envoyé ; votre solde a été mis à jour.",
+      token_err_send_failed:
+        'Impossible d\'envoyer ce paiement : {{reason}}. Rien n\'a quitté votre portefeuille.',
+      token_err_reason_unknown: 'un problème inconnu',
       token_err_unreachable:
         'Impossible de joindre {{issuer}} pour confirmer ce transfert. Vérifiez votre solde de {{ticker}} avant de réessayer.',
       token_err_check_again: 'Vérifier à nouveau',
@@ -4453,6 +4468,9 @@ const resources = {
       token_err_refused_paused: 'أوقفت {{issuer}} رمز {{ticker}}. لم يُرسل شيء ورصيدك لم يتغير.',
       token_err_refused_recipient: 'لا تسمح {{issuer}} بالدفع لهذا الشخص. لم يُرسل شيء ورصيدك لم يتغير.',
       token_err_refused_frozen: 'جرى للتو تجميد جزء من {{ticker}} الذي كنت ترسله. لم يُرسل شيء؛ وتم تحديث رصيدك.',
+      token_err_send_failed:
+        'تعذّر إرسال هذه الدفعة: {{reason}}. لم يغادر محفظتك أي شيء.',
+      token_err_reason_unknown: 'مشكلة غير معروفة',
       token_err_unreachable:
         'تعذّر الوصول إلى {{issuer}} لتأكيد هذا التحويل. تحقق من رصيدك من {{ticker}} قبل المحاولة مجددًا.',
       token_err_check_again: 'تحقق مرة أخرى',
@@ -5283,6 +5301,9 @@ const resources = {
         '{{issuer}} não permite pagamentos a esta pessoa. Nada foi enviado e o seu saldo não mudou.',
       token_err_refused_frozen:
         'Parte do {{ticker}} que estava a enviar acabou de ser congelada. Nada foi enviado; o seu saldo foi atualizado.',
+      token_err_send_failed:
+        'Não foi possível enviar este pagamento: {{reason}}. Nada saiu da sua carteira.',
+      token_err_reason_unknown: 'um problema desconhecido',
       token_err_unreachable:
         'Não conseguimos contactar {{issuer}} para confirmar esta transferência. Verifique o seu saldo de {{ticker}} antes de tentar de novo.',
       token_err_check_again: 'Verificar de novo',
@@ -6158,6 +6179,9 @@ const resources = {
         '{{issuer}} এই ব্যক্তিকে অর্থ পাঠানোর অনুমতি দেয় না। কিছুই পাঠানো হয়নি এবং আপনার ব্যালেন্স অপরিবর্তিত।',
       token_err_refused_frozen:
         'আপনি যে {{ticker}} পাঠাচ্ছিলেন তার কিছু অংশ এইমাত্র ফ্রিজ হয়েছে। কিছুই পাঠানো হয়নি; ব্যালেন্স হালনাগাদ করা হয়েছে।',
+      token_err_send_failed:
+        'এই পেমেন্ট পাঠানো যায়নি: {{reason}}। আপনার ওয়ালেট থেকে কিছুই যায়নি।',
+      token_err_reason_unknown: 'একটি অজানা সমস্যা',
       token_err_unreachable:
         'এই স্থানান্তর নিশ্চিত করতে আমরা {{issuer}}-এর কাছে পৌঁছাতে পারিনি। আবার চেষ্টার আগে আপনার {{ticker}} ব্যালেন্স দেখে নিন।',
       token_err_check_again: 'আবার দেখুন',
@@ -7014,6 +7038,9 @@ const resources = {
         '{{issuer}} не разрешает платежи этому человеку. Ничего не отправлено, баланс не изменился.',
       token_err_refused_frozen:
         'Часть {{ticker}}, которую вы отправляли, только что заморожена. Ничего не отправлено; баланс обновлён.',
+      token_err_send_failed:
+        'Не удалось отправить этот платёж: {{reason}}. Из вашего кошелька ничего не ушло.',
+      token_err_reason_unknown: 'неизвестная проблема',
       token_err_unreachable:
         'Не удалось связаться с {{issuer}} для подтверждения перевода. Проверьте баланс {{ticker}}, прежде чем повторять.',
       token_err_check_again: 'Проверить снова',
@@ -7882,6 +7909,9 @@ const resources = {
         '{{issuer}} tidak mengizinkan pembayaran ke orang ini. Tidak ada yang terkirim dan saldo Anda tidak berubah.',
       token_err_refused_frozen:
         'Sebagian {{ticker}} yang Anda kirim baru saja dibekukan. Tidak ada yang terkirim; saldo Anda telah diperbarui.',
+      token_err_send_failed:
+        'Tidak dapat mengirim pembayaran ini: {{reason}}. Tidak ada yang keluar dari dompet Anda.',
+      token_err_reason_unknown: 'masalah yang tidak diketahui',
       token_err_unreachable:
         'Kami tidak dapat menghubungi {{issuer}} untuk memastikan transfer ini. Periksa saldo {{ticker}} Anda sebelum mencoba lagi.',
       token_err_check_again: 'Periksa lagi',
@@ -8745,6 +8775,9 @@ const resources = {
       token_err_refused_paused: '{{issuer}} が {{ticker}} を停止しました。何も送られておらず、残高は変わりません。',
       token_err_refused_recipient: '{{issuer}} はこの相手への支払いを許可していません。何も送られておらず、残高は変わりません。',
       token_err_refused_frozen: '送金しようとしていた {{ticker}} の一部が凍結されました。何も送られておらず、残高を更新しました。',
+      token_err_send_failed:
+        'この支払いを送信できませんでした：{{reason}}。ウォレットからは何も出ていません。',
+      token_err_reason_unknown: '不明な問題',
       token_err_unreachable: 'この送金を確認するため {{issuer}} に接続できませんでした。再試行の前に {{ticker}} の残高を確認してください。',
       token_err_check_again: 'もう一度確認',
       token_err_balance_changed: '準備中に {{ticker}} の残高が変わりました。金額を確認して再試行してください。',
@@ -9612,6 +9645,9 @@ const resources = {
         '{{issuer}} nie zezwala na płatności do tej osoby. Nic nie wysłano, a saldo pozostaje bez zmian.',
       token_err_refused_frozen:
         'Część {{ticker}}, którą wysyłałeś, została właśnie zamrożona. Nic nie wysłano; saldo zostało zaktualizowane.',
+      token_err_send_failed:
+        'Nie udało się wysłać tej płatności: {{reason}}. Nic nie opuściło Twojego portfela.',
+      token_err_reason_unknown: 'nieznany problem',
       token_err_unreachable:
         'Nie udało się połączyć z {{issuer}}, aby potwierdzić ten transfer. Sprawdź saldo {{ticker}}, zanim spróbujesz ponownie.',
       token_err_check_again: 'Sprawdź ponownie',

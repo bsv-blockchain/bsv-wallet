@@ -10,11 +10,11 @@
  *     runtime has already aborted the action and the inputs are provably
  *     released. A narrowed reason on top of that ("…because it is paused") is a
  *     hint, and a wrong hint on a true guarantee is survivable.
- *  2. A network failure is NOT a refusal. When the overlay could not be
- *     reached, it may have admitted the transaction and lost the response — so
- *     the copy claims nothing, does not invite a retry (a retry would build a
- *     second spend of the same coins and be refused for conservation forever),
- *     and offers "Check again" instead.
+ *  2. A LOCAL failure is not a refusal either, but since the hand-over-first
+ *     decision it is the only non-refusal a send can have: nothing on this
+ *     rail contacts the overlay, so there is no lost response to reconcile and
+ *     no reason to hedge. That branch names the local reason and says plainly
+ *     that nothing left the wallet — see `tokenUnavailableCopy`.
  *
  * When the issuer cannot be named, `{{issuer}}` becomes "the issuer" rather
  * than a key or a hex string: the overlay-unreachable case in particular must
@@ -37,6 +37,8 @@ export interface TokenSendContext {
   issuer?: string
   /** The fallback noun for an unnamed issuer, translated by the caller. */
   issuerFallback: string
+  /** The fallback phrase for a failure that came with no message, translated by the caller. */
+  reasonFallback?: string
 }
 
 const has = (haystack: string, ...needles: string[]) => needles.some(n => haystack.includes(n))
@@ -63,7 +65,23 @@ export function tokenRefusalCopy(code: string, ctx: TokenSendContext): TokenSend
   return { key: 'token_err_refused', values }
 }
 
-/** Everything that is not a refusal: unreachable, timeout, DNS, socket. */
+/**
+ * Everything that is not a refusal.
+ *
+ * Since the 2026-09-15 hand-over-first decision (§4.5 / wire contract §9.13)
+ * this branch no longer covers "the overlay could not be reached": SENDING
+ * CONTACTS NO OVERLAY AT ALL, so the only ways a send can fail here are local
+ * — the MessageBox would not open, the wallet could not build or sign, coin
+ * selection came up short. Every one of those is provable and reversible on
+ * this device, which changes the copy twice over:
+ *
+ *  · it may now promise "nothing left your wallet", because nothing did; and
+ *  · it must NOT name the issuer, who was never involved and may be perfectly
+ *    healthy — attributing a local fault to them is simply a lie.
+ *
+ * "Check again" goes with the old sentence for the same reason: there is no
+ * lost response to reconcile, so there is nothing to check.
+ */
 export function tokenUnavailableCopy(message: string, ctx: TokenSendContext): TokenSendCopy {
   const values = { ticker: ctx.ticker, issuer: ctx.issuer || ctx.issuerFallback }
   const m = message.toLowerCase()
@@ -71,7 +89,12 @@ export function tokenUnavailableCopy(message: string, ctx: TokenSendContext): To
   // when it surfaces through the unavailable channel.
   if (has(m, 'fund', 'not enough satoshis')) return { key: 'pay_asset_needs_bsv', values, action: 'get-bsv' }
   if (has(m, 'busy', 'in flight')) return { key: 'token_err_busy', values }
-  return { key: 'token_err_unreachable', values, action: 'check-again' }
+  // `reasonFallback` is the caller's translated noun for "we have no detail";
+  // an un-interpolated `{{reason}}` would read as a missing sentence.
+  return {
+    key: 'token_err_send_failed',
+    values: { ...values, reason: message.trim() || ctx.reasonFallback || 'unknown error' }
+  }
 }
 
 /** The runtime's own result, mapped to copy. `sent` has no copy — it succeeded. */

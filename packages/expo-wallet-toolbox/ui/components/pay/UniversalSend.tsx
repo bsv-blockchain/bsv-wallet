@@ -433,7 +433,8 @@ function UniversalSend({
       const ctx = {
         ticker: asset.ticker,
         issuer: asset.issuerName,
-        issuerFallback: t('token_issuer_fallback')
+        issuerFallback: t('token_issuer_fallback'),
+        reasonFallback: t('token_err_reason_unknown')
       }
       const result = await runtime.sendToHandle({
         assetId: asset.assetId,
@@ -441,6 +442,11 @@ function UniversalSend({
         baseUnits
       })
       if (result.kind !== 'sent') {
+        // The banner narrows the reason to one sentence; the console keeps the
+        // whole of it. On a rail that contacts nothing at send time, the raw
+        // message IS the diagnosis (a MessageBox that would not open, a wallet
+        // that could not sign) and is the only place it survives.
+        console.warn('[pay] token send failed:', result.kind, result.message ?? (result as { code?: string }).code)
         setTokenFailure(tokenSendCopy(result, ctx))
         return
       }
@@ -455,14 +461,22 @@ function UniversalSend({
         // the recipient has not been TOLD it did (the lib's own notify retries
         // in the background — see `TokenSendResult.notified`), and that is the
         // more useful thing to tell the payer, whether or not the coin is
-        // settled yet. Settled or settling otherwise — and never a green check
-        // over a claim the wallet cannot make. `settled` is the runtime's own
-        // word for σ_I in hand; anything else is still on its way.
+        // settled yet.
+        //
+        // Otherwise the handle rail now says SETTLING, not "not broadcast": a
+        // hand-over send never asked the overlay anything (§4.5 / wire §9.13),
+        // so the honest sentence is that the payment is made and is on its way
+        // to the issuer — which is exactly what the nearby rail has always
+        // said, and the same pair of keys says it. `settled` is kept ahead of
+        // it because it remains the runtime's own word for σ_I in hand, and a
+        // rail that one day hands one back must not be told to under-claim.
         statusNote: !result.notified
           ? t('pay_sent_not_notified')
           : result.settled
             ? t('token_sent_settled', { issuer })
-            : t('pay_sent_not_broadcast')
+            : recipient.selectedIdentity?.name
+              ? t('token_sent_settling', { issuer, payee: recipient.selectedIdentity.name })
+              : t('token_sent_settling_unnamed', { issuer })
       })
       mandala.refresh()
     },
@@ -503,6 +517,7 @@ function UniversalSend({
     } catch (error: any) {
       if (await handleWalletCheck(error)) return
       if (asset) {
+        console.warn('[mandala] token send threw:', error)
         // A throw out of the token path is NOT a refusal: the overlay may have
         // admitted the transaction and lost the response, so the copy claims
         // nothing and offers a balance check rather than a retry.

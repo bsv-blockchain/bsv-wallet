@@ -81,6 +81,7 @@ import UniversalSend from '../../ui/components/pay/UniversalSend'
 import { AmountInput } from '../../ui/components/wallet/AmountInput'
 import { MandalaProvider } from '../../ui/hooks/useMandala'
 import { tokenRefusalCopy, tokenSendCopy, tokenThrowCopy } from '../../ui/components/pay/tokenSendCopy'
+import { resources as translations } from '../../core/i18n/translations'
 import { balanceOf, makeFakeMandala, USDX, EURX } from '../__mocks__/fakeMandalaRuntime'
 
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
@@ -88,7 +89,14 @@ const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>)
 
-const CTX = { ticker: 'USDX', issuer: 'Acme Bank', issuerFallback: 'the issuer' }
+const CTX = {
+  ticker: 'USDX',
+  issuer: 'Acme Bank',
+  issuerFallback: 'the issuer',
+  reasonFallback: 'an unknown problem'
+}
+/** The shipped English copy, so a claim about a sentence is a claim about the real one. */
+const en = (translations as Record<string, { translation: Record<string, string> }>).en.translation
 
 describe('tokenSendCopy', () => {
   it('narrows a refusal to the reason, keeping the guarantee attached', () => {
@@ -105,15 +113,32 @@ describe('tokenSendCopy', () => {
     expect(copy.action).toBeUndefined()
   })
 
-  it('never promises "nothing was sent" for a network failure, and offers a check instead', () => {
-    const copy = tokenSendCopy({ kind: 'unavailable', message: 'Network request failed' }, CTX)
-    expect(copy?.key).toBe('token_err_unreachable')
-    expect(copy?.action).toBe('check-again')
+  it('a local fault says plainly that nothing left the wallet, names the reason, and offers no check', () => {
+    // Hand-over-first (§4.5 / wire §9.13): nothing is contacted at send time,
+    // so "unavailable" can only ever be a LOCAL fault — which is provable,
+    // reversible and nothing to do with the issuer.
+    const copy = tokenSendCopy({ kind: 'unavailable', message: 'MessageBox unreachable' }, CTX)
+    expect(copy?.key).toBe('token_err_send_failed')
+    expect(copy?.values.reason).toBe('MessageBox unreachable')
+    expect(copy?.action).toBeUndefined()
   })
 
-  it('treats the lib\'s explicit overlay rejection as a refusal, and anything else as unreachable', () => {
+  it('the local-fault sentence never names the issuer', () => {
+    const copy = tokenSendCopy({ kind: 'unavailable', message: 'wallet could not sign' }, CTX)
+    const rendered = en.token_err_send_failed.replace('{{reason}}', String(copy?.values.reason))
+    expect(rendered).toContain('wallet could not sign')
+    expect(rendered).not.toContain('{{issuer}}')
+    expect(en.token_err_send_failed).not.toContain('{{issuer}}')
+    expect(en.token_err_send_failed).toMatch(/nothing left your wallet/i)
+  })
+
+  it('falls back to a translated phrase rather than an empty reason', () => {
+    expect(tokenSendCopy({ kind: 'unavailable', message: '' }, CTX)?.values.reason).toBe(CTX.reasonFallback)
+  })
+
+  it('treats the lib\'s explicit overlay rejection as a refusal, and anything local as a send failure', () => {
     expect(tokenThrowCopy(new Error('overlay rejected the transaction'), CTX).key).toBe('token_err_refused')
-    expect(tokenThrowCopy(new Error('fetch failed'), CTX).key).toBe('token_err_unreachable')
+    expect(tokenThrowCopy(new Error('fetch failed'), CTX).key).toBe('token_err_send_failed')
     expect(tokenThrowCopy(new Error('insufficient token balance: have 1, need 2'), CTX).key).toBe(
       'token_err_balance_changed'
     )
@@ -369,7 +394,7 @@ describe('UniversalSend with stablecoins', () => {
     expect(s.queryByText('pay_sent_not_broadcast')).toBeNull()
   })
 
-  it('reads back the ordinary "not yet broadcast" note once the recipient has been told', async () => {
+  it('says the payment is SETTLING once the recipient has been told — never "not yet broadcast"', async () => {
     const runtime = makeFakeMandala({
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: false, notified: true }
     })
@@ -379,7 +404,11 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
-    await waitFor(() => expect(s.getByText('pay_sent_not_broadcast')).toBeTruthy())
+    // Hand-over-first: the money is made and on its way to the issuer, which
+    // is what the nearby rail has always said. "Not yet broadcast" would be a
+    // narrower (and, on this rail, misleading) claim about the network.
+    await waitFor(() => expect(s.getByText('token_sent_settling_unnamed:Acme Bank')).toBeTruthy())
+    expect(s.queryByText('pay_sent_not_broadcast')).toBeNull()
     expect(s.queryByText('pay_sent_not_notified')).toBeNull()
   })
 
@@ -414,16 +443,20 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByText('token_err_refused_paused:USDX|Acme Bank')).toBeTruthy())
   })
 
-  it('offers a balance check — not a retry — when the overlay could not be reached', async () => {
-    const runtime = makeFakeMandala({ send: { kind: 'unavailable', message: 'Network request failed' } })
+  it('names a LOCAL fault, promises nothing left the wallet, and offers no check', async () => {
+    // Nothing is contacted at send time, so there is no lost response to
+    // reconcile: the banner states the local reason and drops "Check again".
+    const runtime = makeFakeMandala({ send: { kind: 'unavailable', message: 'MessageBox unreachable' } })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
     await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
-    await waitFor(() => expect(s.getByText('token_err_unreachable:USDX|Acme Bank')).toBeTruthy())
-    expect(s.getByLabelText('token_err_check_again')).toBeTruthy()
+    await waitFor(() =>
+      expect(s.getByText('token_err_send_failed:USDX|Acme Bank|MessageBox unreachable')).toBeTruthy()
+    )
+    expect(s.queryByLabelText('token_err_check_again')).toBeNull()
   })
 
   it('refuses an amount larger than the balance before anything is built', async () => {

@@ -46,13 +46,15 @@ import {
   verifyFetchedAdmission,
   type AdmissionEntry as LibAdmissionEntry,
   type DerSignature,
+  type EvidenceSource,
   type FetchedAdmission,
   type MandalaStorage,
   type MessageBoxLike,
   type MessageBoxSender,
   type OverlayFetch,
   type OverlayRegistryRow,
-  type ReceivedTransfer
+  type ReceivedTransfer,
+  type SettleFn
 } from '@bsv/mandala'
 import { resolveAssetState, type AssetAdminStateView } from '@bsv/mandala/adminState'
 import type { AppChain } from '../config'
@@ -714,6 +716,54 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   /** What every `populateEvidenceFromFrame` call in this file anchors trust on. */
   const evidenceAnchor = { overlayIdentityKey, verifyAdmission }
 
+  /**
+   * The hand-over rail's evidence, read out of this device's OWN settlement
+   * tables (spec §4.5, wire contract §9.13).
+   *
+   * The lib's default source is its own transaction journal, which drops an
+   * `'accepted'` entry as soon as the broadcast lands — so a wallet that has
+   * been running for a week would hand its payee almost no admissions and
+   * force it to walk (and submit) a chain that is long since settled. The
+   * durable tables here are exactly the store the lib's `EvidenceSource` hook
+   * was added for.
+   *
+   * FIX H / §9.10 applies in the outgoing direction too: a cached admission is
+   * forwarded as this device's own claim about the chain, so only one signed
+   * by the CONFIGURED overlay key is offered. Anything else (a foreign key, or
+   * the empty `signerKey` an unsigned `/submit` answer is deliberately
+   * recorded with) is ABSENT — the ancestor is walked and its linkage
+   * forwarded instead, which is always correct and merely costs a submit.
+   *
+   * Neither lookup throws: the lib treats `undefined` as "nothing held", and a
+   * storage fault at send time must cost evidence, never the payment.
+   */
+  const storeEvidenceSource: EvidenceSource = {
+    admissionFor: async txid => {
+      let row: TokenAdmissionRow | undefined
+      try {
+        row = await store.getAdmission(txid)
+      } catch (e) {
+        devLog(`[mandala] hand-over evidence could not read the admission of ${txid}:`, e)
+        return undefined
+      }
+      if (!row) return undefined
+      if (row.signerKey === '' || row.signerKey !== overlayIdentityKey) return undefined
+      if (row.signatureHex === '' || row.outputsToAdmit.length === 0) return undefined
+      return { outputsToAdmit: [...row.outputsToAdmit], signature: row.signatureHex, signerKey: row.signerKey }
+    },
+    linkageFor: async txid => {
+      let row: TokenLinkageRow | undefined
+      try {
+        row = await store.getLinkage(txid)
+      } catch (e) {
+        devLog(`[mandala] hand-over evidence could not read the linkage payload of ${txid}:`, e)
+        return undefined
+      }
+      if (!row || row.payloadBytes.length === 0) return undefined
+      return Array.from(row.payloadBytes)
+    }
+  }
+
   const cover = async (tipTxid: string): Promise<CoverResult> => {
     if (overlayIdentityKey === '') return { ok: false, reason: 'unsafe_asset' }
     const beef = await loadBeef(tipTxid)
@@ -1159,6 +1209,76 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     await onTokenHeld(frame as EvidenceFrame, txid)
   }
 
+  /**
+   * How a credited hand-over is settled: by the DRAIN, on its next tick — not
+   * inline, and never from inside the receive loop.
+   *
+   * The lib's own `defaultSettle` POSTs each `mustSubmit` txid to `/submit`
+   * right there in `acceptOne`. That is right for the online web console and
+   * wrong for a phone: a wallet that credits a payment while offline (or on a
+   * flaky connection) would throw out of the receive loop, leave the message
+   * un-acknowledged, and re-run the whole credit next pass — and, worse, would
+   * be doing overlay I/O on the path that has just internalized money.
+   *
+   * So this writes DURABLE OBLIGATIONS instead: one `held` settlement row per
+   * transaction the COVER walk says still needs submitting (the tip included),
+   * plus the linkage payload the payer forwarded for it, through exactly the
+   * same `onTokenHeld` the nearby rail uses. `postTokenStep` then owns the
+   * rest — it re-runs COVER over these very tables and submits parents-first,
+   * tip last, on every online tick, idempotently (§0.1 rules 3/6).
+   *
+   * A throw here means "do not acknowledge the message yet", which is correct:
+   * the credit is idempotent (`internalizeAction` already tolerates a repeat)
+   * and a row that was never written is an obligation nothing would own.
+   */
+  const settleThroughDrain: SettleFn = async ({ txid, mustSubmit, bytesFor }) => {
+    // The tip is normally the last entry of `mustSubmit`; appending it when it
+    // is absent costs nothing and makes the tip's own row unconditional.
+    const ids = mustSubmit.includes(txid) ? [...mustSubmit] : [...mustSubmit, txid]
+    // One asset for the whole chain — read from the tip's own bytes, never
+    // from the message body, which is the payer's claim (§9.10).
+    const tipBytes = bytesFor(txid)
+    let assetId: string | undefined
+    if (tipBytes) {
+      try {
+        assetId = assetIdOfTx(Transaction.fromAtomicBEEF(tipBytes.beef))
+      } catch (e) {
+        devLog(`[mandala] could not read the asset of hand-over tip ${txid}:`, e)
+      }
+    }
+    if (assetId === undefined) {
+      // Nothing coherent to own the obligation under. Left to the next inbox
+      // pass rather than silently credited with no row.
+      throw new Error(`could not write the settlement row before crediting ${txid}: unknown asset`)
+    }
+    for (const id of ids) {
+      const bytes = bytesFor(id)
+      if (!bytes) {
+        // COVER only ever names transactions the bundle carries, so this is a
+        // lib-side contradiction rather than a normal state.
+        devLog(`[mandala] the hand-over bundle for ${txid} carries no bytes for ${id}`)
+        continue
+      }
+      await onTokenHeld(
+        {
+          kind: 'token',
+          token: {
+            assetId,
+            // The CONFIGURED deployment, never one named on the wire (§9.10).
+            overlayUrl,
+            overlayIdentityKey,
+            linkage:
+              bytes.offChainValues.length > 0
+                ? [{ txid: id, payload: Uint8Array.from(bytes.offChainValues) }]
+                : []
+          },
+          transaction: Uint8Array.from(bytes.beef)
+        },
+        id
+      )
+    }
+  }
+
   /** One credited MessageBox transfer, turned into a settlement row and cached evidence. */
   const journalReceived = async (transfer: ReceivedTransfer): Promise<void> => {
     const bytes = Uint8Array.from(transfer.transaction as unknown as number[])
@@ -1368,21 +1488,30 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           identityKey: await identityKey(),
           assetId,
           amount: baseUnits,
-          recipientKey: recipientIdentityKey
+          recipientKey: recipientIdentityKey,
+          // 2026-09-15 maintainer decision (§4.5, §12.9, wire contract §9.13):
+          // EVERY rail is hand-over-first. Sending contacts no overlay at all —
+          // the bytes are built and signed `noSend`, the payee is handed the
+          // evidence, and whoever reconnects first submits. The payer's own
+          // submit is the ordinary drain, over the `handed_over` row written
+          // below.
+          mode: 'handover',
+          evidence: storeEvidenceSource
         })
-        const settled = result.admissionSignature != null && result.admissionIdentityKey != null
-        // The overlay has already ruled — journal what it said before telling
-        // the caller, so a crash here leaves a row the drain can finish rather
-        // than a payment nothing on this device remembers.
+        // Never `settled` on this rail: there is no σ_I for the tip at send
+        // time, because nothing was asked of the overlay. (The lib returns
+        // none either; this is stated rather than derived so a future field on
+        // `TransferResult` cannot quietly make a hand-over look admitted.)
+        const settled = false
         // The handle rail's own evidence (spec §4.5): the exact bytes and
-        // off-chain payload just submitted, cached the same way a nearby
-        // hand-over's frame would be — so a later `cover()` of this tip (this
-        // device's own recovery, or a re-spend of its change) never has to
-        // re-derive them from scratch. Its own try/catch: this is bookkeeping
-        // on an already-committed payment, so a bad or missing bytes value
-        // must cost a later reconciliation pass, never the settlement journal
-        // below (still less the payment itself, which the overlay already
-        // ruled on).
+        // off-chain payload just handed over, cached the same way a nearby
+        // hand-over's frame would be. On this rail it is no longer merely an
+        // optimisation — the drain's own `submit()` reads the tip's linkage
+        // row to build the `/submit` body, so without this write the payment
+        // could only ever be settled by the payee. Its own try/catch: the
+        // payee already holds the bytes, so a bad or missing value must cost a
+        // later reconciliation pass, never the settlement journal below (still
+        // less the payment itself, which is already made).
         try {
           if (Array.isArray(result.atomicBeef) && result.atomicBeef.length > 0) {
             const edges = deriveTokenEdges(Uint8Array.from(result.atomicBeef), assetId)
@@ -1403,31 +1532,19 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           devLog(`[mandala] sent ${result.txid} but could not cache its evidence:`, e)
         }
         try {
-          if (settled) {
-            await store.putAdmission({
-              txid: result.txid,
-              outputsToAdmit: result.outputsToAdmit ?? [],
-              signatureHex: result.admissionSignature as string,
-              signerKey: result.admissionIdentityKey as string,
-              source: 'submitted',
-              obtainedAt: now().toISOString()
-            })
-          }
           await store.upsertSettlement({
             txid: result.txid,
             role: 'sent',
             assetId,
-            state: settled ? 'admitted' : 'handed_over',
+            // Always `handed_over`, never `admitted`: this device has no proof
+            // of admission and did not ask for one. The row is what the drain
+            // picks up on its next online tick (`postTokenStep` over
+            // `handed_over`), and what `activityStatusOf` reads as "settling".
+            state: 'handed_over',
             counterpartyKey: recipientIdentityKey,
             amountBaseUnits: baseUnits,
             overlayUrl,
-            overlayIdentityKey,
-            ...(settled
-              ? {
-                  admissionOutputs: result.outputsToAdmit ?? [],
-                  admissionSignatureHex: result.admissionSignature as string
-                }
-              : {})
+            overlayIdentityKey
           })
         } catch (e) {
           // The transfer is committed; a journal failure costs a later
@@ -1442,6 +1559,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         return { kind: 'sent', txid: result.txid, settled, notified: result.notified !== false }
       } catch (e) {
         const overlay = asOverlayRefusal(e)
+        // Always leave the real cause in the console. Nothing here contacts an
+        // overlay any more, so an 'unavailable' is a LOCAL fault (MessageBox,
+        // wallet, coin selection) and its full text is the only diagnosis
+        // there is — the banner keeps one sentence of it.
+        console.warn('[mandala] sendToHandle failed:', overlay ? `${overlay.code} ${overlay.message}` : e)
         if (overlay) {
           return overlay.retryable
             ? { kind: 'unavailable', message: overlay.message }
@@ -1463,7 +1585,8 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       const result = await receiveTokens({
         wallet: bound,
         messageBoxClient: box,
-        processed: processedMessages
+        processed: processedMessages,
+        settle: settleThroughDrain
       })
       for (const transfer of result.accepted) {
         try {

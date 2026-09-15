@@ -458,33 +458,99 @@ describe('balances, assets and activity', () => {
 // ────────────────────────────── sendToHandle ──────────────────────────────
 
 describe('sendToHandle', () => {
-  it('journals an admitted send and reports it settled', async () => {
+  it('hands the payment over — never submits — and journals the row handed_over', async () => {
     const txid = '99'.repeat(32)
-    const signature = signAdmission(txid, [0])
-    ;(transferTokens as jest.Mock).mockResolvedValue({
-      txid,
-      notified: true,
-      outputsToAdmit: [0],
-      admissionSignature: signature,
-      admissionIdentityKey: OVERLAY_KEY
-    })
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true })
     const runtime = build()
     const seen: number[] = []
     runtime.subscribe(() => seen.push(1))
 
     const result = await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12 })
-    expect(result).toEqual({ kind: 'sent', txid, settled: true, notified: true })
+    // Never `settled`: no σ_I was asked for, so none is in hand.
+    expect(result).toEqual({ kind: 'sent', txid, settled: false, notified: true })
+
+    // The whole of the 2026-09-15 decision, in one assertion.
+    expect((transferTokens as jest.Mock).mock.calls[0][0]).toMatchObject({
+      mode: 'handover',
+      assetId: ASSET_ID,
+      amount: 12,
+      recipientKey: PAYEE
+    })
 
     const row = await runtime.store.getSettlement(txid)
     expect(row?.role).toBe('sent')
-    expect(row?.state).toBe('admitted')
+    expect(row?.state).toBe('handed_over')
     expect(row?.amountBaseUnits).toBe(12)
     expect(row?.counterpartyKey).toBe(PAYEE)
-    expect((await runtime.store.getAdmission(txid))?.signatureHex).toBe(signature)
+    expect(await runtime.store.getAdmission(txid)).toBeUndefined()
     expect(seen).toHaveLength(1)
   })
 
-  it('a send with no σ_I is still sent, but not settled, and its row stays non-terminal', async () => {
+  it('contacts NOTHING: no facilitator, no fetch, on the whole send path', async () => {
+    const txid = '97'.repeat(32)
+    const fetchImpl = jest.fn(async () => {
+      throw new Error('the send path must never reach the network')
+    })
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true })
+    const runtime = build({ fetchImpl: fetchImpl as never })
+
+    expect((await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 4 })).kind).toBe(
+      'sent'
+    )
+    expect(fetchImpl).not.toHaveBeenCalled()
+    // And the lib is never handed a facilitator it could submit through.
+    expect((transferTokens as jest.Mock).mock.calls[0][0].facilitator).toBeUndefined()
+  })
+
+  it('hands the lib an evidence source that answers from the settlement tables', async () => {
+    const ancestor = 'aa'.repeat(32)
+    const unadmitted = 'bb'.repeat(32)
+    const foreign = 'cc'.repeat(32)
+    const signature = signAdmission(ancestor, [0])
+    const runtime = build()
+    await runtime.store.putAdmission({
+      txid: ancestor,
+      outputsToAdmit: [0],
+      signatureHex: signature,
+      signerKey: OVERLAY_KEY,
+      source: 'submitted',
+      obtainedAt: new Date().toISOString()
+    })
+    await runtime.store.putLinkage({
+      txid: unadmitted,
+      payloadBytes: Uint8Array.from([7, 8, 9]),
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY,
+      source: 'forwarded',
+      createdAt: new Date().toISOString()
+    })
+    // A σ_I this overlay did not sign is ABSENT, never forwarded as this
+    // device's own claim about the chain (FIX H / §9.10).
+    await runtime.store.putAdmission({
+      txid: foreign,
+      outputsToAdmit: [0],
+      signatureHex: 'dead',
+      signerKey: new PrivateKey(11).toPublicKey().toString(),
+      source: 'bundle',
+      obtainedAt: new Date().toISOString()
+    })
+
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid: '96'.repeat(32), notified: true, handedOver: true })
+    await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 1 })
+    const evidence = (transferTokens as jest.Mock).mock.calls[0][0].evidence
+
+    expect(await evidence.admissionFor(ancestor)).toEqual({
+      outputsToAdmit: [0],
+      signature,
+      signerKey: OVERLAY_KEY
+    })
+    expect(await evidence.admissionFor(foreign)).toBeUndefined()
+    expect(await evidence.admissionFor(unadmitted)).toBeUndefined()
+    expect(await evidence.linkageFor(unadmitted)).toEqual([7, 8, 9])
+    expect(await evidence.linkageFor(ancestor)).toBeUndefined()
+  })
+
+  it('leaves the row non-terminal, for the drain to finish on the next online tick', async () => {
     const txid = '88'.repeat(32)
     ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true })
     const runtime = build()
@@ -1199,28 +1265,32 @@ describe('sendToHandle — caches the handle rail’s own evidence', () => {
     expect(Array.from(linkage?.payloadBytes ?? [])).toEqual(offChainValues)
   })
 
-  it('also caches admitted evidence when σ_I came back with the send', async () => {
+  it('never records the tip as admitted, even if the lib hands a σ_I back', async () => {
+    // Defence in depth: the hand-over rail asks for no admission, so a σ_I on
+    // the result is a contradiction. It must not be able to open the row
+    // `admitted` and skip the drain's own submit of these bytes.
     const tip = rootTx(40)
     const txid = tip.id('hex')
     const beef = new Beef()
     beef.mergeTransaction(tip)
-    const atomicBeef = beef.toBinaryAtomic(txid)
-    const signature = signAdmission(txid, [0])
 
     ;(transferTokens as jest.Mock).mockResolvedValue({
       txid,
       notified: true,
-      atomicBeef,
+      handedOver: true,
+      atomicBeef: beef.toBinaryAtomic(txid),
       offChainValues: [9, 9],
       outputsToAdmit: [0],
-      admissionSignature: signature,
+      admissionSignature: signAdmission(txid, [0]),
       admissionIdentityKey: OVERLAY_KEY
     })
 
     const runtime = build()
     const result = await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 40 })
-    expect(result).toEqual({ kind: 'sent', txid, settled: true, notified: true })
-    expect((await runtime.store.getAdmission(txid))?.signatureHex).toBe(signature)
+    expect(result).toEqual({ kind: 'sent', txid, settled: false, notified: true })
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')
+    expect(await runtime.store.getAdmission(txid)).toBeUndefined()
+    // The linkage the drain will submit with is still cached.
     expect(await runtime.store.getLinkage(txid)).toBeDefined()
   })
 
@@ -1232,6 +1302,196 @@ describe('sendToHandle — caches the handle rail’s own evidence', () => {
     expect(result).toEqual({ kind: 'sent', txid, settled: false, notified: true })
     expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')
     expect(await runtime.store.getLinkage(txid)).toBeUndefined()
+  })
+})
+
+// ─────────────── the hand-over rail, end to end over the real tables ───────────────
+
+describe('hand-over-first, and the drain that finishes it', () => {
+  /**
+   * The txid of a submit body that CARRIES off-chain values: the facilitator
+   * frames those as `varint(len(beef)) || beef || offChainValues`, so the plain
+   * `txidOfSubmitBody` would read the length prefix as BEEF.
+   */
+  const txidOfFramedSubmitBody = (init: unknown): string => {
+    const { headers, body } = init as { headers: Record<string, string>; body: Uint8Array }
+    if (headers['x-includes-off-chain-values'] !== 'true') return txidOfSubmitBody(init)
+    const reader = new Utils.Reader(Array.from(body))
+    const length = reader.readVarIntNum()
+    const beef = Beef.fromBinary(reader.read(length))
+    return beef.atomicTxid ?? beef.txs[beef.txs.length - 1].txid
+  }
+
+  /** Every submit answers admitted, with a σ_I over whichever txid the body carried. */
+  const admittingFetch = (posted: string[]) => async (_url: unknown, init: unknown) => {
+    const txid = txidOfFramedSubmitBody(init)
+    posted.push(txid)
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          tm_mandala: {
+            outputsToAdmit: [0],
+            admissionSignature: signAdmission(txid, [0]),
+            admissionIdentityKey: OVERLAY_KEY
+          }
+        })
+    }
+  }
+
+  it('the PAYER’s handed_over row is drainable: the drain submits its bytes and broadcasts', async () => {
+    // The tx is `noSend` in the wallet's own storage, so its bytes come back
+    // from `findProvenTxReqs`; its linkage payload is the one `sendToHandle`
+    // cached. Without both, a hand-over could only ever be settled by the
+    // payee.
+    const tip = rootTx(40)
+    const txid = tip.id('hex')
+    const beef = new Beef()
+    beef.mergeTransaction(tip)
+    const offChainValues = [4, 5, 6]
+    ;(transferTokens as jest.Mock).mockResolvedValue({
+      txid,
+      notified: true,
+      handedOver: true,
+      atomicBeef: beef.toBinaryAtomic(txid),
+      offChainValues
+    })
+
+    const sender = build()
+    await sender.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 40 })
+    expect((await sender.store.getSettlement(txid))?.state).toBe('handed_over')
+
+    const posted: string[] = []
+    const runtime = build(
+      { fetchImpl: admittingFetch(posted) as never },
+      [],
+      [{ txid, rawTx: tip.toBinary() }]
+    )
+
+    const broadcasts: string[] = []
+    const row = (await runtime.store.getSettlement(txid)) as TokenSettlementRow
+    const outcome = await postTokenStep(
+      {
+        store: runtime.store,
+        cover: runtime.tokenDeps.cover,
+        submit: runtime.tokenDeps.submit,
+        broadcast: async id => {
+          broadcasts.push(id)
+          return 'success'
+        }
+      },
+      row,
+      { txid, owned: true }
+    )
+
+    expect(outcome).toBe('success')
+    expect(posted).toEqual([txid])
+    expect(broadcasts).toEqual([txid])
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('broadcast')
+  })
+
+  it('the PAYEE’s settle writes held rows + linkage for a 1-hop mustSubmit, and never submits inline', async () => {
+    const parent = rootTx(100)
+    const tip = txSpending([{ tx: parent, vout: 0 }])
+    const parentTxid = parent.id('hex')
+    const tipTxid = tip.id('hex')
+    const bundle = new Beef()
+    bundle.mergeTransaction(tip)
+
+    const bytesFor = (id: string) => {
+      const tx = bundle.findAtomicTransaction(id)
+      if (!tx) return undefined
+      return {
+        beef: tx.toAtomicBEEF(true),
+        offChainValues: id === tipTxid ? [1, 1] : [2, 2]
+      }
+    }
+
+    const fetchImpl = jest.fn(async () => {
+      throw new Error('crediting must not submit inline')
+    })
+    const runtime = build({ fetchImpl: fetchImpl as never })
+
+    ;(receiveTokens as jest.Mock).mockImplementation(async (p: { settle: (a: unknown) => Promise<void> }) => {
+      await p.settle({ txid: tipTxid, mustSubmit: [parentTxid, tipTxid], bytesFor })
+      return {
+        accepted: [
+          {
+            id: 'msg-h',
+            assetId: ASSET_ID,
+            amount: '60',
+            sender: PAYER,
+            keyID: 'k',
+            protocolID: [2, 'mandala token'],
+            transaction: bundle.toBinaryAtomic(tipTxid),
+            outputIndex: 0,
+            label: 'Acme Dollar',
+            decimals: 2,
+            admissionVerified: false,
+            handedOver: true,
+            covered: true,
+            settled: false
+          }
+        ],
+        failed: []
+      }
+    })
+
+    expect(await runtime.receiveFromInbox()).toEqual({ credited: 1, failed: 0 })
+    // Nothing was submitted while crediting: the obligation is durable instead.
+    expect(fetchImpl).not.toHaveBeenCalled()
+    for (const id of [parentTxid, tipTxid]) {
+      const row = await runtime.store.getSettlement(id)
+      expect(row?.state).toBe('held')
+      expect(row?.role).toBe('received')
+      expect(row?.assetId).toBe(ASSET_ID)
+      // The CONFIGURED deployment, never one the payer named.
+      expect(row?.overlayIdentityKey).toBe(OVERLAY_KEY)
+      expect(await runtime.store.getLinkage(id)).toBeDefined()
+    }
+    expect(Array.from((await runtime.store.getLinkage(parentTxid))?.payloadBytes ?? [])).toEqual([2, 2])
+    expect(await runtime.store.parentsOf(tipTxid)).toEqual([
+      { childTxid: tipTxid, parentTxid, parentVout: 0 }
+    ])
+
+    // …and the NEXT drain tick submits parents-first, tip last.
+    const inputBeef = new Beef()
+    inputBeef.mergeTransaction(parent)
+    const posted: string[] = []
+    const draining = build({ fetchImpl: admittingFetch(posted) as never }, [], [
+      { txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBeef.toBinary() },
+      { txid: parentTxid, rawTx: parent.toBinary() }
+    ])
+    const broadcasts: string[] = []
+    const outcome = await postTokenStep(
+      {
+        store: draining.store,
+        cover: draining.tokenDeps.cover,
+        submit: draining.tokenDeps.submit,
+        broadcast: async id => {
+          broadcasts.push(id)
+          return 'success'
+        }
+      },
+      (await draining.store.getSettlement(tipTxid)) as TokenSettlementRow,
+      { txid: tipTxid, owned: true }
+    )
+    expect(outcome).toBe('success')
+    expect(posted).toEqual([parentTxid, tipTxid])
+    expect(broadcasts).toEqual([tipTxid])
+    expect((await draining.store.getSettlement(parentTxid))?.state).toBe('admitted')
+    expect((await draining.store.getSettlement(tipTxid))?.state).toBe('broadcast')
+  })
+
+  it('a credit whose asset cannot be read writes no row and is left for the next pass (never silently credited)', async () => {
+    const runtime = build()
+    ;(receiveTokens as jest.Mock).mockImplementation(async (p: { settle: (a: unknown) => Promise<void> }) => {
+      await p.settle({ txid: 'ab'.repeat(32), mustSubmit: ['ab'.repeat(32)], bytesFor: () => undefined })
+      return { accepted: [], failed: [] }
+    })
+    await expect(runtime.receiveFromInbox()).rejects.toThrow(/settlement row before crediting/)
+    expect(await runtime.store.listSettlements()).toHaveLength(0)
   })
 })
 
