@@ -46,6 +46,25 @@ export interface TokenSettlementRow {
    */
   refusedPayloadHash?: string
   poisonedByTxid?: string
+  /**
+   * The `createAction`/`signAction` **reference** of the wallet action that
+   * built this transaction, when this device is the one that built it.
+   *
+   * Recorded so an `abortAction` can be recognised for what it is. A token
+   * payment is signed `noSend` and handed over BEFORE anything is broadcast,
+   * so for a window the only thing holding its inputs is a live noSend action
+   * — and `abortAction(reference)` releases those inputs as spendable. Once
+   * the overlay has admitted the transaction (it broadcasts on admission) that
+   * release is a double spend waiting to happen: the next send reuses a coin
+   * that is already spent on chain, and the overlay refuses the child with
+   * `ERR_INPUT_SPENT`. That is the 2026-09-15 incident, and the reference is
+   * what lets `wrapAbortActionForSettlements` refuse the abort instead.
+   *
+   * Absent for rows this device did not build (every `received` row) and for
+   * rows written before the column existed — an unknown reference is never a
+   * reason to refuse an abort.
+   */
+  reference?: string
   createdAt: string
   updatedAt: string
 }
@@ -105,6 +124,14 @@ export type CoverResult =
 export interface SettlementStore {
   // token_settlements
   getSettlement(txid: string): Promise<TokenSettlementRow | undefined>
+  /**
+   * The row whose `reference` is this wallet action's, or undefined.
+   *
+   * The abort guard's only question, and it is asked on the hot path of every
+   * `abortAction` the wallet makes — including plain BSV ones, which have no
+   * row at all — so it is one indexed statement rather than a scan.
+   */
+  getSettlementByReference(reference: string): Promise<TokenSettlementRow | undefined>
   listSettlements(filter?: { state?: TokenSettlementState[]; role?: TokenSettlementRole }): Promise<TokenSettlementRow[]>
   upsertSettlement(row: Omit<TokenSettlementRow, 'createdAt' | 'updatedAt'> & { createdAt?: string }): Promise<void>
   /** Single-statement state advance; returns false if the row was not in one of `from`. */
@@ -208,7 +235,15 @@ export type TokenHandoverState = 'parked' | 'handed_over'
 export type TokenHandedOverHook = (
   frame: EvidenceFrame,
   txid: string,
-  state: TokenHandoverState
+  state: TokenHandoverState,
+  /**
+   * The `createAction` reference of the action that built `txid`, when the
+   * caller still holds it. Recorded on the row so an abort of that action can
+   * be refused once the overlay has the bytes — see `TokenSettlementRow.reference`.
+   * Optional: a caller that does not have one simply leaves the column null,
+   * which reads as "unknown reference" and blocks nothing.
+   */
+  reference?: string
 ) => Promise<void>
 
 /** Injected by the drain: run COVER for a tip against local evidence. */

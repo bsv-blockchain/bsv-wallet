@@ -165,6 +165,7 @@ import { usePermissionQueue } from '../hooks/usePermissionQueue'
 import { configureMandala, resolveAssetMetadata } from '@bsv/mandala'
 import { MessageBoxClient } from '@bsv/message-box-client'
 import { MandalaTokenModule, wrapCreateActionForTokenInputs, type MandalaAssetMetadata } from '../mandala/permissionModule'
+import { wrapAbortActionForSettlements } from '../mandala/abortGuard'
 import { migrateMandalaBasketName } from '../mandala/basketMigration'
 import { bindOriginator, createMandalaKvStorage, createMandalaRuntime, type MandalaMessageBox } from '../mandala/createRuntime'
 import type { MandalaRuntime } from '../mandala/runtime'
@@ -1500,8 +1501,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // screens rely on (`guardVaultAccess(managers.permissionsManager,
         // ADMIN_ORIGINATOR)` again) -- see permissionModule.ts's wrapper doc
         // for the full mechanism.
+        //
+        // `wrapAbortActionForSettlements` goes on the same stack, for the same
+        // reason and in the same place: inside `guardVaultAccess`, so the
+        // published object stays the one the guard's dedup recognises. It is
+        // the last line of defence for the 2026-09-15 incident — an
+        // `abortAction` against a token payment the overlay has already
+        // admitted (and therefore broadcast) releases inputs that are spent on
+        // chain. It reads the settlement store LATE, off `mandalaRef`, because
+        // the runtime is built below this line and replaced on every rebuild.
         newManagers.permissionsManager = guardVaultAccess(
-          wrapCreateActionForTokenInputs(permissionsManager, listMandalaTokenOutpoints, adminOriginator),
+          wrapAbortActionForSettlements(
+            wrapCreateActionForTokenInputs(permissionsManager, listMandalaTokenOutpoints, adminOriginator),
+            () => mandalaRef.current?.store
+          ),
           adminOriginator
         )
 
@@ -1615,6 +1628,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 // is below — a rebuild replaces the runtime under a task
                 // registered once. Both are best-effort and never throw.
                 await mandalaRef.current?.recoverStaleAdmissions()
+                // The 2026-09-15 repair: a settlement row that says the overlay
+                // has the transaction, beside a wallet that failed it and
+                // released its input coin as spendable although it is spent on
+                // chain. Ahead of the release pass on purpose — a coin this
+                // re-marks spent must not be planned into a send below.
+                await mandalaRef.current?.repairAdmittedAborted()
                 // The LIB's own journals, on the same tick and with the same
                 // ref discipline: an overlay-accepted transfer whose broadcast
                 // never went out, a liftable refusal still holding its inputs,

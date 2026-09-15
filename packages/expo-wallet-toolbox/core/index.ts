@@ -111,6 +111,15 @@ export {
 // submit-before-broadcast drain over them.
 export * from './mandala/types'
 export { createSettlementStore, type SettlementDb, type SqlSettlementStore } from './mandala/settlementStore'
+// Guard #4: an abortAction may not release the inputs of a token payment the
+// overlay already has (the 2026-09-15 incident).
+export {
+  abortIsBlockedBy,
+  wrapAbortActionForSettlements,
+  ABORT_BLOCKED_SETTLEMENT_STATES,
+  type AbortableManager,
+  type SettlementStoreLookup
+} from './mandala/abortGuard'
 export {
   deriveTokenEdges,
   isRetriableInternalizeFailure,
@@ -161,8 +170,8 @@ export {
 
 // Local SQLite storage layer
 export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
-export type { StorageExpoSQLiteOptions } from './storage/StorageExpoSQLite'
-export { createTables, ensureOfflineActionsColumns } from './storage/schema/createTables'
+export type { StorageExpoSQLiteOptions, TokenTransactionRepair } from './storage/StorageExpoSQLite'
+export { createTables, ensureOfflineActionsColumns, ensureTokenSettlementColumns } from './storage/schema/createTables'
 export { initializeLocalStorage, isLocalStorage, getStorageDisplayName } from './storage/LocalStorageAdapter'
 export type { LocalStorageConfig } from './storage/LocalStorageAdapter'
 export { findOfflineActions, findOfflineActionByTxid, updateOfflineAction } from './storage/methods/offlineActions'

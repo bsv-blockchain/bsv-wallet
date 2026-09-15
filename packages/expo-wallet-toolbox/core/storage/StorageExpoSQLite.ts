@@ -46,6 +46,8 @@ import type {
   PurgeParams,
   PurgeResults,
   RequestSyncChunkArgs,
+  StorageProcessActionArgs,
+  StorageProcessActionResults,
   SyncChunk,
   TrxToken
 } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
@@ -70,7 +72,7 @@ import type {
   TableUser
 } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
 import type { ListActionsResult, ListOutputsResult, Validation, WalletLoggerInterface } from '@bsv/sdk'
-import { Beef } from '@bsv/sdk'
+import { Beef, Transaction } from '@bsv/sdk'
 import type { EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/entities'
 import type { PostReqsToNetworkResult } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork'
 import { listActionsSql } from './methods/listActionsSql'
@@ -97,6 +99,23 @@ import { isR1CLockingScript } from '../services/vault/guard'
 export interface StorageExpoSQLiteOptions extends StorageProviderOptions {
   databaseName?: string
   identityKey?: string
+}
+
+/** What `repairSettledTokenTransaction` actually changed, for the caller's log. */
+export interface TokenTransactionRepair {
+  txid: string
+  /** Transaction rows moved back to 'unproven'. */
+  transactionIds: number[]
+  /** Their statuses before the repair — 'failed', in the case this exists for. */
+  wasTxStatuses: string[]
+  /** The request's status before the repair, or undefined when there was none. */
+  wasReqStatus?: string
+  /** Coins this transaction spends that were wrongly spendable and are now spent. */
+  inputsMarkedSpent: number
+  /** This transaction's own outputs (change included) restored to spendable. */
+  outputsMadeSpendable: number
+  /** True when the request had gone and was rebuilt from the raw transaction. */
+  reqCreated: boolean
 }
 
 /** Per-connection wait before a lock contention becomes "database is locked". */
@@ -1833,6 +1852,141 @@ export class StorageExpoSQLite extends StorageProvider {
     }, args.trx)
   }
 
+  /**
+   * Put a token transaction the wallet wrongly failed back into a live state,
+   * for a caller that has independently established the transaction IS on chain.
+   *
+   * WHY THIS EXISTS RATHER THAN A CALL INTO THE TOOLBOX. Every sanctioned
+   * un-fail path in `@bsv/wallet-toolbox-mobile` is gated on something this case
+   * cannot supply:
+   *
+   *  · `updateTransactionStatus` refuses outright — "A 'failed' transaction may
+   *    not be un-failed by this method" (`StorageProvider.js`), and `reviewStatus`
+   *    only ever moves rows TOWARDS failed.
+   *  · `TaskUnFail` is the real recovery path, but its entry point demands
+   *    `services.getMerklePath(txid)` first and returns the req to `'invalid'`
+   *    when there is none. A transaction the overlay broadcast seconds ago has
+   *    no merkle path and will not have one for ten minutes, which is precisely
+   *    the window in which the wallet's own bookkeeping is wrong and its coins
+   *    are wrongly spendable.
+   *  · `unfailTransactionsForProof` — the body TaskUnFail delegates to — is the
+   *    right SHAPE (tx to 'unproven', inputs to spent, req to 'unmined'), and
+   *    the steps below are deliberately identical to it, EXCEPT that it decides
+   *    each of this transaction's own outputs by `services.isUtxo(output)`. For
+   *    a tx broadcast moments ago that probe answers "not a utxo" from services
+   *    that have not seen it yet, which would leave the change permanently
+   *    unspendable — the opposite of the repair.
+   *
+   * So the steps are written out here, through the provider's own CRUD methods
+   * (`updateTransaction`/`updateOutput`/`updateProvenTxReq`), and never as raw
+   * SQL over the tables. What it does, in one write transaction:
+   *
+   *  1. every transaction row for `txid` that is not already `'completed'`
+   *     goes to `'unproven'` — broadcast, awaiting proof;
+   *  2. every input the raw transaction spends that is one of THIS user's
+   *     outputs goes back to `spendable: false, spentBy: <this transaction>`.
+   *     This is the money-safety step: `updateTransactionStatus('failed')`
+   *     released those coins, and they are spent on chain;
+   *  3. this transaction's own outputs go back to `spendable: true`, except any
+   *     a different transaction has since spent (`spentBy` set), which are left
+   *     exactly as they are;
+   *  4. the request goes to `'unmined'` with `attempts: 0`, which is one of the
+   *     statuses `TaskCheckForProofs` polls, so the monitor proves it from here
+   *     exactly as it would any other broadcast transaction. A request that has
+   *     gone missing entirely is recreated from the transaction's own raw bytes.
+   *
+   * Returns `undefined` when there was nothing to repair (no transaction row, no
+   * raw bytes to read the inputs from, or a transaction that is already live) —
+   * the caller logs, and nothing is written.
+   */
+  async repairSettledTokenTransaction(txid: string): Promise<TokenTransactionRepair | undefined> {
+    const transactions = await this.findTransactions({ partial: { txid } })
+    if (transactions.length === 0) return undefined
+    const req = (await this.findProvenTxReqs({ partial: { txid } }))[0]
+
+    // Nothing to do unless the wallet actually believes this transaction died.
+    const damaged = transactions.some(t => t.status === 'failed') || req?.status === 'invalid'
+    if (!damaged) return undefined
+
+    const rawTx = req?.rawTx ?? transactions.find(t => t.rawTx && t.rawTx.length > 0)?.rawTx
+    if (!rawTx || rawTx.length === 0) {
+      devLog(`[StorageExpoSQLite] cannot repair ${txid}: no raw transaction to read its inputs from`)
+      return undefined
+    }
+    let parsed: Transaction
+    try {
+      parsed = Transaction.fromBinary([...rawTx])
+    } catch (e) {
+      devLog(`[StorageExpoSQLite] cannot repair ${txid}: its raw transaction will not parse:`, e)
+      return undefined
+    }
+
+    const repair: TokenTransactionRepair = {
+      txid,
+      transactionIds: [],
+      wasTxStatuses: transactions.map(t => t.status),
+      wasReqStatus: req?.status,
+      inputsMarkedSpent: 0,
+      outputsMadeSpendable: 0,
+      reqCreated: false
+    }
+
+    await this.transaction(async trx => {
+      for (const tx of transactions) {
+        if (tx.status === 'completed') continue
+        repair.transactionIds.push(tx.transactionId)
+        await this.updateTransaction(tx.transactionId, { status: 'unproven' }, trx)
+
+        for (const input of parsed.inputs) {
+          const sourceTXID = input.sourceTXID ?? input.sourceTransaction?.id('hex')
+          if (!sourceTXID || typeof input.sourceOutputIndex !== 'number') continue
+          const matches = await this.findOutputs({
+            partial: { userId: tx.userId, txid: sourceTXID, vout: input.sourceOutputIndex },
+            trx
+          })
+          for (const output of matches) {
+            if (output.outputId == null) continue
+            await this.updateOutput(output.outputId, { spendable: false, spentBy: tx.transactionId }, trx)
+            repair.inputsMarkedSpent++
+          }
+        }
+
+        const own = await this.findOutputs({ partial: { userId: tx.userId, transactionId: tx.transactionId }, trx })
+        for (const output of own) {
+          // Spent by something else since the failure: that spend is the newer
+          // fact about this coin and must not be undone by a repair.
+          if (output.outputId == null || output.spentBy != null || output.spendable) continue
+          await this.updateOutput(output.outputId, { spendable: true }, trx)
+          repair.outputsMadeSpendable++
+        }
+      }
+
+      if (req) {
+        await this.updateProvenTxReq(req.provenTxReqId, { status: 'unmined', attempts: 0 }, trx)
+      } else {
+        const now = new Date()
+        await this.insertProvenTxReq(
+          {
+            created_at: now,
+            updated_at: now,
+            provenTxReqId: 0,
+            txid,
+            status: 'unmined',
+            attempts: 0,
+            notified: false,
+            history: '{}',
+            notify: JSON.stringify({ transactionIds: repair.transactionIds }),
+            rawTx: [...rawTx]
+          } as TableProvenTxReq,
+          trx
+        )
+        repair.reqCreated = true
+      }
+    })
+
+    return repair
+  }
+
   async purgeData(_params: PurgeParams, _trx?: TrxToken): Promise<PurgeResults> {
     return { count: 0, log: '' }
   }
@@ -1994,6 +2148,79 @@ export class StorageExpoSQLite extends StorageProvider {
    * The returned 'success' means "accepted for delivery", not "the network has
    * it"; see `utils/offline/hold.ts` for why nothing persisted claims otherwise.
    */
+  /**
+   * Guard #2's RESULT half: a held token request must not read as a posted one.
+   *
+   * `attemptToPostReqsToNetwork` answers `status: 'success'` for a token
+   * request it HELD, and it has to — `'success'` there means "accepted for
+   * delivery", which is what stops `internalizeAction` rolling back a payment
+   * it has already verified (see `offline/hold.ts`). But `aggregateActionResults`
+   * turns that same `'success'` into `SendWithResult.status = 'unproven'`,
+   * i.e. "the processing network has accepted this transaction" — and on
+   * 2026-09-15 `@bsv/mandala`'s `broadcastAcceptedTx` believed it, cleared its
+   * `'accepted'` journal entry for a transaction nothing had broadcast, and so
+   * left the live noSend action looking abandoned to the next reconcile sweep.
+   * One aborted action and one released-but-spent coin later, that is the
+   * incident.
+   *
+   * So a `sendWith` release of a token transaction that is still HELD reports
+   * nothing at all for that txid. Omission rather than a made-up status,
+   * deliberately: `SendWithResult.status` is a three-value SDK union, and
+   * `Wallet.createAction` throws `WERR_REVIEW_ACTIONS` unless EVERY entry reads
+   * `'unproven'` — so inventing a fourth value would turn a correct hold into a
+   * thrown error for every caller, while an absent entry is simply "this wallet
+   * is not telling you it went out", which is the truth and which no caller can
+   * mistake for delivery.
+   *
+   * Scoped as narrowly as it can be: only txids that have a `token_settlements`
+   * row AND whose request is still parked at `'nosend'`. Once `postTokenStep`
+   * has really broadcast the tip its request is past `'nosend'` and its results
+   * pass through exactly as before, and a plain BSV action is never looked at.
+   *
+   * `internalizeAction` is unaffected — it calls `shareReqsWithWorld` directly
+   * rather than through `processAction` — which is what keeps the receiver's
+   * credit from rolling back.
+   */
+  async processAction(auth: AuthId, args: StorageProcessActionArgs): Promise<StorageProcessActionResults> {
+    const r = await super.processAction(auth, args)
+    const swr = r.sendWithResults
+    if (!swr || swr.length === 0) return r
+
+    let heldTokenTxids: Set<string>
+    try {
+      heldTokenTxids = await this.heldTokenTxidsIn(swr.map(s => s.txid))
+    } catch (e) {
+      // A read fault here must not change what the wallet reports; the guard in
+      // front of the broadcast has already done the load-bearing work.
+      devLog('[StorageExpoSQLite] could not check held token reqs for sendWithResults:', e)
+      return r
+    }
+    if (heldTokenTxids.size === 0) return r
+
+    devLog(
+      `[StorageExpoSQLite] omitting ${heldTokenTxids.size} held token req(s) from sendWithResults; ` +
+        'the settlement drain owns their broadcast'
+    )
+    return { ...r, sendWithResults: swr.filter(s => !heldTokenTxids.has(s.txid)) }
+  }
+
+  /**
+   * Of these txids, the ones that both have a `token_settlements` row and are
+   * still parked at request status `'nosend'` — i.e. held by guard #2 and not
+   * yet broadcast by the drain. Read failures propagate; the one caller decides
+   * what a failure means.
+   */
+  private async heldTokenTxidsIn(txids: string[]): Promise<Set<string>> {
+    const tokenTxids = await this.tokenSettlementTxids(txids)
+    if (tokenTxids.size === 0) return new Set()
+    const held = new Set<string>()
+    for (const txid of tokenTxids) {
+      const req = (await this.findProvenTxReqs({ partial: { txid } }))[0]
+      if (req?.status === 'nosend') held.add(txid)
+    }
+    return held
+  }
+
   async attemptToPostReqsToNetwork(
     reqs: EntityProvenTxReq[],
     trx?: TrxToken,

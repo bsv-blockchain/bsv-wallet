@@ -377,7 +377,9 @@ export async function createTables(db: SQLiteDatabase): Promise<void> {
  * stand the schema up without the rest of the wallet, and so a future migration
  * runner has one named unit to call.
  */
-export async function createMandalaSettlementTables(db: Pick<SQLiteDatabase, 'execAsync'>): Promise<void> {
+export async function createMandalaSettlementTables(
+  db: Pick<SQLiteDatabase, 'execAsync' | 'getAllAsync'>
+): Promise<void> {
   // One row per token transaction this wallet has ever built, received, or
   // forwarded evidence for — THE single owner of "what state is this token
   // payment in" (spec §5). The `state` CHECK is deliberately the whole state
@@ -400,6 +402,7 @@ export async function createMandalaSettlementTables(db: Pick<SQLiteDatabase, 'ex
       refusedCode           TEXT,
       refusedPayloadHash    TEXT,
       poisonedByTxid        TEXT,
+      reference             TEXT,
       createdAt             TEXT NOT NULL,
       updatedAt             TEXT NOT NULL
     );
@@ -407,6 +410,11 @@ export async function createMandalaSettlementTables(db: Pick<SQLiteDatabase, 'ex
     CREATE INDEX IF NOT EXISTS idx_token_settlements_role ON token_settlements(role);
     CREATE INDEX IF NOT EXISTS idx_token_settlements_createdAt ON token_settlements(createdAt);
   `)
+
+  // A device that created these tables before `reference` existed keeps them;
+  // CREATE TABLE IF NOT EXISTS cannot add the column, so the guarded ALTER does.
+  await ensureTokenSettlementColumns(db)
+  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_token_settlements_reference ON token_settlements(reference);`)
 
   // Cached mirror of the AdmissionEntry values this device has SEEN. Purely a
   // derivable cache (FIX G) — never a precondition for anything.
@@ -470,6 +478,31 @@ export async function ensureOfflineActionsColumns(db: {
   const info = (await db.getAllAsync('PRAGMA table_info(offline_actions)', [])) as { name: string }[]
   const have = new Set(info.map(c => c.name))
   for (const col of OFFLINE_ACTIONS_COLUMNS) {
+    if (!have.has(col.name)) await db.execAsync(col.ddl)
+  }
+}
+
+/**
+ * The same doctrine for `token_settlements`, which shipped before it had a
+ * `reference` column and cannot be re-created over live rows.
+ *
+ * A nullable column with no default: every existing row reads back
+ * `reference === undefined`, which the abort guard treats as "unknown
+ * reference" and therefore never blocks on. The wallet re-derives these rows
+ * every drain tick (FIX G) but only from frame bytes, which do not carry a
+ * wallet action reference — so the backfill is simply the next hand-over.
+ */
+const TOKEN_SETTLEMENT_COLUMNS: { name: string; ddl: string }[] = [
+  { name: 'reference', ddl: 'ALTER TABLE token_settlements ADD COLUMN reference TEXT' }
+]
+
+export async function ensureTokenSettlementColumns(db: {
+  getAllAsync(sql: string, params: BindValue[]): Promise<unknown[]>
+  execAsync(sql: string): Promise<unknown>
+}): Promise<void> {
+  const info = (await db.getAllAsync('PRAGMA table_info(token_settlements)', [])) as { name: string }[]
+  const have = new Set(info.map(c => c.name))
+  for (const col of TOKEN_SETTLEMENT_COLUMNS) {
     if (!have.has(col.name)) await db.execAsync(col.ddl)
   }
 }

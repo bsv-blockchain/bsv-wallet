@@ -486,6 +486,40 @@ describe('sendToHandle', () => {
     expect(seen).toHaveLength(1)
   })
 
+  /**
+   * The abort guard's other half: the reference has to be ON the row.
+   *
+   * The action that built these bytes is `noSend` and stays that way until the
+   * drain broadcasts it, so until then the only thing holding this device's
+   * inputs is that action — and `abortAction(reference)` frees them. The row is
+   * what `wrapAbortActionForSettlements` matches an abort against, and it has
+   * to be written before the send's own submit, because the window opens the
+   * instant the overlay admits (and broadcasts).
+   */
+  it('records the noSend action’s reference on the row, so an abort of it can be refused', async () => {
+    const txid = '95'.repeat(32)
+    const reference = 'the-noSend-action-reference'
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true, reference })
+    const runtime = build()
+
+    await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12 })
+
+    expect((await runtime.store.getSettlement(txid))?.reference).toBe(reference)
+    expect(await runtime.store.getSettlementByReference(reference)).toMatchObject({ txid, state: 'handed_over' })
+  })
+
+  it('journals the payment anyway when the lib reports no reference — an unknown one blocks nothing', async () => {
+    const txid = '94'.repeat(32)
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true })
+    const runtime = build()
+
+    await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12 })
+
+    const row = await runtime.store.getSettlement(txid)
+    expect(row?.state).toBe('handed_over')
+    expect(row?.reference).toBeUndefined()
+  })
+
   it('contacts NOTHING: no facilitator, no fetch, on the whole send path', async () => {
     const txid = '97'.repeat(32)
     const fetchImpl = jest.fn(async () => {
@@ -2017,6 +2051,220 @@ describe('reconcileJournals — the handle rail’s recovery, on the drain tick'
     await build({ chain: 'test' }).reconcileJournals()
     expect(reconcileWallet).not.toHaveBeenCalled()
     expect(reconcileNotifications).not.toHaveBeenCalled()
+  })
+
+  /**
+   * THE 2026-09-15 CAUSE, pinned.
+   *
+   * `reconcileWallet`'s last step is a bulk sweep that aborts stuck `noSend`
+   * mandala actions no journal entry claims. In this wallet every token request
+   * is HELD by guard #2 for the settlement drain, so a live, admitted payment
+   * looks exactly like an abandoned one — and on that day the sweep aborted a
+   * transfer the overlay had broadcast 0.7 s earlier, releasing an input coin
+   * that was already spent on chain. Settlement here is owned by
+   * `token_settlements` and the drain over it; the sweep must never run.
+   */
+  it('NEVER lets the lib’s bulk sweep run — the wallet’s own drain owns settlement', async () => {
+    await build().reconcileJournals()
+
+    expect(reconcileWallet).toHaveBeenCalledTimes(1)
+    expect((reconcileWallet as jest.Mock).mock.calls[0][1]).toEqual({ sweep: false })
+  })
+
+  it('passes the opt-out on every pass, including the one the drain tick makes', async () => {
+    const runtime = build()
+    await runtime.drainNow()
+    await runtime.reconcileJournals()
+
+    expect((reconcileWallet as jest.Mock).mock.calls).toHaveLength(2)
+    for (const call of (reconcileWallet as jest.Mock).mock.calls) {
+      expect(call[1]).toEqual({ sweep: false })
+    }
+  })
+})
+
+/**
+ * THE 2026-09-15 REPAIR, over the fixture that reproduces the incident.
+ *
+ * A token transfer was admitted by the overlay — which broadcasts on admission
+ * — and 0.7 s later the wallet aborted the still-`noSend` action that built it:
+ * `proven_tx_reqs` `nosend → abortAction → invalid`, `transactions.status`
+ * `failed`, and the input coin restored to spendable although it is spent on
+ * chain. The settlement row still reads `admitted`. `repairAdmittedAborted`
+ * is what puts the wallet's own view back — but ONLY on independent evidence
+ * that the transaction is real, because the repair makes coins unspendable and
+ * must never run on a guess.
+ */
+describe('repairAdmittedAborted — the wallet failed a transaction the chain has', () => {
+  const REPAIR_TXID = '6597db42' + 'ab'.repeat(28)
+
+  /** `tx failed + req invalid + settlement admitted`, exactly as the incident left it. */
+  function damagedStorage(
+    over: { txStatus?: string; reqStatus?: string } = {}
+  ): { storage: StorageExpoSQLite; repair: jest.Mock } {
+    const repair = jest.fn(async (txid: string) => ({
+      txid,
+      transactionIds: [41],
+      wasTxStatuses: [over.txStatus ?? 'failed'],
+      wasReqStatus: over.reqStatus ?? 'invalid',
+      inputsMarkedSpent: 1,
+      outputsMadeSpendable: 1,
+      reqCreated: false
+    }))
+    return {
+      storage: {
+        sqliteDb: db,
+        getKeyValue: async () => undefined,
+        setKeyValue: async () => undefined,
+        findTransactions: async () => [{ transactionId: 41, status: over.txStatus ?? 'failed' }],
+        findProvenTxReqs: async () => [{ provenTxReqId: 9, txid: REPAIR_TXID, status: over.reqStatus ?? 'invalid' }],
+        repairSettledTokenTransaction: repair
+      } as unknown as StorageExpoSQLite,
+      repair
+    }
+  }
+
+  async function admittedRow(runtime: MandalaRuntime, state: 'admitted' | 'broadcast' = 'admitted'): Promise<void> {
+    await runtime.store.upsertSettlement({
+      txid: REPAIR_TXID,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state,
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY
+    })
+  }
+
+  /** The overlay still holding a verified σ_I for these bytes = it broadcast them. */
+  function overlayStillHoldsIt(): void {
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({
+      kind: 'admitted',
+      txid: REPAIR_TXID,
+      outputsToAdmit: [0],
+      signature: signAdmission(REPAIR_TXID, [0]),
+      signerKey: OVERLAY_KEY,
+      at: Date.now()
+    })
+  }
+
+  let warn: jest.SpyInstance
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => warn.mockRestore())
+
+  it('repairs the transaction when the chain has it', async () => {
+    const { storage, repair } = damagedStorage()
+    const refetchBeef = jest.fn(async () => [1, 2, 3])
+    const runtime = build({ storage, refetchBeef })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(1)
+    expect(refetchBeef).toHaveBeenCalledWith(REPAIR_TXID)
+    expect(repair).toHaveBeenCalledWith(REPAIR_TXID)
+    // Says what it repaired, loudly: this is money bookkeeping, not debug noise.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(REPAIR_TXID))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('input(s) re-marked spent'))
+  })
+
+  it('repairs on the overlay’s own admission when the chain has not caught up', async () => {
+    // The incident's own timing: the tx was broadcast SECONDS ago, so no
+    // service will hand back a verifiable BEEF for it yet — and that is exactly
+    // the window in which the coins are wrongly spendable.
+    const { storage, repair } = damagedStorage()
+    overlayStillHoldsIt()
+    const runtime = build({ storage, refetchBeef: async () => undefined })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(1)
+    expect(repair).toHaveBeenCalledWith(REPAIR_TXID)
+  })
+
+  it('repairs a `broadcast` row too — the same divergence, one state later', async () => {
+    const { storage, repair } = damagedStorage()
+    const runtime = build({ storage, refetchBeef: async () => [1] })
+    await admittedRow(runtime, 'broadcast')
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(1)
+    expect(repair).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOTHING when neither the chain nor the overlay confirms the transaction', async () => {
+    const { storage, repair } = damagedStorage()
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue(undefined)
+    const runtime = build({ storage, refetchBeef: async () => undefined })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(0)
+    expect(repair).not.toHaveBeenCalled()
+  })
+
+  it('never acts on an unverifiable overlay answer — §9.10, the same anchor as everywhere else', async () => {
+    const { storage, repair } = damagedStorage()
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({
+      kind: 'admitted',
+      txid: REPAIR_TXID,
+      outputsToAdmit: [0],
+      signature: signAdmission(REPAIR_TXID, [0]),
+      signerKey: new PrivateKey(321).toPublicKey().toString(),
+      at: Date.now()
+    })
+    const runtime = build({ storage, refetchBeef: async () => undefined })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(0)
+    expect(repair).not.toHaveBeenCalled()
+  })
+
+  it('leaves a healthy row alone — no chain lookup, no repair', async () => {
+    const { storage, repair } = damagedStorage({ txStatus: 'unproven', reqStatus: 'unmined' })
+    const refetchBeef = jest.fn(async () => [1])
+    const runtime = build({ storage, refetchBeef })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(0)
+    expect(refetchBeef).not.toHaveBeenCalled()
+    expect(repair).not.toHaveBeenCalled()
+  })
+
+  it('repairs a row whose request alone went invalid', async () => {
+    const { storage, repair } = damagedStorage({ txStatus: 'unproven', reqStatus: 'invalid' })
+    const runtime = build({ storage, refetchBeef: async () => [1] })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(1)
+    expect(repair).toHaveBeenCalledTimes(1)
+  })
+
+  it('never throws — a repair that cannot run is left for the next tick', async () => {
+    const { storage } = damagedStorage()
+    ;(storage as unknown as { repairSettledTokenTransaction: jest.Mock }).repairSettledTokenTransaction = jest.fn(
+      async () => {
+        throw new Error('database is locked')
+      }
+    )
+    const runtime = build({ storage, refetchBeef: async () => [1] })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(0)
+  })
+
+  it('rides the drain tick, ahead of the release pass', async () => {
+    const { storage, repair } = damagedStorage()
+    const runtime = build({ storage, refetchBeef: async () => [1] })
+    await admittedRow(runtime)
+
+    await runtime.drainNow()
+    expect(repair).toHaveBeenCalledWith(REPAIR_TXID)
+  })
+
+  it('does nothing on a chain this wallet has no Mandala for', async () => {
+    const { storage, repair } = damagedStorage()
+    const runtime = build({ storage, chain: 'test' })
+    await admittedRow(runtime)
+
+    await expect(runtime.repairAdmittedAborted()).resolves.toBe(0)
+    expect(repair).not.toHaveBeenCalled()
   })
 })
 

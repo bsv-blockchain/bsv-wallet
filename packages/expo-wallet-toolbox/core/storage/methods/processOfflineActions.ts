@@ -104,6 +104,12 @@ export interface OfflineTokenDeps {
   overlayIdentityKey?: string
   verifyAdmission?: AdmissionVerifier
   /**
+   * Clear `@bsv/mandala`'s tx-journal entry for a tip this pass really
+   * broadcast. See `TokenStepDeps.journalRemove`; passed straight through so
+   * the drain's own broadcast is the only thing that can clear one.
+   */
+  journalRemove?: (txid: string) => Promise<void>
+  /**
    * FIX G: every durable token frame this device holds, re-read each pass so
    * the evidence tables and the settlement rows are re-derived idempotently
    * before anything is decided. Supplied by the caller because only it can
@@ -273,6 +279,7 @@ export async function processOfflineActions(args: {
               submit: token!.submit,
               overlayIdentityKey: token!.overlayIdentityKey,
               verifyAdmission: token!.verifyAdmission,
+              journalRemove: token!.journalRemove,
               broadcast
             },
             read.row,

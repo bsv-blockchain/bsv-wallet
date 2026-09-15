@@ -24,6 +24,8 @@ function adapt(db: DatabaseSync) {
   }
 }
 
+import { ensureTokenSettlementColumns } from '../../core/storage/schema/createTables'
+
 const TIP = 'aa'.repeat(32)
 const PARENT = 'bb'.repeat(32)
 const KEY = '02' + 'cd'.repeat(32)
@@ -82,6 +84,46 @@ describe('schema', () => {
     await store.upsertSettlement(base())
     await createTables(adapt(raw) as never)
     expect(await store.getSettlement(TIP)).toBeDefined()
+  })
+
+  it('indexes `reference`, which every abortAction in the wallet is matched against', () => {
+    const idx = (raw.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]).map(
+      r => r.name
+    )
+    expect(idx).toContain('idx_token_settlements_reference')
+  })
+
+  /**
+   * `token_settlements` shipped before `reference` existed and cannot be
+   * re-created over live money rows, so the column arrives by guarded ALTER —
+   * and the existing rows must survive it, reading back as "unknown reference",
+   * which the abort guard never blocks on.
+   */
+  it('adds `reference` to a table that shipped without it, keeping every row', async () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec(`
+      CREATE TABLE token_settlements (
+        txid TEXT PRIMARY KEY, role TEXT NOT NULL, assetId TEXT NOT NULL, state TEXT NOT NULL,
+        counterpartyKey TEXT, amountBaseUnits INTEGER, overlayUrl TEXT NOT NULL, overlayIdentityKey TEXT NOT NULL,
+        admissionOutputsJson TEXT, admissionSignatureHex TEXT, refusedCode TEXT, refusedPayloadHash TEXT,
+        poisonedByTxid TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+      );`)
+    legacy
+      .prepare(
+        `INSERT INTO token_settlements (txid, role, assetId, state, overlayUrl, overlayIdentityKey, createdAt, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?)`
+      )
+      .run(TIP, 'sent', 'a.0', 'admitted', 'u', KEY, 'n', 'n')
+
+    await ensureTokenSettlementColumns(adapt(legacy) as never)
+    // Idempotent: a second boot must not throw "duplicate column name".
+    await ensureTokenSettlementColumns(adapt(legacy) as never)
+
+    const legacyStore = createSettlementStore(adapt(legacy) as unknown as SettlementDb)
+    const row = await legacyStore.getSettlement(TIP)
+    expect(row).toMatchObject({ txid: TIP, state: 'admitted' })
+    expect(row?.reference).toBeUndefined()
+    legacy.close()
   })
 
   it('refuses a state the machine does not define', () => {

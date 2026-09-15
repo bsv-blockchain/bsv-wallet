@@ -72,6 +72,7 @@ interface SettlementDbRow {
   refusedCode: string | null
   refusedPayloadHash: string | null
   poisonedByTxid: string | null
+  reference: string | null
   createdAt: string
   updatedAt: string
 }
@@ -103,6 +104,7 @@ function toSettlement(row: SettlementDbRow): TokenSettlementRow {
     refusedCode: row.refusedCode ?? undefined,
     refusedPayloadHash: row.refusedPayloadHash ?? undefined,
     poisonedByTxid: row.poisonedByTxid ?? undefined,
+    reference: row.reference ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -129,7 +131,8 @@ const PATCHABLE: { key: keyof TokenSettlementRow; column: string }[] = [
   { key: 'admissionSignatureHex', column: 'admissionSignatureHex' },
   { key: 'refusedCode', column: 'refusedCode' },
   { key: 'refusedPayloadHash', column: 'refusedPayloadHash' },
-  { key: 'poisonedByTxid', column: 'poisonedByTxid' }
+  { key: 'poisonedByTxid', column: 'poisonedByTxid' },
+  { key: 'reference', column: 'reference' }
 ]
 
 function patchValue(key: keyof TokenSettlementRow, value: unknown): SettlementBindValue {
@@ -143,6 +146,20 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
     async getSettlement(txid: string): Promise<TokenSettlementRow | undefined> {
       const row = (await db.getFirstAsync('SELECT * FROM token_settlements WHERE txid = ?', [
         txid
+      ])) as SettlementDbRow | null
+      return row ? toSettlement(row) : undefined
+    },
+
+    /**
+     * One indexed lookup (`idx_token_settlements_reference`), because this is
+     * asked before EVERY `abortAction` the wallet makes — the overwhelming
+     * majority of which are plain BSV actions with no row here at all. An empty
+     * or absent reference can never match a row and is refused a query.
+     */
+    async getSettlementByReference(reference: string): Promise<TokenSettlementRow | undefined> {
+      if (!reference) return undefined
+      const row = (await db.getFirstAsync('SELECT * FROM token_settlements WHERE reference = ?', [
+        reference
       ])) as SettlementDbRow | null
       return row ? toSettlement(row) : undefined
     },
@@ -176,8 +193,9 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
       await db.runAsync(
         `INSERT INTO token_settlements
            (txid, role, assetId, state, counterpartyKey, amountBaseUnits, overlayUrl, overlayIdentityKey,
-            admissionOutputsJson, admissionSignatureHex, refusedCode, refusedPayloadHash, poisonedByTxid, createdAt, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            admissionOutputsJson, admissionSignatureHex, refusedCode, refusedPayloadHash, poisonedByTxid,
+            reference, createdAt, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(txid) DO UPDATE SET
            assetId = excluded.assetId,
            counterpartyKey = COALESCE(excluded.counterpartyKey, token_settlements.counterpartyKey),
@@ -186,6 +204,7 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
            overlayIdentityKey = excluded.overlayIdentityKey,
            admissionOutputsJson = COALESCE(excluded.admissionOutputsJson, token_settlements.admissionOutputsJson),
            admissionSignatureHex = COALESCE(excluded.admissionSignatureHex, token_settlements.admissionSignatureHex),
+           reference = COALESCE(excluded.reference, token_settlements.reference),
            updatedAt = excluded.updatedAt`,
         [
           row.txid,
@@ -201,6 +220,7 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
           row.refusedCode ?? null,
           row.refusedPayloadHash ?? null,
           row.poisonedByTxid ?? null,
+          row.reference ?? null,
           createdAt,
           now
         ]

@@ -52,10 +52,27 @@ describe('the production drain tick', () => {
     expect(tick).toContain('token: mandalaRef.current?.tokenDeps')
   })
 
+  /**
+   * The 2026-09-15 repair rides this tick, and rides it BEFORE the release
+   * pass. A transaction it restores has its inputs re-marked spent, and the
+   * whole point is that `processOfflineActions` below must not plan a send from
+   * a coin that is already gone.
+   */
+  it('runs the admitted-but-aborted repair, ahead of the release pass', () => {
+    expect(tick).toContain('mandalaRef.current?.repairAdmittedAborted()')
+    expect(tick.indexOf('repairAdmittedAborted')).toBeLessThan(tick.indexOf('processOfflineActions'))
+  })
+
   it('reads every one of them off the ref, so a torn-down wallet drains nothing', () => {
     // A captured `runtime` (or a `mandala` from the closure) would survive the
     // teardown that clears the ref and keep working the old database.
-    for (const call of ['reconcileJournals', 'recoverStaleAdmissions', 'pruneBlindingReservations', 'tokenDeps']) {
+    for (const call of [
+      'reconcileJournals',
+      'recoverStaleAdmissions',
+      'repairAdmittedAborted',
+      'pruneBlindingReservations',
+      'tokenDeps'
+    ]) {
       const uses = tick.split(call).length - 1
       const guarded = tick.split(`mandalaRef.current?.${call}`).length - 1
       expect(`${call}:${guarded}/${uses}`).toBe(`${call}:${uses}/${uses}`)
@@ -91,6 +108,40 @@ describe('tearing a wallet down stops its tick', () => {
       const before = source.slice(Math.max(0, at - 6000), at)
       expect(before).toContain('stopMonitorAndDrain(monitor)')
     }
+  })
+})
+
+/**
+ * Guard #4's wiring, checked where it is actually made.
+ *
+ * The guard is only a guard if the PUBLISHED manager carries it — the object
+ * every screen, every paired app and the Mandala runtime itself calls through.
+ * And it has to sit inside `guardVaultAccess`, like
+ * `wrapCreateActionForTokenInputs`, or the vault guard's re-wrap dedup stops
+ * recognising the published object and silently double-guards the wallet.
+ */
+describe('the published manager carries the abort guard', () => {
+  const wiring = (() => {
+    const start = source.indexOf('newManagers.permissionsManager = guardVaultAccess(')
+    if (start < 0) throw new Error('the permissions manager wiring has moved or been renamed')
+    return source.slice(start, source.indexOf('// THE MANDALA RUNTIME', start))
+  })()
+
+  it('wraps abortAction, on the published manager', () => {
+    expect(wiring).toContain('wrapAbortActionForSettlements(')
+  })
+
+  it('sits INSIDE guardVaultAccess, beside the createAction wrapper', () => {
+    expect(wiring.indexOf('guardVaultAccess(')).toBeLessThan(wiring.indexOf('wrapAbortActionForSettlements('))
+    expect(wiring.indexOf('wrapAbortActionForSettlements(')).toBeLessThan(
+      wiring.indexOf('wrapCreateActionForTokenInputs(')
+    )
+  })
+
+  it('reads the settlement store off the ref, never a captured runtime', () => {
+    // The runtime is built AFTER this line and replaced on every rebuild; a
+    // captured store would guard the departed wallet's tables.
+    expect(wiring).toContain('mandalaRef.current?.store')
   })
 })
 

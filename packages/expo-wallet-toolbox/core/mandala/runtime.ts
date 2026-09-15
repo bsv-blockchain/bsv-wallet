@@ -220,6 +220,23 @@ export interface MandalaRuntime {
    */
   recoverStaleAdmissions(): Promise<number>
   /**
+   * Repair the wallet's own view of a token transaction it wrongly failed.
+   *
+   * A `token_settlements` row reading `admitted`/`broadcast` beside a wallet
+   * transaction reading `failed` (and a request reading `invalid`) is the
+   * 2026-09-15 fingerprint: the overlay admitted — and therefore broadcast —
+   * the transaction, and an abort a moment later released its input coin as
+   * spendable although it was spent on chain. For every such row where the
+   * transaction is independently confirmed to exist (the chain, or an admission
+   * the overlay still holds), this puts the transaction back to a live status,
+   * re-marks its inputs spent, restores its own outputs to spendable and
+   * repairs the request so the monitor proves it.
+   *
+   * Rides the drain tick, returns the number of transactions repaired, and
+   * never throws. Never acts on the settlement row alone.
+   */
+  repairAdmittedAborted(): Promise<number>
+  /**
    * Sweeps abandoned nearby-blinding reservations (a `lockToPayee` call whose
    * payment was never built/committed) older than 24h. Returns the number
    * removed. Never throws.

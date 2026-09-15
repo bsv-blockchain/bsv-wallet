@@ -157,6 +157,100 @@ describe('guard #2: a token req is held regardless of connectivity', () => {
   })
 })
 
+/**
+ * Guard #2's RESULT half — the 2026-09-15 cause, one layer up.
+ *
+ * A held token request answers `status: 'success'` because that is what
+ * "accepted for delivery" is spelled as, and what stops `internalizeAction`
+ * rolling back a payment it verified. But `aggregateActionResults` turns that
+ * into `SendWithResult.status = 'unproven'` — "the processing network has
+ * accepted this transaction" — and `@bsv/mandala`'s `broadcastAcceptedTx`
+ * believed it, cleared the `'accepted'` journal entry for a transaction nothing
+ * had broadcast, and so left a live noSend action looking abandoned to the next
+ * sweep. One aborted action and one released-but-spent coin later, that is the
+ * incident.
+ *
+ * So a held token txid is OMITTED from `sendWithResults` rather than reported
+ * as delivered. Omission and not an invented status: `Wallet.createAction`
+ * throws `WERR_REVIEW_ACTIONS` unless every entry reads `'unproven'`, so a
+ * fourth value would turn a correct hold into a thrown error for every caller,
+ * while an absent entry simply does not claim the transaction went out.
+ */
+describe('guard #2, result shape: a held token req never reports as sent', () => {
+  it('omits a held token txid rather than calling it unproven or sending', async () => {
+    storage.reqStatuses.set(1, 'nosend')
+    const superProcess = jest.spyOn(StorageProvider.prototype, 'processAction').mockResolvedValue({
+      sendWithResults: [{ txid: TOKEN_TXID, status: 'unproven' }],
+      notDelayedResults: [{ txid: TOKEN_TXID, status: 'success' }]
+    } as never)
+
+    const r = await storage.processAction({ userId: 7 } as never, { sendWith: [TOKEN_TXID] } as never)
+
+    expect(r.sendWithResults).toEqual([])
+    // Never reported as either of the two statuses a caller reads as delivered.
+    for (const entry of r.sendWithResults ?? []) {
+      expect(['unproven', 'sending']).not.toContain(entry.status)
+    }
+    superProcess.mockRestore()
+  })
+
+  it('leaves a plain BSV result exactly as the toolbox produced it', async () => {
+    const swr = [{ txid: BSV_TXID, status: 'unproven' }]
+    const superProcess = jest
+      .spyOn(StorageProvider.prototype, 'processAction')
+      .mockResolvedValue({ sendWithResults: swr } as never)
+
+    const r = await storage.processAction({ userId: 7 } as never, { sendWith: [BSV_TXID] } as never)
+
+    expect(r.sendWithResults).toEqual(swr)
+    superProcess.mockRestore()
+  })
+
+  it('splits a mixed batch — only the held token txid is withheld', async () => {
+    storage.reqStatuses.set(1, 'nosend')
+    const superProcess = jest.spyOn(StorageProvider.prototype, 'processAction').mockResolvedValue({
+      sendWithResults: [
+        { txid: TOKEN_TXID, status: 'unproven' },
+        { txid: BSV_TXID, status: 'sending' }
+      ]
+    } as never)
+
+    const r = await storage.processAction({ userId: 7 } as never, { sendWith: [] } as never)
+
+    expect(r.sendWithResults).toEqual([{ txid: BSV_TXID, status: 'sending' }])
+    superProcess.mockRestore()
+  })
+
+  it('reports a token txid the DRAIN has really broadcast exactly as before', async () => {
+    // Past 'nosend' is past the hold: `postTokenStep` owns this broadcast and
+    // it actually happened, so nothing is withheld.
+    storage.reqStatuses.set(1, 'unmined')
+    const swr = [{ txid: TOKEN_TXID, status: 'unproven' }]
+    const superProcess = jest
+      .spyOn(StorageProvider.prototype, 'processAction')
+      .mockResolvedValue({ sendWithResults: swr } as never)
+
+    const r = await storage.processAction({ userId: 7 } as never, { sendWith: [TOKEN_TXID] } as never)
+
+    expect(r.sendWithResults).toEqual(swr)
+    superProcess.mockRestore()
+  })
+
+  it('changes nothing when the settlement table cannot be read', async () => {
+    storage.reqStatuses.set(1, 'nosend')
+    raw.exec('DROP TABLE token_settlements')
+    const swr = [{ txid: TOKEN_TXID, status: 'unproven' }]
+    const superProcess = jest
+      .spyOn(StorageProvider.prototype, 'processAction')
+      .mockResolvedValue({ sendWithResults: swr } as never)
+
+    const r = await storage.processAction({ userId: 7 } as never, { sendWith: [TOKEN_TXID] } as never)
+
+    expect(r.sendWithResults).toEqual(swr)
+    superProcess.mockRestore()
+  })
+})
+
 describe('guard #3: a token req never reaches unsent/sending', () => {
   it('leaves the held token request at nosend, the one status no monitor task sends', async () => {
     await storage.attemptToPostReqsToNetwork([reqOf(TOKEN_TXID, 1)])

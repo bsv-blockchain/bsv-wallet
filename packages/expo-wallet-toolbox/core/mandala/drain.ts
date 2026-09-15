@@ -330,6 +330,29 @@ export interface TokenStepDeps extends EvidenceTrustAnchor {
    * gets no special broadcast path, only a gate in front of it.
    */
   broadcast: (txid: string) => Promise<PostOutcome>
+  /**
+   * Clear `@bsv/mandala`'s own tx-journal entry for a txid this drain has now
+   * really broadcast (the lib's `journalRemove`, over the storage adapter
+   * `configureMandala` was given).
+   *
+   * Injected rather than imported so this module keeps no lib-pipeline
+   * dependency — and because the entry it clears is written by a pipeline this
+   * module never runs.
+   *
+   * WHY IT IS HERE AT ALL. The lib's `submitAndBroadcast` journals `'accepted'`
+   * and then broadcasts through `createAction({ sendWith })`. In this wallet
+   * that broadcast is HELD (guard #2) — the drain owns it — so the lib's own
+   * clear either fired on a broadcast that never happened (the 2026-09-15 bug)
+   * or, once the lib stops clearing it, never fires at all and leaves the entry
+   * for `reconcileWallet` to rebroadcast forever behind the drain's back. The
+   * honest clear is this one: the moment the tip actually reaches the network,
+   * from the only code that knows it did.
+   *
+   * Best-effort in the strongest sense — the money is already on chain when
+   * this runs, and a stale journal entry costs an idempotent re-broadcast
+   * attempt, never a payment.
+   */
+  journalRemove?: (txid: string) => Promise<void>
   now?: () => Date
 }
 
@@ -529,6 +552,18 @@ export async function postTokenStep(
   const outcome = await deps.broadcast(tip)
   if (outcome === 'success') {
     await store.advanceSettlement(tip, ['admitted', 'submitting', 'held', 'handed_over'], 'broadcast')
+    // This is the one moment anything in this wallet may honestly say the tip
+    // was broadcast, so it is the one place the lib's journal entry for it may
+    // be cleared. Guarded rather than awaited-and-trusted: the row is already
+    // `broadcast` and the transaction is already out, and no journal fault may
+    // turn that into anything other than `'success'`.
+    try {
+      await deps.journalRemove?.(tip)
+    } catch (e) {
+      // The entry stays; `reconcileWallet` finds the tx already broadcast and
+      // clears it then. Never a reason to report a delivered payment as failed.
+      console.warn(`[mandala] broadcast ${tip} but could not clear its journal entry:`, messageOf(e))
+    }
   }
   return outcome
 }

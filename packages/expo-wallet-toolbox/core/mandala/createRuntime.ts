@@ -32,6 +32,7 @@ import {
   fetchAdmission as libFetchAdmission,
   fetchRegistry,
   guardTokenRecipient,
+  journalRemove,
   payloadHash,
   prepareBlindedPayment,
   receiveTokens,
@@ -317,10 +318,40 @@ export function verdictFromError(e: unknown): OverlayVerdict {
   return { kind: 'refused', code: refusal.code, spendTxid: refusal.spendTxid }
 }
 
+/**
+ * `reconcileWallet`, with the one option this wallet is never allowed to omit.
+ *
+ * Declared here rather than inline for the same reason `tokenDeps` is assembled
+ * as a value: `@bsv/mandala` is a linked working copy, the sweep opt-out lands
+ * in it concurrently with this change, and a call written against the
+ * not-yet-published signature would fail to compile for a parameter the lib
+ * treats as optional anyway. An older lib IGNORES the second argument (it is a
+ * plain extra JS argument), which means it still sweeps — so this cast is a
+ * compile-time accommodation only; `abortGuard.ts` is what makes the sweep
+ * harmless either way, and it is not optional.
+ */
+type ReconcileOptions = { sweep?: boolean }
+type ReconcileWithOptions = (wallet: WalletInterface, options: ReconcileOptions) => ReturnType<typeof reconcileWallet>
+const reconcileWalletWithOptions: ReconcileWithOptions = (wallet, options) =>
+  (reconcileWallet as unknown as ReconcileWithOptions)(wallet, options)
+
+/**
+ * `{ reference }` from a lib result that carries one, or `{}`.
+ *
+ * A spread rather than a possibly-`undefined` field so `upsertSettlement`'s
+ * COALESCE keeps whatever the row already has: a re-derivation that could not
+ * find a reference must not erase one an earlier pass recorded.
+ */
+function referenceOf(result: unknown): { reference?: string } {
+  const reference = (result as { reference?: unknown } | null)?.reference
+  return typeof reference === 'string' && reference.length > 0 ? { reference } : {}
+}
+
 /** A store for a runtime with no database: every read is empty, every write a no-op. */
 function nullStore(): SettlementStore {
   return {
     getSettlement: async () => undefined,
+    getSettlementByReference: async () => undefined,
     listSettlements: async () => [],
     upsertSettlement: async () => undefined,
     advanceSettlement: async () => false,
@@ -970,6 +1001,125 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     }
   }
 
+  /**
+   * THE 2026-09-15 REPAIR PASS.
+   *
+   * A settlement row that says `admitted`/`broadcast` and a wallet that says
+   * the same transaction `failed` cannot both be right, and on that day they
+   * were not: the overlay admitted a transfer (and broadcasts on admission),
+   * and 0.7 s later the lib's bulk sweep aborted the still-`noSend` action that
+   * built it. `proven_tx_reqs` went `nosend → abortAction → invalid`,
+   * `transactions.status` went `failed`, and — the part that costs money —
+   * `updateTransactionStatus('failed')` restored the input coin to spendable
+   * although it was spent on chain. The next send picked it up and the overlay
+   * refused the child with `ERR_INPUT_SPENT`.
+   *
+   * Three changes make that unreachable going forward (the sweep opt-out in
+   * `reconcileJournals`, the abort guard in `abortGuard.ts`, and the lib no
+   * longer clearing a journal entry for a broadcast that did not happen). This
+   * pass is for the wallets it already happened to, and for any future way the
+   * two records can diverge: it re-establishes the wallet's own view of a
+   * transaction the chain has.
+   *
+   * **It never trusts the settlement row on its own.** The row is this device's
+   * bookkeeping; the question "is this transaction real" is answered outside
+   * it, by `refetchBeef` (the configured WhatsOnChain path the drain already
+   * uses) or by the issuer's overlay confirming it holds an admission. Only
+   * then is a `failed` transaction put back to `unproven`, its inputs re-marked
+   * spent, its own outputs made spendable again, and its request restored to a
+   * status the monitor proves from.
+   *
+   * Best-effort and non-throwing, like every other pass on the drain tick.
+   * Returns the number of transactions repaired.
+   */
+  const repairAdmittedAborted = async (): Promise<number> => {
+    if (!available || !db) return 0
+    let rows: TokenSettlementRow[]
+    try {
+      rows = await store.listSettlements({ state: ['admitted', 'broadcast'] })
+    } catch (e) {
+      devLog('[mandala] settlement repair could not list settlement rows:', e)
+      return 0
+    }
+
+    let repaired = 0
+    for (const row of rows) {
+      let damaged: { txStatuses: string[]; reqStatus?: string }
+      try {
+        damaged = await readWalletVerdict(row.txid)
+      } catch (e) {
+        devLog(`[mandala] settlement repair could not read the wallet's view of ${row.txid}:`, e)
+        continue
+      }
+      // The wallet agrees with the row, or has no record at all. Nothing to do.
+      if (!damaged.txStatuses.includes('failed') && damaged.reqStatus !== 'invalid') continue
+
+      if (!(await transactionIsReal(row))) {
+        devLog(
+          `[mandala] ${row.txid} reads '${row.state}' locally but the wallet failed it, and neither the chain ` +
+            'nor the overlay confirms it — left alone, because releasing or re-spending on a guess is the harm'
+        )
+        continue
+      }
+
+      try {
+        const result = await storage.repairSettledTokenTransaction(row.txid)
+        if (!result) continue
+        repaired++
+        console.warn(
+          `[mandala] repaired ${row.txid}: settlement '${row.state}' but transaction ` +
+            `${result.wasTxStatuses.join('/')}` +
+            `${result.wasReqStatus ? ` and request '${result.wasReqStatus}'` : ''}. ` +
+            `${result.inputsMarkedSpent} input(s) re-marked spent, ` +
+            `${result.outputsMadeSpendable} output(s) restored to spendable` +
+            `${result.reqCreated ? ', request recreated' : ''}`
+        )
+      } catch (e) {
+        devLog(`[mandala] settlement repair could not restore ${row.txid}:`, e)
+      }
+    }
+    if (repaired > 0) emit()
+    return repaired
+  }
+
+  /** What this wallet's own tables say about a txid: every transaction status, and the request's. */
+  const readWalletVerdict = async (txid: string): Promise<{ txStatuses: string[]; reqStatus?: string }> => {
+    const txs = await storage.findTransactions({ partial: { txid }, noRawTx: true })
+    const req = (await storage.findProvenTxReqs({ partial: { txid } }))[0]
+    return { txStatuses: txs.map(t => t.status), reqStatus: req?.status }
+  }
+
+  /**
+   * Is this transaction genuinely out there? Two independent witnesses, either
+   * of which is enough, and neither of which is the settlement row itself.
+   *
+   * The chain is asked first because it is the stronger answer, but it is also
+   * the one that lags: `refetchBeef` wants a verifiable BEEF, which a
+   * transaction broadcast seconds ago does not have. The overlay is the witness
+   * that matters in exactly that window — it admitted these bytes and it
+   * broadcasts on admission, so an admission it still holds IS the statement
+   * that the transaction went out. Neither answering is "no", never "unknown
+   * so assume yes": the repair makes coins unspendable and must not run on a
+   * guess.
+   */
+  const transactionIsReal = async (row: TokenSettlementRow): Promise<boolean> => {
+    try {
+      const beef = await args.refetchBeef?.(row.txid)
+      if (beef && beef.length > 0) return true
+    } catch (e) {
+      devLog(`[mandala] settlement repair could not fetch ${row.txid} from the chain:`, e)
+    }
+    try {
+      // The CONFIGURED overlay, never `row.overlayUrl` — the row's copy is
+      // re-derived from counterparty frame bytes (§9.10), and the verdict this
+      // returns is σ_I-verified against the configured key either way.
+      return (await fetchAdmission(overlayUrl, row.txid))?.kind === 'admitted'
+    } catch (e) {
+      devLog(`[mandala] settlement repair could not ask the overlay about ${row.txid}:`, e)
+      return false
+    }
+  }
+
   const HANDED_OVER_RECOVERY_AFTER_MS = 5 * 60 * 1000 // one drain interval (TaskSendOffline's backoff ceiling)
 
   /**
@@ -1078,7 +1228,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   // trust anchor (`TokenStepDeps`), and passing it through an object literal
   // would make this file fail to compile against a drain that has not grown the
   // field yet — for a dependency the drain treats as optional evidence.
-  const tokenDepsValue = { store, cover, submit, frames, overlayIdentityKey, verifyAdmission }
+  const tokenDepsValue = { store, cover, submit, frames, overlayIdentityKey, verifyAdmission, journalRemove }
   const tokenDeps: OfflineTokenDeps = tokenDepsValue
 
   const isOnline = args.isOnline ?? (async () => true)
@@ -1133,7 +1283,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
 
     try {
       await postTokenStep(
-        { store, cover, submit, broadcast: broadcastTip, overlayIdentityKey, verifyAdmission, now },
+        { store, cover, submit, broadcast: broadcastTip, overlayIdentityKey, verifyAdmission, journalRemove, now },
         row,
         { txid, owned: true }
       )
@@ -1304,7 +1454,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
    * `counterpartyKey` is deliberately left unset: on the payer's own frame
    * `senderIdentityKey` is the PAYER (blinded), not the payee.
    */
-  const onTokenHandedOver: TokenHandedOverHook = async (frame, txid, state) => {
+  const onTokenHandedOver: TokenHandedOverHook = async (frame, txid, state, reference) => {
     const token = frame.token
     if (!token) return
     // `minted`: the payload that matters on the payer's own frame is the tip's,
@@ -1319,6 +1469,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       state: existing?.state ?? state,
       overlayUrl,
       overlayIdentityKey,
+      // The nearby rail's half of the abort guard: the action that built this
+      // tip is `noSend` and stays that way until the drain broadcasts it, so
+      // the reference is recorded the same moment the row is. Absent for a
+      // caller that does not have one — see `TokenHandedOverHook`.
+      ...(reference ? { reference } : {}),
       createdAt: existing?.createdAt
     })
     // `upsertSettlement` never rewrites `state` on conflict (a re-derivation
@@ -1500,11 +1655,23 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
    * monitor tick beside the release drain and must never be the reason the
    * rest of that pass does not happen. The entries stay journaled; the next
    * tick tries again.
+   *
+   * **`sweep: false`, always.** `reconcileWallet`'s last step is a BULK SWEEP:
+   * it lists every stuck `noSend` mandala action the wallet holds and aborts
+   * the ones no journal entry claims. That is right for a host whose wallet
+   * broadcasts as soon as the overlay accepts — and exactly wrong for this one,
+   * where `attemptToPostReqsToNetwork` HOLDS every token request for the
+   * settlement drain, so a live, healthy, already-admitted payment looks
+   * abandoned. On 2026-09-15 that sweep aborted a transfer the overlay had
+   * broadcast 0.7 s earlier and released its input coin as spendable (see
+   * `abortGuard.ts`). Settlement in this wallet is owned by `token_settlements`
+   * and the drain over it; the lib's sweep must never run here, on any tick,
+   * for any reason.
    */
   const reconcileJournals = async (): Promise<void> => {
     if (!available) return
     try {
-      const r = await reconcileWallet(bound)
+      const r = await reconcileWalletWithOptions(bound, { sweep: false })
       if (!r.skipped && (r.rebroadcast.length > 0 || r.aborted.length > 0 || r.resubmitted.length > 0 || r.swept > 0)) {
         devLog('[mandala] reconcileWallet recovered:', r)
         emit()
@@ -1540,6 +1707,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     fetchAdmission,
     settleNow,
     recoverStaleAdmissions,
+    repairAdmittedAborted,
     pruneBlindingReservations,
     assetStatus,
     refreshAssetStatus,
@@ -1677,7 +1845,17 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             counterpartyKey: recipientIdentityKey,
             amountBaseUnits: baseUnits,
             overlayUrl,
-            overlayIdentityKey
+            overlayIdentityKey,
+            // The `createAction`/`signAction` reference of the noSend action
+            // that built these bytes, when the lib reports one. It is what
+            // `wrapAbortActionForSettlements` matches an `abortAction` against,
+            // and it must be on the row BEFORE the submit below — the incident
+            // window opens the instant the overlay admits (and broadcasts), and
+            // a reference written afterwards would leave exactly that window
+            // unguarded. Read structurally because `TransferResult.reference` is
+            // landing in the linked lib concurrently; absent, the row simply has
+            // no reference and the guard blocks nothing for it.
+            ...referenceOf(result)
           })
         } catch (e) {
           // The transfer is committed; a journal failure costs a later
@@ -1781,6 +1959,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       // which calls these directly alongside its own `processOfflineActions`
       // for the production drain).
       await recoverStaleAdmissions()
+      // Before the release pass, not after: a transaction this restores to
+      // 'unproven' has its inputs re-marked spent, and the whole point is that
+      // the release pass below must never plan a send from a coin that is
+      // already gone.
+      await repairAdmittedAborted()
       await reconcileJournals()
       await pruneBlindingReservations()
       await processOfflineActions({

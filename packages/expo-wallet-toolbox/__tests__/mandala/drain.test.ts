@@ -668,6 +668,66 @@ describe('postTokenStep', () => {
     expect((await store.getSettlement(TIP))?.state).toBe('admitted')
   })
 
+  /**
+   * The lib's tx journal, and who is allowed to clear an entry from it.
+   *
+   * `@bsv/mandala` journals `'accepted'` and then broadcasts through
+   * `createAction({ sendWith })` — which in this wallet is HELD by guard #2,
+   * because the drain owns the broadcast. So the only honest place to clear
+   * the entry is here, the moment the tip really reaches the network. Clearing
+   * it anywhere else is the 2026-09-15 bug (an entry cleared for a broadcast
+   * that never happened, and a live noSend action the next sweep took for
+   * abandoned); never clearing it is a reconcile pass that rebroadcasts behind
+   * the drain's back.
+   */
+  describe('the lib’s journal entry', () => {
+    it('is cleared for a tip this step really broadcast', async () => {
+      const settlement = await seed()
+      const journalRemove = jest.fn(async () => undefined)
+      const d = deps({ journalRemove })
+
+      await expect(postTokenStep(d, settlement, step)).resolves.toBe('success')
+      expect(journalRemove).toHaveBeenCalledTimes(1)
+      expect(journalRemove).toHaveBeenCalledWith(TIP)
+    })
+
+    it('is left alone when the broadcast did not happen', async () => {
+      const settlement = await seed()
+      const journalRemove = jest.fn(async () => undefined)
+      const d = deps({ journalRemove, broadcast: async () => 'serviceError' as const })
+
+      await expect(postTokenStep(d, settlement, step)).resolves.toBe('serviceError')
+      expect(journalRemove).not.toHaveBeenCalled()
+    })
+
+    it('is left alone when a verdict burned the row before any broadcast', async () => {
+      const settlement = await seed()
+      const journalRemove = jest.fn(async () => undefined)
+      const d = deps({
+        journalRemove,
+        submit: async () => ({ kind: 'refused', code: 'ERR_CONSERVATION' }) as OverlayVerdict
+      })
+
+      await expect(postTokenStep(d, settlement, step)).resolves.toBe('invalidTx')
+      expect(journalRemove).not.toHaveBeenCalled()
+    })
+
+    it('never turns a delivered payment into a failure when the clear throws', async () => {
+      const settlement = await seed()
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const d = deps({
+        journalRemove: async () => {
+          throw new Error('the wallet database is not open')
+        }
+      })
+
+      await expect(postTokenStep(d, settlement, step)).resolves.toBe('success')
+      expect((await store.getSettlement(TIP))?.state).toBe('broadcast')
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(TIP), expect.any(String))
+      warn.mockRestore()
+    })
+  })
+
   it('resumes a row interrupted mid-submit', async () => {
     const settlement = await seed()
     await store.advanceSettlement(TIP, ['held'], 'submitting')

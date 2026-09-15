@@ -80,6 +80,15 @@ export interface TokenHandoverDeps {
   frame?: EvidenceFrame
   /** Implemented by the Mandala runtime; writes the row and the evidence. */
   onTokenHandedOver?: TokenHandedOverHook
+  /**
+   * The `createAction` reference of the action that built this tip
+   * (`BuiltPayment.reference`), recorded on the settlement row so an
+   * `abortAction` against it can be refused once the payee holds the frame.
+   * See `core/mandala/abortGuard.ts` — a token action stays `noSend` until the
+   * drain broadcasts it, so its reference is the one handle anything has on
+   * money that is already gone.
+   */
+  reference?: string
 }
 
 /**
@@ -121,7 +130,7 @@ async function journalHandover(
 ): Promise<void> {
   if (!deps.frame?.token || !deps.onTokenHandedOver) return
   try {
-    await deps.onTokenHandedOver(deps.frame, txid, state)
+    await deps.onTokenHandedOver(deps.frame, txid, state, deps.reference)
   } catch (e) {
     devLog(`[payerHold] could not journal the ${state} settlement for ${txid}:`, e)
   }
