@@ -1696,8 +1696,8 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     shadowColor: '#000',
     shadowOpacity: 0.28,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 4
   },
   destLabel: { fontSize: 13, fontWeight: '600' },
