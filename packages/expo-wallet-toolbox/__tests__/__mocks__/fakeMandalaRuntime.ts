@@ -12,7 +12,8 @@ import type {
   TokenAssetInfo,
   TokenAssetStatus,
   TokenBalance,
-  TokenSendResult
+  TokenSendResult,
+  TokenSettleState
 } from '../../core/mandala/runtime'
 import type { TokenSettlementRow } from '../../core/mandala/types'
 
@@ -96,6 +97,13 @@ export interface FakeMandala extends MandalaRuntime {
   receiveFromInbox: jest.Mock
   cover: jest.Mock
   drainNow: jest.Mock
+  /**
+   * The payer's own submit for ONE row (§4.3, 2026-09-15). Answers
+   * `'handed_over'` by default — "asked, nothing changed yet" — so a screen
+   * that fires it and forgets keeps its "settling" copy; override with
+   * `settleNow` to drive the settled branch.
+   */
+  settleNow: jest.Mock
   recipientRefusal: jest.Mock
   subscribe: jest.Mock
   assetStatus: jest.Mock
@@ -121,6 +129,8 @@ export function makeFakeMandala(
     refusal: string | null
     /** Merged over `assetStatusOf()`'s all-clear defaults, for every assetId. */
     assetStatus: Partial<TokenAssetStatus>
+    /** What `settleNow` reports the row reached. Default: unchanged. */
+    settleNow: TokenSettleState
   }> = {}
 ): FakeMandala {
   const listeners = new Set<() => void>()
@@ -146,6 +156,7 @@ export function makeFakeMandala(
     lockToPayee: jest.fn() as unknown as MandalaRuntime['lockToPayee'],
     cover: jest.fn(async () => ({ ok: true, mustSubmit: [] })),
     drainNow: jest.fn(async () => {}),
+    settleNow: jest.fn(async () => over.settleNow ?? 'handed_over'),
     recipientRefusal: jest.fn(() => over.refusal ?? null),
     assetStatus: jest.fn(async () => status),
     refreshAssetStatus: jest.fn(async () => status),

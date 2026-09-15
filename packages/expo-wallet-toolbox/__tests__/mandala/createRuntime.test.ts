@@ -2084,6 +2084,242 @@ describe('the assetStatus cache is stamped at LOAD time', () => {
   })
 })
 
+// ───────── settleNow: the payer’s own submit, once the hand-over lands ─────────
+
+/**
+ * The 2026-09-15 refinement, which is entirely about ORDER.
+ *
+ * Hand-over first is unchanged and untouchable: the payee is handed the bytes
+ * before a single request goes to the overlay, and nothing about the overlay
+ * may turn a completed hand-over into a failed send. What changes is what
+ * happens in the second after that — an online payer finishes their own
+ * submit-then-broadcast immediately instead of waiting for a drain tick.
+ *
+ * So every test here asserts a sequence, not just an outcome.
+ */
+describe('settleNow — one row, settled immediately, hand-over first', () => {
+  /** The facilitator frames off-chain values as `varint(len) ‖ beef ‖ values`. */
+  const txidOfFramedBody = (init: unknown): string => {
+    const { headers, body } = init as { headers?: Record<string, string>; body: Uint8Array }
+    if (headers?.['x-includes-off-chain-values'] !== 'true') return txidOfSubmitBody(init)
+    const reader = new Utils.Reader(Array.from(body))
+    const length = reader.readVarIntNum()
+    const beef = Beef.fromBinary(reader.read(length))
+    return beef.atomicTxid ?? beef.txs[beef.txs.length - 1].txid
+  }
+
+  /** Every `/submit` answers admitted, with a real σ_I over the body's own txid. */
+  const admitting =
+    (posted: string[], order?: string[]) =>
+    async (_url: unknown, init: unknown) => {
+      order?.push('submit')
+      const txid = txidOfFramedBody(init)
+      posted.push(txid)
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            tm_mandala: {
+              outputsToAdmit: [0],
+              admissionSignature: signAdmission(txid, [0]),
+              admissionIdentityKey: OVERLAY_KEY
+            }
+          })
+      }
+    }
+
+  /**
+   * A tip this wallet owns, and the `transferTokens` answer that hands it over.
+   * Pushing `'post'` is what makes the MessageBox post's position in the
+   * sequence observable — the lib pipeline itself is mocked.
+   */
+  function handOver(order?: string[], over: { notified?: boolean } = {}) {
+    const tip = rootTx(40)
+    const txid = tip.id('hex')
+    const beef = new Beef()
+    beef.mergeTransaction(tip)
+    ;(transferTokens as jest.Mock).mockImplementation(async () => {
+      order?.push('post')
+      return {
+        txid,
+        notified: over.notified ?? true,
+        handedOver: true,
+        atomicBeef: beef.toBinaryAtomic(txid),
+        offChainValues: [4, 5, 6]
+      }
+    })
+    return { tip, txid, req: { txid, rawTx: tip.toBinary() } }
+  }
+
+  it('online: posts the v2 body FIRST, then submits its own bytes and broadcasts', async () => {
+    const order: string[] = []
+    const { txid, req } = handOver(order)
+    const posted: string[] = []
+    const broadcasts: string[] = []
+    const runtime = build(
+      {
+        fetchImpl: admitting(posted, order) as never,
+        isOnline: async () => true,
+        broadcast: async (id: string) => {
+          order.push('broadcast')
+          broadcasts.push(id)
+          return 'success'
+        }
+      },
+      [],
+      [req]
+    )
+
+    const result = await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 40 })
+
+    expect(result).toEqual({ kind: 'sent', txid, settled: true, notified: true })
+    // The whole of the decision, in one assertion: the payee has the bytes
+    // before the overlay is asked anything, and the broadcast is last.
+    expect(order).toEqual(['post', 'submit', 'broadcast'])
+    expect(posted).toEqual([txid])
+    expect(broadcasts).toEqual([txid])
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('broadcast')
+  })
+
+  it('offline: the hand-over stands alone — nothing is submitted and nothing is claimed', async () => {
+    const { txid, req } = handOver()
+    const fetchImpl = jest.fn(async () => {
+      throw new Error('an offline send must never reach the overlay')
+    })
+    const broadcast = jest.fn(async () => 'success' as const)
+    const runtime = build({ fetchImpl: fetchImpl as never, isOnline: async () => false, broadcast }, [], [req])
+
+    expect(await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 40 })).toEqual({
+      kind: 'sent',
+      txid,
+      settled: false,
+      notified: true
+    })
+    // Not "it failed quietly" — it was never attempted, and the row is exactly
+    // what the drain expects to find on the next online tick.
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(broadcast).not.toHaveBeenCalled()
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')
+  })
+
+  it('an unreachable overlay still leaves the send successful, with the row handed_over', async () => {
+    const { txid, req } = handOver()
+    const broadcast = jest.fn(async () => 'success' as const)
+    const runtime = build(
+      {
+        fetchImpl: (async () => {
+          throw new Error('Network request failed')
+        }) as never,
+        isOnline: async () => true,
+        broadcast
+      },
+      [],
+      [req]
+    )
+
+    expect(await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 40 })).toEqual({
+      kind: 'sent',
+      txid,
+      settled: false,
+      notified: true
+    })
+    // A liftable fault never burns a row, and never reaches a broadcast.
+    expect(broadcast).not.toHaveBeenCalled()
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')
+  })
+
+  it('a notification that did not go out is not a hand-over, so nothing is submitted', async () => {
+    const { txid, req } = handOver(undefined, { notified: false })
+    const fetchImpl = jest.fn(async () => {
+      throw new Error('the payee has not been handed anything yet')
+    })
+    const runtime = build({ fetchImpl: fetchImpl as never, isOnline: async () => true }, [], [req])
+
+    expect(await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 40 })).toEqual({
+      kind: 'sent',
+      txid,
+      settled: false,
+      notified: false
+    })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')
+  })
+
+  it('coalesces concurrent calls for the same txid onto one submit and one broadcast', async () => {
+    const tip = rootTx(40)
+    const txid = tip.id('hex')
+    const posted: string[] = []
+    const broadcasts: string[] = []
+    let release: (() => void) | undefined
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const runtime = build(
+      {
+        // Held open until both calls are in flight, so the second one has no
+        // choice but to join the first rather than start its own.
+        fetchImpl: (async (url: unknown, init: unknown) => {
+          await gate
+          return await admitting(posted)(url, init)
+        }) as never,
+        broadcast: async (id: string) => {
+          broadcasts.push(id)
+          return 'success'
+        }
+      },
+      [],
+      [{ txid, rawTx: tip.toBinary() }]
+    )
+    await runtime.store.upsertSettlement({
+      txid,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state: 'handed_over',
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY
+    })
+
+    const first = runtime.settleNow(txid)
+    const second = runtime.settleNow(txid)
+    release?.()
+
+    expect(await first).toBe('broadcast')
+    expect(await second).toBe('broadcast')
+    expect(posted).toEqual([txid])
+    expect(broadcasts).toEqual([txid])
+
+    // …and the guard is per-txid and per-run, not a permanent one: a later call
+    // for a row that is now terminal simply reports it.
+    expect(await runtime.settleNow(txid)).toBe('broadcast')
+    expect(posted).toEqual([txid])
+  })
+
+  it('never claims a row the USER owns, and never invents one', async () => {
+    const fetchImpl = jest.fn(async () => {
+      throw new Error('a parked payment is not the drain’s to settle (FIX F)')
+    })
+    const runtime = build({ fetchImpl: fetchImpl as never })
+    const parked = '5a'.repeat(32)
+    await runtime.store.upsertSettlement({
+      txid: parked,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state: 'parked',
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY
+    })
+
+    expect(await runtime.settleNow(parked)).toBe('parked')
+    expect(await runtime.settleNow('5b'.repeat(32))).toBe('unavailable')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('is unavailable, never a throw, on a chain with no Mandala deployment', async () => {
+    await expect(build({ endpoints: undefined }).settleNow('5c'.repeat(32))).resolves.toBe('unavailable')
+  })
+})
+
 /**
  * The txid the facilitator's body names. The body is `varint(len) ‖ beef` when
  * off-chain values ride along, and bare AtomicBEEF otherwise; both end in the

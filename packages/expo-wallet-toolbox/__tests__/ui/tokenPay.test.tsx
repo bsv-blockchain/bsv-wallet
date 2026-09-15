@@ -394,6 +394,24 @@ describe('UniversalSend with stablecoins', () => {
     expect(s.queryByText('pay_sent_not_broadcast')).toBeNull()
   })
 
+  it('says SETTLED when the send’s own submit already got there (2026-09-15 refinement)', async () => {
+    // Hand-over first, then this device's own submit — so an online payer's
+    // receipt can honestly say the issuer already has it, without the screen
+    // knowing anything about overlays. `settled` is the runtime's whole word
+    // for that.
+    const runtime = makeFakeMandala({
+      send: { kind: 'sent', txid: 'e'.repeat(64), settled: true, notified: true }
+    })
+    const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
+    expect(s.queryByText(/token_sent_settling/)).toBeNull()
+  })
+
   it('says the payment is SETTLING once the recipient has been told — never "not yet broadcast"', async () => {
     const runtime = makeFakeMandala({
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: false, notified: true }

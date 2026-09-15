@@ -171,6 +171,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 import { readSettlementAck, tokenSendState } from '../../../core/localpay/settlementAck'
 import { useMandala } from '../../hooks/useMandala'
+import { useOnline } from '../../hooks/useOnline'
 import { formatTokenAmountWithUnit } from '../../tokenFormat'
 import type { DismissTarget } from '../../dismissTarget'
 
@@ -501,6 +502,75 @@ function NearbyFlow({
 
   /** True once the AWDL link has provably carried this session's frame. */
   const [linked, setLinked] = useState(false)
+
+  /**
+   * Connectivity, read through a ref.
+   *
+   * The only thing this screen asks about signal is whether a hand-over that
+   * just landed should be followed by this device's own submit. Reading it from
+   * a ref keeps a connectivity flap — which on a screen two people are pointing
+   * at each other happens constantly — from re-creating the send callback that
+   * a payer may be halfway through.
+   */
+  const online = useOnline()
+  const onlineRef = useRef(online)
+  useEffect(() => {
+    onlineRef.current = online
+  }, [online])
+
+  /**
+   * Whether this screen is still here.
+   *
+   * `settleAfterHandover` outlives the send callback that started it — that is
+   * the point of not awaiting it — and by the time it resolves the send's own
+   * AbortController has already been retired from the registry that `abortAll`
+   * sweeps on unmount. So its signal alone cannot answer "is anyone still
+   * looking at this?", and this ref does.
+   */
+  const mountedRef = useRef(true)
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+    },
+    []
+  )
+
+  /**
+   * The payer's own submit, taken the moment a hand-over has landed (§4.3,
+   * 2026-09-15 refinement).
+   *
+   * Every ordering rule this feature has is enforced by WHERE this is called
+   * from, not by anything in here: it runs only after a positive ack and only
+   * after `finalizeDelivery`'s hold, so the payee holds the frame and this
+   * device holds a durable queue row before the overlay hears about any of it.
+   * What is left is one best-effort call and one sentence.
+   *
+   * Never awaited by the caller and never able to fail a payment. Offline it is
+   * not attempted at all — the drain owns every retry, and a face-to-face
+   * payment is exactly the case where there may be no signal for hours. The
+   * abort signal gates only the UI write: the settlement itself is a money
+   * decision and is allowed to finish on a screen the payer has walked away
+   * from.
+   */
+  const settleAfterHandover = useCallback(
+    async (txid: string, issuer: string, signal: AbortSignal): Promise<void> => {
+      const runtime = mandala.runtime
+      if (!runtime || !onlineRef.current) return
+      try {
+        const state = await runtime.settleNow(txid)
+        if (signal.aborted || !mountedRef.current) return
+        // `admitted` is the issuer's overlay having folded this transaction
+        // into its own state — the broadcast on top of it is bookkeeping — so
+        // both read as settled, exactly as the activity list reads them.
+        if (state === 'admitted' || state === 'broadcast') setSettledStatusNote(t('token_sent_settled', { issuer }))
+      } catch (e) {
+        // The payment is made and the row is durable; this was only ever an
+        // attempt to finish it early.
+        console.warn('[localpay] could not settle the hand-over immediately:', e instanceof Error ? e.message : e)
+      }
+    },
+    [mandala.runtime, t]
+  )
 
   /**
    * The payee's `broadcast` flag for the shared success overlay (see the
@@ -1669,13 +1739,22 @@ function NearbyFlow({
           // Absent, like every other unreadable payload.
           admission = undefined
         }
+        const alreadySettled = tokenSendState(admission) === 'sent-settled'
         setSettledStatusNote(
-          tokenSendState(admission) === 'sent-settled'
+          alreadySettled
             ? t('token_sent_settled', { issuer })
             : peerName
               ? t('token_sent_settling', { issuer, payee: peerName })
               : t('token_sent_settling_unnamed', { issuer })
         )
+        // The payer's own submit, taken now rather than on the next drain tick
+        // (§4.3, 2026-09-15). Strictly AFTER the positive ack and after
+        // `finalizeDelivery`'s hold above — the payee has the frame and this
+        // device has a durable queue row before the overlay is asked anything —
+        // and deliberately NOT awaited: the receipt is already true and must
+        // not wait on a network round trip. It corrects itself to "settled"
+        // when the row comes back admitted.
+        if (!alreadySettled && built.txid) void settleAfterHandover(built.txid, issuer, controller.signal)
       }
       setPhase('done')
     } finally {
@@ -1695,6 +1774,7 @@ function NearbyFlow({
     abortBuild,
     declineMessage,
     fail,
+    settleAfterHandover,
     t
   ])
 

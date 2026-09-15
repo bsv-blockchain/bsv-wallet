@@ -1538,6 +1538,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               // drain never persists; this opens the ones whose session this
               // process still holds. See offline/tokenFrames.ts.
               decodeSealedFrame: sealedFramePayloadDecoder(),
+              // The one thing `settleNow` asks about connectivity: whether a
+              // hand-over that just landed should be followed by this device's
+              // own submit now, or left to the drain. The runtime deliberately
+              // has no NetInfo dependency of its own, so the app-wide probe is
+              // handed to it here.
+              isOnline: getOnline,
               refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
             })
             mandalaRef.current = runtime.available ? runtime : undefined

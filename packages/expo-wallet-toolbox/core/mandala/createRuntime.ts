@@ -60,7 +60,8 @@ import { resolveAssetState, type AssetAdminStateView } from '@bsv/mandala/adminS
 import type { AppChain } from '../config'
 import type { MandalaEndpointConfig } from '../toolboxConfig'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
-import { processOfflineActions, type OfflineTokenDeps } from '../storage/methods/processOfflineActions'
+import { postOwnedByTxid, processOfflineActions, type OfflineTokenDeps } from '../storage/methods/processOfflineActions'
+import type { PostOutcome } from '../offline/plan'
 import { findOfflineActions } from '../storage/methods/offlineActions'
 import { getPending, type KVStorage, type TokenCreditedHook } from '../localpay/pending'
 import type { PaymentFrame } from '../localpay/codec'
@@ -70,9 +71,11 @@ import { tokenFrameSourcesFromOfflineActions, tokenFrameSourcesFromPending } fro
 import type { CoverBundle, CoverVerifier } from './bundle'
 import { assembleBundle } from './bundle'
 import {
+  TERMINAL_SETTLEMENT_STATES,
   deriveTokenEdges,
   listStuckSettlements,
   populateEvidenceFromFrame,
+  postTokenStep,
   type EvidenceFrame,
   type TokenFrameSource
 } from './drain'
@@ -101,7 +104,8 @@ import type {
   TokenAssetInfo,
   TokenAssetStatus,
   TokenBalance,
-  TokenSendResult
+  TokenSendResult,
+  TokenSettleState
 } from './runtime'
 import { devLog } from '../logging'
 
@@ -226,6 +230,27 @@ export interface CreateMandalaRuntimeArgs {
   refetchBeef?: (txid: string) => Promise<number[] | undefined>
   /** Test seam: the asset registry lookup (network + SPV in production). */
   resolveMetadata?: (assetId: string) => Promise<{ label?: string; ticker?: string; decimals?: number } | null>
+  /**
+   * Whether this device has signal, for the ONE decision that turns on it: does
+   * a send take its own submit now (`settleNow`), or leave it to the drain?
+   * Never a gate on the hand-over itself — that happens either way.
+   *
+   * Supplied by the wallet build (`WalletContext` passes the app-wide
+   * `getOnline`) rather than imported here, so this module keeps having no
+   * NetInfo dependency of its own. Absent, it defaults OPTIMISTIC for the same
+   * reason every other connectivity guard in this codebase does: a wrong
+   * "online" costs one failed request that leaves the row exactly where it was,
+   * while a wrong "offline" makes a payer wait a drain interval for money that
+   * could have settled on the spot.
+   */
+  isOnline?: () => Promise<boolean>
+  /**
+   * How an admitted token tip reaches the network, for `settleNow`'s own step.
+   * Defaults to the release engine's own owned post, which is the same one the
+   * queue drain uses — injected only so a test can watch it without a wallet
+   * database underneath.
+   */
+  broadcast?: (txid: string) => Promise<PostOutcome>
   now?: () => Date
 }
 
@@ -1056,6 +1081,116 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const tokenDepsValue = { store, cover, submit, frames, overlayIdentityKey, verifyAdmission }
   const tokenDeps: OfflineTokenDeps = tokenDepsValue
 
+  const isOnline = args.isOnline ?? (async () => true)
+
+  /**
+   * The step's broadcast: the release engine's own owned post, by default.
+   *
+   * `postTokenStep` reaches this only once every ancestor in COVER's
+   * `mustSubmit` is admitted, so nothing about the §4.3 gate changes — this is
+   * simply the same `postOwned` the queue drain would have used a tick later,
+   * called for one txid instead of a planned graph.
+   */
+  const broadcastTip =
+    args.broadcast ?? (async (txid: string): Promise<PostOutcome> => await postOwnedByTxid(storage, txid))
+
+  /**
+   * One `settleNow` per txid at a time.
+   *
+   * Not a lock on the money — `advanceSettlement` is a CAS and `/submit` is
+   * idempotent, so correctness never depended on this — but a send and a
+   * re-tap, or a nearby hold and a drain tick that lands on the same
+   * millisecond, would otherwise each open their own `/submit` for identical
+   * bytes. Coalescing costs nothing and makes the second caller wait for the
+   * first caller's answer, which is also the more useful answer.
+   */
+  const settlesInFlight = new Map<string, Promise<TokenSettleState>>()
+
+  /**
+   * §4.3's drain step for exactly one row, run now.
+   *
+   * Everything this does, the ordinary drain does too. What it never does is
+   * decide anything the drain would not: a row the USER owns is left alone
+   * (FIX F), a terminal row is reported as it stands, and any failure — a
+   * missing row, an unreachable overlay, a throw from deep inside the walk —
+   * leaves the row exactly where it was for the next tick. It cannot reject.
+   */
+  const runSettleStep = async (txid: string): Promise<TokenSettleState> => {
+    if (!available) return 'unavailable'
+    let row: TokenSettlementRow | undefined
+    try {
+      row = await store.getSettlement(txid)
+    } catch (e) {
+      devLog(`[mandala] settleNow could not read the settlement row for ${txid}:`, e)
+      return 'unavailable'
+    }
+    if (!row) return 'unavailable'
+    // Nothing left to do, and nothing that may be undone (spec §5).
+    if (TERMINAL_SETTLEMENT_STATES.includes(row.state)) return row.state
+    // FIX F: `built`/`parked` are the payer's own states. A payment deliberately
+    // withheld is not settled by a convenience path.
+    if (row.state === 'built' || row.state === 'parked') return row.state
+
+    try {
+      await postTokenStep(
+        { store, cover, submit, broadcast: broadcastTip, overlayIdentityKey, verifyAdmission, now },
+        row,
+        { txid, owned: true }
+      )
+    } catch (e) {
+      // `postTokenStep` is written not to throw, but it is reached here from a
+      // money path that has already succeeded: a surprise must cost a drain
+      // interval, never the send.
+      devLog(`[mandala] settleNow could not complete the settlement step for ${txid}:`, e)
+    }
+
+    let after: TokenSettlementRow | undefined
+    try {
+      after = await store.getSettlement(txid)
+    } catch (e) {
+      devLog(`[mandala] settleNow could not re-read the settlement row for ${txid}:`, e)
+      return 'unavailable'
+    }
+    if (after && after.state !== row.state) emit()
+    return after?.state ?? 'unavailable'
+  }
+
+  const settleNow = async (txid: string): Promise<TokenSettleState> => {
+    const existing = settlesInFlight.get(txid)
+    if (existing) return await existing
+    const run = runSettleStep(txid).finally(() => {
+      settlesInFlight.delete(txid)
+    })
+    settlesInFlight.set(txid, run)
+    return await run
+  }
+
+  /**
+   * How long a send waits for its own submit before handing it back to the drain.
+   *
+   * The hand-over is already done when this starts, so the only thing at stake
+   * is whether the receipt gets to say "settled" — and a receipt that arrives
+   * eight seconds late is worse than one that says "settling" and is corrected
+   * by the activity list a minute later. The submit itself is NOT cancelled on
+   * timeout: it is still in flight, still idempotent, and its verdict still
+   * lands in the row.
+   */
+  const SETTLE_ON_SEND_TIMEOUT_MS = 8_000
+
+  const settleWithinSendTimeout = async (txid: string): Promise<TokenSettleState | 'timeout'> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        settleNow(txid),
+        new Promise<'timeout'>(resolve => {
+          timer = setTimeout(() => resolve('timeout'), SETTLE_ON_SEND_TIMEOUT_MS)
+        })
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+
   const lockToPayee: LockToPayee = async ({ assetId, amount, recipientKey, keyID }) => {
     const mine = await identityKey()
     const blinded = await prepareBlindedPayment(bound, {
@@ -1403,6 +1538,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     lockToPayee,
     cover,
     fetchAdmission,
+    settleNow,
     recoverStaleAdmissions,
     pruneBlindingReservations,
     assetStatus,
@@ -1490,19 +1626,15 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           amount: baseUnits,
           recipientKey: recipientIdentityKey,
           // 2026-09-15 maintainer decision (§4.5, §12.9, wire contract §9.13):
-          // EVERY rail is hand-over-first. Sending contacts no overlay at all —
+          // EVERY rail is hand-over-first. The SEND contacts no overlay at all —
           // the bytes are built and signed `noSend`, the payee is handed the
           // evidence, and whoever reconnects first submits. The payer's own
-          // submit is the ordinary drain, over the `handed_over` row written
-          // below.
+          // submit follows the hand-over rather than racing it: `settleNow`
+          // below when this device has signal, the ordinary drain otherwise,
+          // both over the `handed_over` row written below.
           mode: 'handover',
           evidence: storeEvidenceSource
         })
-        // Never `settled` on this rail: there is no σ_I for the tip at send
-        // time, because nothing was asked of the overlay. (The lib returns
-        // none either; this is stated rather than derived so a future field on
-        // `TransferResult` cannot quietly make a hand-over look admitted.)
-        const settled = false
         // The handle rail's own evidence (spec §4.5): the exact bytes and
         // off-chain payload just handed over, cached the same way a nearby
         // hand-over's frame would be. On this rail it is no longer merely an
@@ -1536,9 +1668,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             txid: result.txid,
             role: 'sent',
             assetId,
-            // Always `handed_over`, never `admitted`: this device has no proof
-            // of admission and did not ask for one. The row is what the drain
-            // picks up on its next online tick (`postTokenStep` over
+            // Always `handed_over`, never `admitted`: at THIS point the device
+            // has no proof of admission and has asked for none. The row is what
+            // `settleNow` claims a moment later (and failing that, what the
+            // drain picks up on its next online tick — `postTokenStep` over
             // `handed_over`), and what `activityStatusOf` reads as "settling".
             state: 'handed_over',
             counterpartyKey: recipientIdentityKey,
@@ -1556,7 +1689,45 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         // yet" — the lib journaled the notification and `reconcileJournals`
         // retries it every tick. It is reported, never retried here: a retry of
         // the SEND would be a second payment.
-        return { kind: 'sent', txid: result.txid, settled, notified: result.notified !== false }
+        const notified = result.notified !== false
+
+        // ── THEN, and only then, this device's own submit (§4.3, 2026-09-15) ──
+        //
+        // Hand-over first is not softened by this, it is *completed* by it: the
+        // v2 body is posted and the `handed_over` row is durable before a
+        // single byte goes to the overlay, and both of those are above this
+        // line. What changes is that a payer who has signal no longer waits a
+        // drain interval to finish what they started.
+        //
+        // Two conditions, and both are about the hand-over rather than about
+        // the overlay:
+        //
+        //  · `notified` — a notification that did not go out means the payee
+        //    has NOT been handed anything yet, so the order is not satisfied
+        //    and the submit waits for `reconcileNotifications` to deliver it.
+        //  · `isOnline()` — offline there is nothing to try, and the probe is
+        //    made here rather than inside `settleNow` so a send on a dead
+        //    connection costs no request at all.
+        //
+        // Everything after this point is best-effort by construction: the
+        // result is already `sent`, `settleNow` cannot throw, and a timeout
+        // leaves the same in-flight submit running for the drain to observe.
+        let settled = false
+        if (notified) {
+          try {
+            if (await isOnline()) {
+              const state = await settleWithinSendTimeout(result.txid)
+              settled = state === 'admitted' || state === 'broadcast'
+              if (state === 'timeout') {
+                devLog(`[mandala] ${result.txid} was handed over; its submit runs on, and the drain will finish it`)
+              }
+            }
+          } catch (e) {
+            // Logged, never surfaced. The payment is made either way.
+            devLog(`[mandala] handed ${result.txid} over but could not settle it now:`, e)
+          }
+        }
+        return { kind: 'sent', txid: result.txid, settled, notified }
       } catch (e) {
         const overlay = asOverlayRefusal(e)
         // Always leave the real cause in the console. Nothing here contacts an

@@ -54,7 +54,12 @@ jest.mock('@bsv/react-native-localpay-transport', () => ({
 }))
 jest.mock('@react-native-community/netinfo', () => ({
   __esModule: true,
-  default: { fetch: jest.fn(async () => ({ isConnected: false, isInternetReachable: false, type: 'none' })) }
+  default: {
+    fetch: jest.fn(async () => ({ isConnected: false, isInternetReachable: false, type: 'none' })),
+    // `useOnline` subscribes as well as probing; this mock never emits, so the
+    // hook's own optimistic default stands until a test sets `fetch`.
+    addEventListener: jest.fn(() => jest.fn())
+  }
 }))
 jest.mock('../../ui/resolveIdentity', () => ({
   makeIdentityClient: jest.fn(() => null),
@@ -288,6 +293,84 @@ describe('NearbyFlow — the token path', () => {
       await new Promise(resolve => setImmediate(resolve))
     })
     await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
+  })
+
+  it('takes the payer’s own submit AFTER the hold, and flips the receipt to settled', async () => {
+    const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
+    barrel.selectTransport.mockReturnValue('awdl')
+    // No σ_I came back on the ack, so "settling" is the sentence this payer
+    // starts with — and the only thing that may change it is their own submit.
+    mockReadSettlementAck.mockResolvedValue(undefined)
+    const netinfo = jest.requireMock('@react-native-community/netinfo') as { default: { fetch: jest.Mock } }
+    netinfo.default.fetch.mockResolvedValue({ isConnected: true, isInternetReachable: true, type: 'wifi' })
+    // Just enough of the real `finalizeDelivery` to reach the hold, which is
+    // what the ordering assertion below is about.
+    mockFinalizeDelivery.mockImplementation(
+      async (
+        _wallet: unknown,
+        built: { txid?: string },
+        ack: { ok: boolean },
+        _originator: unknown,
+        deps: { hold: (txid: string) => Promise<void> }
+      ) => {
+        if (ack.ok && built.txid) await deps.hold(built.txid)
+        return { kind: 'sent', broadcast: 'ok' }
+      }
+    )
+
+    const runtime = makeFakeMandala({ balances: [balanceOf()], settleNow: 'admitted' })
+    const session: Session = mintSession({
+      identityKey: PAYEE_IDENTITY,
+      amount: 2500,
+      asset: ASSET,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+    const s = wrap(<NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />, runtime)
+    await settle()
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+
+    // The whole of the order, on this rail: ack → hold → submit. Nothing asks
+    // the overlay anything until the payee provably has the frame and this
+    // device has the queue row that owns it.
+    await waitFor(() => expect(runtime.settleNow).toHaveBeenCalledWith('d'.repeat(64)))
+    expect(mockHoldSentPaymentOffline).toHaveBeenCalled()
+    expect(mockHoldSentPaymentOffline.mock.invocationCallOrder[0]).toBeLessThan(
+      runtime.settleNow.mock.invocationCallOrder[0]
+    )
+    // …and the receipt corrects itself once the row comes back admitted.
+    await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
+  })
+
+  it('an ack that already carried σ_I is settled, and asks for no second submit', async () => {
+    const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
+    barrel.selectTransport.mockReturnValue('awdl')
+    mockReadSettlementAck.mockResolvedValue({ txid: 'd'.repeat(64) })
+
+    const runtime = makeFakeMandala({ balances: [balanceOf()] })
+    const session: Session = mintSession({
+      identityKey: PAYEE_IDENTITY,
+      amount: 2500,
+      asset: ASSET,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+    const s = wrap(<NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />, runtime)
+    await settle()
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+
+    await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
+    expect(runtime.settleNow).not.toHaveBeenCalled()
   })
 
   it('a COVER failure at hand-over reads as the issuer\'s own refusal, not a scanning mistake', async () => {

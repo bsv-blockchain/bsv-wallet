@@ -16,7 +16,8 @@ import type {
   SettlementStore,
   TokenHandedOverHook,
   TokenHeldHook,
-  TokenSettlementRow
+  TokenSettlementRow,
+  TokenSettlementState
 } from './types'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
 import type { CoverVerifier } from './bundle'
@@ -89,6 +90,14 @@ export type TokenSendResult =
   | {
       kind: 'sent'
       txid: string
+      /**
+       * The issuer's overlay has this transaction (`admitted`, or `broadcast`
+       * on top of it) — because a hand-over that landed while this device had
+       * signal is followed straight away by the payer's own submit
+       * (`settleNow`). False is not a failure and never a reason to retry the
+       * SEND: the money moved at hand-over, and the drain finishes the
+       * settlement on its next tick.
+       */
       settled: boolean
       /**
        * False when the transaction committed but the recipient's MessageBox
@@ -106,6 +115,19 @@ export type TokenSendResult =
     }
   | { kind: 'refused'; code: string; message: string }
   | { kind: 'unavailable'; message: string }
+
+/**
+ * Where one row stood when `settleNow` let go of it.
+ *
+ * Every `TokenSettlementState` can come back, because the answer is simply the
+ * row's state re-read after the step: `'admitted'`/`'broadcast'` are the two
+ * that mean settled, `'refused'`/`'orphaned'` are the overlay's final word, and
+ * an unchanged `'handed_over'`/`'held'` means the step stalled and the ordinary
+ * drain will try again. `'unavailable'` is the one addition — no such row, no
+ * database, or no Mandala deployment on this chain — and is never a verdict
+ * about the money.
+ */
+export type TokenSettleState = TokenSettlementState | 'unavailable'
 
 export interface MandalaRuntime {
   /** Chain gate: mainnet-only in v1 (ux §2). */
@@ -140,6 +162,32 @@ export interface MandalaRuntime {
   cover(tipTxid: string): Promise<CoverResult>
   /** Run one settlement drain pass now (submit-then-broadcast). */
   drainNow(): Promise<void>
+  /**
+   * ONE row's settlement step, taken now rather than on the next drain tick
+   * (2026-09-15 maintainer refinement to §4.3's "payer's optional submit").
+   *
+   * Hand-over is still first and still unconditional — this is only ever called
+   * AFTER the payee has the bytes (a MessageBox post accepted, a nearby
+   * positive ack) — but once the hand-over has landed and this device has
+   * signal, there is no reason to make the holder wait a drain interval for
+   * their own money to reach the issuer. So this runs exactly what the drain
+   * would have run for this txid: COVER, `/submit` parents-first, and a
+   * broadcast of the tip only once every ancestor is admitted.
+   *
+   * **Never a failure path.** It reports where the row ended up; it does not
+   * throw, and a caller that cannot reach the overlay simply gets the state it
+   * started with back, because the drain still owns the retry. The two states
+   * the USER owns (`'built'`, `'parked'`) are returned untouched — FIX F: a
+   * payment the payer deliberately withheld is not settled by anybody's
+   * optimisation.
+   *
+   * **Safe to race with the tick drain.** Every advance is a CAS
+   * (`advanceSettlement`) and `/submit` is idempotent (FIX C), so the worst a
+   * lost race costs is one duplicate submit that returns the same admission.
+   * Two overlapping `settleNow` calls for the same txid are coalesced onto one
+   * in-flight run and get the same answer.
+   */
+  settleNow(txid: string): Promise<TokenSettleState>
   /**
    * Drives the LIB's own durable journals once: `reconcileWallet` (retryable
    * refusals, overlay-accepted-but-unbroadcast txs, pending aborts, the stuck

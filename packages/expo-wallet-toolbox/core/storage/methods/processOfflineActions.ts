@@ -535,6 +535,34 @@ async function postOwned(storage: StorageExpoSQLite, api: TableProvenTxReq): Pro
 }
 
 /**
+ * `postOwned` for ONE txid, for a caller outside the queue loop.
+ *
+ * The Mandala runtime's `settleNow` needs a broadcast to hand `postTokenStep`
+ * the moment a hand-over lands, and it must be the SAME broadcast the drain
+ * uses — status transitions, history notes, `markStaleInputsAsSpent`, the
+ * re-hold on a service error, and the "storage is the witness, not the reported
+ * status" rule all live in `postOwned` and must not be reimplemented beside it.
+ * So this is the whole of the new surface: find the request, post it, report
+ * the same `PostOutcome`.
+ *
+ * A txid with no request of this wallet's own comes back `'serviceError'`
+ * rather than being posted some other way. That is deliberate: a FOREIGN
+ * ancestor is only ever broadcast as part of an ordered release over the merged
+ * graph (`postForeign`, from the plan), and guessing at that order from one
+ * txid is exactly the out-of-dependency-order broadcast this engine exists to
+ * prevent. `'serviceError'` leaves the row untouched for the next drain pass,
+ * which has the graph.
+ */
+export async function postOwnedByTxid(storage: StorageExpoSQLite, txid: string): Promise<PostOutcome> {
+  const api = await findReq(storage, txid)
+  if (!api) {
+    devLog(`[processOfflineActions] no request of our own for ${txid}; leaving its broadcast to the drain`)
+    return 'serviceError'
+  }
+  return await postOwned(storage, api)
+}
+
+/**
  * Post a foreign ancestor that arrived inside someone's BEEF.
  *
  * Only its own dependency closure is sent, not the whole merged graph, so each
