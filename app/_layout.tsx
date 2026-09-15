@@ -56,6 +56,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
   vaultEnabled: process.env.EXPO_PUBLIC_VAULT_ENABLED === 'true',
+  // Mandala stablecoins are mainnet-only in v1. Without a complete entry the
+  // token runtime stays undefined and the wallet neither drains the
+  // 'mandala-payments' MessageBox nor offers token assets in Pay / Get paid.
+  mandala: {
+    main: {
+      overlayUrl: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_URL ?? '',
+      overlayIdentityKey: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_IDENTITY_KEY ?? '',
+      messageBoxUrl:
+        process.env.EXPO_PUBLIC_MANDALA_MESSAGEBOX_URL ??
+        process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
+        'https://gmb.bsvblockchain.tech'
+    }
+  },
   services: {
     main: {
       arcUrl: process.env.EXPO_PUBLIC_ARC_URL,

@@ -14,7 +14,10 @@
       "env": {
         "RCT_USE_PREBUILT_RNCORE": "0",
         "EXPO_PUBLIC_BACKUP_URL": "https://backup.bsvblockchain.tech",
-        "EXPO_PUBLIC_VAULT_ENABLED": "true"
+        "EXPO_PUBLIC_VAULT_ENABLED": "true",
+        "EXPO_PUBLIC_MANDALA_OVERLAY_URL": "https://deggen.ngrok.app",
+        "EXPO_PUBLIC_MANDALA_OVERLAY_IDENTITY_KEY": "0215643bc656ca42007faa32e94f70050f64a566ffd9e3a2ebc098389936dea57e",
+        "EXPO_PUBLIC_MANDALA_MESSAGEBOX_URL": "https://gmb.bsvblockchain.tech"
       }
     },
     "dev-physical": {

@@ -166,11 +166,7 @@ import { configureMandala, resolveAssetMetadata } from '@bsv/mandala'
 import { MessageBoxClient } from '@bsv/message-box-client'
 import { MandalaTokenModule, wrapCreateActionForTokenInputs, type MandalaAssetMetadata } from '../mandala/permissionModule'
 import { migrateMandalaBasketName } from '../mandala/basketMigration'
-import {
-  createMandalaKvStorage,
-  createMandalaRuntime,
-  type MandalaMessageBox
-} from '../mandala/createRuntime'
+import { bindOriginator, createMandalaKvStorage, createMandalaRuntime, type MandalaMessageBox } from '../mandala/createRuntime'
 import type { MandalaRuntime } from '../mandala/runtime'
 import { MANDALA_BASKET } from '../mandala/types'
 import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
@@ -1531,7 +1527,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 ? async () =>
                     new MessageBoxClient({
                       host: mandalaEndpoints.messageBoxUrl,
-                      walletClient: newManagers.permissionsManager as never,
+                      // The client calls getPublicKey / createSignature itself;
+                      // those must carry the admin originator or the vault guard
+                      // refuses them ("Originator is required for permission checks").
+                      walletClient: bindOriginator(newManagers.permissionsManager as object, adminOriginator) as never,
                       enableLogging: false
                     }) as unknown as MandalaMessageBox
                 : undefined,
