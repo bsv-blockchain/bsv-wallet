@@ -25,6 +25,7 @@ import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { TokenCreditedHook } from '../localpay/pending'
 import type { OfflineTokenDeps } from '../storage/methods/processOfflineActions'
 import type { MandalaEndpointConfig } from '../toolboxConfig'
+import type { TokenResendOutcome } from './resendTransfer'
 
 /**
  * Regulatory/registry facts about one asset, for the UI's remaining copy
@@ -195,6 +196,25 @@ export interface MandalaRuntime {
    * in-flight run and get the same answer.
    */
   settleNow(txid: string): Promise<TokenSettleState>
+
+  /**
+   * The token Resend: re-deliver a sent transfer's notification over the
+   * message box, whichever rail it first went out on. The body is rebuilt from
+   * what this device holds (blinding journal or the payee output's marker, the
+   * bytes `refetch` finds, any cached σ_I) and is the same body `transferTokens`
+   * sends, so the recipient's inbox needs nothing new. Never contacts the
+   * overlay and never moves the transaction's own status — a delivery, not a
+   * payment. See `core/mandala/resendTransfer.ts`.
+   */
+  resendTransfer(
+    txid: string,
+    deps: {
+      /** AtomicBEEF for the txid — `makeResendBeef` in the app. */
+      refetch: (txid: string) => Promise<number[] | undefined>
+      /** Unwraps metadata the permissions manager encrypted on its way to storage. */
+      decryptMetadata?: (value: string) => Promise<string>
+    }
+  ): Promise<TokenResendOutcome>
 
   /**
    * Step every drain-owned `sent` row once (`handed_over`/`submitting`/

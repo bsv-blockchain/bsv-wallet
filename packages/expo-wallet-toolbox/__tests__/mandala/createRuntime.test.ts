@@ -1166,6 +1166,66 @@ describe('the drain step, driven by the runtime’s cover and submit', () => {
   })
 })
 
+// ───────────────── resendTransfer — the token Resend, over the message box ─────────────────
+
+describe('resendTransfer — re-delivers a token transfer over the message box', () => {
+  it('rebuilds the notification from the action’s own marker and this device’s bytes, and sends it', async () => {
+    const tip = rootTx(2500)
+    const txid = tip.id('hex')
+    const beef = new Beef()
+    beef.mergeTransaction(tip)
+    const box = messageBox()
+    const wallet = {
+      ...fakeWallet(),
+      listActions: jest.fn(async () => ({
+        actions: [
+          {
+            txid,
+            labels: ['mandala', 'localpay', PAYEE],
+            outputs: [
+              {
+                outputIndex: 0,
+                customInstructions: JSON.stringify({ recipient: PAYEE, senderBlinded: PAYER, keyID: 'p s' })
+              }
+            ]
+          }
+        ]
+      }))
+    }
+    const runtime = build({ wallet: wallet as never, messageBox: async () => box as never })
+
+    const outcome = await runtime.resendTransfer(txid, { refetch: async () => beef.toBinaryAtomic(txid) })
+
+    expect(outcome).toEqual({ ok: true })
+    expect(wallet.listActions).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: ['mandala'], includeOutputs: true, includeLabels: true }),
+      'urn:test:admin'
+    )
+    expect(box.sendMessage).toHaveBeenCalledWith({
+      recipient: PAYEE,
+      messageBox: 'mandala-payments',
+      body: expect.objectContaining({
+        assetId: ASSET_ID,
+        amount: '2500',
+        sender: PAYER,
+        senderMode: 'blinded',
+        keyID: 'p s',
+        outputIndex: 0
+      })
+    })
+  })
+
+  it('is no_record, and sends nothing, on a chain with no Mandala deployment', async () => {
+    const box = messageBox()
+    const runtime = build({ chain: 'test', endpoints: undefined, messageBox: async () => box as never })
+    await expect(runtime.resendTransfer('ab'.repeat(32), { refetch: async () => undefined })).resolves.toEqual({
+      ok: false,
+      reason: 'no_record'
+    })
+    expect(box.sendMessage).not.toHaveBeenCalled()
+  })
+})
+
 // ───────────────────────── fetchAdmission (FIX J / FIX H) ─────────────────────────
 
 describe('fetchAdmission — GET /admin/admission/:txid, mapped and FIX-H-verified', () => {

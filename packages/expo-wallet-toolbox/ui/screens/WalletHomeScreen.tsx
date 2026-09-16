@@ -85,7 +85,7 @@ import { storageMatchesNetwork } from '../../core/net/chainMatch'
 import { makeMetadataDecryptor } from '../../core/peerpay/metadataDecryptor'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
-import { useMandala, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
+import { useMandala, useMandalaRuntime, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
 import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
 import { tokenStatusKey } from '../tokenStatus'
@@ -254,6 +254,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
   const online = useOnline()
+  // For the token Resend below. Read here rather than off `useMandala()` (which
+  // mounts further down) so the handler can close over it without a
+  // use-before-declaration.
+  const mandalaRuntime = useMandalaRuntime()
 
   // ── lazy wallet creation ────────────────────────────────────────────
   /**
@@ -907,31 +911,46 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       try {
         const pm = managers.permissionsManager
         if (!pm || !storage) throw new Error(t('unknown_error'))
-        const url = await readMessageBoxUrl()
-        if (!url) {
-          showToast(t('message_box_unreachable'), { type: 'error' })
-          return
-        }
-        const client = new PeerPayClient({
-          messageBoxHost: url,
-          walletClient: pm as never,
-          originator: adminOriginator
+        // Network first for a fresh proof; this device's own copy when the
+        // network has never heard of the transaction — a nearby payment whose
+        // code was never scanned is `nosend`, and that is the case a resend
+        // most needs to cover.
+        const refetch = makeResendBeef({
+          refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline }),
+          storage
         })
-        const outcome = await resendPaymentDetails({
-          client,
-          storage,
-          txid,
-          listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
-          // Network first for a fresh proof; this device's own copy when the
-          // network has never heard of the transaction — a nearby payment whose
-          // code was never scanned is `nosend`, and that is the case a resend
-          // most needs to cover.
-          decryptMetadata: makeMetadataDecryptor(pm, adminOriginator),
-          refetch: makeResendBeef({
-            refetch: makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline }),
-            storage
+        const decryptMetadata = makeMetadataDecryptor(pm, adminOriginator)
+        // Every resend goes over the message box, whatever rail the payment
+        // first took. What differs is the body: a token row re-sends the
+        // Mandala transfer notification (the runtime rebuilds it from the
+        // blinding journal and the payee output's marker); a BSV row rebuilds
+        // its BRC-29 PeerPay token. Identification is by LABEL, like every
+        // other token decision on this screen.
+        const isToken = actions.find(a => a.txid === txid)?.labels?.includes('mandala') ?? false
+        let outcome: Awaited<ReturnType<typeof resendPaymentDetails>>
+        if (isToken) {
+          if (!mandalaRuntime) throw new Error(t('unknown_error'))
+          outcome = await mandalaRuntime.resendTransfer(txid, { refetch, decryptMetadata })
+        } else {
+          const url = await readMessageBoxUrl()
+          if (!url) {
+            showToast(t('message_box_unreachable'), { type: 'error' })
+            return
+          }
+          const client = new PeerPayClient({
+            messageBoxHost: url,
+            walletClient: pm as never,
+            originator: adminOriginator
           })
-        })
+          outcome = await resendPaymentDetails({
+            client,
+            storage,
+            txid,
+            listPeerPayAction: makeListPeerPayAction(pm, adminOriginator),
+            decryptMetadata,
+            refetch
+          })
+        }
         if (outcome.ok) {
           // A parked payment has now been handed over for real, over a rail
           // that confirms delivery. Release it so this wallet broadcasts it
@@ -960,7 +979,18 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         setBusyLabel(undefined)
       }
     },
-    [busyRow, managers.permissionsManager, storage, adminOriginator, selectedNetwork, offlineByTxid, onRefresh, t]
+    [
+      busyRow,
+      managers.permissionsManager,
+      storage,
+      adminOriginator,
+      selectedNetwork,
+      offlineByTxid,
+      onRefresh,
+      t,
+      actions,
+      mandalaRuntime
+    ]
   )
 
   const onFailedSendAgain = useCallback(

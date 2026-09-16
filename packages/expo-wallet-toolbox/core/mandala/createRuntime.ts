@@ -25,6 +25,7 @@ import { Beef, Transaction, Utils, type WalletInterface } from '@bsv/sdk'
 import { MandalaToken } from '@bsv/templates'
 import {
   blindingCommit,
+  blindingGet,
   blindingPruneReserved,
   blindingReserve,
   cover as coverWalk,
@@ -33,6 +34,8 @@ import {
   fetchRegistry,
   guardTokenRecipient,
   journalRemove,
+  notifyPut,
+  notifyRemove,
   payloadHash,
   prepareBlindedPayment,
   receiveTokens,
@@ -69,6 +72,7 @@ import type { PaymentFrame } from '../localpay/codec'
 import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
 import { frameTokenAmount, tokenFrameSourcesFromOfflineActions, tokenFrameSourcesFromPending } from '../offline/tokenFrames'
+import { resendTokenTransfer, type TokenResendAction, type TokenResendOutcome } from './resendTransfer'
 import type { CoverBundle, CoverVerifier } from './bundle'
 import { assembleBundle } from './bundle'
 import {
@@ -2091,6 +2095,44 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     cover,
     fetchAdmission,
     settleNow,
+
+    async resendTransfer(txid, deps): Promise<TokenResendOutcome> {
+      if (!available) return { ok: false, reason: 'no_record' }
+      const box = await messageBox()
+      return await resendTokenTransfer(txid, {
+        blindingRecord: async id => {
+          const record = await blindingGet(id)
+          return record ? { recipient: record.recipient, senderBlinded: record.senderBlinded, keyID: record.keyID } : undefined
+        },
+        // The `mandala`-labelled action with its outputs: both rails write the
+        // label (the nearby rail since 2026-09-16) and the payee output's marker.
+        listAction: async id => {
+          const lister = bound as unknown as {
+            listActions(
+              args: unknown,
+              originator?: string
+            ): Promise<{ actions?: (TokenResendAction & { txid?: string })[] }>
+          }
+          const listed = await lister.listActions({
+            labels: ['mandala'],
+            includeOutputs: true,
+            includeLabels: true,
+            limit: 1000
+          })
+          return listed.actions?.find(a => a.txid === id)
+        },
+        refetch: deps.refetch,
+        admission: async id => {
+          const cached = await store.getAdmission(id)
+          // An unsigned entry (see `submit`) is bookkeeping, not evidence to forward.
+          if (!cached || cached.signatureHex === '' || cached.signerKey === '') return undefined
+          return { outputsToAdmit: cached.outputsToAdmit, signatureHex: cached.signatureHex, signerKey: cached.signerKey }
+        },
+        journal: { put: notifyPut, remove: notifyRemove },
+        sendMessage: args => box.sendMessage(args as never),
+        decryptMetadata: deps.decryptMetadata
+      })
+    },
     settlePendingSends,
     ensureAdmissionsForHoldings,
     recoverStaleAdmissions,

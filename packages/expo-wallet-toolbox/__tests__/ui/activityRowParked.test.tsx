@@ -91,10 +91,12 @@ it('offers only a remote resend and cancel on a parked payment', () => {
   expect(r.getByLabelText('pay_parked_cancel')).toBeTruthy()
 })
 
-it('offers no resend on a token row — a stablecoin hand-over is not a BRC-29 token to rebuild', () => {
-  const r = chips('queued', { labels: ['localpay', 'mandala'], status: 'unproven' })
+it('offers a resend on a token row too — the counterparty saying "never got it" is rail-agnostic', () => {
+  const r = chips(undefined, { labels: ['localpay', 'mandala'], status: 'unproven' })
   expect(r.getByText('Explorer')).toBeTruthy()
-  expect(r.queryByLabelText('send_payment_details_again')).toBeNull()
+  // Goes over the message box like every resend; the token body is the
+  // Mandala runtime's, not a BRC-29 rebuild — see WalletHomeScreen.
+  expect(r.getByLabelText('send_payment_details_again')).toBeTruthy()
 })
 
 it('keeps the usual chips on a payment that was actually sent', () => {
