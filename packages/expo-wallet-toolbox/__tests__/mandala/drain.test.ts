@@ -466,6 +466,47 @@ describe('postTokenStep', () => {
     expect((await store.getSettlement(TIP))?.state).toBe('held')
   })
 
+  // 2026-09-16 incident: a tip the overlay had already ADMITTED sat at
+  // `admitted` forever because COVER kept reporting a hole in its ancestry.
+  // The overlay's σ_I over the tip is its ruling on that whole ancestry — a
+  // hole in local evidence cannot outrank it. Broadcast, do not re-walk.
+  it('broadcasts a tip whose own cached σ_I verifies, even when COVER does not close', async () => {
+    const settlement = await seed('handed_over', 'sent')
+    await store.advanceSettlement(TIP, ['handed_over'], 'admitted')
+    await store.putAdmission({
+      txid: TIP,
+      outputsToAdmit: [0],
+      signatureHex: Utils.toHex(Array.from(signAdmission(TIP, [0]))),
+      signerKey: OVERLAY_KEY,
+      source: 'submitted',
+      obtainedAt: 'now'
+    })
+    const d = deps({ ...anchor, cover: async (): Promise<CoverResult> => ({ ok: false, reason: 'uncovered_ancestor' }) })
+
+    await expect(postTokenStep(d, (await store.getSettlement(TIP))!, step)).resolves.toBe('success')
+    expect(d.submitted).toEqual([])
+    expect(d.broadcasts).toEqual([TIP])
+    expect((await store.getSettlement(TIP))?.state).toBe('broadcast')
+  })
+
+  it('still walks COVER when the tip’s cached σ_I does not verify', async () => {
+    const settlement = await seed('handed_over', 'sent')
+    await store.advanceSettlement(TIP, ['handed_over'], 'admitted')
+    await store.putAdmission({
+      txid: TIP,
+      outputsToAdmit: [0],
+      signatureHex: Utils.toHex(Array.from(signAdmission(TIP, [0], PrivateKey.fromHex('44'.repeat(32))))),
+      signerKey: OVERLAY_KEY,
+      source: 'submitted',
+      obtainedAt: 'now'
+    })
+    const d = deps({ ...anchor, cover: async (): Promise<CoverResult> => ({ ok: false, reason: 'uncovered_ancestor' }) })
+
+    await expect(postTokenStep(d, (await store.getSettlement(TIP))!, step)).resolves.toBe('serviceError')
+    expect(d.broadcasts).toEqual([])
+    void settlement
+  })
+
   /** Cache one admission for ANCESTOR, exactly as a bundle or a submit would. */
   const cacheAdmission = async (signature: Uint8Array, signerKey = OVERLAY_KEY, outputsToAdmit = [0]) =>
     await store.putAdmission({

@@ -8,6 +8,7 @@ describe('runWalletCheck', () => {
       checkBackup: async () => ({ enabled: true, uploaded: true }),
       checkPhraseBackup: async () => ({ backedUp: true }),
       reviewSpendable: async () => (order.push('coins'), { released: 2, recovered: 0 }),
+      reviewTokens: async () => (order.push('tokens'), { settled: 0, removed: 1, unattested: 0 }),
       checkProofs: async () => (order.push('proofs'), { repaired: 1 }),
       reviewStatus: async () => (order.push('records-status'), { failedTxs: 1, restoredInputs: 1 }),
       releaseStuck: async () => (order.push('records-release'), { released: 0 }),
@@ -18,9 +19,9 @@ describe('runWalletCheck', () => {
     const summary = await runWalletCheck(ports, id => steps.push(id))
     // Coins last: it is the only step that can take minutes, so everything
     // quick has reported before the user is left waiting on anything.
-    expect(order).toEqual(['records-status', 'records-release', 'proofs', 'inbox', 'sweep', 'coins'])
-    expect(steps).toEqual(['online', 'records', 'proofs', 'backup', 'phrase_backup', 'missed_payments', 'coins'])
-    expect(summary.freedCoins).toBe(3) // 2 released UTXOs + 1 restored input
+    expect(order).toEqual(['records-status', 'records-release', 'tokens', 'proofs', 'inbox', 'sweep', 'coins'])
+    expect(steps).toEqual(['online', 'records', 'tokens', 'proofs', 'backup', 'phrase_backup', 'missed_payments', 'coins'])
+    expect(summary.freedCoins).toBe(4) // 2 released UTXOs + 1 restored input + 1 removed token tx
     expect(summary.recoveredPayments).toBe(1)
     expect(summary.repairedProofs).toBe(1)
     expect(summary.allOk).toBe(true)
@@ -37,6 +38,7 @@ describe('runWalletCheck', () => {
         order.push('coins')
         throw new Error('offline')
       },
+      reviewTokens: async () => (order.push('tokens'), { settled: 0, removed: 0, unattested: 0 }),
       checkProofs: async () => (order.push('proofs'), { repaired: 0 }),
       reviewStatus: async () => (order.push('records-status'), { failedTxs: 0, restoredInputs: 0 }),
       releaseStuck: async () => (order.push('records-release'), { released: 0 }),
@@ -46,7 +48,7 @@ describe('runWalletCheck', () => {
     const summary = await runWalletCheck(ports, () => {})
     // Coins last: it is the only step that can take minutes, so everything
     // quick has reported before the user is left waiting on anything.
-    expect(order).toEqual(['records-status', 'records-release', 'proofs', 'inbox', 'sweep', 'coins'])
+    expect(order).toEqual(['records-status', 'records-release', 'tokens', 'proofs', 'inbox', 'sweep', 'coins'])
     expect(summary.allOk).toBe(false)
     expect(summary.steps.find(s => s.id === 'coins')?.status).toBe('error')
     expect(summary.steps.find(s => s.id === 'proofs')?.status).toBe('ok')
@@ -61,6 +63,7 @@ describe('checks that report a state rather than a failure', () => {
     checkBackup: async () => ({ enabled: true, uploaded: true }),
     checkPhraseBackup: async () => ({ backedUp: true }),
     reviewSpendable: async () => ({ released: 0, recovered: 0 }),
+    reviewTokens: async () => ({ settled: 0, removed: 0, unattested: 0 }),
     checkProofs: async () => ({ repaired: 0 }),
     reviewStatus: async () => ({ failedTxs: 0, restoredInputs: 0 }),
     releaseStuck: async () => ({ released: 0 }),
@@ -70,10 +73,34 @@ describe('checks that report a state rather than a failure', () => {
   const statusOf = (r: { steps: { id: string; status: string }[] }, id: string) =>
     r.steps.find(s => s.id === id)?.status
 
+  it('marks unattested tokens as attention, not error', async () => {
+    const r = await runWalletCheck(
+      { ...healthy, reviewTokens: async () => ({ settled: 0, removed: 0, unattested: 2 }) },
+      () => {}
+    )
+    expect(statusOf(r, 'tokens')).toBe('attention')
+    expect(r.allOk).toBe(true)
+    expect(r.allClear).toBe(false)
+  })
+
+  it('marks an unreachable token overlay (throwing port) as error', async () => {
+    const r = await runWalletCheck(
+      {
+        ...healthy,
+        reviewTokens: async () => {
+          throw new Error('overlay down')
+        }
+      },
+      () => {}
+    )
+    expect(statusOf(r, 'tokens')).toBe('error')
+    expect(r.allOk).toBe(false)
+  })
+
   it('marks offline as attention, not error, and still runs everything after it', async () => {
     const r = await runWalletCheck({ ...healthy, checkOnline: async () => ({ online: false }) }, () => {})
     expect(statusOf(r, 'online')).toBe('attention')
-    expect(r.steps).toHaveLength(7)
+    expect(r.steps).toHaveLength(8)
     expect(r.allOk).toBe(true)
     expect(r.allClear).toBe(false)
   })
@@ -126,6 +153,7 @@ describe('skipping a check', () => {
     checkBackup: async () => ({ enabled: true, uploaded: true }),
     checkPhraseBackup: async () => ({ backedUp: true }),
     reviewSpendable: async () => ({ released: 0, recovered: 0 }),
+    reviewTokens: async () => ({ settled: 0, removed: 0, unattested: 0 }),
     checkProofs: async () => ({ repaired: 0 }),
     reviewStatus: async () => ({ failedTxs: 0, restoredInputs: 0 }),
     releaseStuck: async () => ({ released: 0 }),
@@ -213,7 +241,7 @@ describe('skipping a check', () => {
 
   it('does not call a run clear when nothing was actually checked', async () => {
     const c = controller()
-    for (const id of ['online', 'records', 'proofs', 'missed_payments', 'backup', 'phrase_backup', 'coins']) {
+    for (const id of ['online', 'records', 'tokens', 'proofs', 'missed_payments', 'backup', 'phrase_backup', 'coins']) {
       c.skip(id)
     }
     const r = await runWalletCheck(base, () => {}, () => {}, c.skips)
@@ -235,7 +263,7 @@ describe('skipping a check', () => {
 
   it('runs every step when nothing is skipped', async () => {
     const r = await runWalletCheck(base, () => {}, () => {}, controller().skips)
-    expect(r.steps.map(s => s.status)).toEqual(Array(7).fill('ok'))
+    expect(r.steps.map(s => s.status)).toEqual(Array(8).fill('ok'))
     expect(r.allClear).toBe(true)
   })
 })

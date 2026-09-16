@@ -2836,3 +2836,205 @@ describe('ensureAdmissionsForHoldings — every held coin carries a verified σ_
     expect(await runtime.store.getAdmission(bareTx.id('hex'))).toBeUndefined()
   })
 })
+
+
+describe('reviewTokenHoldings — Check Wallet asks the overlay about every settling row and held coin', () => {
+  const SENT_TXID = '77'.repeat(32)
+
+  function checkStorage(reqs: FakeReq[] = [], outputs: { outputId: number; txid: string; vout: number }[] = []) {
+    const updateTransactionStatus = jest.fn(async () => undefined)
+    const updateOutput = jest.fn(async () => 1)
+    const storage = {
+      ...(fakeStorage(db, reqs) as unknown as Record<string, unknown>),
+      findTransactions: async ({ partial }: { partial: { txid?: string } }) =>
+        partial.txid === SENT_TXID || outputs.some(o => o.txid === partial.txid)
+          ? [{ transactionId: 41, txid: partial.txid, status: 'nosend' }]
+          : [],
+      findOutputs: async ({ partial }: { partial: { txid?: string; vout?: number } }) =>
+        outputs.filter(o => o.txid === partial.txid && (partial.vout === undefined || o.vout === partial.vout)),
+      updateTransactionStatus,
+      updateOutput
+    } as unknown as StorageExpoSQLite
+    return { storage, updateTransactionStatus, updateOutput }
+  }
+
+  async function sentRow(runtime: MandalaRuntime, state: 'handed_over' | 'built' = 'handed_over') {
+    await runtime.store.upsertSettlement({
+      txid: SENT_TXID,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state,
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY,
+      amountBaseUnits: 40
+    })
+  }
+
+  it('a settling row the overlay refused is closed as refused and its transaction failed', async () => {
+    const { storage, updateTransactionStatus } = checkStorage()
+    const runtime = build({ storage })
+    await sentRow(runtime)
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({ kind: 'refused', code: 'ERR_INPUT_SPENT' })
+
+    const r = await runtime.reviewTokenHoldings()
+    expect(r).toEqual({ settled: 0, removed: 1, unattested: 0, unreachable: false })
+    expect((await runtime.store.getSettlement(SENT_TXID))?.state).toBe('refused')
+    expect((await runtime.store.getSettlement(SENT_TXID))?.refusedCode).toBe('ERR_INPUT_SPENT')
+    expect(updateTransactionStatus).toHaveBeenCalledWith('failed', 41)
+  })
+
+  it('an evicted row is closed as orphaned', async () => {
+    const { storage, updateTransactionStatus } = checkStorage()
+    const runtime = build({ storage })
+    await sentRow(runtime)
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({ kind: 'evicted' })
+
+    expect((await runtime.reviewTokenHoldings()).removed).toBe(1)
+    expect((await runtime.store.getSettlement(SENT_TXID))?.state).toBe('orphaned')
+    expect(updateTransactionStatus).toHaveBeenCalledWith('failed', 41)
+  })
+
+  it('a row the overlay has never heard of is reported, never removed', async () => {
+    const { storage, updateTransactionStatus } = checkStorage()
+    const runtime = build({ storage })
+    await sentRow(runtime)
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue(undefined)
+
+    const r = await runtime.reviewTokenHoldings()
+    expect(r).toEqual({ settled: 0, removed: 0, unattested: 1, unreachable: false })
+    expect((await runtime.store.getSettlement(SENT_TXID))?.state).toBe('handed_over')
+    expect(updateTransactionStatus).not.toHaveBeenCalled()
+  })
+
+  it('an unreachable overlay writes nothing and says so', async () => {
+    const { storage, updateTransactionStatus } = checkStorage()
+    const runtime = build({ storage })
+    await sentRow(runtime)
+    ;(libFetchAdmission as jest.Mock).mockRejectedValue(new Error('ECONNREFUSED'))
+
+    const r = await runtime.reviewTokenHoldings()
+    expect(r.unreachable).toBe(true)
+    expect(r.removed).toBe(0)
+    expect(updateTransactionStatus).not.toHaveBeenCalled()
+  })
+
+  it('never touches a built/parked row — the user owns those', async () => {
+    const { storage } = checkStorage()
+    const runtime = build({ storage })
+    await sentRow(runtime, 'built')
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({ kind: 'refused', code: 'ERR_X' })
+
+    expect(await runtime.reviewTokenHoldings()).toEqual({ settled: 0, removed: 0, unattested: 0, unreachable: false })
+    expect(libFetchAdmission).not.toHaveBeenCalled()
+  })
+
+  it('a row whose step settles now counts as settled', async () => {
+    const tip = rootTx(40)
+    const txid = tip.id('hex')
+    const { storage } = checkStorage([{ txid, rawTx: tip.toBinary(), status: 'completed' }])
+    const runtime = build({ storage, broadcast: async () => 'success' })
+    await runtime.store.upsertSettlement({
+      txid,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state: 'admitted',
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY
+    })
+    await runtime.store.putAdmission({
+      txid,
+      outputsToAdmit: [0],
+      signatureHex: signAdmission(txid, [0]),
+      signerKey: OVERLAY_KEY,
+      source: 'fetched',
+      obtainedAt: new Date().toISOString()
+    })
+
+    expect((await runtime.reviewTokenHoldings()).settled).toBe(1)
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('broadcast')
+  })
+
+  it('a held coin the overlay admitted for a DIFFERENT output is made unspendable', async () => {
+    const coin = rootTx(100)
+    const txid = coin.id('hex')
+    const { storage, updateOutput, updateTransactionStatus } = checkStorage([], [{ outputId: 7, txid, vout: 0 }])
+    const runtime = build({ storage }, [{ tx: coin, vout: 0 }])
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({
+      kind: 'admitted',
+      txid,
+      outputsToAdmit: [1],
+      signature: signAdmission(txid, [1]),
+      signerKey: OVERLAY_KEY,
+      at: Date.now()
+    })
+
+    expect((await runtime.reviewTokenHoldings()).removed).toBe(1)
+    expect(updateOutput).toHaveBeenCalledWith(7, { spendable: false })
+    expect(updateTransactionStatus).not.toHaveBeenCalled()
+  })
+
+  it('a held coin whose transaction the overlay refused has that transaction failed', async () => {
+    const coin = rootTx(100)
+    const txid = coin.id('hex')
+    const { storage, updateTransactionStatus } = checkStorage([], [{ outputId: 7, txid, vout: 0 }])
+    const runtime = build({ storage }, [{ tx: coin, vout: 0 }])
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({ kind: 'refused', code: 'ERR_INPUT_SPENT' })
+
+    expect((await runtime.reviewTokenHoldings()).removed).toBe(1)
+    expect(updateTransactionStatus).toHaveBeenCalledWith('failed', 41)
+  })
+
+  it('a held coin with a verified admission covering it needs no lookup', async () => {
+    const coin = rootTx(100)
+    const txid = coin.id('hex')
+    const { storage, updateOutput } = checkStorage([], [{ outputId: 7, txid, vout: 0 }])
+    const runtime = build({ storage }, [{ tx: coin, vout: 0 }])
+    await runtime.store.putAdmission({
+      txid,
+      outputsToAdmit: [0],
+      signatureHex: signAdmission(txid, [0]),
+      signerKey: OVERLAY_KEY,
+      source: 'fetched',
+      obtainedAt: new Date().toISOString()
+    })
+
+    expect(await runtime.reviewTokenHoldings()).toEqual({ settled: 0, removed: 0, unattested: 0, unreachable: false })
+    expect(libFetchAdmission).not.toHaveBeenCalled()
+    expect(updateOutput).not.toHaveBeenCalled()
+  })
+
+  it('a held coin the overlay does not know is reported as unattested and kept', async () => {
+    const coin = rootTx(100)
+    const txid = coin.id('hex')
+    const { storage, updateOutput } = checkStorage([], [{ outputId: 7, txid, vout: 0 }])
+    const runtime = build({ storage }, [{ tx: coin, vout: 0 }])
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue(undefined)
+
+    expect((await runtime.reviewTokenHoldings()).unattested).toBe(1)
+    expect(updateOutput).not.toHaveBeenCalled()
+  })
+
+  it('a held coin the overlay admits is cached, like ensureAdmissionsForHoldings', async () => {
+    const coin = rootTx(100)
+    const txid = coin.id('hex')
+    const { storage } = checkStorage([], [{ outputId: 7, txid, vout: 0 }])
+    const runtime = build({ storage }, [{ tx: coin, vout: 0 }])
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({
+      kind: 'admitted',
+      txid,
+      outputsToAdmit: [0],
+      signature: signAdmission(txid, [0]),
+      signerKey: OVERLAY_KEY,
+      at: Date.now()
+    })
+
+    expect(await runtime.reviewTokenHoldings()).toEqual({ settled: 0, removed: 0, unattested: 0, unreachable: false })
+    expect((await runtime.store.getAdmission(txid))?.source).toBe('fetched')
+  })
+
+  it('does nothing on a chain with no Mandala', async () => {
+    const { storage } = checkStorage()
+    const runtime = build({ storage, chain: 'test', endpoints: undefined })
+    expect(await runtime.reviewTokenHoldings()).toEqual({ settled: 0, removed: 0, unattested: 0, unreachable: false })
+  })
+})
