@@ -67,6 +67,11 @@ jest.mock('../../ui/resolveIdentity', () => ({
   identityLabel: jest.fn(() => undefined)
 }))
 
+// The BSV spendable line under the amount field sources its own figure; on
+// the token path the field is handed the token figure as text instead, and
+// this stub keeps the BSV read from ever touching the dummy wallet below.
+jest.mock('../../ui/hooks/useSpendableBalance', () => ({ useSpendableBalance: () => 50_000 }))
+
 // The scanner is a Modal-hosted camera view under the hood; the mock is a
 // plain component that stashes its `onScan` so a test can drive it directly,
 // exactly the seam a payee's real hand-over pipeline drives it from.
@@ -476,5 +481,228 @@ describe('NearbyFlow — the token path', () => {
     // (on the second payment) handed over.
     expect(runtime.onTokenHandedOver).toHaveBeenNthCalledWith(1, {}, 'd'.repeat(64), 'parked')
     expect(runtime.onTokenHandedOver).toHaveBeenNthCalledWith(2, {}, 'd'.repeat(64), 'handed_over')
+  })
+  // ── An OPEN token request: the payee named the asset but left the figure to the payer ──
+
+  const openTokenSession = (): Session =>
+    mintSession({
+      identityKey: PAYEE_IDENTITY,
+      asset: ASSET,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+
+  it('an open token request takes the payer’s figure in the asset’s own units, never satoshis', async () => {
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf()] })
+    )
+    await settle()
+    // The field is in USDX: a two-decimal placeholder, the ticker as its unit
+    // label, and the payer's own USDX holding under it — nothing satoshi-shaped.
+    expect(s.getByPlaceholderText('0.00')).toBeTruthy()
+    expect(s.getByText('USDX')).toBeTruthy()
+    expect(s.queryByText(/sats|satoshi/i)).toBeNull()
+    expect(s.getByText('1,240.00')).toBeTruthy()
+
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25.00')
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    // 25.00 USDX is 2,500 base units on the wire — not the 25 a satoshi field
+    // would have read off the same keystrokes.
+    expect(mockBuildPaymentFrame).toHaveBeenCalledTimes(1)
+    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(2500)
+  })
+
+  it('Max on an open token request writes the payer’s real holding, not the satoshi send-max sentinel', async () => {
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf(USDX, 124000)] })
+    )
+    await settle()
+    fireEvent.press(s.getByText('send_max'))
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(mockBuildPaymentFrame).toHaveBeenCalledTimes(1)
+    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(124000)
+  })
+  it('a QR hand-over confirmed with Done writes the token receipt, then this payer’s own submit — never "1 satoshi"', async () => {
+    // The fountain rail: no ack payload, no σ_I to read back — the receipt is
+    // the figure in USDX and "settling", and the immediate submit runs only
+    // once the hold has the row.
+    const netinfo = jest.requireMock('@react-native-community/netinfo') as { default: { fetch: jest.Mock } }
+    netinfo.default.fetch.mockResolvedValue({ isConnected: true, isInternetReachable: true, type: 'wifi' })
+    mockFinalizeDelivery.mockImplementation(
+      async (
+        _wallet: unknown,
+        built: { txid?: string },
+        ack: { ok: boolean },
+        _originator: unknown,
+        deps: { hold: (txid: string) => Promise<void> }
+      ) => {
+        if (ack.ok && built.txid) await deps.hold(built.txid)
+        return { kind: 'sent', broadcast: 'ok' }
+      }
+    )
+    const runtime = makeFakeMandala({ balances: [balanceOf()], settleNow: 'admitted' })
+    const session: Session = mintSession({
+      identityKey: PAYEE_IDENTITY,
+      amount: 2500,
+      asset: ASSET,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+    const s = wrap(<NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />, runtime)
+    await settle()
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('done'))
+      await new Promise(resolve => setImmediate(resolve))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+
+    // The receipt: the token figure and its settlement sentence, and not the
+    // 1 satoshi the token output itself carries.
+    expect(s.getByText('25.00 USDX')).toBeTruthy()
+    expect(s.queryByText(/sats|satoshi/i)).toBeNull()
+    await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
+    // ack (Done) → hold → submit, in that order, same as the radio rail.
+    expect(mockHoldSentPaymentOffline).toHaveBeenCalled()
+    expect(runtime.settleNow).toHaveBeenCalledWith('d'.repeat(64))
+    expect(mockHoldSentPaymentOffline.mock.invocationCallOrder[0]).toBeLessThan(
+      runtime.settleNow.mock.invocationCallOrder[0]
+    )
+  })
+  it('refuses more than the payer holds of the asset, in the asset’s own words, before any build', async () => {
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf(USDX, 124000)] })
+    )
+    await settle()
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '5000.00')
+    expect(s.getByLabelText('local_pay_send').props.accessibilityState.disabled).toBe(true)
+    expect(s.getByText('pay_asset_over_balance:USDX')).toBeTruthy()
+    // Back within the holding: the refusal goes, the button comes back.
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '1240.00')
+    expect(s.getByLabelText('local_pay_send').props.accessibilityState.disabled).toBe(false)
+    expect(s.queryByText('pay_asset_over_balance:USDX')).toBeNull()
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+  // ── Which side names the unit ──
+
+  it('a holding the wallet could not identify never overrides the unit the payee resolved', async () => {
+    // Offline cold start: the runtime fabricates ''/0 for a holding whose
+    // registry lookup failed. The session's own USDX/2 must still govern —
+    // a typed 25.00 is 2,500 base units, not 25.
+    const unidentified = { ...USDX, ticker: '', label: '', decimals: 0 }
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf(unidentified, 124000)] })
+    )
+    await settle()
+    expect(s.getByText('USDX')).toBeTruthy()
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25.00')
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(2500)
+  })
+
+  it('the wallet’s own resolved decimals win over what the payee’s QR claims', async () => {
+    // A request claiming 4 decimals for an asset this wallet knows has 2:
+    // 2,500 base units is 25.00 USDX, and that is what the confirm shows.
+    const session: Session = mintSession({
+      identityKey: PAYEE_IDENTITY,
+      amount: 2500,
+      asset: { ...ASSET, decimals: 4 },
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf()] })
+    )
+    await settle()
+    expect(s.getByText('25.00 USDX')).toBeTruthy()
+    expect(s.queryByText('0.2500 USDX')).toBeNull()
+  })
+
+  it('refuses to send when neither side can name the unit, rather than offering an unlabelled field', async () => {
+    const session: Session = mintSession({
+      identityKey: PAYEE_IDENTITY,
+      asset: { id: ASSET.id, overlayUrl: ASSET.overlayUrl, overlayIdentityKey: ASSET.overlayIdentityKey },
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+    const unidentified = { ...USDX, ticker: '', label: '', decimals: 0 }
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf(unidentified, 124000)] })
+    )
+    await settle()
+    expect(s.getByText('pay_asset_unidentified')).toBeTruthy()
+    fireEvent.changeText(s.getByPlaceholderText('0'), '25')
+    expect(s.getByLabelText('local_pay_send').props.accessibilityState.disabled).toBe(true)
+  })
+
+  it('shows no balance line at all for a token this wallet does not hold', async () => {
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [] })
+    )
+    await settle()
+    expect(s.getByText('USDX')).toBeTruthy()
+    expect(s.queryByText(/available/)).toBeNull()
+  })
+  it('clears a typed figure when the resolved unit moves underneath it', async () => {
+    // The session says USDX/2; the payer types 25.00 before this wallet's own
+    // holding has resolved. The holding then lands at 4 decimals and wins —
+    // the field must not keep "25.00" while emitting 2,500 base units of a
+    // 4-decimal unit (0.2500 USDX).
+    const runtime = makeFakeMandala({ balances: [] })
+    const s = wrap(<NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />, runtime)
+    await settle()
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25.00')
+    expect(s.getByPlaceholderText('0.00').props.value).toBe('25.00')
+    runtime.balances.mockResolvedValue([balanceOf({ ...USDX, decimals: 4 }, 1240000)])
+    await act(async () => {
+      runtime.emit()
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    await waitFor(() => expect(s.getByPlaceholderText('0.0000')).toBeTruthy())
+    expect(s.getByPlaceholderText('0.0000').props.value).toBe('')
+    expect(s.getByLabelText('local_pay_send').props.accessibilityState.disabled).toBe(true)
+  })
+  it('a payee-named figure in a unit nobody can name is not printed as a bare number', async () => {
+    const session: Session = mintSession({
+      identityKey: PAYEE_IDENTITY,
+      amount: 2500,
+      asset: { id: ASSET.id, overlayUrl: ASSET.overlayUrl, overlayIdentityKey: ASSET.overlayIdentityKey },
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+    const unidentified = { ...USDX, ticker: '', label: '', decimals: 0 }
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf(unidentified, 124000)] })
+    )
+    await settle()
+    expect(s.getByText('token_row_amount_pending')).toBeTruthy()
+    expect(s.queryByText(/2,500/)).toBeNull()
+    expect(s.getByText('pay_asset_unidentified')).toBeTruthy()
+    expect(s.getByLabelText('local_pay_send').props.accessibilityState.disabled).toBe(true)
   })
 })
