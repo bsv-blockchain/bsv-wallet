@@ -91,7 +91,11 @@ describe('tokenFrameSourcesFromPending', () => {
     // Pin the premise: the pending queue really would abandon this one.
     expect(isPendingExhausted(exhausted as never)).toBe(true)
 
-    expect(tokenFrameSourcesFromPending([exhausted])).toEqual([{ txid, role: 'received', frame: exhausted.frame }])
+    // `amountBaseUnits` is read off the tip's own script, so a row re-derived
+    // here carries the figure the activity list prints (2026-09-16).
+    expect(tokenFrameSourcesFromPending([exhausted])).toEqual([
+      { txid, role: 'received', frame: exhausted.frame, amountBaseUnits: 100 }
+    ])
   })
 
   it('skips a plain BSV frame and an unreadable one', () => {
@@ -121,7 +125,7 @@ describe('tokenFrameSourcesFromOfflineActions', () => {
 
   it('opens what the caller can decrypt and keeps the row’s own role', () => {
     expect(tokenFrameSourcesFromOfflineActions([row()], () => frame())).toEqual([
-      { txid, role: 'sent', frame: frame(), state: undefined }
+      { txid, role: 'sent', frame: frame(), state: undefined, amountBaseUnits: 100 }
     ])
   })
 

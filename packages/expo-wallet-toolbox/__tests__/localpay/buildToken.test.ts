@@ -20,7 +20,7 @@ import {
 } from '../../core/localpay/build'
 import { FRAME_VERSION, decodeFrame, encodeFrame } from '../../core/localpay/codec'
 import { mintSession, type Session } from '../../core/localpay/session'
-import { MANDALA_BASKET, type BundleStore } from '../../core/mandala/bundle'
+import { MANDALA_ACTION_LABEL, MANDALA_BASKET, type BundleStore } from '../../core/mandala/bundle'
 import { FT_PROTOCOL_ID } from '../../core/localpay/verify'
 import type { TokenAdmissionRow } from '../../core/mandala/types'
 
@@ -225,6 +225,21 @@ describe('buildPaymentFrame: token path', () => {
     await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())
     const args = wallet.createAction.mock.calls[0][0] as { options: unknown }
     expect(args.options).toEqual({ randomizeOutputs: false, noSend: true, signAndProcess: false })
+  })
+
+  // The home screen recognises a token row by the 'mandala' label alone — the
+  // same label the lib's own handle-rail transfer writes. Without it a nearby
+  // stablecoin payment rendered as a BSV row: the payee's abbreviated key over
+  // "+0 sats", instead of "Sent USDX" over the token figure (2026-09-16). The
+  // payee key stays on as a label too, for the resend path.
+  it('labels the action as a token transfer, beside the rail and the payee key', async () => {
+    const { wallet } = setup()
+    const s = tokenSession()
+    await buildPaymentFrame(wallet as never, s, 'admin.com', 250, deps())
+    const args = wallet.createAction.mock.calls[0][0] as { labels: string[]; description: string }
+    expect(args.labels).toContain(MANDALA_ACTION_LABEL)
+    expect(args.labels).toContain(s.identityKey)
+    expect(args.description).toBe('Sent token')
   })
 
   it('finalizes through signAction with the token inputs it signed, still noSend', async () => {

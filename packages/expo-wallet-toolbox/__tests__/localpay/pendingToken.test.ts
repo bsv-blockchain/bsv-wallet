@@ -16,7 +16,7 @@ import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { MandalaToken } from '@bsv/templates'
 import { processPending, savePending, PEERPAY_LABEL, type KVStorage } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
-import { MANDALA_BASKET } from '../../core/mandala/bundle'
+import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../../core/mandala/bundle'
 import { SESSION_VERSION } from '../../core/localpay/session'
 
 const ASSET = 'ab'.repeat(32) + '.0'
@@ -100,6 +100,10 @@ describe('processPending: token credit', () => {
     expect(args.outputs[0].protocol).toBe('basket insertion')
     expect(args.outputs[0].insertionRemittance?.basket).toBe(MANDALA_BASKET)
     expect(args.labels).toContain(PEERPAY_LABEL)
+    // The home screen recognises a token row by this label alone; without it a
+    // received stablecoin rendered as a BSV row — the sender's abbreviated key
+    // over "+0 sats" (2026-09-16).
+    expect(args.labels).toContain(MANDALA_ACTION_LABEL)
   })
 
   // The toolbox forces the derivation fields undefined on the basket-insertion

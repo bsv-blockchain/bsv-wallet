@@ -26,7 +26,8 @@
  * frame here, the settlement row stays alive, and the row is abandoned only by
  * an explicit `refused`/`orphaned` verdict from the overlay.
  */
-import { Beef } from '@bsv/sdk'
+import { Beef, Transaction } from '@bsv/sdk'
+import { MandalaToken } from '@bsv/templates'
 import type { EvidenceFrame, TokenFrameSource } from '../mandala/drain'
 import type { OfflineActionRow } from '../storage/methods/offlineActions'
 import { frameBytesFromQr, unsealFrame } from '../localpay/codec'
@@ -41,6 +42,28 @@ export interface PendingLike {
  * The subject txid of an AtomicBEEF — the same txid `internalizeAction` used
  * internally, and therefore the one a `token_settlements` row is keyed by.
  */
+/**
+ * The token figure a frame moves: the amount in the PAYEE output's own script.
+ *
+ * Read off the atomic transaction rather than trusted from any body, and off
+ * `outputIndex` (0 when the frame does not say — the nearby build never
+ * randomises outputs) so the payer's own frame answers the payee's figure and
+ * never the change. `undefined` for anything that is not a readable token
+ * output: the settlement row then has no amount, which the activity list says
+ * out loud rather than inventing a number.
+ */
+export function frameTokenAmount(frame: EvidenceFrame): number | undefined {
+  try {
+    const tx = Transaction.fromAtomicBEEF(Array.from(frame.transaction))
+    const script = tx.outputs[frame.outputIndex ?? 0]?.lockingScript
+    if (!script) return undefined
+    const amount = MandalaToken.decode(script).amount
+    return Number.isFinite(amount) && amount >= 0 ? amount : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function frameTxid(frame: EvidenceFrame): string | undefined {
   try {
     return Beef.fromBinary(frame.transaction).atomicTxid
@@ -59,7 +82,13 @@ export function tokenFrameSourcesFromPending(entries: readonly PendingLike[]): T
     if (!entry.frame?.token) continue
     const txid = frameTxid(entry.frame)
     if (!txid) continue
-    sources.push({ txid, role: 'received', frame: entry.frame })
+    const amountBaseUnits = frameTokenAmount(entry.frame)
+    sources.push({
+      txid,
+      role: 'received',
+      frame: entry.frame,
+      ...(amountBaseUnits !== undefined ? { amountBaseUnits } : {})
+    })
   }
   return sources
 }
@@ -83,13 +112,15 @@ export function tokenFrameSourcesFromOfflineActions(
       continue
     }
     if (!frame?.token) continue
+    const amountBaseUnits = frameTokenAmount(frame)
     sources.push({
       txid: row.txid,
       role: row.role,
       frame,
       // A parked row must keep its own state: it is the user's, not the
       // drain's, and reconciliation may not promote it to a submittable one.
-      state: row.status === 'parked' ? 'parked' : undefined
+      state: row.status === 'parked' ? 'parked' : undefined,
+      ...(amountBaseUnits !== undefined ? { amountBaseUnits } : {})
     })
   }
   return sources

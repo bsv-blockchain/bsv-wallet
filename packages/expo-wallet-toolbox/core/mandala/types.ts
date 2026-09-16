@@ -176,6 +176,13 @@ export interface EvidenceFrame {
    * drain re-derives rows from frames it has only the token block of.
    */
   senderIdentityKey?: string
+  /**
+   * Which output of the atomic transaction is the payee's. Present on every
+   * `PaymentFrame`; optional here because the drain re-derives rows from frames
+   * it has only the token block of. Read as 0 when absent — the nearby build
+   * never randomises outputs, so the payee's is always the first.
+   */
+  outputIndex?: number
   token?: EvidenceTokenBlock
   /** AtomicBEEF. The only place the edge graph can come from, offline. */
   transaction: Uint8Array
@@ -269,3 +276,15 @@ export const STUCK_AFTER_MS = 3 * 24 * 60 * 60 * 1000
  * offline-settlement-final.md §8 for the rationale.
  */
 export const MANDALA_BASKET = 'p mandala'
+
+/**
+ * The action label every token transfer carries, on every rail.
+ *
+ * `@bsv/mandala`'s own `transferTokens` / `receiveTokens` write it, and the
+ * home screen recognises a token row by it ALONE — by label, not by holdings,
+ * so a user who sends their last coin keeps the denomination across their
+ * history. The nearby rail's token actions have to write the same label, or
+ * they render as BSV rows: the counterparty's abbreviated key over "+0 sats"
+ * (2026-09-16).
+ */
+export const MANDALA_ACTION_LABEL = 'mandala'

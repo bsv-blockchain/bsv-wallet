@@ -68,7 +68,7 @@ import { getPending, type KVStorage, type TokenCreditedHook } from '../localpay/
 import type { PaymentFrame } from '../localpay/codec'
 import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
-import { tokenFrameSourcesFromOfflineActions, tokenFrameSourcesFromPending } from '../offline/tokenFrames'
+import { frameTokenAmount, tokenFrameSourcesFromOfflineActions, tokenFrameSourcesFromPending } from '../offline/tokenFrames'
 import type { CoverBundle, CoverVerifier } from './bundle'
 import { assembleBundle } from './bundle'
 import {
@@ -998,8 +998,47 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       }
       return { kind: 'admitted', outputsToAdmit: admitted.outputsToAdmit, signatureHex, signerKey }
     } catch (e) {
+      if (isEmptyAdmittedSet(e)) return await resolveEmptyAdmittedSet(txid)
       return verdictFromError(e)
     }
+  }
+
+  /**
+   * The overlay engine's answer for a transaction it has ALREADY applied.
+   *
+   * `Engine.submit` short-circuits a txid its storage already holds for the
+   * topic (`doesAppliedTransactionExist` → `isDupe`) and puts an EMPTY
+   * `outputsToAdmit` in the STEAK; the lib has no verdict shape for that and
+   * throws a bare `Error('overlay rejected the transaction')`. On a phone that
+   * is the ordinary shop case, not an edge: the payee had signal, its drain
+   * submitted and broadcast the tip first, and the payer's own optional
+   * submit (rule 6) arrives second. Read as a plain fault — which is what
+   * `verdictFromError` makes of every unstructured throw — it stalled the
+   * payer's queue row at 'queued' on every single tick, while the transaction
+   * was already on chain (2026-09-16).
+   *
+   * Matched by message because the lib gives nothing else to match; a
+   * structured `OverlayRefusedError` never takes this path.
+   */
+  const isEmptyAdmittedSet = (e: unknown): boolean =>
+    asOverlayRefusal(e) === undefined && /overlay rejected the transaction/i.test(messageOf(e))
+
+  /**
+   * An empty admitted set is not a verdict, so the verdict is fetched instead:
+   * `GET /admin/admission/:txid`, FIX-H-verified against the configured key.
+   * An admission on record settles the row exactly as a fresh σ_I would; a
+   * refusal or eviction on record is the final verdict it always was; and
+   * nothing on record (or an unreachable lookup) stays retryable, under a code
+   * of its own so the stall is recognisable in a log.
+   */
+  const resolveEmptyAdmittedSet = async (txid: string): Promise<OverlayVerdict> => {
+    const onRecord = await fetchAdmission(overlayUrl, txid)
+    if (onRecord === undefined || onRecord.kind === 'unavailable') {
+      devLog(`[mandala] /submit of ${txid} admitted nothing and no admission is on record; the step is retried next pass`)
+      return { kind: 'unavailable', code: 'ERR_EMPTY_ADMISSION', retryable: true }
+    }
+    devLog(`[mandala] /submit of ${txid} admitted nothing; the overlay's record says '${onRecord.kind}'`)
+    return onRecord
   }
 
   /**
@@ -1759,6 +1798,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       assetId: token.assetId,
       state: existing?.state ?? 'held',
       counterpartyKey: frame.senderIdentityKey,
+      // The figure the activity row prints, off the payee output's own script.
+      // Without it a nearby row rendered as "+0 sats" (2026-09-16).
+      amountBaseUnits: frameTokenAmount(frame),
       overlayUrl,
       overlayIdentityKey,
       createdAt: existing?.createdAt
@@ -1799,6 +1841,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       role: 'sent',
       assetId: token.assetId,
       state: existing?.state ?? state,
+      // Output 0 of the payer's own frame is the PAYEE's, never the change —
+      // `frameTokenAmount` reads `outputIndex`, and the nearby build does not
+      // randomise outputs. This is what the activity row prints as "Sent <ticker>".
+      amountBaseUnits: frameTokenAmount(frame),
       overlayUrl,
       overlayIdentityKey,
       // The nearby rail's half of the abort guard: the action that built this

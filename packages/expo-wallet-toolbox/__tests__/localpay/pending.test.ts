@@ -17,7 +17,6 @@ import {
   updateStatus
 } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
-import { abbreviateKey } from '../../core/pay/counterparty'
 import { Transaction, Beef, LockingScript } from '@bsv/sdk'
 
 function fakeStorage() {
@@ -225,17 +224,19 @@ describe('localpay pending queue', () => {
     expect(await getPending(s)).toEqual([])
   })
 
-  // The description is what the activity list shows as the row title, and the
-  // list recovers the counterparty from outputs.senderIdentityKey rather than
-  // from a label, so the label carries only the rail marker.
-  it('describes the internalized action by the abbreviated sender key and labels it with the rail only', async () => {
+  // The description is what the activity list shows as the row title. It
+  // names what happened, not who: nearby transfers are blinded, so the
+  // sender key it used to carry told the user nothing (2026-09-16). The list
+  // still recovers the counterparty face from outputs.senderIdentityKey rather
+  // than from a label, so the label carries only the rail marker.
+  it('describes the internalized action as a received BSV payment and labels it with the rail only', async () => {
     const s = fakeStorage()
     const f = frame()
     await savePending(s, f)
     const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
     await processPending(wallet as never, s, 'admin.com')
     const [args, originator] = wallet.internalizeAction.mock.calls[0]
-    expect(args.description).toBe(abbreviateKey(f.senderIdentityKey))
+    expect(args.description).toBe('Received BSV')
     expect(args.labels).toEqual([PEERPAY_LABEL])
     expect(originator).toBe('admin.com')
   })

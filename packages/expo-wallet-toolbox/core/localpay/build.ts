@@ -15,9 +15,8 @@ import { isRequestableAmount, type Session } from './session'
 import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
 import { FT_PROTOCOL_ID } from './verify'
 import type { Ack } from './types'
-import { MANDALA_BASKET, assembleBundle, type BundleStore } from '../mandala/bundle'
+import { MANDALA_ACTION_LABEL, MANDALA_BASKET, assembleBundle, type BundleStore } from '../mandala/bundle'
 import { getOnline } from '../net/online'
-import { abbreviateKey } from '../pay/counterparty'
 
 /** The toolbox's per-txid verdict on a `sendWith` release. */
 type SendWithStatus = 'unproven' | 'sending' | 'failed'
@@ -278,9 +277,11 @@ export async function buildPaymentFrame(
 
   let result = await wallet.createAction(
     {
-      // The activity list uses the description as the row title, so it names
-      // the payee rather than the rail: the rail is already in the label.
-      description: abbreviateKey(session.identityKey),
+      // The activity list uses the description as the row title, so it says
+      // what happened. Not the payee's key: the row draws the counterparty as
+      // a sigil from the label below, and an abbreviated key as a title told
+      // the user nothing about a blinded transfer (2026-09-16).
+      description: 'Sent BSV',
       // The payee's identity key rides as a label, and the derivation data as
       // the output's customInstructions — exactly what the handle rail writes.
       // Both rails derive to BRC-29 (`counterparty: identityKey`, keyID
@@ -545,8 +546,14 @@ async function buildTokenPaymentFrame(
 
   const created = await wallet.createAction(
     {
-      description: abbreviateKey(session.identityKey),
-      labels: [PEERPAY_LABEL, session.identityKey],
+      // Same title discipline as the BSV path; the activity row overrides it
+      // with "Sent <ticker>" from the settlement row anyway. The 'mandala'
+      // label is what makes that override happen: the home screen recognises
+      // a token row by that label alone, and without it a nearby token payment
+      // rendered as a BSV row — the payee's key over "+0 sats" (2026-09-16).
+      // The payee key stays on as a label for the resend path.
+      description: 'Sent token',
+      labels: [PEERPAY_LABEL, session.identityKey, MANDALA_ACTION_LABEL],
       inputBEEF: sourceBeef.toBinary(),
       inputs: selected.map(coin => ({
         outpoint: coin.outpoint,

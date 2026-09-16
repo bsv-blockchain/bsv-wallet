@@ -1,8 +1,7 @@
 import { Beef } from '@bsv/sdk'
 import type { PaymentFrame } from './codec'
-import { MANDALA_BASKET } from '../mandala/bundle'
+import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../mandala/bundle'
 import { isRetriableInternalizeFailure } from '../mandala/drain'
-import { abbreviateKey } from '../pay/counterparty'
 
 export const PENDING_KEY = 'localpay_pending'
 /**
@@ -421,10 +420,15 @@ export async function processPending(
           tx: Array.from(p.frame.transaction),
           outputs: [internalizeOutput(p.frame)],
           // The activity list uses the description as the row title, so it
-          // names the payer. The counterparty itself is recovered from
-          // outputs.senderIdentityKey, which is why the label stays rail-only.
-          description: abbreviateKey(p.frame.senderIdentityKey),
-          labels: [PEERPAY_LABEL]
+          // says what happened — never who: a nearby transfer is blinded, so
+          // the payer's key it used to carry told the user nothing. The
+          // counterparty face is recovered from outputs.senderIdentityKey,
+          // which is why the rail label carries no key. A token frame ALSO
+          // carries the lib's own 'mandala' label: it is how the home screen
+          // recognises a token row, and without it a received stablecoin
+          // rendered as a BSV row over "+0 sats" (2026-09-16).
+          description: p.frame.kind === 'token' ? 'Received token' : 'Received BSV',
+          labels: p.frame.kind === 'token' ? [PEERPAY_LABEL, MANDALA_ACTION_LABEL] : [PEERPAY_LABEL]
         },
         originator
       )

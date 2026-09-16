@@ -33,7 +33,7 @@ import { MandalaToken } from '@bsv/templates'
 import type { PaymentFrame } from '../localpay/codec'
 import type { AdmissionEntryWire, CoverResult, SettlementStore } from './types'
 
-export { MANDALA_BASKET } from './types'
+export { MANDALA_ACTION_LABEL, MANDALA_BASKET } from './types'
 
 /**
  * The read side of the settlement store this walk needs.

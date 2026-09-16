@@ -972,6 +972,69 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     })
   })
 
+  // The overlay engine answers a transaction it has ALREADY applied with an
+  // EMPTY admitted set (`isDupe`), and the lib reports that as a bare
+  // "overlay rejected the transaction". That is the ordinary shop case — the
+  // payee had signal and submitted first — and it is an admission on record,
+  // not a refusal and not a fault. Read as a plain fault it stalled the payer's
+  // queue row at 'queued' on every tick (2026-09-16). So it is resolved
+  // through GET /admin/admission/:txid, and only that lookup decides.
+  it('an empty admitted set is resolved as an admission already on record (the payee submitted first)', async () => {
+    const signature = signAdmission(tipTxid, [0])
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({
+      kind: 'admitted',
+      txid: tipTxid,
+      outputsToAdmit: [0],
+      signature,
+      signerKey: OVERLAY_KEY,
+      at: Date.now()
+    })
+    const runtime = runtimeWith({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [], coinsToRetain: [] } })
+    })
+    expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
+      kind: 'admitted',
+      outputsToAdmit: [0],
+      signatureHex: signature,
+      signerKey: OVERLAY_KEY
+    })
+    expect(libFetchAdmission).toHaveBeenCalledWith(ENDPOINTS.overlayUrl, tipTxid, {})
+  })
+
+  it('an empty admitted set with nothing on record stays retryable, under its own code', async () => {
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue(undefined)
+    const runtime = runtimeWith({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [] } })
+    })
+    expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
+      kind: 'unavailable',
+      code: 'ERR_EMPTY_ADMISSION',
+      retryable: true
+    })
+  })
+
+  it('an empty admitted set beside a FINAL verdict on record reports that verdict', async () => {
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({
+      kind: 'refused',
+      code: 'ERR_INPUT_SPENT',
+      spendTxid: 'aa'.repeat(32)
+    })
+    const runtime = runtimeWith({
+      ok: true,
+      status: 200,
+      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [] } })
+    })
+    expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
+      kind: 'refused',
+      code: 'ERR_INPUT_SPENT',
+      spendTxid: 'aa'.repeat(32)
+    })
+  })
+
   it('anything that is not a structured refusal is unavailable', () => {
     expect(verdictFromError(new Error('boom'))).toMatchObject({ kind: 'unavailable', retryable: true })
   })
@@ -1786,6 +1849,9 @@ describe('onTokenHeld — the receiver’s row, written before the credit', () =
     expect(row?.role).toBe('received')
     expect(row?.assetId).toBe(ASSET_ID)
     expect(row?.counterpartyKey).toBe(PAYER)
+    // The figure the activity row prints, read off the tip's own script: a
+    // nearby row with no amount rendered as "+0 sats" (2026-09-16).
+    expect(row?.amountBaseUnits).toBe(60)
     // Never the frame's: the row is what later tells recovery where to ask.
     expect(row?.overlayUrl).toBe(ENDPOINTS.overlayUrl)
     expect(row?.overlayIdentityKey).toBe(OVERLAY_KEY)
@@ -1884,6 +1950,8 @@ describe('onTokenHandedOver — the payer’s row, written while the frame is st
     expect(parked?.overlayUrl).toBe(ENDPOINTS.overlayUrl)
     // The payer's own (blinded) key is on the frame; it is not the payee.
     expect(parked?.counterpartyKey).toBeUndefined()
+    // The payee's output, index 0 on the payer's own frame — never the change.
+    expect(parked?.amountBaseUnits).toBe(40)
 
     await runtime.onTokenHandedOver(tokenFrame({ tip }), txid, 'handed_over')
     expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')

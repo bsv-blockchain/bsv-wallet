@@ -1,7 +1,6 @@
 import { broadcastPayment, buildPaymentFrame, finalizeDelivery } from '../../core/localpay/build'
 import { mintSession } from '../../core/localpay/session'
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
-import { abbreviateKey } from '../../core/pay/counterparty'
 
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
 
@@ -55,15 +54,16 @@ describe('buildPaymentFrame', () => {
     expect(args.labels).toContain(s.identityKey)
   })
 
-  // The activity list shows the action description as the row title. A fixed
-  // 'nearby device' string made every nearby payment look identical; the
-  // abbreviated payee key is what lets two of them be told apart.
-  it('describes the action by the abbreviated payee key so the activity row names the counterparty', async () => {
+  // The activity list shows the action description as the row title. It names
+  // what happened — the counterparty is drawn from the identity-key label as a
+  // sigil, and its abbreviated key as a title told the user nothing about a
+  // blinded transfer (2026-09-16).
+  it('describes the action as a sent BSV payment', async () => {
     const w = walletStub()
     const s = session()
     await buildPaymentFrame(w as never, s, 'admin.com', 777)
     const args = w.createAction.mock.calls[0][0]
-    expect(args.description).toBe(abbreviateKey(s.identityKey))
+    expect(args.description).toBe('Sent BSV')
   })
 
   it('writes the derivation data as customInstructions so a resend can rebuild the token', async () => {
