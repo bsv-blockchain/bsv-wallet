@@ -5,11 +5,11 @@
  *
  *  · a wallet that has never held a token renders EXACTLY today's screen —
  *    "You have", no Balances block, no extra row;
- *  · the moment one is held, the hero's label becomes "Your BSV", because the
- *    hero is the fee balance and must not read as the answer to "how much money
- *    do I have" — but (2026-09-15 maintainer decision) there is no Balances
- *    block or per-asset sheet at all any more: holdings are visible in the Pay
- *    asset picker and in the activity list, not on Home.
+ *  · the moment one is held, the hero's label becomes "Your BSV ⌄" — a coin
+ *    switcher (design 1b, 2026-09-15). Its drawer lists BSV and every held
+ *    token; picking one swaps the hero figure, filters the activity list to
+ *    that coin, and arms Pay / Get paid with it, so the Pay screen never has
+ *    to ask the asset question again.
  *
  * The barrel mock mirrors walletHomeVaultGate.test.tsx — WalletHomeScreen pulls
  * in the whole wallet surface — plus the Mandala runtime on the context, which
@@ -18,7 +18,7 @@
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 import { WalletHomeScreen } from '../../ui/screens/WalletHomeScreen'
-import { balanceOf, makeFakeMandala, settlementRow, USDX } from '../__mocks__/fakeMandalaRuntime'
+import { activityRow, balanceOf, EURX, makeFakeMandala, settlementRow, USDX } from '../__mocks__/fakeMandalaRuntime'
 
 const IDENTITY = '02' + 'a'.repeat(64)
 const mockRouter = { push: jest.fn(), replace: jest.fn() }
@@ -44,6 +44,12 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     formatAmountParts: () => ({ integer: '0', fraction: '', unit: 'BSV' }),
     formatAmount: () => '0',
     formatSatoshisAsBsvDecimal: () => '0',
+    // The activity tests mount a storage on this chain so the list actually
+    // loads; these are what the screen touches on a mounted storage.
+    getOutboxEntries: async () => [],
+    unsentEntries: () => [],
+    listPendingResendRequests: async () => [],
+    loadUnansweredResends: async () => [],
     TaskCreditInbox: { lastAttentionCount: 0 },
     TaskSendOffline: { lastStall: null },
     isBackupPushEnabled: async () => true,
@@ -78,7 +84,20 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 jest.mock('../../ui/components/wallet/BackupReminderSheet', () => ({ BackupReminderSheet: () => null }))
 jest.mock('../../ui/components/wallet/BiometricAdvisoryModal', () => ({ BiometricAdvisoryModal: () => null }))
 jest.mock('../../ui/components/wallet/ImportFromBackupPrompt', () => ({ ImportFromBackupPrompt: () => null }))
-jest.mock('../../ui/components/wallet/ActivityRow', () => () => null)
+jest.mock('../../ui/components/wallet/ActivityRow', () => {
+  const React = require('react')
+  const { Text } = require('react-native')
+  return ({ action, token }: any) =>
+    React.createElement(Text, {}, `row:${action.txid}:${token ? token.amount.unit : 'BSV'}`)
+})
+jest.mock('../../ui/components/ui/Sheet', () => {
+  const React = require('react')
+  const { View } = require('react-native')
+  return {
+    __esModule: true,
+    default: ({ visible, children }: any) => (visible ? React.createElement(View, {}, children) : null)
+  }
+})
 jest.mock('../../ui/components/security/WalletLockNotice', () => () => null)
 jest.mock('../../ui/components/pay/OfflineNotice', () => () => null)
 jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => false }))
@@ -137,7 +156,8 @@ beforeEach(() => {
     managers: {
       permissionsManager: {
         getPublicKey: jest.fn(async () => ({ publicKey: IDENTITY })),
-        listOutputs: jest.fn(async () => ({ totalOutputs: 0 }))
+        listOutputs: jest.fn(async () => ({ totalOutputs: 0 })),
+        listActions: jest.fn(async () => ({ totalActions: 0, actions: [] }))
       }
     },
     adminOriginator: 'admin.test',
@@ -172,17 +192,119 @@ describe('WalletHomeScreen without stablecoins', () => {
 })
 
 describe('WalletHomeScreen holding a stablecoin', () => {
-  test('swaps the hero label, with no Balances block anywhere on the screen', async () => {
+  test('swaps the hero label into a closed coin switcher: no drawer, no per-asset rows, until tapped', async () => {
     mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()] })
     const screen = render(<WalletHomeScreen />)
     await settle()
     expect(screen.getByText('wallet_balance_your_bsv')).toBeTruthy()
     expect(screen.queryByText('wallet_balance_you_have')).toBeNull()
-    // No Balances block, no per-asset row, no asset sheet (2026-09-15
-    // maintainer decision) — holdings live in the Pay asset picker instead.
     expect(screen.queryByText('token_balances_header')).toBeNull()
     expect(screen.queryByText('Acme Dollar')).toBeNull()
-    expect(screen.queryByLabelText('1,240.00 USDX')).toBeNull()
+  })
+
+  test('the drawer lists BSV and every held coin, and picking one swaps the hero to that figure', async () => {
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf(), balanceOf(EURX, 5000)] })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    expect(screen.getByText('Acme Dollar')).toBeTruthy()
+    expect(screen.getByText('Euro Coin')).toBeTruthy()
+    expect(screen.getByLabelText('1,240.00 USDX')).toBeTruthy()
+    fireEvent.press(screen.getByText('Acme Dollar'))
+    await settle()
+    expect(screen.getByText('wallet_balance_your_asset:USDX')).toBeTruthy()
+    expect(screen.queryByText('wallet_balance_your_bsv')).toBeNull()
+    // The hero is the token figure; the line under it is the asset's full
+    // name, never a conversion — the wallet has no price for a token (ux §6.1).
+    expect(screen.getByLabelText('wallet_balance_refresh').props.accessibilityValue).toEqual({
+      text: '1,240.00 USDX'
+    })
+    expect(screen.getAllByText('Acme Dollar').length).toBeGreaterThan(0)
+    expect(screen.queryByText('0 BSV   ·   0')).toBeNull()
+    // The drawer closed on the pick.
+    expect(screen.queryByText('Euro Coin')).toBeNull()
+  })
+
+  test('Pay and Get paid carry the chosen coin so the Pay screen never asks again', async () => {
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()] })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByText('pay_direction_pay'))
+    expect(mockRouter.push).toHaveBeenLastCalledWith('/pay')
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    fireEvent.press(screen.getByText('Acme Dollar'))
+    await settle()
+    fireEvent.press(screen.getByText('pay_direction_pay'))
+    expect(mockRouter.push).toHaveBeenLastCalledWith(`/pay?asset=${encodeURIComponent(USDX.assetId)}`)
+    fireEvent.press(screen.getByText('pay_direction_receive'))
+    expect(mockRouter.push).toHaveBeenLastCalledWith(
+      `/pay?direction=get&asset=${encodeURIComponent(USDX.assetId)}`
+    )
+  })
+
+  test('falls back to BSV when the chosen coin is no longer held', async () => {
+    const runtime = makeFakeMandala({ balances: [balanceOf()] })
+    mockWallet.mandala = runtime
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    fireEvent.press(screen.getByText('Acme Dollar'))
+    await settle()
+    expect(screen.getByText('wallet_balance_your_asset:USDX')).toBeTruthy()
+    runtime.balances.mockResolvedValue([])
+    await act(async () => runtime.emit())
+    await settle()
+    expect(screen.getByText('wallet_balance_you_have')).toBeTruthy()
+  })
+
+  test('the activity list follows the coin: BSV hides token rows, a token shows only its own', async () => {
+    const BSV_TX = '1'.repeat(64)
+    const USDX_TX = '2'.repeat(64)
+    const EURX_TX = '3'.repeat(64)
+    mockWallet.storage = { chain: 'main' }
+    mockWallet.managers.permissionsManager.listActions = jest.fn(async () => ({
+      totalActions: 3,
+      actions: [
+        { txid: BSV_TX, satoshis: 100, labels: [], created_at: '2026-09-15T10:00:00Z' },
+        { txid: USDX_TX, satoshis: -50, labels: ['mandala'], created_at: '2026-09-15T09:00:00Z' },
+        { txid: EURX_TX, satoshis: -50, labels: ['mandala'], created_at: '2026-09-15T08:00:00Z' }
+      ]
+    }))
+    mockWallet.mandala = makeFakeMandala({
+      balances: [balanceOf(), balanceOf(EURX, 5000)],
+      activity: [
+        activityRow({ txid: USDX_TX, asset: USDX, role: 'sent' }),
+        activityRow({ txid: EURX_TX, asset: EURX, role: 'sent' })
+      ]
+    })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    expect(screen.getByText(`row:${BSV_TX}:BSV`)).toBeTruthy()
+    expect(screen.queryByText(`row:${USDX_TX}:USDX`)).toBeNull()
+    expect(screen.queryByText(`row:${EURX_TX}:EURX`)).toBeNull()
+
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    fireEvent.press(screen.getByText('Euro Coin'))
+    await settle()
+    expect(screen.getByText(`row:${EURX_TX}:EURX`)).toBeTruthy()
+    expect(screen.queryByText(`row:${BSV_TX}:BSV`)).toBeNull()
+    expect(screen.queryByText(`row:${USDX_TX}:USDX`)).toBeNull()
+  })
+
+  test('says which coin has no activity yet, rather than "no transactions"', async () => {
+    mockWallet.storage = { chain: 'main' }
+    mockWallet.managers.permissionsManager.listActions = jest.fn(async () => ({
+      totalActions: 1,
+      actions: [{ txid: '1'.repeat(64), satoshis: 100, labels: [], created_at: '2026-09-15T10:00:00Z' }]
+    }))
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()] })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    fireEvent.press(screen.getByText('Acme Dollar'))
+    await settle()
+    expect(screen.getByText('wallet_activity_empty_asset:USDX')).toBeTruthy()
+    expect(screen.queryByText('no_transactions')).toBeNull()
   })
 
   test('surfaces a payment that has been waiting to settle', async () => {

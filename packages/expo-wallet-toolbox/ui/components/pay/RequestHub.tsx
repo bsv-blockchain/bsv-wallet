@@ -12,7 +12,6 @@ import { ScrollView, StyleSheet, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 
 import PayCellRow from './PayCellRow'
-import AssetPicker from './AssetPicker'
 import { ConsequenceNote, PayAmountField, PayField } from './PayForm'
 import { spacing } from '@bsv/expo-wallet-toolbox'
 import type { TokenAssetStatus, TokenBalance } from '../../../core/mandala/runtime'
@@ -31,8 +30,9 @@ export interface RequestHubProps {
   online: boolean
   /** Held assets; empty means no picker and today's screen. */
   balances?: TokenBalance[]
-  /** `null` is BSV. */
+  /** `null` is BSV. Chosen upstream (Home's coin switcher, or a deep link). */
   selectedAssetId?: string | null
+  /** Kept for callers that still pass it; the hub no longer offers a picker. */
   onSelectAsset?: (assetId: string | null) => void
   /**
    * Regulatory/registry facts for `selectedAssetId`, from the caller's own
@@ -57,7 +57,6 @@ export default function RequestHub({
   online,
   balances = [],
   selectedAssetId = null,
-  onSelectAsset,
   assetStatus = null
 }: RequestHubProps) {
   const { t } = useTranslation()
@@ -65,22 +64,9 @@ export default function RequestHub({
   const asset = holding?.asset ?? null
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      {balances.length > 0 && onSelectAsset && (
-        <PayField labelKey="pay_asset_label_get">
-          <AssetPicker
-            balances={balances}
-            selected={selectedAssetId}
-            onSelect={id => {
-              onSelectAsset(id)
-              // The figure means something different in the new unit.
-              onChangeRequestSats('')
-            }}
-            // A payee's own balance says nothing about what they are asking
-            // for, and printing it here would imply it did.
-            showFigures={false}
-          />
-        </PayField>
-      )}
+      {/* No "Getting paid in" picker here (design 1b, 2026-09-15): the coin
+          was chosen on Home's switcher and arrives as `selectedAssetId`; the
+          amount field's unit is what says which money is being asked for. */}
 
       {/* No max button and no balance line: this asks the PAYER for money, so
           the requester's own balance is meaningless here. */}

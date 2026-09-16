@@ -31,7 +31,6 @@ import ResultBanner from './ResultBanner'
 import RecipientField from './RecipientField'
 import { useMessageBoxConfig } from './MessageBoxConfig'
 import { useRecipientInput, type RecipientTarget, type PeerPayRequest } from './useRecipientInput'
-import AssetPicker from './AssetPicker'
 import { tokenSendCopy, tokenThrowCopy, type TokenSendCopy } from './tokenSendCopy'
 import { useAssetStatus, useMandala } from '../../hooks/useMandala'
 import { useSpendableBalance } from '../../hooks/useSpendableBalance'
@@ -948,27 +947,11 @@ function UniversalSend({
         />
       </PayField>
 
-      {/* Paying with — after the recipient, before the amount (2026-09-15
-          maintainer decision on form order). It still has to resolve before
-          the amount is asked: it decides the unit of the figure, the
-          available balance shown under it, and which of the recipient shapes
-          just chosen is even legal for a token (D4, above). Absent when
-          nothing is held. */}
-      {balances.length > 0 && (
-        <PayField labelKey="pay_asset_label">
-          <AssetPicker
-            balances={balances}
-            selected={assetId}
-            onSelect={id => {
-              // The typed figure means something different in the new unit;
-              // its unit tag hides it the moment the selection moves.
-              setAssetId(id)
-              setTokenFailure(null)
-            }}
-            bsvBalanceText={spendableSats == null ? null : String(spendableSats)}
-          />
-        </PayField>
-      )}
+      {/* No "Paying with" picker here (design 1b, 2026-09-15): the coin is
+          chosen once, on Home's switcher, and arrives as `selectedAssetId`.
+          It still decides the unit of the figure, the available balance under
+          it, and which recipient shapes are legal for a token (D4, above) —
+          and a peerpay link naming an asset still moves it. */}
 
       <PayAmountField
         value={sendAmount}

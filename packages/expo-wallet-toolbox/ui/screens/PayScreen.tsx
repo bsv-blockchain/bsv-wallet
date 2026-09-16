@@ -543,7 +543,13 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {/* The screen names what it is doing: the direction, or the rail/method once one is live. */}
           {direction === 'pay'
-            ? t(nearbySession ? 'pay_cell_nearby_pay' : 'pay_direction_pay')
+            ? nearbySession
+              ? t('pay_cell_nearby_pay')
+              : asset
+                ? // The coin was chosen on Home; this is the one place the
+                  // Pay screen says which one it is armed with.
+                  t('pay_direction_pay_asset', { ticker: asset.ticker })
+                : t('pay_direction_pay')
             : t(method ? METHOD_TITLE_KEYS[method] : 'local_pay_request')}
         </Text>
         <View style={styles.headerBtn} />

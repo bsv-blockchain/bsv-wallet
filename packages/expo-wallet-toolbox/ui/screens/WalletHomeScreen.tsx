@@ -89,7 +89,8 @@ import { useMandala, useTokenActivity, tokenActivityByTxid } from '../hooks/useM
 import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
 import { tokenStatusKey } from '../tokenStatus'
-import { formatTokenAmount } from '../tokenFormat'
+import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
+import CoinSwitcherSheet from '../components/wallet/CoinSwitcherSheet'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
@@ -303,7 +304,15 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     } finally {
       creatingWalletRef.current = false
     }
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, createMnemonic, buildWalletFromMnemonic, router])
+  }, [
+    managers.permissionsManager,
+    secretsReady,
+    walletBuilding,
+    hasStoredIdentity,
+    createMnemonic,
+    buildWalletFromMnemonic,
+    router
+  ])
 
   const [pendingDestination, setPendingDestination] = useState<string | null>(null)
   const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
@@ -1026,10 +1035,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // The rest pass through the grace filter: online, a payment the drain is
   // about to post says nothing worth reading, and the banner appearing for the
   // half second before it lands reads as a fault that is not there.
-  const queued = useMemo(
-    () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked'),
-    [offlineRows]
-  )
+  const queued = useMemo(() => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked'), [offlineRows])
   const { shown: queuedShown, nextCheckMs } = useMemo(
     // graceNonce is a dependency only: it carries no value into the call, it
     // just re-runs it once a young row has aged past the grace.
@@ -1054,6 +1060,29 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const tokenActivity = useTokenActivity()
   const tokenByTxid = useMemo(() => tokenActivityByTxid(tokenActivity.rows), [tokenActivity.rows])
   const seenEvictions = useSeenSet(SEEN_EVICTIONS_KEY)
+  /** True the moment any token balance exists — the gate for the coin switcher. */
+  const hasTokens = (mandala.balances?.length ?? 0) > 0
+
+  // ── the coin on screen ──────────────────────────────────────────────
+  /**
+   * Which money the screen is showing (design 1b, 2026-09-15): `null` is BSV,
+   * the default and the only coin a wallet with no token ever shows. Picked in
+   * the switcher the hero label opens; it decides the hero figure, which
+   * activity rows are listed, and what Pay / Get paid are armed with — so the
+   * Pay screen never asks the asset question a second time.
+   */
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const heldAsset = useMemo(
+    () => (selectedAssetId ? (mandala.balances?.find(b => b.asset.assetId === selectedAssetId) ?? null) : null),
+    [selectedAssetId, mandala.balances]
+  )
+  // A coin that is no longer held (spent to zero, or a wallet switch) falls
+  // back to BSV. `balances === null` is UNKNOWN, not "holds nothing", and
+  // decides nothing.
+  useEffect(() => {
+    if (selectedAssetId && mandala.balances && !heldAsset) setSelectedAssetId(null)
+  }, [selectedAssetId, mandala.balances, heldAsset])
 
   /**
    * Money that left without a sentence. `showAlert`, once per transaction —
@@ -1097,6 +1126,15 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const pushPay = useCallback((sats?: number) => {
     router.push(sats && sats > 0 ? `/pay?sats=${sats}` : '/pay')
   }, [])
+  /** `/pay` for the coin on screen: a token rides along as `?asset=`, BSV needs nothing. */
+  const payDestination = useCallback(
+    (direction: 'pay' | 'get') => {
+      const base = direction === 'get' ? '/pay?direction=get' : '/pay'
+      if (!heldAsset) return base
+      return `${base}${direction === 'get' ? '&' : '?'}asset=${encodeURIComponent(heldAsset.asset.assetId)}`
+    },
+    [heldAsset]
+  )
   const { onRequestAgain, onCopyDetails, onDismiss, onSendAgain } = useOfflineNoticeActions({
     storage,
     permissionsManager: managers.permissionsManager,
@@ -1109,7 +1147,32 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   })
 
   // ── rows ────────────────────────────────────────────────────────────
-  const rows = useMemo(() => withDayHeaders(actions, t), [actions, t])
+  /**
+   * The activity list follows the coin on screen. A token shows only its own
+   * transfers; BSV, once a token is held, hides them — a "Sent USDX" row under
+   * a BSV figure would read as BSV leaving. A wallet with no token filters
+   * nothing, and lists exactly what it listed before any of this existed.
+   * Token rows are recognised by LABEL, not by holdings, like `renderItem`.
+   */
+  const visibleActions = useMemo(() => {
+    if (!hasTokens) return actions
+    if (heldAsset) {
+      return actions.filter(
+        a => !!a.txid && tokenByTxid.get(a.txid.toLowerCase())?.asset.assetId === heldAsset.asset.assetId
+      )
+    }
+    return actions.filter(a => !a.labels?.includes('mandala'))
+  }, [actions, hasTokens, heldAsset, tokenByTxid])
+  const rows = useMemo(() => withDayHeaders(visibleActions, t), [visibleActions, t])
+
+  // A filtered page can come up short — or empty — while the server still has
+  // more, and a list too short to scroll never fires onEndReached. Keep
+  // paging until the visible list is a page long or the history is spent.
+  useEffect(() => {
+    if (!hasTokens || loading || loadingMore || actions.length === 0) return
+    if (visibleActions.length >= PAGE_SIZE || exhaustedRef.current) return
+    void loadMore()
+  }, [hasTokens, loading, loadingMore, actions.length, visibleActions.length, loadMore])
 
   /** Cancel a parked payment: abort the action so the inputs come back, and
    * retire its queue row. Refuses once the counterparty has broadcast. */
@@ -1231,7 +1294,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
 
   // ── header (balance + the three destinations + activity heading) ─────
   const balanceParts = useMemo(
-    () => (balance === null ? null : formatAmountParts(balance, currency, satoshisPerUSD, { abbreviate: true, usdToFiat })),
+    () =>
+      balance === null ? null : formatAmountParts(balance, currency, satoshisPerUSD, { abbreviate: true, usdToFiat }),
     [balance, currency, satoshisPerUSD, usdToFiat]
   )
 
@@ -1255,36 +1319,67 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    * answer to "how much do I have" and the way to pay were both a scroll back
    * up. Everything below them still scrolls with the activity it describes.
    */
-  /** True the moment any token balance exists — the gate for the label swap. */
-  const hasTokens = (mandala.balances?.length ?? 0) > 0
+  /** The hero figure: the token on screen, or the BSV balance. `null` is UNKNOWN. */
+  const heroParts = heldAsset ? tokenAmountParts(heldAsset.baseUnits, heldAsset.asset) : balanceParts
+  const heroText = heroParts ? `${heroParts.value} ${heroParts.unit}`.trim() : undefined
 
   const pinnedHeader = useMemo(
     () => (
       <View>
         <TouchableOpacity
-          onPress={() => void refreshBalance()}
+          onPress={() => {
+            void refreshBalance()
+            if (heldAsset) mandala.refresh()
+          }}
           activeOpacity={0.7}
           style={styles.balanceBlock}
           accessibilityLabel={t('wallet_balance_refresh')}
+          accessibilityValue={heroText ? { text: heroText } : undefined}
         >
-          {/* One conditional word. A holder with 1,240.00 USDX and no BSV must
-              not read "You have / 0 sats" at display size with their real money
-              in body text below — and the hero keeps the slot because it IS the
-              fee balance, which gates every token send. */}
-          <Text style={[styles.balanceLabel, { color: colors.textTertiary }]}>
-            {t(hasTokens ? 'wallet_balance_your_bsv' : 'wallet_balance_you_have')}
-          </Text>
-          {balanceParts === null ? (
+          {/* With a token held the label IS the coin switcher (design 1b): a
+              pill naming the coin on screen, with a chevron. Without one it is
+              the plain "You have" of today's screen — a holder with 1,240.00
+              USDX and no BSV must not read "You have / 0 sats" at display size
+              with their real money elsewhere. */}
+          {hasTokens ? (
+            <TouchableOpacity
+              onPress={() => setSwitcherOpen(true)}
+              activeOpacity={0.6}
+              hitSlop={8}
+              style={[
+                styles.coinPill,
+                { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={t('wallet_coin_switcher')}
+            >
+              <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>
+                {heldAsset
+                  ? t('wallet_balance_your_asset', { ticker: heldAsset.asset.ticker })
+                  : t('wallet_balance_your_bsv')}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={colors.textSecondary} />
+            </TouchableOpacity>
+          ) : (
+            <Text style={[styles.balanceLabel, { color: colors.textTertiary }]}>{t('wallet_balance_you_have')}</Text>
+          )}
+          {heroParts === null ? (
             <ActivityIndicator color={colors.textSecondary} style={styles.balanceSpinner} />
           ) : (
             <>
               <Text style={[styles.balance, { color: colors.textPrimary }]}>
-                {balanceParts.value}
-                {balanceParts.unit ? (
-                  <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}> {balanceParts.unit}</Text>
+                {heroParts.value}
+                {heroParts.unit ? (
+                  <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}> {heroParts.unit}</Text>
                 ) : null}
               </Text>
-              <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>{balanceContext}</Text>
+              {/* Conversions are BSV's alone: the wallet has no price for a
+                  token, and a converted figure would be invented (ux §6.1).
+                  A token uses the line for its full name instead, so "1,240.00
+                  USDX" is never a ticker the holder has to decode. */}
+              <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>
+                {heldAsset ? heldAsset.asset.label || heldAsset.asset.issuerName || '' : balanceContext}
+              </Text>
             </>
           )}
         </TouchableOpacity>
@@ -1294,7 +1389,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         <View style={styles.destinations}>
           <PressableScale
             haptic="confirm"
-            onPress={() => destinationPress('/pay')}
+            onPress={() => destinationPress(payDestination('pay'))}
             style={[styles.dest, styles.destPrimary, { backgroundColor: colors.accent }]}
           >
             <MaterialCommunityIcons name="arrow-top-right" size={19} color={colors.textOnAccent} />
@@ -1305,7 +1400,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
 
           <PressableScale
             haptic="confirm"
-            onPress={() => destinationPress('/pay?direction=get')}
+            onPress={() => destinationPress(payDestination('get'))}
             style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
           >
             <MaterialCommunityIcons name="arrow-bottom-left" size={19} color={colors.textPrimary} />
@@ -1332,7 +1427,23 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         </View>
       </View>
     ),
-    [balanceParts, balanceContext, colors, t, refreshBalance, router, selectedNetwork, hasTokens]
+    [
+      heroParts,
+      heroText,
+      balanceContext,
+      colors,
+      t,
+      refreshBalance,
+      router,
+      selectedNetwork,
+      hasTokens,
+      heldAsset,
+      mandala,
+      payDestination,
+      destinationPress,
+      Ionicons,
+      MaterialCommunityIcons
+    ]
   )
 
   /** The issuer a single stuck row is waiting on, when it can be named. */
@@ -1551,7 +1662,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                 </PressableScale>
               </View>
             ) : (
-              <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('no_transactions')}</Text>
+              <Text style={[styles.empty, { color: colors.textSecondary }]}>
+                {heldAsset
+                  ? t('wallet_activity_empty_asset', { ticker: heldAsset.asset.ticker })
+                  : t('no_transactions')}
+              </Text>
             )
           }
           onEndReached={loadMore}
@@ -1617,6 +1732,19 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         visible={!hasWallet && secretsReady && !walletBuilding && knownNoStoredIdentity}
         onImport={() => router.push('/auth/mnemonic?flow=import')}
       />
+
+      {/* Mounted only once a token is held: a wallet without one keeps today's tree. */}
+      {hasTokens && (
+        <CoinSwitcherSheet
+          visible={switcherOpen}
+          onClose={() => setSwitcherOpen(false)}
+          balances={mandala.balances ?? []}
+          selected={heldAsset ? heldAsset.asset.assetId : null}
+          onSelect={setSelectedAssetId}
+          bsv={balanceParts}
+          bsvContext={balanceContext}
+        />
+      )}
     </View>
   )
 }
@@ -1657,6 +1785,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 0.2
+  },
+  // The switcher pill: a raised capsule around the label, so the label reads
+  // as a control without competing with the figure under it.
+  coinPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingLeft: 14,
+    paddingRight: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth
   },
   balanceSpinner: { marginTop: spacing.md },
   // tabular-nums keeps the figure from jittering as digits change.

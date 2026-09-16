@@ -1,9 +1,9 @@
 /**
  * Paying in a stablecoin.
  *
- * What these pin is the asset axis and the refusals around it: the picker only
- * exists when something is held, the amount is typed and emitted in the asset's
- * own units, an address is refused inline without erasing what was typed, the
+ * What these pin is the asset axis and the refusals around it: the asset is
+ * chosen upstream (Home's coin switcher, or a link) and the forms show no
+ * picker of their own, the amount is typed and emitted in the asset's own units, an address is refused inline without erasing what was typed, the
  * CTA names the exact figure, and every failure's copy comes from the classifier
  * rather than from whatever string the overlay happened to return.
  */
@@ -299,8 +299,9 @@ describe('RequestHub with an asset selected', () => {
       />
     )
 
-  it('asks what to be paid in, above the amount', () => {
-    expect(drawHub(null).getByText('pay_asset_label_get')).toBeTruthy()
+  it('offers no picker of its own: the coin was chosen on Home (design 1b)', () => {
+    expect(drawHub(null).queryByText('pay_asset_label_get')).toBeNull()
+    expect(drawHub(USDX.assetId).queryByText('pay_asset_label_get')).toBeNull()
   })
 
   it('disables the address row with a plain reason rather than removing it', () => {
@@ -344,6 +345,13 @@ describe('AdmissionNotice', () => {
 })
 
 describe('UniversalSend with stablecoins', () => {
+  /** The form is up and the runtime's holdings have landed (nothing on screen announces that any more). */
+  const held = async (s: ReturnType<typeof render>) => {
+    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await act(async () => {
+      await new Promise(resolve => setImmediate(resolve))
+    })
+  }
   const drawSend = (runtime: ReturnType<typeof makeFakeMandala> | null, props = {}) =>
     render(
       <ThemeProvider>
@@ -365,16 +373,18 @@ describe('UniversalSend with stablecoins', () => {
     expect(s.queryByText('pay_asset_label')).toBeNull()
   })
 
-  it('offers the asset once something is held', async () => {
+  it('offers no picker even when something is held: the coin was chosen on Home (design 1b)', async () => {
     const s = drawSend(makeFakeMandala())
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await held(s)
+    expect(s.queryByText('pay_asset_label')).toBeNull()
+    const labels = s.getAllByText(/^(recipient|pay_asset_label|amount)$/).map(el => el.props.children)
+    expect(labels).toEqual(['recipient', 'amount'])
   })
 
-  it('orders the form Recipient, then Paying with, then Amount (2026-09-15 maintainer decision)', async () => {
-    const s = drawSend(makeFakeMandala())
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
-    const labels = s.getAllByText(/^(recipient|pay_asset_label|amount)$/).map(el => el.props.children)
-    expect(labels).toEqual(['recipient', 'pay_asset_label', 'amount'])
+  it('names the coin in the amount field once it is selected upstream', async () => {
+    const s = drawSend(makeFakeMandala(), { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    expect(s.queryByText('pay_asset_label')).toBeNull()
   })
 
   // ── What a pasted or scanned peerpay link does to the money and the figure ──
@@ -382,7 +392,7 @@ describe('UniversalSend with stablecoins', () => {
   it('a token link selects its asset and seeds the figure in base units', async () => {
     // Uncontrolled selection: the form owns the asset choice here.
     const s = drawSend(makeFakeMandala())
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await held(s)
     fireEvent.changeText(
       s.getByPlaceholderText('recipient_placeholder'),
       `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
@@ -394,7 +404,7 @@ describe('UniversalSend with stablecoins', () => {
 
   it('an open token link selects the asset and leaves the figure to the payer', async () => {
     const s = drawSend(makeFakeMandala())
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await held(s)
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?asset=${USDX.assetId}`)
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     expect(s.getByPlaceholderText('0.00').props.value).toBe('')
@@ -403,7 +413,7 @@ describe('UniversalSend with stablecoins', () => {
   it('a sats link while paying in a token switches the form back to BSV', async () => {
     const onSelectAsset = jest.fn()
     const s = drawSend(makeFakeMandala(), { selectedAssetId: USDX.assetId, onSelectAsset })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?sats=1000`)
     await waitFor(() => expect(onSelectAsset).toHaveBeenCalledWith(null))
     expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
@@ -414,7 +424,7 @@ describe('UniversalSend with stablecoins', () => {
 
   it('a token link for an asset this wallet does not hold keeps the recipient, seeds nothing, and says why', async () => {
     const s = drawSend(makeFakeMandala({ balances: [balanceOf(USDX)] }))
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await held(s)
     fireEvent.changeText(
       s.getByPlaceholderText('recipient_placeholder'),
       `peerpay:${KEY}?asset=${EURX.assetId}&amount=500`
@@ -453,7 +463,7 @@ describe('UniversalSend with stablecoins', () => {
       selectedAssetId: USDX.assetId,
       onSelectAsset
     })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     expect(s.getByPlaceholderText('0.00').props.value).toBe('25')
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?asset=${EURX.assetId}`)
@@ -497,7 +507,7 @@ describe('UniversalSend with stablecoins', () => {
       release?.([balanceOf()])
       await new Promise(resolve => setImmediate(resolve))
     })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await held(s)
     // Still BSV, still blank, no banner: nothing from the old link reached the new payee.
     expect(s.queryByPlaceholderText('0.00')).toBeNull()
     expect(s.getByPlaceholderText('0').props.value).toBe('')
@@ -507,7 +517,7 @@ describe('UniversalSend with stablecoins', () => {
   it('a figure typed in a token is never shown once the form is back in satoshis', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     expect(s.getByPlaceholderText('0.00').props.value).toBe('25')
     s.rerender(
@@ -524,7 +534,7 @@ describe('UniversalSend with stablecoins', () => {
   it('names the exact figure on the button and sends it in base units', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
@@ -547,7 +557,7 @@ describe('UniversalSend with stablecoins', () => {
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: true, notified: false }
     })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
@@ -566,7 +576,7 @@ describe('UniversalSend with stablecoins', () => {
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: true, notified: true }
     })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
@@ -580,7 +590,7 @@ describe('UniversalSend with stablecoins', () => {
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: false, notified: true }
     })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
@@ -596,7 +606,7 @@ describe('UniversalSend with stablecoins', () => {
   it('refuses an address inline, in the runtime\'s own words, and never sends', async () => {
     const runtime = makeFakeMandala({ refusal: 'USDX can only be sent to a person or a nearby device.' })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
     await waitFor(() => expect(s.getByText('pay_asset_address_status:USDX')).toBeTruthy())
     expect(s.getByText('USDX can only be sent to a person or a nearby device.')).toBeTruthy()
@@ -608,7 +618,7 @@ describe('UniversalSend with stablecoins', () => {
   it('falls back to the design\'s own sentence when the runtime offers no reason', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
     await waitFor(() => expect(s.getByText('pay_asset_no_address:USDX')).toBeTruthy())
   })
@@ -616,7 +626,7 @@ describe('UniversalSend with stablecoins', () => {
   it('shows the classified refusal, with the guarantee, when the overlay says no', async () => {
     const runtime = makeFakeMandala({ send: { kind: 'refused', code: 'asset_paused', message: 'paused' } })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
@@ -629,7 +639,7 @@ describe('UniversalSend with stablecoins', () => {
     // reconcile: the banner states the local reason and drops "Check again".
     const runtime = makeFakeMandala({ send: { kind: 'unavailable', message: 'MessageBox unreachable' } })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
@@ -643,7 +653,7 @@ describe('UniversalSend with stablecoins', () => {
   it('refuses an amount larger than the balance before anything is built', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '9999')
