@@ -256,6 +256,17 @@ export interface CreateMandalaRuntimeArgs {
 }
 
 /**
+ * One `listOutputs` page of the token basket, and the hard stop on paging —
+ * the same two figures the payment build uses (core/localpay/build.ts), so the
+ * balance a screen shows and the coins a build can spend come from one read
+ * discipline. A thousand is one round trip for any realistic basket; a
+ * million outputs is far past any real one, and the ceiling is what stops a
+ * wallet that reports a total it never serves from spinning a balance read.
+ */
+const TOKEN_LIST_PAGE = 1000
+const TOKEN_LIST_MAX_PAGES = 1000
+
+/**
  * Every lib call runs as the admin originator.
  *
  * `@bsv/mandala` takes a `WalletInterface` and passes no originator, which
@@ -592,31 +603,53 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
    * cannot be valued at all without their source transactions.
    */
   const listTokenOutputs = async (): Promise<ListedTokenOutput[]> => {
-    let listed: Awaited<ReturnType<WalletInterface['listOutputs']>>
+    // The WHOLE basket, page by page, with the same loop discipline as the
+    // payment build's `listTokenBasket` (core/localpay/build.ts): one unpaged
+    // read capped at 1000 was the balance this screen showed — and the figure
+    // the send surfaces gate on ("more than your USDX balance") — while the
+    // build spends from every page. Past 1000 outputs that under-count turned
+    // into a refusal of money the wallet plainly had. The BEEF accumulates
+    // across pages because a coin's value lives in its source transaction's
+    // script, so page two's coins are unreadable without page two's BEEF.
+    const listed: Awaited<ReturnType<WalletInterface['listOutputs']>>['outputs'] = []
+    const beef = new Beef()
     try {
-      listed = await bound.listOutputs({
-        basket: MANDALA_BASKET,
-        include: 'entire transactions',
-        includeCustomInstructions: true,
-        limit: 1000
-      })
+      let offset = 0
+      for (let page = 0; page < TOKEN_LIST_MAX_PAGES; page++) {
+        const chunk = await bound.listOutputs({
+          basket: MANDALA_BASKET,
+          include: 'entire transactions',
+          includeCustomInstructions: true,
+          limit: TOKEN_LIST_PAGE,
+          offset
+        })
+        if (chunk.BEEF) beef.mergeBeef(chunk.BEEF)
+        const outputs = chunk.outputs ?? []
+        listed.push(...outputs)
+        // An empty page always ends it — that, plus the page ceiling, is what
+        // keeps a wallet that ignores `offset` from looping forever.
+        if (outputs.length === 0) break
+        offset += outputs.length
+        if (typeof chunk.totalOutputs === 'number') {
+          // The wallet's own count is the authority when it reports one. A
+          // SHORT page must not end the loop here: a wallet is free to cap
+          // `limit` below what was asked for, and treating its cap as "end of
+          // basket" would re-introduce the very truncation this loop removes.
+          if (offset >= chunk.totalOutputs) break
+        } else if (outputs.length < TOKEN_LIST_PAGE) {
+          break
+        }
+      }
     } catch (e) {
-      // A wallet with no Mandala basket yet, or a storage fault. Either way a
-      // balance screen shows nothing rather than an error it cannot act on.
+      // A wallet with no Mandala basket yet, a storage fault, or a page whose
+      // BEEF would not merge. Either way a balance screen shows nothing rather
+      // than a partial figure it would then gate money on, or an error it
+      // cannot act on.
       devLog('[mandala] could not list the token basket:', e)
       return []
     }
-    const beef = new Beef()
-    if (listed.BEEF) {
-      try {
-        beef.mergeBeef(listed.BEEF)
-      } catch (e) {
-        devLog('[mandala] the basket listing carried unreadable BEEF:', e)
-        return []
-      }
-    }
     const out: ListedTokenOutput[] = []
-    for (const output of listed.outputs) {
+    for (const output of listed) {
       const [txid, voutText] = output.outpoint.split('.')
       const vout = Number(voutText)
       const script = beef.findTxid(txid)?.tx?.outputs[vout]?.lockingScript

@@ -358,6 +358,39 @@ describe('balances, assets and activity', () => {
     expect((await runtime.listAssets()).map(x => x.assetId).sort()).toEqual([ASSET_ID, OTHER_ASSET].sort())
   })
 
+  it('reads the WHOLE basket, page by page, so the balance never under-counts what the build can spend', async () => {
+    // Five coins served two to a page, with the wallet's own total as the
+    // authority: a short page must not end the walk, and each page's BEEF must
+    // be merged before its coins are valued — the exact discipline the payment
+    // build's `listTokenBasket` already follows, and the one the balance reader
+    // lacked (one unpaged read of 1000 → "more than your USDX balance" for
+    // money the wallet held).
+    const coins = [10, 20, 30, 40, 50].map(amount => ({ tx: rootTx(amount), vout: 0 }))
+    const wallet = fakeWallet(coins)
+    wallet.listOutputs.mockImplementation(async (args: { offset?: number; limit?: number }) => {
+      const page = coins.slice(args.offset ?? 0, (args.offset ?? 0) + 2)
+      const beef = new Beef()
+      for (const c of page) beef.mergeTransaction(c.tx)
+      return {
+        totalOutputs: coins.length,
+        outputs: page.map(c => ({
+          outpoint: `${c.tx.id('hex')}.${c.vout}`,
+          satoshis: 1,
+          spendable: true,
+          lockingScript: undefined,
+          customInstructions: undefined
+        })),
+        BEEF: page.length ? beef.toBinary() : undefined
+      }
+    })
+    const runtime = build({ wallet: wallet as never })
+
+    const mine = (await runtime.balances()).find(x => x.asset.assetId === ASSET_ID)
+    expect(mine?.baseUnits).toBe(150)
+    // Three pages: offsets 0, 2, 4 — and no fourth, because the total says so.
+    expect(wallet.listOutputs.mock.calls.map(c => (c[0] as { offset?: number }).offset)).toEqual([0, 2, 4])
+  })
+
   it('counts received-but-unsettled rows separately from spendable balance', async () => {
     const runtime = build({}, [{ tx: rootTx(100), vout: 0 }])
     const store = runtime.store
