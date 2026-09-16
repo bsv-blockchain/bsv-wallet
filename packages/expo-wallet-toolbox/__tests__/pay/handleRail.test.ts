@@ -804,3 +804,43 @@ describe('cancelOutboxPayment', () => {
     expect(await getOutboxEntries(s)).toHaveLength(1)
   })
 })
+
+describe('peerPayLinkFor — token requests', () => {
+  const ASSET = 'ab'.repeat(32) + '.0'
+
+  it('names the asset and its base units, and never a sats figure', () => {
+    expect(peerPayLinkFor(KEY, undefined, undefined, { assetId: ASSET, baseUnits: 2500 })).toBe(
+      `peerpay:${KEY}?asset=${ASSET}&amount=2500`
+    )
+  })
+
+  it('omits the amount for an open token request', () => {
+    expect(peerPayLinkFor(KEY, undefined, undefined, { assetId: ASSET })).toBe(`peerpay:${KEY}?asset=${ASSET}`)
+    expect(peerPayLinkFor(KEY, undefined, undefined, { assetId: ASSET, baseUnits: 0 })).toBe(
+      `peerpay:${KEY}?asset=${ASSET}`
+    )
+  })
+
+  it('keeps the url extension after the token parameters', () => {
+    expect(peerPayLinkFor(KEY, undefined, 'https://mb.example/', { assetId: ASSET, baseUnits: 5 })).toBe(
+      `peerpay:${KEY}?asset=${ASSET}&amount=5&url=${encodeURIComponent('https://mb.example')}`
+    )
+  })
+
+  it('a token request wins over a stray sats figure — the two are different money', () => {
+    expect(peerPayLinkFor(KEY, 10, undefined, { assetId: ASSET, baseUnits: 5 })).toBe(
+      `peerpay:${KEY}?asset=${ASSET}&amount=5`
+    )
+  })
+
+  it('round-trips through the app’s own URI validator', () => {
+    const r = validatePeerPayURI(
+      peerPayLinkFor(KEY, undefined, 'https://mb.example', { assetId: ASSET, baseUnits: 2500 })
+    )
+    expect(r.errors).toEqual({})
+    expect(r.asset).toBe(ASSET)
+    expect(r.amount).toBe(2500)
+    expect(r.sats).toBeUndefined()
+    expect(r.messageBoxUrl).toBe('https://mb.example')
+  })
+})

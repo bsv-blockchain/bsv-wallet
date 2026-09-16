@@ -357,13 +357,15 @@ export interface HandleReceiveProps {
   initialSats?: number
   /**
    * The asset this request is denominated in, when one is selected. The link
-   * carries NO figure in that case: `?sats=` emitted while the payee was
-   * thinking in USDX would be read by the payer's wallet as satoshis, which is
-   * a unit-confusion money lie. The grammar already means "payer chooses" when
-   * the parameter is absent, so nothing is invented to say it.
+   * then names it — `asset=<genesis outpoint>` — and carries the figure, if
+   * any, as `amount=` in that asset's base units, never as `sats=`: a satoshi
+   * figure emitted while the payee was thinking in USDX would be read by the
+   * payer's wallet as satoshis, a unit-confusion money lie.
    */
-  asset?: { ticker: string; issuerName?: string } | null
-  /** The figure the code asks for, in the asset's own units, already formatted. */
+  asset?: { assetId: string; ticker: string; issuerName?: string } | null
+  /** The figure the code asks for, in the asset's base units. Absent for an open request. */
+  requestedBaseUnits?: number
+  /** The same figure, in the asset's own units, already formatted for the screen. */
   requestedAmountText?: string
   /**
    * The runtime's plain reason this wallet cannot be paid in the selected
@@ -389,6 +391,7 @@ export interface HandleReceiveProps {
 export default function HandleReceive({
   initialSats,
   asset = null,
+  requestedBaseUnits,
   requestedAmountText,
   admissionRefusal,
   assetMessageBoxUrl = null,
@@ -495,11 +498,16 @@ export default function HandleReceive({
   // BRC-125 with this app's url extension: the payer learns where to deliver
   // without an overlay lookup. Omitted when no server is configured, since
   // there is then nowhere to point them.
-  // `peerPayLinkFor` already omits a non-positive figure, so passing undefined
-  // in asset mode is the whole of "the link carries no figure" — no parser
-  // change, no new grammar, no `?asset=`.
+  // In asset mode the link names the asset and its base-unit figure (or no
+  // figure, for an open request); `peerPayLinkFor` never emits `sats` beside
+  // them, and omits any non-positive figure in either mode.
   const link = identityKey
-    ? peerPayLinkFor(identityKey, asset ? undefined : initialSats, isConfigured ? messageBoxUrl : undefined)
+    ? peerPayLinkFor(
+        identityKey,
+        asset ? undefined : initialSats,
+        isConfigured ? messageBoxUrl : undefined,
+        asset ? { assetId: asset.assetId, baseUnits: requestedBaseUnits } : undefined
+      )
     : ''
 
   const handleCopy = useCallback(() => {

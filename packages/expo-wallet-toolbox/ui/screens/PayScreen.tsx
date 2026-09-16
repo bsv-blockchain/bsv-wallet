@@ -33,6 +33,7 @@ import {
   typography,
   useWallet,
   validatePeerPayURI,
+  peerPayValidationMessage,
   type Session,
   takeProofNudge,
   findOfflineActions,
@@ -146,15 +147,20 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
 
   const peerpay = firstParam(params.peerpay)
   const peerPayValidation = useMemo(() => (peerpay ? validatePeerPayURI(peerpay) : null), [peerpay])
-  const peerPayNotice = useMemo(() => {
-    if (!peerPayValidation) return null
-    const messages = [peerPayValidation.errors.identityKey, peerPayValidation.errors.sats].filter(Boolean)
-    return messages.length ? messages.join('. ') : null
-  }, [peerPayValidation])
+  const peerPayInvalid = peerPayValidationMessage(peerPayValidation)
+  // A link's money and figure are adopted only from a link with no error at
+  // all: one that mixes `sats` with a token request must not be read as either.
+  const linkSats = peerPayValidation && !peerPayInvalid ? peerPayValidation.sats : undefined
+  const linkAsset = peerPayValidation && !peerPayInvalid ? peerPayValidation.asset : undefined
+  const linkAmount = peerPayValidation && !peerPayInvalid ? peerPayValidation.amount : undefined
 
   const initialIdentityKey = peerPayValidation?.identityKey ?? firstParam(params.identityKey)
-  const satsParam = peerPayValidation?.sats ?? Number(firstParam(params.sats))
+  const satsParam = linkSats ?? Number(firstParam(params.sats))
   const initialSats = Number.isFinite(satsParam) && satsParam > 0 ? Number(satsParam) : undefined
+  const initialTokenAmount = useMemo(
+    () => (linkAsset && linkAmount ? { assetId: linkAsset, baseUnits: linkAmount } : undefined),
+    [linkAsset, linkAmount]
+  )
   // Memoized: useRecipientInput re-adopts initialTarget whenever its identity changes.
   const initialTarget = useMemo(
     () =>
@@ -192,17 +198,52 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
   // token never leaves that value.
   const mandala = useMandala()
   const balances = mandala.balances ?? []
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(firstParam(params.asset) ?? null)
+  // A token request in a peerpay link selects its asset the way `?asset=` does,
+  // and a `sats=` link selects BSV. The choice is remembered against the link
+  // it was made under, so a second link arriving while this screen is mounted
+  // names its own money — the way its figure already does — while a choice
+  // made after the link (the picker) stands until the next link.
+  // Every term of the request, so two links for the same asset (a new payee,
+  // a new figure) are two links, not one.
+  const linkKey = `${initialIdentityKey ?? ''}|${linkAsset ?? ''}|${linkAmount ?? ''}|${linkSats ?? ''}`
+  const [choice, setChoice] = useState<{ forLink: string; assetId: string | null }>(() => ({
+    forLink: linkKey,
+    assetId: linkAsset ?? firstParam(params.asset) ?? null
+  }))
+  const selectedAssetId =
+    choice.forLink === linkKey ? choice.assetId : (linkAsset ?? (linkSats !== undefined ? null : choice.assetId))
+  const setSelectedAssetId = useCallback((id: string | null) => setChoice({ forLink: linkKey, assetId: id }), [linkKey])
   const holding = balances.find(b => b.asset.assetId === selectedAssetId) ?? null
   const asset = holding?.asset ?? null
+  /**
+   * The banner over the send form: a malformed link, or a valid token request
+   * for an asset this wallet does not hold — which the effect below turns
+   * back into BSV, and which must not do so silently: the payer would
+   * otherwise pay a different money than the one asked for, with no figure
+   * and no idea why.
+   */
+  // No runtime on a BUILT wallet is a settled fact — the runtime is published
+  // at build, only on a chain with Mandala endpoints — where no runtime on a
+  // wallet still building is merely unknown and decides nothing yet.
+  const tokensNever = walletBuilt && !mandala.available
+  const peerPayNotice = useMemo(() => {
+    if (peerPayInvalid) return peerPayInvalid
+    if (
+      linkAsset &&
+      (tokensNever || (mandala.balances && !mandala.balances.some(b => b.asset.assetId === linkAsset)))
+    ) {
+      return t('pay_asset_link_not_held')
+    }
+    return null
+  }, [peerPayInvalid, linkAsset, tokensNever, mandala.balances, t])
   // Regulatory/registry facts for whichever asset is selected — RequestHub
   // stays a plain prop-driven view, so this screen is the one that asks.
   const selectedAssetStatus = useAssetStatus(asset?.assetId ?? null).status
   // A deep link naming an asset this wallet does not hold selects BSV rather
   // than a denomination with no balance behind it.
   useEffect(() => {
-    if (selectedAssetId && mandala.balances && !holding) setSelectedAssetId(null)
-  }, [selectedAssetId, mandala.balances, holding])
+    if (selectedAssetId && (tokensNever || (mandala.balances && !holding))) setSelectedAssetId(null)
+  }, [selectedAssetId, tokensNever, mandala.balances, holding, setSelectedAssetId])
 
   /**
    * The request, in the unit it was actually typed in.
@@ -427,6 +468,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
           <UniversalSend
             initialTarget={initialTarget}
             initialSats={initialSats}
+            initialTokenAmount={initialTokenAmount}
             initialNotice={peerPayNotice}
             openScannerOnMount={scanOnMount}
             onNearbySession={onNearbySession}
@@ -453,7 +495,8 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
         return (
           <HandleReceive
             initialSats={sats}
-            asset={asset ? { ticker: asset.ticker, issuerName: asset.issuerName } : null}
+            asset={asset ? { assetId: asset.assetId, ticker: asset.ticker, issuerName: asset.issuerName } : null}
+            requestedBaseUnits={request.kind === 'token' ? request.baseUnits : undefined}
             requestedAmountText={requestedAmountText}
             assetMessageBoxUrl={selectedAssetStatus?.messageBoxUrl ?? null}
             onBsvInstead={() => setSelectedAssetId(null)}

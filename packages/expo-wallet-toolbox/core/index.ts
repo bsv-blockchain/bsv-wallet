@@ -395,7 +395,8 @@ export {
   useWallet,
   WalletContext,
   WalletManagersContext,
-  useWalletManagers
+  useWalletManagers,
+  useWalletStatus
 } from './context/WalletContext'
-export type { WalletManagersSlice } from './context/WalletContext'
+export type { WalletManagersSlice, WalletStatusSlice } from './context/WalletContext'
 export { usePermissionQueue } from './hooks/usePermissionQueue'

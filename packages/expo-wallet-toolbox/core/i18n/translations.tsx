@@ -154,7 +154,6 @@ const resources = {
       pay_sent_not_notified: "Sent. We couldn't tell them yet — they'll see it when their wallet next checks.",
       pay_sent_handed_to_wallet: "Sent. They didn't take it in person, so we've sent it to their wallet instead.",
       token_first_hold: '{{ticker}} is issued by {{issuer}}, who can pause transfers and freeze coins.',
-      pay_asset_link_no_amount: 'Share your handle — they choose the amount',
       pay_asset_request_paused: '{{issuer}} has paused {{ticker}}, so a payment may not arrive yet.',
       token_admit_title: "You can't be paid in {{ticker}} yet",
       token_admit_body:
@@ -169,6 +168,7 @@ const resources = {
       pay_asset_nearby_needs_network:
         'Paying in {{ticker}} in person needs a connection. You can pay in BSV without one.',
       pay_asset_nearby_wrong_overlay: "This request is for a token this wallet isn't set up for.",
+      pay_asset_link_not_held: "This request is for a token this wallet doesn't hold. You can still pay them in BSV.",
       token_messagebox_mismatch: 'Your wallet is set to a different message box, so token payments may not reach you.',
       token_issuer_fallback: 'the issuer',
       token_row_hint: 'Opens who issues it and what they can do',
@@ -1034,7 +1034,6 @@ const resources = {
       pay_sent_not_notified: '已发送。我们还无法通知对方 — 对方的钱包下次检查时会看到。',
       pay_sent_handed_to_wallet: '已发送。对方没有当面接收，因此我们改为发送到其钱包。',
       token_first_hold: '{{ticker}} 由 {{issuer}} 发行，对方可以暂停转账并冻结币。',
-      pay_asset_link_no_amount: '分享你的账号 — 由对方决定金额',
       pay_asset_request_paused: '{{issuer}} 已暂停 {{ticker}}，付款可能暂时无法到达。',
       token_admit_title: '你暂时还不能收取 {{ticker}}',
       token_admit_body: '{{issuer}} 只向已登记的人发送 {{ticker}}。在此之前，发给你的付款会在离开付款方钱包前被拒绝。',
@@ -1046,6 +1045,7 @@ const resources = {
       token_evicted_body: '{{issuer}} 从你的钱包中收回了 {{amount}} {{ticker}}。',
       local_pay_token_not_cleared: '离线收到 · {{issuer}} 尚未确认',
       pay_asset_nearby_needs_network: '当面支付 {{ticker}} 需要网络连接。无网络时可以用 BSV 支付。',
+      pay_asset_link_not_held: '此请求使用的代币不在本钱包中。你仍可以用 BSV 向对方付款。',
       pay_asset_nearby_wrong_overlay: '此请求使用的代币未在本钱包中配置。',
       token_messagebox_mismatch: '你的钱包设置了不同的消息箱，代币付款可能无法送达。',
       token_issuer_fallback: '发行方',
@@ -1854,7 +1854,6 @@ const resources = {
       pay_sent_handed_to_wallet: 'भेज दिया गया। उन्होंने सामने से नहीं लिया, इसलिए हमने इसे उनके वॉलेट में भेज दिया।',
       token_first_hold:
         '{{ticker}} {{issuer}} द्वारा जारी किया जाता है, जो स्थानांतरण रोक सकता है और सिक्के फ़्रीज़ कर सकता है।',
-      pay_asset_link_no_amount: 'अपना हैंडल साझा करें — राशि वे तय करेंगे',
       pay_asset_request_paused: '{{issuer}} ने {{ticker}} रोक दिया है, इसलिए भुगतान अभी नहीं पहुँच सकता।',
       token_admit_title: 'आपको अभी {{ticker}} में भुगतान नहीं मिल सकता',
       token_admit_body:
@@ -1868,6 +1867,8 @@ const resources = {
       local_pay_token_not_cleared: 'ऑफ़लाइन प्राप्त · {{issuer}} ने अभी पुष्टि नहीं की',
       pay_asset_nearby_needs_network:
         'आमने-सामने {{ticker}} में भुगतान के लिए कनेक्शन चाहिए। बिना कनेक्शन के आप BSV में भुगतान कर सकते हैं।',
+      pay_asset_link_not_held:
+        'यह अनुरोध ऐसे टोकन के लिए है जो इस वॉलेट में नहीं है। आप फिर भी उन्हें BSV में भुगतान कर सकते हैं।',
       pay_asset_nearby_wrong_overlay: 'यह अनुरोध ऐसे टोकन के लिए है जिसके लिए यह वॉलेट सेट नहीं है।',
       token_messagebox_mismatch:
         'आपका वॉलेट किसी दूसरे मैसेज बॉक्स पर सेट है, इसलिए टोकन भुगतान आप तक नहीं पहुँच सकते।',
@@ -2719,7 +2720,6 @@ const resources = {
       pay_sent_not_notified: 'Enviado. Aún no pudimos avisarle; lo verá cuando su billetera vuelva a consultar.',
       pay_sent_handed_to_wallet: 'Enviado. No lo recibió en persona, así que lo enviamos a su billetera.',
       token_first_hold: '{{ticker}} lo emite {{issuer}}, que puede pausar transferencias y congelar monedas.',
-      pay_asset_link_no_amount: 'Comparte tu identificador: ellos eligen el importe',
       pay_asset_request_paused: '{{issuer}} ha pausado {{ticker}}, así que puede que aún no llegue un pago.',
       token_admit_title: 'Todavía no puedes cobrar en {{ticker}}',
       token_admit_body:
@@ -2732,6 +2732,7 @@ const resources = {
       token_evicted_body: '{{issuer}} retiró {{amount}} {{ticker}} de tu billetera.',
       local_pay_token_not_cleared: 'Recibido sin conexión · {{issuer}} aún no lo ha confirmado',
       pay_asset_nearby_needs_network: 'Pagar en {{ticker}} en persona necesita conexión. Sin ella puedes pagar en BSV.',
+      pay_asset_link_not_held: 'Esta solicitud es de un token que esta billetera no tiene. Aún puedes pagarles en BSV.',
       pay_asset_nearby_wrong_overlay: 'Esta solicitud es de un token para el que esta billetera no está configurada.',
       token_messagebox_mismatch:
         'Tu billetera apunta a otro buzón de mensajes, así que los pagos con tokens podrían no llegarte.',
@@ -3603,7 +3604,6 @@ const resources = {
         "Envoyé. La personne ne l'a pas pris en main propre, nous l'avons donc envoyé à son portefeuille.",
       token_first_hold:
         'Les {{ticker}} sont émis par {{issuer}}, qui peut suspendre les transferts et geler des pièces.',
-      pay_asset_link_no_amount: "Partagez votre identifiant — c'est le payeur qui choisit le montant",
       pay_asset_request_paused: '{{issuer}} a suspendu les {{ticker}} ; un paiement pourrait ne pas encore arriver.',
       token_admit_title: 'Vous ne pouvez pas encore être payé en {{ticker}}',
       token_admit_body:
@@ -3617,6 +3617,8 @@ const resources = {
       local_pay_token_not_cleared: 'Reçu hors ligne · pas encore confirmé par {{issuer}}',
       pay_asset_nearby_needs_network:
         'Payer en {{ticker}} en personne nécessite une connexion. Sans connexion, vous pouvez payer en BSV.',
+      pay_asset_link_not_held:
+        'Cette demande concerne un jeton que ce portefeuille ne détient pas. Vous pouvez toujours payer en BSV.',
       pay_asset_nearby_wrong_overlay:
         "Cette demande concerne un jeton pour lequel ce portefeuille n'est pas configuré.",
       token_messagebox_mismatch:
@@ -4480,7 +4482,6 @@ const resources = {
       pay_sent_not_notified: 'تم الإرسال. لم نتمكن من إبلاغهم بعد — سيرونه عند فحص محفظتهم في المرة القادمة.',
       pay_sent_handed_to_wallet: 'تم الإرسال. لم يستلموه شخصيًا، لذا أرسلناه إلى محفظتهم بدلًا من ذلك.',
       token_first_hold: 'يصدر {{ticker}} عن {{issuer}}، ويمكنها إيقاف التحويلات وتجميد العملات.',
-      pay_asset_link_no_amount: 'شارك معرّفك — وهم يحددون المبلغ',
       pay_asset_request_paused: 'أوقفت {{issuer}} رمز {{ticker}}، لذا قد لا تصل أي دفعة الآن.',
       token_admit_title: 'لا يمكنك استلام {{ticker}} بعد',
       token_admit_body:
@@ -4493,6 +4494,7 @@ const resources = {
       token_evicted_body: 'سحبت {{issuer}} مبلغ {{amount}} {{ticker}} من محفظتك.',
       local_pay_token_not_cleared: 'تم الاستلام دون اتصال · لم تؤكده {{issuer}} بعد',
       pay_asset_nearby_needs_network: 'يتطلب الدفع بـ {{ticker}} شخصيًا وجود اتصال. يمكنك الدفع بـ BSV بدونه.',
+      pay_asset_link_not_held: 'هذا الطلب يخص رمزًا لا تحتفظ به هذه المحفظة. لا يزال بإمكانك الدفع لهم بـ BSV.',
       pay_asset_nearby_wrong_overlay: 'هذا الطلب يخص رمزًا غير مهيأة له هذه المحفظة.',
       token_messagebox_mismatch: 'محفظتك مضبوطة على صندوق رسائل مختلف، لذا قد لا تصلك مدفوعات الرموز.',
       token_issuer_fallback: 'جهة الإصدار',
@@ -5314,7 +5316,6 @@ const resources = {
       pay_sent_not_notified: 'Enviado. Ainda não conseguimos avisar — verão quando a carteira deles verificar de novo.',
       pay_sent_handed_to_wallet: 'Enviado. Não receberam pessoalmente, por isso enviámos para a carteira deles.',
       token_first_hold: '{{ticker}} é emitido por {{issuer}}, que pode pausar transferências e congelar moedas.',
-      pay_asset_link_no_amount: 'Partilhe o seu identificador — eles escolhem o valor',
       pay_asset_request_paused: '{{issuer}} pausou {{ticker}}, por isso um pagamento pode ainda não chegar.',
       token_admit_title: 'Ainda não pode receber em {{ticker}}',
       token_admit_body:
@@ -5328,6 +5329,7 @@ const resources = {
       local_pay_token_not_cleared: 'Recebido offline · ainda não confirmado por {{issuer}}',
       pay_asset_nearby_needs_network:
         'Pagar em {{ticker}} presencialmente precisa de ligação. Sem ela, pode pagar em BSV.',
+      pay_asset_link_not_held: 'Este pedido é de um token que esta carteira não possui. Você ainda pode pagar em BSV.',
       pay_asset_nearby_wrong_overlay: 'Este pedido é de um token para o qual esta carteira não está configurada.',
       token_messagebox_mismatch:
         'A sua carteira está definida para outra caixa de mensagens, por isso pagamentos em tokens podem não chegar.',
@@ -6192,7 +6194,6 @@ const resources = {
       pay_sent_not_notified: 'পাঠানো হয়েছে। আমরা তাদের এখনো জানাতে পারিনি — তাদের ওয়ালেট পরেরবার দেখলে টের পাবে।',
       pay_sent_handed_to_wallet: 'পাঠানো হয়েছে। তারা সামনাসামনি নেয়নি, তাই আমরা তাদের ওয়ালেটে পাঠিয়ে দিয়েছি।',
       token_first_hold: '{{ticker}} ইস্যু করে {{issuer}}, যারা স্থানান্তর থামাতে ও কয়েন ফ্রিজ করতে পারে।',
-      pay_asset_link_no_amount: 'আপনার হ্যান্ডেল শেয়ার করুন — পরিমাণ তারা ঠিক করবে',
       pay_asset_request_paused: '{{issuer}} {{ticker}} থামিয়ে রেখেছে, তাই পেমেন্ট এখন নাও আসতে পারে।',
       token_admit_title: 'আপনি এখনো {{ticker}}-এ অর্থ নিতে পারবেন না',
       token_admit_body:
@@ -6206,6 +6207,8 @@ const resources = {
       local_pay_token_not_cleared: 'অফলাইনে গৃহীত · {{issuer}} এখনো নিশ্চিত করেনি',
       pay_asset_nearby_needs_network:
         'সামনাসামনি {{ticker}}-এ পরিশোধ করতে সংযোগ লাগে। সংযোগ ছাড়া আপনি BSV-তে দিতে পারেন।',
+      pay_asset_link_not_held:
+        'এই অনুরোধটি এমন টোকেনের জন্য যা এই ওয়ালেটে নেই। আপনি এখনও BSV-এ তাদের পেমেন্ট করতে পারেন।',
       pay_asset_nearby_wrong_overlay: 'এই অনুরোধটি এমন টোকেনের জন্য যার জন্য এই ওয়ালেট সেট করা নেই।',
       token_messagebox_mismatch:
         'আপনার ওয়ালেট অন্য একটি মেসেজ বক্সে সেট করা, তাই টোকেন পেমেন্ট আপনার কাছে না-ও পৌঁছাতে পারে।',
@@ -7053,7 +7056,6 @@ const resources = {
       pay_sent_handed_to_wallet: 'Отправлено. Лично платёж не приняли, поэтому мы отправили его в кошелёк получателя.',
       token_first_hold:
         '{{ticker}} выпускает {{issuer}}, который может приостанавливать переводы и замораживать монеты.',
-      pay_asset_link_no_amount: 'Поделитесь своим идентификатором — сумму выберет плательщик',
       pay_asset_request_paused: '{{issuer}} приостановил(а) {{ticker}}, поэтому платёж пока может не дойти.',
       token_admit_title: 'Вы пока не можете получать платежи в {{ticker}}',
       token_admit_body:
@@ -7067,6 +7069,8 @@ const resources = {
       local_pay_token_not_cleared: 'Получено офлайн · ещё не подтверждено {{issuer}}',
       pay_asset_nearby_needs_network:
         'Для оплаты в {{ticker}} при личной встрече нужна связь. Без неё можно платить в BSV.',
+      pay_asset_link_not_held:
+        'Этот запрос — для токена, которого нет в этом кошельке. Вы всё ещё можете заплатить им в BSV.',
       pay_asset_nearby_wrong_overlay: 'Этот запрос — для токена, который не настроен в этом кошельке.',
       token_messagebox_mismatch:
         'Ваш кошелёк настроен на другой почтовый ящик, поэтому платежи в токенах могут не дойти.',
@@ -7922,7 +7926,6 @@ const resources = {
         'Terkirim. Kami belum bisa memberi tahu mereka — akan terlihat saat dompet mereka memeriksa lagi.',
       pay_sent_handed_to_wallet: 'Terkirim. Mereka tidak mengambilnya langsung, jadi kami kirim ke dompet mereka.',
       token_first_hold: '{{ticker}} diterbitkan oleh {{issuer}}, yang dapat menjeda transfer dan membekukan koin.',
-      pay_asset_link_no_amount: 'Bagikan tanda pengenal Anda — mereka yang menentukan jumlahnya',
       pay_asset_request_paused: '{{issuer}} menjeda {{ticker}}, jadi pembayaran mungkin belum sampai.',
       token_admit_title: 'Anda belum bisa dibayar dalam {{ticker}}',
       token_admit_body:
@@ -7936,6 +7939,8 @@ const resources = {
       local_pay_token_not_cleared: 'Diterima secara offline · belum dikonfirmasi {{issuer}}',
       pay_asset_nearby_needs_network:
         'Membayar dengan {{ticker}} secara langsung perlu koneksi. Tanpa koneksi, Anda bisa membayar dengan BSV.',
+      pay_asset_link_not_held:
+        'Permintaan ini untuk token yang tidak dimiliki dompet ini. Anda masih bisa membayar mereka dengan BSV.',
       pay_asset_nearby_wrong_overlay: 'Permintaan ini untuk token yang belum diatur di dompet ini.',
       token_messagebox_mismatch:
         'Dompet Anda diatur ke kotak pesan lain, sehingga pembayaran token mungkin tidak sampai.',
@@ -8786,7 +8791,6 @@ const resources = {
       pay_sent_not_notified: '送信しました。相手にはまだ通知できていません — 相手のウォレットが次に確認したときに表示されます。',
       pay_sent_handed_to_wallet: '送信しました。対面で受け取られなかったため、相手のウォレットへ送りました。',
       token_first_hold: '{{ticker}} は {{issuer}} が発行しており、送金の停止やコインの凍結ができます。',
-      pay_asset_link_no_amount: '自分のハンドルを共有 — 金額は相手が決めます',
       pay_asset_request_paused: '{{issuer}} が {{ticker}} を停止しているため、支払いはまだ届かないことがあります。',
       token_admit_title: 'まだ {{ticker}} で受け取ることはできません',
       token_admit_body: '{{issuer}} は登録済みの相手にしか {{ticker}} を送りません。それまでは、あなた宛ての支払いは送金者のウォレットを出る前に拒否されます。',
@@ -8798,6 +8802,7 @@ const resources = {
       token_evicted_body: '{{issuer}} があなたのウォレットから {{amount}} {{ticker}} を引き揚げました。',
       local_pay_token_not_cleared: 'オフラインで受取 · {{issuer}} は未確認',
       pay_asset_nearby_needs_network: '対面で {{ticker}} を支払うには接続が必要です。接続がなくても BSV なら支払えます。',
+      pay_asset_link_not_held: 'このリクエストは、このウォレットが保有していないトークン向けです。BSV での支払いは引き続き可能です。',
       pay_asset_nearby_wrong_overlay: 'このリクエストは、このウォレットが対応していないトークン向けです。',
       token_messagebox_mismatch: 'ウォレットが別のメッセージボックスに設定されているため、トークンの支払いが届かない場合があります。',
       token_issuer_fallback: '発行者',
@@ -9659,7 +9664,6 @@ const resources = {
         'Wysłano. Nie udało się jeszcze powiadomić odbiorcy — zobaczy to przy następnym sprawdzeniu portfela.',
       pay_sent_handed_to_wallet: 'Wysłano. Odbiorca nie odebrał osobiście, więc wysłaliśmy płatność do jego portfela.',
       token_first_hold: '{{ticker}} jest emitowany przez {{issuer}}, który może wstrzymać transfery i zamrozić monety.',
-      pay_asset_link_no_amount: 'Udostępnij swój identyfikator — kwotę wybiera płacący',
       pay_asset_request_paused: '{{issuer}} wstrzymał {{ticker}}, więc płatność może jeszcze nie dotrzeć.',
       token_admit_title: 'Nie możesz jeszcze otrzymywać płatności w {{ticker}}',
       token_admit_body:
@@ -9673,6 +9677,8 @@ const resources = {
       local_pay_token_not_cleared: 'Odebrano offline · jeszcze nie potwierdzone przez {{issuer}}',
       pay_asset_nearby_needs_network:
         'Płatność w {{ticker}} na miejscu wymaga połączenia. Bez niego możesz zapłacić w BSV.',
+      pay_asset_link_not_held:
+        'To żądanie dotyczy tokena, którego ten portfel nie posiada. Nadal możesz zapłacić w BSV.',
       pay_asset_nearby_wrong_overlay: 'To żądanie dotyczy tokena, dla którego ten portfel nie jest skonfigurowany.',
       token_messagebox_mismatch:
         'Twój portfel jest ustawiony na inną skrzynkę wiadomości, więc płatności tokenami mogą do Ciebie nie dotrzeć.',

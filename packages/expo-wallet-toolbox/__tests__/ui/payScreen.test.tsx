@@ -71,12 +71,13 @@ jest.mock('react-i18next', () => ({
 // useTheme/spacing/validatePeerPayURI/isPayCell/etc — which this test needs
 // REAL — so only useWallet is overridden, via requireActual for the rest.
 let mockStorage: { sqliteDb: unknown } | undefined
+let mockWalletBuilt = true
 const mockRunMonitorTask = jest.fn().mockResolvedValue('')
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
   useWallet: () => ({
-    walletBuilding: false,
-    walletBuilt: true,
+    walletBuilding: !mockWalletBuilt,
+    walletBuilt: mockWalletBuilt,
     storage: mockStorage,
     txStatusVersion: 0,
     walletUserId: null,
@@ -157,6 +158,7 @@ describe('PayScreen', () => {
   beforeEach(async () => {
     for (const k of Object.keys(mockParams)) delete mockParams[k]
     mockOnline = true
+    mockWalletBuilt = true
     mockStorage = undefined
     resetProofNudgeForTests()
     mockRunMonitorTask.mockClear()
@@ -210,6 +212,99 @@ describe('PayScreen', () => {
   it('surfaces a malformed peerpay link as a notice on the send form', () => {
     mockParams.peerpay = 'peerpay:nope'
     expect(draw().UNSAFE_getByType('UniversalSend' as never).props.initialNotice).toContain('identity key')
+  })
+
+  it('prefills the send form from a token link while the wallet is still building: asset selected, figure in base units, no verdict yet', () => {
+    // No runtime yet is UNKNOWN, not "holds nothing": the link is adopted and
+    // the not-held question waits for the wallet to finish building.
+    mockWalletBuilt = false
+    const ASSET = 'ab'.repeat(32) + '.0'
+    mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=2500`
+    const form = draw().UNSAFE_getByType('UniversalSend' as never)
+    expect(form.props.initialTarget).toEqual({ kind: 'handle', identityKey: KEY })
+    expect(form.props.initialSats).toBeUndefined()
+    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 2500 })
+    expect(form.props.selectedAssetId).toBe(ASSET)
+    expect(form.props.initialNotice).toBeNull()
+  })
+
+  it('a token link on a built wallet with no token runtime says so and pays in BSV', async () => {
+    // This test file mounts no MandalaProvider, so a built wallet here is
+    // exactly "a wallet that can never hold a token on this chain".
+    const ASSET = 'ab'.repeat(32) + '.0'
+    mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=2500`
+    const s = draw()
+    await waitFor(() => expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBeNull())
+    const form = s.UNSAFE_getByType('UniversalSend' as never)
+    expect(form.props.initialNotice).toBe('pay_asset_link_not_held')
+    expect(form.props.initialTarget).toEqual({ kind: 'handle', identityKey: KEY })
+  })
+
+  it('a second deep link while mounted moves the money, not only the figure', () => {
+    mockWalletBuilt = false
+    const ASSET = 'ab'.repeat(32) + '.0'
+    mockParams.peerpay = `peerpay:${KEY}?sats=1000`
+    const s = draw()
+    expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBeNull()
+    mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=2500`
+    s.rerender(
+      <ThemeProvider>
+        <PayScreen />
+      </ThemeProvider>
+    )
+    const form = s.UNSAFE_getByType('UniversalSend' as never)
+    expect(form.props.selectedAssetId).toBe(ASSET)
+    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 2500 })
+    // The user overrides the link's money in the picker: that choice stands…
+    const OTHER = 'cd'.repeat(32) + '.1'
+    act(() => s.UNSAFE_getByType('UniversalSend' as never).props.onSelectAsset(OTHER))
+    expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBe(OTHER)
+    // …through a bare link that names no money…
+    mockParams.peerpay = `peerpay:${KEY}`
+    s.rerender(
+      <ThemeProvider>
+        <PayScreen />
+      </ThemeProvider>
+    )
+    expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBe(OTHER)
+    // …but a sats link is a BSV request and moves the money back.
+    mockParams.peerpay = `peerpay:${KEY}?sats=7`
+    s.rerender(
+      <ThemeProvider>
+        <PayScreen />
+      </ThemeProvider>
+    )
+    expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBeNull()
+    expect(s.UNSAFE_getByType('UniversalSend' as never).props.initialSats).toBe(7)
+  })
+
+  it('a second link for the same asset but a new figure is a new request and takes the money back', () => {
+    mockWalletBuilt = false
+    const ASSET = 'ab'.repeat(32) + '.0'
+    const OTHER = 'cd'.repeat(32) + '.1'
+    mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=2500`
+    const s = draw()
+    expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBe(ASSET)
+    act(() => s.UNSAFE_getByType('UniversalSend' as never).props.onSelectAsset(OTHER))
+    expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBe(OTHER)
+    mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=3000`
+    s.rerender(
+      <ThemeProvider>
+        <PayScreen />
+      </ThemeProvider>
+    )
+    const form = s.UNSAFE_getByType('UniversalSend' as never)
+    expect(form.props.selectedAssetId).toBe(ASSET)
+    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 3000 })
+  })
+
+  it('adopts neither money from a link that mixes sats with a token request', () => {
+    const ASSET = 'ab'.repeat(32) + '.0'
+    mockParams.peerpay = `peerpay:${KEY}?sats=10&asset=${ASSET}`
+    const form = draw().UNSAFE_getByType('UniversalSend' as never)
+    expect(form.props.initialSats).toBeUndefined()
+    expect(form.props.initialTokenAmount).toBeUndefined()
+    expect(form.props.initialNotice).toContain('mixes')
   })
 
   it('swaps the send form for the nearby payer flow when a session code is scanned', async () => {

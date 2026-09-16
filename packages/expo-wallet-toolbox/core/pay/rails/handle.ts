@@ -67,17 +67,31 @@ interface InternalizingWallet {
 /**
  * A shareable BRC-125 payment link for a handle.
  *
- * `peerpay:<key>[?sats=<n>][&url=<host>]`. The same form the app parses
- * (parsePeerPayURI.ts) and routes (+native-intent.ts in the host app). A
- * non-positive amount emits no `sats` — `sats=0` would be an invalid link,
- * and an open request is exactly the absence of a figure. `url` is this
- * app's extension: the payee's message-box host, so the payer can skip the
- * overlay lookup. Omitted for the no-server sentinel and for blank.
+ * `peerpay:<key>[?sats=<n>][&url=<host>]` for BSV, or
+ * `peerpay:<key>?asset=<txid.vout>[&amount=<base units>][&url=<host>]` for a
+ * token — the same forms the app parses (parsePeerPayURI.ts) and routes
+ * (+native-intent.ts in the host app). A non-positive figure emits no
+ * `sats`/`amount` — a zero would be an invalid link, and an open request is
+ * exactly the absence of a figure. A token request never carries `sats`: the
+ * two are different money, and the parser refuses a link that names both.
+ * `url` is this app's extension: the payee's message-box host, so the payer
+ * can skip the overlay lookup. Omitted for the no-server sentinel and for blank.
  */
-export function peerPayLinkFor(identityKey: string, sats?: number, messageBoxUrl?: string): string {
+export function peerPayLinkFor(
+  identityKey: string,
+  sats?: number,
+  messageBoxUrl?: string,
+  token?: { assetId: string; baseUnits?: number }
+): string {
   const params: string[] = []
-  const amount = sats !== undefined ? Math.round(Number(sats)) : NaN
-  if (Number.isFinite(amount) && amount > 0) params.push(`sats=${amount}`)
+  if (token) {
+    params.push(`asset=${token.assetId.toLowerCase()}`)
+    const units = token.baseUnits !== undefined ? Math.round(Number(token.baseUnits)) : NaN
+    if (Number.isFinite(units) && units > 0) params.push(`amount=${units}`)
+  } else {
+    const amount = sats !== undefined ? Math.round(Number(sats)) : NaN
+    if (Number.isFinite(amount) && amount > 0) params.push(`sats=${amount}`)
+  }
   const host = (messageBoxUrl ?? '').trim().replace(/\/+$/, '')
   if (host && host !== NO_MESSAGE_BOX) params.push(`url=${encodeURIComponent(host)}`)
   const base = `peerpay:${identityKey.toLowerCase()}`

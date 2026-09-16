@@ -111,3 +111,70 @@ describe('peerPayValidationMessage', () => {
     expect(msg).toContain('sats')
   })
 })
+
+// ── Token requests: `asset=<outpoint>` selects the money, `amount=` is its base units ──
+//
+// Maintainer decision (2026-09-15): `sats=` is the BSV selector and `amount=`
+// de facto names a token, so it needs `asset=` beside it; both are optional,
+// and `asset=` alone is an open token request (the payer chooses the figure).
+const ASSET = 'ab'.repeat(32) + '.0'
+
+describe('validatePeerPayURI — asset and amount', () => {
+  it('reads asset and amount together, base units untouched', () => {
+    const r = validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=2500`)
+    expect(r.asset).toBe(ASSET)
+    expect(r.amount).toBe(2500)
+    expect(r.sats).toBeUndefined()
+    expect(r.errors).toEqual({})
+  })
+
+  it('lowercases the asset outpoint the way it lowercases the key', () => {
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET.toUpperCase()}`).asset).toBe(ASSET)
+  })
+
+  it('reads asset alone as an open token request', () => {
+    const r = validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}`)
+    expect(r.asset).toBe(ASSET)
+    expect(r.amount).toBeUndefined()
+    expect(r.errors).toEqual({})
+  })
+
+  it('treats amount=0 as absent, exactly as sats=0', () => {
+    const r = validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=0`)
+    expect(r.amount).toBeUndefined()
+    expect(r.errors).toEqual({})
+  })
+
+  it('refuses an amount with no asset to denominate it', () => {
+    const r = validatePeerPayURI(`peerpay:${KEY}?amount=2500`)
+    expect(r.errors.amount).toBeTruthy()
+    expect(parsePeerPayURI(`peerpay:${KEY}?amount=2500`)).toBeNull()
+  })
+
+  it('refuses sats beside a token request rather than guessing the money', () => {
+    expect(validatePeerPayURI(`peerpay:${KEY}?sats=10&asset=${ASSET}`).errors.sats).toBeTruthy()
+    expect(validatePeerPayURI(`peerpay:${KEY}?sats=10&amount=5`).errors.sats).toBeTruthy()
+    expect(parsePeerPayURI(`peerpay:${KEY}?sats=10&asset=${ASSET}`)).toBeNull()
+  })
+
+  it('refuses a malformed asset or amount, never dropping it silently', () => {
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=not-an-outpoint`).errors.asset).toBeTruthy()
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${'ab'.repeat(32)}`).errors.asset).toBeTruthy()
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=2.5`).errors.amount).toBeTruthy()
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=-1`).errors.amount).toBeTruthy()
+  })
+
+  it('returns asset and amount from parsePeerPayURI', () => {
+    expect(parsePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=7`)).toEqual({
+      identityKey: KEY,
+      asset: ASSET,
+      amount: 7
+    })
+  })
+
+  it('joins asset and amount errors into the message', () => {
+    const msg = peerPayValidationMessage(validatePeerPayURI(`peerpay:${KEY}?asset=bad&amount=x`))
+    expect(msg).toMatch(/asset/i)
+    expect(msg).toMatch(/amount/i)
+  })
+})

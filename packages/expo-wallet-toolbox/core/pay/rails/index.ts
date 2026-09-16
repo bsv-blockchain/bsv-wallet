@@ -13,6 +13,7 @@ import {
   validatePeerPayURI,
   type PeerPayValidationResult,
   peerPayValidationMessage,
+  peerPayHasErrors,
   isCompressedPublicKey
 } from '../../parsePeerPayURI'
 
@@ -21,10 +22,15 @@ export { isCompressedPublicKey }
 
 export type RailId = 'nearby' | 'handle' | 'address'
 
-/** How a counterparty was identified. Each variant carries only what its rail needs. */
+/**
+ * How a counterparty was identified. Each variant carries only what its rail
+ * needs. A handle may carry a figure in exactly one money: `sats` (BSV), or
+ * `asset` (a token's genesis outpoint) with `amount` in its base units —
+ * `asset` alone is an open token request.
+ */
 export type PayTarget =
   | { kind: 'nearby'; session: Session }
-  | { kind: 'handle'; identityKey: string; sats?: number; messageBoxUrl?: string }
+  | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string }
   | { kind: 'address'; address: string; sats?: number }
 
 /** Six cell names. Since the universal input, `pay-*` are deep-link aliases that all open the send form; `get-*` open one receive method directly. */
@@ -98,18 +104,20 @@ export type RecipientInput =
   | { kind: 'empty' }
   | { kind: 'address'; address: string }
   | { kind: 'invalid_address' }
-  | { kind: 'handle'; identityKey: string; sats?: number; messageBoxUrl?: string }
+  | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string }
   | { kind: 'invalid_link'; message: string }
   | { kind: 'search'; query: string }
 
 function handleFromPeerPay(result: PeerPayValidationResult): RecipientInput {
-  if (!result.identityKey || result.errors.identityKey || result.errors.sats) {
+  if (!result.identityKey || peerPayHasErrors(result)) {
     return { kind: 'invalid_link', message: peerPayValidationMessage(result) ?? 'Invalid peerpay link' }
   }
   return {
     kind: 'handle',
     identityKey: result.identityKey,
     ...(result.sats !== undefined ? { sats: result.sats } : {}),
+    ...(result.asset !== undefined ? { asset: result.asset } : {}),
+    ...(result.amount !== undefined ? { amount: result.amount } : {}),
     ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
   }
 }
@@ -151,11 +159,13 @@ export function classifyScan(raw: string): PayTarget | null {
 
   if (text.toLowerCase().startsWith('peerpay:')) {
     const result = validatePeerPayURI(text)
-    if (!result.identityKey || result.errors.identityKey || result.errors.sats) return null
+    if (!result.identityKey || peerPayHasErrors(result)) return null
     return {
       kind: 'handle',
       identityKey: result.identityKey,
-      sats: result.sats,
+      ...(result.sats !== undefined ? { sats: result.sats } : {}),
+      ...(result.asset !== undefined ? { asset: result.asset } : {}),
+      ...(result.amount !== undefined ? { amount: result.amount } : {}),
       ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
     }
   }

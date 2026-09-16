@@ -78,6 +78,7 @@ export {
   useRecipientInput,
   type RecipientTarget,
   type RecipientInlineError,
+  type PeerPayRequest,
   type UseRecipientInputOptions
 } from './components/pay/useRecipientInput'
 
