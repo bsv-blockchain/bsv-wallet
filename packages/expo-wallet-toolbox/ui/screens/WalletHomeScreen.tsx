@@ -1222,7 +1222,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const tokenProps = useMemo(() => {
     const map = new Map<string, NonNullable<React.ComponentProps<typeof ActivityRow>['token']>>()
     for (const [txid, row] of tokenByTxid) {
-      const figure = formatTokenAmount(row.baseUnits, row.asset.decimals, {
+      const signedBaseUnits = row.role === 'sent' ? -row.baseUnits : row.baseUnits
+      const figure = formatTokenAmount(signedBaseUnits, row.asset.decimals, {
         showPlus: row.role === 'received'
       })
       map.set(txid, {
