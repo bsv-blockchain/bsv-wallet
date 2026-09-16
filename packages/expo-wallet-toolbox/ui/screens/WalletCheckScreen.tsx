@@ -86,6 +86,7 @@ function loadExpoRouter(): ExpoRouterModule {
 const STEPS: { id: WalletCheckStepId; labelKey: string }[] = [
   { id: 'online', labelKey: 'wallet_check_step_online' },
   { id: 'records', labelKey: 'wallet_check_step_records' },
+  { id: 'tokens', labelKey: 'wallet_check_step_tokens' },
   { id: 'proofs', labelKey: 'wallet_check_step_proofs' },
   { id: 'backup', labelKey: 'wallet_check_step_backup' },
   { id: 'phrase_backup', labelKey: 'wallet_check_step_phrase' },
@@ -134,7 +135,8 @@ function useWalletCheckPorts(): WalletCheckPorts {
     checkUtxoSpendability,
     releaseStuckReservations,
     runMonitorTask,
-    peekLastMissHeight
+    peekLastMissHeight,
+    mandala
   } = useWallet()
   const wallet = managers?.permissionsManager
 
@@ -157,6 +159,12 @@ function useWalletCheckPorts(): WalletCheckPorts {
           released: parseCount(log, /(\d+) stale output\(s\) marked unspendable/),
           recovered: parseCount(log, /(\d+) spending tx\(s\) internalized/)
         }
+      },
+      reviewTokens: async () => {
+        if (!mandala?.available) return { settled: 0, removed: 0, unattested: 0 }
+        const { settled, removed, unattested, unreachable } = await mandala.reviewTokenHoldings()
+        if (unreachable) throw new Error('token overlay unreachable')
+        return { settled, removed, unattested }
       },
       checkProofs: async () => {
         await runMonitorTask('CheckForProofs')
@@ -224,6 +232,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
     [
       adminOriginator,
       checkUtxoSpendability,
+      mandala,
       releaseStuckReservations,
       runMonitorTask,
       selectedNetwork,

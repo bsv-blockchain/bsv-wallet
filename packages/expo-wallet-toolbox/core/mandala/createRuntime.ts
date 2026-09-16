@@ -75,6 +75,7 @@ import {
   TERMINAL_SETTLEMENT_STATES,
   deriveTokenEdges,
   listStuckSettlements,
+  NON_TERMINAL_SETTLEMENT_STATES,
   populateEvidenceFromFrame,
   postTokenStep,
   type EvidenceFrame,
@@ -101,6 +102,7 @@ import {
 import type {
   MandalaRuntime,
   TokenActivityRow,
+  TokenHoldingsReview,
   TokenActivityStatus,
   TokenAssetInfo,
   TokenAssetStatus,
@@ -1278,6 +1280,140 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     }
   }
 
+  /**
+   * Fail a token transaction the overlay has finally refused, so its inputs go
+   * back to spendable and its outputs stop being offered. Best-effort; returns
+   * whether anything was failed.
+   */
+  const failRefusedTransaction = async (txid: string): Promise<boolean> => {
+    let failed = false
+    const txs = await storage.findTransactions({ partial: { txid }, noRawTx: true })
+    for (const tx of txs) {
+      if (tx.status === 'failed') continue
+      await storage.updateTransactionStatus('failed', tx.transactionId)
+      failed = true
+    }
+    return failed
+  }
+
+  const reviewTokenHoldings = async (): Promise<TokenHoldingsReview> => {
+    const review: TokenHoldingsReview = { settled: 0, removed: 0, unattested: 0, unreachable: false }
+    if (!available) return review
+
+    let rows: TokenSettlementRow[] = []
+    try {
+      rows = await store.listSettlements({ state: ['handed_over', 'held', 'submitting', 'admitted'] })
+    } catch (e) {
+      devLog('[mandala] token review could not list settlement rows:', e)
+    }
+    const reviewedTxids = new Set<string>()
+    for (const row of rows) {
+      reviewedTxids.add(row.txid)
+      try {
+        const after = await settleNow(row.txid)
+        if (after === 'broadcast') {
+          review.settled++
+          continue
+        }
+        if (after === 'refused' || after === 'orphaned') {
+          if (await failRefusedTransaction(row.txid)) review.removed++
+          continue
+        }
+        const verdict = await fetchAdmission(overlayUrl, row.txid)
+        if (verdict === undefined) {
+          review.unattested++
+          continue
+        }
+        if (verdict.kind === 'unavailable') {
+          review.unreachable = true
+          continue
+        }
+        if (verdict.kind === 'admitted') {
+          await store.putAdmission({
+            txid: row.txid,
+            outputsToAdmit: verdict.outputsToAdmit,
+            signatureHex: verdict.signatureHex,
+            signerKey: verdict.signerKey,
+            source: 'fetched',
+            obtainedAt: now().toISOString()
+          })
+          await store.advanceSettlement(row.txid, ['handed_over', 'held', 'submitting'], 'admitted', {
+            admissionOutputs: verdict.outputsToAdmit,
+            admissionSignatureHex: verdict.signatureHex
+          })
+          continue
+        }
+        const to: TokenSettlementState = verdict.kind === 'evicted' ? 'orphaned' : 'refused'
+        await store.advanceSettlement(row.txid, [...NON_TERMINAL_SETTLEMENT_STATES], to, {
+          refusedCode: verdict.kind === 'refused' ? verdict.code : undefined,
+          poisonedByTxid: verdict.kind === 'evicted' ? row.txid : undefined
+        })
+        await failRefusedTransaction(row.txid)
+        review.removed++
+      } catch (e) {
+        devLog(`[mandala] token review could not settle ${row.txid}:`, e)
+      }
+    }
+
+    let outputs: ListedTokenOutput[] = []
+    try {
+      outputs = await listTokenOutputs()
+    } catch (e) {
+      devLog('[mandala] token review could not list token holdings:', e)
+    }
+    const byTxid = new Map<string, number[]>()
+    for (const o of outputs) {
+      if (!o.spendable || reviewedTxids.has(o.txid)) continue
+      byTxid.set(o.txid, [...(byTxid.get(o.txid) ?? []), o.vout])
+    }
+    for (const [txid, vouts] of byTxid) {
+      try {
+        const cached = await store.getAdmission(txid)
+        if (
+          cached &&
+          cached.signatureHex !== '' &&
+          cached.signerKey === overlayIdentityKey &&
+          vouts.every(v => cached.outputsToAdmit.includes(v))
+        ) {
+          continue
+        }
+        const verdict = await fetchAdmission(overlayUrl, txid)
+        if (verdict === undefined) {
+          review.unattested++
+          continue
+        }
+        if (verdict.kind === 'unavailable') {
+          review.unreachable = true
+          continue
+        }
+        if (verdict.kind !== 'admitted') {
+          if (await failRefusedTransaction(txid)) review.removed++
+          continue
+        }
+        await store.putAdmission({
+          txid,
+          outputsToAdmit: verdict.outputsToAdmit,
+          signatureHex: verdict.signatureHex,
+          signerKey: verdict.signerKey,
+          source: 'fetched',
+          obtainedAt: now().toISOString()
+        })
+        for (const vout of vouts) {
+          if (verdict.outputsToAdmit.includes(vout)) continue
+          const found = await storage.findOutputs({ partial: { txid, vout } })
+          for (const output of found) {
+            await storage.updateOutput(output.outputId, { spendable: false })
+            review.removed++
+          }
+        }
+      } catch (e) {
+        devLog(`[mandala] token review could not check the coin(s) of ${txid}:`, e)
+      }
+    }
+    if (review.removed > 0 || review.settled > 0) emit()
+    return review
+  }
+
   const HANDED_OVER_RECOVERY_AFTER_MS = 5 * 60 * 1000 // one drain interval (TaskSendOffline's backoff ceiling)
 
   /**
@@ -1913,6 +2049,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     ensureAdmissionsForHoldings,
     recoverStaleAdmissions,
     repairAdmittedAborted,
+    reviewTokenHoldings,
     pruneBlindingReservations,
     assetStatus,
     refreshAssetStatus,

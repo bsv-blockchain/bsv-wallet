@@ -2,7 +2,7 @@
  * Ordered Check-my-wallet repair steps.
  *
  * Records first so phantom spendable outputs do not poison later sends.
- * freedCoins = reviewSpendable.released + releaseStuck.released + reviewStatus.restoredInputs
+ * freedCoins = reviewSpendable.released + releaseStuck.released + reviewStatus.restoredInputs + reviewTokens.removed
  *
  * A port throw marks that step error; later steps still run.
  */
@@ -10,6 +10,7 @@
 export type WalletCheckStepId =
   | 'online'
   | 'records'
+  | 'tokens'
   | 'coins'
   | 'proofs'
   | 'missed_payments'
@@ -48,6 +49,13 @@ export interface WalletCheckPorts {
   /** Whether the recovery phrase was written down or the shares printed. */
   checkPhraseBackup: () => Promise<{ backedUp: boolean }>
   reviewSpendable: () => Promise<{ released: number; recovered: number }>
+  /**
+   * Token settlement rows and held coins, checked against the issuer's overlay.
+   * `removed` = transactions the overlay refused, now failed locally; `unattested`
+   * = rows/coins the overlay has no record of, reported and left alone. Throws
+   * when the overlay cannot be reached.
+   */
+  reviewTokens: () => Promise<{ settled: number; removed: number; unattested: number }>
   checkProofs: () => Promise<{ repaired: number }>
   reviewStatus: () => Promise<{ failedTxs: number; restoredInputs: number }>
   releaseStuck: () => Promise<{ released: number }>
@@ -144,6 +152,14 @@ export async function runWalletCheck(
   })
   record('records', records, () => ((records as { ok?: boolean }).ok === true ? 'ok' : 'error'))
 
+  onStep('tokens')
+  const tokens = await guard(skips, 'tokens', { settled: 0, removed: 0, unattested: 0 }, () =>
+    settle(() => ports.reviewTokens(), { settled: 0, removed: 0, unattested: 0 })
+  )
+  record('tokens', tokens, () =>
+    !(tokens as { ok?: boolean }).ok ? 'error' : tokens.value.unattested > 0 ? 'attention' : 'ok'
+  )
+
   onStep('proofs')
   const proofs = await guard(skips, 'proofs', { repaired: 0 }, () =>
     settle(() => ports.checkProofs(), { repaired: 0 })
@@ -185,7 +201,8 @@ export async function runWalletCheck(
   record('coins', spendable, () => ((spendable as { ok?: boolean }).ok === true ? 'ok' : 'error'))
 
   return {
-    freedCoins: spendable.value.released + records.value.stuckReleased + records.value.restoredInputs,
+    freedCoins:
+      spendable.value.released + records.value.stuckReleased + records.value.restoredInputs + tokens.value.removed,
     recoveredPayments: missed.value.accepted + missed.value.imported,
     repairedProofs: proofs.value.repaired,
     steps,

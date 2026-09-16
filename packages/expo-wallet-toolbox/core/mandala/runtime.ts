@@ -70,6 +70,13 @@ export interface TokenBalance {
   unsettledBaseUnits: number
 }
 
+export interface TokenHoldingsReview {
+  settled: number
+  removed: number
+  unattested: number
+  unreachable: boolean
+}
+
 export type TokenActivityStatus = 'settling' | 'settled' | 'refused' | 'reversed' | 'stuck'
 
 export interface TokenActivityRow {
@@ -252,6 +259,22 @@ export interface MandalaRuntime {
    * never throws. Never acts on the settlement row alone.
    */
   repairAdmittedAborted(): Promise<number>
+  /**
+   * The Check Wallet pass over token state, on demand rather than on the tick.
+   *
+   * Every non-terminal settlement row the drain owns takes one `settleNow`
+   * step; whatever is still not settled is put to the overlay. Every spendable
+   * token coin without a verified σ_I covering its vout is put to the overlay
+   * too. Only the overlay's OWN final verdict writes anything: a refused or
+   * evicted transaction is failed locally (its row closed, its inputs freed,
+   * its outputs made unspendable), and a coin the overlay admitted for other
+   * outputs is made unspendable. A row or coin the overlay has never heard of
+   * is counted as `unattested` and left exactly as it was — the drain still
+   * owns it, and removing it on absence would be removing it on a guess.
+   * `unreachable` is true when the overlay could not be asked; nothing was
+   * decided in that case. Never throws.
+   */
+  reviewTokenHoldings(): Promise<TokenHoldingsReview>
   /**
    * Sweeps abandoned nearby-blinding reservations (a `lockToPayee` call whose
    * payment was never built/committed) older than 24h. Returns the number

@@ -445,6 +445,21 @@ export async function postTokenStep(
   const now = deps.now ?? (() => new Date())
   const tip = step.txid
 
+  // The overlay's own σ_I over the tip is its ruling on the tip's ENTIRE
+  // ancestry — nothing in the local evidence can outrank it, so there is
+  // nothing left to submit and no walk to do. Without this, a hole COVER
+  // cannot close locally (an ancestor admission never cached, a parent whose
+  // bytes this device does not hold) left an already-admitted tip at
+  // `admitted` on every tick, never broadcast (2026-09-16).
+  const tipAdmission = await store.getAdmission(tip)
+  if (await admissionStandsIn(tipAdmission, deps)) {
+    await store.advanceSettlement(tip, PRE_ADMIT_STATES, 'admitted', {
+      admissionOutputs: tipAdmission?.outputsToAdmit,
+      admissionSignatureHex: tipAdmission?.signatureHex
+    })
+    return await broadcastAdmittedTip(deps, tip)
+  }
+
   const cover = await deps.cover(tip)
   if (!cover.ok) {
     // An ancestor is still missing. Never a local refusal — the overlay is the
@@ -571,6 +586,11 @@ export async function postTokenStep(
   }
 
   // Every ancestor in mustSubmit is admitted. Only now is a broadcast honest.
+  return await broadcastAdmittedTip(deps, tip)
+}
+
+async function broadcastAdmittedTip(deps: TokenStepDeps, tip: string): Promise<PostOutcome> {
+  const { store } = deps
   const outcome = await deps.broadcast(tip)
   if (outcome === 'success') {
     await store.advanceSettlement(tip, ['admitted', 'submitting', 'held', 'handed_over'], 'broadcast')
