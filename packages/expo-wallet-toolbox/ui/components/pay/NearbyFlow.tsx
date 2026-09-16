@@ -172,7 +172,8 @@ import {
 import { readSettlementAck, tokenSendState } from '../../../core/localpay/settlementAck'
 import { useMandala } from '../../hooks/useMandala'
 import { useOnline } from '../../hooks/useOnline'
-import { formatTokenAmountWithUnit } from '../../tokenFormat'
+import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
+import type { AmountInputAsset } from '../wallet/AmountInput'
 import type { DismissTarget } from '../../dismissTarget'
 
 /**
@@ -379,10 +380,41 @@ function abbreviateKey(key: string): string {
   return key.length > 16 ? `${key.slice(0, 10)}…${key.slice(-6)}` : key
 }
 
-/** Satoshis from a free-text field, or 0 when it is not yet a usable figure. */
+/**
+ * Whole units from a free-text field, or 0 when it is not yet a usable figure.
+ * Satoshis on a BSV session; on a token session the amount field is in token
+ * mode and already emits whole base units, so the same read is right for both.
+ */
 function satsFrom(text: string): number {
   const n = Math.round(Number(text))
   return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+/**
+ * The unit a token session's figures are typed and shown in on THIS device.
+ *
+ * The wallet's own RESOLVED metadata comes first: a payer only ever pays an
+ * asset this wallet holds (executeSend refuses anything else), and a
+ * `decimals` the registry answered is the figure the overlay stood behind —
+ * a request claiming 4 decimals against an asset this wallet knows has 2
+ * would otherwise show 2,500.00 USDX as "0.2500". The session's own block —
+ * whatever the payee's wallet wrote into the QR — is the fallback when this
+ * wallet's lookup has NOT resolved: the runtime fabricates `''`/`0` for a
+ * holding it could not identify (an offline cold start, the normal case on
+ * this rail), and a zero it cannot stand behind must never beat a figure the
+ * payee's wallet did resolve. The pair is taken from ONE source: a resolved
+ * decimals beside an unresolved ticker would be a figure with no name.
+ * `ticker: ''` on the result means neither side knows the unit, and the
+ * screen refuses to send rather than let the payer type into an unlabelled
+ * field (design principle 4).
+ */
+function assetUnits(asset: SessionAsset, held?: { ticker: string; decimals: number } | null): AmountInputAsset {
+  const resolved = held && held.ticker !== '' ? held : undefined
+  if (resolved) return { ticker: resolved.ticker, decimals: resolved.decimals }
+  // The session block counts only when it names BOTH halves: a ticker with no
+  // decimals would be a named figure at a guessed scale.
+  if (asset.ticker && asset.decimals !== undefined) return { ticker: asset.ticker, decimals: asset.decimals }
+  return { ticker: '', decimals: 0 }
 }
 
 // ── Screen ──
@@ -802,6 +834,8 @@ function NearbyFlow({
     setSendAmount('')
     setPaymentQr(null)
     setSettledAmount(0)
+    setSettledTokenText(null)
+    setSettledStatusNote(null)
     setFailure(null)
     setNotice(null)
     setUnsettled(null)
@@ -1467,17 +1501,102 @@ function NearbyFlow({
   )
 
   /**
+   * This payer's own holding of the scanned session's asset, if any. It is
+   * what Max writes and what the available line shows on an open token
+   * request, and its resolved metadata is the unit every figure on this side
+   * is read in (`assetUnits`). `null` on a BSV session, and on a token this
+   * wallet does not hold — which executeSend then refuses.
+   */
+  const scannedHolding = useMemo(
+    () =>
+      scannedSession?.asset
+        ? ((mandala.balances ?? []).find(b => b.asset.assetId === scannedSession.asset?.id) ?? null)
+        : null,
+    [scannedSession, mandala.balances]
+  )
+  /**
+   * Token mode for everything the payer sees on a token session: the amount
+   * field, the confirm figure, the code caption and the receipt. `undefined`
+   * on a BSV session, where the field takes satoshis as it always has.
+   */
+  const scannedAssetUnits = useMemo(
+    () => (scannedSession?.asset ? assetUnits(scannedSession.asset, scannedHolding?.asset) : undefined),
+    [scannedSession, scannedHolding]
+  )
+  /**
+   * The unit can move underneath a figure already typed: the session's block
+   * answers first, and the wallet's own resolved holding may arrive a moment
+   * later with different decimals. The field would keep the old text while
+   * emitting the old unit's base units, so the figure is cleared instead —
+   * it means something different in the new unit (the same rule the Pay
+   * form's asset picker follows).
+   */
+  const unitDecimals = scannedAssetUnits?.decimals
+  const unitDecimalsRef = useRef(unitDecimals)
+  useEffect(() => {
+    if (unitDecimalsRef.current === unitDecimals) return
+    unitDecimalsRef.current = unitDecimals
+    setSendAmount('')
+  }, [unitDecimals])
+  /** Neither the session nor this wallet could name the unit: nothing here may be typed or sent. */
+  const unitsUnknown = scannedAssetUnits !== undefined && scannedAssetUnits.ticker === ''
+
+  /**
    * The figure this payment will actually carry.
    *
    * The payee's request wins outright when they named one — the payer must not
    * be able to talk it down, and the payee's settle check would refuse anything
-   * else anyway. Otherwise it is the payer's own entry. 0 means "not a usable
-   * amount yet" and keeps Send disabled.
+   * else anyway. Otherwise it is the payer's own entry — satoshis on a BSV
+   * session, whole base units on a token one, because the field is in token
+   * mode there (`scannedAssetUnits`) and never emits anything else. 0 means
+   * "not a usable amount yet" and keeps Send disabled.
    */
   const payAmount = useMemo(() => {
     if (!scannedSession) return 0
     return scannedSession.amount ?? satsFrom(sendAmount)
   }, [scannedSession, sendAmount])
+
+  /**
+   * The token receipt, once a hand-over is accepted — one writer for BOTH
+   * rails, so the fountain can never again show the 1 satoshi a token output
+   * carries where the radio shows "25.00 USDX".
+   *
+   * The figure is in the asset's own units (`built.tokenAmount`, the payment
+   * — never `built.satoshis`), and the settlement sentence is "settled" only
+   * when the ack already carried a verifying σ_I; otherwise "settling", which
+   * this payer's own immediate submit (if online) may still turn into
+   * "settled" before the screen dismisses. That submit is taken now rather
+   * than on the next drain tick (ux design §4.3 step 7), strictly AFTER the
+   * positive ack and `finalizeDelivery`'s hold — the payee has the frame and
+   * this device has a durable queue row before the overlay is asked anything —
+   * and deliberately NOT awaited: the receipt is already true and must not
+   * wait on a network round trip. Registered for as long as it is in flight so
+   * a blur or unmount gates the resulting UI write — the settle call itself
+   * still runs to completion (see settleAfterHandover).
+   */
+  const writeTokenReceipt = useCallback(
+    (asset: SessionAsset, built: { txid?: string; tokenAmount?: number }, alreadySettled: boolean) => {
+      const issuer = issuerNameFor(asset.id)
+      setSettledTokenText(
+        formatTokenAmountWithUnit(built.tokenAmount ?? payAmount, scannedAssetUnits ?? assetUnits(asset)) ??
+          t('token_row_amount_pending')
+      )
+      setSettledStatusNote(
+        alreadySettled
+          ? t('token_sent_settled', { issuer })
+          : peerName
+            ? t('token_sent_settling', { issuer, payee: peerName })
+            : t('token_sent_settling_unnamed', { issuer })
+      )
+      if (alreadySettled || !built.txid) return
+      const controller = new AbortController()
+      abortsRef.current.add(controller)
+      void settleAfterHandover(built.txid, issuer, controller.signal).finally(() => {
+        abortsRef.current.delete(controller)
+      })
+    },
+    [issuerNameFor, payAmount, scannedAssetUnits, peerName, settleAfterHandover, t]
+  )
 
   // ── Send: release an abandoned build ──
   //
@@ -1723,17 +1842,10 @@ function NearbyFlow({
       // satoshi, per BRC-92, and `built.tokenAmount` is the payment.
       setSettledAmount(built.satoshis)
       if (session.asset) {
-        setSettledTokenText(
-          formatTokenAmountWithUnit(built.tokenAmount ?? payAmount, {
-            decimals: session.asset.decimals ?? 0,
-            ticker: session.asset.ticker ?? ''
-          }) ?? t('token_row_amount_pending')
-        )
         // σ_I, if the recipient's drain already had it and sent it back — and
         // only if it VERIFIES (FIX H). An unverified payload is treated as
         // absent, never as proof and never as a decline, so the worst a forged
         // ack can cost this payer is one idempotent submit by their own drain.
-        const issuer = issuerNameFor(session.asset.id)
         let admission
         try {
           const verify = mandala.runtime?.verifyAdmissionEntry
@@ -1748,22 +1860,7 @@ function NearbyFlow({
           // Absent, like every other unreadable payload.
           admission = undefined
         }
-        const alreadySettled = tokenSendState(admission) === 'sent-settled'
-        setSettledStatusNote(
-          alreadySettled
-            ? t('token_sent_settled', { issuer })
-            : peerName
-              ? t('token_sent_settling', { issuer, payee: peerName })
-              : t('token_sent_settling_unnamed', { issuer })
-        )
-        // The payer's own submit, taken now rather than on the next drain tick
-        // (§4.3, 2026-09-15). Strictly AFTER the positive ack and after
-        // `finalizeDelivery`'s hold above — the payee has the frame and this
-        // device has a durable queue row before the overlay is asked anything —
-        // and deliberately NOT awaited: the receipt is already true and must
-        // not wait on a network round trip. It corrects itself to "settled"
-        // when the row comes back admitted.
-        if (!alreadySettled && built.txid) void settleAfterHandover(built.txid, issuer, controller.signal)
+        writeTokenReceipt(session.asset, built, tokenSendState(admission) === 'sent-settled')
       }
       setPhase('done')
     } finally {
@@ -1773,17 +1870,15 @@ function NearbyFlow({
     scannedSession,
     sendKind,
     payAmount,
+    writeTokenReceipt,
     wallet,
     adminOriginator,
     storage,
     mandala.runtime,
     mandala.balances,
-    issuerNameFor,
-    peerName,
     abortBuild,
     declineMessage,
     fail,
-    settleAfterHandover,
     t
   ])
 
@@ -1893,10 +1988,13 @@ function NearbyFlow({
     }
     if (celebrate) {
       setSettledAmount(built.satoshis)
+      // This rail has no ack payload to read σ_I from, so the receipt opens as
+      // "settling" and the writer's own submit is what may settle it.
+      if (session.asset) writeTokenReceipt(session.asset, built, false)
       setRole('payer')
       setPhase('done')
     }
-  }, [wallet, storage, adminOriginator, payAmount, scannedSession, paymentQr, mandala.runtime, t])
+  }, [wallet, storage, adminOriginator, payAmount, scannedSession, paymentQr, mandala.runtime, writeTokenReceipt, t])
 
   // ── Send: leave send_qr without Done ──
   //
@@ -2008,7 +2106,15 @@ function NearbyFlow({
   )
   /** Listening over at least one radio link right now. Goes false once every fast path gives up. */
   const radioActive = hostedSession !== null && radioTransports.some(tr => !radioErrors[tr.kind as RadioKind])
-  const canSend = payAmount > 0
+  /**
+   * More than this payer holds of the session's asset: refused here, in the
+   * asset's own words, rather than by the build's error a screen later. The
+   * holding is the same basket the build selects from, so this never blocks a
+   * payment the build would have made; with no holding resolved yet there is
+   * nothing to compare against and the build decides, as it always has.
+   */
+  const overHolding = scannedHolding != null && payAmount > scannedHolding.baseUnits
+  const canSend = payAmount > 0 && !overHolding && !unitsUnknown
   const scannerOpen = phase === 'send_scan' || phase === 'receive_scan'
 
   /**
@@ -2101,10 +2207,8 @@ function NearbyFlow({
    * units of a 2-decimal asset would render as "2,500 satoshis" and, in a fiat
    * display mode, as a dollar figure this wallet invented.
    */
-  const amountBlock = (amount: number, key?: string, asset?: SessionAsset) => {
-    const tokenText = asset
-      ? formatTokenAmountWithUnit(amount, { decimals: asset.decimals ?? 0, ticker: asset.ticker ?? '' })
-      : null
+  const amountBlock = (amount: number, key?: string, units?: AmountInputAsset) => {
+    const tokenText = units ? formatTokenAmountWithUnit(amount, units) : null
     return (
       <Animated.View key={key} entering={settleIn} style={styles.amountBlock}>
         <Text
@@ -2412,12 +2516,50 @@ function NearbyFlow({
               <>
                 {supportText(t('local_pay_enter_amount_send'))}
                 <View style={styles.gapXl} />
-                <PayAmountField value={sendAmount} onChangeText={setSendAmount} />
+                {/* Token mode on a token session: the field takes and emits base
+                    units of the payee's asset and labels itself with its ticker,
+                    Max writes this payer's real holding, and the line under it is
+                    that holding — never the BSV spendable figure, which is the
+                    fee balance and says nothing about the asset. Without `asset`
+                    the payer would be typing satoshis against a USDX request,
+                    and Max would write the satoshi send-max sentinel straight
+                    into a token build. */}
+                <PayAmountField
+                  value={sendAmount}
+                  onChangeText={setSendAmount}
+                  asset={scannedAssetUnits}
+                  maxValue={scannedHolding && !unitsUnknown ? String(scannedHolding.baseUnits) : undefined}
+                  availableText={
+                    scannedHolding && scannedAssetUnits && !unitsUnknown
+                      ? (formatTokenAmount(scannedHolding.baseUnits, scannedAssetUnits.decimals) ?? undefined)
+                      : undefined
+                  }
+                  // No money chrome at all while the unit is unknown: an
+                  // unlabelled balance is exactly the figure principle 4 forbids.
+                  showBalance={!scannedAssetUnits || (scannedHolding != null && !unitsUnknown)}
+                />
               </>
             ) : (
               <>
                 <View style={styles.stageTight}>
-                  {amountBlock(scannedSession.amount, undefined, scannedSession.asset)}
+                  {unitsUnknown ? (
+                    // The payee named a figure this device cannot denominate:
+                    // a bare number at a guessed scale is exactly what must not
+                    // be printed (principle 4), so the slot says so instead.
+                    <Animated.View entering={settleIn} style={styles.amountBlock}>
+                      <Text
+                        style={[styles.amountDisplay, { color: colors.textSecondary }]}
+                        maxFontSizeMultiplier={1.3}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        accessibilityRole="text"
+                      >
+                        {t('token_row_amount_pending')}
+                      </Text>
+                    </Animated.View>
+                  ) : (
+                    amountBlock(scannedSession.amount, undefined, scannedAssetUnits)
+                  )}
                 </View>
                 <View style={styles.gapXl} />
                 {/* The payer's own BSV balance is the fee balance and says
@@ -2453,6 +2595,18 @@ function NearbyFlow({
               </>
             )}
 
+            {overHolding && scannedAssetUnits && !unitsUnknown && (
+              <>
+                <View style={styles.gapLg} />
+                {supportText(t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker }))}
+              </>
+            )}
+            {unitsUnknown && (
+              <>
+                <View style={styles.gapLg} />
+                {supportText(t('pay_asset_unidentified'))}
+              </>
+            )}
             <View style={styles.gapXl} />
             <PrimaryButton
               styles={styles}
@@ -2477,12 +2631,11 @@ function NearbyFlow({
               maxFontSizeMultiplier={1.4}
               numberOfLines={1}
             >
-              {scannedSession?.asset
-                ? formatTokenAmountWithUnit(payAmount, {
-                    decimals: scannedSession.asset.decimals ?? 0,
-                    ticker: scannedSession.asset.ticker ?? ''
-                  })
-                : <AmountDisplay>{payAmount}</AmountDisplay>}
+              {scannedAssetUnits ? (
+                formatTokenAmountWithUnit(payAmount, scannedAssetUnits)
+              ) : (
+                <AmountDisplay>{payAmount}</AmountDisplay>
+              )}
             </Text>
             {paymentQrBlocks > 1 && (
               <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_animated_hint')}</Text>
