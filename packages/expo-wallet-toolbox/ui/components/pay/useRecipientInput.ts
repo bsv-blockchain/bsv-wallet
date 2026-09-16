@@ -45,12 +45,39 @@ export interface UseRecipientInputOptions {
    * Compared by content; a new object with the same fields does not re-adopt.
    */
   initialTarget?: RecipientTarget
-  /** A link or code named an amount too. */
-  onPeerPayAmount?: (sats: number) => void
+  /**
+   * A link or code named a money, and maybe a figure: `sats` is a BSV
+   * request; `asset` is a token request (its genesis outpoint), with `amount`
+   * in that token's base units or absent for an open request.
+   */
+  onPeerPayRequest?: (request: PeerPayRequest) => void
   /** A peerpay link that did not validate; the message is the validator's. */
   onPeerPayError?: (message: string) => void
   /** A nearby-session code was scanned: this form is the wrong surface for it. */
   onNearbySession?: (session: Session) => void
+}
+
+/**
+ * What a peerpay link asked for, in exactly one money — and for WHOM: a
+ * request that has to wait (holdings not known yet) is applied only if the
+ * recipient is still the one the link named.
+ */
+export type PeerPayRequest = { identityKey: string; sats?: number; asset?: string; amount?: number }
+
+/** The request a classified handle carries, or null when it named no money at all. */
+function requestOf(input: {
+  identityKey: string
+  sats?: number
+  asset?: string
+  amount?: number
+}): PeerPayRequest | null {
+  if (input.sats === undefined && input.asset === undefined) return null
+  return {
+    identityKey: input.identityKey,
+    ...(input.sats !== undefined ? { sats: input.sats } : {}),
+    ...(input.asset !== undefined ? { asset: input.asset } : {}),
+    ...(input.amount !== undefined ? { amount: input.amount } : {})
+  }
 }
 
 const SEARCH_DEBOUNCE_MS = 400
@@ -63,7 +90,7 @@ export function useRecipientInput({
   wallet,
   adminOriginator,
   initialTarget,
-  onPeerPayAmount,
+  onPeerPayRequest,
   onPeerPayError,
   onNearbySession
 }: UseRecipientInputOptions) {
@@ -135,7 +162,8 @@ export function useRecipientInput({
             identityKey: input.identityKey,
             ...(input.messageBoxUrl ? { messageBoxUrl: input.messageBoxUrl } : {})
           })
-          if (input.sats !== undefined) onPeerPayAmount?.(input.sats)
+          const request = requestOf(input)
+          if (request) onPeerPayRequest?.(request)
           return
         case 'invalid_link':
           stopSearch()
@@ -164,7 +192,7 @@ export function useRecipientInput({
           return
       }
     },
-    [onPeerPayAmount, onPeerPayError, stopSearch]
+    [onPeerPayRequest, onPeerPayError, stopSearch]
   )
 
   const selectIdentity = useCallback(
@@ -242,12 +270,13 @@ export function useRecipientInput({
           identityKey: scanned.identityKey,
           ...(scanned.messageBoxUrl ? { messageBoxUrl: scanned.messageBoxUrl } : {})
         })
-        if (scanned.sats !== undefined) onPeerPayAmount?.(scanned.sats)
+        const request = requestOf(scanned)
+        if (request) onPeerPayRequest?.(request)
         return
       }
       setDirectTarget({ kind: 'address', address: scanned.address })
     },
-    [onNearbySession, onPeerPayAmount, onPeerPayError, setDirectTarget]
+    [onNearbySession, onPeerPayRequest, onPeerPayError, setDirectTarget]
   )
 
   return {

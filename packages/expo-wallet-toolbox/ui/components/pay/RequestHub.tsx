@@ -110,19 +110,13 @@ export default function RequestHub({
             onPress={() => onPick('get-nearby')}
           />
           {/* Remote and address both need the network: a message-box round-trip
-              and an overlay lookup respectively. Nearby is the offline rail. */}
+              and an overlay lookup respectively. Nearby is the offline rail.
+              With an asset selected the link names it and carries the figure
+              in its base units (`asset=`/`amount=`), so the row reads the same
+              in either money. */}
           <PayCellRow
             title={t('pay_method_remote_link')}
-            subtitle={
-              !online
-                ? t('pay_offline_needs_internet')
-                : asset
-                  ? // A `sats=` figure emitted while the payee was thinking in
-                    // USDX would be read by the payer as satoshis. The link
-                    // carries no figure at all, and the row says so first.
-                    t('pay_asset_link_no_amount')
-                  : t('pay_cell_handle_get_sub')
-            }
+            subtitle={!online ? t('pay_offline_needs_internet') : t('pay_cell_handle_get_sub')}
             icon="share-outline"
             disabled={!online}
             onPress={() => onPick('get-handle')}

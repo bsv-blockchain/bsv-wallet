@@ -13,7 +13,7 @@
  * load-bearing — a user who pastes an address expecting messaging-style
  * delivery has effectively posted cash.
  */
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 
@@ -30,7 +30,7 @@ import PaymentSuccessOverlay from './PaymentSuccessOverlay'
 import ResultBanner from './ResultBanner'
 import RecipientField from './RecipientField'
 import { useMessageBoxConfig } from './MessageBoxConfig'
-import { useRecipientInput, type RecipientTarget } from './useRecipientInput'
+import { useRecipientInput, type RecipientTarget, type PeerPayRequest } from './useRecipientInput'
 import AssetPicker from './AssetPicker'
 import { tokenSendCopy, tokenThrowCopy, type TokenSendCopy } from './tokenSendCopy'
 import { useAssetStatus, useMandala } from '../../hooks/useMandala'
@@ -43,6 +43,7 @@ import {
   radii,
   hitTargets,
   useWalletManagers,
+  useWalletStatus,
   CONSEQUENCE_KEYS,
   NO_MESSAGE_BOX,
   cancelOutboxPayment,
@@ -189,6 +190,14 @@ export interface UniversalSendProps {
   /** Prefilled amount in satoshis from a peerpay link or `?sats=`. */
   initialSats?: number
   /**
+   * Prefilled TOKEN amount from a peerpay link's `asset=`/`amount=`: base units
+   * of that asset. Takes precedence over `initialSats` — a link names one money.
+   * The figure only ever shows while that asset is the one selected (see the
+   * unit tag on the figure below), so a link for a token this wallet turns out
+   * not to hold seeds nothing.
+   */
+  initialTokenAmount?: { assetId: string; baseUnits: number }
+  /**
    * The asset this payment is denominated in. `null` is BSV — the default, and
    * what every existing flow assumes. Controlled by the Pay screen so the
    * choice survives a hop into Get paid and back.
@@ -205,9 +214,27 @@ export interface UniversalSendProps {
   dismissTo?: DismissTarget
 }
 
+/**
+ * The typed (or link-supplied) figure, tagged with the unit it was entered in:
+ * `null` for satoshis, an assetId for that token's base units.
+ */
+interface Figure {
+  text: string
+  unit: string | null
+}
+
+function seedFigure(sats?: number, token?: { assetId: string; baseUnits: number }): Figure {
+  if (token && Number.isFinite(token.baseUnits) && token.baseUnits > 0) {
+    return { text: String(Math.round(token.baseUnits)), unit: token.assetId }
+  }
+  if (sats && sats > 0) return { text: String(sats), unit: null }
+  return { text: '', unit: null }
+}
+
 function UniversalSend({
   initialTarget,
   initialSats,
+  initialTokenAmount,
   initialNotice,
   openScannerOnMount = false,
   onNearbySession,
@@ -219,6 +246,7 @@ function UniversalSend({
   const { colors } = useTheme()
   const StatusBar = loadStatusBar()
   const { managers, adminOriginator, storage } = useWalletManagers()
+  const { walletBuilt } = useWalletStatus()
   const wallet = managers?.permissionsManager || null
 
   // ── the asset axis ──────────────────────────────────────────────────
@@ -247,7 +275,18 @@ function UniversalSend({
   const { messageBoxUrl } = useMessageBoxConfig(t)
   const isConfigured = !!messageBoxUrl && messageBoxUrl !== NO_MESSAGE_BOX
 
-  const [sendAmount, setSendAmount] = useState(initialSats && initialSats > 0 ? String(initialSats) : '')
+  /**
+   * The figure, tagged with the unit it was entered in. The field shows it and
+   * a send reads it ONLY while that unit is the one in force — an asset counts
+   * only once this wallet is known to hold it — so any change of money (the
+   * picker, a link naming a different one, the screen dropping an asset that
+   * turns out not to be held) blanks the figure instead of letting "2500" be
+   * read as 25.00 USDX one moment and 2,500 satoshis the next.
+   */
+  const [figure, setFigure] = useState<Figure>(() => seedFigure(initialSats, initialTokenAmount))
+  const unit = asset?.assetId ?? null
+  const sendAmount = figure.unit === unit ? figure.text : ''
+  const setSendAmount = (text: string) => setFigure({ text, unit })
   const [note, setNote] = useState('')
   const [notice, setNotice] = useState<{ type: 'error'; message: string } | null>(
     initialNotice ? { type: 'error', message: initialNotice } : null
@@ -271,17 +310,108 @@ function UniversalSend({
   const [outbox, setOutbox] = useState<OutboxEntry[]>([])
   const [retryingId, setRetryingId] = useState<string | null>(null)
 
-  const onPeerPayAmount = useCallback((sats: number) => setSendAmount(String(sats)), [])
+  /**
+   * A token request, decided against a KNOWN set of holdings: the form
+   * switches to that token when this wallet holds it and takes `amount` in
+   * its base units (or leaves the figure to the user for an open request). A
+   * token this wallet does not hold cannot be paid from here, so the
+   * recipient is kept, the figure is not — a figure typed for the previous
+   * money must never stay armed at the new payee — and the banner says why;
+   * paying that person in BSV is still one tap away.
+   */
+  const applyTokenRequest = (
+    request: PeerPayRequest,
+    balances: { asset: { assetId: string } }[],
+    opts: { deferred: boolean }
+  ) => {
+    const held = balances.some(b => b.asset.assetId === request.asset)
+    if (!held) {
+      // Back to BSV, as the banner says; the figure typed for the old money
+      // must never stay armed at the new payee.
+      setAssetId(null)
+      setFigure(current => ({ ...current, text: '' }))
+      setNotice({ type: 'error', message: t('pay_asset_link_not_held') })
+      return
+    }
+    setAssetId(request.asset as string)
+    // A request applied LATER never writes over a figure the user has typed
+    // since; the link's own figure is taken only at the moment the link arrives.
+    if (!opts.deferred || figure.text === '') {
+      setFigure({ text: request.amount ? String(request.amount) : '', unit: request.asset as string })
+    }
+    setNotice(null)
+    setTokenFailure(null)
+  }
+  /**
+   * Whether this wallet can EVER hold a token here. The runtime is published at
+   * wallet build, and only on a chain with Mandala endpoints — so no runtime on
+   * a built wallet is a settled fact (holds nothing, ever), while no runtime on
+   * a wallet still building is merely unknown.
+   */
+  const tokensNever = walletBuilt && !mandala.available
+  /**
+   * A token link that arrived before the first balance read landed. `null`
+   * balances mean UNKNOWN, never "holds nothing" (useMandala's contract), and a
+   * pre-flight may only ever say "no" to a fact it has — so the request waits,
+   * and the effect below decides it the moment the holdings are known.
+   */
+  const pendingTokenRequestRef = useRef<PeerPayRequest | null>(null)
+  /**
+   * A pasted or scanned link named a money, and maybe a figure. `sats` is a
+   * BSV request: the form switches to BSV and takes the figure. `asset` is a
+   * token request, decided now if the holdings are known (or can never be
+   * held), otherwise parked until they are — see the effect below `recipient`.
+   */
+  const onPeerPayRequest = (request: PeerPayRequest) => {
+    if (request.asset !== undefined) {
+      if (tokensNever) {
+        applyTokenRequest(request, [], { deferred: false })
+      } else if (mandala.balances === null) {
+        pendingTokenRequestRef.current = request
+      } else {
+        applyTokenRequest(request, mandala.balances, { deferred: false })
+      }
+      return
+    }
+    if (request.sats !== undefined) {
+      pendingTokenRequestRef.current = null
+      setAssetId(null)
+      setFigure({ text: String(request.sats), unit: null })
+      setNotice(null)
+      setTokenFailure(null)
+    }
+  }
   const onPeerPayError = useCallback((message: string) => setNotice({ type: 'error', message }), [])
   const recipient = useRecipientInput({
     wallet,
     adminOriginator,
     initialTarget,
-    onPeerPayAmount,
+    onPeerPayRequest,
     onPeerPayError,
     onNearbySession
   })
   const target = recipient.target
+  /**
+   * A token link that arrived before the holdings were known. `null` balances
+   * mean UNKNOWN, never "holds nothing" (useMandala's contract), and a
+   * pre-flight may only ever say "no" to a fact it has — so the request waits
+   * here and is decided the moment the holdings land (or the wallet finishes
+   * building with no token runtime). Applied only if the recipient is still
+   * the payee the link named: the user may have retargeted while it waited,
+   * and a figure in a money nobody at the new payee asked for must never arm.
+   */
+  const balancesKnown = mandala.balances !== null
+  useEffect(() => {
+    const pending = pendingTokenRequestRef.current
+    if (!pending) return
+    if (!tokensNever && mandala.balances === null) return
+    pendingTokenRequestRef.current = null
+    if (target?.kind !== 'handle' || target.identityKey !== pending.identityKey) return
+    applyTokenRequest(pending, tokensNever ? [] : (mandala.balances ?? []), { deferred: true })
+    // Keyed on the two events that can settle a parked request; everything
+    // else it reads is a plain closure over this render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balancesKnown, mandala.balances, tokensNever])
 
   /**
    * Whether the issuer's registry admits the typed recipient, for the ONE
@@ -314,9 +444,20 @@ function UniversalSend({
   // A second deep link while mounted re-adopts the recipient (useRecipientInput);
   // the amount and the notice it carried must follow, or Pay sends the OLD
   // figure to the NEW person.
+  // Keyed on the figure's parts, not the object: a host that rebuilds the
+  // token-amount object every render must not reseed over what is being typed.
+  const initialTokenAssetId = initialTokenAmount?.assetId
+  const initialTokenBaseUnits = initialTokenAmount?.baseUnits
   useEffect(() => {
-    setSendAmount(initialSats && initialSats > 0 ? String(initialSats) : '')
-  }, [initialSats])
+    setFigure(
+      seedFigure(
+        initialSats,
+        initialTokenAssetId !== undefined && initialTokenBaseUnits !== undefined
+          ? { assetId: initialTokenAssetId, baseUnits: initialTokenBaseUnits }
+          : undefined
+      )
+    )
+  }, [initialSats, initialTokenAssetId, initialTokenBaseUnits])
   useEffect(() => {
     setNotice(initialNotice ? { type: 'error', message: initialNotice } : null)
   }, [initialNotice])
@@ -511,7 +652,7 @@ function UniversalSend({
         await sendToken(target, amount)
       } else if (target.kind === 'handle') await sendHandle(target, amount)
       else await sendAddress(target, amount)
-      setSendAmount('')
+      setFigure(current => ({ ...current, text: '' }))
       setNote('')
       recipient.clearRecipient()
     } catch (error: any) {
@@ -819,10 +960,9 @@ function UniversalSend({
             balances={balances}
             selected={assetId}
             onSelect={id => {
-              setAssetId(id)
               // The typed figure means something different in the new unit;
-              // carrying it over would pay a different amount than it reads.
-              setSendAmount('')
+              // its unit tag hides it the moment the selection moves.
+              setAssetId(id)
               setTokenFailure(null)
             }}
             bsvBalanceText={spendableSats == null ? null : String(spendableSats)}

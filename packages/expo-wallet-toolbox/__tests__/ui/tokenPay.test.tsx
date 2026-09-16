@@ -43,11 +43,20 @@ jest.mock('../../ui/screens/WalletCheckScreen', () => ({ promptCheckWallet: jest
 // `mockManagers`/`mockHandleStorage`, reset in `beforeEach`.
 let mockManagers: { permissionsManager: unknown } | null = null
 let mockHandleStorage: unknown = undefined
+// `false` = the wallet is still building, so "no token runtime" is UNKNOWN
+// rather than settled; the one test that needs a settled "never" flips it.
+let mockWalletBuilt = false
 const mockSendViaHandle = jest.fn()
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
   useWallet: () => ({ managers: mockManagers, adminOriginator: 'admin.com', storage: mockHandleStorage }),
   useWalletManagers: () => ({ managers: mockManagers, adminOriginator: 'admin.com', storage: mockHandleStorage }),
+  useWalletStatus: () => ({
+    walletBuilt: mockWalletBuilt,
+    walletBuilding: !mockWalletBuilt,
+    configStatus: 'ok',
+    selectedNetwork: 'main'
+  }),
   // The BSV handle rail's own send and client construction — not what this
   // suite is about (that is `__tests__/pay/handleRail.test.ts`'s job), so
   // stubbed the same way `nearbyFlowToken.test.tsx` stubs its rail deps: a
@@ -66,12 +75,13 @@ jest.mock('../../ui/hooks/useSpendableBalance', () => ({ useSpendableBalance: ()
 beforeEach(() => {
   mockManagers = null
   mockHandleStorage = undefined
+  mockWalletBuilt = false
   mockSendViaHandle.mockReset()
   mockSendViaHandle.mockResolvedValue({ satoshis: 2500 })
 })
 
 import React from 'react'
-import { fireEvent, render, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
 import AssetPicker from '../../ui/components/pay/AssetPicker'
 import AdmissionNotice from '../../ui/components/pay/AdmissionNotice'
@@ -300,8 +310,10 @@ describe('RequestHub with an asset selected', () => {
     expect(s.getByText('pay_method_address')).toBeTruthy()
   })
 
-  it('tells the payee the shared link will carry no figure', () => {
-    expect(drawHub(USDX.assetId).getByText('pay_asset_link_no_amount')).toBeTruthy()
+  it('offers the link row the same way in either money — the link names the asset and carries the figure', () => {
+    const s = drawHub(USDX.assetId)
+    expect(s.getByText('pay_cell_handle_get_sub')).toBeTruthy()
+    expect(s.queryByText('pay_asset_link_no_amount')).toBeNull()
   })
 
   it('leaves all three rows alone when paying in BSV', () => {
@@ -363,6 +375,150 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
     const labels = s.getAllByText(/^(recipient|pay_asset_label|amount)$/).map(el => el.props.children)
     expect(labels).toEqual(['recipient', 'pay_asset_label', 'amount'])
+  })
+
+  // ── What a pasted or scanned peerpay link does to the money and the figure ──
+
+  it('a token link selects its asset and seeds the figure in base units', async () => {
+    // Uncontrolled selection: the form owns the asset choice here.
+    const s = drawSend(makeFakeMandala())
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    fireEvent.changeText(
+      s.getByPlaceholderText('recipient_placeholder'),
+      `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
+    )
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    await waitFor(() => expect(s.getByPlaceholderText('0.00').props.value).toBe('25.00'))
+    expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy()
+  })
+
+  it('an open token link selects the asset and leaves the figure to the payer', async () => {
+    const s = drawSend(makeFakeMandala())
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?asset=${USDX.assetId}`)
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    expect(s.getByPlaceholderText('0.00').props.value).toBe('')
+  })
+
+  it('a sats link while paying in a token switches the form back to BSV', async () => {
+    const onSelectAsset = jest.fn()
+    const s = drawSend(makeFakeMandala(), { selectedAssetId: USDX.assetId, onSelectAsset })
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?sats=1000`)
+    await waitFor(() => expect(onSelectAsset).toHaveBeenCalledWith(null))
+    expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
+    // The controlled parent has not switched yet, so a satoshi figure must not
+    // surface in a field still denominated in USDX.
+    expect(s.getByPlaceholderText('0.00').props.value).toBe('')
+  })
+
+  it('a token link for an asset this wallet does not hold keeps the recipient, seeds nothing, and says why', async () => {
+    const s = drawSend(makeFakeMandala({ balances: [balanceOf(USDX)] }))
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    fireEvent.changeText(
+      s.getByPlaceholderText('recipient_placeholder'),
+      `peerpay:${KEY}?asset=${EURX.assetId}&amount=500`
+    )
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    expect(s.getByText('pay_asset_link_not_held')).toBeTruthy()
+    expect(s.queryByPlaceholderText('0.00')).toBeNull()
+    expect(s.getByPlaceholderText('0').props.value).toBe('')
+  })
+
+  it('a token link pasted before the holdings are known waits for them, then takes effect', async () => {
+    // `balances === null` is UNKNOWN, never "holds nothing": the link must not
+    // be refused on a fact the form does not have yet.
+    const runtime = makeFakeMandala()
+    let release: ((b: ReturnType<typeof balanceOf>[]) => void) | undefined
+    runtime.balances.mockImplementation(() => new Promise(resolve => (release = resolve)))
+    const s = drawSend(runtime)
+    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    fireEvent.changeText(
+      s.getByPlaceholderText('recipient_placeholder'),
+      `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
+    )
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
+    await act(async () => {
+      release?.([balanceOf()])
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    await waitFor(() => expect(s.getByPlaceholderText('0.00').props.value).toBe('25.00'))
+    expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
+  })
+
+  it('a link for a token this wallet does not hold blanks the figure typed for the old money', async () => {
+    const onSelectAsset = jest.fn()
+    const s = drawSend(makeFakeMandala({ balances: [balanceOf(USDX)] }), {
+      selectedAssetId: USDX.assetId,
+      onSelectAsset
+    })
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    expect(s.getByPlaceholderText('0.00').props.value).toBe('25')
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?asset=${EURX.assetId}`)
+    await waitFor(() => expect(s.getByText('pay_asset_link_not_held')).toBeTruthy())
+    expect(s.getByPlaceholderText('0.00').props.value).toBe('')
+    // …and, as the banner says, the form goes back to BSV.
+    expect(onSelectAsset).toHaveBeenCalledWith(null)
+  })
+
+  it('a token link on a built wallet with no token runtime is refused at once, not parked', async () => {
+    // A built wallet publishes its runtime only on a chain with endpoints, so
+    // "built and none" is a settled fact: the link gets its verdict now.
+    mockWalletBuilt = true
+    const s = drawSend(null)
+    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    fireEvent.changeText(
+      s.getByPlaceholderText('recipient_placeholder'),
+      `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
+    )
+    await waitFor(() => expect(s.getByText('pay_asset_link_not_held')).toBeTruthy())
+    expect(s.getByText('valid_identity_key')).toBeTruthy()
+    expect(s.getByPlaceholderText('0').props.value).toBe('')
+  })
+
+  it('a parked token link is dropped, not applied, if the recipient moved while the holdings were unknown', async () => {
+    // secp256k1 2G — a second genuinely valid compressed key.
+    const OTHER = '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5'
+    const runtime = makeFakeMandala()
+    let release: ((b: ReturnType<typeof balanceOf>[]) => void) | undefined
+    runtime.balances.mockImplementation(() => new Promise(resolve => (release = resolve)))
+    const s = drawSend(runtime)
+    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    fireEvent.changeText(
+      s.getByPlaceholderText('recipient_placeholder'),
+      `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
+    )
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    // Retarget to someone else before the holdings land.
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), OTHER)
+    await act(async () => {
+      release?.([balanceOf()])
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    // Still BSV, still blank, no banner: nothing from the old link reached the new payee.
+    expect(s.queryByPlaceholderText('0.00')).toBeNull()
+    expect(s.getByPlaceholderText('0').props.value).toBe('')
+    expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
+  })
+
+  it('a figure typed in a token is never shown once the form is back in satoshis', async () => {
+    const runtime = makeFakeMandala()
+    const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    await waitFor(() => expect(s.getByText('pay_asset_label')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    expect(s.getByPlaceholderText('0.00').props.value).toBe('25')
+    s.rerender(
+      <ThemeProvider>
+        <MandalaProvider runtime={runtime}>
+          <UniversalSend onNearbySession={jest.fn()} selectedAssetId={null} onSelectAsset={jest.fn()} />
+        </MandalaProvider>
+      </ThemeProvider>
+    )
+    await waitFor(() => expect(s.getByPlaceholderText('0')).toBeTruthy())
+    expect(s.getByPlaceholderText('0').props.value).toBe('')
   })
 
   it('names the exact figure on the button and sends it in base units', async () => {

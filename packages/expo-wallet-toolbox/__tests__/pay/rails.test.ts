@@ -252,3 +252,46 @@ describe('isCompressedPublicKey', () => {
     expect(isCompressedPublicKey('02' + 'ff'.repeat(32))).toBe(false)
   })
 })
+
+// ── Token requests over the handle rail: asset=<outpoint> [&amount=<base units>] ──
+const ASSET = 'ab'.repeat(32) + '.0'
+
+describe('classifyScan — token requests', () => {
+  it('reads asset and amount as a handle target, base units untouched', () => {
+    expect(classifyScan(`peerpay:${KEY}?asset=${ASSET}&amount=2500`)).toEqual({
+      kind: 'handle',
+      identityKey: KEY,
+      asset: ASSET,
+      amount: 2500
+    })
+  })
+
+  it('reads asset alone as an open token request', () => {
+    expect(classifyScan(`peerpay:${KEY}?asset=${ASSET}`)).toEqual({ kind: 'handle', identityKey: KEY, asset: ASSET })
+  })
+
+  it('rejects a link that mixes sats with a token request', () => {
+    expect(classifyScan(`peerpay:${KEY}?sats=5&asset=${ASSET}`)).toBeNull()
+  })
+
+  it('rejects an amount with no asset', () => {
+    expect(classifyScan(`peerpay:${KEY}?amount=5`)).toBeNull()
+  })
+})
+
+describe('classifyRecipientInput — token requests', () => {
+  it('carries asset and amount on a pasted link', () => {
+    expect(classifyRecipientInput(`peerpay:${KEY}?asset=${ASSET}&amount=99`)).toEqual({
+      kind: 'handle',
+      identityKey: KEY,
+      asset: ASSET,
+      amount: 99
+    })
+  })
+
+  it('surfaces an amount without an asset as an invalid link, with the validator’s reason', () => {
+    const r = classifyRecipientInput(`peerpay:${KEY}?amount=99`)
+    expect(r.kind).toBe('invalid_link')
+    if (r.kind === 'invalid_link') expect(r.message).toMatch(/amount/i)
+  })
+})

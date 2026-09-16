@@ -55,11 +55,11 @@ describe('useRecipientInput — typing', () => {
   })
 
   it('makes a handle target from a peerpay link and reports its amount and host', () => {
-    const onPeerPayAmount = jest.fn()
-    const { result } = draw({ onPeerPayAmount })
+    const onPeerPayRequest = jest.fn()
+    const { result } = draw({ onPeerPayRequest })
     act(() => result.current.onChangeText(`peerpay:${KEY}?sats=99&url=${encodeURIComponent('https://mb.example')}`))
     expect(result.current.target).toEqual({ kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' })
-    expect(onPeerPayAmount).toHaveBeenCalledWith(99)
+    expect(onPeerPayRequest).toHaveBeenCalledWith({ identityKey: KEY, sats: 99 })
   })
 
   it('reports a malformed peerpay link through onPeerPayError', () => {
@@ -164,12 +164,12 @@ describe('useRecipientInput — scanning', () => {
   })
 
   it('sets a handle target from a peerpay QR and reports the amount', () => {
-    const onPeerPayAmount = jest.fn()
-    const { result } = draw({ onPeerPayAmount })
+    const onPeerPayRequest = jest.fn()
+    const { result } = draw({ onPeerPayRequest })
     act(() => result.current.openScanner())
     act(() => result.current.onScan(`peerpay:${KEY}?sats=12`))
     expect(result.current.target).toEqual({ kind: 'handle', identityKey: KEY })
-    expect(onPeerPayAmount).toHaveBeenCalledWith(12)
+    expect(onPeerPayRequest).toHaveBeenCalledWith({ identityKey: KEY, sats: 12 })
     expect(result.current.scannerVisible).toBe(false)
   })
 
