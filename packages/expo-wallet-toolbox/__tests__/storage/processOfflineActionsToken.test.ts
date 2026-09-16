@@ -18,9 +18,10 @@ jest.mock('@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsT
 }))
 
 import { DatabaseSync } from 'node:sqlite'
-import { LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
+import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
 import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
 import { processOfflineActions } from '../../core/storage/methods/processOfflineActions'
+import { getOnline } from '../../core/net/online'
 import type { BindValue, OfflineActionRow } from '../../core/storage/methods/offlineActions'
 import { createTables } from '../../core/storage/schema/createTables'
 import { createSettlementStore, type SettlementDb } from '../../core/mandala/settlementStore'
@@ -92,7 +93,13 @@ function fakeDb(rows: OfflineActionRow[]) {
   }
 }
 
-function fakeStorage(args: { db: ReturnType<typeof fakeDb>; reqs: TableProvenTxReq[]; postBeef?: jest.Mock }) {
+function fakeStorage(args: {
+  db: ReturnType<typeof fakeDb>
+  reqs: TableProvenTxReq[]
+  postBeef?: jest.Mock
+  /** What the network says it holds, by txid. Anything unlisted is 'unknown'. */
+  networkHas?: Record<string, 'mined' | 'known'>
+}) {
   return {
     sqliteDb: args.db,
     findProvenTxReqs: async (a: { partial: { txid?: string } }) =>
@@ -100,7 +107,14 @@ function fakeStorage(args: { db: ReturnType<typeof fakeDb>; reqs: TableProvenTxR
     findTransactions: async () => [{ transactionId: 11, status: 'unproven' }],
     updateProvenTxReq: jest.fn(),
     updateTransactionStatus: jest.fn(),
-    getServices: () => ({ postBeef: args.postBeef ?? jest.fn(async () => []) })
+    getServices: () => ({
+      postBeef: args.postBeef ?? jest.fn(async () => []),
+      getStatusForTxids: async (txids: string[]) => ({
+        name: 'fake',
+        status: 'success',
+        results: txids.map(t => ({ txid: t, depth: undefined, status: args.networkHas?.[t] ?? 'unknown' }))
+      })
+    })
   }
 }
 
@@ -110,6 +124,7 @@ let log: jest.SpyInstance
 
 beforeEach(async () => {
   mockPostReqs.mockReset()
+  ;(getOnline as jest.Mock).mockReset().mockResolvedValue(true)
   raw = new DatabaseSync(':memory:')
   await createTables(adapt(raw) as never)
   store = createSettlementStore(adapt(raw) as unknown as SettlementDb)
@@ -326,5 +341,102 @@ describe('processOfflineActions token branch', () => {
     const storage = fakeStorage({ db: fakeDb([row({ txid })]), reqs: [api] })
 
     await expect(processOfflineActions({ storage: storage as never })).resolves.toMatchObject({ sent: 1 })
+  })
+})
+
+// A nearby payment is broadcast by whichever side has signal first — routinely
+// the PAYEE — so the payer's own request is still 'nosend' for a transaction the
+// network already has. Re-posting it produced a broadcaster error that read as
+// serviceError, and the queue row sat at 'queued' on every tick while the
+// activity list said settled (2026-09-16). Two witnesses close the row instead.
+describe('a transaction the network already has', () => {
+  it('closes a queue row on a recorded delivery before asking whether it is online', async () => {
+    ;(getOnline as jest.Mock).mockResolvedValueOnce(false)
+    const tx = txSpending('55'.repeat(32))
+    const txid = tx.id('hex')
+    await store.upsertSettlement({
+      txid,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state: 'admitted',
+      overlayUrl: OVERLAY,
+      overlayIdentityKey: OVERLAY_KEY
+    })
+    // settleNow posted this at hand-over: storage already says so.
+    const api = req({ txid, rawTx: tx.toBinary(), status: 'unmined' })
+    const db = fakeDb([row({ txid, role: 'sent' })])
+    const storage = fakeStorage({ db, reqs: [api] })
+
+    const r = await processOfflineActions({
+      storage: storage as never,
+      token: { store, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [] }), submit: jest.fn() }
+    })
+
+    expect(r).toMatchObject({ sent: 1, rejected: 0, stopped: false })
+    // Closed before the probe: nothing about it needed the network.
+    expect(getOnline).not.toHaveBeenCalled()
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(db.writes.some(w => w.params.includes('sent'))).toBe(true)
+    expect((await store.getSettlement(txid))?.state).toBe('broadcast')
+  })
+
+  it('records an owned request as delivered when the network has it, without posting', async () => {
+    const tx = txSpending('44'.repeat(32))
+    const txid = tx.id('hex')
+    const api = req({ txid, rawTx: tx.toBinary() })
+    const db = fakeDb([row({ txid, role: 'sent' })])
+    const storage = fakeStorage({ db, reqs: [api], networkHas: { [txid]: 'known' } })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(r).toMatchObject({ sent: 1, rejected: 0 })
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(storage.updateProvenTxReq).toHaveBeenCalledWith(1, { status: 'unmined' })
+    expect(db.writes.some(w => w.params.includes('sent'))).toBe(true)
+  })
+
+  it('still gates a token tip on admission, then closes it on the network witness', async () => {
+    const tx = txSpending('33'.repeat(32))
+    const txid = tx.id('hex')
+    await seedSettlement(txid)
+    const api = req({ txid, rawTx: tx.toBinary() })
+    const submit = jest.fn(async () => admitted())
+    const db = fakeDb([row({ txid })])
+    const storage = fakeStorage({ db, reqs: [api], networkHas: { [txid]: 'mined' } })
+
+    const r = await processOfflineActions({
+      storage: storage as never,
+      token: { store, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [txid] }), submit }
+    })
+
+    expect(submit).toHaveBeenCalledWith(txid)
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ sent: 1 })
+    expect((await store.getSettlement(txid))?.state).toBe('broadcast')
+  })
+
+  it('does not re-post a foreign ancestor the network has, and releases the child behind it', async () => {
+    const parent = new Transaction()
+    parent.addOutput({ satoshis: 2000, lockingScript: LockingScript.fromHex('51') })
+    const parentTxid = parent.id('hex')
+    const child = txSpending(parentTxid)
+    const childTxid = child.id('hex')
+    const inputBEEF = new Beef()
+    inputBEEF.mergeRawTx(parent.toBinary())
+
+    const api = req({ txid: childTxid, rawTx: child.toBinary(), inputBEEF: inputBEEF.toBinary() })
+    mockPostReqs.mockImplementation(async () => {
+      api.status = 'unmined'
+      return { details: [{ txid: childTxid, status: 'success' }] }
+    })
+    const postBeef = jest.fn(async () => [])
+    const db = fakeDb([row({ txid: childTxid, role: 'sent' })])
+    const storage = fakeStorage({ db, reqs: [api], postBeef, networkHas: { [parentTxid]: 'known' } })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(postBeef).not.toHaveBeenCalled()
+    expect(mockPostReqs).toHaveBeenCalledTimes(1)
+    expect(r).toMatchObject({ sent: 1, rejected: 0, stopped: false })
   })
 })

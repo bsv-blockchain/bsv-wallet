@@ -238,14 +238,18 @@ function ActivityRowBase({
   const parked = offlineStatus === 'parked'
   const canCancelParked = parked && !!action.txid && !!onCancelParked
   const canAbort = !parked && ABORTABLE_STATUSES.has(action.status) && !!action.reference
-  // Any outgoing payment this wallet can rebuild: both rails write the payee's
-  // identity key as a label and the derivation data as customInstructions, so
-  // the details can be re-delivered whether the payment went out through a
-  // message box or a nearby code that may never have been scanned.
+  // Any outgoing BSV payment this wallet can rebuild: both rails write the
+  // payee's identity key as a label and the derivation data as
+  // customInstructions, so the details can be re-delivered whether the payment
+  // went out through a message box or a nearby code that may never have been
+  // scanned. NOT a token row: a stablecoin hand-over is not a BRC-29 token to
+  // rebuild, and the chip only ever failed with "couldn't get this payment's
+  // data" (2026-09-16). Its re-delivery is the Mandala runtime's own.
   const resendableOutbound =
     !!action.txid &&
     (action.isOutgoing ?? !incoming) &&
-    !!action.labels?.some(l => l === 'peerpay' || l === 'localpay')
+    !!action.labels?.some(l => l === 'peerpay' || l === 'localpay') &&
+    !action.labels?.includes('mandala')
   const canResendDetails = resendableOutbound && !!onSendPaymentDetails
   const canSendAgain = !parked && !incoming && action.status === 'failed' && !!onSendAgain
   const hasUtilities = parked

@@ -157,12 +157,36 @@ export async function processOfflineActions(args: {
   // stranding its rows. Re-posting is safe: a transaction the network already has
   // comes back as accepted (ARC's `SEEN_ON_NETWORK`), and a request storage has
   // already recorded as delivered is not posted again at all — see `postOwned`.
-  const rows = await findOfflineActions(db, { status: ['queued', 'posting'] })
-  if (rows.length === 0) return { sent: 0, rejected: 0, stopped: false }
+  const queued = await findOfflineActions(db, { status: ['queued', 'posting'] })
+  if (queued.length === 0) return { sent: 0, rejected: 0, stopped: false }
+
+  // BEFORE the connectivity probe, because it needs none: a row whose request
+  // storage already records as delivered ('unmined', 'completed', …) has
+  // nothing left to post. Until now that fact was only read inside `postOwned`,
+  // i.e. only on a pass that got past the probe and stepped the row — so a
+  // token tip that `settleNow` broadcast the moment it was handed over, or that
+  // the payee broadcast and this device later saw mined, kept its queue row at
+  // 'queued' (blue "settled", the "waiting" banner, no Refresh chip) whenever
+  // the drain was offline, stalled on a sibling, or never reached the step
+  // (2026-09-16).
+  const rows: OfflineActionRow[] = []
+  let sent = 0
+  for (const row of queued) {
+    const api = await findReq(storage, row.txid)
+    if (api && outcomeFromReqStatus(api.status) === 'success') {
+      devLog(`[processOfflineActions] storage already records '${api.status}' for ${row.txid}; closing its queue row`)
+      await updateOfflineAction(db, row.txid, { status: 'sent' })
+      if (token) await closeSettlementAsBroadcast(token.store, row.txid)
+      sent++
+    } else {
+      rows.push(row)
+    }
+  }
+  if (rows.length === 0) return { sent, rejected: 0, stopped: false }
 
   if (!(await probeOnline())) {
     devLog(`[processOfflineActions] offline, leaving ${rows.length} action(s) queued`)
-    return { sent: 0, rejected: 0, stopped: true }
+    return { sent, rejected: 0, stopped: true }
   }
 
   // Merge every held request's BEEF into one graph. Anything that cannot be read
@@ -228,7 +252,6 @@ export async function processOfflineActions(args: {
   const txs: OrderableTx[] = merged.txs
   const plan = planRelease({ rows, txs })
 
-  let sent = 0
   let rejected = 0
   const resolved = new Set<string>()
   const skip = new Set<string>()
@@ -496,6 +519,20 @@ async function postOwned(storage: StorageExpoSQLite, api: TableProvenTxReq): Pro
     return recorded
   }
 
+  // The second witness: the network itself. A nearby payment is broadcast by
+  // whichever side has signal first, and that is routinely the PAYEE — so the
+  // payer's own request is still 'nosend' for a transaction that is already in
+  // a mempool or a block. Re-posting it is at best a no-op and at worst a
+  // broadcaster's "inputs already spent"-shaped error that `outcomeOfOwnedPost`
+  // can only read as serviceError: re-held, re-queued, and stuck on every tick
+  // while the activity list says settled (2026-09-16). Asking first costs one
+  // status lookup and lets storage record what already happened.
+  if (await networkAlreadyHas(storage, api.txid)) {
+    devLog(`[processOfflineActions] the network already has ${api.txid}; recording delivery without a post`)
+    await recordDeliveredElsewhere(storage, api)
+    return 'success'
+  }
+
   const attemptsBefore = api.attempts
   const req = new EntityProvenTxReq(api)
   // What to restore each transaction to, read before the post overwrites it.
@@ -570,6 +607,62 @@ export async function postOwnedByTxid(storage: StorageExpoSQLite, txid: string):
 }
 
 /**
+ * Whether the network already has `txid`, by the services' own status lookup
+ * ('mined' or 'known'). Every failure — no such service, a transport fault, an
+ * unexpected shape — is `false`: the answer then falls back to the ordinary
+ * post, whose own result decides. Never a reason to stall.
+ */
+async function networkAlreadyHas(storage: StorageExpoSQLite, txid: string): Promise<boolean> {
+  try {
+    const services = storage.getServices() as {
+      getStatusForTxids?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
+    }
+    if (typeof services.getStatusForTxids !== 'function') return false
+    const r = await services.getStatusForTxids([txid])
+    const status = r.results?.find(x => x.txid === txid)?.status
+    return status === 'mined' || status === 'known'
+  } catch (e) {
+    devLog(`[processOfflineActions] could not ask the network whether it has ${txid}:`, e)
+    return false
+  }
+}
+
+/**
+ * Record that `txid` reached the network by someone else's hand, exactly as the
+ * toolbox records its own successful post (`updateReqsFromAggregateResults`:
+ * request 'unmined', transaction 'unproven'). Only a transaction still at a
+ * pre-broadcast status is moved; anything past that is left to the monitor,
+ * which owns proofs and 'completed'.
+ */
+async function recordDeliveredElsewhere(storage: StorageExpoSQLite, api: TableProvenTxReq): Promise<void> {
+  await storage.updateProvenTxReq(api.provenTxReqId, { status: 'unmined' })
+  const req = new EntityProvenTxReq(api)
+  for (const transactionId of req.notify.transactionIds ?? []) {
+    try {
+      const tx = (await storage.findTransactions({ partial: { transactionId }, noRawTx: true }))[0]
+      if (tx && (tx.status === 'nosend' || tx.status === 'sending')) {
+        await storage.updateTransactionStatus('unproven', transactionId)
+      }
+    } catch (e) {
+      devLog(`[processOfflineActions] could not promote transaction ${transactionId} of ${api.txid}:`, e)
+    }
+  }
+}
+
+/**
+ * The settlement twin of closing a queue row on a recorded delivery: the same
+ * advance `broadcastAdmittedTip` makes after a real post. Best-effort — the
+ * queue row is the durable fact, and `reconcileSettlements` re-derives rows.
+ */
+async function closeSettlementAsBroadcast(store: SettlementStore, txid: string): Promise<void> {
+  try {
+    await store.advanceSettlement(txid, ['admitted', 'submitting', 'held', 'handed_over'], 'broadcast')
+  } catch (e) {
+    devLog(`[processOfflineActions] could not close the settlement row of ${txid} as broadcast:`, e)
+  }
+}
+
+/**
  * Post a foreign ancestor that arrived inside someone's BEEF.
  *
  * Only its own dependency closure is sent, not the whole merged graph, so each
@@ -581,6 +674,13 @@ export async function postOwnedByTxid(storage: StorageExpoSQLite, txid: string):
  * one cannot end up posting the same graph to two different sets of providers.
  */
 async function postForeign(storage: StorageExpoSQLite, merged: Beef, txid: string): Promise<PostOutcome> {
+  // Same witness as `postOwned`: an ancestor that arrived inside a counterparty's
+  // BEEF was usually broadcast by that counterparty already, and a failed
+  // re-post of it would block every owned transaction behind it.
+  if (await networkAlreadyHas(storage, txid)) {
+    devLog(`[processOfflineActions] the network already has foreign ancestor ${txid}; not posting`)
+    return 'success'
+  }
   try {
     const atomic = Beef.fromBinary(merged.toBinaryAtomic(txid))
     const results = await storage.getServices().postBeef(atomic, [txid])
