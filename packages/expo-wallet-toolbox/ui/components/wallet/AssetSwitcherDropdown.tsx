@@ -10,9 +10,9 @@
  * list, and what Pay / Get paid are armed with. The asset question is asked
  * here, once, so the Pay screen never has to ask it again.
  *
- * Only BSV gets a second line of conversions: the wallet has no price for a
- * token, and a converted figure beside one would be the wallet vouching for
- * someone else's peg (ux §6.1). A token's second line names its issuer instead.
+ * A token's second line names its issuer, when the issuer has published one;
+ * BSV never gets a second line — sats is already the figure's own unit, with
+ * no conversion to note and no issuer to name.
  *
  * Rendered only when something is held — a wallet that has never held a token
  * never mounts this, so it keeps today's screen byte for byte.
@@ -56,8 +56,6 @@ export interface AssetSwitcherDropdownProps {
   onSelect: (assetId: string | null) => void
   /** The BSV figure as the hero draws it; `null` is UNKNOWN and prints nothing. */
   bsv: { value: string; unit: string } | null
-  /** The BSV row's second line: the same money in the other denominations. */
-  bsvContext?: string
 }
 
 export default function AssetSwitcherDropdown({
@@ -67,8 +65,7 @@ export default function AssetSwitcherDropdown({
   balances,
   selected,
   onSelect,
-  bsv,
-  bsvContext
+  bsv
 }: AssetSwitcherDropdownProps) {
   const { colors } = useTheme()
 
@@ -138,7 +135,6 @@ export default function AssetSwitcherDropdown({
         <View style={styles.list}>
           <CoinRow
             name={BSV_LABEL}
-            detail={bsvContext}
             figure={bsv}
             selected={selected === null}
             onPress={() => choose(null)}

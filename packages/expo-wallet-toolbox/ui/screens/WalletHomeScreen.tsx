@@ -1794,7 +1794,6 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           selected={heldAsset ? heldAsset.asset.assetId : null}
           onSelect={setSelectedAssetId}
           bsv={balanceParts}
-          bsvContext={balanceContext}
         />
       )}
     </View>
