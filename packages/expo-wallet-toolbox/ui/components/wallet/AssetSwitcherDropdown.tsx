@@ -210,7 +210,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: spacing.lg,
     right: spacing.lg,
-    borderRadius: radii.xl,
+    // 20, not the sheet radius scale's 24 — this is the design file's own
+    // number (Multi-currency wallet options.dc.html, option 4a), chosen so
+    // it stays concentric with the row radius below: 20 = 14 (row) + 6 (inset).
+    borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'visible',
     zIndex: 20,
@@ -233,8 +236,11 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }]
   },
   list: {
-    padding: spacing.xs,
-    borderRadius: radii.xl,
+    // 6, so the clipped corner here stays concentric with the card's 20 above
+    // (20 = 14 + 6) — a smaller inset left the row's own 14px corner cutting
+    // across the card's wider sweep instead of following it.
+    padding: 6,
+    borderRadius: 20,
     overflow: 'hidden'
   },
   row: {
@@ -242,8 +248,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     minHeight: hitTargets.minimum,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
     borderRadius: radii.lg
   },
   body: { flex: 1, minWidth: 0 },
