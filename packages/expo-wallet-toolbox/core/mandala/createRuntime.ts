@@ -2201,7 +2201,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       return await listStuckSettlements(store, now().getTime())
     },
 
-    async sendToHandle({ assetId, recipientIdentityKey, baseUnits }): Promise<TokenSendResult> {
+    async sendToHandle({ assetId, recipientIdentityKey, baseUnits, note }): Promise<TokenSendResult> {
       if (!available) {
         return { kind: 'unavailable', message: 'Stablecoins are not available on this network' }
       }
@@ -2231,7 +2231,8 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           // below when this device has signal, the ordinary drain otherwise,
           // both over the `handed_over` row written below.
           mode: 'handover',
-          evidence: storeEvidenceSource
+          evidence: storeEvidenceSource,
+          note
         })
         // The handle rail's own evidence (spec §4.5): the exact bytes and
         // off-chain payload just handed over, cached the same way a nearby

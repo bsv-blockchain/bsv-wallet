@@ -161,7 +161,14 @@ export interface MandalaRuntime {
   /** Non-terminal rows older than STUCK_AFTER_MS (FIX M). */
   stuck(): Promise<TokenSettlementRow[]>
   /** Handle rail: send to an identity key over MessageBox (lib transferTokens). */
-  sendToHandle(args: { assetId: string; recipientIdentityKey: string; baseUnits: number }): Promise<TokenSendResult>
+  sendToHandle(args: {
+    assetId: string
+    recipientIdentityKey: string
+    baseUnits: number
+    /** The sender's own note — becomes the recipient's action description in
+     * place of the lib's fixed "Receive N of assetId" wording. */
+    note?: string
+  }): Promise<TokenSendResult>
   /** Handle rail: drain the MessageBox inbox (lib receiveTokens), credit, journal. */
   receiveFromInbox(): Promise<{ credited: number; failed: number }>
   /** Nearby rail: the blinded payee lock the localpay token build needs (lib prepareBlindedPayment). */

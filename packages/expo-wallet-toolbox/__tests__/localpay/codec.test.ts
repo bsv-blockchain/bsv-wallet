@@ -54,9 +54,29 @@ describe('localpay codec', () => {
     expect(() => decodeFrame(v1)).toThrow('unsupported frame version 1')
   })
 
-  it('is version 4', () => {
-    expect(FRAME_VERSION).toBe(4)
-    expect(encodeFrame(sample())[0]).toBe(4)
+  it('is version 5', () => {
+    expect(FRAME_VERSION).toBe(5)
+    expect(encodeFrame(sample())[0]).toBe(5)
+  })
+
+  it('round-trips an optional note', () => {
+    const f = { ...sample(), note: 'lunch split' }
+    expect(decodeFrame(encodeFrame(f))).toEqual(f)
+  })
+
+  it('omits the note key entirely when no note was set', () => {
+    const decoded = decodeFrame(encodeFrame(sample())) as unknown as Record<string, unknown>
+    expect('note' in decoded).toBe(false)
+  })
+
+  it('treats an explicit empty-string note the same as no note at all', () => {
+    const decoded = decodeFrame(encodeFrame({ ...sample(), note: '' })) as unknown as Record<string, unknown>
+    expect('note' in decoded).toBe(false)
+  })
+
+  it('round-trips a note alongside a token frame', () => {
+    const f = { ...tokenSample(), note: 'thanks!' }
+    expect(decodeFrame(encodeFrame(f))).toEqual(f)
   })
 
   it('rejects truncated input', () => {

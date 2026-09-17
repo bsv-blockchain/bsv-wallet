@@ -106,6 +106,17 @@ describe('processPending: token credit', () => {
     expect(args.labels).toContain(MANDALA_ACTION_LABEL)
   })
 
+  it('uses the sender’s note as the description when the token frame carries one', async () => {
+    const storage = memoryStorage()
+    const wallet = walletStub()
+    await savePending(storage, { ...tokenFrame(), note: 'thanks!' }, 'nearby')
+
+    await processPending(wallet as never, storage, 'admin.com')
+
+    const args = wallet.internalizeAction.mock.calls[0][0] as { description: string }
+    expect(args.description).toBe('thanks!')
+  })
+
   // The toolbox forces the derivation fields undefined on the basket-insertion
   // path, so anything the coin needs to be spent later has to be here.
   it('writes the derivation triple into customInstructions, the only slot that survives', async () => {

@@ -444,6 +444,26 @@ describe('sendToAddress', () => {
     ])
   })
 
+  it('uses the sender’s own note as the description when one is given', async () => {
+    const wallet = { createAction: jest.fn().mockResolvedValue({}) }
+    await sendToAddress({
+      wallet: wallet as never,
+      adminOriginator: 'admin.com',
+      address: ADDRESS,
+      satoshis: 1234,
+      note: 'rent split'
+    })
+    const [args] = wallet.createAction.mock.calls[0]
+    expect(args.description).toBe('rent split')
+  })
+
+  it('falls back to the abbreviated address when no note is given', async () => {
+    const wallet = { createAction: jest.fn().mockResolvedValue({}) }
+    await sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: ADDRESS, satoshis: 1234 })
+    const [args] = wallet.createAction.mock.calls[0]
+    expect(args.description).toBe(abbreviateKey(ADDRESS))
+  })
+
   it('reports the requested amount as paid for an ordinary send', async () => {
     const wallet = { createAction: jest.fn().mockResolvedValue({}) }
     await expect(

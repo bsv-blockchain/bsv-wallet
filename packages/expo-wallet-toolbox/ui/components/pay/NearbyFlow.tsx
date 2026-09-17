@@ -88,7 +88,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
@@ -103,7 +103,7 @@ import AmountDisplay from '../wallet/AmountDisplay'
 import PressableScale from '../ui/PressableScale'
 import PresenceRow, { type PresenceState } from '../ui/PresenceRow'
 import AvailableBalance from './AvailableBalance'
-import { PayAmountField, RecipientSummary } from './PayForm'
+import { PayAmountField, PayField, RecipientSummary } from './PayForm'
 import PaymentQrDisplay from './PaymentQrDisplay'
 import ReceivedOverlay from './PaymentSuccessOverlay'
 import { identityLabel, makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
@@ -509,6 +509,13 @@ function NearbyFlow({
    */
   /** The payer's own entry, used only when the scanned session left the amount open. */
   const [sendAmount, setSendAmount] = useState('')
+  /**
+   * The payer's note, same PayForm field as the handle rail's. Rides on the
+   * frame (codec.ts's `PaymentFrame.note`) and becomes the payee's action
+   * description in place of the fixed "Received BSV/token" wording — the
+   * counterpart of what the message-box rail already does.
+   */
+  const [note, setNote] = useState('')
 
   const [paymentQr, setPaymentQr] = useState<string | null>(null)
   const [settledAmount, setSettledAmount] = useState(0)
@@ -832,6 +839,7 @@ function NearbyFlow({
     setScannedSession(null)
     setRequestAmount('')
     setSendAmount('')
+    setNote('')
     setPaymentQr(null)
     setSettledAmount(0)
     setSettledTokenText(null)
@@ -1407,6 +1415,7 @@ function NearbyFlow({
     // recipient card; nothing waits on it.
     setPeerKey(session.identityKey)
     setSendAmount('')
+    setNote('')
     setRole('payer')
     setPhase('send_confirm')
   }, [])
@@ -1690,7 +1699,8 @@ function NearbyFlow({
           // the AdmissionBundle the frame carries. Nothing is submitted here —
           // hand-over comes first, unconditionally, so a face-to-face payment
           // never waits on a network.
-          session.asset ? mandala.runtime?.tokenBuildDeps : undefined
+          session.asset ? mandala.runtime?.tokenBuildDeps : undefined,
+          note
         )
       } catch (e) {
         // Build errors are wallet errors and must keep their own message. A
@@ -1870,6 +1880,7 @@ function NearbyFlow({
     scannedSession,
     sendKind,
     payAmount,
+    note,
     writeTokenReceipt,
     wallet,
     adminOriginator,
@@ -2569,6 +2580,20 @@ function NearbyFlow({
               </>
             )}
 
+            <PayField labelKey="note">
+              <TextInput
+                value={note}
+                onChangeText={setNote}
+                placeholder={t('note_placeholder')}
+                placeholderTextColor={colors.textQuaternary}
+                maxLength={280}
+                style={[
+                  styles.noteInput,
+                  { backgroundColor: colors.backgroundSecondary, borderColor: colors.separator, color: colors.textPrimary }
+                ]}
+              />
+            </PayField>
+
             <RecipientSummary
               name={peerName ?? abbreviateKey(scannedSession.identityKey)}
               detail={peerName ? abbreviateKey(scannedSession.identityKey) : undefined}
@@ -3050,6 +3075,14 @@ function makeStyles() {
 
     // The resolved-counterparty card and field labels moved to the shared
     // PayForm vocabulary (RecipientSummary / PayField).
+
+    noteInput: {
+      ...typography.body,
+      borderRadius: radii.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md
+    },
 
     notice: {
       flexDirection: 'row',

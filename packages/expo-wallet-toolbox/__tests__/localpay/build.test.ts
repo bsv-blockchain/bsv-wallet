@@ -66,6 +66,24 @@ describe('buildPaymentFrame', () => {
     expect(args.description).toBe('Sent BSV')
   })
 
+  it('uses the payer’s note as the description when one is given', async () => {
+    const w = walletStub()
+    await buildPaymentFrame(w as never, session(), 'admin.com', 777, undefined, 'lunch split')
+    expect(w.createAction.mock.calls[0][0].description).toBe('lunch split')
+  })
+
+  it('carries the note on the frame so the payee can show it too', async () => {
+    const { frame } = await buildPaymentFrame(walletStub() as never, session(), 'admin.com', 777, undefined, 'lunch split')
+    expect(frame.note).toBe('lunch split')
+  })
+
+  it('omits the note from the frame, and keeps the fixed description, when none is given', async () => {
+    const w = walletStub()
+    const { frame } = await buildPaymentFrame(w as never, session(), 'admin.com', 777)
+    expect(frame.note).toBeUndefined()
+    expect(w.createAction.mock.calls[0][0].description).toBe('Sent BSV')
+  })
+
   it('writes the derivation data as customInstructions so a resend can rebuild the token', async () => {
     const w = walletStub()
     const s = session()

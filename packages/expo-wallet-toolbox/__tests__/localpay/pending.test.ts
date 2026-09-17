@@ -241,6 +241,15 @@ describe('localpay pending queue', () => {
     expect(originator).toBe('admin.com')
   })
 
+  it('uses the sender’s note as the description when the frame carries one', async () => {
+    const s = fakeStorage()
+    await savePending(s, { ...frame(), note: 'lunch split' })
+    const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
+    await processPending(wallet as never, s, 'admin.com')
+    const args = wallet.internalizeAction.mock.calls[0][0]
+    expect(args.description).toBe('lunch split')
+  })
+
   it('marks failed and keeps the entry when internalizeAction throws', async () => {
     const s = fakeStorage()
     await savePending(s, frame())

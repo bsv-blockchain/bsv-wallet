@@ -531,6 +531,22 @@ describe('sendToHandle', () => {
     expect(seen).toHaveLength(1)
   })
 
+  it('forwards the payer’s note to transferTokens, when one is given', async () => {
+    const txid = '98'.repeat(32)
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true })
+    const runtime = build()
+    await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12, note: 'lunch split' })
+    expect((transferTokens as jest.Mock).mock.calls[0][0]).toMatchObject({ note: 'lunch split' })
+  })
+
+  it('sends no note field at all when the payer gives none', async () => {
+    const txid = '97'.repeat(32)
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true })
+    const runtime = build()
+    await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12 })
+    expect((transferTokens as jest.Mock).mock.calls[0][0].note).toBeUndefined()
+  })
+
   /**
    * The abort guard's other half: the reference has to be ON the row.
    *

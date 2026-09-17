@@ -517,6 +517,37 @@ describe('NearbyFlow — the token path', () => {
     expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(2500)
   })
 
+  it('carries the payer’s typed note through to buildPaymentFrame', async () => {
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf()] })
+    )
+    await settle()
+    expect(s.getByText('note')).toBeTruthy()
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25.00')
+    fireEvent.changeText(s.getByPlaceholderText('note_placeholder'), 'thanks!')
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(mockBuildPaymentFrame).toHaveBeenCalledTimes(1)
+    expect(mockBuildPaymentFrame.mock.calls[0][5]).toBe('thanks!')
+  })
+
+  it('sends no note when the payer leaves the field blank', async () => {
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
+      makeFakeMandala({ balances: [balanceOf()] })
+    )
+    await settle()
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25.00')
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(mockBuildPaymentFrame.mock.calls[0][5]).toBeFalsy()
+  })
+
   it('Max on an open token request writes the payer’s real holding, not the satoshi send-max sentinel', async () => {
     const s = wrap(
       <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,

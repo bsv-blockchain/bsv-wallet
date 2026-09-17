@@ -7,11 +7,14 @@
  * code is handed up to the Pay screen, which swaps this form for NearbyFlow.
  * Nothing here is chosen by the user except the recipient and the amount.
  *
- * The form recomposes by what the field resolved to: a note field exists
- * only for handles (an address has nowhere to carry one), and the "they are
- * not notified" consequence is shown only for addresses, where it is
- * load-bearing — a user who pastes an address expecting messaging-style
- * delivery has effectively posted cash.
+ * The form recomposes by what the field resolved to: a note field is shown
+ * for both handles and addresses (in BSV mode — a token has no address rail
+ * at all, D4). For a handle the note is sent to the counterparty and becomes
+ * their action's description; for an address there is no counterparty
+ * channel to carry it over, so it is purely the sender's own record for
+ * their own outbound description. The "they are not notified" consequence is
+ * shown only for addresses, where it is load-bearing — a user who pastes an
+ * address expecting messaging-style delivery has effectively posted cash.
  */
 import React, { memo, useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -552,11 +555,12 @@ function UniversalSend({
         wallet: wallet as any,
         adminOriginator,
         address: to.address,
-        satoshis: sats
+        satoshis: sats,
+        note
       })
       setSent({ amount: paidSatoshis, recipient: to.address })
     },
-    [wallet, adminOriginator, t]
+    [wallet, adminOriginator, note, t]
   )
 
   /**
@@ -579,7 +583,8 @@ function UniversalSend({
       const result = await runtime.sendToHandle({
         assetId: asset.assetId,
         recipientIdentityKey: to.identityKey,
-        baseUnits
+        baseUnits,
+        ...(note.trim() ? { note: note.trim() } : {})
       })
       if (result.kind !== 'sent') {
         // The banner narrows the reason to one sentence; the console keeps the
@@ -620,7 +625,7 @@ function UniversalSend({
       })
       mandala.refresh()
     },
-    [mandala, asset, issuer, recipient.selectedIdentity, t]
+    [mandala, asset, issuer, recipient.selectedIdentity, note, t]
   )
 
   const handleSend = useCallback(async () => {
@@ -963,7 +968,7 @@ function UniversalSend({
         }
       />
 
-      {isHandle && (
+      {(isHandle || (isAddress && !asset)) && (
         <PayField labelKey="note">
           <TextInput
             value={note}

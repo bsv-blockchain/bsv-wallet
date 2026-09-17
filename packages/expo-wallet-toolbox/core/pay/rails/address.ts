@@ -379,8 +379,15 @@ export async function sendToAddress(args: {
   adminOriginator: string
   address: string
   satoshis: number
+  /**
+   * The sender's own note for this outbound send. There is no counterparty
+   * channel on this rail — an address names no one to notify — so this is
+   * purely the payer's own record: it replaces the abbreviated-address
+   * description in their own activity list, nothing more.
+   */
+  note?: string
 }): Promise<{ paidSatoshis: number }> {
-  const { wallet, adminOriginator, address, satoshis } = args
+  const { wallet, adminOriginator, address, satoshis, note } = args
   const sats = Math.round(Number(satoshis))
   if (!Number.isFinite(sats) || sats <= 0) throw new Error('Invalid amount')
   if (!isValidBsvAddress(address)) throw new Error('Invalid BSV address')
@@ -392,8 +399,9 @@ export async function sendToAddress(args: {
   const result = (await wallet.createAction(
     {
       // The recipient's address is the description so the activity list has a
-      // name for the row without a lookup; the to: label is what lets it draw a face.
-      description: abbreviateKey(address),
+      // name for the row without a lookup; the to: label is what lets it draw
+      // a face. A sender's own note overrides it, same as the other rails.
+      description: note?.trim() || abbreviateKey(address),
       outputs: [{ lockingScript, satoshis: sats, outputDescription: 'BSV for recipient address' }],
       labels: ['legacy', 'outbound', addressLabel(TO_ADDRESS_LABEL_PREFIX, address)],
       ...(isSendMax ? { options: { randomizeOutputs: false } } : {})

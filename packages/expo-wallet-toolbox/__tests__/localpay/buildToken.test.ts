@@ -242,6 +242,25 @@ describe('buildPaymentFrame: token path', () => {
     expect(args.description).toBe('Sent token')
   })
 
+  it('uses the payer’s note as the description when one is given', async () => {
+    const { wallet } = setup()
+    await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps(), 'thanks!')
+    const args = wallet.createAction.mock.calls[0][0] as { description: string }
+    expect(args.description).toBe('thanks!')
+  })
+
+  it('carries the note on the token frame too', async () => {
+    const { wallet } = setup()
+    const { frame } = await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps(), 'thanks!')
+    expect(frame.note).toBe('thanks!')
+  })
+
+  it('omits the note from the token frame when none is given', async () => {
+    const { wallet } = setup()
+    const { frame } = await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())
+    expect(frame.note).toBeUndefined()
+  })
+
   it('finalizes through signAction with the token inputs it signed, still noSend', async () => {
     const { wallet } = setup()
     const built = await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())

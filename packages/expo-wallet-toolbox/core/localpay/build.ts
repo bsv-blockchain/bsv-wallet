@@ -239,7 +239,11 @@ export async function buildPaymentFrame(
    * the two are not interchangeable, and `amount` means base units on one
    * path and satoshis on the other.
    */
-  token?: TokenBuildDeps
+  token?: TokenBuildDeps,
+  /** The payer's note. Becomes the action's description in place of the fixed
+   * fallback, and rides on the frame so the payee's own activity row can show
+   * it too. */
+  note?: string
 ): Promise<BuiltPayment> {
   if (!isRequestableAmount(amount)) {
     throw new Error('amount must be a positive whole number of satoshis')
@@ -251,7 +255,7 @@ export async function buildPaymentFrame(
     if (session.amount !== undefined && session.amount !== amount) {
       throw new Error('amount does not match the payee’s request')
     }
-    return buildTokenPaymentFrame(wallet, session, session.asset, originator, amount, token)
+    return buildTokenPaymentFrame(wallet, session, session.asset, originator, amount, token, note)
   }
   // A payee that named a figure is stating a binding term of the request, and
   // its settle path refuses anything else. Catching the disagreement here — on
@@ -280,8 +284,9 @@ export async function buildPaymentFrame(
       // The activity list uses the description as the row title, so it says
       // what happened. Not the payee's key: the row draws the counterparty as
       // a sigil from the label below, and an abbreviated key as a title told
-      // the user nothing about a blinded transfer (2026-09-16).
-      description: 'Sent BSV',
+      // the user nothing about a blinded transfer (2026-09-16). A payer's note
+      // overrides this fixed wording, same as the message-box rail.
+      description: note?.trim() || 'Sent BSV',
       // The payee's identity key rides as a label, and the derivation data as
       // the output's customInstructions — exactly what the handle rail writes.
       // Both rails derive to BRC-29 (`counterparty: identityKey`, keyID
@@ -351,6 +356,7 @@ export async function buildPaymentFrame(
       outputIndex: 0,
       derivationPrefix: session.derivationPrefix,
       derivationSuffix: session.derivationSuffix,
+      ...(note?.trim() ? { note: note.trim() } : {}),
       transaction: new Uint8Array(result.tx)
     },
     reference,
@@ -461,7 +467,8 @@ async function buildTokenPaymentFrame(
   asset: NonNullable<Session['asset']>,
   originator: string,
   amount: number,
-  deps: TokenBuildDeps
+  deps: TokenBuildDeps,
+  note?: string
 ): Promise<BuiltPayment> {
   if (!wallet.listOutputs) throw new Error('this wallet cannot list token outputs')
   if (!wallet.createSignature) throw new Error('this wallet cannot sign token inputs')
@@ -547,12 +554,13 @@ async function buildTokenPaymentFrame(
   const created = await wallet.createAction(
     {
       // Same title discipline as the BSV path; the activity row overrides it
-      // with "Sent <ticker>" from the settlement row anyway. The 'mandala'
-      // label is what makes that override happen: the home screen recognises
-      // a token row by that label alone, and without it a nearby token payment
-      // rendered as a BSV row — the payee's key over "+0 sats" (2026-09-16).
-      // The payee key stays on as a label for the resend path.
-      description: 'Sent token',
+      // with "Sent <ticker>" from the settlement row unless a note was given
+      // (WalletHomeScreen.tsx). The 'mandala' label is what makes the row
+      // recognise a token row at all — the home screen keys off that label,
+      // and without it a nearby token payment rendered as a BSV row — the
+      // payee's key over "+0 sats" (2026-09-16). The payee key stays on as a
+      // label for the resend path.
+      description: note?.trim() || 'Sent token',
       labels: [PEERPAY_LABEL, session.identityKey, MANDALA_ACTION_LABEL],
       inputBEEF: sourceBeef.toBinary(),
       inputs: selected.map(coin => ({
@@ -640,6 +648,7 @@ async function buildTokenPaymentFrame(
         linkage: [{ txid: tipTxid, payload: tipLinkage }, ...bundle.linkage],
         admissions: bundle.admissions
       },
+      ...(note?.trim() ? { note: note.trim() } : {}),
       transaction: new Uint8Array(signed.tx)
     },
     reference: signable.reference,

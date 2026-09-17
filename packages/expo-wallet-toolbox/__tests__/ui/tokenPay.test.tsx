@@ -549,6 +549,26 @@ describe('UniversalSend with stablecoins', () => {
     )
   })
 
+  it('carries a typed note through to sendToHandle', async () => {
+    const runtime = makeFakeMandala()
+    const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.changeText(s.getByPlaceholderText('note_placeholder'), 'lunch split')
+    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() =>
+      expect(runtime.sendToHandle).toHaveBeenCalledWith({
+        assetId: USDX.assetId,
+        recipientIdentityKey: KEY,
+        baseUnits: 2500,
+        note: 'lunch split'
+      })
+    )
+  })
+
   it('reports the notify as pending, never as an unsettled broadcast, when notified is false', async () => {
     // `notified === false` is a delivery-channel gap, not a network one — the
     // money already moved. It must read differently from "not yet broadcast"

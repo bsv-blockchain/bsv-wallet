@@ -1,7 +1,7 @@
 import { SymmetricKey } from '@bsv/sdk'
 import type { AdmissionEntryWire } from '../mandala/types'
 
-export const FRAME_VERSION = 4
+export const FRAME_VERSION = 5
 
 export class CodecError extends Error {
   constructor(message: string) {
@@ -67,6 +67,13 @@ export interface PaymentFrame {
    * submit the whole chain.
    */
   token?: TokenPayment
+  /**
+   * The sender's note, same app-specific extension as the message-box rail's
+   * `PaymentToken.note` (handle.ts). Empty and absent are wire-identical — an
+   * empty string round-trips as no `note` key at all — so there is exactly
+   * one way to say "no note".
+   */
+  note?: string
   /**
    * AtomicBEEF, on both transports. The design originally specified a bare
    * rawtx on the QR path to shrink the symbol, but ancestry is what lets the
@@ -191,6 +198,7 @@ export function encodeFrame(f: PaymentFrame): Uint8Array {
       for (const byte of hexToBytes(entry.signerKey.toLowerCase())) out.push(byte)
     }
   }
+  putStr(out, f.note ?? '')
   putBytes(out, f.transaction)
   return new Uint8Array(out)
 }
@@ -246,11 +254,13 @@ export function decodeFrame(b: Uint8Array): PaymentFrame {
     }
     token = { assetId, overlayUrl, overlayIdentityKey, certificates, linkage, admissions }
   }
+  const note = getStr(b, pos)
   const transaction = getBytes(b, pos)
   if (pos.i !== b.length) throw new CodecError('trailing bytes after frame')
   return {
     version, kind, senderIdentityKey, outputIndex, derivationPrefix, derivationSuffix,
     ...(token === undefined ? {} : { token }),
+    ...(note ? { note } : {}),
     transaction,
   }
 }

@@ -426,8 +426,10 @@ export async function processPending(
           // which is why the rail label carries no key. A token frame ALSO
           // carries the lib's own 'mandala' label: it is how the home screen
           // recognises a token row, and without it a received stablecoin
-          // rendered as a BSV row over "+0 sats" (2026-09-16).
-          description: p.frame.kind === 'token' ? 'Received token' : 'Received BSV',
+          // rendered as a BSV row over "+0 sats" (2026-09-16). A sender's note
+          // on the frame overrides this fixed wording, same as the message-box
+          // rail's PeerPay note.
+          description: p.frame.note?.trim() || (p.frame.kind === 'token' ? 'Received token' : 'Received BSV'),
           labels: p.frame.kind === 'token' ? [PEERPAY_LABEL, MANDALA_ACTION_LABEL] : [PEERPAY_LABEL]
         },
         originator

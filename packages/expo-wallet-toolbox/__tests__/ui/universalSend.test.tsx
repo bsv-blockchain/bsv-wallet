@@ -105,12 +105,12 @@ describe('UniversalSend', () => {
     expect(s.queryByText('pay_conseq_handle')).toBeNull()
   })
 
-  it('an address: valid-address row, address consequence, no note field', async () => {
+  it('an address: valid-address row, address consequence, and a note field (own record only)', async () => {
     const s = draw()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
     await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
     expect(s.getByText('pay_conseq_address')).toBeTruthy()
-    expect(s.queryByText('note')).toBeNull()
+    expect(s.getByText('note')).toBeTruthy()
   })
 
   it('a key: valid-key row, note field, and no consequence callout', async () => {

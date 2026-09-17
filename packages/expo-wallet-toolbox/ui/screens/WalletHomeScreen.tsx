@@ -85,6 +85,7 @@ import { storageMatchesNetwork } from '../../core/net/chainMatch'
 import { makeMetadataDecryptor } from '../../core/peerpay/metadataDecryptor'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { homeBadges } from './homeBadges'
+import { tokenRowTitle } from './tokenRowTitle'
 import { useMandala, useMandalaRuntime, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
 import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
@@ -1250,14 +1251,24 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    * for exactly the rows a token holder scrolls past most.
    */
   const tokenProps = useMemo(() => {
+    const actionByTxid = new Map(actions.filter(a => a.txid).map(a => [a.txid as string, a]))
     const map = new Map<string, NonNullable<React.ComponentProps<typeof ActivityRow>['token']>>()
     for (const [txid, row] of tokenByTxid) {
       const signedBaseUnits = row.role === 'sent' ? -row.baseUnits : row.baseUnits
       const figure = formatTokenAmount(signedBaseUnits, row.asset.decimals, {
         showPlus: row.role === 'received'
       })
+      const action = actionByTxid.get(txid)
       map.set(txid, {
-        title: t(row.role === 'sent' ? 'token_row_sent' : 'token_row_received', { ticker: row.asset.ticker }),
+        title: tokenRowTitle({
+          role: row.role,
+          ticker: row.asset.ticker,
+          labels: action?.labels,
+          description: action?.description,
+          assetId: row.asset.assetId,
+          baseUnits: row.baseUnits,
+          t
+        }),
         amount: figure ? { value: figure, unit: row.asset.ticker } : undefined,
         incoming: row.role === 'received',
         // The same generative face a BSV row draws, keyed on the token row's
@@ -1271,7 +1282,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       })
     }
     return map
-  }, [tokenByTxid, t])
+  }, [tokenByTxid, actions, t])
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item, index }) => {
