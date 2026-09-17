@@ -167,8 +167,119 @@ Behaviour changes:
 - i18n: the wizard, key-management, transfer-confirmation and error keys added
   in all twelve locales; the K1/passphrase-era keys removed.
 
+### Expo SDK 57 (breaking)
+
+Peer ranges move to Expo SDK 57 / React Native 0.86: every `expo-*` peer is
+`~57.x`, `react-native` `^0.86.3`, `react-i18next` `^16.6.6` (TypeScript 6
+peer range), `@react-native-community/netinfo` `^12`,
+`react-native-gesture-handler` `~2.32`, `react-native-safe-area-context`
+`~5.7`. New peer: `@bsv/mandala` `^0.2.0`. iOS deployment target is 16.4, the
+SDK 57 minimum. `StyleSheet.absoluteFillObject` is gone in RN 0.86; this
+package uses `absoluteFill`.
+
+### Stablecoins (Mandala)
+
+Stablecoin acceptance and transfer on top of the `@bsv/mandala` token client,
+pay-first UX, recipient-submits offline settlement (specs:
+`docs/superpowers/specs/2026-09-15-mandala-*`).
+
+- **Host config.** `configureToolbox({ mandala })` takes a per-chain map of
+  `MandalaEndpointConfig` (`overlayUrl`, `overlayIdentityKey` — the only key
+  an admission signature may come from — and `messageBoxUrl`). The map is
+  the whole policy: a chain with no entry has no runtime, no drain and no
+  token asset offered; nothing is hardcoded to mainnet. `getMandalaEndpoints`,
+  `isMandalaAvailable`, `isVaultAvailable` exported.
+- **Storage.** Four settlement tables (`token_settlements`,
+  `token_admissions`, `token_admission_edges`, `token_linkage_payloads`),
+  created by `createTables`; `ensureTokenSettlementColumns`,
+  `createMandalaSettlementTables`, `createSettlementStore`,
+  `TokenTransactionRepair`, `findOfflineActionByTxid`, `OfflineTokenDeps`.
+  Basket `p mandala` behind `MandalaTokenModule` with a one-time basket
+  migration; paired apps are prompted for list, spend, credit and relinquish
+  and never receive unlocking derivations.
+- **Settlement.** The drain submits ancestors parents-first and broadcasts
+  only after admission; three structural guards keep token transactions away
+  from any plain broadcast, including the receiver's first internalize.
+  `abortAction` on the published manager refuses a reference whose settlement
+  row is held, handed_over, submitting, admitted or broadcast
+  (`wrapAbortActionForSettlements`, `abortIsBlockedBy`); an admitted answer
+  with no verifying σ_I is never `admitted`; every held coin gets a verified
+  admission fetched and cached on the tick; `repairAdmittedAborted` re-attaches
+  a transaction the wallet failed but the overlay admitted.
+- **Rails.** Handle rail is hand-over-first: build and sign (noSend), assemble
+  the admission bundle from local evidence, post the v2 MessageBox body; the
+  send path never contacts the overlay. An online payer then settles at once
+  (`MandalaRuntime.settleNow`); offline, the drain finishes later.
+  PaymentFrame v4: `admissions[]` replaces `recipientLinkage`; the payee runs
+  COVER at hand-over against its own configured overlay key and refuses frames
+  naming another. Nearby token payments are denominated in the asset, labelled
+  `mandala` on both sides, and a payee-first submit is resolved via
+  `GET /admin/admission/:txid` instead of looping.
+- **Runtime and UI.** `MandalaRuntime` is the one surface the UI reads
+  (`useMandala`, `MandalaProvider`, `useTokenActivity`); nothing above it
+  imports `@bsv/mandala`. New `ui` exports: `AssetAmount`, `AssetPicker`,
+  `AdmissionNotice`, `tokenFormat` (`formatTokenAmount`, `parseTokenAmount`,
+  …), `tokenStatus`, `tokenSeen`, `tokenEviction`, `tokenSendCopy`,
+  `tokenRowTitle`. Balances read every page of the basket, not the first
+  1000 outputs. Sent token rows carry a minus sign.
+- **Core exports.** `./mandala/types`, `drain`, `bundle`, `createRuntime`,
+  `abortGuard`, `settlementStore`; `./offline/tokenFrames`;
+  `cancelParkedPayment`; `./services/externalOrigin`.
+
+### Payments
+
+- **Sender note** on nearby (BLE/QR), address and message-box token payments;
+  the note becomes the recipient's activity description. Nearby
+  `FRAME_VERSION` 4 → 5 with an optional `note`; `sendToAddress` takes a
+  `note` (local only); `sendToHandle` forwards it to `transferTokens`. Token
+  activity rows now show the note instead of a fixed ticker template.
+- **Token requests in peerpay links**: `asset=<txid.vout>` names a token by
+  genesis outpoint, `amount=` its base units; `sats=` selects BSV; mixing is
+  refused. Get paid emits them for a selected token. `PeerPayRequest` exported.
+- **Resend a token transfer** over the message box from the activity row,
+  rebuilt from the payer's blinding journal and cached admission, journaled
+  first so a failed send is retried by the drain.
+
+### Home screen
+
+- Coin switcher is a filled accent pill in the top bar (the title doubles as
+  the control) opening a dropdown card with a tail; the bottom drawer and the
+  Balances section are gone. Token holdings remain in Pay's asset picker and
+  Activity. Pay form order: Recipient, Paying with, Amount, Pay.
+- `useWalletStatus` / `WalletStatusSlice` exported from `core`.
+
+### Storage
+
+- `listOutputs` and the wallet balance count outputs of a transaction at
+  `sending` (already posted, not yet `unproven`), matching what
+  `allocateChangeInput` was already willing to spend; `listOutputsSql` shares
+  `walletBalanceSql`'s one status list. A vault re-lock remainder no longer
+  reads as 0 for a few seconds.
+- Received token frames round-trip every byte field through the pending
+  queue; the settlement store refuses non-byte or empty payloads and reads
+  back the TEXT rows already on Android devices; `build.ts` aborts its own
+  noSend action when a step after `createAction` fails.
+
+### Vault fixes
+
+- A key can be removed while the vault holds a balance: broadcast statuses
+  (`sending`, `unproven`) no longer block `beginVaultKeyRemoval`; the re-lock
+  sheet names the remaining keys.
+- Enrollment names keys itself (Key 1, Key 2, …) instead of stopping on a
+  naming page; rename from the vault screen. `vault_name_title` /
+  `vault_name_hint` removed from all locales.
+- A re-lock records `Vault relock` as its action description instead of the
+  NFC prompt copy.
+- Guarded in-app PIV application reset for a previously used key
+  (`./services/vault/pivReset`), refused for keys mid-removal, on other
+  chains, or holding an unknown vault key. The vault is mainnet-only.
+
 ### Fixes
 
+- **Short nearby-payment notes** no longer fail internalize forever. A note
+  under 5 characters (a lone 🪿) is truthy after trim, so the fixed fallback
+  never applied and `internalizeAction` rejected the description on every
+  retry; `processPending` now pads to 5 like `build.ts` and `handle.ts`.
 - **Import wallet data** works again for files exported since the wallet
   database moved to WAL mode (`9ef35665`, 2026-09-02). Every export — the iOS
   byte copy and the Android `serializeAsync` image — carries SQLite header
