@@ -10,9 +10,9 @@
  * list, and what Pay / Get paid are armed with. The asset question is asked
  * here, once, so the Pay screen never has to ask it again.
  *
- * A token's second line names its issuer, when the issuer has published one;
- * BSV never gets a second line — sats is already the figure's own unit, with
- * no conversion to note and no issuer to name.
+ * Each row is the ticker over the asset's full name — "BSV" / "Bitcoin SV",
+ * "CHFB" / "CHF on BSV" — so the figure on the right always reads against a
+ * denomination you can pronounce, not just a four-letter code.
  *
  * Rendered only when something is held — a wallet that has never held a token
  * never mounts this, so it keeps today's screen byte for byte.
@@ -42,6 +42,8 @@ function loadIonicons(): IoniconsComponent {
 
 /** The literal, like `mainnet`/`testnet`: a translated "BSV" would be byte-identical in every locale. */
 export const BSV_LABEL = 'BSV'
+/** BSV's own full name, the way a token's `asset.label` names it — a proper noun, not translated. */
+export const BSV_FULL_NAME = 'Bitcoin SV'
 
 export interface AssetSwitcherDropdownProps {
   visible: boolean
@@ -134,7 +136,8 @@ export default function AssetSwitcherDropdown({
         />
         <View style={styles.list}>
           <CoinRow
-            name={BSV_LABEL}
+            ticker={BSV_LABEL}
+            fullName={BSV_FULL_NAME}
             figure={bsv}
             selected={selected === null}
             onPress={() => choose(null)}
@@ -142,8 +145,8 @@ export default function AssetSwitcherDropdown({
           {balances.map(b => (
             <CoinRow
               key={b.asset.assetId}
-              name={b.asset.label || b.asset.ticker}
-              detail={b.asset.issuerName}
+              ticker={b.asset.ticker}
+              fullName={b.asset.label}
               figure={tokenAmountParts(b.baseUnits, b.asset)}
               selected={selected === b.asset.assetId}
               onPress={() => choose(b.asset.assetId)}
@@ -156,14 +159,14 @@ export default function AssetSwitcherDropdown({
 }
 
 function CoinRow({
-  name,
-  detail,
+  ticker,
+  fullName,
   figure,
   selected,
   onPress
 }: {
-  name: string
-  detail?: string
+  ticker: string
+  fullName?: string
   figure: { value: string; unit: string } | null
   selected: boolean
   onPress: () => void
@@ -179,15 +182,15 @@ function CoinRow({
       accessibilityRole="button"
       // The checkmark is not the only signal: state travels with the element.
       accessibilityState={{ selected }}
-      accessibilityLabel={[name, figureText].filter(Boolean).join(', ')}
+      accessibilityLabel={[ticker, fullName, figureText].filter(Boolean).join(', ')}
     >
       <View style={styles.body}>
         <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
-          {name}
+          {ticker}
         </Text>
-        {!!detail && (
+        {!!fullName && (
           <Text style={[styles.detail, { color: colors.textSecondary }]} numberOfLines={1}>
-            {detail}
+            {fullName}
           </Text>
         )}
       </View>
