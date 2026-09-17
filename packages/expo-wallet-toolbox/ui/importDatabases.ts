@@ -7,7 +7,8 @@ import {
   getRegisteredDbs,
   registerDb,
   selectLatestDb,
-  parseTimestampFromFilename
+  parseTimestampFromFilename,
+  prepareSqliteImageForDeserialize
 } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from './components/ui/AlertCard'
 import { showToast } from './components/ui/Toast'
@@ -138,8 +139,11 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
   let sourceDb: SQLite.SQLiteDatabase | undefined
   let destDb: SQLite.SQLiteDatabase | undefined
   try {
-    // Deserialize the imported bytes into an in-memory database
-    sourceDb = await SQLite.deserializeDatabaseAsync(bytes)
+    // Deserialize the imported bytes into an in-memory database. Exports of
+    // the WAL-mode wallet DB carry a WAL header, which the in-memory VFS
+    // cannot open (SQLITE_CANTOPEN), so the header is rewritten to
+    // rollback-journal mode first.
+    sourceDb = await SQLite.deserializeDatabaseAsync(prepareSqliteImageForDeserialize(bytes))
 
     // Open (or create) a file-backed database with the target filename.
     // This places the file in the default expo-sqlite database directory.

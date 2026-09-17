@@ -180,6 +180,7 @@ export { readWalletBalance } from './storage/methods/walletBalanceSql'
 export { processOfflineActions, type OfflineTokenDeps } from './storage/methods/processOfflineActions'
 export { createMandalaSettlementTables } from './storage/schema/createTables'
 export * from './storage/skipQueuedAncestors'
+export { prepareSqliteImageForDeserialize } from './storage/dbImage'
 
 // Local secrets storage
 export {

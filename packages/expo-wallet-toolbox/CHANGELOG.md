@@ -167,6 +167,20 @@ Behaviour changes:
 - i18n: the wizard, key-management, transfer-confirmation and error keys added
   in all twelve locales; the K1/passphrase-era keys removed.
 
+### Fixes
+
+- **Import wallet data** works again for files exported since the wallet
+  database moved to WAL mode (`9ef35665`, 2026-09-02). Every export — the iOS
+  byte copy and the Android `serializeAsync` image — carries SQLite header
+  bytes 18/19 = 2 (WAL). `deserializeDatabaseAsync` loads the image under
+  SQLite's memdb VFS, which has no `xShmMap`, so the pager's WAL open failed
+  with SQLITE_CANTOPEN "unable to open database file", surfacing from
+  `backupDatabaseAsync`. The import now runs the bytes through the new
+  `prepareSqliteImageForDeserialize` (`core` barrel), which returns a copy
+  with those two bytes set to rollback-journal mode; the image is already
+  complete (export checkpoints first), so nothing is lost. Non-SQLite input
+  passes through untouched so SQLite still reports the real error.
+
 ## 0.4.0
 
 ### Host-supplied configuration (breaking)
