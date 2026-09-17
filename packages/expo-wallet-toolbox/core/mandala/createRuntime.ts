@@ -975,7 +975,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     try {
       const admitted = await submitToOverlay(
         bytes,
-        linkage ? Array.from(linkage.payloadBytes) : undefined,
+        linkage && linkage.payloadBytes.length > 0 ? Array.from(linkage.payloadBytes) : undefined,
         facilitator()
       )
       // The lib already refuses an unsigned or unverifiable answer

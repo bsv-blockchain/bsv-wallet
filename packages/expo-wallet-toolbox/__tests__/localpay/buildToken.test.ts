@@ -435,6 +435,83 @@ describe('buildPaymentFrame: token path', () => {
     expect(args.inputs[0].outpoint.startsWith(mine.id('hex'))).toBe(true)
   })
 
+  // 2026-09-16: `assembleBundle` threw AFTER `signAction(noSend)`, the caller
+  // assumed nothing had been built, and the signed action kept the just-received
+  // coin locked — the sweeper never reaps 'nosend'. The build owns its action
+  // until it hands the frame back, so it is the build that must release it.
+  describe('releasing the action when a later step fails', () => {
+    const unreadableStore = (): BundleStore => ({
+      getAdmission: jest.fn(async () => undefined),
+      getLinkage: jest.fn(async () => {
+        throw new Error('token_linkage_payloads.payloadBytes is not readable as bytes')
+      })
+    })
+
+    it('aborts the signed action exactly once, by its reference, and rejects with the original error', async () => {
+      const { wallet } = setup()
+      await expect(
+        buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps(unreadableStore()))
+      ).rejects.toThrow('token_linkage_payloads.payloadBytes is not readable as bytes')
+      expect(wallet.signAction).toHaveBeenCalledTimes(1)
+      expect(wallet.abortAction).toHaveBeenCalledTimes(1)
+      expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-token' }, 'admin.com')
+    })
+
+    it('never lets a failed abort mask the error that caused it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const { wallet } = setup()
+        wallet.abortAction = jest.fn(async () => {
+          throw new Error('storage locked')
+        })
+        await expect(
+          buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps(unreadableStore()))
+        ).rejects.toThrow('token_linkage_payloads.payloadBytes is not readable as bytes')
+        expect(wallet.abortAction).toHaveBeenCalledTimes(1)
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    it('has nothing to abort when the failure comes before an action exists', async () => {
+      const { wallet } = setup()
+      const d = deps()
+      d.lockToPayee = jest.fn(async () => {
+        throw new Error('blinding unavailable')
+      })
+      await expect(buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, d)).rejects.toThrow(
+        'blinding unavailable'
+      )
+      expect(wallet.createAction).not.toHaveBeenCalled()
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+    })
+
+    it('leaves a successful build’s action alone', async () => {
+      const { wallet } = setup()
+      await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+    })
+
+    it('does the same on the BSV path when the signed bytes will not parse', async () => {
+      const wallet = {
+        getPublicKey: jest.fn(async () => ({ publicKey: '03'.padEnd(66, 'f') })),
+        createAction: jest.fn(async () => ({ signableTransaction: { reference: 'ref-bsv' } })),
+        signAction: jest.fn(async () => ({ tx: [1, 2, 3], txid: 'bsv-tx' })),
+        abortAction: jest.fn(async () => ({ aborted: true }))
+      }
+      const bsvSession = mintSession({
+        identityKey: PAYEE,
+        amount: 777,
+        derivationPrefix: 'cHJlZml4',
+        derivationSuffix: 'c3VmZml4',
+        supportsAwdl: true
+      })
+      await expect(buildPaymentFrame(wallet as never, bsvSession, 'admin.com', 777)).rejects.toThrow()
+      expect(wallet.abortAction).toHaveBeenCalledTimes(1)
+      expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-bsv' }, 'admin.com')
+    })
+  })
+
   it('still builds a BSV frame when the session names no asset', async () => {
     const tx = new Transaction()
     tx.addOutput({ satoshis: 777, lockingScript: new P2PKH().lock('1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2') })

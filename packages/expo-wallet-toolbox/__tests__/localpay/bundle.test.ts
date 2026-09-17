@@ -248,6 +248,21 @@ describe('assembleBundle', () => {
     expect(bundle.admissions.map(a => a.txid)).toEqual([g.id('hex')])
   })
 
+  it('treats a stored linkage with an empty payload as absent — nothing forwarded, ancestor still walked', async () => {
+    const g = tokenTx([100])
+    const x = tokenTx([100], [{ tx: g, vout: 0 }])
+    const tip = throughBeef(tokenTx([100], [{ tx: x, vout: 0 }]))
+    const store = storeOf(
+      { [g.id('hex')]: admission(g.id('hex')) },
+      { [x.id('hex')]: { ...linkage(x.id('hex')), payloadBytes: new Uint8Array(0) } }
+    )
+
+    const bundle = await assemble(tip, store)
+
+    expect(bundle.linkage).toEqual([])
+    expect(bundle.admissions.map(a => a.txid)).toEqual([g.id('hex')])
+  })
+
   it('reports the tip txid, asset and overlay it was assembled for', async () => {
     const tip = throughBeef(tokenTx([100]))
     const bundle = await assemble(tip, storeOf({}, {}))

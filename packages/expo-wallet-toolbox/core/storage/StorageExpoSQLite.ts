@@ -10,7 +10,7 @@ import {
   splitOutpoint
 } from './methods/findSql'
 import { scrubHistoryJson } from './methods/historyNotes'
-import { sqlBindValue } from './sqlUpdateValue'
+import { BYTE_COLUMNS, bytesForColumn, sqlBindValue } from './sqlUpdateValue'
 import { StorageError, storageErrorFromSqlite } from './errors'
 import {
   RECLAIM_CANDIDATES_SQL,
@@ -435,7 +435,9 @@ export class StorageExpoSQLite extends StorageProvider {
     }
     for (const key of Object.keys(v)) {
       const val = v[key]
-      if (Array.isArray(val) && (val.length === 0 || Number.isInteger(val[0]))) {
+      if (BYTE_COLUMNS.has(key)) {
+        v[key] = bytesForColumn(key, val)
+      } else if (Array.isArray(val) && (val.length === 0 || Number.isInteger(val[0]))) {
         v[key] = Uint8Array.from(val)
       } else if (val === null) {
         v[key] = undefined
@@ -472,7 +474,9 @@ export class StorageExpoSQLite extends StorageProvider {
     }
     for (const key of Object.keys(v)) {
       const val = v[key]
-      if (Array.isArray(val) && (val.length === 0 || Number.isInteger(val[0]))) {
+      if (BYTE_COLUMNS.has(key)) {
+        v[key] = bytesForColumn(key, val)
+      } else if (Array.isArray(val) && (val.length === 0 || Number.isInteger(val[0]))) {
         v[key] = Uint8Array.from(val)
       } else if (val === null) {
         v[key] = undefined

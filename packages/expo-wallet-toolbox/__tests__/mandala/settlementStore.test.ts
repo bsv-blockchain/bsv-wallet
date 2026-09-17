@@ -315,4 +315,111 @@ describe('token_linkage_payloads', () => {
     await store.putLinkage({ ...row, payloadBytes: new Uint8Array([9, 9]) })
     expect(Array.from((await store.getLinkage(PARENT))!.payloadBytes)).toEqual([1])
   })
+
+  /**
+   * 2026-09-16: a JSON-rehydrated frame handed `putLinkage` an index-keyed
+   * object instead of a Uint8Array. expo-sqlite's Android binding stringifies
+   * anything it does not recognise, so the row landed as TEXT and every later
+   * `getLinkage` threw. The store must refuse the bad write itself rather than
+   * trust the driver to.
+   */
+  it('refuses a payload that is not a Uint8Array and writes nothing', async () => {
+    const mangled = { '0': 1, '1': 2, '2': 250 } as unknown as Uint8Array
+    await expect(
+      store.putLinkage({
+        txid: PARENT,
+        payloadBytes: mangled,
+        overlayUrl: 'u',
+        overlayIdentityKey: KEY,
+        source: 'forwarded',
+        createdAt: 'a'
+      })
+    ).rejects.toThrow(/payloadBytes/)
+    expect(await store.getLinkage(PARENT)).toBeUndefined()
+  })
+
+  it('refuses an empty payload and writes nothing', async () => {
+    await expect(
+      store.putLinkage({
+        txid: PARENT,
+        payloadBytes: new Uint8Array(0),
+        overlayUrl: 'u',
+        overlayIdentityKey: KEY,
+        source: 'forwarded',
+        createdAt: 'a'
+      })
+    ).rejects.toThrow(/payloadBytes/)
+    expect(await store.getLinkage(PARENT)).toBeUndefined()
+  })
+
+  it('lets a real payload replace an empty-blob row written before the guard', async () => {
+    raw
+      .prepare(
+        `INSERT INTO token_linkage_payloads (txid, payloadBytes, overlayUrl, overlayIdentityKey, source, createdAt)
+         VALUES (?,?,?,?,?,?)`
+      )
+      .run(PARENT, new Uint8Array(0), 'u', KEY, 'forwarded', 'a')
+    await store.putLinkage({
+      txid: PARENT,
+      payloadBytes: new Uint8Array([5, 6]),
+      overlayUrl: 'repaired',
+      overlayIdentityKey: KEY,
+      source: 'forwarded',
+      createdAt: 'b'
+    })
+    expect(Array.from((await store.getLinkage(PARENT))!.payloadBytes)).toEqual([5, 6])
+  })
+
+  function plantTextRow(text: string): void {
+    raw
+      .prepare(
+        `INSERT INTO token_linkage_payloads (txid, payloadBytes, overlayUrl, overlayIdentityKey, source, createdAt)
+         VALUES (?,?,?,?,?,?)`
+      )
+      .run(PARENT, text, 'u', KEY, 'forwarded', 'a')
+    expect(
+      raw.prepare('SELECT typeof(payloadBytes) AS t FROM token_linkage_payloads WHERE txid = ?').get(PARENT)
+    ).toEqual({
+      t: 'text'
+    })
+  }
+
+  it('reads a row Android stringified as a java Map back into its bytes', async () => {
+    // HashMap order is not insertion order, and expo-modules-core hands the
+    // values over as Doubles — both are what a real corrupted row looks like.
+    plantTextRow('{0=1.0, 2=250.0, 1=2.0}')
+    const back = await store.getLinkage(PARENT)
+    expect(back?.payloadBytes).toBeInstanceOf(Uint8Array)
+    expect(Array.from(back!.payloadBytes)).toEqual([1, 2, 250])
+  })
+
+  it('reads the integer-valued Map form too', async () => {
+    plantTextRow('{0=7, 1=8}')
+    expect(Array.from((await store.getLinkage(PARENT))!.payloadBytes)).toEqual([7, 8])
+  })
+
+  it('still refuses TEXT it cannot read as bytes', async () => {
+    plantTextRow('{0=1.0, 1=2.0, 1=3.0}')
+    await expect(store.getLinkage(PARENT)).rejects.toThrow(
+      'token_linkage_payloads.payloadBytes is not readable as bytes'
+    )
+  })
+
+  it('lets a real payload replace a TEXT row, but never a blob one', async () => {
+    plantTextRow('not bytes at all')
+    const row = {
+      txid: PARENT,
+      payloadBytes: new Uint8Array([5, 6]),
+      overlayUrl: 'repaired',
+      overlayIdentityKey: KEY,
+      source: 'forwarded' as const,
+      createdAt: 'b'
+    }
+    await store.putLinkage(row)
+    const back = await store.getLinkage(PARENT)
+    expect(Array.from(back!.payloadBytes)).toEqual([5, 6])
+    expect(back).toMatchObject({ overlayUrl: 'repaired', createdAt: 'b' })
+    await store.putLinkage({ ...row, payloadBytes: new Uint8Array([9]) })
+    expect(Array.from((await store.getLinkage(PARENT))!.payloadBytes)).toEqual([5, 6])
+  })
 })
