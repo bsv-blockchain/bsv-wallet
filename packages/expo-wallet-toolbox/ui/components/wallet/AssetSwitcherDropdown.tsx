@@ -139,7 +139,6 @@ export default function AssetSwitcherDropdown({
         />
         <View style={styles.list}>
           <CoinRow
-            glyph={BSV_LABEL}
             name={BSV_LABEL}
             detail={bsvContext}
             figure={bsv}
@@ -149,7 +148,6 @@ export default function AssetSwitcherDropdown({
           {balances.map(b => (
             <CoinRow
               key={b.asset.assetId}
-              glyph={b.asset.ticker}
               name={b.asset.label || b.asset.ticker}
               detail={b.asset.issuerName || t('token_issuer_fallback')}
               figure={tokenAmountParts(b.baseUnits, b.asset)}
@@ -164,14 +162,12 @@ export default function AssetSwitcherDropdown({
 }
 
 function CoinRow({
-  glyph,
   name,
   detail,
   figure,
   selected,
   onPress
 }: {
-  glyph: string
   name: string
   detail?: string
   figure: { value: string; unit: string } | null
@@ -191,13 +187,6 @@ function CoinRow({
       accessibilityState={{ selected }}
       accessibilityLabel={[name, figureText].filter(Boolean).join(', ')}
     >
-      {/* A lettered tile rather than an issuer logo: the wallet draws nothing
-          it did not verify, and a ticker is a fact it holds. */}
-      <View style={[styles.tile, { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }]}>
-        <Text style={[styles.tileText, { color: colors.textPrimary }]} numberOfLines={1}>
-          {glyph.slice(0, 4).toUpperCase()}
-        </Text>
-      </View>
       <View style={styles.body}>
         <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
           {name}
@@ -260,15 +249,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     borderRadius: radii.lg
   },
-  tile: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  tileText: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.2 },
   body: { flex: 1, minWidth: 0 },
   name: { ...typography.body, fontWeight: '600' },
   detail: { ...typography.footnote, marginTop: 2, fontVariant: ['tabular-nums'] },
