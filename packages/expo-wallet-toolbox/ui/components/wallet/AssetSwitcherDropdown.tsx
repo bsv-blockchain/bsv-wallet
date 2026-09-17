@@ -20,7 +20,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
-import { useTranslation } from 'react-i18next'
 import { hitTargets, radii, spacing, typography, useTheme } from '@bsv/expo-wallet-toolbox'
 import type { TokenBalance } from '../../../core/mandala/runtime'
 import { tokenAmountParts } from '../../tokenFormat'
@@ -71,7 +70,6 @@ export default function AssetSwitcherDropdown({
   bsv,
   bsvContext
 }: AssetSwitcherDropdownProps) {
-  const { t } = useTranslation()
   const { colors } = useTheme()
 
   // Fade + scale in place, no gesture — this is a dropdown, not a draggable
@@ -149,7 +147,7 @@ export default function AssetSwitcherDropdown({
             <CoinRow
               key={b.asset.assetId}
               name={b.asset.label || b.asset.ticker}
-              detail={b.asset.issuerName || t('token_issuer_fallback')}
+              detail={b.asset.issuerName}
               figure={tokenAmountParts(b.baseUnits, b.asset)}
               selected={selected === b.asset.assetId}
               onPress={() => choose(b.asset.assetId)}
