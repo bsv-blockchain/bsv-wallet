@@ -250,6 +250,22 @@ describe('localpay pending queue', () => {
     expect(args.description).toBe('lunch split')
   })
 
+  // internalizeAction rejects any description under 5 chars. A short or
+  // single-emoji note (e.g. a lone 🪿) is truthy after `.trim()`, so the
+  // fallback text never kicks in — every other note->description site pads
+  // to 5 (build.ts, handle.ts); this is the one that used to skip it
+  // (2026-09-17), permanently failing the internalize on every retry.
+  it('pads a note shorter than 5 chars so internalizeAction does not reject it', async () => {
+    const s = fakeStorage()
+    await savePending(s, { ...frame(), note: '🪿' })
+    const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
+    const results = await processPending(wallet as never, s, 'admin.com')
+    expect(results).toEqual([expect.objectContaining({ success: true })])
+    const args = wallet.internalizeAction.mock.calls[0][0]
+    expect(args.description.length).toBeGreaterThanOrEqual(5)
+    expect(args.description).toBe('🪿'.padEnd(5))
+  })
+
   it('marks failed and keeps the entry when internalizeAction throws', async () => {
     const s = fakeStorage()
     await savePending(s, frame())

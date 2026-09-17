@@ -507,7 +507,7 @@ export async function processPending(
           // rendered as a BSV row over "+0 sats" (2026-09-16). A sender's note
           // on the frame overrides this fixed wording, same as the message-box
           // rail's PeerPay note.
-          description: p.frame.note?.trim() || (p.frame.kind === 'token' ? 'Received token' : 'Received BSV'),
+          description: (p.frame.note?.trim() || (p.frame.kind === 'token' ? 'Received token' : 'Received BSV')).padEnd(5),
           labels: p.frame.kind === 'token' ? [PEERPAY_LABEL, MANDALA_ACTION_LABEL] : [PEERPAY_LABEL]
         },
         originator
