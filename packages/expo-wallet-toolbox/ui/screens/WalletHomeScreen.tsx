@@ -1789,7 +1789,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         <AssetSwitcherDropdown
           visible={switcherOpen}
           onClose={() => setSwitcherOpen(false)}
-          top={headerHeight}
+          top={insets.top + headerHeight}
           balances={mandala.balances ?? []}
           selected={heldAsset ? heldAsset.asset.assetId : null}
           onSelect={setSelectedAssetId}
