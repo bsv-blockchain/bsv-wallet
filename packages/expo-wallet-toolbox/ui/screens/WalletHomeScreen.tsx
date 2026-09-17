@@ -91,7 +91,7 @@ import { announceEviction, evictionsFrom } from '../components/wallet/tokenEvict
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
 import { tokenStatusKey } from '../tokenStatus'
 import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
-import CoinSwitcherSheet from '../components/wallet/CoinSwitcherSheet'
+import AssetSwitcherDropdown, { BSV_LABEL } from '../components/wallet/AssetSwitcherDropdown'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
@@ -402,6 +402,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   /** Where the pinned block ends, so the fade below it can be painted in the
    *  backdrop's colour at exactly that point rather than a guess. */
   const [pinnedHeight, setPinnedHeight] = useState(0)
+  /** Where the top bar ends, so the switcher dropdown (design 4a) can anchor
+   *  itself right under it instead of guessing a fixed offset. */
+  const [headerHeight, setHeaderHeight] = useState(0)
   const [pendingCorrupt, setPendingCorrupt] = useState(false)
   // Per-row in-flight action, keyed by txid (or reference for abort) so only
   // the tapped row shows a spinner rather than the whole list.
@@ -1378,31 +1381,12 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           accessibilityLabel={t('wallet_balance_refresh')}
           accessibilityValue={heroText ? { text: heroText } : undefined}
         >
-          {/* With a token held the label IS the coin switcher (design 1b): a
-              pill naming the coin on screen, with a chevron. Without one it is
-              the plain "You have" of today's screen — a holder with 1,240.00
-              USDX and no BSV must not read "You have / 0 sats" at display size
-              with their real money elsewhere. */}
-          {hasTokens ? (
-            <TouchableOpacity
-              onPress={() => setSwitcherOpen(true)}
-              activeOpacity={0.6}
-              hitSlop={8}
-              style={[
-                styles.coinPill,
-                { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={t('wallet_coin_switcher')}
-            >
-              <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>
-                {heldAsset
-                  ? t('wallet_balance_your_asset', { ticker: heldAsset.asset.ticker })
-                  : t('wallet_balance_your_bsv')}
-              </Text>
-              <Ionicons name="chevron-down" size={12} color={colors.textSecondary} />
-            </TouchableOpacity>
-          ) : (
+          {/* With a token held, the coin switcher pill in the top bar IS the
+              label (design 4a) — this block needs none of its own. Without a
+              token it is the plain "You have" of today's screen — a holder
+              with 1,240.00 USDX and no BSV must not read "You have / 0 sats"
+              at display size with their real money elsewhere. */}
+          {!hasTokens && (
             <Text style={[styles.balanceLabel, { color: colors.textTertiary }]}>{t('wallet_balance_you_have')}</Text>
           )}
           {heroParts === null ? (
@@ -1483,7 +1467,6 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       mandala,
       payDestination,
       destinationPress,
-      Ionicons,
       MaterialCommunityIcons
     ]
   )
@@ -1650,20 +1633,46 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScreenGradient from={colors.canvasTop} to={colors.canvasBase} height={360} />
 
-      {/* Settings is the only thing up here: it is navigation chrome, not a
-          money action, so it should not compete with Pay and Vault for the eye.
-          Connections moved into Settings as "Connect to App" — pairing a desktop
-          app is a once-in-a-while errand, not a home-screen affordance. */}
-      <View style={[styles.header, topLeft ? styles.headerSpaced : styles.headerEnd]}>
-        {topLeft}
-        <TouchableOpacity
-          onPress={() => router.push('/wallet-config')}
-          style={[styles.iconBtn, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
-          accessibilityRole="button"
-          accessibilityLabel={t('wallet_settings')}
-        >
-          <Ionicons name="settings-outline" size={17} color={colors.textSecondary} />
-        </TouchableOpacity>
+      {/* Settings is the only permanent fixture up here: it is navigation
+          chrome, not a money action, so it should not compete with Pay and
+          Vault for the eye. Connections moved into Settings as "Connect to
+          App" — pairing a desktop app is a once-in-a-while errand, not a
+          home-screen affordance.
+          Once a token is held, the coin switcher (design 4a, 2026-09-16)
+          takes the centre column as a filled pill — the screen's title IS
+          the control that changes what the screen is showing, rather than a
+          plain label buried in the balance block below. Both side columns
+          share `iconBtn`'s width so the pill centres over an empty slot too,
+          not just when a host supplies `topLeft`. */}
+      <View style={styles.header} onLayout={e => setHeaderHeight(e.nativeEvent.layout.height)}>
+        <View style={styles.headerSide}>{topLeft}</View>
+        <View style={styles.headerCenter}>
+          {hasTokens && (
+            <TouchableOpacity
+              onPress={() => setSwitcherOpen(true)}
+              activeOpacity={0.7}
+              hitSlop={8}
+              style={[styles.switcherPill, { backgroundColor: colors.accent }]}
+              accessibilityRole="button"
+              accessibilityLabel={t('wallet_coin_switcher')}
+            >
+              <Text style={[styles.switcherPillLabel, { color: colors.textOnAccent }]} numberOfLines={1}>
+                {heldAsset ? heldAsset.asset.ticker : BSV_LABEL}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={colors.textOnAccent} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={[styles.headerSide, styles.headerSideEnd]}>
+          <TouchableOpacity
+            onPress={() => router.push('/wallet-config')}
+            style={[styles.iconBtn, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('wallet_settings')}
+          >
+            <Ionicons name="settings-outline" size={17} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Renders only when the keys could not be released — a destroyed key, a
@@ -1777,9 +1786,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
 
       {/* Mounted only once a token is held: a wallet without one keeps today's tree. */}
       {hasTokens && (
-        <CoinSwitcherSheet
+        <AssetSwitcherDropdown
           visible={switcherOpen}
           onClose={() => setSwitcherOpen(false)}
+          top={headerHeight}
           balances={mandala.balances ?? []}
           selected={heldAsset ? heldAsset.asset.assetId : null}
           onSelect={setSelectedAssetId}
@@ -1802,8 +1812,12 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs
   },
-  headerEnd: { justifyContent: 'flex-end' },
-  headerSpaced: { justifyContent: 'space-between' },
+  // Both sides share the settings icon's width, so the centre column (the
+  // switcher pill, when it's there) stays centred whether or not a host
+  // supplies `topLeft` — an empty slot is still a slot the same size.
+  headerSide: { minWidth: 34, alignItems: 'flex-start', justifyContent: 'center' },
+  headerSideEnd: { alignItems: 'flex-end' },
+  headerCenter: { flex: 1, alignItems: 'center' },
   iconBtn: {
     width: 34,
     height: 34,
@@ -1811,6 +1825,21 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center'
+  },
+  // The switcher pill (design 4a): filled with the accent colour so it reads
+  // as the screen's title AND its primary control, not a secondary label.
+  switcherPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
+    borderRadius: radii.pill
+  },
+  switcherPillLabel: {
+    ...typography.headline,
+    fontWeight: '700'
   },
   balanceBlock: {
     alignItems: 'center',
@@ -1827,18 +1856,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 0.2
-  },
-  // The switcher pill: a raised capsule around the label, so the label reads
-  // as a control without competing with the figure under it.
-  coinPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingLeft: 14,
-    paddingRight: 10,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth
   },
   balanceSpinner: { marginTop: spacing.md },
   // tabular-nums keeps the figure from jittering as digits change.

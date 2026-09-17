@@ -5,8 +5,8 @@
  *
  *  · a wallet that has never held a token renders EXACTLY today's screen —
  *    "You have", no Balances block, no extra row;
- *  · the moment one is held, the hero's label becomes "Your BSV ⌄" — a coin
- *    switcher (design 1b, 2026-09-15). Its drawer lists BSV and every held
+ *  · the moment one is held, a "BSV ⌄" pill appears in the top bar — a coin
+ *    switcher (design 4a, 2026-09-16). Its dropdown lists BSV and every held
  *    token; picking one swaps the hero figure, filters the activity list to
  *    that coin, and arms Pay / Get paid with it, so the Pay screen never has
  *    to ask the asset question again.
@@ -16,7 +16,7 @@
  * is where `useMandala()` reads it from.
  */
 import React from 'react'
-import { act, fireEvent, render } from '@testing-library/react-native'
+import { act, fireEvent, render, within } from '@testing-library/react-native'
 import { WalletHomeScreen } from '../../ui/screens/WalletHomeScreen'
 import { activityRow, balanceOf, EURX, makeFakeMandala, settlementRow, USDX } from '../__mocks__/fakeMandalaRuntime'
 
@@ -89,14 +89,6 @@ jest.mock('../../ui/components/wallet/ActivityRow', () => {
   const { Text } = require('react-native')
   return ({ action, token }: any) =>
     React.createElement(Text, {}, `row:${action.txid}:${token ? token.amount.unit : 'BSV'}`)
-})
-jest.mock('../../ui/components/ui/Sheet', () => {
-  const React = require('react')
-  const { View } = require('react-native')
-  return {
-    __esModule: true,
-    default: ({ visible, children }: any) => (visible ? React.createElement(View, {}, children) : null)
-  }
 })
 jest.mock('../../ui/components/security/WalletLockNotice', () => () => null)
 jest.mock('../../ui/components/pay/OfflineNotice', () => () => null)
@@ -178,7 +170,7 @@ describe('WalletHomeScreen without stablecoins', () => {
     const screen = render(<WalletHomeScreen />)
     await settle()
     expect(screen.getByText('wallet_balance_you_have')).toBeTruthy()
-    expect(screen.queryByText('wallet_balance_your_bsv')).toBeNull()
+    expect(screen.queryByLabelText('wallet_coin_switcher')).toBeNull()
     expect(screen.queryByText('token_balances_header')).toBeNull()
   })
 
@@ -196,7 +188,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
     mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()] })
     const screen = render(<WalletHomeScreen />)
     await settle()
-    expect(screen.getByText('wallet_balance_your_bsv')).toBeTruthy()
+    expect(within(screen.getByLabelText('wallet_coin_switcher')).getByText('BSV')).toBeTruthy()
     expect(screen.queryByText('wallet_balance_you_have')).toBeNull()
     expect(screen.queryByText('token_balances_header')).toBeNull()
     expect(screen.queryByText('Acme Dollar')).toBeNull()
@@ -212,8 +204,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
     expect(screen.getByLabelText('1,240.00 USDX')).toBeTruthy()
     fireEvent.press(screen.getByText('Acme Dollar'))
     await settle()
-    expect(screen.getByText('wallet_balance_your_asset:USDX')).toBeTruthy()
-    expect(screen.queryByText('wallet_balance_your_bsv')).toBeNull()
+    expect(within(screen.getByLabelText('wallet_coin_switcher')).getByText('USDX')).toBeTruthy()
     // The hero is the token figure; the line under it is the asset's full
     // name, never a conversion — the wallet has no price for a token (ux §6.1).
     expect(screen.getByLabelText('wallet_balance_refresh').props.accessibilityValue).toEqual({
@@ -250,7 +241,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
     fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
     fireEvent.press(screen.getByText('Acme Dollar'))
     await settle()
-    expect(screen.getByText('wallet_balance_your_asset:USDX')).toBeTruthy()
+    expect(within(screen.getByLabelText('wallet_coin_switcher')).getByText('USDX')).toBeTruthy()
     runtime.balances.mockResolvedValue([])
     await act(async () => runtime.emit())
     await settle()

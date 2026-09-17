@@ -101,8 +101,6 @@ const resources = {
   en: {
     translation: {
       token_balances_header: 'Balances',
-      wallet_balance_your_bsv: 'Your BSV',
-      wallet_balance_your_asset: 'Your {{ticker}}',
       wallet_coin_switcher: 'Choose which coin to show',
       wallet_activity_empty_asset: 'No {{ticker}} activity yet',
       pay_direction_pay_asset: 'Pay {{ticker}}',
@@ -992,8 +990,6 @@ const resources = {
   zh: {
     translation: {
       token_balances_header: '余额',
-      wallet_balance_your_bsv: '你的 BSV',
-      wallet_balance_your_asset: '你的 {{ticker}}',
       wallet_coin_switcher: '选择要显示的币种',
       wallet_activity_empty_asset: '暂无 {{ticker}} 活动',
       pay_direction_pay_asset: '支付 {{ticker}}',
@@ -1808,8 +1804,6 @@ const resources = {
   hi: {
     translation: {
       token_balances_header: 'शेष राशि',
-      wallet_balance_your_bsv: 'आपका BSV',
-      wallet_balance_your_asset: 'आपका {{ticker}}',
       wallet_coin_switcher: 'दिखाने के लिए सिक्का चुनें',
       wallet_activity_empty_asset: 'अभी तक कोई {{ticker}} गतिविधि नहीं',
       pay_direction_pay_asset: '{{ticker}} भुगतान करें',
@@ -2680,8 +2674,6 @@ const resources = {
   es: {
     translation: {
       token_balances_header: 'Saldos',
-      wallet_balance_your_bsv: 'Tu BSV',
-      wallet_balance_your_asset: 'Tu {{ticker}}',
       wallet_coin_switcher: 'Elige qué moneda mostrar',
       wallet_activity_empty_asset: 'Aún no hay actividad en {{ticker}}',
       pay_direction_pay_asset: 'Pagar {{ticker}}',
@@ -3564,8 +3556,6 @@ const resources = {
   fr: {
     translation: {
       token_balances_header: 'Soldes',
-      wallet_balance_your_bsv: 'Vos BSV',
-      wallet_balance_your_asset: 'Vos {{ticker}}',
       wallet_coin_switcher: 'Choisir la monnaie à afficher',
       wallet_activity_empty_asset: 'Aucune activité {{ticker}} pour l’instant',
       pay_direction_pay_asset: 'Payer en {{ticker}}',
@@ -4459,8 +4449,6 @@ const resources = {
   ar: {
     translation: {
       token_balances_header: 'الأرصدة',
-      wallet_balance_your_bsv: 'رصيدك من BSV',
-      wallet_balance_your_asset: 'رصيدك من {{ticker}}',
       wallet_coin_switcher: 'اختر العملة المعروضة',
       wallet_activity_empty_asset: 'لا يوجد نشاط {{ticker}} بعد',
       pay_direction_pay_asset: 'ادفع {{ticker}}',
@@ -5291,8 +5279,6 @@ const resources = {
   pt: {
     translation: {
       token_balances_header: 'Saldos',
-      wallet_balance_your_bsv: 'Seu BSV',
-      wallet_balance_your_asset: 'Seu {{ticker}}',
       wallet_coin_switcher: 'Escolha qual moeda mostrar',
       wallet_activity_empty_asset: 'Ainda sem atividade em {{ticker}}',
       pay_direction_pay_asset: 'Pagar {{ticker}}',
@@ -6172,8 +6158,6 @@ const resources = {
   bn: {
     translation: {
       token_balances_header: 'ব্যালেন্স',
-      wallet_balance_your_bsv: 'আপনার BSV',
-      wallet_balance_your_asset: 'আপনার {{ticker}}',
       wallet_coin_switcher: 'কোন কয়েন দেখাবেন তা বেছে নিন',
       wallet_activity_empty_asset: 'এখনও কোনো {{ticker}} কার্যকলাপ নেই',
       pay_direction_pay_asset: '{{ticker}} পরিশোধ করুন',
@@ -7038,8 +7022,6 @@ const resources = {
   ru: {
     translation: {
       token_balances_header: 'Балансы',
-      wallet_balance_your_bsv: 'Ваши BSV',
-      wallet_balance_your_asset: 'Ваши {{ticker}}',
       wallet_coin_switcher: 'Выберите, какую монету показывать',
       wallet_activity_empty_asset: 'Пока нет операций в {{ticker}}',
       pay_direction_pay_asset: 'Оплатить в {{ticker}}',
@@ -7916,8 +7898,6 @@ const resources = {
   id: {
     translation: {
       token_balances_header: 'Saldo',
-      wallet_balance_your_bsv: 'BSV Anda',
-      wallet_balance_your_asset: '{{ticker}} Anda',
       wallet_coin_switcher: 'Pilih koin yang ditampilkan',
       wallet_activity_empty_asset: 'Belum ada aktivitas {{ticker}}',
       pay_direction_pay_asset: 'Bayar {{ticker}}',
@@ -8794,8 +8774,6 @@ const resources = {
   ja: {
     translation: {
       token_balances_header: '残高',
-      wallet_balance_your_bsv: 'あなたの BSV',
-      wallet_balance_your_asset: 'あなたの {{ticker}}',
       wallet_coin_switcher: '表示するコインを選択',
       wallet_activity_empty_asset: '{{ticker}} の履歴はまだありません',
       pay_direction_pay_asset: '{{ticker}} で支払う',
@@ -9663,8 +9641,6 @@ const resources = {
   pl: {
     translation: {
       token_balances_header: 'Salda',
-      wallet_balance_your_bsv: 'Twoje BSV',
-      wallet_balance_your_asset: 'Twoje {{ticker}}',
       wallet_coin_switcher: 'Wybierz, którą monetę pokazać',
       wallet_activity_empty_asset: 'Brak aktywności {{ticker}}',
       pay_direction_pay_asset: 'Zapłać w {{ticker}}',
