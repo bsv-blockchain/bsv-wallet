@@ -1,6 +1,7 @@
 import { Beef } from '@bsv/sdk'
-import type { PaymentFrame } from './codec'
+import type { PaymentFrame, TokenPayment } from './codec'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../mandala/bundle'
+import type { AdmissionEntryWire } from '../mandala/types'
 import { isRetriableInternalizeFailure } from '../mandala/drain'
 
 export const PENDING_KEY = 'localpay_pending'
@@ -73,16 +74,93 @@ export function getPendingCorruptNotice(): boolean {
   return pendingCorruptNotice
 }
 
+/**
+ * Every byte field of a frame travels as a `number[]`: `JSON.stringify` turns a
+ * `Uint8Array` into an index-keyed object, and a token frame's linkage
+ * payloads, certificates and σ_I signatures came back that way for as long as
+ * only `transaction` was converted. `processPending` then handed the mangled
+ * frame to `onTokenHeld`, whose `putLinkage` bound a plain object — which
+ * expo-sqlite on Android stringifies into a TEXT row, unreadable by every later
+ * send that walked the received coin's ancestry (2026-09-16).
+ */
+type WireBytes = number[]
+
+interface WireToken extends Omit<TokenPayment, 'certificates' | 'linkage' | 'admissions'> {
+  certificates: WireBytes[]
+  linkage: Array<{ txid: string; payload: WireBytes }>
+  admissions: Array<Omit<AdmissionEntryWire, 'signature'> & { signature: WireBytes }>
+}
+
 interface Serialised extends Omit<PendingPayment, 'frame'> {
-  frame: Omit<PaymentFrame, 'transaction'> & { transaction: number[] }
+  frame: Omit<PaymentFrame, 'transaction' | 'token'> & { transaction: WireBytes; token?: WireToken }
+}
+
+/**
+ * Bytes as this queue wrote them (`number[]`), as it used to write them (the
+ * index-keyed object JSON makes of a `Uint8Array` — entries like that are still
+ * sitting in queues on devices), or already revived. Never throws: `readAll`
+ * quarantines the WHOLE queue on a throw, and one unreadable byte field must not
+ * cost every other payment in it. An unreadable field comes back EMPTY, which
+ * every consumer treats as "nothing held" (`putLinkage` refuses to store it).
+ */
+function reviveBytes(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value
+  if (Array.isArray(value)) return Uint8Array.from(value as number[])
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+    const out = new Uint8Array(entries.length)
+    for (const [key, byte] of entries) {
+      const index = Number(key)
+      if (!Number.isInteger(index) || index < 0 || index >= out.length || typeof byte !== 'number') {
+        return new Uint8Array(0)
+      }
+      out[index] = byte
+    }
+    return out
+  }
+  return new Uint8Array(0)
 }
 
 function toWire(p: PendingPayment): Serialised {
-  return { ...p, frame: { ...p.frame, transaction: Array.from(p.frame.transaction) } }
+  const { token, ...frame } = p.frame
+  return {
+    ...p,
+    frame: {
+      ...frame,
+      transaction: Array.from(p.frame.transaction),
+      ...(token
+        ? {
+            token: {
+              ...token,
+              certificates: token.certificates.map(c => Array.from(c)),
+              linkage: token.linkage.map(l => ({ txid: l.txid, payload: Array.from(l.payload) })),
+              admissions: token.admissions.map(a => ({ ...a, signature: Array.from(a.signature) }))
+            }
+          }
+        : {})
+    }
+  }
 }
 
 function fromWire(s: Serialised): PendingPayment {
-  return { ...s, frame: { ...s.frame, transaction: new Uint8Array(s.frame.transaction) } }
+  const { token, ...frame } = s.frame
+  return {
+    ...s,
+    frame: {
+      ...frame,
+      transaction: reviveBytes(s.frame.transaction),
+      ...(token
+        ? {
+            token: {
+              ...token,
+              certificates: (token.certificates ?? []).map(reviveBytes),
+              linkage: (token.linkage ?? []).map(l => ({ txid: l.txid, payload: reviveBytes(l.payload) })),
+              admissions: (token.admissions ?? []).map(a => ({ ...a, signature: reviveBytes(a.signature) }))
+            }
+          }
+        : {})
+    }
+  }
 }
 
 // All read-modify-write sequences on the queue share one storage key, so they

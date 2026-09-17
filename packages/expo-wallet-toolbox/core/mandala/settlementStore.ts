@@ -115,12 +115,44 @@ function toSettlement(row: SettlementDbRow): TokenSettlementRow {
  * `node:sqlite` the same way, but a driver that hands back an ArrayBuffer or a
  * number[] must not silently become an empty payload — these bytes are the only
  * thing that lets a downstream device submit this txid at all.
+ *
+ * A TEXT value is the 2026-09-16 incident's residue: `putLinkage` was handed a
+ * JSON-rehydrated payload (an index-keyed object, not a `Uint8Array`), and
+ * expo-sqlite's Android binding stringified it as a java `Map` — `{0=1.0,
+ * 2=250.0, 1=2.0}`, hash-ordered, Double-valued. Rows like that are on devices
+ * and `INSERT OR IGNORE` would have kept them forever, so they are read back
+ * into the bytes they always meant. Anything else that is not bytes still
+ * throws, never becomes an empty payload.
  */
 function toBytes(value: unknown): Uint8Array {
   if (value instanceof Uint8Array) return value
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
   if (Array.isArray(value)) return new Uint8Array(value as number[])
+  if (typeof value === 'string') {
+    const recovered = bytesFromJavaMapString(value)
+    if (recovered) return recovered
+  }
   throw new Error('token_linkage_payloads.payloadBytes is not readable as bytes')
+}
+
+function bytesFromJavaMapString(text: string): Uint8Array | undefined {
+  const braced = /^\{(.*)\}$/s.exec(text.trim())
+  if (!braced) return undefined
+  const body = braced[1].trim()
+  if (body === '') return new Uint8Array(0)
+  const pairs = body.split(',')
+  const out = new Uint8Array(pairs.length)
+  const seen = new Set<number>()
+  for (const pair of pairs) {
+    const kv = /^\s*(\d+)=(\d+)(?:\.0+)?\s*$/.exec(pair)
+    if (!kv) return undefined
+    const index = Number(kv[1])
+    const byte = Number(kv[2])
+    if (index >= out.length || seen.has(index) || byte > 255) return undefined
+    seen.add(index)
+    out[index] = byte
+  }
+  return out
 }
 
 /** Columns `advanceSettlement` and `upsertSettlement` may write, and their SQL names. */
@@ -346,16 +378,33 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
     },
 
     /**
-     * `INSERT OR IGNORE`: the payload for a txid is whatever its issuer minted,
-     * forwarded verbatim. A second copy arriving on a later hop is by
+     * Insert-or-ignore in effect: the payload for a txid is whatever its issuer
+     * minted, forwarded verbatim. A second copy arriving on a later hop is by
      * construction the same bytes, and a *different* copy is a counterparty
-     * trying to rewrite evidence this device already holds.
+     * trying to rewrite evidence this device already holds — so an existing
+     * BLOB is never touched. The one row a new copy may replace is one that
+     * holds no evidence at all — not a blob (see `toBytes`), or an empty one:
+     * a driver stringifying a value this store should have refused, which it
+     * now does, and an empty payload is likewise refused here because an
+     * overlay cannot verify nothing and every reader already treats it as
+     * "nothing held".
      */
     async putLinkage(row: TokenLinkageRow): Promise<void> {
+      if (!(row.payloadBytes instanceof Uint8Array) || row.payloadBytes.length === 0) {
+        throw new Error('token_linkage_payloads.payloadBytes must be a non-empty Uint8Array')
+      }
       await db.runAsync(
-        `INSERT OR IGNORE INTO token_linkage_payloads
+        `INSERT INTO token_linkage_payloads
            (txid, payloadBytes, overlayUrl, overlayIdentityKey, source, createdAt)
-         VALUES (?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?)
+         ON CONFLICT(txid) DO UPDATE SET
+           payloadBytes = excluded.payloadBytes,
+           overlayUrl = excluded.overlayUrl,
+           overlayIdentityKey = excluded.overlayIdentityKey,
+           source = excluded.source,
+           createdAt = excluded.createdAt
+         WHERE typeof(token_linkage_payloads.payloadBytes) <> 'blob'
+            OR length(token_linkage_payloads.payloadBytes) = 0`,
         [row.txid, row.payloadBytes, row.overlayUrl, row.overlayIdentityKey, row.source, row.createdAt]
       )
     }

@@ -183,7 +183,7 @@ export async function assembleBundle(args: {
       }
 
       const stored = await store.getLinkage(txid)
-      if (stored) linkage.push({ txid, payload: new Uint8Array(stored.payloadBytes) })
+      if (stored && stored.payloadBytes.length > 0) linkage.push({ txid, payload: new Uint8Array(stored.payloadBytes) })
       queue.push(parent)
     }
   }

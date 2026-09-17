@@ -324,47 +324,81 @@ export async function buildPaymentFrame(
 
   const reference = result.signableTransaction?.reference
 
-  // With signAndProcess disabled, createAction returns an unsigned
-  // `signableTransaction` rather than a final `tx`. We have no caller-supplied
-  // inputs — all inputs are wallet-funded — so finalize by signing with empty
-  // `spends`. noSend stays true: the payee internalizes and broadcasts, not
-  // the payer.
-  if (!result.tx && result.signableTransaction) {
-    const signed = await wallet.signAction(
-      {
-        reference: result.signableTransaction.reference,
-        spends: {},
-        options: { noSend: true }
+  return await releasingOnFailure(wallet, reference, originator, async () => {
+    // With signAndProcess disabled, createAction returns an unsigned
+    // `signableTransaction` rather than a final `tx`. We have no caller-supplied
+    // inputs — all inputs are wallet-funded — so finalize by signing with empty
+    // `spends`. noSend stays true: the payee internalizes and broadcasts, not
+    // the payer.
+    if (!result.tx && result.signableTransaction) {
+      const signed = await wallet.signAction(
+        {
+          reference: result.signableTransaction.reference,
+          spends: {},
+          options: { noSend: true }
+        },
+        originator
+      )
+      result = { ...result, ...signed }
+    }
+
+    if (!result.tx) throw new Error('createAction returned no transaction')
+
+    // Authoritative amount off the transaction itself — covers send-max, where
+    // `amount` was the sentinel and the wallet wrote the real figure to output 0.
+    const paid = Transaction.fromAtomicBEEF(result.tx).outputs[0]?.satoshis
+    if (typeof paid !== 'number' || paid <= 0) throw new Error('Could not determine paid amount')
+
+    return {
+      frame: {
+        version: FRAME_VERSION,
+        kind: 'bsv' as const,
+        senderIdentityKey,
+        outputIndex: 0,
+        derivationPrefix: session.derivationPrefix,
+        derivationSuffix: session.derivationSuffix,
+        ...(note?.trim() ? { note: note.trim() } : {}),
+        transaction: new Uint8Array(result.tx)
       },
-      originator
-    )
-    result = { ...result, ...signed }
-  }
-
-  if (!result.tx) throw new Error('createAction returned no transaction')
-
-  // Authoritative amount off the transaction itself — covers send-max, where
-  // `amount` was the sentinel and the wallet wrote the real figure to output 0.
-  const paid = Transaction.fromAtomicBEEF(result.tx).outputs[0]?.satoshis
-  if (typeof paid !== 'number' || paid <= 0) throw new Error('Could not determine paid amount')
-
-  return {
-    frame: {
-      version: FRAME_VERSION,
-      kind: 'bsv' as const,
-      senderIdentityKey,
-      outputIndex: 0,
-      derivationPrefix: session.derivationPrefix,
-      derivationSuffix: session.derivationSuffix,
-      ...(note?.trim() ? { note: note.trim() } : {}),
-      transaction: new Uint8Array(result.tx)
-    },
-    reference,
-    txid: result.txid,
-    satoshis: paid
-  }
+      reference,
+      txid: result.txid,
+      satoshis: paid
+    }
+  })
 }
 
+/**
+ * Runs the rest of a build once `createAction` has handed back a reference,
+ * and releases that action if any step throws.
+ *
+ * From `createAction` on, the action holds its inputs `spendable: false`. An
+ * `unsigned` action is eventually reaped by the storage sweeper; a signed
+ * `nosend` one never is — the 2026-09-16 incident left a just-received coin
+ * locked for good when `assembleBundle` threw after `signAction`, and the
+ * caller's catch had no way to know an action existed. The build does know,
+ * and nothing inside it has left the device, so aborting here is always safe.
+ * Best-effort: the error the caller sees is the one that stopped the build.
+ */
+async function releasingOnFailure<T>(
+  wallet: PayingWallet,
+  reference: string | undefined,
+  originator: string,
+  steps: () => Promise<T>
+): Promise<T> {
+  try {
+    return await steps()
+  } catch (e) {
+    if (reference) {
+      try {
+        const result = await wallet.abortAction({ reference }, originator)
+        if (result?.aborted === false) throw new Error('abortAction returned aborted:false')
+      } catch (abortError) {
+        console.warn('[localpay] could not release the failed build:', messageOf(abortError))
+      }
+    }
+    throw e
+  }
+}
 
 /**
  * The payer's token build (offline-settlement spec §9, steps 4–5).
@@ -576,86 +610,90 @@ async function buildTokenPaymentFrame(
 
   const signable = created.signableTransaction
   if (!signable?.tx) throw new Error('createAction returned no signable token transaction')
-  const unsigned = Transaction.fromBEEF(signable.tx)
+  const signableTx = signable.tx
 
-  // Input order is caller order — `randomizeOutputs` shuffles outputs only, and
-  // it is off here anyway — so our coins occupy indices 0..n-1 and the wallet's
-  // own fee inputs follow. Each is signed individually rather than through
-  // `tx.sign()`, which would also reach inputs that are the wallet's to sign.
-  const spends: Record<string, { unlockingScript: string }> = {}
-  for (let i = 0; i < selected.length; i++) {
-    const script = await signTokenInput(wallet, unsigned, i, selected[i], sourceBeef, originator)
-    spends[String(i)] = { unlockingScript: script.toHex() }
-  }
+  return await releasingOnFailure(wallet, signable.reference, originator, async () => {
+    const unsigned = Transaction.fromBEEF(signableTx)
 
-  const signed = await wallet.signAction(
-    { reference: signable.reference, spends, options: { noSend: true } },
-    originator
-  )
-  if (!signed.tx) throw new Error('signAction returned no transaction')
-
-  const tipTx = Transaction.fromAtomicBEEF(signed.tx)
-  const tipTxid = signed.txid ?? tipTx.id('hex')
-
-  // Promote the payee's blinding reservation (minted back in `lockToPayee`,
-  // before this txid existed) now that one does. Best-effort and after the
-  // fact: the payment is already signed, so a commit failure here must not
-  // fail it — it only costs this device's own later recovery of r, and the
-  // reservation is still there for `pruneBlindingReservations` to sweep.
-  if (deps.commitBlinding) {
-    try {
-      await deps.commitBlinding(keyID, tipTxid)
-    } catch (e) {
-      console.warn('[localpay] blindingCommit failed:', messageOf(e))
+    // Input order is caller order — `randomizeOutputs` shuffles outputs only, and
+    // it is off here anyway — so our coins occupy indices 0..n-1 and the wallet's
+    // own fee inputs follow. Each is signed individually rather than through
+    // `tx.sign()`, which would also reach inputs that are the wallet's to sign.
+    const spends: Record<string, { unlockingScript: string }> = {}
+    for (let i = 0; i < selected.length; i++) {
+      const script = await signTokenInput(wallet, unsigned, i, selected[i], sourceBeef, originator)
+      spends[String(i)] = { unlockingScript: script.toHex() }
     }
-  }
 
-  // The bundle covers the ANCESTORS; the tip's own payload is minted here,
-  // because only this function knows which outputs it just created and under
-  // which keys.
-  const bundle = await assembleBundle({
-    tipTx,
-    assetId: asset.id,
-    overlayIdentityKey: asset.overlayIdentityKey,
-    store: deps.store
-  })
-  const tipLinkage = await mintTipLinkage(wallet, {
-    inputs: selected,
-    payeeLinkage: payee.linkage,
-    changeKeyID: change > 0 ? changeKeyID : undefined,
-    changeCounterparty: identityKey,
-    overlayIdentityKey: asset.overlayIdentityKey,
-    originator
-  })
+    const signed = await wallet.signAction(
+      { reference: signable.reference, spends, options: { noSend: true } },
+      originator
+    )
+    if (!signed.tx) throw new Error('signAction returned no transaction')
 
-  const paid = tipTx.outputs[0]?.satoshis
-  return {
-    frame: {
-      version: FRAME_VERSION,
-      kind: 'token' as const,
-      // A′, never A. `lockToPayee` is the only thing that knows it.
-      senderIdentityKey: payee.senderIdentityKey,
-      outputIndex: 0,
-      derivationPrefix: session.derivationPrefix,
-      derivationSuffix: session.derivationSuffix,
-      token: {
-        assetId: asset.id,
-        overlayUrl: asset.overlayUrl,
-        overlayIdentityKey: asset.overlayIdentityKey,
-        certificates: deps.certificates ?? [],
-        // The tip goes first: it is the one entry every recipient of this frame
-        // needs, whatever else the chain behind it looks like.
-        linkage: [{ txid: tipTxid, payload: tipLinkage }, ...bundle.linkage],
-        admissions: bundle.admissions
+    const tipTx = Transaction.fromAtomicBEEF(signed.tx)
+    const tipTxid = signed.txid ?? tipTx.id('hex')
+
+    // Promote the payee's blinding reservation (minted back in `lockToPayee`,
+    // before this txid existed) now that one does. Best-effort and after the
+    // fact: the payment is already signed, so a commit failure here must not
+    // fail it — it only costs this device's own later recovery of r, and the
+    // reservation is still there for `pruneBlindingReservations` to sweep.
+    if (deps.commitBlinding) {
+      try {
+        await deps.commitBlinding(keyID, tipTxid)
+      } catch (e) {
+        console.warn('[localpay] blindingCommit failed:', messageOf(e))
+      }
+    }
+
+    // The bundle covers the ANCESTORS; the tip's own payload is minted here,
+    // because only this function knows which outputs it just created and under
+    // which keys.
+    const bundle = await assembleBundle({
+      tipTx,
+      assetId: asset.id,
+      overlayIdentityKey: asset.overlayIdentityKey,
+      store: deps.store
+    })
+    const tipLinkage = await mintTipLinkage(wallet, {
+      inputs: selected,
+      payeeLinkage: payee.linkage,
+      changeKeyID: change > 0 ? changeKeyID : undefined,
+      changeCounterparty: identityKey,
+      overlayIdentityKey: asset.overlayIdentityKey,
+      originator
+    })
+
+    const paid = tipTx.outputs[0]?.satoshis
+    return {
+      frame: {
+        version: FRAME_VERSION,
+        kind: 'token' as const,
+        // A′, never A. `lockToPayee` is the only thing that knows it.
+        senderIdentityKey: payee.senderIdentityKey,
+        outputIndex: 0,
+        derivationPrefix: session.derivationPrefix,
+        derivationSuffix: session.derivationSuffix,
+        token: {
+          assetId: asset.id,
+          overlayUrl: asset.overlayUrl,
+          overlayIdentityKey: asset.overlayIdentityKey,
+          certificates: deps.certificates ?? [],
+          // The tip goes first: it is the one entry every recipient of this frame
+          // needs, whatever else the chain behind it looks like.
+          linkage: [{ txid: tipTxid, payload: tipLinkage }, ...bundle.linkage],
+          admissions: bundle.admissions
+        },
+        ...(note?.trim() ? { note: note.trim() } : {}),
+        transaction: new Uint8Array(signed.tx)
       },
-      ...(note?.trim() ? { note: note.trim() } : {}),
-      transaction: new Uint8Array(signed.tx)
-    },
-    reference: signable.reference,
-    txid: tipTxid,
-    satoshis: typeof paid === 'number' ? paid : 1,
-    tokenAmount: amount
-  }
+      reference: signable.reference,
+      txid: tipTxid,
+      satoshis: typeof paid === 'number' ? paid : 1,
+      tokenAmount: amount
+    }
+  })
 }
 
 function parseCustomInstructions(text?: string): { keyID?: string; counterparty?: string } {
