@@ -1,6 +1,7 @@
 import {
   configureToolbox,
   getBackupUrl,
+  getHandleCertifierConfig,
   getServiceConfig,
   isToolboxConfigured,
   isVaultAvailable,
@@ -79,6 +80,42 @@ describe('getServiceConfig', () => {
   it('returns an empty object for a chain the host said nothing about', () => {
     configureToolbox({ backupUrl: null, services: { main: { arcUrl: 'https://arc.main' } } })
     expect(getServiceConfig('teratest')).toEqual({})
+  })
+})
+
+// No handle certifier is deployed anywhere this package can reach as of
+// 2026-09 (core/identity/handleCertificate.ts), so this getter must default to
+// undefined without throwing — the registration UI reads that as "not
+// available yet", the same posture getMandalaEndpoints already has.
+describe('getHandleCertifierConfig', () => {
+  const VALID_KEY = '02' + 'aa'.repeat(32)
+
+  it('is undefined before configureToolbox runs, without throwing', () => {
+    expect(getHandleCertifierConfig('main')).toBeUndefined()
+  })
+
+  it('is undefined for a chain the host said nothing about', () => {
+    configureToolbox({ backupUrl: null })
+    expect(getHandleCertifierConfig('main')).toBeUndefined()
+  })
+
+  it('returns the configured certifier for a chain with a valid entry', () => {
+    configureToolbox({
+      backupUrl: null,
+      handleCertifier: { test: { certifierIdentityKey: VALID_KEY, certifierUrl: 'https://certifier.example///' } }
+    })
+    expect(getHandleCertifierConfig('test')).toEqual({
+      certifierIdentityKey: VALID_KEY,
+      certifierUrl: 'https://certifier.example'
+    })
+  })
+
+  it('rejects a malformed identity key rather than handing it to acquireCertificate', () => {
+    configureToolbox({
+      backupUrl: null,
+      handleCertifier: { test: { certifierIdentityKey: 'not-a-key', certifierUrl: 'https://certifier.example' } }
+    })
+    expect(getHandleCertifierConfig('test')).toBeUndefined()
   })
 })
 
