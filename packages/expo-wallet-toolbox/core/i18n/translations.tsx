@@ -1001,7 +1001,7 @@ const resources = {
       contact_delete_body: 'This removes {{name}} from your contacts. It does not affect any past payments.',
       contact_handle_caption: 'Their registered handle · only they can change it',
       contact_new_title: 'New Contact',
-      contact_save: 'Save',
+      contact_save: 'Save contact',
       contact_identifier: 'Identifier',
       contact_saved: 'Contact saved',
       contact_scan_hint: 'Scan a profile code to add someone',
@@ -1012,7 +1012,8 @@ const resources = {
       // Profile
       profile: 'Profile',
       profile_display_name: 'Display name',
-      profile_display_name_hint: 'What others see when you pay them',
+      profile_display_name_hint:
+        "Shown to people who haven't saved you as a contact. They can call you something else.",
       profile_handle: 'Handle',
       profile_handle_placeholder: 'yourname',
       profile_handle_checking: 'Checking availability…',
@@ -1034,7 +1035,31 @@ const resources = {
       pay_review_note_edit: 'Add a note',
       pay_trust_contact: 'Your contact',
       pay_trust_handle_attested: 'Registered',
-      pay_trust_unverified: 'Not verified. Double-check this Identifier.'
+      pay_trust_unverified: 'Not verified. Double-check this Identifier.',
+      contacts_your_contacts: 'Your contacts',
+      contacts_other_people: 'Other people',
+      contacts_not_saved: 'Not saved',
+      contacts_network_footer: 'Found on the network. Not saved by you.',
+      contact_no_handle: 'No handle yet',
+      contact_no_handle_registered: 'No handle registered',
+      contact_name_section: 'Your name for them',
+      contact_name_hint: "Only you see this. It doesn't change what they call themselves.",
+      contact_new_name_hint: 'Only you see this. Saved on this device.',
+      contact_copy_identifier: 'Copy Identifier',
+      profile_handle_registered_hint: 'Registered to your Identifier. People can find you by it.',
+      profile_handle_change: 'Change',
+      profile_handle_claim: 'Claim @{{handle}}',
+      profile_handle_replace_warning:
+        'Claiming replaces @{{handle}}. People who saved you keep their contact; the old handle stops resolving to you.',
+      profile_identifier_section: 'Your Identifier',
+      profile_show_qr: 'Show as QR',
+      profile_show_qr_hint: 'Let someone scan you to get your profile',
+      profile_qr_callout:
+        "Scanning this opens BSV Wallet and adds you as a contact, with your name, handle and photo. It doesn't ask for a payment — that code is under Get paid.",
+      pay_review_title: 'Review',
+      pay_send_amount: 'Send {{amount}}',
+      pay_sent_to: 'to {{name}}',
+      pay_save_as_contact: 'Save as a contact'
     }
   },
   zh: {
@@ -1872,7 +1897,7 @@ const resources = {
 
       profile: '个人资料',
       profile_display_name: '显示名称',
-      profile_display_name_hint: '您付款给他人时对方看到的名称',
+      profile_display_name_hint: '展示给尚未将你保存为联系人的人。他们可以给你另起名字。',
       profile_handle: '用户名',
       profile_handle_placeholder: '你的用户名',
       profile_handle_checking: '正在检查可用性…',
@@ -1893,7 +1918,30 @@ const resources = {
       pay_review_note_edit: '添加备注',
       pay_trust_contact: '您的联系人',
       pay_trust_handle_attested: '已注册',
-      pay_trust_unverified: '未验证。请仔细核对此标识符。'
+      pay_trust_unverified: '未验证。请仔细核对此标识符。',
+      contacts_your_contacts: '你的联系人',
+      contacts_other_people: '其他人',
+      contacts_not_saved: '未保存',
+      contacts_network_footer: '在网络上找到。你尚未保存。',
+      contact_no_handle: '尚无用户名',
+      contact_no_handle_registered: '未注册用户名',
+      contact_name_section: '你对他们的称呼',
+      contact_name_hint: '只有你能看到。这不会改变他们对自己的称呼。',
+      contact_new_name_hint: '只有你能看到。保存在此设备上。',
+      contact_copy_identifier: '复制标识符',
+      profile_handle_registered_hint: '已注册到你的标识符。他人可以通过它找到你。',
+      profile_handle_change: '更改',
+      profile_handle_claim: '认领 @{{handle}}',
+      profile_handle_replace_warning: '认领将替换 @{{handle}}。已保存你的人仍保留联系人；旧用户名将不再指向你。',
+      profile_identifier_section: '你的标识符',
+      profile_show_qr: '显示为二维码',
+      profile_show_qr_hint: '让他人扫描以获取你的资料',
+      profile_qr_callout:
+        '扫描后会打开 BSV Wallet 并将你添加为联系人，包含你的名字、用户名和头像。它不会请求付款——付款码在“收款”中。',
+      pay_review_title: '确认',
+      pay_send_amount: '发送 {{amount}}',
+      pay_sent_to: '给 {{name}}',
+      pay_save_as_contact: '保存为联系人'
     }
   },
   hi: {
@@ -2789,7 +2837,8 @@ const resources = {
 
       profile: 'प्रोफ़ाइल',
       profile_display_name: 'प्रदर्शन नाम',
-      profile_display_name_hint: 'भुगतान करते समय दूसरे लोग यही देखते हैं',
+      profile_display_name_hint:
+        'उन लोगों को दिखता है जिन्होंने आपको संपर्क के रूप में नहीं सहेजा। वे आपको कुछ और भी कह सकते हैं।',
       profile_handle: 'हैंडल',
       profile_handle_placeholder: 'आपका हैंडल',
       profile_handle_checking: 'उपलब्धता जांची जा रही है…',
@@ -2810,7 +2859,31 @@ const resources = {
       pay_review_note_edit: 'नोट जोड़ें',
       pay_trust_contact: 'आपका संपर्क',
       pay_trust_handle_attested: 'पंजीकृत',
-      pay_trust_unverified: 'सत्यापित नहीं। कृपया इस पहचानकर्ता की दोबारा जांच करें।'
+      pay_trust_unverified: 'सत्यापित नहीं। कृपया इस पहचानकर्ता की दोबारा जांच करें।',
+      contacts_your_contacts: 'आपके संपर्क',
+      contacts_other_people: 'अन्य लोग',
+      contacts_not_saved: 'सहेजा नहीं',
+      contacts_network_footer: 'नेटवर्क पर मिला। आपने सहेजा नहीं है।',
+      contact_no_handle: 'अभी कोई हैंडल नहीं',
+      contact_no_handle_registered: 'कोई हैंडल पंजीकृत नहीं',
+      contact_name_section: 'उनके लिए आपका नाम',
+      contact_name_hint: 'यह केवल आप देखते हैं। इससे वे खुद को क्या कहते हैं, नहीं बदलता।',
+      contact_new_name_hint: 'यह केवल आप देखते हैं। इस डिवाइस पर सहेजा गया।',
+      contact_copy_identifier: 'पहचानकर्ता कॉपी करें',
+      profile_handle_registered_hint: 'आपके पहचानकर्ता पर पंजीकृत। लोग इससे आपको खोज सकते हैं।',
+      profile_handle_change: 'बदलें',
+      profile_handle_claim: '@{{handle}} लें',
+      profile_handle_replace_warning:
+        'लेने से @{{handle}} बदल जाएगा। जिन्होंने आपको सहेजा है उनका संपर्क बना रहेगा; पुराना हैंडल अब आप तक नहीं पहुँचेगा।',
+      profile_identifier_section: 'आपका पहचानकर्ता',
+      profile_show_qr: 'QR के रूप में दिखाएँ',
+      profile_show_qr_hint: 'किसी को स्कैन करने दें ताकि उन्हें आपकी प्रोफ़ाइल मिले',
+      profile_qr_callout:
+        'इसे स्कैन करने से BSV Wallet खुलता है और आप संपर्क के रूप में जुड़ जाते हैं—नाम, हैंडल और फ़ोटो के साथ। यह भुगतान नहीं माँगता—वह कोड “भुगतान पाएँ” में है।',
+      pay_review_title: 'समीक्षा',
+      pay_send_amount: '{{amount}} भेजें',
+      pay_sent_to: '{{name}} को',
+      pay_save_as_contact: 'संपर्क के रूप में सहेजें'
     }
   },
   es: {
@@ -3695,7 +3768,7 @@ const resources = {
       cancelling_payment: 'Cancelando el pago',
 
       contacts: 'Contactos',
-      contacts_search_placeholder: 'Buscar por nombre o identificador',
+      contacts_search_placeholder: 'Buscar por nombre o alias',
       contacts_empty_title: 'Aún no hay contactos',
       contacts_empty_body:
         'Las personas a las que pagas aparecerán aquí una vez que las guardes. Escanea el código de perfil de alguien con el botón de arriba a la derecha.',
@@ -3706,7 +3779,7 @@ const resources = {
       contact_activity_empty: 'Aún no hay actividad con este contacto',
       contact_delete: 'Eliminar contacto',
       contact_delete_body: 'Esto elimina a {{name}} de tus contactos. No afecta a ningún pago anterior.',
-      contact_handle_caption: 'Su identificador registrado · solo ellos pueden cambiarlo',
+      contact_handle_caption: 'Su alias registrado · solo ellos pueden cambiarlo',
       contact_new_title: 'Nuevo contacto',
       contact_save: 'Guardar',
       contact_identifier: 'Identificador',
@@ -3718,16 +3791,16 @@ const resources = {
 
       profile: 'Perfil',
       profile_display_name: 'Nombre visible',
-      profile_display_name_hint: 'Lo que ven los demás cuando les pagas',
-      profile_handle: 'Identificador',
+      profile_display_name_hint: 'Lo ven quienes no te han guardado como contacto. Pueden llamarte de otra forma.',
+      profile_handle: 'Alias',
       profile_handle_placeholder: 'tunombre',
       profile_handle_checking: 'Comprobando disponibilidad…',
       profile_handle_available: '{{handle}} está disponible',
       profile_handle_taken: '{{handle}} ya está en uso',
       profile_handle_invalid: '3-20 letras minúsculas, dígitos, _ o -',
       profile_handle_failed: 'No se pudo comprobar la disponibilidad. Inténtalo de nuevo.',
-      profile_handle_unavailable: 'El registro de identificador aún no está disponible en esta versión.',
-      profile_handle_registered: 'Identificador registrado',
+      profile_handle_unavailable: 'El registro de alias aún no está disponible en esta versión.',
+      profile_handle_registered: 'Alias registrado',
       profile_handle_register_action: 'Registrar',
       profile_qr_hint: 'Otras personas pueden escanear esto para añadirte como contacto',
 
@@ -3739,7 +3812,31 @@ const resources = {
       pay_review_note_edit: 'Añadir una nota',
       pay_trust_contact: 'Tu contacto',
       pay_trust_handle_attested: 'Registrado',
-      pay_trust_unverified: 'No verificado. Verifica bien este identificador.'
+      pay_trust_unverified: 'No verificado. Verifica bien este identificador.',
+      contacts_your_contacts: 'Tus contactos',
+      contacts_other_people: 'Otras personas',
+      contacts_not_saved: 'Sin guardar',
+      contacts_network_footer: 'Encontrado en la red. No lo has guardado.',
+      contact_no_handle: 'Aún sin alias',
+      contact_no_handle_registered: 'Sin alias registrado',
+      contact_name_section: 'Tu nombre para esta persona',
+      contact_name_hint: 'Solo tú lo ves. No cambia cómo se llama a sí misma.',
+      contact_new_name_hint: 'Solo tú lo ves. Guardado en este dispositivo.',
+      contact_copy_identifier: 'Copiar identificador',
+      profile_handle_registered_hint: 'Registrado a tu identificador. La gente puede encontrarte con él.',
+      profile_handle_change: 'Cambiar',
+      profile_handle_claim: 'Reclamar @{{handle}}',
+      profile_handle_replace_warning:
+        'Reclamar sustituye a @{{handle}}. Quienes te guardaron conservan el contacto; el alias antiguo deja de apuntar a ti.',
+      profile_identifier_section: 'Tu identificador',
+      profile_show_qr: 'Mostrar como QR',
+      profile_show_qr_hint: 'Deja que alguien te escanee para obtener tu perfil',
+      profile_qr_callout:
+        'Al escanearlo se abre BSV Wallet y te añade como contacto, con tu nombre, alias y foto. No pide ningún pago: ese código está en Cobrar.',
+      pay_review_title: 'Revisar',
+      pay_send_amount: 'Enviar {{amount}}',
+      pay_sent_to: 'a {{name}}',
+      pay_save_as_contact: 'Guardar como contacto'
     }
   },
   fr: {
@@ -4635,7 +4732,7 @@ const resources = {
       cancelling_payment: 'Annulation du paiement',
 
       contacts: 'Contacts',
-      contacts_search_placeholder: 'Rechercher par nom ou identifiant',
+      contacts_search_placeholder: 'Rechercher par nom ou pseudo',
       contacts_empty_title: 'Aucun contact pour le moment',
       contacts_empty_body:
         "Les personnes que vous payez apparaissent ici une fois enregistrées. Scannez le code de profil de quelqu'un avec le bouton en haut à droite.",
@@ -4646,7 +4743,7 @@ const resources = {
       contact_activity_empty: 'Aucune activité avec ce contact pour le moment',
       contact_delete: 'Supprimer le contact',
       contact_delete_body: "Cela retire {{name}} de vos contacts. Cela n'affecte aucun paiement passé.",
-      contact_handle_caption: 'Son identifiant enregistré · lui seul peut le modifier',
+      contact_handle_caption: 'Son pseudo enregistré · lui seul peut le modifier',
       contact_new_title: 'Nouveau contact',
       contact_save: 'Enregistrer',
       contact_identifier: 'Identifiant',
@@ -4658,16 +4755,17 @@ const resources = {
 
       profile: 'Profil',
       profile_display_name: 'Nom affiché',
-      profile_display_name_hint: 'Ce que les autres voient quand vous les payez',
-      profile_handle: 'Identifiant',
+      profile_display_name_hint:
+        'Visible par ceux qui ne vous ont pas enregistré comme contact. Ils peuvent vous appeler autrement.',
+      profile_handle: 'Pseudo',
       profile_handle_placeholder: 'votrenom',
       profile_handle_checking: 'Vérification de la disponibilité…',
       profile_handle_available: '{{handle}} est disponible',
       profile_handle_taken: '{{handle}} est déjà pris',
       profile_handle_invalid: '3 à 20 lettres minuscules, chiffres, _ ou -',
       profile_handle_failed: 'Impossible de vérifier la disponibilité. Réessayez.',
-      profile_handle_unavailable: "L'enregistrement d'identifiant n'est pas encore disponible sur cette version.",
-      profile_handle_registered: 'Identifiant enregistré',
+      profile_handle_unavailable: "L'enregistrement de pseudo n'est pas encore disponible sur cette version.",
+      profile_handle_registered: 'Pseudo enregistré',
       profile_handle_register_action: 'Enregistrer',
       profile_qr_hint: "D'autres personnes peuvent scanner ceci pour vous ajouter comme contact",
 
@@ -4679,7 +4777,31 @@ const resources = {
       pay_review_note_edit: 'Ajouter une note',
       pay_trust_contact: 'Votre contact',
       pay_trust_handle_attested: 'Enregistré',
-      pay_trust_unverified: 'Non vérifié. Vérifiez bien cet identifiant.'
+      pay_trust_unverified: 'Non vérifié. Vérifiez bien cet identifiant.',
+      contacts_your_contacts: 'Vos contacts',
+      contacts_other_people: 'Autres personnes',
+      contacts_not_saved: 'Non enregistré',
+      contacts_network_footer: 'Trouvé sur le réseau. Vous ne l’avez pas enregistré.',
+      contact_no_handle: 'Pas encore de pseudo',
+      contact_no_handle_registered: 'Aucun pseudo enregistré',
+      contact_name_section: 'Votre nom pour cette personne',
+      contact_name_hint: 'Vous seul le voyez. Cela ne change pas comment elle se nomme.',
+      contact_new_name_hint: 'Vous seul le voyez. Enregistré sur cet appareil.',
+      contact_copy_identifier: 'Copier l’identifiant',
+      profile_handle_registered_hint: 'Enregistré sur votre identifiant. On peut vous trouver grâce à lui.',
+      profile_handle_change: 'Modifier',
+      profile_handle_claim: 'Prendre @{{handle}}',
+      profile_handle_replace_warning:
+        'Prendre ce pseudo remplace @{{handle}}. Ceux qui vous ont enregistré gardent leur contact ; l’ancien pseudo ne mène plus à vous.',
+      profile_identifier_section: 'Votre identifiant',
+      profile_show_qr: 'Afficher en QR',
+      profile_show_qr_hint: 'Laissez quelqu’un vous scanner pour obtenir votre profil',
+      profile_qr_callout:
+        'Scanner ce code ouvre BSV Wallet et vous ajoute comme contact, avec votre nom, votre pseudo et votre photo. Il ne demande aucun paiement : ce code-là se trouve dans Recevoir.',
+      pay_review_title: 'Vérification',
+      pay_send_amount: 'Envoyer {{amount}}',
+      pay_sent_to: 'à {{name}}',
+      pay_save_as_contact: 'Enregistrer comme contact'
     }
   },
   ar: {
@@ -5512,7 +5634,7 @@ const resources = {
       cancelling_payment: 'جارٍ إلغاء الدفعة',
 
       contacts: 'جهات الاتصال',
-      contacts_search_placeholder: 'ابحث بالاسم أو المعرّف',
+      contacts_search_placeholder: 'ابحث بالاسم أو اسم المستخدم',
       contacts_empty_title: 'لا توجد جهات اتصال بعد',
       contacts_empty_body:
         'يظهر هنا الأشخاص الذين تدفع لهم بعد حفظهم. امسح رمز الملف الشخصي لشخص ما باستخدام الزر أعلى اليمين.',
@@ -5523,7 +5645,7 @@ const resources = {
       contact_activity_empty: 'لا يوجد نشاط مع جهة الاتصال هذه بعد',
       contact_delete: 'حذف جهة الاتصال',
       contact_delete_body: 'سيؤدي هذا إلى إزالة {{name}} من جهات اتصالك. لا يؤثر ذلك على أي مدفوعات سابقة.',
-      contact_handle_caption: 'المعرّف المسجَّل الخاص به · هو وحده من يمكنه تغييره',
+      contact_handle_caption: 'اسم المستخدم المسجَّل الخاص به · هو وحده من يمكنه تغييره',
       contact_new_title: 'جهة اتصال جديدة',
       contact_save: 'حفظ',
       contact_identifier: 'المعرّف',
@@ -5535,16 +5657,16 @@ const resources = {
 
       profile: 'الملف الشخصي',
       profile_display_name: 'الاسم المعروض',
-      profile_display_name_hint: 'ما يراه الآخرون عندما تدفع لهم',
-      profile_handle: 'المعرّف',
+      profile_display_name_hint: 'يظهر لمن لم يحفظوك كجهة اتصال. يمكنهم تسميتك باسم آخر.',
+      profile_handle: 'اسم المستخدم',
       profile_handle_placeholder: 'معرّفك',
       profile_handle_checking: 'جارٍ التحقق من التوفر…',
       profile_handle_available: '{{handle}} متاح',
       profile_handle_taken: '{{handle}} مُستخدم بالفعل',
       profile_handle_invalid: '3-20 حرفًا صغيرًا أو رقمًا أو _ أو -',
       profile_handle_failed: 'تعذّر التحقق من التوفر. حاول مرة أخرى.',
-      profile_handle_unavailable: 'تسجيل المعرّف غير متاح بعد في هذا الإصدار.',
-      profile_handle_registered: 'تم تسجيل المعرّف',
+      profile_handle_unavailable: 'تسجيل اسم المستخدم غير متاح بعد في هذا الإصدار.',
+      profile_handle_registered: 'تم تسجيل اسم المستخدم',
       profile_handle_register_action: 'تسجيل',
       profile_qr_hint: 'يمكن للآخرين مسح هذا لإضافتك كجهة اتصال',
 
@@ -5556,7 +5678,31 @@ const resources = {
       pay_review_note_edit: 'إضافة ملاحظة',
       pay_trust_contact: 'جهة اتصالك',
       pay_trust_handle_attested: 'مسجَّل',
-      pay_trust_unverified: 'غير موثّق. تحقق جيدًا من هذا المعرّف.'
+      pay_trust_unverified: 'غير موثّق. تحقق جيدًا من هذا المعرّف.',
+      contacts_your_contacts: 'جهات اتصالك',
+      contacts_other_people: 'أشخاص آخرون',
+      contacts_not_saved: 'غير محفوظ',
+      contacts_network_footer: 'موجود على الشبكة. لم تحفظه بعد.',
+      contact_no_handle: 'لا يوجد اسم مستخدم بعد',
+      contact_no_handle_registered: 'لا يوجد اسم مستخدم مسجَّل',
+      contact_name_section: 'اسمك له',
+      contact_name_hint: 'أنت وحدك تراه. لا يغيّر ما يسمّي به نفسه.',
+      contact_new_name_hint: 'أنت وحدك تراه. محفوظ على هذا الجهاز.',
+      contact_copy_identifier: 'نسخ المعرّف',
+      profile_handle_registered_hint: 'مسجَّل على معرّفك. يمكن للناس إيجادك من خلاله.',
+      profile_handle_change: 'تغيير',
+      profile_handle_claim: 'حجز @{{handle}}',
+      profile_handle_replace_warning:
+        'الحجز يستبدل @{{handle}}. من حفظوك يحتفظون بجهة الاتصال؛ ولن يقود اسم المستخدم القديم إليك بعد الآن.',
+      profile_identifier_section: 'معرّفك',
+      profile_show_qr: 'عرض كرمز QR',
+      profile_show_qr_hint: 'دع أحدهم يمسحك ليحصل على ملفك الشخصي',
+      profile_qr_callout:
+        'مسح هذا الرمز يفتح BSV Wallet ويضيفك كجهة اتصال، مع اسمك واسم المستخدم وصورتك. لا يطلب أي دفعة — ذلك الرمز موجود في «استلام».',
+      pay_review_title: 'مراجعة',
+      pay_send_amount: 'إرسال {{amount}}',
+      pay_sent_to: 'إلى {{name}}',
+      pay_save_as_contact: 'حفظ كجهة اتصال'
     }
   },
   pt: {
@@ -6438,7 +6584,7 @@ const resources = {
       cancelling_payment: 'Cancelando o pagamento',
 
       contacts: 'Contatos',
-      contacts_search_placeholder: 'Pesquisar por nome ou identificador',
+      contacts_search_placeholder: 'Pesquisar por nome ou apelido',
       contacts_empty_title: 'Ainda não há contatos',
       contacts_empty_body:
         'As pessoas para quem você paga aparecem aqui depois de salvas. Escaneie o código de perfil de alguém com o botão no canto superior direito.',
@@ -6449,7 +6595,7 @@ const resources = {
       contact_activity_empty: 'Ainda não há atividade com este contato',
       contact_delete: 'Excluir contato',
       contact_delete_body: 'Isso remove {{name}} dos seus contatos. Não afeta nenhum pagamento anterior.',
-      contact_handle_caption: 'O identificador registrado dele · só ele pode alterá-lo',
+      contact_handle_caption: 'O apelido registrado dele · só ele pode alterá-lo',
       contact_new_title: 'Novo contato',
       contact_save: 'Salvar',
       contact_identifier: 'Identificador',
@@ -6461,16 +6607,16 @@ const resources = {
 
       profile: 'Perfil',
       profile_display_name: 'Nome de exibição',
-      profile_display_name_hint: 'O que os outros veem quando você paga a eles',
-      profile_handle: 'Identificador',
+      profile_display_name_hint: 'Visto por quem não salvou você como contato. Eles podem chamar você de outro nome.',
+      profile_handle: 'Apelido',
       profile_handle_placeholder: 'seunome',
       profile_handle_checking: 'Verificando disponibilidade…',
       profile_handle_available: '{{handle}} está disponível',
       profile_handle_taken: '{{handle}} já está em uso',
       profile_handle_invalid: '3 a 20 letras minúsculas, dígitos, _ ou -',
       profile_handle_failed: 'Não foi possível verificar a disponibilidade. Tente novamente.',
-      profile_handle_unavailable: 'O registro de identificador ainda não está disponível nesta versão.',
-      profile_handle_registered: 'Identificador registrado',
+      profile_handle_unavailable: 'O registro de apelido ainda não está disponível nesta versão.',
+      profile_handle_registered: 'Apelido registrado',
       profile_handle_register_action: 'Registrar',
       profile_qr_hint: 'Outras pessoas podem escanear isto para adicionar você como contato',
 
@@ -6482,7 +6628,31 @@ const resources = {
       pay_review_note_edit: 'Adicionar uma nota',
       pay_trust_contact: 'Seu contato',
       pay_trust_handle_attested: 'Registrado',
-      pay_trust_unverified: 'Não verificado. Confira bem este identificador.'
+      pay_trust_unverified: 'Não verificado. Confira bem este identificador.',
+      contacts_your_contacts: 'Seus contatos',
+      contacts_other_people: 'Outras pessoas',
+      contacts_not_saved: 'Não salvo',
+      contacts_network_footer: 'Encontrado na rede. Você ainda não salvou.',
+      contact_no_handle: 'Ainda sem apelido',
+      contact_no_handle_registered: 'Nenhum apelido registrado',
+      contact_name_section: 'Seu nome para esta pessoa',
+      contact_name_hint: 'Só você vê isto. Não muda como ela se chama.',
+      contact_new_name_hint: 'Só você vê isto. Salvo neste dispositivo.',
+      contact_copy_identifier: 'Copiar identificador',
+      profile_handle_registered_hint: 'Registrado no seu identificador. As pessoas podem encontrar você por ele.',
+      profile_handle_change: 'Alterar',
+      profile_handle_claim: 'Reivindicar @{{handle}}',
+      profile_handle_replace_warning:
+        'Reivindicar substitui @{{handle}}. Quem salvou você mantém o contato; o apelido antigo deixa de levar a você.',
+      profile_identifier_section: 'Seu identificador',
+      profile_show_qr: 'Mostrar como QR',
+      profile_show_qr_hint: 'Deixe alguém escanear você para obter seu perfil',
+      profile_qr_callout:
+        'Escanear isto abre a BSV Wallet e adiciona você como contato, com nome, apelido e foto. Não pede pagamento — esse código fica em Receber.',
+      pay_review_title: 'Revisar',
+      pay_send_amount: 'Enviar {{amount}}',
+      pay_sent_to: 'para {{name}}',
+      pay_save_as_contact: 'Salvar como contato'
     }
   },
   bn: {
@@ -7372,7 +7542,8 @@ const resources = {
 
       profile: 'প্রোফাইল',
       profile_display_name: 'প্রদর্শন নাম',
-      profile_display_name_hint: 'আপনি যখন কাউকে অর্থ প্রদান করেন তখন অন্যরা এটি দেখে',
+      profile_display_name_hint:
+        'যারা আপনাকে পরিচিতি হিসেবে সংরক্ষণ করেননি তারা এটি দেখেন। তারা আপনাকে অন্য নামে ডাকতে পারেন।',
       profile_handle: 'হ্যান্ডেল',
       profile_handle_placeholder: 'আপনার হ্যান্ডেল',
       profile_handle_checking: 'উপলব্ধতা যাচাই করা হচ্ছে…',
@@ -7393,7 +7564,31 @@ const resources = {
       pay_review_note_edit: 'একটি নোট যোগ করুন',
       pay_trust_contact: 'আপনার পরিচিতি',
       pay_trust_handle_attested: 'নিবন্ধিত',
-      pay_trust_unverified: 'যাচাই করা হয়নি। এই শনাক্তকারীটি ভালোভাবে যাচাই করুন।'
+      pay_trust_unverified: 'যাচাই করা হয়নি। এই শনাক্তকারীটি ভালোভাবে যাচাই করুন।',
+      contacts_your_contacts: 'আপনার পরিচিতি',
+      contacts_other_people: 'অন্য ব্যক্তিরা',
+      contacts_not_saved: 'সংরক্ষিত নয়',
+      contacts_network_footer: 'নেটওয়ার্কে পাওয়া গেছে। আপনি সংরক্ষণ করেননি।',
+      contact_no_handle: 'এখনও কোনো হ্যান্ডেল নেই',
+      contact_no_handle_registered: 'কোনো হ্যান্ডেল নিবন্ধিত নয়',
+      contact_name_section: 'তাদের জন্য আপনার নাম',
+      contact_name_hint: 'শুধু আপনি এটি দেখেন। তারা নিজেকে কী বলে তা বদলায় না।',
+      contact_new_name_hint: 'শুধু আপনি এটি দেখেন। এই ডিভাইসে সংরক্ষিত।',
+      contact_copy_identifier: 'শনাক্তকারী কপি করুন',
+      profile_handle_registered_hint: 'আপনার শনাক্তকারীতে নিবন্ধিত। লোকেরা এর মাধ্যমে আপনাকে খুঁজে পেতে পারে।',
+      profile_handle_change: 'পরিবর্তন',
+      profile_handle_claim: '@{{handle}} নিন',
+      profile_handle_replace_warning:
+        'নিলে @{{handle}} প্রতিস্থাপিত হবে। যারা আপনাকে সংরক্ষণ করেছেন তাদের পরিচিতি থাকবে; পুরোনো হ্যান্ডেল আর আপনার কাছে পৌঁছাবে না।',
+      profile_identifier_section: 'আপনার শনাক্তকারী',
+      profile_show_qr: 'QR হিসেবে দেখান',
+      profile_show_qr_hint: 'কাউকে স্ক্যান করতে দিন যাতে তারা আপনার প্রোফাইল পায়',
+      profile_qr_callout:
+        'এটি স্ক্যান করলে BSV Wallet খোলে এবং আপনার নাম, হ্যান্ডেল ও ছবি সহ আপনাকে পরিচিতি হিসেবে যোগ করে। এটি কোনো পেমেন্ট চায় না — সেই কোডটি “পেমেন্ট নিন”-এ আছে।',
+      pay_review_title: 'পর্যালোচনা',
+      pay_send_amount: '{{amount}} পাঠান',
+      pay_sent_to: '{{name}}-কে',
+      pay_save_as_contact: 'পরিচিতি হিসেবে সংরক্ষণ করুন'
     }
   },
   ru: {
@@ -8295,7 +8490,7 @@ const resources = {
 
       profile: 'Профиль',
       profile_display_name: 'Отображаемое имя',
-      profile_display_name_hint: 'То, что видят другие, когда вы им платите',
+      profile_display_name_hint: 'Видят те, кто не сохранил вас в контакты. Они могут называть вас иначе.',
       profile_handle: 'Юзернейм',
       profile_handle_placeholder: 'вашюзернейм',
       profile_handle_checking: 'Проверка доступности…',
@@ -8316,7 +8511,31 @@ const resources = {
       pay_review_note_edit: 'Добавить заметку',
       pay_trust_contact: 'Ваш контакт',
       pay_trust_handle_attested: 'Зарегистрирован',
-      pay_trust_unverified: 'Не проверено. Внимательно проверьте этот идентификатор.'
+      pay_trust_unverified: 'Не проверено. Внимательно проверьте этот идентификатор.',
+      contacts_your_contacts: 'Ваши контакты',
+      contacts_other_people: 'Другие люди',
+      contacts_not_saved: 'Не сохранён',
+      contacts_network_footer: 'Найдено в сети. Вы этого не сохраняли.',
+      contact_no_handle: 'Юзернейма пока нет',
+      contact_no_handle_registered: 'Юзернейм не зарегистрирован',
+      contact_name_section: 'Ваше имя для него',
+      contact_name_hint: 'Видите только вы. Это не меняет того, как он называет себя.',
+      contact_new_name_hint: 'Видите только вы. Сохранено на этом устройстве.',
+      contact_copy_identifier: 'Скопировать идентификатор',
+      profile_handle_registered_hint: 'Зарегистрирован на ваш идентификатор. По нему вас могут найти.',
+      profile_handle_change: 'Изменить',
+      profile_handle_claim: 'Занять @{{handle}}',
+      profile_handle_replace_warning:
+        'Это заменит @{{handle}}. У тех, кто вас сохранил, контакт останется; старый юзернейм больше не будет вести к вам.',
+      profile_identifier_section: 'Ваш идентификатор',
+      profile_show_qr: 'Показать как QR',
+      profile_show_qr_hint: 'Дайте кому-нибудь отсканировать вас, чтобы получить ваш профиль',
+      profile_qr_callout:
+        'Сканирование откроет BSV Wallet и добавит вас в контакты — с именем, юзернеймом и фото. Оплаты оно не запрашивает: тот код находится в разделе «Получить».',
+      pay_review_title: 'Проверка',
+      pay_send_amount: 'Отправить {{amount}}',
+      pay_sent_to: 'для {{name}}',
+      pay_save_as_contact: 'Сохранить как контакт'
     }
   },
   id: {
@@ -9218,7 +9437,8 @@ const resources = {
 
       profile: 'Profil',
       profile_display_name: 'Nama tampilan',
-      profile_display_name_hint: 'Yang dilihat orang lain saat Anda membayar mereka',
+      profile_display_name_hint:
+        'Dilihat oleh orang yang belum menyimpan Anda sebagai kontak. Mereka bisa memanggil Anda dengan nama lain.',
       profile_handle: 'Handle',
       profile_handle_placeholder: 'namaanda',
       profile_handle_checking: 'Memeriksa ketersediaan…',
@@ -9239,7 +9459,31 @@ const resources = {
       pay_review_note_edit: 'Tambahkan catatan',
       pay_trust_contact: 'Kontak Anda',
       pay_trust_handle_attested: 'Terdaftar',
-      pay_trust_unverified: 'Belum diverifikasi. Periksa kembali Identifier ini.'
+      pay_trust_unverified: 'Belum diverifikasi. Periksa kembali Identifier ini.',
+      contacts_your_contacts: 'Kontak Anda',
+      contacts_other_people: 'Orang lain',
+      contacts_not_saved: 'Belum disimpan',
+      contacts_network_footer: 'Ditemukan di jaringan. Belum Anda simpan.',
+      contact_no_handle: 'Belum ada handle',
+      contact_no_handle_registered: 'Tidak ada handle terdaftar',
+      contact_name_section: 'Nama Anda untuk mereka',
+      contact_name_hint: 'Hanya Anda yang melihatnya. Tidak mengubah sebutan mereka untuk diri sendiri.',
+      contact_new_name_hint: 'Hanya Anda yang melihatnya. Disimpan di perangkat ini.',
+      contact_copy_identifier: 'Salin Identifier',
+      profile_handle_registered_hint: 'Terdaftar pada Identifier Anda. Orang bisa menemukan Anda lewat itu.',
+      profile_handle_change: 'Ubah',
+      profile_handle_claim: 'Klaim @{{handle}}',
+      profile_handle_replace_warning:
+        'Mengklaim akan mengganti @{{handle}}. Orang yang menyimpan Anda tetap punya kontaknya; handle lama tidak lagi mengarah ke Anda.',
+      profile_identifier_section: 'Identifier Anda',
+      profile_show_qr: 'Tampilkan sebagai QR',
+      profile_show_qr_hint: 'Biarkan seseorang memindai Anda untuk mendapatkan profil Anda',
+      profile_qr_callout:
+        'Memindai ini membuka BSV Wallet dan menambahkan Anda sebagai kontak, dengan nama, handle, dan foto Anda. Ini tidak meminta pembayaran — kode itu ada di Terima bayaran.',
+      pay_review_title: 'Tinjau',
+      pay_send_amount: 'Kirim {{amount}}',
+      pay_sent_to: 'ke {{name}}',
+      pay_save_as_contact: 'Simpan sebagai kontak'
     }
   },
   ja: {
@@ -10146,7 +10390,7 @@ const resources = {
 
       profile: 'プロフィール',
       profile_display_name: '表示名',
-      profile_display_name_hint: '支払い時に相手に表示される名前です',
+      profile_display_name_hint: 'あなたを連絡先に保存していない人に表示されます。相手は別の名前で呼ぶこともできます。',
       profile_handle: 'ハンドル',
       profile_handle_placeholder: 'あなたのハンドル',
       profile_handle_checking: '空き状況を確認中…',
@@ -10167,7 +10411,31 @@ const resources = {
       pay_review_note_edit: 'メモを追加',
       pay_trust_contact: 'あなたの連絡先',
       pay_trust_handle_attested: '登録済み',
-      pay_trust_unverified: '未確認です。この識別子をよく確認してください。'
+      pay_trust_unverified: '未確認です。この識別子をよく確認してください。',
+      contacts_your_contacts: 'あなたの連絡先',
+      contacts_other_people: 'その他の人',
+      contacts_not_saved: '未保存',
+      contacts_network_footer: 'ネットワーク上で見つかりました。あなたはまだ保存していません。',
+      contact_no_handle: 'ハンドルはまだありません',
+      contact_no_handle_registered: 'ハンドル未登録',
+      contact_name_section: 'あなたがつける名前',
+      contact_name_hint: 'あなたにだけ表示されます。相手の自称は変わりません。',
+      contact_new_name_hint: 'あなたにだけ表示されます。この端末に保存されます。',
+      contact_copy_identifier: '識別子をコピー',
+      profile_handle_registered_hint: 'あなたの識別子に登録済みです。これで他の人があなたを見つけられます。',
+      profile_handle_change: '変更',
+      profile_handle_claim: '@{{handle}} を取得',
+      profile_handle_replace_warning:
+        '取得すると @{{handle}} は置き換わります。あなたを保存した人の連絡先は残りますが、古いハンドルはあなたに繋がらなくなります。',
+      profile_identifier_section: 'あなたの識別子',
+      profile_show_qr: 'QRで表示',
+      profile_show_qr_hint: '誰かにスキャンしてもらい、あなたのプロフィールを渡します',
+      profile_qr_callout:
+        'これをスキャンすると BSV Wallet が開き、名前・ハンドル・写真つきであなたが連絡先に追加されます。支払いは求めません。支払い用のコードは「受け取る」にあります。',
+      pay_review_title: '確認',
+      pay_send_amount: '{{amount}} を送金',
+      pay_sent_to: '{{name}} へ',
+      pay_save_as_contact: '連絡先として保存'
     }
   },
   pl: {
@@ -11068,7 +11336,7 @@ const resources = {
       cancelling_payment: 'Anulowanie płatności',
 
       contacts: 'Kontakty',
-      contacts_search_placeholder: 'Szukaj po nazwie lub identyfikatorze',
+      contacts_search_placeholder: 'Szukaj po nazwie lub pseudonimie',
       contacts_empty_title: 'Brak kontaktów',
       contacts_empty_body:
         'Osoby, którym płacisz, pojawią się tutaj po zapisaniu. Zeskanuj kod profilu danej osoby przyciskiem w prawym górnym rogu.',
@@ -11080,7 +11348,7 @@ const resources = {
       contact_delete: 'Usuń kontakt',
       contact_delete_body:
         'Spowoduje to usunięcie {{name}} z Twoich kontaktów. Nie wpływa to na żadne wcześniejsze płatności.',
-      contact_handle_caption: 'Ich zarejestrowany identyfikator · tylko oni mogą go zmienić',
+      contact_handle_caption: 'Ich zarejestrowany pseudonim · tylko oni mogą go zmienić',
       contact_new_title: 'Nowy kontakt',
       contact_save: 'Zapisz',
       contact_identifier: 'Identyfikator',
@@ -11092,16 +11360,16 @@ const resources = {
 
       profile: 'Profil',
       profile_display_name: 'Nazwa wyświetlana',
-      profile_display_name_hint: 'To, co widzą inni, gdy im płacisz',
-      profile_handle: 'Identyfikator',
+      profile_display_name_hint: 'Widzą to osoby, które nie zapisały Cię jako kontaktu. Mogą nazywać Cię inaczej.',
+      profile_handle: 'Pseudonim',
       profile_handle_placeholder: 'twojanazwa',
       profile_handle_checking: 'Sprawdzanie dostępności…',
       profile_handle_available: '{{handle}} jest dostępny',
       profile_handle_taken: '{{handle}} jest już zajęty',
       profile_handle_invalid: '3-20 małych liter, cyfr, _ lub -',
       profile_handle_failed: 'Nie udało się sprawdzić dostępności. Spróbuj ponownie.',
-      profile_handle_unavailable: 'Rejestracja identyfikatora nie jest jeszcze dostępna w tej wersji.',
-      profile_handle_registered: 'Identyfikator zarejestrowany',
+      profile_handle_unavailable: 'Rejestracja pseudonimu nie jest jeszcze dostępna w tej wersji.',
+      profile_handle_registered: 'Pseudonim zarejestrowany',
       profile_handle_register_action: 'Zarejestruj',
       profile_qr_hint: 'Inni mogą to zeskanować, aby dodać Cię jako kontakt',
 
@@ -11113,7 +11381,31 @@ const resources = {
       pay_review_note_edit: 'Dodaj notatkę',
       pay_trust_contact: 'Twój kontakt',
       pay_trust_handle_attested: 'Zarejestrowany',
-      pay_trust_unverified: 'Niezweryfikowane. Dokładnie sprawdź ten identyfikator.'
+      pay_trust_unverified: 'Niezweryfikowane. Dokładnie sprawdź ten identyfikator.',
+      contacts_your_contacts: 'Twoje kontakty',
+      contacts_other_people: 'Inne osoby',
+      contacts_not_saved: 'Niezapisany',
+      contacts_network_footer: 'Znaleziono w sieci. Nie zapisano przez Ciebie.',
+      contact_no_handle: 'Brak pseudonimu',
+      contact_no_handle_registered: 'Brak zarejestrowanego pseudonimu',
+      contact_name_section: 'Twoja nazwa dla tej osoby',
+      contact_name_hint: 'Widzisz to tylko Ty. Nie zmienia tego, jak ta osoba się nazywa.',
+      contact_new_name_hint: 'Widzisz to tylko Ty. Zapisane na tym urządzeniu.',
+      contact_copy_identifier: 'Kopiuj identyfikator',
+      profile_handle_registered_hint: 'Zarejestrowany na Twój identyfikator. Inni mogą Cię po nim znaleźć.',
+      profile_handle_change: 'Zmień',
+      profile_handle_claim: 'Zajmij @{{handle}}',
+      profile_handle_replace_warning:
+        'Zajęcie zastąpi @{{handle}}. Osoby, które Cię zapisały, zachowają kontakt; stary pseudonim przestanie prowadzić do Ciebie.',
+      profile_identifier_section: 'Twój identyfikator',
+      profile_show_qr: 'Pokaż jako QR',
+      profile_show_qr_hint: 'Pozwól komuś Cię zeskanować, aby dostał Twój profil',
+      profile_qr_callout:
+        'Zeskanowanie otwiera BSV Wallet i dodaje Cię jako kontakt — z imieniem, pseudonimem i zdjęciem. Nie prosi o płatność; ten kod jest w sekcji Otrzymaj.',
+      pay_review_title: 'Podsumowanie',
+      pay_send_amount: 'Wyślij {{amount}}',
+      pay_sent_to: 'do {{name}}',
+      pay_save_as_contact: 'Zapisz jako kontakt'
     }
   }
 }

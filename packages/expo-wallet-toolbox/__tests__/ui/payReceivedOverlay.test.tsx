@@ -41,7 +41,8 @@ jest.mock('expo-secure-store', () => ({
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { count?: number }) => (opts?.count ? `${key}:${opts.count}` : key),
+    t: (key: string, opts?: { count?: number; name?: string }) =>
+      opts?.count ? `${key}:${opts.count}` : opts?.name ? `${key}:${opts.name}` : key,
     i18n: { language: 'en' }
   }),
   // Pulled in as a side effect of importing anything from the barrel: its
@@ -232,7 +233,8 @@ describe('PaymentSuccessOverlay (sent)', () => {
 
   it('names the recipient when the rail resolved one', () => {
     draw({ amount: 5000, direction: 'sent', recipientName: 'Alice', onDismiss: jest.fn() })
-    expect(screen.getByText('Alice')).toBeTruthy()
+    // The line reads "to Alice" — the recipient named, not a bare name floating under the figure.
+    expect(screen.getByText(/Alice/)).toBeTruthy()
   })
 
   it('withholds the acknowledgement until the mark has landed, same as receive', () => {

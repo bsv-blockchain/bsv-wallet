@@ -27,7 +27,7 @@ export interface ContactsDb {
 }
 
 /** How a contact entered the address book. */
-export type ContactSource = 'manual' | 'qr' | 'pay'
+export type ContactSource = 'manual' | 'qr' | 'pay' | 'search'
 
 export interface ContactRow {
   contactId: number

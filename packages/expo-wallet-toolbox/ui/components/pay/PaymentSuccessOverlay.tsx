@@ -97,8 +97,8 @@ export interface ReceivedOverlayProps {
   dismissTo?: DismissTarget
   /**
    * Sent only, and only when the recipient resolved to an identity key that
-   * is not already a saved contact: offers a secondary "Add to contacts"
-   * action beside Done. The caller owns the whole action (cleanup and
+   * is not already a saved contact: offers a "Save as a contact" text
+   * action under the recipient's name. The caller owns the whole action (cleanup and
    * navigation both) — this component stays presentational and only decides
    * whether to show the button at all.
    */
@@ -213,11 +213,30 @@ export default function PaymentSuccessOverlay({
           </Animated.View>
 
           {sent ? (
-            !!recipientName && (
-              <Text style={[styles.support, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="middle">
-                {recipientName}
-              </Text>
-            )
+            <>
+              {!!recipientName && (
+                <Text
+                  style={[styles.support, { color: colors.textSecondary }]}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {t('pay_sent_to', { name: recipientName })}
+                </Text>
+              )}
+              {/* A text button under the name, not a second filled control: Done
+                  stays the one accent-filled control on this screen. */}
+              {!!onAddContact && (
+                <PressableScale
+                  onPress={onAddContact}
+                  haptic="tap"
+                  style={styles.saveContact}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('pay_save_as_contact')}
+                >
+                  <Text style={[styles.saveContactText, { color: colors.accent }]}>{t('pay_save_as_contact')}</Text>
+                </PressableScale>
+              )}
+            </>
           ) : (
             <Text style={[styles.support, { color: colors.success }]} textBreakStrategy="balanced">
               {count > 1 ? t('local_pay_added_multiple', { count }) : t('local_pay_added')}
@@ -247,21 +266,6 @@ export default function PaymentSuccessOverlay({
 
         {ready && (
           <Animated.View entering={fadeIn} style={styles.footer}>
-            {/* Outlined, not filled — Done is the one accent-filled control on
-                this screen. */}
-            {!!onAddContact && (
-              <PressableScale
-                onPress={onAddContact}
-                haptic="tap"
-                style={[styles.outlineButton, { borderColor: colors.accent }]}
-                accessibilityRole="button"
-                accessibilityLabel={t('contact_add_from_payment')}
-              >
-                <Text style={[styles.outlineButtonText, { color: colors.accent }]}>
-                  {t('contact_add_from_payment')}
-                </Text>
-              </PressableScale>
-            )}
             <PressableScale
               onPress={acknowledge}
               haptic="tap"
@@ -337,15 +341,15 @@ const styles = StyleSheet.create({
     ...typography.headline,
     fontWeight: '600'
   },
-  outlineButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  saveContact: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  outlineButtonText: {
-    ...typography.subhead,
+  saveContactText: {
+    ...typography.footnote,
     fontWeight: '600'
   }
 })

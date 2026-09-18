@@ -55,10 +55,10 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 }))
 
 import React from 'react'
-import { fireEvent, render, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { MESSAGE_BOX_URL_KEY, NO_MESSAGE_BOX, ThemeProvider } from '@bsv/expo-wallet-toolbox'
-import UniversalSend from '../../ui/components/pay/UniversalSend'
+import UniversalSend, { type UniversalSendHandle } from '../../ui/components/pay/UniversalSend'
 
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
@@ -83,12 +83,21 @@ const stuckOutbox = () => {
   }
 }
 
-const draw = (props: Partial<React.ComponentProps<typeof UniversalSend>> = {}) =>
-  render(
+/** The host's back chevron reaches the form through this ref (no in-form back control). */
+let sendRef: React.RefObject<UniversalSendHandle | null>
+const draw = (props: Partial<React.ComponentProps<typeof UniversalSend>> = {}) => {
+  sendRef = React.createRef<UniversalSendHandle>()
+  return render(
     <ThemeProvider>
-      <UniversalSend onNearbySession={jest.fn()} {...props} />
+      <UniversalSend ref={sendRef} onNearbySession={jest.fn()} {...props} />
     </ThemeProvider>
   )
+}
+const pressBack = () => {
+  act(() => {
+    sendRef.current?.back()
+  })
+}
 
 describe('UniversalSend', () => {
   beforeEach(async () => {
@@ -194,7 +203,7 @@ describe('UniversalSend', () => {
     fireEvent.changeText(s.getByTestId('amount-input'), '500')
     fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('message_box_off_hint')).toBeTruthy())
-    expect(s.getByLabelText('pay').props.accessibilityState.disabled).toBe(true)
+    expect(s.getByLabelText(/^pay_send_amount/).props.accessibilityState.disabled).toBe(true)
   })
 
   it('an address can still be paid while a handle payment is stuck in the outbox', async () => {
@@ -208,8 +217,8 @@ describe('UniversalSend', () => {
     fireEvent.press(s.getByText('pay_step_continue'))
     fireEvent.changeText(s.getByTestId('amount-input'), '500')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByLabelText('pay')).toBeTruthy())
-    expect(s.getByLabelText('pay').props.accessibilityState.disabled).toBe(false)
+    await waitFor(() => expect(s.getByLabelText(/^pay_send_amount/)).toBeTruthy())
+    expect(s.getByLabelText(/^pay_send_amount/).props.accessibilityState.disabled).toBe(false)
   })
 
   it('leaves the form intact and shows a banner when the wallet is not ready', async () => {
@@ -219,13 +228,13 @@ describe('UniversalSend', () => {
     fireEvent.press(s.getByText('pay_step_continue'))
     fireEvent.changeText(s.getByTestId('amount-input'), '500')
     fireEvent.press(s.getByText('pay_step_continue'))
-    fireEvent.press(s.getByLabelText('pay'))
+    fireEvent.press(s.getByLabelText(/^pay_send_amount/))
     await waitFor(() => expect(s.getByText('wallet_not_ready')).toBeTruthy())
     // A failure must never clear what was typed — confirmed by stepping back
     // through "amount" and "who" and finding both fields exactly as left.
-    fireEvent.press(s.getByText('back'))
+    pressBack()
     expect(s.getByTestId('amount-input').props.value).toBe('500')
-    fireEvent.press(s.getByText('back'))
+    pressBack()
     expect(s.getByPlaceholderText('recipient_placeholder').props.value).toBe(ADDRESS)
   })
 })

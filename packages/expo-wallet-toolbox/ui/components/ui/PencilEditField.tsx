@@ -1,11 +1,14 @@
 /**
- * A label with a pencil at rest that becomes a filled confirm button once its
- * text has actually changed (2026-09-17 design ruling — applied to the
- * contact name, a new contact's name, and the profile display name).
+ * An editable label row for a grouped card (contact name, profile display
+ * name): the field is always a live text input, a pencil sits at rest in the
+ * leading slot, and once the text has actually changed that slot becomes a
+ * filled confirm button (2026-09-17 design ruling). Tapping the pencil only
+ * focuses the field; nothing is saved until the check is tapped or the
+ * keyboard's return key is pressed with a real change.
  */
-import React, { useState } from 'react'
-import { StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle } from 'react-native'
-import { useTheme, spacing, radii } from '@bsv/expo-wallet-toolbox'
+import React, { useEffect, useRef, useState } from 'react'
+import { StyleSheet, TextInput, View, type StyleProp, type TextStyle } from 'react-native'
+import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
 import PressableScale from './PressableScale'
 
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
@@ -41,34 +44,46 @@ export function PencilEditField({
 }: PencilEditFieldProps) {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
-  const [editing, setEditing] = useState(false)
+  const inputRef = useRef<TextInput>(null)
   const [text, setText] = useState(value)
+  // A save that lands from outside (a cache refresh, the parent reloading)
+  // re-seeds the field; an in-progress edit is never clobbered, because the
+  // parent's value only changes once our own save has gone through.
+  useEffect(() => setText(value), [value])
   const changed = text.trim() !== '' && text.trim() !== value.trim()
 
-  if (!editing) {
-    return (
-      <View style={styles.row}>
-        <Text style={[styles.value, { color: colors.textPrimary }, textStyle]} numberOfLines={1}>
-          {value}
-        </Text>
+  const save = async () => {
+    if (!changed) return
+    await onSave(text.trim())
+    inputRef.current?.blur()
+  }
+
+  return (
+    <View style={styles.row}>
+      {changed ? (
         <PressableScale
-          onPress={() => {
-            setText(value)
-            setEditing(true)
-          }}
-          style={styles.iconBtn}
+          onPress={save}
+          haptic="confirm"
+          style={styles.leading}
+          accessibilityRole="button"
+          accessibilityLabel={saveAccessibilityLabel}
+        >
+          <View style={[styles.confirmDisc, { backgroundColor: colors.accent }]}>
+            <Ionicons name="checkmark" size={16} color={colors.textOnAccent} />
+          </View>
+        </PressableScale>
+      ) : (
+        <PressableScale
+          onPress={() => inputRef.current?.focus()}
+          style={styles.leading}
           accessibilityRole="button"
           accessibilityLabel={editAccessibilityLabel}
         >
           <Ionicons name="pencil-outline" size={17} color={colors.textSecondary} />
         </PressableScale>
-      </View>
-    )
-  }
-
-  return (
-    <View style={styles.row}>
+      )}
       <TextInput
+        ref={inputRef}
         value={text}
         onChangeText={setText}
         placeholder={placeholder}
@@ -76,43 +91,19 @@ export function PencilEditField({
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
         maxLength={maxLength}
-        autoFocus
-        style={[styles.input, { color: colors.textPrimary, borderColor: colors.separator }, textStyle]}
-        onBlur={() => {
-          if (!changed) setEditing(false)
-        }}
+        returnKeyType="done"
+        onSubmitEditing={save}
+        style={[styles.input, { color: colors.textPrimary }, textStyle]}
       />
-      <PressableScale
-        onPress={async () => {
-          if (changed) await onSave(text.trim())
-          setEditing(false)
-        }}
-        disabled={!changed}
-        style={[styles.confirmBtn, { backgroundColor: changed ? colors.accent : colors.fill }]}
-        accessibilityRole="button"
-        accessibilityLabel={saveAccessibilityLabel}
-        accessibilityState={{ disabled: !changed }}
-      >
-        <Ionicons name="checkmark" size={18} color={changed ? colors.textOnAccent : colors.textTertiary} />
-      </PressableScale>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  value: { flex: 1 },
-  iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  input: {
-    flex: 1,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: spacing.xs
-  },
-  confirmBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.pill,
-    alignItems: 'center',
-    justifyContent: 'center'
-  }
+  row: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingLeft: spacing.xs, paddingRight: spacing.lg },
+  // A 44pt target around a 17pt glyph / 28pt disc, flush with the card's
+  // left padding once the disc's own inset is counted.
+  leading: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  confirmDisc: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  input: { ...typography.body, flex: 1, minWidth: 0, paddingVertical: spacing.md, paddingHorizontal: 0 }
 })

@@ -7,10 +7,11 @@
  * useRecipientInput; this file only renders that state.
  */
 import React from 'react'
-import { ActivityIndicator, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import type { DisplayableIdentity } from '@bsv/sdk'
 import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { spacing, typography, radii, springs } from '@bsv/expo-wallet-toolbox'
+import ContactSigil from '../wallet/ContactSigil'
 import type { RecipientInlineError, RecipientTarget } from './useRecipientInput'
 
 /**
@@ -100,13 +101,14 @@ export default function RecipientField({
         entering={identityEntering}
         style={[styles.selectedRecipient, { backgroundColor: colors.backgroundSecondary }]}
       >
-        {selectedIdentity.avatarURL ? (
-          <Image source={{ uri: selectedIdentity.avatarURL }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatarPlaceholder, { backgroundColor: colors.accent }]}>
-            <Ionicons name="person" size={20} color={colors.background} />
-          </View>
-        )}
+        {/* Their avatar, else their sigil — never an initials/person placeholder
+            (2026-09-18 ruling): the same face Contacts and the review card draw. */}
+        <ContactSigil
+          identityKey={selectedIdentity.identityKey}
+          avatarUrl={selectedIdentity.avatarURL || undefined}
+          size={36}
+          radius={18}
+        />
         <View style={styles.selectedInfo}>
           <Text style={[styles.selectedName, { color: colors.textPrimary }]} numberOfLines={1}>
             {selectedIdentity.name || t('unknown')}
@@ -205,13 +207,14 @@ export default function RecipientField({
                     }
                   ]}
                 >
-                  {identity.avatarURL ? (
-                    <Image source={{ uri: identity.avatarURL }} style={styles.searchAvatar} />
-                  ) : (
-                    <View style={[styles.searchAvatarPlaceholder, { backgroundColor: colors.accent }]}>
-                      <Ionicons name="person" size={18} color={colors.background} />
-                    </View>
-                  )}
+                  <View style={styles.searchAvatar}>
+                    <ContactSigil
+                      identityKey={identity.identityKey}
+                      avatarUrl={identity.avatarURL || undefined}
+                      size={32}
+                      radius={16}
+                    />
+                  </View>
                   <View style={styles.searchResultInfo}>
                     <Text style={[styles.searchResultName, { color: colors.textPrimary }]} numberOfLines={1}>
                       {identity.name || t('unknown')}
@@ -242,18 +245,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.md,
     borderRadius: radii.md
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18
-  },
-  avatarPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center'
   },
   selectedInfo: {
     flex: 1,
@@ -315,17 +306,6 @@ const styles = StyleSheet.create({
     padding: spacing.md
   },
   searchAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: spacing.md
-  },
-  searchAvatarPlaceholder: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginRight: spacing.md
   },
   searchResultInfo: {

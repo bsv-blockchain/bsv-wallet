@@ -1,19 +1,22 @@
 /**
- * A contact: name (editable), their read-only registered handle, every
- * interaction with them across every asset (2026-09-17 ruling), and delete.
+ * A contact: their face, name and read-only registered handle up top; your
+ * own name for them (editable, pencil → confirm); their Identifier with a
+ * copy button; delete; and every interaction with them across every asset
+ * (2026-09-17 ruling), drawn with the same rows Home uses.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { I18nManager, StyleSheet, Text, View } from 'react-native'
+import { I18nManager, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import { useTheme, spacing, typography, useWallet } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from '../components/ui/AlertCard'
+import { GroupedSection } from '../components/ui/GroupedList'
+import { ListRow } from '../components/ui/ListRow'
 import { PencilEditField } from '../components/ui/PencilEditField'
-import AmountDisplay from '../components/wallet/AmountDisplay'
-import { formatTokenAmountWithUnit } from '../tokenFormat'
-import { useMandala } from '../hooks/useMandala'
 import PressableScale from '../components/ui/PressableScale'
 import ContactSigil from '../components/wallet/ContactSigil'
+import ContactActivityList from '../components/wallet/ContactActivityList'
+import IdentifierRow from '../components/wallet/IdentifierRow'
 import { useContactsStore } from '../hooks/useContactsStore'
 import { getContactActivity, type ContactActivityItem } from '../../core/contacts/contactActivity'
 import { makeIdentityClient, resolveIdentity } from '../resolveIdentity'
@@ -41,66 +44,6 @@ function loadExpoRouter(): ExpoRouterModule {
 
 function firstParam(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v
-}
-
-function ActivityItemRow({ item, isLast }: { item: ContactActivityItem; isLast: boolean }) {
-  const { colors } = useTheme()
-  const { t } = useTranslation()
-  const Ionicons = loadIonicons()
-  const mandala = useMandala()
-
-  if (item.kind === 'bsv') {
-    const incoming = item.satoshis >= 0
-    return (
-      <View
-        style={[
-          styles.activityRow,
-          !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
-        ]}
-      >
-        <Ionicons
-          name={incoming ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'}
-          size={20}
-          color={incoming ? colors.successStrong : colors.textSecondary}
-        />
-        <Text style={[styles.activityDesc, { color: colors.textPrimary }]} numberOfLines={1}>
-          {item.description || t('transactions')}
-        </Text>
-        <Text style={[styles.activityAmount, { color: incoming ? colors.successAmount : colors.textPrimary }]}>
-          <AmountDisplay>{item.satoshis}</AmountDisplay>
-        </Text>
-      </View>
-    )
-  }
-
-  const holding = (mandala.balances ?? []).find(b => b.asset.assetId === item.assetId)
-  const amountText =
-    item.amountBaseUnits !== undefined && holding
-      ? formatTokenAmountWithUnit(item.amountBaseUnits, holding.asset)
-      : undefined
-  const incoming = item.role === 'received'
-  return (
-    <View
-      style={[
-        styles.activityRow,
-        !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
-      ]}
-    >
-      <Ionicons
-        name={incoming ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'}
-        size={20}
-        color={incoming ? colors.successStrong : colors.textSecondary}
-      />
-      <Text style={[styles.activityDesc, { color: colors.textPrimary }]} numberOfLines={1}>
-        {t(incoming ? 'token_row_received' : 'token_row_sent', {
-          ticker: holding?.asset.ticker ?? item.assetId.slice(0, 8)
-        })}
-      </Text>
-      <Text style={[styles.activityAmount, { color: incoming ? colors.successAmount : colors.textPrimary }]}>
-        {amountText ?? t('token_row_amount_pending')}
-      </Text>
-    </View>
-  )
 }
 
 export function ContactScreen() {
@@ -186,14 +129,38 @@ export function ContactScreen() {
             color={colors.textSecondary}
           />
         </PressableScale>
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+          {contact.name}
+        </Text>
         <View style={styles.headerBtn} />
       </View>
 
-      <View style={styles.hero}>
-        <ContactSigil identityKey={identityKey} avatarUrl={contact.cachedAvatarUrl} size={72} radius={24} />
-        <View style={styles.heroName}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.hero}>
+          <ContactSigil identityKey={identityKey} avatarUrl={contact.cachedAvatarUrl} size={72} radius={24} />
+          <Text style={[styles.heroName, { color: colors.textPrimary }]} numberOfLines={1}>
+            {contact.name}
+          </Text>
+          {!!contact.cachedHandle && (
+            <>
+              <Text style={[styles.handle, { color: colors.textSecondary }]}>@{contact.cachedHandle}</Text>
+              <View style={styles.captionRow}>
+                <Ionicons name="shield-checkmark-outline" size={12} color={colors.textTertiary} />
+                <Text style={[styles.handleCaption, { color: colors.textTertiary }]}>
+                  {t('contact_handle_caption')}
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
+
+        <GroupedSection header={t('contact_name_section')} footer={t('contact_name_hint')}>
           <PencilEditField
             value={contact.name}
+            placeholder={t('contact_new_title')}
             onSave={async next => {
               if (walletUserId === null) return
               await store?.renameContact(walletUserId, identityKey, next)
@@ -201,31 +168,28 @@ export function ContactScreen() {
             }}
             editAccessibilityLabel={t('contact_edit_name')}
             saveAccessibilityLabel={t('contact_save_name')}
-            textStyle={[typography.title2, { fontWeight: '700' } as const]}
           />
-        </View>
-        {!!contact.cachedHandle && (
-          <>
-            <Text style={[styles.handle, { color: colors.textSecondary }]}>@{contact.cachedHandle}</Text>
-            <Text style={[styles.handleCaption, { color: colors.textTertiary }]}>{t('contact_handle_caption')}</Text>
-          </>
-        )}
-      </View>
+        </GroupedSection>
 
-      <Text style={[styles.sectionTitle, { color: colors.textTertiary }]}>{t('contact_activity').toUpperCase()}</Text>
-      {activity.length === 0 ? (
-        <Text style={[styles.activityEmpty, { color: colors.textSecondary }]}>{t('contact_activity_empty')}</Text>
-      ) : (
-        <View style={styles.activityList}>
-          {activity.map((item, idx) => (
-            <ActivityItemRow key={`${item.kind}:${item.txid}`} item={item} isLast={idx === activity.length - 1} />
-          ))}
-        </View>
-      )}
+        <GroupedSection header={t('contact_identifier')}>
+          <IdentifierRow identityKey={identityKey} />
+        </GroupedSection>
 
-      <PressableScale onPress={onDelete} haptic="tap" style={styles.deleteRow}>
-        <Text style={[styles.deleteText, { color: colors.error }]}>{t('contact_delete')}</Text>
-      </PressableScale>
+        <GroupedSection>
+          <ListRow
+            label={t('contact_delete')}
+            icon="trash-outline"
+            iconColor={colors.error}
+            destructive
+            showChevron={false}
+            onPress={onDelete}
+            isLast
+          />
+        </GroupedSection>
+
+        <Text style={[styles.sectionTitle, { color: colors.textTertiary }]}>{t('contact_activity').toUpperCase()}</Text>
+        <ContactActivityList items={activity} identityKey={identityKey} />
+      </ScrollView>
     </View>
   )
 }
@@ -243,22 +207,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth
   },
   headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  hero: { alignItems: 'center', paddingVertical: spacing.xl, gap: spacing.xs },
-  heroName: { minWidth: 160, marginTop: spacing.md },
+  headerTitle: { ...typography.headline, fontWeight: '600', flex: 1, textAlign: 'center' },
+  content: { paddingTop: spacing.lg },
+  hero: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl
+  },
+  heroName: { ...typography.title2, fontWeight: '700', marginTop: spacing.xs },
   handle: { ...typography.body, fontWeight: '500' },
+  captionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   handleCaption: { ...typography.caption1 },
+  // Tracked small caps, matching GroupedSection's own header.
   sectionTitle: {
     fontSize: 10.5,
     fontWeight: '700',
     letterSpacing: 1.3,
     paddingHorizontal: spacing.xl,
     paddingBottom: spacing.sm
-  },
-  activityEmpty: { ...typography.footnote, paddingHorizontal: spacing.xl },
-  activityList: { paddingHorizontal: spacing.xl },
-  activityRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm + 2 },
-  activityDesc: { ...typography.subhead, flex: 1 },
-  activityAmount: { ...typography.subhead, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  deleteRow: { alignItems: 'center', paddingVertical: spacing.xl, marginTop: 'auto' },
-  deleteText: { ...typography.body, fontWeight: '600' }
+  }
 })

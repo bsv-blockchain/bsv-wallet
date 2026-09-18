@@ -16,7 +16,7 @@
  * shown only for addresses, where it is load-bearing — a user who pastes an
  * address expecting messaging-style delivery has effectively posted cash.
  */
-import React, { memo, useCallback, useEffect, useMemo, useState, useRef } from 'react'
+import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useState, useRef } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import type { DisplayableIdentity } from '@bsv/sdk'
@@ -50,6 +50,7 @@ import {
   typography,
   radii,
   hitTargets,
+  formatSatoshisAsBsvDecimal,
   useWallet,
   useWalletManagers,
   useWalletStatus,
@@ -210,6 +211,16 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
   )
 }
 
+/**
+ * What the host screen can ask of the form: walk back one step. Returns false
+ * when already on the first step, so the host knows to leave the screen
+ * instead — the header's one back chevron serves both (2026-09-18 design: no
+ * second back control inside the form).
+ */
+export interface UniversalSendHandle {
+  back(): boolean
+}
+
 export interface UniversalSendProps {
   /** A recipient known before the form opened: a peerpay deep link or `?identityKey=`. */
   initialTarget?: Extract<RecipientTarget, { kind: 'handle' }>
@@ -238,6 +249,8 @@ export interface UniversalSendProps {
   onNearbySession: (session: Session) => void
   /** Where the post-payment overlay sends the user. Defaults to `/`. */
   dismissTo?: DismissTarget
+  /** Which of the three steps is on screen — the host names its header by it. */
+  onStepChange?: (step: PayStep) => void
 }
 
 /**
@@ -257,17 +270,21 @@ function seedFigure(sats?: number, token?: { assetId: string; baseUnits: number 
   return { text: '', unit: null }
 }
 
-function UniversalSend({
-  initialTarget,
-  initialSats,
-  initialTokenAmount,
-  initialNotice,
-  openScannerOnMount = false,
-  onNearbySession,
-  selectedAssetId,
-  onSelectAsset,
-  dismissTo = '/'
-}: UniversalSendProps) {
+function UniversalSendInner(
+  {
+    initialTarget,
+    initialSats,
+    initialTokenAmount,
+    initialNotice,
+    openScannerOnMount = false,
+    onNearbySession,
+    selectedAssetId,
+    onSelectAsset,
+    dismissTo = '/',
+    onStepChange
+  }: UniversalSendProps,
+  ref: React.ForwardedRef<UniversalSendHandle>
+) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const StatusBar = loadStatusBar()
@@ -1040,17 +1057,55 @@ function UniversalSend({
                     : null
     : null
 
+  // The button names the exact figure and asset being sent, on every rail —
+  // it is the confirmation this flow has.
   const ctaLabel =
     asset && amountOk
       ? t('pay_asset_cta', {
           amount: formatTokenAmount(baseUnits, asset.decimals) ?? '',
           ticker: asset.ticker
         })
-      : undefined
+      : !asset && amountOk
+        ? t('pay_send_amount', { amount: `${formatSatoshisAsBsvDecimal(Math.round(Number(sendAmount)) || 0)} BSV` })
+        : undefined
 
   const backStep = useCallback(() => {
     setStep(prev => (prev === 'review' ? 'amount' : 'who'))
   }, [])
+  useImperativeHandle(
+    ref,
+    () => ({
+      back: () => {
+        if (step === 'who') return false
+        backStep()
+        return true
+      }
+    }),
+    [step, backStep]
+  )
+  useEffect(() => {
+    onStepChange?.(step)
+  }, [step, onStepChange])
+
+  // ── the review card's facts ──────────────────────────────────────────
+  // Once money is moving, the figure is ALWAYS the asset that actually moves
+  // (BSV or the token), never the display currency (2026-09-17 ruling):
+  // "12.00 USD" on a BSV send reads as a stablecoin.
+  const sendSats = Math.round(Number(sendAmount)) || 0
+  const reviewAmount = asset
+    ? { value: formatTokenAmount(baseUnits, asset.decimals) ?? '', unit: asset.ticker }
+    : { value: formatSatoshisAsBsvDecimal(sendSats), unit: 'BSV' }
+  const reviewPrimary =
+    recipient.selectedIdentity?.name ||
+    (target?.kind === 'handle' ? abbreviateKey(target.identityKey) : target?.kind === 'address' ? target.address : '')
+  const reviewSecondary =
+    recipient.selectedIdentity?.name && target?.kind === 'handle' ? abbreviateKey(target.identityKey) : undefined
+  const reviewTrust = targetIsContact
+    ? { icon: 'person-circle-outline', color: colors.textSecondary, text: t('pay_trust_contact') }
+    : recipient.selectedIdentity
+      ? { icon: 'shield-checkmark-outline', color: colors.textSecondary, text: t('pay_trust_handle_attested') }
+      : { icon: 'alert-circle-outline', color: colors.warning, text: t('pay_trust_unverified') }
+  const showNoteRow = isHandle || (isAddress && !asset)
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -1064,22 +1119,9 @@ function UniversalSend({
         />
       )}
 
-      {step !== 'who' && (
-        <PressableScale
-          onPress={backStep}
-          haptic="tap"
-          style={styles.backRow}
-          accessibilityRole="button"
-          accessibilityLabel={t('back')}
-        >
-          <Ionicons name="chevron-back" size={16} color={colors.textSecondary} />
-          <Text style={[styles.backText, { color: colors.textSecondary }]}>{t('back')}</Text>
-        </PressableScale>
-      )}
-
       {step === 'who' && (
         <>
-          <PayField labelKey="recipient">
+          <PayField labelKey="pay_review_to">
             <RecipientField
               selectedIdentity={recipient.selectedIdentity}
               inputText={recipient.inputText}
@@ -1128,10 +1170,14 @@ function UniversalSend({
             <PressableScale
               onPress={() => loadExpoRouter().router.push('/contacts' as never)}
               haptic="tap"
-              style={[styles.outlineBtn, { borderColor: colors.accent }]}
+              style={[
+                styles.outlineBtn,
+                { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
+              ]}
               accessibilityRole="button"
             >
-              <Text style={[styles.outlineBtnText, { color: colors.accent }]}>{t('pay_step_contacts')}</Text>
+              <Ionicons name="people-outline" size={18} color={colors.textPrimary} />
+              <Text style={[styles.outlineBtnText, { color: colors.textPrimary }]}>{t('pay_step_contacts')}</Text>
             </PressableScale>
           )}
 
@@ -1175,65 +1221,74 @@ function UniversalSend({
           <View
             style={[styles.reviewCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}
           >
-            <View style={styles.reviewRow}>
+            <View style={[styles.reviewRow, { borderBottomColor: colors.separator }]}>
+              <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_to')}</Text>
               {target.kind === 'handle' ? (
                 <ContactSigil
                   identityKey={target.identityKey}
-                  avatarUrl={recipient.selectedIdentity?.avatarURL}
-                  size={40}
-                  radius={14}
+                  avatarUrl={recipient.selectedIdentity?.avatarURL || undefined}
+                  size={32}
+                  radius={16}
                 />
               ) : (
                 <View style={[styles.reviewAddressIcon, { backgroundColor: colors.fillTertiary }]}>
-                  <Ionicons name="wallet-outline" size={18} color={colors.textSecondary} />
+                  <Ionicons name="wallet-outline" size={16} color={colors.textSecondary} />
                 </View>
               )}
               <View style={styles.reviewToText}>
-                <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_to')}</Text>
-                <Text style={[styles.reviewName, { color: colors.textPrimary }]} numberOfLines={1}>
-                  {recipient.selectedIdentity?.name ||
-                    (target.kind === 'handle' ? abbreviateKey(target.identityKey) : target.address)}
-                </Text>
-                {target.kind === 'handle' && (
-                  <Text style={[styles.reviewTrust, { color: colors.textSecondary }]}>
-                    {targetIsContact
-                      ? t('pay_trust_contact')
-                      : recipient.selectedIdentity
-                        ? t('pay_trust_handle_attested')
-                        : t('pay_trust_unverified')}
+                <View style={styles.reviewNameRow}>
+                  <Text style={[styles.reviewName, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {reviewPrimary}
                   </Text>
+                  {!!reviewSecondary && (
+                    <Text
+                      style={[styles.reviewNameSub, { color: colors.textSecondary }]}
+                      numberOfLines={1}
+                      ellipsizeMode="middle"
+                    >
+                      {reviewSecondary}
+                    </Text>
+                  )}
+                </View>
+                {target.kind === 'handle' && (
+                  <View style={styles.reviewTrustRow}>
+                    <Ionicons name={reviewTrust.icon as never} size={12} color={reviewTrust.color} />
+                    <Text style={[styles.reviewTrust, { color: reviewTrust.color }]} numberOfLines={1}>
+                      {reviewTrust.text}
+                    </Text>
+                  </View>
                 )}
               </View>
             </View>
 
-            <View style={[styles.reviewDivider, { backgroundColor: colors.separator }]} />
-
-            <View style={styles.reviewRow}>
+            <View
+              style={[styles.reviewRow, !showNoteRow && styles.reviewRowLast, { borderBottomColor: colors.separator }]}
+            >
               <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_amount')}</Text>
-              <Text style={[styles.reviewAmount, { color: colors.textPrimary }]}>
-                {asset ? (
-                  `${formatTokenAmount(baseUnits, asset.decimals) ?? ''} ${asset.ticker}`
-                ) : (
-                  <AmountDisplay>{Number(sendAmount) || 0}</AmountDisplay>
-                )}
+              <Text
+                style={[styles.reviewAmount, { color: colors.textPrimary }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                accessibilityLabel={`${reviewAmount.value} ${reviewAmount.unit}`}
+              >
+                {reviewAmount.value}{' '}
+                <Text style={[styles.reviewUnit, { color: colors.textSecondary }]}>{reviewAmount.unit}</Text>
               </Text>
             </View>
 
-            {(isHandle || (isAddress && !asset)) && (
-              <>
-                <View style={[styles.reviewDivider, { backgroundColor: colors.separator }]} />
-                <View style={styles.reviewNoteRow}>
-                  <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_note')}</Text>
-                  <TextInput
-                    value={note}
-                    onChangeText={setNote}
-                    placeholder={t('pay_review_note_edit')}
-                    placeholderTextColor={colors.textQuaternary}
-                    maxLength={280}
-                    style={[styles.reviewNoteInput, { color: colors.textPrimary }]}
-                  />
-                </View>
-              </>
+            {showNoteRow && (
+              <View style={[styles.reviewRow, styles.reviewRowLast]}>
+                <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_note')}</Text>
+                <TextInput
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder={t('pay_review_note_edit')}
+                  placeholderTextColor={colors.textQuaternary}
+                  maxLength={280}
+                  style={[styles.reviewNoteInput, { color: colors.textPrimary }]}
+                />
+                <Ionicons name="pencil-outline" size={16} color={colors.textTertiary} />
+              </View>
             )}
           </View>
 
@@ -1341,40 +1396,53 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg
   },
 
-  // Step navigation
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: spacing.md, alignSelf: 'flex-start' },
-  backText: { ...typography.subhead },
+  // Step 1's quiet second door: Contacts, on the chrome surface.
   outlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    minHeight: 48,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radii.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center'
+    paddingVertical: spacing.md
   },
   outlineBtnText: { ...typography.subhead, fontWeight: '600' },
 
-  // Review card (step "review")
+  // Review card (step "review"): label-left rows, hairlines between them.
   reviewCard: {
     borderRadius: radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.lg,
     marginBottom: spacing.lg,
-    gap: spacing.md
+    overflow: 'hidden'
   },
-  reviewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  reviewAddressIcon: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  reviewToText: { flex: 1, minWidth: 0, gap: 2 },
+  reviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 56,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
+  reviewRowLast: { borderBottomWidth: 0 },
   reviewLabel: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    letterSpacing: 1.3,
+    width: 64,
+    ...typography.caption2,
+    fontWeight: '600',
+    letterSpacing: 0.8,
     textTransform: 'uppercase'
   },
-  reviewName: { ...typography.body, fontWeight: '600' },
-  reviewTrust: { ...typography.footnote },
-  reviewDivider: { height: StyleSheet.hairlineWidth },
-  reviewAmount: { ...typography.title3, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  reviewNoteRow: { gap: spacing.xs },
-  reviewNoteInput: { ...typography.body, paddingVertical: spacing.xs },
+  reviewAddressIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  reviewToText: { flex: 1, minWidth: 0, gap: 2 },
+  reviewNameRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, minWidth: 0 },
+  reviewName: { ...typography.body, fontWeight: '600', flexShrink: 1 },
+  reviewNameSub: { ...typography.subhead, flexShrink: 1 },
+  reviewTrustRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  reviewTrust: { ...typography.caption1 },
+  reviewAmount: { ...typography.title2, fontWeight: '700', fontVariant: ['tabular-nums'], flex: 1 },
+  reviewUnit: { ...typography.headline, fontWeight: '600' },
+  reviewNoteInput: { ...typography.body, flex: 1, minWidth: 0, paddingVertical: 0 },
 
   // Consequence line + call to action
   consequence: {
@@ -1474,6 +1542,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md
   }
 })
+
+const UniversalSend = forwardRef<UniversalSendHandle, UniversalSendProps>(UniversalSendInner)
 
 // Wallet status updates in the parent do not change this form's inputs.
 export default memo(UniversalSend)

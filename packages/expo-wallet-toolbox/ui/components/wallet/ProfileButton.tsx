@@ -1,11 +1,14 @@
 /**
  * 34pt chrome-disc profile button, top-left of Home — passed through
  * `WalletHomeScreen`'s existing (previously unused) `topLeft` prop from the
- * host app's `app/index.tsx`, so this needed no package API change.
+ * host app's `app/index.tsx`, so this needed no package API change. Same disc
+ * as the settings button on the right (surfaceRaised + hairline), so the two
+ * bookend the header as a matched pair.
  */
 import React from 'react'
-import { StyleSheet, View } from 'react-native'
+import { StyleSheet } from 'react-native'
 import { useTheme } from '@bsv/expo-wallet-toolbox'
+import { useTranslation } from 'react-i18next'
 import PressableScale from '../ui/PressableScale'
 
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
@@ -30,24 +33,30 @@ function loadExpoRouter(): ExpoRouterModule {
 
 export default function ProfileButton() {
   const { colors } = useTheme()
+  const { t } = useTranslation()
   const Ionicons = loadIonicons()
   const { router } = loadExpoRouter()
   return (
     <PressableScale
       onPress={() => router.push('/profile' as never)}
       haptic="tap"
-      style={[styles.disc, { backgroundColor: colors.fillTertiary }]}
+      hitSlop={5}
+      style={[styles.disc, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
       accessibilityRole="button"
-      accessibilityLabel="Profile"
+      accessibilityLabel={t('profile')}
     >
-      <View style={styles.iconWrap}>
-        <Ionicons name="person" size={17} color={colors.textSecondary} />
-      </View>
+      <Ionicons name="person-outline" size={17} color={colors.textSecondary} />
     </PressableScale>
   )
 }
 
 const styles = StyleSheet.create({
-  disc: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  iconWrap: { alignItems: 'center', justifyContent: 'center' }
+  disc: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center'
+  }
 })
