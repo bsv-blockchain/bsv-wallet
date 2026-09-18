@@ -44,7 +44,9 @@ describe('checkHandleAvailability', () => {
   })
 
   it('fails open to "failed" on an overlay error, never throwing', async () => {
-    const client = { resolveByAttributes: jest.fn().mockRejectedValue(new Error('offline')) } as unknown as IdentityClient
+    const client = {
+      resolveByAttributes: jest.fn().mockRejectedValue(new Error('offline'))
+    } as unknown as IdentityClient
     expect(await checkHandleAvailability(client, 'dee')).toBe('failed')
   })
 })

@@ -77,7 +77,11 @@ export function ContactsScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('go_back')}
         >
-          <Ionicons name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color={colors.textSecondary} />
+          <Ionicons
+            name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'}
+            size={24}
+            color={colors.textSecondary}
+          />
         </PressableScale>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {t('contacts')}
@@ -122,7 +126,10 @@ export function ContactsScreen() {
               onPress={() => router.push({ pathname: '/contact', params: { identityKey: row.identityKey } } as never)}
               style={[
                 styles.row,
-                idx < rows.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+                idx < rows.length - 1 && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: colors.separator
+                }
               ]}
             >
               <ContactSigil identityKey={row.identityKey} avatarUrl={row.cachedAvatarUrl} />

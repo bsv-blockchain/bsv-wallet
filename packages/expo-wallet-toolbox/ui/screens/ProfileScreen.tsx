@@ -186,7 +186,11 @@ export function ProfileScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('go_back')}
         >
-          <Ionicons name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color={colors.textSecondary} />
+          <Ionicons
+            name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'}
+            size={24}
+            color={colors.textSecondary}
+          />
         </PressableScale>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {t('profile')}

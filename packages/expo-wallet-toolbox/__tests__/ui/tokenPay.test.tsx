@@ -24,8 +24,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }))
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, unknown>) =>
-      values ? `${key}:${Object.values(values).join('|')}` : key,
+    t: (key: string, values?: Record<string, unknown>) => (values ? `${key}:${Object.values(values).join('|')}` : key),
     i18n: { language: 'en' }
   }),
   initReactI18next: { type: '3rdParty', init: () => {} }
@@ -146,7 +145,7 @@ describe('tokenSendCopy', () => {
     expect(tokenSendCopy({ kind: 'unavailable', message: '' }, CTX)?.values.reason).toBe(CTX.reasonFallback)
   })
 
-  it('treats the lib\'s explicit overlay rejection as a refusal, and anything local as a send failure', () => {
+  it("treats the lib's explicit overlay rejection as a refusal, and anything local as a send failure", () => {
     expect(tokenThrowCopy(new Error('overlay rejected the transaction'), CTX).key).toBe('token_err_refused')
     expect(tokenThrowCopy(new Error('fetch failed'), CTX).key).toBe('token_err_send_failed')
     expect(tokenThrowCopy(new Error('insufficient token balance: have 1, need 2'), CTX).key).toBe(
@@ -167,7 +166,12 @@ describe('AmountInput in asset mode', () => {
   const draw = (onChangeText = jest.fn(), value = '') => ({
     onChangeText,
     screen: wrap(
-      <AmountInput value={value} onChangeText={onChangeText} asset={{ ticker: 'USDX', decimals: 2 }} maxValue="112000" />
+      <AmountInput
+        value={value}
+        onChangeText={onChangeText}
+        asset={{ ticker: 'USDX', decimals: 2 }}
+        maxValue="112000"
+      />
     )
   })
 
@@ -206,7 +210,12 @@ describe('AssetPicker', () => {
   it('shows BSV selected by default and expands to the held assets', () => {
     const onSelect = jest.fn()
     const s = wrap(
-      <AssetPicker balances={[balanceOf(), balanceOf(EURX, 5000)]} selected={null} onSelect={onSelect} bsvBalanceText="50,000" />
+      <AssetPicker
+        balances={[balanceOf(), balanceOf(EURX, 5000)]}
+        selected={null}
+        onSelect={onSelect}
+        bsvBalanceText="50,000"
+      />
     )
     expect(s.getByText('BSV')).toBeTruthy()
     // Pressed through the row's own content: the composed accessibility label
@@ -222,7 +231,9 @@ describe('AssetPicker', () => {
     fireEvent.press(s.getAllByText('Acme Dollar')[0])
     // Two elements carry that label once expanded — the collapsed trigger
     // (which announces `expanded`) and the option (which announces `selected`).
-    const option = s.getAllByLabelText('Acme Dollar, 1,240.00 USDX').find(e => 'selected' in (e.props.accessibilityState ?? {}))
+    const option = s
+      .getAllByLabelText('Acme Dollar, 1,240.00 USDX')
+      .find(e => 'selected' in (e.props.accessibilityState ?? {}))
     expect(option?.props.accessibilityState.selected).toBe(true)
     expect(s.getByLabelText('BSV').props.accessibilityState.selected).toBe(false)
   })
@@ -263,7 +274,7 @@ describe('RecipientField with an asset selected', () => {
     expect(s.getByText('valid_bsv_address')).toBeTruthy()
   })
 
-  it('renders a caller-owned status line for the issuer\'s own refusal', () => {
+  it("renders a caller-owned status line for the issuer's own refusal", () => {
     const s = render(
       <ThemeProvider>
         <RecipientFieldHarness
@@ -335,7 +346,7 @@ describe('AdmissionNotice', () => {
     expect(onBsvInstead).toHaveBeenCalled()
   })
 
-  it('prefers the runtime\'s own plain reason when it has one', () => {
+  it("prefers the runtime's own plain reason when it has one", () => {
     const s = wrap(
       <AdmissionNotice ticker="USDX" reason="Acme Bank has revoked your registration." onBsvInstead={jest.fn()} />
     )
@@ -361,13 +372,13 @@ describe('UniversalSend with stablecoins', () => {
       </ThemeProvider>
     )
 
-  it('is today\'s form when no runtime exists at all', async () => {
+  it("is today's form when no runtime exists at all", async () => {
     const s = drawSend(null)
     await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
     expect(s.queryByText('pay_asset_label')).toBeNull()
   })
 
-  it('is today\'s form when a runtime exists but nothing is held', async () => {
+  it("is today's form when a runtime exists but nothing is held", async () => {
     const s = drawSend(makeFakeMandala({ balances: [] }))
     await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
     expect(s.queryByText('pay_asset_label')).toBeNull()
@@ -673,7 +684,7 @@ describe('UniversalSend with stablecoins', () => {
     expect(s.queryByText('pay_sent_not_notified')).toBeNull()
   })
 
-  it('refuses an address inline, in the runtime\'s own words, and never sends', async () => {
+  it("refuses an address inline, in the runtime's own words, and never sends", async () => {
     // The inline D4 warning (step "who") is the fixed sentence; the runtime's
     // OWN reason is the review card's consequence note, same as the fallback
     // case above — reached the same way.
@@ -692,7 +703,7 @@ describe('UniversalSend with stablecoins', () => {
     expect(runtime.sendToHandle).not.toHaveBeenCalled()
   })
 
-  it('falls back to the design\'s own sentence when the runtime offers no reason', async () => {
+  it("falls back to the design's own sentence when the runtime offers no reason", async () => {
     // The inline D4 warning on the recipient row (checked in the previous
     // test) is the first line of defense, on step "who". The fuller
     // consequence note is the review card's own explanation — reached by
@@ -736,9 +747,7 @@ describe('UniversalSend with stablecoins', () => {
     fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
-    await waitFor(() =>
-      expect(s.getByText('token_err_send_failed:USDX|Acme Bank|MessageBox unreachable')).toBeTruthy()
-    )
+    await waitFor(() => expect(s.getByText('token_err_send_failed:USDX|Acme Bank|MessageBox unreachable')).toBeTruthy())
     expect(s.queryByLabelText('token_err_check_again')).toBeNull()
   })
 

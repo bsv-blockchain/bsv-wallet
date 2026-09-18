@@ -1,4 +1,8 @@
-import { publishDisplayName, DISPLAY_NAME_CERT_TYPE, type ProfileCertWallet } from '../../core/identity/profileCertificate'
+import {
+  publishDisplayName,
+  DISPLAY_NAME_CERT_TYPE,
+  type ProfileCertWallet
+} from '../../core/identity/profileCertificate'
 import type { IdentityClient } from '@bsv/sdk'
 
 const OWN_KEY = '03' + 'cc'.repeat(32)

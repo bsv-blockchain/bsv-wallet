@@ -59,9 +59,7 @@ export interface ContactSettlementsDb {
   getAllAsync(sql: string, params: (string | number | null)[]): Promise<unknown[]>
 }
 
-export type ContactActivityItem =
-  | ({ kind: 'bsv' } & ContactBsvAction)
-  | ({ kind: 'token' } & ContactSettlementRow)
+export type ContactActivityItem = ({ kind: 'bsv' } & ContactBsvAction) | ({ kind: 'token' } & ContactSettlementRow)
 
 function timeOf(item: ContactActivityItem): number {
   const raw = item.kind === 'bsv' ? item.created_at : item.createdAt
@@ -125,7 +123,11 @@ export async function getContactActivity(args: {
       const recent = await wallet.listActions({ limit: RECENT_WINDOW, includeLabels: true }, adminOriginator)
       const seen = new Set<string>()
       for (const action of [...outbound.actions, ...recent.actions]) {
-        const cp = counterpartyOf({ labels: action.labels, senderIdentityKey: action.senderIdentityKey, txid: action.txid })
+        const cp = counterpartyOf({
+          labels: action.labels,
+          senderIdentityKey: action.senderIdentityKey,
+          txid: action.txid
+        })
         if (!cp || cp.kind !== 'identityKey' || cp.value !== identityKey) continue
         const key = action.txid ?? `${action.description ?? ''}:${action.created_at ?? ''}`
         if (seen.has(key)) continue

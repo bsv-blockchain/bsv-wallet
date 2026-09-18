@@ -1066,7 +1066,9 @@ function UniversalSend({
                   : recipientRegistryRefused
                     ? {
                         text: t(
-                          assetStatus?.accessMode === 'denylist' ? 'pay_asset_recipient_blocked' : 'pay_asset_recipient_unregistered',
+                          assetStatus?.accessMode === 'denylist'
+                            ? 'pay_asset_recipient_blocked'
+                            : 'pay_asset_recipient_unregistered',
                           { issuer, ticker: asset?.ticker }
                         ),
                         tone: 'warning'
@@ -1135,10 +1137,17 @@ function UniversalSend({
 
       {step === 'review' && target && (
         <>
-          <View style={[styles.reviewCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}>
+          <View
+            style={[styles.reviewCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}
+          >
             <View style={styles.reviewRow}>
               {target.kind === 'handle' ? (
-                <ContactSigil identityKey={target.identityKey} avatarUrl={recipient.selectedIdentity?.avatarURL} size={40} radius={14} />
+                <ContactSigil
+                  identityKey={target.identityKey}
+                  avatarUrl={recipient.selectedIdentity?.avatarURL}
+                  size={40}
+                  radius={14}
+                />
               ) : (
                 <View style={[styles.reviewAddressIcon, { backgroundColor: colors.fillTertiary }]}>
                   <Ionicons name="wallet-outline" size={18} color={colors.textSecondary} />

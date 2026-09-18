@@ -17,11 +17,7 @@ export default function StepBar({ step }: { step: PayStep }) {
   const n = STEPS.indexOf(step) + 1
   const total = STEPS.length
   return (
-    <View
-      style={styles.wrap}
-      accessibilityRole="progressbar"
-      accessibilityValue={{ min: 1, max: total, now: n }}
-    >
+    <View style={styles.wrap} accessibilityRole="progressbar" accessibilityValue={{ min: 1, max: total, now: n }}>
       <View style={[styles.track, { backgroundColor: colors.backgroundSecondary }]}>
         <View style={[styles.fill, { backgroundColor: colors.accent, width: `${(n / total) * 100}%` }]} />
       </View>

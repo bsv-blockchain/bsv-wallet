@@ -53,7 +53,10 @@ function ActivityItemRow({ item, isLast }: { item: ContactActivityItem; isLast: 
     const incoming = item.satoshis >= 0
     return (
       <View
-        style={[styles.activityRow, !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }]}
+        style={[
+          styles.activityRow,
+          !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+        ]}
       >
         <Ionicons
           name={incoming ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'}
@@ -78,7 +81,10 @@ function ActivityItemRow({ item, isLast }: { item: ContactActivityItem; isLast: 
   const incoming = item.role === 'received'
   return (
     <View
-      style={[styles.activityRow, !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }]}
+      style={[
+        styles.activityRow,
+        !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+      ]}
     >
       <Ionicons
         name={incoming ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'}
@@ -86,7 +92,9 @@ function ActivityItemRow({ item, isLast }: { item: ContactActivityItem; isLast: 
         color={incoming ? colors.successStrong : colors.textSecondary}
       />
       <Text style={[styles.activityDesc, { color: colors.textPrimary }]} numberOfLines={1}>
-        {t(incoming ? 'token_row_received' : 'token_row_sent', { ticker: holding?.asset.ticker ?? item.assetId.slice(0, 8) })}
+        {t(incoming ? 'token_row_received' : 'token_row_sent', {
+          ticker: holding?.asset.ticker ?? item.assetId.slice(0, 8)
+        })}
       </Text>
       <Text style={[styles.activityAmount, { color: incoming ? colors.successAmount : colors.textPrimary }]}>
         {amountText ?? t('token_row_amount_pending')}
@@ -172,7 +180,11 @@ export function ContactScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('go_back')}
         >
-          <Ionicons name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color={colors.textSecondary} />
+          <Ionicons
+            name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'}
+            size={24}
+            color={colors.textSecondary}
+          />
         </PressableScale>
         <View style={styles.headerBtn} />
       </View>

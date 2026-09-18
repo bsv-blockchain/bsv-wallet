@@ -132,9 +132,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           setDisplayText(String(Math.round(amount)))
         } else {
           setDisplayText(
-            amount % 1 === 0
-              ? amount.toFixed(0)
-              : amount.toFixed(fractionDigits).replace(/0+$/, '').replace(/\.$/, '')
+            amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(fractionDigits).replace(/0+$/, '').replace(/\.$/, '')
           )
         }
       }
@@ -218,8 +216,12 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const secondaryText = asset
     ? null
     : isFiat
-      ? (satsForConversion > 0 ? formatAmount(satsForConversion, 'BSV', satoshisPerUSD) : null)
-      : (satsForConversion > 0 && satoshisPerUSD > 0 ? formatAmount(satsForConversion, 'USD', satoshisPerUSD) : null)
+      ? satsForConversion > 0
+        ? formatAmount(satsForConversion, 'BSV', satoshisPerUSD)
+        : null
+      : satsForConversion > 0 && satoshisPerUSD > 0
+        ? formatAmount(satsForConversion, 'USD', satoshisPerUSD)
+        : null
 
   const entering = reducedMotion ? undefined : FadeInUp.duration(durations.instant)
   const exiting = reducedMotion ? undefined : FadeOutDown.duration(durations.instant)

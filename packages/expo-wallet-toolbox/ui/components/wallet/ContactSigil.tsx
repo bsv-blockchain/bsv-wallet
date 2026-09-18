@@ -22,7 +22,9 @@ export default function ContactSigil({
 }) {
   const { isDark } = useTheme()
   if (avatarUrl) {
-    return <Image source={{ uri: avatarUrl }} style={[styles.tile, { width: size, height: size, borderRadius: radius }]} />
+    return (
+      <Image source={{ uri: avatarUrl }} style={[styles.tile, { width: size, height: size, borderRadius: radius }]} />
+    )
   }
   const cp: Counterparty = { kind: 'identityKey', value: identityKey }
   const point = sigilPointOf(cp)
@@ -31,7 +33,13 @@ export default function ContactSigil({
     <View
       style={[styles.tile, { width: size, height: size, borderRadius: radius, backgroundColor: palette.background }]}
     >
-      <Sigil point={point} size={size} foreground={palette.foreground} background={palette.background} detail="default" />
+      <Sigil
+        point={point}
+        size={size}
+        foreground={palette.foreground}
+        background={palette.background}
+        detail="default"
+      />
     </View>
   )
 }

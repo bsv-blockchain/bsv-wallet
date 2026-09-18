@@ -194,38 +194,38 @@ export default function RecipientField({
                 <Text style={[styles.recentLabel, { color: colors.textTertiary }]}>{recentLabel}</Text>
               )}
               {searchResults.map((identity, idx) => (
-              <TouchableOpacity
-                key={identity.identityKey + idx}
-                onPress={() => onSelectIdentity(identity)}
-                style={[
-                  styles.searchResultRow,
-                  idx < searchResults.length - 1 && {
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderBottomColor: colors.separator
-                  }
-                ]}
-              >
-                {identity.avatarURL ? (
-                  <Image source={{ uri: identity.avatarURL }} style={styles.searchAvatar} />
-                ) : (
-                  <View style={[styles.searchAvatarPlaceholder, { backgroundColor: colors.accent }]}>
-                    <Ionicons name="person" size={18} color={colors.background} />
+                <TouchableOpacity
+                  key={identity.identityKey + idx}
+                  onPress={() => onSelectIdentity(identity)}
+                  style={[
+                    styles.searchResultRow,
+                    idx < searchResults.length - 1 && {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: colors.separator
+                    }
+                  ]}
+                >
+                  {identity.avatarURL ? (
+                    <Image source={{ uri: identity.avatarURL }} style={styles.searchAvatar} />
+                  ) : (
+                    <View style={[styles.searchAvatarPlaceholder, { backgroundColor: colors.accent }]}>
+                      <Ionicons name="person" size={18} color={colors.background} />
+                    </View>
+                  )}
+                  <View style={styles.searchResultInfo}>
+                    <Text style={[styles.searchResultName, { color: colors.textPrimary }]} numberOfLines={1}>
+                      {identity.name || t('unknown')}
+                    </Text>
+                    <Text style={[styles.searchResultKey, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {identity.abbreviatedKey || `${identity.identityKey.slice(0, 20)}...`}
+                    </Text>
                   </View>
-                )}
-                <View style={styles.searchResultInfo}>
-                  <Text style={[styles.searchResultName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {identity.name || t('unknown')}
-                  </Text>
-                  <Text style={[styles.searchResultKey, { color: colors.textSecondary }]} numberOfLines={1}>
-                    {identity.abbreviatedKey || `${identity.identityKey.slice(0, 20)}...`}
-                  </Text>
-                </View>
-                {identity.badgeLabel ? (
-                  <View style={[styles.badge, { backgroundColor: colors.fill }]}>
-                    <Text style={[styles.badgeText, { color: colors.accent }]}>{identity.badgeLabel}</Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
+                  {identity.badgeLabel ? (
+                    <View style={[styles.badge, { backgroundColor: colors.fill }]}>
+                      <Text style={[styles.badgeText, { color: colors.accent }]}>{identity.badgeLabel}</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
               ))}
             </>
           )}

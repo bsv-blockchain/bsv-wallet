@@ -143,8 +143,7 @@ const resources = {
         '{{issuer}} does not allow payments to this person. Nothing was sent and your balance is unchanged.',
       token_err_refused_frozen:
         'Some of the {{ticker}} you were sending has just been frozen. Nothing was sent; your balance has been updated.',
-      token_err_send_failed:
-        'Couldn\'t send this payment: {{reason}}. Nothing left your wallet.',
+      token_err_send_failed: "Couldn't send this payment: {{reason}}. Nothing left your wallet.",
       token_err_reason_unknown: 'an unknown problem',
       token_err_unreachable:
         "We couldn't reach {{issuer}} to confirm this transfer. Check your {{ticker}} balance before trying again.",
@@ -990,7 +989,8 @@ const resources = {
       contacts: 'Contacts',
       contacts_search_placeholder: 'Search by name or handle',
       contacts_empty_title: 'No contacts yet',
-      contacts_empty_body: "People you pay show up here once you save them. Scan someone's profile code with the button top right.",
+      contacts_empty_body:
+        "People you pay show up here once you save them. Scan someone's profile code with the button top right.",
       contacts_recent: 'Recent',
       contact_edit_name: 'Edit name',
       contact_save_name: 'Save name',
@@ -1003,7 +1003,7 @@ const resources = {
       contact_save: 'Save',
       contact_identifier: 'Identifier',
       contact_saved: 'Contact saved',
-      contact_scan_hint: "Scan a profile code to add someone",
+      contact_scan_hint: 'Scan a profile code to add someone',
 
       // Profile
       profile: 'Profile',
@@ -1074,8 +1074,7 @@ const resources = {
       token_err_refused_paused: '{{issuer}} 已暂停 {{ticker}}。没有发送任何款项，你的余额未变。',
       token_err_refused_recipient: '{{issuer}} 不允许向此人付款。没有发送任何款项，你的余额未变。',
       token_err_refused_frozen: '你要发送的部分 {{ticker}} 刚刚被冻结。没有发送任何款项，余额已更新。',
-      token_err_send_failed:
-        '无法发送此付款：{{reason}}。没有任何款项离开你的钱包。',
+      token_err_send_failed: '无法发送此付款：{{reason}}。没有任何款项离开你的钱包。',
       token_err_reason_unknown: '未知问题',
       token_err_unreachable: '我们无法联系 {{issuer}} 确认此次转账。再次尝试前请查看你的 {{ticker}} 余额。',
       token_err_check_again: '重新检查',
@@ -1802,8 +1801,7 @@ const resources = {
       local_pay_declined_already_paid: '该请求已经支付过了，本次未发送任何款项。',
       local_pay_declined_save: '收款方无法保存这笔付款。本次未发送任何款项 — 请重试。',
       local_pay_declined_decode: '收款方无法读取这笔付款。本次未发送任何款项 — 请重试。',
-      local_pay_declined_not_covered:
-        '收款方无法根据发行方的记录核验这笔付款。本次未发送任何款项。',
+      local_pay_declined_not_covered: '收款方无法根据发行方的记录核验这笔付款。本次未发送任何款项。',
       local_pay_broadcast_pending: '已发送。本设备暂时无法完成处理 — 收款方会完成。',
       local_pay_any_amount: '任意金额',
       local_pay_choose_amount: '选择金额',
@@ -1938,8 +1936,7 @@ const resources = {
         '{{issuer}} इस व्यक्ति को भुगतान की अनुमति नहीं देता। कुछ भी नहीं भेजा गया और आपका शेष अपरिवर्तित है।',
       token_err_refused_frozen:
         'आप जो {{ticker}} भेज रहे थे उसका कुछ हिस्सा अभी फ़्रीज़ हो गया। कुछ भी नहीं भेजा गया; आपका शेष अपडेट कर दिया गया है।',
-      token_err_send_failed:
-        'यह भुगतान नहीं भेजा जा सका: {{reason}}। आपके वॉलेट से कुछ भी नहीं गया।',
+      token_err_send_failed: 'यह भुगतान नहीं भेजा जा सका: {{reason}}। आपके वॉलेट से कुछ भी नहीं गया।',
       token_err_reason_unknown: 'एक अज्ञात समस्या',
       token_err_unreachable:
         'हम इस स्थानांतरण की पुष्टि के लिए {{issuer}} तक नहीं पहुँच सके। दोबारा कोशिश करने से पहले अपना {{ticker}} शेष जाँचें।',
@@ -2762,7 +2759,8 @@ const resources = {
       contacts: 'संपर्क',
       contacts_search_placeholder: 'नाम या हैंडल से खोजें',
       contacts_empty_title: 'अभी तक कोई संपर्क नहीं',
-      contacts_empty_body: 'जिन लोगों को आप भुगतान करते हैं, वे सहेजे जाने के बाद यहाँ दिखाई देंगे। ऊपर दाईं ओर के बटन से किसी की प्रोफ़ाइल कोड स्कैन करें।',
+      contacts_empty_body:
+        'जिन लोगों को आप भुगतान करते हैं, वे सहेजे जाने के बाद यहाँ दिखाई देंगे। ऊपर दाईं ओर के बटन से किसी की प्रोफ़ाइल कोड स्कैन करें।',
       contacts_recent: 'हाल के',
       contact_edit_name: 'नाम संपादित करें',
       contact_save_name: 'नाम सहेजें',
@@ -2850,8 +2848,7 @@ const resources = {
       token_err_refused_recipient: '{{issuer}} no permite pagos a esta persona. No se envió nada y tu saldo no cambió.',
       token_err_refused_frozen:
         'Parte del {{ticker}} que ibas a enviar acaba de ser congelado. No se envió nada; tu saldo se ha actualizado.',
-      token_err_send_failed:
-        'No se pudo enviar este pago: {{reason}}. Nada salió de tu billetera.',
+      token_err_send_failed: 'No se pudo enviar este pago: {{reason}}. Nada salió de tu billetera.',
       token_err_reason_unknown: 'un problema desconocido',
       token_err_unreachable:
         'No pudimos contactar con {{issuer}} para confirmar esta transferencia. Revisa tu saldo de {{ticker}} antes de reintentar.',
@@ -3778,8 +3775,7 @@ const resources = {
         "{{issuer}} n'autorise pas les paiements à cette personne. Rien n'a été envoyé et votre solde est inchangé.",
       token_err_refused_frozen:
         "Une partie des {{ticker}} que vous envoyiez vient d'être gelée. Rien n'a été envoyé ; votre solde a été mis à jour.",
-      token_err_send_failed:
-        'Impossible d\'envoyer ce paiement : {{reason}}. Rien n\'a quitté votre portefeuille.',
+      token_err_send_failed: "Impossible d'envoyer ce paiement : {{reason}}. Rien n'a quitté votre portefeuille.",
       token_err_reason_unknown: 'un problème inconnu',
       token_err_unreachable:
         'Impossible de joindre {{issuer}} pour confirmer ce transfert. Vérifiez votre solde de {{ticker}} avant de réessayer.',
@@ -4707,8 +4703,7 @@ const resources = {
       token_err_refused_paused: 'أوقفت {{issuer}} رمز {{ticker}}. لم يُرسل شيء ورصيدك لم يتغير.',
       token_err_refused_recipient: 'لا تسمح {{issuer}} بالدفع لهذا الشخص. لم يُرسل شيء ورصيدك لم يتغير.',
       token_err_refused_frozen: 'جرى للتو تجميد جزء من {{ticker}} الذي كنت ترسله. لم يُرسل شيء؛ وتم تحديث رصيدك.',
-      token_err_send_failed:
-        'تعذّر إرسال هذه الدفعة: {{reason}}. لم يغادر محفظتك أي شيء.',
+      token_err_send_failed: 'تعذّر إرسال هذه الدفعة: {{reason}}. لم يغادر محفظتك أي شيء.',
       token_err_reason_unknown: 'مشكلة غير معروفة',
       token_err_unreachable:
         'تعذّر الوصول إلى {{issuer}} لتأكيد هذا التحويل. تحقق من رصيدك من {{ticker}} قبل المحاولة مجددًا.',
@@ -5498,7 +5493,8 @@ const resources = {
       contacts: 'جهات الاتصال',
       contacts_search_placeholder: 'ابحث بالاسم أو المعرّف',
       contacts_empty_title: 'لا توجد جهات اتصال بعد',
-      contacts_empty_body: 'يظهر هنا الأشخاص الذين تدفع لهم بعد حفظهم. امسح رمز الملف الشخصي لشخص ما باستخدام الزر أعلى اليمين.',
+      contacts_empty_body:
+        'يظهر هنا الأشخاص الذين تدفع لهم بعد حفظهم. امسح رمز الملف الشخصي لشخص ما باستخدام الزر أعلى اليمين.',
       contacts_recent: 'الأخيرة',
       contact_edit_name: 'تعديل الاسم',
       contact_save_name: 'حفظ الاسم',
@@ -5586,8 +5582,7 @@ const resources = {
         '{{issuer}} não permite pagamentos a esta pessoa. Nada foi enviado e o seu saldo não mudou.',
       token_err_refused_frozen:
         'Parte do {{ticker}} que estava a enviar acabou de ser congelada. Nada foi enviado; o seu saldo foi atualizado.',
-      token_err_send_failed:
-        'Não foi possível enviar este pagamento: {{reason}}. Nada saiu da sua carteira.',
+      token_err_send_failed: 'Não foi possível enviar este pagamento: {{reason}}. Nada saiu da sua carteira.',
       token_err_reason_unknown: 'um problema desconhecido',
       token_err_unreachable:
         'Não conseguimos contactar {{issuer}} para confirmar esta transferência. Verifique o seu saldo de {{ticker}} antes de tentar de novo.',
@@ -6511,8 +6506,7 @@ const resources = {
         '{{issuer}} এই ব্যক্তিকে অর্থ পাঠানোর অনুমতি দেয় না। কিছুই পাঠানো হয়নি এবং আপনার ব্যালেন্স অপরিবর্তিত।',
       token_err_refused_frozen:
         'আপনি যে {{ticker}} পাঠাচ্ছিলেন তার কিছু অংশ এইমাত্র ফ্রিজ হয়েছে। কিছুই পাঠানো হয়নি; ব্যালেন্স হালনাগাদ করা হয়েছে।',
-      token_err_send_failed:
-        'এই পেমেন্ট পাঠানো যায়নি: {{reason}}। আপনার ওয়ালেট থেকে কিছুই যায়নি।',
+      token_err_send_failed: 'এই পেমেন্ট পাঠানো যায়নি: {{reason}}। আপনার ওয়ালেট থেকে কিছুই যায়নি।',
       token_err_reason_unknown: 'একটি অজানা সমস্যা',
       token_err_unreachable:
         'এই স্থানান্তর নিশ্চিত করতে আমরা {{issuer}}-এর কাছে পৌঁছাতে পারিনি। আবার চেষ্টার আগে আপনার {{ticker}} ব্যালেন্স দেখে নিন।',
@@ -7418,8 +7412,7 @@ const resources = {
         '{{issuer}} не разрешает платежи этому человеку. Ничего не отправлено, баланс не изменился.',
       token_err_refused_frozen:
         'Часть {{ticker}}, которую вы отправляли, только что заморожена. Ничего не отправлено; баланс обновлён.',
-      token_err_send_failed:
-        'Не удалось отправить этот платёж: {{reason}}. Из вашего кошелька ничего не ушло.',
+      token_err_send_failed: 'Не удалось отправить этот платёж: {{reason}}. Из вашего кошелька ничего не ушло.',
       token_err_reason_unknown: 'неизвестная проблема',
       token_err_unreachable:
         'Не удалось связаться с {{issuer}} для подтверждения перевода. Проверьте баланс {{ticker}}, прежде чем повторять.',
@@ -8337,8 +8330,7 @@ const resources = {
         '{{issuer}} tidak mengizinkan pembayaran ke orang ini. Tidak ada yang terkirim dan saldo Anda tidak berubah.',
       token_err_refused_frozen:
         'Sebagian {{ticker}} yang Anda kirim baru saja dibekukan. Tidak ada yang terkirim; saldo Anda telah diperbarui.',
-      token_err_send_failed:
-        'Tidak dapat mengirim pembayaran ini: {{reason}}. Tidak ada yang keluar dari dompet Anda.',
+      token_err_send_failed: 'Tidak dapat mengirim pembayaran ini: {{reason}}. Tidak ada yang keluar dari dompet Anda.',
       token_err_reason_unknown: 'masalah yang tidak diketahui',
       token_err_unreachable:
         'Kami tidak dapat menghubungi {{issuer}} untuk memastikan transfer ini. Periksa saldo {{ticker}} Anda sebelum mencoba lagi.',
@@ -9230,8 +9222,10 @@ const resources = {
       token_power_freeze: '特定のコインを凍結する（あなたのものも含む）',
       token_power_admit: '{{ticker}} を保有できる人を決める',
       token_power_replace: '凍結されたコインを新しいものに置き換える',
-      token_powers_limit: 'あなたなしで {{ticker}} をウォレットから動かすことはできず、凍結されたコインは単に使えなくなります。',
-      token_frozen_sub: '{{issuer}} があなたの残高のうち {{amount}} {{ticker}} を凍結しました。異議がある場合は連絡してください。',
+      token_powers_limit:
+        'あなたなしで {{ticker}} をウォレットから動かすことはできず、凍結されたコインは単に使えなくなります。',
+      token_frozen_sub:
+        '{{issuer}} があなたの残高のうち {{amount}} {{ticker}} を凍結しました。異議がある場合は連絡してください。',
       pay_asset_label: '支払いに使う',
       pay_asset_label_get: '受け取る通貨',
       pay_asset_cta: '{{amount}} {{ticker}} を送る',
@@ -9243,28 +9237,34 @@ const resources = {
       pay_asset_paused: '{{issuer}} が {{ticker}} の送金を停止しているため、現在は送れません。',
       pay_asset_no_address: '{{ticker}} は人または近くのデバイスにのみ送れます。ビットコインアドレスには送れません。',
       pay_asset_address_status: '{{ticker}} では利用できません',
-      pay_asset_self_unregistered: '{{issuer}} はあなたを {{ticker}} の送金者として登録していません。受け取りは引き続き可能です。',
+      pay_asset_self_unregistered:
+        '{{issuer}} はあなたを {{ticker}} の送金者として登録していません。受け取りは引き続き可能です。',
       pay_asset_unidentified: 'このウォレットはこのトークンを識別できないため、まだ送金できません。',
-      pay_asset_recipient_unregistered: '{{issuer}} はこの相手を {{ticker}} 用に登録していないため、この通貨では支払えません。',
+      pay_asset_recipient_unregistered:
+        '{{issuer}} はこの相手を {{ticker}} 用に登録していないため、この通貨では支払えません。',
       pay_asset_recipient_blocked: '{{issuer}} はこの相手への支払いを許可していません。',
       token_err_refused: '{{issuer}} がこの送金を拒否しました。何も送られておらず、{{ticker}} の残高は変わりません。',
       token_err_refused_paused: '{{issuer}} が {{ticker}} を停止しました。何も送られておらず、残高は変わりません。',
-      token_err_refused_recipient: '{{issuer}} はこの相手への支払いを許可していません。何も送られておらず、残高は変わりません。',
-      token_err_refused_frozen: '送金しようとしていた {{ticker}} の一部が凍結されました。何も送られておらず、残高を更新しました。',
-      token_err_send_failed:
-        'この支払いを送信できませんでした：{{reason}}。ウォレットからは何も出ていません。',
+      token_err_refused_recipient:
+        '{{issuer}} はこの相手への支払いを許可していません。何も送られておらず、残高は変わりません。',
+      token_err_refused_frozen:
+        '送金しようとしていた {{ticker}} の一部が凍結されました。何も送られておらず、残高を更新しました。',
+      token_err_send_failed: 'この支払いを送信できませんでした：{{reason}}。ウォレットからは何も出ていません。',
       token_err_reason_unknown: '不明な問題',
-      token_err_unreachable: 'この送金を確認するため {{issuer}} に接続できませんでした。再試行の前に {{ticker}} の残高を確認してください。',
+      token_err_unreachable:
+        'この送金を確認するため {{issuer}} に接続できませんでした。再試行の前に {{ticker}} の残高を確認してください。',
       token_err_check_again: 'もう一度確認',
       token_err_balance_changed: '準備中に {{ticker}} の残高が変わりました。金額を確認して再試行してください。',
       token_err_busy: '{{ticker}} の支払いがすでに送信中です。',
       pay_sent_not_broadcast: '送信しました。まだネットワークに届いていません — 再試行を続けます。',
-      pay_sent_not_notified: '送信しました。相手にはまだ通知できていません — 相手のウォレットが次に確認したときに表示されます。',
+      pay_sent_not_notified:
+        '送信しました。相手にはまだ通知できていません — 相手のウォレットが次に確認したときに表示されます。',
       pay_sent_handed_to_wallet: '送信しました。対面で受け取られなかったため、相手のウォレットへ送りました。',
       token_first_hold: '{{ticker}} は {{issuer}} が発行しており、送金の停止やコインの凍結ができます。',
       pay_asset_request_paused: '{{issuer}} が {{ticker}} を停止しているため、支払いはまだ届かないことがあります。',
       token_admit_title: 'まだ {{ticker}} で受け取ることはできません',
-      token_admit_body: '{{issuer}} は登録済みの相手にしか {{ticker}} を送りません。それまでは、あなた宛ての支払いは送金者のウォレットを出る前に拒否されます。',
+      token_admit_body:
+        '{{issuer}} は登録済みの相手にしか {{ticker}} を送りません。それまでは、あなた宛ての支払いは送金者のウォレットを出る前に拒否されます。',
       token_admit_bsv_instead: '代わりに BSV で受け取る',
       token_row_sent: '{{ticker}} を送金',
       token_row_received: '{{ticker}} を受取',
@@ -9272,10 +9272,13 @@ const resources = {
       token_evicted_title: '一部の {{ticker}} が引き揚げられました',
       token_evicted_body: '{{issuer}} があなたのウォレットから {{amount}} {{ticker}} を引き揚げました。',
       local_pay_token_not_cleared: 'オフラインで受取 · {{issuer}} は未確認',
-      pay_asset_nearby_needs_network: '対面で {{ticker}} を支払うには接続が必要です。接続がなくても BSV なら支払えます。',
-      pay_asset_link_not_held: 'このリクエストは、このウォレットが保有していないトークン向けです。BSV での支払いは引き続き可能です。',
+      pay_asset_nearby_needs_network:
+        '対面で {{ticker}} を支払うには接続が必要です。接続がなくても BSV なら支払えます。',
+      pay_asset_link_not_held:
+        'このリクエストは、このウォレットが保有していないトークン向けです。BSV での支払いは引き続き可能です。',
       pay_asset_nearby_wrong_overlay: 'このリクエストは、このウォレットが対応していないトークン向けです。',
-      token_messagebox_mismatch: 'ウォレットが別のメッセージボックスに設定されているため、トークンの支払いが届かない場合があります。',
+      token_messagebox_mismatch:
+        'ウォレットが別のメッセージボックスに設定されているため、トークンの支払いが届かない場合があります。',
       token_issuer_fallback: '発行者',
       token_row_hint: '発行者とその権限を開きます',
       token_attention_one: '{{issuer}} の確認待ち — タップして詳細',
@@ -9283,10 +9286,12 @@ const resources = {
       token_recv_reversed: 'この支払いは {{issuer}} に確認されず、取り消されました。',
       token_settle_paused_retry: '現在 {{issuer}} が {{ticker}} を停止しています — 再試行を続けます。',
       token_settle_unreachable_retry: 'この送金を確認するため {{issuer}} に接続できませんでした。再試行を続けます。',
-      token_settle_evicted: 'その支払いは期限内にネットワークへ届かず取り消されました — {{ticker}} は残高に戻っています。',
+      token_settle_evicted:
+        'その支払いは期限内にネットワークへ届かず取り消されました — {{ticker}} は残高に戻っています。',
       token_frame_unreadable: '受け取った支払いを読み取れませんでした — 送金者に再送を依頼してください。',
       token_chain_reversed: 'この連鎖の前の支払いが {{issuer}} に拒否されたため、この支払いも取り消されました。',
-      token_settle_stuck_bound: 'この支払いは 3 日以上決済を待っています。このまま待つか、{{issuer}} に連絡してください。',
+      token_settle_stuck_bound:
+        'この支払いは 3 日以上決済を待っています。このまま待つか、{{issuer}} に連絡してください。',
       token_cover_failed: 'この支払いは {{issuer}} の記録と一致しないため、受け付けられませんでした。',
       token_sent_settling: '送信しました。{{issuer}} と決済中 — あなたか {{payee}} が再接続すると確認が表示されます。',
       token_sent_settling_unnamed: '送信しました。{{issuer}} と決済中 — どちらかが再接続すると確認が表示されます。',
@@ -10079,7 +10084,8 @@ const resources = {
       contacts: '連絡先',
       contacts_search_placeholder: '名前またはハンドルで検索',
       contacts_empty_title: 'まだ連絡先がありません',
-      contacts_empty_body: '支払った相手は、保存するとここに表示されます。右上のボタンで相手のプロフィールコードをスキャンしてください。',
+      contacts_empty_body:
+        '支払った相手は、保存するとここに表示されます。右上のボタンで相手のプロフィールコードをスキャンしてください。',
       contacts_recent: '最近',
       contact_edit_name: '名前を編集',
       contact_save_name: '名前を保存',
@@ -10167,8 +10173,7 @@ const resources = {
         '{{issuer}} nie zezwala na płatności do tej osoby. Nic nie wysłano, a saldo pozostaje bez zmian.',
       token_err_refused_frozen:
         'Część {{ticker}}, którą wysyłałeś, została właśnie zamrożona. Nic nie wysłano; saldo zostało zaktualizowane.',
-      token_err_send_failed:
-        'Nie udało się wysłać tej płatności: {{reason}}. Nic nie opuściło Twojego portfela.',
+      token_err_send_failed: 'Nie udało się wysłać tej płatności: {{reason}}. Nic nie opuściło Twojego portfela.',
       token_err_reason_unknown: 'nieznany problem',
       token_err_unreachable:
         'Nie udało się połączyć z {{issuer}}, aby potwierdzić ten transfer. Sprawdź saldo {{ticker}}, zanim spróbujesz ponownie.',
@@ -11028,7 +11033,8 @@ const resources = {
       contact_activity: 'Aktywność',
       contact_activity_empty: 'Brak aktywności z tym kontaktem',
       contact_delete: 'Usuń kontakt',
-      contact_delete_body: 'Spowoduje to usunięcie {{name}} z Twoich kontaktów. Nie wpływa to na żadne wcześniejsze płatności.',
+      contact_delete_body:
+        'Spowoduje to usunięcie {{name}} z Twoich kontaktów. Nie wpływa to na żadne wcześniejsze płatności.',
       contact_handle_caption: 'Ich zarejestrowany identyfikator · tylko oni mogą go zmienić',
       contact_new_title: 'Nowy kontakt',
       contact_save: 'Zapisz',

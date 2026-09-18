@@ -30,18 +30,12 @@ beforeEach(async () => {
   store = createContactsStore(adapt(raw) as unknown as ContactsDb)
   // contacts.userId is a real FK into users(userId).
   const now = new Date().toISOString()
-  raw.prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)').run(
-    USER,
-    now,
-    now,
-    'ff'.repeat(32)
-  )
-  raw.prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)').run(
-    2,
-    now,
-    now,
-    'ee'.repeat(32)
-  )
+  raw
+    .prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)')
+    .run(USER, now, now, 'ff'.repeat(32))
+  raw
+    .prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)')
+    .run(2, now, now, 'ee'.repeat(32))
 })
 
 afterEach(() => raw.close())
@@ -107,8 +101,20 @@ describe('createContact / getContact / listContacts', () => {
 
 describe('searchContacts', () => {
   beforeEach(async () => {
-    await store.createContact({ userId: USER, identityKey: KEY_A, name: 'Alice', cachedHandle: 'al1ce', source: 'manual' })
-    await store.createContact({ userId: USER, identityKey: KEY_B, name: 'Bob', cachedHandle: 'bobby', source: 'manual' })
+    await store.createContact({
+      userId: USER,
+      identityKey: KEY_A,
+      name: 'Alice',
+      cachedHandle: 'al1ce',
+      source: 'manual'
+    })
+    await store.createContact({
+      userId: USER,
+      identityKey: KEY_B,
+      name: 'Bob',
+      cachedHandle: 'bobby',
+      source: 'manual'
+    })
   })
 
   it('matches by name, case-insensitively', async () => {
@@ -129,7 +135,13 @@ describe('searchContacts', () => {
 
 describe('renameContact', () => {
   it('changes only the name', async () => {
-    await store.createContact({ userId: USER, identityKey: KEY_A, name: 'Alice', cachedHandle: 'alice', source: 'manual' })
+    await store.createContact({
+      userId: USER,
+      identityKey: KEY_A,
+      name: 'Alice',
+      cachedHandle: 'alice',
+      source: 'manual'
+    })
     await store.renameContact(USER, KEY_A, 'Alicia')
     const row = await store.getContact(USER, KEY_A)
     expect(row?.name).toBe('Alicia')
