@@ -26,7 +26,6 @@ import IdentifierRow from '../components/wallet/IdentifierRow'
 import { makeIdentityClient, resolveIdentity } from '../resolveIdentity'
 import { getHandleCertifierConfig } from '../../core/toolboxConfig'
 import { checkHandleAvailability, registerHandle, type HandleAvailability } from '../../core/identity/handleCertificate'
-import { publishDisplayName } from '../../core/identity/profileCertificate'
 
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
 let ioniconsComponent: IoniconsComponent | undefined
@@ -49,6 +48,13 @@ function loadExpoRouter(): ExpoRouterModule {
 }
 
 const HANDLE_KV_KEY = 'profile_registered_handle'
+/**
+ * The display name lives here, on this device, and nowhere public. It is sent
+ * to the handle registry as a private certificate field when a handle is
+ * registered (see `registerHandle`) — never revealed on chain. The identity
+ * overlay's `name` is only a fallback for a wallet that has never set one.
+ */
+const DISPLAY_NAME_KV_KEY = 'profile_display_name'
 const HANDLE_CHECK_DEBOUNCE_MS = 400
 
 export function ProfileScreen() {
@@ -62,6 +68,7 @@ export function ProfileScreen() {
 
   const [identityKey, setIdentityKey] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [displayNameLoaded, setDisplayNameLoaded] = useState(false)
   const [registeredHandle, setRegisteredHandle] = useState<string | null>(null)
   const [changingHandle, setChangingHandle] = useState(false)
   const [handleInput, setHandleInput] = useState('')
@@ -78,10 +85,20 @@ export function ProfileScreen() {
     void storage?.getKeyValue(HANDLE_KV_KEY).then(v => {
       if (v) setRegisteredHandle(v)
     })
+    void storage?.getKeyValue(DISPLAY_NAME_KV_KEY).then(v => {
+      if (v) {
+        setDisplayName(v)
+        setDisplayNameLoaded(true)
+      } else {
+        setDisplayNameLoaded(true)
+      }
+    })
   }, [wallet, adminOriginator, storage])
 
+  // Fallback only: a name the overlay already has for this key, used when no
+  // local display name was ever saved. Never overwrites a saved one.
   useEffect(() => {
-    if (!wallet || !identityKey) return
+    if (!wallet || !identityKey || !displayNameLoaded || displayName !== '') return
     const idClient = makeIdentityClient(wallet as never, adminOriginator)
     if (!idClient) return
     let cancelled = false
@@ -91,7 +108,10 @@ export function ProfileScreen() {
     return () => {
       cancelled = true
     }
-  }, [wallet, identityKey, adminOriginator])
+    // displayName deliberately omitted: this runs once the local read settles,
+    // not on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, identityKey, adminOriginator, displayNameLoaded])
 
   const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const runCheck = useCallback(
@@ -128,7 +148,14 @@ export function ProfileScreen() {
     setRegistering(true)
     try {
       const handle = handleInput.trim()
-      const result = await registerHandle({ wallet: wallet as never, idClient, adminOriginator, certifier, handle })
+      const result = await registerHandle({
+        wallet: wallet as never,
+        idClient,
+        adminOriginator,
+        certifier,
+        handle,
+        displayName
+      })
       if (result.kind === 'registered') {
         setRegisteredHandle(handle)
         void storage?.setKeyValue(HANDLE_KV_KEY, handle)
@@ -144,18 +171,20 @@ export function ProfileScreen() {
     } finally {
       setRegistering(false)
     }
-  }, [wallet, availability, adminOriginator, certifier, handleInput, storage, t])
+  }, [wallet, availability, adminOriginator, certifier, handleInput, displayName, storage, t])
 
+  // Local only. The registry learns it on the next handle registration.
   const onSaveDisplayName = useCallback(
     async (next: string) => {
-      setDisplayName(next)
-      if (!wallet) return
-      const idClient = makeIdentityClient(wallet as never, adminOriginator)
-      if (!idClient) return
-      const result = await publishDisplayName({ wallet: wallet as never, idClient, adminOriginator, displayName: next })
-      if (result.kind === 'failed') showToast(result.message, { type: 'error' })
+      const trimmed = next.trim()
+      setDisplayName(trimmed)
+      try {
+        await storage?.setKeyValue(DISPLAY_NAME_KV_KEY, trimmed)
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e), { type: 'error' })
+      }
     },
-    [wallet, adminOriginator]
+    [storage]
   )
 
   const handle = handleInput.trim()

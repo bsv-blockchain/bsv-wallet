@@ -100,9 +100,11 @@ package API change).
 - Handle: current registered handle, or the register flow
   (checking/available/taken/invalid/failed) from the section above.
 - Display name: pencil→confirm edit, same affordance as Contact/New Contact.
-  This is a public `IdentityClient.publiclyRevealAttributes(['displayName'])`
-  reveal (the same one this wallet already publishes name/avatar under),
-  not a contacts-table write.
+  Stored locally (`key_value_store`, `profile_display_name`) and sent to the
+  handle registry as a private `displayName` field of the handle certificate
+  on registration. NOT publicly revealed and not on chain (Deggen ruling,
+  2026-09-18, superseding the earlier `publiclyRevealAttributes` plan). The
+  registry is the only other party that learns it.
 - QR: `bsv-wallet://contact/add?identityKey=<hex>` (Deggen ruling,
   2026-09-18) — a deep link straight to this app's add-contact screen, not a
   bare key and not `peerpay:`.

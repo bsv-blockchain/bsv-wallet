@@ -1013,7 +1013,7 @@ const resources = {
       profile: 'Profile',
       profile_display_name: 'Display name',
       profile_display_name_hint:
-        "Shown to people who haven't saved you as a contact. They can call you something else.",
+        'Kept on this device and shared privately with the handle registry when you register a handle. Not published.',
       profile_handle: 'Handle',
       profile_handle_placeholder: 'yourname',
       profile_handle_checking: 'Checking availability…',

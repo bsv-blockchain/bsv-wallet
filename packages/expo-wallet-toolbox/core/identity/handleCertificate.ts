@@ -78,10 +78,17 @@ export type RegisterHandleResult =
   | { kind: 'failed'; message: string }
 
 /**
- * Acquire the handle certificate and reveal it publicly. `unavailable` means
- * this build has no certifier configured (`getHandleCertifierConfig`), not
- * that the handle itself is taken — callers should have already refused a
+ * Acquire the handle certificate and reveal the HANDLE publicly. `unavailable`
+ * means this build has no certifier configured (`getHandleCertifierConfig`),
+ * not that the handle itself is taken — callers should have already refused a
  * `taken`/`invalid` handle via `checkHandleAvailability` before calling this.
+ *
+ * `displayName` rides along as a second certificate field. It goes to the
+ * registry with the issuance request and stays an encrypted field of the
+ * certificate this wallet holds; it is NOT in the public reveal. Nothing about
+ * a display name belongs on chain (Deggen, 2026-09-18) — it is what the
+ * registry knows to call this handle's owner, and what this wallet shows for
+ * itself. An empty name sends no field at all.
  */
 export async function registerHandle(args: {
   wallet: HandleCertWallet
@@ -89,17 +96,19 @@ export async function registerHandle(args: {
   adminOriginator?: string
   certifier: HandleCertifierConfig | undefined
   handle: string
+  displayName?: string
 }): Promise<RegisterHandleResult> {
   const { wallet, idClient, adminOriginator, certifier, handle } = args
   if (!isValidHandleFormat(handle)) return { kind: 'invalid' }
   if (!certifier) return { kind: 'unavailable' }
+  const displayName = args.displayName?.trim() ?? ''
   try {
     const cert = await wallet.acquireCertificate(
       {
         type: HANDLE_CERT_TYPE,
         certifier: certifier.certifierIdentityKey,
         acquisitionProtocol: 'issuance',
-        fields: { handle },
+        fields: displayName === '' ? { handle } : { handle, displayName },
         certifierUrl: certifier.certifierUrl
       },
       adminOriginator

@@ -87,6 +87,36 @@ describe('registerHandle', () => {
     expect(client.publiclyRevealAttributes).toHaveBeenCalledWith(cert, ['handle'])
   })
 
+  // The display name is the registry's to know, privately: a second field on
+  // the issuance request, and NOT part of the public reveal.
+  it('sends the display name to the certifier as a private field and reveals only the handle', async () => {
+    const cert = { type: HANDLE_CERT_TYPE, fields: { handle: 'dee', displayName: 'Dee K' } }
+    const wallet: HandleCertWallet = { acquireCertificate: jest.fn().mockResolvedValue(cert) }
+    const client = idClient()
+    const result = await registerHandle({
+      wallet,
+      idClient: client,
+      certifier: CERTIFIER,
+      handle: 'dee',
+      displayName: '  Dee K  '
+    })
+    expect(result).toEqual({ kind: 'registered' })
+    expect(wallet.acquireCertificate).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: { handle: 'dee', displayName: 'Dee K' } }),
+      undefined
+    )
+    expect(client.publiclyRevealAttributes).toHaveBeenCalledWith(cert, ['handle'])
+  })
+
+  it('omits the field entirely for a blank display name', async () => {
+    const wallet: HandleCertWallet = { acquireCertificate: jest.fn().mockResolvedValue({ fields: {} }) }
+    await registerHandle({ wallet, idClient: idClient(), certifier: CERTIFIER, handle: 'dee', displayName: '   ' })
+    expect(wallet.acquireCertificate).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: { handle: 'dee' } }),
+      undefined
+    )
+  })
+
   it('reports failed with the underlying message on a throw', async () => {
     const wallet: HandleCertWallet = { acquireCertificate: jest.fn().mockRejectedValue(new Error('no network')) }
     const result = await registerHandle({ wallet, idClient: idClient(), certifier: CERTIFIER, handle: 'dee' })
