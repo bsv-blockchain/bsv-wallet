@@ -202,6 +202,7 @@ import { getOnline, subscribeOnline } from '../net/online'
 import { canInternalizePending, processPending } from '../localpay/pending'
 import { replayPendingAborts } from '../localpay/pendingAborts'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
+import { MONITOR_STALL_MS, MonitorSupervisor } from '../monitor/MonitorSupervisor'
 import { TaskCreditInbox } from '../monitor/TaskCreditInbox'
 import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
@@ -598,6 +599,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const [mandala, setMandala] = useState<MandalaRuntime | undefined>(undefined)
   const mandalaRef = useRef<MandalaRuntime | undefined>(undefined)
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
+  const monitorSupervisorRef = useRef<MonitorSupervisor | null>(null)
   const monitorRef = useRef<Monitor | null>(null)
   // The offline-first chain tracker and the header store it wraps. Populated
   // in buildWallet (tracker synchronously, store once the background open
@@ -2005,8 +2007,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             // otherwise "stop" a not-yet-started monitor and this callback
             // would then start an unstoppable zombie nothing references.
             if (monitorRef.current !== monitor) return
-            // startTasks runs in background — don't await (it never resolves until stopTasks)
-            monitor.startTasks().catch(e => console.error('[WalletContext] Monitor error:', e))
+            // Not monitor.startTasks(): the supervisor drives the same pass
+            // loop, but survives a throwing pass and can be restarted by the
+            // watchdog below when a pass hangs. See MonitorSupervisor.
+            const supervisor = new MonitorSupervisor()
+            monitorSupervisorRef.current = supervisor
+            supervisor.start(monitor)
           })
           logWithTimestamp(F, 'Monitor scheduled (ARC SSE) after interactions')
         } catch (error: any) {
@@ -2620,6 +2626,35 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     })
   }, [walletBuilt])
 
+  // Monitor watchdog. A pass loop that stops — a task's await that never
+  // resolves, or a throw out of runOnce's own logging — leaves every unsent
+  // request at 'sending' with nothing else in the app able to broadcast it
+  // (2026-09-18: two BSV sends stuck until a force-quit). No completed pass
+  // for MONITOR_STALL_MS while the app is active means the loop is gone;
+  // restart it on the same monitor. 2 min, not 1: a healthy pass is ~5 s
+  // apart but a slow network task can legitimately hold one for a while, and
+  // restarting a healthy loop is the one thing this must never do.
+  useEffect(() => {
+    if (!walletBuilt) return
+    const check = () => {
+      if (AppState.currentState !== 'active') return
+      const supervisor = monitorSupervisorRef.current
+      if (!supervisor || monitorRef.current === null) return
+      if (!supervisor.isStalled(MONITOR_STALL_MS)) return
+      const stalledForMs = Date.now() - supervisor.lastPassAt
+      console.warn(`[WalletContext] monitor loop stalled for ${Math.round(stalledForMs / 1000)}s; restarting it`)
+      if (supervisor.restart()) {
+        // Best-effort: the stalled pass may be holding the very connection this
+        // writes to. Never awaited, never allowed to throw.
+        monitorRef.current
+          ?.logEvent('Watchdog', `restarted monitor loop after ${Math.round(stalledForMs / 1000)}s without a pass`)
+          .catch(() => {})
+      }
+    }
+    const interval = setInterval(check, 30_000)
+    return () => clearInterval(interval)
+  }, [walletBuilt])
+
   // Fetch Arcade status events when app returns to foreground
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
@@ -2627,6 +2662,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const isNowForeground = nextAppState === 'active'
 
       if (wasBackground && isNowForeground) {
+        // The loop's timers were frozen with the app; the gap is the OS's, not
+        // the monitor's. Without this the first watchdog check after a long
+        // background would restart a healthy loop.
+        monitorSupervisorRef.current?.touch()
         const monitor = monitorRef.current
         if (monitor) {
           monitor.fetchSSEEvents().then(count => {
