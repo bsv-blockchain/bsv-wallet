@@ -75,6 +75,7 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import { useContactsStore } from '../hooks/useContactsStore'
 import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
 import { ImportFromBackupPrompt } from '../components/wallet/ImportFromBackupPrompt'
@@ -254,6 +255,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
+  // Built once here and passed down to every row (with `walletUserId`) so an
+  // expanded row's tappable-contact check never has to call `useWallet()`
+  // itself — the whole reason `ActivityRow` takes `currency` as a prop too.
+  const contactsStore = useContactsStore()
   const online = useOnline()
   // For the token Resend below. Read here rather than off `useMandala()` (which
   // mounts further down) so the handler can close over it without a
@@ -1302,6 +1307,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       return (
         <ActivityRow
           currency={currency}
+          walletUserId={walletUserId}
+          contactsStore={contactsStore}
           action={item}
           rowKey={key}
           token={token}
@@ -1322,6 +1329,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     [
       colors,
       currency,
+      walletUserId,
+      contactsStore,
       offlineByTxid,
       tokenProps,
       busyRow,

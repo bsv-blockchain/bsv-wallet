@@ -1,8 +1,10 @@
 /**
- * New Contact — reached only via a scanned or deep-linked identity key (QR
- * scan on the Contacts header, or `bsv-wallet://contact/add?identityKey=`).
- * There is no blank manual-entry path (2026-09-18 ruling): the identifier is
- * always pre-filled and read-only, and the user only ever supplies the name.
+ * New Contact — three ways in: a scanned or deep-linked identity key (QR scan
+ * on the Contacts header, or `bsv-wallet://contact/add?identityKey=`), the
+ * "Add to contacts" offer on a payment's success screen (`?identityKey=` and
+ * `?name=` both prefilled, `?source=pay`), or the plain "New Contact" button
+ * at the bottom of the Contacts list (2026-09-18) — the only path with no
+ * identity key yet, where the Identifier field itself becomes editable.
  */
 import React, { useCallback, useMemo, useState } from 'react'
 import { I18nManager, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -14,6 +16,8 @@ import { showToast } from '../components/ui/Toast'
 import ContactSigil from '../components/wallet/ContactSigil'
 import { useContactsStore } from '../hooks/useContactsStore'
 import { abbreviateKey } from '../../core/pay/counterparty'
+import { isCompressedIdentityKey } from '../../core/identity/contactLink'
+import type { ContactSource } from '../../core/contacts/contactsStore'
 
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
 let ioniconsComponent: IoniconsComponent | undefined
@@ -47,27 +51,47 @@ export function NewContactScreen() {
   const { router, useLocalSearchParams } = loadExpoRouter()
   const { walletUserId } = useWallet()
   const store = useContactsStore()
-  const params = useLocalSearchParams<{ identityKey?: string | string[] }>()
-  const identityKey = (firstParam(params.identityKey) ?? '').toLowerCase()
+  const params = useLocalSearchParams<{
+    identityKey?: string | string[]
+    name?: string | string[]
+    source?: string | string[]
+  }>()
+  const prefilledIdentityKey = (firstParam(params.identityKey) ?? '').toLowerCase()
+  const source = (firstParam(params.source) as ContactSource | undefined) ?? 'qr'
+  // The only path with no identity key yet: the plain "New Contact" button on
+  // the Contacts list. Everywhere else (scan, deep link, the payment success
+  // screen) arrives with one already known, and the field stays read-only.
+  const manualEntry = prefilledIdentityKey === ''
 
-  const [name, setName] = useState('')
+  const [name, setName] = useState(firstParam(params.name) ?? '')
+  const [identifierInput, setIdentifierInput] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const identityKey = manualEntry ? identifierInput.trim().toLowerCase() : prefilledIdentityKey
+  const identityKeyValid = isCompressedIdentityKey(identityKey)
   const nameValid = name.trim().length > 0
 
   const onSave = useCallback(async () => {
-    if (!store || walletUserId === null || !identityKey || !nameValid) return
+    if (!store || walletUserId === null || !identityKeyValid || !nameValid) return
     setSaving(true)
     try {
-      await store.createContact({ userId: walletUserId, identityKey, name: name.trim(), source: 'qr' })
+      await store.createContact({
+        userId: walletUserId,
+        identityKey,
+        name: name.trim(),
+        source: manualEntry ? 'manual' : source
+      })
       showToast(t('contact_saved'), { type: 'success' })
       router.replace({ pathname: '/contact', params: { identityKey } } as never)
     } finally {
       setSaving(false)
     }
-  }, [store, walletUserId, identityKey, name, nameValid, router, t])
+  }, [store, walletUserId, identityKey, identityKeyValid, name, nameValid, manualEntry, source, router, t])
 
-  const identifierDisplay = useMemo(() => (identityKey ? abbreviateKey(identityKey) : ''), [identityKey])
+  const identifierDisplay = useMemo(
+    () => (prefilledIdentityKey ? abbreviateKey(prefilledIdentityKey) : ''),
+    [prefilledIdentityKey]
+  )
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -103,7 +127,7 @@ export function NewContactScreen() {
             onChangeText={setName}
             placeholder={t('contact_new_title')}
             placeholderTextColor={colors.textTertiary}
-            autoFocus
+            autoFocus={!manualEntry}
             style={[styles.input, { color: colors.textPrimary }]}
           />
         </View>
@@ -111,18 +135,40 @@ export function NewContactScreen() {
 
       <View style={styles.field}>
         <Text style={[styles.label, { color: colors.textTertiary }]}>{t('contact_identifier')}</Text>
-        <Text style={[styles.identifier, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="middle">
-          {identifierDisplay}
-        </Text>
+        {manualEntry ? (
+          <>
+            <View style={[styles.inputRow, { backgroundColor: colors.backgroundSecondary }]}>
+              <TextInput
+                value={identifierInput}
+                onChangeText={setIdentifierInput}
+                placeholder={t('contact_identifier_placeholder')}
+                placeholderTextColor={colors.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                style={[styles.input, styles.identifierInput, { color: colors.textPrimary }]}
+              />
+            </View>
+            {identifierInput.trim().length > 0 && !identityKeyValid && (
+              <Text style={[styles.identifierError, { color: colors.error }]}>{t('contact_identifier_invalid')}</Text>
+            )}
+          </>
+        ) : (
+          <Text style={[styles.identifier, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="middle">
+            {identifierDisplay}
+          </Text>
+        )}
       </View>
 
       <PressableScale
         onPress={onSave}
-        disabled={!nameValid || saving || !identityKey}
+        disabled={!nameValid || saving || !identityKeyValid}
         haptic="confirm"
-        style={[styles.cta, { backgroundColor: nameValid && identityKey ? colors.accent : colors.fill }]}
+        style={[styles.cta, { backgroundColor: nameValid && identityKeyValid ? colors.accent : colors.fill }]}
       >
-        <Text style={[styles.ctaText, { color: nameValid && identityKey ? colors.textOnAccent : colors.textTertiary }]}>
+        <Text
+          style={[styles.ctaText, { color: nameValid && identityKeyValid ? colors.textOnAccent : colors.textTertiary }]}
+        >
           {t('contact_save')}
         </Text>
       </PressableScale>
@@ -155,6 +201,8 @@ const styles = StyleSheet.create({
   inputRow: { borderRadius: radii.md, paddingHorizontal: spacing.md },
   input: { ...typography.body, paddingVertical: spacing.md },
   identifier: { ...typography.footnote, fontFamily: 'monospace' },
+  identifierInput: { fontFamily: 'monospace' },
+  identifierError: { ...typography.footnote, marginTop: spacing.xs },
   cta: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.lg,

@@ -13,7 +13,7 @@
  * txid to a clipboard is not that — it is debugging, and it used to crowd out
  * the two chips that actually resolve a stuck payment.
  */
-import React, { memo, useContext, useMemo } from 'react'
+import React, { memo, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import type { WalletAction } from '@bsv/sdk'
@@ -35,6 +35,25 @@ import {
 import { txStatusView, toneColor } from '../../txStatus'
 import PressableScale from '../ui/PressableScale'
 import Sigil from '../ui/Sigil'
+import type { ContactsStore } from '../../../core/contacts/contactsStore'
+
+/**
+ * expo-router is required lazily rather than imported at module scope: this
+ * file is barrel-exported from the package's `ui` entry point, and a static
+ * top-level `import` of expo-router pulls in its own untransformed JSX
+ * source, which Jest cannot parse for any consumer of the barrel, even one
+ * that never navigates. Same pattern as every other screen/component in this
+ * package that needs the router.
+ */
+type ExpoRouterModule = typeof import('expo-router')
+let expoRouterMod: ExpoRouterModule | undefined
+function loadExpoRouter(): ExpoRouterModule {
+  if (!expoRouterMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expoRouterMod = require('expo-router') as ExpoRouterModule
+  }
+  return expoRouterMod
+}
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -57,9 +76,8 @@ function loadIonicons(): IoniconsComponent {
 }
 function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   if (!materialCommunityIconsComponent) {
-    materialCommunityIconsComponent = require('@expo/vector-icons')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      .MaterialCommunityIcons as MaterialCommunityIconsComponent
+    materialCommunityIconsComponent = // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
   }
   return materialCommunityIconsComponent
 }
@@ -77,6 +95,20 @@ export type ActivityAction = WalletAction & {
 interface Props {
   /** Pass the screen currency to avoid subscribing every row to wallet updates. */
   currency?: string
+  /**
+   * Pass this alongside `currency` for the same reason: without it the row
+   * would call `useWallet()` itself just to scope the contact lookup below,
+   * subscribing every row to wallet updates again. `undefined`/`null` simply
+   * means the tappable-contact-face feature never activates for this row.
+   */
+  walletUserId?: number | null
+  /**
+   * Same reason as `walletUserId`: built once at the screen and passed down
+   * rather than resolved per row via `useContactsStore()`, which reaches
+   * `useWallet()` internally — exactly the subscription `currency` above
+   * already exists to avoid.
+   */
+  contactsStore?: ContactsStore | null
   action: ActivityAction
   /** Identity of this row in the list's expanded/busy bookkeeping. Passed back
    * to `onToggle` so the handler can stay referentially stable across renders —
@@ -155,6 +187,8 @@ export function formatRowTime(value?: string | number | Date): string {
 
 function ActivityRowBase({
   currency,
+  walletUserId,
+  contactsStore,
   action,
   rowKey,
   offlineStatus,
@@ -228,6 +262,41 @@ function ActivityRowBase({
   // under a mounted row. Two HSL conversions per render are not worth a dep.
   const palette = face ? sigilPalette(face.hue, !!isDark) : null
 
+  // The counterparty's own identity key, when the row can name one at all —
+  // an address or a bare txid (the other two `counterpartyOf` kinds) can
+  // never be a saved contact. Recomputed independently of `face` above: that
+  // memo only keeps what the sigil needs (point/hue), and duplicating the
+  // (pure, cheap) `counterpartyOf` call here is simpler than threading a
+  // second value out of it.
+  const counterpartyIdentityKey = useMemo(() => {
+    if (isTokenRow) return tokenCounterpartyKey
+    const cp = counterpartyOf({ labels: labelsKey === '' ? undefined : labelsKey.split('\n'), senderIdentityKey, txid })
+    return cp?.kind === 'identityKey' ? cp.value : undefined
+  }, [labelsKey, senderIdentityKey, txid, isTokenRow, tokenCounterpartyKey])
+
+  // Whether the face becomes tappable — only once expanded (2026-09-18
+  // ruling), and only for a counterparty already saved as a contact; nobody
+  // this row cannot name a saved contact for gets a ring nothing opens.
+  const [isContact, setIsContact] = useState(false)
+  useEffect(() => {
+    if (!expanded || !counterpartyIdentityKey || !contactsStore || walletUserId == null) {
+      setIsContact(false)
+      return
+    }
+    let cancelled = false
+    void contactsStore.getContact(walletUserId, counterpartyIdentityKey).then(c => {
+      if (!cancelled) setIsContact(!!c)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [expanded, counterpartyIdentityKey, contactsStore, walletUserId])
+  const faceTappable = expanded && isContact && !!counterpartyIdentityKey
+  const onPressFace = useCallback(() => {
+    if (!counterpartyIdentityKey) return
+    loadExpoRouter().router.push({ pathname: '/contact', params: { identityKey: counterpartyIdentityKey } } as never)
+  }, [counterpartyIdentityKey])
+
   // A parked payment was built and shown as a code, but never released: it is
   // not on chain and no task will put it there. An explorer link would 404 and
   // a Refresh would ask the network about a transaction it has never seen, so
@@ -265,119 +334,134 @@ function ActivityRowBase({
         }
       ]}
     >
-      <PressableScale
-        scaleTo={0.99}
-        onPress={hasUtilities ? () => onToggle(rowKey) : undefined}
-        style={styles.row}
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        accessibilityLabel={
-          token
-            ? // Never the lib's developer description, which carries a raw
-              // 36-byte token id, and never silence for a figure we could not
-              // recover: "Sent USDX, amount unavailable" is the honest read.
-              `${token.title}, ${
-                token.amount ? `${token.amount.value} ${token.amount.unit}` : t('token_row_amount_pending')
-              }`
-            : action.description || t('transactions')
-        }
-      >
+      <View style={styles.row}>
         {/* The sigil fills the tile, so direction moves to the border tint
             alone: the same tints as the arrow tile, so a mixed list still
             reads consistently down the left edge. The tile takes the
             counterparty's own colour, and the sigil is drawn in exactly that
             pair: sigil-js cuts its glyph lines in the background colour, so
-            the fill must be the same solid or the cuts show as a halo. */}
-        {face !== null && palette !== null ? (
-          <View
-            style={[
-              styles.glyph,
-              styles.avatar,
-              {
-                backgroundColor: palette.background,
-                borderColor: incoming ? colors.successStrong + '2E' : colors.surfaceSunkenBorder
-              }
-            ]}
-          >
-            <Sigil
-              point={face.point}
-              size={38}
-              foreground={palette.foreground}
-              background={palette.background}
-              detail="default"
-            />
-          </View>
-        ) : (
-          <View
-            style={[
-              styles.glyph,
-              incoming
-                ? {
-                    backgroundColor: colors.successStrong + '1A',
-                    borderColor: colors.successStrong + '2E'
+            the fill must be the same solid or the cuts show as a halo.
+
+            A separate pressable from the row below it (2026-09-18): once
+            expanded, tapping a face that names a saved contact opens their
+            contact page, while tapping the rest of the row still toggles the
+            chips — two touch targets, not one nested inside the other. */}
+        {(() => {
+          const tile =
+            face !== null && palette !== null ? (
+              <View
+                style={[
+                  styles.glyph,
+                  styles.avatar,
+                  {
+                    backgroundColor: palette.background,
+                    borderColor: incoming ? colors.successStrong + '2E' : colors.surfaceSunkenBorder
                   }
-                : { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }
-            ]}
-          >
-            <MaterialCommunityIcons
-              name={incoming ? 'arrow-bottom-left' : 'arrow-top-right'}
-              size={16}
-              color={incoming ? colors.successStrong : colors.textSecondary}
-            />
-          </View>
-        )}
-
-        <View style={styles.middle}>
-          <Text style={[styles.description, { color: colors.textPrimary }]} numberOfLines={1}>
-            {token ? token.title : action.description || t('transactions')}
-          </Text>
-          <View style={styles.statusLine}>
-            <View
-              style={[
-                styles.dot,
-                { backgroundColor: settled ? colors.successStrong : tone }
-              ]}
-            />
-            <Text
-              style={[styles.statusText, { color: settled ? colors.textSecondary : tone }]}
-              numberOfLines={1}
-            >
-              {(() => {
-                const words = token?.statusText ?? t(view.key)
-                return time ? `${words} · ${time}` : words
-              })()}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.amounts}>
-          {token ? (
-            token.amount ? (
-              // No secondary denomination line: this wallet has no price for a
-              // token, and a converted figure would be invented.
-              <Text
-                style={[styles.amount, { color: amountColor }]}
-                accessibilityLabel={`${token.amount.value} ${token.amount.unit}`}
+                ]}
               >
-                {token.amount.value}
-                <Text style={[styles.amountUnit, { color: unitColor }]}> {token.amount.unit}</Text>
-              </Text>
+                <Sigil
+                  point={face.point}
+                  size={38}
+                  foreground={palette.foreground}
+                  background={palette.background}
+                  detail="default"
+                />
+              </View>
             ) : (
-              <Text style={[styles.amountSecondary, { color: colors.textTertiary }]}>
-                {t('token_row_amount_pending')}
-              </Text>
+              <View
+                style={[
+                  styles.glyph,
+                  incoming
+                    ? {
+                        backgroundColor: colors.successStrong + '1A',
+                        borderColor: colors.successStrong + '2E'
+                      }
+                    : { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={incoming ? 'arrow-bottom-left' : 'arrow-top-right'}
+                  size={16}
+                  color={incoming ? colors.successStrong : colors.textSecondary}
+                />
+              </View>
             )
+          return faceTappable ? (
+            <PressableScale
+              onPress={onPressFace}
+              scaleTo={0.92}
+              style={[styles.faceRing, { borderColor: colors.accent }]}
+              accessibilityRole="button"
+              accessibilityLabel={t('activity_view_contact')}
+            >
+              {tile}
+            </PressableScale>
           ) : (
-            <>
-              <Text style={[styles.amount, { color: amountColor }]}>
-                {value}
-                {unit ? <Text style={[styles.amountUnit, { color: unitColor }]}> {unit}</Text> : null}
+            tile
+          )
+        })()}
+
+        <PressableScale
+          scaleTo={0.99}
+          onPress={hasUtilities ? () => onToggle(rowKey) : undefined}
+          style={styles.rowRest}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={
+            token
+              ? // Never the lib's developer description, which carries a raw
+                // 36-byte token id, and never silence for a figure we could not
+                // recover: "Sent USDX, amount unavailable" is the honest read.
+                `${token.title}, ${
+                  token.amount ? `${token.amount.value} ${token.amount.unit}` : t('token_row_amount_pending')
+                }`
+              : action.description || t('transactions')
+          }
+        >
+          <View style={styles.middle}>
+            <Text style={[styles.description, { color: colors.textPrimary }]} numberOfLines={1}>
+              {token ? token.title : action.description || t('transactions')}
+            </Text>
+            <View style={styles.statusLine}>
+              <View style={[styles.dot, { backgroundColor: settled ? colors.successStrong : tone }]} />
+              <Text style={[styles.statusText, { color: settled ? colors.textSecondary : tone }]} numberOfLines={1}>
+                {(() => {
+                  const words = token?.statusText ?? t(view.key)
+                  return time ? `${words} · ${time}` : words
+                })()}
               </Text>
-              <Text style={[styles.amountSecondary, { color: colors.textTertiary }]}>{secondary}</Text>
-            </>
-          )}
-        </View>
-      </PressableScale>
+            </View>
+          </View>
+
+          <View style={styles.amounts}>
+            {token ? (
+              token.amount ? (
+                // No secondary denomination line: this wallet has no price for a
+                // token, and a converted figure would be invented.
+                <Text
+                  style={[styles.amount, { color: amountColor }]}
+                  accessibilityLabel={`${token.amount.value} ${token.amount.unit}`}
+                >
+                  {token.amount.value}
+                  <Text style={[styles.amountUnit, { color: unitColor }]}> {token.amount.unit}</Text>
+                </Text>
+              ) : (
+                <Text style={[styles.amountSecondary, { color: colors.textTertiary }]}>
+                  {t('token_row_amount_pending')}
+                </Text>
+              )
+            ) : (
+              <>
+                <Text style={[styles.amount, { color: amountColor }]}>
+                  {value}
+                  {unit ? <Text style={[styles.amountUnit, { color: unitColor }]}> {unit}</Text> : null}
+                </Text>
+                <Text style={[styles.amountSecondary, { color: colors.textTertiary }]}>{secondary}</Text>
+              </>
+            )}
+          </View>
+        </PressableScale>
+      </View>
 
       {expanded && hasUtilities ? (
         <View style={styles.chips}>
@@ -450,9 +534,7 @@ function ActivityRowBase({
       {/* Inset to the description, not the screen edge: the rule separates the
           text columns, and the glyph tiles already read as separate objects. An
           expanded row is bounded by its own surface, so it needs no rule. */}
-      {expanded ? null : (
-        <View style={[styles.separator, { backgroundColor: colors.hairline }]} />
-      )}
+      {expanded ? null : <View style={[styles.separator, { backgroundColor: colors.hairline }]} />}
     </View>
   )
 }
@@ -477,10 +559,7 @@ function Chip({
     <PressableScale
       onPress={onPress}
       haptic="tap"
-      style={[
-        styles.chip,
-        { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
-      ]}
+      style={[styles.chip, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
     >
@@ -499,6 +578,10 @@ const styles = StyleSheet.create({
     paddingTop: 13,
     paddingBottom: 11
   },
+  // The face's touch target and the rest of the row's are two separate
+  // pressables side by side; `rowRest` reproduces `row`'s own inner spacing
+  // for the middle/amounts pair so splitting them changes no spacing.
+  rowRest: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   glyph: {
     width: 38,
     height: 38,
@@ -509,6 +592,8 @@ const styles = StyleSheet.create({
   },
   // Clips the square sigil to the tile's rounded corners.
   avatar: { overflow: 'hidden' },
+  // The tappable ring around a face that opens a saved contact.
+  faceRing: { padding: 2, borderRadius: 14, borderWidth: 2 },
   middle: { flex: 1, minWidth: 0 },
   // 14.5/500 rather than body 17/400: the row is scanned, not read, and at 17pt
   // the description crowds the amount on narrow phones.
@@ -556,7 +641,9 @@ function ConnectedActivityRow(props: Props) {
 /** Preserve the existing package API for hosts that omit currency; the home
  * screen supplies it so background wallet updates cannot invalidate each row. */
 export default function ActivityRow(props: Props) {
-  return props.currency === undefined
-    ? <ConnectedActivityRow {...props} />
-    : <MemoActivityRow {...props} currency={props.currency} />
+  return props.currency === undefined ? (
+    <ConnectedActivityRow {...props} />
+  ) : (
+    <MemoActivityRow {...props} currency={props.currency} />
+  )
 }

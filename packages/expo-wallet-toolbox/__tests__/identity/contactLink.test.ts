@@ -1,4 +1,4 @@
-import { contactAddLinkFor, parseIdentityKeyFromScan } from '../../core/identity/contactLink'
+import { contactAddLinkFor, isCompressedIdentityKey, parseIdentityKeyFromScan } from '../../core/identity/contactLink'
 
 const KEY = '02' + 'ab'.repeat(32)
 
@@ -33,5 +33,24 @@ describe('parseIdentityKeyFromScan', () => {
 
   it('returns undefined for a link missing identityKey', () => {
     expect(parseIdentityKeyFromScan('bsv-wallet://contact/add?foo=bar')).toBeUndefined()
+  })
+})
+
+describe('isCompressedIdentityKey', () => {
+  it('accepts a valid compressed key, either prefix, either case', () => {
+    expect(isCompressedIdentityKey(KEY)).toBe(true)
+    expect(isCompressedIdentityKey(KEY.toUpperCase())).toBe(true)
+    expect(isCompressedIdentityKey('03' + 'cd'.repeat(32))).toBe(true)
+  })
+
+  it('tolerates surrounding whitespace from a paste', () => {
+    expect(isCompressedIdentityKey(`  ${KEY}  `)).toBe(true)
+  })
+
+  it('rejects the wrong length, the wrong prefix, or non-hex text', () => {
+    expect(isCompressedIdentityKey(KEY.slice(0, -2))).toBe(false)
+    expect(isCompressedIdentityKey('04' + 'ab'.repeat(32))).toBe(false)
+    expect(isCompressedIdentityKey('not a key')).toBe(false)
+    expect(isCompressedIdentityKey('')).toBe(false)
   })
 })

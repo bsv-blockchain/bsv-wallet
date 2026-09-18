@@ -16,6 +16,11 @@ export function contactAddLinkFor(identityKey: string): string {
   return `bsv-wallet://contact/add?identityKey=${identityKey.toLowerCase()}`
 }
 
+/** Whether a string is a 66-hex compressed public key — the shape of an Identifier. */
+export function isCompressedIdentityKey(s: string): boolean {
+  return COMPRESSED_KEY.test(s.trim())
+}
+
 /**
  * The identity key out of a scanned code, or undefined when the text names
  * neither a contact-add link nor a bare compressed key. Accepts a bare key

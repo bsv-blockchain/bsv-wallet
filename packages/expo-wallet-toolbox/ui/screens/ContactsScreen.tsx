@@ -4,7 +4,7 @@
  * back returns there.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { I18nManager, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { I18nManager, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import { useTheme, spacing, radii, typography, useWallet } from '@bsv/expo-wallet-toolbox'
@@ -119,7 +119,7 @@ export function ContactsScreen() {
           <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{t('contacts_empty_body')}</Text>
         </View>
       ) : (
-        <View style={styles.list}>
+        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
           {rows.map((row, idx) => (
             <TouchableOpacity
               key={row.identityKey}
@@ -146,8 +146,23 @@ export function ContactsScreen() {
               <Ionicons name="chevron-forward" size={18} color={colors.textQuaternary} />
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
       )}
+
+      {/* The one manual-entry door into Contacts (2026-09-18) — every other
+          path (scan, deep link, a payment's success screen) already knows the
+          identity key. */}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
+        <PressableScale
+          onPress={() => router.push('/contact/add' as never)}
+          haptic="tap"
+          style={[styles.newContactBtn, { backgroundColor: colors.accent }]}
+          accessibilityRole="button"
+        >
+          <Ionicons name="person-add-outline" size={18} color={colors.textOnAccent} />
+          <Text style={[styles.newContactText, { color: colors.textOnAccent }]}>{t('contact_new_title')}</Text>
+        </PressableScale>
+      </View>
 
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
         <QRScanner onScan={onScan} onClose={() => setScannerVisible(false)} hintText={t('contact_scan_hint')} />
@@ -180,12 +195,23 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2
   },
   searchInput: { ...typography.body, flex: 1, padding: 0 },
-  list: { paddingHorizontal: spacing.lg },
+  list: { flex: 1 },
+  listContent: { paddingHorizontal: spacing.lg },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
   rowText: { flex: 1, minWidth: 0 },
   rowName: { ...typography.body, fontWeight: '500' },
   rowHandle: { ...typography.footnote, marginTop: 1 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingHorizontal: spacing.xxl },
   emptyTitle: { ...typography.headline, fontWeight: '600', marginTop: spacing.sm },
-  emptyBody: { ...typography.footnote, textAlign: 'center' }
+  emptyBody: { ...typography.footnote, textAlign: 'center' },
+  footer: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  newContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md + 2,
+    borderRadius: radii.md
+  },
+  newContactText: { ...typography.subhead, fontWeight: '600' }
 })

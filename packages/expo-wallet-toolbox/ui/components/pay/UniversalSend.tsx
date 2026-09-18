@@ -346,11 +346,16 @@ function UniversalSend({
   const [sent, setSent] = useState<{
     amount: number
     recipient?: string
+    /** Set only for a handle/token send — offers "Add to contacts" on the success screen. */
+    recipientIdentityKey?: string
     /** Token mode: the figure in the asset's own units. */
     amountText?: string
     /** Whether the issuer has confirmed it yet — never claimed, only reported. */
     statusNote?: string
   } | null>(null)
+  /** Set once `sent` names a handle recipient who is not already a saved
+   * contact — null while that check is pending or once it comes back "already saved". */
+  const [offerAddContact, setOfferAddContact] = useState<{ identityKey: string; name?: string } | null>(null)
   const [outbox, setOutbox] = useState<OutboxEntry[]>([])
   const [retryingId, setRetryingId] = useState<string | null>(null)
 
@@ -490,6 +495,34 @@ function UniversalSend({
       cancelled = true
     }
   }, [contactsStore, walletUserId, target])
+
+  // The success screen's "Add to contacts" offer: only for a handle send, and
+  // only once confirmed absent from contacts (checked fresh here rather than
+  // reusing `targetIsContact` — `target` may already be cleared by the time
+  // this runs, and a check against the stale ONE this send actually used is
+  // what the button must reflect).
+  useEffect(() => {
+    setOfferAddContact(null)
+    if (!sent?.recipientIdentityKey || !contactsStore || walletUserId === null) return
+    let cancelled = false
+    const identityKey = sent.recipientIdentityKey
+    void contactsStore.getContact(walletUserId, identityKey).then(c => {
+      if (!cancelled && !c) setOfferAddContact({ identityKey, name: sent.recipient })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [sent, contactsStore, walletUserId])
+
+  const onAddContact = useCallback(() => {
+    if (!offerAddContact) return
+    setSent(null)
+    loadExpoRouter().router.push({
+      pathname: '/contact/add',
+      params: { identityKey: offerAddContact.identityKey, name: offerAddContact.name ?? '', source: 'pay' }
+    } as never)
+  }, [offerAddContact])
+
   /**
    * A token link that arrived before the holdings were known. `null` balances
    * mean UNKNOWN, never "holds nothing" (useMandala's contract), and a
@@ -635,6 +668,7 @@ function UniversalSend({
       setSent({
         amount: paidSats,
         recipient: recipient.selectedIdentity?.name,
+        recipientIdentityKey: to.identityKey,
         // The handle rail always drops the payment in the recipient's message
         // box rather than handing it over in person — worth saying explicitly
         // here, since it is the one thing an in-person (Nearby) payer never
@@ -698,6 +732,7 @@ function UniversalSend({
       setSent({
         amount: 0,
         recipient: recipient.selectedIdentity?.name,
+        recipientIdentityKey: to.identityKey,
         // Never falls back to the satoshi renderer: a token figure it could not
         // format would print as satoshis, which is a wrong number rather than a
         // missing one.
@@ -826,7 +861,7 @@ function UniversalSend({
       setRetryingId(entry.id)
       try {
         await retryDelivery({ wallet: wallet as any, adminOriginator, client, storage, entry })
-        setSent({ amount: entry.token.amount })
+        setSent({ amount: entry.token.amount, recipientIdentityKey: entry.recipient })
       } catch (e: any) {
         if (await handleWalletCheck(e)) return
         const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
@@ -1286,6 +1321,7 @@ function UniversalSend({
           amountText={sent.amountText}
           statusNote={sent.statusNote}
           recipientName={sent.recipient}
+          onAddContact={offerAddContact ? onAddContact : undefined}
           onDismiss={() => setSent(null)}
           dismissTo={dismissTo}
         />

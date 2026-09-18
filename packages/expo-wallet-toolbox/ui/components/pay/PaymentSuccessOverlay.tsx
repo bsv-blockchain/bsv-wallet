@@ -96,6 +96,14 @@ export interface ReceivedOverlayProps {
    */
   dismissTo?: DismissTarget
   /**
+   * Sent only, and only when the recipient resolved to an identity key that
+   * is not already a saved contact: offers a secondary "Add to contacts"
+   * action beside Done. The caller owns the whole action (cleanup and
+   * navigation both) — this component stays presentational and only decides
+   * whether to show the button at all.
+   */
+  onAddContact?: () => void
+  /**
    * Acknowledged. The only way this screen closes. Clean up local state here —
    * the overlay itself then returns the user to the wallet, so the updated
    * balance is the next thing they see.
@@ -113,6 +121,7 @@ export default function PaymentSuccessOverlay({
   statusNote,
   firstHoldNote,
   dismissTo = '/',
+  onAddContact,
   onDismiss
 }: ReceivedOverlayProps) {
   const sent = direction === 'sent'
@@ -238,6 +247,21 @@ export default function PaymentSuccessOverlay({
 
         {ready && (
           <Animated.View entering={fadeIn} style={styles.footer}>
+            {/* Outlined, not filled — Done is the one accent-filled control on
+                this screen. */}
+            {!!onAddContact && (
+              <PressableScale
+                onPress={onAddContact}
+                haptic="tap"
+                style={[styles.outlineButton, { borderColor: colors.accent }]}
+                accessibilityRole="button"
+                accessibilityLabel={t('contact_add_from_payment')}
+              >
+                <Text style={[styles.outlineButtonText, { color: colors.accent }]}>
+                  {t('contact_add_from_payment')}
+                </Text>
+              </PressableScale>
+            )}
             <PressableScale
               onPress={acknowledge}
               haptic="tap"
@@ -299,7 +323,8 @@ const styles = StyleSheet.create({
     maxWidth: 300
   },
   footer: {
-    paddingBottom: spacing.md
+    paddingBottom: spacing.md,
+    gap: spacing.sm
   },
   button: {
     flexDirection: 'row',
@@ -310,6 +335,17 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     ...typography.headline,
+    fontWeight: '600'
+  },
+  outlineButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth
+  },
+  outlineButtonText: {
+    ...typography.subhead,
     fontWeight: '600'
   }
 })
