@@ -436,7 +436,7 @@ describe('UniversalSend with stablecoins', () => {
     )
     await waitFor(() => expect(s.getByPlaceholderText('0.00').props.value).toBe('25.00'))
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
   })
 
   it('an open token link selects the asset and leaves the figure to the payer', async () => {
@@ -596,8 +596,8 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
-    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
     await waitFor(() =>
       expect(runtime.sendToHandle).toHaveBeenCalledWith({
         assetId: USDX.assetId,
@@ -616,10 +616,10 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
     // The note field moved into the review card (2026-09-18 design).
     fireEvent.changeText(s.getByPlaceholderText('pay_review_note_edit'), 'lunch split')
-    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    fireEvent.press(s.getByText('send'))
     await waitFor(() =>
       expect(runtime.sendToHandle).toHaveBeenCalledWith({
         assetId: USDX.assetId,
@@ -644,8 +644,8 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
-    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
     await waitFor(() => expect(s.getByText('pay_sent_not_notified')).toBeTruthy())
     expect(s.queryByText('token_sent_settled:Acme Bank')).toBeNull()
     expect(s.queryByText('pay_sent_not_broadcast')).toBeNull()
@@ -666,8 +666,8 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
-    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
     await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
     expect(s.queryByText(/token_sent_settling/)).toBeNull()
   })
@@ -683,8 +683,8 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
-    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
     // Hand-over-first: the money is made and on its way to the issuer, which
     // is what the nearby rail has always said. "Not yet broadcast" would be a
     // narrower (and, on this rail, misleading) claim about the network.
@@ -738,8 +738,8 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
-    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
     await waitFor(() => expect(s.getByText('token_err_refused_paused:USDX|Acme Bank')).toBeTruthy())
   })
 
@@ -754,8 +754,8 @@ describe('UniversalSend with stablecoins', () => {
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
-    fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
     await waitFor(() => expect(s.getByText('token_err_send_failed:USDX|Acme Bank|MessageBox unreachable')).toBeTruthy())
     expect(s.queryByLabelText('token_err_check_again')).toBeNull()
   })
@@ -770,7 +770,7 @@ describe('UniversalSend with stablecoins', () => {
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '9999')
     fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('pay_asset_over_balance:USDX')).toBeTruthy())
-    fireEvent.press(s.getByText('pay_asset_cta:9,999.00|USDX'))
+    fireEvent.press(s.getByText('send'))
     expect(runtime.sendToHandle).not.toHaveBeenCalled()
   })
 })
@@ -802,8 +802,8 @@ describe("UniversalSend — the handle rail's own success note", () => {
     await waitFor(() => expect(s.getByPlaceholderText('0')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0'), '2500')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByText(/^pay_send_amount/)).toBeTruthy())
-    fireEvent.press(s.getByText(/^pay_send_amount/))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
     await waitFor(() => expect(mockSendViaHandle).toHaveBeenCalled())
     await waitFor(() => expect(s.getByText('pay_sent_handed_to_wallet')).toBeTruthy())
   })

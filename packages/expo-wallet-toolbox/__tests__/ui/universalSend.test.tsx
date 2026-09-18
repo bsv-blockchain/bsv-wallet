@@ -203,7 +203,7 @@ describe('UniversalSend', () => {
     fireEvent.changeText(s.getByTestId('amount-input'), '500')
     fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('message_box_off_hint')).toBeTruthy())
-    expect(s.getByLabelText(/^pay_send_amount/).props.accessibilityState.disabled).toBe(true)
+    expect(s.getByLabelText('send').props.accessibilityState.disabled).toBe(true)
   })
 
   it('an address can still be paid while a handle payment is stuck in the outbox', async () => {
@@ -217,8 +217,8 @@ describe('UniversalSend', () => {
     fireEvent.press(s.getByText('pay_step_continue'))
     fireEvent.changeText(s.getByTestId('amount-input'), '500')
     fireEvent.press(s.getByText('pay_step_continue'))
-    await waitFor(() => expect(s.getByLabelText(/^pay_send_amount/)).toBeTruthy())
-    expect(s.getByLabelText(/^pay_send_amount/).props.accessibilityState.disabled).toBe(false)
+    await waitFor(() => expect(s.getByLabelText('send')).toBeTruthy())
+    expect(s.getByLabelText('send').props.accessibilityState.disabled).toBe(false)
   })
 
   it('leaves the form intact and shows a banner when the wallet is not ready', async () => {
@@ -228,7 +228,7 @@ describe('UniversalSend', () => {
     fireEvent.press(s.getByText('pay_step_continue'))
     fireEvent.changeText(s.getByTestId('amount-input'), '500')
     fireEvent.press(s.getByText('pay_step_continue'))
-    fireEvent.press(s.getByLabelText(/^pay_send_amount/))
+    fireEvent.press(s.getByLabelText('send'))
     await waitFor(() => expect(s.getByText('wallet_not_ready')).toBeTruthy())
     // A failure must never clear what was typed — confirmed by stepping back
     // through "amount" and "who" and finding both fields exactly as left.

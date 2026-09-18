@@ -1057,18 +1057,6 @@ function UniversalSendInner(
                     : null
     : null
 
-  // The button names the exact figure and asset being sent, on every rail —
-  // it is the confirmation this flow has.
-  const ctaLabel =
-    asset && amountOk
-      ? t('pay_asset_cta', {
-          amount: formatTokenAmount(baseUnits, asset.decimals) ?? '',
-          ticker: asset.ticker
-        })
-      : !asset && amountOk
-        ? t('pay_send_amount', { amount: `${formatSatoshisAsBsvDecimal(Math.round(Number(sendAmount)) || 0)} BSV` })
-        : undefined
-
   const backStep = useCallback(() => {
     setStep(prev => (prev === 'review' ? 'amount' : 'who'))
   }, [])
@@ -1265,10 +1253,11 @@ function UniversalSendInner(
               style={[styles.reviewRow, !showNoteRow && styles.reviewRowLast, { borderBottomColor: colors.separator }]}
             >
               <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_amount')}</Text>
+              {/* No adjustsFontSizeToFit / numberOfLines: iOS's shrink floor is a fixed 4pt and in this
+                  flex row it collapsed the amount to illegible. A long amount wraps instead, so no digit
+                  is ever hidden on the screen that confirms it. */}
               <Text
                 style={[styles.reviewAmount, { color: colors.textPrimary }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
                 accessibilityLabel={`${reviewAmount.value} ${reviewAmount.unit}`}
               >
                 {reviewAmount.value}{' '}
@@ -1320,7 +1309,7 @@ function UniversalSendInner(
             <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('finish_or_cancel_outgoing')}</Text>
           )}
 
-          <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} label={ctaLabel} />
+          <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} labelKey="send" />
 
           {/* A failed token send, in the app's own failure channel: error tone,
               dismissible, and carrying at most one affordance. "Check again"
