@@ -61,6 +61,13 @@ interface RecipientFieldProps {
    * Rendered in place of the resolved-target line.
    */
   readonly statusOverride?: { readonly text: string; readonly tone: 'warning' | 'error' }
+  /**
+   * A heading shown above the dropdown when it is showing local contacts on
+   * an empty query rather than overlay search hits (Pay's "Recent" tier,
+   * 2026-09 design). The caller merges local contacts into `searchResults`
+   * itself — this component only draws the label they ask for.
+   */
+  readonly recentLabel?: string
 }
 
 export default function RecipientField({
@@ -77,7 +84,8 @@ export default function RecipientField({
   onClear,
   onOpenScanner,
   assetTicker,
-  statusOverride
+  statusOverride,
+  recentLabel
 }: RecipientFieldProps) {
   const Ionicons = loadIonicons()
   const reducedMotion = useReducedMotion()
@@ -181,7 +189,11 @@ export default function RecipientField({
               <Text style={[styles.searchLoadingText, { color: colors.textSecondary }]}>{t('searching')}</Text>
             </View>
           ) : (
-            searchResults.map((identity, idx) => (
+            <>
+              {!!recentLabel && inputText.trim() === '' && (
+                <Text style={[styles.recentLabel, { color: colors.textTertiary }]}>{recentLabel}</Text>
+              )}
+              {searchResults.map((identity, idx) => (
               <TouchableOpacity
                 key={identity.identityKey + idx}
                 onPress={() => onSelectIdentity(identity)}
@@ -214,7 +226,8 @@ export default function RecipientField({
                   </View>
                 ) : null}
               </TouchableOpacity>
-            ))
+              ))}
+            </>
           )}
         </View>
       )}
@@ -286,6 +299,15 @@ const styles = StyleSheet.create({
   },
   searchLoadingText: {
     ...typography.subhead
+  },
+  recentLabel: {
+    ...typography.caption2,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs
   },
   searchResultRow: {
     flexDirection: 'row',

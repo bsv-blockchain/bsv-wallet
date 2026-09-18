@@ -96,28 +96,36 @@ describe('UniversalSend', () => {
     await AsyncStorage.clear()
   })
 
-  it('opens with the universal placeholder, an amount, and neither note nor consequence', () => {
+  it('opens on step "who" with the universal placeholder and nothing else yet', () => {
+    // 2026-09-18 redesign: recipient, amount and review are separate steps —
+    // a fresh form shows only the recipient field until one is chosen.
     const s = draw()
     expect(s.getByPlaceholderText('recipient_placeholder')).toBeTruthy()
-    expect(s.getByText('amount')).toBeTruthy()
+    expect(s.queryByText('amount')).toBeNull()
     expect(s.queryByText('note')).toBeNull()
     expect(s.queryByText('pay_conseq_address')).toBeNull()
     expect(s.queryByText('pay_conseq_handle')).toBeNull()
   })
 
-  it('an address: valid-address row, address consequence, and a note field (own record only)', async () => {
+  it('an address: valid-address row on "who", address consequence and a note on review', async () => {
     const s = draw()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
     await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
     expect(s.getByText('pay_conseq_address')).toBeTruthy()
-    expect(s.getByText('note')).toBeTruthy()
+    expect(s.getByText('pay_review_note')).toBeTruthy()
   })
 
-  it('a key: valid-key row, note field, and no consequence callout', async () => {
+  it('a key: valid-key row on "who", note on review, no consequence callout', async () => {
     const s = draw()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
-    expect(s.getByText('note')).toBeTruthy()
+    fireEvent.press(s.getByText('pay_step_continue'))
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    expect(s.getByText('pay_review_note')).toBeTruthy()
     expect(s.queryByText('pay_conseq_address')).toBeNull()
     expect(s.queryByText('pay_conseq_handle')).toBeNull()
   })
@@ -130,9 +138,11 @@ describe('UniversalSend', () => {
     expect(s.queryByText('pay_conseq_address')).toBeNull()
   })
 
-  it('prefills from an initial handle target and amount', () => {
+  it('prefills from an initial handle target and amount, skipping straight to "amount"', () => {
+    // A recipient known before the form opened jumps past "who" entirely —
+    // there is nothing left to decide there — landing pre-filled on "amount".
     const s = draw({ initialTarget: { kind: 'handle', identityKey: KEY }, initialSats: 1500 })
-    expect(s.getByText('valid_identity_key')).toBeTruthy()
+    expect(s.queryByPlaceholderText('recipient_placeholder')).toBeNull()
     expect(s.getByTestId('amount-input').props.value).toBe('1500')
   })
 
@@ -179,28 +189,43 @@ describe('UniversalSend', () => {
     await AsyncStorage.setItem(MESSAGE_BOX_URL_KEY, NO_MESSAGE_BOX)
     const s = draw()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
     fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('message_box_off_hint')).toBeTruthy())
     expect(s.getByLabelText('pay').props.accessibilityState.disabled).toBe(true)
   })
 
   it('an address can still be paid while a handle payment is stuck in the outbox', async () => {
+    // The two facts no longer share a screen (the outbox lives on "who", Send
+    // on "review"), so each is checked on its own step.
     mockStorage = stuckOutbox()
     const s = draw()
-    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
-    fireEvent.changeText(s.getByTestId('amount-input'), '500')
     await waitFor(() => expect(s.getByText('outgoing_payments')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
+    await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByLabelText('pay')).toBeTruthy())
     expect(s.getByLabelText('pay').props.accessibilityState.disabled).toBe(false)
   })
 
   it('leaves the form intact and shows a banner when the wallet is not ready', async () => {
     const s = draw()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
-    fireEvent.changeText(s.getByTestId('amount-input'), '500')
     await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
     fireEvent.press(s.getByLabelText('pay'))
     await waitFor(() => expect(s.getByText('wallet_not_ready')).toBeTruthy())
-    expect(s.getByPlaceholderText('recipient_placeholder').props.value).toBe(ADDRESS)
+    // A failure must never clear what was typed — confirmed by stepping back
+    // through "amount" and "who" and finding both fields exactly as left.
+    fireEvent.press(s.getByText('back'))
     expect(s.getByTestId('amount-input').props.value).toBe('500')
+    fireEvent.press(s.getByText('back'))
+    expect(s.getByPlaceholderText('recipient_placeholder').props.value).toBe(ADDRESS)
   })
 })
