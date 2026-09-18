@@ -114,3 +114,35 @@ describe('chaintracksUrlFor', () => {
     expect(chaintracksUrlFor('teratest')).toBe('https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1')
   })
 })
+
+// 2026-09-18: a received nosend sat unrecognised for 12 h while the explorer
+// showed 6 confirmations, because proof lookups only ever asked WhatsOnChain
+// and Bitails. Services builds its Arcade provider — Arcade-first getMerklePath
+// and the SSE task's target — only when `arcadeUrl` is set, and these options
+// never set it ("no arcadeUrl configured; SSE disabled" on every monitor start
+// since the wallet was created). Every tx this wallet sends goes through
+// Arcade, so Arcade must be the first place a proof is looked for.
+describe('Arcade wiring', () => {
+  it.each([
+    ['main', 'https://arcade-v2-us-1.bsvblockchain.tech'],
+    ['test', 'https://arcade-v2-testnet-us-1.bsvblockchain.tech'],
+    ['teratest', 'https://arcade-v2-ttn-us-1.bsvblockchain.tech']
+  ] as const)('%s: sets arcadeUrl to the same endpoint as arcUrl, with the monitor callback token', (network, url) => {
+    const options = createServiceOptions(network, 'callback-token', exchangeRate())
+    expect(options.arcUrl).toBe(url)
+    expect(options.arcadeUrl).toBe(url)
+    expect(options.arcadeConfig?.callbackToken).toBe('callback-token')
+  })
+
+  it('an arcUrl override moves both slots together', () => {
+    const options = createServiceOptions('test', 'callback-token', exchangeRate(), 'https://arcade.example')
+    expect(options.arcUrl).toBe('https://arcade.example')
+    expect(options.arcadeUrl).toBe('https://arcade.example')
+  })
+
+  it('Services consults Arcade first for merkle proofs', () => {
+    const { services } = createServices('test', 'callback-token', exchangeRate())
+    const names = (services as any).getMerklePathServices.services.map((s: { name: string }) => s.name)
+    expect(names[0]).toBe('Arcade')
+  })
+})

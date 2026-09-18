@@ -80,14 +80,36 @@ export function createServiceOptions(
     }
   }
 
+  // One resolved Arcade endpoint feeds BOTH option slots. `arcUrl` is the
+  // toolbox's generic ARC slot (broadcast fallback, `services.arcTaal`).
+  // `arcadeUrl` is what makes `Services` construct its `Arcade` provider —
+  // and that provider is the only `getMerklePath` source that can answer for
+  // a transaction the moment Arcade sees it mined (GET /v1/tx/{txid} carries
+  // the BUMP), and the only thing `TaskArcadeSSE` will subscribe to. Without
+  // it every proof lookup went straight to WhatsOnChain/Bitails, and the
+  // monitor logged "no arcadeUrl configured; SSE disabled" on every start —
+  // a nosend received while online sat unrecognised for 12 h on 2026-09-18
+  // while the explorer showed it with 6 confirmations.
+  const arcadeUrl =
+    arcUrlOverride ??
+    svc.arcUrl ??
+    (network === 'main'
+      ? 'https://arcade-v2-us-1.bsvblockchain.tech'
+      : network === 'test'
+        ? 'https://arcade-v2-testnet-us-1.bsvblockchain.tech'
+        : 'https://arcade-v2-ttn-us-1.bsvblockchain.tech')
+  const arcConfig = {
+    apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
+    // Must equal the Monitor's callbackToken so Arcade routes this wallet's
+    // status events to its SSE subscription (WalletServicesOptions.arcadeConfig).
+    callbackToken
+  }
+  const arcade = { arcUrl: arcadeUrl, arcConfig, arcadeUrl, arcadeConfig: arcConfig }
+
   if (network === 'main') {
     return {
       ...base,
-      arcUrl: arcUrlOverride ?? svc.arcUrl ?? 'https://arcade-v2-us-1.bsvblockchain.tech',
-      arcConfig: {
-        apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
-        callbackToken
-      },
+      ...arcade,
       bsvUpdateMsecs: 60 * 60 * 1000,
       fiatUpdateMsecs: 60 * 60 * 1000,
       whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
@@ -99,11 +121,7 @@ export function createServiceOptions(
   if (network === 'test') {
     return {
       ...base,
-      arcUrl: arcUrlOverride ?? svc.arcUrl ?? 'https://arcade-v2-testnet-us-1.bsvblockchain.tech',
-      arcConfig: {
-        apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
-        callbackToken
-      },
+      ...arcade,
       bsvUpdateMsecs: 60 * 60 * 1000000,
       fiatUpdateMsecs: 60 * 60 * 1000000,
       whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
@@ -115,11 +133,7 @@ export function createServiceOptions(
   // teratest
   return {
     ...base,
-    arcUrl: arcUrlOverride ?? svc.arcUrl ?? 'https://arcade-v2-ttn-us-1.bsvblockchain.tech',
-    arcConfig: {
-      apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
-      callbackToken
-    },
+    ...arcade,
     bsvUpdateMsecs: 60 * 60 * 1000000,
     fiatUpdateMsecs: 60 * 60 * 1000000,
     whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',

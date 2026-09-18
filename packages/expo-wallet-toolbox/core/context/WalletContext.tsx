@@ -1121,7 +1121,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // Replace all default broadcast providers with EF/rawtx-only services.
         // Order: Arcade → Taal → GorillaPool → WoC → Bitails. UntilSuccess stops at first success.
+        // 'ArcadeBeef' is the toolbox's own Arcade broadcaster, registered
+        // because serviceOptions now carries arcadeUrl (needed for Arcade-first
+        // proofs and SSE). Our createArcadeBroadcastService replaces it here so
+        // the same tx is not posted to Arcade twice with two header sets.
         const bitailsService = (services as any).bitails
+        services.postBeefServices.remove('ArcadeBeef')
         services.postBeefServices.remove('GorillaPoolArcBeef')
         services.postBeefServices.remove('TaalArcBeef')
         services.postBeefServices.remove('Bitails')
@@ -1143,7 +1148,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
 
         // Replace WoC getMerklePath with BUMP endpoint — no TSC→BUMP conversion needed.
-        // Remove all providers then re-add in order: WoC BUMP first, Bitails fallback.
+        // The toolbox's 'Arcade' provider stays where Services put it: first.
+        // Every tx this wallet sends goes through Arcade, so GET /v1/tx/{txid}
+        // there is the one lookup that can answer as soon as it is mined. WoC
+        // BUMP and Bitails are re-added after it as fallbacks, in that order.
         const wocBumpBase =
           chain === 'main'
             ? 'https://api.whatsonchain.com/v1/bsv/main'
