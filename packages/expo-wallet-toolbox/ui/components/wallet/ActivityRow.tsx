@@ -77,7 +77,7 @@ function loadIonicons(): IoniconsComponent {
 function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   if (!materialCommunityIconsComponent) {
     materialCommunityIconsComponent = // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
+      require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
   }
   return materialCommunityIconsComponent
 }
@@ -274,12 +274,12 @@ function ActivityRowBase({
     return cp?.kind === 'identityKey' ? cp.value : undefined
   }, [labelsKey, senderIdentityKey, txid, isTokenRow, tokenCounterpartyKey])
 
-  // Whether the face becomes tappable — only once expanded (2026-09-18
-  // ruling), and only for a counterparty already saved as a contact; nobody
-  // this row cannot name a saved contact for gets a ring nothing opens.
+  // Whether the face is tappable, expanded or not (2026-09-18) — only for a
+  // counterparty already saved as a contact; nobody this row cannot name a
+  // saved contact for gets a tap that opens nothing.
   const [isContact, setIsContact] = useState(false)
   useEffect(() => {
-    if (!expanded || !counterpartyIdentityKey || !contactsStore || walletUserId == null) {
+    if (!counterpartyIdentityKey || !contactsStore || walletUserId == null) {
       setIsContact(false)
       return
     }
@@ -290,8 +290,8 @@ function ActivityRowBase({
     return () => {
       cancelled = true
     }
-  }, [expanded, counterpartyIdentityKey, contactsStore, walletUserId])
-  const faceTappable = expanded && isContact && !!counterpartyIdentityKey
+  }, [counterpartyIdentityKey, contactsStore, walletUserId])
+  const faceTappable = isContact && !!counterpartyIdentityKey
   const onPressFace = useCallback(() => {
     if (!counterpartyIdentityKey) return
     loadExpoRouter().router.push({ pathname: '/contact', params: { identityKey: counterpartyIdentityKey } } as never)
@@ -342,10 +342,12 @@ function ActivityRowBase({
             pair: sigil-js cuts its glyph lines in the background colour, so
             the fill must be the same solid or the cuts show as a halo.
 
-            A separate pressable from the row below it (2026-09-18): once
-            expanded, tapping a face that names a saved contact opens their
+            A separate pressable from the row below it (2026-09-18), expanded
+            or not: tapping a face that names a saved contact opens their
             contact page, while tapping the rest of the row still toggles the
-            chips — two touch targets, not one nested inside the other. */}
+            chips — two touch targets, not one nested inside the other. No
+            visual affordance on the tile itself (a highlight ring was tried
+            and dropped) — the row already reads as tappable as a whole. */}
         {(() => {
           const tile =
             face !== null && palette !== null ? (
@@ -390,7 +392,6 @@ function ActivityRowBase({
             <PressableScale
               onPress={onPressFace}
               scaleTo={0.92}
-              style={[styles.faceRing, { borderColor: colors.accent }]}
               accessibilityRole="button"
               accessibilityLabel={t('activity_view_contact')}
             >
@@ -592,8 +593,6 @@ const styles = StyleSheet.create({
   },
   // Clips the square sigil to the tile's rounded corners.
   avatar: { overflow: 'hidden' },
-  // The tappable ring around a face that opens a saved contact.
-  faceRing: { padding: 2, borderRadius: 14, borderWidth: 2 },
   middle: { flex: 1, minWidth: 0 },
   // 14.5/500 rather than body 17/400: the row is scanned, not read, and at 17pt
   // the description crowds the amount on narrow phones.
