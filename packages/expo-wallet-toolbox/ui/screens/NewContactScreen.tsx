@@ -65,7 +65,7 @@ export function NewContactScreen() {
     } finally {
       setSaving(false)
     }
-  }, [store, walletUserId, identityKey, name, nameValid, router])
+  }, [store, walletUserId, identityKey, name, nameValid, router, t])
 
   const identifierDisplay = useMemo(() => (identityKey ? abbreviateKey(identityKey) : ''), [identityKey])
 
