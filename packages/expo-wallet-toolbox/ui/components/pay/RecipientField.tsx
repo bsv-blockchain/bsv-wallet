@@ -7,10 +7,11 @@
  * useRecipientInput; this file only renders that state.
  */
 import React from 'react'
-import { ActivityIndicator, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import type { DisplayableIdentity } from '@bsv/sdk'
 import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { spacing, typography, radii, springs } from '@bsv/expo-wallet-toolbox'
+import ContactSigil from '../wallet/ContactSigil'
 import type { RecipientInlineError, RecipientTarget } from './useRecipientInput'
 
 /**
@@ -61,6 +62,13 @@ interface RecipientFieldProps {
    * Rendered in place of the resolved-target line.
    */
   readonly statusOverride?: { readonly text: string; readonly tone: 'warning' | 'error' }
+  /**
+   * A heading shown above the dropdown when it is showing local contacts on
+   * an empty query rather than overlay search hits (Pay's "Recent" tier,
+   * 2026-09 design). The caller merges local contacts into `searchResults`
+   * itself — this component only draws the label they ask for.
+   */
+  readonly recentLabel?: string
 }
 
 export default function RecipientField({
@@ -77,7 +85,8 @@ export default function RecipientField({
   onClear,
   onOpenScanner,
   assetTicker,
-  statusOverride
+  statusOverride,
+  recentLabel
 }: RecipientFieldProps) {
   const Ionicons = loadIonicons()
   const reducedMotion = useReducedMotion()
@@ -92,13 +101,14 @@ export default function RecipientField({
         entering={identityEntering}
         style={[styles.selectedRecipient, { backgroundColor: colors.backgroundSecondary }]}
       >
-        {selectedIdentity.avatarURL ? (
-          <Image source={{ uri: selectedIdentity.avatarURL }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatarPlaceholder, { backgroundColor: colors.accent }]}>
-            <Ionicons name="person" size={20} color={colors.background} />
-          </View>
-        )}
+        {/* Their avatar, else their sigil — never an initials/person placeholder
+            (2026-09-18 ruling): the same face Contacts and the review card draw. */}
+        <ContactSigil
+          identityKey={selectedIdentity.identityKey}
+          avatarUrl={selectedIdentity.avatarURL || undefined}
+          size={36}
+          radius={18}
+        />
         <View style={styles.selectedInfo}>
           <Text style={[styles.selectedName, { color: colors.textPrimary }]} numberOfLines={1}>
             {selectedIdentity.name || t('unknown')}
@@ -181,40 +191,46 @@ export default function RecipientField({
               <Text style={[styles.searchLoadingText, { color: colors.textSecondary }]}>{t('searching')}</Text>
             </View>
           ) : (
-            searchResults.map((identity, idx) => (
-              <TouchableOpacity
-                key={identity.identityKey + idx}
-                onPress={() => onSelectIdentity(identity)}
-                style={[
-                  styles.searchResultRow,
-                  idx < searchResults.length - 1 && {
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderBottomColor: colors.separator
-                  }
-                ]}
-              >
-                {identity.avatarURL ? (
-                  <Image source={{ uri: identity.avatarURL }} style={styles.searchAvatar} />
-                ) : (
-                  <View style={[styles.searchAvatarPlaceholder, { backgroundColor: colors.accent }]}>
-                    <Ionicons name="person" size={18} color={colors.background} />
+            <>
+              {!!recentLabel && inputText.trim() === '' && (
+                <Text style={[styles.recentLabel, { color: colors.textTertiary }]}>{recentLabel}</Text>
+              )}
+              {searchResults.map((identity, idx) => (
+                <TouchableOpacity
+                  key={identity.identityKey + idx}
+                  onPress={() => onSelectIdentity(identity)}
+                  style={[
+                    styles.searchResultRow,
+                    idx < searchResults.length - 1 && {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: colors.separator
+                    }
+                  ]}
+                >
+                  <View style={styles.searchAvatar}>
+                    <ContactSigil
+                      identityKey={identity.identityKey}
+                      avatarUrl={identity.avatarURL || undefined}
+                      size={32}
+                      radius={16}
+                    />
                   </View>
-                )}
-                <View style={styles.searchResultInfo}>
-                  <Text style={[styles.searchResultName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {identity.name || t('unknown')}
-                  </Text>
-                  <Text style={[styles.searchResultKey, { color: colors.textSecondary }]} numberOfLines={1}>
-                    {identity.abbreviatedKey || `${identity.identityKey.slice(0, 20)}...`}
-                  </Text>
-                </View>
-                {identity.badgeLabel ? (
-                  <View style={[styles.badge, { backgroundColor: colors.fill }]}>
-                    <Text style={[styles.badgeText, { color: colors.accent }]}>{identity.badgeLabel}</Text>
+                  <View style={styles.searchResultInfo}>
+                    <Text style={[styles.searchResultName, { color: colors.textPrimary }]} numberOfLines={1}>
+                      {identity.name || t('unknown')}
+                    </Text>
+                    <Text style={[styles.searchResultKey, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {identity.abbreviatedKey || `${identity.identityKey.slice(0, 20)}...`}
+                    </Text>
                   </View>
-                ) : null}
-              </TouchableOpacity>
-            ))
+                  {identity.badgeLabel ? (
+                    <View style={[styles.badge, { backgroundColor: colors.fill }]}>
+                      <Text style={[styles.badgeText, { color: colors.accent }]}>{identity.badgeLabel}</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+              ))}
+            </>
           )}
         </View>
       )}
@@ -229,18 +245,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.md,
     borderRadius: radii.md
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18
-  },
-  avatarPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center'
   },
   selectedInfo: {
     flex: 1,
@@ -287,23 +291,21 @@ const styles = StyleSheet.create({
   searchLoadingText: {
     ...typography.subhead
   },
+  recentLabel: {
+    ...typography.caption2,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs
+  },
   searchResultRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.md
   },
   searchAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: spacing.md
-  },
-  searchAvatarPlaceholder: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginRight: spacing.md
   },
   searchResultInfo: {

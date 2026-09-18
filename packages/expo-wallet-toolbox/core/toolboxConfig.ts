@@ -26,6 +26,14 @@ export interface ToolboxServiceConfig {
  * treated as an unstated one (`getMandalaEndpoints` returns undefined) rather
  * than producing a runtime that can submit but never prove.
  */
+/** Where this app sends a handle certificate for issuance, and whose signature to trust back. */
+export interface HandleCertifierConfig {
+  /** 66-hex compressed key of the certifier that will countersign the handle certificate. */
+  certifierIdentityKey: string
+  /** Origin the BRC-103/104 issuance protocol talks to — no trailing slash. */
+  certifierUrl: string
+}
+
 export interface MandalaEndpointConfig {
   /** Origin of the issuer's overlay, no trailing slash — `${overlayUrl}/submit` is posted to. */
   overlayUrl: string
@@ -82,6 +90,15 @@ export interface ToolboxConfig {
    */
   mandala?: Partial<Record<AppChain, MandalaEndpointConfig>>
   /**
+   * The certifier this app registers a handle certificate through
+   * (`core/identity/handleCertificate.ts`), per chain. There is deliberately
+   * NO default and no fallback: no such certifier is deployed anywhere this
+   * package can reach as of 2026-09, so a host that omits this gets an honest
+   * "not available yet" from the registration UI rather than a certificate
+   * acquisition aimed at an endpoint that does not exist.
+   */
+  handleCertifier?: Partial<Record<AppChain, HandleCertifierConfig>>
+  /**
    * Release gate for the YubiKey vault (spec §0, D15). Default false: the home
    * button and Settings row are hidden, the vault route shows "Not available
    * yet", and no code path may enrol hardware or create a vault output. Turned
@@ -95,6 +112,7 @@ interface ResolvedConfig {
   backupUrl: string
   services: Partial<Record<AppChain, ToolboxServiceConfig>>
   mandala: Partial<Record<AppChain, MandalaEndpointConfig>>
+  handleCertifier: Partial<Record<AppChain, HandleCertifierConfig>>
   vaultEnabled: boolean
 }
 
@@ -140,6 +158,7 @@ export function configureToolbox(config: ToolboxConfig): void {
     backupUrl: config.backupUrl == null ? '' : normalizeBackupUrl(config.backupUrl),
     services: config.services ?? {},
     mandala: config.mandala ?? {},
+    handleCertifier: config.handleCertifier ?? {},
     vaultEnabled: config.vaultEnabled === true
   }
 }
@@ -188,6 +207,21 @@ export function getMandalaEndpoints(chain: AppChain): MandalaEndpointConfig | un
   if (overlayUrl === '' || messageBoxUrl === '') return undefined
   if (!COMPRESSED_KEY.test(overlayIdentityKey)) return undefined
   return { overlayUrl, overlayIdentityKey, messageBoxUrl }
+}
+
+/**
+ * The certifier this app registers a handle certificate through, for a chain,
+ * or undefined when this build has none configured. Same fail-open posture as
+ * `getMandalaEndpoints`: unconfigured must read as "not available yet" to the
+ * registration UI, never as a crash.
+ */
+export function getHandleCertifierConfig(chain: AppChain): HandleCertifierConfig | undefined {
+  const entry = current?.handleCertifier[chain]
+  if (!entry) return undefined
+  const certifierIdentityKey = entry.certifierIdentityKey?.trim() ?? ''
+  const certifierUrl = entry.certifierUrl?.trim().replace(/\/+$/, '') ?? ''
+  if (certifierUrl === '' || !COMPRESSED_KEY.test(certifierIdentityKey)) return undefined
+  return { certifierIdentityKey, certifierUrl }
 }
 
 /**

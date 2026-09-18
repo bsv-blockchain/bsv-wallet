@@ -24,8 +24,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }))
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, unknown>) =>
-      values ? `${key}:${Object.values(values).join('|')}` : key,
+    t: (key: string, values?: Record<string, unknown>) => (values ? `${key}:${Object.values(values).join('|')}` : key),
     i18n: { language: 'en' }
   }),
   initReactI18next: { type: '3rdParty', init: () => {} }
@@ -87,7 +86,7 @@ import AssetPicker from '../../ui/components/pay/AssetPicker'
 import AdmissionNotice from '../../ui/components/pay/AdmissionNotice'
 import RecipientField from '../../ui/components/pay/RecipientField'
 import RequestHub from '../../ui/components/pay/RequestHub'
-import UniversalSend from '../../ui/components/pay/UniversalSend'
+import UniversalSend, { type UniversalSendHandle } from '../../ui/components/pay/UniversalSend'
 import { AmountInput } from '../../ui/components/wallet/AmountInput'
 import { MandalaProvider } from '../../ui/hooks/useMandala'
 import { tokenRefusalCopy, tokenSendCopy, tokenThrowCopy } from '../../ui/components/pay/tokenSendCopy'
@@ -146,7 +145,7 @@ describe('tokenSendCopy', () => {
     expect(tokenSendCopy({ kind: 'unavailable', message: '' }, CTX)?.values.reason).toBe(CTX.reasonFallback)
   })
 
-  it('treats the lib\'s explicit overlay rejection as a refusal, and anything local as a send failure', () => {
+  it("treats the lib's explicit overlay rejection as a refusal, and anything local as a send failure", () => {
     expect(tokenThrowCopy(new Error('overlay rejected the transaction'), CTX).key).toBe('token_err_refused')
     expect(tokenThrowCopy(new Error('fetch failed'), CTX).key).toBe('token_err_send_failed')
     expect(tokenThrowCopy(new Error('insufficient token balance: have 1, need 2'), CTX).key).toBe(
@@ -167,7 +166,12 @@ describe('AmountInput in asset mode', () => {
   const draw = (onChangeText = jest.fn(), value = '') => ({
     onChangeText,
     screen: wrap(
-      <AmountInput value={value} onChangeText={onChangeText} asset={{ ticker: 'USDX', decimals: 2 }} maxValue="112000" />
+      <AmountInput
+        value={value}
+        onChangeText={onChangeText}
+        asset={{ ticker: 'USDX', decimals: 2 }}
+        maxValue="112000"
+      />
     )
   })
 
@@ -206,7 +210,12 @@ describe('AssetPicker', () => {
   it('shows BSV selected by default and expands to the held assets', () => {
     const onSelect = jest.fn()
     const s = wrap(
-      <AssetPicker balances={[balanceOf(), balanceOf(EURX, 5000)]} selected={null} onSelect={onSelect} bsvBalanceText="50,000" />
+      <AssetPicker
+        balances={[balanceOf(), balanceOf(EURX, 5000)]}
+        selected={null}
+        onSelect={onSelect}
+        bsvBalanceText="50,000"
+      />
     )
     expect(s.getByText('BSV')).toBeTruthy()
     // Pressed through the row's own content: the composed accessibility label
@@ -222,7 +231,9 @@ describe('AssetPicker', () => {
     fireEvent.press(s.getAllByText('Acme Dollar')[0])
     // Two elements carry that label once expanded — the collapsed trigger
     // (which announces `expanded`) and the option (which announces `selected`).
-    const option = s.getAllByLabelText('Acme Dollar, 1,240.00 USDX').find(e => 'selected' in (e.props.accessibilityState ?? {}))
+    const option = s
+      .getAllByLabelText('Acme Dollar, 1,240.00 USDX')
+      .find(e => 'selected' in (e.props.accessibilityState ?? {}))
     expect(option?.props.accessibilityState.selected).toBe(true)
     expect(s.getByLabelText('BSV').props.accessibilityState.selected).toBe(false)
   })
@@ -263,7 +274,7 @@ describe('RecipientField with an asset selected', () => {
     expect(s.getByText('valid_bsv_address')).toBeTruthy()
   })
 
-  it('renders a caller-owned status line for the issuer\'s own refusal', () => {
+  it("renders a caller-owned status line for the issuer's own refusal", () => {
     const s = render(
       <ThemeProvider>
         <RecipientFieldHarness
@@ -335,7 +346,7 @@ describe('AdmissionNotice', () => {
     expect(onBsvInstead).toHaveBeenCalled()
   })
 
-  it('prefers the runtime\'s own plain reason when it has one', () => {
+  it("prefers the runtime's own plain reason when it has one", () => {
     const s = wrap(
       <AdmissionNotice ticker="USDX" reason="Acme Bank has revoked your registration." onBsvInstead={jest.fn()} />
     )
@@ -347,42 +358,64 @@ describe('AdmissionNotice', () => {
 describe('UniversalSend with stablecoins', () => {
   /** The form is up and the runtime's holdings have landed (nothing on screen announces that any more). */
   const held = async (s: ReturnType<typeof render>) => {
-    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     await act(async () => {
       await new Promise(resolve => setImmediate(resolve))
     })
   }
-  const drawSend = (runtime: ReturnType<typeof makeFakeMandala> | null, props = {}) =>
-    render(
+  /** The host's back chevron reaches the form through this ref (no in-form back control). */
+  let sendRef: React.RefObject<UniversalSendHandle | null>
+  const drawSend = (runtime: ReturnType<typeof makeFakeMandala> | null, props = {}) => {
+    sendRef = React.createRef<UniversalSendHandle>()
+    return render(
       <ThemeProvider>
         <MandalaProvider runtime={runtime}>
-          <UniversalSend onNearbySession={jest.fn()} {...props} />
+          <UniversalSend ref={sendRef} onNearbySession={jest.fn()} {...props} />
         </MandalaProvider>
       </ThemeProvider>
     )
+  }
+  const pressBack = () => {
+    act(() => {
+      sendRef.current?.back()
+    })
+  }
 
-  it('is today\'s form when no runtime exists at all', async () => {
+  it("is today's form when no runtime exists at all", async () => {
     const s = drawSend(null)
-    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     expect(s.queryByText('pay_asset_label')).toBeNull()
   })
 
-  it('is today\'s form when a runtime exists but nothing is held', async () => {
+  it("is today's form when a runtime exists but nothing is held", async () => {
     const s = drawSend(makeFakeMandala({ balances: [] }))
-    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     expect(s.queryByText('pay_asset_label')).toBeNull()
   })
 
   it('offers no picker even when something is held: the coin was chosen on Home (design 1b)', async () => {
-    const s = drawSend(makeFakeMandala())
+    // No asset picker on either step — "who" (recipient only) or "amount"
+    // (amount only, once a recipient is chosen); the coin was decided on
+    // Home, and neither step of Pay repeats that choice.
+    const s = drawSend(makeFakeMandala(), { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
     await held(s)
+    expect(s.getByText('pay_review_to')).toBeTruthy()
     expect(s.queryByText('pay_asset_label')).toBeNull()
-    const labels = s.getAllByText(/^(recipient|pay_asset_label|amount)$/).map(el => el.props.children)
-    expect(labels).toEqual(['recipient', 'amount'])
+    expect(s.queryByText('amount')).toBeNull()
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('amount')).toBeTruthy())
+    expect(s.queryByText('pay_asset_label')).toBeNull()
+    expect(s.queryByText('pay_review_to')).toBeNull()
   })
 
   it('names the coin in the amount field once it is selected upstream', async () => {
     const s = drawSend(makeFakeMandala(), { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    await held(s)
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     expect(s.queryByText('pay_asset_label')).toBeNull()
   })
@@ -390,16 +423,20 @@ describe('UniversalSend with stablecoins', () => {
   // ── What a pasted or scanned peerpay link does to the money and the figure ──
 
   it('a token link selects its asset and seeds the figure in base units', async () => {
-    // Uncontrolled selection: the form owns the asset choice here.
+    // Uncontrolled selection: the form owns the asset choice here. A link
+    // naming money jumps straight past "who" to "amount" pre-filled (same as
+    // a deep link) — there is no recipient chip to check on this step by
+    // design (2026-09-18: step 2 shows only the amount), so the CTA naming
+    // the figure is checked once Continue reaches review instead.
     const s = drawSend(makeFakeMandala())
     await held(s)
     fireEvent.changeText(
       s.getByPlaceholderText('recipient_placeholder'),
       `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
     )
-    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
     await waitFor(() => expect(s.getByPlaceholderText('0.00').props.value).toBe('25.00'))
-    expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy()
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
   })
 
   it('an open token link selects the asset and leaves the figure to the payer', async () => {
@@ -413,7 +450,13 @@ describe('UniversalSend with stablecoins', () => {
   it('a sats link while paying in a token switches the form back to BSV', async () => {
     const onSelectAsset = jest.fn()
     const s = drawSend(makeFakeMandala(), { selectedAssetId: USDX.assetId, onSelectAsset })
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    // The recipient field only exists on step "who" — go back to it to paste
+    // a second, different link, the way pasting over an open form works.
+    pressBack()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?sats=1000`)
     await waitFor(() => expect(onSelectAsset).toHaveBeenCalledWith(null))
     expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
@@ -423,14 +466,16 @@ describe('UniversalSend with stablecoins', () => {
   })
 
   it('a token link for an asset this wallet does not hold keeps the recipient, seeds nothing, and says why', async () => {
+    // The recipient chip itself is not shown on step "amount" by design, but
+    // reaching this step at all (rather than staying on "who") is only
+    // possible once a target was captured — that is the recipient being kept.
     const s = drawSend(makeFakeMandala({ balances: [balanceOf(USDX)] }))
     await held(s)
     fireEvent.changeText(
       s.getByPlaceholderText('recipient_placeholder'),
       `peerpay:${KEY}?asset=${EURX.assetId}&amount=500`
     )
-    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
-    expect(s.getByText('pay_asset_link_not_held')).toBeTruthy()
+    await waitFor(() => expect(s.getByText('pay_asset_link_not_held')).toBeTruthy())
     expect(s.queryByPlaceholderText('0.00')).toBeNull()
     expect(s.getByPlaceholderText('0').props.value).toBe('')
   })
@@ -442,12 +487,14 @@ describe('UniversalSend with stablecoins', () => {
     let release: ((b: ReturnType<typeof balanceOf>[]) => void) | undefined
     runtime.balances.mockImplementation(() => new Promise(resolve => (release = resolve)))
     const s = drawSend(runtime)
-    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     fireEvent.changeText(
       s.getByPlaceholderText('recipient_placeholder'),
       `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
     )
-    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    // Balances unknown: BSV placeholder shown blank on step "amount" (already
+    // jumped there — a link naming money never waits on step "who").
+    await waitFor(() => expect(s.getByPlaceholderText('0')).toBeTruthy())
     expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
     await act(async () => {
       release?.([balanceOf()])
@@ -463,9 +510,13 @@ describe('UniversalSend with stablecoins', () => {
       selectedAssetId: USDX.assetId,
       onSelectAsset
     })
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     expect(s.getByPlaceholderText('0.00').props.value).toBe('25')
+    pressBack()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), `peerpay:${KEY}?asset=${EURX.assetId}`)
     await waitFor(() => expect(s.getByText('pay_asset_link_not_held')).toBeTruthy())
     expect(s.getByPlaceholderText('0.00').props.value).toBe('')
@@ -478,13 +529,12 @@ describe('UniversalSend with stablecoins', () => {
     // "built and none" is a settled fact: the link gets its verdict now.
     mockWalletBuilt = true
     const s = drawSend(null)
-    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     fireEvent.changeText(
       s.getByPlaceholderText('recipient_placeholder'),
       `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
     )
     await waitFor(() => expect(s.getByText('pay_asset_link_not_held')).toBeTruthy())
-    expect(s.getByText('valid_identity_key')).toBeTruthy()
     expect(s.getByPlaceholderText('0').props.value).toBe('')
   })
 
@@ -495,28 +545,34 @@ describe('UniversalSend with stablecoins', () => {
     let release: ((b: ReturnType<typeof balanceOf>[]) => void) | undefined
     runtime.balances.mockImplementation(() => new Promise(resolve => (release = resolve)))
     const s = drawSend(runtime)
-    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     fireEvent.changeText(
       s.getByPlaceholderText('recipient_placeholder'),
       `peerpay:${KEY}?asset=${USDX.assetId}&amount=2500`
     )
-    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
-    // Retarget to someone else before the holdings land.
+    // Already jumped to "amount" (BSV, blank — the request is still pending on
+    // the holdings). Back to "who" to retarget before they land.
+    await waitFor(() => expect(s.getByPlaceholderText('0')).toBeTruthy())
+    pressBack()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), OTHER)
     await act(async () => {
       release?.([balanceOf()])
       await new Promise(resolve => setImmediate(resolve))
     })
-    await held(s)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
     // Still BSV, still blank, no banner: nothing from the old link reached the new payee.
+    await waitFor(() => expect(s.getByPlaceholderText('0')).toBeTruthy())
     expect(s.queryByPlaceholderText('0.00')).toBeNull()
-    expect(s.getByPlaceholderText('0').props.value).toBe('')
     expect(s.queryByText('pay_asset_link_not_held')).toBeNull()
   })
 
   it('a figure typed in a token is never shown once the form is back in satoshis', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
     expect(s.getByPlaceholderText('0.00').props.value).toBe('25')
@@ -534,10 +590,12 @@ describe('UniversalSend with stablecoins', () => {
   it('names the exact figure on the button and sends it in base units', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
     await waitFor(() =>
@@ -552,12 +610,15 @@ describe('UniversalSend with stablecoins', () => {
   it('carries a typed note through to sendToHandle', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
-    fireEvent.changeText(s.getByPlaceholderText('note_placeholder'), 'lunch split')
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
+    // The note field moved into the review card (2026-09-18 design).
+    fireEvent.changeText(s.getByPlaceholderText('pay_review_note_edit'), 'lunch split')
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
     await waitFor(() =>
       expect(runtime.sendToHandle).toHaveBeenCalledWith({
@@ -577,10 +638,13 @@ describe('UniversalSend with stablecoins', () => {
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: true, notified: false }
     })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
     await waitFor(() => expect(s.getByText('pay_sent_not_notified')).toBeTruthy())
     expect(s.queryByText('token_sent_settled:Acme Bank')).toBeNull()
@@ -596,10 +660,13 @@ describe('UniversalSend with stablecoins', () => {
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: true, notified: true }
     })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
     await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
     expect(s.queryByText(/token_sent_settling/)).toBeNull()
@@ -610,10 +677,13 @@ describe('UniversalSend with stablecoins', () => {
       send: { kind: 'sent', txid: 'e'.repeat(64), settled: false, notified: true }
     })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
     // Hand-over-first: the money is made and on its way to the issuer, which
     // is what the nearby rail has always said. "Not yet broadcast" would be a
@@ -623,33 +693,52 @@ describe('UniversalSend with stablecoins', () => {
     expect(s.queryByText('pay_sent_not_notified')).toBeNull()
   })
 
-  it('refuses an address inline, in the runtime\'s own words, and never sends', async () => {
+  it("refuses an address inline, in the runtime's own words, and never sends", async () => {
+    // The inline D4 warning (step "who") is the fixed sentence; the runtime's
+    // OWN reason is the review card's consequence note, same as the fallback
+    // case above — reached the same way.
     const runtime = makeFakeMandala({ refusal: 'USDX can only be sent to a person or a nearby device.' })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
     await waitFor(() => expect(s.getByText('pay_asset_address_status:USDX')).toBeTruthy())
-    expect(s.getByText('USDX can only be sent to a person or a nearby device.')).toBeTruthy()
     // The typed text survives: switching back to BSV makes it valid again.
     expect(s.getByDisplayValue(ADDRESS)).toBeTruthy()
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '10')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('USDX can only be sent to a person or a nearby device.')).toBeTruthy())
     expect(runtime.sendToHandle).not.toHaveBeenCalled()
   })
 
-  it('falls back to the design\'s own sentence when the runtime offers no reason', async () => {
+  it("falls back to the design's own sentence when the runtime offers no reason", async () => {
+    // The inline D4 warning on the recipient row (checked in the previous
+    // test) is the first line of defense, on step "who". The fuller
+    // consequence note is the review card's own explanation — reached by
+    // typing an amount anyway, the way a user testing the waters would.
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
+    await waitFor(() => expect(s.getByText('pay_asset_address_status:USDX')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '10')
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('pay_asset_no_address:USDX')).toBeTruthy())
   })
 
   it('shows the classified refusal, with the guarantee, when the overlay says no', async () => {
     const runtime = makeFakeMandala({ send: { kind: 'refused', code: 'asset_paused', message: 'paused' } })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
     await waitFor(() => expect(s.getByText('token_err_refused_paused:USDX|Acme Bank')).toBeTruthy())
   })
@@ -659,24 +748,27 @@ describe('UniversalSend with stablecoins', () => {
     // reconcile: the banner states the local reason and drops "Check again".
     const runtime = makeFakeMandala({ send: { kind: 'unavailable', message: 'MessageBox unreachable' } })
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('pay_asset_cta:25.00|USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:25.00|USDX'))
-    await waitFor(() =>
-      expect(s.getByText('token_err_send_failed:USDX|Acme Bank|MessageBox unreachable')).toBeTruthy()
-    )
+    await waitFor(() => expect(s.getByText('token_err_send_failed:USDX|Acme Bank|MessageBox unreachable')).toBeTruthy())
     expect(s.queryByLabelText('token_err_check_again')).toBeNull()
   })
 
   it('refuses an amount larger than the balance before anything is built', async () => {
     const runtime = makeFakeMandala()
     const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
-    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '9999')
+    fireEvent.press(s.getByText('pay_step_continue'))
     await waitFor(() => expect(s.getByText('pay_asset_over_balance:USDX')).toBeTruthy())
     fireEvent.press(s.getByText('pay_asset_cta:9,999.00|USDX'))
     expect(runtime.sendToHandle).not.toHaveBeenCalled()
@@ -703,11 +795,15 @@ describe("UniversalSend — the handle rail's own success note", () => {
     mockManagers = { permissionsManager: {} }
     mockHandleStorage = {}
     const s = draw()
-    await waitFor(() => expect(s.getByText('recipient')).toBeTruthy())
+    await waitFor(() => expect(s.getByText('pay_review_to')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
     await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0')).toBeTruthy())
     fireEvent.changeText(s.getByPlaceholderText('0'), '2500')
-    fireEvent.press(s.getByText('pay'))
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText(/^pay_send_amount/)).toBeTruthy())
+    fireEvent.press(s.getByText(/^pay_send_amount/))
     await waitFor(() => expect(mockSendViaHandle).toHaveBeenCalled())
     await waitFor(() => expect(s.getByText('pay_sent_handed_to_wallet')).toBeTruthy())
   })

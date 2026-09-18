@@ -16,9 +16,10 @@
  * shown only for addresses, where it is load-bearing — a user who pastes an
  * address expecting messaging-style delivery has effectively posted cash.
  */
-import React, { memo, useCallback, useEffect, useMemo, useState, useRef } from 'react'
+import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useState, useRef } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
+import type { DisplayableIdentity } from '@bsv/sdk'
 
 import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
@@ -32,18 +33,25 @@ import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
 import PaymentSuccessOverlay from './PaymentSuccessOverlay'
 import ResultBanner from './ResultBanner'
 import RecipientField from './RecipientField'
+import StepBar, { type PayStep } from './StepBar'
 import { useMessageBoxConfig } from './MessageBoxConfig'
 import { useRecipientInput, type RecipientTarget, type PeerPayRequest } from './useRecipientInput'
 import { tokenSendCopy, tokenThrowCopy, type TokenSendCopy } from './tokenSendCopy'
 import { useAssetStatus, useMandala } from '../../hooks/useMandala'
 import { useSpendableBalance } from '../../hooks/useSpendableBalance'
+import { useContactsStore } from '../../hooks/useContactsStore'
+import ContactSigil from '../wallet/ContactSigil'
 import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
+import { abbreviateKey } from '../../../core/pay/counterparty'
+import type { ContactRow } from '../../../core/contacts/contactsStore'
 import {
   useTheme,
   spacing,
   typography,
   radii,
   hitTargets,
+  formatSatoshisAsBsvDecimal,
+  useWallet,
   useWalletManagers,
   useWalletStatus,
   CONSEQUENCE_KEYS,
@@ -63,6 +71,23 @@ import {
   listPendingResendRequests
 } from '@bsv/expo-wallet-toolbox'
 import type { DismissTarget } from '../../dismissTarget'
+
+/**
+ * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
+ * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
+ * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes.
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
 
 /**
  * expo-status-bar's package.json `main` points straight at its raw
@@ -186,6 +211,16 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
   )
 }
 
+/**
+ * What the host screen can ask of the form: walk back one step. Returns false
+ * when already on the first step, so the host knows to leave the screen
+ * instead — the header's one back chevron serves both (2026-09-18 design: no
+ * second back control inside the form).
+ */
+export interface UniversalSendHandle {
+  back(): boolean
+}
+
 export interface UniversalSendProps {
   /** A recipient known before the form opened: a peerpay deep link or `?identityKey=`. */
   initialTarget?: Extract<RecipientTarget, { kind: 'handle' }>
@@ -214,6 +249,8 @@ export interface UniversalSendProps {
   onNearbySession: (session: Session) => void
   /** Where the post-payment overlay sends the user. Defaults to `/`. */
   dismissTo?: DismissTarget
+  /** Which of the three steps is on screen — the host names its header by it. */
+  onStepChange?: (step: PayStep) => void
 }
 
 /**
@@ -233,23 +270,45 @@ function seedFigure(sats?: number, token?: { assetId: string; baseUnits: number 
   return { text: '', unit: null }
 }
 
-function UniversalSend({
-  initialTarget,
-  initialSats,
-  initialTokenAmount,
-  initialNotice,
-  openScannerOnMount = false,
-  onNearbySession,
-  selectedAssetId,
-  onSelectAsset,
-  dismissTo = '/'
-}: UniversalSendProps) {
+function UniversalSendInner(
+  {
+    initialTarget,
+    initialSats,
+    initialTokenAmount,
+    initialNotice,
+    openScannerOnMount = false,
+    onNearbySession,
+    selectedAssetId,
+    onSelectAsset,
+    dismissTo = '/',
+    onStepChange
+  }: UniversalSendProps,
+  ref: React.ForwardedRef<UniversalSendHandle>
+) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const StatusBar = loadStatusBar()
+  const Ionicons = loadIonicons()
   const { managers, adminOriginator, storage } = useWalletManagers()
   const { walletBuilt } = useWalletStatus()
+  const { walletUserId } = useWallet()
   const wallet = managers?.permissionsManager || null
+
+  // ── the three-step flow (who / amount / review, 2026-09-18 design) ──────
+  // A recipient known before the form opened (a deep link, a scan on the way
+  // in) starts on 'amount' — the identity is already decided. Everything
+  // else about this form is unchanged; `step` only decides which of the
+  // sections below is on screen.
+  const [step, setStep] = useState<PayStep>(initialTarget ? 'amount' : 'who')
+  // A second deep link while this form is mounted re-adopts the recipient
+  // (see useRecipientInput's own initialTarget effect) and must jump the
+  // step forward the same way the initial mount does — a link naming a
+  // payee is a stronger signal than whatever step the user was on.
+  useEffect(() => {
+    if (initialTarget) setStep('amount')
+  }, [initialTarget?.identityKey])
+  const contactsStore = useContactsStore()
+  const [contactMatches, setContactMatches] = useState<ContactRow[]>([])
 
   // ── the asset axis ──────────────────────────────────────────────────
   // Every line below is gated on `asset`: with no token held, `balances` is
@@ -304,11 +363,16 @@ function UniversalSend({
   const [sent, setSent] = useState<{
     amount: number
     recipient?: string
+    /** Set only for a handle/token send — offers "Add to contacts" on the success screen. */
+    recipientIdentityKey?: string
     /** Token mode: the figure in the asset's own units. */
     amountText?: string
     /** Whether the issuer has confirmed it yet — never claimed, only reported. */
     statusNote?: string
   } | null>(null)
+  /** Set once `sent` names a handle recipient who is not already a saved
+   * contact — null while that check is pending or once it comes back "already saved". */
+  const [offerAddContact, setOfferAddContact] = useState<{ identityKey: string; name?: string } | null>(null)
   const [outbox, setOutbox] = useState<OutboxEntry[]>([])
   const [retryingId, setRetryingId] = useState<string | null>(null)
 
@@ -365,6 +429,13 @@ function UniversalSend({
    * held), otherwise parked until they are — see the effect below `recipient`.
    */
   const onPeerPayRequest = (request: PeerPayRequest) => {
+    // A request that names money (a link's `sats=`/`amount=`, typed, pasted or
+    // scanned) is "amount pre-populated by QR/deep link" whichever way it
+    // arrived — so it jumps the same way a deep-linked `initialTarget` does.
+    // A bare handle/key with no figure never reaches this function at all
+    // (see useRecipientInput's `requestOf`), so Continue still decides step
+    // for every ordinary "who" entry.
+    setStep('amount')
     if (request.asset !== undefined) {
       if (tokensNever) {
         applyTokenRequest(request, [], { deferred: false })
@@ -393,6 +464,82 @@ function UniversalSend({
     onNearbySession
   })
   const target = recipient.target
+
+  // Local contacts, searched ahead of the 400ms overlay debounce (instant —
+  // this is a local SQLite read) and merged into the same dropdown. Contacts
+  // come first; an overlay hit for an identity key already in the merged list
+  // is dropped rather than shown twice. An empty query shows every contact as
+  // "Recent" (RecipientField's `recentLabel`) rather than nothing.
+  useEffect(() => {
+    if (!contactsStore || walletUserId === null || recipient.selectedIdentity || target) {
+      setContactMatches([])
+      return
+    }
+    let cancelled = false
+    void contactsStore.searchContacts(walletUserId, recipient.inputText).then(rows => {
+      if (!cancelled) setContactMatches(rows)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [contactsStore, walletUserId, recipient.inputText, recipient.selectedIdentity, target])
+  const mergedSearchResults = useMemo((): DisplayableIdentity[] => {
+    const contactIdentities: DisplayableIdentity[] = contactMatches.map(c => ({
+      identityKey: c.identityKey,
+      name: c.name,
+      avatarURL: c.cachedAvatarUrl ?? '',
+      abbreviatedKey: abbreviateKey(c.identityKey),
+      badgeIconURL: '',
+      badgeLabel: '',
+      badgeClickURL: ''
+    }))
+    const contactKeys = new Set(contactIdentities.map(c => c.identityKey))
+    return [...contactIdentities, ...recipient.searchResults.filter(r => !contactKeys.has(r.identityKey))]
+  }, [contactMatches, recipient.searchResults])
+  // Whether the resolved recipient is already a saved contact — the review
+  // step's trust tag names this before "registered"/"unverified".
+  const [targetIsContact, setTargetIsContact] = useState(false)
+  useEffect(() => {
+    if (!contactsStore || walletUserId === null || target?.kind !== 'handle') {
+      setTargetIsContact(false)
+      return
+    }
+    let cancelled = false
+    void contactsStore.getContact(walletUserId, target.identityKey).then(c => {
+      if (!cancelled) setTargetIsContact(!!c)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [contactsStore, walletUserId, target])
+
+  // The success screen's "Add to contacts" offer: only for a handle send, and
+  // only once confirmed absent from contacts (checked fresh here rather than
+  // reusing `targetIsContact` — `target` may already be cleared by the time
+  // this runs, and a check against the stale ONE this send actually used is
+  // what the button must reflect).
+  useEffect(() => {
+    setOfferAddContact(null)
+    if (!sent?.recipientIdentityKey || !contactsStore || walletUserId === null) return
+    let cancelled = false
+    const identityKey = sent.recipientIdentityKey
+    void contactsStore.getContact(walletUserId, identityKey).then(c => {
+      if (!cancelled && !c) setOfferAddContact({ identityKey, name: sent.recipient })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [sent, contactsStore, walletUserId])
+
+  const onAddContact = useCallback(() => {
+    if (!offerAddContact) return
+    setSent(null)
+    loadExpoRouter().router.push({
+      pathname: '/contact/add',
+      params: { identityKey: offerAddContact.identityKey, name: offerAddContact.name ?? '', source: 'pay' }
+    } as never)
+  }, [offerAddContact])
+
   /**
    * A token link that arrived before the holdings were known. `null` balances
    * mean UNKNOWN, never "holds nothing" (useMandala's contract), and a
@@ -538,6 +685,7 @@ function UniversalSend({
       setSent({
         amount: paidSats,
         recipient: recipient.selectedIdentity?.name,
+        recipientIdentityKey: to.identityKey,
         // The handle rail always drops the payment in the recipient's message
         // box rather than handing it over in person — worth saying explicitly
         // here, since it is the one thing an in-person (Nearby) payer never
@@ -571,7 +719,7 @@ function UniversalSend({
    * allowed to promise "nothing was sent".
    */
   const sendToken = useCallback(
-    async (to: Extract<RecipientTarget, { kind: 'handle' }>, baseUnits: number) => {
+    async (to: Extract<RecipientTarget, { kind: 'handle' }>, baseUnits: number): Promise<boolean> => {
       const runtime = mandala.runtime
       if (!runtime || !asset) throw new Error(t('wallet_not_ready'))
       const ctx = {
@@ -593,11 +741,15 @@ function UniversalSend({
         // that could not sign) and is the only place it survives.
         console.warn('[pay] token send failed:', result.kind, result.message ?? (result as { code?: string }).code)
         setTokenFailure(tokenSendCopy(result, ctx))
-        return
+        // A refusal must leave the review step exactly as it is — the banner
+        // that explains it lives there, and stepping back to "who" (as a
+        // successful send does) would carry the user straight past it.
+        return false
       }
       setSent({
         amount: 0,
         recipient: recipient.selectedIdentity?.name,
+        recipientIdentityKey: to.identityKey,
         // Never falls back to the satoshi renderer: a token figure it could not
         // format would print as satoshis, which is a wrong number rather than a
         // missing one.
@@ -624,6 +776,7 @@ function UniversalSend({
               : t('token_sent_settling_unnamed', { issuer })
       })
       mandala.refresh()
+      return true
     },
     [mandala, asset, issuer, recipient.selectedIdentity, note, t]
   )
@@ -653,12 +806,14 @@ function UniversalSend({
         // D4: a token has no address rail, and `canSend` has already refused
         // one. This is the second gate, because the first is a render.
         if (target.kind !== 'handle') return
-        await sendToken(target, amount)
+        const sent = await sendToken(target, amount)
+        if (!sent) return
       } else if (target.kind === 'handle') await sendHandle(target, amount)
       else await sendAddress(target, amount)
       setFigure(current => ({ ...current, text: '' }))
       setNote('')
       recipient.clearRecipient()
+      setStep('who')
     } catch (error: any) {
       if (await handleWalletCheck(error)) return
       if (asset) {
@@ -723,7 +878,7 @@ function UniversalSend({
       setRetryingId(entry.id)
       try {
         await retryDelivery({ wallet: wallet as any, adminOriginator, client, storage, entry })
-        setSent({ amount: entry.token.amount })
+        setSent({ amount: entry.token.amount, recipientIdentityKey: entry.recipient })
       } catch (e: any) {
         if (await handleWalletCheck(e)) return
         const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
@@ -902,16 +1057,59 @@ function UniversalSend({
                     : null
     : null
 
+  // The button names the exact figure and asset being sent, on every rail —
+  // it is the confirmation this flow has.
   const ctaLabel =
     asset && amountOk
       ? t('pay_asset_cta', {
           amount: formatTokenAmount(baseUnits, asset.decimals) ?? '',
           ticker: asset.ticker
         })
-      : undefined
+      : !asset && amountOk
+        ? t('pay_send_amount', { amount: `${formatSatoshisAsBsvDecimal(Math.round(Number(sendAmount)) || 0)} BSV` })
+        : undefined
+
+  const backStep = useCallback(() => {
+    setStep(prev => (prev === 'review' ? 'amount' : 'who'))
+  }, [])
+  useImperativeHandle(
+    ref,
+    () => ({
+      back: () => {
+        if (step === 'who') return false
+        backStep()
+        return true
+      }
+    }),
+    [step, backStep]
+  )
+  useEffect(() => {
+    onStepChange?.(step)
+  }, [step, onStepChange])
+
+  // ── the review card's facts ──────────────────────────────────────────
+  // Once money is moving, the figure is ALWAYS the asset that actually moves
+  // (BSV or the token), never the display currency (2026-09-17 ruling):
+  // "12.00 USD" on a BSV send reads as a stablecoin.
+  const sendSats = Math.round(Number(sendAmount)) || 0
+  const reviewAmount = asset
+    ? { value: formatTokenAmount(baseUnits, asset.decimals) ?? '', unit: asset.ticker }
+    : { value: formatSatoshisAsBsvDecimal(sendSats), unit: 'BSV' }
+  const reviewPrimary =
+    recipient.selectedIdentity?.name ||
+    (target?.kind === 'handle' ? abbreviateKey(target.identityKey) : target?.kind === 'address' ? target.address : '')
+  const reviewSecondary =
+    recipient.selectedIdentity?.name && target?.kind === 'handle' ? abbreviateKey(target.identityKey) : undefined
+  const reviewTrust = targetIsContact
+    ? { icon: 'person-circle-outline', color: colors.textSecondary, text: t('pay_trust_contact') }
+    : recipient.selectedIdentity
+      ? { icon: 'shield-checkmark-outline', color: colors.textSecondary, text: t('pay_trust_handle_attested') }
+      : { icon: 'alert-circle-outline', color: colors.warning, text: t('pay_trust_unverified') }
+  const showNoteRow = isHandle || (isAddress && !asset)
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <StepBar step={step} />
       {notice && <ResultBanner result={notice} onDismiss={() => setNotice(null)} colors={colors} />}
       {recipient.searchError && (
         <ResultBanner
@@ -921,139 +1119,240 @@ function UniversalSend({
         />
       )}
 
-      <PayField labelKey="recipient">
-        <RecipientField
-          selectedIdentity={recipient.selectedIdentity}
-          inputText={recipient.inputText}
-          target={recipient.target}
-          inlineError={recipient.inlineError}
-          isSearching={recipient.isSearching}
-          searchResults={recipient.searchResults}
-          colors={colors}
-          t={t}
-          onChangeText={recipient.onChangeText}
-          onSelectIdentity={recipient.selectIdentity}
-          onClear={recipient.clearRecipient}
-          onOpenScanner={recipient.openScanner}
-          assetTicker={asset?.ticker}
-          statusOverride={
-            recipientRefusal && !tokenAddressRefused
-              ? { text: recipientRefusal, tone: 'warning' }
-              : recipientRegistryRefused
-                ? {
-                    text: t(
-                      assetStatus?.accessMode === 'denylist' ? 'pay_asset_recipient_blocked' : 'pay_asset_recipient_unregistered',
-                      { issuer, ticker: asset?.ticker }
-                    ),
-                    tone: 'warning'
-                  }
-                : undefined
-          }
-        />
-      </PayField>
+      {step === 'who' && (
+        <>
+          <PayField labelKey="pay_review_to">
+            <RecipientField
+              selectedIdentity={recipient.selectedIdentity}
+              inputText={recipient.inputText}
+              target={recipient.target}
+              inlineError={recipient.inlineError}
+              isSearching={recipient.isSearching}
+              searchResults={mergedSearchResults}
+              colors={colors}
+              t={t}
+              onChangeText={recipient.onChangeText}
+              onSelectIdentity={recipient.selectIdentity}
+              onClear={recipient.clearRecipient}
+              onOpenScanner={recipient.openScanner}
+              assetTicker={asset?.ticker}
+              recentLabel={t('contacts_recent')}
+              statusOverride={
+                recipientRefusal && !tokenAddressRefused
+                  ? { text: recipientRefusal, tone: 'warning' }
+                  : recipientRegistryRefused
+                    ? {
+                        text: t(
+                          assetStatus?.accessMode === 'denylist'
+                            ? 'pay_asset_recipient_blocked'
+                            : 'pay_asset_recipient_unregistered',
+                          { issuer, ticker: asset?.ticker }
+                        ),
+                        tone: 'warning'
+                      }
+                    : undefined
+              }
+            />
+          </PayField>
 
-      {/* No "Paying with" picker here (design 1b, 2026-09-15): the coin is
-          chosen once, on Home's switcher, and arrives as `selectedAssetId`.
-          It still decides the unit of the figure, the available balance under
-          it, and which recipient shapes are legal for a token (D4, above) —
-          and a peerpay link naming an asset still moves it. */}
+          {/* No "Paying with" picker here (design 1b, 2026-09-15): the coin is
+              chosen once, on Home's switcher, and arrives as `selectedAssetId`. */}
 
-      <PayAmountField
-        value={sendAmount}
-        onChangeText={setSendAmount}
-        asset={asset ? { ticker: asset.ticker, decimals: asset.decimals } : undefined}
-        maxValue={holding ? String(holding.baseUnits) : undefined}
-        availableText={
-          holding ? (formatTokenAmount(holding.baseUnits, holding.asset.decimals) ?? undefined) : undefined
-        }
-      />
+          {target ? (
+            <PayCta
+              onPress={() => setStep('amount')}
+              disabled={false}
+              busy={false}
+              label={t('pay_step_continue')}
+              icon="arrow-forward"
+            />
+          ) : (
+            <PressableScale
+              onPress={() => loadExpoRouter().router.push('/contacts' as never)}
+              haptic="tap"
+              style={[
+                styles.outlineBtn,
+                { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
+              ]}
+              accessibilityRole="button"
+            >
+              <Ionicons name="people-outline" size={18} color={colors.textPrimary} />
+              <Text style={[styles.outlineBtnText, { color: colors.textPrimary }]}>{t('pay_step_contacts')}</Text>
+            </PressableScale>
+          )}
 
-      {(isHandle || (isAddress && !asset)) && (
-        <PayField labelKey="note">
-          <TextInput
-            value={note}
-            onChangeText={setNote}
-            placeholder={t('note_placeholder')}
-            placeholderTextColor={colors.textQuaternary}
-            maxLength={280}
-            style={[
-              styles.noteInput,
-              { backgroundColor: colors.backgroundSecondary, borderColor: colors.separator, color: colors.textPrimary }
-            ]}
+          {outbox.length > 0 && (
+            <OutgoingSection
+              entries={outbox}
+              retryingId={retryingId}
+              colors={colors}
+              t={t}
+              onRetry={handleRetry}
+              onCancel={handleCancel}
+            />
+          )}
+        </>
+      )}
+
+      {step === 'amount' && (
+        <>
+          <PayAmountField
+            value={sendAmount}
+            onChangeText={setSendAmount}
+            asset={asset ? { ticker: asset.ticker, decimals: asset.decimals } : undefined}
+            maxValue={holding ? String(holding.baseUnits) : undefined}
+            availableText={
+              holding ? (formatTokenAmount(holding.baseUnits, holding.asset.decimals) ?? undefined) : undefined
+            }
           />
-        </PayField>
+
+          <PayCta
+            onPress={() => setStep('review')}
+            disabled={!amountOk}
+            busy={false}
+            label={t('pay_step_continue')}
+            icon="arrow-forward"
+          />
+        </>
       )}
 
-      {/* Load-bearing for an address: this rail cannot notify the payee. Nothing
-          for a handle, and nothing at all in token mode, where an address is
-          refused rather than warned about. */}
-      {isAddress && !asset && <ConsequenceNote textKey={CONSEQUENCE_KEYS.address} />}
+      {step === 'review' && target && (
+        <>
+          <View
+            style={[styles.reviewCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}
+          >
+            <View style={[styles.reviewRow, { borderBottomColor: colors.separator }]}>
+              <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_to')}</Text>
+              {target.kind === 'handle' ? (
+                <ContactSigil
+                  identityKey={target.identityKey}
+                  avatarUrl={recipient.selectedIdentity?.avatarURL || undefined}
+                  size={32}
+                  radius={16}
+                />
+              ) : (
+                <View style={[styles.reviewAddressIcon, { backgroundColor: colors.fillTertiary }]}>
+                  <Ionicons name="wallet-outline" size={16} color={colors.textSecondary} />
+                </View>
+              )}
+              <View style={styles.reviewToText}>
+                <View style={styles.reviewNameRow}>
+                  <Text style={[styles.reviewName, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {reviewPrimary}
+                  </Text>
+                  {!!reviewSecondary && (
+                    <Text
+                      style={[styles.reviewNameSub, { color: colors.textSecondary }]}
+                      numberOfLines={1}
+                      ellipsizeMode="middle"
+                    >
+                      {reviewSecondary}
+                    </Text>
+                  )}
+                </View>
+                {target.kind === 'handle' && (
+                  <View style={styles.reviewTrustRow}>
+                    <Ionicons name={reviewTrust.icon as never} size={12} color={reviewTrust.color} />
+                    <Text style={[styles.reviewTrust, { color: reviewTrust.color }]} numberOfLines={1}>
+                      {reviewTrust.text}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
 
-      {tokenNote && (
-        <ConsequenceNote
-          textKey={tokenNote.key}
-          values={tokenNote.values}
-          text={tokenNote.text}
-          action={
-            tokenNote.action === 'get-bsv'
-              ? {
-                  label: t('pay_asset_get_bsv'),
-                  onPress: () => loadExpoRouter().router.push('/pay?direction=get' as never)
-                }
-              : undefined
-          }
-        />
-      )}
+            <View
+              style={[styles.reviewRow, !showNoteRow && styles.reviewRowLast, { borderBottomColor: colors.separator }]}
+            >
+              <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_amount')}</Text>
+              <Text
+                style={[styles.reviewAmount, { color: colors.textPrimary }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                accessibilityLabel={`${reviewAmount.value} ${reviewAmount.unit}`}
+              >
+                {reviewAmount.value}{' '}
+                <Text style={[styles.reviewUnit, { color: colors.textSecondary }]}>{reviewAmount.unit}</Text>
+              </Text>
+            </View>
 
-      {isHandle && !isConfigured && !asset && (
-        <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('message_box_off_hint')}</Text>
-      )}
-      {handleFormValid && handleBlockedByOutbox && !asset && (
-        <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('finish_or_cancel_outgoing')}</Text>
-      )}
+            {showNoteRow && (
+              <View style={[styles.reviewRow, styles.reviewRowLast]}>
+                <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_note')}</Text>
+                <TextInput
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder={t('pay_review_note_edit')}
+                  placeholderTextColor={colors.textQuaternary}
+                  maxLength={280}
+                  style={[styles.reviewNoteInput, { color: colors.textPrimary }]}
+                />
+                <Ionicons name="pencil-outline" size={16} color={colors.textTertiary} />
+              </View>
+            )}
+          </View>
 
-      <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} label={ctaLabel} />
+          {/* Load-bearing for an address: this rail cannot notify the payee. Nothing
+              for a handle, and nothing at all in token mode, where an address is
+              refused rather than warned about. */}
+          {isAddress && !asset && <ConsequenceNote textKey={CONSEQUENCE_KEYS.address} />}
 
-      {/* A failed token send, in the app's own failure channel: error tone,
-          dismissible, and carrying at most one affordance. "Check again"
-          refreshes the balance rather than re-sending, because a retry after a
-          lost response builds a second spend of the same coins. */}
-      {tokenFailure && (
-        <ResultBanner
-          result={{ type: 'error', message: t(tokenFailure.key, tokenFailure.values) }}
-          onDismiss={() => setTokenFailure(null)}
-          colors={colors}
-          action={
-            tokenFailure.action === 'check-again'
-              ? {
-                  label: t('token_err_check_again'),
-                  onPress: () => {
-                    mandala.refresh()
-                    setTokenFailure(null)
-                  }
-                }
-              : tokenFailure.action === 'get-bsv'
-                ? {
-                    label: t('pay_asset_get_bsv'),
-                    onPress: () => loadExpoRouter().router.push('/pay?direction=get' as never)
-                  }
-                : undefined
-          }
-        />
+          {tokenNote && (
+            <ConsequenceNote
+              textKey={tokenNote.key}
+              values={tokenNote.values}
+              text={tokenNote.text}
+              action={
+                tokenNote.action === 'get-bsv'
+                  ? {
+                      label: t('pay_asset_get_bsv'),
+                      onPress: () => loadExpoRouter().router.push('/pay?direction=get' as never)
+                    }
+                  : undefined
+              }
+            />
+          )}
+
+          {isHandle && !isConfigured && !asset && (
+            <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('message_box_off_hint')}</Text>
+          )}
+          {handleFormValid && handleBlockedByOutbox && !asset && (
+            <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('finish_or_cancel_outgoing')}</Text>
+          )}
+
+          <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} label={ctaLabel} />
+
+          {/* A failed token send, in the app's own failure channel: error tone,
+              dismissible, and carrying at most one affordance. "Check again"
+              refreshes the balance rather than re-sending, because a retry after a
+              lost response builds a second spend of the same coins. */}
+          {tokenFailure && (
+            <ResultBanner
+              result={{ type: 'error', message: t(tokenFailure.key, tokenFailure.values) }}
+              onDismiss={() => setTokenFailure(null)}
+              colors={colors}
+              action={
+                tokenFailure.action === 'check-again'
+                  ? {
+                      label: t('token_err_check_again'),
+                      onPress: () => {
+                        mandala.refresh()
+                        setTokenFailure(null)
+                      }
+                    }
+                  : tokenFailure.action === 'get-bsv'
+                    ? {
+                        label: t('pay_asset_get_bsv'),
+                        onPress: () => loadExpoRouter().router.push('/pay?direction=get' as never)
+                      }
+                    : undefined
+              }
+            />
+          )}
+        </>
       )}
 
       {sendResult && <ResultBanner result={sendResult} onDismiss={() => setSendResult(null)} colors={colors} />}
-
-      {outbox.length > 0 && (
-        <OutgoingSection
-          entries={outbox}
-          retryingId={retryingId}
-          colors={colors}
-          t={t}
-          onRetry={handleRetry}
-          onCancel={handleCancel}
-        />
-      )}
 
       <Modal
         visible={recipient.scannerVisible}
@@ -1077,6 +1376,7 @@ function UniversalSend({
           amountText={sent.amountText}
           statusNote={sent.statusNote}
           recipientName={sent.recipient}
+          onAddContact={offerAddContact ? onAddContact : undefined}
           onDismiss={() => setSent(null)}
           dismissTo={dismissTo}
         />
@@ -1095,6 +1395,54 @@ const styles = StyleSheet.create({
   fieldGroup: {
     marginBottom: spacing.lg
   },
+
+  // Step 1's quiet second door: Contacts, on the chrome surface.
+  outlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    minHeight: 48,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md
+  },
+  outlineBtnText: { ...typography.subhead, fontWeight: '600' },
+
+  // Review card (step "review"): label-left rows, hairlines between them.
+  reviewCard: {
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.lg,
+    overflow: 'hidden'
+  },
+  reviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 56,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
+  reviewRowLast: { borderBottomWidth: 0 },
+  reviewLabel: {
+    width: 64,
+    ...typography.caption2,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase'
+  },
+  reviewAddressIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  reviewToText: { flex: 1, minWidth: 0, gap: 2 },
+  reviewNameRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, minWidth: 0 },
+  reviewName: { ...typography.body, fontWeight: '600', flexShrink: 1 },
+  reviewNameSub: { ...typography.subhead, flexShrink: 1 },
+  reviewTrustRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  reviewTrust: { ...typography.caption1 },
+  reviewAmount: { ...typography.title2, fontWeight: '700', fontVariant: ['tabular-nums'], flex: 1 },
+  reviewUnit: { ...typography.headline, fontWeight: '600' },
+  reviewNoteInput: { ...typography.body, flex: 1, minWidth: 0, paddingVertical: 0 },
 
   // Consequence line + call to action
   consequence: {
@@ -1194,6 +1542,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md
   }
 })
+
+const UniversalSend = forwardRef<UniversalSendHandle, UniversalSendProps>(UniversalSendInner)
 
 // Wallet status updates in the parent do not change this form's inputs.
 export default memo(UniversalSend)

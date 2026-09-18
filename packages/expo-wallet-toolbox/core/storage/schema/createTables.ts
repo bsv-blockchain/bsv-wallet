@@ -361,6 +361,30 @@ export async function createTables(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_offline_actions_txid ON offline_actions(txid);
   `)
 
+  // Contacts — local, userId-scoped naming of counterparty identity keys.
+  // `name` is the user's own label and is never overwritten by a background
+  // refresh; `cachedHandle`/`cachedAvatarUrl`/`cachedCertifier` mirror what
+  // resolveIdentity last saw and are read-only in the UI. @bsv/sdk's
+  // ContactsManager and @bsv/mandala's contactsStore were rejected for v1:
+  // each write there is a signed on-chain action.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      contactId INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      userId INTEGER NOT NULL,
+      identityKey TEXT NOT NULL,
+      name TEXT NOT NULL,
+      cachedHandle TEXT,
+      cachedAvatarUrl TEXT,
+      cachedCertifier TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
+      FOREIGN KEY (userId) REFERENCES users(userId)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_unique ON contacts(userId, identityKey);
+    CREATE INDEX IF NOT EXISTS idx_contacts_userId ON contacts(userId);
+  `)
+
   await createMandalaSettlementTables(db)
 }
 
@@ -415,6 +439,11 @@ export async function createMandalaSettlementTables(
   // CREATE TABLE IF NOT EXISTS cannot add the column, so the guarded ALTER does.
   await ensureTokenSettlementColumns(db)
   await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_token_settlements_reference ON token_settlements(reference);`)
+  // Drives a contact's activity pane (core/contacts/contactActivity.ts):
+  // every token transfer with this counterparty, in one indexed lookup.
+  await db.execAsync(
+    `CREATE INDEX IF NOT EXISTS idx_token_settlements_counterpartyKey ON token_settlements(counterpartyKey);`
+  )
 
   // Cached mirror of the AdmissionEntry values this device has SEEN. Purely a
   // derivable cache (FIX G) — never a precondition for anything.

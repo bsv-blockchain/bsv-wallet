@@ -11,7 +11,7 @@
  * `?cell=` values survive as deep-link aliases: any `pay-*` opens the send form
  * (`pay-nearby` with the scanner up), any `get-*` opens that method directly.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { I18nManager, InteractionManager, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
@@ -19,7 +19,8 @@ import { useTranslation } from 'react-i18next'
 import PressableScale from '../components/ui/PressableScale'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import PaymentQrDisplay from '../components/pay/PaymentQrDisplay'
-import UniversalSend from '../components/pay/UniversalSend'
+import UniversalSend, { type UniversalSendHandle } from '../components/pay/UniversalSend'
+import type { PayStep } from '../components/pay/StepBar'
 import RequestHub, { requestSatsFrom, type RequestMethod } from '../components/pay/RequestHub'
 import NearbyFlow from '../components/pay/NearbyFlow'
 import HandleReceive from '../components/pay/HandleReceive'
@@ -423,7 +424,13 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
    * trying to leave behind, which puts them one edge-swipe away instead of
    * discarding them.
    */
+  // The three-step send form owns its own step; the header's one back
+  // chevron walks it back a step before it leaves the screen (no second back
+  // control inside the form — 2026-09-18 design).
+  const sendRef = useRef<UniversalSendHandle>(null)
+  const [payStep, setPayStep] = useState<PayStep>('who')
   const goBack = useCallback(() => {
+    if (sendRef.current?.back()) return
     router.dismissTo(dismissTo)
   }, [dismissTo])
 
@@ -466,6 +473,8 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
         <>
           {offlineNotice}
           <UniversalSend
+            ref={sendRef}
+            onStepChange={setPayStep}
             initialTarget={initialTarget}
             initialSats={initialSats}
             initialTokenAmount={initialTokenAmount}
@@ -545,11 +554,15 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
           {direction === 'pay'
             ? nearbySession
               ? t('pay_cell_nearby_pay')
-              : asset
-                ? // The coin was chosen on Home; this is the one place the
-                  // Pay screen says which one it is armed with.
-                  t('pay_direction_pay_asset', { ticker: asset.ticker })
-                : t('pay_direction_pay')
+              : payStep === 'review'
+                ? // The last step is named for what it is: a review, before the
+                  // button that names the exact figure and asset being sent.
+                  t('pay_review_title')
+                : asset
+                  ? // The coin was chosen on Home; this is the one place the
+                    // Pay screen says which one it is armed with.
+                    t('pay_direction_pay_asset', { ticker: asset.ticker })
+                  : t('pay_direction_pay')
             : t(method ? METHOD_TITLE_KEYS[method] : 'local_pay_request')}
         </Text>
         <View style={styles.headerBtn} />

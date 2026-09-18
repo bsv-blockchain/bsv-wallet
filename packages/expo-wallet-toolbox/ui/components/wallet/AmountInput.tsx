@@ -132,9 +132,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           setDisplayText(String(Math.round(amount)))
         } else {
           setDisplayText(
-            amount % 1 === 0
-              ? amount.toFixed(0)
-              : amount.toFixed(fractionDigits).replace(/0+$/, '').replace(/\.$/, '')
+            amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(fractionDigits).replace(/0+$/, '').replace(/\.$/, '')
           )
         }
       }
@@ -149,7 +147,17 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     if (value === lastEmitted.current) return
     setDisplayText(!value || value === '0' ? '' : tokenAmountInputText(Number(value), asset.decimals))
     lastEmitted.current = value
-  }, [value, asset])
+    // `asset` is a fresh object literal on every render of most callers
+    // (e.g. `asset={{ ticker, decimals }}`), so depending on it directly
+    // reruns this effect on EVERY parent render, not just when the figure
+    // actually changes. Two such reruns queued back to back can interleave
+    // out of order — an older render's effect (with a stale `value`) firing
+    // AFTER a newer one clobbers `lastEmitted.current` back down, which then
+    // makes the newer render's own effect think it must resync and reformats
+    // what the user just typed. Depending on the primitive that the effect
+    // body actually reads keeps it from firing on an unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, asset?.decimals, !!asset])
 
   const handleChangeText = (text: string) => {
     if (asset) {
@@ -208,8 +216,12 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const secondaryText = asset
     ? null
     : isFiat
-      ? (satsForConversion > 0 ? formatAmount(satsForConversion, 'BSV', satoshisPerUSD) : null)
-      : (satsForConversion > 0 && satoshisPerUSD > 0 ? formatAmount(satsForConversion, 'USD', satoshisPerUSD) : null)
+      ? satsForConversion > 0
+        ? formatAmount(satsForConversion, 'BSV', satoshisPerUSD)
+        : null
+      : satsForConversion > 0 && satoshisPerUSD > 0
+        ? formatAmount(satsForConversion, 'USD', satoshisPerUSD)
+        : null
 
   const entering = reducedMotion ? undefined : FadeInUp.duration(durations.instant)
   const exiting = reducedMotion ? undefined : FadeOutDown.duration(durations.instant)

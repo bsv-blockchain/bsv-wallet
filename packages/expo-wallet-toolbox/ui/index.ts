@@ -179,3 +179,13 @@ export {
 } from './components/pay/tokenSendCopy'
 export type { HandleReceiveProps } from './components/pay/HandleReceive'
 export type { AmountInputAsset } from './components/wallet/AmountInput'
+
+// Contacts, profile, and the pencil-edit affordance they share (2026-09-18)
+export { ContactsScreen } from './screens/ContactsScreen'
+export { ContactScreen } from './screens/ContactScreen'
+export { NewContactScreen } from './screens/NewContactScreen'
+export { ProfileScreen } from './screens/ProfileScreen'
+export { IdentifierScreen } from './screens/IdentifierScreen'
+export { default as ProfileButton } from './components/wallet/ProfileButton'
+export { default as ContactSigil } from './components/wallet/ContactSigil'
+export { PencilEditField, type PencilEditFieldProps } from './components/ui/PencilEditField'

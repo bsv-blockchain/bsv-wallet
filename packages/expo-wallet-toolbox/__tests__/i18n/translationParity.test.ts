@@ -19,7 +19,12 @@ const allowedUntranslated: Record<string, string[]> = {
   configuration: ['fr'],
   transactions: ['fr'],
   note: ['fr'],
-  tx_action_refresh_short: ['id', 'pl']
+  tx_action_refresh_short: ['id', 'pl'],
+  contacts: ['fr'],
+  pay_step_contacts: ['fr'],
+  pay_review_note: ['fr'],
+  contact_identifier: ['id'],
+  profile_handle: ['id']
 }
 
 const placeholders = (value: string): string[] => [...value.matchAll(/{{(\w+)}}/g)].map(match => match[1]).sort()

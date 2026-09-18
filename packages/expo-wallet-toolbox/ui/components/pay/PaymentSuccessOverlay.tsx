@@ -96,6 +96,14 @@ export interface ReceivedOverlayProps {
    */
   dismissTo?: DismissTarget
   /**
+   * Sent only, and only when the recipient resolved to an identity key that
+   * is not already a saved contact: offers a "Save as a contact" text
+   * action under the recipient's name. The caller owns the whole action (cleanup and
+   * navigation both) — this component stays presentational and only decides
+   * whether to show the button at all.
+   */
+  onAddContact?: () => void
+  /**
    * Acknowledged. The only way this screen closes. Clean up local state here —
    * the overlay itself then returns the user to the wallet, so the updated
    * balance is the next thing they see.
@@ -113,6 +121,7 @@ export default function PaymentSuccessOverlay({
   statusNote,
   firstHoldNote,
   dismissTo = '/',
+  onAddContact,
   onDismiss
 }: ReceivedOverlayProps) {
   const sent = direction === 'sent'
@@ -204,11 +213,30 @@ export default function PaymentSuccessOverlay({
           </Animated.View>
 
           {sent ? (
-            !!recipientName && (
-              <Text style={[styles.support, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="middle">
-                {recipientName}
-              </Text>
-            )
+            <>
+              {!!recipientName && (
+                <Text
+                  style={[styles.support, { color: colors.textSecondary }]}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {t('pay_sent_to', { name: recipientName })}
+                </Text>
+              )}
+              {/* A text button under the name, not a second filled control: Done
+                  stays the one accent-filled control on this screen. */}
+              {!!onAddContact && (
+                <PressableScale
+                  onPress={onAddContact}
+                  haptic="tap"
+                  style={styles.saveContact}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('pay_save_as_contact')}
+                >
+                  <Text style={[styles.saveContactText, { color: colors.accent }]}>{t('pay_save_as_contact')}</Text>
+                </PressableScale>
+              )}
+            </>
           ) : (
             <Text style={[styles.support, { color: colors.success }]} textBreakStrategy="balanced">
               {count > 1 ? t('local_pay_added_multiple', { count }) : t('local_pay_added')}
@@ -299,7 +327,8 @@ const styles = StyleSheet.create({
     maxWidth: 300
   },
   footer: {
-    paddingBottom: spacing.md
+    paddingBottom: spacing.md,
+    gap: spacing.sm
   },
   button: {
     flexDirection: 'row',
@@ -310,6 +339,17 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     ...typography.headline,
+    fontWeight: '600'
+  },
+  saveContact: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  saveContactText: {
+    ...typography.footnote,
     fontWeight: '600'
   }
 })
