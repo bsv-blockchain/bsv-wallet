@@ -74,7 +74,11 @@
         "EXPO_PUBLIC_VAULT_ENABLED": "true",
         "EXPO_PUBLIC_TEST_MANDALA_OVERLAY_URL": "https://mandala-test-overlay.bsvblockchain.tech",
         "EXPO_PUBLIC_TEST_MANDALA_OVERLAY_IDENTITY_KEY": "0215643bc656ca42007faa32e94f70050f64a566ffd9e3a2ebc098389936dea57e",
-        "EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL": "https://gmb.bsvblockchain.tech"
+        "EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL": "https://gmb.bsvblockchain.tech",
+        "EXPO_PUBLIC_HANDLE_REGISTRY_DOMAIN": "deggen.com",
+        "EXPO_PUBLIC_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech",
+        "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN": "deggen.com",
+        "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech"
       }
     },
     "production-apk": {
