@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.6.0
+
+### Handle registry (breaking)
+
+Handle registration talks to go-message-box-server's paymail profile registry
+instead of a certifier that was never deployed. A handle is now
+`handle@domain`: a self-signed BRC-52 profile certificate the registry stores
+and anybody can verify. Spec:
+`docs/superpowers/specs/2026-09-18-handle-registry-client-design.md`.
+
+Removed exports and configuration:
+
+- `core/identity/handleCertificate.ts` in full — `HANDLE_CERT_TYPE`,
+  `HandleCertWallet`, `isValidHandleFormat` (the 3-20 rule),
+  `HandleAvailability`, `checkHandleAvailability`, `registerHandle`,
+  `RegisterHandleResult`.
+- `ToolboxConfig.handleCertifier`, `HandleCertifierConfig`,
+  `getHandleCertifierConfig`. Neither the type nor the getter was on the
+  public barrel; the config key was.
+
+New:
+
+- `ToolboxConfig.handleRegistry?: Partial<Record<AppChain, HandleRegistryConfig>>`
+  and `getHandleRegistryConfig(chain)`, both exported from the `core` barrel.
+  Fail-closed: a malformed or half-stated entry reads as no registry. `https`
+  is required except for localhost and RFC 1918 hosts in development.
+- `mergeContactCache` / `ContactCache` (`core/contacts/contactCache.ts`).
+- `core/identity/handleRegistry/` — `rules`, `profileCert`, `resolver`,
+  `client`, `registration`. Not on the barrel: the UI in this package is the
+  only consumer, and the surface is still settling.
+
+Behaviour:
+
+- The display name is **public** when set: a plaintext field of the profile
+  certificate, and the default name someone sees when they add you. The
+  in-app hint says so, in all 12 languages.
+- Profile shows `handle@domain`, and the registry — not
+  `profile_registered_handle` — is the source of truth for which handle this
+  key holds, so a restored wallet gets its handle back.
+- Every write is journaled in `key_value_store` (`profile_handle_pending`) and
+  replayed on the next Profile mount, so a crash, a double tap or a lost
+  response settles to the same state.
+- Pay's recipient search gains a registry tier between contacts and the
+  overlay, and `RecipientField` shows its loading spinner as a footer instead
+  of replacing the list — the local contacts tier is no longer hidden for the
+  whole debounce.
+- A query that is a complete `handle@domain` answers that row and nothing
+  else. The registry's own search is a prefix, skeleton and substring search,
+  so a typed address would otherwise be answered with its neighbours and its
+  look-alikes.
+- `contacts.cachedHandle` has a production writer for the first time: the
+  `handle` route param on `/contact/add` (validated as a paymail — the route
+  is deep-linkable), and `ContactScreen`'s background refresh, which
+  distinguishes "the registry says there is none" from "the registry did not
+  answer" and only clears the column for the first.
+- A handle is displayed without a prepended `@` wherever it already carries
+  its own domain: Profile, Contacts, a contact, and the Identifier QR screen.
+
 ## 0.5.0
 
 ### 1-of-N YubiKey vault (breaking)

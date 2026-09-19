@@ -194,6 +194,25 @@ handshake posts to the origin root, so a path, query or fragment is rejected.
 Every `services` field is optional and falls back to the built-in public
 endpoint for that chain. Chains are `main`, `test` and `teratest`.
 
+`handleRegistry` names the paymail domain this build's handles live under and
+the host that serves it, per chain:
+
+```tsx
+configureToolbox({
+  backupUrl: null,
+  handleRegistry: {
+    test: { domain: 'deggen.com', url: 'https://messagebox.bsvblockchain.tech' }
+  }
+})
+```
+
+Both fields are required together — a domain with no URL is a registry nothing
+can reach, and a URL with no domain is a host whose certificates nothing can be
+checked against — and the URL must be `https` unless it points at `localhost`,
+`127.0.0.1`, `10.0.2.2` or RFC 1918 space, which is a development allowance. A
+chain with no complete entry shows "not available yet" on the Profile screen
+and adds no registry tier to Pay's recipient search.
+
 Reading configuration before `configureToolbox` has run **throws**. An
 unconfigured build fails loudly rather than behaving like a deliberately
 disabled one.
