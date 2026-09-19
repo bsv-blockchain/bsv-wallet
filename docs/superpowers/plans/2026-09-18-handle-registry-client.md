@@ -3333,14 +3333,14 @@ Purely mechanical, and it comes before the three UI tasks because all three read
 
 Four existing values change, all 12 locales with them:
 
-- `profile_handle_invalid` — the format rule is now the registry's 3-32 rule, which allows dots.
+- `profile_handle_invalid` — the format rule is now the registry's 3-32 rule, which allows dots. State the whole regex in words, including the first/last character: `^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$` (`pkg/handles/handles.go:37`) rejects `.dee` and `dee-`, and a hint that lists only the character set and the length sends that user back to the same hint with nothing new to read.
 - `profile_display_name_hint` — the display name is **public** now (the 2026-09-18 ruling supersedes "shared privately with the handle registry").
 - `profile_handle_claim` and `profile_handle_replace_warning` — **both hard-code an `@` in front of the interpolated handle**, and after Task 8 both are handed a full `handle@domain`. Left alone they read "Claim @dee@deggen.com" and "Claiming replaces @dee@deggen.com." in all 12 languages. The ProfileScreen test cannot catch this, because its mocked `t` returns `key:values` rather than the rendered sentence — the only guard is doing it here. Every other locale's sentence is left exactly as it was apart from the removed sigil.
 
 **Files:**
 
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
-- Test: `packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts` (existing, unchanged)
+- Test: `packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts` (existing; Step 1b adds a glossary guard to it)
 
 **Interfaces — produced here, consumed by Tasks 8, 9 and 10 as `t('<key>')`:**
 
@@ -3367,6 +3367,51 @@ cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tes
 ```
 
 Expected: PASS. If it is already red, stop and fix that first — otherwise you cannot tell your own breakage apart from it.
+
+- [ ] **Step 1b: Extend the parity test with a glossary guard, because the three checks above are blind to the one mistake this task can make**
+
+A value that names the wrong thing is present, placeholder-correct and not English, so all three existing checks pass it. Add two more, over all 12 languages including `en`: every language's handle copy must contain that language's own word for a handle — its `profile_handle` label, lowercased — and the handle's status lines must not contain that language's word for the Identifier, its `contact_identifier` label. Derive both words from the block itself rather than hard-coding a table, so the guard follows a relabelled locale. `profile_handle_registered_hint` stays out of the second list: it really does say the handle is registered to your Identifier.
+
+```ts
+const handleNounKeys = [
+  'profile_handle_unavailable',
+  'profile_handle_registered',
+  'profile_handle_changed',
+  'profile_handle_rejected',
+  'profile_handle_replace_warning',
+  'profile_display_name_hint',
+  'contact_handle_caption'
+]
+const identifierFreeKeys = [
+  'profile_handle_available',
+  'profile_handle_taken',
+  'profile_handle_invalid',
+  'profile_handle_failed',
+  'profile_handle_too_similar',
+  'profile_handle_reserved',
+  'profile_handle_cooldown',
+  'profile_handle_pending',
+  'profile_handle_rolled_back',
+  'profile_handle_changed',
+  'profile_handle_rejected',
+  'profile_display_name_hint'
+]
+const languages = Object.keys(resources)
+
+it.each(languages)('%s names the handle with its own word for it', language => {
+  const translation = resources[language as keyof typeof resources].translation as Translation
+  const handleNoun = translation.profile_handle.toLowerCase()
+  expect(handleNounKeys.filter(key => !translation[key].toLowerCase().includes(handleNoun))).toEqual([])
+})
+
+it.each(languages)('%s keeps the Identifier out of the handle status lines', language => {
+  const translation = resources[language as keyof typeof resources].translation as Translation
+  const identifierNoun = translation.contact_identifier.toLowerCase()
+  expect(identifierFreeKeys.filter(key => translation[key].toLowerCase().includes(identifierNoun))).toEqual([])
+})
+```
+
+Expected right now: red for both new checks — `profile_handle_changed` and `profile_handle_rejected` do not exist yet, and the stale `profile_display_name_hint` values name no handle at all. Step 4 is what turns it green.
 
 - [ ] **Step 2: Add the seven new keys to the `en` block only, and run the test to see it fail**
 
@@ -3412,7 +3457,8 @@ replace:
 with:
 
 ```ts
-      profile_handle_invalid: '3-32 characters: a-z, 0-9, dot, underscore or hyphen',
+      profile_handle_invalid:
+        '3-32 characters: a-z, 0-9, dot, underscore or hyphen, starting and ending with a letter or digit',
 ```
 
 and drop the literal `@` from both handle sentences — `{{handle}}` now arrives as a full `handle@domain`:
@@ -3435,11 +3481,13 @@ becomes:
 
 Locate each block by its anchor key `profile_handle_register_action` (for the seven new ones) and by the existing `profile_display_name_hint` / `profile_handle_invalid` / `profile_handle_claim` / `profile_handle_replace_warning` keys (for the four replacements) — **never by line offset**, because key order differs between blocks. Values, verbatim:
 
+Two things the values below are careful about, because the parity test cannot see either. **Each language says "handle" in its own word** — the one on its `profile_handle` label: Alias (es), Pseudo (fr), Apelido (pt), اسم المستخدم (ar), Юзернейм (ru), Pseudonim (pl), 用户名 (zh), ハンドル (ja), हैंडल (hi), হ্যান্ডেল (bn), Handle (id). Never that language's word for the _Identifier_ — identificador / identifiant / معرّف / идентификатор label the identity key two sections down the same screen, and `contact_copy_identifier` and `pay_trust_unverified` with it. **And the three new availability lines share a slot with `profile_handle_available` / `_taken`**, so in ru and pl they take the gender of that language's handle noun (masculine in both: юзернейм, pseudonim), not of имя / nazwa — which would also make the display-name hint say the display name is shown next to your name.
+
 **zh**
 
 ```ts
-      profile_display_name_hint: '会公开显示在你的账号名旁边。任何查找你的人都能看到。',
-      profile_handle_invalid: '3-32 个字符：a-z、0-9、点、下划线或连字符',
+      profile_display_name_hint: '会公开显示在你的用户名旁边。任何查找你的人都能看到。',
+      profile_handle_invalid: '3-32 个字符：a-z、0-9、点、下划线或连字符，且以字母或数字开头和结尾',
       profile_handle_claim: '认领 {{handle}}',
       profile_handle_replace_warning: '认领将替换 {{handle}}。已保存你的人仍保留联系人；旧用户名将不再指向你。',
       profile_handle_too_similar: '{{handle}} 与已有的名称过于相似',
@@ -3447,15 +3495,15 @@ Locate each block by its anchor key `profile_handle_register_action` (for the se
       profile_handle_cooldown: '{{handle}} 最近被释放，暂时还不能使用',
       profile_handle_pending: '正在完成注册…',
       profile_handle_rolled_back: '{{handle}} 已被占用，已为你保留 {{previous}}。',
-      profile_handle_changed: '账号名已更改',
-      profile_handle_rejected: '注册表拒绝了该账号名。',
+      profile_handle_changed: '用户名已更改',
+      profile_handle_rejected: '注册服务拒绝了该用户名。',
 ```
 
 **hi**
 
 ```ts
       profile_display_name_hint: 'आपके हैंडल के बगल में सार्वजनिक रूप से दिखता है। आपको खोजने वाला कोई भी इसे देख सकता है।',
-      profile_handle_invalid: '3-32 अक्षर: a-z, 0-9, बिंदु, अंडरस्कोर या हाइफ़न',
+      profile_handle_invalid: '3-32 अक्षर: a-z, 0-9, बिंदु, अंडरस्कोर या हाइफ़न; शुरू और अंत अक्षर या अंक से',
       profile_handle_claim: '{{handle}} लें',
       profile_handle_replace_warning:
         'लेने से {{handle}} बदल जाएगा। जिन्होंने आपको सहेजा है उनका संपर्क बना रहेगा; पुराना हैंडल अब आप तक नहीं पहुँचेगा।',
@@ -3471,8 +3519,9 @@ Locate each block by its anchor key `profile_handle_register_action` (for the se
 **es**
 
 ```ts
-      profile_display_name_hint: 'Se muestra públicamente junto a tu identificador. Cualquiera que te busque puede verlo.',
-      profile_handle_invalid: '3-32 caracteres: a-z, 0-9, punto, guion bajo o guion',
+      profile_display_name_hint: 'Se muestra públicamente junto a tu alias. Cualquiera que te busque puede verlo.',
+      profile_handle_invalid:
+        '3-32 caracteres: a-z, 0-9, punto, guion bajo o guion; empieza y acaba con letra o dígito',
       profile_handle_claim: 'Reclamar {{handle}}',
       profile_handle_replace_warning:
         'Reclamar sustituye a {{handle}}. Quienes te guardaron conservan el contacto; el alias antiguo deja de apuntar a ti.',
@@ -3481,68 +3530,70 @@ Locate each block by its anchor key `profile_handle_register_action` (for the se
       profile_handle_cooldown: '{{handle}} se liberó hace poco y aún no está libre',
       profile_handle_pending: 'Terminando el registro…',
       profile_handle_rolled_back: '{{handle}} ya estaba ocupado. Conservas {{previous}}.',
-      profile_handle_changed: 'Identificador cambiado',
-      profile_handle_rejected: 'El registro rechazó ese identificador.',
+      profile_handle_changed: 'Alias cambiado',
+      profile_handle_rejected: 'El registro rechazó ese alias.',
 ```
 
 **fr**
 
 ```ts
       profile_display_name_hint:
-        'Affiché publiquement à côté de votre identifiant. Toute personne qui vous recherche peut le voir.',
-      profile_handle_invalid: '3-32 caractères : a-z, 0-9, point, tiret bas ou tiret',
+        'Affiché publiquement à côté de votre pseudo. Toute personne qui vous recherche peut le voir.',
+      profile_handle_invalid:
+        '3-32 caractères : a-z, 0-9, point, tiret bas ou tiret ; commence et finit par une lettre ou un chiffre',
       profile_handle_claim: 'Prendre {{handle}}',
       profile_handle_replace_warning:
         'Prendre ce pseudo remplace {{handle}}. Ceux qui vous ont enregistré gardent leur contact ; l’ancien pseudo ne mène plus à vous.',
-      profile_handle_too_similar: '{{handle}} ressemble trop à un identifiant déjà utilisé',
+      profile_handle_too_similar: '{{handle}} ressemble trop à un pseudo déjà utilisé',
       profile_handle_reserved: '{{handle}} est réservé',
       profile_handle_cooldown: '{{handle}} a été libéré récemment et n’est pas encore disponible',
       profile_handle_pending: 'Finalisation de l’enregistrement…',
       profile_handle_rolled_back: '{{handle}} était déjà pris. Vous gardez {{previous}}.',
-      profile_handle_changed: 'Identifiant modifié',
-      profile_handle_rejected: 'Le registre a refusé cet identifiant.',
+      profile_handle_changed: 'Pseudo modifié',
+      profile_handle_rejected: 'Le registre a refusé ce pseudo.',
 ```
 
 **ar**
 
 ```ts
-      profile_display_name_hint: 'يظهر علنًا بجوار معرّفك. يمكن لأي شخص يبحث عنك رؤيته.',
-      profile_handle_invalid: '3-32 حرفًا: a-z و0-9 والنقطة والشرطة السفلية والشرطة',
+      profile_display_name_hint: 'يظهر علنًا بجوار اسم المستخدم الخاص بك. يمكن لأي شخص يبحث عنك رؤيته.',
+      profile_handle_invalid: '3-32 حرفًا: a-z و0-9 والنقطة والشرطة السفلية والشرطة، ويبدأ وينتهي بحرف أو رقم',
       profile_handle_claim: 'حجز {{handle}}',
       profile_handle_replace_warning:
         'الحجز يستبدل {{handle}}. من حفظوك يحتفظون بجهة الاتصال؛ ولن يقود اسم المستخدم القديم إليك بعد الآن.',
-      profile_handle_too_similar: '{{handle}} يشبه كثيرًا معرّفًا مستخدمًا بالفعل',
+      profile_handle_too_similar: '{{handle}} يشبه كثيرًا اسمًا مستخدمًا بالفعل',
       profile_handle_reserved: '{{handle}} محجوز',
       profile_handle_cooldown: '{{handle}} تم تحريره مؤخرًا وغير متاح بعد',
       profile_handle_pending: 'جارٍ إنهاء التسجيل…',
       profile_handle_rolled_back: '{{handle}} أصبح محجوزًا. احتفظت بـ {{previous}}.',
-      profile_handle_changed: 'تم تغيير المعرّف',
-      profile_handle_rejected: 'رفض السجل هذا المعرّف.',
+      profile_handle_changed: 'تم تغيير اسم المستخدم',
+      profile_handle_rejected: 'رفضت خدمة التسجيل اسم المستخدم هذا.',
 ```
 
 **pt**
 
 ```ts
       profile_display_name_hint:
-        'Mostrado publicamente ao lado do seu identificador. Qualquer pessoa que o procure pode vê-lo.',
-      profile_handle_invalid: '3-32 caracteres: a-z, 0-9, ponto, sublinhado ou hífen',
+        'Mostrado publicamente ao lado do seu apelido. Qualquer pessoa que procurar por você pode ver.',
+      profile_handle_invalid:
+        '3-32 caracteres: a-z, 0-9, ponto, sublinhado ou hífen; começa e termina com letra ou número',
       profile_handle_claim: 'Reivindicar {{handle}}',
       profile_handle_replace_warning:
         'Reivindicar substitui {{handle}}. Quem salvou você mantém o contato; o apelido antigo deixa de levar a você.',
       profile_handle_too_similar: '{{handle}} é parecido demais com um já em uso',
       profile_handle_reserved: '{{handle}} está reservado',
-      profile_handle_cooldown: '{{handle}} foi libertado há pouco e ainda não está livre',
-      profile_handle_pending: 'A concluir o registo…',
-      profile_handle_rolled_back: '{{handle}} já estava ocupado. Manteve {{previous}}.',
-      profile_handle_changed: 'Identificador alterado',
-      profile_handle_rejected: 'O registo recusou esse identificador.',
+      profile_handle_cooldown: '{{handle}} foi liberado há pouco e ainda não está livre',
+      profile_handle_pending: 'Concluindo o registro…',
+      profile_handle_rolled_back: '{{handle}} já estava ocupado. Você manteve {{previous}}.',
+      profile_handle_changed: 'Apelido alterado',
+      profile_handle_rejected: 'O registro recusou esse apelido.',
 ```
 
 **bn**
 
 ```ts
       profile_display_name_hint: 'আপনার হ্যান্ডেলের পাশে প্রকাশ্যে দেখানো হয়। যে কেউ আপনাকে খুঁজলে এটি দেখতে পাবে।',
-      profile_handle_invalid: '৩-৩২ অক্ষর: a-z, 0-9, ডট, আন্ডারস্কোর বা হাইফেন',
+      profile_handle_invalid: '৩-৩২ অক্ষর: a-z, 0-9, ডট, আন্ডারস্কোর বা হাইফেন; শুরু ও শেষ অক্ষর বা সংখ্যা দিয়ে',
       profile_handle_claim: '{{handle}} নিন',
       profile_handle_replace_warning:
         'নিলে {{handle}} প্রতিস্থাপিত হবে। যারা আপনাকে সংরক্ষণ করেছেন তাদের পরিচিতি থাকবে; পুরোনো হ্যান্ডেল আর আপনার কাছে পৌঁছাবে না।',
@@ -3558,25 +3609,27 @@ Locate each block by its anchor key `profile_handle_register_action` (for the se
 **ru**
 
 ```ts
-      profile_display_name_hint: 'Показывается публично рядом с вашим именем. Его увидит любой, кто вас найдёт.',
-      profile_handle_invalid: '3-32 символа: a-z, 0-9, точка, подчёркивание или дефис',
+      profile_display_name_hint: 'Показывается публично рядом с вашим юзернеймом. Его увидит любой, кто вас найдёт.',
+      profile_handle_invalid:
+        '3-32 символа: a-z, 0-9, точка, подчёркивание или дефис; начинается и заканчивается буквой или цифрой',
       profile_handle_claim: 'Занять {{handle}}',
       profile_handle_replace_warning:
         'Это заменит {{handle}}. У тех, кто вас сохранил, контакт останется; старый юзернейм больше не будет вести к вам.',
-      profile_handle_too_similar: '{{handle}} слишком похоже на уже занятое',
-      profile_handle_reserved: '{{handle}} зарезервировано',
-      profile_handle_cooldown: '{{handle}} недавно освобождено и пока недоступно',
+      profile_handle_too_similar: '{{handle}} слишком похож на уже занятый',
+      profile_handle_reserved: '{{handle}} зарезервирован',
+      profile_handle_cooldown: '{{handle}} недавно освобождён и пока недоступен',
       profile_handle_pending: 'Завершаем регистрацию…',
       profile_handle_rolled_back: '{{handle}} уже заняли. За вами осталось {{previous}}.',
-      profile_handle_changed: 'Имя изменено',
-      profile_handle_rejected: 'Реестр отклонил это имя.',
+      profile_handle_changed: 'Юзернейм изменён',
+      profile_handle_rejected: 'Реестр отклонил этот юзернейм.',
 ```
 
 **id**
 
 ```ts
       profile_display_name_hint: 'Ditampilkan secara publik di samping handle Anda. Siapa pun yang mencari Anda bisa melihatnya.',
-      profile_handle_invalid: '3-32 karakter: a-z, 0-9, titik, garis bawah, atau tanda hubung',
+      profile_handle_invalid:
+        '3-32 karakter: a-z, 0-9, titik, garis bawah, atau tanda hubung; diawali dan diakhiri huruf atau angka',
       profile_handle_claim: 'Klaim {{handle}}',
       profile_handle_replace_warning:
         'Mengklaim akan mengganti {{handle}}. Orang yang menyimpan Anda tetap punya kontaknya; handle lama tidak lagi mengarah ke Anda.',
@@ -3593,7 +3646,7 @@ Locate each block by its anchor key `profile_handle_register_action` (for the se
 
 ```ts
       profile_display_name_hint: 'ハンドルの横に公開表示されます。あなたを検索した人は誰でも見られます。',
-      profile_handle_invalid: '3〜32文字：a-z、0-9、ドット、アンダースコア、ハイフン',
+      profile_handle_invalid: '3〜32文字：a-z、0-9、ドット、アンダースコア、ハイフン。先頭と末尾は英字か数字',
       profile_handle_claim: '{{handle}} を取得',
       profile_handle_replace_warning:
         '取得すると {{handle}} は置き換わります。あなたを保存した人の連絡先は残りますが、古いハンドルはあなたに繋がらなくなります。',
@@ -3609,18 +3662,19 @@ Locate each block by its anchor key `profile_handle_register_action` (for the se
 **pl**
 
 ```ts
-      profile_display_name_hint: 'Widoczna publicznie obok Twojej nazwy. Zobaczy ją każdy, kto Cię wyszuka.',
-      profile_handle_invalid: '3-32 znaki: a-z, 0-9, kropka, podkreślenie lub myślnik',
+      profile_display_name_hint: 'Widoczna publicznie obok Twojego pseudonimu. Zobaczy ją każdy, kto Cię wyszuka.',
+      profile_handle_invalid:
+        '3-32 znaki: a-z, 0-9, kropka, podkreślenie lub myślnik; zaczyna się i kończy literą lub cyfrą',
       profile_handle_claim: 'Zajmij {{handle}}',
       profile_handle_replace_warning:
         'Zajęcie zastąpi {{handle}}. Osoby, które Cię zapisały, zachowają kontakt; stary pseudonim przestanie prowadzić do Ciebie.',
-      profile_handle_too_similar: '{{handle}} jest zbyt podobna do już używanej',
-      profile_handle_reserved: '{{handle}} jest zarezerwowana',
-      profile_handle_cooldown: '{{handle}} została niedawno zwolniona i nie jest jeszcze wolna',
+      profile_handle_too_similar: '{{handle}} jest zbyt podobny do już używanego',
+      profile_handle_reserved: '{{handle}} jest zarezerwowany',
+      profile_handle_cooldown: '{{handle}} został niedawno zwolniony i nie jest jeszcze wolny',
       profile_handle_pending: 'Kończenie rejestracji…',
-      profile_handle_rolled_back: '{{handle}} została zajęta. Zachowujesz {{previous}}.',
-      profile_handle_changed: 'Nazwa zmieniona',
-      profile_handle_rejected: 'Rejestr odrzucił tę nazwę.',
+      profile_handle_rolled_back: '{{handle}} został zajęty. Zachowujesz {{previous}}.',
+      profile_handle_changed: 'Pseudonim zmieniony',
+      profile_handle_rejected: 'Rejestr odrzucił ten pseudonim.',
 ```
 
 The French and Portuguese values use the typographic apostrophe `’` so the single-quoted strings need no escaping. Keep each entry at 6 spaces of indent, a continuation line at 8, and a trailing comma except on a block's last entry — prettier at `printWidth: 120` decides which values wrap.
@@ -3641,7 +3695,7 @@ Expected: no output. (Before this task it prints 24 lines — two keys × 12 loc
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts
 ```
 
-Expected: PASS — 33 tests, 0 failures.
+Expected: PASS — 57 tests, 0 failures (33 from the three original checks, 24 from the two added in Step 1b).
 
 - [ ] **Step 6: Lint and format**
 
