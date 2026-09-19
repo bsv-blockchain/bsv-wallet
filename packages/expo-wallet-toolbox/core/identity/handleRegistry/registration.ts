@@ -47,25 +47,36 @@ export interface PendingStep {
 /**
  * `intent` is not in the design's journal shape. `resumePending` runs a journal
  * it did not start and still has to say which of registered/updated/changed
- * happened, and no combination of the other fields tells those apart. Nothing
- * has shipped, so the version stays 1.
+ * happened, and no combination of the other fields tells those apart.
+ * `attemptedPaymail` is there for the same reason: a rollback resumed on a
+ * later mount has to name the handle that was lost, and its one step is the
+ * reclaim. Nothing has shipped, so the version stays 1.
  */
 export interface PendingJournal {
   v: 1
   intent: RegistrationIntent
   steps: PendingStep[]
   previousPaymail?: string
+  attemptedPaymail?: string
   startedAt: string
 }
+
+/**
+ * A refusal this module reached on its own rather than read off the wire, for a
+ * caller that has to say it in the user's language — `message` is diagnostic
+ * English, often the SDK's, and is the wrong thing to put in front of anybody.
+ */
+export type RegistrationFailureCode = 'invalid_handle' | 'wrong_domain' | 'same_handle' | 'clock_ahead'
 
 export type RegistrationResult =
   | { kind: 'registered'; paymail: string }
   | { kind: 'updated'; paymail: string }
   | { kind: 'changed'; paymail: string }
-  | { kind: 'rolled_back'; paymail: string }
+  /** `attempted` is the handle that was lost; `paymail` is the one kept. */
+  | { kind: 'rolled_back'; paymail: string; attempted?: string }
   | { kind: 'pending' }
   | { kind: 'rejected'; code: string; description: string }
-  | { kind: 'failed'; message: string }
+  | { kind: 'failed'; message: string; code?: RegistrationFailureCode }
   | { kind: 'unavailable' }
   | { kind: 'idle' }
 
@@ -242,11 +253,12 @@ function reclaimFor(
   journal: PendingJournal,
   step: PendingStep,
   i: number
-): { paymail: string; releasedAt: Date | undefined } | null {
+): { paymail: string; releasedAt: Date | undefined; attempted: string } | null {
   if (step.kind !== 'claim' || i === 0 || !journal.previousPaymail) return null
   return {
     paymail: journal.previousPaymail,
-    releasedAt: issuedAtOf(journal.steps.find(s => s.kind === 'release'))
+    releasedAt: issuedAtOf(journal.steps.find(s => s.kind === 'release')),
+    attempted: step.paymail
   }
 }
 
@@ -276,13 +288,13 @@ async function runJournal(
       // their tombstone ahead of ours — any device a few minutes fast does —
       // and is the same hazard as the handle being taken. Replaying cannot
       // win, but the reclaim still can.
-      if (reclaim) return await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt)
+      if (reclaim) return await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt, reclaim.attempted)
       // Replaying a certificate the registry calls stale can never win, so
       // keeping the journal would only retry it on every mount, forever.
       await clearJournal(deps.storage)
       return { kind: 'failed', message: outcome.description }
     }
-    if (reclaim) return await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt)
+    if (reclaim) return await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt, reclaim.attempted)
     await clearJournal(deps.storage)
     return { kind: 'rejected', code: outcome.code, description: outcome.description }
   }
@@ -293,7 +305,11 @@ async function runJournal(
   // — the new handle was taken and the old one kept — rather than `changed`,
   // which would announce a handle the user never stopped holding.
   if (journal.intent === 'change' && journal.steps.length === 1 && journal.previousPaymail === paymail) {
-    return { kind: 'rolled_back', paymail }
+    return {
+      kind: 'rolled_back',
+      paymail,
+      ...(journal.attemptedPaymail ? { attempted: journal.attemptedPaymail } : {})
+    }
   }
   if (journal.intent === 'update') return { kind: 'updated', paymail }
   if (journal.intent === 'change') return { kind: 'changed', paymail }
@@ -324,7 +340,8 @@ async function rollBack(
   deps: RegistrationDeps,
   client: HandleRegistryClient,
   previousPaymail: string,
-  releasedAt?: Date
+  releasedAt?: Date,
+  attempted?: string
 ): Promise<RegistrationResult> {
   try {
     const issuedAt = await nextIssuedAt(deps, client, releasedAt)
@@ -335,17 +352,45 @@ async function rollBack(
       intent: 'change',
       steps: [{ kind: 'claim', paymail: previousPaymail, cert }],
       previousPaymail,
+      // Carried so a rollback finished on a later mount can still name the
+      // handle that was lost: by then its own claim is gone from the journal.
+      ...(attempted ? { attemptedPaymail: attempted } : {}),
       startedAt: issuedAt.toISOString()
     })
     const outcome = await client.putCertificate(cert)
     if (outcome.kind === 'failed') return { kind: 'pending' }
     await clearJournal(deps.storage)
     if (outcome.kind === 'rejected') return { kind: 'rejected', code: outcome.code, description: outcome.description }
-    return { kind: 'rolled_back', paymail: previousPaymail }
+    return { kind: 'rolled_back', paymail: previousPaymail, ...(attempted ? { attempted } : {}) }
   } catch (e) {
     await clearJournal(deps.storage)
     return { kind: 'failed', message: messageOf(e) }
   }
+}
+
+/**
+ * An unfinished journal outranks a new intent, and answering with its outcome
+ * is the whole of the fix.
+ *
+ * A `release` is idempotent only while the IDENTICAL bytes are replayed: the
+ * registry recognises a replayed tombstone by its `issuedAt`, so a freshly
+ * minted one for a handle an earlier journal already tombstoned finds nothing
+ * to release and comes back `404 ERR_HANDLE_NOT_FOUND` — while the signed,
+ * still-replayable claim that would have finished the first attempt has already
+ * been overwritten, leaving the user holding neither handle and the journal
+ * that could have rescued them gone.
+ *
+ * So a second Claim press after a timeout, a display-name save arriving while a
+ * change is still in flight, or a second Profile screen, all finish what is
+ * already journalled rather than starting again. Nothing is minted until the
+ * store is empty.
+ */
+async function finishOutstanding(
+  deps: RegistrationDeps,
+  client: HandleRegistryClient
+): Promise<RegistrationResult | null> {
+  const journal = await readJournal(deps.storage)
+  return journal ? await runJournal(deps, client, journal) : null
 }
 
 export function registerHandle(
@@ -356,9 +401,11 @@ export function registerHandle(
     const client = deps.client
     if (!client) return { kind: 'unavailable' }
     try {
+      const outstanding = await finishOutstanding(deps, client)
+      if (outstanding) return outstanding
       const paymail = `${args.handle.trim().toLowerCase()}@${client.domain}`
       if (!parsePaymail(paymail))
-        return { kind: 'failed', message: `handleRegistry: not a valid handle: ${args.handle}` }
+        return { kind: 'failed', code: 'invalid_handle', message: `handleRegistry: not a valid handle: ${args.handle}` }
       const issuedAt = await nextIssuedAt(deps, client)
       const cert = await buildProfileCertificate({
         signer: deps.signer,
@@ -388,9 +435,15 @@ export function updateProfile(
     const client = deps.client
     if (!client) return { kind: 'unavailable' }
     try {
+      const outstanding = await finishOutstanding(deps, client)
+      if (outstanding) return outstanding
       const parsed = parsePaymail(args.paymail)
       if (!parsed || parsed.domain !== client.domain) {
-        return { kind: 'failed', message: `handleRegistry: not this registry's paymail: ${args.paymail}` }
+        return {
+          kind: 'failed',
+          code: 'wrong_domain',
+          message: `handleRegistry: not this registry's paymail: ${args.paymail}`
+        }
       }
       const paymail = `${parsed.handle}@${parsed.domain}`
       const issuedAt = await nextIssuedAt(deps, client)
@@ -423,10 +476,16 @@ export function changeHandle(
     const client = deps.client
     if (!client) return { kind: 'unavailable' }
     try {
+      const outstanding = await finishOutstanding(deps, client)
+      if (outstanding) return outstanding
       const previous = parsePaymail(args.previousPaymail)
       const paymail = `${args.handle.trim().toLowerCase()}@${client.domain}`
       if (!previous || previous.domain !== client.domain || !parsePaymail(paymail)) {
-        return { kind: 'failed', message: `handleRegistry: cannot change ${args.previousPaymail} to ${paymail}` }
+        return {
+          kind: 'failed',
+          code: 'wrong_domain',
+          message: `handleRegistry: cannot change ${args.previousPaymail} to ${paymail}`
+        }
       }
       const previousPaymail = `${previous.handle}@${previous.domain}`
       // Releasing a live handle to claim it straight back buys nothing and
@@ -434,7 +493,11 @@ export function changeHandle(
       // change can go wrong inherited for a no-op. A display name is saved
       // through `updateProfile`, which needs no tombstone at all.
       if (previousPaymail === paymail) {
-        return { kind: 'failed', message: `handleRegistry: ${paymail} is already the registered handle` }
+        return {
+          kind: 'failed',
+          code: 'same_handle',
+          message: `handleRegistry: ${paymail} is already the registered handle`
+        }
       }
       // One key may hold one handle, so the old one is tombstoned first and
       // the claim must be dated strictly after that tombstone.
@@ -446,7 +509,11 @@ export function changeHandle(
       // better to refuse a change and leave the user the handle they have; the
       // ceiling moves with the clock, so this clears itself in minutes.
       if (claimAt.getTime() <= releaseAt.getTime()) {
-        return { kind: 'failed', message: 'handleRegistry: the clock is too far ahead to change handle yet' }
+        return {
+          kind: 'failed',
+          code: 'clock_ahead',
+          message: 'handleRegistry: the clock is too far ahead to change handle yet'
+        }
       }
       const release = await buildProfileCertificate({
         signer: deps.signer,
@@ -484,9 +551,7 @@ export function resumePending(deps: RegistrationDeps): Promise<RegistrationResul
     const client = deps.client
     if (!client) return { kind: 'unavailable' }
     try {
-      const journal = await readJournal(deps.storage)
-      if (!journal) return { kind: 'idle' }
-      return await runJournal(deps, client, journal)
+      return (await finishOutstanding(deps, client)) ?? { kind: 'idle' }
     } catch (e) {
       return { kind: 'failed', message: messageOf(e) }
     }

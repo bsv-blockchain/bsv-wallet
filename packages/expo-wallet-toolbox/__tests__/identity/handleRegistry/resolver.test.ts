@@ -401,6 +401,38 @@ describe('fetchWithTimeout', () => {
     expect(jest.getTimerCount()).toBe(0)
   })
 
+  /**
+   * Headers are not an answer. A connection that delivers them and then stalls
+   * — a captive portal, a half-closed load balancer, a link that drops
+   * mid-body — leaves `json()` pending for ever, and every caller in this
+   * feature reads a body. `registration.ts` serialises every write behind one
+   * promise, so one stalled body would wedge every later write for the life of
+   * the process, with no toast and no timeout.
+   */
+  it('holds the deadline over the body, not just the headers', async () => {
+    const { fetchImpl, seen } = recorder(
+      async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) }) as unknown as Response
+    )
+    const response = await fetchWithTimeout(fetchImpl, 'https://host/x')
+    // The header phase is over and its timer is gone: the body read starts its
+    // own slice of the same deadline from here.
+    expect(jest.getTimerCount()).toBe(0)
+    const assertion = expect(response.json()).rejects.toThrow(/no body/)
+    await jest.advanceTimersByTimeAsync(REGISTRY_TIMEOUT_MS)
+    await assertion
+    // Aborted as well as rejected: a real stalled stream stops on the signal,
+    // and only a transport that ignores it needs the rejection.
+    expect(seen.init?.signal?.aborted).toBe(true)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('hands the body straight through when it arrives, and drops that timer too', async () => {
+    const { fetchImpl } = recorder(async () => ok({ hello: 'world' }))
+    const response = await fetchWithTimeout(fetchImpl, 'https://host/x')
+    await expect(response.json()).resolves.toEqual({ hello: 'world' })
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
   it('aborts a request that never answers, at eight seconds', async () => {
     const { fetchImpl, seen } = recorder(
       async init =>

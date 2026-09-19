@@ -91,22 +91,28 @@ export function ContactScreen() {
    * stored. Once per visit — the write feeds `reload`, and re-running on the
    * contact it produced would be a loop.
    *
+   * One guard per source, though, not one for the pass. The two clients arrive
+   * at different moments: a screen drawn before the wallet finished building
+   * has no identity client, while a chain WITH a registry configured has its
+   * registry client from the first render — so a single guard would be claimed
+   * by the pass that could only do the registry half, and the avatar would
+   * never be refreshed for the whole visit even though `managers` is a
+   * dependency precisely so that it could be.
+   *
    * `name` is never touched: it is the user's own label for this person.
    */
-  const refreshedKeyRef = useRef('')
+  const refreshedAvatarKeyRef = useRef('')
+  const refreshedHandleKeyRef = useRef('')
   useEffect(() => {
     if (!identityKey || !store || walletUserId === null || !contact) return
-    if (refreshedKeyRef.current === identityKey) return
     const idClient = makeIdentityClient(managers?.permissionsManager as never, adminOriginator)
     const registry = getHandleRegistryConfig(selectedNetwork)
     const client = registry ? createHandleRegistryClient({ pinned: registry }) : null
-    // Claimed only once there is something to claim it for. A screen drawn
-    // before the wallet finished building has no identity client (and, on a
-    // chain with no registry, no client at all); `managers` is a dependency so
-    // that pass can happen when they arrive, and spending the visit on the
-    // empty one would skip the refresh for the whole visit.
-    if (!idClient && !client) return
-    refreshedKeyRef.current = identityKey
+    const wantAvatar = !!idClient && refreshedAvatarKeyRef.current !== identityKey
+    const wantHandle = !!client && refreshedHandleKeyRef.current !== identityKey
+    if (!wantAvatar && !wantHandle) return
+    if (wantAvatar) refreshedAvatarKeyRef.current = identityKey
+    if (wantHandle) refreshedHandleKeyRef.current = identityKey
     let cancelled = false
     // A pass that never reaches its decision hands the guard back, so a
     // `contact` that changes mid-lookup (a rename, whose `reload` is a new
@@ -118,10 +124,12 @@ export function ContactScreen() {
     let decided = false
     void (async () => {
       const [identity, lookup] = await Promise.all([
-        idClient ? resolveIdentity(idClient, identityKey).then(([, found]) => found) : null,
+        wantAvatar && idClient ? resolveIdentity(idClient, identityKey).then(([, found]) => found) : null,
         // A contact whose cached handle names another domain is looked up
         // there; everyone else on the registry this build is configured for.
-        client ? client.lookupProfile(identityKey, parsePaymail(contact.cachedHandle ?? '')?.domain) : null
+        wantHandle && client
+          ? client.lookupProfile(identityKey, parsePaymail(contact.cachedHandle ?? '')?.domain)
+          : null
       ])
       if (cancelled) return
       // `lookupProfile`, not `lookupIdentityKey`: a `failed` lookup is the
@@ -140,7 +148,9 @@ export function ContactScreen() {
     })().catch(() => {})
     return () => {
       cancelled = true
-      if (!decided) refreshedKeyRef.current = ''
+      if (decided) return
+      if (wantAvatar) refreshedAvatarKeyRef.current = ''
+      if (wantHandle) refreshedHandleKeyRef.current = ''
     }
   }, [identityKey, store, walletUserId, managers, adminOriginator, selectedNetwork, contact, reload])
 

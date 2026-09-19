@@ -5,6 +5,7 @@ import {
   type ProfileSigner
 } from '../../../core/identity/handleRegistry/profileCert'
 import { createHandleRegistryClient } from '../../../core/identity/handleRegistry/client'
+import { MAX_SEARCH_RESULTS, PROFILE_CERT_TYPE } from '../../../core/identity/handleRegistry/rules'
 import type { RegistryEndpoints, RegistryResolver } from '../../../core/identity/handleRegistry/resolver'
 
 const PIN = { domain: 'deggen.com', url: 'https://registry.example' }
@@ -340,6 +341,65 @@ describe('search', () => {
     const named = transport(() => ({ status: 200, body: [foreignNeighbour] }))
     const rows = await client(named.fetchImpl).search('dee2@other.example')
     expect(rows.map(r => r.paymail)).toEqual(['dee2@other.example'])
+  })
+
+  /**
+   * The route's contract is ten rows, and go-message-box-server enforces it —
+   * but `search` resolves and asks whatever complete domain the user typed, and
+   * that host is bound by nothing. Every row is one ECDSA verification on the
+   * single thread the recipient field is drawn from, so an uncapped answer is a
+   * freeze measured in seconds rather than a long list.
+   */
+  it('verifies at most the ten rows the route ever answers with', async () => {
+    let touchedBeyondTheCap = 0
+    const beyond = () => ({
+      get type() {
+        touchedBeyondTheCap += 1
+        return PROFILE_CERT_TYPE
+      }
+    })
+    const answered = [...Array<ProfileCertJson>(MAX_SEARCH_RESULTS).fill(cert), beyond(), beyond(), beyond()]
+    const { fetchImpl } = transport(() => ({ status: 200, body: answered }))
+    const rows = await createHandleRegistryClient({ pinned: PIN, fetchImpl }).search('dee')
+    expect(rows).toHaveLength(MAX_SEARCH_RESULTS)
+    // Not merely trimmed after the fact: a row past the cap is never read at
+    // all, which is the half that bounds the work rather than the list.
+    expect(touchedBeyondTheCap).toBe(0)
+  })
+
+  /**
+   * `.co` is a prefix of `.com`, so for essentially any pinned `x.com` a
+   * finished, real, different registry is a string prefix of ours. Answering it
+   * from our own registry would also drop the exact-paymail rule — the address
+   * would be read as a fragment — and a typed `dee@deggen.co` would come back
+   * as every `*@deggen.com` neighbour, squatter included.
+   */
+  it('resolves a complete domain that merely happens to be a prefix of the pinned one', async () => {
+    const { fetchImpl, calls } = transport(() => ({ status: 200, body: [cert, neighbour] }))
+    const client = createHandleRegistryClient({
+      pinned: PIN,
+      fetchImpl,
+      resolver: resolverFor('deggen.co', 'https://mb.deggen.co')
+    })
+    expect(await client.search(`dee@deggen.co`)).toEqual([])
+    expect(calls[0].url).toBe('https://mb.deggen.co/api/handle/dee')
+  })
+
+  /**
+   * And the other half of the same rule: every character of our own domain is
+   * typed through on the way to it, `deggen.co` among them. A prefix of ours
+   * that resolves nowhere is a half-typed address, not an outage — throwing
+   * here would raise Pay's banner mid-keystroke, every time somebody types the
+   * configured domain out in full.
+   */
+  it('answers nothing, rather than throwing, for a prefix of ours that resolves nowhere', async () => {
+    const { fetchImpl, calls } = transport(() => ({ status: 200, body: [] }))
+    const client = createHandleRegistryClient({ pinned: PIN, fetchImpl, resolver: resolverFor('deggen.co', null) })
+    await expect(client.search('dee@deggen.co')).resolves.toEqual([])
+    expect(calls).toEqual([])
+    // A domain with nothing to do with ours is still an outage to report.
+    const other = createHandleRegistryClient({ pinned: PIN, fetchImpl, resolver: resolverFor('other.example', null) })
+    await expect(other.search('dee@other.example')).rejects.toThrow(/no registry for other.example/)
   })
 
   it('throws on a transport failure, so Pay raises its existing banner', async () => {

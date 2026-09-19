@@ -1031,6 +1031,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} was taken. You kept {{previous}}.',
       profile_handle_changed: 'Handle changed',
       profile_handle_rejected: 'The registry refused that handle.',
+      profile_handle_clock_ahead: 'Your device clock is too far ahead. Try again in a few minutes.',
+      profile_handle_wrong_registry: 'That handle is not on this registry. Open Profile again to refresh it.',
+      profile_display_name_publish_failed: 'Your name was saved here, but the registry would not publish it.',
       profile_qr_hint: 'Others can scan this to add you as a contact',
 
       // Pay: 3-step (who / amount / review)
@@ -1922,6 +1925,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} 已被占用，已为你保留 {{previous}}。',
       profile_handle_changed: '用户名已更改',
       profile_handle_rejected: '注册服务拒绝了该用户名。',
+      profile_handle_clock_ahead: '你的设备时间太超前了。请过几分钟再试。',
+      profile_handle_wrong_registry: '该用户名不在此注册服务上。请重新打开“个人资料”以刷新。',
+      profile_display_name_publish_failed: '你的名称已保存在本机，但注册服务未能公开发布。',
       profile_qr_hint: '他人可扫描此码将您添加为联系人',
 
       pay_step_contacts: '联系人',
@@ -2870,6 +2876,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} ले लिया गया था। आपके पास {{previous}} बना रहा।',
       profile_handle_changed: 'हैंडल बदल गया',
       profile_handle_rejected: 'रजिस्ट्री ने उस हैंडल को अस्वीकार कर दिया।',
+      profile_handle_clock_ahead: 'आपके डिवाइस की घड़ी बहुत आगे है। कुछ मिनट बाद फिर कोशिश करें।',
+      profile_handle_wrong_registry: 'वह हैंडल इस रजिस्ट्री पर नहीं है। इसे ताज़ा करने के लिए प्रोफ़ाइल दोबारा खोलें।',
+      profile_display_name_publish_failed: 'आपका नाम यहाँ सहेज लिया गया, लेकिन रजिस्ट्री ने इसे प्रकाशित नहीं किया।',
       profile_qr_hint: 'दूसरे लोग इसे स्कैन करके आपको संपर्क के रूप में जोड़ सकते हैं',
 
       pay_step_contacts: 'संपर्क',
@@ -3831,6 +3840,10 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} ya estaba ocupado. Conservas {{previous}}.',
       profile_handle_changed: 'Alias cambiado',
       profile_handle_rejected: 'El registro rechazó ese alias.',
+      profile_handle_clock_ahead:
+        'El reloj de tu dispositivo va demasiado adelantado. Inténtalo de nuevo en unos minutos.',
+      profile_handle_wrong_registry: 'Ese alias no está en este registro. Vuelve a abrir Perfil para actualizarlo.',
+      profile_display_name_publish_failed: 'Tu nombre se guardó aquí, pero el registro no lo publicó.',
       profile_qr_hint: 'Otras personas pueden escanear esto para añadirte como contacto',
 
       pay_step_contacts: 'Contactos',
@@ -4804,6 +4817,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} était déjà pris. Vous gardez {{previous}}.',
       profile_handle_changed: 'Pseudo modifié',
       profile_handle_rejected: 'Le registre a refusé ce pseudo.',
+      profile_handle_clock_ahead: "L'horloge de votre appareil est trop en avance. Réessayez dans quelques minutes.",
+      profile_handle_wrong_registry: "Ce pseudo n'est pas sur ce registre. Rouvrez Profil pour l'actualiser.",
+      profile_display_name_publish_failed: "Votre nom est enregistré ici, mais le registre ne l'a pas publié.",
       profile_qr_hint: "D'autres personnes peuvent scanner ceci pour vous ajouter comme contact",
 
       pay_step_contacts: 'Contacts',
@@ -5712,6 +5728,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} أصبح محجوزًا. احتفظت بـ {{previous}}.',
       profile_handle_changed: 'تم تغيير اسم المستخدم',
       profile_handle_rejected: 'رفضت خدمة التسجيل اسم المستخدم هذا.',
+      profile_handle_clock_ahead: 'ساعة جهازك متقدّمة كثيرًا. حاول مرة أخرى بعد بضع دقائق.',
+      profile_handle_wrong_registry: 'اسم المستخدم هذا ليس على خدمة التسجيل هذه. افتح الملف الشخصي مجددًا لتحديثه.',
+      profile_display_name_publish_failed: 'تم حفظ اسمك هنا، لكن خدمة التسجيل لم تنشره.',
       profile_qr_hint: 'يمكن للآخرين مسح هذا لإضافتك كجهة اتصال',
 
       pay_step_contacts: 'جهات الاتصال',
@@ -6671,6 +6690,10 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} já estava ocupado. Você manteve {{previous}}.',
       profile_handle_changed: 'Apelido alterado',
       profile_handle_rejected: 'O registro recusou esse apelido.',
+      profile_handle_clock_ahead:
+        'O relógio do seu dispositivo está muito adiantado. Tente novamente em alguns minutos.',
+      profile_handle_wrong_registry: 'Esse apelido não está neste registro. Abra o Perfil novamente para atualizá-lo.',
+      profile_display_name_publish_failed: 'Seu nome foi salvo aqui, mas o registro não o publicou.',
       profile_qr_hint: 'Outras pessoas podem escanear isto para adicionar você como contato',
 
       pay_step_contacts: 'Contatos',
@@ -7613,6 +7636,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} নেওয়া হয়ে গেছে। আপনি {{previous}} রেখেছেন।',
       profile_handle_changed: 'হ্যান্ডেল পরিবর্তিত হয়েছে',
       profile_handle_rejected: 'রেজিস্ট্রি সেই হ্যান্ডেলটি প্রত্যাখ্যান করেছে।',
+      profile_handle_clock_ahead: 'আপনার ডিভাইসের ঘড়ি অনেক এগিয়ে আছে। কয়েক মিনিট পরে আবার চেষ্টা করুন।',
+      profile_handle_wrong_registry: 'সেই হ্যান্ডেলটি এই রেজিস্ট্রিতে নেই। রিফ্রেশ করতে প্রোফাইল আবার খুলুন।',
+      profile_display_name_publish_failed: 'আপনার নাম এখানে সংরক্ষিত হয়েছে, কিন্তু রেজিস্ট্রি এটি প্রকাশ করেনি।',
       profile_qr_hint: 'অন্যরা আপনাকে পরিচিতি হিসেবে যোগ করতে এটি স্ক্যান করতে পারে',
 
       pay_step_contacts: 'পরিচিতি',
@@ -8568,6 +8594,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} уже заняли. За вами осталось {{previous}}.',
       profile_handle_changed: 'Юзернейм изменён',
       profile_handle_rejected: 'Реестр отклонил этот юзернейм.',
+      profile_handle_clock_ahead: 'Часы устройства слишком спешат. Попробуйте через несколько минут.',
+      profile_handle_wrong_registry: 'Этого юзернейма нет в этом реестре. Откройте профиль заново, чтобы обновить его.',
+      profile_display_name_publish_failed: 'Имя сохранено на устройстве, но реестр его не опубликовал.',
       profile_qr_hint: 'Другие могут отсканировать это, чтобы добавить вас в контакты',
 
       pay_step_contacts: 'Контакты',
@@ -9524,6 +9553,9 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} sudah diambil. Anda tetap memakai {{previous}}.',
       profile_handle_changed: 'Handle diubah',
       profile_handle_rejected: 'Registri menolak handle itu.',
+      profile_handle_clock_ahead: 'Jam perangkat Anda terlalu maju. Coba lagi beberapa menit lagi.',
+      profile_handle_wrong_registry: 'Handle itu tidak ada di registri ini. Buka Profil lagi untuk menyegarkannya.',
+      profile_display_name_publish_failed: 'Nama Anda tersimpan di sini, tetapi registri tidak memublikasikannya.',
       profile_qr_hint: 'Orang lain dapat memindai ini untuk menambahkan Anda sebagai kontak',
 
       pay_step_contacts: 'Kontak',
@@ -10483,6 +10515,10 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} は取得済みでした。{{previous}} をそのまま使います。',
       profile_handle_changed: 'ハンドルを変更しました',
       profile_handle_rejected: 'レジストリがそのハンドルを拒否しました。',
+      profile_handle_clock_ahead: '端末の時計が進みすぎています。数分後にもう一度お試しください。',
+      profile_handle_wrong_registry:
+        'そのハンドルはこのレジストリにありません。プロフィールを開き直して更新してください。',
+      profile_display_name_publish_failed: '名前はこの端末に保存しましたが、レジストリには公開できませんでした。',
       profile_qr_hint: '他の人がこれをスキャンしてあなたを連絡先に追加できます',
 
       pay_step_contacts: '連絡先',
@@ -11461,6 +11497,10 @@ const resources = {
       profile_handle_rolled_back: '{{handle}} został zajęty. Zachowujesz {{previous}}.',
       profile_handle_changed: 'Pseudonim zmieniony',
       profile_handle_rejected: 'Rejestr odrzucił ten pseudonim.',
+      profile_handle_clock_ahead: 'Zegar urządzenia jest zbyt przyspieszony. Spróbuj ponownie za kilka minut.',
+      profile_handle_wrong_registry:
+        'Tego pseudonimu nie ma w tym rejestrze. Otwórz Profil ponownie, aby go odświeżyć.',
+      profile_display_name_publish_failed: 'Twoja nazwa została zapisana tutaj, ale rejestr jej nie opublikował.',
       profile_qr_hint: 'Inni mogą to zeskanować, aby dodać Cię jako kontakt',
 
       pay_step_contacts: 'Kontakty',

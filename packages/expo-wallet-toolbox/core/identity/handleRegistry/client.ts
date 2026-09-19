@@ -13,7 +13,13 @@
  * `serverNow` corrects by is only ever taken from a pinned response, for the
  * same reason.
  */
-import { SEARCH_MIN_QUERY_LENGTH, isRoutableSearchQuery, isValidHandleFormat, looksLikeDomain } from './rules'
+import {
+  MAX_SEARCH_RESULTS,
+  SEARCH_MIN_QUERY_LENGTH,
+  isRoutableSearchQuery,
+  isValidHandleFormat,
+  looksLikeDomain
+} from './rules'
 import { verifyProfileCertificate, type ProfileCertJson, type RegistryProfile } from './profileCert'
 import { createRegistryResolver, fetchWithTimeout, type RegistryPin, type RegistryResolver } from './resolver'
 
@@ -126,8 +132,11 @@ export function createHandleRegistryClient(args: {
    * characters, outside `[a-z0-9._-]`, or a path its route table claims (the
    * literal `available`, which answers `400 ERR_INVALID_LOOKUP` and would
    * otherwise surface as an outage) costs no request at all.
+   *
+   * `transient` marks the one place those two readings overlap — see the
+   * comment on the prefix branch.
    */
-  function routeFor(raw: string): { domain: string; query: string; paymail?: string } | null {
+  function routeFor(raw: string): { domain: string; query: string; paymail?: string; transient?: boolean } | null {
     const text = raw.trim().toLowerCase()
     const at = text.indexOf('@')
     if (at < 0) return isRoutableSearchQuery(text) ? { domain, query: text } : null
@@ -136,13 +145,28 @@ export function createHandleRegistryClient(args: {
     if (local.length < SEARCH_MIN_QUERY_LENGTH || !isRoutableSearchQuery(local)) return null
     // A domain still being typed is a prefix of ours: still our registry, and
     // still a fragment — the user has not finished naming anybody yet.
-    if (domain.startsWith(typed)) {
+    //
+    // A prefix that is ITSELF a complete domain is not that. `.co` is a prefix
+    // of `.com`, so for essentially any pinned `x.com` a finished, real,
+    // different registry would be answered by ours — with the exact-paymail
+    // rule switched off, because the address would be read as a fragment. A
+    // typed `alice@deggen.co` would come back as every `*@deggen.com`
+    // neighbour, squatter included, and never as the person named.
+    if (typed === domain || (domain.startsWith(typed) && !looksLikeDomain(typed))) {
       const complete = typed === domain && isValidHandleFormat(local)
       return { domain, query: local, ...(complete ? { paymail: `${local}@${domain}` } : {}) }
     }
     if (!looksLikeDomain(typed)) return null
     const complete = isValidHandleFormat(local)
-    return { domain: typed, query: local, ...(complete ? { paymail: `${local}@${typed}` } : {}) }
+    return {
+      domain: typed,
+      query: local,
+      ...(complete ? { paymail: `${local}@${typed}` } : {}),
+      // Every character of our own domain is typed through on the way to it, so
+      // a prefix of ours that resolves nowhere is a half-typed address rather
+      // than an outage to raise a banner about mid-keystroke.
+      ...(domain.startsWith(typed) ? { transient: true } : {})
+    }
   }
 
   /** A free function rather than a method: `lookupIdentityKey` delegates to it,
@@ -217,7 +241,10 @@ export function createHandleRegistryClient(args: {
       const route = routeFor(query)
       if (!route) return []
       const endpoints = await resolver.resolve(route.domain)
-      if (!endpoints) throw new Error(`handleRegistry: no registry for ${route.domain}`)
+      if (!endpoints) {
+        if (route.transient) return []
+        throw new Error(`handleRegistry: no registry for ${route.domain}`)
+      }
       const res = await fetchWithTimeout(fetchImpl, endpoints.search(route.query), {
         headers: { accept: 'application/json' }
       })
@@ -226,10 +253,19 @@ export function createHandleRegistryClient(args: {
       const body = (await res.json()) as unknown
       if (!Array.isArray(body)) return []
       const verified = await Promise.all(
+        // Capped before a single signature is checked. The route's contract is
+        // ten rows and our own server enforces it, but a complete foreign
+        // domain the user typed is answered by a host bound by nothing — and
+        // each row is one ECDSA verification on the thread the recipient field
+        // is drawn from, so an uncapped answer is a freeze, not a long list.
+        //
         // `expect.paymail` is what enforces "a complete address names one
         // person": set, every other row the server volunteered is dropped.
-        body.map(row =>
-          verifyProfileCertificate(row, { domain: route.domain, ...(route.paymail ? { paymail: route.paymail } : {}) })
+        body.slice(0, MAX_SEARCH_RESULTS).map(row =>
+          verifyProfileCertificate(row, {
+            domain: route.domain,
+            ...(route.paymail ? { paymail: route.paymail } : {})
+          })
         )
       )
       return verified.filter((profile): profile is RegistryProfile => profile !== null)

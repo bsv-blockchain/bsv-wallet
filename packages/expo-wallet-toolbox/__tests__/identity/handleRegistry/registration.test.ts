@@ -52,7 +52,15 @@ function scriptedClient(script: {
   serverNow?: Date | (() => Date)
 }) {
   const puts: ProfileCertJson[] = []
-  let reverseCalls = 0
+  /**
+   * What each reverse lookup was actually ASKED, not just how many there were.
+   * The stale branch's whole job is to find out what the registry holds for
+   * OUR key, and a fake that answers from the script whatever it is handed
+   * cannot tell `lookupProfile(cert.subject)` from `lookupProfile(paymail)` —
+   * which the registry answers `400 ERR_INVALID_LOOKUP` to, turning every
+   * confirmed write into an unfinishable `pending`.
+   */
+  const reverseLookups: [string, string | undefined][] = []
   const client: HandleRegistryClient = {
     domain: DOMAIN,
     async checkAvailability() {
@@ -65,14 +73,14 @@ function scriptedClient(script: {
     async search() {
       return []
     },
-    async lookupProfile() {
-      reverseCalls += 1
+    async lookupProfile(identityKey, forDomain) {
+      reverseLookups.push([identityKey, forDomain])
       if (script.reverseFailed === true) return { kind: 'failed' }
       const profile = script.reverse ? script.reverse() : null
       return profile ? { kind: 'found', profile } : { kind: 'none' }
     },
-    async lookupIdentityKey() {
-      reverseCalls += 1
+    async lookupIdentityKey(identityKey, forDomain) {
+      reverseLookups.push([identityKey, forDomain])
       return script.reverse ? script.reverse() : null
     },
     serverNow() {
@@ -80,7 +88,7 @@ function scriptedClient(script: {
       return typeof at === 'function' ? at() : at
     }
   }
-  return { client, puts, reverseCalls: () => reverseCalls }
+  return { client, puts, reverseLookups }
 }
 
 const journalOf = (storage: RegistrationStorage & { map: Map<string, string> }): PendingJournal | null => {
@@ -227,7 +235,7 @@ describe('issuedAt', () => {
       { client, signer: SIGNER, storage },
       { previousPaymail: `dee@${DOMAIN}`, handle: 'deggen' }
     )
-    expect(result).toEqual({ kind: 'rolled_back', paymail: `dee@${DOMAIN}` })
+    expect(result).toEqual({ kind: 'rolled_back', paymail: `dee@${DOMAIN}`, attempted: `deggen@${DOMAIN}` })
     expect(Date.parse(puts[1].fields.issuedAt) - serverNow.getTime()).toBe(MAX_ISSUED_AT_LEAD_MS)
     expect(Date.parse(puts[2].fields.issuedAt)).toBeGreaterThan(Date.parse(puts[0].fields.issuedAt))
   })
@@ -355,7 +363,7 @@ describe('changeHandle', () => {
       { client, signer: SIGNER, storage },
       { previousPaymail: `dee@${DOMAIN}`, handle: 'deggen' }
     )
-    expect(result).toEqual({ kind: 'rolled_back', paymail: `dee@${DOMAIN}` })
+    expect(result).toEqual({ kind: 'rolled_back', paymail: `dee@${DOMAIN}`, attempted: `deggen@${DOMAIN}` })
     expect(puts).toHaveLength(3)
     expect(puts[2].fields).toMatchObject({ paymail: `dee@${DOMAIN}` })
     expect(puts[2].fields.released).toBeUndefined()
@@ -398,9 +406,103 @@ describe('changeHandle', () => {
   })
 })
 
+/**
+ * The journal holds the only copy of a signed, replayable certificate, and a
+ * `release` is idempotent ONLY while the identical bytes are replayed: the
+ * registry recognises a replayed tombstone by its `issuedAt`, so a freshly
+ * minted one for a handle an earlier journal already released finds nothing to
+ * release and answers `404 ERR_HANDLE_NOT_FOUND`. Minting a second intent over
+ * an unfinished one therefore destroys the claim that could still have
+ * succeeded and sends a tombstone that cannot, leaving the user holding
+ * neither handle with nothing left to retry.
+ */
+describe('an outstanding journal', () => {
+  /** A change whose release landed and whose claim's answer was lost. */
+  const halfDoneChange = async () => {
+    const storage = memoryStorage()
+    const { client } = scriptedClient({
+      put: (_cert, call) => (call === 1 ? { kind: 'ok' } : { kind: 'failed', message: 'timeout' })
+    })
+    expect(
+      await changeHandle({ client, signer: SIGNER, storage }, { previousPaymail: `alice@${DOMAIN}`, handle: 'bob' })
+    ).toEqual({ kind: 'pending' })
+    expect(journalOf(storage)?.steps.map(s => s.paymail)).toEqual([`alice@${DOMAIN}`, `bob@${DOMAIN}`])
+    // The first run has settled, so a second call starts its own run rather
+    // than joining this one — which is exactly the press under test.
+    resetRegistrationState()
+    return storage
+  }
+
+  it('is finished by a second Claim press rather than replaced by a fresh release', async () => {
+    const storage = await halfDoneChange()
+    const kept = journalOf(storage)
+    const replay = scriptedClient({ put: () => ({ kind: 'ok' }) })
+    expect(
+      await changeHandle(
+        { client: replay.client, signer: SIGNER, storage },
+        { previousPaymail: `alice@${DOMAIN}`, handle: 'bob' }
+      )
+    ).toEqual({ kind: 'changed', paymail: `bob@${DOMAIN}` })
+    // Byte-identical, serial and `issuedAt` included: anything else is a second
+    // tombstone for a handle the registry has already released.
+    expect(replay.puts).toEqual(kept?.steps.map(s => s.cert))
+    expect(journalOf(storage)).toBeNull()
+  })
+
+  it('is still there after a second press that could not finish it either', async () => {
+    const storage = await halfDoneChange()
+    const kept = journalOf(storage)
+    const { client, puts } = scriptedClient({ put: () => ({ kind: 'failed', message: 'still offline' }) })
+    expect(
+      await changeHandle({ client, signer: SIGNER, storage }, { previousPaymail: `alice@${DOMAIN}`, handle: 'bob' })
+    ).toEqual({ kind: 'pending' })
+    expect(puts).toEqual([kept?.steps[0].cert])
+    expect(journalOf(storage)).toEqual(kept)
+  })
+
+  /**
+   * The same hazard through a different door: the change never reported
+   * success, so the screen still believes the old paymail is the registered
+   * one — and a display name saved from that screen is an `update` for it.
+   */
+  it('is not displaced by a display-name save arriving while it is unfinished', async () => {
+    const storage = await halfDoneChange()
+    const kept = journalOf(storage)
+    const replay = scriptedClient({ put: () => ({ kind: 'failed', message: 'offline' }) })
+    expect(
+      await updateProfile(
+        { client: replay.client, signer: SIGNER, storage },
+        { paymail: `alice@${DOMAIN}`, displayName: 'Dee K' }
+      )
+    ).toEqual({ kind: 'pending' })
+    expect(replay.puts).toEqual([kept?.steps[0].cert])
+    expect(journalOf(storage)).toEqual(kept)
+  })
+
+  it('is finished by registerHandle rather than claimed over with another handle', async () => {
+    const storage = memoryStorage()
+    const first = scriptedClient({ put: () => ({ kind: 'failed', message: 'timeout' }) })
+    expect(await registerHandle({ client: first.client, signer: SIGNER, storage }, { handle: 'alice' })).toEqual({
+      kind: 'pending'
+    })
+    const kept = journalOf(storage)
+    resetRegistrationState()
+
+    const replay = scriptedClient({ put: () => ({ kind: 'created' }) })
+    // One key holds one handle: claiming `bob` on top of an `alice` that may
+    // already have landed is a write the registry refuses anyway.
+    expect(await registerHandle({ client: replay.client, signer: SIGNER, storage }, { handle: 'bob' })).toEqual({
+      kind: 'registered',
+      paymail: `alice@${DOMAIN}`
+    })
+    expect(replay.puts).toEqual([kept?.steps[0].cert])
+    expect(journalOf(storage)).toBeNull()
+  })
+})
+
 describe('the stale-certificate branch', () => {
   it('treats a claim the registry already reflects as done', async () => {
-    const { client } = scriptedClient({
+    const { client, reverseLookups } = scriptedClient({
       put: () => ({ kind: 'rejected', code: 'ERR_STALE_CERTIFICATE', description: 'stale' }),
       reverse: () => profileFor('dee')
     })
@@ -410,6 +512,10 @@ describe('the stale-certificate branch', () => {
       paymail: `dee@${DOMAIN}`
     })
     expect(journalOf(storage)).toBeNull()
+    // Our identity key, on the pinned registry (no domain): the reverse route
+    // is `GET /api/identityKey/{pubkey}`, and writes only ever go to the
+    // registry this build is configured for.
+    expect(reverseLookups).toEqual([[KEY.toPublicKey().toString(), undefined]])
   })
 
   /**
@@ -506,7 +612,7 @@ describe('the stale-certificate branch', () => {
       { client, signer: SIGNER, storage },
       { previousPaymail: `dee@${DOMAIN}`, handle: 'deggen' }
     )
-    expect(result).toEqual({ kind: 'rolled_back', paymail: `dee@${DOMAIN}` })
+    expect(result).toEqual({ kind: 'rolled_back', paymail: `dee@${DOMAIN}`, attempted: `deggen@${DOMAIN}` })
     expect(puts).toHaveLength(3)
     expect(puts[2].fields).toMatchObject({ paymail: `dee@${DOMAIN}` })
     expect(journalOf(storage)).toBeNull()
@@ -605,7 +711,9 @@ describe('resumePending', () => {
   /**
    * The journal a failed reclaim leaves behind. Finishing it means the user
    * kept the handle they started with, which is `rolled_back` — reporting
-   * `changed` would announce a handle they never stopped holding.
+   * `changed` would announce a handle they never stopped holding. The handle
+   * that was lost rides in the journal, because by now its own claim is gone
+   * from it and the screen has nothing else to name in the message.
    */
   it('reports rolled_back for the reclaim journal it resumes, not changed', async () => {
     const { client } = scriptedClient({
@@ -626,7 +734,8 @@ describe('resumePending', () => {
     const replay = scriptedClient({ put: () => ({ kind: 'ok' }) })
     expect(await resumePending({ client: replay.client, signer: SIGNER, storage })).toEqual({
       kind: 'rolled_back',
-      paymail: `dee@${DOMAIN}`
+      paymail: `dee@${DOMAIN}`,
+      attempted: `deggen@${DOMAIN}`
     })
     expect(replay.puts[0]).toEqual(left?.steps[0].cert)
     expect(journalOf(storage)).toBeNull()

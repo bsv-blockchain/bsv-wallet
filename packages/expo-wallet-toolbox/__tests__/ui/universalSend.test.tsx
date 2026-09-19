@@ -338,6 +338,58 @@ describe('UniversalSend', () => {
       expect(s.getByText('dee@deggen.com')).toBeTruthy()
       expect(s.getByText('pay_trust_handle_attested')).toBeTruthy()
       expect(mockRegistrySearch).toHaveBeenCalledWith('dee')
+      // And the footer goes when the tier that raised it answers. Nothing else
+      // in either suite reaches the far side of `registrySearching`, so a
+      // regression there would leave a permanent spinner under every result
+      // list in the app and no test would notice.
+      expect(s.queryByText('searching')).toBeNull()
+    })
+
+    /**
+     * `displayName` is the owner's own unvalidated plaintext — no content rule
+     * in the certificate builder, the verifier or the Go server — and this row
+     * draws it ABOVE the handle it belongs to. Left alone, a squatter who
+     * registers `dee1` with the display name `dee@deggen.com` gets a row
+     * reading exactly like the victim's, carrying the same attested badge, and
+     * the field and the review card then carry that NAME rather than the
+     * handle.
+     */
+    it('will not let a display name shaped like an address stand in for the handle', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([
+        profile({
+          identityKey: '02' + 'ef'.repeat(32),
+          displayName: 'dee@deggen.com',
+          handle: 'dee1',
+          paymail: 'dee1@deggen.com'
+        })
+      ])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('dee1@deggen.com')).toBeTruthy())
+      // Its own handle on both lines, rather than somebody else's address on
+      // the one the eye reads first.
+      expect(s.getByText('dee1')).toBeTruthy()
+      expect(s.queryByText('dee@deggen.com')).toBeNull()
+    })
+
+    /**
+     * The review card is the last screen before money moves, and until now the
+     * only one that never showed the `handle@domain` being paid: the row's own
+     * second line was computed and then thrown away at `selectIdentity`.
+     */
+    it('names the handle being paid on the review card, not just the abbreviated key', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([profile()])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('Dee K')).toBeTruthy())
+      fireEvent.press(s.getByText('Dee K'))
+      fireEvent.press(await waitFor(() => s.getByText('pay_step_continue')))
+      fireEvent.changeText(s.getByTestId('amount-input'), '2500')
+      fireEvent.press(s.getByText('pay_step_continue'))
+      await waitFor(() => expect(s.getByLabelText('send')).toBeTruthy())
+      expect(s.getByText('dee@deggen.com')).toBeTruthy()
     })
 
     it('falls back to the handle when the profile carries no public name', async () => {
@@ -467,6 +519,48 @@ describe('UniversalSend', () => {
       await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
       fireEvent.press(s.getByText('pay_step_continue'))
       await waitFor(() => expect(s.queryByText('identity_search_unavailable')).toBeNull())
+      errorSpy.mockRestore()
+    })
+
+    /**
+     * And the notice goes when the registry comes back, without having to leave
+     * the step: otherwise one search made on a train leaves an outage banner
+     * over every successful search afterwards.
+     */
+    it('drops the notice as soon as a later search succeeds, on the same step', async () => {
+      withRegistry()
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      mockRegistrySearch.mockRejectedValue(new Error('offline'))
+      const s = draw()
+      const input = s.getByPlaceholderText('recipient_placeholder')
+      fireEvent.changeText(input, 'dee')
+      await waitFor(() => expect(s.getByText('identity_search_unavailable')).toBeTruthy())
+      mockRegistrySearch.mockResolvedValue([profile()])
+      fireEvent.changeText(input, 'deek')
+      await waitFor(() => expect(s.getByText('Dee K')).toBeTruthy())
+      expect(s.queryByText('identity_search_unavailable')).toBeNull()
+      // Without having left "who", which is the only other thing that clears it.
+      expect(s.getByPlaceholderText('recipient_placeholder')).toBeTruthy()
+      errorSpy.mockRestore()
+    })
+
+    /**
+     * Offline both remote tiers fail on the same keystroke and both reach for
+     * the same sentence. Two banners carrying it read as the error coming back
+     * when the first is dismissed.
+     */
+    it('raises one notice, not two, when the overlay tier fails alongside the registry', async () => {
+      withRegistry()
+      mockManagers = { permissionsManager: {} }
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      const overlay = jest.requireMock('../../ui/resolveIdentity').searchIdentities as jest.Mock
+      overlay.mockRejectedValueOnce(new Error('offline'))
+      mockRegistrySearch.mockRejectedValue(new Error('offline'))
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(mockRegistrySearch).toHaveBeenCalled())
+      await waitFor(() => expect(s.getAllByText('identity_search_unavailable')).toHaveLength(1))
+      overlay.mockResolvedValue([])
       errorSpy.mockRestore()
     })
 

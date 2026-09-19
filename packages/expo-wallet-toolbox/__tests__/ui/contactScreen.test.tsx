@@ -194,6 +194,44 @@ describe('the background refresh', () => {
   })
 
   /**
+   * The same window, on a chain that HAS a registry — which is what the EAS
+   * development profiles now configure for both chains. The registry client
+   * exists from the first render while the identity client does not, so a
+   * single once-per-visit guard is claimed by the pass that can only do the
+   * registry half, and the avatar is then never refreshed for the whole visit
+   * even though `managers` is a dependency precisely so that it could be.
+   */
+  it('still refreshes the avatar when the wallet arrives on a chain that has a registry', async () => {
+    withRegistry()
+    mockWallet.managers = {}
+    mockResolveIdentity.mockResolvedValue([true, { avatarURL: 'https://a/x.png' }])
+    mockLookupProfile.mockResolvedValue({ kind: 'found', profile: { paymail: 'dee@deggen.com' } })
+    const s = draw()
+    await waitFor(() => expect(mockLookupProfile).toHaveBeenCalledTimes(1))
+    expect(mockResolveIdentity).not.toHaveBeenCalled()
+
+    mockWallet.managers = { permissionsManager: {} }
+    s.rerender(
+      <ThemeProvider>
+        <ContactScreen />
+      </ThemeProvider>
+    )
+    await waitFor(() => expect(mockResolveIdentity).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(mockRefreshContactCache).toHaveBeenLastCalledWith(1, KEY, {
+        cachedHandle: 'dee@deggen.com',
+        cachedAvatarUrl: 'https://a/x.png',
+        cachedCertifier: undefined
+      })
+    )
+    // And the half already done is not asked again: one guard per source, not
+    // one per pass.
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockLookupProfile).toHaveBeenCalledTimes(1)
+    expect(mockResolveIdentity).toHaveBeenCalledTimes(1)
+  })
+
+  /**
    * `lookupProfile` answering `failed` is the registry not having answered.
    * Writing `''` for that would blank the handle every time this screen is
    * opened on a train.

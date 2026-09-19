@@ -44,14 +44,20 @@ const NOERROR = 0
 const NXDOMAIN = 3
 
 /**
- * One attempt, bounded. There is no shared fetch helper in this codebase —
- * every call site hand-rolls this — so this feature's two networking modules
- * share exactly one copy of it rather than two.
+ * One attempt, bounded — headers AND body. There is no shared fetch helper in
+ * this codebase — every call site hand-rolls this — so this feature's two
+ * networking modules share exactly one copy of it rather than two.
  *
  * A caller's own signal is composed, not replaced: the deadline is ours to add,
  * but a screen that cancels on unmount must still cancel the request rather than
  * hold it to the full eight seconds. `core/backup/client.ts` links the two the
- * same way.
+ * same way — and, for the same reason it does, the deadline outlives the
+ * headers: every caller in this feature reads a JSON body, and a connection
+ * that delivers headers and then stalls (a captive portal, a half-closed load
+ * balancer, a mobile link that drops mid-body) leaves `json()` pending for
+ * ever. `registration.ts` serialises every write behind one promise, so a
+ * single stalled body would wedge every later write for the life of the
+ * process, with no toast and no timeout.
  */
 export async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController()
@@ -59,13 +65,45 @@ export async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, ini
   const onAbort = () => controller.abort(caller?.reason)
   if (caller?.aborted) onAbort()
   caller?.addEventListener('abort', onAbort)
+  const release = () => caller?.removeEventListener('abort', onAbort)
+  const startedAt = Date.now()
   const timer = setTimeout(() => controller.abort(), REGISTRY_TIMEOUT_MS)
+  let response: Response
   try {
-    return await fetchImpl(url, { ...init, signal: controller.signal })
+    response = await fetchImpl(url, { ...init, signal: controller.signal })
+  } catch (e) {
+    release()
+    throw e
   } finally {
     clearTimeout(timer)
-    caller?.removeEventListener('abort', onAbort)
   }
+  const readJson = typeof response.json === 'function' ? response.json.bind(response) : null
+  if (!readJson) {
+    release()
+    return response
+  }
+  // Rebinding the reader rather than buffering the body here: what each caller
+  // asks for is all that is ever allocated. The abort is what stops a real
+  // stalled stream; the rejection is what stops a transport that ignores it.
+  response.json = async () => {
+    let bodyTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await new Promise((resolve, reject) => {
+        bodyTimer = setTimeout(
+          () => {
+            controller.abort()
+            reject(new Error(`handleRegistry: no body from ${url} after ${REGISTRY_TIMEOUT_MS}ms`))
+          },
+          Math.max(0, REGISTRY_TIMEOUT_MS - (Date.now() - startedAt))
+        )
+        void readJson().then(resolve, reject)
+      })
+    } finally {
+      if (bodyTimer !== undefined) clearTimeout(bodyTimer)
+      release()
+    }
+  }
+  return response
 }
 
 interface SrvRecord {

@@ -94,7 +94,10 @@ which key owns a handle, and freshness. TLS (https required) protects that.
 New directory `core/identity/handleRegistry/`. Pure TypeScript, React-Native
 safe (no Node APIs), no React, no direct env reads, injectable `fetch` and clock
 for tests. Each HTTP call is a single attempt with an `AbortController` timeout
-(8 s), the convention of `core/backup/client.ts`.
+(8 s), the convention of `core/backup/client.ts` — and, as in that file, the one
+deadline covers the **body** as well as the headers: a response whose body never
+arrives would otherwise leave `json()` pending for ever and wedge the serialised
+registration queue for the life of the process.
 
 ### `rules.ts`
 Constants (`PROFILE_CERT_TYPE`, `BRFC_LOOKUP`, `BRFC_REVERSE_LOOKUP`,
@@ -143,7 +146,9 @@ Constants (`PROFILE_CERT_TYPE`, `BRFC_LOOKUP`, `BRFC_REVERSE_LOOKUP`,
 - `search(query)` → `RegistryProfile[]`; **throws** on transport failure (the
   contract of `searchIdentities`, so Pay's existing error banner can fire).
   Routes to the pinned registry unless `query` carries a complete foreign
-  domain (see Pay below).
+  domain (see Pay below). At most `MAX_SEARCH_RESULTS` (10, the route's own
+  limit restated) rows are verified: our server enforces it, but a foreign host
+  is bound by nothing and each row is one ECDSA verification on the JS thread.
 - `lookupIdentityKey(identityKey, domain?)` → `RegistryProfile | null`; never
   throws (the contract of `resolveIdentity`).
 - `serverNow()` → `Date`: the device clock corrected by the skew observed from
@@ -159,10 +164,19 @@ Everything that writes. One entry point per intent, all journaled:
 - `issuedAt = max(client.serverNow(), lastKnownIssuedAt + 1 ms)` — survives a
   device clock that is ahead (server's 5-minute rule) or behind (stale rule).
 - **Journal** in `key_value_store`, key `profile_handle_pending`:
-  `{v:1, steps:[{kind:'release'|'claim', paymail, cert}], previousPaymail?, startedAt}`.
+  `{v:1, intent, steps:[{kind:'release'|'claim', paymail, cert}], previousPaymail?, attemptedPaymail?, startedAt}`.
   Certificates are signed and the journal written **before** the first request;
   a retry re-sends the identical bytes, which the server treats as a no-op
   (`200`), so double-taps, crashes and timeouts are idempotent.
+- **An outstanding journal outranks a new intent** (normative). Every entry
+  point reads the journal first and, when one is there, runs it and answers
+  with its outcome instead of minting anything. Idempotence holds only for
+  *identical* bytes: a freshly minted `release` for a handle an earlier journal
+  already tombstoned finds nothing to release (`404 ERR_HANDLE_NOT_FOUND`)
+  while overwriting the signed claim that could still have finished the first
+  attempt — which is how a second Claim press after a timeout, or a
+  display-name save arriving mid-change, would leave the user holding neither
+  handle and nothing left to retry.
 - Step outcomes: `created|ok` → next step. `failed` → keep the journal, report
   `pending` (resumed on next mount or an explicit retry). `rejected` with
   `ERR_STALE_CERTIFICATE` → reverse-lookup our key; if the registry already
@@ -170,7 +184,7 @@ Everything that writes. One entry point per intent, all journaled:
   that followed a `release` (the new handle was taken in between) → mint a fresh
   claim for `previousPaymail` (the previous owner is exempt from cooldown) and
   report `rolled_back`. Any other `rejected` → clear the journal, report it.
-- Result union: `registered | updated | changed | rolled_back | pending | rejected{code} | failed{message} | unavailable` (`unavailable` = no registry configured for this chain, as today).
+- Result union: `registered | updated | changed | rolled_back{attempted?} | pending | rejected{code} | failed{message, code?} | unavailable` (`unavailable` = no registry configured for this chain, as today). `rolled_back.attempted` is the handle that was lost, so a rollback finished on a later mount can still name it. `failed.code` marks a refusal this module reached on its own (`invalid_handle | wrong_domain | same_handle | clock_ahead`), which the caller says in the user's language; `message` alone is diagnostic English.
 - A module-level in-flight promise makes concurrent calls (two mounts, a
   double tap) share one run.
 
@@ -214,9 +228,20 @@ State machine and layout unchanged. Changes:
 - Claim button → `registerHandle` or `changeHandle`. `pending` shows a
   non-blocking "finishing…" state with a retry action; `rolled_back` tells the
   user the new handle was taken and the old one was kept.
+- **Every outcome is reported, from both callers.** The Claim press and the
+  mount's own `resumePending` go through one reporter, because a resumed
+  journal reaches the same outcomes — a `rolled_back` nobody is shown is a
+  handle silently swapped back. Claim is disabled while `finishing`, so the
+  only way out of a `pending` journal is its own Retry.
+- A registration that writes the handle also invalidates the mount lookup
+  already in flight: the answer the registry computed before that write would
+  otherwise put the old handle back on screen and into the offline cache.
 - Saving the display name stays local-first; when a handle is registered it
-  also calls `updateProfile`. The hint text now says the name is **public**
-  (all 12 locales — the non-English hints were already stale).
+  also calls `updateProfile` — but not while `finishing`, and a `rejected` or
+  `failed` publish says so (`profile_display_name_publish_failed`) rather than
+  leaving the hint's promise that the name is public silently false. The hint
+  text now says the name is **public** (all 12 locales — the non-English hints
+  were already stale).
 - New-contact QR/share link unchanged.
 
 ## Pay — recipient step
@@ -227,27 +252,51 @@ State machine and layout unchanged. Changes:
   `classifyRecipientInput` resolves to a key or address, for fewer than 2
   characters, when no registry is configured, or when `walletUserId` is not a
   number.
-- Routing: no `@`, or an `@domain` that is a prefix of the pinned domain →
-  pinned registry. A complete other domain (`looksLikeDomain`) → resolve that
-  domain. Anything else → no registry request.
+- Routing: no `@`, or an `@domain` that is a prefix of the pinned domain and is
+  not itself a complete domain → pinned registry. A complete other domain
+  (`looksLikeDomain`) → resolve that domain, **even when it is a prefix of
+  ours**: `.co` is a prefix of `.com`, so the two readings overlap for
+  essentially any pinned `x.com`, and answering `alice@deggen.co` from
+  `deggen.com` would also drop the exact-paymail rule of the trust model. A
+  prefix of ours that resolves nowhere is a half-typed address — no results
+  rather than the outage banner, since every character of our own domain is
+  typed through on the way to it. Anything else → no registry request.
 - Each row shows the name line (public `displayName`, else the handle) and a
   second line with the full `handle@domain`, plus the existing "registered"
-  badge (`pay_trust_handle_attested`). A contact row shows the user's own label
-  and its `cachedHandle`.
+  badge (`pay_trust_handle_attested`). A `displayName` containing `@` is **not**
+  used as the name: it is unvalidated plaintext drawn above the handle it
+  belongs to, so one shaped like an address reads as somebody else's. A contact
+  row shows the user's own label and its `cachedHandle`.
+- The review card's second line is the `handle@domain` of the row that was
+  picked, falling back to the abbreviated key. It is the last screen before
+  money moves, and the name above it is whatever its owner published.
 - Rows stay visible while a remote tier is loading: `RecipientField` shows the
   spinner as a footer instead of replacing the list (today the "instant"
   contacts tier is hidden for the whole debounce).
-- A registry failure raises the existing `identity_search_unavailable` notice;
-  that notice is cleared when the step changes.
+- A registry failure raises the existing `identity_search_unavailable` notice —
+  **one** notice for both remote tiers, since offline they fail on the same
+  keystroke and two copies of the same sentence read as the error coming back
+  when the first is dismissed. It is cleared when the step changes, and when a
+  later search succeeds.
 - Selecting a registry row goes through the existing `selectIdentity` path
   (handle rail, identity key). No new rail.
 
 ## Contacts
 
 - "Save as contact" after a payment, and the New Contact route, accept an
-  optional `handle` param; `createContact` stores it as `cachedHandle`
-  (`handle@domain`). The prefilled, editable `name` is the public display name
-  when there is one.
+  optional `handle` param. The prefilled, editable `name` is the public display
+  name when there is one.
+- **The `handle` param is a claim, not a fact** (normative). `/contact/add` is
+  a deep-linkable route, so a phishing link can assert any well-formed paymail
+  for any identity key — and `cachedHandle` is drawn on `ContactScreen` under a
+  shield reading "only they can change it" and is the line Pay's contacts tier
+  offers that person by. `parsePaymail` proves only the shape. So New Contact
+  resolves it before storing it — `lookupProfile(identityKey, <the domain it
+  names>)`, stored only on `found` with `profile.paymail` equal to it — and
+  shows nothing until then. An unproven handle is simply not stored: the
+  background refresh below fills the column in later if it is real. (Residual,
+  accepted: a domain the attacker owns can self-certify its own key, exactly as
+  it can for the refresh below — but the domain is then visible in the string.)
 - `ContactScreen`'s background refresh also refreshes `cachedHandle` via
   `lookupProfile` (the domain of the cached handle when it has one, else the
   pinned registry). `lookupProfile`, not `lookupIdentityKey`: the latter
@@ -255,7 +304,11 @@ State machine and layout unchanged. Changes:
   `null` a 404 gets, and a refresh that read that as "no handle" would blank
   the column every time the screen was opened offline. Only an answer may
   change it — `found` writes the paymail, `none` clears it, `failed` leaves it
-  exactly as it was. `name` is never touched by a refresh.
+  exactly as it was. `name` is never touched by a refresh. The once-per-visit
+  guard is **per source**, not per pass: the registry client exists from the
+  first render while the identity client waits for the wallet to finish
+  building, so one guard would be spent by the pass that could only do the
+  registry half and the avatar would never be refreshed for that visit.
 
 ## Stability checklist (every write path)
 
@@ -266,9 +319,11 @@ State machine and layout unchanged. Changes:
 | Timeout after the server applied the write | Replay → `200`; treated as success. |
 | New handle taken between release and claim | Reclaim previous handle, report `rolled_back`. |
 | Device clock ahead / behind | `serverNow()` skew correction + monotonic `issuedAt`. |
-| Stale local cache (handle released/changed elsewhere) | Reverse lookup on mount wins. |
+| Stale local cache (handle released/changed elsewhere) | Reverse lookup on mount wins — unless a registration has written since it was asked, which the epoch guard on Profile detects. |
+| A second intent over an unfinished journal | The journal outranks it: finished and reported, never minted over (Claim is also disabled while `finishing`). |
 | Offline | Availability `failed` with retry; writes report `pending`; Pay shows contacts only. |
-| Registry answers garbage / forged certs | `verifyProfileCertificate` drops them. |
+| Registry answers garbage / forged certs | `verifyProfileCertificate` drops them, and at most 10 rows are verified at all. |
+| Response headers arrive, body never does | The 8 s deadline covers the body too, so the write queue cannot wedge. |
 | DoH unavailable / DNSSEC missing | Foreign domain → no results + notice; pinned domain unaffected. |
 
 ## Testing

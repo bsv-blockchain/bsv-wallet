@@ -32,6 +32,17 @@ export const MAX_CERT_BODY_BYTES = 16384
 export const SEARCH_MIN_QUERY_LENGTH = 2
 /** Longer than this and the search route answers nothing at all. */
 export const MAX_SEARCH_QUERY_LENGTH = 32
+/**
+ * The most rows the search route ever answers with (`searchLimit` in
+ * go-message-box-server's own handler).
+ *
+ * Restated on this side because the host that answers a search is not always
+ * ours: a complete foreign domain the user typed is resolved and asked, and
+ * nothing binds it to our server's limit. Every row costs one ECDSA
+ * verification on the only thread the recipient field has, so an uncapped
+ * answer is an unbounded freeze rather than a long list.
+ */
+export const MAX_SEARCH_RESULTS = 10
 
 const HANDLE_FORMAT = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/
 const DOMAIN_FORMAT = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/

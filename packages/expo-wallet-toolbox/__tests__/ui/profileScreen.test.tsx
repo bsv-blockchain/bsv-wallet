@@ -67,9 +67,22 @@ const mockStorage = {
     kv.set(k, v)
   }
 }
+/**
+ * The originator is not decoration. `WalletPermissionsManager.prepareOriginator`
+ * throws outright for a missing one — before any signing exemption is even
+ * consulted — so a wallet handed to the registration module unbound fails every
+ * claim at `getPublicKey`, with no prompt and no certificate. Reproduced here
+ * so that wiring is something a test can see.
+ */
 const mockPermissionsManager = {
-  getPublicKey: async () => ({ publicKey: '02' + 'ab'.repeat(32) }),
-  createSignature: async () => ({ signature: [1] })
+  getPublicKey: jest.fn(async (_args: { identityKey: true }, originator?: string) => {
+    if (!originator?.trim()) throw new Error('Originator is required for permission checks.')
+    return { publicKey: '02' + 'ab'.repeat(32) }
+  }),
+  createSignature: jest.fn(async (_args: unknown, originator?: string) => {
+    if (!originator?.trim()) throw new Error('Originator is required for permission checks.')
+    return { signature: [1] }
+  })
 }
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
@@ -85,6 +98,7 @@ import React from 'react'
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { ThemeProvider, configureToolbox, resetToolboxConfig } from '@bsv/expo-wallet-toolbox'
 import { showToast } from '../../ui/components/ui/Toast'
+import { buildProfileCertificate, type ProfileSigner } from '../../core/identity/handleRegistry/profileCert'
 import { ProfileScreen } from '../../ui/screens/ProfileScreen'
 
 const OWN_KEY = '02' + 'ab'.repeat(32)
@@ -199,7 +213,17 @@ describe('the claim field', () => {
     fireEvent.changeText(input, 'deggen')
     await waitFor(() => expect(mockCheckAvailability).toHaveBeenCalledTimes(2))
     release({ kind: 'available' })
-    await waitFor(() => expect(s.getByText('profile_handle_taken:deggen@deggen.com')).toBeTruthy())
+    // Flushed, not waited for. `waitFor` runs its callback synchronously on the
+    // first iteration, and the fast second check has already put `taken` on
+    // screen — so waiting for `taken` here would be satisfied by state that
+    // existed before the stale reply could land, and would hold with no nonce
+    // guard in the screen at all.
+    await settle()
+    expect(s.getByText('profile_handle_taken:deggen@deggen.com')).toBeTruthy()
+    expect(s.queryByText('profile_handle_available:deggen@deggen.com')).toBeNull()
+    // And the consequence, which is the part that moves money: `canClaim` reads
+    // the availability the stale reply would have overwritten.
+    expect(claimDisabled(s, 'profile_handle_claim:deggen@deggen.com')).toBe(true)
   })
 
   /**
@@ -355,6 +379,78 @@ describe('on mount', () => {
     fireEvent.press(s.getByText('retry'))
     await waitFor(() => expect(mockResumePending).toHaveBeenCalledTimes(2))
   })
+
+  /**
+   * A resumed journal reaches every outcome a Claim press does, and the mount
+   * is where the crash cases land: the user was last shown "finishing…", and a
+   * resume that quietly rolled them back onto the old handle, or was refused
+   * outright, would clear that callout and say nothing at all.
+   */
+  it('tells the user which handle they kept when the resumed journal rolled back', async () => {
+    withRegistry()
+    mockResumePending.mockResolvedValue({
+      kind: 'rolled_back',
+      paymail: 'dee@deggen.com',
+      attempted: 'deggen@deggen.com'
+    })
+    mockLookupProfile.mockResolvedValue({ kind: 'found', profile: { paymail: 'dee@deggen.com' } })
+    const s = draw()
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith('profile_handle_rolled_back:deggen@deggen.com,dee@deggen.com', {
+        type: 'error'
+      })
+    )
+    expect(s.getByText('dee@deggen.com')).toBeTruthy()
+    expect(kv.get('profile_registered_handle')).toBe('dee@deggen.com')
+    expect(s.queryByText('profile_handle_pending')).toBeNull()
+  })
+
+  it('reports a resumed journal the registry refused', async () => {
+    withRegistry()
+    mockResumePending.mockResolvedValue({ kind: 'rejected', code: 'ERR_HANDLE_TAKEN', description: 'taken' })
+    draw()
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('profile_handle_rejected', { type: 'error' }))
+    // And does not chase its own tail: the mount effect must not re-resume off
+    // the refusal it just reported.
+    await pastTheDebounce()
+    expect(mockResumePending).toHaveBeenCalledTimes(1)
+  })
+
+  it('repeats the reason a resumed write failed', async () => {
+    withRegistry()
+    mockResumePending.mockResolvedValue({ kind: 'failed', message: 'boom' })
+    draw()
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('boom', { type: 'error' }))
+  })
+
+  /**
+   * The lookup this screen starts with is not cancelled by a claim — nothing in
+   * a registration changes any of the effect's dependencies — so its answer,
+   * which the registry computed before the claim landed, arrives afterwards.
+   * Applying it would put the old handle back on screen AND on disk, and the
+   * cache is the one value this screen cannot mint again offline.
+   */
+  it('does not let a slow lookup put the old handle back after a claim', async () => {
+    withRegistry()
+    kv.set('profile_registered_handle', 'old@deggen.com')
+    let answer: (seen: { kind: 'found'; profile: { paymail: string } }) => void = () => {}
+    mockLookupProfile.mockImplementation(() => new Promise(resolve => (answer = resolve)))
+    mockChangeHandle.mockResolvedValue({ kind: 'changed', paymail: 'dee@deggen.com' })
+    const s = draw()
+    await waitFor(() => expect(s.getByText('old@deggen.com')).toBeTruthy())
+    fireEvent.press(s.getByText('profile_handle_change'))
+    fireEvent.changeText(s.getByPlaceholderText('profile_handle_placeholder'), 'dee')
+    await waitFor(() => expect(s.getByText('profile_handle_available:dee@deggen.com')).toBeTruthy())
+    fireEvent.press(s.getByText('profile_handle_claim:dee@deggen.com'))
+    await waitFor(() => expect(s.getByText('dee@deggen.com')).toBeTruthy())
+    expect(kv.get('profile_registered_handle')).toBe('dee@deggen.com')
+
+    answer({ kind: 'found', profile: { paymail: 'old@deggen.com' } })
+    await settle()
+    expect(s.getByText('dee@deggen.com')).toBeTruthy()
+    expect(s.queryByText('old@deggen.com')).toBeNull()
+    expect(kv.get('profile_registered_handle')).toBe('dee@deggen.com')
+  })
 })
 
 describe('claiming', () => {
@@ -442,6 +538,43 @@ describe('claiming', () => {
     expect(kv.get('profile_registered_handle')).toBeUndefined()
   })
 
+  /**
+   * A journalled write holds the only copy of a signed, replayable certificate.
+   * A second press would ask for a second intent over it — and a `release` is
+   * idempotent only while the identical bytes are replayed, so the fresh one
+   * finds nothing to release while the claim that could still have finished is
+   * overwritten. The callout's own Retry is the way out of this state.
+   */
+  it('will not take a second Claim press while a journalled write is outstanding', async () => {
+    withRegistry()
+    mockRegisterHandle.mockResolvedValue({ kind: 'pending' })
+    const s = await claim()
+    await waitFor(() => expect(s.getByText('profile_handle_pending')).toBeTruthy())
+    expect(claimDisabled(s, 'profile_handle_claim:dee@deggen.com')).toBe(true)
+    fireEvent.press(s.getByText('profile_handle_claim:dee@deggen.com'))
+    await pastTheDebounce()
+    expect(mockRegisterHandle).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * `bindOriginator` is what makes signing the user's own profile silent, and
+   * the module it is handed to only ever calls the signer through the SDK —
+   * which passes one argument. Driving the real certificate builder through the
+   * signer this screen supplied is the only way to see that binding at all.
+   */
+  it('hands the registration module a signer bound to the admin originator', async () => {
+    withRegistry()
+    mockRegisterHandle.mockResolvedValue({ kind: 'registered', paymail: 'dee@deggen.com' })
+    await claim()
+    await waitFor(() => expect(mockRegisterHandle).toHaveBeenCalled())
+    const { signer } = mockRegisterHandle.mock.calls[0][0] as { signer: ProfileSigner }
+    const cert = await buildProfileCertificate({ signer, paymail: 'dee@deggen.com', issuedAt: new Date() })
+    expect(cert.signature).not.toBe('')
+    // `createSignature` is never called by the screen itself, so this call can
+    // only have come through the signer it handed over.
+    expect(mockPermissionsManager.createSignature).toHaveBeenCalledWith(expect.anything(), 'admin.com')
+  })
+
   it('says a registry it could not reach is not available', async () => {
     withRegistry()
     mockRegisterHandle.mockResolvedValue({ kind: 'unavailable' })
@@ -501,6 +634,55 @@ describe('the display name', () => {
     withRegistry()
     const s = draw()
     fireEvent.press(await waitFor(() => s.getByLabelText('contact_edit_name')))
+    fireEvent.changeText(s.getByPlaceholderText('profile_display_name'), 'Dee K')
+    fireEvent.press(s.getByLabelText('contact_save_name'))
+    await waitFor(() => expect(kv.get('profile_display_name')).toBe('Dee K'))
+    expect(mockUpdateProfile).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The hint under this field promises the name is public. A publish the
+   * registry refused leaves it serving the previous one, and saying nothing
+   * would make that promise false with no way for the user to find out.
+   */
+  it.each([
+    [{ kind: 'rejected', code: 'ERR_INVALID_CERTIFICATE', description: 'no' }],
+    [{ kind: 'failed', message: 'stale' }]
+  ])('says so when the registry would not publish the name (%p)', async (result: Record<string, unknown>) => {
+    withRegistry()
+    mockLookupProfile.mockResolvedValue({
+      kind: 'found',
+      profile: { paymail: 'dee@deggen.com', handle: 'dee', domain: 'deggen.com' }
+    })
+    mockUpdateProfile.mockResolvedValue(result)
+    const s = draw()
+    await waitFor(() => expect(s.getByText('dee@deggen.com')).toBeTruthy())
+    fireEvent.press(s.getByLabelText('contact_edit_name'))
+    fireEvent.changeText(s.getByPlaceholderText('profile_display_name'), 'Dee K')
+    fireEvent.press(s.getByLabelText('contact_save_name'))
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith('profile_display_name_publish_failed', { type: 'error' })
+    )
+    // Local first, always: the name is this device's to show either way.
+    expect(kv.get('profile_display_name')).toBe('Dee K')
+  })
+
+  /**
+   * `updateProfile` refuses to displace an unfinished journal — it finishes it
+   * instead — so a save made while one is outstanding would answer with the
+   * other write's outcome. Nothing is asked of the registry until the callout's
+   * Retry has cleared it.
+   */
+  it('keeps the name local while a journalled write is still outstanding', async () => {
+    withRegistry()
+    mockResumePending.mockResolvedValue({ kind: 'pending' })
+    mockLookupProfile.mockResolvedValue({
+      kind: 'found',
+      profile: { paymail: 'dee@deggen.com', handle: 'dee', domain: 'deggen.com' }
+    })
+    const s = draw()
+    await waitFor(() => expect(s.getByText('profile_handle_pending')).toBeTruthy())
+    fireEvent.press(s.getByLabelText('contact_edit_name'))
     fireEvent.changeText(s.getByPlaceholderText('profile_display_name'), 'Dee K')
     fireEvent.press(s.getByLabelText('contact_save_name'))
     await waitFor(() => expect(kv.get('profile_display_name')).toBe('Dee K'))

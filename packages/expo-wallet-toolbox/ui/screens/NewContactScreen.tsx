@@ -10,7 +10,7 @@
  * Any past activity with the key is shown below the form, so you can see who
  * you are about to save.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { I18nManager, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
@@ -24,7 +24,9 @@ import IdentifierRow from '../components/wallet/IdentifierRow'
 import { useContactsStore } from '../hooks/useContactsStore'
 import { abbreviateKey } from '../../core/pay/counterparty'
 import { isCompressedIdentityKey } from '../../core/identity/contactLink'
+import { getHandleRegistryConfig } from '../../core/toolboxConfig'
 import { parsePaymail } from '../../core/identity/handleRegistry/rules'
+import { createHandleRegistryClient } from '../../core/identity/handleRegistry/client'
 import { getContactActivity, type ContactActivityItem } from '../../core/contacts/contactActivity'
 import type { ContactSource } from '../../core/contacts/contactsStore'
 
@@ -60,7 +62,7 @@ export function NewContactScreen() {
   const insets = useSafeAreaInsets()
   const Ionicons = loadIonicons()
   const { router, useLocalSearchParams } = loadExpoRouter()
-  const { walletUserId, managers, adminOriginator, storage } = useWallet()
+  const { walletUserId, managers, adminOriginator, storage, selectedNetwork } = useWallet()
   const store = useContactsStore()
   const params = useLocalSearchParams<{
     identityKey?: string | string[]
@@ -79,9 +81,14 @@ export function NewContactScreen() {
    * route, so this param is a string from outside the app — and what it becomes
    * is rendered on ContactScreen under a shield and the words "only they can
    * change it". Anything that is not a paymail is not a handle.
+   *
+   * Passing `parsePaymail` is only the SHAPE, though, and shape says nothing
+   * about whose handle it is: a phishing link can assert any well-formed
+   * paymail for any identity key. The registry decides that, below.
    */
   const parsedHandle = parsePaymail(firstParam(params.handle) ?? '')
   const prefilledHandle = parsedHandle ? `${parsedHandle.handle}@${parsedHandle.domain}` : ''
+  const handleDomain = parsedHandle?.domain
   const sourceParam = firstParam(params.source)
   const source: ContactSource = sourceParam && SOURCES.has(sourceParam) ? (sourceParam as ContactSource) : 'qr'
   // The only path with no identity key yet: the plain "New Contact" button on
@@ -97,6 +104,49 @@ export function NewContactScreen() {
   const identityKey = manualEntry ? identifierInput.trim().toLowerCase() : prefilledIdentityKey
   const identityKeyValid = isCompressedIdentityKey(identityKey)
   const nameValid = name.trim().length > 0
+
+  /** Two strings rather than the config object, which is rebuilt every call. */
+  const registry = getHandleRegistryConfig(selectedNetwork)
+  const registryDomain = registry?.domain
+  const registryUrl = registry?.url
+  const registryClient = useMemo(
+    () =>
+      registryDomain && registryUrl
+        ? createHandleRegistryClient({ pinned: { domain: registryDomain, url: registryUrl } })
+        : null,
+    [registryDomain, registryUrl]
+  )
+
+  /**
+   * The handle this key actually holds, as the registry answers for it — the
+   * only version of the param worth storing.
+   *
+   * `cachedHandle` is drawn on ContactScreen under a shield reading "only they
+   * can change it", and it is the line Pay's contacts tier offers this person
+   * by. An asserted string is neither of those things, so it is checked against
+   * the key it claims before it is written, on the domain it names (the same
+   * domain ContactScreen's own refresh asks). An unproven one is simply not a
+   * handle here: that refresh fills the column in later if it is real, and no
+   * screen has to un-say a shield in the meantime.
+   */
+  const [provenFor, setProvenFor] = useState<{ identityKey: string; handle: string } | null>(null)
+  // Held against the pair it was proven for, rather than reset when either
+  // changes: the manual-entry field rewrites `identityKey` on every keystroke,
+  // and a proof carried over to the next key would be exactly the claim this
+  // is here to refuse.
+  const verifiedHandle =
+    provenFor?.identityKey === identityKey && provenFor?.handle === prefilledHandle ? prefilledHandle : ''
+  useEffect(() => {
+    if (!registryClient || !prefilledHandle || !identityKeyValid) return
+    let cancelled = false
+    void registryClient.lookupProfile(identityKey, handleDomain).then(seen => {
+      if (cancelled || seen.kind !== 'found' || seen.profile.paymail !== prefilledHandle) return
+      setProvenFor({ identityKey, handle: prefilledHandle })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [registryClient, prefilledHandle, handleDomain, identityKey, identityKeyValid])
 
   useEffect(() => {
     if (!identityKeyValid) {
@@ -125,7 +175,7 @@ export function NewContactScreen() {
         userId: walletUserId,
         identityKey,
         name: name.trim(),
-        ...(prefilledHandle ? { cachedHandle: prefilledHandle } : {}),
+        ...(verifiedHandle ? { cachedHandle: verifiedHandle } : {}),
         source: manualEntry ? 'manual' : source
       })
       showToast(t('contact_saved'), { type: 'success' })
@@ -140,7 +190,7 @@ export function NewContactScreen() {
     identityKeyValid,
     name,
     nameValid,
-    prefilledHandle,
+    verifiedHandle,
     manualEntry,
     source,
     router,
@@ -178,8 +228,11 @@ export function NewContactScreen() {
           <Text style={[styles.heroKey, { color: identityKeyValid ? colors.textPrimary : colors.textTertiary }]}>
             {identityKeyValid ? abbreviateKey(identityKey) : t('contact_identifier')}
           </Text>
+          {/* Only once the registry has confirmed it belongs to this key: a
+              handle shown here is the same claim the shield makes on the
+              screen this route replaces itself with. */}
           <Text style={[styles.heroCaption, { color: colors.textTertiary }]}>
-            {prefilledHandle || t('contact_no_handle_registered')}
+            {verifiedHandle || t('contact_no_handle_registered')}
           </Text>
         </View>
 

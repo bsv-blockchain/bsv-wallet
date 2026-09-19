@@ -594,7 +594,13 @@ function UniversalSendInner(
       seen.add(p.identityKey)
       registryIdentities.push({
         identityKey: p.identityKey,
-        name: p.displayName || p.handle,
+        // A display name is the owner's own unvalidated plaintext, and this row
+        // is the one place it is drawn ABOVE the handle it belongs to. A name
+        // shaped like an address therefore reads as somebody else's
+        // `handle@domain` — and it is the name, not the handle, that the field
+        // and the review card carry from here on. A name that can be mistaken
+        // for an address is no name.
+        name: (p.displayName?.includes('@') ? '' : p.displayName) || p.handle,
         avatarURL: '',
         abbreviatedKey: abbreviateKey(p.identityKey),
         badgeIconURL: '',
@@ -623,14 +629,26 @@ function UniversalSendInner(
    * first person's `handle@domain`.
    */
   const selectedHandleRef = useRef<{ identityKey: string; handle: string } | undefined>(undefined)
+  /**
+   * The same fact, as state, for the review card — which is the one screen
+   * whose whole job is the last check before money moves, and which otherwise
+   * draws a name over an abbreviated key and never shows the `handle@domain`
+   * being paid at all. State rather than the ref above because the card is
+   * rendered, and a ref does not re-render; both rather than one because the
+   * ref must outlive the send and this must not survive a new recipient.
+   */
+  const [pickedHandle, setPickedHandle] = useState<{ identityKey: string; handle: string } | null>(null)
   const onSelectIdentity = (identity: RecipientRow) => {
-    selectedHandleRef.current = identity.secondaryLine?.includes('@')
+    const picked = identity.secondaryLine?.includes('@')
       ? { identityKey: identity.identityKey, handle: identity.secondaryLine }
       : undefined
+    selectedHandleRef.current = picked
+    setPickedHandle(picked ?? null)
     recipient.selectIdentity(identity)
   }
   const onClearRecipient = () => {
     selectedHandleRef.current = undefined
+    setPickedHandle(null)
     recipient.clearRecipient()
   }
   // Whether the resolved recipient is already a saved contact — the review
@@ -1244,8 +1262,15 @@ function UniversalSendInner(
   const reviewPrimary =
     recipient.selectedIdentity?.name ||
     (target?.kind === 'handle' ? abbreviateKey(target.identityKey) : target?.kind === 'address' ? target.address : '')
+  // The handle the picked row carried, when it is still the row being paid —
+  // the name above it may be anything its owner published, this is the address
+  // the money is going to. An abbreviated key only when there is no handle.
   const reviewSecondary =
-    recipient.selectedIdentity?.name && target?.kind === 'handle' ? abbreviateKey(target.identityKey) : undefined
+    recipient.selectedIdentity?.name && target?.kind === 'handle'
+      ? pickedHandle?.identityKey === target.identityKey
+        ? pickedHandle.handle
+        : abbreviateKey(target.identityKey)
+      : undefined
   const reviewTrust = targetIsContact
     ? { icon: 'person-circle-outline', color: colors.textSecondary, text: t('pay_trust_contact') }
     : recipient.selectedIdentity
@@ -1257,17 +1282,16 @@ function UniversalSendInner(
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <StepBar step={step} />
       {notice && <ResultBanner result={notice} onDismiss={() => setNotice(null)} colors={colors} />}
-      {recipient.searchError && (
+      {/* One notice for both remote tiers. Offline they fail on the same
+          keystroke, and two banners carrying the identical sentence read as the
+          error re-appearing when the first is dismissed. */}
+      {(recipient.searchError || registryError) && (
         <ResultBanner
           result={{ type: 'error', message: t('identity_search_unavailable') }}
-          onDismiss={recipient.clearSearchError}
-          colors={colors}
-        />
-      )}
-      {registryError && (
-        <ResultBanner
-          result={{ type: 'error', message: t('identity_search_unavailable') }}
-          onDismiss={() => setRegistryError(false)}
+          onDismiss={() => {
+            recipient.clearSearchError()
+            setRegistryError(false)
+          }}
           colors={colors}
         />
       )}

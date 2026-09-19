@@ -155,6 +155,82 @@ export function ProfileScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, identityKey, adminOriginator, displayNameLoaded])
 
+  const [resumeNonce, setResumeNonce] = useState(0)
+  /**
+   * Bumped by every registration run that WRITES the registered handle, so the
+   * reverse lookup this screen started with — whose answer the registry
+   * computed before that write — cannot put the old handle back on screen and,
+   * worse, back into the offline cache.
+   */
+  const handleEpoch = useRef(0)
+
+  /**
+   * What a registration run did, and what the user is told about it. One
+   * function for the Claim button and for the journal this screen resumes on
+   * mount, because a resumed journal reaches exactly the same outcomes: a
+   * `rolled_back` nobody is shown is a handle silently swapped back, and a
+   * `rejected` nobody is shown is a registration that simply never happened.
+   *
+   * `attempted` is the handle the user was reaching for, for the one message
+   * that has to name a handle the result does not carry.
+   */
+  const applyResult = useCallback(
+    (result: RegistrationResult, attempted?: string) => {
+      // `pending` is the only kind that leaves a journal for the callout's
+      // Retry to finish. Any other kind leaving `finishing` standing would
+      // disable Claim for the rest of the visit.
+      setFinishing(result.kind === 'pending')
+      if (result.kind === 'registered' || result.kind === 'changed' || result.kind === 'rolled_back') {
+        handleEpoch.current += 1
+        setRegisteredPaymail(result.paymail)
+        void storage?.setKeyValue(HANDLE_KV_KEY, result.paymail)
+        setChangingHandle(false)
+        setHandleInput('')
+        setAvailability('idle')
+      }
+      if (result.kind === 'registered' || result.kind === 'changed') {
+        showToast(t(result.kind === 'changed' ? 'profile_handle_changed' : 'profile_handle_registered'), {
+          type: 'success'
+        })
+      } else if (result.kind === 'rolled_back') {
+        // The new handle went to somebody else between the release and the
+        // claim; the old one was taken back, so say which one is still yours.
+        showToast(
+          t('profile_handle_rolled_back', { handle: result.attempted ?? attempted ?? '', previous: result.paymail }),
+          { type: 'error' }
+        )
+      } else if (result.kind === 'pending' || result.kind === 'idle') {
+        // The callout says the first. The second is the ordinary mount, with
+        // nothing journalled and so nothing to report.
+      } else if (result.kind === 'unavailable') {
+        showToast(t('profile_handle_unavailable'), { type: 'error' })
+      } else if (result.kind === 'rejected') {
+        showToast(t('profile_handle_rejected'), { type: 'error' })
+      } else if (result.kind === 'failed') {
+        // A refusal the module reached on its own carries a code; only an
+        // exception's message is English this screen cannot translate.
+        if (result.code === 'clock_ahead') showToast(t('profile_handle_clock_ahead'), { type: 'error' })
+        else if (result.code === 'wrong_domain') showToast(t('profile_handle_wrong_registry'), { type: 'error' })
+        else showToast(result.message, { type: 'error' })
+      } else {
+        // `updated` cannot reach here from either caller today, but a result
+        // kind with no branch is a button that spins and then silently does
+        // nothing — the one outcome this screen must never have.
+        showToast(t('profile_handle_rejected'), { type: 'error' })
+      }
+    },
+    [storage, t]
+  )
+  /**
+   * Read by the mount effect instead of being a dependency of it: `t` is a
+   * fresh function on every render, so depending on `applyResult` would resume
+   * the journal and re-ask the registry once per keystroke.
+   */
+  const applyResultRef = useRef(applyResult)
+  useEffect(() => {
+    applyResultRef.current = applyResult
+  }, [applyResult])
+
   /**
    * Finish anything a previous run left journalled, then ask the registry what
    * it actually holds for this key. In that order: a resumed claim is the very
@@ -167,16 +243,23 @@ export function ProfileScreen() {
    * exactly as it was; blanking it for want of a network is the opposite of a
    * cache, and it is the one value this screen cannot mint again offline.
    */
-  const [resumeNonce, setResumeNonce] = useState(0)
   useEffect(() => {
     if (!client || !signer || !storage || !identityKey) return
     let cancelled = false
     void (async () => {
       const resumed = await resumePending({ client, signer, storage })
       if (cancelled) return
-      setFinishing(resumed.kind === 'pending')
+      applyResultRef.current(resumed)
+      // Read after the resume, because the resume may itself have written the
+      // handle: what this lookup is about to compute is only stale against
+      // writes that land after it was asked.
+      const epoch = handleEpoch.current
       const seen = await client.lookupProfile(identityKey)
-      if (cancelled || seen.kind === 'failed') return
+      // A claim that landed while this request was in flight has already put
+      // the new handle on screen and in the cache. An answer the registry
+      // computed before it would put the old one back — and the cache is the
+      // one value this screen cannot mint again offline.
+      if (cancelled || seen.kind === 'failed' || epoch !== handleEpoch.current) return
       const paymail = seen.kind === 'found' ? seen.profile.paymail : ''
       setRegisteredPaymail(paymail === '' ? null : paymail)
       // Written only when it says something the cache does not already say: a
@@ -236,7 +319,7 @@ export function ProfileScreen() {
   )
 
   const onRegister = useCallback(async () => {
-    if (!client || !signer || !storage || availability !== 'available') return
+    if (!client || !signer || !storage || availability !== 'available' || finishing) return
     const handle = handleInput.trim().toLowerCase()
     if (!isValidHandleFormat(handle)) return
     setRegistering(true)
@@ -245,50 +328,30 @@ export function ProfileScreen() {
       const result: RegistrationResult = registeredPaymail
         ? await changeHandle(deps, { previousPaymail: registeredPaymail, handle, displayName })
         : await registerHandle(deps, { handle, displayName })
-      await applyResult(result)
+      applyResult(result, registryDomain ? `${handle}@${registryDomain}` : handle)
+      // A refusal may well be about a handle this key no longer holds — it was
+      // released or changed on another device — so ask the registry again
+      // rather than let the next press repeat the same refusal off a stale
+      // cache. Only from a press: doing it from the mount's own resume would
+      // be an effect that re-triggers itself.
+      if (result.kind === 'rejected' || (result.kind === 'failed' && result.code === 'wrong_domain')) {
+        setResumeNonce(n => n + 1)
+      }
     } finally {
       setRegistering(false)
     }
-    async function applyResult(result: RegistrationResult) {
-      if (result.kind === 'registered' || result.kind === 'changed') {
-        setRegisteredPaymail(result.paymail)
-        void storage?.setKeyValue(HANDLE_KV_KEY, result.paymail)
-        setChangingHandle(false)
-        setHandleInput('')
-        setAvailability('idle')
-        setFinishing(false)
-        showToast(t(result.kind === 'changed' ? 'profile_handle_changed' : 'profile_handle_registered'), {
-          type: 'success'
-        })
-      } else if (result.kind === 'rolled_back') {
-        // The new handle went to somebody else between the release and the
-        // claim; the old one was taken back, so say which one is still yours.
-        setRegisteredPaymail(result.paymail)
-        void storage?.setKeyValue(HANDLE_KV_KEY, result.paymail)
-        setChangingHandle(false)
-        setHandleInput('')
-        setAvailability('idle')
-        setFinishing(false)
-        showToast(
-          t('profile_handle_rolled_back', { handle: `${handle}@${registryDomain ?? ''}`, previous: result.paymail }),
-          { type: 'error' }
-        )
-      } else if (result.kind === 'pending') {
-        setFinishing(true)
-      } else if (result.kind === 'unavailable') {
-        showToast(t('profile_handle_unavailable'), { type: 'error' })
-      } else if (result.kind === 'rejected') {
-        showToast(t('profile_handle_rejected'), { type: 'error' })
-      } else if (result.kind === 'failed') {
-        showToast(result.message, { type: 'error' })
-      } else {
-        // `updated` and `idle` cannot reach a Claim press today, but a result
-        // kind with no branch is a button that spins and then silently does
-        // nothing — the one outcome this screen must never have.
-        showToast(t('profile_handle_rejected'), { type: 'error' })
-      }
-    }
-  }, [client, signer, storage, availability, handleInput, displayName, registeredPaymail, registryDomain, t])
+  }, [
+    client,
+    signer,
+    storage,
+    availability,
+    finishing,
+    handleInput,
+    displayName,
+    registeredPaymail,
+    registryDomain,
+    applyResult
+  ])
 
   /**
    * Local first, always: the name is this device's to show even with no
@@ -306,13 +369,28 @@ export function ProfileScreen() {
         showToast(e instanceof Error ? e.message : String(e), { type: 'error' })
       }
       if (!client || !signer || !storage || !registeredPaymail) return
+      // A journalled write is still outstanding: asking the registry for a
+      // second intent now would be answered by finishing the first, which is
+      // not what a rename asked for. The name is already saved on this device,
+      // and the next save publishes it.
+      if (finishing) return
       const result = await updateProfile(
         { client, signer, storage },
         { paymail: registeredPaymail, displayName: trimmed }
       )
-      if (result.kind === 'pending') setFinishing(true)
+      // `updated` is the ordinary success: the name is already on screen and a
+      // toast for it would be noise. A refusal is the opposite — the registry
+      // goes on serving the previous name under a hint that says this one is
+      // public — so it is named for what it is rather than as a handle the
+      // registry turned down.
+      if (result.kind === 'updated') return
+      if (result.kind === 'rejected' || result.kind === 'failed') {
+        showToast(t('profile_display_name_publish_failed'), { type: 'error' })
+        return
+      }
+      applyResult(result)
     },
-    [storage, client, signer, registeredPaymail]
+    [storage, client, signer, registeredPaymail, finishing, applyResult, t]
   )
 
   const handle = handleInput.trim().toLowerCase()
@@ -344,7 +422,11 @@ export function ProfileScreen() {
     invalid: { text: t('profile_handle_invalid'), color: colors.warning, icon: 'alert-circle' }
   }
   const status = availability === 'idle' ? undefined : statusLine[availability]
-  const canClaim = availability === 'available' && !registering
+  // `finishing` disables it too: a journalled write is the only copy of a
+  // signed, replayable certificate, and a press that started a second intent
+  // over it would be a release the registry has nothing left to apply. The
+  // callout's own Retry is the way out of that state.
+  const canClaim = availability === 'available' && !registering && !finishing
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -396,14 +478,24 @@ export function ProfileScreen() {
             <Text style={[styles.unavailable, { color: colors.textSecondary }]}>{t('profile_handle_unavailable')}</Text>
           ) : !editingHandle ? (
             <View style={styles.registeredRow}>
-              <Text style={[styles.registeredHandle, { color: colors.textPrimary }]} numberOfLines={1}>
-                {registeredPaymail}
-              </Text>
-              <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-              <Text style={[styles.registeredCaption, { color: colors.textSecondary }]}>
-                {t('pay_trust_handle_attested')}
-              </Text>
-              <View style={styles.flexSpacer} />
+              {/* The caption sits UNDER the handle rather than beside it. In
+                  one row the handle is the only element that can shrink, so it
+                  absorbs every overflow: "Registered" and "Change" are longer
+                  than the English this row was sized against in most locales,
+                  and a paymail is fourteen characters where the old `@dee` was
+                  four — which ellipsised the one string on this screen that
+                  has to render in full. */}
+              <View style={styles.registeredText}>
+                <Text style={[styles.registeredHandle, { color: colors.textPrimary }]} numberOfLines={1}>
+                  {registeredPaymail}
+                </Text>
+                <View style={styles.registeredCaptionRow}>
+                  <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                  <Text style={[styles.registeredCaption, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {t('pay_trust_handle_attested')}
+                  </Text>
+                </View>
+              </View>
               {!!registryDomain && (
                 <PressableScale
                   onPress={() => setChangingHandle(true)}
@@ -573,14 +665,16 @@ const styles = StyleSheet.create({
   registeredRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: spacing.sm,
     minHeight: 48,
     paddingLeft: spacing.lg,
-    paddingRight: spacing.xs
+    paddingRight: spacing.xs,
+    paddingVertical: spacing.sm
   },
-  registeredHandle: { ...typography.body, fontWeight: '600', flexShrink: 1 },
-  registeredCaption: { ...typography.footnote },
-  flexSpacer: { flex: 1 },
+  registeredText: { flex: 1, minWidth: 0, gap: 2 },
+  registeredHandle: { ...typography.body, fontWeight: '600' },
+  registeredCaptionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  registeredCaption: { ...typography.footnote, flexShrink: 1 },
   textBtn: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center' },
   textBtnLabel: { ...typography.footnote, fontWeight: '600' },
   handleRow: {
