@@ -136,7 +136,7 @@ export function IdentifierScreen() {
             <Text style={[styles.whoName, { color: colors.textPrimary }]} numberOfLines={1}>
               {name || abbreviateKey(identityKey)}
             </Text>
-            {!!handle && <Text style={[styles.whoHandle, { color: colors.textSecondary }]}>@{handle}</Text>}
+            {!!handle && <Text style={[styles.whoHandle, { color: colors.textSecondary }]}>{handle}</Text>}
           </View>
         </View>
 

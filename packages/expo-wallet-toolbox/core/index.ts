@@ -169,6 +169,9 @@ export {
   type CoverVerifier
 } from './mandala/bundle'
 
+// Contacts
+export { mergeContactCache, type ContactCache } from './contacts/contactCache'
+
 // Local SQLite storage layer
 export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
 export type { StorageExpoSQLiteOptions, TokenTransactionRepair } from './storage/StorageExpoSQLite'

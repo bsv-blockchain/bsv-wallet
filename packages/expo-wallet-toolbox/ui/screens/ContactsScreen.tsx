@@ -227,7 +227,7 @@ export function ContactsScreen() {
                         {row.name}
                       </Text>
                       <Text style={[styles.rowSub, { color: colors.textSecondary }]} numberOfLines={1}>
-                        {row.cachedHandle ? `@${row.cachedHandle}` : t('contact_no_handle')}
+                        {row.cachedHandle ? row.cachedHandle : t('contact_no_handle')}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.textQuaternary} />

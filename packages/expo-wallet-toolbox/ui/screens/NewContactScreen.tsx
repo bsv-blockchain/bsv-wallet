@@ -24,6 +24,7 @@ import IdentifierRow from '../components/wallet/IdentifierRow'
 import { useContactsStore } from '../hooks/useContactsStore'
 import { abbreviateKey } from '../../core/pay/counterparty'
 import { isCompressedIdentityKey } from '../../core/identity/contactLink'
+import { parsePaymail } from '../../core/identity/handleRegistry/rules'
 import { getContactActivity, type ContactActivityItem } from '../../core/contacts/contactActivity'
 import type { ContactSource } from '../../core/contacts/contactsStore'
 
@@ -64,9 +65,23 @@ export function NewContactScreen() {
   const params = useLocalSearchParams<{
     identityKey?: string | string[]
     name?: string | string[]
+    handle?: string | string[]
     source?: string | string[]
   }>()
   const prefilledIdentityKey = (firstParam(params.identityKey) ?? '').toLowerCase()
+  /**
+   * The registry's `handle@domain`, when the caller had one: Pay's "Save as a
+   * contact" is the only route that knows it today — the Contacts search tier
+   * is an overlay result, which carries no paymail — and it is the only way
+   * this column is ever populated.
+   *
+   * Validated, not trusted. `/contact/add` is a deep-linkable expo-router
+   * route, so this param is a string from outside the app — and what it becomes
+   * is rendered on ContactScreen under a shield and the words "only they can
+   * change it". Anything that is not a paymail is not a handle.
+   */
+  const parsedHandle = parsePaymail(firstParam(params.handle) ?? '')
+  const prefilledHandle = parsedHandle ? `${parsedHandle.handle}@${parsedHandle.domain}` : ''
   const sourceParam = firstParam(params.source)
   const source: ContactSource = sourceParam && SOURCES.has(sourceParam) ? (sourceParam as ContactSource) : 'qr'
   // The only path with no identity key yet: the plain "New Contact" button on
@@ -110,6 +125,7 @@ export function NewContactScreen() {
         userId: walletUserId,
         identityKey,
         name: name.trim(),
+        ...(prefilledHandle ? { cachedHandle: prefilledHandle } : {}),
         source: manualEntry ? 'manual' : source
       })
       showToast(t('contact_saved'), { type: 'success' })
@@ -117,7 +133,19 @@ export function NewContactScreen() {
     } finally {
       setSaving(false)
     }
-  }, [store, walletUserId, identityKey, identityKeyValid, name, nameValid, manualEntry, source, router, t])
+  }, [
+    store,
+    walletUserId,
+    identityKey,
+    identityKeyValid,
+    name,
+    nameValid,
+    prefilledHandle,
+    manualEntry,
+    source,
+    router,
+    t
+  ])
 
   const canSave = nameValid && identityKeyValid && !saving
   const showIdentifierError = manualEntry && identifierInput.trim().length > 0 && !identityKeyValid
@@ -150,7 +178,9 @@ export function NewContactScreen() {
           <Text style={[styles.heroKey, { color: identityKeyValid ? colors.textPrimary : colors.textTertiary }]}>
             {identityKeyValid ? abbreviateKey(identityKey) : t('contact_identifier')}
           </Text>
-          <Text style={[styles.heroCaption, { color: colors.textTertiary }]}>{t('contact_no_handle_registered')}</Text>
+          <Text style={[styles.heroCaption, { color: colors.textTertiary }]}>
+            {prefilledHandle || t('contact_no_handle_registered')}
+          </Text>
         </View>
 
         <GroupedSection header={t('contact_name_section')} footer={t('contact_new_name_hint')}>

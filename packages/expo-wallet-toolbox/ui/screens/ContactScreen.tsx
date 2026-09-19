@@ -4,7 +4,7 @@
  * copy button; delete; and every interaction with them across every asset
  * (2026-09-17 ruling), drawn with the same rows Home uses.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { I18nManager, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
@@ -19,7 +19,11 @@ import ContactActivityList from '../components/wallet/ContactActivityList'
 import IdentifierRow from '../components/wallet/IdentifierRow'
 import { useContactsStore } from '../hooks/useContactsStore'
 import { getContactActivity, type ContactActivityItem } from '../../core/contacts/contactActivity'
+import { mergeContactCache } from '../../core/contacts/contactCache'
 import { makeIdentityClient, resolveIdentity } from '../resolveIdentity'
+import { getHandleRegistryConfig } from '../../core/toolboxConfig'
+import { parsePaymail } from '../../core/identity/handleRegistry/rules'
+import { createHandleRegistryClient } from '../../core/identity/handleRegistry/client'
 import type { ContactRow } from '../../core/contacts/contactsStore'
 
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
@@ -52,7 +56,7 @@ export function ContactScreen() {
   const insets = useSafeAreaInsets()
   const Ionicons = loadIonicons()
   const { router, useLocalSearchParams } = loadExpoRouter()
-  const { managers, adminOriginator, storage, walletUserId } = useWallet()
+  const { managers, adminOriginator, storage, walletUserId, selectedNetwork } = useWallet()
   const store = useContactsStore()
   const params = useLocalSearchParams<{ identityKey?: string | string[] }>()
   const identityKey = firstParam(params.identityKey) ?? ''
@@ -80,21 +84,65 @@ export function ContactScreen() {
     }).then(setActivity)
   }, [identityKey, managers, adminOriginator, storage])
 
-  // Best-effort background cache refresh — avatar only (see spec: no reliable
-  // way yet to recover a "handle" field generically off a resolved identity).
+  /**
+   * Best-effort background cache refresh: the overlay's avatar and the
+   * registry's handle, in ONE write. `refreshContactCache` replaces all three
+   * cache columns, so two separate calls would each blank what the other just
+   * stored. Once per visit — the write feeds `reload`, and re-running on the
+   * contact it produced would be a loop.
+   *
+   * `name` is never touched: it is the user's own label for this person.
+   */
+  const refreshedKeyRef = useRef('')
   useEffect(() => {
-    if (!identityKey || !store || walletUserId === null) return
+    if (!identityKey || !store || walletUserId === null || !contact) return
+    if (refreshedKeyRef.current === identityKey) return
     const idClient = makeIdentityClient(managers?.permissionsManager as never, adminOriginator)
-    if (!idClient) return
+    const registry = getHandleRegistryConfig(selectedNetwork)
+    const client = registry ? createHandleRegistryClient({ pinned: registry }) : null
+    // Claimed only once there is something to claim it for. A screen drawn
+    // before the wallet finished building has no identity client (and, on a
+    // chain with no registry, no client at all); `managers` is a dependency so
+    // that pass can happen when they arrive, and spending the visit on the
+    // empty one would skip the refresh for the whole visit.
+    if (!idClient && !client) return
+    refreshedKeyRef.current = identityKey
     let cancelled = false
-    void resolveIdentity(idClient, identityKey).then(([, identity]) => {
-      if (cancelled || !identity?.avatarURL) return
-      void store.refreshContactCache(walletUserId, identityKey, { cachedAvatarUrl: identity.avatarURL })
-    })
+    // A pass that never reaches its decision hands the guard back, so a
+    // `contact` that changes mid-lookup (a rename, whose `reload` is a new
+    // row) is re-checked instead of losing this visit's refresh. It cannot
+    // reopen the loop the guard is for: that path is exactly the one this is
+    // true on. Set BEFORE the write, not after: a cancellation landing while
+    // the UPDATE is in flight would otherwise repeat both lookups to send the
+    // same three columns again.
+    let decided = false
+    void (async () => {
+      const [identity, lookup] = await Promise.all([
+        idClient ? resolveIdentity(idClient, identityKey).then(([, found]) => found) : null,
+        // A contact whose cached handle names another domain is looked up
+        // there; everyone else on the registry this build is configured for.
+        client ? client.lookupProfile(identityKey, parsePaymail(contact.cachedHandle ?? '')?.domain) : null
+      ])
+      if (cancelled) return
+      // `lookupProfile`, not `lookupIdentityKey`: a `failed` lookup is the
+      // registry not having answered, and writing `''` for it would blank a
+      // contact's handle every time this screen is opened offline. Only an
+      // answer — `found` or `none` — may change the column.
+      const learnedHandle = lookup?.kind === 'found' ? lookup.profile.paymail : lookup?.kind === 'none' ? '' : undefined
+      const next = mergeContactCache(contact, {
+        ...(identity?.avatarURL ? { cachedAvatarUrl: identity.avatarURL } : {}),
+        ...(learnedHandle === undefined ? {} : { cachedHandle: learnedHandle })
+      })
+      decided = true
+      if (!next) return
+      await store.refreshContactCache(walletUserId, identityKey, next)
+      if (!cancelled) void reload().catch(() => {})
+    })().catch(() => {})
     return () => {
       cancelled = true
+      if (!decided) refreshedKeyRef.current = ''
     }
-  }, [identityKey, store, walletUserId, managers, adminOriginator])
+  }, [identityKey, store, walletUserId, managers, adminOriginator, selectedNetwork, contact, reload])
 
   const onDelete = useCallback(async () => {
     if (!store || walletUserId === null || !contact) return
@@ -146,7 +194,7 @@ export function ContactScreen() {
           </Text>
           {!!contact.cachedHandle && (
             <>
-              <Text style={[styles.handle, { color: colors.textSecondary }]}>@{contact.cachedHandle}</Text>
+              <Text style={[styles.handle, { color: colors.textSecondary }]}>{contact.cachedHandle}</Text>
               <View style={styles.captionRow}>
                 <Ionicons name="shield-checkmark-outline" size={12} color={colors.textTertiary} />
                 <Text style={[styles.handleCaption, { color: colors.textTertiary }]}>

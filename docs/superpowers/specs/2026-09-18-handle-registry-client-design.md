@@ -249,8 +249,13 @@ State machine and layout unchanged. Changes:
   (`handle@domain`). The prefilled, editable `name` is the public display name
   when there is one.
 - `ContactScreen`'s background refresh also refreshes `cachedHandle` via
-  `lookupIdentityKey` (the domain of the cached handle when it has one, else
-  the pinned registry). `name` is never touched by a refresh.
+  `lookupProfile` (the domain of the cached handle when it has one, else the
+  pinned registry). `lookupProfile`, not `lookupIdentityKey`: the latter
+  flattens a timeout, a dead network and an unbelievable answer to the same
+  `null` a 404 gets, and a refresh that read that as "no handle" would blank
+  the column every time the screen was opened offline. Only an answer may
+  change it — `found` writes the paymail, `none` clears it, `failed` leaves it
+  exactly as it was. `name` is never touched by a refresh.
 
 ## Stability checklist (every write path)
 
