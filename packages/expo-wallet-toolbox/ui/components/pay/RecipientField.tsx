@@ -31,17 +31,29 @@ function loadIonicons(): IoniconsComponent {
   return ioniconsComponent
 }
 
+/**
+ * A dropdown row. `DisplayableIdentity` is a fixed seven-string SDK interface
+ * with nowhere to put a handle, so the one line this list needs that it does
+ * not carry is added here — supplied by the caller, because only the caller
+ * knows whether a row came from a contact, the registry or the overlay.
+ */
+export interface RecipientRow extends DisplayableIdentity {
+  /** Drawn under the name: a registry row's full `handle@domain`, a contact's
+   * `cachedHandle`. Falls back to the abbreviated identity key. */
+  readonly secondaryLine?: string
+}
+
 interface RecipientFieldProps {
   readonly selectedIdentity: DisplayableIdentity | null
   readonly inputText: string
   readonly target: RecipientTarget | null
   readonly inlineError: RecipientInlineError | null
   readonly isSearching: boolean
-  readonly searchResults: DisplayableIdentity[]
+  readonly searchResults: RecipientRow[]
   readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onChangeText: (v: string) => void
-  readonly onSelectIdentity: (i: DisplayableIdentity) => void
+  readonly onSelectIdentity: (i: RecipientRow) => void
   readonly onClear: () => void
   readonly onOpenScanner: () => void
   /**
@@ -185,52 +197,52 @@ export default function RecipientField({
         <View
           style={[styles.searchResults, { backgroundColor: colors.backgroundSecondary, borderColor: colors.separator }]}
         >
-          {isSearching ? (
+          {!!recentLabel && inputText.trim() === '' && (
+            <Text style={[styles.recentLabel, { color: colors.textTertiary }]}>{recentLabel}</Text>
+          )}
+          {searchResults.map((identity, idx) => (
+            <TouchableOpacity
+              key={identity.identityKey + idx}
+              onPress={() => onSelectIdentity(identity)}
+              style={[
+                styles.searchResultRow,
+                (idx < searchResults.length - 1 || isSearching) && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: colors.separator
+                }
+              ]}
+            >
+              <View style={styles.searchAvatar}>
+                <ContactSigil
+                  identityKey={identity.identityKey}
+                  avatarUrl={identity.avatarURL || undefined}
+                  size={32}
+                  radius={16}
+                />
+              </View>
+              <View style={styles.searchResultInfo}>
+                <Text style={[styles.searchResultName, { color: colors.textPrimary }]} numberOfLines={1}>
+                  {identity.name || t('unknown')}
+                </Text>
+                <Text style={[styles.searchResultKey, { color: colors.textSecondary }]} numberOfLines={1}>
+                  {identity.secondaryLine || identity.abbreviatedKey || `${identity.identityKey.slice(0, 20)}...`}
+                </Text>
+              </View>
+              {identity.badgeLabel ? (
+                <View style={[styles.badge, { backgroundColor: colors.fill }]}>
+                  <Text style={[styles.badgeText, { color: colors.accent }]}>{identity.badgeLabel}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+          ))}
+          {/* A footer, not a replacement: the instant tier is already on screen
+              and hiding it for the remote tier's whole debounce made "instant"
+              a claim the user never saw. */}
+          {isSearching && (
             <View style={styles.searchLoading}>
               <ActivityIndicator size="small" color={colors.accent} />
               <Text style={[styles.searchLoadingText, { color: colors.textSecondary }]}>{t('searching')}</Text>
             </View>
-          ) : (
-            <>
-              {!!recentLabel && inputText.trim() === '' && (
-                <Text style={[styles.recentLabel, { color: colors.textTertiary }]}>{recentLabel}</Text>
-              )}
-              {searchResults.map((identity, idx) => (
-                <TouchableOpacity
-                  key={identity.identityKey + idx}
-                  onPress={() => onSelectIdentity(identity)}
-                  style={[
-                    styles.searchResultRow,
-                    idx < searchResults.length - 1 && {
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                      borderBottomColor: colors.separator
-                    }
-                  ]}
-                >
-                  <View style={styles.searchAvatar}>
-                    <ContactSigil
-                      identityKey={identity.identityKey}
-                      avatarUrl={identity.avatarURL || undefined}
-                      size={32}
-                      radius={16}
-                    />
-                  </View>
-                  <View style={styles.searchResultInfo}>
-                    <Text style={[styles.searchResultName, { color: colors.textPrimary }]} numberOfLines={1}>
-                      {identity.name || t('unknown')}
-                    </Text>
-                    <Text style={[styles.searchResultKey, { color: colors.textSecondary }]} numberOfLines={1}>
-                      {identity.abbreviatedKey || `${identity.identityKey.slice(0, 20)}...`}
-                    </Text>
-                  </View>
-                  {identity.badgeLabel ? (
-                    <View style={[styles.badge, { backgroundColor: colors.fill }]}>
-                      <Text style={[styles.badgeText, { color: colors.accent }]}>{identity.badgeLabel}</Text>
-                    </View>
-                  ) : null}
-                </TouchableOpacity>
-              ))}
-            </>
           )}
         </View>
       )}

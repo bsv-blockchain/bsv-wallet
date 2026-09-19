@@ -19,7 +19,6 @@
 import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useState, useRef } from 'react'
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import type { DisplayableIdentity } from '@bsv/sdk'
 
 import QRScanner from '../QRScanner'
 import AmountDisplay from '../wallet/AmountDisplay'
@@ -32,7 +31,7 @@ import { showToast } from '../ui/Toast'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
 import PaymentSuccessOverlay from './PaymentSuccessOverlay'
 import ResultBanner from './ResultBanner'
-import RecipientField from './RecipientField'
+import RecipientField, { type RecipientRow } from './RecipientField'
 import StepBar, { type PayStep } from './StepBar'
 import { useMessageBoxConfig } from './MessageBoxConfig'
 import { useRecipientInput, type RecipientTarget, type PeerPayRequest } from './useRecipientInput'
@@ -44,6 +43,8 @@ import ContactSigil from '../wallet/ContactSigil'
 import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
 import { abbreviateKey } from '../../../core/pay/counterparty'
 import type { ContactRow } from '../../../core/contacts/contactsStore'
+import { createHandleRegistryClient } from '../../../core/identity/handleRegistry/client'
+import type { RegistryProfile } from '../../../core/identity/handleRegistry/profileCert'
 import {
   useTheme,
   spacing,
@@ -57,6 +58,8 @@ import {
   CONSEQUENCE_KEYS,
   NO_MESSAGE_BOX,
   cancelOutboxPayment,
+  classifyRecipientInput,
+  getHandleRegistryConfig,
   isMessageBoxNetworkError,
   makePeerPayClient,
   retryDelivery,
@@ -123,6 +126,11 @@ function loadExpoRouter(): ExpoRouterModule {
   }
   return expoRouterMod
 }
+
+/** The registry's own debounce. Deliberately a third constant rather than a
+ * shared one: `useRecipientInput`'s overlay timer and `ProfileScreen`'s
+ * availability timer are separate decisions that happen to agree today. */
+const REGISTRY_SEARCH_DEBOUNCE_MS = 400
 
 // ── Outgoing Section ─────────────────────────────────────────────────────────
 
@@ -291,7 +299,7 @@ function UniversalSendInner(
   const Ionicons = loadIonicons()
   const { managers, adminOriginator, storage } = useWalletManagers()
   const { walletBuilt } = useWalletStatus()
-  const { walletUserId } = useWallet()
+  const { walletUserId, selectedNetwork } = useWallet()
   const wallet = managers?.permissionsManager || null
 
   // ── the three-step flow (who / amount / review, 2026-09-18 design) ──────
@@ -309,6 +317,27 @@ function UniversalSendInner(
   }, [initialTarget?.identityKey])
   const contactsStore = useContactsStore()
   const [contactMatches, setContactMatches] = useState<ContactRow[]>([])
+  const [registryMatches, setRegistryMatches] = useState<RegistryProfile[]>([])
+  const [registrySearching, setRegistrySearching] = useState(false)
+  const [registryError, setRegistryError] = useState(false)
+  /**
+   * Two strings, not the config object. `getHandleRegistryConfig` builds a
+   * fresh `{ domain, url }` on every call, so memoising on the object gives the
+   * client a new identity every render, which gives the registry effect below a
+   * changed dependency every render — and its own `setState` then schedules the
+   * next render. That is an unbreakable loop ("Maximum update depth exceeded")
+   * in which the 400 ms debounce is also cleared before it can ever fire.
+   */
+  const registry = getHandleRegistryConfig(selectedNetwork)
+  const registryDomain = registry?.domain
+  const registryUrl = registry?.url
+  const registryClient = useMemo(
+    () =>
+      registryDomain && registryUrl
+        ? createHandleRegistryClient({ pinned: { domain: registryDomain, url: registryUrl } })
+        : null,
+    [registryDomain, registryUrl]
+  )
 
   // ── the asset axis ──────────────────────────────────────────────────
   // Every line below is gated on `asset`: with no token held, `balances` is
@@ -372,7 +401,11 @@ function UniversalSendInner(
   } | null>(null)
   /** Set once `sent` names a handle recipient who is not already a saved
    * contact — null while that check is pending or once it comes back "already saved". */
-  const [offerAddContact, setOfferAddContact] = useState<{ identityKey: string; name?: string } | null>(null)
+  const [offerAddContact, setOfferAddContact] = useState<{
+    identityKey: string
+    name?: string
+    handle?: string
+  } | null>(null)
   const [outbox, setOutbox] = useState<OutboxEntry[]>([])
   const [retryingId, setRetryingId] = useState<string | null>(null)
 
@@ -483,19 +516,123 @@ function UniversalSendInner(
       cancelled = true
     }
   }, [contactsStore, walletUserId, recipient.inputText, recipient.selectedIdentity, target])
-  const mergedSearchResults = useMemo((): DisplayableIdentity[] => {
-    const contactIdentities: DisplayableIdentity[] = contactMatches.map(c => ({
+
+  /**
+   * The registry tier: people who can be paid by name. Its own timer — the
+   * contacts effect above has none, which is right for a local SQLite read and
+   * would be one request per keystroke here — and its own notice, so a
+   * registry outage never takes the contacts already on screen with it.
+   *
+   * It never fires for text that already resolved to a key or an address
+   * (`classifyRecipientInput`), for fewer than two characters (shorter than
+   * the registry's own minimum), with no registry configured, or before the
+   * wallet user is known.
+   */
+  useEffect(() => {
+    const query = recipient.inputText.trim()
+    const routable =
+      !!registryClient &&
+      typeof walletUserId === 'number' &&
+      !recipient.selectedIdentity &&
+      !target &&
+      classifyRecipientInput(query).kind === 'search' &&
+      query.length >= 2
+    if (!routable) {
+      // Only here, and only when there is something to clear: an unconditional
+      // `setRegistryMatches([])` hands React a new array reference on every
+      // run, which it can never bail out of.
+      setRegistryMatches(rows => (rows.length === 0 ? rows : []))
+      setRegistrySearching(false)
+      return
+    }
+    let cancelled = false
+    setRegistrySearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await registryClient.search(query)
+        if (cancelled) return
+        setRegistryMatches(rows)
+        setRegistryError(false)
+      } catch (error) {
+        console.error('Handle registry search error:', error)
+        if (cancelled) return
+        setRegistryMatches([])
+        setRegistryError(true)
+      } finally {
+        if (!cancelled) setRegistrySearching(false)
+      }
+    }, REGISTRY_SEARCH_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [registryClient, walletUserId, recipient.inputText, recipient.selectedIdentity, target])
+
+  const mergedSearchResults = useMemo((): RecipientRow[] => {
+    const contactIdentities: RecipientRow[] = contactMatches.map(c => ({
       identityKey: c.identityKey,
       name: c.name,
       avatarURL: c.cachedAvatarUrl ?? '',
       abbreviatedKey: abbreviateKey(c.identityKey),
       badgeIconURL: '',
       badgeLabel: '',
-      badgeClickURL: ''
+      badgeClickURL: '',
+      ...(c.cachedHandle ? { secondaryLine: c.cachedHandle } : {})
     }))
-    const contactKeys = new Set(contactIdentities.map(c => c.identityKey))
-    return [...contactIdentities, ...recipient.searchResults.filter(r => !contactKeys.has(r.identityKey))]
-  }, [contactMatches, recipient.searchResults])
+    const seen = new Set(contactIdentities.map(c => c.identityKey))
+    // Contacts, then the registry, then the overlay. A person the user has
+    // already labelled is shown with that label; a registry row states the
+    // name the owner published and the handle it belongs to.
+    //
+    // One key, one row, across the WHOLE list — so `seen` is consulted and
+    // added to in the same pass. Filtering first would let two certificates
+    // for one subject through together, which the pinned registry cannot
+    // produce but a foreign host answering `search` can.
+    const registryIdentities: RecipientRow[] = []
+    for (const p of registryMatches) {
+      if (seen.has(p.identityKey)) continue
+      seen.add(p.identityKey)
+      registryIdentities.push({
+        identityKey: p.identityKey,
+        name: p.displayName || p.handle,
+        avatarURL: '',
+        abbreviatedKey: abbreviateKey(p.identityKey),
+        badgeIconURL: '',
+        badgeLabel: t('pay_trust_handle_attested'),
+        badgeClickURL: '',
+        secondaryLine: p.paymail
+      })
+    }
+    return [
+      ...contactIdentities,
+      ...registryIdentities,
+      ...recipient.searchResults.filter(r => !seen.has(r.identityKey))
+    ]
+  }, [contactMatches, registryMatches, recipient.searchResults, t])
+
+  /**
+   * The handle of the row the user picked, so the success screen's "Save as
+   * contact" can carry it into the new contact — held against the KEY it
+   * belongs to, not as a bare string.
+   *
+   * `handleSend` clears the field through the hook's own `clearRecipient`
+   * rather than the wrapper below, deliberately, so this survives the send and
+   * the overlay can still read it. A bare string would therefore also outlive
+   * its owner: pay someone with a handle, then pay a pasted key from the same
+   * mounted form, and the second person would be offered for saving with the
+   * first person's `handle@domain`.
+   */
+  const selectedHandleRef = useRef<{ identityKey: string; handle: string } | undefined>(undefined)
+  const onSelectIdentity = (identity: RecipientRow) => {
+    selectedHandleRef.current = identity.secondaryLine?.includes('@')
+      ? { identityKey: identity.identityKey, handle: identity.secondaryLine }
+      : undefined
+    recipient.selectIdentity(identity)
+  }
+  const onClearRecipient = () => {
+    selectedHandleRef.current = undefined
+    recipient.clearRecipient()
+  }
   // Whether the resolved recipient is already a saved contact — the review
   // step's trust tag names this before "registered"/"unverified".
   const [targetIsContact, setTargetIsContact] = useState(false)
@@ -524,7 +661,14 @@ function UniversalSendInner(
     let cancelled = false
     const identityKey = sent.recipientIdentityKey
     void contactsStore.getContact(walletUserId, identityKey).then(c => {
-      if (!cancelled && !c) setOfferAddContact({ identityKey, name: sent.recipient })
+      if (cancelled || c) return
+      // Only the handle of the person actually paid: see selectedHandleRef.
+      const picked = selectedHandleRef.current
+      setOfferAddContact({
+        identityKey,
+        name: sent.recipient,
+        ...(picked?.identityKey === identityKey ? { handle: picked.handle } : {})
+      })
     })
     return () => {
       cancelled = true
@@ -536,7 +680,12 @@ function UniversalSendInner(
     setSent(null)
     loadExpoRouter().router.push({
       pathname: '/contact/add',
-      params: { identityKey: offerAddContact.identityKey, name: offerAddContact.name ?? '', source: 'pay' }
+      params: {
+        identityKey: offerAddContact.identityKey,
+        name: offerAddContact.name ?? '',
+        handle: offerAddContact.handle ?? '',
+        source: 'pay'
+      }
     } as never)
   }, [offerAddContact])
 
@@ -1071,9 +1220,18 @@ function UniversalSendInner(
     }),
     [step, backStep]
   )
+  // Taken off `recipient` here rather than called through it below: calling it
+  // as a method would make the whole (rebuilt every render) `recipient` object
+  // a dependency of the effect, and an effect that reran every render would
+  // clear the overlay's own search notice the instant it was raised.
+  const clearSearchError = recipient.clearSearchError
   useEffect(() => {
     onStepChange?.(step)
-  }, [step, onStepChange])
+    // Neither search notice belongs on the amount or review screen: both are
+    // about a recipient field that is no longer on screen.
+    setRegistryError(false)
+    clearSearchError()
+  }, [step, onStepChange, clearSearchError])
 
   // ── the review card's facts ──────────────────────────────────────────
   // Once money is moving, the figure is ALWAYS the asset that actually moves
@@ -1106,6 +1264,13 @@ function UniversalSendInner(
           colors={colors}
         />
       )}
+      {registryError && (
+        <ResultBanner
+          result={{ type: 'error', message: t('identity_search_unavailable') }}
+          onDismiss={() => setRegistryError(false)}
+          colors={colors}
+        />
+      )}
 
       {step === 'who' && (
         <>
@@ -1115,13 +1280,13 @@ function UniversalSendInner(
               inputText={recipient.inputText}
               target={recipient.target}
               inlineError={recipient.inlineError}
-              isSearching={recipient.isSearching}
+              isSearching={recipient.isSearching || registrySearching}
               searchResults={mergedSearchResults}
               colors={colors}
               t={t}
               onChangeText={recipient.onChangeText}
-              onSelectIdentity={recipient.selectIdentity}
-              onClear={recipient.clearRecipient}
+              onSelectIdentity={onSelectIdentity}
+              onClear={onClearRecipient}
               onOpenScanner={recipient.openScanner}
               assetTicker={asset?.ticker}
               recentLabel={t('contacts_recent')}

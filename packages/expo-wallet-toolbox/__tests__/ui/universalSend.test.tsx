@@ -22,8 +22,9 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
   initReactI18next: { type: '3rdParty', init: () => {} }
 }))
+const mockRouterPush = jest.fn()
 jest.mock('expo-router', () => ({
-  router: { push: jest.fn(), back: jest.fn(), replace: jest.fn(), dismissTo: jest.fn(), canGoBack: () => true },
+  router: { push: mockRouterPush, back: jest.fn(), replace: jest.fn(), dismissTo: jest.fn(), canGoBack: () => true },
   useLocalSearchParams: () => ({}),
   useFocusEffect: () => {}
 }))
@@ -43,21 +44,62 @@ jest.mock('../../ui/components/wallet/AmountInput', () => {
     )
   }
 })
-// wallet null: no IdentityClient, no PeerPay client, no outbox read. The form's
-// composition does not depend on any of them. `storage` starts undefined so the
-// outbox stays unread; only the send-gating test that needs a stuck entry sets it.
+// managers null: no IdentityClient, no PeerPay client. The form's composition
+// does not depend on either. `storage` starts undefined so the outbox stays
+// unread; only the send-gating test that needs a stuck entry sets it, and only
+// the two cases that carry a payment all the way to the success screen set
+// `mockManagers` (which is what makes `sendHandle`'s `!wallet || !storage`
+// guard pass). `walletUserId` stays null by default so neither the contacts
+// tier nor the registry tier fires for the composition tests.
 type MockStorage = { getKeyValue: (k: string) => Promise<string | undefined>; setKeyValue: () => Promise<void> }
 let mockStorage: MockStorage | undefined
+let mockManagers: { permissionsManager: unknown } | null = null
+let mockWalletUserId: number | null = null
+let mockNetwork: 'main' | 'test' | 'teratest' = 'main'
+const mockRegistrySearch = jest.fn()
+jest.mock('../../core/identity/handleRegistry/client', () => ({
+  createHandleRegistryClient: () => ({ domain: 'deggen.com', search: mockRegistrySearch })
+}))
+/** The contacts store is the SQLite one, built from `storage.sqliteDb`; these
+ * mocks carry no database, so the store is null unless a case supplies one. */
+let mockContactsStore: unknown = null
+jest.mock('../../ui/hooks/useContactsStore', () => ({ useContactsStore: () => mockContactsStore }))
+// The overlay tier: `useRecipientInput` builds a real IdentityClient the moment
+// a wallet exists, and its search would go to the network. Stubbed to "no hits"
+// so the two send cases below can type a query without leaving the machine —
+// the overlay tier itself is __tests__/pay/useRecipientInput.test.ts's job.
+jest.mock('../../ui/resolveIdentity', () => ({
+  ...jest.requireActual('../../ui/resolveIdentity'),
+  searchIdentities: jest.fn(async () => [])
+}))
+const mockSendViaHandle = jest.fn()
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
-  useWallet: () => ({ managers: null, adminOriginator: 'admin.com', storage: mockStorage }),
-  useWalletManagers: () => ({ managers: null, adminOriginator: 'admin.com', storage: mockStorage })
+  useWallet: () => ({
+    managers: mockManagers,
+    adminOriginator: 'admin.com',
+    storage: mockStorage,
+    walletUserId: mockWalletUserId,
+    selectedNetwork: mockNetwork
+  }),
+  useWalletManagers: () => ({ managers: mockManagers, adminOriginator: 'admin.com', storage: mockStorage }),
+  // The two rail calls a truthy wallet would otherwise make over the wire.
+  // `makePeerPayClient` stays real: the "no message-box server" case below
+  // depends on its sentinel returning null.
+  sendViaHandle: (...args: unknown[]) => mockSendViaHandle(...args),
+  listPendingResendRequests: jest.fn(async () => ({ pending: [] }))
 }))
 
 import React from 'react'
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { MESSAGE_BOX_URL_KEY, NO_MESSAGE_BOX, ThemeProvider } from '@bsv/expo-wallet-toolbox'
+import {
+  configureToolbox,
+  MESSAGE_BOX_URL_KEY,
+  NO_MESSAGE_BOX,
+  resetToolboxConfig,
+  ThemeProvider
+} from '@bsv/expo-wallet-toolbox'
 import UniversalSend, { type UniversalSendHandle } from '../../ui/components/pay/UniversalSend'
 
 const KEY = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
@@ -102,8 +144,18 @@ const pressBack = () => {
 describe('UniversalSend', () => {
   beforeEach(async () => {
     mockStorage = undefined
+    mockManagers = null
+    mockContactsStore = null
+    mockWalletUserId = null
+    mockNetwork = 'main'
+    mockRegistrySearch.mockReset()
+    mockRouterPush.mockReset()
+    mockSendViaHandle.mockReset()
+    mockSendViaHandle.mockResolvedValue({ satoshis: 2500 })
+    resetToolboxConfig()
     await AsyncStorage.clear()
   })
+  afterEach(() => resetToolboxConfig())
 
   it('opens on step "who" with the universal placeholder and nothing else yet', () => {
     // 2026-09-18 redesign: recipient, amount and review are separate steps —
@@ -236,5 +288,260 @@ describe('UniversalSend', () => {
     expect(s.getByTestId('amount-input').props.value).toBe('500')
     pressBack()
     expect(s.getByPlaceholderText('recipient_placeholder').props.value).toBe(ADDRESS)
+  })
+
+  /**
+   * The registry tier. Contacts are local and instant, the registry is one
+   * debounced request, the overlay is another — and all three land in one list
+   * without any of them hiding the others.
+   */
+  describe('registry tier', () => {
+    const REGISTRY_KEY = '03' + 'cd'.repeat(32)
+    const withRegistry = () => {
+      mockWalletUserId = 1
+      mockNetwork = 'test'
+      configureToolbox({
+        backupUrl: null,
+        handleRegistry: { test: { domain: 'deggen.com', url: 'https://registry.example' } }
+      })
+    }
+    const profile = (over: Record<string, unknown> = {}) => ({
+      identityKey: REGISTRY_KEY,
+      paymail: 'dee@deggen.com',
+      handle: 'dee',
+      domain: 'deggen.com',
+      displayName: 'Dee K',
+      issuedAt: new Date(),
+      certificate: {},
+      ...over
+    })
+    /**
+     * Comfortably past the registry's own 400 ms timer, so a request the gates
+     * were supposed to refuse has had its chance to be made. Every "never
+     * fires" case below needs this: `waitFor` whose callback succeeds on its
+     * first invocation resolves in about a millisecond, which is long before
+     * the debounce, so `expect(search).not.toHaveBeenCalled()` after one would
+     * hold with no gates in the component at all.
+     */
+    const waitPastDebounce = async () => {
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 450))
+      })
+    }
+
+    it('offers a registry hit with its name, its full paymail and the registered badge', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([profile()])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('Dee K')).toBeTruthy())
+      expect(s.getByText('dee@deggen.com')).toBeTruthy()
+      expect(s.getByText('pay_trust_handle_attested')).toBeTruthy()
+      expect(mockRegistrySearch).toHaveBeenCalledWith('dee')
+    })
+
+    it('falls back to the handle when the profile carries no public name', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([profile({ displayName: undefined })])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('dee')).toBeTruthy())
+    })
+
+    /**
+     * Also the guard against the effect re-running on every render: if the
+     * client were memoised on the config OBJECT it would have a new identity
+     * each render, the effect's cleanup would clear the timer before it could
+     * fire, and this case would time out rather than see one call.
+     */
+    it('debounces: one request for a word typed one letter at a time', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([])
+      const s = draw()
+      const input = s.getByPlaceholderText('recipient_placeholder')
+      fireEvent.changeText(input, 'd')
+      fireEvent.changeText(input, 'de')
+      fireEvent.changeText(input, 'dee')
+      await waitFor(() => expect(mockRegistrySearch).toHaveBeenCalledTimes(1))
+      expect(mockRegistrySearch).toHaveBeenCalledWith('dee')
+    })
+
+    it('leaves the rows it already has on screen while the next query is in flight', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([profile()])
+      const s = draw()
+      const input = s.getByPlaceholderText('recipient_placeholder')
+      fireEvent.changeText(input, 'dee')
+      await waitFor(() => expect(s.getByText('Dee K')).toBeTruthy())
+      // The next keystroke must not blank the list: the footer spinner says a
+      // tier is still loading, and the rows already found stay pickable.
+      mockRegistrySearch.mockReturnValue(new Promise(() => {}))
+      fireEvent.changeText(input, 'deeg')
+      expect(s.getByText('Dee K')).toBeTruthy()
+      // And the spinner is the REGISTRY's. Past the overlay's own 400 ms timer
+      // `recipient.isSearching` has gone false (its callback finds no
+      // IdentityClient and gives up), so a footer still on screen here can
+      // only come from `registrySearching` — the half of
+      // `isSearching={recipient.isSearching || registrySearching}` that
+      // nothing else in either suite reaches.
+      await waitPastDebounce()
+      expect(s.getByText('searching')).toBeTruthy()
+      expect(s.getByText('Dee K')).toBeTruthy()
+    })
+
+    it('never fires for a pasted identity key, an address, or a mistyped address', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([])
+      const s = draw()
+      const input = s.getByPlaceholderText('recipient_placeholder')
+      fireEvent.changeText(input, KEY)
+      await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+      fireEvent.changeText(input, ADDRESS)
+      await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+      // The third is the one only `classifyRecipientInput` can rule out: a
+      // checksum-broken address resolves no target, so the `!target` gate does
+      // not cover it, and a half-typed address is nobody's handle.
+      fireEvent.changeText(input, BROKEN_ADDRESS)
+      await waitFor(() => expect(s.getByText('invalid_bsv_address')).toBeTruthy())
+      await waitPastDebounce()
+      expect(mockRegistrySearch).not.toHaveBeenCalled()
+      // The positive control: the same field, one routable word, does reach the
+      // registry — so the three refusals above are refusals, not a dead harness.
+      fireEvent.changeText(input, 'dee')
+      await waitFor(() => expect(mockRegistrySearch).toHaveBeenCalledTimes(1))
+      expect(mockRegistrySearch).toHaveBeenCalledWith('dee')
+    })
+
+    it('never fires for a single character, and fires for the second', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([])
+      const s = draw()
+      const input = s.getByPlaceholderText('recipient_placeholder')
+      fireEvent.changeText(input, 'd')
+      await waitPastDebounce()
+      expect(mockRegistrySearch).not.toHaveBeenCalled()
+      // Two characters is the registry's own minimum, so it is also where the
+      // boundary has to be proven from both sides.
+      fireEvent.changeText(input, 'de')
+      await waitFor(() => expect(mockRegistrySearch).toHaveBeenCalledTimes(1))
+      expect(mockRegistrySearch).toHaveBeenCalledWith('de')
+    })
+
+    it('never fires with no registry configured for this chain', async () => {
+      // Everything else in place: a wallet user, a routable word, and no
+      // `configureToolbox` call. Elapsed time is the only available proof here
+      // — nothing can ever arrive to wait for.
+      mockWalletUserId = 1
+      mockNetwork = 'test'
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitPastDebounce()
+      expect(mockRegistrySearch).not.toHaveBeenCalled()
+      // Nor is "no registry on this chain" an outage: no notice, no spinner
+      // left running under a list that is never going to grow.
+      expect(s.queryByText('identity_search_unavailable')).toBeNull()
+      expect(s.queryByText('searching')).toBeNull()
+    })
+
+    it('never fires before the wallet user is known', async () => {
+      withRegistry()
+      mockWalletUserId = null
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitPastDebounce()
+      expect(mockRegistrySearch).not.toHaveBeenCalled()
+      expect(s.queryByText('identity_search_unavailable')).toBeNull()
+    })
+
+    it('raises the existing search notice when the registry cannot be reached, and drops it on the next step', async () => {
+      withRegistry()
+      // Restored at the end: the root jest config sets neither `restoreMocks`
+      // nor `resetMocks`, so an unrestored spy would silence every later case
+      // in this file, React's own warnings included.
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      mockRegistrySearch.mockRejectedValue(new Error('offline'))
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('identity_search_unavailable')).toBeTruthy())
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
+      await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+      fireEvent.press(s.getByText('pay_step_continue'))
+      await waitFor(() => expect(s.queryByText('identity_search_unavailable')).toBeNull())
+      errorSpy.mockRestore()
+    })
+
+    it('selecting a registry row goes down the existing handle path', async () => {
+      withRegistry()
+      mockRegistrySearch.mockResolvedValue([profile()])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('Dee K')).toBeTruthy())
+      fireEvent.press(s.getByText('Dee K'))
+      await waitFor(() => expect(s.getByText('pay_step_continue')).toBeTruthy())
+    })
+
+    it('shows one row per person, even when a host answers with two certificates for one key', async () => {
+      withRegistry()
+      // The pinned registry holds one active handle per key, but `search` may be
+      // answered by any domain that resolves, and a host that is not ours can
+      // sign two verifiable certificates for the same subject. De-duplication is
+      // by identity key across the WHOLE merged list, this tier included.
+      mockRegistrySearch.mockResolvedValue([profile(), profile({ handle: 'deek', paymail: 'deek@deggen.com' })])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('dee@deggen.com')).toBeTruthy())
+      expect(s.queryByText('deek@deggen.com')).toBeNull()
+      expect(s.getAllByText('Dee K')).toHaveLength(1)
+    })
+
+    /** From "who", with a recipient already resolved, to the success overlay. */
+    const payCurrentRecipient = async (s: ReturnType<typeof draw>) => {
+      const sendsBefore = mockSendViaHandle.mock.calls.length
+      await waitFor(() => expect(s.getByText('pay_step_continue')).toBeTruthy())
+      fireEvent.press(s.getByText('pay_step_continue'))
+      fireEvent.changeText(s.getByTestId('amount-input'), '2500')
+      fireEvent.press(s.getByText('pay_step_continue'))
+      await waitFor(() => expect(s.getByLabelText('send')).toBeTruthy())
+      fireEvent.press(s.getByLabelText('send'))
+      await waitFor(() => expect(mockSendViaHandle.mock.calls).toHaveLength(sendsBefore + 1))
+    }
+
+    /**
+     * `handleSend` clears the field through the hook's own `clearRecipient`
+     * rather than the wrapper that forgets the picked handle — deliberately, so
+     * the success overlay can still read it. That is exactly why the handle is
+     * held against the key it belongs to: a bare string would outlive its owner
+     * and be offered as the NEXT person's registered handle.
+     */
+    it('carries the picked handle into "save as contact", and only for the person it belongs to', async () => {
+      withRegistry()
+      mockManagers = { permissionsManager: {} }
+      mockStorage = { getKeyValue: async () => undefined, setKeyValue: async () => {} }
+      mockContactsStore = { searchContacts: async () => [], getContact: async () => undefined }
+      mockRegistrySearch.mockResolvedValue([profile()])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('Dee K')).toBeTruthy())
+      fireEvent.press(s.getByText('Dee K'))
+      await payCurrentRecipient(s)
+      await waitFor(() => expect(s.getByText('pay_save_as_contact')).toBeTruthy())
+      fireEvent.press(s.getByText('pay_save_as_contact'))
+      expect(mockRouterPush).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({ identityKey: REGISTRY_KEY, handle: 'dee@deggen.com' })
+        })
+      )
+
+      // Same mounted form, a different person, pasted as a bare key: nothing
+      // published a handle for them, so the offer must carry none.
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+      await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+      await payCurrentRecipient(s)
+      await waitFor(() => expect(s.getByText('pay_save_as_contact')).toBeTruthy())
+      fireEvent.press(s.getByText('pay_save_as_contact'))
+      expect(mockRouterPush).toHaveBeenLastCalledWith(
+        expect.objectContaining({ params: expect.objectContaining({ identityKey: KEY, handle: '' }) })
+      )
+    })
   })
 })
