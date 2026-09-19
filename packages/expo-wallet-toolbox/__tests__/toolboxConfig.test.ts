@@ -2,6 +2,7 @@ import {
   configureToolbox,
   getBackupUrl,
   getHandleCertifierConfig,
+  getHandleRegistryConfig,
   getServiceConfig,
   isToolboxConfigured,
   isVaultAvailable,
@@ -116,6 +117,74 @@ describe('getHandleCertifierConfig', () => {
       handleCertifier: { test: { certifierIdentityKey: 'not-a-key', certifierUrl: 'https://certifier.example' } }
     })
     expect(getHandleCertifierConfig('test')).toBeUndefined()
+  })
+})
+
+// The registry is a deployment fact this package cannot guess, so an
+// unconfigured chain must read as "not available yet" to the Profile screen and
+// as "no registry tier" to Pay — never as a crash, and never as a half-usable
+// entry pointing at a host that is not the domain's registry.
+describe('getHandleRegistryConfig', () => {
+  it('is undefined before configureToolbox runs, without throwing', () => {
+    expect(getHandleRegistryConfig('main')).toBeUndefined()
+  })
+
+  it('is undefined for a chain the host said nothing about', () => {
+    configureToolbox({ backupUrl: null })
+    expect(getHandleRegistryConfig('main')).toBeUndefined()
+  })
+
+  it('lowercases the domain and strips trailing slashes from the url', () => {
+    configureToolbox({
+      backupUrl: null,
+      handleRegistry: { test: { domain: '  Deggen.COM ', url: 'https://messagebox.bsvblockchain.tech///' } }
+    })
+    expect(getHandleRegistryConfig('test')).toEqual({
+      domain: 'deggen.com',
+      url: 'https://messagebox.bsvblockchain.tech'
+    })
+  })
+
+  it.each([
+    ['an empty domain', { domain: '', url: 'https://registry.example' }],
+    ['a domain with no dot', { domain: 'deggen', url: 'https://registry.example' }],
+    ['a domain with a scheme', { domain: 'https://deggen.com', url: 'https://registry.example' }],
+    ['an empty url', { domain: 'deggen.com', url: '' }],
+    ['a url that is not a url', { domain: 'deggen.com', url: 'registry.example' }],
+    ['plain http to a public host', { domain: 'deggen.com', url: 'http://registry.example' }],
+    // The url is an origin that request paths are appended to
+    // (`${url}/api/handle/dee`), so anything after the host makes every route
+    // it builds a different URL than the one the host meant — the same reason
+    // `normalizeBackupUrl` refuses these.
+    ['a url with a path', { domain: 'deggen.com', url: 'https://registry.example/api' }],
+    ['a url with a query', { domain: 'deggen.com', url: 'https://registry.example?x=1' }],
+    ['a url with a fragment', { domain: 'deggen.com', url: 'https://registry.example#a' }]
+  ])('treats %s as no registry at all', (_label, entry) => {
+    configureToolbox({ backupUrl: null, handleRegistry: { test: entry } })
+    expect(getHandleRegistryConfig('test')).toBeUndefined()
+  })
+
+  // Development only: a registry on the machine running the simulator, or on
+  // the Android emulator's host alias. Anything public must be https, because
+  // which key owns a handle is exactly what TLS is protecting here.
+  it.each([
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+    'http://10.0.2.2:8080',
+    'http://192.168.1.50:8080',
+    'http://172.16.4.4:8080'
+  ])('allows %s for development', url => {
+    configureToolbox({ backupUrl: null, handleRegistry: { test: { domain: 'deggen.com', url } } })
+    expect(getHandleRegistryConfig('test')).toEqual({ domain: 'deggen.com', url })
+  })
+
+  it('is replaced wholesale with the rest of the configuration', () => {
+    configureToolbox({
+      backupUrl: null,
+      handleRegistry: { test: { domain: 'deggen.com', url: 'https://registry.example' } }
+    })
+    configureToolbox({ backupUrl: null })
+    expect(getHandleRegistryConfig('test')).toBeUndefined()
   })
 })
 

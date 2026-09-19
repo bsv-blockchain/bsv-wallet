@@ -43,6 +43,14 @@ export interface MandalaEndpointConfig {
   messageBoxUrl: string
 }
 
+/** The paymail handle registry this build talks to, for one chain. */
+export interface HandleRegistryConfig {
+  /** The domain handles live under here, e.g. `deggen.com`. Bare and lowercase. */
+  domain: string
+  /** Origin of the registry that serves that domain — no path, query or fragment. */
+  url: string
+}
+
 /**
  * Runtime configuration supplied by the host app.
  *
@@ -99,6 +107,17 @@ export interface ToolboxConfig {
    */
   handleCertifier?: Partial<Record<AppChain, HandleCertifierConfig>>
   /**
+   * The paymail handle registry, per chain: the domain this build's handles
+   * live under, and the host that serves it. Both together or neither — a
+   * domain with no URL is a registry nothing can reach, and a URL with no
+   * domain is a host whose certificates nothing can be checked against.
+   *
+   * There is deliberately no default. A chain with no complete entry shows
+   * the existing "not available yet" copy in Profile and adds no registry tier
+   * to Pay's recipient search.
+   */
+  handleRegistry?: Partial<Record<AppChain, HandleRegistryConfig>>
+  /**
    * Release gate for the YubiKey vault (spec §0, D15). Default false: the home
    * button and Settings row are hidden, the vault route shows "Not available
    * yet", and no code path may enrol hardware or create a vault output. Turned
@@ -113,6 +132,7 @@ interface ResolvedConfig {
   services: Partial<Record<AppChain, ToolboxServiceConfig>>
   mandala: Partial<Record<AppChain, MandalaEndpointConfig>>
   handleCertifier: Partial<Record<AppChain, HandleCertifierConfig>>
+  handleRegistry: Partial<Record<AppChain, HandleRegistryConfig>>
   vaultEnabled: boolean
 }
 
@@ -159,6 +179,7 @@ export function configureToolbox(config: ToolboxConfig): void {
     services: config.services ?? {},
     mandala: config.mandala ?? {},
     handleCertifier: config.handleCertifier ?? {},
+    handleRegistry: config.handleRegistry ?? {},
     vaultEnabled: config.vaultEnabled === true
   }
 }
@@ -222,6 +243,55 @@ export function getHandleCertifierConfig(chain: AppChain): HandleCertifierConfig
   const certifierUrl = entry.certifierUrl?.trim().replace(/\/+$/, '') ?? ''
   if (certifierUrl === '' || !COMPRESSED_KEY.test(certifierIdentityKey)) return undefined
   return { certifierIdentityKey, certifierUrl }
+}
+
+/**
+ * The same rule as `DOMAIN_FORMAT` in `identity/handleRegistry/rules.ts`, which
+ * backs the `looksLikeDomain` the resolver and `parsePaymail` apply to the same
+ * strings. Restated rather than imported so this module stays a leaf and does
+ * not depend on a feature directory — change both together, because a domain
+ * this accepts and that one rejects is a configured registry nothing resolves.
+ */
+const REGISTRY_DOMAIN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/
+/**
+ * Hosts a development build may reach over plain http: the simulator's own
+ * machine, the Android emulator's alias for it, and RFC 1918 space. Everything
+ * else must be https — which key owns a handle is precisely what a reader on
+ * the path would want to change.
+ */
+const PRIVATE_HOST =
+  /^(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/
+
+/**
+ * The handle registry for a chain, or undefined when this build has none.
+ *
+ * Same fail-closed posture as `getMandalaEndpoints`: never throws, and a
+ * partial or malformed entry answers undefined rather than a half-usable
+ * object. `10.0.2.2` — the Android emulator's route to its host — falls out of
+ * the RFC 1918 branch and needs no case of its own.
+ *
+ * `url` must be a bare origin, for the reason `normalizeBackupUrl` says it
+ * above: every route is built by appending to it (`${url}/api/handle/dee`), so
+ * a configured `https://host/?x=1` addresses neither the host's registry nor
+ * anything else — exactly the half-usable entry this getter exists to refuse.
+ */
+export function getHandleRegistryConfig(chain: AppChain): HandleRegistryConfig | undefined {
+  const entry = current?.handleRegistry[chain]
+  if (!entry) return undefined
+  const domain = entry.domain?.trim().toLowerCase() ?? ''
+  const url = entry.url?.trim().replace(/\/+$/, '') ?? ''
+  if (!REGISTRY_DOMAIN.test(domain) || url === '') return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return undefined
+  }
+  if (parsed.search !== '' || parsed.hash !== '') return undefined
+  if (parsed.pathname !== '' && parsed.pathname !== '/') return undefined
+  if (parsed.protocol === 'https:') return { domain, url }
+  if (parsed.protocol === 'http:' && PRIVATE_HOST.test(parsed.hostname)) return { domain, url }
+  return undefined
 }
 
 /**

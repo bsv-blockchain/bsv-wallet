@@ -80,6 +80,22 @@ configureToolbox({
         'https://gmb.bsvblockchain.tech'
     }
   },
+  // The paymail handle registry, per chain: the domain this build's handles
+  // live under and the host that serves it. A chain with no complete entry
+  // shows "not available yet" in Profile and adds no registry tier to Pay.
+  // The EAS development and dev-physical profiles point both chains at
+  // deggen.com served by messagebox.bsvblockchain.tech; production carries
+  // neither until a production domain is decided.
+  handleRegistry: {
+    main: {
+      domain: process.env.EXPO_PUBLIC_HANDLE_REGISTRY_DOMAIN ?? '',
+      url: process.env.EXPO_PUBLIC_HANDLE_REGISTRY_URL ?? ''
+    },
+    test: {
+      domain: process.env.EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN ?? '',
+      url: process.env.EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL ?? ''
+    }
+  },
   services: {
     main: {
       arcUrl: process.env.EXPO_PUBLIC_ARC_URL,

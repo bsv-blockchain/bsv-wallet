@@ -33,12 +33,13 @@ export {
   getBackupUrl,
   getServiceConfig,
   getMandalaEndpoints,
+  getHandleRegistryConfig,
   isMandalaAvailable,
   isVaultEnabled,
   isVaultAvailable,
   resetToolboxConfig
 } from './toolboxConfig'
-export type { ToolboxConfig, ToolboxServiceConfig, MandalaEndpointConfig } from './toolboxConfig'
+export type { ToolboxConfig, ToolboxServiceConfig, MandalaEndpointConfig, HandleRegistryConfig } from './toolboxConfig'
 
 // Theme tokens and providers
 export { ThemeProvider, useTheme } from './theme/ThemeContext'
