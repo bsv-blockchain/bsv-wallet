@@ -34,6 +34,43 @@ const isAllowedUntranslated = (key: string, language: string): boolean => {
   return !!allowed && (allowed.includes('*') || allowed.includes(language))
 }
 
+// The word a language uses for a handle is the one on its `profile_handle`
+// field label — Alias, Pseudo, Apelido, Юзернейм — and the copy around that
+// field has to keep saying it. Several languages spend their word for
+// "identifier" on the Identifier (the identity key, two sections down the same
+// screen), so a handle line that borrows that word names the wrong thing. The
+// checks above cannot see it: such a value is present, placeholder-correct and
+// not English.
+const handleNounKeys = [
+  'profile_handle_unavailable',
+  'profile_handle_registered',
+  'profile_handle_changed',
+  'profile_handle_rejected',
+  'profile_handle_replace_warning',
+  'profile_display_name_hint',
+  'contact_handle_caption'
+]
+
+// And the handle's own status lines must not borrow the Identifier's word back
+// the other way. `profile_handle_registered_hint` is excluded on purpose: it
+// really does say the handle is registered to your Identifier.
+const identifierFreeKeys = [
+  'profile_handle_available',
+  'profile_handle_taken',
+  'profile_handle_invalid',
+  'profile_handle_failed',
+  'profile_handle_too_similar',
+  'profile_handle_reserved',
+  'profile_handle_cooldown',
+  'profile_handle_pending',
+  'profile_handle_rolled_back',
+  'profile_handle_changed',
+  'profile_handle_rejected',
+  'profile_display_name_hint'
+]
+
+const languages = Object.keys(resources)
+
 describe('translation parity', () => {
   it.each(otherLanguages)('%s has exactly the English key set', language => {
     const translation = resources[language as keyof typeof resources].translation as Translation
@@ -56,5 +93,17 @@ describe('translation parity', () => {
       key => translation[key] === english[key] && !isAllowedUntranslated(key, language)
     )
     expect(untranslated).toEqual([])
+  })
+
+  it.each(languages)('%s names the handle with its own word for it', language => {
+    const translation = resources[language as keyof typeof resources].translation as Translation
+    const handleNoun = translation.profile_handle.toLowerCase()
+    expect(handleNounKeys.filter(key => !translation[key].toLowerCase().includes(handleNoun))).toEqual([])
+  })
+
+  it.each(languages)('%s keeps the Identifier out of the handle status lines', language => {
+    const translation = resources[language as keyof typeof resources].translation as Translation
+    const identifierNoun = translation.contact_identifier.toLowerCase()
+    expect(identifierFreeKeys.filter(key => translation[key].toLowerCase().includes(identifierNoun))).toEqual([])
   })
 })
