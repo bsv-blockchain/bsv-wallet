@@ -9,6 +9,7 @@ if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
 
 import '../wdyr' // dev-only re-render tracking; must run before any component renders
 import '@/utils/devMenu' // dev-only profiling controls in the expo-dev-client menu
+import { AgentationGate } from '@/utils/AgentationGate'
 
 import React, { useEffect } from 'react'
 import { View, useColorScheme } from 'react-native'
@@ -190,46 +191,48 @@ export default function RootLayout() {
                   <ThemeProvider>
                     <WalletConnectionProvider walletName="BSV Wallet">
                       <VaultProvider onToast={showToast}>
-                        <View style={{ flex: 1, backgroundColor }}>
-                          <FirstTouchRecorder />
-                          {/* <TranslationTester /> */}
-                          <PermissionSheet />
-                          <VaultCeremonySheet />
-                          <LocalPayNotificationBridge />
-                          <AlertHost />
-                          <Stack
-                            screenOptions={{
-                              animation: 'slide_from_right',
-                              headerShown: false,
-                              contentStyle: { backgroundColor },
-                              // Every screen stays upright.
-                              orientation: 'portrait_up'
-                            }}
-                          >
-                            {/* The Wallet (index) takes no params, so there is only
+                        <AgentationGate>
+                          <View style={{ flex: 1, backgroundColor }}>
+                            <FirstTouchRecorder />
+                            {/* <TranslationTester /> */}
+                            <PermissionSheet />
+                            <VaultCeremonySheet />
+                            <LocalPayNotificationBridge />
+                            <AlertHost />
+                            <Stack
+                              screenOptions={{
+                                animation: 'slide_from_right',
+                                headerShown: false,
+                                contentStyle: { backgroundColor },
+                                // Every screen stays upright.
+                                orientation: 'portrait_up'
+                              }}
+                            >
+                              {/* The Wallet (index) takes no params, so there is only
                                 one identity to collapse — `dangerouslySingular` keeps
                                 repeated navigations to '/' returning to the existing
                                 screen instead of stacking live duplicates. */}
-                            <Stack.Screen name="index" dangerouslySingular />
-                            <Stack.Screen name="auth/mnemonic" />
-                            <Stack.Screen name="transactions" />
-                            <Stack.Screen name="wallet-config" />
-                            <Stack.Screen name="wallet-check" />
-                            <Stack.Screen name="vault" />
-                            <Stack.Screen name="vault-transfer" />
-                            <Stack.Screen name="pay" />
-                            {/* The three below become redirect stubs into /pay (Task 14).
+                              <Stack.Screen name="index" dangerouslySingular />
+                              <Stack.Screen name="auth/mnemonic" />
+                              <Stack.Screen name="transactions" />
+                              <Stack.Screen name="wallet-config" />
+                              <Stack.Screen name="wallet-check" />
+                              <Stack.Screen name="vault" />
+                              <Stack.Screen name="vault-transfer" />
+                              <Stack.Screen name="pay" />
+                              {/* The three below become redirect stubs into /pay (Task 14).
                                 They stay registered so an old link resolves instead of
                                 hitting +not-found. */}
-                            <Stack.Screen name="legacy-payments" />
-                            <Stack.Screen name="payments" />
-                            <Stack.Screen name="local-payments" />
-                            <Stack.Screen name="connections" />
-                            <Stack.Screen name="pair" />
-                            <Stack.Screen name="not-found" />
-                          </Stack>
-                          <ToastHost />
-                        </View>
+                              <Stack.Screen name="legacy-payments" />
+                              <Stack.Screen name="payments" />
+                              <Stack.Screen name="local-payments" />
+                              <Stack.Screen name="connections" />
+                              <Stack.Screen name="pair" />
+                              <Stack.Screen name="not-found" />
+                            </Stack>
+                            <ToastHost />
+                          </View>
+                        </AgentationGate>
                       </VaultProvider>
                     </WalletConnectionProvider>
                   </ThemeProvider>
