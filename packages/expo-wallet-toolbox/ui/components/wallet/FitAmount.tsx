@@ -20,6 +20,9 @@ const MIN_FONT_SIZE = 12
 /** Headroom for rounding and the trailing space a wrapped line drops. */
 const FIT_MARGIN = 0.98
 
+/** Ignore width changes smaller than this, so rounding never re-triggers a fit. */
+const WIDTH_EPSILON = 1
+
 export interface FitAmountProps {
   value: string
   unit?: string
@@ -33,33 +36,41 @@ export interface FitAmountProps {
  * shrinks until it fits the width it is given, and grows back to full size
  * when a shorter value arrives.
  *
- * The line widths the platform reports for the current size scale linearly with
- * font size, so one correction lands within a pixel or two. A second pass
- * confirms it and stops. Nothing is ellipsized or wrapped, so no digit is ever
- * hidden.
+ * Two facts drive it: the width of the slot (the wrapper's layout) and the
+ * width the figure takes on one line at full size (from `onTextLayout`). Width
+ * scales linearly with font size, so the scale is simply their ratio. Each is
+ * stored as it arrives and the scale is derived from both, so it does not
+ * matter which the platform reports first. Nothing is ellipsized or wrapped, so
+ * no digit is ever hidden.
  */
 export function FitAmount({ value, unit, style, unitStyle }: FitAmountProps) {
   const [available, setAvailable] = useState(0)
-  const [scale, setScale] = useState(1)
+  const [fullWidth, setFullWidth] = useState(0)
 
   const base = StyleSheet.flatten(style) ?? {}
   const baseSize = base.fontSize ?? 17
   const unitBase = StyleSheet.flatten(unitStyle) ?? {}
   const floor = Math.min(1, MIN_FONT_SIZE / baseSize)
 
-  const onLayout = useCallback((e: LayoutChangeEvent) => setAvailable(e.nativeEvent.layout.width), [])
+  const scale = available > 0 && fullWidth > 0 ? Math.min(1, Math.max(floor, (available / fullWidth) * FIT_MARGIN)) : 1
 
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const width = e.nativeEvent.layout.width
+    setAvailable(prev => (Math.abs(prev - width) > WIDTH_EPSILON ? width : prev))
+  }, [])
+
+  // `scale` is the size this layout was produced at, which turns the width it
+  // reports back into the full-size width.
   const onTextLayout = useCallback(
     (e: NativeSyntheticEvent<TextLayoutEventData>) => {
-      if (available <= 0) return
-      // A figure that overflowed wraps, so the widths of all its lines add up
-      // to the width it would take on one.
+      // A figure that overflowed wraps, so the widths of all its lines add up to
+      // the width it would take on one.
       const natural = e.nativeEvent.lines.reduce((sum, line) => sum + line.width, 0)
       if (natural <= 0) return
-      const next = Math.min(1, Math.max(floor, scale * (available / natural) * FIT_MARGIN))
-      if (Math.abs(next - scale) > 0.005) setScale(next)
+      const full = natural / scale
+      setFullWidth(prev => (Math.abs(prev - full) > WIDTH_EPSILON ? full : prev))
     },
-    [available, scale, floor]
+    [scale]
   )
 
   const scaled: TextStyle = {

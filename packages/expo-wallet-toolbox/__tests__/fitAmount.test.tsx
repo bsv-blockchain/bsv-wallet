@@ -44,6 +44,16 @@ describe('FitAmount', () => {
     expect(sizeOf(text)).toBe(12)
   })
 
+  it('still fits when the text is measured before the slot width is known', () => {
+    const { getByText } = render(<FitAmount value="2,546,156.51684664" unit="BSV" style={style} />)
+    const text = getByText(/2,546,156/)
+    // The order seen on device: onTextLayout first, the wrapper's onLayout after.
+    fireEvent(text, 'textLayout', { nativeEvent: { lines: [{ width: 361 }, { width: 125 }] } })
+    expect(sizeOf(text)).toBe(44)
+    fireEvent(text.parent!.parent!, 'layout', { nativeEvent: { layout: { width: 354, height: 50, x: 0, y: 0 } } })
+    expect(sizeOf(text)).toBeCloseTo(44 * (354 / 486) * 0.98, 1)
+  })
+
   it('grows back to full size when a shorter value arrives', () => {
     const { text, report } = setup(300, [600])
     expect(sizeOf(text)).toBeLessThan(44)
