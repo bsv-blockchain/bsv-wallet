@@ -140,6 +140,7 @@
     "jest-expo": "~57.0.5",
     "nitrogen": "^0.35.2",
     "patch-package": "^8.0.1",
+    "react-native-agentation": "github:sfxarfn/react-native-agentation#0.0.8",
     "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3",
     "ws": "^8.20.0"
