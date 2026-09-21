@@ -75,6 +75,7 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import { FitAmount } from '../components/wallet/FitAmount'
 import { useContactsStore } from '../hooks/useContactsStore'
 import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
@@ -1402,12 +1403,14 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             <ActivityIndicator color={colors.textSecondary} style={styles.balanceSpinner} />
           ) : (
             <>
-              <Text style={[styles.balance, { color: colors.textPrimary }]}>
-                {heroParts.value}
-                {heroParts.unit ? (
-                  <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}> {heroParts.unit}</Text>
-                ) : null}
-              </Text>
+              {/* However long the figure, it stays on one line: the type shrinks
+                  to fit (see FitAmount for why this is not adjustsFontSizeToFit). */}
+              <FitAmount
+                value={heroParts.value}
+                unit={heroParts.unit}
+                style={[styles.balance, { color: colors.textPrimary }]}
+                unitStyle={[styles.balanceUnit, { color: colors.textSecondary }]}
+              />
               {/* Conversions are BSV's alone: the wallet has no price for a
                   token, and a converted figure would be invented (ux §6.1).
                   A token uses the line for its full name instead, so "1,240.00
