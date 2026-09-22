@@ -17,7 +17,7 @@ import ActivityRow, { type ActivityAction } from './ActivityRow'
 import { showToast } from '../ui/Toast'
 import { useMandala } from '../../hooks/useMandala'
 import { formatTokenAmount } from '../../tokenFormat'
-import { tokenStatusKey } from '../../tokenStatus'
+import { tokenRowStatusView } from '../../tokenStatus'
 import type { TokenActivityStatus } from '../../../core/mandala/runtime'
 import type { ContactActivityItem, ContactSettlementRow } from '../../../core/contacts/contactActivity'
 
@@ -102,7 +102,8 @@ export default function ContactActivityList({
             amount: figure ? { value: figure, unit: ticker } : undefined,
             incoming,
             counterpartyKey: identityKey,
-            statusText: t(tokenStatusKey(statusOf(item)))
+            status: tokenRowStatusView(statusOf(item), incoming),
+            statusText: t(tokenRowStatusView(statusOf(item), incoming).key)
           }
         }
       }),

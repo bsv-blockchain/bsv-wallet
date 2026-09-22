@@ -32,7 +32,7 @@ import {
   sigilPalette,
   type Counterparty
 } from '@bsv/expo-wallet-toolbox'
-import { txStatusView, toneColor } from '../../txStatus'
+import { txStatusView, toneColor, type TxStatusView } from '../../txStatus'
 import PressableScale from '../ui/PressableScale'
 import Sigil from '../ui/Sigil'
 import type { ContactsStore } from '../../../core/contacts/contactsStore'
@@ -170,6 +170,8 @@ interface Props {
     counterpartyKey?: string
     /** Settlement status line, in place of the chain-status words. */
     statusText?: string
+    /** Settlement status as a tone + label; drives the dot as a BSV row's does. */
+    status?: TxStatusView
   }
 }
 
@@ -219,7 +221,7 @@ function ActivityRowBase({
   const incoming = token ? token.incoming : action.satoshis >= 0
   // Direction decides the settled wording ("Received" vs "Sent"), so it has to
   // be known before the status view is built.
-  const view = txStatusView(action.status, offlineStatus, incoming)
+  const view = token?.status ?? txStatusView(action.status, offlineStatus, incoming)
   const settled = view.tone === 'settled'
   const tone = toneColor(view.tone, colors as unknown as Record<string, string>)
 
@@ -439,7 +441,7 @@ function ActivityRowBase({
               {settled ? null : <View style={[styles.dot, { backgroundColor: tone }]} />}
               <Text style={[styles.statusText, { color: settled ? colors.textSecondary : tone }]} numberOfLines={1}>
                 {(() => {
-                  const words = token?.statusText ?? t(view.key)
+                  const words = token?.status ? t(view.key) : (token?.statusText ?? t(view.key))
                   return time ? `${words} · ${time}` : words
                 })()}
               </Text>

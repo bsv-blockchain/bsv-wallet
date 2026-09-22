@@ -11,6 +11,7 @@
  * and painting it amber would make the normal case look like a fault.
  */
 import type { TokenActivityStatus } from '../core/mandala/runtime'
+import type { TxStatusView } from './txStatus'
 
 export type TokenStatusTone = 'neutral' | 'positive' | 'warning' | 'error'
 
@@ -32,6 +33,26 @@ const TONES: Record<TokenActivityStatus, TokenStatusTone> = {
 
 export function tokenStatusKey(status: TokenActivityStatus): string {
   return KEYS[status] ?? KEYS.settling
+}
+
+/**
+ * A token row's status in an activity list, in the same words and tones a BSV
+ * row uses: a finished transfer says what it did (Sent / Received), one still
+ * on its way to the issuer is plain "Pending", and only the states the holder
+ * may have to act on keep their own word and get colour.
+ */
+export function tokenRowStatusView(status: TokenActivityStatus, incoming: boolean): TxStatusView {
+  switch (status) {
+    case 'settled':
+      return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'settled' }
+    case 'refused':
+    case 'reversed':
+      return { key: KEYS[status], tone: 'failed' }
+    case 'stuck':
+      return { key: KEYS.stuck, tone: 'attention' }
+    default:
+      return { key: 'tx_status_pending', tone: 'settled' }
+  }
 }
 
 export function tokenStatusTone(status: TokenActivityStatus): TokenStatusTone {

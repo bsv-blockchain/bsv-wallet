@@ -95,7 +95,7 @@ import { tokenRowTitle } from './tokenRowTitle'
 import { useMandala, useMandalaRuntime, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
 import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
-import { tokenStatusKey } from '../tokenStatus'
+import { tokenRowStatusView } from '../tokenStatus'
 import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
 import AssetSwitcherDropdown, { BSV_LABEL } from '../components/wallet/AssetSwitcherDropdown'
 import { exportTransactionsAsCsv } from '../exportTransactions'
@@ -1368,7 +1368,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         // by design (spec D2): the image differs on every payment from the
         // same payer, which is the point of the blinding, not a bug in it.
         counterpartyKey: row.counterpartyKey,
-        statusText: t(tokenStatusKey(row.status))
+        status: tokenRowStatusView(row.status, row.role === 'received'),
+        statusText: t(tokenRowStatusView(row.status, row.role === 'received').key)
       })
     }
     return map

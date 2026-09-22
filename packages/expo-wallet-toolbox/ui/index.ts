@@ -163,7 +163,7 @@ export {
   tokenAmountMask,
   tokenAmountParts
 } from './tokenFormat'
-export { tokenStatusKey, tokenStatusTone, tokenStatusDetailKey, type TokenStatusTone } from './tokenStatus'
+export { tokenStatusKey, tokenRowStatusView, tokenStatusTone, tokenStatusDetailKey, type TokenStatusTone } from './tokenStatus'
 export { SEEN_ASSETS_KEY, SEEN_EVICTIONS_KEY, markSeen, readSeen, useSeenSet, type SeenSet } from './tokenSeen'
 export { default as AssetAmount, type AssetAmountProps } from './components/wallet/AssetAmount'
 export { announceEviction, evictionsFrom, type EvictionNotice } from './components/wallet/tokenEviction'
