@@ -15,9 +15,18 @@
 import * as SecureStore from 'expo-secure-store'
 import { Utils } from '@bsv/sdk'
 import { generateKek, generateKekId } from './envelope'
-import { KEK_AUTH_KEY, KEK_PLAIN_KEY, needsUpgrade, policyFor, resolveProvisioningPolicy } from './policy'
-import { ENV_SERVICE, envOptions, kekOptions, SENTINEL_KEY } from './storage'
-import { KekPolicy, KekSentinel, SecretName, UnavailableReason, UnlockState } from './types'
+import {
+  hasStrongBiometrics,
+  KEK_AUTH_KEY,
+  KEK_PLAIN_KEY,
+  needsUpgrade,
+  policyFor,
+  resolveProvisioningPolicy
+} from './policy'
+import { openKekWithPin, sealKekWithPin } from './pin'
+import { clearFailures, lockRemainingMs, recordFailure } from './pinAttempts'
+import { ENV_SERVICE, envOptions, kekOptions, PIN_ATTEMPTS_KEY, PIN_WRAP_KEY, SENTINEL_KEY } from './storage'
+import { KekPolicy, KekSentinel, PinWrapV1, SecretName, UnavailableReason, UnlockState } from './types'
 
 let cached: { kek: number[]; kekId: string; policy: KekPolicy } | null = null
 let inFlight: Promise<UnlockState> | null = null
@@ -197,6 +206,10 @@ async function doUnlock(promptMessage?: string): Promise<UnlockState> {
 
   setState({ status: 'unlocking' })
 
+  // PIN-only: there is no keychain item to ask for. Nothing here can make
+  // progress without the user, so hand straight back to the UI.
+  if (sentinel.policy === 'pin') return setState(await needsPin())
+
   const resolved = policyFor(sentinel.policy)
   let raw: string | null
   try {
@@ -205,12 +218,21 @@ async function doUnlock(promptMessage?: string): Promise<UnlockState> {
       kekOptions(resolved.requireAuthentication, promptMessage)
     )
   } catch (err) {
+    // A cancelled or unsatisfiable biometric ceremony is not a dead end when a
+    // PIN wrap exists — that is the whole reason to have one. Same move iOS
+    // itself makes when Face ID fails: fall through to the code.
+    if (await hasPin()) return setState(await needsPin())
     return setState(classifyAuthError(err))
   }
 
-  // A sentinel with no key means the OS threw the key away. Both platforms
-  // report that as a plain null, which is why the sentinel has to exist.
-  if (raw === null) return setState({ status: 'lost' })
+  // A sentinel with no key means the OS threw the key away — biometric
+  // re-enrolment, screen-lock removal. Historically terminal; with a PIN wrap
+  // it is merely the moment the PIN earns its keep, because the wrap holds the
+  // same KEK and the OS has no say over it.
+  if (raw === null) {
+    if (await hasPin()) return setState(await needsPin())
+    return setState({ status: 'lost' })
+  }
 
   cached = { kek: Utils.toArray(raw, 'hex') as number[], kekId: sentinel.kekId, policy: sentinel.policy }
 
@@ -252,6 +274,10 @@ export async function destroyKek(): Promise<void> {
   cached = null
   autoUnlockSpent = false
   await deleteBothKekItems()
+  // The PIN wrap is another copy of the very key being destroyed; leaving it
+  // behind would keep the wallet openable after a wipe.
+  await SecureStore.deleteItemAsync(PIN_WRAP_KEY, envOptions).catch(() => {})
+  await SecureStore.deleteItemAsync(PIN_ATTEMPTS_KEY, envOptions).catch(() => {})
   await SecureStore.deleteItemAsync(SENTINEL_KEY, envOptions).catch(() => {})
   setState({ status: 'absent' })
 }
@@ -269,6 +295,156 @@ export function __resetForTests(): void {
   listeners = []
   autoUnlockSpent = false
   state = { status: 'locked' }
+}
+
+/* ---------------------------------- PIN ----------------------------------- */
+
+/**
+ * The PIN is a SECOND wrap of the same KEK, never a second key. Every envelope
+ * blob stays sealed under the one KEK value, so turning a PIN on or off, or
+ * changing it, rewrites 150 bytes and touches no secret. That is what makes
+ * these operations safe to expose in Settings at all.
+ */
+
+async function needsPin(): Promise<UnlockState> {
+  return { status: 'needs-pin', retryAfterMs: await lockRemainingMs() }
+}
+
+export async function readPinWrap(): Promise<PinWrapV1 | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(PIN_WRAP_KEY, envOptions)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PinWrapV1
+    return parsed?.v === 1 && typeof parsed.c === 'string' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+export async function hasPin(): Promise<boolean> {
+  return (await readPinWrap()) !== null
+}
+
+/** Whether the OS-enforced copy of the KEK is the one in play. */
+export async function isBiometricEnabled(): Promise<boolean> {
+  const s = await readSentinel()
+  return s?.policy === 'biometric'
+}
+
+/**
+ * Turn a PIN on, or replace the current one.
+ *
+ * Requires the KEK to be in hand: the caller must already have unlocked this
+ * session by whatever means. That is deliberate — it makes "set a PIN" an
+ * operation only the legitimate owner of an open wallet can perform, with no
+ * separate authorisation path to get wrong.
+ */
+export async function setPin(pin: string): Promise<boolean> {
+  if (!cached) return false
+  try {
+    const wrap = await sealKekWithPin(cached.kek, cached.kekId, pin)
+    await SecureStore.setItemAsync(PIN_WRAP_KEY, JSON.stringify(wrap), envOptions)
+    await clearFailures()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Verify the old PIN before replacing it, so a shoulder-surfer with a warm
+ * phone cannot silently change the code out from under the owner. */
+export async function changePin(oldPin: string, newPin: string): Promise<boolean> {
+  const wrap = await readPinWrap()
+  if (!wrap || !cached) return false
+  if (await lockRemainingMs() > 0) return false
+  const kek = await openKekWithPin(wrap, oldPin)
+  if (!kek) {
+    await recordFailure()
+    return false
+  }
+  return setPin(newPin)
+}
+
+/**
+ * Turn the PIN off.
+ *
+ * Refused when it is the only way in: on a PIN-only install, removing the wrap
+ * destroys the last copy of the KEK and every secret under it. The caller is
+ * expected to offer "switch Face ID back on" instead, which setBiometricEnabled
+ * does in the right order.
+ */
+export async function clearPin(): Promise<boolean> {
+  const s = await readSentinel()
+  if (s?.policy === 'pin') return false
+  await SecureStore.deleteItemAsync(PIN_WRAP_KEY, envOptions).catch(() => {})
+  await clearFailures()
+  return true
+}
+
+/**
+ * Enter a PIN. Throttled by pinAttempts, which is the control that makes a
+ * six-digit secret defensible at all.
+ */
+export async function unlockWithPin(pin: string): Promise<UnlockState> {
+  const sentinel = await readSentinel()
+  if (!sentinel) return setState({ status: 'absent' })
+
+  const wrap = await readPinWrap()
+  if (!wrap) return setState({ status: 'lost' })
+
+  const owed = await lockRemainingMs()
+  if (owed > 0) return setState({ status: 'needs-pin', retryAfterMs: owed })
+
+  const kek = await openKekWithPin(wrap, pin)
+  if (!kek) {
+    await recordFailure()
+    return setState(await needsPin())
+  }
+
+  // A wrap that opens but names a different KEK is a stale record from a
+  // previous wallet on this device. Honouring it would decrypt nothing.
+  if (wrap.kekId !== sentinel.kekId) {
+    await SecureStore.deleteItemAsync(PIN_WRAP_KEY, envOptions).catch(() => {})
+    return setState({ status: 'lost' })
+  }
+
+  await clearFailures()
+  autoUnlockSpent = true
+  cached = { kek, kekId: sentinel.kekId, policy: sentinel.policy }
+  return setState({ status: 'unlocked', kekId: sentinel.kekId, policy: sentinel.policy })
+}
+
+/**
+ * Switch the OS-enforced wrap on or off.
+ *
+ * Turning it OFF is only allowed once a PIN exists, and writes the PIN-only
+ * policy BEFORE deleting the keychain item, so a crash between the two leaves
+ * an install that asks for a PIN it can satisfy rather than one that looks for
+ * a key that is gone.
+ */
+export async function setBiometricEnabled(enabled: boolean): Promise<boolean> {
+  const sentinel = await readSentinel()
+  if (!sentinel || !cached) return false
+
+  if (!enabled) {
+    if (!(await hasPin())) return false
+    try {
+      await writeSentinel({ ...sentinel, policy: 'pin' })
+      await SecureStore.deleteItemAsync(KEK_AUTH_KEY, kekOptions(true)).catch(() => {})
+      await SecureStore.deleteItemAsync(KEK_PLAIN_KEY, kekOptions(false)).catch(() => {})
+      cached = { ...cached, policy: 'pin' }
+      setState({ status: 'unlocked', kekId: cached.kekId, policy: 'pin' })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  if (!(await hasStrongBiometrics())) return false
+  const upgraded = await upgradeToBiometric(sentinel)
+  if (!upgraded) return false
+  setState(upgraded)
+  return true
 }
 
 export { ENV_SERVICE }

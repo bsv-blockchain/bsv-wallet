@@ -22,6 +22,15 @@ if (__DEV__) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { registerDevMenuItems } = require('expo-dev-client')
+    /**
+     * Demo mode lives behind the same `__DEV__` gate as everything else here,
+     * and is required by deep path rather than from the package barrel so it
+     * never enters the production module graph. Also mirrored onto globalThis
+     * so a connected debugger can drive it without the menu.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const demo = require('@bsv/expo-wallet-toolbox/core/demo') as typeof import('@bsv/expo-wallet-toolbox/core/demo')
+    g.demo = demo
     registerDevMenuItems([
       {
         name: '📊 Perf: dump summary',
@@ -40,6 +49,21 @@ if (__DEV__) {
           const next = !isLoggingEnabled()
           setLoggingEnabled(next)
           console.log(`[log] app logging ${next ? 'ON' : 'OFF'}`)
+        }
+      },
+      {
+        name: '🧪 Toggle demo mode (mock data)',
+        callback: () => {
+          const next = !demo.isDemoModeEnabled()
+          demo.setDemoModeEnabled(next)
+          console.log(`[demo] mock data ${next ? 'LOADED' : 'UNLOADED'}`)
+        }
+      },
+      {
+        name: '♻️ Reset demo data',
+        callback: () => {
+          demo.resetDemoLedger()
+          console.log('[demo] ledger reset to its opening position')
         }
       },
       {
