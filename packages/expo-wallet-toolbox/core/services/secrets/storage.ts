@@ -20,16 +20,6 @@ export const ENV_SERVICE = 'bsvb.secrets.v1'
 
 export const SENTINEL_KEY = 'secretsSentinelV1'
 
-/** The KEK sealed under a PIN-stretched key. Inert without the PIN, so it sits
- * with the ciphertexts rather than in the KEK service — it is one more opaque
- * blob, not a key the OS is asked to guard. */
-export const PIN_WRAP_KEY = 'pinWrapV1'
-
-/** Consecutive wrong-PIN count. Here rather than AsyncStorage so it survives
- * exactly as long as the wrap it throttles, and so clearing app data to reset
- * the counter also destroys the thing being attacked. */
-export const PIN_ATTEMPTS_KEY = 'pinAttemptsV1'
-
 export const envKey = (name: string) => `envV1.${name}`
 
 /**

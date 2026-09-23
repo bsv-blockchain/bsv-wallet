@@ -18,7 +18,6 @@ export type {
   EnvelopeBlob,
   KekPolicy,
   KekSentinel,
-  PinWrapV1,
   SecretName,
   UnavailableReason,
   UnlockState
@@ -36,25 +35,14 @@ export {
 
 export {
   autoUnlockKek,
-  changePin,
-  clearPin,
   destroyKek,
   getUnlockState,
-  hasPin,
-  isBiometricEnabled,
   isUnlocked,
   lockKek,
-  readPinWrap,
   readSentinel,
-  setBiometricEnabled,
-  setPin,
   subscribeUnlockState,
-  unlockKek,
-  unlockWithPin
+  unlockKek
 } from './kek'
-
-export { isValidPin, PIN_MAX_DIGITS, PIN_MIN_DIGITS } from './pin'
-export { delayForFailures, lockRemainingMs, PIN_FREE_ATTEMPTS, readAttempts } from './pinAttempts'
 
 export {
   deleteAllSecrets,

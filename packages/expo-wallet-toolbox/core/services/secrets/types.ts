@@ -32,33 +32,10 @@ export interface EnvelopeBlob {
 /**
  * How the KEK is protected on this install.
  * - `biometric`  — SecureStore item with requireAuthentication: OS-enforced.
- * - `pin`        — no SecureStore KEK item at all; the only copy is the
- *                  PIN-sealed wrap. Reached by turning Face ID off, which is
- *                  allowed only once a PIN exists.
  * - `degraded`   — production device with no strong biometrics; keystore-only.
  * - `dev-plain`  — development builds without biometrics. Never valid in prod.
- *
- * A PIN may exist alongside `biometric` (and alongside `degraded`): the policy
- * names where the PRIMARY copy of the KEK lives, not the only way in.
  */
-export type KekPolicy = 'biometric' | 'pin' | 'degraded' | 'dev-plain'
-
-/**
- * The KEK sealed under a key stretched from the user's PIN.
- *
- * `iterations` is recorded rather than assumed so the cost can be raised in a
- * later release without orphaning wraps written by an earlier one.
- */
-export interface PinWrapV1 {
-  v: 1
-  /** Which KEK this seals — a stale wrap must fail loudly, not decrypt to junk. */
-  kekId: string
-  /** hex(16B) PBKDF2 salt. */
-  salt: string
-  iterations: number
-  /** AES-256-GCM of the raw KEK bytes (SymmetricKey wire format), hex. */
-  c: string
-}
+export type KekPolicy = 'biometric' | 'degraded' | 'dev-plain'
 
 /**
  * Non-secret marker recording that an envelope exists.
@@ -90,13 +67,6 @@ export type UnlockState =
   | { status: 'unlocked'; kekId: string; policy: KekPolicy }
   /** User dismissed the sheet. Retryable, nothing was touched. */
   | { status: 'cancelled' }
-  /**
-   * The KEK is reachable, but only by entering the PIN. Either this install is
-   * PIN-only, or biometrics were offered and could not complete while a PIN
-   * wrap exists to fall back on. `retryAfterMs` is the throttle owed before the
-   * next guess is accepted (0 when ready now).
-   */
-  | { status: 'needs-pin'; retryAfterMs: number }
   | { status: 'unavailable'; reason: UnavailableReason }
   /** Sentinel present but the KEK is gone — the OS destroyed it. Unrecoverable
    * on-device; the user must restore from their recovery phrase. */

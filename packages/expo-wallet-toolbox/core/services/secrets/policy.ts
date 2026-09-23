@@ -46,24 +46,10 @@ const DEV_PLAIN: ResolvedPolicy = {
   disclose: true
 }
 
-/**
- * PIN-only. There is no SecureStore KEK item to name: the sole copy of the key
- * is the PIN wrap, so `keyName` is empty and any caller that reaches for it is
- * taking a path that does not apply — doUnlock branches on 'pin' first.
- */
-const PIN_ONLY: ResolvedPolicy = {
-  policy: 'pin',
-  keyName: '',
-  requireAuthentication: false,
-  disclose: false
-}
-
 export function policyFor(policy: KekPolicy): ResolvedPolicy {
   switch (policy) {
     case 'biometric':
       return BIOMETRIC
-    case 'pin':
-      return PIN_ONLY
     case 'degraded':
       return DEGRADED
     case 'dev-plain':
@@ -129,10 +115,6 @@ export async function resolveProvisioningPolicy(): Promise<ResolvedPolicy> {
  */
 export async function needsUpgrade(current: KekPolicy): Promise<boolean> {
   if (current === 'biometric') return false
-  // PIN-only is a deliberate choice the user made in Settings, not a
-  // degradation to be quietly repaired. Re-wrapping it to biometric would
-  // switch Face ID back on behind their back.
-  if (current === 'pin') return false
   if (__DEV__) return false
   return hasStrongBiometrics()
 }

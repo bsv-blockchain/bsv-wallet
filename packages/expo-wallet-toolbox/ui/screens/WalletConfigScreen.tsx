@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react'
-import { ActivityIndicator, View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Switch } from 'react-native'
+import { ActivityIndicator, View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
@@ -24,10 +24,6 @@ import {
   satoshisPerFiatUnit,
   ExchangeRateContext,
   DISPLAY_CURRENCY_OPTIONS,
-  numberFormatSample,
-  setNumberFormatPref,
-  useNumberFormatPref,
-  type NumberFormatPref,
   isBackupPushEnabled,
   setBackupPushEnabled,
   BACKUP_CHAINS,
@@ -38,18 +34,8 @@ import {
   setMockPresentKey,
   getMockPresentKey,
   NO_MESSAGE_BOX,
-  getBackupUrl,
-  hasPin,
-  clearPin,
-  isBiometricEnabled,
-  setBiometricEnabled,
-  isUnlocked,
-  hasStrongBiometrics,
-  isAutoLockEnabled,
-  setAutoLockEnabled,
-  loadAutoLockPref
+  getBackupUrl
 } from '@bsv/expo-wallet-toolbox'
-import PinSetupSheet from '../components/wallet/PinSetupSheet'
 
 /**
  * expo-constants reaches native config; required lazily so a consumer of the
@@ -151,101 +137,6 @@ export function WalletConfigScreen() {
   const openBackup = section === 'backup'
   const Ionicons = loadIonicons()
 
-  /* ------------------------------- security ------------------------------- */
-
-  const [pinOn, setPinOn] = useState(false)
-  const [bioOn, setBioOn] = useState(false)
-  const [bioCapable, setBioCapable] = useState(false)
-  const [autoLock, setAutoLock] = useState(false)
-  const [pinSheet, setPinSheet] = useState<'set' | 'change' | null>(null)
-  const [securityBusy, setSecurityBusy] = useState(false)
-
-  const refreshSecurity = useCallback(async () => {
-    const [p, b, capable] = await Promise.all([hasPin(), isBiometricEnabled(), hasStrongBiometrics()])
-    setPinOn(p)
-    setBioOn(b)
-    setBioCapable(capable)
-    setAutoLock(isAutoLockEnabled())
-  }, [])
-
-  useEffect(() => {
-    void loadAutoLockPref().then(refreshSecurity)
-  }, [refreshSecurity])
-
-  /**
-   * Every switch here re-wraps the KEK, which means the KEK has to be in hand.
-   * It always is in practice — reaching Settings took a wallet read, and that
-   * read unlocked — but a session that was auto-locked while this screen sat
-   * open is the exception, and silently doing nothing would be the worst answer.
-   */
-  const requireUnlocked = useCallback((): boolean => {
-    if (isUnlocked()) return true
-    showToast(t('security_locked_toast'), { type: 'error' })
-    return false
-  }, [t])
-
-  const onTogglePin = useCallback(
-    async (next: boolean) => {
-      if (securityBusy || !requireUnlocked()) return
-      if (next) {
-        setPinSheet('set')
-        return
-      }
-      // Refused outright when the PIN is the only way in — clearPin enforces
-      // this too, but saying so beats a switch that springs back in silence.
-      if (!bioOn) {
-        showToast(t('security_biometrics_needs_pin'), { type: 'error' })
-        return
-      }
-      const choice = await showAlert({
-        title: t('security_pin_off_title'),
-        message: t('security_pin_off_message'),
-        buttons: [
-          { text: t('security_pin_off_confirm'), key: 'confirm', style: 'destructive' },
-          { text: t('cancel'), key: 'cancel', style: 'cancel' }
-        ]
-      })
-      if (choice !== 'confirm') return
-      setSecurityBusy(true)
-      try {
-        if (await clearPin()) showToast(t('security_pin_off_toast'), { type: 'info' })
-      } finally {
-        setSecurityBusy(false)
-        await refreshSecurity()
-      }
-    },
-    [securityBusy, requireUnlocked, bioOn, t, refreshSecurity]
-  )
-
-  const onToggleBiometrics = useCallback(
-    async (next: boolean) => {
-      if (securityBusy || !requireUnlocked()) return
-      if (!next && !pinOn) {
-        showToast(t('security_biometrics_needs_pin'), { type: 'error' })
-        return
-      }
-      if (!next) {
-        const choice = await showAlert({
-          title: t('security_biometrics_off_title'),
-          message: t('security_biometrics_off_message'),
-          buttons: [
-            { text: t('security_biometrics_off_confirm'), key: 'confirm', style: 'destructive' },
-            { text: t('cancel'), key: 'cancel', style: 'cancel' }
-          ]
-        })
-        if (choice !== 'confirm') return
-      }
-      setSecurityBusy(true)
-      try {
-        await setBiometricEnabled(next)
-      } finally {
-        setSecurityBusy(false)
-        await refreshSecurity()
-      }
-    },
-    [securityBusy, requireUnlocked, pinOn, t, refreshSecurity]
-  )
-
   const {
     managers,
     adminOriginator,
@@ -274,7 +165,6 @@ export function WalletConfigScreen() {
   const [loggingOut, setLoggingOut] = useState(false)
   const [storageBusy, setStorageBusy] = useState(false)
   const [currencyExpanded, setCurrencyExpanded] = useState(false)
-  const [numberFormatExpanded, setNumberFormatExpanded] = useState(false)
   const [advancedExpanded, setAdvancedExpanded] = useState(openBackup)
   const scrollRef = useRef<ScrollView>(null)
   const [backupSectionY, setBackupSectionY] = useState<number | null>(null)
@@ -526,25 +416,6 @@ export function WalletConfigScreen() {
 
   const CURRENCIES = DISPLAY_CURRENCY_OPTIONS
 
-  /**
-   * Separator choices, each labelled by the figure it produces rather than by
-   * a locale: the holder is answering "which of these looks right", not
-   * "which country am I in". `device` is last because it is the default and
-   * the only one whose result is not written on the tin.
-   */
-  const numberFormat = useNumberFormatPref()
-  const NUMBER_FORMATS: { id: NumberFormatPref; label: string }[] = [
-    { id: 'period', label: numberFormatSample('period') },
-    { id: 'comma', label: numberFormatSample('comma') },
-    { id: 'space', label: numberFormatSample('space') },
-    {
-      id: 'device',
-      label: t('number_format_follow_device', {
-        defaultValue: `Follow device (${numberFormatSample('device')})`
-      })
-    }
-  ]
-
   const handleSelectCurrency = async (target: string) => {
     if (target === currentCurrency) {
       setCurrencyExpanded(false)
@@ -669,48 +540,6 @@ export function WalletConfigScreen() {
               })}
             </View>
           )}
-          {/* Sits under Display Currency because the two answer the same
-              question — how this wallet writes money. A holder on an en-NL
-              phone saw "US$ 0,00" and had to guess whether that comma was a
-              decimal point; this is the row that settles it. */}
-          <ListRow
-            label={t('number_format', { defaultValue: 'Number format' })}
-            value={NUMBER_FORMATS.find(f => f.id === numberFormat)?.label ?? numberFormatSample(numberFormat)}
-            icon="calculator-outline"
-            iconColor="#5E9EFF"
-            onPress={() => setNumberFormatExpanded(e => !e)}
-            showChevron={numberFormatExpanded}
-            chevronDown={numberFormatExpanded}
-          />
-          {numberFormatExpanded && (
-            <View style={localStyles.networkList}>
-              {NUMBER_FORMATS.map(fmt => {
-                const isActive = fmt.id === numberFormat
-                return (
-                  <TouchableOpacity
-                    key={fmt.id}
-                    style={localStyles.networkOption}
-                    onPress={() => {
-                      setNumberFormatPref(fmt.id)
-                      setNumberFormatExpanded(false)
-                    }}
-                    activeOpacity={0.6}
-                  >
-                    <Ionicons
-                      name="calculator-outline"
-                      size={16}
-                      color={colors.textSecondary}
-                      style={{ marginRight: spacing.md }}
-                    />
-                    <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{fmt.label}</Text>
-                    {isActive && (
-                      <Ionicons name="checkmark" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
-                    )}
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-          )}
           <ListRow
             label={t('connect_to_app')}
             icon="qr-code-outline"
@@ -726,76 +555,6 @@ export function WalletConfigScreen() {
             iconColor="#30D158"
             onPress={() => router.push('/wallet-check' as any)}
             isLast
-          />
-        </GroupedSection>
-
-        {/* ── Security ──
-            Above Advanced, not inside it: which of Face ID and a PIN opens
-            this wallet is a question every holder has an answer to, unlike
-            the ARC endpoint. */}
-        <GroupedSection header={t('security_section')}>
-          <ListRow
-            label={t('security_pin')}
-            subtitle={pinOn ? t('security_pin_on_subtitle') : undefined}
-            icon="keypad-outline"
-            iconColor="#5E5CE6"
-            showChevron={false}
-            isLast={!pinOn}
-            trailing={
-              <Switch
-                value={pinOn}
-                onValueChange={onTogglePin}
-                disabled={securityBusy}
-                trackColor={{ true: colors.accent }}
-              />
-            }
-          />
-          {pinOn && (
-            <ListRow
-              label={t('security_pin_change')}
-              icon="ellipsis-horizontal-circle-outline"
-              iconColor="#5E5CE6"
-              onPress={() => requireUnlocked() && setPinSheet('change')}
-              isLast={!bioCapable}
-            />
-          )}
-          {bioCapable && (
-            <ListRow
-              label={t('security_biometrics')}
-              subtitle={pinOn ? t('security_biometrics_subtitle') : t('security_biometrics_needs_pin')}
-              icon="finger-print-outline"
-              iconColor="#30D158"
-              showChevron={false}
-              isLast={false}
-              trailing={
-                <Switch
-                  value={bioOn}
-                  onValueChange={onToggleBiometrics}
-                  // Turning biometrics off without a PIN would leave no way in,
-                  // so the switch is inert until one exists.
-                  disabled={securityBusy || (!pinOn && bioOn)}
-                  trackColor={{ true: colors.accent }}
-                />
-              }
-            />
-          )}
-          <ListRow
-            label={t('security_autolock')}
-            subtitle={t('security_autolock_subtitle')}
-            icon="lock-closed-outline"
-            iconColor="#FF9F0A"
-            showChevron={false}
-            isLast
-            trailing={
-              <Switch
-                value={autoLock}
-                onValueChange={next => {
-                  setAutoLockEnabled(next)
-                  setAutoLock(next)
-                }}
-                trackColor={{ true: colors.accent }}
-              />
-            }
           />
         </GroupedSection>
 
@@ -1222,20 +981,6 @@ export function WalletConfigScreen() {
           </Text>
         ) : null}
       </ScrollView>
-
-      <PinSetupSheet
-        visible={pinSheet !== null}
-        mode={pinSheet ?? 'set'}
-        onCancel={() => setPinSheet(null)}
-        onDone={() => {
-          const wasChange = pinSheet === 'change'
-          setPinSheet(null)
-          showToast(wasChange ? t('security_pin_changed_toast') : t('security_pin_set_toast'), {
-            type: 'success'
-          })
-          void refreshSecurity()
-        }}
-      />
     </View>
   )
 }
