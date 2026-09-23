@@ -42,7 +42,7 @@ describe('stored output ownership invariants', () => {
 
     await expect(StorageProvider.prototype.relinquishOutput.call(
       storage,
-      { userId: 1 },
+      { userId: 1, identityKey: 'k' },
       { basket: 'ordinary', output: `${TXID}.0` }
     )).rejects.toThrow(/basket/i)
     expect(updateOutput).not.toHaveBeenCalled()
@@ -62,7 +62,7 @@ describe('stored output ownership invariants', () => {
 
     await expect(StorageProvider.prototype.relinquishOutput.call(
       storage,
-      { userId: 1 },
+      { userId: 1, identityKey: 'k' },
       { basket: 'ordinary', output: `${TXID}.0` }
     )).resolves.toBe(1)
     expect(updateOutput).toHaveBeenCalledWith(7, { basketId: undefined }, trx)

@@ -110,6 +110,9 @@ describe('ActivityRow with a token', () => {
         expanded={false}
         busy={false}
         onToggle={jest.fn()}
+        onExplorer={jest.fn()}
+        onRefreshTx={jest.fn()}
+        onAbort={jest.fn()}
         token={token}
       />
     )

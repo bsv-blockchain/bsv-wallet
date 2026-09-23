@@ -70,8 +70,16 @@ async function rowInState(state: TokenSettlementState, reference: string | undef
   })
 }
 
-function managerWith(abortAction = jest.fn(async () => ({ aborted: true }))) {
-  const manager = { abortAction, createAction: jest.fn(async () => ({ txid: 'x' })), marker: 7 }
+function managerWith(
+  abortAction = jest.fn<Promise<{ aborted: boolean }>, [{ reference: string }, string?]>(async () => ({
+    aborted: true
+  }))
+) {
+  const manager = {
+    abortAction,
+    createAction: jest.fn<Promise<{ txid: string }>, [unknown]>(async () => ({ txid: 'x' })),
+    marker: 7
+  }
   return { manager, abortAction }
 }
 

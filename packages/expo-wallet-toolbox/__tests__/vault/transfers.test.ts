@@ -1314,7 +1314,11 @@ describe('depositToVault', () => {
 
     it('rejects a changed R1C destination value', async () => {
       await seedMeta()
-      tamperNextSignable(tx => { tx.outputs[0].satoshis-- })
+      tamperNextSignable(tx => {
+        const out = tx.outputs[0]
+        if (out.satoshis === undefined) throw new Error('expected outputs[0].satoshis to be defined')
+        out.satoshis--
+      })
       await expectDepositRejected()
     })
 
@@ -1338,7 +1342,9 @@ describe('depositToVault', () => {
       wallet.signAction.mockImplementationOnce(async (...args: any[]) => {
         const signed = await realSign(...(args as [unknown, string]))
         const tx = Transaction.fromAtomicBEEF(signed.tx)
-        tx.outputs[0].satoshis--
+        const out = tx.outputs[0]
+        if (out.satoshis === undefined) throw new Error('expected outputs[0].satoshis to be defined')
+        out.satoshis--
         return { ...signed, tx: tx.toAtomicBEEF(), txid: tx.id('hex') }
       })
       await expectDepositRejected()

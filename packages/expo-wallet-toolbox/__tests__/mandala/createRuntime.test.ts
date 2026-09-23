@@ -38,7 +38,16 @@ jest.mock('@bsv/mandala', () => {
 jest.mock('@bsv/mandala/adminState', () => ({ resolveAssetState: jest.fn() }))
 
 import { DatabaseSync } from 'node:sqlite'
-import { Beef, Hash, LockingScript, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
+import {
+  Beef,
+  Hash,
+  LockingScript,
+  PrivateKey,
+  Transaction,
+  UnlockingScript,
+  Utils,
+  type ListOutputsArgs
+} from '@bsv/sdk'
 import { MandalaToken } from '@bsv/templates'
 import {
   admissionMessageV2,
@@ -152,7 +161,11 @@ function fakeWallet(outputs: { tx: Transaction; vout: number }[] = []) {
   for (const o of outputs) beef.mergeTransaction(o.tx)
   return {
     getPublicKey: jest.fn(async () => ({ publicKey: PAYER })),
-    listOutputs: jest.fn(async () => ({
+    // Typed to the real `ListOutputsArgs` (rather than left as a 0-arg fake) so
+    // that a test overriding this mock's implementation to read `offset`/`limit`
+    // — as the pagination test below does — is checked against the shape the
+    // runtime actually calls it with.
+    listOutputs: jest.fn(async (_args: ListOutputsArgs) => ({
       totalOutputs: outputs.length,
       outputs: outputs.map(o => ({
         outpoint: `${o.tx.id('hex')}.${o.vout}`,
@@ -285,9 +298,12 @@ describe('the journal storage adapter (D3c)', () => {
 
 describe('bindOriginator', () => {
   it('runs every lib call as the admin originator, and passes an explicit one through', async () => {
-    const wallet = { listOutputs: jest.fn(async () => ({ outputs: [] })), keyDeriver: { marker: 1 } }
+    const wallet = {
+      listOutputs: jest.fn(async (_args: ListOutputsArgs) => ({ outputs: [] })),
+      keyDeriver: { marker: 1 }
+    }
     const bound = bindOriginator(wallet, 'urn:test:admin') as typeof wallet
-    await bound.listOutputs({ basket: 'p mandala' } as never)
+    await bound.listOutputs({ basket: 'p mandala' })
     expect(wallet.listOutputs).toHaveBeenCalledWith({ basket: 'p mandala' }, 'urn:test:admin')
     // Non-function properties are passed straight through: the lib reads
     // `wallet.keyDeriver` to take the in-process ECDH shortcut.

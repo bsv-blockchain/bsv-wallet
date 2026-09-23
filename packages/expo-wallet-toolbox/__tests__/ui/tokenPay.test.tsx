@@ -158,7 +158,7 @@ describe('tokenSendCopy', () => {
   })
 
   it('has no copy for a successful send', () => {
-    expect(tokenSendCopy({ kind: 'sent', txid: 'a'.repeat(64), settled: true }, CTX)).toBeNull()
+    expect(tokenSendCopy({ kind: 'sent', txid: 'a'.repeat(64), settled: true, notified: true }, CTX)).toBeNull()
   })
 })
 
@@ -290,8 +290,13 @@ describe('RecipientField with an asset selected', () => {
   })
 })
 
-/** Typed wrapper so each case reads as the props under test, not as a cast. */
-function RecipientFieldHarness(props: React.ComponentProps<typeof RecipientField>) {
+/**
+ * Typed wrapper so each case reads as the props under test, not as a cast.
+ * `colors` is deliberately omitted from the accepted props: this harness
+ * always sources it live from `useTheme()` and overrides whatever `RecipientField`
+ * would otherwise receive, so no case below should (or needs to) supply one.
+ */
+function RecipientFieldHarness(props: Omit<React.ComponentProps<typeof RecipientField>, 'colors'>) {
   const { colors } = require('@bsv/expo-wallet-toolbox').useTheme()
   return <RecipientField {...props} colors={colors} />
 }

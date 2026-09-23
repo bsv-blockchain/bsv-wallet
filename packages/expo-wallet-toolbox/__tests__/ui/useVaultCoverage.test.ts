@@ -5,7 +5,7 @@
  * refresh) and the same freeze while a transfer is in flight, and it must
  * report `null` — not an empty coverage — while nothing can be read.
  */
-let mockWalletCtx: { managers: unknown; adminOriginator: string; txStatusVersion: number }
+let mockWalletCtx: { managers: { permissionsManager: unknown }; adminOriginator: string; txStatusVersion: number }
 let mockVaultPhase: string
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
