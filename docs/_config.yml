@@ -1,0 +1,11 @@
+# GitHub Pages (legacy Jekyll build of master:/docs) serves mobile.bsvb.tech.
+# The site is the hand-written HTML, CSS and i18n files here. The markdown
+# beside them is engineering notes (plans, specs, reports). Jekyll would render
+# each note as a public page, and parse it as a Liquid template first, so a
+# `{{` in a code sample either garbles the page or fails the whole deploy.
+#
+# Setting `exclude` replaces github-pages' default list, which only excluded
+# CNAME, so CNAME is restated here.
+exclude:
+  - "*.md"
+  - CNAME
