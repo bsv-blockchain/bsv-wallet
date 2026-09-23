@@ -407,17 +407,7 @@ export {
 export type { WalletManagersSlice, WalletStatusSlice } from './context/WalletContext'
 export { usePermissionQueue } from './hooks/usePermissionQueue'
 
-export {
-  getDeviceLocale,
-  getNumberFormatPref,
-  getNumberLocale,
-  loadNumberFormatPref,
-  numberFormatSample,
-  setNumberFormatPref,
-  subscribeNumberFormat,
-  useNumberFormatPref,
-  type NumberFormatPref
-} from './numberFormat'
+export { getNumberLocale } from './numberFormat'
 
 export {
   getUserAvatarIcon,

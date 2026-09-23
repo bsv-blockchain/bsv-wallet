@@ -1,4 +1,4 @@
-import { loadNumberFormatPref, loadUserAvatarIcon } from '@bsv/expo-wallet-toolbox'
+import { loadUserAvatarIcon } from '@bsv/expo-wallet-toolbox'
 
 // Polyfill AbortSignal.timeout for Hermes (React Native JS engine)
 if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
@@ -9,12 +9,8 @@ if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
   }
 }
 
-// The stored separator preference, restored before the first figure is drawn.
-// Fire-and-forget: until it resolves, formatting follows the device, which is
-// also what an unset preference means — so there is no wrong state to show.
-void loadNumberFormatPref()
-// Likewise the avatar: until it resolves every "you" shows the default disc,
-// which is also what an unset choice means.
+// The stored avatar choice. Fire-and-forget: until it resolves every "you"
+// shows the default disc, which is also what an unset choice means.
 void loadUserAvatarIcon()
 
 import '../wdyr' // dev-only re-render tracking; must run before any component renders

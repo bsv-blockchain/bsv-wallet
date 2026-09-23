@@ -24,10 +24,6 @@ import {
   satoshisPerFiatUnit,
   ExchangeRateContext,
   DISPLAY_CURRENCY_OPTIONS,
-  numberFormatSample,
-  setNumberFormatPref,
-  useNumberFormatPref,
-  type NumberFormatPref,
   isBackupPushEnabled,
   setBackupPushEnabled,
   BACKUP_CHAINS,
@@ -169,7 +165,6 @@ export function WalletConfigScreen() {
   const [loggingOut, setLoggingOut] = useState(false)
   const [storageBusy, setStorageBusy] = useState(false)
   const [currencyExpanded, setCurrencyExpanded] = useState(false)
-  const [numberFormatExpanded, setNumberFormatExpanded] = useState(false)
   const [advancedExpanded, setAdvancedExpanded] = useState(openBackup)
   const scrollRef = useRef<ScrollView>(null)
   const [backupSectionY, setBackupSectionY] = useState<number | null>(null)
@@ -421,25 +416,6 @@ export function WalletConfigScreen() {
 
   const CURRENCIES = DISPLAY_CURRENCY_OPTIONS
 
-  /**
-   * Separator choices, each labelled by the figure it produces rather than by
-   * a locale: the holder is answering "which of these looks right", not
-   * "which country am I in". `device` is last because it is the default and
-   * the only one whose result is not written on the tin.
-   */
-  const numberFormat = useNumberFormatPref()
-  const NUMBER_FORMATS: { id: NumberFormatPref; label: string }[] = [
-    { id: 'period', label: numberFormatSample('period') },
-    { id: 'comma', label: numberFormatSample('comma') },
-    { id: 'space', label: numberFormatSample('space') },
-    {
-      id: 'device',
-      label: t('number_format_follow_device', {
-        defaultValue: `Follow device (${numberFormatSample('device')})`
-      })
-    }
-  ]
-
   const handleSelectCurrency = async (target: string) => {
     if (target === currentCurrency) {
       setCurrencyExpanded(false)
@@ -556,48 +532,6 @@ export function WalletConfigScreen() {
                       style={{ marginRight: spacing.md }}
                     />
                     <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{cur.label}</Text>
-                    {isActive && (
-                      <Ionicons name="checkmark" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
-                    )}
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-          )}
-          {/* Sits under Display Currency because the two answer the same
-              question — how this wallet writes money. A holder on an en-NL
-              phone saw "US$ 0,00" and had to guess whether that comma was a
-              decimal point; this is the row that settles it. */}
-          <ListRow
-            label={t('number_format', { defaultValue: 'Number format' })}
-            value={NUMBER_FORMATS.find(f => f.id === numberFormat)?.label ?? numberFormatSample(numberFormat)}
-            icon="calculator-outline"
-            iconColor="#5E9EFF"
-            onPress={() => setNumberFormatExpanded(e => !e)}
-            showChevron={numberFormatExpanded}
-            chevronDown={numberFormatExpanded}
-          />
-          {numberFormatExpanded && (
-            <View style={localStyles.networkList}>
-              {NUMBER_FORMATS.map(fmt => {
-                const isActive = fmt.id === numberFormat
-                return (
-                  <TouchableOpacity
-                    key={fmt.id}
-                    style={localStyles.networkOption}
-                    onPress={() => {
-                      setNumberFormatPref(fmt.id)
-                      setNumberFormatExpanded(false)
-                    }}
-                    activeOpacity={0.6}
-                  >
-                    <Ionicons
-                      name="calculator-outline"
-                      size={16}
-                      color={colors.textSecondary}
-                      style={{ marginRight: spacing.md }}
-                    />
-                    <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{fmt.label}</Text>
                     {isActive && (
                       <Ionicons name="checkmark" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
                     )}
