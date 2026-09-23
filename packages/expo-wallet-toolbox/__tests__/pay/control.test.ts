@@ -77,6 +77,17 @@ describe('isDuplicateMessageError', () => {
     ).toBe(true)
   })
 
+  // @bsv/message-box-client 2.5.3 names only a validated ERR_* code.
+  it('recognises the client wording from message-box-client 2.5.3', () => {
+    expect(
+      isDuplicateMessageError(new Error('Message Box send failed with HTTP 400 (ERR_DUPLICATE_MESSAGE).'))
+    ).toBe(true)
+    expect(
+      isDuplicateMessageError(new Error('Message Box send failed with HTTP 400 (ERR_MESSAGE_TOO_LARGE).'))
+    ).toBe(false)
+    expect(isDuplicateMessageError(new Error('Message Box send failed with HTTP 400.'))).toBe(false)
+  })
+
   it('leaves any other 400 as the failure it is', () => {
     expect(isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - body too large'))).toBe(false)
     // A bare 400 says nothing about why, so it must not be read as delivered.
