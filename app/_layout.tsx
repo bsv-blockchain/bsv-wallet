@@ -1,3 +1,5 @@
+import { loadNumberFormatPref, loadUserAvatarIcon } from '@bsv/expo-wallet-toolbox'
+
 // Polyfill AbortSignal.timeout for Hermes (React Native JS engine)
 if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
   AbortSignal.timeout = (ms: number) => {
@@ -6,6 +8,14 @@ if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
     return controller.signal
   }
 }
+
+// The stored separator preference, restored before the first figure is drawn.
+// Fire-and-forget: until it resolves, formatting follows the device, which is
+// also what an unset preference means — so there is no wrong state to show.
+void loadNumberFormatPref()
+// Likewise the avatar: until it resolves every "you" shows the default disc,
+// which is also what an unset choice means.
+void loadUserAvatarIcon()
 
 import '../wdyr' // dev-only re-render tracking; must run before any component renders
 import '@/utils/devMenu' // dev-only profiling controls in the expo-dev-client menu
@@ -31,7 +41,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 // TODO: Re-add RecoveryKeySaver when WAB support returns
 import { PermissionSheet, AlertHost, ToastHost, showToast, ErrorBoundary } from '@bsv/expo-wallet-toolbox/ui'
-import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
+import { VaultCeremonySheet, PinGate } from '@bsv/expo-wallet-toolbox/ui'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -199,6 +209,9 @@ export default function RootLayout() {
                             <VaultCeremonySheet />
                             <LocalPayNotificationBridge />
                             <AlertHost />
+                            {/* Last of the global sheets so its Modal sits above
+                                them: being locked outranks anything they ask. */}
+                            <PinGate />
                             <Stack
                               screenOptions={{
                                 animation: 'slide_from_right',

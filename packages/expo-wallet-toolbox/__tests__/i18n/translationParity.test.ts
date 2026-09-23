@@ -24,7 +24,10 @@ const allowedUntranslated: Record<string, string[]> = {
   pay_step_contacts: ['fr'],
   pay_review_note: ['fr'],
   contact_identifier: ['id'],
-  profile_handle: ['id']
+  profile_handle: ['id'],
+  // Acronym and Apple product name, kept as-is where the language does.
+  security_pin: ['*'],
+  security_biometrics: ['*']
 }
 
 const placeholders = (value: string): string[] => [...value.matchAll(/{{(\w+)}}/g)].map(match => match[1]).sort()

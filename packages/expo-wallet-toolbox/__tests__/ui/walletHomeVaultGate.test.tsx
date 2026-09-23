@@ -23,10 +23,19 @@ const mockRouter = { push: jest.fn(), replace: jest.fn() }
 let mockVaultEnabled = false
 let mockWallet: any
 
+jest.mock('../../ui/components/ui/SlideOverFromRight', () => ({ __esModule: true, default: () => null }))
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false }))
+}))
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
   return {
     ...jest.requireActual('../../core/theme/tokens'),
+    ...jest.requireActual('../../core/theme/motion'),
+    splitAmountFraction: jest.requireActual('../../core/amountFormatHelpers').splitAmountFraction,
     useTheme: () => ({ colors: {} }),
     useWallet: () => mockWallet,
     useLocalStorage: () => ({
@@ -79,7 +88,10 @@ jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => false }))
 jest.mock('../../ui/hooks/useOfflineNoticeActions', () => ({ useOfflineNoticeActions: () => ({}) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
 jest.mock('../../ui/exportTransactions', () => ({ exportTransactionsAsCsv: jest.fn() }))
-jest.mock('../../ui/components/ui/ScreenGradient', () => ({ __esModule: true, default: ({ children }: any) => children }))
+jest.mock('../../ui/components/ui/ScreenGradient', () => ({
+  __esModule: true,
+  default: ({ children }: any) => children
+}))
 jest.mock('../../ui/components/ui/ScrollFade', () => ({
   __esModule: true,
   default: () => null,
@@ -93,7 +105,10 @@ jest.mock('../../ui/components/ui/PressableScale', () => {
 jest.mock('../../ui/components/ui/ListRow', () => {
   const React = require('react')
   const { Pressable, Text } = require('react-native')
-  return { ListRow: ({ label, onPress }: any) => React.createElement(Pressable, { onPress }, React.createElement(Text, {}, label)) }
+  return {
+    ListRow: ({ label, onPress }: any) =>
+      React.createElement(Pressable, { onPress }, React.createElement(Text, {}, label))
+  }
 })
 jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ children }: any) => children }))
 

@@ -12,7 +12,6 @@
  */
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, spacing, radii, typography, i18n } from '@bsv/expo-wallet-toolbox'
 import PressableScale from '../ui/PressableScale'
 
@@ -34,14 +33,15 @@ export const ImportFromBackupPrompt: React.FC<{
 }> = ({ visible, onImport }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
-  const insets = useSafeAreaInsets()
 
   if (!visible) return null
 
   return (
-    <View style={[styles.wrapper, { paddingBottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
+    <View style={[styles.wrapper, { paddingBottom: CARD_INSET }]} pointerEvents="box-none">
       <View style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.separator }]}>
-        <Ionicons name="download-outline" size={22} color={colors.accent} style={styles.icon} />
+        <View style={[styles.iconCircle, { backgroundColor: colors.fill }]}>
+          <Ionicons name="download-outline" size={22} color={colors.accent} />
+        </View>
         <View style={styles.textGroup}>
           <Text style={[styles.title, { color: colors.textPrimary }]}>{t('import_prompt_title')}</Text>
           <Text style={[styles.body, { color: colors.textSecondary }]}>{t('import_prompt_body')}</Text>
@@ -54,6 +54,19 @@ export const ImportFromBackupPrompt: React.FC<{
   )
 }
 
+/**
+ * The card hugs the bottom of the screen, so its corners have to agree with the
+ * screen's own. Concentric rounding means the inner radius is the outer one
+ * less the gap between them — anything else and the two curves visibly fight.
+ *
+ * The display corner is a constant because no RN API reports it. 55pt is the
+ * modern iPhone notch-era radius; on a device that differs (an iPad, most
+ * Android hardware) the card is merely a little rounder or flatter than its
+ * housing, which is a far smaller error than not following it at all.
+ */
+const SCREEN_CORNER = 55
+const CARD_INSET = spacing.lg
+
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
@@ -62,30 +75,39 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 30,
     alignItems: 'center',
-    paddingHorizontal: spacing.lg
+    paddingHorizontal: CARD_INSET
   },
   card: {
     width: '100%',
     maxWidth: 380,
-    borderRadius: radii.lg,
+    borderRadius: SCREEN_CORNER - CARD_INSET,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.lg,
+    padding: spacing.xxl,
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 6
   },
-  icon: { marginBottom: spacing.xs },
-  textGroup: { alignItems: 'center', gap: 2 },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs
+  },
+  textGroup: { alignItems: 'center', gap: spacing.xs },
   title: { ...typography.subhead, fontWeight: '600', textAlign: 'center' },
   body: { ...typography.footnote, textAlign: 'center' },
   button: {
-    marginTop: spacing.xs,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
+    // Set apart from the copy it acts on, and given enough height that a pill
+    // border reads as a control rather than as a caption in a box.
+    marginTop: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth
   },

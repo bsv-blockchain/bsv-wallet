@@ -163,7 +163,7 @@ export {
   tokenAmountMask,
   tokenAmountParts
 } from './tokenFormat'
-export { tokenStatusKey, tokenStatusTone, tokenStatusDetailKey, type TokenStatusTone } from './tokenStatus'
+export { tokenStatusKey, tokenRowStatusView, tokenStatusTone, tokenStatusDetailKey, type TokenStatusTone } from './tokenStatus'
 export { SEEN_ASSETS_KEY, SEEN_EVICTIONS_KEY, markSeen, readSeen, useSeenSet, type SeenSet } from './tokenSeen'
 export { default as AssetAmount, type AssetAmountProps } from './components/wallet/AssetAmount'
 export { announceEviction, evictionsFrom, type EvictionNotice } from './components/wallet/tokenEviction'
@@ -189,3 +189,23 @@ export { IdentifierScreen } from './screens/IdentifierScreen'
 export { default as ProfileButton } from './components/wallet/ProfileButton'
 export { default as ContactSigil } from './components/wallet/ContactSigil'
 export { PencilEditField, type PencilEditFieldProps } from './components/ui/PencilEditField'
+
+export {
+  default as TransactionDetailScreen,
+  type TransactionDetailParams,
+  type TransactionAction
+} from './screens/TransactionDetailScreen'
+
+export { default as SlideOverFromRight } from './components/ui/SlideOverFromRight'
+
+export { default as UserAvatar, AvatarGlyph } from './components/wallet/UserAvatar'
+export { AVATAR_ICON_GROUPS, type AvatarIconOption, type AvatarIconGroup } from './components/wallet/avatarIcons'
+
+export { default as IconPickerSheet } from './components/wallet/IconPickerSheet'
+export { default as EditPictureSheet, type EditPictureOption } from './components/wallet/EditPictureSheet'
+
+// Lock gate + PIN entry
+export { default as PinGate } from './components/wallet/PinGate'
+export { default as PinPad } from './components/wallet/PinPad'
+export { default as PinSetupSheet } from './components/wallet/PinSetupSheet'
+export { default as PinUnlockSheet } from './components/wallet/PinUnlockSheet'

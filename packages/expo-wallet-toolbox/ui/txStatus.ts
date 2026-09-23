@@ -22,11 +22,11 @@ export interface TxStatusView {
  * Map a raw action status (and any live offline-queue state) to a tone.
  *
  * The offline queue row outranks the raw status: a held transaction sits at
- * 'unproven' (which would read as a settled "Accepted") or at 'nosend' when
+ * 'unproven' (which would read as a quiet "Pending") or at 'nosend' when
  * payer-side promotion failed, so without this the user would see a confirmed
  * payment that has not actually gone anywhere.
  */
-export function txStatusView(status: string, offlineStatus?: string): TxStatusView {
+export function txStatusView(status: string, offlineStatus?: string, incoming?: boolean): TxStatusView {
   switch (offlineStatus) {
     case 'queued':
       return { key: 'tx_status_offline_queued', tone: 'inflight' }
@@ -42,12 +42,18 @@ export function txStatusView(status: string, offlineStatus?: string): TxStatusVi
   }
 
   switch (status) {
+    // The chain words ("Confirmed", "Accepted") answered a question about the
+    // ledger; the user's question is what happened to their money. A settled
+    // row therefore says what it DID — Received or Sent — and every step on
+    // the way there is one undifferentiated "Pending", because the difference
+    // between accepted-but-unproven and still-broadcasting is not one the user
+    // can act on. The states below that DO need action keep their own words.
     case 'completed':
-      return { key: 'tx_status_confirmed', tone: 'settled' }
+      return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'settled' }
     case 'unproven':
-      return { key: 'tx_status_accepted', tone: 'settled' }
+      return { key: 'tx_status_pending', tone: 'settled' }
     case 'sending':
-      return { key: 'tx_status_broadcasting', tone: 'inflight' }
+      return { key: 'tx_status_pending', tone: 'inflight' }
     case 'nosend':
       return { key: 'tx_status_not_sent', tone: 'attention' }
     case 'unsigned':

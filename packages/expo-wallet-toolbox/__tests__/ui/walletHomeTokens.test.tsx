@@ -24,10 +24,19 @@ const IDENTITY = '02' + 'a'.repeat(64)
 const mockRouter = { push: jest.fn(), replace: jest.fn() }
 let mockWallet: any
 
+jest.mock('../../ui/components/ui/SlideOverFromRight', () => ({ __esModule: true, default: () => null }))
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false }))
+}))
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
   return {
     ...jest.requireActual('../../core/theme/tokens'),
+    ...jest.requireActual('../../core/theme/motion'),
+    splitAmountFraction: jest.requireActual('../../core/amountFormatHelpers').splitAmountFraction,
     useTheme: () => ({ colors: {} }),
     useWallet: () => mockWallet,
     useLocalStorage: () => ({
@@ -76,8 +85,7 @@ jest.mock('@bsv/message-box-client', () => ({ PeerPayClient: jest.fn() }))
 jest.mock('@bsv/wallet-toolbox-mobile', () => ({ sdk: { specOpWalletBalance: 'specOpWalletBalance' } }))
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, unknown>) =>
-      values ? `${key}:${Object.values(values).join('|')}` : key
+    t: (key: string, values?: Record<string, unknown>) => (values ? `${key}:${Object.values(values).join('|')}` : key)
   })
 }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
@@ -96,7 +104,10 @@ jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => false }))
 jest.mock('../../ui/hooks/useOfflineNoticeActions', () => ({ useOfflineNoticeActions: () => ({}) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
 jest.mock('../../ui/exportTransactions', () => ({ exportTransactionsAsCsv: jest.fn() }))
-jest.mock('../../ui/components/ui/ScreenGradient', () => ({ __esModule: true, default: ({ children }: any) => children }))
+jest.mock('../../ui/components/ui/ScreenGradient', () => ({
+  __esModule: true,
+  default: ({ children }: any) => children
+}))
 jest.mock('../../ui/components/ui/ScrollFade', () => ({
   __esModule: true,
   default: () => null,
@@ -207,9 +218,13 @@ describe('WalletHomeScreen holding a stablecoin', () => {
     expect(within(screen.getByLabelText('wallet_coin_switcher')).getByText('USDX')).toBeTruthy()
     // The hero is the token figure; the line under it is the asset's full
     // name, never a conversion — the wallet has no price for a token (ux §6.1).
-    expect(screen.getByLabelText('wallet_balance_refresh').props.accessibilityValue).toEqual({
-      text: '1,240.00 USDX'
-    })
+    // With a token held the hero is inert (no denomination to flip to), so it
+    // carries no label — only the figure as its accessibility value.
+    expect(
+      screen
+        .UNSAFE_getAllByProps({ disabled: true })
+        .some(node => node.props.accessibilityValue?.text === '1,240.00 USDX')
+    ).toBe(true)
     expect(screen.getAllByText('Acme Dollar').length).toBeGreaterThan(0)
     expect(screen.queryByText('0 BSV   ·   0')).toBeNull()
     // The drawer closed on the pick.
@@ -228,9 +243,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
     fireEvent.press(screen.getByText('pay_direction_pay'))
     expect(mockRouter.push).toHaveBeenLastCalledWith(`/pay?asset=${encodeURIComponent(USDX.assetId)}`)
     fireEvent.press(screen.getByText('pay_direction_receive'))
-    expect(mockRouter.push).toHaveBeenLastCalledWith(
-      `/pay?direction=get&asset=${encodeURIComponent(USDX.assetId)}`
-    )
+    expect(mockRouter.push).toHaveBeenLastCalledWith(`/pay?direction=get&asset=${encodeURIComponent(USDX.assetId)}`)
   })
 
   test('falls back to BSV when the chosen coin is no longer held', async () => {

@@ -10,20 +10,26 @@
  * anything. A build with no registry configured for the selected chain says so
  * (`profile_handle_unavailable`) rather than pretending a check can succeed.
  *
- * No avatar uploader in this pass (spec: avatar is display-only), so the hero
- * is the plain profile disc rather than a dead "Add photo" control.
+ * The hero disc wears whatever icon the user picked ("Edit picture" →
+ * "Pick icon"), and the same choice is what every other "you" in the app
+ * draws — see `core/userAvatar.ts`. Photo sources are not offered yet: they
+ * need `expo-image-picker`, which this build does not carry, and the sheet
+ * lists only what actually works rather than a dead control.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, I18nManager, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-import { useTheme, spacing, radii, typography, useWallet } from '@bsv/expo-wallet-toolbox'
+import { useTheme, spacing, radii, typography, useWallet, useUserAvatarIcon } from '@bsv/expo-wallet-toolbox'
 import PressableScale from '../components/ui/PressableScale'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
 import { PencilEditField } from '../components/ui/PencilEditField'
 import { showToast } from '../components/ui/Toast'
 import IdentifierRow from '../components/wallet/IdentifierRow'
+import { AvatarGlyph } from '../components/wallet/UserAvatar'
+import EditPictureSheet from '../components/wallet/EditPictureSheet'
+import IconPickerSheet from '../components/wallet/IconPickerSheet'
 import { makeIdentityClient, resolveIdentity } from '../resolveIdentity'
 import { getHandleRegistryConfig } from '../../core/toolboxConfig'
 import { bindOriginator } from '../../core/mandala/createRuntime'
@@ -83,6 +89,9 @@ export function ProfileScreen() {
   const wallet = managers?.permissionsManager || null
 
   const [identityKey, setIdentityKey] = useState('')
+  const avatarIcon = useUserAvatarIcon()
+  const [editPictureOpen, setEditPictureOpen] = useState(false)
+  const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [displayNameLoaded, setDisplayNameLoaded] = useState(false)
   const [registeredPaymail, setRegisteredPaymail] = useState<string | null>(null)
@@ -456,8 +465,26 @@ export function ProfileScreen() {
       >
         <View style={styles.hero}>
           <View style={[styles.heroDisc, { backgroundColor: colors.accent }]}>
-            <Ionicons name="person" size={44} color={colors.textOnAccent} />
+            <AvatarGlyph
+              family={avatarIcon?.family ?? 'ionicons'}
+              name={avatarIcon?.name ?? 'person'}
+              size={44}
+              color={colors.textOnAccent}
+            />
           </View>
+          {/* Centred pill under the disc — the only control that changes the
+              picture, so it says what it does rather than relying on the disc
+              being discoverably tappable. */}
+          <PressableScale
+            haptic="tap"
+            onPress={() => setEditPictureOpen(true)}
+            accessibilityRole="button"
+            style={[styles.editPicture, { borderColor: colors.separator, backgroundColor: colors.fillTertiary }]}
+          >
+            <Text style={[styles.editPictureLabel, { color: colors.textPrimary }]}>
+              {t('avatar_edit_picture', { defaultValue: 'Edit picture' })}
+            </Text>
+          </PressableScale>
         </View>
 
         <GroupedSection header={t('profile_display_name')} footer={t('profile_display_name_hint')}>
@@ -620,6 +647,21 @@ export function ProfileScreen() {
         </GroupedSection>
       </ScrollView>
 
+      {/* Where a picture comes from. One source today; Take Photo and Photo
+          Library join this list when `expo-image-picker` does. */}
+      <EditPictureSheet
+        visible={editPictureOpen}
+        onClose={() => setEditPictureOpen(false)}
+        options={[
+          {
+            key: 'pick-icon',
+            label: t('avatar_pick_icon', { defaultValue: 'Pick icon' }),
+            onPress: () => setIconPickerOpen(true)
+          }
+        ]}
+      />
+      <IconPickerSheet visible={iconPickerOpen} onClose={() => setIconPickerOpen(false)} />
+
       {editingHandle && (
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
           <PressableScale
@@ -661,6 +703,14 @@ const styles = StyleSheet.create({
   content: { paddingTop: spacing.lg },
   hero: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: spacing.xl },
   heroDisc: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center' },
+  editPicture: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth
+  },
+  editPictureLabel: { ...typography.subhead, fontWeight: '600' },
   unavailable: { ...typography.footnote, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
   registeredRow: {
     flexDirection: 'row',
