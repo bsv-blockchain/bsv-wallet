@@ -9,6 +9,7 @@ import {
   type TextLayoutEventData,
   type TextStyle
 } from 'react-native'
+import { splitAmountFraction } from '../../../core/amountFormatHelpers'
 
 /**
  * Never let a figure be smaller than this, so a pathological value stays
@@ -29,6 +30,12 @@ export interface FitAmountProps {
   /** Style of the figure. Its fontSize, lineHeight and letterSpacing are scaled together. */
   style: StyleProp<TextStyle>
   unitStyle?: StyleProp<TextStyle>
+  /**
+   * When set, the minor units are drawn in this style and hung from the top,
+   * the way a price tag writes cents. Its fontSize, lineHeight and
+   * letterSpacing scale with the figure; marginTop stays, matching `style`'s.
+   */
+  fractionStyle?: StyleProp<TextStyle>
 }
 
 /**
@@ -43,7 +50,7 @@ export interface FitAmountProps {
  * matter which the platform reports first. Nothing is ellipsized or wrapped, so
  * no digit is ever hidden.
  */
-export function FitAmount({ value, unit, style, unitStyle }: FitAmountProps) {
+export function FitAmount({ value, unit, style, unitStyle, fractionStyle }: FitAmountProps) {
   const [available, setAvailable] = useState(0)
   const [fullWidth, setFullWidth] = useState(0)
 
@@ -79,21 +86,63 @@ export function FitAmount({ value, unit, style, unitStyle }: FitAmountProps) {
     ...(base.letterSpacing != null ? { letterSpacing: base.letterSpacing * scale } : null)
   }
 
+  const unitScaled = unitBase.fontSize != null ? { fontSize: unitBase.fontSize * scale } : null
+  const unitRun = unit ? <Text style={[unitStyle, unitScaled]}> {unit}</Text> : null
+
+  const parts = fractionStyle ? splitAmountFraction(value) : null
+  if (!parts?.frac) {
+    return (
+      <View onLayout={onLayout} style={styles.fill}>
+        <Text style={[style, scaled]} onTextLayout={onTextLayout}>
+          {value}
+          {unitRun}
+        </Text>
+      </View>
+    )
+  }
+
+  const frac = StyleSheet.flatten(fractionStyle) ?? {}
+  const fracScaled: TextStyle = {
+    ...(frac.fontSize != null ? { fontSize: frac.fontSize * scale } : null),
+    ...(frac.lineHeight != null ? { lineHeight: frac.lineHeight * scale } : null),
+    ...(frac.letterSpacing != null ? { letterSpacing: frac.letterSpacing * scale } : null)
+  }
+
+  // Raised cents need separate <Text>s in a row (nested text baseline-aligns
+  // and cannot be lifted), but only one <Text> can report a width. So a hidden
+  // copy holds the same runs nested, at the same sizes, and does the measuring;
+  // its width is the row's width.
   return (
     <View onLayout={onLayout} style={styles.fill}>
-      <Text style={[style, scaled]} onTextLayout={onTextLayout}>
-        {value}
-        {unit ? (
-          <Text style={[unitStyle, unitBase.fontSize != null ? { fontSize: unitBase.fontSize * scale } : null]}>
-            {' '}
-            {unit}
+      <Text
+        style={[style, scaled, styles.measure]}
+        onTextLayout={onTextLayout}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {parts.head}
+        <Text style={[fractionStyle, fracScaled, styles.noMargin]}>{parts.frac}</Text>
+        {parts.tail}
+        {unitRun}
+      </Text>
+      <View style={styles.row}>
+        <Text style={[style, scaled]}>{parts.head}</Text>
+        <Text style={[fractionStyle, fracScaled]}>{parts.frac}</Text>
+        {parts.tail || unit ? (
+          <Text style={[style, scaled]}>
+            {parts.tail}
+            {unitRun}
           </Text>
         ) : null}
-      </Text>
+      </View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  fill: { alignSelf: 'stretch', alignItems: 'center' }
+  fill: { alignSelf: 'stretch', alignItems: 'center' },
+  // `flex-start` hangs the minor units from the top of the figure's line box.
+  row: { flexDirection: 'row', alignItems: 'flex-start' },
+  measure: { position: 'absolute', opacity: 0 },
+  noMargin: { marginTop: 0 }
 })

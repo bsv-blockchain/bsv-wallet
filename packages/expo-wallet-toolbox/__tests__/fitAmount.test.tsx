@@ -1,5 +1,5 @@
 import React from 'react'
-import { StyleSheet } from 'react-native'
+import { StyleSheet, type StyleProp, type TextStyle } from 'react-native'
 import { fireEvent, render } from '@testing-library/react-native'
 
 import { FitAmount } from '../ui/components/wallet/FitAmount'
@@ -17,8 +17,10 @@ function setup(width: number, lines: number[]) {
   return { ...utils, text, report }
 }
 
-const sizeOf = (node: { props: { style?: unknown } }) =>
-  StyleSheet.flatten(node.props.style as never).fontSize as number
+const flat = (node: { props: { style?: unknown } }): TextStyle =>
+  StyleSheet.flatten(node.props.style as StyleProp<TextStyle>) ?? {}
+
+const sizeOf = (node: { props: { style?: unknown } }) => flat(node).fontSize as number
 
 describe('FitAmount', () => {
   it('keeps full size when the figure already fits', () => {
@@ -59,5 +61,38 @@ describe('FitAmount', () => {
     expect(sizeOf(text)).toBeLessThan(44)
     report([100]) // natural width at the reduced size is now small
     expect(sizeOf(text)).toBe(44)
+  })
+
+  describe('with raised minor units', () => {
+    const fractionStyle = { fontSize: 24, lineHeight: 28, marginTop: 10 }
+    const renderRaised = (value: string) =>
+      render(<FitAmount value={value} unit="" style={style} fractionStyle={fractionStyle} />)
+    /** The visible runs, not the hidden measuring copy (which has opacity 0). */
+    const visible = (utils: ReturnType<typeof render>, text: string) =>
+      utils.getAllByText(text).find(n => flat(n).opacity !== 0)!
+
+    it('draws the cents as their own smaller run', () => {
+      const utils = renderRaised('$1,234.56')
+      expect(sizeOf(visible(utils, '$1,234.'))).toBe(44)
+      expect(sizeOf(visible(utils, '56'))).toBe(24)
+    })
+
+    it('shrinks the cents with the figure but keeps their top margin', () => {
+      const utils = renderRaised('$1,234.56')
+      const measure = utils.UNSAFE_getAllByProps({ importantForAccessibility: 'no-hide-descendants' })[0]
+      const slot = measure.parent!
+      fireEvent(slot, 'layout', { nativeEvent: { layout: { width: 300, height: 50, x: 0, y: 0 } } })
+      fireEvent(measure, 'textLayout', { nativeEvent: { lines: [{ width: 600 }] } })
+      const scale = (300 / 600) * 0.98
+      const cents = flat(visible(utils, '56'))
+      expect(sizeOf(visible(utils, '$1,234.'))).toBeCloseTo(44 * scale, 1)
+      expect(cents.fontSize).toBeCloseTo(24 * scale, 1)
+      expect(cents.marginTop).toBe(10)
+    })
+
+    it('keeps a figure with nothing to raise as one run', () => {
+      const utils = renderRaised('1.2M')
+      expect(utils.getAllByText('1.2M')).toHaveLength(1)
+    })
   })
 })

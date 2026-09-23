@@ -1659,6 +1659,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                 unit={heroParts.unit}
                 style={[styles.balance, { color: colors.textPrimary }]}
                 unitStyle={[styles.balanceUnit, { color: colors.textSecondary }]}
+                fractionStyle={[styles.balanceFraction, { color: colors.textPrimary }]}
               />
               {/* A token keeps this line for its full name, so "1,240.00 USDX"
                   is never a ticker the holder has to decode. BSV no longer
@@ -2259,9 +2260,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontVariant: ['tabular-nums']
   },
-  // `flex-start` is what hangs the minor units from the top of the figure's
-  // line box; `baseline` would drop them back onto the baseline and undo it.
-  balanceRow: { flexDirection: 'row', alignItems: 'flex-start' },
   /**
    * Roughly 55% of the display size — smaller than the major unit, larger than
    * a true superscript, which at 44pt would be unreadable. `marginTop` matches
