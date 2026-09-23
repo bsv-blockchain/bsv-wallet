@@ -160,6 +160,13 @@ describe('OfflineFirstChaintracks', () => {
     }
   })
 
+  // `false` means the remote's subscribe methods are stubs callers must not
+  // touch (the HTTP ChaintracksServiceClient); the wrapper must say the same.
+  it.each([false, true, undefined])('forwards the remote supportsReorgEvents (%s)', flag => {
+    const ct = new OfflineFirstChaintracks(remote({ supportsReorgEvents: flag }), async () => true, 'ttn')
+    expect(ct.supportsReorgEvents).toBe(flag)
+  })
+
   it('passes through a subscription the remote does support', async () => {
     const unsubscribe = jest.fn().mockResolvedValue(true)
     const r = remote({ subscribeReorgs: jest.fn().mockResolvedValue('remote-sub'), unsubscribe })

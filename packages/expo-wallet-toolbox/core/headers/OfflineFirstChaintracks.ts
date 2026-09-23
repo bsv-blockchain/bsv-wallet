@@ -134,11 +134,20 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
     return this.store?.tipHeight ?? 0
   }
 
-  // The toolbox Monitor passes this object as `chaintracksWithEvents` and, since
-  // 2.13, awaits `getChain` and both subscriptions inside every `runOnce` (via
-  // `Monitor.ready`). A network call or a throw there stops the whole task loop,
-  // not just live reorg events, so these three must answer offline and never
-  // reject. TaskReviewProvenTxs remains the reorg audit without live events.
+  /**
+   * The remote's own answer. `false` (the HTTP ChaintracksServiceClient) tells
+   * the Monitor and other toolbox consumers not to subscribe at all.
+   */
+  get supportsReorgEvents(): boolean | undefined {
+    return this.remote.supportsReorgEvents
+  }
+
+  // The toolbox Monitor passes this object as `chaintracksWithEvents` and, unless
+  // `supportsReorgEvents` is false, calls `getChain` and both subscriptions from
+  // every `runOnce` (via `Monitor.ready`) until they succeed. A rejection there
+  // stopped the whole task loop in 2.13 and is retried, with a network
+  // `getChain`, on every tick since 2.14, so these three answer offline and
+  // never reject. TaskReviewProvenTxs remains the reorg audit without live events.
   async getChain(): Promise<Chain> {
     return this.chain ?? (await this.remote.getChain())
   }
