@@ -28,7 +28,9 @@ import {
   radii,
   typography,
   useWallet,
-  formatAmountParts,
+  formatAmount,
+  formatSatoshisExact,
+  isFiatCurrency,
   ExchangeRateContext
 } from '@bsv/expo-wallet-toolbox'
 import type { ContactRow } from '../../core/contacts/contactsStore'
@@ -153,18 +155,18 @@ export default function TransactionDetailScreen({
 
   const incoming = tx.token ? tx.token.incoming : !tx.isOutgoing
 
-  /** The hero figure, abbreviated — the exact one is a row further down. */
+  /** What the transaction actually moved, in exact sats — never BSV or fiat. */
   const hero = useMemo(() => {
     if (tx.token) return tx.token.amount ?? null
-    return formatAmountParts(tx.satoshis, currency, satoshisPerUSD, { abbreviate: true, showPlus: true, usdToFiat })
-  }, [tx, currency, satoshisPerUSD, usdToFiat])
+    return formatSatoshisExact(tx.satoshis, true)
+  }, [tx])
 
-  /** The same money unabbreviated: `1.5k sats` above, `1,500 sats` here. The
-   * hero is for reading at a glance, this is for checking. */
-  const exact = useMemo(() => {
-    if (tx.token) return tx.token.amount ? `${tx.token.amount.value} ${tx.token.amount.unit}` : ''
-    const p = formatAmountParts(tx.satoshis, currency, satoshisPerUSD, { showPlus: true, usdToFiat })
-    return `${p.value}${p.unit ? ` ${p.unit}` : ''}`
+  const exact = hero ? `${hero.value} ${hero.unit}` : ''
+
+  /** The same money in the display currency; none when that currency is BSV. */
+  const fiat = useMemo(() => {
+    if (tx.token || !isFiatCurrency(currency)) return null
+    return formatAmount(tx.satoshis, currency, satoshisPerUSD, { showPlus: true, usdToFiat })
   }, [tx, currency, satoshisPerUSD, usdToFiat])
 
   /**
@@ -226,19 +228,10 @@ export default function TransactionDetailScreen({
             carries a per-payment blinded key, which still draws a stable face
             for THAT payment. */}
         {counterpartyKey ? (
-          <ContactSigil
-            identityKey={counterpartyKey}
-            avatarUrl={contact?.cachedAvatarUrl}
-            size={84}
-            radius={42}
-          />
+          <ContactSigil identityKey={counterpartyKey} avatarUrl={contact?.cachedAvatarUrl} size={84} radius={42} />
         ) : (
           <View style={[styles.fallbackFace, { backgroundColor: colors.fill }]}>
-            <Ionicons
-              name={incoming ? 'arrow-down' : 'arrow-up'}
-              size={34}
-              color={colors.textSecondary}
-            />
+            <Ionicons name={incoming ? 'arrow-down' : 'arrow-up'} size={34} color={colors.textSecondary} />
           </View>
         )}
 
@@ -249,7 +242,6 @@ export default function TransactionDetailScreen({
         {contact?.cachedHandle && contact.cachedHandle !== title ? (
           <Text style={[styles.handle, { color: colors.textSecondary }]}>{contact.cachedHandle}</Text>
         ) : null}
-        <Text style={[styles.when, { color: colors.textSecondary }]}>{formatFullDate(tx.createdAt)}</Text>
 
         {hero ? (
           <Text style={[styles.hero, { color: amountColor }]} numberOfLines={1} adjustsFontSizeToFit>
@@ -259,14 +251,12 @@ export default function TransactionDetailScreen({
         ) : (
           <Text style={[styles.hero, { color: colors.textSecondary }]}>—</Text>
         )}
+        {fiat ? <Text style={[styles.fiat, { color: colors.textSecondary }]}>{fiat}</Text> : null}
 
         <View style={[styles.divider, { borderColor: colors.hairline }]} />
 
         <DetailRow label={t('tx_detail_status', { defaultValue: 'Status' })} value={statusText} />
-        <DetailRow
-          label={t('tx_detail_date', { defaultValue: 'Date' })}
-          value={formatFullDate(tx.createdAt) || '—'}
-        />
+        <DetailRow label={t('tx_detail_date', { defaultValue: 'Date' })} value={formatFullDate(tx.createdAt) || '—'} />
         <DetailRow label={t('tx_detail_amount', { defaultValue: 'Amount' })} value={exact || '—'} />
         {tx.txid ? (
           <DetailRow
@@ -301,9 +291,7 @@ export default function TransactionDetailScreen({
                   color={a.danger ? colors.error : colors.textSecondary}
                   style={styles.menuIcon}
                 />
-                <Text
-                  style={[styles.menuLabel, { color: a.danger ? colors.error : colors.textPrimary }]}
-                >
+                <Text style={[styles.menuLabel, { color: a.danger ? colors.error : colors.textPrimary }]}>
                   {a.label}
                 </Text>
               </TouchableOpacity>
@@ -348,9 +336,9 @@ const styles = StyleSheet.create({
   fallbackFace: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
   title: { ...typography.title1, fontWeight: '700', marginTop: spacing.lg },
   handle: { ...typography.body, marginTop: spacing.xs },
-  when: { ...typography.subhead, marginTop: spacing.xs },
   hero: { ...typography.largeTitle, fontSize: 48, lineHeight: 56, fontWeight: '700', marginTop: spacing.lg },
   heroUnit: { ...typography.title3, fontWeight: '600' },
+  fiat: { ...typography.body, marginTop: spacing.xs },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderStyle: 'dashed', marginVertical: spacing.xl },
   row: {
     flexDirection: 'row',

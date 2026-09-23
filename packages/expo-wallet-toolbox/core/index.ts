@@ -57,6 +57,7 @@ export {
   formatAmountInInputUnit,
   formatSatoshisAsFiat,
   formatSatoshisAsBsv,
+  formatSatoshisExact,
   formatSatoshisAsBsvDecimal,
   parseDisplayToSatoshis,
   getUnitLabel,

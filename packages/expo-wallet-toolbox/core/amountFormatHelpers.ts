@@ -310,6 +310,17 @@ export const formatSatoshisAsFiat = (
  *
  * All formatting is locale-aware.
  */
+/**
+ * The exact satoshi count, never switched to BSV or shortened: `+1,234,567 sats`.
+ * For the one place a holder checks what the transaction actually moved.
+ */
+export const formatSatoshisExact = (satoshis: number, showPlus = false): { value: string; unit: string } => {
+  const n = Number(satoshis)
+  if (!Number.isInteger(n)) return { value: '---', unit: 'sats' }
+  const sign = n < 0 ? '-' : showPlus && n > 0 ? '+' : ''
+  return { value: `${sign}${formatSatoshisLocale(Math.abs(n))}`, unit: 'sats' }
+}
+
 export const formatSatoshisAsBsv = (
   satoshis: number,
   showPlus = false,
