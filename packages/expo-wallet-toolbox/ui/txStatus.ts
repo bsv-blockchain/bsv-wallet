@@ -44,16 +44,15 @@ export function txStatusView(status: string, offlineStatus?: string, incoming?: 
   switch (status) {
     // The chain words ("Confirmed", "Accepted") answered a question about the
     // ledger; the user's question is what happened to their money. A settled
-    // row therefore says what it DID — Received or Sent — and every step on
-    // the way there is one undifferentiated "Pending", because the difference
-    // between accepted-but-unproven and still-broadcasting is not one the user
-    // can act on. The states below that DO need action keep their own words.
+    // row therefore says what it DID — Received or Sent — from the moment it is
+    // handed to the network: the block proof that follows changes nothing the
+    // holder can act on. The states below that DO need action keep their own words.
     case 'completed':
-      return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'settled' }
     case 'unproven':
-      return { key: 'tx_status_pending', tone: 'settled' }
+      return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'settled' }
+    // Already handed to the network: say what it does, Sent or Received.
     case 'sending':
-      return { key: 'tx_status_pending', tone: 'inflight' }
+      return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'inflight' }
     case 'nosend':
       return { key: 'tx_status_not_sent', tone: 'attention' }
     case 'unsigned':
