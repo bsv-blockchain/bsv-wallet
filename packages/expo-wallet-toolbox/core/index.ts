@@ -53,6 +53,7 @@ export { useThemeStyles } from './theme/useThemeStyles'
 export {
   formatAmount,
   formatAmountParts,
+  splitAmountFraction,
   formatAmountInInputUnit,
   formatSatoshisAsFiat,
   formatSatoshisAsBsv,
@@ -405,3 +406,15 @@ export {
 } from './context/WalletContext'
 export type { WalletManagersSlice, WalletStatusSlice } from './context/WalletContext'
 export { usePermissionQueue } from './hooks/usePermissionQueue'
+
+export { getNumberLocale } from './numberFormat'
+
+export {
+  getUserAvatarIcon,
+  loadUserAvatarIcon,
+  setUserAvatarIcon,
+  subscribeUserAvatar,
+  useUserAvatarIcon,
+  type AvatarIcon,
+  type AvatarIconFamily
+} from './userAvatar'

@@ -774,6 +774,10 @@ export default function MnemonicScreen() {
   return (
     <CustomSafeArea style={[s.screen, { backgroundColor: colors.background }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      {/* The same chevron the backup flow has always had. Import reached this
+          screen from the home prompt and had only the "Go Back" text button at
+          the very bottom of a scrolling form — no way out without scrolling. */}
+      {backupHeader}
       <ScrollView
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}

@@ -55,6 +55,20 @@ function loadExpoRouter(): ExpoRouterModule {
   return expoRouterMod
 }
 
+/**
+ * Demo mode's runtime, or a constant `null` in anything but a dev bundle.
+ *
+ * Resolved once at module scope behind `__DEV__` so the demo folder is
+ * required only into a dev bundle: a release build inlines `__DEV__` as false
+ * and folds the require — and everything it reaches — out entirely. Same
+ * pattern as `utils/AgentationGate.tsx`. Called unconditionally below, because
+ * it is a hook and its identity must not change between renders.
+ */
+const useDemoRuntime: () => MandalaRuntime | null = __DEV__
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (require('../../core/demo') as typeof import('../../core/demo')).useDemoMandalaRuntime
+  : () => null
+
 /** Injected runtime. `undefined` means "ask the wallet context"; `null` means "none". */
 const MandalaRuntimeContext = createContext<MandalaRuntime | null | undefined>(undefined)
 
@@ -74,11 +88,14 @@ export function MandalaProvider({
  * that render money want `useMandala()`.
  */
 export function useMandalaRuntime(): MandalaRuntime | null {
+  // Before everything else: in demo mode the stablecoin half of the wallet is
+  // the demo ledger, whatever the real wallet has built.
+  const demo = useDemoRuntime()
   const injected = useContext(MandalaRuntimeContext)
   // `undefined` on the context until the wallet is built, and on every chain
   // but mainnet — which IS the chain gate, not an error state.
   const fromWallet = useWallet()?.mandala ?? null
-  const runtime = injected !== undefined ? injected : fromWallet
+  const runtime = demo ?? (injected !== undefined ? injected : fromWallet)
   // `available` is the runtime's own chain gate; a runtime that says it is not
   // available is the same as none at all for every surface below.
   return runtime && runtime.available ? runtime : null

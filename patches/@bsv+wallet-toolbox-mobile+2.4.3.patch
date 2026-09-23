@@ -412,6 +412,7 @@ index 9d934ee..0affefe 100644
   */
  export declare function internalizeAction(storage: StorageProvider, auth: AuthId, args: InternalizeActionArgs): Promise<StorageInternalizeActionResult>;
  //# sourceMappingURL=internalizeAction.d.ts.map
+\ No newline at end of file
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.js b/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.js
 index 6a70185..5898de2 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction.js

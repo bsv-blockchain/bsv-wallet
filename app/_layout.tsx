@@ -1,3 +1,5 @@
+import { loadUserAvatarIcon } from '@bsv/expo-wallet-toolbox'
+
 // Polyfill AbortSignal.timeout for Hermes (React Native JS engine)
 if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
   AbortSignal.timeout = (ms: number) => {
@@ -6,6 +8,10 @@ if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
     return controller.signal
   }
 }
+
+// The stored avatar choice. Fire-and-forget: until it resolves every "you"
+// shows the default disc, which is also what an unset choice means.
+void loadUserAvatarIcon()
 
 import '../wdyr' // dev-only re-render tracking; must run before any component renders
 import '@/utils/devMenu' // dev-only profiling controls in the expo-dev-client menu

@@ -1,18 +1,70 @@
-// Safe locale detection for React Native
-const getLocaleDefault = (): string => {
-  try {
-    // Try to get locale using Intl API if available
-    return Intl.NumberFormat().resolvedOptions().locale?.split('-u-')[0] || 'en-US'
-  } catch {
-    // Fallback to en-US if Intl is not fully supported
-    return 'en-US'
-  }
-}
+import { getNumberLocale } from './numberFormat'
 
-const localeDefault = getLocaleDefault()
+/**
+ * The locale every figure on this screen is printed through.
+ *
+ * A function, not a module constant: the separators are a user preference now
+ * (see `core/numberFormat.ts`), so a figure formatted at module-load time
+ * would be stuck with whatever the device implied at launch.
+ */
+const locale = (): string => getNumberLocale()
 
 const SATS_PER_BSV = 100_000_000
 const CENT_THRESHOLD = 0.01
+
+/**
+ * Above this many currency units, a fiat figure is abbreviated and its minor
+ * units are dropped. Below it the cents are kept exactly: those are the
+ * balances a holder reconciles against a bank app, and `$1,234.56` rounded to
+ * `$1.2k` is no longer the same number to them.
+ */
+const FIAT_ABBREVIATE_ABOVE = 100_000
+
+/**
+ * `1500 -> "1.5k"`, `1_000_000 -> "1M"`, `2_400_000_000 -> "2.4B"`.
+ *
+ * At most one decimal place and never a trailing `.0`, because the point of
+ * the short form is to be read at a glance. Values under 1000 are returned
+ * grouped and unabbreviated — there is nothing to save.
+ */
+const ABBREVIATION_STEPS: { limit: number; divisor: number; suffix: string }[] = [
+  { limit: 1_000_000_000, divisor: 1_000_000_000, suffix: 'B' },
+  { limit: 1_000_000, divisor: 1_000_000, suffix: 'M' },
+  { limit: 1_000, divisor: 1_000, suffix: 'k' }
+]
+
+/**
+ * The magnitude `value` should be shown at. `suffix` is `''` when the value is
+ * small enough to print in full. Shared by the satoshi and fiat paths so the
+ * two can never disagree about where a 'k' becomes an 'M'.
+ */
+const scaleForAbbreviation = (value: number): { scaled: number; suffix: string } => {
+  const abs = Math.abs(value)
+  for (const { limit, divisor, suffix } of ABBREVIATION_STEPS) {
+    // One decimal, trimmed: 1.0k reads as noise, 1.5k does not.
+    if (abs >= limit) return { scaled: Math.round((abs / divisor) * 10) / 10, suffix }
+  }
+  return { scaled: abs, suffix: '' }
+}
+
+const abbreviateNumber = (value: number): string => {
+  const { scaled, suffix } = scaleForAbbreviation(value)
+  if (!suffix) return formatSatoshisLocale(Math.abs(value))
+  return `${Number.isInteger(scaled) ? String(scaled) : formatDecimalLocale(scaled, 1)}${suffix}`
+}
+
+/** A number at fixed decimals in the active locale's separators. */
+const formatDecimalLocale = (value: number, digits: number): string => {
+  try {
+    return new Intl.NumberFormat(locale(), {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+      useGrouping: true
+    }).format(value)
+  } catch {
+    return value.toFixed(digits)
+  }
+}
 
 export type UsdToFiat = Record<string, number>
 
@@ -42,7 +94,7 @@ export const satoshisPerFiatUnit = (
 
 export const fiatFractionDigits = (currency: string): number => {
   try {
-    const digits = new Intl.NumberFormat(localeDefault, {
+    const digits = new Intl.NumberFormat(locale(), {
       style: 'currency',
       currency
     }).resolvedOptions().maximumFractionDigits
@@ -50,6 +102,52 @@ export const fiatFractionDigits = (currency: string): number => {
   } catch {
     return 2
   }
+}
+
+/**
+ * The symbol this wallet prints for a currency, whatever the locale would.
+ *
+ * `currencyDisplay: 'narrowSymbol'` is not enough: a locale narrows only as
+ * far as it can still disambiguate, so an `en-NL` device renders USD as
+ * "US$" — which is a correct answer to a question nobody asked. The wallet
+ * shows one currency at a time and says which in Settings, so the short
+ * symbol is never ambiguous here.
+ *
+ * Currencies absent from this table keep whatever the locale produces, which
+ * for a code like CHF is already the code itself.
+ */
+const PREFERRED_SYMBOL: Record<string, string> = {
+  USD: '$',
+  AUD: '$',
+  CAD: '$',
+  NZD: '$',
+  BRL: 'R$',
+  EUR: '€',
+  GBP: '£',
+  JPY: '¥',
+  CNY: '¥',
+  INR: '₹',
+  RUB: '₽',
+  PLN: 'zł',
+  IDR: 'Rp'
+}
+
+/**
+ * Format through Intl, then swap the currency token for our own symbol.
+ *
+ * Rebuilt from `formatToParts` rather than string-replaced so the locale keeps
+ * deciding WHERE the symbol sits and whether a space follows it — only the
+ * glyph is ours.
+ */
+const formatCurrencyParts = (
+  value: number,
+  loc: string,
+  currency: string,
+  options: Intl.NumberFormatOptions
+): string => {
+  const preferred = PREFERRED_SYMBOL[currency]
+  const parts = new Intl.NumberFormat(loc, options).formatToParts(value)
+  return parts.map(p => (p.type === 'currency' && preferred ? preferred : p.value)).join('')
 }
 
 // Format number as currency with fallback for platforms where Intl is not fully supported
@@ -67,6 +165,12 @@ const formatCurrency = (
     const options: Intl.NumberFormatOptions = {
       currency,
       style: 'currency',
+      // The separator preference is expressed as a locale, and a locale also
+      // carries that language's NAME for the currency — fr-FR renders USD as
+      // "$US". The UI's language is chosen elsewhere, so pin the short symbol
+      // and let the locale govern only the digits, which is all the
+      // preference was ever about.
+      currencyDisplay: 'narrowSymbol',
       minimumFractionDigits: minDigits
     }
 
@@ -74,8 +178,7 @@ const formatCurrency = (
       options.maximumFractionDigits = maxDigits
     }
 
-    const formatter = new Intl.NumberFormat(locale, options)
-    formatted = formatter.format(abs)
+    formatted = formatCurrencyParts(abs, locale, currency, options)
   } catch {
     formatted = `${currency} ${abs.toFixed(minDigits)}`
   }
@@ -93,7 +196,7 @@ const fiatSign = (value: number, showPlus: boolean): string => (value < 0 ? '-' 
  */
 const formatSatoshisLocale = (satoshis: number): string => {
   try {
-    return new Intl.NumberFormat(localeDefault, {
+    return new Intl.NumberFormat(locale(), {
       maximumFractionDigits: 0,
       useGrouping: true
     }).format(satoshis)
@@ -108,7 +211,7 @@ const formatSatoshisLocale = (satoshis: number): string => {
  */
 const formatBsvLocale = (bsvValue: number): string => {
   try {
-    return new Intl.NumberFormat(localeDefault, {
+    return new Intl.NumberFormat(locale(), {
       minimumFractionDigits: 0,
       maximumFractionDigits: 8,
       useGrouping: true
@@ -130,7 +233,8 @@ export const formatSatoshisAsFiat = (
   satoshisPerUnit: number,
   showFiatAsInteger = false,
   currency = 'USD',
-  showPlus = false
+  showPlus = false,
+  abbreviate = false
 ): string => {
   if (!Number.isInteger(Number(satoshis)) || !satoshisPerUnit || satoshisPerUnit <= 0) {
     return '...'
@@ -145,17 +249,32 @@ export const formatSatoshisAsFiat = (
   const threshold = digits === 0 ? 1 : 1 / factor
 
   if (v > 0 && v < threshold && !showFiatAsInteger) {
-    const smallest = formatCurrency(threshold, localeDefault, currency, digits, digits)
+    const smallest = formatCurrency(threshold, locale(), currency, digits, digits)
     return `< ${fiatSign(raw, showPlus)}${smallest}`
   }
 
   const sign = raw < 0 ? -1 : 1
+
+  /**
+   * Only large figures shorten. A balance a holder reconciles against a bank
+   * app keeps its exact minor units, because `$1,234.56` shown as `$1.2k` is
+   * not the same number to the person reading it — it is a different number
+   * that happens to be close. Past `FIAT_ABBREVIATE_ABOVE` the cents have
+   * stopped being the point and the width has started to be.
+   */
+  if (abbreviate && v >= FIAT_ABBREVIATE_ABOVE) {
+    const { scaled, suffix } = scaleForAbbreviation(v)
+    const shortDigits = Number.isInteger(scaled) ? 0 : 1
+    const body = formatCurrency(sign * scaled, locale(), currency, shortDigits, shortDigits, showPlus)
+    return `${body}${suffix}`
+  }
+
   const rounded = (sign * Math.ceil(Math.abs(raw) * factor)) / factor
 
   const minDigits = showFiatAsInteger ? 0 : digits
   const maxDigits = showFiatAsInteger ? 0 : digits
 
-  return formatCurrency(rounded, localeDefault, currency, minDigits, maxDigits, showPlus)
+  return formatCurrency(rounded, locale(), currency, minDigits, maxDigits, showPlus)
 }
 
 /**
@@ -175,11 +294,17 @@ export const formatSatoshisAsBsv = (satoshis: number, showPlus = false, abbrevia
   if (absValue >= SATS_PER_BSV) {
     // Display as BSV
     const bsvValue = absValue / SATS_PER_BSV
-    return `${sign}${formatBsvLocale(bsvValue)} BSV`
+    // A whole-BSV figure abbreviates on the same ladder once it passes 1000,
+    // so "1,000 BSV" reads "1k BSV" rather than growing a digit per decade.
+    const body = abbreviate && bsvValue >= 1000 ? abbreviateNumber(bsvValue) : formatBsvLocale(bsvValue)
+    return `${sign}${body} BSV`
   } else {
-    // Display as satoshis
+    // Display as satoshis. `abbreviate` shortens BOTH the figure and the label
+    // — it used to shorten only the label, which left "1,000,000 sats" as the
+    // supposedly-abbreviated form.
     const label = abbreviate ? 'sats' : 'satoshis'
-    return `${sign}${formatSatoshisLocale(absValue)} ${label}`
+    const body = abbreviate ? abbreviateNumber(absValue) : formatSatoshisLocale(absValue)
+    return `${sign}${body} ${label}`
   }
 }
 
@@ -198,7 +323,7 @@ export const formatAmount = (
 
   if (isFiatCurrency(currency)) {
     const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
-    return formatSatoshisAsFiat(satoshis, per, showFiatAsInteger, currency, showPlus)
+    return formatSatoshisAsFiat(satoshis, per, showFiatAsInteger, currency, showPlus, abbreviate)
   }
 
   return formatSatoshisAsBsv(satoshis, showPlus, abbreviate)
@@ -252,7 +377,7 @@ export const formatAmountInInputUnit = (
     const amount = Math.abs(n) / per
     const digits = fiatFractionDigits(currency)
     try {
-      return new Intl.NumberFormat(localeDefault, {
+      return new Intl.NumberFormat(locale(), {
         minimumFractionDigits: digits,
         maximumFractionDigits: digits
       }).format(amount)
@@ -314,3 +439,40 @@ export const getUnitLabel = (currency: string, satoshis?: number, abbreviate = f
 
 // Keep legacy exports for backward compatibility during migration
 export const formatSatoshis = formatSatoshisAsBsv
+
+/**
+ * Split a formatted figure so its minor units can be set smaller and raised,
+ * the way a price tag writes them.
+ *
+ * `head` is everything up to and including the decimal separator, `frac` the
+ * minor-unit digits, `tail` whatever trails them (a suffixed currency symbol
+ * in the locales that put it there).
+ *
+ * Returns `frac: ''` — meaning "draw this as one run" — when there is nothing
+ * to raise, and deliberately when the figure is ABBREVIATED: the `.5` of
+ * `1.5k` is a magnitude, not cents, and shrinking it would read as `1` with a
+ * superscript. Detected by a letter immediately after the digits, which is
+ * exactly what the k/M/B suffix is.
+ */
+export const splitAmountFraction = (value: string): { head: string; frac: string; tail: string } => {
+  const whole = { head: value, frac: '', tail: '' }
+  if (!value) return whole
+  let sep: string
+  try {
+    sep =
+      new Intl.NumberFormat(locale())
+        .formatToParts(1.1)
+        .find(p => p.type === 'decimal')?.value ?? '.'
+  } catch {
+    sep = '.'
+  }
+  const at = value.lastIndexOf(sep)
+  if (at < 0) return whole
+  const rest = value.slice(at + sep.length)
+  const digits = /^\d+/.exec(rest)?.[0] ?? ''
+  if (!digits) return whole
+  const tail = rest.slice(digits.length)
+  // An abbreviation suffix (k/M/B) means those digits are magnitude, not cents.
+  if (/^\p{L}/u.test(tail)) return whole
+  return { head: value.slice(0, at + sep.length), frac: digits, tail }
+}

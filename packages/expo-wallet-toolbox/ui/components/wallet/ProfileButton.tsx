@@ -1,5 +1,9 @@
 /**
- * 34pt chrome-disc profile button, top-left of Home — passed through
+ * 34pt chrome-disc profile button, top-left of Home. Wears whatever avatar
+ * icon the user picked in Profile — the same `core/userAvatar.ts` choice the
+ * profile hero draws, so the two can never disagree.
+ *
+ * Original note: 34pt chrome-disc profile button, top-left of Home — passed through
  * `WalletHomeScreen`'s existing (previously unused) `topLeft` prop from the
  * host app's `app/index.tsx`, so this needed no package API change. Same disc
  * as the settings button on the right (surfaceRaised + hairline), so the two
@@ -7,19 +11,10 @@
  */
 import React from 'react'
 import { StyleSheet } from 'react-native'
-import { useTheme } from '@bsv/expo-wallet-toolbox'
+import { useTheme, useUserAvatarIcon } from '@bsv/expo-wallet-toolbox'
 import { useTranslation } from 'react-i18next'
 import PressableScale from '../ui/PressableScale'
-
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { AvatarGlyph } from './UserAvatar'
 
 type ExpoRouterModule = typeof import('expo-router')
 let expoRouterMod: ExpoRouterModule | undefined
@@ -34,8 +29,8 @@ function loadExpoRouter(): ExpoRouterModule {
 export default function ProfileButton() {
   const { colors } = useTheme()
   const { t } = useTranslation()
-  const Ionicons = loadIonicons()
   const { router } = loadExpoRouter()
+  const avatar = useUserAvatarIcon()
   return (
     <PressableScale
       onPress={() => router.push('/profile' as never)}
@@ -45,7 +40,12 @@ export default function ProfileButton() {
       accessibilityRole="button"
       accessibilityLabel={t('profile')}
     >
-      <Ionicons name="person-outline" size={17} color={colors.textSecondary} />
+      <AvatarGlyph
+        family={avatar?.family ?? 'ionicons'}
+        name={avatar?.name ?? 'person-outline'}
+        size={17}
+        color={colors.textSecondary}
+      />
     </PressableScale>
   )
 }

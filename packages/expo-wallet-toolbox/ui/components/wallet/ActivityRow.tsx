@@ -32,7 +32,7 @@ import {
   sigilPalette,
   type Counterparty
 } from '@bsv/expo-wallet-toolbox'
-import { txStatusView, toneColor } from '../../txStatus'
+import { txStatusView, toneColor, type TxStatusView } from '../../txStatus'
 import PressableScale from '../ui/PressableScale'
 import Sigil from '../ui/Sigil'
 import type { ContactsStore } from '../../../core/contacts/contactsStore'
@@ -122,6 +122,12 @@ interface Props {
    * question ("is it sending? cancelling?") the row can answer. */
   busyLabel?: string
   onToggle: (rowKey: string) => void
+  /**
+   * Open this row's detail view. When present it REPLACES the expand-in-place
+   * tap: a row means one thing, and the utilities that used to unfold
+   * underneath it are the detail screen's overflow menu.
+   */
+  onOpen?: (action: ActivityAction) => void
   onExplorer: (txid: string) => void
   onRefreshTx: (txid: string) => void
   onAbort: (reference: string) => void
@@ -164,6 +170,8 @@ interface Props {
     counterpartyKey?: string
     /** Settlement status line, in place of the chain-status words. */
     statusText?: string
+    /** Settlement status as a tone + label; drives the dot as a BSV row's does. */
+    status?: TxStatusView
   }
 }
 
@@ -196,6 +204,7 @@ function ActivityRowBase({
   busy,
   busyLabel,
   onToggle,
+  onOpen,
   onExplorer,
   onRefreshTx,
   onAbort,
@@ -209,10 +218,12 @@ function ActivityRowBase({
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const MaterialCommunityIcons = loadMaterialCommunityIcons()
 
-  const view = txStatusView(action.status, offlineStatus)
+  const incoming = token ? token.incoming : action.satoshis >= 0
+  // Direction decides the settled wording ("Received" vs "Sent"), so it has to
+  // be known before the status view is built.
+  const view = token?.status ?? txStatusView(action.status, offlineStatus, incoming)
   const settled = view.tone === 'settled'
   const tone = toneColor(view.tone, colors as unknown as Record<string, string>)
-  const incoming = token ? token.incoming : action.satoshis >= 0
 
   const { value, unit } = formatAmountParts(action.satoshis, currency, satoshisPerUSD, {
     abbreviate: true,
@@ -404,10 +415,10 @@ function ActivityRowBase({
 
         <PressableScale
           scaleTo={0.99}
-          onPress={hasUtilities ? () => onToggle(rowKey) : undefined}
+          onPress={onOpen ? () => onOpen(action) : hasUtilities ? () => onToggle(rowKey) : undefined}
           style={styles.rowRest}
           accessibilityRole="button"
-          accessibilityState={{ expanded }}
+          accessibilityState={onOpen ? undefined : { expanded }}
           accessibilityLabel={
             token
               ? // Never the lib's developer description, which carries a raw
@@ -424,10 +435,13 @@ function ActivityRowBase({
               {token ? token.title : action.description || t('transactions')}
             </Text>
             <View style={styles.statusLine}>
-              <View style={[styles.dot, { backgroundColor: settled ? colors.successStrong : tone }]} />
+              {/* A dot only where the tone carries a warning. A settled row is
+                  the normal case, and marking every normal row green made the
+                  list a wall of confirmation the eye had to read past. */}
+              {settled ? null : <View style={[styles.dot, { backgroundColor: tone }]} />}
               <Text style={[styles.statusText, { color: settled ? colors.textSecondary : tone }]} numberOfLines={1}>
                 {(() => {
-                  const words = token?.statusText ?? t(view.key)
+                  const words = token?.status ? t(view.key) : (token?.statusText ?? t(view.key))
                   return time ? `${words} · ${time}` : words
                 })()}
               </Text>
@@ -464,7 +478,7 @@ function ActivityRowBase({
         </PressableScale>
       </View>
 
-      {expanded && hasUtilities ? (
+      {!onOpen && expanded && hasUtilities ? (
         <View style={styles.chips}>
           {busy ? (
             <View style={styles.busyRow}>

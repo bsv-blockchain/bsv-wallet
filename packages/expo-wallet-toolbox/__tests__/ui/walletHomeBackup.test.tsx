@@ -21,10 +21,21 @@ let mockReminder: any
 let mockAdvisory: any
 let mockImportPrompt: any
 
+jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
+jest.mock('../../ui/components/ui/SlideOverFromRight', () => ({ __esModule: true, default: () => null }))
+jest.mock('expo-local-authentication', () => ({
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  hasHardwareAsync: jest.fn(async () => false),
+  isEnrolledAsync: jest.fn(async () => false),
+  authenticateAsync: jest.fn(async () => ({ success: false }))
+}))
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
   return {
     ...jest.requireActual('../../core/theme/tokens'),
+    ...jest.requireActual('../../core/theme/motion'),
+    ...jest.requireActual('../../core/numberFormat'),
+    splitAmountFraction: jest.requireActual('../../core/amountFormatHelpers').splitAmountFraction,
     useTheme: () => ({ colors: {} }),
     useWallet: () => mockWallet,
     useLocalStorage: () => ({
@@ -67,13 +78,22 @@ jest.mock('@bsv/message-box-client', () => ({ PeerPayClient: jest.fn() }))
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
 jest.mock('../../ui/components/wallet/BackupReminderSheet', () => ({
-  BackupReminderSheet: (props: unknown) => { mockReminder = props; return null }
+  BackupReminderSheet: (props: unknown) => {
+    mockReminder = props
+    return null
+  }
 }))
 jest.mock('../../ui/components/wallet/BiometricAdvisoryModal', () => ({
-  BiometricAdvisoryModal: (props: unknown) => { mockAdvisory = props; return null }
+  BiometricAdvisoryModal: (props: unknown) => {
+    mockAdvisory = props
+    return null
+  }
 }))
 jest.mock('../../ui/components/wallet/ImportFromBackupPrompt', () => ({
-  ImportFromBackupPrompt: (props: unknown) => { mockImportPrompt = props; return null }
+  ImportFromBackupPrompt: (props: unknown) => {
+    mockImportPrompt = props
+    return null
+  }
 }))
 jest.mock('../../ui/components/wallet/ActivityRow', () => () => null)
 jest.mock('../../ui/components/security/WalletLockNotice', () => () => null)
@@ -99,7 +119,10 @@ jest.mock('../../ui/components/ui/PressableScale', () => {
 jest.mock('../../ui/components/ui/ListRow', () => {
   const React = require('react')
   const { Pressable, Text } = require('react-native')
-  return { ListRow: ({ label, onPress }: any) => React.createElement(Pressable, { onPress }, React.createElement(Text, {}, label)) }
+  return {
+    ListRow: ({ label, onPress }: any) =>
+      React.createElement(Pressable, { onPress }, React.createElement(Text, {}, label))
+  }
 })
 jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ children }: any) => children }))
 jest.mock('../../ui/components/pay/MessageBoxConfig', () => ({
@@ -183,47 +206,57 @@ it('does not warn a wallet whose backup has already been recorded', async () => 
   expect(mockReminder.visible).toBe(false)
 })
 
-it.each(['migration', 'building', 'locked'] as const)('never creates over a returning wallet during %s', async state => {
-  mockWallet.managers.permissionsManager = null
-  mockWallet.walletBuilt = false
-  mockSecretsReady = state !== 'migration'
-  mockWallet.walletBuilding = state === 'building'
-  const screen = await renderHome()
+it.each(['migration', 'building', 'locked'] as const)(
+  'never creates over a returning wallet during %s',
+  async state => {
+    mockWallet.managers.permissionsManager = null
+    mockWallet.walletBuilt = false
+    mockSecretsReady = state !== 'migration'
+    mockWallet.walletBuilding = state === 'building'
+    const screen = await renderHome()
 
-  await act(async () => fireEvent.press(screen.getByText('pay_direction_pay')))
+    await act(async () => fireEvent.press(screen.getByText('pay_direction_pay')))
 
-  expect(mockAdvisory.visible).toBe(false)
-  expect(mockGenerateMnemonic).not.toHaveBeenCalled()
-  expect(mockCreateMnemonic).not.toHaveBeenCalled()
-  expect(mockRouter.replace).not.toHaveBeenCalled()
-})
+    expect(mockAdvisory.visible).toBe(false)
+    expect(mockGenerateMnemonic).not.toHaveBeenCalled()
+    expect(mockCreateMnemonic).not.toHaveBeenCalled()
+    expect(mockRouter.replace).not.toHaveBeenCalled()
+  }
+)
 
-it.each(['migration', 'building'] as const)('waits until %s finishes before deciding whether to offer import', async state => {
-  mockWallet.managers.permissionsManager = null
-  mockWallet.walletBuilt = false
-  mockSecretsReady = state !== 'migration'
-  mockWallet.walletBuilding = state === 'building'
-  // A presence read during migration could observe the handoff between the
-  // legacy and encrypted stores. It must not make an empty-wallet decision.
-  mockHasStoredIdentity.mockResolvedValue(false)
-  const screen = await renderHome()
-  expect(mockHasStoredIdentity).not.toHaveBeenCalled()
-  expect(mockImportPrompt.visible).toBe(false)
+it.each(['migration', 'building'] as const)(
+  'waits until %s finishes before deciding whether to offer import',
+  async state => {
+    mockWallet.managers.permissionsManager = null
+    mockWallet.walletBuilt = false
+    mockSecretsReady = state !== 'migration'
+    mockWallet.walletBuilding = state === 'building'
+    // A presence read during migration could observe the handoff between the
+    // legacy and encrypted stores. It must not make an empty-wallet decision.
+    mockHasStoredIdentity.mockResolvedValue(false)
+    const screen = await renderHome()
+    expect(mockHasStoredIdentity).not.toHaveBeenCalled()
+    expect(mockImportPrompt.visible).toBe(false)
 
-  mockHasStoredIdentity.mockResolvedValue(true)
-  mockSecretsReady = true
-  mockWallet.walletBuilding = false
-  await act(async () => screen.rerender(<WalletHomeScreen />))
+    mockHasStoredIdentity.mockResolvedValue(true)
+    mockSecretsReady = true
+    mockWallet.walletBuilding = false
+    await act(async () => screen.rerender(<WalletHomeScreen />))
 
-  expect(mockHasStoredIdentity).toHaveBeenCalledTimes(1)
-  expect(mockImportPrompt.visible).toBe(false)
-})
+    expect(mockHasStoredIdentity).toHaveBeenCalledTimes(1)
+    expect(mockImportPrompt.visible).toBe(false)
+  }
+)
 
 it('discards an empty-wallet check if another build begins before the read finishes', async () => {
   mockWallet.managers.permissionsManager = null
   mockWallet.walletBuilt = false
   let finishRead!: (exists: boolean) => void
-  mockHasStoredIdentity.mockReturnValue(new Promise<boolean>(resolve => { finishRead = resolve }))
+  mockHasStoredIdentity.mockReturnValue(
+    new Promise<boolean>(resolve => {
+      finishRead = resolve
+    })
+  )
   const screen = await renderHome()
 
   mockWallet.walletBuilding = true
@@ -284,7 +317,9 @@ it('builds the saved wallet when pending-backup metadata cannot be written', asy
     mockHasStoredIdentity.mockResolvedValue(true)
     return true
   })
-  const pending = jest.spyOn(backupAttestation, 'markPending').mockRejectedValueOnce(new Error('AsyncStorage unavailable'))
+  const pending = jest
+    .spyOn(backupAttestation, 'markPending')
+    .mockRejectedValueOnce(new Error('AsyncStorage unavailable'))
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
   try {
     const screen = await renderHome()

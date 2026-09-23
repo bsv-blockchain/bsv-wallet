@@ -42,8 +42,8 @@ import {
   useWallet,
   ExchangeRateContext,
   formatAmountParts,
-  formatAmount,
-  formatSatoshisAsBsvDecimal,
+  splitAmountFraction,
+  isFiatCurrency,
   findOfflineActions,
   type OfflineActionRow,
   TaskSendOffline,
@@ -75,6 +75,11 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import SlideOverFromRight from '../components/ui/SlideOverFromRight'
+import TransactionDetailScreen, {
+  type TransactionAction,
+  type TransactionDetailParams
+} from './TransactionDetailScreen'
 import { useContactsStore } from '../hooks/useContactsStore'
 import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
@@ -90,7 +95,7 @@ import { tokenRowTitle } from './tokenRowTitle'
 import { useMandala, useMandalaRuntime, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
 import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
-import { tokenStatusKey } from '../tokenStatus'
+import { tokenRowStatusView } from '../tokenStatus'
 import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
 import AssetSwitcherDropdown, { BSV_LABEL } from '../components/wallet/AssetSwitcherDropdown'
 import { exportTransactionsAsCsv } from '../exportTransactions'
@@ -120,6 +125,22 @@ async function readMessageBoxUrl(): Promise<string | undefined> {
  * pattern as this package's other native-module-boundary fixes (expo-router,
  * expo-blur).
  */
+/**
+ * Demo mode, or inert constants in anything but a dev bundle.
+ *
+ * Required at module scope behind `__DEV__` so the demo folder reaches only a
+ * dev bundle — a release build inlines `__DEV__` as false and folds the
+ * require and everything under it out. Same pattern as
+ * `utils/AgentationGate.tsx`. `useDemoLedgerVersion` is a hook, so it is
+ * called unconditionally below and its identity must never change.
+ */
+type DemoModule = typeof import('../../core/demo')
+const demoMod: DemoModule | null = __DEV__
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (require('../../core/demo') as DemoModule)
+  : null
+const useDemoLedgerVersion: () => number = demoMod ? demoMod.useDemoLedgerVersion : () => 0
+
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
 type MaterialCommunityIconsComponent = typeof import('@expo/vector-icons').MaterialCommunityIcons
 let ioniconsComponent: IoniconsComponent | undefined
@@ -186,6 +207,14 @@ const PAGE_SIZE = 30
  * the whole thing stays one FlatList — a SectionList would re-measure every
  * section on each status poll. */
 type DayHeader = { kind: 'day'; id: string; label: string }
+/**
+ * Statuses whose transaction is still local and therefore abortable — the same
+ * set `ActivityRow` gates its own Cancel chip on. Duplicated as a constant
+ * rather than imported so the row keeps owning its own copy while both
+ * surfaces exist.
+ */
+const ABORTABLE_DETAIL_STATUSES = new Set(['unsigned', 'nosend', 'nonfinal', 'failed'])
+
 type Row = DayHeader | (ActivityAction & { kind?: undefined })
 
 const DAY_MS = 86_400_000
@@ -237,6 +266,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const insets = useSafeAreaInsets()
   const { router, useFocusEffect } = loadExpoRouter()
   const Ionicons = loadIonicons()
+  // Repaints the screen on every demo write; 0 and no-op in a release bundle.
+  useDemoLedgerVersion()
+  const demoOn = demoMod?.isDemoModeEnabled() ?? false
   const MaterialCommunityIcons = loadMaterialCommunityIcons()
   const {
     managers,
@@ -255,6 +287,29 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
+  /**
+   * Tapping the balance flips which denomination the hero figure is in.
+   *
+   * View state, not a setting: the display-currency setting chooses WHICH
+   * fiat this wallet speaks, and a tap on the figure should not silently
+   * rewrite a stored preference that also governs every activity row. Resets
+   * to the setting's own answer on relaunch.
+   */
+  const [flipped, setFlipped] = useState(false)
+  /** The row whose detail view is open, or null. Holds the ACTION, so the
+   * detail view keeps drawing the row it was opened from even if a refresh
+   * reorders the list underneath it. */
+  const [openTx, setOpenTx] = useState<ActivityAction | null>(null)
+  /** The row still being drawn while the detail view slides back out. */
+  const [closedTx, setClosedTx] = useState<ActivityAction | null>(null)
+  // Render-phase adjustment rather than an effect: the outgoing surface must
+  // already have its content on the frame the close starts.
+  if (openTx && openTx !== closedTx) setClosedTx(openTx)
+  /** The setting's opposite: BSV when it names a fiat, else the default fiat. */
+  const displayCurrency = useMemo(() => {
+    if (!flipped) return currency
+    return isFiatCurrency(currency) ? 'BSV' : 'USD'
+  }, [flipped, currency])
   // Built once here and passed down to every row (with `walletUserId`) so an
   // expanded row's tappable-contact check never has to call `useWallet()`
   // itself — the whole reason `ActivityRow` takes `currency` as a prop too.
@@ -467,6 +522,14 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     if (inFlightBalanceRef.current) return await inFlightBalanceRef.current
     const read = (async () => {
       try {
+        // Demo mode owns the figure outright — no storage, no wallet, and so
+        // no dependency on either having been built. Read through `demoOn`
+        // rather than calling the gate again, so the dependency below is the
+        // real one: it is what re-runs this read when the switch flips.
+        if (demoOn && demoMod) {
+          setBalance(demoMod.demoWalletBalance())
+          return
+        }
         // Straight to our own SQLite, deliberately NOT through the wallet's
         // listOutputs: every call through WalletStorageManager queues on one
         // FIFO reader lock, and the monitor holds that lock across network
@@ -523,7 +586,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     adminOriginator,
     balanceCacheKey,
     onThisNetwork,
-    knownNoStoredIdentity
+    knownNoStoredIdentity,
+    demoOn
   ])
 
   /**
@@ -541,6 +605,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   useEffect(() => {
     refreshBalanceRef.current = refreshBalance
   }, [refreshBalance])
+  /** Set once `mandala` exists, below; a no-op until then. */
+  const mandalaRefreshRef = useRef<() => void>(() => {})
   // Either route to a figure counts: the direct read needs storage and the user
   // id, the fallback needs the permissions manager.
   const hasWallet = (storage != null && walletUserId != null) || managers.permissionsManager != null
@@ -655,6 +721,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // ── activity ────────────────────────────────────────────────────────
   const fetchActions = useCallback(
     async (offset: number) => {
+      if (demoOn && demoMod) {
+        setLoadError(false)
+        return demoMod.demoListActions({ limit: PAGE_SIZE, offset })
+      }
       if (!managers.permissionsManager) return null
       try {
         const result = await managers.permissionsManager.listActions(
@@ -668,7 +738,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         throw e
       }
     },
-    [managers.permissionsManager, adminOriginator]
+    [managers.permissionsManager, adminOriginator, demoOn]
   )
 
   const fetchOfflineRows = useCallback(async () => {
@@ -707,7 +777,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       // storage (no wallet created yet) also fails this gate, and has
       // nothing to load — settle the spinner instead of leaving it spinning
       // until a wallet exists.
-      if (!onThisNetwork) {
+      // Demo mode has no storage and no wallet by design, so it can never
+      // satisfy the network gate below — and must not be asked to.
+      if (!demoOn && !onThisNetwork) {
         if (!storage) setLoading(false)
         return
       }
@@ -744,7 +816,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchActions, txStatusVersion, focusVersion, fetchOfflineRows, storage, onThisNetwork])
+  }, [fetchActions, txStatusVersion, focusVersion, fetchOfflineRows, storage, onThisNetwork, demoOn])
 
   const loadMore = useCallback(async () => {
     // Three guards, all load-bearing:
@@ -780,6 +852,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
+      // Rides along because the balance tap no longer refreshes anything —
+      // without it, a held token would have no refresh path left. Through a
+      // ref because `mandala` is built further down this component than this
+      // callback is.
+      mandalaRefreshRef.current()
       const [result, , , entries] = await Promise.all([
         fetchActions(0),
         refreshBalance(),
@@ -1096,6 +1173,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // first fact is "you hold one": with no runtime and no balances this screen
   // renders exactly what it rendered before any of this existed.
   const mandala = useMandala()
+  // Assigned in an effect, not during render: a render-phase ref mutation is
+  // impure and React is entitled to discard or replay the render around it.
+  useEffect(() => {
+    mandalaRefreshRef.current = mandala.refresh
+  }, [mandala.refresh])
   const tokenActivity = useTokenActivity()
   const tokenByTxid = useMemo(() => tokenActivityByTxid(tokenActivity.rows), [tokenActivity.rows])
   const seenEvictions = useSeenSet(SEEN_EVICTIONS_KEY)
@@ -1286,11 +1368,87 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         // by design (spec D2): the image differs on every payment from the
         // same payer, which is the point of the blinding, not a bug in it.
         counterpartyKey: row.counterpartyKey,
-        statusText: t(tokenStatusKey(row.status))
+        status: tokenRowStatusView(row.status, row.role === 'received'),
+        statusText: t(tokenRowStatusView(row.status, row.role === 'received').key)
       })
     }
     return map
   }, [tokenByTxid, actions, t])
+
+  /** The row's own display fields, in the shape the detail view draws from. */
+  // Plain functions, not `useCallback`: each runs at most once per render (only
+  // when a row is open) and memoizing them buys nothing, while calling a
+  // memoized callback during render trips the compiler's purity rule.
+  const detailParams = (action: ActivityAction): TransactionDetailParams => {
+      const key = action.txid || action.reference || ''
+      const token = action.labels?.includes('mandala') ? tokenProps.get(key) : undefined
+      return {
+        txid: action.txid,
+        satoshis: action.satoshis,
+        status: action.status,
+        description: action.description,
+        isOutgoing: action.isOutgoing,
+        createdAt: action.created_at ? new Date(action.created_at).toISOString() : undefined,
+        counterpartyKey: token?.counterpartyKey ?? action.senderIdentityKey,
+        ...(token
+          ? {
+              token: {
+                title: token.title,
+                amount: token.amount,
+                incoming: token.incoming,
+                statusText: token.statusText
+              }
+            }
+          : {})
+      }
+  }
+
+  /**
+   * The utilities that used to unfold inside an expanded row, as the detail
+   * view's overflow menu. Same handlers, same guards — only the surface moved.
+   */
+  const detailActions = (action: ActivityAction): TransactionAction[] => {
+      const out: TransactionAction[] = []
+      const offline = action.txid ? offlineByTxid.get(action.txid) : undefined
+      const parked = offline?.status === 'parked'
+      if (action.txid && !parked && offline?.status !== 'queued' && offline?.status !== 'posting') {
+        out.push({
+          key: 'refresh',
+          label: t('tx_action_refresh'),
+          icon: 'refresh-outline',
+          onPress: () => void onRefreshTx(action.txid)
+        })
+      }
+      if (action.txid && !parked) {
+        out.push({
+          key: 'explorer',
+          label: t('tx_action_explorer'),
+          icon: 'link-outline',
+          onPress: () => onExplorer(action.txid)
+        })
+      }
+      if (action.reference && ABORTABLE_DETAIL_STATUSES.has(action.status)) {
+        out.push({
+          key: 'abort',
+          label: t('tx_action_abort'),
+          icon: 'close-circle-outline',
+          danger: true,
+          onPress: () => void onAbort(action.reference!)
+        })
+      }
+      if (parked && action.txid) {
+        out.push({
+          key: 'cancel-parked',
+          label: t('pay_parked_cancel'),
+          icon: 'close-circle-outline',
+          danger: true,
+          onPress: () => void onCancelParked(action.txid)
+        })
+      }
+    return out
+  }
+
+
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item, index }) => {
@@ -1317,6 +1475,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           busy={busy}
           busyLabel={busyLabel}
           onToggle={toggleRow}
+          onOpen={setOpenTx}
           onExplorer={onExplorer}
           onRefreshTx={onRefreshTx}
           onAbort={onAbort}
@@ -1349,21 +1508,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // ── header (balance + the three destinations + activity heading) ─────
   const balanceParts = useMemo(
     () =>
-      balance === null ? null : formatAmountParts(balance, currency, satoshisPerUSD, { abbreviate: true, usdToFiat }),
-    [balance, currency, satoshisPerUSD, usdToFiat]
+      balance === null
+        ? null
+        : formatAmountParts(balance, displayCurrency, satoshisPerUSD, { abbreviate: true, usdToFiat }),
+    [balance, displayCurrency, satoshisPerUSD, usdToFiat]
   )
-
-  /** The line under the figure: the same money in the denominations the figure
-   * is not using, so the user never has to convert in their head. */
-  const balanceContext = useMemo(() => {
-    if (balance === null) return ''
-    const bsv = `${formatSatoshisAsBsvDecimal(balance)} BSV`
-    const other = formatAmount(balance, currency === 'BSV' ? 'USD' : 'BSV', satoshisPerUSD, {
-      abbreviate: true,
-      usdToFiat
-    })
-    return `${bsv}   ·   ${other}`
-  }, [balance, currency, satoshisPerUSD, usdToFiat])
 
   /**
    * Pinned above the list, not part of it.
@@ -1381,13 +1530,24 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     () => (
       <View>
         <TouchableOpacity
-          onPress={() => {
-            void refreshBalance()
-            if (heldAsset) mandala.refresh()
-          }}
+          /**
+           * Flips the denomination. Refreshing moved to the list's own
+           * pull gesture, so this tap means exactly one thing.
+           *
+           * A token has no price the wallet can stand behind (ux §6.1), so
+           * there is nothing to flip TO while one is on screen — the tap is
+           * inert rather than converting a stablecoin into an invented
+           * fiat figure.
+           */
+          onPress={heldAsset ? undefined : () => setFlipped(f => !f)}
+          disabled={Boolean(heldAsset)}
           activeOpacity={0.7}
           style={styles.balanceBlock}
-          accessibilityLabel={t('wallet_balance_refresh')}
+          accessibilityLabel={
+            heldAsset
+              ? undefined
+              : t('wallet_balance_toggle_denomination', { defaultValue: 'Switch denomination' })
+          }
           accessibilityValue={heroText ? { text: heroText } : undefined}
         >
           {/* With a token held, the coin switcher pill in the top bar IS the
@@ -1402,19 +1562,47 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             <ActivityIndicator color={colors.textSecondary} style={styles.balanceSpinner} />
           ) : (
             <>
-              <Text style={[styles.balance, { color: colors.textPrimary }]}>
-                {heroParts.value}
-                {heroParts.unit ? (
-                  <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}> {heroParts.unit}</Text>
-                ) : null}
-              </Text>
-              {/* Conversions are BSV's alone: the wallet has no price for a
-                  token, and a converted figure would be invented (ux §6.1).
-                  A token uses the line for its full name instead, so "1,240.00
-                  USDX" is never a ticker the holder has to decode. */}
-              <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>
-                {heldAsset ? heldAsset.asset.label || heldAsset.asset.issuerName || '' : balanceContext}
-              </Text>
+              {/* The minor units are set smaller and hung from the top, the
+                  way a price tag writes them — the figure a holder reads is
+                  the major unit, and cents that match it in size compete with
+                  it. Separate <Text>s in a row rather than nested runs
+                  because nested text baseline-aligns and cannot be raised.
+                  `splitAmountFraction` returns nothing to raise for an
+                  abbreviated figure, so "1.5k" stays one run. */}
+              {(() => {
+                const { head, frac, tail } = splitAmountFraction(heroParts.value)
+                return (
+                  <View style={styles.balanceRow}>
+                    <Text style={[styles.balance, { color: colors.textPrimary }]}>{head}</Text>
+                    {frac ? (
+                      <Text style={[styles.balanceFraction, { color: colors.textPrimary }]}>{frac}</Text>
+                    ) : null}
+                    {/* Tail and unit share ONE display-sized <Text> so the
+                        unit keeps baseline-aligning inside it, as it always
+                        has. Only the minor units are raised; hanging "sats"
+                        from the top too was never the ask. The wrapper's own
+                        font sets the line box even when `tail` is empty. */}
+                    {tail || heroParts.unit ? (
+                      <Text style={[styles.balance, { color: colors.textPrimary }]}>
+                        {tail}
+                        {heroParts.unit ? (
+                          <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}> {heroParts.unit}</Text>
+                        ) : null}
+                      </Text>
+                    ) : null}
+                  </View>
+                )
+              })()}
+              {/* A token keeps this line for its full name, so "1,240.00 USDX"
+                  is never a ticker the holder has to decode. BSV no longer
+                  carries a conversion line: the same money in the other
+                  denomination is one tap on the figure away, and printing
+                  both at once was two figures competing to be THE balance. */}
+              {heldAsset ? (
+                <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>
+                  {heldAsset.asset.label || heldAsset.asset.issuerName || ''}
+                </Text>
+              ) : null}
             </>
           )}
         </TouchableOpacity>
@@ -1465,15 +1653,12 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     [
       heroParts,
       heroText,
-      balanceContext,
       colors,
       t,
-      refreshBalance,
       router,
       selectedNetwork,
       hasTokens,
       heldAsset,
-      mandala,
       payDestination,
       destinationPress,
       MaterialCommunityIcons
@@ -1788,6 +1973,20 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         }}
       />
 
+      {/* One transaction, full screen. Rendered here rather than behind its
+          own route so the overflow menu can reach the very handlers the rows
+          use — including the overlay-authoritative cancel — instead of a
+          duplicate of them. */}
+      <SlideOverFromRight visible={openTx !== null} onClosed={() => setClosedTx(null)}>
+        {(openTx ?? closedTx) ? (
+          <TransactionDetailScreen
+            tx={detailParams((openTx ?? closedTx)!)}
+            getActions={() => detailActions((openTx ?? closedTx)!)}
+            onBack={() => setOpenTx(null)}
+          />
+        ) : null}
+      </SlideOverFromRight>
+
       <ImportFromBackupPrompt
         visible={!hasWallet && secretsReady && !walletBuilding && knownNoStoredIdentity}
         onImport={() => router.push('/auth/mnemonic?flow=import')}
@@ -1874,6 +2073,22 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontVariant: ['tabular-nums']
   },
+  // `flex-start` is what hangs the minor units from the top of the figure's
+  // line box; `baseline` would drop them back onto the baseline and undo it.
+  balanceRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  /**
+   * Roughly 55% of the display size — smaller than the major unit, larger than
+   * a true superscript, which at 44pt would be unreadable. `marginTop` matches
+   * the major run's so the two line boxes start together.
+   */
+  balanceFraction: {
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+    marginTop: 10,
+    fontVariant: ['tabular-nums']
+  },
   balanceUnit: { fontSize: 19, fontWeight: '600', letterSpacing: 0 },
   balanceContext: { fontSize: 13, lineHeight: 18, marginTop: 10, fontVariant: ['tabular-nums'] },
 
@@ -1888,10 +2103,13 @@ const styles = StyleSheet.create({
   listWrap: { flex: 1 },
   dest: {
     flex: 1,
+    // Icon sits beside the label, not above it, so all three destinations read
+    // as one horizontal row of controls.
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    borderRadius: 16,
+    borderRadius: radii.pill,
     paddingTop: 15,
     paddingBottom: 13,
     borderWidth: StyleSheet.hairlineWidth,

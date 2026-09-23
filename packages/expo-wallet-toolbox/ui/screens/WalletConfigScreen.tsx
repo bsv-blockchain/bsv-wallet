@@ -107,6 +107,19 @@ function loadExpoRouter(): ExpoRouterModule {
   return expoRouterMod
 }
 
+/**
+ * Demo mode, or null in anything but a dev bundle.
+ *
+ * Required at module scope behind `__DEV__` so a release build inlines the
+ * flag as false and folds the require — and the whole demo folder — out.
+ * Same pattern as `utils/AgentationGate.tsx`.
+ */
+type DemoModule = typeof import('../../core/demo')
+const demoMod: DemoModule | null = __DEV__
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (require('../../core/demo') as DemoModule)
+  : null
+
 /** The three serials the DEV mock can present, cycled by the selector row below. */
 type MockPresentKey = Parameters<typeof setMockPresentKey>[0]
 const NEXT_MOCK_KEY: Record<MockPresentKey, MockPresentKey> = {
@@ -123,6 +136,7 @@ export function WalletConfigScreen() {
   const { section } = useLocalSearchParams<{ section?: string }>()
   const openBackup = section === 'backup'
   const Ionicons = loadIonicons()
+
   const {
     managers,
     adminOriginator,
@@ -143,6 +157,7 @@ export function WalletConfigScreen() {
   // Not read from getMockPresentKey() at mount: the mock is off by default and
   // the row is hidden until the toggle turns it on, at which point it syncs.
   const [mockPresent, setMockPresent] = useState<MockPresentKey>('MOCK-DEV-1')
+  const [demoOn, setDemoOn] = useState(() => demoMod?.isDemoModeEnabled() ?? false)
   const [isImporting, setIsImporting] = useState(false)
   const [vaultMockOn, setVaultMockOn] = useState(false)
   const [backupPushOn, setBackupPushOn] = useState(true)
@@ -785,6 +800,33 @@ export function WalletConfigScreen() {
           {/* ── Data & Security ── */}
           <View onLayout={event => setBackupSectionY(event.nativeEvent.layout.y)}>
           <GroupedSection header={t('data_and_security')}>
+            {/* Demo mode: a wallet full of obviously-fake BSV and stablecoins,
+                for showing the app without an account or a balance. Literal
+                copy rather than i18n — this row renders only under `__DEV__`
+                and never reaches a release build, so it is not user copy. */}
+            {__DEV__ && demoMod && (
+              <ListRow
+                label="Demo mode (dev)"
+                icon="flask-outline"
+                iconColor="#8E8E93"
+                showChevron={false}
+                value={demoOn ? 'On' : 'Off'}
+                onPress={() => {
+                  const next = !demoOn
+                  setDemoOn(next)
+                  demoMod.setDemoModeEnabled(next)
+                }}
+              />
+            )}
+            {__DEV__ && demoMod && demoOn && (
+              <ListRow
+                label="Reset demo data (dev)"
+                icon="refresh-outline"
+                iconColor="#8E8E93"
+                showChevron={false}
+                onPress={() => demoMod.resetDemoLedger()}
+              />
+            )}
             {/* Vault's primary entry lives on the wallet menu (below Payments).
                 The DEV mock toggle stays here. */}
             {__DEV__ && (
