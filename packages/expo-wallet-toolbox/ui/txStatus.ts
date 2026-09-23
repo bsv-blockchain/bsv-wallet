@@ -38,20 +38,27 @@ export function isPaymentAction(labels?: readonly string[]): boolean {
   return Boolean(labels?.some(l => PAYMENT_LABELS.has(l)))
 }
 
+/** What a row says it did once it settles. Its i18n key is `tx_status_<kind>`. */
+export type ActivityKind = 'sent' | 'received' | 'spent' | 'transferred'
+
+/**
+ * The one place a row's word is decided, so the status line and the activity
+ * filter can never disagree about which word a row says.
+ */
+export function activityKind(incoming: boolean | undefined, labels?: readonly string[]): ActivityKind {
+  // A vault move stays the holder's money whichever way it goes.
+  if (labels?.includes('vault')) return 'transferred'
+  if (incoming) return 'received'
+  return isPaymentAction(labels) ? 'sent' : 'spent'
+}
+
 export function txStatusView(
   status: string,
   offlineStatus?: string,
   incoming?: boolean,
   labels?: readonly string[]
 ): TxStatusView {
-  // A vault move stays the holder's money whichever way it goes.
-  const done = labels?.includes('vault')
-    ? 'tx_status_transferred'
-    : incoming
-      ? 'tx_status_received'
-      : isPaymentAction(labels)
-        ? 'tx_status_sent'
-        : 'tx_status_spent'
+  const done = `tx_status_${activityKind(incoming, labels)}`
 
   switch (offlineStatus) {
     case 'queued':

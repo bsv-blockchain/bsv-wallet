@@ -17,12 +17,14 @@
  * the screen is a shallow gradient with cards lifted off it, which is what makes
  * the balance read as the focal point in both appearances.
  */
-import React, { useState, useEffect, useCallback, useRef, useMemo, useContext } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo, useContext, useDeferredValue } from 'react'
 import {
   View,
   Text,
   FlatList,
+  ScrollView,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   ActivityIndicator,
   Linking,
@@ -99,6 +101,16 @@ import { tokenRowStatusView } from '../tokenStatus'
 import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
 import AssetSwitcherDropdown, { BSV_LABEL } from '../components/wallet/AssetSwitcherDropdown'
 import { exportTransactionsAsCsv } from '../exportTransactions'
+import {
+  ACTIVITY_KIND_FILTERS,
+  contactNamesByKey,
+  isActivityFilterActive,
+  kindFilterLabelKey,
+  matchesActivity,
+  searchTerms,
+  type ActivityKindFilter,
+  type ContactNames
+} from '../activityFilter'
 import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
 import ScrollFade, { sampleScreenGradient } from '../components/ui/ScrollFade'
@@ -449,6 +461,46 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const [loadingMore, setLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
+  // ── activity filter ──────────────────────────────────────────────────
+  /**
+   * The filter lives only while its panel is open: closing it puts every row
+   * back, so a closed panel can never be the reason a payment is missing.
+   */
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filterQuery, setFilterQuery] = useState('')
+  const [filterKind, setFilterKind] = useState<ActivityKindFilter>('all')
+  // Typing stays responsive on a long history: the list catches up a beat
+  // behind the keystroke instead of every keystroke waiting on the list.
+  const deferredQuery = useDeferredValue(filterQuery)
+  const activityFilter = useMemo(
+    () => ({ kind: filterKind, terms: searchTerms(deferredQuery) }),
+    [filterKind, deferredQuery]
+  )
+  const filterActive = isActivityFilterActive(activityFilter)
+  const toggleFilter = useCallback(() => {
+    setFilterOpen(open => !open)
+    setFilterQuery('')
+    setFilterKind('all')
+  }, [])
+  /** Saved contacts' names and handles, so a search can name who a row was with. */
+  const [contactNames, setContactNames] = useState<ReadonlyMap<string, ContactNames>>(new Map())
+  // Re-read on every open: a contact saved or renamed since the last search
+  // should be findable by the name it has now.
+  useEffect(() => {
+    if (!filterOpen || !contactsStore || walletUserId == null) return
+    let cancelled = false
+    contactsStore.listContacts(walletUserId).then(
+      contacts => {
+        if (!cancelled) setContactNames(contactNamesByKey(contacts))
+      },
+      () => {
+        // A search that cannot name contacts still searches every note.
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [filterOpen, contactsStore, walletUserId])
   const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
   /** What the row's spinner is currently waiting on. */
   const [busyLabel, setBusyLabel] = useState<string | undefined>(undefined)
@@ -478,6 +530,16 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   /** Set once the server has no more rows, so onEndReached stops re-querying at
    * the bottom of the list. Cleared whenever the list is refetched from 0. */
   const exhaustedRef = useRef(false)
+  /** The same fact as state, for render: a filtered list that is empty has
+   * only found nothing once there is no older history left to search. */
+  const [historyExhausted, setHistoryExhausted] = useState(false)
+  const markExhausted = useCallback((exhausted: boolean) => {
+    exhaustedRef.current = exhausted
+    setHistoryExhausted(exhausted)
+  }, [])
+  /** An older page failed to load. Stops the automatic paging below from
+   * retrying in a loop; the next refetch from 0 clears it. */
+  const [olderPageFailed, setOlderPageFailed] = useState(false)
   /** Synchronous in-flight latch for loadMore (state updates are async). */
   const inFlightRef = useRef(false)
 
@@ -619,8 +681,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     setActions([])
     setOfflineByTxid(new Map())
     offsetRef.current = 0
-    exhaustedRef.current = false
-  }, [selectedNetwork])
+    markExhausted(false)
+    setOlderPageFailed(false)
+  }, [selectedNetwork, markExhausted])
 
   useEffect(() => {
     let cancelled = false
@@ -797,7 +860,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         setActions(result.actions as ActivityAction[])
         offsetRef.current = result.actions.length
         // A fresh first page may have more behind it again.
-        exhaustedRef.current = result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
+        markExhausted(result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0))
+        setOlderPageFailed(false)
         setLoading(false)
       } catch {
         if (cancelled) return
@@ -839,15 +903,16 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       }
       // A short page means the end; so does reaching the reported total.
       if (page.length < PAGE_SIZE || offsetRef.current >= (result?.totalActions ?? 0)) {
-        exhaustedRef.current = true
+        markExhausted(true)
       }
     } catch {
       // Keep existing rows; a failed page is not the end of the list.
+      setOlderPageFailed(true)
     } finally {
       inFlightRef.current = false
       setLoadingMore(false)
     }
-  }, [fetchActions, loading])
+  }, [fetchActions, loading, markExhausted])
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -866,7 +931,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       if (result) {
         setActions(result.actions as ActivityAction[])
         offsetRef.current = result.actions.length
-        exhaustedRef.current = result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0)
+        markExhausted(result.actions.length < PAGE_SIZE || result.actions.length >= (result.totalActions ?? 0))
+        setOlderPageFailed(false)
       }
       setAttentionCount(TaskCreditInbox.lastAttentionCount)
       setUnsentCount(unsentEntries(entries).length)
@@ -875,7 +941,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     } finally {
       setRefreshing(false)
     }
-  }, [fetchActions, refreshBalance, fetchOfflineRows, storage])
+  }, [fetchActions, refreshBalance, fetchOfflineRows, storage, markExhausted])
 
   const onExport = useCallback(async () => {
     if (exporting || actions.length === 0 || !managers.permissionsManager) return
@@ -1284,16 +1350,6 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     }
     return actions.filter(a => !a.labels?.includes('mandala'))
   }, [actions, hasTokens, heldAsset, tokenByTxid])
-  const rows = useMemo(() => withDayHeaders(visibleActions, t), [visibleActions, t])
-
-  // A filtered page can come up short — or empty — while the server still has
-  // more, and a list too short to scroll never fires onEndReached. Keep
-  // paging until the visible list is a page long or the history is spent.
-  useEffect(() => {
-    if (!hasTokens || loading || loadingMore || actions.length === 0) return
-    if (visibleActions.length >= PAGE_SIZE || exhaustedRef.current) return
-    void loadMore()
-  }, [hasTokens, loading, loadingMore, actions.length, visibleActions.length, loadMore])
 
   /** Cancel a parked payment: abort the action so the inputs come back, and
    * retire its queue row. Refuses once the counterparty has broadcast. */
@@ -1374,6 +1430,38 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     }
     return map
   }, [tokenByTxid, actions, t])
+
+  /** The coin's rows, narrowed further while the activity filter is in use. */
+  const filteredActions = useMemo(() => {
+    if (!filterActive) return visibleActions
+    return visibleActions.filter(action => {
+      // Same token lookup as `renderItem`: the filter reads the row it draws.
+      const key = action.txid || action.reference || ''
+      const token = action.labels?.includes('mandala') ? tokenProps.get(key) : undefined
+      return matchesActivity(action, token, activityFilter, contactNames)
+    })
+  }, [visibleActions, filterActive, activityFilter, contactNames, tokenProps])
+  const rows = useMemo(() => withDayHeaders(filteredActions, t), [filteredActions, t])
+
+  // A filtered page can come up short — or empty — while the server still has
+  // more, and a list too short to scroll never fires onEndReached. Keep
+  // paging until the visible list is a page long or the history is spent.
+  // A search pages the same way, so a note from months back is still found.
+  useEffect(() => {
+    if ((!hasTokens && !filterActive) || loading || loadingMore || actions.length === 0) return
+    if (filteredActions.length >= PAGE_SIZE || historyExhausted || olderPageFailed) return
+    void loadMore()
+  }, [
+    hasTokens,
+    filterActive,
+    loading,
+    loadingMore,
+    actions.length,
+    filteredActions.length,
+    historyExhausted,
+    olderPageFailed,
+    loadMore
+  ])
 
   /** The row's own display fields, in the shape the detail view draws from. */
   // Plain functions, not `useCallback`: each runs at most once per render (only
@@ -1748,30 +1836,133 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
 
         <View style={styles.activityHead}>
           <Text style={[styles.activityTitle, { color: colors.textPrimary }]}>{t('wallet_activity')}</Text>
-          <TouchableOpacity
-            onPress={onExport}
-            disabled={exporting || actions.length === 0}
-            hitSlop={8}
-            style={[styles.exportBtn, { borderColor: colors.surfaceRaisedBorder }]}
-            accessibilityRole="button"
-            accessibilityLabel={t('tx_export_csv')}
-          >
-            {exporting ? (
-              <ActivityIndicator size="small" color={colors.textSecondary} />
-            ) : (
-              <Ionicons
-                name="download-outline"
-                size={12}
-                color={actions.length === 0 ? colors.textTertiary : colors.textSecondary}
-              />
-            )}
-            <Text
-              style={[styles.exportLabel, { color: actions.length === 0 ? colors.textTertiary : colors.textSecondary }]}
+          <View style={styles.activityTools}>
+            {/* Filled while open, like a selected chip below it: the panel it
+                controls is on screen, so the button says it is on. */}
+            <TouchableOpacity
+              onPress={toggleFilter}
+              // Never disabled while open: an emptied list (a network switch)
+              // must not strand the panel with no way to close it.
+              disabled={actions.length === 0 && !filterOpen}
+              hitSlop={8}
+              style={[
+                styles.filterBtn,
+                filterOpen
+                  ? { backgroundColor: colors.accent, borderColor: colors.accent }
+                  : { borderColor: colors.surfaceRaisedBorder }
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={t('activity_filter')}
+              accessibilityState={{ expanded: filterOpen }}
             >
-              {t('tx_export_csv')}
-            </Text>
-          </TouchableOpacity>
+              <Ionicons
+                name="filter-outline"
+                size={14}
+                color={
+                  filterOpen ? colors.textOnAccent : actions.length === 0 ? colors.textTertiary : colors.textSecondary
+                }
+              />
+            </TouchableOpacity>
+            {/* "Export", not "Export CSV", to leave the filter room beside it;
+                a screen reader still hears the format. */}
+            <TouchableOpacity
+              onPress={onExport}
+              disabled={exporting || actions.length === 0}
+              hitSlop={8}
+              style={[styles.exportBtn, { borderColor: colors.surfaceRaisedBorder }]}
+              accessibilityRole="button"
+              accessibilityLabel={t('tx_export_csv')}
+            >
+              {exporting ? (
+                <ActivityIndicator size="small" color={colors.textSecondary} />
+              ) : (
+                <Ionicons
+                  name="download-outline"
+                  size={12}
+                  color={actions.length === 0 ? colors.textTertiary : colors.textSecondary}
+                />
+              )}
+              <Text
+                style={[
+                  styles.exportLabel,
+                  { color: actions.length === 0 ? colors.textTertiary : colors.textSecondary }
+                ]}
+              >
+                {t('tx_export')}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {filterOpen ? (
+          <View style={styles.filterPanel}>
+            <View
+              style={[
+                styles.searchRow,
+                { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
+              ]}
+            >
+              <Ionicons name="search" size={16} color={colors.textSecondary} />
+              <TextInput
+                value={filterQuery}
+                onChangeText={setFilterQuery}
+                placeholder={t('activity_search_placeholder')}
+                placeholderTextColor={colors.textTertiary}
+                autoFocus
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                style={[styles.searchInput, { color: colors.textPrimary }]}
+              />
+              {filterQuery.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setFilterQuery('')}
+                  style={styles.clearBtn}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('activity_search_clear')}
+                >
+                  <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {/* Scrolls sideways rather than wrapping: five chips in a longer
+                language run past a phone's width, and a second row of them
+                would push the list down further than the filter is worth. */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.kindChips}
+            >
+              {ACTIVITY_KIND_FILTERS.map(kind => {
+                const selected = filterKind === kind
+                const label = t(kindFilterLabelKey(kind))
+                return (
+                  <TouchableOpacity
+                    key={kind}
+                    onPress={() => setFilterKind(kind)}
+                    style={[
+                      styles.kindChip,
+                      selected
+                        ? { backgroundColor: colors.accent, borderColor: colors.accent }
+                        : { borderColor: colors.surfaceRaisedBorder }
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
+                    accessibilityState={{ selected }}
+                  >
+                    <Text
+                      style={[styles.kindChipLabel, { color: selected ? colors.textOnAccent : colors.textSecondary }]}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
     ),
     [
@@ -1780,6 +1971,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       onExport,
       exporting,
       actions.length,
+      filterOpen,
+      filterQuery,
+      filterKind,
+      toggleFilter,
       pendingResends.length,
       stuckBadges,
       resending,
@@ -1885,6 +2080,14 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                   <Text style={[styles.emptyRetryLabel, { color: colors.accent }]}>{t('activity_load_retry')}</Text>
                 </PressableScale>
               </View>
+            ) : filterActive ? (
+              // Nothing found YET is not nothing found: until older history
+              // is spent, the search is still paging through it.
+              historyExhausted || olderPageFailed ? (
+                <Text style={[styles.empty, { color: colors.textSecondary }]}>{t('activity_filter_no_match')}</Text>
+              ) : (
+                <ActivityIndicator style={styles.pad} color={colors.textSecondary} />
+              )
             ) : (
               <Text style={[styles.empty, { color: colors.textSecondary }]}>
                 {heldAsset
@@ -1893,6 +2096,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
               </Text>
             )
           }
+          // The filter's search field lives in the header: a tap on a chip
+          // or a row must land the first time, not just drop the keyboard.
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           onEndReached={loadMore}
           onEndReachedThreshold={0.3}
           refreshing={refreshing}
@@ -2119,16 +2326,50 @@ const styles = StyleSheet.create({
     paddingBottom: 10
   },
   activityTitle: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
+  activityTools: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  // Same height as the Export pill beside it, so the two read as one set.
+  filterBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   exportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    height: 28,
     paddingHorizontal: 11,
-    paddingVertical: 6,
     borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth
   },
   exportLabel: { fontSize: 12, fontWeight: '600' },
+
+  // The chip row scrolls edge to edge, so only the search field is inset.
+  filterPanel: { gap: spacing.md, paddingBottom: spacing.sm },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.xl,
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth
+  },
+  searchInput: { ...typography.subhead, flex: 1, paddingVertical: spacing.sm, paddingHorizontal: 0 },
+  clearBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  kindChips: { gap: spacing.sm, paddingHorizontal: spacing.xl },
+  kindChip: {
+    height: 30,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center'
+  },
+  kindChipLabel: { fontSize: 13, fontWeight: '600' },
 
   dayHeader: {
     fontSize: 10.5,

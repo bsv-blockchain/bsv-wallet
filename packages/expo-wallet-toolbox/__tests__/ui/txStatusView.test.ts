@@ -1,4 +1,24 @@
-import { txStatusView } from '../../ui/txStatus'
+import { activityKind, txStatusView } from '../../ui/txStatus'
+
+describe('activityKind', () => {
+  it('reads a vault move as Transferred in either direction', () => {
+    expect(activityKind(false, ['vault', 'vault-deposit'])).toBe('transferred')
+    expect(activityKind(true, ['vault', 'vault-withdraw'])).toBe('transferred')
+  })
+
+  it('reads incoming as Received, whatever made it', () => {
+    expect(activityKind(true, ['some-app-label'])).toBe('received')
+    expect(activityKind(true, undefined)).toBe('received')
+  })
+
+  it('reads outgoing as Sent from a Pay rail, Spent otherwise', () => {
+    for (const label of ['peerpay', 'localpay', 'legacy', 'mandala']) {
+      expect(activityKind(false, [label])).toBe('sent')
+    }
+    expect(activityKind(false, ['some-app-label'])).toBe('spent')
+    expect(activityKind(false, undefined)).toBe('spent')
+  })
+})
 
 describe('txStatusView', () => {
   it('says Sent/Received once broadcast, before and after the block proof', () => {
