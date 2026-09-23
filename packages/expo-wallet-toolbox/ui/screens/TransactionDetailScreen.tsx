@@ -28,6 +28,7 @@ import {
   radii,
   typography,
   useWallet,
+  useWalletManagers,
   formatAmount,
   formatSatoshisExact,
   isFiatCurrency,
@@ -131,6 +132,25 @@ export default function TransactionDetailScreen({
   const currency = settings?.currency || 'BSV'
   const [menuActions, setMenuActions] = useState<TransactionAction[] | null>(null)
   const [contact, setContact] = useState<ContactRow | undefined>(undefined)
+
+  const { storage } = useWalletManagers()
+  /** undefined while looking, null when the transaction is not in a block yet. */
+  const [blockHeight, setBlockHeight] = useState<number | null | undefined>(undefined)
+  useEffect(() => {
+    if (!tx.txid || !storage) return
+    let cancelled = false
+    storage
+      .getProvenTxHeight(tx.txid)
+      .then(h => {
+        if (!cancelled) setBlockHeight(h)
+      })
+      .catch(() => {
+        if (!cancelled) setBlockHeight(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tx.txid, storage])
 
   const counterpartyKey = tx.counterpartyKey
   useEffect(() => {
@@ -258,6 +278,18 @@ export default function TransactionDetailScreen({
         <DetailRow label={t('tx_detail_status', { defaultValue: 'Status' })} value={statusText} />
         <DetailRow label={t('tx_detail_date', { defaultValue: 'Date' })} value={formatFullDate(tx.createdAt) || '—'} />
         <DetailRow label={t('tx_detail_amount', { defaultValue: 'Amount' })} value={exact || '—'} />
+        {tx.txid ? (
+          <DetailRow
+            label={t('tx_detail_block')}
+            value={
+              blockHeight === undefined
+                ? '—'
+                : blockHeight === null
+                  ? t('tx_detail_block_pending')
+                  : String(blockHeight)
+            }
+          />
+        ) : null}
         {tx.txid ? (
           <DetailRow
             label={t('tx_detail_txid', { defaultValue: 'Transaction ID' })}

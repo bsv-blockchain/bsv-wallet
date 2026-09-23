@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite'
 import { createTables, ensureOfflineActionsColumns } from './schema/createTables'
 import {
   PROVEN_HEIGHTS_SQL,
+  PROVEN_HEIGHT_SQL,
   buildFindSql,
   columnsExcluding,
   rangeReadSql,
@@ -1651,6 +1652,13 @@ export class StorageExpoSQLite extends StorageProvider {
       if (r.txid && typeof r.height === 'number') map.set(r.txid, r.height)
     }
     return map
+  }
+
+  /** The block height of a proven transaction, or null while it is unproven. */
+  async getProvenTxHeight(txid: string): Promise<number | null> {
+    if (!this.isAvailable()) await this.makeAvailable()
+    const row = (await this.getDB().getFirstAsync(PROVEN_HEIGHT_SQL, [txid])) as { height?: number } | null
+    return typeof row?.height === 'number' ? row.height : null
   }
 
   async getRawTxOfKnownValidTransaction(

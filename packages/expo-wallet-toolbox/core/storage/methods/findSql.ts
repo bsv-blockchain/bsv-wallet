@@ -204,6 +204,9 @@ export function rangeReadSql(table: 'proven_txs' | 'proven_tx_reqs'): string {
  */
 export const PROVEN_HEIGHTS_SQL = 'SELECT txid, height FROM proven_txs'
 
+/** One transaction's block height, without reading its rawTx or merklePath. */
+export const PROVEN_HEIGHT_SQL = 'SELECT height FROM proven_txs WHERE txid = ? LIMIT 1'
+
 /**
  * The transactions that have reserved the given outpoints, by `reference`.
  *
