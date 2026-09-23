@@ -31,8 +31,11 @@ export function parseExternalOrigin(raw: string): ExternalOrigin {
   }
 
   const originator = url.port ? `${url.hostname.toLowerCase()}:${url.port}` : url.hostname.toLowerCase()
-  // Defense in depth if the internal label ever changes back to something URL-shaped.
-  if (originator === ADMIN_ORIGINATOR.toLowerCase() || url.origin.toLowerCase() === ADMIN_ORIGINATOR.toLowerCase()) {
+  // The wallet's own authority lives in the reserved `.invalid` TLD (see
+  // ADMIN_ORIGINATOR). No real origin can be served from it, so refuse the
+  // whole TLD rather than only the exact label.
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
+  if (hostname === 'invalid' || hostname.endsWith('.invalid') || originator === ADMIN_ORIGINATOR.toLowerCase()) {
     throw new Error('Origin is reserved for the wallet')
   }
   return { origin: url.origin, originator }

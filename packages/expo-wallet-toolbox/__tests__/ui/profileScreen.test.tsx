@@ -81,7 +81,8 @@ const mockPermissionsManager = {
   }),
   createSignature: jest.fn(async (_args: unknown, originator?: string) => {
     if (!originator?.trim()) throw new Error('Originator is required for permission checks.')
-    return { signature: [1] }
+    // Minimal well-formed DER (r = 1, s = 1): the SDK parses what it is handed.
+    return { signature: [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01] }
   })
 }
 jest.mock('@bsv/expo-wallet-toolbox', () => ({

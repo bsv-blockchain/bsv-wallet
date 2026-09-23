@@ -28,7 +28,7 @@ async function mint(
   const pub = key.toPublicKey().toString()
   const certificate = new Certificate(
     overrides.type ?? PROFILE_CERT_TYPE,
-    'c2VyaWFsc2VyaWFsc2VyaWFsc2VyaWFsc2VyaWFscw==',
+    'c2VyaWFsc2VyaWFsc2VyaWFsc2VyaWFsc2VyaWFsc2U=', // 32 bytes; the SDK rejects any other serial length
     overrides.subject ?? pub,
     pub,
     overrides.revocationOutpoint ?? ZERO_OUTPOINT,
@@ -283,14 +283,13 @@ describe('verifyProfileCertificate', () => {
     expect(console.log).toHaveBeenCalledTimes(2)
   })
 
-  // A forged certificate reaches the same bucket (the SDK throws rather than
-  // answering false), so the one line it does get must carry the SDK's own
-  // words or a registry problem is undebuggable.
-  it('reports what the first throwing certificate actually said', async () => {
+  // The SDK answers false for a forged certificate (it threw before 2.8), so
+  // a forgery is named as one rather than lumped in with verification throws.
+  it('reports a forged certificate as a signature that does not verify', async () => {
     const cert = await mint(key, { ...good(), displayName: 'Dee K' })
     cert.fields.displayName = 'Someone Else'
     expect(await verifyProfileCertificate(cert, { domain: DOMAIN })).toBeNull()
     expect(console.log).toHaveBeenCalledTimes(1)
-    expect((console.log as jest.Mock).mock.calls[0].join(' ')).toContain('Signature is not valid')
+    expect((console.log as jest.Mock).mock.calls[0].join(' ')).toContain('signature does not verify')
   })
 })

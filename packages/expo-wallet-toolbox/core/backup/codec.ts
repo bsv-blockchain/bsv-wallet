@@ -16,12 +16,12 @@
  */
 import type { CompletedProtoWallet } from '@bsv/sdk'
 import { Utils } from '@bsv/sdk'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import {
   parseJsonRpc,
   stringifyJsonRpc
-} from '@bsv/wallet-toolbox-mobile/out/src/storage/remoting/BinaryJson'
+} from '@bsv/wallet-toolbox-mobile'
 import { BACKUP_PROTOCOL, backupKeyId, type BackupChain } from './constants'
+import type { SyncChunk } from '../toolboxTypes'
 
 /**
  * Minimum length before a numeric array is worth packing as bytes.

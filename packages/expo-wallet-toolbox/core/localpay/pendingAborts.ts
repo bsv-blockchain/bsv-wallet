@@ -4,6 +4,8 @@
  * A failed abort is a stuck UTXO, not a lost payment. The decline still
  * stands; the reference is retried on the next wallet build.
  */
+import { ADMIN_ORIGINATOR, LEGACY_ADMIN_ORIGINATOR } from '../config'
+
 interface StorageLike {
   getKeyValue: (key: string) => Promise<string | undefined>
   setKeyValue: (key: string, value: string) => Promise<void>
@@ -28,7 +30,9 @@ export async function loadPendingAborts(storage: StorageLike): Promise<PendingAb
       const reference = (item as { reference?: unknown }).reference
       const originator = (item as { originator?: unknown }).originator
       if (typeof reference === 'string' && reference && typeof originator === 'string') {
-        out.push({ reference, originator })
+        // An abort queued before the internal label moved into hostname space
+        // would otherwise fail originator validation on every replay, forever.
+        out.push({ reference, originator: originator === LEGACY_ADMIN_ORIGINATOR ? ADMIN_ORIGINATOR : originator })
       }
     }
     return out

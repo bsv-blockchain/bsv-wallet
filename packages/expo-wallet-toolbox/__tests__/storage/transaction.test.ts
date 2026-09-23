@@ -11,7 +11,7 @@
  * through the token, and everything else stays on the main connection.
  */
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
-import type { TrxToken } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
+import type { TrxToken } from '../../core/toolboxTypes'
 
 const NOW = '2026-09-02T00:00:00.000Z'
 

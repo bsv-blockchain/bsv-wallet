@@ -59,9 +59,13 @@ export function createWalletMonitorOptions(
 /**
  * Construct a Monitor and await `ready` so `_init` registers
  * `subscribeReorgs` / `subscribeHeaders` on `chaintracksWithEvents`.
- * Subscribe failures must not kill the rest of the task loop: the HTTP
- * ChaintracksServiceClient still throws "Method not implemented" for those
- * methods, and TaskReviewProvenTxs is the backup audit in that case.
+ * Subscribe failures must not kill the rest of the task loop, and since
+ * toolbox 2.13 `Monitor.runOnce` re-awaits `ready` on every pass, so a
+ * rejected `ready` would stop every task. OfflineFirstChaintracks therefore
+ * answers `getChain` locally and degrades an unsupported subscription (the
+ * HTTP ChaintracksServiceClient throws "Method not implemented") to an inert
+ * one; TaskReviewProvenTxs is the backup audit in that case. The warning
+ * below is left for a chaintracks that rejects anyway.
  */
 export async function createWalletMonitor(
   options: ReturnType<typeof Monitor.createDefaultWalletMonitorOptions>

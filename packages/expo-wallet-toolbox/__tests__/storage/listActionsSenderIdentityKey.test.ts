@@ -6,9 +6,9 @@
  * under test: a renamed column or a filter that stops matching fails here.
  */
 import { DatabaseSync } from 'node:sqlite'
-import type { TrxToken } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { createTables } from '../../core/storage/schema/createTables'
+import type { TrxToken } from '../../core/toolboxTypes'
 
 const NOW = '2026-09-01T00:00:00.000Z'
 const KEY_A = '02' + 'a'.repeat(64)

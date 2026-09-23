@@ -676,7 +676,8 @@ describe('MandalaTokenModule', () => {
           new MandalaTokenModule({
             adminOriginator: ADMIN_ORIGINATOR,
             requestTokenAccess: undefined as any,
-            resolveAssetMetadata: async () => null
+            resolveAssetMetadata: async () => null,
+            listTokenOutpoints: jest.fn().mockResolvedValue(new Set<string>())
           })
       ).toThrow('requestTokenAccess callback is required')
     })
@@ -687,7 +688,8 @@ describe('MandalaTokenModule', () => {
           new MandalaTokenModule({
             adminOriginator: '' as any,
             requestTokenAccess: jest.fn(),
-            resolveAssetMetadata: async () => null
+            resolveAssetMetadata: async () => null,
+            listTokenOutpoints: jest.fn().mockResolvedValue(new Set<string>())
           })
       ).toThrow('adminOriginator is required')
     })

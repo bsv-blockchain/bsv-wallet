@@ -1,5 +1,190 @@
 # Changelog
 
+## 0.7.0
+
+0.6.0 was tagged in this file but never published to npm. Hosts upgrading from
+0.5.0 should read both sections.
+
+### @bsv dependency bump (breaking for hosts)
+
+Peer ranges move to `@bsv/sdk` ^2.8.0, `@bsv/wallet-toolbox-mobile` ^2.13.2,
+`@bsv/message-box-client` ^2.5.1, `@bsv/templates` ^1.10.2,
+`@bsv/btms-permission-module` ^1.2.1 and `@bsv/air-gap` ^0.1.3.
+
+Hosts must carry this repo's `patches/` for those exact versions:
+`@bsv/wallet-toolbox-mobile` 2.13 ships as one bundle whose exports map exposes
+only its root, so the package now imports everything from the root, and the
+toolbox patch also exports `WalletMonitorTask`, `attemptToPostReqsToNetwork`,
+`parseJsonRpc`, `stringifyJsonRpc` and `verifyUnlockScripts`, which upstream
+leaves internal. The Vault hooks, sendMax approval amounts and native-crypto
+routing live in the same patches. `@bsv/templates` 1.10.2's CommonJS build is
+broken under Node without its patch (bundlers resolve the ESM build).
+
+- `ADMIN_ORIGINATOR` is now `internal-admin.bsv-wallet.invalid`. @bsv/sdk 2.8
+  accepts only canonical hostnames as originators, so the old
+  `urn:bsv-wallet:internal-admin` label rejected every internal wallet call.
+  `parseExternalOrigin` refuses the whole `.invalid` TLD, and pending aborts
+  queued under the old label replay under the new one
+  (`LEGACY_ADMIN_ORIGINATOR`).
+- `OfflineFirstChaintracks` takes an optional third `chain` argument and
+  answers `getChain` from it; an unsupported subscription resolves to an inert
+  id instead of throwing. The toolbox Monitor awaits both inside every
+  `runOnce` since 2.13, so a throw there stopped every monitor task.
+- Header validation uses the toolbox's `validateHeaderProofOfWork`, which
+  checks the compact target encoding and honours its consensus exceptions.
+
+### Transaction detail and activity words (breaking for direct callers)
+
+- Tapping an activity row opens a full-screen transaction detail view, pushed
+  in from the right, instead of expanding the row in place. The utilities that
+  used to unfold under a row live in the view's overflow menu. New `ui`
+  exports: `TransactionDetailScreen` (default) with its `TransactionDetailParams`
+  and `TransactionAction` types, and `SlideOverFromRight` (default, props
+  `{ visible, onClosed?, children }`). `ActivityRow` takes an optional
+  `onOpen?: (action: ActivityAction) => void`; when given, a tap calls it and
+  the old inline expansion is not rendered. Its `token` prop gains an optional
+  `status?: TxStatusView`.
+- The detail view's headline is the exact satoshi count the transaction moved,
+  never shortened or converted to BSV. When the display currency is fiat, the
+  fiat amount is a separate line beneath it. A `Block` row shows the block
+  height from local storage (one-row query, no network); an unproven
+  transaction reads "Waiting for a block." `StorageExpoSQLite` gains
+  `getProvenTxHeight(txid): Promise<number | null>`.
+- A BSV row says what it did from the moment it is handed to the network:
+  `completed`, `unproven` and `sending` all read "Sent" or "Received" instead
+  of "Confirmed", "Accepted" and "Broadcasting". An outgoing action that no
+  Pay / Get paid rail made (no `peerpay`, `localpay`, `legacy` or `mandala`
+  label: a connected app or the wallet itself) reads "Spent". Vault deposits,
+  withdrawals and relocks read "Transferred" in either direction.
+- `txStatusView(status, offlineStatus?, incoming?, labels?)` takes two new
+  optional arguments. **A host calling it directly must pass `incoming` (and
+  `labels`)**: without them, `completed`, `unproven` and `sending` now resolve
+  to "Spent". New exports from `ui/txStatus.ts`: `activityKind(incoming,
+  labels)`, the one place a row's word is decided, returning the new
+  `ActivityKind` (`'sent' | 'received' | 'spent' | 'transferred'`), and
+  `isPaymentAction(labels)`.
+- Token (Mandala) rows use the same words: "Sent" or "Received" once settled,
+  "Pending" while settling. Only `refused`, `reversed` and `stuck` keep their
+  own word. New `ui` export `tokenRowStatusView(status, incoming)`.
+- A row shows its status dot only when its tone is not the quiet settled one
+  (in flight, needs attention, failed), so a normal history is no longer a
+  column of dots.
+
+### Activity filter and search
+
+- A filter button beside Export opens a search field with All / Sent /
+  Received / Spent / Transferred chips; the list narrows as the user types or
+  picks a chip. Search matches every typed word, in any order, case- and
+  accent-insensitive, against the row's note (or the name recorded at send)
+  and a saved contact's name and handle for its counterparty. It is local only:
+  no network lookups, so a non-contact's handle is found only if the note says
+  it. A leading `@` is ignored. While a filter is active the list pages into
+  older history, and "No matching activity" shows only once history is
+  exhausted. Closing the panel clears the search and resets to All.
+- The Export button reads "Export" (`tx_export`); its accessibility label is
+  still `tx_export_csv`. CSV export ignores the filter and writes the full
+  history.
+
+### Amounts
+
+- New `core` exports: `formatSatoshisExact(satoshis, showPlus?)`, the exact
+  satoshi count for the detail view; `splitAmountFraction(value)`, which splits
+  a formatted amount so its minor units can be drawn smaller; and
+  `getNumberLocale()`, the device locale every amount formatter prints through.
+- `AmountFormatOptions` gains an optional `compact`, and `formatSatoshisAsBsv`
+  and `formatSatoshisAsFiat` gain a trailing `compact = false` parameter. With
+  it, large figures shorten to k / M / B (`$1.2k`, `1.5M BSV`), and a value
+  that rounds to 1000 of a unit promotes to the next one. Only activity rows
+  pass it. `abbreviate` still shortens only the unit word ("sats"), as in
+  0.6.0, so existing calls are unchanged.
+- Currency symbols come from the toolbox's own table (`$` for USD, AUD, CAD and
+  NZD; `£`, `¥`, `₹`, `₽`, `zł`, `R$`, `Rp`) with `narrowSymbol`, not from
+  whatever the device language implies: a device that printed "US$" or "NZ$"
+  now prints `$`. Where `Intl.NumberFormat` throws (seen on Hermes), the
+  fallback prints that symbol before locale-formatted digits instead of the ISO
+  code ("USD 3.45"). Hosts with snapshot tests on formatted currency should
+  expect the symbol change.
+
+### Home screen
+
+- The balance stays on one line at any length: its type shrinks to fit the
+  available width, down to a 12pt floor, and grows back when a shorter value
+  follows. This replaces `adjustsFontSizeToFit`, which on iOS Fabric ignores
+  `minimumFontScale` and bottoms out at 4pt.
+- Its minor units are drawn smaller and raised, price-tag style. Abbreviated
+  figures and whole amounts render as one run.
+- Tapping the balance to switch currency has a descriptive accessibility label
+  naming the destination unit (`wallet_balance_show_in`, e.g. "Show in USD").
+- Pay and Get paid show their icon beside the label, in pill-shaped buttons.
+  The import-from-backup card's icon sits in a filled circle, with corners
+  concentric with the screen's.
+
+### Profile picture
+
+- The user can pick an icon as their profile picture; Home's profile button
+  shows it, falling back to the previous person glyph when none is chosen.
+  New `core` exports: `getUserAvatarIcon`, `setUserAvatarIcon`,
+  `loadUserAvatarIcon`, `subscribeUserAvatar`, `useUserAvatarIcon`, and the
+  `AvatarIcon` / `AvatarIconFamily` types. New `ui` exports: `UserAvatar`
+  (default), `AvatarGlyph`, `AVATAR_ICON_GROUPS` with the `AvatarIconOption` /
+  `AvatarIconGroup` types, `IconPickerSheet` (default, props
+  `{ visible, onClose }`) and `EditPictureSheet` (default, props
+  `{ visible, options: EditPictureOption[], onClose }`) with
+  `EditPictureOption`.
+
+### Handle registry fixes
+
+- A typed `handle@domain` whose domain is complete in its own right resolves
+  as that domain: `alice@deggen.co` is no longer answered as a prefix of
+  `deggen.com`, which returned every `*@deggen.com` neighbour for an address
+  on someone else's registry.
+- A half-typed prefix of the pinned domain that matches nothing returns an
+  empty result instead of the "search unavailable" banner.
+- Registry search results are capped at 10 rows (`MAX_SEARCH_RESULTS`) before
+  any certificate is verified, so an uncapped response from a foreign registry
+  cannot freeze recipient search.
+- A handle arriving through a deep-linked `/contact/add?handle=…` is checked
+  against the registry for the key it claims before it is written to
+  `cachedHandle`; an unproven one is left blank for the background refresh.
+- Registry requests bound the response body by the same ~8s deadline as the
+  headers. Writes are serialized, so a stalled body used to block every later
+  write for the life of the process.
+- An outstanding registration journal takes priority at every entry point
+  (`registerHandle`, `updateProfile`, `changeHandle`), not only on resume, so a
+  retried claim and release can no longer leave the user holding neither
+  handle.
+- A rollback that finishes on a later launch still names the handle the user
+  tried to claim (`attemptedPaymail` in the pending journal).
+- Failed writes carry a `code` (`invalid_handle`, `wrong_domain`,
+  `same_handle`, `clock_ahead`). Profile shows `clock_ahead` and `wrong_domain`
+  in the user's language; the other two still show the diagnostic message.
+- A contact's screen tracks its avatar refresh and registry refresh
+  separately, so a registry lookup no longer suppresses the avatar refresh.
+- In Pay, a registry display name that contains `@` is not shown as the
+  recipient's name (it falls back to the handle); the review card shows the
+  recipient's `handle@domain` rather than an abbreviated key; identity-search
+  and registry-search errors share one dismissible banner.
+
+### Copy and translations
+
+- 17 new keys, in all 12 languages, none removed: `tx_status_received`,
+  `tx_status_sent`, `tx_status_spent`, `tx_status_transferred`,
+  `tx_status_pending`, `tx_export`, `activity_filter`, `activity_filter_all`,
+  `activity_search_placeholder`, `activity_search_clear`,
+  `activity_filter_no_match`, `wallet_balance_show_in`, `tx_detail_block`,
+  `tx_detail_block_pending`, `profile_handle_clock_ahead`,
+  `profile_handle_wrong_registry`, `profile_display_name_publish_failed`.
+  `tx_status_confirmed`, `tx_status_accepted` and `tx_status_broadcasting` are
+  kept but no longer used by default.
+- `biometric_advisory_body` is shorter in every language: "Protect your assets
+  with Face ID or your fingerprint".
+
+### Fixes
+
+- `TransactionDetailScreen` loads Ionicons lazily, like the rest of the
+  package, so importing the `ui` barrel under Jest no longer fails on
+  expo-font's ESM.
+
 ## 0.6.0
 
 ### Handle registry (breaking)

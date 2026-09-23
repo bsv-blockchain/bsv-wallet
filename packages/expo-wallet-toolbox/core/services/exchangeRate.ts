@@ -1,5 +1,5 @@
-import type { BsvExchangeRate } from '@bsv/wallet-toolbox-mobile/out/src/sdk'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import type { BsvExchangeRate } from '../toolboxTypes'
 
 // Shared with context/ExchangeRateContext.tsx so a single cache serves both the
 // fiat-display UI and the wallet-build seed. Same key + same { usdPerBsv } shape.

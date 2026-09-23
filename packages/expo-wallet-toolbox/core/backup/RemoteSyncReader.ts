@@ -7,14 +7,11 @@
  * drive a live remote storage provider.
  */
 import type { CompletedProtoWallet } from '@bsv/sdk'
-import type {
-  RequestSyncChunkArgs,
-  SyncChunk
-} from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
-import type { TableSettings } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
+import type { TableSettings } from '@bsv/wallet-toolbox-mobile'
 import type { BackupClient, LogEntry } from './client'
 import { decodeChunk, emptyChunk } from './codec'
 import type { BackupChain } from './constants'
+import type { RequestSyncChunkArgs, SyncChunk } from '../toolboxTypes'
 
 export class BackupChainError extends Error {
   constructor (message: string) {

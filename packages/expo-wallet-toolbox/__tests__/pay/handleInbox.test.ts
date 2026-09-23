@@ -234,7 +234,7 @@ describe('discardIncoming', () => {
       acknowledgeMessage: jest.fn().mockResolvedValue(undefined),
       sendMessage: jest.fn().mockResolvedValue(undefined)
     }
-    await discardIncoming(client as never, { ...payment('a'), sender: KEY })
+    await discardIncoming(client as never, payment('a'))
     expect(client.sendMessage).toHaveBeenCalled()
     expect(client.sendMessage.mock.invocationCallOrder[0]).toBeLessThan(
       client.acknowledgeMessage.mock.invocationCallOrder[0]
@@ -246,7 +246,7 @@ describe('discardIncoming', () => {
       acknowledgeMessage: jest.fn(),
       sendMessage: jest.fn().mockRejectedValue(new Error('offline'))
     }
-    await expect(discardIncoming(client as never, { ...payment('a'), sender: KEY })).rejects.toThrow('offline')
+    await expect(discardIncoming(client as never, payment('a'))).rejects.toThrow('offline')
     expect(client.acknowledgeMessage).not.toHaveBeenCalled()
   })
 
@@ -255,7 +255,7 @@ describe('discardIncoming', () => {
       acknowledgeMessage: jest.fn().mockResolvedValue(undefined),
       sendMessage: jest.fn().mockResolvedValue(undefined)
     }
-    await discardIncoming(client as never, { ...payment('a'), sender: KEY })
+    await discardIncoming(client as never, payment('a'))
     expect(client.sendMessage).toHaveBeenCalledWith(
       {
         recipient: KEY,

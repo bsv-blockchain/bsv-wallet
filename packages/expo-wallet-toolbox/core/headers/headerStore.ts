@@ -20,13 +20,11 @@
  * helper checks linkage but not difficulty.
  */
 import { Utils } from '@bsv/sdk'
-import {
-  blockHash,
-  deserializeBaseBlockHeader,
-  validateHeaderDifficulty
-} from '@bsv/wallet-toolbox-mobile/out/src/services/chaintracker/chaintracks/util/blockHeaderUtilities'
+import { utils as chaintracksUtils } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderCheckpoint } from './checkpoints'
 import type { HeaderFs } from './fs'
+
+const { blockHash, deserializeBaseBlockHeader, validateHeaderProofOfWork } = chaintracksUtils
 
 const HEADER_BYTES = 80
 const ROOT_BYTES = 32
@@ -195,11 +193,10 @@ export class HeaderStore {
       }
       const hash = blockHash(header)
       // Throws on failure — a header that does not meet its own target is not a
-      // header, and accepting it would let anyone mint merkle roots.
-      // The upstream .d.ts types `hash` as Buffer, but the implementation only
-      // ever does `asArray(hash)`, which accepts a display-order hex string
-      // (what blockHash returns) identically to a Buffer — hence the cast.
-      validateHeaderDifficulty(hash as unknown as Buffer, parsed.bits)
+      // header, and accepting it would let anyone mint merkle roots. Takes the
+      // display-order hex hash blockHash returns, validates the compact target
+      // encoding, and honours the toolbox's consensus proof-of-work exceptions.
+      validateHeaderProofOfWork({ ...parsed, height: firstHeight + i, hash })
       newRoots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
       prev = hash
     }

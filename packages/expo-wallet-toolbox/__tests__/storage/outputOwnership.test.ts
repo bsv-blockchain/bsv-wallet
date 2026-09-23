@@ -1,6 +1,5 @@
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
-import { internalizeAction } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { buildLock, commitment } from '../../core/services/vault/r1comb'
 
@@ -43,7 +42,7 @@ describe('stored output ownership invariants', () => {
 
     await expect(StorageProvider.prototype.relinquishOutput.call(
       storage,
-      { userId: 1 },
+      { userId: 1, identityKey: 'k' },
       { basket: 'ordinary', output: `${TXID}.0` }
     )).rejects.toThrow(/basket/i)
     expect(updateOutput).not.toHaveBeenCalled()
@@ -63,7 +62,7 @@ describe('stored output ownership invariants', () => {
 
     await expect(StorageProvider.prototype.relinquishOutput.call(
       storage,
-      { userId: 1 },
+      { userId: 1, identityKey: 'k' },
       { basket: 'ordinary', output: `${TXID}.0` }
     )).resolves.toBe(1)
     expect(updateOutput).toHaveBeenCalledWith(7, { basketId: undefined }, trx)
@@ -106,7 +105,7 @@ describe('stored output ownership invariants', () => {
     }
     const verify = jest.spyOn(Beef.prototype, 'verify').mockResolvedValue(true)
     try {
-      await expect(internalizeAction(storage as never, { userId: 1 } as never, {
+      await expect(StorageProvider.prototype.internalizeAction.call(storage, { userId: 1 } as never, {
         tx: beef.toBinaryAtomic(tx.id('hex')),
         description: 'Try moving protected output',
         labels: [],

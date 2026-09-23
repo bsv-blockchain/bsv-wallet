@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
-import type { TrxToken } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { createTables } from '../../core/storage/schema/createTables'
+import type { TrxToken } from '../../core/toolboxTypes'
 
 const ENTITY_TIME = '2026-09-01T00:00:00.000Z'
 const MAP_TIME = '2026-09-02T00:00:00.000Z'

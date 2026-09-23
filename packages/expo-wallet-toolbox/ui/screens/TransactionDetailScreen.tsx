@@ -20,7 +20,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 import { useTranslation } from 'react-i18next'
 import {
   useTheme,
@@ -48,6 +47,28 @@ function loadClipboard(): ClipboardModule {
     clipboardModule = require('@react-native-clipboard/clipboard').default as ClipboardModule
   }
   return clipboardModule
+}
+
+/**
+ * Ionicons is loaded lazily, only when actually rendering, same pattern as
+ * this package's other native-module-boundary fixes (see AdmissionNotice.tsx):
+ * @expo/vector-icons reaches expo-font, untransformed ESM that breaks every
+ * Jest suite importing the `ui` barrel. `Icon` is one module-level component
+ * rather than `const Ionicons = loadIonicons()` per render site, which
+ * react-hooks/static-components reports as a component created during render.
+ */
+type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
+type IoniconsProps = React.ComponentProps<IoniconsComponent>
+let ioniconsComponent: IoniconsComponent | undefined
+function loadIonicons(): IoniconsComponent {
+  if (!ioniconsComponent) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
+  }
+  return ioniconsComponent
+}
+function Icon(props: IoniconsProps) {
+  return React.createElement(loadIonicons(), props)
 }
 
 /**
@@ -221,7 +242,7 @@ export default function TransactionDetailScreen({
           accessibilityRole="button"
           accessibilityLabel={t('go_back')}
         >
-          <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+          <Icon name="chevron-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
         {getActions ? (
           <TouchableOpacity
@@ -235,7 +256,7 @@ export default function TransactionDetailScreen({
             accessibilityRole="button"
             accessibilityLabel={t('more', { defaultValue: 'More' })}
           >
-            <Ionicons name="ellipsis-horizontal" size={22} color={colors.textPrimary} />
+            <Icon name="ellipsis-horizontal" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
         ) : (
           <View style={styles.headerBtn} />
@@ -251,7 +272,7 @@ export default function TransactionDetailScreen({
           <ContactSigil identityKey={counterpartyKey} avatarUrl={contact?.cachedAvatarUrl} size={84} radius={42} />
         ) : (
           <View style={[styles.fallbackFace, { backgroundColor: colors.fill }]}>
-            <Ionicons name={incoming ? 'arrow-down' : 'arrow-up'} size={34} color={colors.textSecondary} />
+            <Icon name={incoming ? 'arrow-down' : 'arrow-up'} size={34} color={colors.textSecondary} />
           </View>
         )}
 
@@ -317,7 +338,7 @@ export default function TransactionDetailScreen({
                   a.onPress()
                 }}
               >
-                <Ionicons
+                <Icon
                   name={a.icon as never}
                   size={18}
                   color={a.danger ? colors.error : colors.textSecondary}
@@ -346,7 +367,7 @@ function DetailRow({ label, value, onCopy }: { label: string; value: string; onC
         </Text>
         {onCopy ? (
           <TouchableOpacity onPress={onCopy} style={styles.copyBtn} accessibilityRole="button">
-            <Ionicons name="copy-outline" size={16} color={colors.textSecondary} />
+            <Icon name="copy-outline" size={16} color={colors.textSecondary} />
           </TouchableOpacity>
         ) : null}
       </View>

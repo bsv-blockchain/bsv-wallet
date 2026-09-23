@@ -12,7 +12,7 @@ import {
 import { buildLock } from '../../core/services/vault/r1comb'
 import { capWalletArgs } from '../../core/services/capWalletArgs'
 import { limitsForTier } from '../../core/services/walletArgLimits'
-import { Wallet } from '@bsv/wallet-toolbox-mobile/out/src/Wallet'
+import { Wallet } from '@bsv/wallet-toolbox-mobile'
 
 const ADMIN = 'admin.com'
 
@@ -33,6 +33,9 @@ test('wallet history reveals custom instructions only to the configured first-pa
   wallet.identityKey = `02${'11'.repeat(32)}`
   wallet.__bsvVaultAdminOriginator = ADMIN
   wallet.storage = { listActions: jest.fn(async () => makeResult()) }
+  // Members Wallet's constructor sets since toolbox 2.13 and listActions reads.
+  wallet.telemetry = { enabled: false }
+  wallet.actionBatch = { hasWorkspace: false, overlayListActions: (r: unknown) => r }
 
   const admin = await wallet.listActions({ labels: [], includeOutputs: true, limit: 10, offset: 0 }, ADMIN)
   expect(admin.actions[0].outputs[0].customInstructions).toBe('private-vault-recovery-record')

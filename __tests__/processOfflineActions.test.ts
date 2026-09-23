@@ -40,12 +40,13 @@ jest.mock('expo-secure-store', () => ({
 
 // `mock`-prefixed so jest's out-of-scope guard allows the factory to close over it.
 const mockPostReqs = jest.fn()
-jest.mock('@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork', () => ({
+jest.mock('@bsv/wallet-toolbox-mobile', () => ({
+  ...jest.requireActual('@bsv/wallet-toolbox-mobile'),
   attemptToPostReqsToNetwork: (...args: unknown[]) => mockPostReqs(...args)
 }))
 
 import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
-import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
+import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile'
 import {
   processOfflineActions,
   type BindValue,

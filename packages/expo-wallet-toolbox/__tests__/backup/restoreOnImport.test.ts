@@ -7,11 +7,11 @@
  * wallet that looks healthy and is missing outputs.
  */
 import { PrivateKey } from '@bsv/sdk'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import type { DeviceSummary, LogEntry } from '../../core/backup/client'
 import { encodeChunk, emptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { restoreOnImport } from '../../core/backup/restoreOnImport'
+import type { SyncChunk } from '../../core/toolboxTypes'
 
 const PRIMARY = new PrivateKey(21).toArray('be', 32)
 const OLD_DEVICE = 'a'.repeat(32)

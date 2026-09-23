@@ -14,9 +14,14 @@ import { devLog } from '../../logging'
 const SAFE_REQ_STATUSES = new Set(['invalid', 'doubleSpend'])
 
 export type ReviewStatusDb = {
+  // Method shorthand (not arrow-style properties) is intentional: it keeps this
+  // structurally assignable from node:sqlite's DatabaseSync, whose statement
+  // methods take the narrower SQLInputValue type rather than unknown. Arrow-style
+  // properties are checked contravariantly under strictFunctionTypes and reject
+  // that narrower parameter type; method shorthand is checked bivariantly.
   prepare(sql: string): {
-    all: (...params: unknown[]) => unknown[]
-    run: (...params: unknown[]) => unknown
+    all(...params: unknown[]): unknown[]
+    run(...params: unknown[]): unknown
   }
 }
 

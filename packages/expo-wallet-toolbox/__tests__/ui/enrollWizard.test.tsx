@@ -1,5 +1,5 @@
 import React from 'react'
-import { BackHandler } from 'react-native'
+import { BackHandler, type HardwareBackPressEvent } from 'react-native'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
 const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
@@ -97,16 +97,20 @@ const settle = async () => {
 /**
  * Jest runs the iOS BackHandler, whose addEventListener is a no-op, so the
  * wizard's hardware-back handler is captured here and "pressed" the way RN
- * dispatches it on Android: newest subscription first.
+ * dispatches it on Android: newest subscription first. The real
+ * BackHandlerStatic#addEventListener signature hands the handler a
+ * HardwareBackPressEvent, so the fake subscription list is typed to match
+ * and pressBack supplies one, even though the wizard's own handler ignores it.
  */
-type BackPressHandler = () => boolean | null | undefined
+type BackPressHandler = (event: HardwareBackPressEvent) => boolean | null | undefined
 const backHandlers: BackPressHandler[] = []
+const fakeBackPressEvent: HardwareBackPressEvent = { type: 'hardwareBackPress', timeStamp: 0 }
 const pressBack = async () => {
   const handler = backHandlers[backHandlers.length - 1]
   expect(handler).toBeDefined()
   let handled: boolean | null | undefined
   await act(async () => {
-    handled = handler()
+    handled = handler(fakeBackPressEvent)
   })
   await settle()
   return handled

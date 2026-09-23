@@ -16,7 +16,6 @@
  * pass.
  */
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import { BackupClient, BackupHttpError, ERR_SEQ_CONFLICT } from './client'
 import { encodeChunk, estimateEncodedBytes, isEmptyChunk } from './codec'
 import { GENERATION_CHUNK_THRESHOLD, MAX_ITEMS, MAX_ROUGH_SIZE, type BackupChain } from './constants'
@@ -33,6 +32,7 @@ import {
 import { backupPseudonym, deriveBackupWallet } from './derive'
 import { getDeviceId } from './deviceId'
 import { isBackupPushEnabled } from './preference'
+import type { SyncChunk } from '../toolboxTypes'
 
 export interface PushDeps {
   storage: StorageExpoSQLite

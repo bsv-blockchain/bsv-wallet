@@ -181,10 +181,8 @@ export async function verifyProfileCertificate(
       json.fields,
       json.signature
     ).verify()
-    // @bsv/sdk 2.4.1 never answers false: `ProtoWallet.verifySignature` throws
-    // ERR_INVALID_SIGNATURE ('Signature is not valid'), so a forged certificate
-    // is refused by the catch below and logged in the SDK's words, not these.
-    // The branch stands as the contract against the declared `Promise<boolean>`.
+    // Since @bsv/sdk 2.8 `verify` answers false for a forged or malformed
+    // signature instead of throwing, so this is where a forgery is refused.
     if (!verified) return drop('signature does not verify')
 
     const displayName = json.fields.displayName?.trim()

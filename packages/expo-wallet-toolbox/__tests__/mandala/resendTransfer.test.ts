@@ -10,7 +10,12 @@
  */
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { MandalaToken } from '@bsv/templates'
-import { MANDALA_MESSAGE_BOX, resendTokenTransfer, type TokenResendDeps } from '../../core/mandala/resendTransfer'
+import {
+  MANDALA_MESSAGE_BOX,
+  resendTokenTransfer,
+  type PendingTokenNotification,
+  type TokenResendDeps
+} from '../../core/mandala/resendTransfer'
 
 const ASSET_ID = 'ab'.repeat(32) + '.0'
 const RECIPIENT = '02' + '11'.repeat(32)
@@ -40,13 +45,16 @@ const marker = (over: Record<string, unknown> = {}) =>
     ...over
   })
 
-function deps(over: Partial<TokenResendDeps> = {}): TokenResendDeps & {
+function deps(over: Partial<Omit<TokenResendDeps, 'journal'>> = {}): Omit<TokenResendDeps, 'journal'> & {
   sent: { recipient: string; messageBox: string; body: Record<string, unknown> }[]
-  journal: { put: jest.Mock; remove: jest.Mock }
+  journal: { put: jest.Mock<Promise<void>, [PendingTokenNotification]>; remove: jest.Mock<Promise<void>, [string]> }
 } {
   const { atomic } = tokenTx()
   const sent: { recipient: string; messageBox: string; body: Record<string, unknown> }[] = []
-  const journal = { put: jest.fn(async () => undefined), remove: jest.fn(async () => undefined) }
+  const journal = {
+    put: jest.fn<Promise<void>, [PendingTokenNotification]>(async () => undefined),
+    remove: jest.fn<Promise<void>, [string]>(async () => undefined)
+  }
   return {
     sent,
     journal,

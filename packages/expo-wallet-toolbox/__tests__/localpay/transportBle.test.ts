@@ -428,7 +428,7 @@ describe('bleTransport reversed role', () => {
   it('receive() starts the advertised listener and the scan on iOS, with the same session args', async () => {
     Platform.OS = 'ios'
     const startListening = jest.fn(() => Promise.resolve())
-    const startScanning = jest.fn(() => Promise.resolve())
+    const startScanning = jest.fn((_name: string, _psk: string) => Promise.resolve())
     const native = fakeNative({ startListening: startListening as never, startScanning: startScanning as never })
     getLocalPayBleTransport.mockReturnValue(native)
     const controller = new AbortController()

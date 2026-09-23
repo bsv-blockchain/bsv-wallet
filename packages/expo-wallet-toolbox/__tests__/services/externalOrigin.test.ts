@@ -1,3 +1,4 @@
+import { Validation } from '@bsv/sdk'
 import { ADMIN_ORIGINATOR } from '../../core/config'
 import { parseExternalOrigin } from '../../core/services/externalOrigin'
 
@@ -16,13 +17,20 @@ describe('parseExternalOrigin', () => {
     'https://example.com/path',
     'https://example.com/?query=1',
     'https://example.com/#fragment',
-    ADMIN_ORIGINATOR
+    ADMIN_ORIGINATOR,
+    `https://${ADMIN_ORIGINATOR}`,
+    `https://${ADMIN_ORIGINATOR.toUpperCase()}:8443`,
+    'https://anything.invalid'
   ])('rejects an origin outside the external trust boundary: %s', raw => {
     expect(() => parseExternalOrigin(raw)).toThrow()
   })
 
-  it('keeps the internal authority outside the hostname namespace', () => {
-    expect(ADMIN_ORIGINATOR).toContain(':')
-    expect(() => new URL(`https://${ADMIN_ORIGINATOR}`)).toThrow()
+  // @bsv/sdk 2.8 accepts only canonical hostnames as originators, so the
+  // internal authority cannot sit outside hostname space any more. It sits in
+  // the RFC 6761 `.invalid` TLD instead: never resolvable, so no host can be
+  // served from it, and refused outright at the external trust boundary.
+  it('keeps the internal authority in reserved, unresolvable hostname space', () => {
+    expect(Validation.validateOriginator(ADMIN_ORIGINATOR)).toBe(ADMIN_ORIGINATOR)
+    expect(ADMIN_ORIGINATOR.endsWith('.invalid')).toBe(true)
   })
 })
