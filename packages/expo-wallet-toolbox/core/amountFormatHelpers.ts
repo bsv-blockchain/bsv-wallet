@@ -150,6 +150,19 @@ const formatCurrencyParts = (
   return parts.map(p => (p.type === 'currency' && preferred ? preferred : p.value)).join('')
 }
 
+/** Digits only, in the locale's separators, for when currency formatting fails. */
+const formatPlainDigits = (value: number, loc: string, minDigits: number, maxDigits: number): string => {
+  try {
+    return new Intl.NumberFormat(loc, {
+      minimumFractionDigits: minDigits,
+      maximumFractionDigits: maxDigits,
+      useGrouping: true
+    }).format(value)
+  } catch {
+    return value.toFixed(minDigits)
+  }
+}
+
 // Format number as currency with fallback for platforms where Intl is not fully supported
 const formatCurrency = (
   value: number,
@@ -180,7 +193,12 @@ const formatCurrency = (
 
     formatted = formatCurrencyParts(abs, locale, currency, options)
   } catch {
-    formatted = `${currency} ${abs.toFixed(minDigits)}`
+    // Hermes lacks `formatToParts` / `narrowSymbol` on some builds. Keep our
+    // symbol in front of plain locale digits rather than dropping to the ISO
+    // code ("USD 3.45"); only a currency with no symbol of ours shows its code.
+    const digits = formatPlainDigits(abs, locale, minDigits, maxDigits ?? minDigits)
+    const preferred = PREFERRED_SYMBOL[currency]
+    formatted = preferred ? `${preferred}${digits}` : `${currency} ${digits}`
   }
   // Same sign convention as the satoshi formatter, so a column of mixed
   // currencies reads one way: minus for money out, plus for money in when the
