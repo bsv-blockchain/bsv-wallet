@@ -73,15 +73,12 @@ describe('native AES-GCM SDK routing', () => {
       const actual = nativeKey.encrypt(bytes) as number[]
       expect(actual).toEqual(expected)
       expect(actual.slice(0, 32)).toEqual(Array.from(IV))
-      if (size === 0) {
-        expect(() => nativeKey.decrypt(expected)).toThrow('Cipher text must not be empty')
-        expect(() => pureKey.decrypt(actual)).toThrow('Cipher text must not be empty')
-      } else {
-        expect(nativeKey.decrypt(expected)).toEqual(bytes)
-        expect(pureKey.decrypt(actual)).toEqual(bytes)
-      }
+      // Since @bsv/sdk 2.8.2 the pure SDK decrypts an empty message too, so
+      // both routes round-trip every size, including 0.
+      expect(nativeKey.decrypt(expected)).toEqual(bytes)
+      expect(pureKey.decrypt(actual)).toEqual(bytes)
       expect(native.createCipheriv).toHaveBeenCalledTimes(1)
-      expect(native.createDecipheriv).toHaveBeenCalledTimes(size === 0 ? 0 : 1)
+      expect(native.createDecipheriv).toHaveBeenCalledTimes(1)
       expect(native.createCipheriv.mock.calls[0][2]).toHaveLength(32)
     }
   )

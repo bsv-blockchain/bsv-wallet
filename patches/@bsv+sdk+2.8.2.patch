@@ -635,7 +635,7 @@ index 171fc4d..667914d 100644
              let Qprime;
              try {
 diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
-index efa3ecd..1cff063 100644
+index efa3ecd..3300ce2 100644
 --- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
 +++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
 @@ -13,10 +13,13 @@ const utils_js_1 = require("./utils.js");
@@ -654,18 +654,6 @@ index efa3ecd..1cff063 100644
      const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
      const getBuiltinModule = processLike?.getBuiltinModule;
      if (typeof getBuiltinModule === 'function') {
-@@ -179,6 +182,11 @@ class SymmetricKey extends BigNumber_js_1.default {
-         if (msgBytes.length < ivLength + tagLength) {
-             throw new Error('Ciphertext too short');
-         }
-+        // Preserve the pure-JS mobile contract for an empty encrypted message.
-+        // Node's existing native route accepts this case; mobile previously threw.
-+        if (INJECTED_CRYPTO_SYM != null && msgBytes.length === ivLength + tagLength) {
-+            throw new Error('Cipher text must not be empty');
-+        }
-         const keyBytes = new Uint8Array(this.toArray('be', 32));
-         // Fast path: native AES-256-GCM via node:crypto.
-         // Falls back to pure-TS on null/undefined return.
 diff --git a/node_modules/@bsv/sdk/dist/cjs/src/script/templates/P2PKH.js b/node_modules/@bsv/sdk/dist/cjs/src/script/templates/P2PKH.js
 index e1fe832..fa75074 100644
 --- a/node_modules/@bsv/sdk/dist/cjs/src/script/templates/P2PKH.js
@@ -1709,7 +1697,7 @@ index da97bed..5792973 100644
              let Qprime;
              try {
 diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
-index 18f2dcd..7c814bc 100644
+index 18f2dcd..e125e20 100644
 --- a/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
 +++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
 @@ -8,10 +8,13 @@ import { toArray, encode } from './utils.js';
@@ -1728,18 +1716,6 @@ index 18f2dcd..7c814bc 100644
      const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
      const getBuiltinModule = processLike?.getBuiltinModule;
      if (typeof getBuiltinModule === 'function') {
-@@ -174,6 +177,11 @@ export default class SymmetricKey extends BigNumber {
-         if (msgBytes.length < ivLength + tagLength) {
-             throw new Error('Ciphertext too short');
-         }
-+        // Preserve the pure-JS mobile contract for an empty encrypted message.
-+        // Node's existing native route accepts this case; mobile previously threw.
-+        if (INJECTED_CRYPTO_SYM != null && msgBytes.length === ivLength + tagLength) {
-+            throw new Error('Cipher text must not be empty');
-+        }
-         const keyBytes = new Uint8Array(this.toArray('be', 32));
-         // Fast path: native AES-256-GCM via node:crypto.
-         // Falls back to pure-TS on null/undefined return.
 diff --git a/node_modules/@bsv/sdk/dist/esm/src/script/templates/P2PKH.js b/node_modules/@bsv/sdk/dist/esm/src/script/templates/P2PKH.js
 index 5c26fa1..01c7453 100644
 --- a/node_modules/@bsv/sdk/dist/esm/src/script/templates/P2PKH.js

@@ -499,6 +499,42 @@ test('blocks external internalizeAction from reclassifying an existing Vault out
   expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
 })
 
+// Toolbox 2.14's own reclassification check skips an output that has no basket
+// (relinquished; listActions reports it as '') or sits in `default`, so the
+// refusal must not depend on the stored basket.
+test.each(['', 'default'])(
+  'blocks external internalizeAction from reclassifying a Vault output whose stored basket is %j',
+  async basket => {
+    const tx = new Transaction()
+    tx.addOutput({ satoshis: 50_000, lockingScript: LockingScript.fromHex(vaultLock()) })
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    const stored = [action({
+      txid: tx.id('hex'),
+      reference: 'relinquished-ref',
+      labels: [],
+      outputs: [{
+        satoshis: 50_000,
+        spendable: true,
+        tags: [],
+        outputIndex: 0,
+        outputDescription: 'Relinquished output',
+        basket,
+        lockingScript: vaultLock()
+      }]
+    })]
+    const { wallet, calls } = fakeWallet(stored)
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await expect(guarded.internalizeAction({
+      tx: beef.toBinaryAtomic(tx.id('hex')),
+      description: 'Move Vault output',
+      labels: [],
+      outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
+    } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
+  }
+)
+
 test('blocks external construction or internalization of a new R1C output', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)

@@ -160,9 +160,10 @@ describe('createWalletMonitor', () => {
 })
 
 describe('createWalletMonitor with the offline-first chain tracker', () => {
-  // Monitor.runOnce awaits `ready` on every pass since toolbox 2.13, so a
+  // Monitor.runOnce retries `ready` on every pass until it settles, so a
   // chaintracks that cannot subscribe (the HTTP client) or reach the network
-  // (offline start) must still leave `ready` resolved, or no task ever runs.
+  // (offline start) must still leave `ready` resolved rather than failing, and
+  // fetching the chain again, on every tick.
   it('resolves ready offline against a remote that cannot subscribe', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     try {
@@ -180,6 +181,26 @@ describe('createWalletMonitor with the offline-first chain tracker', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe('createWalletMonitor with a chaintracks that declares no reorg events', () => {
+  it('never asks the remote for its chain or a subscription', async () => {
+    const remote = {
+      supportsReorgEvents: false,
+      getChain: jest.fn().mockRejectedValue(new Error('offline')),
+      subscribeReorgs: jest.fn(),
+      subscribeHeaders: jest.fn(),
+      unsubscribe: jest.fn()
+    }
+    const chaintracks = new OfflineFirstChaintracks(remote as never, async () => false, 'test')
+    const monitor = await createWalletMonitor(
+      createWalletMonitorOptions('test', {} as never, new Services('test'), chaintracks)
+    )
+    await expect(monitor.ready).resolves.toBeUndefined()
+    expect(remote.getChain).not.toHaveBeenCalled()
+    expect(remote.subscribeReorgs).not.toHaveBeenCalled()
+    expect(remote.subscribeHeaders).not.toHaveBeenCalled()
   })
 })
 

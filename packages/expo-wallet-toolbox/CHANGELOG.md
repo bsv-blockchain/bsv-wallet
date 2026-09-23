@@ -7,18 +7,28 @@
 
 ### @bsv dependency bump (breaking for hosts)
 
-Peer ranges move to `@bsv/sdk` ^2.8.0, `@bsv/wallet-toolbox-mobile` ^2.13.2,
-`@bsv/message-box-client` ^2.5.1, `@bsv/templates` ^1.10.2,
+Peer ranges move to `@bsv/sdk` ^2.8.2, `@bsv/wallet-toolbox-mobile` ^2.14.0,
+`@bsv/message-box-client` ^2.5.3, `@bsv/templates` ^1.10.3,
 `@bsv/btms-permission-module` ^1.2.1 and `@bsv/air-gap` ^0.1.3.
 
-Hosts must carry this repo's `patches/` for those exact versions:
-`@bsv/wallet-toolbox-mobile` 2.13 ships as one bundle whose exports map exposes
-only its root, so the package now imports everything from the root, and the
-toolbox patch also exports `WalletMonitorTask`, `attemptToPostReqsToNetwork`,
-`parseJsonRpc`, `stringifyJsonRpc` and `verifyUnlockScripts`, which upstream
-leaves internal. The Vault hooks, sendMax approval amounts and native-crypto
-routing live in the same patches. `@bsv/templates` 1.10.2's CommonJS build is
-broken under Node without its patch (bundlers resolve the ESM build).
+`@bsv/wallet-toolbox-mobile` now ships as one bundle whose exports map exposes
+only its root, so this package imports everything from the root. Types the
+toolbox exports only under its `sdk` namespace come through
+`core/toolboxTypes.ts`. From 2.14.0 the toolbox exports `WalletMonitorTask`,
+`attemptToPostReqsToNetwork`, `parseJsonRpc`, `stringifyJsonRpc` and
+`verifyUnlockScripts` itself, and ships the permissions-manager sendMax fix,
+the relinquish and internalize basket checks and best-effort Monitor
+subscriptions, so none of that is patched any more.
+
+Hosts must carry this repo's two remaining `patches/` for those exact
+versions: `@bsv+sdk+2.8.2.patch` (native secp256k1 and transaction-engine
+routing) and `@bsv+wallet-toolbox-mobile+2.14.0.patch` (the Vault authorization
+hooks, the Vault deposit funding plan, batched native key derivation and shadow
+engine verification). The `@bsv/message-box-client` and `@bsv/templates`
+patches are gone: 2.5.3 reports a send failure as
+`Message Box send failed with HTTP 400 (ERR_DUPLICATE_MESSAGE).`, which
+`isDuplicateMessageError` recognises, and both packages' CommonJS builds load
+under Node again.
 
 - `ADMIN_ORIGINATOR` is now `internal-admin.bsv-wallet.invalid`. @bsv/sdk 2.8
   accepts only canonical hostnames as originators, so the old
@@ -27,9 +37,11 @@ broken under Node without its patch (bundlers resolve the ESM build).
   queued under the old label replay under the new one
   (`LEGACY_ADMIN_ORIGINATOR`).
 - `OfflineFirstChaintracks` takes an optional third `chain` argument and
-  answers `getChain` from it; an unsupported subscription resolves to an inert
-  id instead of throwing. The toolbox Monitor awaits both inside every
-  `runOnce` since 2.13, so a throw there stopped every monitor task.
+  answers `getChain` from it, and forwards the remote's `supportsReorgEvents`,
+  so the toolbox Monitor does not subscribe through the HTTP client at all. A
+  subscription that fails anyway resolves to an inert id instead of throwing,
+  so the Monitor's subscriptions settle once instead of failing, and fetching
+  the chain over the network, on every tick while offline.
 - Header validation uses the toolbox's `validateHeaderProofOfWork`, which
   checks the compact target encoding and honours its consensus exceptions.
 
