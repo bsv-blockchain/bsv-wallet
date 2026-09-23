@@ -221,7 +221,7 @@ function ActivityRowBase({
   const incoming = token ? token.incoming : action.satoshis >= 0
   // Direction decides the settled wording ("Received" vs "Sent"), so it has to
   // be known before the status view is built.
-  const view = token?.status ?? txStatusView(action.status, offlineStatus, incoming)
+  const view = token?.status ?? txStatusView(action.status, offlineStatus, incoming, action.labels)
   const settled = view.tone === 'settled'
   const tone = toneColor(view.tone, colors as unknown as Record<string, string>)
 

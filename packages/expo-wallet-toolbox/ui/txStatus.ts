@@ -26,7 +26,26 @@ export interface TxStatusView {
  * payer-side promotion failed, so without this the user would see a confirmed
  * payment that has not actually gone anywhere.
  */
-export function txStatusView(status: string, offlineStatus?: string, incoming?: boolean): TxStatusView {
+/**
+ * Labels the Pay / Get paid rails write on their actions: handle and nearby
+ * payments, address payments, and stablecoin transfers. An outgoing action
+ * without one was made by a connected app or the wallet itself (an identity
+ * certificate, say), so it reads "Spent", not "Sent".
+ */
+const PAYMENT_LABELS = new Set(['peerpay', 'localpay', 'legacy', 'mandala'])
+
+export function isPaymentAction(labels?: readonly string[]): boolean {
+  return Boolean(labels?.some(l => PAYMENT_LABELS.has(l)))
+}
+
+export function txStatusView(
+  status: string,
+  offlineStatus?: string,
+  incoming?: boolean,
+  labels?: readonly string[]
+): TxStatusView {
+  const done = incoming ? 'tx_status_received' : isPaymentAction(labels) ? 'tx_status_sent' : 'tx_status_spent'
+
   switch (offlineStatus) {
     case 'queued':
       return { key: 'tx_status_offline_queued', tone: 'inflight' }
@@ -49,10 +68,10 @@ export function txStatusView(status: string, offlineStatus?: string, incoming?: 
     // holder can act on. The states below that DO need action keep their own words.
     case 'completed':
     case 'unproven':
-      return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'settled' }
+      return { key: done, tone: 'settled' }
     // Already handed to the network: say what it does, Sent or Received.
     case 'sending':
-      return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'inflight' }
+      return { key: done, tone: 'inflight' }
     case 'nosend':
       return { key: 'tx_status_not_sent', tone: 'attention' }
     case 'unsigned':
