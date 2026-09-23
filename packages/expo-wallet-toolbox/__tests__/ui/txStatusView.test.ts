@@ -24,4 +24,9 @@ describe('txStatusView', () => {
   it('keeps Received for incoming, whatever made it', () => {
     expect(txStatusView('completed', undefined, true, ['some-app-label']).key).toBe('tx_status_received')
   })
+
+  it('says Transferred for a vault move in either direction', () => {
+    expect(txStatusView('completed', undefined, false, ['vault', 'vault-deposit']).key).toBe('tx_status_transferred')
+    expect(txStatusView('completed', undefined, true, ['vault', 'vault-withdraw']).key).toBe('tx_status_transferred')
+  })
 })

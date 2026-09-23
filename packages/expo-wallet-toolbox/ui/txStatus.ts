@@ -44,7 +44,14 @@ export function txStatusView(
   incoming?: boolean,
   labels?: readonly string[]
 ): TxStatusView {
-  const done = incoming ? 'tx_status_received' : isPaymentAction(labels) ? 'tx_status_sent' : 'tx_status_spent'
+  // A vault move stays the holder's money whichever way it goes.
+  const done = labels?.includes('vault')
+    ? 'tx_status_transferred'
+    : incoming
+      ? 'tx_status_received'
+      : isPaymentAction(labels)
+        ? 'tx_status_sent'
+        : 'tx_status_spent'
 
   switch (offlineStatus) {
     case 'queued':
