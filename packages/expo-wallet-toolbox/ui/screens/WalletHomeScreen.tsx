@@ -42,7 +42,6 @@ import {
   useWallet,
   ExchangeRateContext,
   formatAmountParts,
-  splitAmountFraction,
   isFiatCurrency,
   findOfflineActions,
   type OfflineActionRow,
@@ -75,6 +74,7 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
+import { FitAmount } from '../components/wallet/FitAmount'
 import SlideOverFromRight from '../components/ui/SlideOverFromRight'
 import TransactionDetailScreen, {
   type TransactionAction,
@@ -1562,37 +1562,14 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             <ActivityIndicator color={colors.textSecondary} style={styles.balanceSpinner} />
           ) : (
             <>
-              {/* The minor units are set smaller and hung from the top, the
-                  way a price tag writes them — the figure a holder reads is
-                  the major unit, and cents that match it in size compete with
-                  it. Separate <Text>s in a row rather than nested runs
-                  because nested text baseline-aligns and cannot be raised.
-                  `splitAmountFraction` returns nothing to raise for an
-                  abbreviated figure, so "1.5k" stays one run. */}
-              {(() => {
-                const { head, frac, tail } = splitAmountFraction(heroParts.value)
-                return (
-                  <View style={styles.balanceRow}>
-                    <Text style={[styles.balance, { color: colors.textPrimary }]}>{head}</Text>
-                    {frac ? (
-                      <Text style={[styles.balanceFraction, { color: colors.textPrimary }]}>{frac}</Text>
-                    ) : null}
-                    {/* Tail and unit share ONE display-sized <Text> so the
-                        unit keeps baseline-aligning inside it, as it always
-                        has. Only the minor units are raised; hanging "sats"
-                        from the top too was never the ask. The wrapper's own
-                        font sets the line box even when `tail` is empty. */}
-                    {tail || heroParts.unit ? (
-                      <Text style={[styles.balance, { color: colors.textPrimary }]}>
-                        {tail}
-                        {heroParts.unit ? (
-                          <Text style={[styles.balanceUnit, { color: colors.textSecondary }]}> {heroParts.unit}</Text>
-                        ) : null}
-                      </Text>
-                    ) : null}
-                  </View>
-                )
-              })()}
+              {/* However long the figure, it stays on one line: the type shrinks
+                  to fit (see FitAmount for why this is not adjustsFontSizeToFit). */}
+              <FitAmount
+                value={heroParts.value}
+                unit={heroParts.unit}
+                style={[styles.balance, { color: colors.textPrimary }]}
+                unitStyle={[styles.balanceUnit, { color: colors.textSecondary }]}
+              />
               {/* A token keeps this line for its full name, so "1,240.00 USDX"
                   is never a ticker the holder has to decode. BSV no longer
                   carries a conversion line: the same money in the other
