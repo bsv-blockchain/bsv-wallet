@@ -1,8 +1,8 @@
 import { PrivateKey, Utils } from '@bsv/sdk'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import { CHUNK_ENTITIES, decodeChunk, emptyChunk, encodeChunk, isEmptyChunk } from '../../core/backup/codec'
 import { BACKUP_PROTOCOL, backupKeyId } from '../../core/backup/constants'
 import { deriveBackupWallet } from '../../core/backup/derive'
+import type { SyncChunk } from '../../core/toolboxTypes'
 
 const KEY = new PrivateKey(7).toArray('be', 32)
 

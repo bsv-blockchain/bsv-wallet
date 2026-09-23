@@ -20,7 +20,7 @@ const mockGetOnline = jest.fn(async () => true)
 jest.mock('../../core/net/online', () => ({ getOnline: () => mockGetOnline() }))
 
 import { DatabaseSync } from 'node:sqlite'
-import { StorageProvider } from '@bsv/wallet-toolbox-mobile/out/src/storage/StorageProvider'
+import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { createTables } from '../../core/storage/schema/createTables'
 import { createSettlementStore, type SettlementDb } from '../../core/mandala/settlementStore'

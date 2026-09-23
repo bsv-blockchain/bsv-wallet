@@ -76,7 +76,11 @@ jest.mock('expo-router', () => ({
 }))
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null, MaterialCommunityIcons: () => null }))
 jest.mock('@bsv/message-box-client', () => ({ PeerPayClient: jest.fn() }))
-jest.mock('@bsv/wallet-toolbox-mobile', () => ({ sdk: { specOpWalletBalance: 'specOpWalletBalance' } }))
+jest.mock('@bsv/wallet-toolbox-mobile', () => ({
+  sdk: { specOpWalletBalance: 'specOpWalletBalance' },
+  // Base class of the app's monitor tasks, which import it from the package root.
+  WalletMonitorTask: class WalletMonitorTask {}
+}))
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
 jest.mock('../../ui/components/wallet/BackupReminderSheet', () => ({ BackupReminderSheet: () => null }))

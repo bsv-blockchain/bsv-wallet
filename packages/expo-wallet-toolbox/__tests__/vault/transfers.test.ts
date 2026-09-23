@@ -14,7 +14,7 @@
  */
 import { Beef, Hash, KeyDeriver, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
-import { specOpFailedActions } from '@bsv/wallet-toolbox-mobile/out/src/sdk/types'
+import { sdk as toolboxSdk } from '@bsv/wallet-toolbox-mobile'
 import {
   R1C_LOCK_LEN,
   R1C_UNLOCK_LEN,
@@ -553,7 +553,7 @@ describe('depositToVault', () => {
     await seedMeta()
     let held = true
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) || !held ? [] : [heldDepositAction('nosend')]
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || !held ? [] : [heldDepositAction('nosend')]
     }))
     wallet.abortAction.mockImplementation(async ({ reference }: any) => {
       expect(reference).toBe('held-deposit-ref')
@@ -575,7 +575,7 @@ describe('depositToVault', () => {
     async status => {
       await seedMeta()
       wallet.listActions.mockImplementation(async (args: any) => ({
-        actions: args.labels?.includes(specOpFailedActions) ? [] : [heldDepositAction(status)]
+        actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [heldDepositAction(status)]
       }))
 
       await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
@@ -590,7 +590,7 @@ describe('depositToVault', () => {
     async status => {
       await seedMeta()
       wallet.listActions.mockImplementation(async (args: any) => ({
-        actions: args.labels?.includes(specOpFailedActions) ? [] : [heldDepositAction(status)]
+        actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [heldDepositAction(status)]
       }))
 
       await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'action-pending' })
@@ -622,7 +622,7 @@ describe('depositToVault', () => {
       labels: []
     }))
     wallet.listActions.mockImplementation(async (args: any) => {
-      if (args.labels?.includes(specOpFailedActions)) return { actions: [], totalActions: 0 }
+      if (args.labels?.includes(toolboxSdk.specOpFailedActions)) return { actions: [], totalActions: 0 }
       return {
         actions: history.slice(args.offset, args.offset + args.limit),
         totalActions: history.length
@@ -646,7 +646,7 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: !aborted
         ? [unsigned]
-        : args.labels?.includes(specOpFailedActions)
+        : args.labels?.includes(toolboxSdk.specOpFailedActions)
           ? [failed]
           : []
     }))
@@ -721,7 +721,7 @@ describe('depositToVault', () => {
     await seedMeta()
     let held = true
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) || !held ? [] : [heldDepositAction('nosend')]
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || !held ? [] : [heldDepositAction('nosend')]
     }))
     wallet.abortAction.mockImplementation(async () => {
       held = false
@@ -738,7 +738,7 @@ describe('depositToVault', () => {
     await seedMeta()
     const foreign = { ...heldDepositAction('nosend', 'main'), status: 'completed' }
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) ? [] : [foreign]
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [foreign]
     }))
     const clear = jest.fn(async (_token?: unknown) => {})
 
@@ -769,7 +769,7 @@ describe('depositToVault', () => {
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) ? [abortedWithdraw] : []
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [abortedWithdraw] : []
     }))
     const clear = jest.fn(async (_token?: unknown) => {})
 
@@ -796,7 +796,7 @@ describe('depositToVault', () => {
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) ? [stillReserved] : []
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [stillReserved] : []
     }))
     const clear = jest.fn(async (_token?: unknown) => {})
 
@@ -831,7 +831,7 @@ describe('depositToVault', () => {
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) ? [] : [postedWithdraw]
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [postedWithdraw]
     }))
     const clear = jest.fn(async (_token?: unknown) => {})
 
@@ -857,7 +857,7 @@ describe('depositToVault', () => {
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) ? [] : [heldWithdraw]
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [heldWithdraw]
     }))
     const clear = jest.fn(async (_token?: unknown) => {})
 
@@ -880,7 +880,7 @@ describe('depositToVault', () => {
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) ? [] : [legacySpend]
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [legacySpend]
     }))
     const clear = jest.fn(async (_token?: unknown) => {})
 
@@ -928,7 +928,7 @@ describe('depositToVault', () => {
     const first = await depositToVault(wallet, ADMIN, 250_000)
     const firstOutput = depositArgs().outputs[0]
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
         : [{
             txid: first.txid,
@@ -996,7 +996,7 @@ describe('depositToVault', () => {
       return result
     })
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions) || !completedOutput
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || !completedOutput
         ? []
         : [{
             txid: completedTxid,
@@ -1042,7 +1042,7 @@ describe('depositToVault', () => {
       keys: [KEY_A, KEY_B]
     })
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
         : [{
             txid: 'cd'.repeat(32),
@@ -1123,7 +1123,7 @@ describe('depositToVault', () => {
       saltHex64: claimed.salt
     }).toHex()
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
         : [{
             txid: 'dd'.repeat(32),
@@ -1166,7 +1166,7 @@ describe('depositToVault', () => {
       saltHex64: salt
     }).toHex()
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
         : [{
             txid: 'de'.repeat(32),
@@ -1214,7 +1214,7 @@ describe('depositToVault', () => {
       basket: VAULT_BASKET
     })
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
         : [{
             txid: txid.toUpperCase(),
@@ -1229,7 +1229,7 @@ describe('depositToVault', () => {
     const conflicting = vaultFixture(250_000, [PUB_A, PUB_B])
     wallet.createAction.mockClear()
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
         : [{
             txid: txid.toUpperCase(),
@@ -1259,7 +1259,7 @@ describe('depositToVault', () => {
       basket: VAULT_BASKET
     })
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
         : [
             { txid, reference: 'history-a', status: 'completed', outputs: [historyOutput(first)] },
@@ -2627,7 +2627,7 @@ describe('two-phase key removal reconciliation', () => {
     }))
     const completeHistory = [...actions, ...sourceActions]
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(specOpFailedActions)
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? completeHistory.filter(action => action.status === 'failed')
         : completeHistory.filter(action => action.status !== 'failed')
     }))
@@ -2841,7 +2841,7 @@ describe('authenticated vault scans', () => {
       const remainder = vaultFixture(400_000, [PUB_A, PUB_B])
       serveVaultOutputs([remainder])
       wallet.listActions.mockImplementation(async (args: any) => ({
-        actions: args.labels?.includes(specOpFailedActions)
+        actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
           ? []
           : [{
               txid: '8b'.repeat(32),
@@ -2869,7 +2869,7 @@ describe('authenticated vault scans', () => {
       const spent = vaultFixture(500_000, [PUB_A, PUB_B])
       serveVaultOutputs([vaultFixture(400_000, [PUB_A, PUB_B])])
       wallet.listActions.mockImplementation(async (args: any) => ({
-        actions: args.labels?.includes(specOpFailedActions)
+        actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
           ? []
           : [{
               txid: '8b'.repeat(32),

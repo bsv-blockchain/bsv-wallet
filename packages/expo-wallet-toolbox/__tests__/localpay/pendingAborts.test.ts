@@ -4,6 +4,7 @@ import {
   queuePendingAbort,
   replayPendingAborts
 } from '../../core/localpay/pendingAborts'
+import { ADMIN_ORIGINATOR } from '../../core/config'
 
 function fakeStorage() {
   const map = new Map<string, string>()
@@ -15,6 +16,15 @@ function fakeStorage() {
 }
 
 describe('pending_aborts', () => {
+  it('reads an abort queued under the pre-2.8 internal authority label as the current one', async () => {
+    const storage = fakeStorage()
+    storage.map.set(
+      PENDING_ABORTS_KEY,
+      JSON.stringify([{ reference: 'ref-old', originator: 'urn:bsv-wallet:internal-admin' }])
+    )
+    expect(await loadPendingAborts(storage)).toEqual([{ reference: 'ref-old', originator: ADMIN_ORIGINATOR }])
+  })
+
   it('queues a failed abort and replays it on wallet build', async () => {
     const storage = fakeStorage()
     await queuePendingAbort(storage, { reference: 'ref-1', originator: 'admin.com' })

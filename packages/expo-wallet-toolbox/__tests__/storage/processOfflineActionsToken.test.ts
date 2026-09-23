@@ -13,13 +13,14 @@
 jest.mock('../../core/net/online', () => ({ getOnline: jest.fn(async () => true) }))
 
 const mockPostReqs = jest.fn()
-jest.mock('@bsv/wallet-toolbox-mobile/out/src/storage/methods/attemptToPostReqsToNetwork', () => ({
+jest.mock('@bsv/wallet-toolbox-mobile', () => ({
+  ...jest.requireActual('@bsv/wallet-toolbox-mobile'),
   attemptToPostReqsToNetwork: (...args: unknown[]) => mockPostReqs(...args)
 }))
 
 import { DatabaseSync } from 'node:sqlite'
 import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
-import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile/out/src/storage/schema/tables'
+import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile'
 import { processOfflineActions } from '../../core/storage/methods/processOfflineActions'
 import { getOnline } from '../../core/net/online'
 import type { BindValue, OfflineActionRow } from '../../core/storage/methods/offlineActions'

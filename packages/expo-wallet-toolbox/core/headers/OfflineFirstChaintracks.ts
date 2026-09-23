@@ -14,7 +14,7 @@
  * whose ancestry we resolved once should verify offline forever after.
  */
 import { Utils } from '@bsv/sdk'
-import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile/out/src/services/chaintracker/chaintracks/Api/ChaintracksClientApi'
+import type { Chain, ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderStore } from './headerStore'
 
 /** A merkle root as display-order hex, whether the source gave us a hex string
@@ -26,6 +26,9 @@ function rootHex(v: unknown): string {
   return typeof v === 'string' ? v : Utils.toHex(Array.from(v as ArrayLike<number>))
 }
 
+/** Handed out when the remote cannot subscribe; never reaches the remote. */
+const INERT_SUBSCRIPTION_PREFIX = 'offline-first:inert:'
+
 export class OfflineFirstChaintracks implements ChaintracksClientApi {
   private store: HeaderStore | undefined
   /**
@@ -35,9 +38,16 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
    */
   lastMissHeight: number | undefined
 
+  private inertSubscriptions = 0
+
+  /**
+   * @param chain The chain the remote serves. When given, `getChain` answers
+   * from it instead of asking the network.
+   */
   constructor(
     private readonly remote: ChaintracksClientApi,
-    private readonly online: () => Promise<boolean>
+    private readonly online: () => Promise<boolean>,
+    private readonly chain?: Chain
   ) {}
 
   /** Consume the most recent unresolved height, if any. Kept for tests; classifiers must peek. */
@@ -124,10 +134,38 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
     return this.store?.tipHeight ?? 0
   }
 
-  // ── Everything below is pure delegation ───────────────────────────────────
-  getChain() {
-    return this.remote.getChain()
+  // The toolbox Monitor passes this object as `chaintracksWithEvents` and, since
+  // 2.13, awaits `getChain` and both subscriptions inside every `runOnce` (via
+  // `Monitor.ready`). A network call or a throw there stops the whole task loop,
+  // not just live reorg events, so these three must answer offline and never
+  // reject. TaskReviewProvenTxs remains the reorg audit without live events.
+  async getChain(): Promise<Chain> {
+    return this.chain ?? (await this.remote.getChain())
   }
+  async subscribeHeaders(listener: Parameters<ChaintracksClientApi['subscribeHeaders']>[0]): Promise<string> {
+    try {
+      return await this.remote.subscribeHeaders(listener)
+    } catch (e: any) {
+      return this.inertSubscription('headers', e)
+    }
+  }
+  async subscribeReorgs(listener: Parameters<ChaintracksClientApi['subscribeReorgs']>[0]): Promise<string> {
+    try {
+      return await this.remote.subscribeReorgs(listener)
+    } catch (e: any) {
+      return this.inertSubscription('reorgs', e)
+    }
+  }
+  async unsubscribe(subscriptionId: string): Promise<boolean> {
+    if (subscriptionId.startsWith(INERT_SUBSCRIPTION_PREFIX)) return true
+    return await this.remote.unsubscribe(subscriptionId)
+  }
+  private inertSubscription(kind: string, e: any): string {
+    console.warn(`[OfflineFirstChaintracks] ${kind} subscription unavailable, no live events: ${e?.message ?? e}`)
+    return `${INERT_SUBSCRIPTION_PREFIX}${kind}:${++this.inertSubscriptions}`
+  }
+
+  // ── Everything below is pure delegation ───────────────────────────────────
   getInfo() {
     return this.remote.getInfo()
   }
@@ -163,14 +201,5 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
   }
   isSynchronized() {
     return this.remote.isSynchronized()
-  }
-  subscribeHeaders(listener: Parameters<ChaintracksClientApi['subscribeHeaders']>[0]) {
-    return this.remote.subscribeHeaders(listener)
-  }
-  subscribeReorgs(listener: Parameters<ChaintracksClientApi['subscribeReorgs']>[0]) {
-    return this.remote.subscribeReorgs(listener)
-  }
-  unsubscribe(subscriptionId: string) {
-    return this.remote.unsubscribe(subscriptionId)
   }
 }

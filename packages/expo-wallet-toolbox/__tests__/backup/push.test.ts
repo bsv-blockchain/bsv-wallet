@@ -16,7 +16,6 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PrivateKey } from '@bsv/sdk'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import { BackupHttpError, ERR_SEQ_CONFLICT } from '../../core/backup/client'
 import { emptyChunk } from '../../core/backup/codec'
 import { GENERATION_CHUNK_THRESHOLD } from '../../core/backup/constants'
@@ -24,6 +23,7 @@ import { loadCursor, saveCursor, freshCursor, zeroOffsets } from '../../core/bac
 import { backupPseudonym } from '../../core/backup/derive'
 import { setBackupPushEnabled } from '../../core/backup/preference'
 import { pushOnce } from '../../core/backup/push'
+import type { SyncChunk } from '../../core/toolboxTypes'
 
 const PRIMARY = new PrivateKey(11).toArray('be', 32)
 const IDENTITY = '02' + 'ab'.repeat(32)

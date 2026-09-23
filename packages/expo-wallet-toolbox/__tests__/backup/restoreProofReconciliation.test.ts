@@ -1,9 +1,9 @@
 import { PrivateKey } from '@bsv/sdk'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { encodeChunk, emptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { restoreOnImport } from '../../core/backup/restoreOnImport'
+import type { SyncChunk } from '../../core/toolboxTypes'
 
 // Exercise real SQLite SQL plus the installed toolbox's merge and proof
 // completion methods; only the native connection is replaced for Jest.

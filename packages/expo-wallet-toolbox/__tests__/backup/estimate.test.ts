@@ -9,7 +9,7 @@
  */
 import { estimateEncodedBytes } from '../../core/backup/codec'
 import { MAX_BLOB_BYTES } from '../../core/backup/constants'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
+import type { SyncChunk } from '../../core/toolboxTypes'
 
 const chunk = (over: Record<string, unknown>): SyncChunk =>
   ({ fromStorageIdentityKey: '', toStorageIdentityKey: '', userIdentityKey: '', ...over }) as unknown as SyncChunk

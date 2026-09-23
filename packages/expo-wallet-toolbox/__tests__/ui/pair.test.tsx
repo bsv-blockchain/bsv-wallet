@@ -52,7 +52,10 @@ import { ThemeProvider, VaultAccessDenied, type ConnectParams } from '@bsv/expo-
 // Proxy only intercepts methods in its privileged-capable set, and getPublicKey
 // is one of the 9 the finding calls out as reachable through IMPLEMENTED_METHODS.
 const mockPermissionsManager = {
-  getPublicKey: jest.fn(async () => ({ publicKey: '02' + '11'.repeat(32) }))
+  // A real point (the generator): WalletClient validates the key it returns.
+  getPublicKey: jest.fn(async () => ({
+    publicKey: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
+  }))
 }
 
 // Partial mock: app/pair.tsx pulls useWallet/useWalletConnection from the same
@@ -117,6 +120,9 @@ test('Approve constructs the WalletClient from a GUARDED wallet, not the raw per
   await expect(
     (walletArg as WalletClient).getPublicKey({
       privileged: true,
+      // WalletClient itself rejects a privileged call without a reason, which
+      // would pass this test without the guard ever being consulted.
+      privilegedReason: 'vault access',
       protocolID: [2, 'vault'],
       keyID: 'vault/0',
       counterparty: 'self'
@@ -129,7 +135,7 @@ test('Approve constructs the WalletClient from a GUARDED wallet, not the raw per
   // not some blanket block that would just as well pass with an unguarded
   // wallet swapped back in.
   await (walletArg as WalletClient).getPublicKey({
-    protocolID: [1, 'x'],
+    protocolID: [1, 'pairing test'],
     keyID: '1',
     counterparty: 'self'
   } as any)

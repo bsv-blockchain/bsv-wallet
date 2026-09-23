@@ -9,7 +9,7 @@
  */
 import { dependencyOrder, descendantsOf, releaseOrder, type OrderableTx } from './order'
 import type { OfflineActionRow } from '../storage/methods/offlineActions'
-import type { ProvenTxReqStatus } from '@bsv/wallet-toolbox-mobile/out/src/sdk/types'
+import type { ProvenTxReqStatus } from '../toolboxTypes'
 
 export type PostOutcome = 'success' | 'serviceError' | 'invalidTx' | 'doubleSpend'
 

@@ -33,7 +33,6 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { PrivateKey, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
-import type { SyncChunk } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import { decodeChunk, emptyChunk, encodeChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { createTables } from '../../core/storage/schema/createTables'
@@ -43,6 +42,7 @@ import {
   encodeVaultInstructions,
   type VaultInstructionsV6
 } from '../../core/services/vault/r1comb'
+import type { SyncChunk } from '../../core/toolboxTypes'
 
 const KEY = new PrivateKey(7).toArray('be', 32)
 const NOW = '2026-09-10T00:00:00.000Z'

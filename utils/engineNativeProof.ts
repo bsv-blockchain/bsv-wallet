@@ -877,10 +877,10 @@ async function runVerifyCorrupted (native: EngineNativeLike): Promise<VerifyRepo
 async function runVerifyShadow (): Promise<VerifyReport['shadow']> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { verifyUnlockScripts } = require('@bsv/wallet-toolbox-mobile/out/src/signer/methods/completeSignedTransaction')
+    const { verifyUnlockScripts } = require('@bsv/wallet-toolbox-mobile')
     const { tx, beef, txid } = await signedP2pkhFixture(20, true).build()
     delete g.__bsvEngineShadow
-    verifyUnlockScripts(txid, beef) // JS authoritative; engine shadows alongside
+    await verifyUnlockScripts(txid, beef) // JS authoritative; engine shadows alongside
     const s = g.__bsvEngineShadow
     if (s?.pending != null) await s.pending
     const eligible = s?.verifyEligible ?? 0
@@ -906,7 +906,7 @@ async function runVerifyShadow (): Promise<VerifyReport['shadow']> {
 async function runVerifyBench (native: EngineNativeLike): Promise<VerifyReport['bench']> {
   const out: VerifyReport['bench'] = []
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { verifyUnlockScripts } = require('@bsv/wallet-toolbox-mobile/out/src/signer/methods/completeSignedTransaction')
+  const { verifyUnlockScripts } = require('@bsv/wallet-toolbox-mobile')
   const { tx, beef, txid } = await signedP2pkhFixture(50).build()
   const signedBuf = Uint8Array.from(tx.toBinary()).buffer as ArrayBuffer
   const metaBuf = buildVerifyMeta(tx)
@@ -918,7 +918,7 @@ async function runVerifyBench (native: EngineNativeLike): Promise<VerifyReport['
   const realEngine = g.__bsvEngineNative
   delete g.__bsvEngineNative
   try {
-    out.push({ flow: '50-input verifyUnlockScripts JS Spend (per-input) (ms)', iters: 12, stats: await benchFlowMs(12, async () => { verifyUnlockScripts(txid, beef) }) })
+    out.push({ flow: '50-input verifyUnlockScripts JS Spend (per-input) (ms)', iters: 12, stats: await benchFlowMs(12, async () => { await verifyUnlockScripts(txid, beef) }) })
   } finally {
     if (realEngine != null) g.__bsvEngineNative = realEngine
   }

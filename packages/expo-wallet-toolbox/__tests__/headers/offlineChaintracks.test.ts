@@ -123,10 +123,49 @@ describe('OfflineFirstChaintracks', () => {
     expect(await ct.currentHeight()).toBe(999)
   })
 
-  it('delegates everything else to the remote client', async () => {
+  it('delegates getChain to the remote client when no chain was given', async () => {
     const r = remote()
     const ct = new OfflineFirstChaintracks(r, async () => true)
     expect(await ct.getChain()).toBe('ttn')
     expect((r as never as { getChain: jest.Mock }).getChain).toHaveBeenCalled()
+  })
+
+  // The toolbox Monitor awaits getChain and both subscriptions inside every
+  // runOnce (via `ready`), so none of them may depend on the network or throw.
+  it('answers getChain from the configured chain without touching the network', async () => {
+    const r = remote({ getChain: jest.fn().mockRejectedValue(new Error('offline')) })
+    const ct = new OfflineFirstChaintracks(r, async () => false, 'ttn')
+    expect(await ct.getChain()).toBe('ttn')
+    expect((r as never as { getChain: jest.Mock }).getChain).not.toHaveBeenCalled()
+  })
+
+  it('resolves an inert subscription when the remote cannot subscribe', async () => {
+    const unsubscribe = jest.fn().mockResolvedValue(true)
+    const r = remote({
+      subscribeHeaders: jest.fn().mockRejectedValue(new Error('Method not implemented.')),
+      subscribeReorgs: jest.fn().mockRejectedValue(new Error('Method not implemented.')),
+      unsubscribe
+    })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const ct = new OfflineFirstChaintracks(r, async () => true, 'ttn')
+      const headers = await ct.subscribeHeaders(() => {})
+      const reorgs = await ct.subscribeReorgs(() => {})
+      expect(typeof headers).toBe('string')
+      expect(typeof reorgs).toBe('string')
+      await expect(ct.unsubscribe(headers)).resolves.toBe(true)
+      expect(unsubscribe).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('passes through a subscription the remote does support', async () => {
+    const unsubscribe = jest.fn().mockResolvedValue(true)
+    const r = remote({ subscribeReorgs: jest.fn().mockResolvedValue('remote-sub'), unsubscribe })
+    const ct = new OfflineFirstChaintracks(r, async () => true, 'ttn')
+    expect(await ct.subscribeReorgs(() => {})).toBe('remote-sub')
+    await ct.unsubscribe('remote-sub')
+    expect(unsubscribe).toHaveBeenCalledWith('remote-sub')
   })
 })

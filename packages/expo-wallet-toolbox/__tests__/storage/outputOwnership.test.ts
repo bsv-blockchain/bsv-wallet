@@ -1,6 +1,5 @@
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
-import { internalizeAction } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/internalizeAction'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { buildLock, commitment } from '../../core/services/vault/r1comb'
 
@@ -106,7 +105,7 @@ describe('stored output ownership invariants', () => {
     }
     const verify = jest.spyOn(Beef.prototype, 'verify').mockResolvedValue(true)
     try {
-      await expect(internalizeAction(storage as never, { userId: 1 } as never, {
+      await expect(StorageProvider.prototype.internalizeAction.call(storage, { userId: 1 } as never, {
         tx: beef.toBinaryAtomic(tx.id('hex')),
         description: 'Try moving protected output',
         labels: [],

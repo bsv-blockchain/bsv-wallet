@@ -4,11 +4,11 @@
  * Handles specOp patterns (wallet balance, invalid change, etc.)
  */
 import type { ListOutputsResult, Validation } from '@bsv/sdk'
-import type { AuthId } from '@bsv/wallet-toolbox-mobile/out/src/sdk/WalletStorage.interfaces'
 import type { StorageExpoSQLite } from '../StorageExpoSQLite'
-import { getListOutputsSpecOp } from '@bsv/wallet-toolbox-mobile/out/src/storage/methods/ListOutputsSpecOp'
+import { getListOutputsSpecOp } from '@bsv/wallet-toolbox-mobile'
 import { devLog, isLoggingEnabled } from '../../logging'
 import { BALANCE_TX_STATUS } from './walletBalanceSql'
+import type { AuthId } from '../../toolboxTypes'
 
 export async function listOutputsSql(
   storage: StorageExpoSQLite,

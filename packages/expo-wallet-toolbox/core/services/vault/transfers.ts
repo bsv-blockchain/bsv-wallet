@@ -43,7 +43,7 @@
 import { Beef, Hash, LockingScript, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { isBackupPushEnabled } from '../../backup/preference'
 import { getBackupUrl, isVaultAvailable, isVaultEnabled } from '../../toolboxConfig'
-import { specOpFailedActions } from '@bsv/wallet-toolbox-mobile/out/src/sdk/types'
+import { sdk as toolboxSdk } from '@bsv/wallet-toolbox-mobile'
 import { noteVaultProgress, requestVaultSigner } from './ceremonyHost'
 import {
   R1C_LOCK_LEN,
@@ -601,7 +601,7 @@ async function scanVaultActions(
   await scan(details)
   if (!includeFailed) return
   const ordinaryLabels = Array.isArray(details.labels) ? details.labels.filter(label => typeof label === 'string') : ['vault']
-  await scan({ ...details, labels: [specOpFailedActions, ...ordinaryLabels] })
+  await scan({ ...details, labels: [toolboxSdk.specOpFailedActions, ...ordinaryLabels] })
 }
 
 const actionClaimsVaultSpend = (action: VaultActionRow): boolean => {

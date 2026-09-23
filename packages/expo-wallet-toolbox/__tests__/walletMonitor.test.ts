@@ -11,6 +11,7 @@ import {
 } from '../core/walletMonitor'
 import { Monitor, Services } from '@bsv/wallet-toolbox-mobile'
 import { TaskSendOffline } from '../core/monitor/TaskSendOffline'
+import { OfflineFirstChaintracks } from '../core/headers/OfflineFirstChaintracks'
 
 function createTask(runTask: () => Promise<string>) {
   return {
@@ -128,6 +129,7 @@ describe('createWalletMonitor', () => {
     const subscribeReorgs = jest.fn().mockResolvedValue('reorg-sub')
     const subscribeHeaders = jest.fn().mockResolvedValue('header-sub')
     const options = createWalletMonitorOptions('test', {} as never, services, {
+      getChain: jest.fn().mockResolvedValue('test'),
       subscribeReorgs,
       subscribeHeaders
     } as never)
@@ -143,6 +145,7 @@ describe('createWalletMonitor', () => {
     const subscribeReorgs = jest.fn().mockRejectedValue(new Error('Method not implemented.'))
     const subscribeHeaders = jest.fn().mockRejectedValue(new Error('Method not implemented.'))
     const options = createWalletMonitorOptions('test', {} as never, services, {
+      getChain: jest.fn().mockResolvedValue('test'),
       subscribeReorgs,
       subscribeHeaders
     } as never)
@@ -150,6 +153,30 @@ describe('createWalletMonitor', () => {
       const monitor = await createWalletMonitor(options)
       expect(monitor.chaintracksWithEvents).toBe(options.chaintracksWithEvents)
       expect(subscribeReorgs).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+describe('createWalletMonitor with the offline-first chain tracker', () => {
+  // Monitor.runOnce awaits `ready` on every pass since toolbox 2.13, so a
+  // chaintracks that cannot subscribe (the HTTP client) or reach the network
+  // (offline start) must still leave `ready` resolved, or no task ever runs.
+  it('resolves ready offline against a remote that cannot subscribe', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const remote = {
+        getChain: jest.fn().mockRejectedValue(new Error('offline')),
+        subscribeReorgs: jest.fn().mockRejectedValue(new Error('Method not implemented.')),
+        subscribeHeaders: jest.fn().mockRejectedValue(new Error('Method not implemented.')),
+        unsubscribe: jest.fn()
+      }
+      const chaintracks = new OfflineFirstChaintracks(remote as never, async () => false, 'test')
+      const options = createWalletMonitorOptions('test', {} as never, new Services('test'), chaintracks)
+      const monitor = await createWalletMonitor(options)
+      await expect(monitor.ready).resolves.toBeUndefined()
+      expect(remote.getChain).not.toHaveBeenCalled()
     } finally {
       warn.mockRestore()
     }

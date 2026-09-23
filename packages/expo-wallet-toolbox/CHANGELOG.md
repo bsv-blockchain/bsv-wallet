@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### @bsv dependency bump (breaking for hosts)
+
+Peer ranges move to `@bsv/sdk` ^2.8.0, `@bsv/wallet-toolbox-mobile` ^2.13.2,
+`@bsv/message-box-client` ^2.5.1, `@bsv/templates` ^1.10.2,
+`@bsv/btms-permission-module` ^1.2.1 and `@bsv/air-gap` ^0.1.3.
+
+Hosts must carry this repo's `patches/` for those exact versions:
+`@bsv/wallet-toolbox-mobile` 2.13 ships as one bundle whose exports map exposes
+only its root, so the package now imports everything from the root, and the
+toolbox patch also exports `WalletMonitorTask`, `attemptToPostReqsToNetwork`,
+`parseJsonRpc`, `stringifyJsonRpc` and `verifyUnlockScripts`, which upstream
+leaves internal. The Vault hooks, sendMax approval amounts and native-crypto
+routing live in the same patches. `@bsv/templates` 1.10.2's CommonJS build is
+broken under Node without its patch (bundlers resolve the ESM build).
+
+- `ADMIN_ORIGINATOR` is now `internal-admin.bsv-wallet.invalid`. @bsv/sdk 2.8
+  accepts only canonical hostnames as originators, so the old
+  `urn:bsv-wallet:internal-admin` label rejected every internal wallet call.
+  `parseExternalOrigin` refuses the whole `.invalid` TLD, and pending aborts
+  queued under the old label replay under the new one
+  (`LEGACY_ADMIN_ORIGINATOR`).
+- `OfflineFirstChaintracks` takes an optional third `chain` argument and
+  answers `getChain` from it; an unsupported subscription resolves to an inert
+  id instead of throwing. The toolbox Monitor awaits both inside every
+  `runOnce` since 2.13, so a throw there stopped every monitor task.
+- Header validation uses the toolbox's `validateHeaderProofOfWork`, which
+  checks the compact target encoding and honours its consensus exceptions.
+
 ## 0.6.0
 
 ### Handle registry (breaking)
