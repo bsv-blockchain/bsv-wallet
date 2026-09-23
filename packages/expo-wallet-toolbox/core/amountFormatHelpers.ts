@@ -40,9 +40,15 @@ const ABBREVIATION_STEPS: { limit: number; divisor: number; suffix: string }[] =
  */
 const scaleForAbbreviation = (value: number): { scaled: number; suffix: string } => {
   const abs = Math.abs(value)
-  for (const { limit, divisor, suffix } of ABBREVIATION_STEPS) {
+  for (let i = 0; i < ABBREVIATION_STEPS.length; i++) {
+    const { limit, divisor, suffix } = ABBREVIATION_STEPS[i]
+    if (abs < limit) continue
     // One decimal, trimmed: 1.0k reads as noise, 1.5k does not.
-    if (abs >= limit) return { scaled: Math.round((abs / divisor) * 10) / 10, suffix }
+    const scaled = Math.round((abs / divisor) * 10) / 10
+    // 999,950 rounds to 1000k; that is 1M.
+    const up = ABBREVIATION_STEPS[i - 1]
+    if (scaled >= 1000 && up) return { scaled: Math.round((abs / up.divisor) * 10) / 10, suffix: up.suffix }
+    return { scaled, suffix }
   }
   return { scaled: abs, suffix: '' }
 }
@@ -70,7 +76,13 @@ export type UsdToFiat = Record<string, number>
 
 export type AmountFormatOptions = {
   showPlus?: boolean
+  /** "sats" instead of "satoshis". Never changes the figure. */
   abbreviate?: boolean
+  /**
+   * Shorten large figures to k/M/B. Only for dense lists (activity rows): an
+   * approval, a balance or a transaction detail must show the exact amount.
+   */
+  compact?: boolean
   showFiatAsInteger?: boolean
   usdToFiat?: UsdToFiat
 }
@@ -81,11 +93,7 @@ export const isFiatCurrency = (currency: string): boolean => Boolean(currency) &
  * Satoshis per 1 unit of `currency`. USD is the WhatsOnChain rate; other fiat
  * is that rate divided by the USD→fiat cross (1 USD = `usdToFiat[code]` units).
  */
-export const satoshisPerFiatUnit = (
-  currency: string,
-  satoshisPerUSD: number,
-  usdToFiat: UsdToFiat = {}
-): number => {
+export const satoshisPerFiatUnit = (currency: string, satoshisPerUSD: number, usdToFiat: UsdToFiat = {}): number => {
   if (currency === 'USD') return satoshisPerUSD
   const fx = usdToFiat[currency]
   if (!(satoshisPerUSD > 0) || !(fx > 0)) return 0
@@ -252,7 +260,7 @@ export const formatSatoshisAsFiat = (
   showFiatAsInteger = false,
   currency = 'USD',
   showPlus = false,
-  abbreviate = false
+  compact = false
 ): string => {
   if (!Number.isInteger(Number(satoshis)) || !satoshisPerUnit || satoshisPerUnit <= 0) {
     return '...'
@@ -280,7 +288,7 @@ export const formatSatoshisAsFiat = (
    * that happens to be close. Past `FIAT_ABBREVIATE_ABOVE` the cents have
    * stopped being the point and the width has started to be.
    */
-  if (abbreviate && v >= FIAT_ABBREVIATE_ABOVE) {
+  if (compact && v >= FIAT_ABBREVIATE_ABOVE) {
     const { scaled, suffix } = scaleForAbbreviation(v)
     const shortDigits = Number.isInteger(scaled) ? 0 : 1
     const body = formatCurrency(sign * scaled, locale(), currency, shortDigits, shortDigits, showPlus)
@@ -302,7 +310,12 @@ export const formatSatoshisAsFiat = (
  *
  * All formatting is locale-aware.
  */
-export const formatSatoshisAsBsv = (satoshis: number, showPlus = false, abbreviate = false): string => {
+export const formatSatoshisAsBsv = (
+  satoshis: number,
+  showPlus = false,
+  abbreviate = false,
+  compact = false
+): string => {
   const numValue = Number(satoshis)
   if (!Number.isInteger(numValue)) return '---'
 
@@ -314,14 +327,12 @@ export const formatSatoshisAsBsv = (satoshis: number, showPlus = false, abbrevia
     const bsvValue = absValue / SATS_PER_BSV
     // A whole-BSV figure abbreviates on the same ladder once it passes 1000,
     // so "1,000 BSV" reads "1k BSV" rather than growing a digit per decade.
-    const body = abbreviate && bsvValue >= 1000 ? abbreviateNumber(bsvValue) : formatBsvLocale(bsvValue)
+    const body = compact && bsvValue >= 1000 ? abbreviateNumber(bsvValue) : formatBsvLocale(bsvValue)
     return `${sign}${body} BSV`
   } else {
-    // Display as satoshis. `abbreviate` shortens BOTH the figure and the label
-    // — it used to shorten only the label, which left "1,000,000 sats" as the
-    // supposedly-abbreviated form.
+    // Display as satoshis. `abbreviate` shortens the label, `compact` the figure.
     const label = abbreviate ? 'sats' : 'satoshis'
-    const body = abbreviate ? abbreviateNumber(absValue) : formatSatoshisLocale(absValue)
+    const body = compact ? abbreviateNumber(absValue) : formatSatoshisLocale(absValue)
     return `${sign}${body} ${label}`
   }
 }
@@ -337,14 +348,14 @@ export const formatAmount = (
   satoshisPerUSD: number = 0,
   options: AmountFormatOptions = {}
 ): string => {
-  const { showPlus = false, abbreviate = false, showFiatAsInteger = false, usdToFiat = {} } = options
+  const { showPlus = false, abbreviate = false, compact = false, showFiatAsInteger = false, usdToFiat = {} } = options
 
   if (isFiatCurrency(currency)) {
     const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
-    return formatSatoshisAsFiat(satoshis, per, showFiatAsInteger, currency, showPlus, abbreviate)
+    return formatSatoshisAsFiat(satoshis, per, showFiatAsInteger, currency, showPlus, compact)
   }
 
-  return formatSatoshisAsBsv(satoshis, showPlus, abbreviate)
+  return formatSatoshisAsBsv(satoshis, showPlus, abbreviate, compact)
 }
 
 /**
@@ -438,7 +449,12 @@ export const parseDisplayToSatoshis = (
  * In BSV mode, the label depends on the amount (satoshis vs BSV).
  * If no satoshi value is provided, returns "satoshis" (the input label for BSV mode).
  */
-export const getUnitLabel = (currency: string, satoshis?: number, abbreviate = false, satoshisPerUSD?: number): string => {
+export const getUnitLabel = (
+  currency: string,
+  satoshis?: number,
+  abbreviate = false,
+  satoshisPerUSD?: number
+): string => {
   if (isFiatCurrency(currency)) {
     if (currency === 'USD' && satoshis !== undefined && satoshisPerUSD && satoshisPerUSD > 0) {
       const usd = Math.abs(satoshis / satoshisPerUSD)
@@ -477,10 +493,7 @@ export const splitAmountFraction = (value: string): { head: string; frac: string
   if (!value) return whole
   let sep: string
   try {
-    sep =
-      new Intl.NumberFormat(locale())
-        .formatToParts(1.1)
-        .find(p => p.type === 'decimal')?.value ?? '.'
+    sep = new Intl.NumberFormat(locale()).formatToParts(1.1).find(p => p.type === 'decimal')?.value ?? '.'
   } catch {
     sep = '.'
   }

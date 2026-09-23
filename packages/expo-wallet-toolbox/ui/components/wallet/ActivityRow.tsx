@@ -227,6 +227,7 @@ function ActivityRowBase({
 
   const { value, unit } = formatAmountParts(action.satoshis, currency, satoshisPerUSD, {
     abbreviate: true,
+    compact: true,
     showPlus: true,
     usdToFiat
   })
@@ -235,6 +236,7 @@ function ActivityRowBase({
   // reason a sats-denominated wallet needs a fiat line at all.
   const secondary = formatAmount(action.satoshis, currency === 'BSV' ? 'USD' : 'BSV', satoshisPerUSD, {
     abbreviate: true,
+    compact: true,
     showPlus: true,
     usdToFiat
   })

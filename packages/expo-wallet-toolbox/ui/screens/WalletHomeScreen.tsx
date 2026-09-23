@@ -1546,7 +1546,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           accessibilityLabel={
             heldAsset
               ? undefined
-              : t('wallet_balance_toggle_denomination', { defaultValue: 'Switch denomination' })
+              : t('wallet_balance_show_in', {
+                  unit: displayCurrency === 'BSV' ? (isFiatCurrency(currency) ? currency : 'USD') : 'BSV'
+                })
           }
           accessibilityValue={heroText ? { text: heroText } : undefined}
         >

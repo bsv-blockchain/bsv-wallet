@@ -36,6 +36,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     ...jest.requireActual('../../core/theme/tokens'),
     ...jest.requireActual('../../core/theme/motion'),
     splitAmountFraction: jest.requireActual('../../core/amountFormatHelpers').splitAmountFraction,
+    isFiatCurrency: jest.requireActual('../../core/amountFormatHelpers').isFiatCurrency,
     useTheme: () => ({ colors: {} }),
     useWallet: () => mockWallet,
     useLocalStorage: () => ({
