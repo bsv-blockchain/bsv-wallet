@@ -204,8 +204,3 @@ export { AVATAR_ICON_GROUPS, type AvatarIconOption, type AvatarIconGroup } from 
 export { default as IconPickerSheet } from './components/wallet/IconPickerSheet'
 export { default as EditPictureSheet, type EditPictureOption } from './components/wallet/EditPictureSheet'
 
-// Lock gate + PIN entry
-export { default as PinGate } from './components/wallet/PinGate'
-export { default as PinPad } from './components/wallet/PinPad'
-export { default as PinSetupSheet } from './components/wallet/PinSetupSheet'
-export { default as PinUnlockSheet } from './components/wallet/PinUnlockSheet'

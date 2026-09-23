@@ -187,43 +187,6 @@ export { createMandalaSettlementTables } from './storage/schema/createTables'
 export * from './storage/skipQueuedAncestors'
 export { prepareSqliteImageForDeserialize } from './storage/dbImage'
 
-// Wallet secret protection: unlock state, PIN, and the auto-lock preference.
-// The UI needs these to draw the lock gate and the Security settings; the
-// crypto itself stays inside services/secrets.
-export {
-  autoUnlockKek,
-  changePin,
-  clearPin,
-  destroyKek,
-  getUnlockState,
-  hasPin,
-  isBiometricEnabled,
-  isUnlocked,
-  lockKek,
-  readSentinel,
-  setBiometricEnabled,
-  setPin,
-  subscribeUnlockState,
-  unlockKek,
-  unlockWithPin,
-  isValidPin,
-  PIN_MAX_DIGITS,
-  PIN_MIN_DIGITS,
-  delayForFailures,
-  lockRemainingMs,
-  PIN_FREE_ATTEMPTS,
-  hasStrongBiometrics,
-  biometricKind
-} from './services/secrets'
-export type { KekPolicy, UnlockState, PinWrapV1 } from './services/secrets'
-export {
-  AUTO_LOCK_GRACE_MS,
-  isAutoLockEnabled,
-  loadAutoLockPref,
-  setAutoLockEnabled,
-  subscribeAutoLock
-} from './services/secrets/autoLock'
-
 // Local secrets storage
 export {
   default as LocalStorageProvider,

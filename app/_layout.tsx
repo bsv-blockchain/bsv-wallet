@@ -41,7 +41,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 // TODO: Re-add RecoveryKeySaver when WAB support returns
 import { PermissionSheet, AlertHost, ToastHost, showToast, ErrorBoundary } from '@bsv/expo-wallet-toolbox/ui'
-import { VaultCeremonySheet, PinGate } from '@bsv/expo-wallet-toolbox/ui'
+import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -209,9 +209,6 @@ export default function RootLayout() {
                             <VaultCeremonySheet />
                             <LocalPayNotificationBridge />
                             <AlertHost />
-                            {/* Last of the global sheets so its Modal sits above
-                                them: being locked outranks anything they ask. */}
-                            <PinGate />
                             <Stack
                               screenOptions={{
                                 animation: 'slide_from_right',
