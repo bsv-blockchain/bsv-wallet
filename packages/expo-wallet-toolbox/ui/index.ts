@@ -131,7 +131,7 @@ export { VaultTransferScreen } from './screens/VaultTransferScreen'
 // app/connections.tsx, app/pair.tsx, app/trust.tsx, app/logs.tsx).
 // validateTrust.ts/isImageUrl.ts moved alongside TrustScreen as its only
 // dependency in app-root utils/ (deterministicColor.ts/deterministicImage.ts
-// stayed put — nothing moving in this task references them). QRScanner was
+// were unused dead code and have since been deleted). QRScanner was
 // already pulled forward in Task 21; see the components section above.
 export { ConnectionsScreen } from './screens/ConnectionsScreen'
 export { PairScreen } from './screens/PairScreen'
@@ -163,7 +163,13 @@ export {
   tokenAmountMask,
   tokenAmountParts
 } from './tokenFormat'
-export { tokenStatusKey, tokenRowStatusView, tokenStatusTone, tokenStatusDetailKey, type TokenStatusTone } from './tokenStatus'
+export {
+  tokenStatusKey,
+  tokenRowStatusView,
+  tokenStatusTone,
+  tokenStatusDetailKey,
+  type TokenStatusTone
+} from './tokenStatus'
 export { SEEN_ASSETS_KEY, SEEN_EVICTIONS_KEY, markSeen, readSeen, useSeenSet, type SeenSet } from './tokenSeen'
 export { default as AssetAmount, type AssetAmountProps } from './components/wallet/AssetAmount'
 export { announceEviction, evictionsFrom, type EvictionNotice } from './components/wallet/tokenEviction'
@@ -203,4 +209,3 @@ export { AVATAR_ICON_GROUPS, type AvatarIconOption, type AvatarIconGroup } from 
 
 export { default as IconPickerSheet } from './components/wallet/IconPickerSheet'
 export { default as EditPictureSheet, type EditPictureOption } from './components/wallet/EditPictureSheet'
-
