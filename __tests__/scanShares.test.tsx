@@ -40,7 +40,7 @@ const mockSecretFromShares = jest.fn((shareStrings: string[]) =>
 
 const mockHasStoredIdentity = jest.fn(async () => false)
 let mockWalletBuilt = false
-let mockRestoreState: { phase: string; error?: string } = { phase: 'idle' }
+let mockRestoreState: { phase: string; error?: string; verified?: boolean } = { phase: 'idle' }
 let mockBackupRestore: { phase: string; chunks: number; total: number } = { phase: 'idle', chunks: 0, total: 0 }
 
 // Set by the mocked QRScanner whenever the screen (re)renders it, so tests
@@ -204,6 +204,40 @@ describe('scan-shares screen', () => {
 
     await act(async () => resolveAlert('ok'))
     expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('a restore that completed but could not be verified shows the unverified alert, then celebrates', async () => {
+    mockRestoreState = { phase: 'restored', verified: false }
+    const { mnemonic } = generateMnemonicWallet()
+    const entropy = Mnemonic.fromString(mnemonic).toEntropy()
+    const shares = generateEntropyShares(entropy)
+
+    const screen = render(<ScanSharesScreen />)
+    await scanAll(shares.slice(0, 2))
+
+    await waitFor(() =>
+      expect(mockShowAlert).toHaveBeenCalledWith({
+        title: 'restore_backup_unverified_title',
+        message: 'restore_backup_unverified_body',
+        buttons: [{ text: 'dismiss', key: 'dismiss' }]
+      })
+    )
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('a fully verified restore never shows the unverified alert', async () => {
+    mockRestoreState = { phase: 'restored', verified: true }
+    const { mnemonic } = generateMnemonicWallet()
+    const entropy = Mnemonic.fromString(mnemonic).toEntropy()
+    const shares = generateEntropyShares(entropy)
+
+    const screen = render(<ScanSharesScreen />)
+    await scanAll(shares.slice(0, 2))
+
+    await waitFor(() => expect(screen.getByText('celebration')).toBeTruthy())
+    expect(mockShowAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'restore_backup_unverified_title' })
+    )
   })
 
   test('an already-built wallet rebuilds instead of building fresh', async () => {

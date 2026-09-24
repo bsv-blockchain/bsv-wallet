@@ -89,6 +89,24 @@ describe('restorePrompts', () => {
     })
   })
 
+  describe('restoreUnverified', () => {
+    test('calls showAlert with the unverified-backup copy and a single dismiss button', async () => {
+      mockShowAlert.mockResolvedValueOnce('dismiss')
+      await restorePrompts(t).restoreUnverified()
+
+      expect(mockShowAlert).toHaveBeenCalledWith({
+        title: t('restore_backup_unverified_title'),
+        message: t('restore_backup_unverified_body'),
+        buttons: [{ text: t('dismiss'), key: 'dismiss' }]
+      })
+    })
+
+    test('resolves once showAlert resolves, regardless of what it resolves to', async () => {
+      mockShowAlert.mockResolvedValueOnce('dismiss')
+      await expect(restorePrompts(t).restoreUnverified()).resolves.toBeUndefined()
+    })
+  })
+
   describe('confirmReplace', () => {
     test('calls showAlert with the replace-wallet copy, destructive confirm button', async () => {
       mockShowAlert.mockResolvedValueOnce('replace')

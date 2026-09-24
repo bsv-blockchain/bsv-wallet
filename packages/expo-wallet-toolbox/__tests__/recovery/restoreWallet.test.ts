@@ -81,7 +81,8 @@ describe('restoreWallet', () => {
       identityKey: 'id-mnemonic',
       secret: mnemonicSecret,
       history: 'restored',
-      attested: true
+      attested: true,
+      verified: true
     })
   })
 
@@ -189,6 +190,55 @@ describe('restoreWallet', () => {
     const outcome = await restoreWallet(deps, mnemonicSecret, { restore: true, medium: 'phrase' })
 
     expect(outcome).toMatchObject({ kind: 'ok', history })
+  })
+
+  describe('verified', () => {
+    test('history restored + verified:false on the phase → outcome.verified is false', async () => {
+      const { deps } = makeDeps()
+      ;(deps.getBackupRestore as jest.Mock).mockReturnValue({ phase: 'restored', verified: false })
+
+      const outcome = await restoreWallet(deps, mnemonicSecret, { restore: true, medium: 'phrase' })
+
+      expect(outcome).toMatchObject({ kind: 'ok', history: 'restored', verified: false })
+    })
+
+    test('history restored + verified:true on the phase → outcome.verified is true', async () => {
+      const { deps } = makeDeps()
+      ;(deps.getBackupRestore as jest.Mock).mockReturnValue({ phase: 'restored', verified: true })
+
+      const outcome = await restoreWallet(deps, mnemonicSecret, { restore: true, medium: 'phrase' })
+
+      expect(outcome).toMatchObject({ kind: 'ok', history: 'restored', verified: true })
+    })
+
+    test('history restored + no verified field on the phase (legacy build) → outcome.verified defaults true', async () => {
+      const { deps } = makeDeps()
+      ;(deps.getBackupRestore as jest.Mock).mockReturnValue({ phase: 'restored' })
+
+      const outcome = await restoreWallet(deps, mnemonicSecret, { restore: true, medium: 'phrase' })
+
+      expect(outcome).toMatchObject({ kind: 'ok', history: 'restored', verified: true })
+    })
+
+    test('history no-backup, even with verified:false on the phase → outcome.verified stays true', async () => {
+      // verified:false only ever means something for an ACTUAL restore — there is nothing
+      // to be unverified about when nothing was replayed.
+      const { deps } = makeDeps()
+      ;(deps.getBackupRestore as jest.Mock).mockReturnValue({ phase: 'no-backup', verified: false })
+
+      const outcome = await restoreWallet(deps, mnemonicSecret, { restore: true, medium: 'phrase' })
+
+      expect(outcome).toMatchObject({ kind: 'ok', history: 'no-backup', verified: true })
+    })
+
+    test('restore:false (skip) → outcome.verified is true; getBackupRestore never consulted', async () => {
+      const { deps } = makeDeps()
+
+      const outcome = await restoreWallet(deps, mnemonicSecret, { restore: false, medium: 'phrase' })
+
+      expect(deps.getBackupRestore).not.toHaveBeenCalled()
+      expect(outcome).toMatchObject({ kind: 'ok', history: 'skipped', verified: true })
+    })
   })
 
   test('attest throws → still ok/attested:false, console.warn with [recovery] tag', async () => {

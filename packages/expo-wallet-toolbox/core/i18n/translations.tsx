@@ -722,6 +722,9 @@ const resources = {
         'Your recovery phrase is fine, but the encrypted backup could not be replayed. Trying again is usually enough. Continuing without it gives you a working wallet with no past transactions, and some of your existing coins will not be spendable.',
       restore_backup_retry: 'Try again',
       restore_backup_skip: 'Abandon',
+      restore_backup_unverified_title: 'Backup may be incomplete',
+      restore_backup_unverified_body:
+        'Your wallet restored, but the backup on the server could not be confirmed as complete. If some history is missing, restore again later once the other device has finished uploading.',
       import_wallet: 'Import Wallet',
 
       // Permission sheet
@@ -1680,6 +1683,9 @@ const resources = {
         '您的助记词没有问题，但加密备份无法重放。通常重试一次即可。若继续，钱包可用但没有历史交易，且您已有的部分币将无法花费。',
       restore_backup_retry: '重试',
       restore_backup_skip: '放弃',
+      restore_backup_unverified_title: '备份可能不完整',
+      restore_backup_unverified_body:
+        '您的钱包已恢复，但服务器上的备份无法确认是否完整。如果缺少部分历史记录，请在另一台设备完成上传后再次恢复。',
       import_wallet: '导入钱包',
 
       reject: '拒绝',
@@ -2654,6 +2660,9 @@ const resources = {
         'आपका रिकवरी फ़्रेज़ ठीक है, लेकिन एन्क्रिप्टेड बैकअप दोहराया नहीं जा सका। आमतौर पर दोबारा कोशिश करना पर्याप्त होता है। इसके बिना जारी रखने पर वॉलेट काम करेगा लेकिन कोई पुराना लेनदेन नहीं होगा, और आपके कुछ मौजूदा सिक्के खर्च नहीं हो पाएँगे।',
       restore_backup_retry: 'पुनः प्रयास करें',
       restore_backup_skip: 'छोड़ें',
+      restore_backup_unverified_title: 'बैकअप अधूरा हो सकता है',
+      restore_backup_unverified_body:
+        'आपका वॉलेट पुनर्स्थापित हो गया है, लेकिन सर्वर पर मौजूद बैकअप के पूर्ण होने की पुष्टि नहीं हो सकी। यदि कुछ इतिहास गायब है, तो दूसरे डिवाइस का अपलोड पूरा होने के बाद दोबारा पुनर्स्थापित करें।',
       import_wallet: 'वॉलेट आयात करें',
 
       reject: 'अस्वीकार करें',
@@ -3652,6 +3661,9 @@ const resources = {
         'Tu frase de recuperación está bien, pero la copia cifrada no se pudo reproducir. Normalmente basta con reintentar. Si continúas sin ella tendrás una billetera funcional sin transacciones anteriores, y algunas de tus monedas actuales no serán gastables.',
       restore_backup_retry: 'Reintentar',
       restore_backup_skip: 'Abandonar',
+      restore_backup_unverified_title: 'La copia de seguridad podría estar incompleta',
+      restore_backup_unverified_body:
+        'Tu billetera se restauró, pero no se pudo confirmar que la copia de seguridad en el servidor esté completa. Si falta algo de historial, vuelve a restaurar más tarde una vez que el otro dispositivo termine de subirla.',
       import_wallet: 'Importar billetera',
 
       reject: 'Rechazar',
@@ -4665,6 +4677,9 @@ const resources = {
         "Votre phrase de récupération est valide, mais la sauvegarde chiffrée n'a pas pu être rejouée. Un nouvel essai suffit généralement. Sans elle, le portefeuille fonctionne mais sans transactions passées, et certaines de vos pièces actuelles ne seront pas dépensables.",
       restore_backup_retry: 'Réessayer',
       restore_backup_skip: 'Abandonner',
+      restore_backup_unverified_title: 'La sauvegarde est peut-être incomplète',
+      restore_backup_unverified_body:
+        "Votre portefeuille a été restauré, mais il n'a pas été possible de confirmer que la sauvegarde sur le serveur était complète. S'il manque de l'historique, restaurez à nouveau plus tard une fois que l'autre appareil aura terminé son envoi.",
       import_wallet: 'Importer le portefeuille',
 
       reject: 'Rejeter',
@@ -5640,6 +5655,9 @@ const resources = {
         'عبارة الاسترداد سليمة، لكن تعذّر إعادة تشغيل النسخة الاحتياطية المشفّرة. عادةً تكفي المحاولة مرة أخرى. المتابعة بدونها تمنحك محفظة عاملة بلا معاملات سابقة، ولن تكون بعض عملاتك الحالية قابلة للإنفاق.',
       restore_backup_retry: 'إعادة المحاولة',
       restore_backup_skip: 'تخلّي',
+      restore_backup_unverified_title: 'قد تكون النسخة الاحتياطية غير مكتملة',
+      restore_backup_unverified_body:
+        'تمت استعادة محفظتك، لكن تعذّر تأكيد اكتمال النسخة الاحتياطية على الخادم. إذا كان بعض السجل مفقودًا، فاستعد مرة أخرى لاحقًا بعد أن ينتهي الجهاز الآخر من الرفع.',
       import_wallet: 'استيراد المحفظة',
 
       reject: 'رفض',
@@ -6625,6 +6643,9 @@ const resources = {
         'Sua frase de recuperação está correta, mas o backup criptografado não pôde ser reproduzido. Normalmente basta tentar de novo. Continuar sem ele dá uma carteira funcional sem transações anteriores, e algumas das suas moedas atuais não serão gastáveis.',
       restore_backup_retry: 'Tentar novamente',
       restore_backup_skip: 'Abandonar',
+      restore_backup_unverified_title: 'O backup pode estar incompleto',
+      restore_backup_unverified_body:
+        'Sua carteira foi restaurada, mas não foi possível confirmar que o backup no servidor está completo. Se faltar algum histórico, restaure novamente mais tarde, depois que o outro dispositivo terminar o envio.',
       import_wallet: 'Importar carteira',
 
       reject: 'Rejeitar',
@@ -7618,6 +7639,9 @@ const resources = {
         'আপনার রিকভারি ফ্রেজ ঠিক আছে, কিন্তু এনক্রিপ্টেড ব্যাকআপ রিপ্লে করা যায়নি। সাধারণত আবার চেষ্টা করলেই হয়। এটি ছাড়া চালিয়ে গেলে ওয়ালেট কাজ করবে কিন্তু আগের কোনো লেনদেন থাকবে না, আর আপনার বর্তমান কিছু কয়েন খরচ করা যাবে না।',
       restore_backup_retry: 'আবার চেষ্টা করুন',
       restore_backup_skip: 'পরিত্যাগ',
+      restore_backup_unverified_title: 'ব্যাকআপ অসম্পূর্ণ হতে পারে',
+      restore_backup_unverified_body:
+        'আপনার ওয়ালেট পুনরুদ্ধার হয়েছে, কিন্তু সার্ভারে থাকা ব্যাকআপ সম্পূর্ণ কিনা তা নিশ্চিত করা যায়নি। যদি কিছু ইতিহাস অনুপস্থিত থাকে, তাহলে অন্য ডিভাইসের আপলোড শেষ হওয়ার পর আবার পুনরুদ্ধার করুন।',
       import_wallet: 'ওয়ালেট আমদানি করুন',
 
       reject: 'প্রত্যাখ্যান করুন',
@@ -8614,6 +8638,9 @@ const resources = {
         'Ваша сид-фраза в порядке, но зашифрованную копию не удалось воспроизвести. Обычно достаточно повторить попытку. Продолжив без неё, вы получите рабочий кошелёк без прошлых транзакций, а часть ваших нынешних монет останется непригодной к трате.',
       restore_backup_retry: 'Повторить',
       restore_backup_skip: 'Отказаться',
+      restore_backup_unverified_title: 'Резервная копия может быть неполной',
+      restore_backup_unverified_body:
+        'Ваш кошелёк восстановлен, но не удалось подтвердить, что резервная копия на сервере полная. Если часть истории отсутствует, повторите восстановление позже, когда другое устройство закончит загрузку.',
       import_wallet: 'Импортировать кошелёк',
 
       reject: 'Отклонить',
@@ -9610,6 +9637,9 @@ const resources = {
         'Frasa pemulihan Anda benar, tetapi cadangan terenkripsi tidak dapat diputar ulang. Biasanya cukup dicoba lagi. Melanjutkan tanpanya memberi dompet yang berfungsi tanpa transaksi lama, dan sebagian koin Anda yang ada tidak akan dapat dibelanjakan.',
       restore_backup_retry: 'Coba lagi',
       restore_backup_skip: 'Tinggalkan',
+      restore_backup_unverified_title: 'Cadangan mungkin belum lengkap',
+      restore_backup_unverified_body:
+        'Dompet Anda telah dipulihkan, tetapi cadangan di server tidak dapat dipastikan lengkap. Jika ada riwayat yang hilang, pulihkan lagi nanti setelah perangkat lain selesai mengunggah.',
       import_wallet: 'Impor Dompet',
 
       reject: 'Tolak',
@@ -10615,6 +10645,9 @@ const resources = {
         'リカバリーフレーズには問題ありませんが、暗号化バックアップを再生できませんでした。通常は再試行で解決します。復元せずに続けるとウォレットは使えますが過去の取引は残らず、現在お持ちのコインの一部は使用できません。',
       restore_backup_retry: '再試行',
       restore_backup_skip: '破棄',
+      restore_backup_unverified_title: 'バックアップが不完全な可能性があります',
+      restore_backup_unverified_body:
+        'ウォレットは復元されましたが、サーバー上のバックアップが完全であることを確認できませんでした。履歴の一部が欠けている場合は、他の端末のアップロードが完了してから再度復元してください。',
       import_wallet: 'ウォレットをインポート',
 
       // Permission sheet
@@ -11628,6 +11661,9 @@ const resources = {
         'Twoja fraza odzyskiwania jest poprawna, ale zaszyfrowanej kopii nie udało się odtworzyć. Zwykle wystarcza ponowna próba. Kontynuacja bez niej daje działający portfel bez wcześniejszych transakcji, a część twoich obecnych monet nie będzie do wydania.',
       restore_backup_retry: 'Spróbuj ponownie',
       restore_backup_skip: 'Porzuć',
+      restore_backup_unverified_title: 'Kopia zapasowa może być niekompletna',
+      restore_backup_unverified_body:
+        'Twój portfel został przywrócony, ale nie udało się potwierdzić, że kopia zapasowa na serwerze jest kompletna. Jeśli brakuje części historii, przywróć ponownie później, gdy drugie urządzenie zakończy przesyłanie.',
       import_wallet: 'Importuj portfel',
 
       // Permission sheet

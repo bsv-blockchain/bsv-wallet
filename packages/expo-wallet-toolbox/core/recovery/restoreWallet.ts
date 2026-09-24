@@ -79,14 +79,35 @@ export interface RestoreWalletDeps {
    * "one attempt" primitive with no policy of its own.
    */
   hasStoredIdentity(): Promise<boolean>
-  getBackupRestore(): { phase: 'idle' | 'checking' | 'restoring' | 'restored' | 'no-backup' | 'failed'; error?: string }
+  getBackupRestore(): {
+    phase: 'idle' | 'checking' | 'restoring' | 'restored' | 'no-backup' | 'failed'
+    error?: string
+    /**
+     * Set alongside a `'restored'` phase — true unless the replayed generation's newest
+     * entry could not be proven complete (see RemoteSyncReader.verifiedComplete). Absent for
+     * every other phase, and for a `'restored'` phase from a build that predates this field.
+     */
+    verified?: boolean
+  }
   attest(identityKey: string, medium: BackupMedium): Promise<void>
 }
 
 export type RestoreHistory = 'restored' | 'no-backup' | 'skipped' | 'unknown'
 
 export type RestoreOutcome =
-  | { kind: 'ok'; identityKey: string; secret: WalletSecret; history: RestoreHistory; attested: boolean }
+  | {
+      kind: 'ok'
+      identityKey: string
+      secret: WalletSecret
+      history: RestoreHistory
+      attested: boolean
+      /**
+       * True unless a restore actually happened (`history === 'restored'`) and its backup
+       * could not be proven complete (`getBackupRestore().verified === false`). Always true
+       * when nothing was restored — there is nothing to be unverified about.
+       */
+      verified: boolean
+    }
   | { kind: 'biometric-refused'; secret: WalletSecret }
   | { kind: 'restore-failed'; identityKey: string; secret: WalletSecret; error?: string }
   | { kind: 'failed'; secret: WalletSecret; error: string }
@@ -124,12 +145,14 @@ export async function restoreWallet(
     }
 
     let history: RestoreHistory = 'skipped'
+    let verified = true
     if (opts.restore) {
-      const { phase, error } = deps.getBackupRestore()
+      const { phase, error, verified: restoreVerified } = deps.getBackupRestore()
       if (phase === 'failed') {
         return { kind: 'restore-failed', identityKey: secret.identityKey, secret, error }
       }
       history = phase === 'restored' || phase === 'no-backup' ? phase : 'unknown'
+      if (history === 'restored' && restoreVerified === false) verified = false
     }
 
     let attested = true
@@ -140,7 +163,7 @@ export async function restoreWallet(
       console.warn('[recovery] attestation failed (wallet is already built; backup reminder will nag again):', err)
     }
 
-    return { kind: 'ok', identityKey: secret.identityKey, secret, history, attested }
+    return { kind: 'ok', identityKey: secret.identityKey, secret, history, attested, verified }
   } catch (err) {
     return { kind: 'failed', secret, error: err instanceof Error ? err.message : String(err) }
   }

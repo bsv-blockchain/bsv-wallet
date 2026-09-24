@@ -8,7 +8,7 @@
  */
 import { PrivateKey } from '@bsv/sdk'
 import type { DeviceSummary, LogEntry } from '../../core/backup/client'
-import { encodeChunk, encodeMarker, emptyChunk } from '../../core/backup/codec'
+import { encodeChunk, emptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { restoreOnImport } from '../../core/backup/restoreOnImport'
 import type { SyncChunk } from '../../core/toolboxTypes'
@@ -235,14 +235,14 @@ describe('restoreOnImport', () => {
     it('prefers an older sealed generation over a newer, still-open one', async () => {
       const w = deriveBackupWallet(PRIMARY, 'main')
       const logs = {
-        // Generation 1: sealed — two real chunks, then this device's own completion marker.
+        // Generation 1: sealed — the second (newest) real chunk carries this device's own
+        // seal, proving the two-chunk initial snapshot is fully present.
         [`${OLD_DEVICE}/1`]: [
           await encodeChunk(w, chunkWithTx('g1-a'), 'main'),
-          await encodeChunk(w, chunkWithTx('g1-b'), 'main'),
-          await encodeMarker(w, { generation: 1, chunkCount: 2 }, 'main')
+          await encodeChunk(w, chunkWithTx('g1-b'), 'main', { generation: 1, initialChunkCount: 2 })
         ],
         // Generation 2: newer (rotated later) but its initial window has not closed yet —
-        // no marker at all, exactly the mid-rotation case P1 is about.
+        // no seal at all, exactly the mid-rotation case P1 is about.
         [`${OLD_DEVICE}/2`]: [await encodeChunk(w, chunkWithTx('g2-a'), 'main')]
       }
       const client = fakeClient(
@@ -259,7 +259,8 @@ describe('restoreOnImport', () => {
       expect(result.restored).toBe(true)
       expect(result.generation).toBe(1)
       expect(result.verified).toBe(true)
-      // Exactly the two real chunks replayed — the marker itself never reached storage.
+      // Exactly the two real chunks replayed — the seal rides on the second one's own
+      // envelope rather than a separate entry.
       expect(result.chunks).toBe(2)
     })
 

@@ -61,8 +61,8 @@ export interface RestoreOnImportResult {
   /** Why nothing was replayed. Absent when `restored` is true. */
   reason?: 'not-configured' | 'no-backup'
   /**
-   * True when the replayed generation carried its own completion marker — see
-   * restore.ts's RestoreResult and P1-backup-incomplete-generation. Absent when nothing
+   * True when the replayed generation's newest entry carried a seal proving it complete —
+   * see restore.ts's RestoreResult and P1-backup-incomplete-generation. Absent when nothing
    * was replayed.
    */
   verified?: boolean

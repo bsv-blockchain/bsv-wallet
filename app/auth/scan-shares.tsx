@@ -84,7 +84,8 @@ export default function ScanSharesScreen() {
           return
         }
 
-        const outcome = await recoverWallet(deps, parsed.secret, { medium: 'shares', prompts: restorePrompts(t) })
+        const prompts = restorePrompts(t)
+        const outcome = await recoverWallet(deps, parsed.secret, { medium: 'shares', prompts })
 
         switch (outcome.kind) {
           case 'ok':
@@ -98,6 +99,7 @@ export default function ScanSharesScreen() {
                 buttons: [{ text: t('scan_shares_legacy_ack'), key: 'ok' }]
               })
             }
+            if (outcome.verified === false) await prompts.restoreUnverified()
             setError(null)
             setRecovered(true)
             setCelebrating(true)

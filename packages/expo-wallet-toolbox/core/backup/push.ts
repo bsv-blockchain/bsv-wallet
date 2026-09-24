@@ -17,7 +17,7 @@
  */
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { BackupClient, BackupHttpError, ERR_SEQ_CONFLICT } from './client'
-import { encodeChunk, encodeMarker, estimateEncodedBytes, isEmptyChunk } from './codec'
+import { encodeChunk, estimateEncodedBytes, isEmptyChunk, type BackupSeal } from './codec'
 import { GENERATION_CHUNK_THRESHOLD, MAX_ITEMS, MAX_ROUGH_SIZE, type BackupChain } from './constants'
 import {
   ENTITY_NAMES,
@@ -65,13 +65,6 @@ export interface PushResult {
   oversized?: boolean
   /** True when the user has opted out of pushing; nothing was read or sent. */
   optedOut?: boolean
-  /**
-   * True when this pass appended the generation's completion marker rather than a data
-   * chunk — either the one-shot seal right after this generation's initial window first
-   * closed, or a back-fill seal for a cursor whose window had already closed under an
-   * older build that predates markers. See needsSeal.
-   */
-  sealed?: boolean
 }
 
 /**
@@ -97,23 +90,13 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   let cursor = await loadCursor(deps.chain, pseudonym, deviceId)
 
   // Back-fill: this cursor's window closed at least once (since is set) with real chunks
-  // pushed (chunksInGeneration > 0), but no marker was ever appended for this generation —
-  // either an older build wrote it before markers existed, or a previous pass just closed
-  // this generation's first window (see the mirror-image check below, after THIS pass's own
-  // window closes). One seal per generation, one pushOnce pass, same as an ordinary chunk.
-  if (needsSeal(cursor)) {
-    const sealedCursor = await sealGeneration(deps, client, pseudonym, deviceId, cursor)
-    // A seq conflict resynchronises onto a fresh, unsealed generation instead of sealing
-    // (see sealGeneration) — report that honestly rather than claiming a seal happened.
-    const sealed = sealedCursor.sealedGeneration === sealedCursor.generation
-    // A generation already at the rotation threshold when it finally gets sealed (a
-    // back-filled cursor that had kept accumulating chunks) still rotates in this same
-    // pass — otherwise it would sit sealed-but-over-threshold until some later chunk push
-    // happened to trip shouldRotate again.
-    const rotated = sealed && shouldRotate(sealedCursor)
-    const next = rotated ? rotate(sealedCursor) : sealedCursor
-    await saveCursor(deps.chain, pseudonym, deviceId, next)
-    return { pushed: 0, bytes: 0, windowClosed: false, rotated, sealed }
+  // pushed (chunksInGeneration > 0), but under an older build that predates sealing —
+  // initialChunkCount was never set. Set it now, purely locally: the log through the
+  // current seq is already a coherent complete state, so nothing needs re-uploading. No
+  // network round trip and no new entry — the NEXT real chunk this device appends (whenever
+  // that is) carries the seal referencing this count, same as any other sealed generation.
+  if (cursor.since != null && cursor.initialChunkCount === undefined && cursor.chunksInGeneration > 0) {
+    cursor = { ...cursor, initialChunkCount: cursor.chunksInGeneration }
   }
 
   const chunk = await deps.storage.getSyncChunk({
@@ -134,7 +117,14 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
       ...cursor,
       since: nextInstant(cursor.maxUpdatedAt) ?? cursor.since,
       maxUpdatedAt: undefined,
-      offsets: zeroOffsets()
+      offsets: zeroOffsets(),
+      // The window that just closed becomes the generation's initial snapshot — but only
+      // the FIRST time this fires for a generation (initialChunkCount still undefined). A
+      // later window closing mid-generation (pure delta continuation) must not move it:
+      // the seal always references the original initial snapshot, which is what lets
+      // verifiedComplete stay true as further deltas land (see RemoteSyncReader).
+      initialChunkCount:
+        cursor.initialChunkCount ?? (cursor.chunksInGeneration > 0 ? cursor.chunksInGeneration : undefined)
     }
 
     const rotated = shouldRotate(advanced)
@@ -171,7 +161,14 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   }
 
   const wallet = deriveBackupWallet(deps.primaryKey, deps.chain)
-  const ciphertext = await encodeChunk(wallet, chunk, deps.chain)
+  // Every chunk appended once the generation's initial window has closed carries the seal
+  // referencing it — never a separate entry (see codec.ts's encodeChunk docs and this
+  // module's own docstring on why a dedicated marker is unsafe for an old reader).
+  const seal: BackupSeal | undefined =
+    cursor.initialChunkCount != null
+      ? { generation: cursor.generation, initialChunkCount: cursor.initialChunkCount }
+      : undefined
+  const ciphertext = await encodeChunk(wallet, chunk, deps.chain, seal)
 
   const seq = cursor.seq + 1
   let sha: string
@@ -202,60 +199,6 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   })
 
   return { pushed: 1, bytes: ciphertext.length, windowClosed: false, rotated: false }
-}
-
-/**
- * True when this generation has real chunks pushed, its initial window has closed at
- * least once, and no completion marker has been appended for it yet.
- *
- * `since` only becomes non-null once a window has closed (see the isEmptyChunk branch
- * above), so this is false for a generation still mid-way through its very first window —
- * there is nothing coherent to seal yet. `chunksInGeneration > 0` excludes an empty
- * wallet's window closing with nothing ever pushed: sealing a generation that never held a
- * single record would be a marker over nothing.
- */
-function needsSeal (cursor: PushCursor): boolean {
-  return cursor.since != null && cursor.chunksInGeneration > 0 && cursor.sealedGeneration !== cursor.generation
-}
-
-/**
- * Append this generation's completion marker.
- *
- * Deliberately its own append, one seq number in the same chain as every ordinary chunk —
- * never encoded as an empty SyncChunk (see the module docstring's link to why that would
- * either truncate or hard-fail a later restore). `chunkCount` is `chunksInGeneration` as it
- * stands right now: every real chunk this device has appended to this generation so far,
- * which is exactly what RemoteSyncReader needs to confirm nothing between here and the
- * start of the generation is missing.
- */
-async function sealGeneration (
-  deps: PushDeps,
-  client: BackupClient,
-  pseudonym: string,
-  deviceId: string,
-  cursor: PushCursor
-): Promise<PushCursor> {
-  const wallet = deriveBackupWallet(deps.primaryKey, deps.chain)
-  const ciphertext = await encodeMarker(
-    wallet,
-    { generation: cursor.generation, chunkCount: cursor.chunksInGeneration },
-    deps.chain
-  )
-
-  const seq = cursor.seq + 1
-  try {
-    const r = await client.append(deviceId, cursor.generation, seq, cursor.prevSha256, ciphertext)
-    return { ...cursor, seq, prevSha256: r.sha256, sealedGeneration: cursor.generation }
-  } catch (e) {
-    if (e instanceof BackupHttpError && e.code === ERR_SEQ_CONFLICT) {
-      // Same resynchronisation as an ordinary chunk append: trust the server's head over
-      // guessing, and start a fresh (unsealed) generation rather than risk a hole.
-      return await resyncFromServer(client, pseudonym, deviceId, cursor)
-    }
-    // Anything else: leave the cursor unsealed so the marker is retried next pass, exactly
-    // as a failed ordinary chunk append leaves the chunk to retry.
-    throw e
-  }
 }
 
 /**

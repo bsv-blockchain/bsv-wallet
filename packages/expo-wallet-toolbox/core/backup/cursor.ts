@@ -66,13 +66,17 @@ export interface PushCursor {
   /** Chunks appended in this generation, used to decide when to rotate. */
   chunksInGeneration: number
   /**
-   * The generation this device has already sealed with a completion marker, if any.
+   * How many chunks made up this generation's initial snapshot, set the moment that first
+   * window closes (the isEmptyChunk branch in pushOnce that advances `since`) to
+   * `chunksInGeneration` as it stands at that instant.
    *
-   * Compared against `generation` rather than stored as a boolean: a rotation starts a new
-   * generation that is unsealed again, and `freshCursor` naturally leaves this undefined so
-   * it never equals the fresh generation number.
+   * Undefined for a generation still mid-way through its first window — there is nothing
+   * coherent to seal yet. Reset to undefined on rotation, same as every other per-generation
+   * field. Every chunk appended once this is defined carries a seal referencing it (see
+   * push.ts), so later deltas keep the generation provably complete rather than only its
+   * first snapshot.
    */
-  sealedGeneration?: number
+  initialChunkCount?: number
 }
 
 export function freshCursor (generation = 1): PushCursor {
@@ -84,7 +88,7 @@ export function freshCursor (generation = 1): PushCursor {
     seq: 0,
     prevSha256: undefined,
     chunksInGeneration: 0,
-    sealedGeneration: undefined
+    initialChunkCount: undefined
   }
 }
 
@@ -117,9 +121,10 @@ export async function loadCursor (chain: BackupChain, pseudonym: string, deviceI
       prevSha256: parsed.prevSha256,
       chunksInGeneration: parsed.chunksInGeneration ?? 0,
       // Absent on every cursor written before sealing existed — that is exactly the
-      // back-fill case push.ts's needsSeal checks for, so it must default to undefined,
-      // never to the current generation.
-      sealedGeneration: parsed.sealedGeneration
+      // back-fill case push.ts's pushOnce checks for, so it must default to undefined,
+      // never to chunksInGeneration here (the back-fill only happens once `since` is
+      // known to be set too, which pushOnce itself checks).
+      initialChunkCount: parsed.initialChunkCount
     }
   } catch {
     // A corrupt cursor must not wedge backups forever. Starting a fresh generation costs
