@@ -13,16 +13,16 @@ const pairingQuery = new URLSearchParams(params).toString()
 
 describe.each([true, false])('native links (initial: %s)', initial => {
   it.each(['bsv-wallet', 'bsv-browser', 'BSV-WALLET', 'BSV-BROWSER'])(
-    'routes external %s pairing links to Connections without changing their payload',
+    'routes external %s pairing links straight to /pair, unchanged — Approve/Reject lives there',
     scheme => {
       const result = redirectSystemPath({ path: `${scheme}://pair?${pairingQuery}`, initial })
 
-      expect(result).toBe(`/connections?${pairingQuery}`)
+      expect(result).toBe(`/pair?${pairingQuery}`)
       // Exercise the installed router's next parsing stage. Full custom URLs
       // are decoded there, while the relative result keeps reserved bytes safe.
       const routerPath = extractExpoPathFromURL([], result)
       const parsed = new URL(routerPath, 'https://wallet.test/')
-      expect(parsed.pathname).toBe('/connections')
+      expect(parsed.pathname).toBe('/pair')
       expect(Object.fromEntries(parsed.searchParams)).toEqual(params)
     }
   )
@@ -31,15 +31,33 @@ describe.each([true, false])('native links (initial: %s)', initial => {
     expect(redirectSystemPath({ path: `${scheme}://`, initial })).toBe('/')
     expect(redirectSystemPath({ path: `${scheme}://auth/mnemonic?flow=backup`, initial })).toBe('/auth/mnemonic?flow=backup')
     expect(redirectSystemPath({ path: `${scheme}:///auth/mnemonic?flow=backup`, initial })).toBe('/auth/mnemonic?flow=backup')
-    expect(redirectSystemPath({ path: `${scheme}:///pair/?${pairingQuery}`, initial })).toBe(`/connections?${pairingQuery}`)
+    expect(redirectSystemPath({ path: `${scheme}:///pair/?${pairingQuery}`, initial })).toBe(`/pair/?${pairingQuery}`)
   })
 
-  it.each(['bsv-wallet', 'bsv-browser'])('accepts a mixed-case pairing host for %s links', scheme => {
-    expect(redirectSystemPath({ path: `${scheme}://PaIr?${pairingQuery}`, initial })).toBe(`/connections?${pairingQuery}`)
+  it.each(['bsv-wallet', 'bsv-browser'])('preserves a mixed-case pairing host for %s links (no rewrite to fold case)', scheme => {
+    expect(redirectSystemPath({ path: `${scheme}://PaIr?${pairingQuery}`, initial })).toBe(`/PaIr?${pairingQuery}`)
   })
 
-  it.each(['pairing', 'pair-other', 'pair/nested', 'pair.example'])('does not treat the %s route as pairing', route => {
+  it.each(['pairing', 'pair-other', 'pair/nested', 'pair.example'])('passes an unrelated %s route straight through', route => {
     expect(redirectSystemPath({ path: `bsv-browser://${route}?${pairingQuery}`, initial })).toBe(`/${route}?${pairingQuery}`)
+  })
+
+  describe('destructive recovery routes — refused regardless of wallet scheme', () => {
+    it.each(['bsv-wallet', 'bsv-browser'])('redirects %s auth/scan-shares to /', scheme => {
+      expect(redirectSystemPath({ path: `${scheme}://auth/scan-shares`, initial })).toBe('/')
+      expect(redirectSystemPath({ path: `${scheme}://auth/scan-shares?foo=bar`, initial })).toBe('/')
+    })
+
+    it.each(['bsv-wallet', 'bsv-browser'])('redirects %s auth/mnemonic?flow=import to /', scheme => {
+      expect(redirectSystemPath({ path: `${scheme}://auth/mnemonic?flow=import`, initial })).toBe('/')
+      expect(redirectSystemPath({ path: `${scheme}://auth/mnemonic?flow=IMPORT`, initial })).toBe('/')
+    })
+
+    it('still passes auth/mnemonic?flow=backup straight through', () => {
+      expect(redirectSystemPath({ path: 'bsv-wallet://auth/mnemonic?flow=backup', initial })).toBe(
+        '/auth/mnemonic?flow=backup'
+      )
+    })
   })
 
   it('preserves PeerPay payloads and the payment destination', () => {
