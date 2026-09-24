@@ -13,6 +13,7 @@ const mockRecover = jest.fn()
 const mockAdopt = jest.fn()
 const mockBeginRemoval = jest.fn()
 const mockFinalizeRemoval = jest.fn()
+const mockResolveHeldDeposit = jest.fn()
 const mockDisable = jest.fn()
 const mockDisableWhenSafe = jest.fn()
 const mockRefreshCoverage = jest.fn()
@@ -50,6 +51,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   adoptVaultKey: (...a: unknown[]) => mockAdopt(...a),
   beginVaultKeyRemoval: (...a: unknown[]) => mockBeginRemoval(...a),
   finalizeVaultKeyRemoval: (...a: unknown[]) => mockFinalizeRemoval(...a),
+  resolveHeldVaultDeposit: (...a: unknown[]) => mockResolveHeldDeposit(...a),
   estimateRelockFee: () => 2900,
   R1C_LOCK_LEN: () => 45204,
   VAULT_MIN_KEYS: 2,
@@ -189,6 +191,7 @@ beforeEach(() => {
   mockAdopt.mockReset().mockResolvedValue(undefined)
   mockBeginRemoval.mockReset().mockResolvedValue({ complete: true, meta: META2 })
   mockFinalizeRemoval.mockReset().mockResolvedValue(false)
+  mockResolveHeldDeposit.mockReset().mockResolvedValue({ kind: 'broadcast' })
   mockDisable.mockReset().mockResolvedValue(undefined)
   mockDisableWhenSafe.mockReset().mockResolvedValue(true)
   mockShowAlert.mockReset()
@@ -523,6 +526,27 @@ describe('enrolled', () => {
     await settle()
     expect(screen.getByText('vault_err_too_small_to_relock')).toBeTruthy()
     expect(screen.getByText('vault_relock_choose')).toBeTruthy()
+  })
+
+  // F-04: reconcileHeldVaultDeposits' action-pending refusal previously had
+  // no in-app resolution anywhere; this offers resolveHeldVaultDeposit.
+  test('an action-pending re-lock error offers to resolve the held deposit, and resolving clears the notice', async () => {
+    mockBalance = 50_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    const { VaultError } = jest.requireActual('../../core/services/vault/types')
+    mockRelock.mockRejectedValueOnce(new VaultError('action-pending'))
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
+    await settle()
+    expect(screen.getAllByText('vault_err_action_pending').length).toBeGreaterThan(0)
+    expect(screen.getByText('vault_resolve_held_deposit_action')).toBeTruthy()
+
+    await act(async () => fireEvent.press(screen.getByText('vault_resolve_held_deposit_action')))
+    await settle()
+    expect(mockResolveHeldDeposit).toHaveBeenCalledWith(expect.anything(), 'admin.test', META2)
+    expect(mockShowToast).toHaveBeenCalledWith('vault_resolve_held_deposit_done', { type: 'success' })
+    expect(screen.queryByText('vault_resolve_held_deposit_action')).toBeNull()
   })
 
   test('backup-off during re-lock opens backup settings and leaves the sheet available to retry', async () => {

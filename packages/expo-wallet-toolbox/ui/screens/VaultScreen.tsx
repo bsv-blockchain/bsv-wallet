@@ -46,6 +46,7 @@ import {
   useLocalStorage,
   relockVault,
   recoverVaultMetaFromOutputs,
+  resolveHeldVaultDeposit,
   adoptVaultKey,
   beginVaultKeyRemoval,
   finalizeVaultKeyRemoval,
@@ -158,6 +159,12 @@ export function VaultScreen() {
   const [adoptionPhase, setAdoptionPhase] = useState<AdoptPhase | null>(null)
   const [adoptionBusy, setAdoptionBusy] = useState(false)
   const [adoptionError, setAdoptionError] = useState<string | null>(null)
+  // F-04: a signed but unbroadcast deposit left by a crash refuses every
+  // vault-mutating call with 'action-pending' forever until it is
+  // reconciled. Once any of that surfaces here, offer the one safe manual
+  // resolution (resolveHeldVaultDeposit) instead of leaving the vault stuck.
+  const [actionPendingNotice, setActionPendingNotice] = useState(false)
+  const [resolvingDeposit, setResolvingDeposit] = useState(false)
 
   // Release flag AND mainnet (task 11). Read from the reactive `selectedNetwork`
   // so everything this gates collapses on a network switch without a remount —
@@ -203,6 +210,31 @@ export function VaultScreen() {
     setMeta(undefined)
     void reload().catch(error => console.error('[vault] recovery scan failed:', error))
   }, [reload])
+
+  /** F-04: surface the one recovery action for a signed deposit crash left
+   * behind — every other vault call keeps refusing with 'action-pending'
+   * until this resolves it, and there was previously no in-app way to. */
+  const onResolveHeldDeposit = useCallback(async () => {
+    if (!pm || !metaRef.current || resolvingDeposit) return
+    setResolvingDeposit(true)
+    try {
+      const result = await resolveHeldVaultDeposit(pm as unknown as VaultWallet, adminOriginator, metaRef.current)
+      if (result.kind === 'failed') {
+        console.error('[vault] could not resolve the held deposit:', result.error)
+        showToast(vaultErrorCopy('action-pending'), { type: 'error' })
+        return
+      }
+      setActionPendingNotice(false)
+      haptics.success()
+      showToast(t('vault_resolve_held_deposit_done'), { type: 'success' })
+      await reload()
+    } catch (e) {
+      console.error('[vault] could not resolve the held deposit:', e)
+      showToast(t('vault_resolve_held_deposit_failed'), { type: 'error' })
+    } finally {
+      setResolvingDeposit(false)
+    }
+  }, [pm, adminOriginator, resolvingDeposit, reload, t])
 
   useEffect(() => {
     if (!pm || !meta?.pendingRemoval) return
@@ -408,6 +440,7 @@ export function VaultScreen() {
     } catch (e) {
       console.error('[vault] re-lock failed:', e instanceof Error ? e.message : e, e)
       const code = e instanceof VaultError ? e.code : undefined
+      if (code === 'action-pending') setActionPendingNotice(true)
       if (code === 'backup-off') {
         await backupOffAlert()
         return
@@ -539,9 +572,11 @@ export function VaultScreen() {
         })
       } catch (e) {
         haptics.error()
+        const code = e instanceof VaultError ? e.code : undefined
+        if (code === 'action-pending') setActionPendingNotice(true)
         await showAlert({
           title,
-          message: vaultErrorCopy(e instanceof VaultError ? e.code : undefined),
+          message: vaultErrorCopy(code),
           buttons: [{ text: t('vault_ok'), key: 'ok' }]
         })
         return
@@ -903,6 +938,24 @@ export function VaultScreen() {
         {recoveryRequired && !hasRecoveryRedundancy && (
           <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
         )}
+        {actionPendingNotice && (
+          <View style={[styles.notice, styles.actionPendingBlock]}>
+            <Text style={[styles.heroNoticeBody, { color: colors.warning }]}>{vaultErrorCopy('action-pending')}</Text>
+            <PressableScale
+              haptic="confirm"
+              onPress={resolvingDeposit ? undefined : () => void onResolveHeldDeposit()}
+              accessibilityState={{ disabled: resolvingDeposit }}
+            >
+              {resolvingDeposit ? (
+                <ActivityIndicator color={colors.accent} />
+              ) : (
+                <Text style={[typography.footnote, { color: colors.accent, fontWeight: '600', textAlign: 'center' }]}>
+                  {t('vault_resolve_held_deposit_action')}
+                </Text>
+              )}
+            </PressableScale>
+          </View>
+        )}
 
         <GroupedSection
           header={t('vault_key_section', { count: meta.keys.length + (meta.pendingRemoval ? 1 : 0) })}
@@ -1142,6 +1195,7 @@ const styles = StyleSheet.create({
   h1: { ...typography.title1, textAlign: 'center' },
   p: { ...typography.subhead, textAlign: 'center' },
   notice: { ...typography.footnote, textAlign: 'center', paddingHorizontal: spacing.xl, marginBottom: spacing.xxl },
+  actionPendingBlock: { gap: spacing.sm },
   primary: { width: '100%', borderRadius: radii.md, paddingVertical: spacing.lg, alignItems: 'center' },
   primaryLabel: { ...typography.headline },
   secondary: { paddingVertical: spacing.md, alignItems: 'center' },

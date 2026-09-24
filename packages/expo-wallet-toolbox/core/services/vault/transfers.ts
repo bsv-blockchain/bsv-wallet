@@ -194,6 +194,12 @@ export interface VaultWallet {
   listOutputs(args: unknown, originator: string): Promise<ListOutputsResult>
   abortAction(args: unknown, originator: string): Promise<unknown>
   listActions?(args: unknown, originator: string): Promise<{ actions: VaultActionRow[]; totalActions?: number }>
+  /** Network status lookup (mirrors storage/methods/processOfflineActions.ts'
+   * networkAlreadyHas) used only by resolveHeldVaultDeposit to tell a held
+   * signed deposit that already escaped to the network from one that has
+   * not. Optional: a wallet that cannot answer is treated as "unknown", same
+   * as networkAlreadyHas' own every-failure-is-false rule. */
+  getStatusForTxids?(txids: string[]): Promise<{ results?: { txid: string; status: string }[] }>
 }
 
 /** The fields of a listActions row the reservation heal needs. `inputs` arrives
@@ -774,6 +780,85 @@ async function reconcileHeldVaultDeposits(
   throw new VaultError('action-pending', 'A signed Vault deposit needs manual broadcast-state reconciliation')
 }
 
+/** Whether the network already has `txid` ('mined' or 'known'), mirroring
+ * storage/methods/processOfflineActions.ts' networkAlreadyHas exactly: no
+ * status call, a transport fault, or an unexpected shape are all `false` —
+ * never a reason to block the caller from re-broadcasting. */
+async function vaultTxidAlreadyKnown(w: VaultWallet, txid: string): Promise<boolean> {
+  try {
+    if (typeof w.getStatusForTxids !== 'function') return false
+    const r = await w.getStatusForTxids([txid])
+    const status = r.results?.find(x => x.txid === txid)?.status
+    return status === 'mined' || status === 'known'
+  } catch {
+    return false
+  }
+}
+
+export type VaultDepositResolution =
+  | { kind: 'broadcast' }
+  | { kind: 'already-known' }
+  | { kind: 'nothing-held' }
+  | { kind: 'failed'; error: unknown }
+
+/**
+ * Resolve the ONE held, signed (noSend) Vault deposit reconcileHeldVaultDeposits
+ * refuses to touch automatically (F-04) — the crash window is between
+ * signAction and the sendWith that releases it, so the transaction may or may
+ * not have already escaped to the network.
+ *
+ * Ask the network first. If it does not have the txid yet, release it with
+ * the EXACT already-signed bytes via the same sendWith call depositToVault's
+ * own release uses (~line 1764) — never a second transaction. If the network
+ * already has it, there is nothing left to send; this is reported back as
+ * `already-known` without calling sendWith at all, so a broadcaster that
+ * rejects a resend of an already-mined transaction can never turn a resolved
+ * deposit into a spurious failure. `abortAction` is never called here — only
+ * reconcileHeldVaultDeposits' unsigned/no-txid branch may free inputs.
+ */
+export async function resolveHeldVaultDeposit(
+  w: VaultWallet,
+  adminOriginator: string,
+  meta: VaultMeta,
+  scopeToken?: VaultScopeToken
+): Promise<VaultDepositResolution> {
+  const captured = scopeToken ?? vaultStore.captureScopeToken()
+  return await withVaultMutation(async () => {
+    try {
+      const expectedChain = captured.chain ?? vaultStore.getScope()?.chain
+      if (!expectedChain) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+      let held: VaultActionRow | undefined
+      await scanVaultActions(w, adminOriginator, {
+        labels: [],
+        includeLabels: true,
+        includeInputs: true,
+        includeInputSourceLockingScripts: true,
+        includeOutputs: true,
+        includeOutputLockingScripts: true
+      }, action => {
+        if (action.status === 'unsigned') return
+        if (!PENDING_ACTION_STATUSES.has(action.status) || BROADCAST_ACTION_STATUSES.has(action.status)) return
+        if (!isValidHeldVaultDeposit(action, meta, expectedChain)) return
+        held = action
+      }, captured)
+      assertVaultScope(captured)
+      if (!held?.txid) return { kind: 'nothing-held' }
+      const txid = held.txid
+      if (await vaultTxidAlreadyKnown(w, txid)) return { kind: 'already-known' }
+      assertVaultScope(captured)
+      const released = await w.createAction(
+        { description: 'Broadcast Vault deposit', options: { sendWith: [txid] } },
+        adminOriginator
+      )
+      assertVaultScope(captured)
+      requireReleasedHeldTransaction(released, txid, 'Vault deposit')
+      return { kind: 'broadcast' }
+    } catch (error) {
+      return { kind: 'failed', error }
+    }
+  })
+}
+
 /** Return true only for an exact current R1C lock. */
 function isR1CSourceScript(scriptHex: string | undefined): boolean {
   if (!scriptHex) return false
@@ -1287,6 +1372,37 @@ export async function getVaultBalance(w: VaultWallet, adminOriginator: string): 
  * wallet salt-key derivations all authenticate. Conflict selection belongs to
  * VaultKeyService; possession of a restored key is still required separately
  * before any spend. */
+/** F-06: whether a scan-derived record should replace an existing local one —
+ * a strictly higher revision, or the same revision naming a strict superset
+ * of the existing key set (a partial local record catching up to what chain
+ * evidence already shows). Anything else (equal, older, or merely
+ * different) keeps the existing record: this is a one-way ratchet, never a
+ * merge or an overwrite by a same-revision disagreement. */
+function recoveredSupersedesExisting(existing: VaultMeta, recovered: VaultMeta): boolean {
+  if (recovered.revision > existing.revision) return true
+  if (recovered.revision < existing.revision) return false
+  const existingKeys = new Set(existing.keys.map(k => k.pubkey))
+  const recoveredKeys = new Set(recovered.keys.map(k => k.pubkey))
+  if (recoveredKeys.size <= existingKeys.size) return false
+  for (const pubkey of existingKeys) {
+    if (!recoveredKeys.has(pubkey)) return false
+  }
+  return true
+}
+
+/** Restore a missing scoped cache only from currently spendable outputs whose
+ * real source values, exact R1C locks, salted commitments, v6 recovery records, and
+ * wallet salt-key derivations all authenticate. Conflict selection belongs to
+ * VaultKeyService; possession of a restored key is still required separately
+ * before any spend.
+ *
+ * F-06: an existing local record is no longer trusted unconditionally — a
+ * post-reinstall SecureStore snapshot (WHEN_UNLOCKED_THIS_DEVICE_ONLY items
+ * survive app deletion on iOS) can be stale relative to what chain outputs
+ * now show. The SAME authenticated scan the no-record branch always ran now
+ * always runs; the existing record is kept only when it is not superseded
+ * (recoveredSupersedesExisting), and restored the same way — through
+ * vaultStore.restoreVerifiedMeta — when it is. */
 export async function recoverVaultMetaFromOutputs(
   w: VaultWallet,
   adminOriginator: string
@@ -1295,7 +1411,6 @@ export async function recoverVaultMetaFromOutputs(
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
     const existing = await vaultStore.getMeta(scopeToken)
-    if (existing) return existing
     const scan = await reduceVerifiedVaultOutputs(
       w,
       adminOriginator,
@@ -1306,9 +1421,10 @@ export async function recoverVaultMetaFromOutputs(
       }),
       scopeToken
     )
-    if (scan.outputs === 0) return null
+    if (scan.outputs === 0) return existing
     await verifyVaultSaltDerivations(w, adminOriginator, scan.inventory)
     const recovered = metaFromVerifiedOutputs(scan.state)
+    if (existing && !recoveredSupersedesExisting(existing, recovered)) return existing
     await vaultStore.restoreVerifiedMeta(recovered, scopeToken)
     return await vaultStore.getMeta(scopeToken)
   })
@@ -1836,7 +1952,14 @@ async function selectVaultInputs(
   chosenSerial: string,
   amount: number | 'all',
   requiredPubkey?: string,
-  scopeToken?: VaultScopeToken
+  scopeToken?: VaultScopeToken,
+  // P1: 'repair-unsigned' aborts a genuinely stale, provably-unbroadcast
+  // reservation from a past crash — exactly what a real withdraw/re-lock
+  // needs before reserving new inputs. A "read-only" preview must not do
+  // that: it can otherwise abort a LIVE in-flight ceremony's own unsigned
+  // reservation out from under it. previewVaultWithdrawal passes false;
+  // every mutating caller keeps the default.
+  repair = true
 ): Promise<VaultSelection> {
   const meta = await vaultStore.getMeta(scopeToken)
   if (!meta) throw new VaultError('not-enrolled', 'Vault is not set up')
@@ -1919,7 +2042,7 @@ async function selectVaultInputs(
       if (state.selected.length > cap) state.selected.pop()
     },
     scopeToken,
-    'repair-unsigned'
+    repair ? 'repair-unsigned' : 'block'
   )
   const scan = verified.state
   if (scan.decodable === 0) throw new VaultError('vault-empty', 'Vault is empty')
@@ -2462,8 +2585,15 @@ export async function previewVaultWithdrawal(
   amount: number | 'all'
 ): Promise<{ selectedTotal: number; cappedInputs: number; unreachable: VaultSpendResult['unreachable'] }> {
   requireWithdrawalAmount(amount)
-  const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount)
-  return { selectedTotal: sel.acc, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable }
+  const scopeToken = vaultStore.captureScopeToken()
+  return await withVaultMutation(async () => {
+    assertVaultScope(scopeToken)
+    // repair: false — this reads only; a genuinely stale unsigned reservation
+    // from a past crash is still cleaned up by the next real withdraw/re-lock
+    // (see selectVaultInputs' `repair` param and the P1 fix note there).
+    const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount, undefined, scopeToken, false)
+    return { selectedTotal: sel.acc, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable }
+  })
 }
 
 /**
@@ -2495,12 +2625,17 @@ export async function withdrawFromVault(
   await requireOnline(opts)
   assertVaultScope(scopeToken)
   const meta = await requireMeta(scopeToken)
-  await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
   const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount, undefined, scopeToken)
   const want = amount === 'all' ? sel.acc : amount
   const remainder = sel.acc - want
   const outputs: VaultSpendPlan['outputs'] = []
   if (remainder >= VAULT_DEPOSIT_MIN) {
+    // P2-774: reconcileHeldVaultDeposits' gate exists only to protect
+    // salt-index-allocation integrity for a call that is about to allocate a
+    // NEW one (spec's high-water-mark check) — a full-balance withdrawal
+    // (no remainder here) creates no vault output and does not need it, so
+    // only THIS branch, which re-vaults the remainder, still requires it.
+    await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
     // Re-vaulting CREATES a vault output, which the release flag gates (spec
     // §5.5). Withdrawing pre-existing outputs — 'all' — never is.
     requireReleased(opts, scopeToken, 'Re-vaulting a remainder')
@@ -2721,7 +2856,13 @@ export async function beginVaultKeyRemoval(
     if (meta.keys.length <= VAULT_MIN_KEYS) {
       throw new VaultError('last-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys`)
     }
-    await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
+    // P2-774: beginVaultKeyRemoval allocates no new salt index — the tombstone
+    // transition below creates no vault output — so reconcileHeldVaultDeposits'
+    // allocation-integrity gate does not apply here (unlike depositToVault and
+    // relockVault, which do). A held signed deposit reserves only ordinary
+    // wallet inputs, not any vault-basket output this removal's eventual
+    // re-lock would need, so it must not block starting a removal either —
+    // see the 'vault-deposit' exemption just below.
     let pendingAction = false
     await scanVaultActions(
       w,
@@ -2734,9 +2875,14 @@ export async function beginVaultKeyRemoval(
       // what the activity list shows as "Accepted" and stands until the merkle
       // proof arrives, so blocking on it refused every removal on a funded
       // vault and told the user to re-lock — the step this refusal itself
-      // prevented.
+      // prevented. A 'vault-deposit' holds no EXISTING vault output — see the
+      // note above — so it is exempt from this check the same way.
       action => {
-        if (PENDING_ACTION_STATUSES.has(action.status) && !BROADCAST_ACTION_STATUSES.has(action.status)) {
+        if (
+          !(action.labels ?? []).includes('vault-deposit') &&
+          PENDING_ACTION_STATUSES.has(action.status) &&
+          !BROADCAST_ACTION_STATUSES.has(action.status)
+        ) {
           pendingAction = true
         }
       },
