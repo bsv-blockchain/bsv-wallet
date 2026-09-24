@@ -6,6 +6,7 @@ import {
   isCompressedPublicKey,
   normalizeAddressInput,
   legacyRedirectTarget,
+  addressNetwork,
   PRECONDITION_KEYS,
   CONSEQUENCE_KEYS
 } from '../../core/pay/rails'
@@ -66,11 +67,15 @@ describe('classifyScan', () => {
   })
 
   it('reads a bare base58 address as an address target', () => {
-    expect(classifyScan(ADDRESS)).toEqual({ kind: 'address', address: ADDRESS })
+    expect(classifyScan(ADDRESS)).toEqual({ kind: 'address', address: ADDRESS, network: 'main' })
   })
 
   it('strips a bitcoin: scheme and its query before classifying', () => {
-    expect(classifyScan(`bitcoin:${ADDRESS}?amount=0.1`)).toEqual({ kind: 'address', address: ADDRESS })
+    expect(classifyScan(`bitcoin:${ADDRESS}?amount=0.1`)).toEqual({
+      kind: 'address',
+      address: ADDRESS,
+      network: 'main'
+    })
   })
 
   it('returns null for junk rather than guessing a rail', () => {
@@ -78,7 +83,14 @@ describe('classifyScan', () => {
   })
 
   it('tolerates surrounding whitespace', () => {
-    expect(classifyScan(`  ${ADDRESS}  `)).toEqual({ kind: 'address', address: ADDRESS })
+    expect(classifyScan(`  ${ADDRESS}  `)).toEqual({ kind: 'address', address: ADDRESS, network: 'main' })
+  })
+
+  // misc-p2-03: a scanned address's network version byte is carried through so
+  // the caller can compare it against the wallet's selected network.
+  it('carries the testnet version byte through as network', () => {
+    const TESTNET = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn'
+    expect(classifyScan(TESTNET)).toEqual({ kind: 'address', address: TESTNET, network: 'test' })
   })
 })
 
@@ -97,6 +109,24 @@ describe('address validation', () => {
 
   it('normalizes a bitcoin: URI to a bare address', () => {
     expect(normalizeAddressInput(`bitcoin:${ADDRESS}?label=x`)).toBe(ADDRESS)
+  })
+})
+
+// misc-p2-03: the address rail accepted a pasted/scanned address regardless of
+// its network version byte, with no way for a caller to warn the user their
+// mainnet wallet is about to pay a testnet-shaped address (same key, but zero
+// visibility for the recipient's own network expectation).
+describe('addressNetwork', () => {
+  it('reads the mainnet version byte', () => {
+    expect(addressNetwork(ADDRESS)).toBe('main')
+  })
+
+  it('reads the testnet version byte — shared by testnet and teratest', () => {
+    expect(addressNetwork('mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn')).toBe('test')
+  })
+
+  it('returns undefined for a string that is not a valid base58check address', () => {
+    expect(addressNetwork('not an address')).toBeUndefined()
   })
 })
 
@@ -167,13 +197,13 @@ describe('classifyRecipientInput', () => {
   })
 
   it('reads a base58check address as an address target', () => {
-    expect(classifyRecipientInput(ADDRESS)).toEqual({ kind: 'address', address: ADDRESS })
-    expect(classifyRecipientInput(`  ${ADDRESS}  `)).toEqual({ kind: 'address', address: ADDRESS })
+    expect(classifyRecipientInput(ADDRESS)).toEqual({ kind: 'address', address: ADDRESS, network: 'main' })
+    expect(classifyRecipientInput(`  ${ADDRESS}  `)).toEqual({ kind: 'address', address: ADDRESS, network: 'main' })
   })
 
   it('reads a testnet address as an address target — testnet is a selectable network', () => {
     const TESTNET = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn'
-    expect(classifyRecipientInput(TESTNET)).toEqual({ kind: 'address', address: TESTNET })
+    expect(classifyRecipientInput(TESTNET)).toEqual({ kind: 'address', address: TESTNET, network: 'test' })
   })
 
   it('sends a P2SH-shaped address to search — the address rail pays with a P2PKH lock', () => {
@@ -186,7 +216,11 @@ describe('classifyRecipientInput', () => {
   })
 
   it('strips a bitcoin: scheme and query before the address rule', () => {
-    expect(classifyRecipientInput(`bitcoin:${ADDRESS}?amount=0.1`)).toEqual({ kind: 'address', address: ADDRESS })
+    expect(classifyRecipientInput(`bitcoin:${ADDRESS}?amount=0.1`)).toEqual({
+      kind: 'address',
+      address: ADDRESS,
+      network: 'main'
+    })
     expect(classifyRecipientInput(`bitcoin:${BROKEN_ADDRESS}`)).toEqual({ kind: 'invalid_address' })
   })
 
