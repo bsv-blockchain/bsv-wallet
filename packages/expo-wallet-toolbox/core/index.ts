@@ -64,7 +64,8 @@ export {
   formatSatoshis,
   isFiatCurrency,
   satoshisPerFiatUnit,
-  fiatFractionDigits
+  fiatFractionDigits,
+  decimalSeparator
 } from './amountFormatHelpers'
 export type { UsdToFiat, AmountFormatOptions } from './amountFormatHelpers'
 

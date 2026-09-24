@@ -429,9 +429,25 @@ export const formatAmountInInputUnit = (
 }
 
 /**
+ * The character the active locale uses for a decimal point (e.g. ',' for
+ * de-DE), read off a real formatted number rather than hardcoded — a
+ * comma-decimal locale typing '3,50' must not have it silently truncated at
+ * the comma by `parseFloat`, which only ever recognizes '.'.
+ */
+export const decimalSeparator = (): string => {
+  try {
+    const part = new Intl.NumberFormat(locale()).formatToParts(1.1).find(p => p.type === 'decimal')
+    return part?.value ?? '.'
+  } catch {
+    return '.'
+  }
+}
+
+/**
  * Convert a user-entered display value back to integer satoshis.
  * - BSV mode: input is satoshi integers, passthrough
- * - fiat mode: input is a decimal amount in that currency
+ * - fiat mode: input is a decimal amount in that currency, typed with the
+ *   active locale's own decimal separator
  */
 export const parseDisplayToSatoshis = (
   displayValue: string,
@@ -443,7 +459,9 @@ export const parseDisplayToSatoshis = (
   if (!cleaned) return 0
 
   if (isFiatCurrency(currency)) {
-    const amount = parseFloat(cleaned)
+    const sep = decimalSeparator()
+    const normalized = sep === '.' ? cleaned : cleaned.replace(sep, '.')
+    const amount = parseFloat(normalized)
     if (isNaN(amount)) return 0
     const per = satoshisPerFiatUnit(currency, satoshisPerUSD, usdToFiat)
     if (!(per > 0)) return 0

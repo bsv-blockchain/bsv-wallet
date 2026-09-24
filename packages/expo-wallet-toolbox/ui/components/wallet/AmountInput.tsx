@@ -14,7 +14,8 @@ import {
   formatAmount,
   isFiatCurrency,
   fiatFractionDigits,
-  satoshisPerFiatUnit
+  satoshisPerFiatUnit,
+  decimalSeparator
 } from '@bsv/expo-wallet-toolbox'
 import { parseTokenAmount, tokenAmountInputText, tokenAmountMask } from '../../tokenFormat'
 
@@ -172,7 +173,12 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       return
     }
     if (isFiat) {
-      const allowed = fractionDigits === 0 ? /^\d*$/ : new RegExp(`^\\d*\\.?\\d{0,${fractionDigits}}$`)
+      // The mask accepts the ACTIVE LOCALE's own decimal separator (e.g. ','
+      // for de-DE), not a hardcoded '.' — otherwise every comma keystroke a
+      // comma-decimal locale types is silently dropped here before
+      // `parseDisplayToSatoshis` (which normalizes it) ever sees it.
+      const sep = decimalSeparator().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const allowed = fractionDigits === 0 ? /^\d*$/ : new RegExp(`^\\d*${sep}?\\d{0,${fractionDigits}}$`)
       if (text && !allowed.test(text)) return
       setDisplayText(text)
       const sats = parseDisplayToSatoshis(text, currency, satoshisPerUSD, usdToFiat)
