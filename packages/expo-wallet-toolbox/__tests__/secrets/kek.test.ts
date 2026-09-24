@@ -230,6 +230,16 @@ describe('KEK lifecycle', () => {
     expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(false)
   })
 
+  it('readSentinel swallows a read failure by default, so a missing sentinel still reads as null', async () => {
+    secureStore.getItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'))
+    await expect(readSentinel()).resolves.toBeNull()
+  })
+
+  it('readSentinel({ strict: true }) rethrows instead of reporting a transient failure as "no sentinel"', async () => {
+    secureStore.getItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'))
+    await expect(readSentinel({ strict: true })).rejects.toThrow('keychain unavailable')
+  })
+
   it('never authenticates through expo-local-authentication', async () => {
     await provisionWithSecret()
     __resetForTests()

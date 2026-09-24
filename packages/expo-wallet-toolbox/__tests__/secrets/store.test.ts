@@ -84,6 +84,23 @@ describe('secret store', () => {
     expect(secureStore.__prompts()).toBe(0)
   })
 
+  it('refuses to provision a fresh KEK when the sentinel read merely fails (P2-store-transient-sentinel)', async () => {
+    secureStore.getItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'))
+    secureStore.setItemAsync.mockClear()
+
+    expect(await putSecret('mnemonic', MNEMONIC)).toBe(false)
+    // The single most important negative assertion: a transient read failure
+    // must never take the provisionKek() branch, which deletes both KEK
+    // keychain items before minting a new one.
+    expect(secureStore.deleteItemAsync).not.toHaveBeenCalled()
+    expect(secureStore.setItemAsync).not.toHaveBeenCalled()
+  })
+
+  it('still provisions normally when the sentinel is genuinely absent (no regression to fresh-install)', async () => {
+    expect(await putSecret('mnemonic', MNEMONIC)).toBe(true)
+    expect(await hasSecret('mnemonic')).toBe(true)
+  })
+
   it('propagates encrypted keychain read failures for creation checks', async () => {
     secureStore.getItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'))
     await expect(hasAnySecret({ strict: true })).rejects.toThrow('keychain unavailable')
