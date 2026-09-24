@@ -230,6 +230,15 @@ export interface PostedTxidResult {
   /** The service already had this transaction, which its own docs say to read as success. */
   alreadyKnown?: boolean
   doubleSpend?: boolean
+  /**
+   * The toolbox's own distinction between "the network told us this exact
+   * transaction is invalid" (`false`) and "we could not tell" (`true` or
+   * absent) — set by the ARC adapter to exactly `false` for INVALID/
+   * MALFORMED/REJECTED verdicts, and `true` for transport/rate-limit/timeout
+   * issues. Absent (a provider that never sets it) must read the same as
+   * `true`: no signal is no verdict, not an invalidity claim.
+   */
+  serviceError?: boolean
 }
 
 /** One service's reply. Structurally satisfied by `PostBeefResult`. */
@@ -244,22 +253,41 @@ export interface PostedResult {
  * A double spend outranks a success, matching the toolbox's own aggregate
  * (`attemptToPostReqsToNetwork.js:174-181`) so the codebase has one rule for it.
  *
- * A plain error is never read as invalidity. This ancestor arrived inside a BEEF
- * that `internalizeAction` had already verified for AtomicBEEF structure and SPV
- * (merkle-proof) validity — it does not execute or verify the transaction's
- * unlocking/locking scripts — so a bare rejection is far more likely to mean our
- * merged BEEF is missing bytes this service needed than that the transaction is
- * bad, and rejecting it would cascade into money the user legitimately holds.
- * Left retryable, the drain simply stalls, which loses nothing.
+ * An UNMARKED error is never read as invalidity. Verification here relies on
+ * `internalizeAction`'s own gate having already checked this ancestor, but
+ * that gate is AtomicBEEF structure and SPV (merkle-proof) validity only — it
+ * does not execute or verify the transaction's unlocking/locking scripts — so
+ * a bare rejection with no further signal is far more likely to mean our
+ * merged BEEF is missing bytes this service needed than that the transaction
+ * is bad, and rejecting it would cascade into money the user legitimately
+ * holds. Left retryable, the drain simply stalls, which loses nothing.
+ *
+ * A MARKED error is different: `serviceError === false` is the toolbox's own
+ * structured signal, already computed by the broadcaster adapter (e.g. ARC's
+ * INVALID/MALFORMED/REJECTED), that the network looked at this exact
+ * transaction and refused it — not merely that we could not reach anyone.
+ * Reading it is what lets a forged foreign ancestor (the P0-1 gap this rail
+ * also has to defend against, until every payee upgrades) cascade to the
+ * descendant it poisoned instead of stalling the drain forever. The full
+ * condition is the exact triple `status==='error' && doubleSpend!==true &&
+ * serviceError===false` — the `doubleSpend!==true` half of it is enforced
+ * above by returning early, so the two checks together are never both live
+ * at once, but the exactness still matters for `serviceError`: absent or
+ * `true` — including from a broadcaster that never sets the field at all —
+ * must fall through to the safe `serviceError` outcome, never get swept in
+ * by a loose `!serviceError`.
  */
 export function outcomeOfForeignPost(args: { txid: string; results: PostedResult[] }): PostOutcome {
   let success = false
+  let invalid = false
   for (const result of args.results) {
     for (const r of result.txidResults) {
       if (r.txid !== args.txid) continue
       if (r.doubleSpend === true) return 'doubleSpend'
       if (r.status === 'success' || r.alreadyKnown === true) success = true
+      else if (r.status === 'error' && r.serviceError === false) invalid = true
     }
   }
-  return success ? 'success' : 'serviceError'
+  if (success) return 'success'
+  return invalid ? 'invalidTx' : 'serviceError'
 }

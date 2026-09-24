@@ -289,4 +289,32 @@ describe('outcomeOfForeignPost', () => {
     expect(outcomeOfForeignPost({ txid: 'A', results })).toBe('serviceError')
     expect(outcomeOfForeignPost({ txid: 'A', results: [] })).toBe('serviceError')
   })
+
+  // The ARC adapter sets `serviceError: false` on exactly the verdicts that
+  // mean the network itself refused the transaction (INVALID/MALFORMED/
+  // REJECTED), as opposed to a transport/rate-limit/timeout issue. Reading it
+  // is what lets a forged foreign ancestor cascade to the descendant it
+  // poisoned instead of stalling the drain forever.
+  it('classifies an explicit network refusal as invalidTx', () => {
+    const results = posted({ txid: 'A', status: 'error', serviceError: false })
+    expect(outcomeOfForeignPost({ txid: 'A', results })).toBe('invalidTx')
+  })
+
+  it('stays serviceError when serviceError is true, even on an error status', () => {
+    const results = posted({ txid: 'A', status: 'error', serviceError: true })
+    expect(outcomeOfForeignPost({ txid: 'A', results })).toBe('serviceError')
+  })
+
+  it('stays serviceError when serviceError is absent, not merely falsy', () => {
+    // A provider that never sets the field must fail closed (retryable), not
+    // get swept into invalidTx by an `!serviceError` check.
+    const results = posted({ txid: 'A', status: 'error' })
+    expect(outcomeOfForeignPost({ txid: 'A', results })).toBe('serviceError')
+    expect(results[0].txidResults[0].serviceError).toBeUndefined()
+  })
+
+  it('lets a double spend beat an explicit invalidTx verdict too', () => {
+    const results = posted({ txid: 'A', status: 'error', doubleSpend: true, serviceError: false })
+    expect(outcomeOfForeignPost({ txid: 'A', results })).toBe('doubleSpend')
+  })
 })
