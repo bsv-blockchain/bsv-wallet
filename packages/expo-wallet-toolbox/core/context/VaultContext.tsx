@@ -17,6 +17,7 @@ import { ceremony } from '../services/vault/ceremonyHost'
 import { CeremonyState } from '../services/vault/ceremony'
 import { haptics } from '../hooks/useHaptics'
 import i18n from '../i18n/translations'
+import { vaultStore } from '../services/vault/vaultStore'
 
 /**
  * Minimal shape of the app's toast function. `core` must never import a `ui`
@@ -33,19 +34,50 @@ interface VaultContextValue {
   submitPin: (pin: string) => void
   cancel: () => void
   retry: () => void
+  /**
+   * F-07: whether this device holds ANY local Vault enrollment record, on any
+   * scope — regardless of isVaultAvailable's release/network gate. An
+   * existing, already-funded vault must stay reachable from Home/Settings
+   * even when the flag is off or the network switched; only entry-point
+   * VISIBILITY needs this — VaultScreen's own canDeposit/canEnroll stay gated
+   * on the flag exactly as before. Backed by the same device-local
+   * vaultStore.isEnrolled() read the screen's own reload() already performs
+   * (no network call), refreshed once here rather than by every consumer.
+   */
+  hasVaultMeta: boolean
 }
 
 const VaultContext = createContext<VaultContextValue>({
   state: { phase: 'idle' },
   submitPin: () => {},
   cancel: () => {},
-  retry: () => {}
+  retry: () => {},
+  hasVaultMeta: false
 })
 
 export const VaultProvider: React.FC<{ children: React.ReactNode; onToast?: VaultToast }> = ({ children, onToast }) => {
   const [state, setState] = useState<CeremonyState>(ceremony.state)
+  const [hasVaultMeta, setHasVaultMeta] = useState(false)
 
   useEffect(() => ceremony.subscribe(setState), [])
+
+  // Re-check once per ceremony-phase transition — enrollment, key removal and
+  // re-lock all happen around a ceremony, so this stays fresh without giving
+  // every render its own device-local read.
+  useEffect(() => {
+    let cancelled = false
+    vaultStore
+      .isEnrolled()
+      .then(enrolled => {
+        if (!cancelled) setHasVaultMeta(enrolled)
+      })
+      .catch(() => {
+        if (!cancelled) setHasVaultMeta(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [state.phase])
 
   // Effects of a completed ceremony: the haptic, and nothing else. `onArmed`
   // deliberately ignores its VaultSigner argument — the signer is owned by the
@@ -69,7 +101,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode; onToast?: Vaul
   const cancel = useCallback(() => ceremony.cancel(), [])
   const retry = useCallback(() => ceremony.retry(), [])
 
-  const value = useMemo(() => ({ state, submitPin, cancel, retry }), [state, submitPin, cancel, retry])
+  const value = useMemo(
+    () => ({ state, submitPin, cancel, retry, hasVaultMeta }),
+    [state, submitPin, cancel, retry, hasVaultMeta]
+  )
   return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>
 }
 

@@ -73,6 +73,7 @@ import {
   generateMnemonicWallet,
   backupAttestation,
   isVaultAvailable,
+  useVault,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
@@ -297,6 +298,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     buildWalletFromMnemonic,
     mandalaSettlement
   } = useWallet()
+  // F-07: an existing, already-funded vault stays reachable even when
+  // isVaultAvailable is off (flag or off-mainnet) — see the Vault
+  // destination's condition below.
+  const { hasVaultMeta } = useVault()
   const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const currency = settings?.currency || 'BSV'
@@ -1720,12 +1725,16 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
 
           {/* Release- and network-gated (spec §5.5, task 11): no Vault
               destination until the host turns vaultEnabled on, and never off
-              mainnet. `selectedNetwork` is a dependency of this memo, so the
-              destination appears and disappears with a network switch. Plain
-              push, not destinationPress — enrolment needs no wallet, and the
-              Vault screen's own Deposit button runs the lazy wallet-creation
-              path when it comes to that. */}
-          {isVaultAvailable(selectedNetwork) && (
+              mainnet — UNLESS this device already holds an existing Vault
+              enrollment (F-07): a funded vault must stay reachable even if
+              the flag is later turned off or the wallet switches network,
+              since VaultScreen's withdraw path itself is never gated on this
+              flag. `selectedNetwork`/`hasVaultMeta` are dependencies of this
+              memo, so the destination tracks both live. Plain push, not
+              destinationPress — enrolment needs no wallet, and the Vault
+              screen's own Deposit button runs the lazy wallet-creation path
+              when it comes to that. */}
+          {(isVaultAvailable(selectedNetwork) || hasVaultMeta) && (
             <PressableScale
               haptic="confirm"
               onPress={() => router.push('/vault')}
@@ -1745,6 +1754,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       t,
       router,
       selectedNetwork,
+      hasVaultMeta,
       hasTokens,
       heldAsset,
       payDestination,
