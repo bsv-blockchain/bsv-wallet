@@ -80,6 +80,7 @@
     },
     "android": {
       "package": "org.bsvblockchain.wallet",
+      "allowBackup": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#e5af35"
