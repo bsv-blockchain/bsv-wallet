@@ -5,11 +5,11 @@ export interface NativeHandlers {
   isFocused: () => Promise<boolean>
   onFocusRequested: () => Promise<void>
   onFocusRelinquished: () => Promise<void>
-  onDownloadFile: (fileData: Blob, fileName: string) => Promise<boolean>
+  onDownloadFile?: (fileData: Blob, fileName: string) => Promise<boolean>
 }
 
 // Default no-op implementations for Tauri functions
-const defaultNativeHandlers: NativeHandlers = {
+const defaultNativeHandlers: Required<NativeHandlers> = {
   isFocused: async () => false,
   onFocusRequested: async () => {},
   onFocusRelinquished: async () => {},
@@ -38,6 +38,14 @@ const defaultNativeHandlers: NativeHandlers = {
       return false
     }
   }
+}
+
+// Merges a host-supplied (possibly partial) NativeHandlers object over the
+// defaults, per field, so omitting any single handler (e.g. onDownloadFile)
+// falls back to its no-op/default implementation instead of leaving it
+// undefined.
+export function mergeNativeHandlers(partial?: Partial<NativeHandlers>): Required<NativeHandlers> {
+  return { ...defaultNativeHandlers, ...partial }
 }
 
 // -----
@@ -83,7 +91,7 @@ export const UserContextProvider: React.FC<UserContextProps> = ({
   appVersion = 'unknown',
   appName = 'App',
   children,
-  nativeHandlers = defaultNativeHandlers
+  nativeHandlers
 }) => {
   const [basketAccessModalOpen, setBasketAccessModalOpen] = useState(false)
   const [certificateAccessModalOpen, setCertificateAccessModalOpen] = useState(false)
@@ -92,12 +100,14 @@ export const UserContextProvider: React.FC<UserContextProps> = ({
   const [btmsAccessModalOpen, setBtmsAccessModalOpen] = useState(false)
   const [pageLoaded, setPageLoaded] = useState(false)
 
+  const handlers = useMemo(() => mergeNativeHandlers(nativeHandlers), [nativeHandlers])
+
   const userContext = useMemo(
     () => ({
-      isFocused: nativeHandlers.isFocused,
-      onFocusRequested: nativeHandlers.onFocusRequested,
-      onFocusRelinquished: nativeHandlers.onFocusRelinquished,
-      onDownloadFile: nativeHandlers.onDownloadFile,
+      isFocused: handlers.isFocused,
+      onFocusRequested: handlers.onFocusRequested,
+      onFocusRelinquished: handlers.onFocusRelinquished,
+      onDownloadFile: handlers.onDownloadFile,
       appVersion,
       appName,
       basketAccessModalOpen,
@@ -114,6 +124,7 @@ export const UserContextProvider: React.FC<UserContextProps> = ({
       setPageLoaded
     }),
     [
+      handlers,
       appVersion,
       appName,
       basketAccessModalOpen,

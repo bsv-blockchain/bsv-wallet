@@ -16,7 +16,7 @@
  */
 // Mocked by its real resolved path inside the package: processOfflineActions.ts
 // imports it via a relative '../../net/online', not the app's old alias.
-jest.mock('../packages/expo-wallet-toolbox/core/net/online', () => ({ getOnline: jest.fn(async () => true) }))
+jest.mock('../../core/net/online', () => ({ getOnline: jest.fn(async () => true) }))
 
 // Pulled in as a side effect of importing anything from the barrel: its
 // LocalStorageProvider chain reaches these native modules at module top level.

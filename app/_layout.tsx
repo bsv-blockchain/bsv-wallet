@@ -39,8 +39,6 @@ import {
 import { PermissionSheet, AlertHost, ToastHost, showToast, ErrorBoundary } from '@bsv/expo-wallet-toolbox/ui'
 import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
 
-import AsyncStorage from '@react-native-async-storage/async-storage'
-
 /**
  * Install the toolbox's runtime configuration before anything from the package
  * renders or builds a wallet.
@@ -128,40 +126,10 @@ configureToolbox({
   }
 })
 
-export const FIRST_TOUCH_DATE_KEY = 'firstTouchDate'
-
 const nativeHandlers: NativeHandlers = {
   isFocused: async () => false,
   onFocusRequested: async () => {},
-  onFocusRelinquished: async () => {},
-  onDownloadFile: async (fileData: Blob, fileName: string) => {
-    try {
-      const url = window.URL.createObjectURL(fileData)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-      return true
-    } catch (error) {
-      console.error('Download failed:', error)
-      return false
-    }
-  }
-}
-
-// Record the date of first app launch (never overwritten)
-function FirstTouchRecorder() {
-  useEffect(() => {
-    AsyncStorage.getItem(FIRST_TOUCH_DATE_KEY).then(existing => {
-      if (!existing) {
-        AsyncStorage.setItem(FIRST_TOUCH_DATE_KEY, new Date().toISOString())
-      }
-    })
-  }, [])
-  return null
+  onFocusRelinquished: async () => {}
 }
 
 // Surfaces background local-payment internalization (e.g. a payment queued
@@ -199,7 +167,6 @@ export default function RootLayout() {
                       <VaultProvider onToast={showToast}>
                         <AgentationGate>
                           <View style={{ flex: 1, backgroundColor }}>
-                            <FirstTouchRecorder />
                             {/* <TranslationTester /> */}
                             <PermissionSheet />
                             <VaultCeremonySheet />
