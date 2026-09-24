@@ -31,7 +31,7 @@ export type RailId = 'nearby' | 'handle' | 'address'
 export type PayTarget =
   | { kind: 'nearby'; session: Session }
   | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string }
-  | { kind: 'address'; address: string; sats?: number }
+  | { kind: 'address'; address: string; sats?: number; network?: 'main' | 'test' }
 
 /** Six cell names. Since the universal input, `pay-*` are deep-link aliases that all open the send form; `get-*` open one receive method directly. */
 export type PayCell = 'pay-nearby' | 'pay-handle' | 'pay-address' | 'get-nearby' | 'get-handle' | 'get-address'
@@ -91,6 +91,33 @@ export function isValidBsvAddress(text: string): boolean {
 }
 
 /**
+ * The network a base58check address's version byte names — 0x00 for
+ * mainnet, 0x6f for every test chain (testnet and teratest share the byte;
+ * the app's own network selector is what tells them apart, the address
+ * format does not). Undefined for text that is not a valid base58check
+ * address, or whose version byte names neither.
+ *
+ * Pure, like everything else here: it re-decodes the address rather than
+ * threading a value through, so a caller can compare a recipient's network
+ * against whichever chain the wallet has selected without either side
+ * knowing about the other (misc-p2-03 — a pasted/scanned address is accepted
+ * regardless of its version byte, so a mainnet wallet could pay a
+ * testnet-shaped address with zero warning; same key either way, but no
+ * visibility for the sender).
+ */
+export function addressNetwork(address: string): 'main' | 'test' | undefined {
+  try {
+    const { prefix } = Utils.fromBase58Check(address)
+    const byte = Array.isArray(prefix) ? prefix[0] : undefined
+    if (byte === 0x00) return 'main'
+    if (byte === 0x6f) return 'test'
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Base58 alphabet (no 0, O, I, l), 25–35 chars: the shape of a P2PKH address on
  * either network — mainnet `1`, testnet `m`/`n`. P2SH `3` is deliberately
  * absent: the address rail pays with a P2PKH lock. Anything this matches is
@@ -102,11 +129,19 @@ const ADDRESS_CANDIDATE_REGEX = /^[1mn][1-9A-HJ-NP-Za-km-z]{24,34}$/
 /** What the recipient field has been given, as typed. */
 export type RecipientInput =
   | { kind: 'empty' }
-  | { kind: 'address'; address: string }
+  | { kind: 'address'; address: string; network?: 'main' | 'test' }
   | { kind: 'invalid_address' }
   | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string }
   | { kind: 'invalid_link'; message: string }
   | { kind: 'search'; query: string }
+
+/** `{ network }` when the address's version byte names one, `{}` otherwise —
+ * spread onto an address result so an unrecognised prefix omits the field
+ * rather than carrying it as `undefined`. */
+function addressNetworkField(address: string): { network?: 'main' | 'test' } {
+  const network = addressNetwork(address)
+  return network ? { network } : {}
+}
 
 function handleFromPeerPay(result: PeerPayValidationResult): RecipientInput {
   if (!result.identityKey || peerPayHasErrors(result)) {
@@ -136,7 +171,9 @@ export function classifyRecipientInput(raw: string): RecipientInput {
   const isBitcoinUri = /^bitcoin:/i.test(text)
   const candidate = isBitcoinUri ? normalizeAddressInput(text) : text
   if (isBitcoinUri || ADDRESS_CANDIDATE_REGEX.test(candidate)) {
-    return isValidBsvAddress(candidate) ? { kind: 'address', address: candidate } : { kind: 'invalid_address' }
+    return isValidBsvAddress(candidate)
+      ? { kind: 'address', address: candidate, ...addressNetworkField(candidate) }
+      : { kind: 'invalid_address' }
   }
 
   if (isCompressedPublicKey(text)) return { kind: 'handle', identityKey: text.toLowerCase() }
@@ -172,7 +209,7 @@ export function classifyScan(raw: string): PayTarget | null {
 
   if (/^bitcoin:/i.test(text)) {
     const address = normalizeAddressInput(text)
-    return isValidBsvAddress(address) ? { kind: 'address', address } : null
+    return isValidBsvAddress(address) ? { kind: 'address', address, ...addressNetworkField(address) } : null
   }
 
   try {
@@ -182,7 +219,7 @@ export function classifyScan(raw: string): PayTarget | null {
   }
 
   if (isCompressedPublicKey(text)) return { kind: 'handle', identityKey: text.toLowerCase() }
-  if (isValidBsvAddress(text)) return { kind: 'address', address: text }
+  if (isValidBsvAddress(text)) return { kind: 'address', address: text, ...addressNetworkField(text) }
   return null
 }
 

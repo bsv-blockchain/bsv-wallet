@@ -191,6 +191,32 @@ describe('UniversalSend', () => {
     expect(s.queryByText('pay_conseq_handle')).toBeNull()
   })
 
+  // misc-p2-03: a pasted address is accepted regardless of its network version
+  // byte, with no warning that it belongs to a different network than the one
+  // selected — same key either way, but zero visibility for the sender.
+  it('an address on a different network from the one selected: shows the mismatch warning', async () => {
+    mockNetwork = 'main'
+    const TESTNET_ADDRESS = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn'
+    const s = draw()
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), TESTNET_ADDRESS)
+    await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    expect(s.getByText('pay_address_network_mismatch')).toBeTruthy()
+  })
+
+  it('an address on the selected network: no mismatch warning', async () => {
+    mockNetwork = 'main'
+    const s = draw()
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
+    await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    expect(s.queryByText('pay_address_network_mismatch')).toBeNull()
+  })
+
   it('a checksum-broken address: inline error, nothing else', async () => {
     const s = draw()
     fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), BROKEN_ADDRESS)
@@ -343,6 +369,22 @@ describe('UniversalSend', () => {
       // regression there would leave a permanent spinner under every result
       // list in the app and no test would notice.
       expect(s.queryByText('searching')).toBeNull()
+    })
+
+    // misc-p2-14: the pinned registry's own certificate is real vetting; a
+    // foreign domain answering `search` is only "that domain's DNS + TLS says
+    // so" (paymail-equivalent) — the badge must not claim the same thing for
+    // both.
+    it('gives a foreign-domain registry match the domain-attested badge instead of the pinned "Registered" one', async () => {
+      withRegistry() // pinned registry domain is 'deggen.com'
+      mockRegistrySearch.mockResolvedValue([
+        profile({ domain: 'other-registry.example', paymail: 'dee@other-registry.example' })
+      ])
+      const s = draw()
+      fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), 'dee')
+      await waitFor(() => expect(s.getByText('Dee K')).toBeTruthy())
+      expect(s.getByText('pay_trust_handle_domain_attested')).toBeTruthy()
+      expect(s.queryByText('pay_trust_handle_attested')).toBeNull()
     })
 
     /**

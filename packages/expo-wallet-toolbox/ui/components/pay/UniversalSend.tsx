@@ -57,6 +57,7 @@ import {
   useWalletStatus,
   CONSEQUENCE_KEYS,
   NO_MESSAGE_BOX,
+  addressNetwork,
   cancelOutboxPayment,
   classifyRecipientInput,
   getHandleRegistryConfig,
@@ -592,6 +593,12 @@ function UniversalSendInner(
     for (const p of registryMatches) {
       if (seen.has(p.identityKey)) continue
       seen.add(p.identityKey)
+      // The pinned registry's own certificate is the app's actual vetting —
+      // writes only ever go there (handleRegistry/client.ts). A foreign
+      // domain's `search` hit is only as trustworthy as that domain's own
+      // DNS + TLS (the same level paymail already offers), so it earns a
+      // different badge rather than being dressed as "Registered" (misc-p2-14).
+      const ownDomain = !!registryClient && p.domain.toLowerCase() === registryClient.domain.toLowerCase()
       registryIdentities.push({
         identityKey: p.identityKey,
         // A display name is the owner's own unvalidated plaintext, and this row
@@ -604,7 +611,9 @@ function UniversalSendInner(
         avatarURL: '',
         abbreviatedKey: abbreviateKey(p.identityKey),
         badgeIconURL: '',
-        badgeLabel: t('pay_trust_handle_attested'),
+        badgeLabel: ownDomain
+          ? t('pay_trust_handle_attested')
+          : t('pay_trust_handle_domain_attested', { domain: p.domain }),
         badgeClickURL: '',
         secondaryLine: p.paymail
       })
@@ -614,7 +623,7 @@ function UniversalSendInner(
       ...registryIdentities,
       ...recipient.searchResults.filter(r => !seen.has(r.identityKey))
     ]
-  }, [contactMatches, registryMatches, recipient.searchResults, t])
+  }, [contactMatches, registryMatches, recipient.searchResults, registryClient, t])
 
   /**
    * The handle of the row the user picked, so the success screen's "Save as
@@ -1117,6 +1126,17 @@ function UniversalSendInner(
   const amountOk = Number(sendAmount) > 0
   const isHandle = target?.kind === 'handle'
   const isAddress = target?.kind === 'address'
+  /**
+   * misc-p2-03: the address rail pays with a P2PKH lock regardless of which
+   * network's version byte the pasted/scanned address carries — the same key
+   * redeems on either chain, so this is a warning, not a refusal. Recomputed
+   * from the address itself rather than threaded through `target`, so the
+   * check stays independent of how the recipient was resolved (typed, scanned
+   * or picked from a search result).
+   */
+  const detectedAddressNetwork = target?.kind === 'address' ? addressNetwork(target.address) : undefined
+  const addressNetworkMismatch =
+    !!detectedAddressNetwork && detectedAddressNetwork !== (selectedNetwork === 'main' ? 'main' : 'test')
   // A stuck handle payment blocks new HANDLE sends: every attempt while the box
   // is unreachable would mint another noSend action and another stuck entry.
   // Address sends never touch the box, so they are not held hostage by it.
@@ -1474,6 +1494,7 @@ function UniversalSendInner(
               for a handle, and nothing at all in token mode, where an address is
               refused rather than warned about. */}
           {isAddress && !asset && <ConsequenceNote textKey={CONSEQUENCE_KEYS.address} />}
+          {isAddress && !asset && addressNetworkMismatch && <ConsequenceNote textKey="pay_address_network_mismatch" />}
 
           {tokenNote && (
             <ConsequenceNote
