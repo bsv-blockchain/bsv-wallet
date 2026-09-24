@@ -436,6 +436,9 @@ const resources = {
       vault_err_last_keys: 'A vault needs at least two keys. Add another key before removing this one.',
       vault_err_relock_required: 'Re-lock the vault first so your other keys can open every deposit.',
       vault_err_action_pending: 'A vault transaction has not finished yet. Try again once it settles.',
+      vault_resolve_held_deposit_action: 'Finish the interrupted deposit',
+      vault_resolve_held_deposit_done: 'Deposit resolved',
+      vault_resolve_held_deposit_failed: 'Could not resolve the deposit. Try again.',
       vault_err_key_not_committed:
         "{{nickname}} can't open any of the deposits in this vault. Use another of your vault keys.",
       vault_err_key_cannot_cover:
@@ -1427,6 +1430,9 @@ const resources = {
       vault_err_last_keys: '保险库至少需要两把密钥。请先添加另一把再移除这把。',
       vault_err_relock_required: '请先重新锁定保险库，让您的其他密钥能打开每笔存入。',
       vault_err_action_pending: '保险库交易尚未完成。待其结束后再试。',
+      vault_resolve_held_deposit_action: '完成中断的存款',
+      vault_resolve_held_deposit_done: '存款问题已解决',
+      vault_resolve_held_deposit_failed: '无法解决存款问题，请重试。',
       vault_err_key_not_committed: '{{nickname}} 无法打开此保险库中的任何存入。请使用您的另一把保险库密钥。',
       vault_err_key_cannot_cover:
         '{{nickname}} 可以打开保险库中 {{total}} 里的 {{reachable}}。请最多取出 {{reachable}}，或改用 {{otherNames}}。',
@@ -2386,6 +2392,9 @@ const resources = {
       vault_err_last_keys: 'वॉल्ट को कम से कम दो कुंजियाँ चाहिए। इसे हटाने से पहले दूसरी कुंजी जोड़ें।',
       vault_err_relock_required: 'पहले वॉल्ट री-लॉक करें ताकि आपकी अन्य कुंजियाँ हर जमा खोल सकें।',
       vault_err_action_pending: 'वॉल्ट का एक लेन-देन अभी पूरा नहीं हुआ है। पूरा होने पर फिर कोशिश करें।',
+      vault_resolve_held_deposit_action: 'बाधित जमा पूरा करें',
+      vault_resolve_held_deposit_done: 'जमा की समस्या हल हो गई',
+      vault_resolve_held_deposit_failed: 'जमा की समस्या हल नहीं हो सकी। फिर कोशिश करें।',
       vault_err_key_not_committed:
         '{{nickname}} इस वॉल्ट की कोई भी जमा नहीं खोल सकती। अपनी दूसरी वॉल्ट कुंजी उपयोग करें।',
       vault_err_key_cannot_cover:
@@ -3378,6 +3387,9 @@ const resources = {
         'Vuelve a bloquear la caja fuerte primero, para que tus otras llaves puedan abrir cada depósito.',
       vault_err_action_pending:
         'Una transacción de la bóveda aún no ha terminado. Inténtalo de nuevo cuando se complete.',
+      vault_resolve_held_deposit_action: 'Terminar el depósito interrumpido',
+      vault_resolve_held_deposit_done: 'Depósito resuelto',
+      vault_resolve_held_deposit_failed: 'No se pudo resolver el depósito. Inténtalo de nuevo.',
       vault_err_key_not_committed:
         '{{nickname}} no puede abrir ninguno de los depósitos de esta caja fuerte. Usa otra de tus llaves.',
       vault_err_key_cannot_cover:
@@ -4388,6 +4400,9 @@ const resources = {
         'Reverrouillez d’abord le coffre pour que vos autres clés puissent ouvrir chaque dépôt.',
       vault_err_action_pending:
         'Une transaction du coffre n’est pas encore terminée. Réessayez une fois qu’elle est réglée.',
+      vault_resolve_held_deposit_action: 'Terminer le dépôt interrompu',
+      vault_resolve_held_deposit_done: 'Dépôt résolu',
+      vault_resolve_held_deposit_failed: 'Impossible de résoudre le dépôt. Réessayez.',
       vault_err_key_not_committed:
         '{{nickname}} ne peut ouvrir aucun des dépôts de ce coffre. Utilisez une autre de vos clés.',
       vault_err_key_cannot_cover:
@@ -5368,6 +5383,9 @@ const resources = {
       vault_err_last_keys: 'تحتاج الخزنة إلى مفتاحين على الأقل. أضف مفتاحًا آخر قبل إزالة هذا.',
       vault_err_relock_required: 'أعد قفل الخزنة أولًا حتى تتمكن مفاتيحك الأخرى من فتح كل إيداع.',
       vault_err_action_pending: 'لم تنتهِ إحدى معاملات الخزنة بعد. أعد المحاولة بعد اكتمالها.',
+      vault_resolve_held_deposit_action: 'إتمام الإيداع المتوقف',
+      vault_resolve_held_deposit_done: 'تم حل مشكلة الإيداع',
+      vault_resolve_held_deposit_failed: 'تعذّر حل مشكلة الإيداع. حاول مرة أخرى.',
       vault_err_key_not_committed:
         'لا يمكن لـ {{nickname}} فتح أي من إيداعات هذه الخزنة. استخدم مفتاحًا آخر من مفاتيح خزنتك.',
       vault_err_key_cannot_cover:
@@ -6343,6 +6361,9 @@ const resources = {
       vault_err_relock_required:
         'Retranque o cofre primeiro para que as suas outras chaves possam abrir cada depósito.',
       vault_err_action_pending: 'Uma transação do cofre ainda não terminou. Tente novamente quando ela concluir.',
+      vault_resolve_held_deposit_action: 'Concluir o depósito interrompido',
+      vault_resolve_held_deposit_done: 'Depósito resolvido',
+      vault_resolve_held_deposit_failed: 'Não foi possível resolver o depósito. Tente novamente.',
       vault_err_key_not_committed:
         '{{nickname}} não consegue abrir nenhum dos depósitos deste cofre. Use outra das suas chaves.',
       vault_err_key_cannot_cover:
@@ -7337,6 +7358,9 @@ const resources = {
       vault_err_last_keys: 'ভল্টে কমপক্ষে দুটি কী দরকার। এটি সরানোর আগে আরেকটি যোগ করুন।',
       vault_err_relock_required: 'প্রথমে ভল্ট পুনরায় লক করুন যাতে আপনার অন্য কী-গুলি প্রতিটি জমা খুলতে পারে।',
       vault_err_action_pending: 'ভল্টের একটি লেনদেন এখনও শেষ হয়নি। শেষ হলে আবার চেষ্টা করুন।',
+      vault_resolve_held_deposit_action: 'বাধাগ্রস্ত জমা সম্পন্ন করুন',
+      vault_resolve_held_deposit_done: 'জমার সমস্যা সমাধান হয়েছে',
+      vault_resolve_held_deposit_failed: 'জমার সমস্যা সমাধান করা যায়নি। আবার চেষ্টা করুন।',
       vault_err_key_not_committed:
         '{{nickname}} এই ভল্টের কোনো জমাই খুলতে পারে না। আপনার অন্য একটি ভল্ট কী ব্যবহার করুন।',
       vault_err_key_cannot_cover:
@@ -8326,6 +8350,9 @@ const resources = {
       vault_err_last_keys: 'Хранилищу нужно как минимум два ключа. Добавьте другой ключ, прежде чем удалять этот.',
       vault_err_relock_required: 'Сначала перезапирайте хранилище, чтобы другие ключи могли открыть каждое пополнение.',
       vault_err_action_pending: 'Транзакция хранилища ещё не завершена. Повторите попытку, когда она завершится.',
+      vault_resolve_held_deposit_action: 'Завершить прерванный депозит',
+      vault_resolve_held_deposit_done: 'Проблема с депозитом решена',
+      vault_resolve_held_deposit_failed: 'Не удалось решить проблему с депозитом. Повторите попытку.',
       vault_err_key_not_committed:
         '{{nickname}} не может открыть ни одно пополнение в этом хранилище. Используйте другой ключ хранилища.',
       vault_err_key_cannot_cover:
@@ -9323,6 +9350,9 @@ const resources = {
       vault_err_last_keys: 'Brankas memerlukan setidaknya dua kunci. Tambahkan kunci lain sebelum menghapus yang ini.',
       vault_err_relock_required: 'Kunci ulang brankas dahulu agar kunci Anda yang lain bisa membuka setiap setoran.',
       vault_err_action_pending: 'Sebuah transaksi brankas belum selesai. Coba lagi setelah selesai.',
+      vault_resolve_held_deposit_action: 'Selesaikan deposit yang tertunda',
+      vault_resolve_held_deposit_done: 'Masalah deposit teratasi',
+      vault_resolve_held_deposit_failed: 'Tidak dapat mengatasi masalah deposit. Coba lagi.',
       vault_err_key_not_committed:
         '{{nickname}} tidak bisa membuka satu pun setoran di brankas ini. Gunakan kunci brankas Anda yang lain.',
       vault_err_key_cannot_cover:
@@ -10317,6 +10347,9 @@ const resources = {
       vault_err_last_keys: '保管庫には少なくとも 2 本の鍵が必要です。この鍵を削除する前に別の鍵を追加してください。',
       vault_err_relock_required: '他の鍵ですべての入金を開けられるように、まず保管庫を再ロックしてください。',
       vault_err_action_pending: '保管庫の取引がまだ完了していません。完了してからもう一度お試しください。',
+      vault_resolve_held_deposit_action: '中断された預け入れを完了する',
+      vault_resolve_held_deposit_done: '預け入れの問題を解決しました',
+      vault_resolve_held_deposit_failed: '預け入れの問題を解決できませんでした。もう一度お試しください。',
       vault_err_key_not_committed:
         '{{nickname}} ではこの保管庫の入金をどれも開けられません。別の保管庫の鍵を使ってください。',
       vault_err_key_cannot_cover:
@@ -11324,6 +11357,9 @@ const resources = {
       vault_err_last_keys: 'Sejf wymaga co najmniej dwóch kluczy. Dodaj inny klucz, zanim usuniesz ten.',
       vault_err_relock_required: 'Najpierw zablokuj sejf ponownie, aby pozostałe klucze mogły otworzyć każdą wpłatę.',
       vault_err_action_pending: 'Transakcja sejfu jeszcze się nie zakończyła. Spróbuj ponownie, gdy się zakończy.',
+      vault_resolve_held_deposit_action: 'Zakończ przerwany depozyt',
+      vault_resolve_held_deposit_done: 'Problem z depozytem rozwiązany',
+      vault_resolve_held_deposit_failed: 'Nie udało się rozwiązać problemu z depozytem. Spróbuj ponownie.',
       vault_err_key_not_committed:
         '{{nickname}} nie może otworzyć żadnej wpłaty w tym sejfie. Użyj innego klucza sejfu.',
       vault_err_key_cannot_cover:

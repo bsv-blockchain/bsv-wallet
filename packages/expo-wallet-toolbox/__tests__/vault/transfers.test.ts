@@ -111,6 +111,7 @@ import {
   previewVaultWithdrawal,
   recoverVaultMetaFromOutputs,
   relockVault,
+  resolveHeldVaultDeposit,
   withdrawFromVault
 } from '../../core/services/vault/transfers'
 
@@ -175,6 +176,7 @@ let wallet: VaultWallet & {
   listOutputs: jest.Mock
   abortAction: jest.Mock
   listActions: jest.Mock
+  getStatusForTxids: jest.Mock
 }
 
 beforeEach(async () => {
@@ -225,7 +227,10 @@ beforeEach(async () => {
     }),
     listOutputs: jest.fn(async () => ({ outputs: [] })),
     abortAction: jest.fn(async () => ({})),
-    listActions: jest.fn(async () => ({ actions: [] }))
+    listActions: jest.fn(async () => ({ actions: [] })),
+    // Absent (empty results) reads as "unknown", same as every other failure
+    // mode networkAlreadyHas treats that way — see vaultTxidAlreadyKnown.
+    getStatusForTxids: jest.fn(async () => ({ results: [] }))
   }
   ;(isVaultEnabled as jest.Mock).mockReturnValue(true)
   ;(isVaultAvailable as jest.Mock).mockReset().mockReturnValue(true)
@@ -1524,6 +1529,78 @@ describe('depositToVault', () => {
   })
 })
 
+// F-04: reconcileHeldVaultDeposits refuses to touch a signed held deposit
+// automatically; resolveHeldVaultDeposit is the manual resolution path.
+describe('resolveHeldVaultDeposit', () => {
+  it('reports nothing-held when no deposit is held', async () => {
+    await seedMeta()
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+    expect(result).toEqual({ kind: 'nothing-held' })
+    expect(wallet.getStatusForTxids).not.toHaveBeenCalled()
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  it('never touches an unsigned held reservation — only reconcileHeldVaultDeposits may abort it', async () => {
+    await seedMeta()
+    wallet.listActions.mockResolvedValue({ actions: [heldDepositAction('unsigned')] })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    expect(result).toEqual({ kind: 'nothing-held' })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
+  it('re-broadcasts the exact signed bytes when the network does not yet know the held txid', async () => {
+    await seedMeta()
+    const held = heldDepositAction('nosend')
+    wallet.listActions.mockResolvedValue({ actions: [held] })
+    wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'unknown' }] })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    expect(result).toEqual({ kind: 'broadcast' })
+    expect(wallet.getStatusForTxids).toHaveBeenCalledWith([held.txid])
+    const sendWithCall = wallet.createAction.mock.calls.find(([args]) => args?.options?.sendWith)
+    expect(sendWithCall?.[0]).toEqual({
+      description: 'Broadcast Vault deposit',
+      options: { sendWith: [held.txid] }
+    })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  it('reports already-known without re-broadcasting when the network already has the held txid', async () => {
+    await seedMeta()
+    const held = heldDepositAction('nosend')
+    wallet.listActions.mockResolvedValue({ actions: [held] })
+    wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'mined' }] })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    expect(result).toEqual({ kind: 'already-known' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  it('reports failed instead of throwing when the release is not confirmed', async () => {
+    await seedMeta()
+    const held = heldDepositAction('nosend')
+    wallet.listActions.mockResolvedValue({ actions: [held] })
+    wallet.getStatusForTxids.mockResolvedValue({ results: [] })
+    const realCreate = wallet.createAction.getMockImplementation()!
+    wallet.createAction.mockImplementation(async (args: any, originator: string) => {
+      if (!args?.options?.sendWith) return await realCreate(args, originator)
+      return {}
+    })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    expect(result).toMatchObject({ kind: 'failed', error: expect.objectContaining({ code: 'no-transaction' }) })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+})
+
 describe('withdrawFromVault', () => {
   it('invalidates an in-flight scope-A scan before any action or scope-B mutation', async () => {
     const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
@@ -1902,6 +1979,32 @@ describe('withdrawFromVault', () => {
     await expect(withdrawAll({ backupEnabled: async () => false })).resolves.toMatchObject({ txid: expect.any(String) })
   }, 60_000)
 
+  // P2-774: reconcileHeldVaultDeposits' allocation-integrity gate only
+  // matters to a call about to allocate a NEW salt index. A full-balance
+  // withdrawal never does, so it must not be blocked by an unrelated held
+  // signed deposit; a partial withdrawal that re-vaults a remainder DOES
+  // allocate one and must still refuse.
+  it('a full-balance withdrawal succeeds with a signed deposit still held', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])])
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [heldDepositAction('nosend')]
+    }))
+
+    await expect(withdrawAll()).resolves.toMatchObject({ txid: expect.any(String) })
+  }, 60_000)
+
+  it('a partial withdrawal that re-vaults a remainder still refuses until the held deposit resolves', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])])
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [heldDepositAction('nosend')]
+    }))
+
+    await expect(
+      withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')
+    ).rejects.toMatchObject({ code: 'action-pending' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  }, 60_000)
+
   // ── the version invariant and D4b (spec §2.6, §4.2 step 5) ─────────────
 
   it('bad-version: a signable transaction that is not version 1 is aborted before any signature', async () => {
@@ -2208,6 +2311,45 @@ describe('previewVaultWithdrawal', () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
     await expect(previewVaultWithdrawal(wallet, ADMIN, 'A-1', 'all')).resolves.toMatchObject({ selectedTotal: 300_000 })
   })
+
+  // P1: previewVaultWithdrawal used to pass 'repair-unsigned' like every
+  // mutating call, so a "read-only" preview could abortAction() a genuinely
+  // in-flight, unsigned, no-txid withdraw/re-lock reservation — corrupting a
+  // LIVE ceremony out from under the user. It must fail closed (action-pending)
+  // instead, and a real withdrawal must still self-heal a stale one.
+  it('never aborts a live in-flight unsigned reservation — fails closed instead of repairing it', async () => {
+    const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    let inFlightPresent = true
+    const inFlight = {
+      reference: 'ref-inflight',
+      status: 'unsigned',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [{
+        sourceOutpoint: fx[0].outpoint,
+        sourceSatoshis: fx[0].satoshis,
+        sourceLockingScript: fx[0].lockingScript.toHex()
+      }]
+    }
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || !inFlightPresent ? [] : [inFlight]
+    }))
+    wallet.abortAction.mockImplementation(async ({ reference }: any) => {
+      expect(reference).toBe('ref-inflight')
+      inFlightPresent = false
+      return {}
+    })
+
+    await expect(previewVaultWithdrawal(wallet, ADMIN, 'A-1', 'all')).rejects.toMatchObject({ code: 'action-pending' })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(inFlightPresent).toBe(true) // the reservation is still standing
+
+    // A real withdrawal (repair stays true) still cleans up the SAME stale
+    // reservation once it is genuinely no longer in flight.
+    const r = await withdrawAll()
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-inflight' }, ADMIN)
+    expect(r.txid).toBeDefined()
+  }, 60_000)
 })
 
 describe('withdraw self-heals a double-spend from stuck reservations', () => {
@@ -2310,7 +2452,10 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
     expect(asked).toEqual([[h.fx[0].outpoint]])
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-orphan' }, ADMIN)
     expect(wallet.abortAction).not.toHaveBeenCalledWith({ reference: 'ref-done' }, ADMIN)
-    expect(wallet.listActions).toHaveBeenCalledTimes(2)
+    // P2-774: a full-balance withdrawal (no remainder to re-vault) no longer
+    // pays for reconcileHeldVaultDeposits' held-deposit reconciliation scan —
+    // only the hidden-reservation safety scan below runs.
+    expect(wallet.listActions).toHaveBeenCalledTimes(1)
     expect(wallet.listActions.mock.calls[0][0]).toMatchObject({ labels: [], includeInputSourceLockingScripts: true })
   }, 60_000)
 
@@ -2348,7 +2493,9 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
       })
     })
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'WERR_INVALID_PARAMETER' })
-    expect(wallet.listActions).toHaveBeenCalledTimes(2) // held-deposit reconciliation + hidden-reservation safety scan
+    // P2-774: a full-balance withdrawal skips reconcileHeldVaultDeposits — only
+    // the hidden-reservation safety scan runs.
+    expect(wallet.listActions).toHaveBeenCalledTimes(1)
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect(wallet.createAction).toHaveBeenCalledTimes(1) // no retry
   })
@@ -2510,6 +2657,18 @@ describe('relockVault', () => {
     expect(wallet.listOutputs).not.toHaveBeenCalled()
   })
 
+  // P2-774: re-lock always allocates a new salt index, so — unlike a
+  // full-balance withdrawal — it keeps refusing until a held signed deposit
+  // resolves.
+  it('still refuses while a signed deposit is held — a re-lock always allocates a new salt index', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
+    wallet.listActions.mockImplementation(async (args: any) => ({
+      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [heldDepositAction('nosend')]
+    }))
+    await expect(relock()).rejects.toMatchObject({ code: 'action-pending' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
   it('requires private backup before a re-lock lists or taps Vault outputs', async () => {
     await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
     await expect(relock({ backupEnabled: async () => false })).rejects.toMatchObject({ code: 'backup-off' })
@@ -2556,6 +2715,20 @@ describe('key removal pending-action gate', () => {
   it('starts a removal while the deposit that funded the vault is still sending', async () => {
     await funded()
     wallet.listActions.mockImplementation(async () => ({ actions: [heldDepositAction('sending')] }))
+
+    const begun = await beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)
+
+    expect(begun.complete).toBe(false)
+    expect(begun.meta.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
+  }, 90_000)
+
+  // P2-774: a held signed deposit reserves only ordinary wallet inputs, not
+  // any vault-basket output this removal's eventual re-lock would need to
+  // spend, so — unlike an unbroadcast withdraw/re-lock — it must not block
+  // starting a removal.
+  it('starts a removal while a signed deposit is held', async () => {
+    await funded()
+    wallet.listActions.mockImplementation(async () => ({ actions: [heldDepositAction('nosend')] }))
 
     const begun = await beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)
 
@@ -2951,6 +3124,42 @@ describe('authenticated vault scans', () => {
       code: 'template-invalid',
       message: 'Vault output belongs to a different network'
     })
+  })
+
+  // F-06: an existing local record used to short-circuit unconditionally
+  // (`if (existing) return existing`), so a stale post-reinstall SecureStore
+  // snapshot could permanently suppress recovery of a newer on-chain revision.
+  it('replaces a stale lower-revision local record with newer verified chain evidence', async () => {
+    await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 1, createdAt: 1, keys: [KEY_A, KEY_B] })
+    const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
+    const ci = decodeVaultInstructions(fixture.customInstructions)!
+    fixture.customInstructions = encodeVaultInstructions({ ...ci, revision: 2 })
+    serveVaultOutputs([fixture])
+
+    const recovered = await recoverVaultMetaFromOutputs(wallet, ADMIN)
+
+    expect(recovered).toMatchObject({ revision: 2, keys: [KEY_A, KEY_B] })
+    expect((await vaultStore.getMeta())).toMatchObject({ revision: 2, keys: [KEY_A, KEY_B] })
+  })
+
+  it('keeps an existing, already-current local record unchanged', async () => {
+    const current = { v: 6 as const, vaultId: VAULT_ID, revision: 2, createdAt: 1, keys: [KEY_A, KEY_B] }
+    await vaultStore.setMeta(current)
+    const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
+    const ci = decodeVaultInstructions(fixture.customInstructions)!
+    fixture.customInstructions = encodeVaultInstructions({ ...ci, revision: 2 })
+    serveVaultOutputs([fixture])
+
+    await expect(recoverVaultMetaFromOutputs(wallet, ADMIN)).resolves.toEqual(current)
+    expect(await vaultStore.getMeta()).toEqual(current)
+  })
+
+  it('leaves an enrollment with no deposits yet unchanged', async () => {
+    const current = { v: 6 as const, vaultId: VAULT_ID, revision: 1, createdAt: 1, keys: [KEY_A, KEY_B] }
+    await vaultStore.setMeta(current)
+    serveVaultOutputs([])
+
+    await expect(recoverVaultMetaFromOutputs(wallet, ADMIN)).resolves.toEqual(current)
   })
 
   it('rederives every numeric salt key before persisting recovered metadata', async () => {
