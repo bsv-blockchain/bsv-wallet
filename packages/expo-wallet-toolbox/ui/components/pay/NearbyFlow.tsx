@@ -624,6 +624,17 @@ function NearbyFlow({
   const [receivedBroadcast, setReceivedBroadcast] = useState(true)
 
   /**
+   * P1-1: the payee's `verification` for the shared success overlay. The
+   * overlay's TIMING is unchanged — still shown as soon as savePending
+   * resolves, before internalizeAction has necessarily run — but this gates
+   * whether it may claim the money is actually in the wallet yet. Starts
+   * 'pending' the instant the overlay appears (settleReceived, below) and is
+   * resolved once processPending settles: 'verified' on a credit, or
+   * 'not-credited' otherwise. See PaymentSuccessOverlay's `verification` doc.
+   */
+  const [receivedVerification, setReceivedVerification] = useState<'pending' | 'verified' | 'not-credited'>('verified')
+
+  /**
    * A frame that was delivered but could not be persisted. Held so the payee can
    * retry against the SAME session: dropping it would lose a payment the payer
    * already considers sent, and reset() would mint a session that can never
@@ -1113,10 +1124,10 @@ function NearbyFlow({
         session.asset
           ? // Never `null` on the token path: falling through to the satoshi
             // renderer would print base units as satoshis.
-            formatTokenAmountWithUnit(satoshis, {
+            (formatTokenAmountWithUnit(satoshis, {
               decimals: session.asset.decimals ?? 0,
               ticker: session.asset.ticker ?? ''
-            }) ?? t('token_row_amount_pending')
+            }) ?? t('token_row_amount_pending'))
           : null
       )
       // Credited and spendable — and not yet confirmed by the issuer. Both are
@@ -1132,6 +1143,10 @@ function NearbyFlow({
       // this same mount left behind — internalizing corrects it below if the
       // payment credits without a broadcast yet.
       setReceivedBroadcast(true)
+      // P1-1: the overlay is up now, but internalizeAction has not run yet —
+      // 'pending' shows the neutral confirming copy until the block below
+      // resolves it one way or the other.
+      setReceivedVerification('pending')
       setUnsettled(null)
       // Who paid. Starts a best-effort identity lookup for the presence row;
       // deliberately after the durable write, and never awaited.
@@ -1149,6 +1164,7 @@ function NearbyFlow({
       //     is neutral.
       if (!wallet) {
         setNotice({ text: t('local_pay_queued'), tone: 'info' })
+        setReceivedVerification('not-credited')
         return
       }
       try {
@@ -1185,6 +1201,11 @@ function NearbyFlow({
         setNotice(
           credited ? { text: t('local_pay_added'), tone: 'success' } : { text: t('local_pay_queued'), tone: 'info' }
         )
+        // P1-1: only a genuine credit earns the overlay's green claim; a
+        // queued-but-not-yet-credited result gets the neutral not-credited
+        // copy instead — the money is safe (still queued, will resolve on
+        // the next retry) but not yet in the wallet.
+        setReceivedVerification(credited ? 'verified' : 'not-credited')
         // The success overlay is already up by this point (set unconditionally
         // at the top of this function) — this only refines its `broadcast`
         // flag once storage confirms a network hand-off. Not reachable when
@@ -1206,6 +1227,7 @@ function NearbyFlow({
       } catch (e) {
         console.warn('[localpay] processPending failed:', messageOf(e))
         setNotice({ text: t('local_pay_queued'), tone: 'info' })
+        setReceivedVerification('not-credited')
       }
     },
     [storage, wallet, adminOriginator, coverVerifier, issuerNameFor, mandala.runtime, fail, t]
@@ -2843,8 +2865,14 @@ function NearbyFlow({
           // A token receipt carries its own settlement sentence; the satoshi
           // broadcast flag would add a second, contradictory one.
           broadcast={role === 'payer' || settledTokenText ? undefined : receivedBroadcast}
+          // P1-1: irrelevant on the payer side (their money already left,
+          // nothing left to confirm here) — 'verified' there keeps the
+          // overlay's ordinary green claim exactly as before this existed.
+          verification={role === 'payer' ? 'verified' : receivedVerification}
           recipientName={
-            role === 'payer' ? (peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined)) : undefined
+            role === 'payer'
+              ? (peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined))
+              : undefined
           }
           // The overlay navigates to the wallet after this; goBack ends the
           // session and resets the cell so /pay is not left mid-flow beneath.

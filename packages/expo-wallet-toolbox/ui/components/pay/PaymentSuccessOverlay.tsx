@@ -85,6 +85,26 @@ export interface ReceivedOverlayProps {
    */
   statusNote?: string
   /**
+   * Received only (P1-1). The overlay's TIMING never changes — it is shown
+   * as soon as the payment is durably queued, before internalizeAction has
+   * necessarily run — but the green success CLAIM is gated on this:
+   *
+   *   'pending'      — internalizeAction has not resolved yet. Neutral copy
+   *                     (t('local_pay_received_confirming')), no green.
+   *   'verified'     — credited. Today's unchanged green 'local_pay_added'.
+   *   'not-credited' — internalizeAction failed or returned no success.
+   *                     The money is still safely queued and will resolve —
+   *                     this is not a decline and not a loss — but claiming
+   *                     it is already "Added to your wallet" would be a
+   *                     claim this device cannot back yet. Neutral copy
+   *                     (t('local_pay_received_not_credited')), no green.
+   *
+   * Defaults to 'verified' so every existing caller (and the whole 'sent'
+   * direction, where the payer's money already left and there is nothing
+   * left here to confirm) is unaffected.
+   */
+  verification?: 'pending' | 'verified' | 'not-credited'
+  /**
    * First time this wallet has ever held this asset: who issues it and what
    * they can do. Disclosure at the one moment the user is definitely looking.
    */
@@ -122,7 +142,8 @@ export default function PaymentSuccessOverlay({
   firstHoldNote,
   dismissTo = '/',
   onAddContact,
-  onDismiss
+  onDismiss,
+  verification = 'verified'
 }: ReceivedOverlayProps) {
   const sent = direction === 'sent'
   const { t } = useTranslation()
@@ -168,6 +189,17 @@ export default function PaymentSuccessOverlay({
     router.dismissTo(dismissTo)
   }, [onDismiss, dismissTo])
 
+  // Received-only (see the `verification` prop doc). Computed once so the
+  // same sentence backs both the visible text and its accessibility label.
+  const receivedSupportText =
+    verification === 'pending'
+      ? t('local_pay_received_confirming')
+      : verification === 'not-credited'
+        ? t('local_pay_received_not_credited')
+        : count > 1
+          ? t('local_pay_added_multiple', { count })
+          : t('local_pay_added')
+
   const settleIn = reducedMotion
     ? undefined
     : FadeInDown.springify()
@@ -189,7 +221,7 @@ export default function PaymentSuccessOverlay({
         style={[styles.container, { backgroundColor: colors.background }]}
         accessibilityViewIsModal
         accessibilityRole="alert"
-        accessibilityLabel={sent ? t('local_pay_sent') : `${t('local_pay_received')}. ${t('local_pay_added')}`}
+        accessibilityLabel={sent ? t('local_pay_sent') : `${t('local_pay_received')}. ${receivedSupportText}`}
       >
         <View style={styles.stage}>
           <Celebration onDone={onMarkDone} />
@@ -238,8 +270,11 @@ export default function PaymentSuccessOverlay({
               )}
             </>
           ) : (
-            <Text style={[styles.support, { color: colors.success }]} textBreakStrategy="balanced">
-              {count > 1 ? t('local_pay_added_multiple', { count }) : t('local_pay_added')}
+            <Text
+              style={[styles.support, { color: verification === 'verified' ? colors.success : colors.textSecondary }]}
+              textBreakStrategy="balanced"
+            >
+              {receivedSupportText}
             </Text>
           )}
 
