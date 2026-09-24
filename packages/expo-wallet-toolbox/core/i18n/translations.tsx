@@ -751,6 +751,12 @@ const resources = {
       import_invalid_file_detail:
         'This file is not a valid wallet database backup. Expected a filename like wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
       import_anyway: 'Import Anyway',
+      import_invalid_input_title: 'Invalid Input',
+      import_invalid_input_message:
+        'Please enter a valid recovery phrase (12–24 words) or a 64-character hex private key.',
+      import_setup_failed: 'Failed to set up wallet: {{error}}',
+      create_wallet_refused: 'Unable to create wallet. Please try again.',
+      create_wallet_failed: 'Failed to generate mnemonic. Please try again.',
 
       // Backup shares
       or: 'or',
@@ -1683,6 +1689,11 @@ const resources = {
       import_invalid_file_detail:
         '此文件不是有效的钱包数据库备份。预期文件名格式如 wallet-XXXXXXXX-mainnet-TIMESTAMP.db。',
       import_anyway: '仍然导入',
+      import_invalid_input_title: '无效输入',
+      import_invalid_input_message: '请输入有效的恢复短语（12-24 个单词）或 64 位十六进制私钥。',
+      import_setup_failed: '设置钱包失败：{{error}}',
+      create_wallet_refused: '无法创建钱包，请重试。',
+      create_wallet_failed: '生成助记词失败，请重试。',
       or: '或',
       print_recovery_shares: '打印恢复份额',
       scan_backup_shares: '扫描备份份额',
@@ -2635,6 +2646,12 @@ const resources = {
       import_invalid_file_detail:
         'यह फ़ाइल एक मान्य वॉलेट डेटाबेस बैकअप नहीं है। अपेक्षित फ़ाइल नाम जैसे wallet-XXXXXXXX-mainnet-TIMESTAMP.db।',
       import_anyway: 'फिर भी आयात करें',
+      import_invalid_input_title: 'अमान्य इनपुट',
+      import_invalid_input_message:
+        'कृपया एक मान्य रिकवरी फ़्रेज़ (12–24 शब्द) या 64-अक्षर की हेक्स प्राइवेट की दर्ज करें।',
+      import_setup_failed: 'वॉलेट सेट अप करने में विफल: {{error}}',
+      create_wallet_refused: 'वॉलेट नहीं बनाया जा सका। कृपया पुनः प्रयास करें।',
+      create_wallet_failed: 'निमोनिक जनरेट करने में विफल। कृपया पुनः प्रयास करें।',
       or: 'या',
       print_recovery_shares: 'रिकवरी शेयर प्रिंट करें',
       scan_backup_shares: 'बैकअप शेयर स्कैन करें',
@@ -3610,6 +3627,12 @@ const resources = {
       import_invalid_file_detail:
         'Este archivo no es un respaldo válido de base de datos. Se esperaba un nombre como wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
       import_anyway: 'Importar igual',
+      import_invalid_input_title: 'Entrada no válida',
+      import_invalid_input_message:
+        'Introduce una frase de recuperación válida (12-24 palabras) o una clave privada hexadecimal de 64 caracteres.',
+      import_setup_failed: 'Error al configurar la billetera: {{error}}',
+      create_wallet_refused: 'No se pudo crear la billetera. Inténtalo de nuevo.',
+      create_wallet_failed: 'No se pudo generar la frase mnemotécnica. Inténtalo de nuevo.',
       or: 'o',
       print_recovery_shares: 'Imprimir Partes de Recuperación',
       scan_backup_shares: 'Escanear Partes de Respaldo',
@@ -4599,6 +4622,12 @@ const resources = {
       import_invalid_file_detail:
         "Ce fichier n'est pas une sauvegarde de base de données valide. Nom de fichier attendu : wallet-XXXXXXXX-mainnet-TIMESTAMP.db.",
       import_anyway: 'Importer',
+      import_invalid_input_title: 'Saisie invalide',
+      import_invalid_input_message:
+        'Veuillez saisir une phrase de récupération valide (12 à 24 mots) ou une clé privée hexadécimale de 64 caractères.',
+      import_setup_failed: 'Échec de la configuration du portefeuille : {{error}}',
+      create_wallet_refused: 'Impossible de créer le portefeuille. Veuillez réessayer.',
+      create_wallet_failed: 'Échec de la génération de la phrase mnémotechnique. Veuillez réessayer.',
       or: 'ou',
       print_recovery_shares: 'Imprimer les Parts de Récupération',
       scan_backup_shares: 'Scanner les Parts de Sauvegarde',
@@ -5548,6 +5577,12 @@ const resources = {
       import_invalid_file_detail:
         'هذا الملف ليس نسخة احتياطية صالحة لقاعدة بيانات المحفظة. اسم الملف المتوقع مثل wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
       import_anyway: 'استيراد على أي حال',
+      import_invalid_input_title: 'إدخال غير صالح',
+      import_invalid_input_message:
+        'الرجاء إدخال عبارة استرداد صالحة (12-24 كلمة) أو مفتاح خاص سداسي عشري مكون من 64 حرفًا.',
+      import_setup_failed: 'فشل إعداد المحفظة: {{error}}',
+      create_wallet_refused: 'تعذر إنشاء المحفظة. يرجى المحاولة مرة أخرى.',
+      create_wallet_failed: 'فشل إنشاء العبارة التذكيرية. يرجى المحاولة مرة أخرى.',
       or: 'أو',
       print_recovery_shares: 'طباعة حصص الاسترداد',
       scan_backup_shares: 'مسح حصص النسخ الاحتياطي',
@@ -6511,6 +6546,12 @@ const resources = {
       import_invalid_file_detail:
         'Este arquivo não é um backup válido de banco de dados. Nome de arquivo esperado como wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
       import_anyway: 'Importar',
+      import_invalid_input_title: 'Entrada inválida',
+      import_invalid_input_message:
+        'Insira uma frase de recuperação válida (12–24 palavras) ou uma chave privada hexadecimal de 64 caracteres.',
+      import_setup_failed: 'Falha ao configurar a carteira: {{error}}',
+      create_wallet_refused: 'Não foi possível criar a carteira. Tente novamente.',
+      create_wallet_failed: 'Falha ao gerar a frase mnemônica. Tente novamente.',
       or: 'ou',
       print_recovery_shares: 'Imprimir Partes de Recuperação',
       scan_backup_shares: 'Escanear Partes de Backup',
@@ -7478,6 +7519,12 @@ const resources = {
       import_invalid_file_detail:
         'এই ফাইলটি একটি বৈধ ওয়ালেট ডেটাবেস ব্যাকআপ নয়। প্রত্যাশিত ফাইলের নাম যেমন wallet-XXXXXXXX-mainnet-TIMESTAMP.db।',
       import_anyway: 'তবুও আমদানি করুন',
+      import_invalid_input_title: 'অবৈধ ইনপুট',
+      import_invalid_input_message:
+        'অনুগ্রহ করে একটি বৈধ পুনরুদ্ধার বাক্যাংশ (12-24 শব্দ) অথবা 64-অক্ষরের হেক্স প্রাইভেট কী প্রবেশ করান।',
+      import_setup_failed: 'ওয়ালেট সেট আপ করতে ব্যর্থ: {{error}}',
+      create_wallet_refused: 'ওয়ালেট তৈরি করা যায়নি। আবার চেষ্টা করুন।',
+      create_wallet_failed: 'নিমোনিক তৈরি করতে ব্যর্থ। আবার চেষ্টা করুন।',
       or: 'অথবা',
       print_recovery_shares: 'রিকভারি শেয়ার প্রিন্ট করুন',
       scan_backup_shares: 'ব্যাকআপ শেয়ার স্ক্যান করুন',
@@ -8449,6 +8496,12 @@ const resources = {
       import_invalid_file_detail:
         'Этот файл не является допустимой резервной копией базы данных кошелька. Ожидаемое имя файла: wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
       import_anyway: 'Импортировать',
+      import_invalid_input_title: 'Неверные данные',
+      import_invalid_input_message:
+        'Введите действительную фразу восстановления (12–24 слова) или 64-значный шестнадцатеричный приватный ключ.',
+      import_setup_failed: 'Не удалось настроить кошелёк: {{error}}',
+      create_wallet_refused: 'Не удалось создать кошелёк. Попробуйте снова.',
+      create_wallet_failed: 'Не удалось сгенерировать мнемоническую фразу. Попробуйте снова.',
       or: 'или',
       print_recovery_shares: 'Распечатать доли восстановления',
       scan_backup_shares: 'Сканировать резервные доли',
@@ -9420,6 +9473,12 @@ const resources = {
       import_invalid_file_detail:
         'File ini bukan cadangan basis data dompet yang valid. Nama file yang diharapkan seperti wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
       import_anyway: 'Tetap Impor',
+      import_invalid_input_title: 'Masukan Tidak Valid',
+      import_invalid_input_message:
+        'Masukkan frasa pemulihan yang valid (12–24 kata) atau kunci pribadi heksadesimal 64 karakter.',
+      import_setup_failed: 'Gagal menyiapkan dompet: {{error}}',
+      create_wallet_refused: 'Tidak dapat membuat dompet. Silakan coba lagi.',
+      create_wallet_failed: 'Gagal membuat mnemonic. Silakan coba lagi.',
       or: 'atau',
       print_recovery_shares: 'Cetak Bagian Pemulihan',
       scan_backup_shares: 'Pindai Bagian Cadangan',
@@ -10402,6 +10461,12 @@ const resources = {
       import_invalid_file_detail:
         'このファイルは有効なウォレットデータベースのバックアップではありません。wallet-XXXXXXXX-mainnet-TIMESTAMP.db のようなファイル名が必要です。',
       import_anyway: 'インポート',
+      import_invalid_input_title: '無効な入力',
+      import_invalid_input_message:
+        '有効なリカバリーフレーズ（12〜24語）または64文字の16進数の秘密鍵を入力してください。',
+      import_setup_failed: 'ウォレットの設定に失敗しました: {{error}}',
+      create_wallet_refused: 'ウォレットを作成できませんでした。もう一度お試しください。',
+      create_wallet_failed: 'ニーモニックの生成に失敗しました。もう一度お試しください。',
 
       // Backup shares
       or: 'または',
@@ -11391,6 +11456,12 @@ const resources = {
       import_invalid_file_detail:
         'Ten plik nie jest prawidłową kopią zapasową bazy danych portfela. Oczekiwana nazwa pliku w formacie wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
       import_anyway: 'Importuj mimo to',
+      import_invalid_input_title: 'Nieprawidłowe dane wejściowe',
+      import_invalid_input_message:
+        'Wprowadź prawidłową frazę odzyskiwania (12–24 słowa) lub 64-znakowy szesnastkowy klucz prywatny.',
+      import_setup_failed: 'Nie udało się skonfigurować portfela: {{error}}',
+      create_wallet_refused: 'Nie można utworzyć portfela. Spróbuj ponownie.',
+      create_wallet_failed: 'Nie udało się wygenerować mnemonika. Spróbuj ponownie.',
 
       // Backup shares
       or: 'lub',

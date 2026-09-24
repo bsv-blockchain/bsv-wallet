@@ -20,9 +20,18 @@
  * Do NOT try to validate the entropy branch by rebuilding a mnemonic and
  * checking its BIP39 checksum. Mnemonic.fromEntropy COMPUTES that checksum, so
  * it accepts any 16 bytes and can never reject a misclassification.
+ *
+ * Parsing and compatibility-checking a share string needs none of this
+ * module's `@bsv/sdk` use, so that half lives in `shareParsing.ts` instead
+ * (re-exported below, unchanged for every existing caller) — it is the half
+ * `shareCollector.ts`'s pure reducer imports, and `shareCollector.ts` is one
+ * of the modules the sdk-free guard test proves never loads `@bsv/sdk`.
  */
 
 import { PrivateKey, Hash } from '@bsv/sdk'
+
+export * from './shareParsing'
+import type { ParsedShare } from './shareParsing'
 
 // ── Payload framing ──────────────────────────────────────────────────────────
 
@@ -94,79 +103,8 @@ export function generateLegacyKeyShares(
 }
 
 // ── Share validation ─────────────────────────────────────────────────────────
-
-export interface ParsedShare {
-  raw: string
-  x: string
-  y: string
-  threshold: number
-  integrity: string
-}
-
-/**
- * Parse and validate a single backup share string.
- * @returns Parsed share or null if invalid format
- */
-export function parseShare(shareString: string): ParsedShare | null {
-  const parts = shareString.trim().split('.')
-  if (parts.length !== 4) return null
-
-  const [x, y, thresholdStr, integrity] = parts
-  const threshold = Number(thresholdStr)
-
-  if (!x || !y || isNaN(threshold) || threshold < 2 || !integrity) return null
-
-  return { raw: shareString.trim(), x, y, threshold, integrity }
-}
-
-/** Why a newly scanned share cannot join the shares collected so far. */
-export type ShareCompatibilityIssue = 'threshold-mismatch' | 'integrity-mismatch' | 'duplicate'
-
-/**
- * Validate that a new share is compatible with previously collected shares.
- * Returns a code, not prose, so callers (screens) translate it themselves.
- * @returns The issue code, or null if the share is compatible.
- */
-export function checkShareCompatibility(
-  newShare: ParsedShare,
-  existing: ParsedShare[]
-): ShareCompatibilityIssue | null {
-  if (existing.length === 0) return null
-
-  const first = existing[0]
-
-  if (newShare.threshold !== first.threshold) {
-    return 'threshold-mismatch'
-  }
-
-  if (newShare.integrity !== first.integrity) {
-    return 'integrity-mismatch'
-  }
-
-  // Check for duplicate (same x.y point)
-  const isDuplicate = existing.some(s => s.x === newShare.x && s.y === newShare.y)
-  if (isDuplicate) {
-    return 'duplicate'
-  }
-
-  return null
-}
-
-const COMPATIBILITY_MESSAGES: Record<ShareCompatibilityIssue, string> = {
-  'threshold-mismatch': 'Threshold does not match previous shares',
-  'integrity-mismatch': 'Integrity hash does not match — shares are from different keys',
-  duplicate: 'This share has already been scanned'
-}
-
-/**
- * Validate that a new share is compatible with previously collected shares.
- * @returns Error message string or null if valid
- * @deprecated use checkShareCompatibility and translate the code in the UI layer
- */
-export function validateShareCompatibility(newShare: ParsedShare, existingShares: ParsedShare[]): string | null {
-  const issue = checkShareCompatibility(newShare, existingShares)
-  return issue === null ? null : COMPATIBILITY_MESSAGES[issue]
-}
+// ParsedShare, parseShare, ShareCompatibilityIssue, checkShareCompatibility and
+// validateShareCompatibility live in shareParsing.ts and are re-exported above.
 
 /**
  * Recombine shares and say what came out.
