@@ -3,8 +3,10 @@ import type { BsvExchangeRate } from '../toolboxTypes'
 
 // Shared with context/ExchangeRateContext.tsx so a single cache serves both the
 // fiat-display UI and the wallet-build seed. Same key + same { usdPerBsv } shape.
-const CACHE_KEY = 'cached_exchange_rate'
-const FALLBACK_RATE = 16.75
+// Exported (misc-p2-05) so ExchangeRateContext no longer keeps its own,
+// disagreeing copies of the cache key and the fallback rate.
+export const CACHE_KEY = 'cached_exchange_rate'
+export const FALLBACK_RATE = 16.75
 const REFRESH_TIMEOUT_MS = 4000
 
 /**
