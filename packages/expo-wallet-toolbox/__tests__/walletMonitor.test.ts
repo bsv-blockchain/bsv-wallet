@@ -7,7 +7,9 @@ import {
   NEW_HEADER_POLL_INTERVAL_MS,
   REVIEW_PROVEN_TXS_MAX_SPAN,
   REVIEW_PROVEN_TXS_MIN_INTERVAL_MS,
-  reviewProvenTxsStartHeight
+  resetSkippedReviewRanges,
+  reviewProvenTxsStartHeight,
+  skippedReviewRanges
 } from '../core/walletMonitor'
 import { Monitor, Services } from '@bsv/wallet-toolbox-mobile'
 import { TaskSendOffline } from '../core/monitor/TaskSendOffline'
@@ -253,6 +255,43 @@ describe('boundReviewProvenTxs', () => {
     boundReviewProvenTxs(task)
     expect(task.maxHeightsPerRun).toBe(REVIEW_PROVEN_TXS_MAX_SPAN)
     expect(await task.getLastReviewedHeight()).toBe(900_000 - REVIEW_PROVEN_TXS_MAX_SPAN)
+  })
+
+  it('records and logs a skip when the gap forces one', async () => {
+    resetSkippedReviewRanges()
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const task = {
+      trigger: (_now: number) => ({ run: true }),
+      maxHeightsPerRun: 500,
+      minBlockAge: 100,
+      remainingHeightSpan: 0,
+      getLastReviewedHeight: async () => 0 as number | undefined,
+      monitor: { chaintracks: { currentHeight: async () => 900_100 } }
+    }
+    boundReviewProvenTxs(task)
+    await task.getLastReviewedHeight()
+
+    expect(skippedReviewRanges).toEqual([{ fromHeight: 1, toHeight: 900_000 - REVIEW_PROVEN_TXS_MAX_SPAN }])
+    expect(warn).toHaveBeenCalledWith(
+      '[walletMonitor] skipped proven-tx review heights',
+      expect.objectContaining({ fromHeight: 1, toHeight: 900_000 - REVIEW_PROVEN_TXS_MAX_SPAN })
+    )
+    warn.mockRestore()
+  })
+
+  it('does not record a skip when the gap is within maxSpan', async () => {
+    resetSkippedReviewRanges()
+    const task = {
+      trigger: (_now: number) => ({ run: true }),
+      maxHeightsPerRun: 500,
+      minBlockAge: 0,
+      remainingHeightSpan: 0,
+      getLastReviewedHeight: async () => 900_000 as number | undefined,
+      monitor: { chaintracks: { currentHeight: async () => 900_010 } }
+    }
+    boundReviewProvenTxs(task)
+    await task.getLastReviewedHeight()
+    expect(skippedReviewRanges).toEqual([])
   })
 
   it('does not run when getOnline returns false', () => {
