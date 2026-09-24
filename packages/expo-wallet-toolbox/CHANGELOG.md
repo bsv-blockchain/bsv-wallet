@@ -1,5 +1,130 @@
 # Changelog
 
+## 0.8.0
+
+### Wallet recovery and creation module
+
+Everything the host's mnemonic and scan-shares screens used to decide inline
+— classify the import, store the secret, drop the other secret kind, build
+or rebuild, read the backup-replay outcome, attest — now lives in
+`core/recovery/` as plain functions over an injected deps object, unit-tested
+without rendering a screen. The screens keep only rendering, haptics,
+navigation and the small state machine that picks which view is shown; they
+supply prompts and translate outcome codes.
+
+New `core` exports (all re-exported from the package root, and, for the
+share primitives, still reachable through `ui/backupShares.ts`):
+
+- `secret.ts` — `WalletSecret` (`{kind:'mnemonic', mnemonic, identityKey}` or
+  `{kind:'wif', wif, identityKey}`), `classifyImportInput(text)` (64-hex →
+  wif, valid BIP39 phrase → mnemonic, anything else → `null`), and
+  `secretFromShares(shareStrings)` (recombines shares into a `WalletSecret`,
+  throwing exactly when the underlying Shamir recombination does).
+- `restoreWallet.ts` — `RestoreWalletDeps`, `RestoreHistory`,
+  `RestoreOutcome` and `restoreWallet(deps, secret, opts)`: one attempt at
+  storing a secret, dropping the other kind, building or rebuilding, and
+  attesting. Never throws — anything a dep throws comes back as
+  `{kind:'failed'}`.
+- `recoverWallet.ts` — `RestorePrompts`, `RecoveryOutcome` and
+  `recoverWallet(deps, secret, opts)`: the retry/skip policy around
+  `restoreWallet` (a refused biometric retries or cancels; a failed backup
+  replay returns control to the caller's input or, on skip, re-attempts
+  without asking for history replay).
+- `createWallet.ts` — `CreateWalletDeps`, `CreateOutcome` and
+  `createNewWallet(deps, opts?)`: the "generate a brand new wallet" path,
+  guarding first against an already-built wallet or already-stored identity
+  (`{kind:'exists'}`) before generating anything.
+- `backupMaterial.ts` — `BackupMaterial` and `readBackupMaterial(deps)`, what
+  the "view/export my recovery material" screen shows (mnemonic wins over a
+  stored WIF; throws if neither is present).
+- `useRecoveryDeps.ts` — the React hook (`useRecoveryDeps()`) wiring the
+  above to `useWallet()`, `useLocalStorage()` and `backupAttestation`.
+- `shares.ts` gains `ShareCompatibilityIssue` and
+  `checkShareCompatibility(newShare, existing)`, returning a code
+  (`'threshold-mismatch' | 'integrity-mismatch' | 'duplicate'`) instead of
+  English prose; `shareCollector.ts` is a new pure reducer
+  (`collectShare(collection, raw)`) for the scan screen's
+  accumulate/dedupe/threshold logic, unit-testable without a camera.
+
+`core/context/WalletContext.tsx`'s `WalletContextValue` gains
+`getWalletBuilt(): boolean`, a ref-backed twin of `walletBuilt` for callers
+that await a build across `recoverWallet`'s retry loop, where a captured
+React state snapshot would go stale.
+
+`ui/` gains `recoveryPrompts.ts` — `restorePrompts(t): RestorePrompts`, the
+one copy of the biometric-refused and backup-replay-failed dialogs, exported
+from the `ui` barrel next to `showAlert`.
+
+### Share primitives moved to `core/` (deprecates `validateShareCompatibility`)
+
+`ui/backupShares.ts`'s framing/padding/classification/split/recombine logic
+(everything except `generatePrintHTML`, which stays in `ui/` as
+presentation) moved to `core/recovery/shares.ts`, so the headless recovery
+module can reach it without crossing the `core` → `ui` boundary (`core`
+still never imports `ui/`). `ui/backupShares.ts` is now a re-export shim
+(`export * from '../core/recovery/shares'`) plus `generatePrintHTML`, so
+existing `@bsv/expo-wallet-toolbox/ui` consumers of the moved names are
+unaffected. `validateShareCompatibility(newShare, existing)` is kept for
+compatibility but **deprecated** in favour of `checkShareCompatibility`,
+which returns a code the caller translates instead of English prose.
+
+### Deep links: `resolveNativeIntent` and a wider `legacyRedirectTarget`
+
+`core/pay/rails/nativeIntent.ts` adds `resolveNativeIntent(path, opts)`,
+moved out of the host's `+native-intent` route resolution: it recognises the
+toolbox's own `peerpay:` scheme and the host's own custom URL schemes, now
+passed in as `opts.walletSchemes` instead of hard-coded, so a second wallet
+app can reuse it with its own scheme names. `legacyRedirectTarget`'s `params`
+widen from `Record<string, string | undefined>` to
+`Record<string, string | string[] | undefined>`, so the three retired pay
+routes can forward `useLocalSearchParams` straight through instead of
+flattening array-valued query params themselves.
+
+### `NativeHandlers.onDownloadFile` optional
+
+`UserContext`'s `NativeHandlers.onDownloadFile` is now optional, backed by a
+new `mergeNativeHandlers(partial?)` helper that fills in the no-op default
+per field. A host that omits it no longer has to supply an all-or-nothing
+`nativeHandlers` override just to skip that one handler.
+
+### Copy and translations
+
+- 8 new keys, in all 12 languages: `scan_shares_threshold_mismatch`,
+  `scan_shares_integrity_mismatch`, `scan_shares_duplicate` (the
+  `checkShareCompatibility` issue codes, translated by the scan screen),
+  `import_invalid_input_title`, `import_invalid_input_message`,
+  `import_setup_failed`, `create_wallet_refused`, `create_wallet_failed`
+  (the mnemonic screen's import/generate failure copy). Non-English copy is
+  machine-drafted and awaits native-speaker review, same as every previous
+  translation batch in this changelog.
+
+### Behaviour changes (breaking for hosts that relied on the old behaviour)
+
+- Recovering or importing over an already-built wallet (e.g. onboarding's
+  auto-created wallet) now **rebuilds** the wallet instead of silently
+  no-op'ing. Previously `buildWalletFromMnemonic`/`buildWalletFromRecoveredKey`
+  no-op when a wallet is already built, so recovering over one looked like a
+  success while nothing changed; `restoreWallet` now calls `rebuildWallet`
+  in that case.
+- Storing one secret kind now **deletes the other**: after a successful
+  restore, exactly one of the mnemonic or the WIF survives in storage.
+  Previously, importing a WIF while a mnemonic was already stored left the
+  mnemonic in place, and an auto-rebuild's "mnemonic wins" fallback would
+  build from the stale mnemonic instead of the key just imported.
+- A failed backup replay's "skip" now works for **hex (WIF) imports**, not
+  only phrase imports — the old skip path was phrase-only, so a failed
+  restore on a hex import previously left the user with no way forward.
+- Attestation failure after an already-successful build is now
+  **non-fatal**: a throw from `attest` is caught and reported as
+  `attested: false` rather than turning the whole recovery attempt into a
+  failure. The wallet is already built and usable at that point; the only
+  consequence of an unrecorded attestation is that the backup reminder nags
+  again later.
+- Retrying after a failed backup replay now **returns to the input screen**
+  on both the mnemonic and scan-shares screens, rather than looping on the
+  same restore attempt — a server-side failure does not get better by
+  retrying it in a tight loop in place.
+
 ## 0.7.0
 
 0.6.0 was tagged in this file but never published to npm. Hosts upgrading from
