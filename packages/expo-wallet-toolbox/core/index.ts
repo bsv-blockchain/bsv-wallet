@@ -334,6 +334,12 @@ export * from './backup/restoreOnImport'
 export * from './walletRepair/runWalletCheck'
 export { TaskBackupPush } from './monitor/TaskBackupPush'
 
+// Wallet recovery and creation: headless orchestration behind the mnemonic /
+// shares screens (store secret → build → attest), the share primitives, and the
+// hook that wires them to the providers. Screens only render the outcomes.
+export * from './recovery/shares'
+export * from './recovery/shareCollector'
+
 // Hardware vault: YubiKey PIV custody (1-of-N P-256 comb vault, spec
 // docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md), ceremony state
 // machine, the r1comb template module, session helper, transfers
