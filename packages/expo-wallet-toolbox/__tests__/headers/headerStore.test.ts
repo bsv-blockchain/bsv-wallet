@@ -211,6 +211,74 @@ describe('HeaderStore', () => {
     expect(store.rootForHeight(1)).toBe('aa'.repeat(32))
   })
 
+  // misc-p2-02 hardening: the window's own PoW-linked root is authoritative for
+  // every height in its validated BODY ([baseHeight, tipHeight-6]) — an extra
+  // entry there must never win, because that is exactly how an unauthenticated
+  // remote answer could overwrite headers this device already validated
+  // itself. Only the last 6 heights (which can legitimately reorg) still let
+  // `extra` override the window, unchanged from before.
+  describe('window body vs. the last-6 reorg tail (misc-p2-02)', () => {
+    const ANCHOR = { height: 0, hash: 'aa'.repeat(32) }
+    // Ten distinct, deterministic 32-byte roots for heights 1..10. Written
+    // straight to the fake filesystem rather than mined: HeaderStore.append's
+    // proof-of-work check is exactly what would make a 10-header fixture
+    // impractical to construct for a unit test, and `open()` never re-validates
+    // headers it reads back off disk — it trusts its own prior `append`.
+    const rootFor = (height: number) => height.toString(16).padStart(2, '0').repeat(32)
+    const ROOTS = Array.from({ length: 10 }, (_, i) => rootFor(i + 1))
+
+    const HEADER_BYTES = 80
+    async function seedWindow(fs: ReturnType<typeof memoryHeaderFs>) {
+      const bin = new Uint8Array(ROOTS.length * HEADER_BYTES)
+      ROOTS.forEach((root, i) => {
+        // Roots are indexed in display order; the .bin stores them on-wire
+        // (reversed), matching what HeaderStore.open() reverses back on load.
+        const wire = new Uint8Array(Utils.toArray(root, 'hex')).slice().reverse()
+        bin.set(wire, i * HEADER_BYTES + 36)
+      })
+      await fs.writeBytes('ttn.bin', bin)
+      await fs.writeText(
+        'ttn.json',
+        JSON.stringify({
+          chain: 'ttn',
+          anchorHeight: ANCHOR.height,
+          anchorHash: ANCHOR.hash,
+          count: ROOTS.length,
+          tipHash: 'ff'.repeat(32)
+        })
+      )
+      return HeaderStore.open(fs, 'ttn', ANCHOR)
+    }
+
+    // baseHeight=1, tipHeight=10, tipHeight-6=4: body is [1,4], tail is [5,10].
+    it('ignores a conflicting extra entry for a window-body height', async () => {
+      const fs = memoryHeaderFs()
+      const store = await seedWindow(fs)
+      // Not in the last-6 tail, so putExtraRoot itself is willing to write it —
+      // the read side has to be the one that refuses it.
+      await store.putExtraRoot(2, 'ff'.repeat(32))
+      expect(store.rootForHeight(2)).toBe(rootFor(2))
+    })
+
+    it('still lets an extra entry override the last 6 heights (existing reorg-tail behaviour)', async () => {
+      const fs = memoryHeaderFs()
+      // putExtraRoot refuses to WRITE a tail entry once the window covers it, so
+      // this simulates one that was healed while the height was still below/
+      // outside the window and then got caught up into the tail — the same
+      // scenario the pre-existing "prefers an extra root..." test above covers
+      // with a 2-header window where every height is in the tail.
+      await fs.writeText('ttn-extra.json', JSON.stringify({ '8': 'ff'.repeat(32) }))
+      const store = await seedWindow(fs)
+      expect(store.rootForHeight(8)).toBe('ff'.repeat(32))
+    })
+
+    it('falls back to the window root for a tail height with no extra entry', async () => {
+      const fs = memoryHeaderFs()
+      const store = await seedWindow(fs)
+      expect(store.rootForHeight(8)).toBe(rootFor(8))
+    })
+  })
+
   describe('putExtraRoots (batch)', () => {
     it('persists every entry across a reopen', async () => {
       const fs = memoryHeaderFs()

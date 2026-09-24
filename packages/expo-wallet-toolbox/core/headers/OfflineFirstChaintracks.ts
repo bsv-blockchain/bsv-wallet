@@ -68,11 +68,29 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
 
   async isValidRootForHeight(root: string, height: number): Promise<boolean> {
     // Fast path: a local root that AGREES is trusted offline forever (validated
-    // window headers, or a previously-resolved root). We do NOT trust a local
-    // DISAGREEMENT — it can be a stale/poisoned cache entry or an index error —
-    // so a miss OR a mismatch both fall through to the authoritative network.
+    // window headers, or a previously-resolved root).
     const local = this.store?.rootForHeight(height)
     if (local === root) return true
+
+    // A DISAGREEMENT for a height the window has already PoW-validated (its
+    // body — everything except the last 6 heights) is refused outright: no
+    // remote lookup, no putExtraRoot. Either the window is right and the BEEF
+    // is lying, or the window is corrupt — deferring to an unauthenticated
+    // network answer and caching it over headers we linked ourselves is
+    // exactly the hole this closes (misc-p2-02; a MITM has the same power as a
+    // compromised chaintracks deployment absent TLS pinning, misc-p2-13).
+    // Everything else — the last-6 reorg tail, and any height the window does
+    // not cover at all — keeps the old behaviour below: a disagreement can be
+    // a stale/poisoned cache entry or a legitimate reorg, so it falls through
+    // to the authoritative network.
+    if (local !== undefined && this.store?.isWindowBody(height)) {
+      console.warn(
+        `[OfflineFirstChaintracks] REFUSED height ${height}: window-covered mismatch ` +
+          `(local=${local} wanted=${root}); not consulting the network.`
+      )
+      this.lastMissHeight = height
+      return false
+    }
 
     if (!(await this.online())) {
       // Logged, because this branch is otherwise indistinguishable from a bad
