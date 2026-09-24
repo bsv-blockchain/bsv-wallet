@@ -111,6 +111,7 @@ function draw(props: {
   broadcast?: boolean
   direction?: 'sent' | 'received'
   recipientName?: string
+  verification?: 'pending' | 'verified' | 'not-credited'
   onDismiss: () => void
 }) {
   return render(
@@ -213,6 +214,56 @@ describe('ReceivedOverlay', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+})
+
+/**
+ * P1-1: the overlay's timing does not change — it is still shown as soon as
+ * the payment is durably queued — but the GREEN success claim is gated on
+ * `verification`, not shown unconditionally. `verification` is omitted from
+ * `draw`'s default so these tests pin the default (`verified`, today's
+ * behaviour) explicitly wherever it matters.
+ */
+describe('ReceivedOverlay verification states', () => {
+  const SUCCESS_GREEN = '#1E9E62'
+
+  it('defaults to the green success claim, unchanged from before this existed', () => {
+    draw({ amount: 5000, onDismiss: jest.fn() })
+    const el = screen.getByText('local_pay_added')
+    expect(el.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ color: SUCCESS_GREEN })]))
+  })
+
+  it('shows a neutral confirming state before processPending resolves', () => {
+    draw({ amount: 5000, verification: 'pending', onDismiss: jest.fn() })
+    expect(screen.getByText('local_pay_received_confirming')).toBeTruthy()
+    expect(screen.queryByText('local_pay_added')).toBeNull()
+    const el = screen.getByText('local_pay_received_confirming')
+    expect(el.props.style).not.toEqual(expect.arrayContaining([expect.objectContaining({ color: SUCCESS_GREEN })]))
+  })
+
+  it('shows a non-green not-credited state when the credit failed', () => {
+    draw({ amount: 5000, verification: 'not-credited', onDismiss: jest.fn() })
+    expect(screen.getByText('local_pay_received_not_credited')).toBeTruthy()
+    expect(screen.queryByText('local_pay_added')).toBeNull()
+    const el = screen.getByText('local_pay_received_not_credited')
+    expect(el.props.style).not.toEqual(expect.arrayContaining([expect.objectContaining({ color: SUCCESS_GREEN })]))
+  })
+
+  it('shows the ordinary green success claim once verified', () => {
+    draw({ amount: 5000, verification: 'verified', onDismiss: jest.fn() })
+    expect(screen.getByText('local_pay_added')).toBeTruthy()
+    const el = screen.getByText('local_pay_added')
+    expect(el.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ color: SUCCESS_GREEN })]))
+  })
+
+  it('is ignored on the sent direction — nothing left to confirm there', () => {
+    draw({ amount: 5000, direction: 'sent', verification: 'pending', onDismiss: jest.fn() })
+    expect(screen.queryByText('local_pay_received_confirming')).toBeNull()
+  })
+
+  it('reflects the pending/not-credited state in the alert accessibility label', () => {
+    draw({ amount: 5000, verification: 'not-credited', onDismiss: jest.fn() })
+    expect(screen.getByLabelText(/local_pay_received_not_credited/)).toBeTruthy()
   })
 })
 
