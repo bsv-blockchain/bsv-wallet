@@ -77,16 +77,16 @@ User taps "Scan Backup Shares"
 
 ## Key Files
 
-| File                           | Purpose                                                       |
-| ------------------------------ | ------------------------------------------------------------- |
-| `app/auth/mnemonic.tsx`        | Wallet create/import screen (mnemonic or hex key)             |
-| `app/auth/scan-shares.tsx`     | QR camera scanner for backup share recovery                   |
-| `utils/mnemonicWallet.ts`      | BIP-39/32 mnemonic generation, recovery, validation           |
-| `utils/simpleWalletBuilder.ts` | Wallet construction from primary key                          |
-| `utils/backupShares.ts`        | Shamir's Secret Sharing -- split key into printable QR shares |
-| `context/WalletContext.tsx`    | Wallet lifecycle, permissions, SSE monitor                    |
-| `context/config.tsx`           | Default configuration (`DEFAULT_WAB_URL = 'noWAB'`)           |
-| `storage/StorageExpoSQLite.ts` | SQLite wallet storage adapter                                 |
+| File                                                                             | Purpose                                                                                                        |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `app/auth/mnemonic.tsx`                                                          | Wallet create/import screen (mnemonic or hex key)                                                              |
+| `app/auth/scan-shares.tsx`                                                       | QR camera scanner for backup share recovery                                                                    |
+| `packages/expo-wallet-toolbox/core/mnemonicWallet.ts`                            | BIP-39/32 mnemonic generation, recovery, validation                                                            |
+| `packages/expo-wallet-toolbox/core/recovery/createWallet.ts`, `restoreWallet.ts` | Wallet construction from a generated or recovered secret (replaces the deleted `utils/simpleWalletBuilder.ts`) |
+| `packages/expo-wallet-toolbox/core/recovery/shares.ts`                           | Shamir's Secret Sharing -- split key into printable QR shares                                                  |
+| `packages/expo-wallet-toolbox/core/context/WalletContext.tsx`                    | Wallet lifecycle, permissions, SSE monitor                                                                     |
+| `packages/expo-wallet-toolbox/core/config.tsx`                                   | Default configuration (`DEFAULT_WAB_URL = 'noWAB'`)                                                            |
+| `packages/expo-wallet-toolbox/core/storage/StorageExpoSQLite.ts`                 | SQLite wallet storage adapter                                                                                  |
 
 ## Backup Options
 
@@ -107,13 +107,13 @@ The primary key (derived from the mnemonic at `m/0'/0'`) is split into **2-of-3 
 
 Users print 3 pages and store them in separate locations. Any 2 of the 3 can reconstruct the private key.
 
-**File:** `utils/backupShares.ts`
+**File:** `packages/expo-wallet-toolbox/core/recovery/shares.ts`
 
 ### Database Export
 
 The entire wallet SQLite database can be exported as a timestamped `.db` file and later imported on another device or after a reinstall.
 
-**Files:** `utils/exportDatabases.ts`, `utils/importDatabases.ts`
+**Files:** `packages/expo-wallet-toolbox/ui/exportDatabases.ts`, `packages/expo-wallet-toolbox/ui/importDatabases.ts`
 
 ## Security Considerations
 
@@ -127,7 +127,7 @@ The entire wallet SQLite database can be exported as a timestamped `.db` file an
 ### `generateMnemonicWallet()`
 
 ```typescript
-import { generateMnemonicWallet } from '@/utils/mnemonicWallet'
+import { generateMnemonicWallet } from '@bsv/expo-wallet-toolbox'
 
 const { mnemonic, primaryKey, identityKey } = generateMnemonicWallet()
 ```
@@ -135,7 +135,7 @@ const { mnemonic, primaryKey, identityKey } = generateMnemonicWallet()
 ### `recoverMnemonicWallet(mnemonic)`
 
 ```typescript
-import { recoverMnemonicWallet, validateMnemonic } from '@/utils/mnemonicWallet'
+import { recoverMnemonicWallet, validateMnemonic } from '@bsv/expo-wallet-toolbox'
 
 if (!validateMnemonic(userMnemonic)) {
   // Invalid mnemonic
@@ -145,20 +145,20 @@ if (!validateMnemonic(userMnemonic)) {
 const { primaryKey, identityKey } = recoverMnemonicWallet(userMnemonic)
 ```
 
-### `generateBackupShares(primaryKey)`
+### `generateEntropyShares(entropy)`
 
 ```typescript
-import { generateBackupShares } from '@/utils/backupShares'
+import { generateEntropyShares } from '@bsv/expo-wallet-toolbox'
 
-const shares = generateBackupShares(primaryKey) // Returns 3 share strings
+const shares = generateEntropyShares(entropy) // 2-of-3 by default; returns 3 share strings
 ```
 
-### `recoverKeyFromShares(shares)`
+### `secretFromShares(shares)`
 
 ```typescript
-import { recoverKeyFromShares } from '@/utils/backupShares'
+import { secretFromShares } from '@bsv/expo-wallet-toolbox'
 
-const privateKey = recoverKeyFromShares([share1, share2]) // Any 2 of 3
+const { secret, legacy } = secretFromShares([share1, share2]) // Any 2 of 3; secret.kind is 'mnemonic' or 'wif'
 ```
 
 ## References

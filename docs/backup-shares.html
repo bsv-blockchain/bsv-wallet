@@ -462,7 +462,7 @@
       <h2>The four objects</h2>
       <p>
         Names in this page are the names in the app
-        (<code>utils/mnemonicWallet.ts</code>, <code>utils/backupShares.ts</code>).
+        (<code>packages/expo-wallet-toolbox/core/mnemonicWallet.ts</code>, <code>packages/expo-wallet-toolbox/core/recovery/shares.ts</code>).
         BRC-157 calls <code>m/0'/0'</code> the “root key”; here that child is <code>primaryKey</code>,
         and <code>rootKey</code> is the BIP-32 master above it.
       </p>
@@ -902,13 +902,13 @@ primaryKey @ m/0'/0'
           <tr><th>Concern</th><th>File</th></tr>
         </thead>
         <tbody>
-          <tr><td>Frame, pad, classify, split, recombine</td><td><code>utils/backupShares.ts</code></td></tr>
-          <tr><td>Print path: mnemonic → entropy → v2, or WIF → v1</td><td><code>utils/printRecoveryShares.ts</code></td></tr>
-          <tr><td>entropy → seed → rootKey → primaryKey</td><td><code>utils/mnemonicWallet.ts</code></td></tr>
-          <tr><td>Scan, classify, persist mnemonic or WIF</td><td><code>app/auth/scan-shares.tsx</code></td></tr>
-          <tr><td>Build from phrase vs from recovered key</td><td><code>context/WalletContext.tsx</code></td></tr>
-          <tr><td>Vault seed from same phrase + passphrase</td><td><code>services/vault/vaultDerivation.ts</code></td></tr>
-          <tr><td>Format tests, including leading-zero pad</td><td><code>__tests__/backupShares.test.ts</code></td></tr>
+          <tr><td>Frame, pad, classify, split, recombine</td><td><code>packages/expo-wallet-toolbox/core/recovery/shares.ts</code></td></tr>
+          <tr><td>Print path: mnemonic → entropy → v2, or WIF → v1</td><td><code>packages/expo-wallet-toolbox/ui/printRecoveryShares.ts</code></td></tr>
+          <tr><td>entropy → seed → rootKey → primaryKey</td><td><code>packages/expo-wallet-toolbox/core/mnemonicWallet.ts</code></td></tr>
+          <tr><td>Scan and collect shares (UI)</td><td><code>app/auth/scan-shares.tsx</code></td></tr>
+          <tr><td>Classify, persist, build, attest</td><td><code>packages/expo-wallet-toolbox/core/recovery/secret.ts</code>, <code>packages/expo-wallet-toolbox/core/recovery/restoreWallet.ts</code></td></tr>
+          <tr><td>Build from phrase vs from recovered key</td><td><code>packages/expo-wallet-toolbox/core/context/WalletContext.tsx</code></td></tr>
+          <tr><td>Format tests, including leading-zero pad</td><td><code>packages/expo-wallet-toolbox/__tests__/ui/backupShares.test.ts</code>, <code>packages/expo-wallet-toolbox/__tests__/recovery/</code></td></tr>
         </tbody>
       </table>
       </div>

@@ -108,62 +108,50 @@ There is no separate browsing mode -- the app opens straight into the wallet (ba
 
 ```
 bsv-wallet/
-├── app/                       # Expo Router screens (file-based routing)
+├── app/                       # Expo Router screens (file-based routing) -- mostly thin: a route file
+│   │                            re-exports its screen component from @bsv/expo-wallet-toolbox/ui
 │   ├── _layout.tsx            #   Root layout -- context providers + Stack navigator
 │   ├── index.tsx               #   The Wallet screen -- balance, Pay/Get paid/Vault, Activity
-│   ├── auth/                    #   Mnemonic create/import & Shamir-share recovery flows
+│   ├── auth/                    #   mnemonic.tsx (create/import) & scan-shares.tsx (Shamir-share
+│   │                              #   recovery UI) -- both driven by the toolbox's core/recovery module
 │   ├── pay.tsx                   #   Pay / Get paid -- one screen over three rails
 │   ├── vault.tsx                  #   Hardware-backed vault (YubiKey NFC/USB)
 │   ├── vault-transfer.tsx           #   Vault deposit / withdraw
 │   ├── trust.tsx                     #   Trust / certifier management
 │   ├── connections.tsx                #   Paired external wallet connections
 │   ├── pair.tsx                        #   Internal pairing approval screen
-│   ├── settings.tsx                     #   Settings screen
-│   ├── wallet-config.tsx                 #   Network / ARC config picker
-│   ├── logs.tsx                           #   In-app debug log viewer
+│   ├── settings.tsx, wallet-config.tsx, profile.tsx, identifier.tsx, logs.tsx,
+│   │   contacts.tsx, contact.tsx, contact/add.tsx
+│   │                                    #   Settings, network/ARC config, profile, contacts, debug log
 │   └── payments.tsx, local-payments.tsx, legacy-payments.tsx, transactions.tsx
 │                                            #   Retired routes -- redirect into /pay (old links still resolve)
-├── components/
-│   ├── pay/                   #   Pay/Get paid screen pieces (handle, nearby, address rails)
-│   ├── vault/                  #   Enrollment wizard, ceremony sheet, key chooser
-│   ├── localpay/                #   Nearby-peer presence row
-│   ├── security/                 #   Wallet lock notice
-│   └── ui/                        #   Shared UI primitives (Sheet, GroupedList, ErrorBoundary, Toast, etc.)
-├── context/                   # React context providers
-│   ├── config.tsx              #   Default configuration constants
-│   ├── i18n/                    #   Translations (12 languages)
-│   ├── theme/                    #   Theme tokens and context
-│   ├── WalletContext.tsx          #   Wallet build/auth, permissions, ARC SSE monitor
-│   ├── WalletConnectionContext.tsx #   Paired-connection RPC channel (BRC-100-subset)
-│   ├── VaultContext.tsx            #   Vault enrollment / ceremony state
-│   ├── UserContext.tsx              #   User / auth state
-│   ├── ExchangeRateContext.tsx       #   BSV/fiat exchange rates
-│   └── LocalStorageProvider.tsx       #   Local key/value storage
-├── hooks/                     # Custom React hooks (vault balance, permission queue, etc.)
-├── stores/                    # MobX store for paired connections (ConnectionStore)
-├── storage/                   # SQLite-backed wallet storage adapter
-│   ├── schema/                  #   Table creation SQL
-│   └── methods/                   #   Query builders for actions, outputs & offline actions
-├── services/                  # Vault, secrets and network-service configuration
-│   ├── vault/                   #   YubiKey driver, ceremony state machine, key derivation
-│   └── secrets/                   #   Encrypted local secret storage
-├── shared/                    # Shared constants
-├── utils/                     # Helpers -- crypto, payments, backup, offline queueing
-│   ├── pay/rails/                #   handle.ts (MessageBox), nearby.ts, address.ts (P2PKH)
-│   ├── localpay/                  #   Local Payments -- AWDL/Nearby Connections transport, session, codec
-│   ├── backup/                     #   Encrypted remote wallet-backup client
-│   ├── headers/                     #   Offline-first Chaintracks header store
-│   ├── backupShares.ts                #   Shamir Secret Sharing for printable key recovery
-│   ├── mnemonicWallet.ts                #   BIP-39/32 mnemonic key derivation
-│   ├── importDatabases.ts                 #   Import wallet database from file
-│   └── exportDatabases.ts                   #   Export wallet database for backup
+├── components/                # App-root-only components not (yet) in the toolbox package (currently
+│                                 just PerfProfiler.tsx)
+├── hooks/                     # App-root-only hooks (currently just useRenderCount.ts)
+├── utils/                     # App-root-only dev tooling -- perf harnesses, the dev menu, native
+│                                 engine/secp proof fixtures. NOT wallet business logic; that lives in
+│                                 packages/expo-wallet-toolbox/core (see below)
 ├── types/                     # Global TypeScript declarations
-├── scripts/                   # Shell / Node helper scripts (configure, version)
-├── packages/                  # Local native modules (Nitro) -- localpay transport, YubiKey, native crypto engines
+├── scripts/                   # Shell / Node helper scripts (configure, version, native-proof harnesses)
+├── packages/
+│   ├── expo-wallet-toolbox/   # @bsv/expo-wallet-toolbox -- wallet business logic + UI, published as
+│   │   │                        a standalone npm package (see its own README and CHANGELOG)
+│   │   ├── core/                #   Context providers (WalletContext, VaultContext, UserContext, ...),
+│   │   │                          #   recovery/ (headless recovery & creation), pay/rails/, services/
+│   │   │                          #   (vault/, secrets/), storage/, headers/, backup/, i18n/,
+│   │   │                          #   mnemonicWallet.ts -- no react-native UI, no ui/ imports
+│   │   └── ui/                   #   Screens (ui/screens/), shared components (ui/components/),
+│   │                               #   backupShares.ts (re-export shim over core/recovery/shares.ts),
+│   │                               #   recoveryPrompts.ts, importDatabases.ts / exportDatabases.ts
+│   ├── react-native-localpay-transport/ #   Nitro module -- Local Payments transport (AWDL / Nearby Connections)
+│   ├── react-native-yubikey/            #   Nitro module -- YubiKey NFC/USB driver
+│   ├── react-native-engine-native/      #   Nitro module -- native transaction-engine bindings
+│   └── react-native-secp-native/        #   Nitro module -- native secp256k1 bindings
 ├── plugins/                   # Expo config plugins (NFC entitlement, Xcode config)
 ├── docs/                      # GitHub Pages marketing site + design docs
 ├── funding-app/               # Standalone Vite app for funding (builds into docs/)
-├── __tests__/                 # Jest test suite
+├── __tests__/                 # App-root Jest tests (toolbox-specific tests live in
+│                                 packages/expo-wallet-toolbox/__tests__/)
 └── assets/                    # App icons, splash screens, favicons
 ```
 
@@ -261,20 +249,20 @@ refactor connection store to use async initialization
 
 ### Where to look
 
-| Area                     | Key files                                                                                           |
-| ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| Adding a new screen      | `app/` -- add a new `.tsx` file; Expo Router picks it up automatically                               |
-| Wallet logic             | `context/WalletContext.tsx`, `utils/simpleWalletBuilder.ts`, `storage/`                              |
-| Auth / mnemonic          | `app/auth/mnemonic.tsx`, `utils/mnemonicWallet.ts`                                                   |
-| Payments                 | `app/pay.tsx` over `utils/pay/rails/` -- `handle.ts` (MessageBox), `nearby.ts` (Local Payments), `address.ts` (P2PKH) |
-| Local Payments transport | `packages/react-native-localpay-transport`, `utils/localpay/`                                        |
-| Vault                    | `services/vault/`, `context/VaultContext.tsx`, `components/vault/`, `packages/react-native-yubikey`  |
-| Pairing / external RPC   | `context/WalletConnectionContext.tsx`, `app/pair.tsx`, `app/connections.tsx`, `stores/ConnectionStore.ts` |
-| Permissions               | `context/WalletContext.tsx` (spend/protocol/basket/certificate approval), `components/ui/PermissionSheet.tsx` |
-| Backup / recovery        | `utils/backupShares.ts`, `app/auth/scan-shares.tsx`, `utils/backup/`                                 |
-| DB import/export         | `utils/importDatabases.ts`, `utils/exportDatabases.ts`                                               |
-| Translations             | `context/i18n/translations.tsx` -- add your language code to the table                               |
-| Theming                  | `context/theme/tokens.ts`, `context/theme/ThemeContext.tsx`                                          |
+| Area                     | Key files                                                                                                                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adding a new screen      | `app/` -- add a new `.tsx` file that re-exports a screen from `packages/expo-wallet-toolbox/ui`, or add the screen there directly; Expo Router picks up the route file automatically                                      |
+| Wallet logic             | `packages/expo-wallet-toolbox/core/context/WalletContext.tsx`, `packages/expo-wallet-toolbox/core/recovery/`, `packages/expo-wallet-toolbox/core/storage/`                                                                |
+| Auth / mnemonic          | `app/auth/mnemonic.tsx`, `packages/expo-wallet-toolbox/core/recovery/` (`createWallet.ts`, `recoverWallet.ts`, `restoreWallet.ts`), `packages/expo-wallet-toolbox/core/mnemonicWallet.ts`                                 |
+| Payments                 | `app/pay.tsx` (re-exports `ui/screens/PayScreen.tsx`) over `packages/expo-wallet-toolbox/core/pay/rails/` -- `handle.ts` (MessageBox), `nearby.ts` (Local Payments), `address.ts` (P2PKH), `nativeIntent.ts` (deep links) |
+| Local Payments transport | `packages/react-native-localpay-transport`, `packages/expo-wallet-toolbox/core/localpay/`                                                                                                                                 |
+| Vault                    | `packages/expo-wallet-toolbox/core/services/vault/`, `packages/expo-wallet-toolbox/core/context/VaultContext.tsx`, `packages/expo-wallet-toolbox/ui/components/vault/`, `packages/react-native-yubikey`                   |
+| Pairing / external RPC   | `packages/expo-wallet-toolbox/core/context/WalletConnectionContext.tsx`, `app/pair.tsx`, `app/connections.tsx`, `packages/expo-wallet-toolbox/core/stores/ConnectionStore.ts`                                             |
+| Permissions              | `packages/expo-wallet-toolbox/core/context/WalletContext.tsx` (spend/protocol/basket/certificate approval), `packages/expo-wallet-toolbox/ui/components/ui/PermissionSheet.tsx`                                           |
+| Backup / recovery        | `packages/expo-wallet-toolbox/core/recovery/` (`restoreWallet.ts`, `recoverWallet.ts`, `shares.ts`), `app/auth/scan-shares.tsx` (scanner UI only), `packages/expo-wallet-toolbox/core/backup/`                            |
+| DB import/export         | `packages/expo-wallet-toolbox/ui/importDatabases.ts`, `packages/expo-wallet-toolbox/ui/exportDatabases.ts`                                                                                                                |
+| Translations             | `packages/expo-wallet-toolbox/core/i18n/translations.tsx` -- add your language code to the table                                                                                                                          |
+| Theming                  | `packages/expo-wallet-toolbox/core/theme/tokens.ts`, `packages/expo-wallet-toolbox/core/theme/ThemeContext.tsx`                                                                                                           |
 
 ## Building for Devices
 

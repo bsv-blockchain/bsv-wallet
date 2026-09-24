@@ -560,6 +560,19 @@ are required — both hard-won during this package's extraction:
 
 ## Breaking changes
 
+**0.8.0:** nothing removed. `restoreWallet`/`recoverWallet` change host-visible
+behaviour for anything that goes through them (the app's own mnemonic and
+scan-shares screens, and any host reusing the new `core/recovery/` module
+directly): recovering or importing over an already-built wallet now rebuilds
+instead of silently no-op'ing, storing one secret kind now deletes the other
+(exactly one secret survives a restore), a failed backup replay's "skip" now
+also works for hex/WIF imports, and an attestation failure after a
+successful build is reported non-fatally instead of failing the whole
+attempt. `validateShareCompatibility` is deprecated (still works, returns
+English prose) in favour of `checkShareCompatibility`, which returns a code
+for the caller to translate. See the CHANGELOG's 0.8.0 entry for the full
+list.
+
 **0.4.0:** the package no longer reads `process.env` at all. `DEFAULT_BACKUP_URL`
 is removed, and the `EXPO_PUBLIC_*` service reads in `walletServiceConfig` are
 gone. The host supplies these through `configureToolbox({ backupUrl, services })`
