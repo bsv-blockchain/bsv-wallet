@@ -203,6 +203,7 @@ export default function MnemonicScreen() {
     setLoading(true)
     try {
       const outcome = await createNewWallet(deps, {
+        cancelled: isBackupFlow,
         onStored: w => {
           if (isBackupFlow()) return
           setMnemonic(w.mnemonic)
@@ -221,6 +222,7 @@ export default function MnemonicScreen() {
           console.error('[Mnemonic] Error generating mnemonic:', outcome.error)
           showToast(t('create_wallet_failed'), { type: 'error' })
           break
+        case 'cancelled':
         case 'created':
           break
       }

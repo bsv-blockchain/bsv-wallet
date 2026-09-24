@@ -44,19 +44,31 @@ export type CreateOutcome =
   | { kind: 'created'; mnemonic: string; identityKey: string }
   | { kind: 'exists' } // a wallet is already built or an identity is already stored → caller goes to backup flow
   | { kind: 'refused' } // createMnemonic returned false and still no identity stored
+  | { kind: 'cancelled' } // opts.cancelled() became true after the identity guard → nothing generated or stored
   | { kind: 'failed'; error: string }
 
 /**
  * `onStored` fires right after `createMnemonic` succeeds (before
  * markPending/build) so the screen can show the words while the build runs.
+ *
+ * `cancelled`, when given, is re-checked right after the `hasStoredIdentity`
+ * await and before anything is generated. The caller's own screen state can
+ * change while that await is in flight (e.g. its route flips to the backup
+ * flow); if `cancelled()` now says yes, this returns `{ kind: 'cancelled' }`
+ * without generating or storing anything, rather than racing ahead on state
+ * that is already stale.
  */
 export async function createNewWallet(
   deps: CreateWalletDeps,
-  opts?: { onStored?: (w: { mnemonic: string; identityKey: string }) => void }
+  opts?: { onStored?: (w: { mnemonic: string; identityKey: string }) => void; cancelled?: () => boolean }
 ): Promise<CreateOutcome> {
   try {
     if (deps.isWalletBuilt() || (await deps.hasStoredIdentity())) {
       return { kind: 'exists' }
+    }
+
+    if (opts?.cancelled?.()) {
+      return { kind: 'cancelled' }
     }
 
     const generated = deps.generate()

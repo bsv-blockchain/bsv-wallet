@@ -39,10 +39,14 @@
  *    the LAST restore attempt and is not reset except by requesting another
  *    one — reading it after a `restore:false` attempt (the "skip" retry)
  *    would report a stale failure that this attempt never asked to happen.
- *    A `'failed'` phase here means the build itself may have succeeded but
- *    the wallet's history is incomplete, so this reports `restore-failed`
- *    and skips attestation — a wallet in that state has not proven it can
- *    be recovered from its backup, so it should not be marked "backed up".
+ *    A `'failed'` phase here means the SECRET is stored but the wallet is
+ *    NOT built: `WalletContext`'s restore block throws before its storage is
+ *    published on a failed replay, destroys that never-published storage,
+ *    and the outer build catch leaves the wallet unbuilt. So this reports
+ *    `restore-failed` and skips attestation — there is no built wallet to
+ *    attest to, and a wallet in this state has not proven it can be
+ *    recovered from its backup either, so it should not be marked
+ *    "backed up".
  * 5. Attestation is NON-FATAL. By this point the wallet is already built and
  *    usable; a throw from `attest` (network blip, storage error) is
  *    console.warn'd and reported as `attested: false` rather than turning
