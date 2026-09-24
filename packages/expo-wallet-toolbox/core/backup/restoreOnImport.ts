@@ -25,9 +25,10 @@
  * failed to restore.
  */
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
-import { BackupClient, type DeviceSummary } from './client'
+import { BackupClient } from './client'
 import type { BackupChain } from './constants'
-import { listBackups, restoreFromBackup } from './restore'
+import { deriveBackupWallet } from './derive'
+import { listBackups, pickTarget, restoreFromBackup } from './restore'
 
 export interface RestoreOnImportDeps {
   /** A fresh, migrated storage provider to replay into. */
@@ -59,6 +60,12 @@ export interface RestoreOnImportResult {
   generation?: number
   /** Why nothing was replayed. Absent when `restored` is true. */
   reason?: 'not-configured' | 'no-backup'
+  /**
+   * True when the replayed generation carried its own completion marker — see
+   * restore.ts's RestoreResult and P1-backup-incomplete-generation. Absent when nothing
+   * was replayed.
+   */
+  verified?: boolean
 }
 
 export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<RestoreOnImportResult> {
@@ -68,13 +75,21 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
   }
 
   const devices = await listBackups({ primaryKey: deps.primaryKey, chain: deps.chain, client })
-  const target = newestTarget(devices)
-  if (target == null) {
+  if (devices.length === 0) {
     // Nothing was ever pushed under this seed. An ordinary outcome — a phrase from a
     // wallet that predates backups, or one that never went online — so the import
     // continues with an empty history rather than failing.
     return { restored: false, chunks: 0, reason: 'no-backup' }
   }
+
+  // Resolved HERE, via the same verified-first ranking restore.ts's pickTarget applies, and
+  // passed through explicitly below — never left to restoreFromBackup's own default, which
+  // this device's own first push would win as soon as the monitor starts (see this
+  // module's docstring). Mirrors restore.ts's pickTarget deliberately: an older but sealed
+  // generation is preferred over a newer one still mid-rotation.
+  const wallet = deriveBackupWallet(deps.primaryKey, deps.chain)
+  const settings = await deps.storage.makeAvailable()
+  const target = await pickTarget(devices, client, wallet, deps.chain, settings)
 
   const result = await restoreFromBackup({
     storage: deps.storage,
@@ -96,25 +111,9 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
     restored: true,
     chunks: result.chunks,
     deviceId: result.deviceId,
-    generation: result.generation
+    generation: result.generation,
+    verified: result.verified
   }
 }
 
 const hasUrl = (u?: string): boolean => u != null && u !== ''
-
-/**
- * The most recently written device, then that device's highest generation.
- *
- * A generation is a full snapshot, so the newest one alone is sufficient and is also the
- * shortest replay. Mirrors `restoreFromBackup`'s own default deliberately: this exists to
- * make the choice explicit at a point where only the other device's logs can be in the
- * manifest, not to choose differently.
- */
-function newestTarget (devices: DeviceSummary[]): { deviceId: string, generation: number } | null {
-  if (devices.length === 0) return null
-  const newest = devices.reduce((best, d) => (d.updatedAt > best.updatedAt ? d : best))
-  const generation = devices
-    .filter(d => d.deviceId === newest.deviceId)
-    .reduce((best, d) => (d.generation > best.generation ? d : best)).generation
-  return { deviceId: newest.deviceId, generation }
-}

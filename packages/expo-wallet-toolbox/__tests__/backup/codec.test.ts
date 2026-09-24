@@ -1,5 +1,13 @@
 import { PrivateKey, Utils } from '@bsv/sdk'
-import { CHUNK_ENTITIES, decodeChunk, emptyChunk, encodeChunk, isEmptyChunk } from '../../core/backup/codec'
+import {
+  CHUNK_ENTITIES,
+  decodeChunk,
+  decodeEntry,
+  emptyChunk,
+  encodeChunk,
+  encodeMarker,
+  isEmptyChunk
+} from '../../core/backup/codec'
 import { BACKUP_PROTOCOL, backupKeyId } from '../../core/backup/constants'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import type { SyncChunk } from '../../core/toolboxTypes'
@@ -177,5 +185,34 @@ describe('backup chunk codec', () => {
   it('recognises an empty chunk as the completion sentinel', () => {
     expect(isEmptyChunk(emptyChunk('a', 'b', 'c'))).toBe(true)
     expect(isEmptyChunk(chunkWithBinary())).toBe(false)
+  })
+})
+
+describe('backup marker entries', () => {
+  it('round-trips a marker distinctly from an ordinary chunk', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const ciphertext = await encodeMarker(w, { generation: 3, chunkCount: 17 }, 'main')
+
+    const decoded = await decodeEntry(w, ciphertext, 'main')
+
+    expect(decoded).toEqual({ kind: 'marker', marker: { generation: 3, chunkCount: 17 } })
+  })
+
+  it('classifies an ordinary chunk as kind chunk, decoded exactly as decodeChunk would', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main')
+
+    const decoded = await decodeEntry(w, ciphertext, 'main')
+    const direct = await decodeChunk(w, ciphertext, 'main')
+
+    expect(decoded.kind).toBe('chunk')
+    expect(decoded.kind === 'chunk' ? decoded.chunk : undefined).toEqual(direct)
+  })
+
+  it('decodeChunk rejects a marker entry rather than mistaking it for a chunk', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const ciphertext = await encodeMarker(w, { generation: 1, chunkCount: 0 }, 'main')
+
+    await expect(decodeChunk(w, ciphertext, 'main')).rejects.toThrow(/completion marker/)
   })
 })

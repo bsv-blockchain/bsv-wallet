@@ -17,10 +17,10 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PrivateKey } from '@bsv/sdk'
 import { BackupHttpError, ERR_SEQ_CONFLICT } from '../../core/backup/client'
-import { emptyChunk } from '../../core/backup/codec'
+import { decodeEntry, emptyChunk } from '../../core/backup/codec'
 import { GENERATION_CHUNK_THRESHOLD } from '../../core/backup/constants'
 import { loadCursor, saveCursor, freshCursor, zeroOffsets } from '../../core/backup/cursor'
-import { backupPseudonym } from '../../core/backup/derive'
+import { backupPseudonym, deriveBackupWallet } from '../../core/backup/derive'
 import { setBackupPushEnabled } from '../../core/backup/preference'
 import { pushOnce } from '../../core/backup/push'
 import type { SyncChunk } from '../../core/toolboxTypes'
@@ -219,8 +219,11 @@ describe('pushOnce', () => {
       })
     }
 
-    // One record, so exactly one upload however many times the monitor ticks.
-    expect(client.append).toHaveBeenCalledTimes(1)
+    // One record, so exactly one upload of it — plus the one-time completion marker
+    // sealing this generation once its window first closes (see push.test.ts's own
+    // 'seals a freshly rotated generation...' below) — however many times the monitor
+    // ticks after that.
+    expect(client.append).toHaveBeenCalledTimes(2)
   })
 
   it('advances past the boundary so a settled window cannot reopen', async () => {
@@ -259,8 +262,9 @@ describe('pushOnce', () => {
       })
     }
 
-    // All three shared the boundary and all three went up, in one chunk, once.
-    expect(client.append).toHaveBeenCalledTimes(1)
+    // All three shared the boundary and all three went up, in one chunk, once — plus the
+    // one-time completion marker once that chunk's window closes.
+    expect(client.append).toHaveBeenCalledTimes(2)
     const chunk = storage.getSyncChunk.mock.results[0].value
     await expect(chunk.then((c: any) => c.provenTxs.length)).resolves.toBe(3)
   })
@@ -270,6 +274,11 @@ describe('pushOnce', () => {
     // mark, which is the state the old code kept re-reading from. No migration handles
     // this: the next window re-reads the boundary once more, and the close after it moves
     // past. So each wallet pays at most one final duplicate and then goes quiet.
+    //
+    // This cursor also happens to be exactly the back-fill shape needsSeal looks for
+    // (since already set, chunks already pushed in this generation, never sealed) — an
+    // older build's cursor predates markers entirely — so the very first pass now seals
+    // the generation before anything else runs.
     const client = fakeClient()
     const storage = inclusiveSinceStorage(['2026-08-01T00:00:00.000Z'])
     await saveCursor('main', PSEUDONYM, DEVICE, {
@@ -286,7 +295,9 @@ describe('pushOnce', () => {
       })
     }
 
-    expect(client.append).toHaveBeenCalledTimes(1)
+    // The back-fill seal, plus the one final duplicate of the still-unpushed boundary
+    // record.
+    expect(client.append).toHaveBeenCalledTimes(2)
     expect((await loadCursor('main', PSEUDONYM, DEVICE)).since).toBe('2026-08-01T00:00:00.001Z')
   })
 
@@ -436,6 +447,120 @@ describe('pushOnce oversize guard', () => {
     expect(client.append).toHaveBeenCalled()
     expect(r.pushed).toBe(1)
     expect(r.oversized).toBeFalsy()
+  })
+})
+
+// ── completion marker (seal) ─────────────────────────────────────────────
+//
+// P1-backup-incomplete-generation's fix: a generation's log carries no notion of
+// "complete" on its own, so a restore landing mid-rotation could replay a partial
+// snapshot and report success. A one-time marker entry, appended once this device's
+// own view of the generation is provably whole, is what RemoteSyncReader/restore.ts
+// check for on the read side.
+describe('pushOnce completion marker', () => {
+  async function decodedMarker (ciphertext: number[]): Promise<{ generation: number, chunkCount: number } | null> {
+    const wallet = deriveBackupWallet(PRIMARY, 'main')
+    const decoded = await decodeEntry(wallet, ciphertext, 'main')
+    return decoded.kind === 'marker' ? decoded.marker : null
+  }
+
+  it('seals a freshly rotated generation the pass after its first window closes, once only', async () => {
+    const client = fakeClient()
+
+    // Push two real chunks, in the still-open first window (since stays undefined).
+    await pushOnce({
+      storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    await pushOnce({
+      storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    expect(client.append).toHaveBeenCalledTimes(2)
+
+    // The window closes: nothing left to send.
+    const closing = await pushOnce({
+      storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    expect(closing.windowClosed).toBe(true)
+    expect(closing.sealed).toBeFalsy()
+    expect(client.append).toHaveBeenCalledTimes(2) // no seal yet — that is the NEXT pass
+
+    // The pass after the window closes appends exactly one marker, not a chunk.
+    const sealing = await pushOnce({
+      storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    expect(sealing.sealed).toBe(true)
+    expect(sealing.pushed).toBe(0)
+    expect(client.append).toHaveBeenCalledTimes(3)
+
+    const [, , , , markerCiphertext] = client.append.mock.calls[2]
+    const marker = await decodedMarker(markerCiphertext)
+    expect(marker).toEqual({ generation: 1, chunkCount: 2 })
+
+    const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
+    expect(cursor.sealedGeneration).toBe(1)
+
+    // A SECOND window close in the same generation — pure delta continuation — must not
+    // append another marker.
+    await pushOnce({
+      storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    const secondClose = await pushOnce({
+      storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    expect(secondClose.sealed).toBeFalsy()
+    const nextPass = await pushOnce({
+      storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    expect(nextPass.sealed).toBeFalsy()
+    expect(client.append).toHaveBeenCalledTimes(4) // only the second real chunk, no new marker
+  })
+
+  it('back-fills the marker for a cursor whose window already closed under an older build', async () => {
+    // Simulates a device that pushed three chunks and closed its window before this
+    // feature shipped: `since` and `chunksInGeneration` are set, but `sealedGeneration`
+    // has never existed on this cursor.
+    await saveCursor('main', PSEUDONYM, DEVICE, {
+      ...freshCursor(),
+      since: '2026-08-01T00:00:00.001Z',
+      seq: 3,
+      chunksInGeneration: 3
+    })
+    const client = fakeClient()
+
+    const r = await pushOnce({
+      storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+
+    expect(r.sealed).toBe(true)
+    expect(r.pushed).toBe(0)
+    expect(client.append).toHaveBeenCalledTimes(1)
+
+    const marker = await decodedMarker(client.append.mock.calls[0][4])
+    expect(marker).toEqual({ generation: 1, chunkCount: 3 })
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).sealedGeneration).toBe(1)
+  })
+
+  it('never seals an empty wallet that has pushed nothing at all', async () => {
+    const client = fakeClient()
+
+    await pushOnce({
+      storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+    await pushOnce({
+      storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
+      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+
+    expect(client.append).not.toHaveBeenCalled()
   })
 })
 

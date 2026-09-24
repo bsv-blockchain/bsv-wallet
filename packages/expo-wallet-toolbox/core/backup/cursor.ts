@@ -65,6 +65,14 @@ export interface PushCursor {
   prevSha256?: string
   /** Chunks appended in this generation, used to decide when to rotate. */
   chunksInGeneration: number
+  /**
+   * The generation this device has already sealed with a completion marker, if any.
+   *
+   * Compared against `generation` rather than stored as a boolean: a rotation starts a new
+   * generation that is unsealed again, and `freshCursor` naturally leaves this undefined so
+   * it never equals the fresh generation number.
+   */
+  sealedGeneration?: number
 }
 
 export function freshCursor (generation = 1): PushCursor {
@@ -75,7 +83,8 @@ export function freshCursor (generation = 1): PushCursor {
     generation,
     seq: 0,
     prevSha256: undefined,
-    chunksInGeneration: 0
+    chunksInGeneration: 0,
+    sealedGeneration: undefined
   }
 }
 
@@ -106,7 +115,11 @@ export async function loadCursor (chain: BackupChain, pseudonym: string, deviceI
       generation: parsed.generation ?? 1,
       seq: parsed.seq ?? 0,
       prevSha256: parsed.prevSha256,
-      chunksInGeneration: parsed.chunksInGeneration ?? 0
+      chunksInGeneration: parsed.chunksInGeneration ?? 0,
+      // Absent on every cursor written before sealing existed — that is exactly the
+      // back-fill case push.ts's needsSeal checks for, so it must default to undefined,
+      // never to the current generation.
+      sealedGeneration: parsed.sealedGeneration
     }
   } catch {
     // A corrupt cursor must not wedge backups forever. Starting a fresh generation costs
