@@ -11,6 +11,18 @@
  *    store attempt — restoreWallet's own write-order guarantee means a
  *    single refused attempt never partially wrote anything, so there is
  *    nothing to unwind.
+ *  - `confirmReplace`: asked ONCE, before the first `restoreWallet` attempt
+ *    of a call, whenever `deps.hasStoredIdentity()` says a secret is already
+ *    on this device (P1-7: a deep link or any other entry point must never
+ *    silently overwrite a wallet whose phrase may be unsaved). `keep` (or a
+ *    dismissal — see `ui/recoveryPrompts.ts`) returns `cancelled` before
+ *    touching `restoreWallet` at all. `replace` proceeds into the ordinary
+ *    loop below, which never re-checks `hasStoredIdentity` or re-prompts —
+ *    a biometric retry on the SAME call must not ask the user to confirm the
+ *    replace a second time. This also means the onboarding "replace an
+ *    auto-created wallet" path sees this same confirm, deliberately: any
+ *    caller of `recoverWallet` that reaches this point already has a stored
+ *    identity to protect, in-app or not.
  *  - `restore-failed`: the secret was stored but the wallet was NOT built —
  *    the encrypted backup log failed to replay, so `WalletContext` destroys
  *    its never-published storage and the build never completes. `retry`
@@ -48,6 +60,7 @@ import type { BackupMedium } from '../services/vault/backupAttestation'
 export interface RestorePrompts {
   biometricRefused(): Promise<'retry' | 'cancel'>
   restoreFailed(error?: string): Promise<'retry' | 'skip'>
+  confirmReplace(): Promise<'replace' | 'keep'>
 }
 
 export type RecoveryOutcome =
@@ -61,6 +74,10 @@ export async function recoverWallet(
   secret: WalletSecret,
   opts: { medium: BackupMedium; prompts: RestorePrompts }
 ): Promise<RecoveryOutcome> {
+  if (await deps.hasStoredIdentity()) {
+    if ((await opts.prompts.confirmReplace()) !== 'replace') return { kind: 'cancelled' }
+  }
+
   let restore = true
 
   for (;;) {

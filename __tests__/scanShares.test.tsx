@@ -38,6 +38,7 @@ const mockSecretFromShares = jest.fn((shareStrings: string[]) =>
   jest.requireActual('../packages/expo-wallet-toolbox/core/recovery/secret').secretFromShares(shareStrings)
 )
 
+const mockHasStoredIdentity = jest.fn(async () => false)
 let mockWalletBuilt = false
 let mockRestoreState: { phase: string; error?: string } = { phase: 'idle' }
 let mockBackupRestore: { phase: string; chunks: number; total: number } = { phase: 'idle', chunks: 0, total: 0 }
@@ -88,7 +89,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
       attest: mockAttest,
       markPending: jest.fn(),
       generate: jest.fn(),
-      hasStoredIdentity: jest.fn(async () => false),
+      hasStoredIdentity: mockHasStoredIdentity,
       createMnemonic: jest.fn(async () => true)
     }),
     haptics: {
@@ -139,6 +140,7 @@ beforeEach(() => {
   mockBackupRestore = { phase: 'idle', chunks: 0, total: 0 }
   mockSetMnemonic.mockResolvedValue(true)
   mockSetRecoveredKey.mockResolvedValue(true)
+  mockHasStoredIdentity.mockResolvedValue(false)
   mockShowAlert.mockResolvedValue('ok')
 })
 
@@ -349,6 +351,24 @@ describe('scan-shares screen', () => {
     expect(mockHapticError).toHaveBeenCalled()
     await waitFor(() => expect(screen.getByText('scan_shares_scan_first')).toBeTruthy())
     errorSpy.mockRestore()
+  })
+
+  test('an existing identity asks to confirm the replace; declining stores nothing (P1-7 layer 2)', async () => {
+    mockHasStoredIdentity.mockResolvedValue(true)
+    mockShowAlert.mockResolvedValueOnce('cancel')
+    const { mnemonic } = generateMnemonicWallet()
+    const entropy = Mnemonic.fromString(mnemonic).toEntropy()
+    const shares = generateEntropyShares(entropy)
+
+    const screen = render(<ScanSharesScreen />)
+    await scanAll(shares.slice(0, 2))
+
+    await waitFor(() =>
+      expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'recovery_replace_wallet_title' }))
+    )
+    expect(mockSetMnemonic).not.toHaveBeenCalled()
+    expect(mockBuild).not.toHaveBeenCalled()
+    expect(screen.queryByText('celebration')).toBeNull()
   })
 
   test('a thrown secretFromShares error shows the translated failure message and logs the detail', async () => {

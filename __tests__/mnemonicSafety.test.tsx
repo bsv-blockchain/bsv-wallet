@@ -894,6 +894,22 @@ describe('import flow', () => {
     expect(screen.getByTestId('backup-confirmation-section')).toBeTruthy()
   })
 
+  test('an existing identity asks to confirm the replace; declining stores nothing (P1-7 layer 2)', async () => {
+    mockHasIdentity.mockResolvedValue(true)
+    mockShowAlert.mockResolvedValue('cancel')
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'valid test phrase')
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'recovery_replace_wallet_title' }))
+    expect(mockStore).not.toHaveBeenCalled()
+    expect(mockSetRecovered).not.toHaveBeenCalled()
+    expect(mockBuild).not.toHaveBeenCalled()
+    expect(screen.queryByText('celebration')).toBeNull()
+  })
+
   test('invalid input shows the invalid-input alert without storing anything', async () => {
     const { screen, input } = await renderImport()
     fireEvent.changeText(input, 'not a phrase')

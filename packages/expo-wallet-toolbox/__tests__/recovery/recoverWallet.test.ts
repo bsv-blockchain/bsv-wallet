@@ -20,6 +20,7 @@ function makeDeps(overrides: Partial<RestoreWalletDeps> = {}): RestoreWalletDeps
     buildWalletFromRecoveredKey: jest.fn(async () => {}),
     rebuildWallet: jest.fn(async () => {}),
     isWalletBuilt: jest.fn(() => false),
+    hasStoredIdentity: jest.fn(async () => false),
     getBackupRestore: jest.fn(() => ({ phase: 'restored' as const })),
     attest: jest.fn(async () => {}),
     ...overrides
@@ -30,6 +31,7 @@ function makePrompts(overrides: Partial<RestorePrompts> = {}): RestorePrompts {
   return {
     biometricRefused: jest.fn(async () => 'cancel' as const),
     restoreFailed: jest.fn(async () => 'skip' as const),
+    confirmReplace: jest.fn(async () => 'replace' as const),
     ...overrides
   }
 }
@@ -150,5 +152,48 @@ describe('recoverWallet', () => {
     expect(prompts.restoreFailed).toHaveBeenCalledTimes(1)
     expect(prompts.biometricRefused).toHaveBeenCalledTimes(1)
     expect(outcome).toEqual({ kind: 'cancelled' })
+  })
+
+  describe('replace-wallet confirmation guard (P1-7 layer 2)', () => {
+    test('identity present + keep → cancelled; no store call and confirmReplace asked exactly once', async () => {
+      const deps = makeDeps({ hasStoredIdentity: jest.fn(async () => true) })
+      const prompts = makePrompts({ confirmReplace: jest.fn(async () => 'keep' as const) })
+
+      const outcome = await recoverWallet(deps, mnemonicSecret, { medium: 'phrase', prompts })
+
+      expect(outcome).toEqual({ kind: 'cancelled' })
+      expect(prompts.confirmReplace).toHaveBeenCalledTimes(1)
+      expect(deps.setMnemonic).not.toHaveBeenCalled()
+      expect(deps.buildWalletFromMnemonic).not.toHaveBeenCalled()
+    })
+
+    test('identity present + replace → proceeds once, and a later biometric retry does not re-prompt confirmReplace', async () => {
+      const setMnemonic = jest
+        .fn(async () => false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true)
+      const deps = makeDeps({ hasStoredIdentity: jest.fn(async () => true), setMnemonic })
+      const prompts = makePrompts({
+        confirmReplace: jest.fn(async () => 'replace' as const),
+        biometricRefused: jest.fn(async () => 'retry' as const)
+      })
+
+      const outcome = await recoverWallet(deps, mnemonicSecret, { medium: 'phrase', prompts })
+
+      expect(prompts.confirmReplace).toHaveBeenCalledTimes(1)
+      expect(prompts.biometricRefused).toHaveBeenCalledTimes(1)
+      expect(setMnemonic).toHaveBeenCalledTimes(2)
+      expect(outcome.kind).toBe('ok')
+    })
+
+    test('no stored identity → confirmReplace never called', async () => {
+      const deps = makeDeps({ hasStoredIdentity: jest.fn(async () => false) })
+      const prompts = makePrompts()
+
+      const outcome = await recoverWallet(deps, mnemonicSecret, { medium: 'phrase', prompts })
+
+      expect(prompts.confirmReplace).not.toHaveBeenCalled()
+      expect(outcome.kind).toBe('ok')
+    })
   })
 })
