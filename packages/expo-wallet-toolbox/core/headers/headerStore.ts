@@ -146,15 +146,37 @@ export class HeaderStore {
   }
 
   rootForHeight(height: number): string | undefined {
-    // A heal written to extra is the value to consult, even for a height the
-    // window also covers — otherwise a logged heal is stored and then ignored.
+    const index = height - this.baseHeight
+    const inWindow = index >= 0 && index < this.headerCount
+    // The window's own PoW-linked root is authoritative for its validated BODY
+    // (every height except the last 6, which can still legitimately reorg): an
+    // extra entry there is ignored outright, never consulted, because letting
+    // it win is exactly how an unauthenticated remote answer could overwrite a
+    // root this device already validated for itself off linked headers — see
+    // misc-p2-02 / OfflineFirstChaintracks.isValidRootForHeight.
+    if (inWindow && !this.inReorgWindow(height)) {
+      return Utils.toHex(Array.from(this.roots.subarray(index * ROOT_BYTES, (index + 1) * ROOT_BYTES)))
+    }
+    // Outside the body — either the last-6 reorg tail, or a height the window
+    // does not cover at all — a heal written to extra is the value to consult;
+    // falling through to the window covers the tail case where no heal exists.
     const extra = this.extra[String(height)]
     if (extra !== undefined) return extra
-    const index = height - this.baseHeight
-    if (index >= 0 && index < this.headerCount) {
+    if (inWindow) {
       return Utils.toHex(Array.from(this.roots.subarray(index * ROOT_BYTES, (index + 1) * ROOT_BYTES)))
     }
     return undefined
+  }
+
+  /**
+   * True when `height` sits in the window's validated BODY — inside
+   * `[baseHeight, tipHeight]` but outside the last-6 reorg tail — where the
+   * window's own root is authoritative and a network answer must never be
+   * allowed to override it. Used by `OfflineFirstChaintracks` to decide
+   * whether a mismatch may fall through to the remote at all.
+   */
+  isWindowBody(height: number): boolean {
+    return height >= this.baseHeight && height <= this.tipHeight - 6
   }
 
   /**

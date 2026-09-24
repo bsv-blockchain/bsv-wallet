@@ -1,6 +1,7 @@
 import { OfflineFirstChaintracks } from '../../core/headers/OfflineFirstChaintracks'
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
+import { Utils } from '@bsv/sdk'
 
 const ANCHOR = { height: 0, hash: '00'.repeat(32) }
 const ROOT = 'ab'.repeat(32)
@@ -165,6 +166,73 @@ describe('OfflineFirstChaintracks', () => {
   it.each([false, true, undefined])('forwards the remote supportsReorgEvents (%s)', flag => {
     const ct = new OfflineFirstChaintracks(remote({ supportsReorgEvents: flag }), async () => true, 'ttn')
     expect(ct.supportsReorgEvents).toBe(flag)
+  })
+
+  // misc-p2-02 hardening: a mismatch at a height the window has already
+  // PoW-validated (the body, i.e. not the last 6 heights) must be refused
+  // outright — no remote lookup, no putExtraRoot — because that lookup-and-
+  // cache is exactly how an unauthenticated network answer (or a MITM, given
+  // the confirmed absence of TLS pinning) could overwrite a root this device
+  // already validated itself.
+  describe('window-covered mismatches (misc-p2-02)', () => {
+    const rootFor = (height: number) => height.toString(16).padStart(2, '0').repeat(32)
+    const HEADER_BYTES = 80
+
+    /** Seeds a HeaderStore's persisted files directly (bypassing append's
+     * proof-of-work check) with `count` headers starting at height 1, so a
+     * window big enough to have a body outside the last-6 tail can be built
+     * without mining real headers. */
+    async function seedWindow(count: number) {
+      const fs = memoryHeaderFs()
+      const bin = new Uint8Array(count * HEADER_BYTES)
+      for (let i = 0; i < count; i++) {
+        const wire = new Uint8Array(Utils.toArray(rootFor(i + 1), 'hex')).slice().reverse()
+        bin.set(wire, i * HEADER_BYTES + 36)
+      }
+      await fs.writeBytes('ttn.bin', bin)
+      await fs.writeText(
+        'ttn.json',
+        JSON.stringify({ chain: 'ttn', anchorHeight: 0, anchorHash: ANCHOR.hash, count, tipHash: 'ff'.repeat(32) })
+      )
+      return HeaderStore.open(fs, 'ttn', ANCHOR)
+    }
+
+    it('refuses a body-height mismatch outright, even when a lying remote agrees with the forged root (MITM case)', async () => {
+      const store = await seedWindow(20) // baseHeight=1, tipHeight=20, body=[1,14]
+      const findHeaderForHeight = jest.fn().mockResolvedValue({ merkleRoot: 'cd'.repeat(32) })
+      const r = remote({ findHeaderForHeight })
+      const ct = new OfflineFirstChaintracks(r, async () => true)
+      ct.setStore(store)
+      expect(await ct.isValidRootForHeight('cd'.repeat(32), 10)).toBe(false)
+      expect(findHeaderForHeight).not.toHaveBeenCalled()
+      // The window's own PoW-linked root for height 10 is untouched.
+      expect(store.rootForHeight(10)).toBe(rootFor(10))
+    })
+
+    it('still consults the remote and self-heals for a height outside the window entirely', async () => {
+      const store = await seedWindow(10) // tipHeight=10
+      const healedRoot = 'ee'.repeat(32)
+      const findHeaderForHeight = jest.fn().mockResolvedValue({ merkleRoot: healedRoot })
+      const r = remote({ findHeaderForHeight })
+      const ct = new OfflineFirstChaintracks(r, async () => true)
+      ct.setStore(store)
+      expect(await ct.isValidRootForHeight(healedRoot, 50)).toBe(true)
+      expect(findHeaderForHeight).toHaveBeenCalled()
+      expect(store.rootForHeight(50)).toBe(healedRoot)
+    })
+
+    it("keeps today's behaviour for the last-6 reorg tail: a mismatch there still consults the remote", async () => {
+      const store = await seedWindow(10) // tipHeight=10, tail=[5,10]
+      const healedRoot = 'ee'.repeat(32)
+      const findHeaderForHeight = jest.fn().mockResolvedValue({ merkleRoot: healedRoot })
+      const r = remote({ findHeaderForHeight })
+      const ct = new OfflineFirstChaintracks(r, async () => true)
+      ct.setStore(store)
+      // The window's own root for height 8 disagrees with healedRoot, but 8 is
+      // in the tail, so the old self-heal path still runs and agrees.
+      expect(await ct.isValidRootForHeight(healedRoot, 8)).toBe(true)
+      expect(findHeaderForHeight).toHaveBeenCalled()
+    })
   })
 
   it('passes through a subscription the remote does support', async () => {
