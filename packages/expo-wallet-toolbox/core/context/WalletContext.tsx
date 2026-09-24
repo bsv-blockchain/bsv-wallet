@@ -324,6 +324,16 @@ export interface WalletContextValue {
    * captured `backupRestore` is still the pre-build render's value. This reads the ref.
    */
   getBackupRestore: () => BackupRestoreState
+  /**
+   * The same value as `walletBuilt`, read fresh.
+   *
+   * Mirrors `getBackupRestore`'s rationale: a caller that awaits a build or rebuild
+   * (recoverWallet's retry loop is the motivating case) and then checks whether the
+   * wallet is already built must not see a React state snapshot frozen at the render
+   * before the await — it must see the ref, which is updated synchronously at every
+   * build/teardown transition.
+   */
+  getWalletBuilt: () => boolean
   switchNetwork: (network: AppChain) => Promise<void>
   /** Tear down the current wallet and re-trigger auto-build (e.g. after DB import).
    * `restoreFromBackup` threads through to the auto-build's replay, for replacing
@@ -407,6 +417,7 @@ export const WalletContext = createContext<WalletContextValue>({
   buildWalletFromRecoveredKey: async () => {},
   backupRestore: { phase: 'idle', chunks: 0, total: 0 },
   getBackupRestore: () => ({ phase: 'idle', chunks: 0, total: 0 }),
+  getWalletBuilt: () => false,
   switchNetwork: async () => {},
   rebuildWallet: async () => {},
   storage: null,
@@ -661,6 +672,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     setBackupRestoreState(next)
   }, [])
   const getBackupRestore = useCallback((): BackupRestoreState => backupRestoreRef.current, [])
+  const getWalletBuilt = useCallback((): boolean => walletBuiltRef.current, [])
   /**
    * Set by an import flow immediately before it hands the primary key over, and consumed
    * (and cleared) by the buildWallet pass it triggers. A ref rather than state because
@@ -3222,6 +3234,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildWalletFromRecoveredKey,
       backupRestore,
       getBackupRestore,
+      getWalletBuilt,
       switchNetwork,
       rebuildWallet,
       storage,
@@ -3269,6 +3282,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildWalletFromRecoveredKey,
       backupRestore,
       getBackupRestore,
+      getWalletBuilt,
       switchNetwork,
       rebuildWallet,
       storage,

@@ -338,7 +338,13 @@ export { TaskBackupPush } from './monitor/TaskBackupPush'
 // shares screens (store secret → build → attest), the share primitives, and the
 // hook that wires them to the providers. Screens only render the outcomes.
 export * from './recovery/shares'
+export * from './recovery/secret'
 export * from './recovery/shareCollector'
+export * from './recovery/backupMaterial'
+export * from './recovery/restoreWallet'
+export * from './recovery/recoverWallet'
+export * from './recovery/createWallet'
+export * from './recovery/useRecoveryDeps'
 
 // Hardware vault: YubiKey PIV custody (1-of-N P-256 comb vault, spec
 // docs/superpowers/specs/2026-09-09-r1-comb-vault-design.md), ceremony state

@@ -26,7 +26,9 @@ const mockGetRecoveredKey = jest.fn<Promise<string | null>, []>()
 const mockGetItem = jest.fn(async () => null)
 const mockSetItem = jest.fn(async () => {})
 const mockRestore = jest.fn()
-const mockPostRestoreSetup = jest.fn(() => { throw new Error('Reached post-restore setup') })
+const mockPostRestoreSetup = jest.fn(() => {
+  throw new Error('Reached post-restore setup')
+})
 const mockDestroy = jest.fn(async () => {})
 const mockManagers: any[] = []
 let mockBuildMode: 'bypass' | 'real' = 'bypass'
@@ -42,9 +44,13 @@ jest.mock('../../core/context/LocalStorageProvider', () => ({
     secretsReady: mockSecretsReady
   })
 }))
-jest.mock('@bsv/btms-permission-module', () => ({
-  createBtmsModule: () => mockPostRestoreSetup()
-}), { virtual: true })
+jest.mock(
+  '@bsv/btms-permission-module',
+  () => ({
+    createBtmsModule: () => mockPostRestoreSetup()
+  }),
+  { virtual: true }
+)
 jest.mock('../../core/backup/restoreOnImport', () => ({
   restoreOnImport: (...args: unknown[]) => mockRestore(...args)
 }))
@@ -99,13 +105,12 @@ jest.mock('@bsv/wallet-toolbox-mobile', () => {
     WalletStorageManager: class {},
     SimpleWalletManager: class extends actual.SimpleWalletManager {
       constructor(originator: string, builder: (...args: any[]) => Promise<any>) {
-        super(originator, (...args: any[]) => mockBuildMode === 'bypass' ? Promise.resolve({}) : builder(...args))
+        super(originator, (...args: any[]) => (mockBuildMode === 'bypass' ? Promise.resolve({}) : builder(...args)))
         mockManagers.push(this)
       }
     }
   }
 })
-
 
 let wallet: ReturnType<typeof useWallet>
 function ObserveWallet() {
@@ -115,7 +120,11 @@ function ObserveWallet() {
 let renderer: ReturnType<typeof render>
 
 async function renderProvider() {
-  renderer = render(<WalletContextProvider><ObserveWallet /></WalletContextProvider>)
+  renderer = render(
+    <WalletContextProvider>
+      <ObserveWallet />
+    </WalletContextProvider>
+  )
   await act(async () => {})
 }
 
@@ -149,8 +158,12 @@ it('preserves a rebuild restore request through automatic mnemonic build and lea
   mockGetRecoveredKey.mockResolvedValue(new PrivateKey(22).toWif())
   mockSecretsReady = true
   let rebuilding!: Promise<void>
-  await act(async () => { rebuilding = wallet.rebuildWallet({ restoreFromBackup: true }) })
-  await act(async () => { await rebuilding })
+  await act(async () => {
+    rebuilding = wallet.rebuildWallet({ restoreFromBackup: true })
+  })
+  await act(async () => {
+    await rebuilding
+  })
 
   expect(mockRestore).toHaveBeenCalledTimes(1)
   expect(wallet.getBackupRestore()).toMatchObject({ phase: 'failed', error: 'backup unavailable' })
@@ -175,8 +188,12 @@ it('preserves a rebuild restore request when automatic build falls back to a rec
   mockGetRecoveredKey.mockResolvedValue(new PrivateKey(21).toWif())
   mockSecretsReady = true
   let rebuilding!: Promise<void>
-  await act(async () => { rebuilding = wallet.rebuildWallet({ restoreFromBackup: true }) })
-  await act(async () => { await rebuilding })
+  await act(async () => {
+    rebuilding = wallet.rebuildWallet({ restoreFromBackup: true })
+  })
+  await act(async () => {
+    await rebuilding
+  })
 
   expect(mockRestore).toHaveBeenCalledTimes(1)
   expect(wallet.getBackupRestore().phase).toBe('failed')
@@ -184,21 +201,34 @@ it('preserves a rebuild restore request when automatic build falls back to a rec
   expect(mockManagers.at(-1).authenticated).toBe(false)
 })
 
+it.each(['mnemonic', 'recovered key'] as const)(
+  'allows explicit restore=false after a failed %s restore',
+  async kind => {
+    await renderProvider()
+    mockBuildMode = 'real'
+    const build = (restoreFromBackup: boolean) =>
+      kind === 'mnemonic'
+        ? wallet.buildWalletFromMnemonic('synthetic test key', { restoreFromBackup })
+        : wallet.buildWalletFromRecoveredKey(new PrivateKey(21).toWif(), { restoreFromBackup })
 
-it.each(['mnemonic', 'recovered key'] as const)('allows explicit restore=false after a failed %s restore', async kind => {
+    await act(async () => build(true))
+    expect(mockRestore).toHaveBeenCalledTimes(1)
+    expect(wallet.walletBuilt).toBe(false)
+    expect(mockPostRestoreSetup).not.toHaveBeenCalled()
+
+    await act(async () => build(false))
+    expect(mockRestore).toHaveBeenCalledTimes(1)
+    // The build reaches setup after the restore branch, without another replay.
+    expect(mockPostRestoreSetup).toHaveBeenCalledTimes(1)
+  }
+)
+
+it('getWalletBuilt() is a ref-backed read that reflects walletBuilt after a build', async () => {
   await renderProvider()
-  mockBuildMode = 'real'
-  const build = (restoreFromBackup: boolean) => kind === 'mnemonic'
-    ? wallet.buildWalletFromMnemonic('synthetic test key', { restoreFromBackup })
-    : wallet.buildWalletFromRecoveredKey(new PrivateKey(21).toWif(), { restoreFromBackup })
+  expect(wallet.getWalletBuilt()).toBe(false)
 
-  await act(async () => build(true))
-  expect(mockRestore).toHaveBeenCalledTimes(1)
-  expect(wallet.walletBuilt).toBe(false)
-  expect(mockPostRestoreSetup).not.toHaveBeenCalled()
+  await act(async () => wallet.buildWalletFromMnemonic('synthetic test key'))
 
-  await act(async () => build(false))
-  expect(mockRestore).toHaveBeenCalledTimes(1)
-  // The build reaches setup after the restore branch, without another replay.
-  expect(mockPostRestoreSetup).toHaveBeenCalledTimes(1)
+  expect(wallet.walletBuilt).toBe(true)
+  expect(wallet.getWalletBuilt()).toBe(true)
 })

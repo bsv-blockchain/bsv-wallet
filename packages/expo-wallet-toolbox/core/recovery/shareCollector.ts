@@ -15,8 +15,12 @@
  * reducer does not suppress it if called again past that point (the screen
  * stops scanning once it reacts to 'complete').
  */
-import { checkShareCompatibility, parseShare } from './shares'
-import type { ParsedShare, ShareCompatibilityIssue } from './shares'
+// Imports from shareParsing.ts, NOT shares.ts: shares.ts also frames/splits/
+// recombines secrets via @bsv/sdk, and a value import of it would pull
+// @bsv/sdk into this module's load — which the sdk-free guard test
+// (__tests__/recovery/sdkFree.test.ts) proves never happens.
+import { checkShareCompatibility, parseShare } from './shareParsing'
+import type { ParsedShare, ShareCompatibilityIssue } from './shareParsing'
 
 export interface ShareCollection {
   shares: ParsedShare[]
