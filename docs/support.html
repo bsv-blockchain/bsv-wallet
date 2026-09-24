@@ -977,6 +977,32 @@
             />
           </div>
         </div>
+
+        <div class="guide-row single">
+          <div class="guide-text">
+            <h3 data-i18n="w.backup.vault_heading">YubiKey Vault</h3>
+            <p data-i18n="w.backup.vault_p1">
+              The vault holds money behind your own YubiKeys instead of the recovery phrase. Set it up from the vault
+              card on the home screen &mdash; you'll enroll at least two keys, each protected by its own PIN.
+            </p>
+            <p data-i18n="w.backup.vault_p2">
+              Any <strong>one</strong> enrolled YubiKey, held to the phone and unlocked with its PIN, can spend from the
+              vault. Losing or resetting one key does not lock money the remaining keys can already open on their own.
+            </p>
+            <div class="warning-box">
+              <p data-i18n-html="w.backup.vault_warning">
+                <strong>The recovery phrase does not open the vault.</strong> It was never part of how vault spending
+                is authorized. A new phone needs at least one of your enrolled YubiKeys, that key's PIN, and private
+                backup switched on so the app can restore the key records it needs to recognize your keys again.
+              </p>
+            </div>
+            <p data-i18n="w.backup.vault_p3">
+              Three wrong PINs lock a key's Vault slot. Record the PUK shown during setup &mdash; it can reset that PIN
+              without losing the key. Losing the PUK as well means that one key is gone for good; your other enrolled
+              keys keep working for anything they were not the only signer on.
+            </p>
+          </div>
+        </div>
       </div>
     </section>
 
