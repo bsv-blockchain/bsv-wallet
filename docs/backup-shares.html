@@ -482,7 +482,7 @@
           <ul>
             <li><code>fromEntropy</code> / <code>toEntropy</code> are inverses</li>
             <li>Checksum is 4 bits of SHA-256(entropy)</li>
-            <li>This is what vault recovery also needs</li>
+            <li>Does not open the vault — only enrolled YubiKeys do</li>
           </ul>
         </article>
         <article class="card">
@@ -601,13 +601,13 @@
 
           <!-- vault note -->
           <rect x="520" y="430" width="410" height="168" rx="12" fill="none" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="6 4"/>
-          <text x="540" y="454" fill="#fb7185" font-size="9" font-weight="600" font-family="JetBrains Mono, monospace">VAULT (separate seed)</text>
-          <text x="540" y="476" fill="#fda4af" font-size="9" font-family="JetBrains Mono, monospace">mnemonic + vault passphrase</text>
-          <text x="540" y="494" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">toSeed(passphrase)  —  empty passphrase is refused</text>
-          <text x="540" y="512" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">Needs the phrase, not primaryKey.</text>
-          <text x="540" y="530" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">v2 shares rebuild the phrase, so they open the vault</text>
-          <text x="540" y="548" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">once the passphrase is known.</text>
-          <text x="540" y="572" fill="#64748b" font-size="8" font-family="JetBrains Mono, monospace">legacy shares stop at primaryKey and cannot.</text>
+          <text x="540" y="454" fill="#fb7185" font-size="9" font-weight="600" font-family="JetBrains Mono, monospace">VAULT (YubiKey-gated, not a second phrase)</text>
+          <text x="540" y="476" fill="#fda4af" font-size="9" font-family="JetBrains Mono, monospace">any ONE enrolled YubiKey signs — 1-of-N P-256 comb</text>
+          <text x="540" y="494" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">PIN is enforced by the token itself</text>
+          <text x="540" y="512" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">No vault passphrase and no vault HD node exists.</text>
+          <text x="540" y="530" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">Neither the mnemonic nor v2 shares open the vault —</text>
+          <text x="540" y="548" fill="#94a3b8" font-size="8" font-family="JetBrains Mono, monospace">recovery needs a live enrolled key + PIN, plus</text>
+          <text x="540" y="572" fill="#64748b" font-size="8" font-family="JetBrains Mono, monospace">the authenticated key records backup preserves.</text>
         </svg>
       </div>
       <div class="legend">
@@ -797,11 +797,11 @@ shares  = new PrivateKey(payload).toBackupShares(2, 3)</pre>
             <td class="yes">same address, no phrase</td>
           </tr>
           <tr>
-            <td>Vault (mnemonic + passphrase)</td>
-            <td class="yes">yes</td>
-            <td class="yes">yes, after rebuild</td>
-            <td class="no">permanently shut</td>
-            <td class="no">permanently shut</td>
+            <td>Vault (opens with a YubiKey, not this)</td>
+            <td class="no">no — needs an enrolled YubiKey</td>
+            <td class="no">no — needs an enrolled YubiKey</td>
+            <td class="no">no — needs an enrolled YubiKey</td>
+            <td class="no">no — needs an enrolled YubiKey</td>
           </tr>
           <tr>
             <td>Can emit the other medium</td>
@@ -843,24 +843,27 @@ shares  = new PrivateKey(payload).toBackupShares(2, 3)</pre>
     </section>
 
     <section id="vault">
-      <h2>Why the vault forced this change</h2>
+      <h2>The vault does not use this phrase at all</h2>
       <p>
-        The v2 vault key is not a second phrase. It is the <em>same</em> mnemonic pushed through
-        BIP-39 with a non-empty passphrase:
+        The vault is not phrase-derived and there is no vault passphrase and no vault HD node.
+        Authorization is a signature from <strong>any one</strong> of your enrolled YubiKeys —
+        a 1-of-N P-256 comb verifier, bound with <code>OP_PUSH_TX</code>. The PIN is enforced
+        by the token itself, not derived or checked by the app.
       </p>
-      <pre>main wallet : HD.fromSeed(mnemonic.toSeed(''))
-vault HD    : HD.fromSeed(mnemonic.toSeed(passphrase))   // empty passphrase refused</pre>
       <p>
-        Deposit addresses are ordinary BIP-32 children of that vault node.
-        Recovery is therefore either YubiKey+PIN, or <strong>mnemonic + passphrase</strong>.
-        There is no third path. A backup that only returns <code>primaryKey</code> restores
-        the hot wallet and bricks the vault.
+        So the recovery phrase does not open the vault, and everything above — entropy,
+        mnemonic, backup shares, <code>primaryKey</code> — only ever describes the everyday
+        wallet. A new device needs at least one live enrolled YubiKey (with its PIN)
+        <em>plus</em> the authenticated key records and wallet history that the wallet's
+        encrypted backup preserves. Stated plainly: a phrase-only restore — no encrypted
+        backup, no old phone — cannot today find or spend vault coins.
       </p>
       <div class="callout ok">
         <div class="kicker">Current paper is seed-equivalent</div>
         <p style="margin:0">
           Any two v2 pages rebuild the twelve words. Treat two pages together the way you
           treat the phrase. A single page still reveals nothing (Shamir below threshold).
+          That phrase still restores the everyday wallet — just not the vault.
         </p>
       </div>
     </section>
