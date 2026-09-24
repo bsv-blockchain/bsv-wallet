@@ -5,9 +5,25 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 const mockReplace = jest.fn()
 const mockBack = jest.fn()
 let mockFlow: string | undefined
-const mockBuild = jest.fn(async () => {})
+let mockRestoreState: { phase: string; chunks?: number; total?: number; error?: string } = {
+  phase: 'idle',
+  chunks: 0,
+  total: 0
+}
+const mockBuild = jest.fn(async (..._args: unknown[]) => {
+  mockRestoreState = { phase: 'restored', chunks: 0, total: 0 }
+})
+const mockBuildRecovered = jest.fn(async (..._args: unknown[]) => {
+  mockRestoreState = { phase: 'restored', chunks: 0, total: 0 }
+})
+const mockRebuild = jest.fn(async (..._args: unknown[]) => {
+  mockRestoreState = { phase: 'restored', chunks: 0, total: 0 }
+})
 const mockCreate = jest.fn(async (_phrase: string) => true)
-const mockStore = jest.fn()
+const mockStore = jest.fn(async (_phrase: string) => true)
+const mockSetRecovered = jest.fn(async (_wif: string) => true)
+const mockDeleteMnemonic = jest.fn(async () => {})
+const mockDeleteRecovered = jest.fn(async () => {})
 const mockHasIdentity = jest.fn(async () => false)
 const mockGenerate = jest.fn(() => ({ mnemonic: 'new test phrase', identityKey: 'new-identity' }))
 const mockPending = jest.fn(async (_identity: string) => {})
@@ -18,11 +34,14 @@ const mockAttest = jest.fn(async (_identity: string, _medium: string) => {})
 const mockPrint = jest.fn(async (_options: unknown) => ({ ok: true }))
 const mockCopy = jest.fn(async (_value: string) => true)
 let mockSavedContents = ''
-const mockWriteFile = jest.fn((value: string) => { mockSavedContents = value })
+const mockWriteFile = jest.fn((value: string) => {
+  mockSavedContents = value
+})
 const mockReadFile = jest.fn(async () => mockSavedContents)
 const mockCreateFile = jest.fn((_filename: string, _mime: string) => ({ write: mockWriteFile, text: mockReadFile }))
 const mockPickDirectory = jest.fn(async () => ({ createFile: mockCreateFile }))
 const mockToast = jest.fn()
+const mockShowAlert = jest.fn(async (..._args: unknown[]) => 'cancel')
 let mockSecretsReady = true
 let mockWalletBuilt = false
 let mockWalletBuilding = false
@@ -36,12 +55,34 @@ jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 jest.mock('expo-clipboard', () => ({ setStringAsync: (value: string) => mockCopy(value) }))
 jest.mock('expo-file-system', () => ({ Directory: { pickDirectoryAsync: () => mockPickDirectory() } }))
-jest.mock('@bsv/sdk', () => ({ PrivateKey: {
-  fromWif: () => ({ toHex: () => 'existing-test-hex', toPublicKey: () => ({ toString: () => 'existing-key-identity' }) })
-} }))
+jest.mock('@bsv/sdk', () => ({
+  PrivateKey: {
+    fromWif: () => ({
+      toHex: () => 'existing-test-hex',
+      toPublicKey: () => ({ toString: () => 'existing-key-identity' })
+    })
+  }
+}))
+// backupMaterial.ts (wired REAL below) imports recoverMnemonicWallet from here, and
+// createWallet.ts's real orchestration is exercised through the toolbox mock's
+// generate/createMnemonic path, not through this module directly.
+jest.mock('../packages/expo-wallet-toolbox/core/mnemonicWallet', () => ({
+  recoverMnemonicWallet: (phrase: string) => ({
+    identityKey: phrase === 'existing test phrase' ? 'existing-identity' : 'new-identity'
+  }),
+  validateMnemonic: () => true,
+  generateMnemonicWallet: () => mockGenerate()
+}))
+// recoveryPrompts.ts (wired REAL below, via '@bsv/expo-wallet-toolbox/ui') imports
+// showAlert directly from here rather than through the (fully mocked) ui barrel.
+jest.mock('../packages/expo-wallet-toolbox/ui/components/ui/AlertCard', () => ({
+  showAlert: (...args: unknown[]) => mockShowAlert(...args)
+}))
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   useTheme: () => ({ colors: {}, isDark: false }),
-  spacing: {}, radii: {}, typography: { largeTitle: {}, title2: {}, title3: {}, body: {}, caption1: {} },
+  spacing: {},
+  radii: {},
+  typography: { largeTitle: {}, title2: {}, title3: {}, body: {}, caption1: {} },
   useWallet: () => ({
     buildWalletFromMnemonic: mockBuild,
     backupRestore: { phase: 'idle' },
@@ -49,27 +90,67 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     walletBuilding: mockWalletBuilding
   }),
   useLocalStorage: () => ({
-    createMnemonic: mockCreate, setMnemonic: mockStore,
-    hasStoredIdentity: mockHasIdentity, secretsReady: mockSecretsReady,
-    getMnemonic: mockReadMnemonic, getRecoveredKey: mockReadRecovered, unlock: mockUnlock
+    createMnemonic: mockCreate,
+    setMnemonic: mockStore,
+    hasStoredIdentity: mockHasIdentity,
+    secretsReady: mockSecretsReady,
+    getMnemonic: mockReadMnemonic,
+    getRecoveredKey: mockReadRecovered,
+    unlock: mockUnlock
   }),
   generateMnemonicWallet: () => mockGenerate(),
-  recoverMnemonicWallet: (phrase: string) => ({ identityKey: phrase === 'existing test phrase' ? 'existing-identity' : 'new-identity' }),
+  recoverMnemonicWallet: (phrase: string) => ({
+    identityKey: phrase === 'existing test phrase' ? 'existing-identity' : 'new-identity'
+  }),
   backupAttestation: {
     markPending: (identity: string) => mockPending(identity),
     set: (identity: string, medium: string) => mockAttest(identity, medium)
   },
-  recordBackupAttestation: jest.fn()
+  recordBackupAttestation: jest.fn(),
+  // The recovery/creation orchestration itself is the REAL module under test —
+  // only its deps (below) and classifyImportInput (needs @bsv/sdk) are mocked.
+  useRecoveryDeps: () => ({
+    setMnemonic: mockStore,
+    setRecoveredKey: mockSetRecovered,
+    deleteMnemonic: mockDeleteMnemonic,
+    deleteRecoveredKey: mockDeleteRecovered,
+    hasStoredIdentity: mockHasIdentity,
+    createMnemonic: mockCreate,
+    buildWalletFromMnemonic: mockBuild,
+    buildWalletFromRecoveredKey: mockBuildRecovered,
+    rebuildWallet: mockRebuild,
+    isWalletBuilt: () => mockWalletBuilt,
+    getBackupRestore: () => mockRestoreState,
+    attest: mockAttest,
+    markPending: mockPending,
+    generate: mockGenerate
+  }),
+  classifyImportInput: (text: string) => {
+    const trimmed = text.trim()
+    if (/^[0-9a-fA-F]{64}$/.test(trimmed))
+      return { kind: 'wif', wif: 'imported-wif', identityKey: 'imported-key-identity' }
+    if (trimmed === 'valid test phrase')
+      return { kind: 'mnemonic', mnemonic: trimmed, identityKey: 'imported-phrase-identity' }
+    return null
+  },
+  recoverWallet: (...args: unknown[]) =>
+    jest.requireActual('../packages/expo-wallet-toolbox/core/recovery/recoverWallet').recoverWallet(...args),
+  createNewWallet: (...args: unknown[]) =>
+    jest.requireActual('../packages/expo-wallet-toolbox/core/recovery/createWallet').createNewWallet(...args),
+  readBackupMaterial: (...args: unknown[]) =>
+    jest.requireActual('../packages/expo-wallet-toolbox/core/recovery/backupMaterial').readBackupMaterial(...args)
 }))
 jest.mock('@bsv/expo-wallet-toolbox/ui', () => {
-  const { View, Pressable } = require('react-native')
+  const { View, Pressable, Text } = require('react-native')
   return {
     CustomSafeArea: View,
     PressableScale: Pressable,
-    Celebration: () => null,
+    Celebration: () => <Text>celebration</Text>,
     showToast: (...args: unknown[]) => mockToast(...args),
-    showAlert: jest.fn(),
-    printRecoveryShares: (options: unknown) => mockPrint(options)
+    showAlert: (...args: unknown[]) => mockShowAlert(...args),
+    printRecoveryShares: (options: unknown) => mockPrint(options),
+    restorePrompts: (...args: unknown[]) =>
+      jest.requireActual('../packages/expo-wallet-toolbox/ui/recoveryPrompts').restorePrompts(...args)
   }
 })
 
@@ -86,10 +167,14 @@ beforeEach(() => {
   mockSecretsReady = true
   mockWalletBuilt = false
   mockWalletBuilding = false
+  mockRestoreState = { phase: 'idle', chunks: 0, total: 0 }
   mockHasIdentity.mockResolvedValue(false)
   mockCreate.mockResolvedValue(true)
+  mockStore.mockResolvedValue(true)
+  mockSetRecovered.mockResolvedValue(true)
   mockReadMnemonic.mockResolvedValue('existing test phrase')
   mockReadRecovered.mockResolvedValue(null)
+  mockShowAlert.mockResolvedValue('cancel')
 })
 
 afterEach(() => {
@@ -117,7 +202,12 @@ test('backup waits for migration and key loading without exposing empty backup a
   mockFlow = 'backup'
   mockSecretsReady = false
   let finish!: (phrase: string) => void
-  mockReadMnemonic.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  mockReadMnemonic.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
   const screen = render(<MnemonicScreen />)
   expect(mockReadMnemonic).not.toHaveBeenCalled()
   expect(screen.queryByText('copy')).toBeNull()
@@ -126,7 +216,9 @@ test('backup waits for migration and key loading without exposing empty backup a
   await waitFor(() => expect(mockReadMnemonic).toHaveBeenCalledTimes(1))
   expect(screen.queryByText('copy')).toBeNull()
   expect(screen.queryByText('create_new_wallet')).toBeNull()
-  await act(async () => { finish('existing test phrase') })
+  await act(async () => {
+    finish('existing test phrase')
+  })
   expect(screen.getByText('existing test phrase')).toBeTruthy()
   expect(mockCreate).not.toHaveBeenCalled()
 })
@@ -171,11 +263,19 @@ test('backing up existing shares attests that identity and returns without creat
   mockFlow = 'backup'
   const screen = render(<MnemonicScreen />)
   await screen.findByText('existing test phrase')
-  await act(async () => { fireEvent.press(screen.getByText('print_recovery_shares')) })
-  expect(mockPrint).toHaveBeenCalledWith({ mnemonic: 'existing test phrase', recoveredKeyWif: null, appName: 'BSV Wallet' })
+  await act(async () => {
+    fireEvent.press(screen.getByText('print_recovery_shares'))
+  })
+  expect(mockPrint).toHaveBeenCalledWith({
+    mnemonic: 'existing test phrase',
+    recoveredKeyWif: null,
+    appName: 'BSV Wallet'
+  })
   expect(mockAttest).toHaveBeenCalledWith('existing-identity', 'shares')
   expect(mockBack).not.toHaveBeenCalled()
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
+  await act(async () => {
+    fireEvent.press(screen.getByText('confirm'))
+  })
   expect(mockAttest).toHaveBeenCalledTimes(1)
   expect(mockBack).toHaveBeenCalledTimes(1)
   expect(mockBuild).not.toHaveBeenCalled()
@@ -197,9 +297,13 @@ test('hides the entire confirmation section and divider for 15 seconds without a
   expect(screen.getByText('existing test phrase')).toBeTruthy()
   expect(screen.queryByTestId('backup-confirmation-section')).toBeNull()
   expect(screen.queryByTestId('backup-confirmation-divider')).toBeNull()
-  act(() => { jest.advanceTimersByTime(14_999) })
+  act(() => {
+    jest.advanceTimersByTime(14_999)
+  })
   expect(screen.queryByText('confirm')).toBeNull()
-  act(() => { jest.advanceTimersByTime(1) })
+  act(() => {
+    jest.advanceTimersByTime(1)
+  })
   expect(screen.getByTestId('backup-confirmation-section')).toBeTruthy()
   expect(screen.getByTestId('backup-confirmation-divider')).toBeTruthy()
   expect(screen.getByText('confirm')).toBeTruthy()
@@ -210,75 +314,115 @@ test('migration and deferred key reads do not count toward the handwriting delay
   mockFlow = 'backup'
   mockSecretsReady = false
   let finish!: (phrase: string) => void
-  mockReadMnemonic.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  mockReadMnemonic.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
   const screen = render(<MnemonicScreen />)
-  act(() => { jest.advanceTimersByTime(30_000) })
+  act(() => {
+    jest.advanceTimersByTime(30_000)
+  })
   mockSecretsReady = true
   screen.rerender(<MnemonicScreen />)
-  act(() => { jest.advanceTimersByTime(30_000) })
-  await act(async () => { finish('existing test phrase') })
-  act(() => { jest.advanceTimersByTime(14_999) })
+  act(() => {
+    jest.advanceTimersByTime(30_000)
+  })
+  await act(async () => {
+    finish('existing test phrase')
+  })
+  act(() => {
+    jest.advanceTimersByTime(14_999)
+  })
   expect(screen.queryByTestId('backup-confirmation-section')).toBeNull()
-  act(() => { jest.advanceTimersByTime(1) })
+  act(() => {
+    jest.advanceTimersByTime(1)
+  })
   expect(screen.getByText('confirm')).toBeTruthy()
   expect(mockAttest).not.toHaveBeenCalled()
 })
 
-test.each(['copy', 'save'])('a successful %s immediately records the backup and reveals Confirm without navigating', async action => {
-  mockFlow = 'backup'
-  const screen = render(<MnemonicScreen />)
-  await act(async () => {})
-  await act(async () => { fireEvent.press(screen.getByText(action)) })
-  expect(mockAttest).toHaveBeenCalledWith('existing-identity', 'phrase')
-  expect(screen.getByTestId('backup-confirmation-section')).toBeTruthy()
-  expect(screen.getByTestId('backup-confirmation-divider')).toBeTruthy()
-  expect(mockBack).not.toHaveBeenCalled()
-  if (action === 'save') {
-    expect(mockCreateFile).toHaveBeenCalledWith(expect.stringMatching(/^wallet-recovery-phrase-\d+\.txt$/), 'text/plain')
-    expect(mockWriteFile).toHaveBeenCalledWith('existing test phrase')
-    expect(mockReadFile).toHaveBeenCalledTimes(1)
-  }
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
-  expect(mockAttest).toHaveBeenCalledTimes(1)
-  expect(mockBack).toHaveBeenCalledTimes(1)
-})
-
-test.each(['copy-false', 'copy-error', 'save-cancelled', 'write-failed', 'readback-mismatch', 'print-cancelled', 'print-unavailable'])(
-  '%s does not bypass the delay or record a backup', async failure => {
+test.each(['copy', 'save'])(
+  'a successful %s immediately records the backup and reveals Confirm without navigating',
+  async action => {
     mockFlow = 'backup'
-    let action = 'copy'
-    if (failure === 'copy-false') mockCopy.mockResolvedValueOnce(false)
-    if (failure === 'copy-error') mockCopy.mockRejectedValueOnce(new Error('Clipboard unavailable'))
-    if (failure === 'save-cancelled') mockPickDirectory.mockRejectedValueOnce(new Error('Cancelled'))
-    if (failure === 'write-failed') mockWriteFile.mockImplementationOnce(() => { throw new Error('Write failed') })
-    if (failure === 'readback-mismatch') mockReadFile.mockResolvedValueOnce('')
-    if (['save-cancelled', 'write-failed', 'readback-mismatch'].includes(failure)) action = 'save'
-    if (failure === 'print-cancelled') mockPrint.mockRejectedValueOnce(new Error('Cancelled'))
-    if (failure === 'print-unavailable') mockPrint.mockResolvedValueOnce({ ok: false })
-    if (failure.startsWith('print-')) action = 'print_recovery_shares'
     const screen = render(<MnemonicScreen />)
     await act(async () => {})
-    await act(async () => { fireEvent.press(screen.getByText(action)) })
-    expect(mockAttest).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('backup-confirmation-section')).toBeNull()
+    await act(async () => {
+      fireEvent.press(screen.getByText(action))
+    })
+    expect(mockAttest).toHaveBeenCalledWith('existing-identity', 'phrase')
+    expect(screen.getByTestId('backup-confirmation-section')).toBeTruthy()
+    expect(screen.getByTestId('backup-confirmation-divider')).toBeTruthy()
     expect(mockBack).not.toHaveBeenCalled()
-    if (failure === 'write-failed' || failure === 'readback-mismatch') {
-      expect(mockToast).toHaveBeenCalledWith('Unable to save recovery keys. Please try again.', { type: 'error' })
-    } else if (failure === 'save-cancelled') {
-      expect(mockToast).not.toHaveBeenCalled()
+    if (action === 'save') {
+      expect(mockCreateFile).toHaveBeenCalledWith(
+        expect.stringMatching(/^wallet-recovery-phrase-\d+\.txt$/),
+        'text/plain'
+      )
+      expect(mockWriteFile).toHaveBeenCalledWith('existing test phrase')
+      expect(mockReadFile).toHaveBeenCalledTimes(1)
     }
+    await act(async () => {
+      fireEvent.press(screen.getByText('confirm'))
+    })
+    expect(mockAttest).toHaveBeenCalledTimes(1)
+    expect(mockBack).toHaveBeenCalledTimes(1)
   }
 )
+
+test.each([
+  'copy-false',
+  'copy-error',
+  'save-cancelled',
+  'write-failed',
+  'readback-mismatch',
+  'print-cancelled',
+  'print-unavailable'
+])('%s does not bypass the delay or record a backup', async failure => {
+  mockFlow = 'backup'
+  let action = 'copy'
+  if (failure === 'copy-false') mockCopy.mockResolvedValueOnce(false)
+  if (failure === 'copy-error') mockCopy.mockRejectedValueOnce(new Error('Clipboard unavailable'))
+  if (failure === 'save-cancelled') mockPickDirectory.mockRejectedValueOnce(new Error('Cancelled'))
+  if (failure === 'write-failed')
+    mockWriteFile.mockImplementationOnce(() => {
+      throw new Error('Write failed')
+    })
+  if (failure === 'readback-mismatch') mockReadFile.mockResolvedValueOnce('')
+  if (['save-cancelled', 'write-failed', 'readback-mismatch'].includes(failure)) action = 'save'
+  if (failure === 'print-cancelled') mockPrint.mockRejectedValueOnce(new Error('Cancelled'))
+  if (failure === 'print-unavailable') mockPrint.mockResolvedValueOnce({ ok: false })
+  if (failure.startsWith('print-')) action = 'print_recovery_shares'
+  const screen = render(<MnemonicScreen />)
+  await act(async () => {})
+  await act(async () => {
+    fireEvent.press(screen.getByText(action))
+  })
+  expect(mockAttest).not.toHaveBeenCalled()
+  expect(screen.queryByTestId('backup-confirmation-section')).toBeNull()
+  expect(mockBack).not.toHaveBeenCalled()
+  if (failure === 'write-failed' || failure === 'readback-mismatch') {
+    expect(mockToast).toHaveBeenCalledWith('Unable to save recovery keys. Please try again.', { type: 'error' })
+  } else if (failure === 'save-cancelled') {
+    expect(mockToast).not.toHaveBeenCalled()
+  }
+})
 
 test('a completed export with failed attestation lets Confirm retry persistence', async () => {
   mockFlow = 'backup'
   mockAttest.mockRejectedValueOnce(new Error('Storage unavailable'))
   const screen = render(<MnemonicScreen />)
   await act(async () => {})
-  await act(async () => { fireEvent.press(screen.getByText('print_recovery_shares')) })
+  await act(async () => {
+    fireEvent.press(screen.getByText('print_recovery_shares'))
+  })
   expect(mockBack).not.toHaveBeenCalled()
   expect(mockToast).toHaveBeenCalledWith('Unable to save backup confirmation. Please try again.', { type: 'error' })
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
+  await act(async () => {
+    fireEvent.press(screen.getByText('confirm'))
+  })
   expect(mockAttest).toHaveBeenNthCalledWith(2, 'existing-identity', 'shares')
   expect(mockBack).toHaveBeenCalledTimes(1)
 })
@@ -288,10 +432,14 @@ test('Android printing requires Confirm because the native dialog does not repor
   mockFlow = 'backup'
   const screen = render(<MnemonicScreen />)
   await act(async () => {})
-  await act(async () => { fireEvent.press(screen.getByText('print_recovery_shares')) })
+  await act(async () => {
+    fireEvent.press(screen.getByText('print_recovery_shares'))
+  })
   expect(mockAttest).not.toHaveBeenCalled()
   expect(screen.getByText('confirm')).toBeTruthy()
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
+  await act(async () => {
+    fireEvent.press(screen.getByText('confirm'))
+  })
   expect(mockAttest).toHaveBeenCalledWith('existing-identity', 'shares')
   expect(mockBack).toHaveBeenCalledTimes(1)
 })
@@ -300,7 +448,9 @@ test('reentering backup resets the timer and stale Confirm handlers cannot attes
   mockFlow = 'backup'
   const screen = render(<MnemonicScreen />)
   await act(async () => {})
-  act(() => { jest.advanceTimersByTime(15_000) })
+  act(() => {
+    jest.advanceTimersByTime(15_000)
+  })
   let previousButton = screen.getByText('confirm').parent!
   while (!previousButton.props.onPress) previousButton = previousButton.parent!
   const oldConfirm = previousButton.props.onPress
@@ -309,18 +459,29 @@ test('reentering backup resets the timer and stale Confirm handlers cannot attes
   mockFlow = 'backup'
   screen.rerender(<MnemonicScreen />)
   await act(async () => {})
-  await act(async () => { await oldConfirm() })
+  await act(async () => {
+    await oldConfirm()
+  })
   expect(mockAttest).not.toHaveBeenCalled()
-  act(() => { jest.advanceTimersByTime(14_999) })
+  act(() => {
+    jest.advanceTimersByTime(14_999)
+  })
   expect(screen.queryByText('confirm')).toBeNull()
-  act(() => { jest.advanceTimersByTime(1) })
+  act(() => {
+    jest.advanceTimersByTime(1)
+  })
   expect(screen.getByText('confirm')).toBeTruthy()
 })
 
 test('a stale directory picker completion does not write keys or unlock a new backup session', async () => {
   mockFlow = 'backup'
   let finish!: (directory: { createFile: typeof mockCreateFile }) => void
-  mockPickDirectory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  mockPickDirectory.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
   const screen = render(<MnemonicScreen />)
   await act(async () => {})
   fireEvent.press(screen.getByText('save'))
@@ -328,7 +489,9 @@ test('a stale directory picker completion does not write keys or unlock a new ba
   screen.rerender(<MnemonicScreen />)
   mockFlow = 'backup'
   screen.rerender(<MnemonicScreen />)
-  await act(async () => { finish({ createFile: mockCreateFile }) })
+  await act(async () => {
+    finish({ createFile: mockCreateFile })
+  })
   expect(mockWriteFile).not.toHaveBeenCalled()
   expect(mockAttest).not.toHaveBeenCalled()
   expect(screen.queryByText('confirm')).toBeNull()
@@ -338,9 +501,13 @@ test('Confirm records a manually saved phrase without requiring export or print'
   mockFlow = 'backup'
   const screen = render(<MnemonicScreen />)
   await screen.findByText('existing test phrase')
-  act(() => { jest.advanceTimersByTime(15_000) })
+  act(() => {
+    jest.advanceTimersByTime(15_000)
+  })
   expect(screen.queryByText('go_back')).toBeNull()
-  await act(async () => { fireEvent.press(screen.getByRole('button', { name: 'confirm' })) })
+  await act(async () => {
+    fireEvent.press(screen.getByRole('button', { name: 'confirm' }))
+  })
   expect(mockAttest).toHaveBeenCalledWith('existing-identity', 'phrase')
   expect(mockBack).toHaveBeenCalledTimes(1)
   expect(mockToast).toHaveBeenCalledWith('Backup confirmed', { type: 'success' })
@@ -353,17 +520,26 @@ test('Confirm records a manually saved phrase without requiring export or print'
 test('Confirm waits for persistence and repeated taps write only once', async () => {
   mockFlow = 'backup'
   let finish!: () => void
-  mockAttest.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  mockAttest.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
   const screen = render(<MnemonicScreen />)
   await screen.findByText('existing test phrase')
-  act(() => { jest.advanceTimersByTime(15_000) })
+  act(() => {
+    jest.advanceTimersByTime(15_000)
+  })
   const confirm = screen.getByRole('button', { name: 'confirm' })
   fireEvent.press(confirm)
   fireEvent.press(confirm)
   expect(mockAttest).toHaveBeenCalledTimes(1)
   expect(mockBack).not.toHaveBeenCalled()
   expect(screen.getByRole('button', { name: 'confirm' }).props.accessibilityState.busy).toBe(true)
-  await act(async () => { finish() })
+  await act(async () => {
+    finish()
+  })
   expect(mockBack).toHaveBeenCalledTimes(1)
 })
 
@@ -372,11 +548,17 @@ test('failed confirmation stays on the backup page and can be retried', async ()
   mockAttest.mockRejectedValueOnce(new Error('storage unavailable'))
   const screen = render(<MnemonicScreen />)
   await screen.findByText('existing test phrase')
-  act(() => { jest.advanceTimersByTime(15_000) })
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
+  act(() => {
+    jest.advanceTimersByTime(15_000)
+  })
+  await act(async () => {
+    fireEvent.press(screen.getByText('confirm'))
+  })
   expect(mockBack).not.toHaveBeenCalled()
   expect(mockToast).toHaveBeenCalledWith('Unable to save backup confirmation. Please try again.', { type: 'error' })
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
+  await act(async () => {
+    fireEvent.press(screen.getByText('confirm'))
+  })
   expect(mockAttest).toHaveBeenCalledTimes(2)
   expect(mockBack).toHaveBeenCalledTimes(1)
 })
@@ -388,9 +570,17 @@ test('a recovered-key wallet backs up its existing key on the same page', async 
   const screen = render(<MnemonicScreen />)
   expect(await screen.findByText('existing-test-hex')).toBeTruthy()
   expect(screen.queryByText('Save these words')).toBeNull()
-  await act(async () => { fireEvent.press(screen.getByText('print_recovery_shares')) })
-  expect(mockPrint).toHaveBeenCalledWith({ mnemonic: null, recoveredKeyWif: 'existing-test-wif', appName: 'BSV Wallet' })
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
+  await act(async () => {
+    fireEvent.press(screen.getByText('print_recovery_shares'))
+  })
+  expect(mockPrint).toHaveBeenCalledWith({
+    mnemonic: null,
+    recoveredKeyWif: 'existing-test-wif',
+    appName: 'BSV Wallet'
+  })
+  await act(async () => {
+    fireEvent.press(screen.getByText('confirm'))
+  })
   expect(mockAttest).toHaveBeenCalledWith('existing-key-identity', 'shares')
   expect(mockGenerate).not.toHaveBeenCalled()
   expect(mockCreate).not.toHaveBeenCalled()
@@ -434,7 +624,12 @@ test('a live wallet also blocks creation if its existence check is stale', async
 
 test('repeated creation taps save one phrase through the guarded API before showing it', async () => {
   let finish!: (stored: boolean) => void
-  mockCreate.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  mockCreate.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
   const screen = render(<MnemonicScreen />)
   const create = await screen.findByText('create_new_wallet')
   fireEvent.press(create)
@@ -442,17 +637,27 @@ test('repeated creation taps save one phrase through the guarded API before show
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1))
   expect(screen.queryByText('new test phrase')).toBeNull()
   expect(mockBuild).not.toHaveBeenCalled()
-  act(() => { jest.advanceTimersByTime(30_000) })
-  await act(async () => { finish(true) })
+  act(() => {
+    jest.advanceTimersByTime(30_000)
+  })
+  await act(async () => {
+    finish(true)
+  })
   expect(await screen.findByText('new test phrase')).toBeTruthy()
   expect(mockGenerate).toHaveBeenCalledTimes(1)
   expect(mockStore).not.toHaveBeenCalled()
   expect(mockPending).toHaveBeenCalledWith('new-identity')
   expect(mockBuild).toHaveBeenCalledWith('new test phrase')
-  act(() => { jest.advanceTimersByTime(14_999) })
+  act(() => {
+    jest.advanceTimersByTime(14_999)
+  })
   expect(screen.queryByText('confirm')).toBeNull()
-  act(() => { jest.advanceTimersByTime(1) })
-  await act(async () => { fireEvent.press(screen.getByText('confirm')) })
+  act(() => {
+    jest.advanceTimersByTime(1)
+  })
+  await act(async () => {
+    fireEvent.press(screen.getByText('confirm'))
+  })
   expect(mockAttest).toHaveBeenCalledWith('new-identity', 'phrase')
   expect(mockBack).not.toHaveBeenCalled()
 })
@@ -487,4 +692,154 @@ test('builds the saved wallet when pending-backup metadata cannot be written', a
   } finally {
     warn.mockRestore()
   }
+})
+
+test('a refused write with no existing identity toasts the new create_wallet_refused copy', async () => {
+  mockCreate.mockResolvedValue(false)
+  mockHasIdentity.mockResolvedValue(false)
+  const screen = render(<MnemonicScreen />)
+  const create = await screen.findByText('create_new_wallet')
+  await act(async () => {
+    fireEvent.press(create)
+  })
+  expect(mockToast).toHaveBeenCalledWith('create_wallet_refused', { type: 'error' })
+})
+
+describe('import flow', () => {
+  const HEX_KEY = 'a'.repeat(64)
+
+  const renderImport = async () => {
+    mockFlow = 'import'
+    const screen = render(<MnemonicScreen />)
+    const input = await screen.findByPlaceholderText('enter_recovery_words')
+    return { screen, input }
+  }
+
+  // Two elements carry the literal 'import_wallet' text in this mode: the
+  // heading and the continue button — the button is always the second.
+  const pressContinue = (screen: ReturnType<typeof render>) => {
+    fireEvent.press(screen.getAllByText('import_wallet')[1])
+  }
+
+  test('hex import stores the recovered key, deletes the mnemonic, builds, attests, and celebrates', async () => {
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, HEX_KEY)
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockSetRecovered).toHaveBeenCalledWith('imported-wif')
+    expect(mockDeleteMnemonic).toHaveBeenCalled()
+    expect(mockSetRecovered.mock.invocationCallOrder[0]).toBeLessThan(mockDeleteMnemonic.mock.invocationCallOrder[0])
+    expect(mockBuildRecovered).toHaveBeenCalledWith('imported-wif', { restoreFromBackup: true })
+    expect(mockAttest).toHaveBeenCalledWith('imported-key-identity', 'phrase')
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('hex import while the wallet is already built rebuilds instead of building fresh', async () => {
+    mockWalletBuilt = true
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, HEX_KEY)
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockRebuild).toHaveBeenCalledWith({ restoreFromBackup: true })
+    expect(mockBuildRecovered).not.toHaveBeenCalled()
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('mnemonic import stores the phrase, deletes the recovered key, builds, and attests', async () => {
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'valid test phrase')
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockStore).toHaveBeenCalledWith('valid test phrase')
+    expect(mockDeleteRecovered).toHaveBeenCalled()
+    expect(mockStore.mock.invocationCallOrder[0]).toBeLessThan(mockDeleteRecovered.mock.invocationCallOrder[0])
+    expect(mockBuild).toHaveBeenCalledWith('valid test phrase', { restoreFromBackup: true })
+    expect(mockAttest).toHaveBeenCalledWith('imported-phrase-identity', 'phrase')
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('a refused store builds and attests nothing, and shows no celebration', async () => {
+    mockStore.mockResolvedValueOnce(false)
+    mockShowAlert.mockResolvedValueOnce('cancel')
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'valid test phrase')
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockBuild).not.toHaveBeenCalled()
+    expect(mockAttest).not.toHaveBeenCalled()
+    expect(screen.queryByText('celebration')).toBeNull()
+  })
+
+  test('a failed restore, skipped at the prompt, rebuilds without history and celebrates (hex)', async () => {
+    mockBuildRecovered.mockImplementationOnce(async () => {
+      mockRestoreState = { phase: 'failed', error: 'boom' }
+    })
+    mockShowAlert.mockResolvedValueOnce('skip')
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, HEX_KEY)
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockBuildRecovered).toHaveBeenCalledTimes(2)
+    expect(mockBuildRecovered).toHaveBeenNthCalledWith(2, 'imported-wif', { restoreFromBackup: false })
+    expect(mockAttest).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('a failed restore, skipped at the prompt, rebuilds without history and celebrates (mnemonic)', async () => {
+    mockBuild.mockImplementationOnce(async () => {
+      mockRestoreState = { phase: 'failed', error: 'boom' }
+    })
+    mockShowAlert.mockResolvedValueOnce('skip')
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'valid test phrase')
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockBuild).toHaveBeenCalledTimes(2)
+    expect(mockBuild).toHaveBeenNthCalledWith(2, 'valid test phrase', { restoreFromBackup: false })
+    expect(mockAttest).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('a failed restore, retried at the prompt, stops after one build with a toast and no celebration', async () => {
+    mockBuildRecovered.mockImplementationOnce(async () => {
+      mockRestoreState = { phase: 'failed', error: 'boom' }
+    })
+    mockShowAlert.mockResolvedValueOnce('retry')
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, HEX_KEY)
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockBuildRecovered).toHaveBeenCalledTimes(1)
+    expect(mockAttest).not.toHaveBeenCalled()
+    expect(mockToast).toHaveBeenCalledWith('restore_backup_failed_title', { type: 'error' })
+    expect(screen.queryByText('celebration')).toBeNull()
+  })
+
+  test('invalid input shows the invalid-input alert without storing anything', async () => {
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'not a phrase')
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockShowAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'import_invalid_input_title', message: 'import_invalid_input_message' })
+    )
+    expect(mockStore).not.toHaveBeenCalled()
+    expect(mockSetRecovered).not.toHaveBeenCalled()
+  })
 })
