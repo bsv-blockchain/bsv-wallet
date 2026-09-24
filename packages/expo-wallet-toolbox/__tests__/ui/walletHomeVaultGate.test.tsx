@@ -21,6 +21,9 @@ import { SettingsScreen } from '../../ui/screens/SettingsScreen'
 const IDENTITY = '02' + 'a'.repeat(64)
 const mockRouter = { push: jest.fn(), replace: jest.fn() }
 let mockVaultEnabled = false
+// F-07: an existing local Vault enrollment keeps the Home/Settings entry
+// point reachable even while the release/network flag above is off.
+let mockHasVaultMeta = false
 let mockWallet: any
 
 jest.mock('../../ui/components/ui/SlideOverFromRight', () => ({ __esModule: true, default: () => null }))
@@ -58,6 +61,13 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     isBackupPushEnabled: async () => true,
     isVaultEnabled: () => mockVaultEnabled,
     isVaultAvailable: (chain: string) => mockVaultEnabled && chain === 'main',
+    useVault: () => ({
+      state: { phase: 'idle' },
+      submitPin: jest.fn(),
+      cancel: jest.fn(),
+      retry: jest.fn(),
+      hasVaultMeta: mockHasVaultMeta
+    }),
     arcUrlStorageKey: () => 'arc_url',
     arcApiTokenStorageKey: () => 'arc_token',
     DEFAULT_ARC_URLS: { main: '' },
@@ -120,6 +130,7 @@ jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ chil
 beforeEach(() => {
   jest.clearAllMocks()
   mockVaultEnabled = false
+  mockHasVaultMeta = false
   mockWallet = {
     managers: {
       permissionsManager: {
@@ -176,6 +187,22 @@ describe('WalletHomeScreen', () => {
     await act(async () => {})
     expect(screen.queryByText('wallet_vault')).toBeNull()
   })
+
+  // F-07: an existing enrollment keeps the destination reachable even with
+  // the flag off, so withdraw stays reachable on an already-funded vault.
+  test('shows the Vault destination when the flag is off but an existing vault enrollment is present', async () => {
+    mockHasVaultMeta = true
+    const screen = render(<WalletHomeScreen />)
+    await act(async () => {})
+    expect(screen.getByText('wallet_vault')).toBeTruthy()
+  })
+
+  test('has no Vault destination when the flag is off and there is no existing enrollment', async () => {
+    mockHasVaultMeta = false
+    const screen = render(<WalletHomeScreen />)
+    await act(async () => {})
+    expect(screen.queryByText('wallet_vault')).toBeNull()
+  })
 })
 
 describe('SettingsScreen', () => {
@@ -200,6 +227,21 @@ describe('SettingsScreen', () => {
     const screen = render(<SettingsScreen />)
     await act(async () => {})
     expect(screen.getByText('payments')).toBeTruthy()
+    expect(screen.queryByText('vault_row_title')).toBeNull()
+  })
+
+  // F-07
+  test('shows the Vault row when the flag is off but an existing vault enrollment is present', async () => {
+    mockHasVaultMeta = true
+    const screen = render(<SettingsScreen />)
+    await act(async () => {})
+    expect(screen.getByText('vault_row_title')).toBeTruthy()
+  })
+
+  test('has no Vault row when the flag is off and there is no existing enrollment', async () => {
+    mockHasVaultMeta = false
+    const screen = render(<SettingsScreen />)
+    await act(async () => {})
     expect(screen.queryByText('vault_row_title')).toBeNull()
   })
 })
