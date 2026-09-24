@@ -125,6 +125,468 @@ per field. A host that omits it no longer has to supply an all-or-nothing
   same restore attempt — a server-side failure does not get better by
   retrying it in a tight loop in place.
 
+### Nearby/QR payment verification (breaking: `DerivingWallet` gains `getServices`)
+
+`core/localpay/verify.ts`'s `verifyFramePayment` BSV branch checked only that
+the named output pays this device's derived key and carries a usable
+satoshi value — never that the transaction's (or its ancestors') unlocking
+scripts are valid, or that `sum(inputs) >= sum(outputs)`.
+`internalizeAction`'s own gate is a pure AtomicBEEF-structure/SPV check with
+no script interpreter, so a payer could spend a real mined UTXO it does not
+own, with a garbage `unlockingScript`, into an output that locks to the
+payee, for any amount, and have it credited offline. `verifyFramePayment`
+now calls `tx.verify(chainTracker)` — the SDK's own end-to-end verifier —
+against the same chain tracker `internalizeAction` itself consults
+(`wallet.getServices().getChainTracker()`). It fails closed: an ancestor
+present only as a txid throws rather than being silently skipped.
+
+The `DerivingWallet` interface this module accepts gains a required
+`getServices(): { getChainTracker(): Promise<ChainTracker> | ChainTracker }`.
+The real `Wallet`/`WalletStorageManager` object `NearbyFlow` already passes
+in satisfies this, so the app's own wiring needed no change — but **a host
+that built its own object against the old, narrower `DerivingWallet` shape
+(just `getPublicKey`) must add `getServices` or its build will fail to
+typecheck.**
+
+### Offline drain: an invalid foreign ancestor now cascades, not stalls forever
+
+`core/offline/plan.ts`'s `outcomeOfForeignPost` only ever classified a
+foreign-ancestor post as `'success'`, `'doubleSpend'` or `'serviceError'` —
+never `'invalidTx'` — so an ancestor the network explicitly rejects as
+invalid stalled the outbox drain forever instead of cascading the rejection
+to the descendant that credited off of it. `PostedTxidResult` gains an
+optional `serviceError` field (already set by the ARC adapter: exactly
+`false` for an INVALID/MALFORMED/REJECTED verdict, `true` for a
+transport/rate-limit/timeout issue), and `outcomeOfForeignPost` now returns
+`'invalidTx'` exactly when `status==='error' && doubleSpend!==true &&
+serviceError===false`. Absent or `true` — including a provider that never
+sets the field — stays retryable, so the fix fails closed. `'invalidTx'` was
+already a valid `PostOutcome` used by the owned-post path; this is what
+makes a foreign ancestor reach it too, wiring up the existing
+cascade-to-descendant handling rather than adding new machinery.
+
+### Declined-payment watch and a safer parked cancel
+
+Two related fixes in the local-pay/offline path, both detect-and-warn, never
+block:
+
+- `finalizeDelivery` (`core/localpay/build.ts`) treated a negative ack as
+  trustworthy and unconditionally released the payer's inputs — true even
+  when the decline happened offline, since the existing mandala abort guard
+  only blocks an abort once the payer's own settlement row has already
+  advanced to handed-over, which never happens on a decline. It now accepts
+  an optional `watchDeclinedAbort?: (entry: { txid: string; reference:
+  string }) => Promise<void>` dependency, called after every decline (BSV or
+  token) it has a txid for, whether or not the abort itself succeeded.
+  `core/localpay/pendingAborts.ts` gains a durable watch list
+  (`queueDeclinedAbortWatch` / `verifyDeclinedAborts`, backed by a new
+  `DECLINED_ABORT_WATCH_KEY` entry): it asks the network the same question
+  `processOfflineActions.ts`'s `networkAlreadyHas` already asks, surfaces
+  (and drops) a watched txid that reaches the chain anyway, and gives up
+  unsurfaced after 7 days. `WalletContext` runs `verifyDeclinedAborts` at
+  build time and on every reconnect, alongside the existing
+  `replayPendingAborts`, and raises a background notice
+  (`local_pay_decline_broadcast_title` / `_body`) if anything surfaces —
+  never blocking.
+- `cancelParkedPayment` (`core/offline/cancelParked.ts`) refused a parked
+  cancel only via a token-only settlement-row check, so a parked BSV
+  payment — or a token txid with no settlement row yet — could be cancelled
+  and its inputs respent while the payee's own scanned copy might already
+  be in flight. It now runs a chain-status check independent of any
+  settlement row: online+known refuses as `'already-sent'`, online+unknown
+  proceeds to `'cancelled'`, and genuinely offline refuses with a new
+  `'unverifiable-offline'` outcome unless the caller passes
+  `acknowledgedUnverifiable: true`. A new `runCancelParkedFlow` helper
+  drives the confirm-and-retry UX, wired into `WalletHomeScreen`'s cancel
+  action with the new `local_pay_cancel_unverifiable_*` keys and a
+  destructive confirm.
+
+`CancelParkedOutcome` gains a fourth member — **a host matching
+exhaustively over the previous `'cancelled' | 'already-sent' | 'not-found'`
+should add `'unverifiable-offline'`.**
+
+### Received-payment overlay: a `verification` prop gates the green claim
+
+`NearbyFlow` set the payee's success overlay to its green "Added to your
+wallet" state as soon as the payment was durably queued, before
+`internalizeAction` had necessarily run — if internalization later failed,
+the overlay never retracted or recoloured, claiming a credit the device
+could not back yet. `PaymentSuccessOverlay` gains an optional
+`verification?: 'pending' | 'verified' | 'not-credited'` prop, defaulting to
+`'verified'` so every existing caller is unaffected. The overlay's *timing*
+is unchanged — still shown the instant the payment is durably queued; only
+the claim is gated: `'pending'` shows a neutral "Confirming with your
+wallet…" (`local_pay_received_confirming`) the moment it appears, resolving
+to today's unchanged green copy on a genuine credit or a neutral "Not added
+to your wallet yet" (`local_pay_received_not_credited`) otherwise. Ignored
+on the payer side, where there is nothing left to confirm.
+
+### Recovery: confirm before replacing an existing wallet (breaking)
+
+Defense in depth against a deep link, or any other entry point, silently
+overwriting a wallet whose phrase may be unsaved: `recoverWallet` now asks a
+new `confirmReplace` prompt once, before the first `restoreWallet` attempt,
+whenever `deps.hasStoredIdentity()` reports an existing secret already on
+the device. Declining returns `{kind:'cancelled'}` before anything is
+written; a biometric retry within the same call never re-prompts. This also
+means the onboarding "replace an auto-created wallet" path sees the same
+confirm, deliberately — any caller reaching this point already has a stored
+identity to protect, in-app or not.
+
+`RestoreWalletDeps` gains a required `hasStoredIdentity(): Promise<boolean>`,
+and `RestorePrompts` gains a required `confirmReplace(): Promise<'replace' |
+'keep'>`. **A host supplying its own `RestoreWalletDeps`, or building its
+own `RestorePrompts` instead of using `ui/recoveryPrompts.ts`'s
+`restorePrompts(t)`, must implement both** — the toolbox's own
+`restorePrompts(t)` already does, wired to the new
+`recovery_replace_wallet_title` / `_body` / `_confirm` keys, and treats a
+dismissal as `'keep'` (never `'replace'`), matching the existing
+dismiss-is-always-safe convention the biometric-refused and
+backup-replay-failed prompts already follow.
+
+Also in this pass: `createNewWallet` accepts an optional
+`opts.cancelled?: () => boolean`, re-checked right after the identity guard
+so a caller whose screen state changed mid-await (e.g. its route flipped to
+the backup flow) does not generate or store anything against stale state;
+`CreateOutcome` gains a `{kind:'cancelled'}` member for when it fires.
+`classifyImportInput`'s hex branch now catches an SDK parse failure and
+returns `null` instead of throwing, matching the mnemonic branch's existing
+behaviour.
+
+### Deep links: destructive recovery routes refused, pairing now requires approval
+
+`resolveNativeIntent` (`core/pay/rails/nativeIntent.ts`) closes two related
+gaps:
+
+- An external `bsv-wallet://auth/scan-shares` or
+  `bsv-wallet://auth/mnemonic?flow=import` link redirected straight into the
+  destructive import screens with no confirmation. Both now redirect to `/`
+  instead of passing through; `flow=backup` and every other route are
+  unaffected. This is layer 1 of two — layer 2 is the confirm-replace guard
+  above, which also refuses an in-app entry point.
+- An external `pair` link used to be rewritten to `/connections`, whose own
+  deep-link effect called straight into `connect()` with no user gesture in
+  between. It is no longer rewritten: it now passes straight through to
+  `/pair` (`PairScreen`), which already renders the same origin/permissions
+  Approve/Reject card a scanned or pasted URI gets. `ConnectionsScreen`'s
+  corresponding auto-connect `useEffect` was deleted — that screen now only
+  ever connects from its own explicit scan/paste buttons.
+
+No API surface changed, but **a host relying on an external pairing link
+auto-connecting from Connections needs to account for it now landing on
+`/pair` and requiring an explicit approval tap instead.**
+
+### Secrets: a sentinel read failure no longer re-provisions the KEK
+
+`putSecret` used a `null` sentinel read as its sole signal that no wallet
+was ever stored, taking that straight into `provisionKek()`, which
+unconditionally deletes both KEK keychain items before minting a new one —
+so a transient sentinel read failure on an otherwise-existing sentinel could
+orphan an already-sealed backup envelope beyond recovery. `readSentinel`
+gains an `options?: { strict?: boolean }` parameter that rethrows instead of
+swallowing to `null`; `putSecret` now reads it strictly and refuses the
+write (returns `false` — the same externally-visible shape as a declined
+biometric prompt) rather than re-provisioning on a thrown read. A genuinely
+missing sentinel still provisions normally.
+
+### Headers: the validated window is authoritative over a remote answer
+
+`HeaderStore.rootForHeight` let a remote chaintracks answer permanently
+overwrite an already PoW-validated window root on any disagreement —
+reachable by a MITM absent TLS pinning, not only a compromised chaintracks
+deployment. `HeaderStore` gains `isWindowBody(height)` and now treats the
+window's own root as authoritative for its validated body
+(`[baseHeight, tipHeight-6]`), ignoring any `extra`-cache entry there
+outright. `OfflineFirstChaintracks.isValidRootForHeight` refuses a
+body-covered mismatch outright — no remote lookup, no caching. The last-6
+reorg tail, and any height outside the window entirely, are unchanged: a
+mismatch there still falls through to the remote self-heal path exactly as
+before.
+
+### Wallet context: bounded auto-approve, private callback token, corroborated checks
+
+Three fixes sharing `WalletContext.tsx`'s wiring:
+
+- **Auto-approve** was a single global cooldown with no cumulative cap, so
+  multiple paired origins could accidentally throttle each other while a
+  single origin alone could still auto-approve up to the per-request
+  threshold every cooldown window, forever. `core/services/autoApprovePolicy.ts`
+  (`createAutoApprovePolicy`) replaces it: the cooldown is now keyed **per
+  originator**, plus a global rolling 24h cumulative cap across every
+  originator combined, `AUTO_APPROVE_DAILY_CAP_SATS` — **provisional**, set
+  to 10x the default per-request threshold (1,000,000 sats at the shipped
+  defaults) purely so it cannot bind in ordinary single-payment use, pending
+  product sign-off on the real number. The ledger is persisted best-effort
+  to `AsyncStorage` so an app restart does not reset the cap.
+- **Broadcast callback token**: the Arcade `X-CallbackToken` was
+  `keyDeriver.identityKey.substring(0, 32)` — the first 32 hex chars of the
+  wallet's own *public* identity key, a value any past counterparty already
+  has. `core/services/callbackToken.ts`'s `deriveCallbackToken` derives it
+  from a BRC-42 *private* key instead (fixed protocol/keyID, counterparty
+  `'self'`, then hashed) — deterministic per wallet, but only this wallet's
+  root key can compute it. The token is recomputed on every wallet build and
+  used for both the Arcade broadcast service and the Monitor's
+  `callbackToken` option, so an existing server-side SSE subscription keyed
+  to the old, public-key-derived value re-registers under the new one
+  automatically the next time the wallet builds — no separate migration
+  step, but it is a genuine value change a host should be aware of if it
+  reads or reproduces this token itself.
+- **Wallet check**: a coin used to be marked permanently unspendable off a
+  single WhatsOnChain "spent" response — WoC can be wrong, stale, or
+  answering for the wrong network, and this path never writes `spentBy`, so
+  nothing could ever undo a wrong call. `core/walletRepair/shouldMarkUnspendable.ts`
+  now requires the toolbox's own configured `getUtxoStatus` provider to
+  *also* report the output as no longer a UTXO before committing to
+  `spendable: false`; either way, the claimed spender is now recorded in
+  `outputs.spendingDescription` as a paper trail (a free-text column
+  nothing else in this app reads or writes).
+
+### Exchange rate: one fetch, one fallback, and a live refresh within the session
+
+`ExchangeRateContext` used to run its own independent fetch/cache/fallback
+logic that disagreed with `core/services/exchangeRate.ts`'s (16 vs 16.75)
+while sharing the same `AsyncStorage` cache key. `FALLBACK_RATE`/`CACHE_KEY`
+are now exported from `exchangeRate.ts`, and `ExchangeRateContext` calls its
+single timeout-guarded `getExchangeRate()` instead of re-implementing an
+untimed fetch and its own cache/fallback.
+
+Separately, that background refresh used to be fire-and-forget — its result
+only ever reached the UI on the *next* cold start, so a session that opened
+with a stale cached/fallback rate stayed stale until closed and reopened.
+`getExchangeRate()` now returns an additional `refreshed: Promise<number |
+undefined>` field (never rejects — every failure mode is still caught and
+reported as `undefined`) alongside the existing `rate`; a caller that
+ignores it (the wallet-build seed) sees no change at all, but
+`ExchangeRateContext` awaits it and raises the displayed rate once the live
+fetch actually lands, within the same session.
+
+### Pay: cross-network address warning, an honest foreign-domain trust badge
+
+`core/pay/rails/index.ts` gains `addressNetwork(address): 'main' | 'test' |
+undefined`, reading a base58check address's version byte, and
+`classifyRecipientInput` / `classifyScan` / `PayTarget`'s address variant
+carry an optional `network` field alongside it. `UniversalSend` now shows a
+non-blocking `pay_address_network_mismatch` note when the recipient's
+detected network disagrees with the wallet's currently selected one — a
+warning, not a refusal, since the same key redeems on either chain.
+
+Separately, a handle-registry search hit from a foreign domain used to get
+the same "Registered" badge as a match from the wallet's own pinned
+registry, overstating its trust level — a foreign domain's is only
+paymail-equivalent (its own DNS+TLS), not the pinned registry's actual
+vetting. A foreign-domain match now gets `pay_trust_handle_domain_attested`
+("Verified by {{domain}}") instead of `pay_trust_handle_attested`.
+
+### Vault: interrupted-deposit recovery, a safer preview, stale-meta supersession
+
+- **Interrupted deposit.** A crash between `signAction` and the `sendWith`
+  release of a Vault deposit used to freeze every subsequent vault
+  operation behind `reconcileHeldVaultDeposits`'s `action-pending` refusal,
+  with no in-app way to resolve it. `core/services/vault/transfers.ts` gains
+  `resolveHeldVaultDeposit(w, adminOriginator, meta, scopeToken?)`: it asks
+  the network for the held txid's status first (`already-known` if the
+  network already has it, otherwise re-broadcasts the *exact*
+  already-signed bytes via the same `sendWith` call the normal release
+  uses — never a second transaction, never `abortAction`). `VaultScreen`
+  shows a "Finish the interrupted deposit" notice and button
+  (`vault_resolve_held_deposit_action` / `_done` / `_failed`) whenever a
+  relock or key-removal call surfaces `action-pending`.
+- **Preview mutex.** `previewVaultWithdrawal` could call `abortAction` on a
+  live, in-flight unsigned reservation through `selectVaultInputs`'s
+  automatic stale-reservation repair — a read-only preview must not do
+  that. `selectVaultInputs` gains a `repair` parameter (default `true`);
+  `previewVaultWithdrawal` now passes `repair: false` and runs inside the
+  vault mutation mutex, failing closed with `action-pending` instead.
+  `withdrawFromVault` / `relockVault` keep `repair: true`, so a genuinely
+  stale reservation from a past crash is still cleaned up.
+- **Stale local meta.** `recoverVaultMetaFromOutputs` used to trust an
+  existing local record unconditionally, so a stale post-reinstall
+  SecureStore snapshot could permanently hide a newer on-chain revision. It
+  now always runs the authenticated on-chain output scan and keeps the
+  existing record only when it is not superseded by the scan (a strictly
+  higher revision, or a same-revision strict key-set superset) — a one-way
+  ratchet, never a merge or an overwrite by a same-revision disagreement.
+- **Allocation-gate scope.** `reconcileHeldVaultDeposits`'s gate now runs
+  only for the sub-cases that actually allocate a new salt index — a
+  deposit, a partial withdrawal's re-vaulted remainder, and `relockVault` —
+  so a full-balance withdrawal and `beginVaultKeyRemoval` (neither of which
+  creates a new vault output) no longer block on an unrelated held deposit.
+- **Reachable while funded.** `VaultContext` gains a device-local
+  `hasVaultMeta` flag, backed by the existing `vaultStore.isEnrolled()`
+  read (no new network call). `WalletHomeScreen` and `SettingsScreen` now
+  show their Vault entry point when `isVaultAvailable(selectedNetwork) ||
+  hasVaultMeta`, so an already-funded vault stays reachable even with
+  `EXPO_PUBLIC_VAULT_ENABLED` off or the network switched away from
+  mainnet. `VaultScreen`'s own withdraw/deposit gating is unchanged.
+- **Vendored patch.** The `@bsv+wallet-toolbox-mobile+2.14.0.patch` funding
+  plan's UTXO-pool-growth/surplus-shaping/migration-input exemptions were
+  keyed off a `'vault-deposit'` label, so a vault withdrawal or re-lock was
+  not exempted and could have extra migration inputs folded in, which
+  `validateSignableVaultPlan`'s strict input-count check then rejected
+  outright — spuriously failing an otherwise-legitimate withdraw or relock.
+  Re-keyed to the already-computed `vargs.__bsvVaultAdminAuthorized ===
+  true` flag, which covers deposit, withdraw and relock alike.
+
+### Mandala: a handle-rail token is held before it is internalized
+
+`@bsv/mandala`'s own `receiveTokens` calls `wallet.internalizeAction()`
+*before* it calls the settle hook that finally writes a `token_settlements`
+row — on a handle-rail token's first credit, that row does not exist yet, so
+`StorageExpoSQLite.attemptToPostReqsToNetwork`'s guard (which looks up
+exactly that row) finds nothing and lets an unmediated broadcast through
+before the issuer's overlay ever got to admit or refuse the transfer.
+`core/mandala/inboxPrehold.ts` adds a pre-hold pass, wired into
+`createRuntime.ts`'s `receiveFromInbox` ahead of the real `receiveTokens`
+call: it lists the inbox first, decodes each v2 hand-over message using only
+the mechanical shape of the library's own unexported decoder, and — for
+every message the library's own `cover()` verdict accepts — writes its
+settlement row through the same `settleThroughDrain` hook the real receive
+already uses. No trust logic is reimplemented; the verdict is entirely
+`cover()`'s own. A message whose pre-hold write fails is excluded from that
+one `receiveTokens` call and un-excluded immediately after, so it retries
+whole on the next drain tick instead of being credited with no guard row. A
+failure of the whole pre-hold pass skips the entire receive rather than
+running `receiveTokens` unguarded. One documented, inherent gap: this lists
+the inbox once and `receiveTokens` lists it again moments later — a message
+arriving in that narrow window is credited with the library's original,
+unguarded ordering, exactly as before this pass existed.
+
+### Backup: a sealed generation, and a verified snapshot preferred on restore
+
+Restore target selection had no notion of "complete" — a manifest carries no
+completeness flag, so a restore landing mid-rotation could pass the
+existing contiguity check and silently report success on a partial
+snapshot. `core/backup/codec.ts` gains a distinct completion-marker
+plaintext shape (`encodeMarker` / `decodeEntry`, `{kind:'chunk'|'marker'}`);
+`decodeChunk` is now a thin wrapper over `decodeEntry` with byte-identical
+behaviour for old-format ciphertext, so nothing about an existing backup log
+changes. `push.ts`'s `pushOnce` now appends a one-shot completion marker
+once a generation's window closes — immediately, as a dedicated pass, for
+any pre-existing cursor whose window had already closed under an older
+build (`cursor.ts`'s `PushCursor` gains an optional `sealedGeneration`,
+undefined on every pre-existing serialized cursor, which is exactly what
+triggers this back-fill). The marker is never encoded as an empty
+`SyncChunk`, since the upstream `processSyncChunk` treats an all-empty chunk
+as the done sentinel and would truncate or hard-fail a later replay.
+
+`RemoteSyncReader` now decodes every entry via `decodeEntry` and silently
+swallows marker entries — never yielded as a `SyncChunk`, never counted in
+`length` — and exposes a cheap `verifiedComplete()` that decodes only the
+newest entry, reporting true only when it is a marker whose `chunkCount`
+matches the real-entry count before it. `restore.ts`'s `pickTarget` now
+ranks every candidate by `updatedAt` and picks the first one whose reader
+reports `verifiedComplete` — an older but sealed generation beats a newer
+one still mid-rotation — falling back to the previous newest-only heuristic
+(`verified: false`) only when nothing in the manifest is marked, so a fully
+legacy manifest still restores exactly as before. `RestoreResult` /
+`RestoreOnImportResult` gain a `verified: boolean` field;
+`restoreOnImport.ts`'s own ad hoc `newestTarget()` was dropped in favour of
+the same shared `pickTarget`. `WalletContext` logs a `[backup]`
+console.warn when an import-time restore completed but could not be
+verified, without blocking the import.
+
+An **older app build** reading a log a newer writer has started sealing
+does not throw on the marker entry itself: its old `decodeChunk` decrypts
+the `{chain, marker}` envelope, finds no `chunk` field (the chain label
+still matches, so the one check that function makes still passes), and
+hands back `undefined` in place of a `SyncChunk` — which then reaches
+whatever consumes `getSyncChunk`'s result expecting a real chunk, and is
+very likely to throw downstream rather than replay silently-wrong data. It
+is a new envelope shape, not a wire-compatible extension: any host running
+more than one app build against the same backup account should upgrade
+every reader to a toolbox version that understands `decodeEntry` before any
+writer on that account starts emitting completion markers.
+
+### Monitor: no overlapping outbox drains, and long-gap skips are recorded
+
+- `TaskDrainOutbox` had no dedup guard: a `MonitorSupervisor` watchdog
+  restart can leave an old generation's in-flight `runOnce()` executing
+  concurrently with a newly-started generation's own `runOnce()` (the old
+  call is not cancelled, only stopped from looping again once it resolves),
+  which could retry the same outbox entry twice. It gains a static
+  `running` flag, set at the top of `runTask` and cleared in a `finally` so
+  a throw cannot wedge it; a concurrent call now returns `''` immediately
+  without draining.
+- `reviewProvenTxsStartHeight` jumps ahead to the last 100 eligible heights
+  when last-reviewed falls further behind the tip than that — an
+  intentional tradeoff against an unbounded chain-crawl — but nothing
+  recorded which heights were permanently skipped, so a rare missed reorg
+  in that range could never be surfaced. `core/walletMonitor.ts` exports a
+  new `skippedReviewRanges: { fromHeight: number; toHeight: number }[]`
+  array (and `resetSkippedReviewRanges()`), pushed to and `console.warn`'d
+  with a tagged `[walletMonitor]` line whenever a skip actually happens, so
+  diagnostics or a future slow background sweep can read it.
+
+### `AmountInput` accepts the locale's own decimal separator
+
+Fiat-mode input hardcoded `.` as the decimal separator in both the input
+mask and `parseDisplayToSatoshis`, so a comma-decimal locale (e.g. de-DE)
+could not type a fractional fiat amount at all — every comma keystroke
+failed the mask and was silently dropped, and `parseFloat` only ever
+recognises `.` besides. `core/amountFormatHelpers.ts` gains
+`decimalSeparator()` (re-exported from the package root), derived from
+`Intl.NumberFormat(locale).formatToParts(1.1)` rather than hardcoded;
+`AmountInput`'s input mask and `parseDisplayToSatoshis` both use it to build
+the allowed pattern and to normalize typed text to `.` before `parseFloat`.
+BSV's integer mode (`fractionDigits === 0`) is untouched — it has no decimal
+point to begin with.
+
+### `setMockDriver` refuses outside `__DEV__`
+
+`setMockDriver` had no gate of its own — only its `devMock.ts` wrapper
+checked `__DEV__` before calling it — so any code with JS execution in a
+nominally-production bundle could call it directly and make
+`getVaultDriver()` prefer a software mock over real hardware, skipping all
+native attestation. It is now a no-op outside `__DEV__`. `jest-expo` sets
+`__DEV__=true`, so the existing mock-driver test suites are unaffected.
+
+### `LocalStorageAdapter` removed (breaking)
+
+`core/storage/LocalStorageAdapter.ts` and its `core/index.ts` exports —
+`initializeLocalStorage`, `isLocalStorage`, `getStorageDisplayName`, and the
+`LocalStorageConfig` type — are deleted. It never passed `identityKey` into
+the `StorageExpoSQLite` constructor it wrapped, so every identity would have
+collided on `wallet-default-<chain>net.db` had it ever been used, and a
+repo-wide search found no real caller: the live `WalletContext` path already
+passes both `identityKey` and an explicit `databaseName` directly to
+`StorageExpoSQLite`. **Breaking only for a host that imported these names
+directly** — nothing in this app's own code depended on them.
+
+### New i18n keys, and a corrected export explainer
+
+15 new keys, in all 12 languages: `local_pay_received_confirming`,
+`local_pay_received_not_credited`, `local_pay_decline_broadcast_title`,
+`local_pay_decline_broadcast_body`, `local_pay_cancel_unverifiable_title`,
+`local_pay_cancel_unverifiable_body`, `local_pay_cancel_unverifiable_confirm`,
+`recovery_replace_wallet_title`, `recovery_replace_wallet_body`,
+`recovery_replace_wallet_confirm`, `pay_address_network_mismatch`,
+`pay_trust_handle_domain_attested`, `vault_resolve_held_deposit_action`,
+`vault_resolve_held_deposit_done`, `vault_resolve_held_deposit_failed`.
+Non-English copy is machine-drafted and awaits native-speaker review, same
+as every previous translation batch in this changelog.
+
+`vault_export_explainer` is also corrected in all 12 locales: it claimed the
+vault salt lives in the locking script, which is false (the script commits
+only to `HASH160(salt||table)`; the salt itself is witness-only) and
+directly contradicted `vault_first_deposit_body` five keys later in the same
+file.
+
+### App-side notes for a host
+
+- `app.json`'s `expo.android.allowBackup` is now explicitly `false`. Expo's
+  own default (`true`) let Android's Auto-Backup-for-Apps copy the
+  plaintext SQLite database — which holds every vault output's salt in
+  `customInstructions` — off-device on an OS-initiated backup with no user
+  action. The app's own encrypted backup system is unaffected by this; a
+  host forking this `app.json` should carry the same setting.
+- The vendored `patches/@bsv+wallet-toolbox-mobile+2.14.0.patch` changed
+  (see the Vault section above): three funding-plan exemption conditions in
+  `makeFundingParams` moved from a `'vault-deposit'` label check to
+  `vargs.__bsvVaultAdminAuthorized === true`. `npm install` picks up the
+  regenerated patch automatically via `patch-package` for anyone installing
+  this package fresh; a host that vendors its own copy of this patch
+  outside the normal install path needs to regenerate it the same way.
+
 ## 0.7.0
 
 0.6.0 was tagged in this file but never published to npm. Hosts upgrading from

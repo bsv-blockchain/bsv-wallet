@@ -560,18 +560,40 @@ are required — both hard-won during this package's extraction:
 
 ## Breaking changes
 
-**0.8.0:** nothing removed. `restoreWallet`/`recoverWallet` change host-visible
-behaviour for anything that goes through them (the app's own mnemonic and
-scan-shares screens, and any host reusing the new `core/recovery/` module
-directly): recovering or importing over an already-built wallet now rebuilds
-instead of silently no-op'ing, storing one secret kind now deletes the other
-(exactly one secret survives a restore), a failed backup replay's "skip" now
-also works for hex/WIF imports, and an attestation failure after a
-successful build is reported non-fatally instead of failing the whole
-attempt. `validateShareCompatibility` is deprecated (still works, returns
-English prose) in favour of `checkShareCompatibility`, which returns a code
-for the caller to translate. See the CHANGELOG's 0.8.0 entry for the full
-list.
+**0.8.0:** three API points break. `DerivingWallet` (the interface
+`core/localpay/verify.ts`'s `verifyFramePayment` accepts) gains a required
+`getServices(): { getChainTracker(): Promise<ChainTracker> | ChainTracker }`
+— a host that built its own object against the old, narrower shape (just
+`getPublicKey`) must add it before its build will typecheck.
+`RestoreWalletDeps` gains a required `hasStoredIdentity(): Promise<boolean>`
+and `RestorePrompts` gains a required `confirmReplace(): Promise<'replace' |
+'keep'>` — a host supplying its own `RestoreWalletDeps`, or building its own
+`RestorePrompts` instead of using `ui/recoveryPrompts.ts`'s
+`restorePrompts(t)`, must implement both. `core/storage/LocalStorageAdapter.ts`
+and its exports (`initializeLocalStorage`, `isLocalStorage`,
+`getStorageDisplayName`, `LocalStorageConfig`) are removed — dead code with
+no real caller in this app, but a host that imported these names directly
+gets a build error.
+
+`restoreWallet`/`recoverWallet` also change host-visible behaviour for
+anything that goes through them (the app's own mnemonic and scan-shares
+screens, and any host reusing the `core/recovery/` module directly):
+recovering or importing over an already-built wallet now rebuilds instead of
+silently no-op'ing, storing one secret kind now deletes the other (exactly
+one secret survives a restore), a failed backup replay's "skip" now also
+works for hex/WIF imports, an attestation failure after a successful build
+is reported non-fatally instead of failing the whole attempt, and
+`recoverWallet` now asks the new `confirmReplace` prompt before overwriting
+a secret already on the device — declining cancels before anything is
+written. An external pairing deep link no longer auto-connects from
+Connections; it now lands on `/pair` and requires the same explicit
+Approve/Reject tap a scanned QR gets. `validateShareCompatibility` is
+deprecated (still works, returns English prose) in favour of
+`checkShareCompatibility`, which returns a code for the caller to translate.
+See the CHANGELOG's 0.8.0 entry for the full list, including the additive
+review-fix changes (Nearby/QR payment verification, offline-drain and
+declined-payment handling, auto-approve bounds, exchange-rate/header/backup
+fixes, and more) that ship alongside these three breaking points.
 
 **0.4.0:** the package no longer reads `process.env` at all. `DEFAULT_BACKUP_URL`
 is removed, and the `EXPO_PUBLIC_*` service reads in `walletServiceConfig` are
