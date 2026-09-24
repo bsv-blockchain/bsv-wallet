@@ -46,7 +46,16 @@ describe('recoverWallet', () => {
     expect(deps.setMnemonic).toHaveBeenCalledTimes(1)
     expect(prompts.biometricRefused).not.toHaveBeenCalled()
     expect(prompts.restoreFailed).not.toHaveBeenCalled()
-    expect(outcome).toMatchObject({ kind: 'ok', history: 'restored', attested: true })
+    expect(outcome).toMatchObject({ kind: 'ok', history: 'restored', attested: true, verified: true })
+  })
+
+  test('restoreWallet reports an unverified restore → outcome forwards verified:false verbatim', async () => {
+    const deps = makeDeps({ getBackupRestore: jest.fn(() => ({ phase: 'restored' as const, verified: false })) })
+    const prompts = makePrompts()
+
+    const outcome = await recoverWallet(deps, mnemonicSecret, { medium: 'phrase', prompts })
+
+    expect(outcome).toMatchObject({ kind: 'ok', history: 'restored', verified: false })
   })
 
   test('refused → biometricRefused resolves retry → second attempt succeeds → ok; biometricRefused called once', async () => {

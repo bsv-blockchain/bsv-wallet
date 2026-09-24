@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 const mockReplace = jest.fn()
 const mockBack = jest.fn()
 let mockFlow: string | undefined
-let mockRestoreState: { phase: string; chunks?: number; total?: number; error?: string } = {
+let mockRestoreState: { phase: string; chunks?: number; total?: number; error?: string; verified?: boolean } = {
   phase: 'idle',
   chunks: 0,
   total: 0
@@ -795,6 +795,40 @@ describe('import flow', () => {
     expect(mockStore.mock.invocationCallOrder[0]).toBeLessThan(mockDeleteRecovered.mock.invocationCallOrder[0])
     expect(mockBuild).toHaveBeenCalledWith('valid test phrase', { restoreFromBackup: true })
     expect(mockAttest).toHaveBeenCalledWith('imported-phrase-identity', 'phrase')
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('a restore that completed but could not be verified shows the unverified alert, then celebrates', async () => {
+    mockBuild.mockImplementationOnce(async () => {
+      mockRestoreState = { phase: 'restored', chunks: 3, total: 3, verified: false }
+    })
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'valid test phrase')
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockShowAlert).toHaveBeenCalledWith({
+      title: 'restore_backup_unverified_title',
+      message: 'restore_backup_unverified_body',
+      buttons: [{ text: 'dismiss', key: 'dismiss' }]
+    })
+    expect(screen.getByText('celebration')).toBeTruthy()
+  })
+
+  test('a fully verified restore never shows the unverified alert', async () => {
+    mockBuild.mockImplementationOnce(async () => {
+      mockRestoreState = { phase: 'restored', chunks: 3, total: 3, verified: true }
+    })
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'valid test phrase')
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    expect(mockShowAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'restore_backup_unverified_title' })
+    )
     expect(screen.getByText('celebration')).toBeTruthy()
   })
 

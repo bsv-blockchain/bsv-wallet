@@ -407,6 +407,8 @@ export default function MnemonicScreen() {
       if (isBackupFlow()) return
       switch (outcome.kind) {
         case 'ok':
+          if (outcome.verified === false) await prompts.restoreUnverified()
+          if (isBackupFlow()) return
           setCelebrating(true)
           break
         case 'cancelled':

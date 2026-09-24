@@ -1,6 +1,6 @@
 import { PrivateKey, Utils } from '@bsv/sdk'
 import type { LogEntry } from '../../core/backup/client'
-import { encodeChunk, encodeMarker, emptyChunk, isEmptyChunk } from '../../core/backup/codec'
+import { encodeChunk, emptyChunk, isEmptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { BackupChainError, RemoteSyncReader } from '../../core/backup/RemoteSyncReader'
 import type { SyncChunk } from '../../core/toolboxTypes'
@@ -245,17 +245,19 @@ describe('RemoteSyncReader reliability and scheduling', () => {
   })
 })
 
-// ── completion markers — P1-backup-incomplete-generation ───────────────────
-describe('RemoteSyncReader completion markers', () => {
-  /** Real entries followed by one marker, all encrypted for real via the same wallet. */
+// ── seals — P1-backup-incomplete-generation ─────────────────────────────────
+describe('RemoteSyncReader seals', () => {
+  /** Chunks encrypted for real via the same wallet, the last one optionally sealed. */
   async function logWith (
     w: ReturnType<typeof deriveBackupWallet>,
     chunkTxids: string[],
-    marker: { generation: number, chunkCount: number } | null
+    seal: { generation: number, initialChunkCount: number } | null
   ): Promise<{ blobs: number[][], entries: LogEntry[] }> {
     const blobs: number[][] = []
-    for (const txid of chunkTxids) blobs.push(await encodeChunk(w, chunkWithTx(txid), 'main'))
-    if (marker != null) blobs.push(await encodeMarker(w, marker, 'main'))
+    for (let i = 0; i < chunkTxids.length; i++) {
+      const sealThis = seal != null && i === chunkTxids.length - 1 ? seal : undefined
+      blobs.push(await encodeChunk(w, chunkWithTx(chunkTxids[i]), 'main', sealThis))
+    }
     const entries: LogEntry[] = blobs.map((b, i) => ({
       seq: i + 1,
       sha256: `sha${i + 1}`,
@@ -266,27 +268,26 @@ describe('RemoteSyncReader completion markers', () => {
     return { blobs, entries }
   }
 
-  it('never yields a marker to the caller and excludes it from length', async () => {
+  it('yields every entry to the caller, seal or not, and counts them all in length', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, chunkCount: 2 })
+    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 2 })
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
 
     expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('aaa')
     expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('bbb')
-    // The marker is swallowed internally rather than handed back as a third chunk.
     expect(isEmptyChunk(await reader.getSyncChunk(args))).toBe(true)
     expect(reader.length).toBe(2)
   })
 
-  it('reports verifiedComplete true only when the newest entry is a well-formed marker matching the real count', async () => {
+  it('reports verifiedComplete true when the newest entry carries a seal for this generation whose initialChunkCount is covered', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, chunkCount: 2 })
+    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 2 })
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
 
     await expect(reader.verifiedComplete()).resolves.toBe(true)
   })
 
-  it('reports verifiedComplete false when there is no marker at all', async () => {
+  it('reports verifiedComplete false when there is no seal at all', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], null)
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
@@ -294,30 +295,47 @@ describe('RemoteSyncReader completion markers', () => {
     await expect(reader.verifiedComplete()).resolves.toBe(false)
   })
 
-  it('rejects a marker whose declared chunkCount disagrees with the real entries before it', async () => {
+  it('reports verifiedComplete false when the newest seal names another generation', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    // Two real chunks were actually pushed, but the marker (forged/corrupted) claims three.
-    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, chunkCount: 3 })
+    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 2, initialChunkCount: 2 })
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
 
     await expect(reader.verifiedComplete()).resolves.toBe(false)
   })
 
-  it('reports verifiedComplete false once further deltas land after the seal', async () => {
-    // push.ts's needsSeal is one-shot: a generation that kept receiving ordinary chunks
-    // after its marker no longer has the marker as its newest entry.
+  it('reports verifiedComplete false when the seal claims more chunks than the log holds', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const sealed = await logWith(w, ['aaa', 'bbb'], { generation: 1, chunkCount: 2 })
-    const extra = await encodeChunk(w, chunkWithTx('ccc'), 'main')
-    const blobs = [...sealed.blobs, extra]
-    const entries: LogEntry[] = [
-      ...sealed.entries,
-      { seq: 4, sha256: 'sha4', prevSha256: 'sha3', size: extra.length, createdAt: '2026-09-21T00:00:00Z' }
-    ]
+    // Only two real chunks exist, but the seal (forged/corrupted) claims three.
+    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 3 })
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
 
     await expect(reader.verifiedComplete()).resolves.toBe(false)
-    // But the marker mid-log is still swallowed correctly on replay.
+  })
+
+  it('a legacy log with no seal on any entry reports verifiedComplete false', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const { blobs, entries } = await logWith(w, ['aaa', 'bbb', 'ccc'], null)
+    const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
+
+    await expect(reader.verifiedComplete()).resolves.toBe(false)
+  })
+
+  it('stays verifiedComplete once further deltas land, because every later chunk carries the same seal', async () => {
+    // Unlike a one-shot marker entry, the seal rides on EVERY chunk appended after the
+    // initial window closes — so a generation that keeps receiving ordinary deltas stays
+    // provably complete, rather than losing its proof the moment a new chunk becomes the
+    // newest entry. See push.ts's pushOnce.
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const sealed = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 2 })
+    const extra = await encodeChunk(w, chunkWithTx('ccc'), 'main', { generation: 1, initialChunkCount: 2 })
+    const blobs = [...sealed.blobs, extra]
+    const entries: LogEntry[] = [
+      ...sealed.entries,
+      { seq: 3, sha256: 'sha3', prevSha256: 'sha2', size: extra.length, createdAt: '2026-09-21T00:00:00Z' }
+    ]
+    const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
+
+    await expect(reader.verifiedComplete()).resolves.toBe(true)
     expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('aaa')
     expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('bbb')
     expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('ccc')
@@ -325,20 +343,19 @@ describe('RemoteSyncReader completion markers', () => {
     expect(reader.length).toBe(3)
   })
 
-  it('does not re-fetch or re-decrypt the marker entry replay later reaches', async () => {
+  it('does not re-fetch or re-decrypt the entry replay later reaches', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const { blobs, entries } = await logWith(w, ['aaa'], { generation: 1, chunkCount: 1 })
+    const { blobs, entries } = await logWith(w, ['aaa'], { generation: 1, initialChunkCount: 1 })
     const client = fakeClient(blobs, entries)
 
     const reader = new RemoteSyncReader(client, w, 'main', DEVICE, 1, SETTINGS)
     await reader.verifiedComplete()
     const blobCallsAfterVerify = client.blob.mock.calls.length
 
-    await reader.getSyncChunk(args) // 'aaa'
-    await reader.getSyncChunk(args) // marker, swallowed → empty sentinel
+    await reader.getSyncChunk(args) // 'aaa', already decoded by verifiedComplete's look-ahead
 
-    // The marker (seq 2) was already decoded by verifiedComplete; replay must reuse that
-    // decode rather than downloading and decrypting it a second time.
-    expect(client.blob.mock.calls.filter((c: any[]) => c[2] === 2).length).toBe(blobCallsAfterVerify)
+    // Only one entry exists (seq 1); replay must reuse verifiedComplete's decode of it
+    // rather than downloading and decrypting it a second time.
+    expect(client.blob.mock.calls.filter((c: any[]) => c[2] === 1).length).toBe(blobCallsAfterVerify)
   })
 })

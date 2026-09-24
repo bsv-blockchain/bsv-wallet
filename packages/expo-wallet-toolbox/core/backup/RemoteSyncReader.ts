@@ -33,12 +33,6 @@ export class RemoteSyncReader {
   private entries: LogEntry[] | null = null
   private next = 0
   private prefetched: { seq: number, result: Promise<BlobResult> } | null = null
-  /**
-   * Marker entries swallowed so far. A marker is backup-log bookkeeping (see codec.ts's
-   * DecodedEntry), never a SyncChunk, so it must never reach the caller and must not be
-   * counted as one of the generation's real chunks — `length` subtracts this.
-   */
-  private markerCount = 0
   /** Decoded once, keyed by seq, so verifiedComplete's own look-ahead at the newest entry
    * never re-fetches or re-decrypts it when replay later reaches that same entry. */
   private decodedCache: { seq: number, decoded: DecodedEntry } | null = null
@@ -110,77 +104,60 @@ export class RemoteSyncReader {
    * arguments. Replaying them in order reproduces the original stream exactly, and second
    * -guessing it would risk skipping records.
    *
-   * A completion marker (see codec.ts) is swallowed here rather than handed to the caller:
-   * it is backup-log bookkeeping, not a SyncChunk, and encoding it as an ordinary empty
-   * chunk instead would make `processSyncChunk` treat it as the done sentinel and truncate
-   * or fail a replay that has real chunks still to come after it (push.ts's own module
-   * docstring on sealGeneration explains why).
+   * Every entry is an ordinary chunk (see codec.ts's DecodedEntry) — a seal, when present,
+   * rides alongside a chunk rather than replacing it, so nothing here needs to be swallowed.
    */
   async getSyncChunk (_args: RequestSyncChunkArgs): Promise<SyncChunk> {
     await this.ensureIndex()
     const entries = this.entries!
 
-    for (;;) {
-      if (this.next >= entries.length) {
-        return emptyChunk(this.deviceId, this.settings.storageIdentityKey, '')
-      }
-
-      const entry = entries[this.next]
-      const decoded = await this.fetchAndDecode(entry)
-      // Advance only after successful download AND decryption. Retrying this
-      // reader after either fails must retry the same entry rather than lose it.
-      this.next++
-      const following = entries[this.next]
-      if (following && entry.size > 0 && entry.size <= PREFETCH_MAX_BYTES &&
-          following.size > 0 && following.size <= PREFETCH_MAX_BYTES &&
-          this.decodedCache?.seq !== following.seq) {
-        this.prefetched = {
-          seq: following.seq,
-          // Store failures as values until consumed, so a stopped replay never
-          // leaves an unhandled rejection from a speculative download.
-          result: this.client.blob(this.deviceId, this.generation, following.seq).then(
-            bytes => ({ bytes }), error => ({ error })
-          )
-        }
-      }
-
-      if (decoded.kind === 'marker') {
-        this.markerCount++
-        continue
-      }
-      return decoded.chunk
+    if (this.next >= entries.length) {
+      return emptyChunk(this.deviceId, this.settings.storageIdentityKey, '')
     }
+
+    const entry = entries[this.next]
+    const decoded = await this.fetchAndDecode(entry)
+    // Advance only after successful download AND decryption. Retrying this
+    // reader after either fails must retry the same entry rather than lose it.
+    this.next++
+    const following = entries[this.next]
+    if (following && entry.size > 0 && entry.size <= PREFETCH_MAX_BYTES &&
+        following.size > 0 && following.size <= PREFETCH_MAX_BYTES &&
+        this.decodedCache?.seq !== following.seq) {
+      this.prefetched = {
+        seq: following.seq,
+        // Store failures as values until consumed, so a stopped replay never
+        // leaves an unhandled rejection from a speculative download.
+        result: this.client.blob(this.deviceId, this.generation, following.seq).then(
+          bytes => ({ bytes }), error => ({ error })
+        )
+      }
+    }
+
+    return decoded.chunk
   }
 
-  /**
-   * Number of REAL chunks in this generation, once the index has been read — completion
-   * markers are excluded, matching what getSyncChunk actually yields.
-   *
-   * Accurate only for entries already classified: a marker not yet reached by getSyncChunk
-   * (or by verifiedComplete, for the newest entry) is still counted here as if it were a
-   * chunk, since classifying it requires decrypting it. It settles to the true count once
-   * replay has passed it.
-   */
+  /** Number of chunks in this generation, once the index has been read. */
   get length (): number {
-    return (this.entries?.length ?? 0) - this.markerCount
+    return this.entries?.length ?? 0
   }
 
   /**
-   * Whether this generation's log, as it stands right now, carries its own completion
-   * marker — i.e. this device itself once confirmed the generation's initial snapshot was
-   * whole, independent of anything the server's index metadata alone reports (see
-   * codec.ts's DecodedEntry and push.ts's sealGeneration).
+   * Whether this generation's log, as it stands right now, is provably complete — i.e. this
+   * device itself once confirmed the generation's initial snapshot was whole, independent of
+   * anything the server's index metadata alone reports (see codec.ts's DecodedEntry and
+   * push.ts's own seal docs).
    *
-   * True only when the NEWEST entry decodes as a marker whose `chunkCount` matches the
-   * number of entries before it. Cheap by design: only that one entry is decrypted here,
-   * never the whole log — replay (getSyncChunk) still decodes every entry as it goes and is
-   * what actually enforces the chain end to end.
+   * True only when the NEWEST entry carries a seal for THIS generation whose
+   * `initialChunkCount` is no greater than the number of entries in the log — i.e. every
+   * chunk of the initial snapshot the seal refers to is present. Cheap by design: only that
+   * one entry is decrypted here, never the whole log — replay (getSyncChunk) still decodes
+   * every entry as it goes and is what actually enforces the chain end to end.
    *
-   * A generation that kept accumulating ordinary delta chunks after its one-shot seal (see
-   * push.ts's needsSeal) will report false here again, even though the marker still exists
-   * earlier in the log — this reflects "provably complete right now", not "was ever
-   * sealed". restore.ts's pickTarget falls back to an older, still-marked generation in
-   * that case rather than trusting this one's tail.
+   * Because every chunk appended after the initial window closes carries the SAME seal (see
+   * push.ts's pushOnce), this stays true as further deltas land, rather than flipping back to
+   * false the moment a new chunk becomes the newest entry — a generation is not "un-verified"
+   * by continuing to receive backups.
    */
   async verifiedComplete (): Promise<boolean> {
     if (this.verifiedCompletePromise == null) {
@@ -198,14 +175,15 @@ export class RemoteSyncReader {
     try {
       decoded = await this.fetchAndDecode(last)
     } catch {
-      // A last entry that fails to download or decrypt cannot be trusted as a marker —
+      // A last entry that fails to download or decrypt cannot be trusted as sealed —
       // treat the generation as unverified rather than throwing out of a check that
       // pickTarget uses purely to rank candidates.
       return false
     }
     this.decodedCache = { seq: last.seq, decoded }
-    if (decoded.kind !== 'marker') return false
-    return decoded.marker.generation === this.generation && decoded.marker.chunkCount === entries.length - 1
+    const seal = decoded.seal
+    if (seal == null) return false
+    return seal.generation === this.generation && seal.initialChunkCount <= entries.length
   }
 
   /**

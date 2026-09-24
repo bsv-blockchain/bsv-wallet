@@ -5,7 +5,6 @@ import {
   decodeEntry,
   emptyChunk,
   encodeChunk,
-  encodeMarker,
   isEmptyChunk
 } from '../../core/backup/codec'
 import { BACKUP_PROTOCOL, backupKeyId } from '../../core/backup/constants'
@@ -188,17 +187,20 @@ describe('backup chunk codec', () => {
   })
 })
 
-describe('backup marker entries', () => {
-  it('round-trips a marker distinctly from an ordinary chunk', async () => {
+describe('backup chunk seals', () => {
+  it('round-trips a chunk with a seal, in the same envelope', async () => {
     const w = deriveBackupWallet(KEY, 'main')
-    const ciphertext = await encodeMarker(w, { generation: 3, chunkCount: 17 }, 'main')
+    const seal = { generation: 3, initialChunkCount: 17 }
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', seal)
 
     const decoded = await decodeEntry(w, ciphertext, 'main')
 
-    expect(decoded).toEqual({ kind: 'marker', marker: { generation: 3, chunkCount: 17 } })
+    expect(decoded.kind).toBe('chunk')
+    expect(decoded.seal).toEqual(seal)
+    expect(decoded.chunk.provenTxs?.[0].txid).toBe('deadbeefcafe')
   })
 
-  it('classifies an ordinary chunk as kind chunk, decoded exactly as decodeChunk would', async () => {
+  it('decodes a chunk with no seal exactly as decodeChunk always has, with seal undefined', async () => {
     const w = deriveBackupWallet(KEY, 'main')
     const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main')
 
@@ -206,13 +208,32 @@ describe('backup marker entries', () => {
     const direct = await decodeChunk(w, ciphertext, 'main')
 
     expect(decoded.kind).toBe('chunk')
-    expect(decoded.kind === 'chunk' ? decoded.chunk : undefined).toEqual(direct)
+    expect(decoded.seal).toBeUndefined()
+    expect(decoded.chunk).toEqual(direct)
   })
 
-  it('decodeChunk rejects a marker entry rather than mistaking it for a chunk', async () => {
+  it('old-format ciphertext (no seal field at all) decodes unchanged', async () => {
+    // Simulates a blob written before sealing existed: the {chain, chunk} envelope with no
+    // third field. decodeEntry must not choke on its absence.
     const w = deriveBackupWallet(KEY, 'main')
-    const ciphertext = await encodeMarker(w, { generation: 1, chunkCount: 0 }, 'main')
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', undefined)
 
-    await expect(decodeChunk(w, ciphertext, 'main')).rejects.toThrow(/completion marker/)
+    const decoded = await decodeEntry(w, ciphertext, 'main')
+
+    expect(decoded).toEqual({ kind: 'chunk', chunk: await decodeChunk(w, ciphertext, 'main'), seal: undefined })
+  })
+
+  it('rejects a malformed seal', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    // emptyChunk carries no binary fields, so it needs no packing to forge by hand.
+    const forged = { chain: 'main', chunk: emptyChunk('a', 'b', 'c'), seal: { generation: 'x' } }
+    const { ciphertext } = await w.encrypt({
+      plaintext: Utils.toArray(JSON.stringify(forged), 'utf8'),
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
+    })
+
+    await expect(decodeEntry(w, ciphertext, 'main')).rejects.toThrow(/seal is malformed/)
   })
 })

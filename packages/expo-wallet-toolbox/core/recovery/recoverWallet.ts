@@ -64,7 +64,15 @@ export interface RestorePrompts {
 }
 
 export type RecoveryOutcome =
-  | { kind: 'ok'; identityKey: string; secret: WalletSecret; history: RestoreHistory; attested: boolean }
+  | {
+      kind: 'ok'
+      identityKey: string
+      secret: WalletSecret
+      history: RestoreHistory
+      attested: boolean
+      /** See restoreWallet.ts's RestoreOutcome — forwarded verbatim. */
+      verified: boolean
+    }
   | { kind: 'cancelled' } // user declined biometrics
   | { kind: 'retry-later' } // restore failed and the user chose retry → caller returns to its input state
   | { kind: 'failed'; error: string }
@@ -84,7 +92,14 @@ export async function recoverWallet(
     const r = await restoreWallet(deps, secret, { restore, medium: opts.medium })
 
     if (r.kind === 'ok') {
-      return { kind: 'ok', identityKey: r.identityKey, secret: r.secret, history: r.history, attested: r.attested }
+      return {
+        kind: 'ok',
+        identityKey: r.identityKey,
+        secret: r.secret,
+        history: r.history,
+        attested: r.attested,
+        verified: r.verified
+      }
     }
 
     if (r.kind === 'failed') {

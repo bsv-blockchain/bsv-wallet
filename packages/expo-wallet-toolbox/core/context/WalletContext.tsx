@@ -314,6 +314,12 @@ export interface BackupRestoreState {
   /** Chunks in the generation being replayed; 0 until the log index is read. */
   total: number
   error?: string
+  /**
+   * Set alongside a `'restored'` phase, from `restoreOnImport`'s own `verified` — true
+   * unless the replayed generation's newest entry could not be proven complete (see
+   * RemoteSyncReader.verifiedComplete). Absent for every other phase.
+   */
+  verified?: boolean
 }
 
 export interface WalletBuildOptions {
@@ -1389,10 +1395,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   `chunks=${restored.chunks} · reason=${restored.reason ?? 'none'}`
               )
               // See P1-backup-incomplete-generation: restoreOnImport.pickTarget falls back to
-              // an unverified (no completion-marker) target rather than blocking the import,
-              // so this is a warning rather than a thrown error — but it must not pass
-              // silently, since the replayed generation could be a partial mid-rotation
-              // snapshot.
+              // an unverified (no seal) target rather than blocking the import, so this is a
+              // warning rather than a thrown error — but it must not pass silently, since the
+              // replayed generation could be a partial mid-rotation snapshot. The screens
+              // that drive `recoverWallet` surface this to the user directly (restoreUnverified
+              // in ui/recoveryPrompts.ts); this warn is the equivalent for the import flow,
+              // which has no such prompt.
               if (restored.restored && restored.verified === false) {
                 console.warn(
                   `[backup] restore completed but could not be verified as a complete ` +
@@ -1401,7 +1409,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               }
               setBackupRestore(
                 restored.restored
-                  ? { phase: 'restored', chunks: restored.chunks, total: restored.chunks }
+                  ? {
+                      phase: 'restored',
+                      chunks: restored.chunks,
+                      total: restored.chunks,
+                      verified: restored.verified
+                    }
                   : { phase: 'no-backup', chunks: 0, total: 0 }
               )
             } catch (e: any) {

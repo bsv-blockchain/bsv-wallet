@@ -24,8 +24,16 @@
  *    docs) — an accidental tap-outside must never be read as "yes, destroy
  *    my current wallet". 'keep' leaves the device exactly as it was.
  *
+ * A fourth dialog, `restoreUnverified`, is not part of `RestorePrompts` — it
+ * has nothing to do with the retry/skip policy `recoverWallet.ts` drives, and
+ * is never called there (see its own docs: the policy stays headless).
+ * Single-button, so there is nothing for a dismissal to choose between; it
+ * just resolves once acknowledged. The two screens (mnemonic, scan-shares)
+ * call it themselves, after a successful `recoverWallet` whose outcome came
+ * back `verified: false`, before showing their own celebration.
+ *
  * Does NOT decide the retry/skip POLICY (that's recoverWallet.ts, which
- * calls these and interprets the result) — this module only renders the two
+ * calls these and interprets the result) — this module only renders the
  * dialogs and reports which button was pressed.
  */
 import { showAlert } from './components/ui/AlertCard'
@@ -34,7 +42,7 @@ import type { RestorePrompts } from '../core/recovery/recoverWallet'
 /** Loose structural type: whatever `useTranslation()`'s `t` looks like here. */
 type TFunctionLike = (key: string) => string
 
-export function restorePrompts(t: TFunctionLike): RestorePrompts {
+export function restorePrompts(t: TFunctionLike): RestorePrompts & { restoreUnverified(): Promise<void> } {
   return {
     async biometricRefused() {
       const choice = await showAlert({
@@ -70,6 +78,14 @@ export function restorePrompts(t: TFunctionLike): RestorePrompts {
         ]
       })
       return choice === 'replace' ? 'replace' : 'keep'
+    },
+
+    async restoreUnverified() {
+      await showAlert({
+        title: t('restore_backup_unverified_title'),
+        message: t('restore_backup_unverified_body'),
+        buttons: [{ text: t('dismiss'), key: 'dismiss' }]
+      })
     }
   }
 }

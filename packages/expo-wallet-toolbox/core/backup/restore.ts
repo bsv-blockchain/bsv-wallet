@@ -43,12 +43,11 @@ export interface RestoreResult {
   deviceId: string
   generation: number
   /**
-   * True when the replayed generation carried its own completion marker proving, to this
-   * device, that nothing between the start of the generation and the marker is missing —
-   * see codec.ts's DecodedEntry and push.ts's sealGeneration. False means either an
-   * explicit device/generation override was chosen with no marker, or no candidate
-   * anywhere in the manifest was marked complete and today's newest-only fallback was
-   * used instead. See P1-backup-incomplete-generation.
+   * True when the replayed generation's newest entry carries a seal proving, to this
+   * device, that its initial snapshot is fully present — see codec.ts's DecodedEntry and
+   * push.ts's pushOnce. False means either an explicit device/generation override was
+   * chosen with no seal, or no candidate anywhere in the manifest was sealed and today's
+   * newest-only fallback was used instead. See P1-backup-incomplete-generation.
    */
   verified: boolean
 }
@@ -69,7 +68,7 @@ export async function listBackups (deps: {
  * A generation is intended by the writer (see push.ts rotate/shouldRotate) to be a
  * coherent, self-contained snapshot, so the newest one alone should be sufficient and is
  * the shortest replay — but the manifest's own metadata carries no notion of "complete", so
- * pickTarget prefers whichever candidate carries its own completion marker (see
+ * pickTarget prefers whichever candidate is proven complete by its own seal (see
  * RemoteSyncReader.verifiedComplete) over blindly trusting recency. `verified` on the
  * result says which way this restore was chosen; the chunk-count check below still runs
  * either way as the last line of defence.
@@ -197,14 +196,13 @@ export interface PickedTarget {
  * Choose which device/generation to replay.
  *
  * With an explicit `generation`, this is a forced selection — no ranking, exactly the
- * generation asked for — but `verified` still reports whether IT happens to carry its own
- * completion marker.
+ * generation asked for — but `verified` still reports whether IT happens to be sealed.
  *
  * Otherwise: every (device, generation) candidate is ranked newest-updatedAt first, and the
  * first one whose own log proves itself complete (RemoteSyncReader.verifiedComplete) wins —
  * an older but SEALED generation is safer to restore than a newer one still mid-rotation,
  * which is the whole point of P1-backup-incomplete-generation's fix. Only when NONE of the
- * manifest's candidates are marked (a fully legacy manifest, written entirely before this
+ * manifest's candidates are sealed (a fully legacy manifest, written entirely before this
  * fix shipped) does this fall back to today's plain "most recently written device, then its
  * newest generation" heuristic, with `verified: false` so the caller can warn rather than
  * silently claim a verified restore.
