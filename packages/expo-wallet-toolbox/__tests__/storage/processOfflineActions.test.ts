@@ -226,6 +226,40 @@ describe('processOfflineActions', () => {
     expect(r.stalledOn).toBeUndefined()
   })
 
+  it('rejects the descendant rather than stalling when a foreign ancestor is explicitly refused', async () => {
+    // Same shape as the positive control above, but the network's answer for
+    // the foreign ancestor is ARC's INVALID verdict: status 'error' with
+    // `serviceError: false`. Before P1-2, this fell through to the safe
+    // default and stalled forever with STALL_FOREIGN_ANCESTOR; the fix must
+    // cascade a rejection to the child that credited the payee off of it.
+    const parent = txSpending('11'.repeat(32))
+    const child = txSpending(parent.id('hex'))
+    const parentId = parent.id('hex')
+    const childId = child.id('hex')
+
+    const ancestry = new Beef()
+    ancestry.mergeRawTx(parent.toBinary())
+
+    const childReq = req({ txid: childId, rawTx: child.toBinary(), inputBEEF: ancestry.toBinary() })
+    mockPostReqs.mockImplementation(async () => {
+      // The owned post step must never be reached: the foreign ancestor it
+      // depends on is rejected first, and applyOutcome's cascade removes the
+      // child from the plan before its own step runs.
+      throw new Error('owned post should not run once the foreign ancestor it depends on is rejected')
+    })
+    const postBeef = jest.fn(async () => [{ txidResults: [{ txid: parentId, status: 'error', serviceError: false }] }])
+
+    const db = fakeDb([row({ txid: childId })])
+    const storage = fakeStorage({ db, reqs: [childReq], postBeef })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ sent: 0, rejected: 1 })
+    expect(r.stalledOn).toBeUndefined()
+    expect(lastStatusWritten(db, childId)).toBe('rejected')
+  })
+
   it('a failed root does not block an independent root in the same run', async () => {
     // Two unrelated queued transactions A and D, neither spending the other and
     // neither sharing an ancestor. Posting A fails with a service error; D must
