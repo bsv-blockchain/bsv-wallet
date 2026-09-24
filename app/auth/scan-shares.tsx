@@ -1,232 +1,157 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { useTranslation } from 'react-i18next'
-import { Mnemonic, PrivateKey } from '@bsv/sdk'
 import {
   useTheme,
   spacing,
   radii,
   typography,
   useWallet,
-  useLocalStorage,
+  useRecoveryDeps,
   haptics,
-  recoverMnemonicWallet,
-  backupAttestation
+  collectShare,
+  emptyShareCollection,
+  secretFromShares,
+  recoverWallet,
+  type ShareCollection,
+  type ShareCompatibilityIssue
 } from '@bsv/expo-wallet-toolbox'
-import {
-  showAlert,
-  Celebration,
-  QRScanner,
-  parseShare,
-  validateShareCompatibility,
-  recoverSecretFromShares,
-  type ParsedShare
-} from '@bsv/expo-wallet-toolbox/ui'
+import { showAlert, Celebration, QRScanner, restorePrompts } from '@bsv/expo-wallet-toolbox/ui'
+
+// Which translated string explains why a scanned share could not join the
+// ones collected so far. The codes themselves come from
+// core/recovery/shareParsing.ts's checkShareCompatibility.
+const ISSUE_KEY: Record<ShareCompatibilityIssue, string> = {
+  'threshold-mismatch': 'scan_shares_threshold_mismatch',
+  'integrity-mismatch': 'scan_shares_integrity_mismatch',
+  duplicate: 'scan_shares_duplicate'
+}
 
 export default function ScanSharesScreen() {
   const { t } = useTranslation()
   const { colors, isDark } = useTheme()
-  const { buildWalletFromRecoveredKey, buildWalletFromMnemonic, backupRestore, getBackupRestore } = useWallet()
-  const { setRecoveredKey, setMnemonic, deleteRecoveredKey } = useLocalStorage()
+  const { backupRestore } = useWallet()
+  const deps = useRecoveryDeps()
 
-  const [scannedShares, setScannedShares] = useState<ParsedShare[]>([])
-  const [threshold, setThreshold] = useState<number | null>(null)
+  const [collection, setCollectionState] = useState<ShareCollection>(emptyShareCollection)
   const [recovering, setRecovering] = useState(false)
   const [recovered, setRecovered] = useState(false)
   const [celebrating, setCelebrating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Prevent re-processing the exact same QR content
-  const lastScannedRef = useRef<string>('')
+  // `collection` mirrored in a ref so `handleBarCodeScanned` (a stable
+  // useCallback firing off the camera's own frame loop) and `reset` always
+  // see the latest value instead of whatever was captured at mount.
+  const collectionRef = useRef<ShareCollection>(emptyShareCollection)
+  const setCollection = useCallback((next: ShareCollection) => {
+    collectionRef.current = next
+    setCollectionState(next)
+  }, [])
 
-  const handleBarCodeScanned = useCallback(
-    (data: string) => {
-      // Ignore if already recovered
-      if (recovered) return
+  const reset = useCallback(() => setCollection(emptyShareCollection), [setCollection])
 
-      // Ignore duplicate sequential scans
-      if (data === lastScannedRef.current) return
-      lastScannedRef.current = data
-
-      setError(null)
-
-      const parsed = parseShare(data)
-      if (!parsed) {
-        setError(t('scan_shares_invalid_format'))
-        return
-      }
-
-      // Validate compatibility with existing shares
-      const compatError = validateShareCompatibility(parsed, scannedShares)
-      if (compatError) {
-        setError(compatError)
-        haptics.error()
-        return
-      }
-
-      const updatedShares = [...scannedShares, parsed]
-      const isComplete = updatedShares.length >= parsed.threshold
-
-      // Haptic for intermediate shares only — Celebration fires haptics.success() on completion
-      if (!isComplete) {
-        haptics.success()
-      }
-
-      setScannedShares(updatedShares)
-
-      if (!threshold) {
-        setThreshold(parsed.threshold)
-      }
-
-      // Check if we have enough shares to recover
-      if (isComplete) {
-        handleRecovery(updatedShares.map(s => s.raw))
-      } else {
-        // Clear last scanned so the next different share can be read
-        lastScannedRef.current = ''
-      }
+  const fail = useCallback(
+    (message: string) => {
+      setError(message)
+      haptics.error()
+      setRecovered(false)
+      reset()
     },
-    [scannedShares, threshold, recovered, t]
+    [reset]
   )
 
   /**
-   * Two formats reach this point.
-   *
-   * Entropy shares (current) rebuild the phrase, so the wallet is stored as a
-   * mnemonic wallet — identical to one that never lost its phone. Any stale
-   * recoveredKey is removed afterwards so two secrets cannot coexist and
-   * disagree; it is removed only AFTER the mnemonic write succeeds, because
-   * setMnemonic sits behind a biometric prompt and a refusal between the two
-   * would leave no wallet at all.
-   *
-   * Legacy shares carry the hardened primary key and cannot rebuild the
-   * phrase, so they keep the old WIF path and the user is told what that costs.
+   * Recombine the completed share set and hand it to the one retry policy —
+   * `recoverWallet` (core/recovery/recoverWallet.ts) — which drives the
+   * biometric-refused / restore-failed prompts itself (via `restorePrompts`,
+   * ui/recoveryPrompts.ts) and never loops on a server failure without a
+   * human choosing to retry. This function's only job left is translating
+   * the outcome into what the user sees.
    */
-  /**
-   * A restore that failed must not be dressed up as a recovered wallet: the build was
-   * aborted, so there is nothing to celebrate yet. Retry re-runs the same build with the
-   * restore, `withoutHistory` rebuilds without it — a usable wallet, no past transactions.
-   *
-   * Returns true when it handled the failure and the caller must stop. Reads
-   * getBackupRestore() because the render value is still the pre-build one here.
-   */
-  const handledRestoreFailure = async (identityKey: string, withoutHistory: () => Promise<void>): Promise<boolean> => {
-    const state = getBackupRestore()
-    if (state.phase !== 'failed') return false
+  const handleRecovery = useCallback(
+    async (shareStrings: string[]) => {
+      setRecovering(true)
+      try {
+        let parsed: ReturnType<typeof secretFromShares>
+        try {
+          parsed = secretFromShares(shareStrings)
+        } catch (err) {
+          fail(err instanceof Error ? err.message : t('scan_shares_recovery_failed'))
+          return
+        }
 
-    const choice = await showAlert({
-      title: t('restore_backup_failed_title'),
-      message: `${t('restore_backup_failed_message')}${state.error ? `\n\n${state.error}` : ''}`,
-      buttons: [
-        { text: t('restore_backup_retry'), key: 'retry' },
-        // Destructive, not cancel: abandoning the history forfeits past change
-        // outputs whose derivation data only existed in the backup.
-        { text: t('restore_backup_skip'), key: 'skip', style: 'destructive' }
-      ]
-    })
+        const outcome = await recoverWallet(deps, parsed.secret, { medium: 'shares', prompts: restorePrompts(t) })
 
-    if (choice === 'skip') {
-      await withoutHistory()
-      await backupAttestation.set(identityKey, 'shares')
-      setRecovered(true)
-      setCelebrating(true)
-      return true
-    }
-
-    // Retry: hand the user back to the scan screen rather than looping here, so a
-    // persistent server problem cannot trap them in an alert.
-    setError(t('restore_backup_failed_title'))
-    haptics.error()
-    setRecovered(false)
-    setScannedShares([])
-    setThreshold(null)
-    lastScannedRef.current = ''
-    return true
-  }
-
-  const handleRecovery = async (shareStrings: string[]) => {
-    setRecovering(true)
-    try {
-      const secret = recoverSecretFromShares(shareStrings)
-
-      let identityKey: string
-
-      if (secret.kind === 'entropy') {
-        const mnemonic = Mnemonic.fromEntropy(secret.entropy).toString()
-        // Computed directly from the recovered phrase, not through the
-        // wallet's getPublicKey: that depended on the just-built wallet's
-        // permissions manager being ready, an async chain (build → possible
-        // backup replay) with too many places to silently miss the write.
-        identityKey = recoverMnemonicWallet(mnemonic).identityKey
-
-        if (!(await setMnemonic(mnemonic))) return await retryOrReset(shareStrings)
-        // Only after the phrase is safely stored: a refusal between the two
-        // writes would otherwise leave the wallet with neither secret.
-        await deleteRecoveredKey()
-        // Shares recover an EXISTING wallet, so the encrypted backup log is replayed
-        // before the wallet is usable — same reasoning as the phrase-import flow.
-        await buildWalletFromMnemonic(mnemonic, { restoreFromBackup: true })
-        if (await handledRestoreFailure(identityKey, () => buildWalletFromMnemonic(mnemonic))) return
-      } else {
-        const primaryKey = new PrivateKey(secret.primaryKey)
-        const wif = primaryKey.toWif()
-        identityKey = primaryKey.toPublicKey().toString()
-
-        if (!(await setRecoveredKey(wif))) return await retryOrReset(shareStrings)
-        await buildWalletFromRecoveredKey(wif, { restoreFromBackup: true })
-        if (await handledRestoreFailure(identityKey, () => buildWalletFromRecoveredKey(wif))) return
-
-        await showAlert({
-          title: t('scan_shares_legacy_title'),
-          message: t('scan_shares_legacy_message'),
-          buttons: [{ text: t('scan_shares_legacy_ack'), key: 'ok' }]
-        })
+        switch (outcome.kind) {
+          case 'ok':
+            // Legacy shares recombine to a raw primary key, not a phrase —
+            // secretFromShares is the only place that still knows which
+            // shape the shares started as, so it is told here, once.
+            if (parsed.legacy) {
+              await showAlert({
+                title: t('scan_shares_legacy_title'),
+                message: t('scan_shares_legacy_message'),
+                buttons: [{ text: t('scan_shares_legacy_ack'), key: 'ok' }]
+              })
+            }
+            setError(null)
+            setRecovered(true)
+            setCelebrating(true)
+            break
+          case 'cancelled':
+            reset()
+            break
+          case 'retry-later':
+            fail(t('restore_backup_failed_title'))
+            break
+          case 'failed':
+            console.error('[ScanShares] Recovery failed:', outcome.error)
+            fail(outcome.error)
+            break
+        }
+      } finally {
+        setRecovering(false)
       }
+    },
+    [deps, fail, reset, t]
+  )
 
-      // Recovering from shares is itself proof of a backup — record it so the
-      // reminder never nags someone who just proved they hold a working set.
-      await backupAttestation.set(identityKey, 'shares')
-      setRecovered(true)
-      setCelebrating(true)
-    } catch (err: any) {
-      console.error('[ScanShares] Recovery failed:', err)
-      setError(err.message || t('scan_shares_recovery_failed'))
-      haptics.error()
-      // Allow re-scanning
-      setRecovered(false)
-      setScannedShares([])
-      setThreshold(null)
-      lastScannedRef.current = ''
-    } finally {
-      setRecovering(false)
-    }
-  }
+  const handleBarCodeScanned = useCallback(
+    (raw: string) => {
+      // Ignore while a previous complete set is being recovered, or once one
+      // already has been — the scanner keeps firing frames until unmounted.
+      if (recovered || recovering) return
 
-  /**
-   * Both formats store their secret behind the biometric latch, and both have
-   * to survive a refusal the same way: offer a retry, or reset the scanner so
-   * the user can start over.
-   */
-  const retryOrReset = async (shareStrings: string[]): Promise<void> => {
-    const choice = await showAlert({
-      title: t('scan_shares_biometric_title'),
-      message: t('scan_shares_biometric_message'),
-      buttons: [
-        { text: t('cancel'), style: 'cancel', key: 'cancel' },
-        { text: t('retry'), key: 'retry' },
-      ],
-    })
-    if (choice === 'cancel') {
-      setScannedShares([])
-      setThreshold(null)
-      lastScannedRef.current = ''
-    } else {
-      await handleRecovery(shareStrings)
-    }
-  }
+      const { collection: next, event } = collectShare(collectionRef.current, raw)
+      setCollection(next)
+
+      switch (event.kind) {
+        case 'ignored':
+          break
+        case 'invalid':
+          setError(t('scan_shares_invalid_format'))
+          break
+        case 'incompatible':
+          setError(t(ISSUE_KEY[event.issue]))
+          haptics.error()
+          break
+        case 'added':
+          setError(null)
+          // Haptic for intermediate shares only — Celebration fires
+          // haptics.success() on completion.
+          haptics.success()
+          break
+        case 'complete':
+          setError(null)
+          void handleRecovery(event.shareStrings)
+          break
+      }
+    },
+    [recovered, recovering, setCollection, handleRecovery, t]
+  )
 
   // ── Recovering state ───────────────────────────────────────────────────
   if (recovering) {
@@ -266,8 +191,9 @@ export default function ScanSharesScreen() {
   }
 
   // ── Scanner ────────────────────────────────────────────────────────────
-  const sharesNeeded = threshold ?? 2
-  const sharesRemaining = sharesNeeded - scannedShares.length
+  const sharesNeeded = collection.threshold ?? 2
+  const scanned = collection.shares.length
+  const sharesRemaining = sharesNeeded - scanned
 
   return (
     <View style={styles.container}>
@@ -277,10 +203,10 @@ export default function ScanSharesScreen() {
         onScan={handleBarCodeScanned}
         onClose={() => router.back()}
         hintText={
-          scannedShares.length === 0
+          scanned === 0
             ? t('scan_shares_scan_first')
             : t('scan_shares_progress', {
-                scanned: scannedShares.length,
+                scanned,
                 needed: sharesNeeded
               })
         }
@@ -294,7 +220,7 @@ export default function ScanSharesScreen() {
                   style={[
                     styles.progressDot,
                     {
-                      backgroundColor: i < scannedShares.length ? '#34C759' : 'rgba(255,255,255,0.3)'
+                      backgroundColor: i < scanned ? '#34C759' : 'rgba(255,255,255,0.3)'
                     }
                   ]}
                 />
