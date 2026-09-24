@@ -456,46 +456,43 @@ unguarded ordering, exactly as before this pass existed.
 Restore target selection had no notion of "complete" — a manifest carries no
 completeness flag, so a restore landing mid-rotation could pass the
 existing contiguity check and silently report success on a partial
-snapshot. `core/backup/codec.ts` gains a distinct completion-marker
-plaintext shape (`encodeMarker` / `decodeEntry`, `{kind:'chunk'|'marker'}`);
-`decodeChunk` is now a thin wrapper over `decodeEntry` with byte-identical
-behaviour for old-format ciphertext, so nothing about an existing backup log
-changes. `push.ts`'s `pushOnce` now appends a one-shot completion marker
-once a generation's window closes — immediately, as a dedicated pass, for
-any pre-existing cursor whose window had already closed under an older
-build (`cursor.ts`'s `PushCursor` gains an optional `sealedGeneration`,
-undefined on every pre-existing serialized cursor, which is exactly what
-triggers this back-fill). The marker is never encoded as an empty
-`SyncChunk`, since the upstream `processSyncChunk` treats an all-empty chunk
-as the done sentinel and would truncate or hard-fail a later replay.
+snapshot. The fix is a **seal carried inside ordinary chunks**, never a new
+kind of log entry: `PushCursor` (`cursor.ts`) gains `initialChunkCount`,
+recorded the first time a generation's `since` window closes (and
+back-filled in memory for a pre-existing cursor whose window had already
+closed under an older build), and every chunk `pushOnce` appends from then
+on carries `seal: { generation, initialChunkCount }` in the same
+`{chain, chunk}` envelope (`encodeChunk`'s optional fourth argument;
+`decodeEntry` returns `{kind:'chunk', chunk, seal?}`; `decodeChunk` is an
+unchanged wrapper). An unsealed chunk is byte-identical to the old format,
+and an **older app build** reading a sealed chunk simply ignores the extra
+field — its `decodeChunk` only ever reads `envelope.chunk` — so mixed
+builds against one backup account keep working. (An earlier iteration of
+this fix on the branch wrote the seal as a separate marker entry; that
+would have crashed older readers and was replaced before release.)
 
-`RemoteSyncReader` now decodes every entry via `decodeEntry` and silently
-swallows marker entries — never yielded as a `SyncChunk`, never counted in
-`length` — and exposes a cheap `verifiedComplete()` that decodes only the
-newest entry, reporting true only when it is a marker whose `chunkCount`
-matches the real-entry count before it. `restore.ts`'s `pickTarget` now
+`RemoteSyncReader.verifiedComplete()` decodes only the newest entry and
+reports true when its seal names this generation and `initialChunkCount`
+is no larger than the number of entries present — the initial snapshot is
+fully there, and later deltas keep it verified. `restore.ts`'s `pickTarget`
 ranks every candidate by `updatedAt` and picks the first one whose reader
 reports `verifiedComplete` — an older but sealed generation beats a newer
 one still mid-rotation — falling back to the previous newest-only heuristic
-(`verified: false`) only when nothing in the manifest is marked, so a fully
+(`verified: false`) only when nothing in the manifest is sealed, so a fully
 legacy manifest still restores exactly as before. `RestoreResult` /
-`RestoreOnImportResult` gain a `verified: boolean` field;
-`restoreOnImport.ts`'s own ad hoc `newestTarget()` was dropped in favour of
-the same shared `pickTarget`. `WalletContext` logs a `[backup]`
-console.warn when an import-time restore completed but could not be
-verified, without blocking the import.
+`RestoreOnImportResult` gain `verified: boolean`; `restoreOnImport.ts`'s
+own `newestTarget()` was dropped in favour of the shared `pickTarget`.
 
-An **older app build** reading a log a newer writer has started sealing
-does not throw on the marker entry itself: its old `decodeChunk` decrypts
-the `{chain, marker}` envelope, finds no `chunk` field (the chain label
-still matches, so the one check that function makes still passes), and
-hands back `undefined` in place of a `SyncChunk` — which then reaches
-whatever consumes `getSyncChunk`'s result expecting a real chunk, and is
-very likely to throw downstream rather than replay silently-wrong data. It
-is a new envelope shape, not a wire-compatible extension: any host running
-more than one app build against the same backup account should upgrade
-every reader to a toolbox version that understands `decodeEntry` before any
-writer on that account starts emitting completion markers.
+The signal now reaches the user: `BackupRestoreState` gains
+`verified?: boolean`, `RestoreOutcome` / `RecoveryOutcome`'s `ok` variant
+gains `verified: boolean`, and `restorePrompts(t)` gains
+`restoreUnverified()` — a single-button alert (new keys
+`restore_backup_unverified_title` / `restore_backup_unverified_body`, all 12
+locales) that the mnemonic and scan-shares screens show before celebrating
+when a restore succeeded but could not be confirmed complete. An idle wallet
+whose generation never received a delta after its initial window stays
+unsealed until it does; that only ever costs the "may be incomplete" notice,
+never a refused restore.
 
 ### Monitor: no overlapping outbox drains, and long-gap skips are recorded
 
