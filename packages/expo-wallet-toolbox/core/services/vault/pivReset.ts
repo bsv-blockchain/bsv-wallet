@@ -7,13 +7,17 @@
  * tap — so a dropped session can never leave the enrollment quarantine
  * machinery in a state it was not designed for.
  *
- * SAFETY. A PIV reset destroys the P-256 key in Vault slot 0x82. If the token
- * is already an enrolled vault key, that removes one of the k-of-n signers and
- * can make vault funds permanently unspendable. The enrolled-serial refusal
- * below runs before the card is touched AND again inside the session, and is
- * deliberately not overridable by any caller flag — unlike
- * `replaceOccupiedVaultSlot`, which consents to replacing a slot that is by
- * definition not yet part of the vault.
+ * SAFETY. A PIV reset destroys the P-256 key in Vault slot 0x82. The vault
+ * script accepts a signature from ANY ONE of its enrolled keys (1-of-N, not a
+ * threshold scheme), so resetting one enrolled key does not by itself lock
+ * funds committed to multiple keys — but it permanently removes that key's
+ * own ability to satisfy the script, and if the vault currently has only one
+ * enrolled key (or an output was locked before other keys were added), that
+ * reset destroys the only remaining way to spend those outputs. The
+ * enrolled-serial refusal below runs before the card is touched AND again
+ * inside the session, and is deliberately not overridable by any caller flag
+ * — unlike `replaceOccupiedVaultSlot`, which consents to replacing a slot
+ * that is by definition not yet part of the vault.
  *
  * "Enrolled" is read wider than `getMeta` reads it, on purpose:
  *

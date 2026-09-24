@@ -78,7 +78,9 @@ The following remain trusted:
 
 A compromised phone can ask a present, unlocked YubiKey to sign an attacker-selected digest.
 PIN and touch provide physical authorization, but the phone UI is still trusted to describe the
-transaction honestly.
+transaction honestly. Because touch policy CACHED is fixed at key generation, a single tap can
+authorize up to `VAULT_INPUTS_PER_TAP` (16) attacker- or wallet-chosen digests before a fresh
+session is required — the concrete blast radius per physical touch for every key enrolled today.
 
 ## 3. On-chain authorization
 
