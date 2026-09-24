@@ -96,6 +96,17 @@ export function reviewProvenTxsStartHeight(
   return Math.max(0, unbounded, floor)
 }
 
+/** A `{fromHeight, toHeight}` window `boundReviewProvenTxs` had to skip because
+ * last-reviewed was more than `maxSpan` behind the tip. Kept so diagnostics
+ * can surface ranges that will never be audited by TaskReviewProvenTxs
+ * (reviews/misc-p2.md misc-p2-09) — process-local and cleared only by
+ * `resetSkippedReviewRanges` (used by tests). */
+export const skippedReviewRanges: { fromHeight: number; toHeight: number }[] = []
+
+export function resetSkippedReviewRanges(): void {
+  skippedReviewRanges.length = 0
+}
+
 interface ReviewProvenTxsLike {
   trigger: (nowMsecsSinceEpoch: number) => { run: boolean }
   remainingHeightSpan?: number
@@ -148,7 +159,12 @@ export function boundReviewProvenTxs(task: ReviewProvenTxsLike, opts?: BoundRevi
     const start = reviewProvenTxsStartHeight(last, maxEligible, maxSpan)
     const unbounded = last === undefined ? 0 : last + 1
     task.remainingHeightSpan = Math.max(0, maxEligible - start + 1)
-    if (start > unbounded) return start - 1
+    if (start > unbounded) {
+      const skipped = { fromHeight: unbounded, toHeight: start - 1 }
+      skippedReviewRanges.push(skipped)
+      console.warn('[walletMonitor] skipped proven-tx review heights', skipped)
+      return start - 1
+    }
     return last
   }
 }
