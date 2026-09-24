@@ -73,7 +73,14 @@ describe('buildPaymentFrame', () => {
   })
 
   it('carries the note on the frame so the payee can show it too', async () => {
-    const { frame } = await buildPaymentFrame(walletStub() as never, session(), 'admin.com', 777, undefined, 'lunch split')
+    const { frame } = await buildPaymentFrame(
+      walletStub() as never,
+      session(),
+      'admin.com',
+      777,
+      undefined,
+      'lunch split'
+    )
     expect(frame.note).toBe('lunch split')
   })
 
@@ -411,6 +418,73 @@ describe('finalizeDelivery', () => {
       finalizeDelivery(w as never, built, { ok: false, error: 'already_paid' }, 'admin.com', online)
     ).resolves.toEqual({ kind: 'declined', reason: 'already_paid' })
     warn.mockRestore()
+  })
+
+  // P1-3: a decline is the payee's own unverifiable claim that nothing was
+  // queued. The abort releases the inputs regardless, but the txid is worth
+  // watching in case the payee's claim turns out to be wrong (or dishonest).
+  describe('watching a declined txid', () => {
+    it('watches the txid after a successful decline-abort', async () => {
+      const w = payerStub()
+      const watchDeclinedAbort = jest.fn().mockResolvedValue(undefined)
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        watchDeclinedAbort
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(watchDeclinedAbort).toHaveBeenCalledWith({ txid: 'tx-1', reference: 'ref-1' })
+    })
+
+    it('watches the txid even when the abort itself failed', async () => {
+      const w = payerStub()
+      w.abortAction.mockRejectedValue(new Error('storage down'))
+      const watchDeclinedAbort = jest.fn().mockResolvedValue(undefined)
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        watchDeclinedAbort
+      })
+
+      expect(watchDeclinedAbort).toHaveBeenCalledWith({ txid: 'tx-1', reference: 'ref-1' })
+      warn.mockRestore()
+    })
+
+    it('never watches when there is no txid to watch', async () => {
+      const w = payerStub()
+      const watchDeclinedAbort = jest.fn().mockResolvedValue(undefined)
+      await finalizeDelivery(
+        w as never,
+        { ...built, txid: undefined },
+        { ok: false, error: 'save_failed' },
+        'admin.com',
+        {
+          ...online,
+          watchDeclinedAbort
+        }
+      )
+
+      expect(watchDeclinedAbort).not.toHaveBeenCalled()
+    })
+
+    it('a watchDeclinedAbort failure never masks the decline outcome', async () => {
+      const w = payerStub()
+      const watchDeclinedAbort = jest.fn().mockRejectedValue(new Error('storage down'))
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        watchDeclinedAbort
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+    })
+
+    it('does not watch at all when no watchDeclinedAbort dep is supplied', async () => {
+      const w = payerStub()
+      await expect(
+        finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', online)
+      ).resolves.toEqual({ kind: 'declined', reason: 'save_failed' })
+    })
   })
 })
 

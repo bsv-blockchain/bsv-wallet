@@ -1,4 +1,4 @@
-import { cancelParkedPayment } from '../../core/offline/cancelParked'
+import { cancelParkedPayment as realCancelParkedPayment, runCancelParkedFlow } from '../../core/offline/cancelParked'
 import { updateOfflineAction } from '../../core/storage/methods/offlineActions'
 
 jest.mock('../../core/storage/methods/offlineActions', () => ({
@@ -7,6 +7,17 @@ jest.mock('../../core/storage/methods/offlineActions', () => ({
 
 const mockedUpdate = updateOfflineAction as jest.Mock
 const TXID = 'bb'.repeat(32)
+
+/**
+ * Every call below pins connectivity explicitly, exactly like build.test.ts's
+ * `finalizeDelivery` suite does — the real default (`@/core/net/online`'s
+ * `getOnline`) reaches the native NetInfo module, which has nothing to answer
+ * with under Jest and crashes the process rather than merely rejecting. Tests
+ * that care about the new BSV-rail chain-status check (below) override this.
+ */
+function cancelParkedPayment(args: Parameters<typeof realCancelParkedPayment>[0]) {
+  return realCancelParkedPayment({ isOnline: async () => true, ...args })
+}
 
 function stubs(tx: { reference?: string; status?: string } | null, aborted = true) {
   const storage = {
@@ -55,6 +66,72 @@ it('keeps the parked row when the wallet refuses the abort', async () => {
 })
 
 /**
+ * P1-3-localpay-cancelparked-bsv: `cancelParkedPayment` had no chain-status
+ * check of its own on the BSV rail — only the token overlay check above did,
+ * and it is skipped entirely when `settlement` is omitted or the txid has no
+ * settlement row. A payee who scanned a static QR and is holding it may have
+ * already broadcast their copy; ask the network before trusting the local
+ * `nosend` status, regardless of whether this is a token payment.
+ */
+describe('the BSV-rail chain-status check', () => {
+  function withServices(status: string | undefined) {
+    return {
+      getServices: () => ({
+        getStatusForTxids: jest.fn().mockResolvedValue(status ? { results: [{ txid: TXID, status }] } : { results: [] })
+      })
+    }
+  }
+
+  it('refuses the cancel when online and the network already knows the txid', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    Object.assign(storage, withServices('known'))
+
+    const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, isOnline: async () => true })
+
+    expect(outcome).toBe('already-sent')
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(mockedUpdate).not.toHaveBeenCalled()
+  })
+
+  it('cancels when online and the network has never seen the txid', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    Object.assign(storage, withServices(undefined))
+
+    const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, isOnline: async () => true })
+
+    expect(outcome).toBe('cancelled')
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, undefined)
+  })
+
+  it('refuses to cancel silently while genuinely offline, without touching the wallet', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    Object.assign(storage, withServices('known'))
+
+    const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, isOnline: async () => false })
+
+    expect(outcome).toBe('unverifiable-offline')
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(mockedUpdate).not.toHaveBeenCalled()
+  })
+
+  it('cancels while offline once the caller acknowledges the risk', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    Object.assign(storage, withServices('known'))
+
+    const outcome = await cancelParkedPayment({
+      storage,
+      wallet,
+      txid: TXID,
+      isOnline: async () => false,
+      acknowledgedUnverifiable: true
+    })
+
+    expect(outcome).toBe('cancelled')
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, undefined)
+  })
+})
+
+/**
  * FIX J. A token payment's transaction can look perfectly cancellable here —
  * `nosend`, inputs still reserved — while the RECIPIENT's own drain has
  * already submitted it (rule 3: the recipient settles the hop). Aborting then
@@ -81,9 +158,7 @@ describe('a token payment', () => {
       fetchAdmission,
       deps: {
         settlements: {
-          getSettlement: jest.fn(async () =>
-            (opts.row === undefined ? { overlayUrl: OVERLAY } : opts.row) as never
-          )
+          getSettlement: jest.fn(async () => (opts.row === undefined ? { overlayUrl: OVERLAY } : opts.row) as never)
         },
         fetchAdmission,
         isOnline: jest.fn(async () => {
@@ -158,5 +233,47 @@ describe('a token payment', () => {
     const { deps } = settlementDeps({ verdict: undefined })
 
     await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('already-sent')
+  })
+})
+
+/**
+ * `runCancelParkedFlow` is the UI-facing glue extracted so it can be unit
+ * tested without mounting the whole WalletHomeScreen: it calls `cancel()`
+ * once, and only on `unverifiable-offline` shows the destructive confirm and,
+ * if accepted, calls `cancel()` again with the acknowledgement.
+ */
+describe('runCancelParkedFlow', () => {
+  it('returns the outcome directly when it is not unverifiable-offline', async () => {
+    const cancel = jest.fn().mockResolvedValue('cancelled')
+    const confirmUnverifiable = jest.fn()
+
+    const outcome = await runCancelParkedFlow({ cancel, confirmUnverifiable })
+
+    expect(outcome).toBe('cancelled')
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(confirmUnverifiable).not.toHaveBeenCalled()
+  })
+
+  it('shows the confirm and retries with the flag when accepted', async () => {
+    const cancel = jest.fn().mockResolvedValueOnce('unverifiable-offline').mockResolvedValueOnce('cancelled')
+    const confirmUnverifiable = jest.fn().mockResolvedValue(true)
+
+    const outcome = await runCancelParkedFlow({ cancel, confirmUnverifiable })
+
+    expect(outcome).toBe('cancelled')
+    expect(cancel).toHaveBeenNthCalledWith(1, undefined)
+    expect(cancel).toHaveBeenNthCalledWith(2, true)
+    expect(confirmUnverifiable).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries when the confirm is declined', async () => {
+    const cancel = jest.fn().mockResolvedValue('unverifiable-offline')
+    const confirmUnverifiable = jest.fn().mockResolvedValue(false)
+
+    const outcome = await runCancelParkedFlow({ cancel, confirmUnverifiable })
+
+    expect(outcome).toBe('unverifiable-offline')
+    expect(cancel).toHaveBeenCalledTimes(1)
   })
 })

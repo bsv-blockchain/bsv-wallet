@@ -94,7 +94,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import { Beef, createNonce, type WalletInterface } from '@bsv/sdk'
 import { finalizeDelivery } from '../../../core/localpay/build'
-import { queuePendingAbort } from '../../../core/localpay/pendingAborts'
+import { queuePendingAbort, queueDeclinedAbortWatch } from '../../../core/localpay/pendingAborts'
 import { receiptBroadcastFromReqStatus } from '../../../core/offline/plan'
 import { userFacingPayError } from '../../../core/pay/userError'
 
@@ -1839,6 +1839,19 @@ function NearbyFlow({
         queueFailedAbort: async reference => {
           if (!storage) return
           await queuePendingAbort(storage, { reference, originator: adminOriginator })
+        },
+        // P1-3: the payee's decline is unverifiable from here — watch the
+        // txid so a later reappearance on chain (the payee's claim was wrong,
+        // or dishonest) is surfaced instead of missed. See build.ts's
+        // `watchDeclinedAbort` doc and WalletContext's reconnect-time
+        // `verifyDeclinedAborts` pass.
+        watchDeclinedAbort: async entry => {
+          if (!storage) return
+          await queueDeclinedAbortWatch(storage, {
+            ...entry,
+            peerIdentityKey: session.identityKey,
+            at: Date.now()
+          })
         }
       })
       if (controller.signal.aborted) return

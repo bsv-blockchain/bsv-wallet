@@ -928,6 +928,20 @@ export async function finalizeDelivery(
     hold: (txid: string) => Promise<void>
     /** Persist a failed decline-abort so wallet build can retry it. */
     queueFailedAbort?: (reference: string) => Promise<void>
+    /**
+     * P1-3: a negative ack is the payee's own unverifiable claim that nothing
+     * was queued — this codebase's abort-chain-protection only refuses an
+     * abort while a service is reachable AND the chain already knows the tx
+     * (see core/mandala/abortGuard.ts), so a decline made offline, or a
+     * dishonest one, still frees these inputs regardless. Policy is
+     * detect-and-warn, never block: called for every decline this function
+     * has a txid for (BSV or token, the guard chain protects neither),
+     * whether or not the abort itself succeeded, so a later reappearance of
+     * this exact txid on chain can be surfaced instead of missed. See
+     * core/localpay/pendingAborts.ts's queueDeclinedAbortWatch /
+     * verifyDeclinedAborts.
+     */
+    watchDeclinedAbort?: (entry: { txid: string; reference: string }) => Promise<void>
   }
 ): Promise<DeliveryOutcome> {
   if (!ack.ok) {
@@ -943,6 +957,13 @@ export async function finalizeDelivery(
         if (deps.queueFailedAbort) {
           await deps.queueFailedAbort(built.reference).catch(() => undefined)
         }
+      }
+      // Watched regardless of whether the abort above succeeded: either way
+      // these inputs are now free, and the only question left is whether the
+      // payee's decline was honest. A failure to record the watch must not
+      // turn an otherwise-normal decline into a reported failure.
+      if (built.txid && deps.watchDeclinedAbort) {
+        await deps.watchDeclinedAbort({ txid: built.txid, reference: built.reference }).catch(() => undefined)
       }
     }
     return { kind: 'declined', reason: ack.error }
