@@ -1,4 +1,5 @@
 import { Hash, P2PKH, PublicKey, Transaction, Utils } from '@bsv/sdk'
+import type { ChainTracker } from '@bsv/sdk'
 import { MandalaToken } from '@bsv/templates'
 import type { PaymentFrame } from './codec'
 import { coverFromFrame, type CoverVerifier } from '../mandala/bundle'
@@ -61,9 +62,17 @@ export class FrameVerifyError extends Error {
   }
 }
 
-/** The one wallet capability this module needs: BRC-42 derivation. */
+/** The wallet capabilities this module needs: BRC-42 derivation, plus (for the
+ * BSV branch) the same chain tracker `internalizeAction` itself consults.
+ *
+ * `getServices` mirrors the toolbox's own `Wallet`/`WalletStorageManager`
+ * shape exactly (`wallet.getServices().getChainTracker()`, not a promise of
+ * an object) — the real object NearbyFlow passes in already implements this,
+ * so widening the interface needs no new wiring.
+ */
 export interface DerivingWallet {
   getPublicKey(args: unknown, originator?: string): Promise<{ publicKey: string }>
+  getServices(): { getChainTracker(): Promise<ChainTracker> | ChainTracker }
 }
 
 /**
@@ -159,6 +168,36 @@ export async function verifyFramePayment(
       throw new FrameVerifyError('not_mine', `the named output carries no usable satoshi value: ${output.satoshis}`)
     }
 
+    // The ownership/amount checks above are cheap and certain, but they say
+    // nothing about the REST of the transaction: `internalizeAction`'s own
+    // gate (toolbox `validateAtomicBeef` -> SDK `Beef.verify`) is a pure
+    // AtomicBEEF-structure/SPV check with no script interpreter step, so
+    // without this call a payer could spend a real mined UTXO it does not
+    // own, with a garbage unlockingScript, into an output that locks to us,
+    // for any amount, and have it accepted here.
+    //
+    // `tx.verify(chainTracker)` does the whole job in one pass: it walks
+    // every ancestor's merkle path against this device's own offline-capable
+    // chain tracker, runs the per-input script check against each ancestor's
+    // real locking script (defeating the garbage-unlockingScript attack), and
+    // checks sum(outputs) <= sum(inputs) (defeating an inflated-output
+    // attack) — and it FAILS CLOSED: it throws when an input's ancestor is
+    // present only as a txid (no raw bytes, e.g. a mined ancestor the payer's
+    // BEEF only proved by merkle path) rather than silently skipping that
+    // input, which is the desired refusal for an ancestor this device cannot
+    // actually verify. No feeModel is passed, so a legitimate low-fee frame
+    // is never refused on fee grounds — only on SPV/script/value grounds.
+    const chainTracker = await wallet.getServices().getChainTracker()
+    let verified: boolean
+    try {
+      verified = await tx.verify(chainTracker)
+    } catch (e) {
+      throw new FrameVerifyError('unparseable', `transaction failed SPV/script verification: ${messageOf(e)}`)
+    }
+    if (!verified) {
+      throw new FrameVerifyError('unparseable', 'transaction failed SPV/script verification')
+    }
+
     return { kind: 'bsv', satoshis: output.satoshis }
   }
 
@@ -183,8 +222,8 @@ export async function verifyFramePayment(
     originator
   )
   const expectedPkh = Hash.hash160(Utils.toArray(publicKey, 'hex'))
-  const mine = decoded.pubKeyHash.length === expectedPkh.length &&
-    decoded.pubKeyHash.every((b, i) => b === expectedPkh[i])
+  const mine =
+    decoded.pubKeyHash.length === expectedPkh.length && decoded.pubKeyHash.every((b, i) => b === expectedPkh[i])
   if (!mine) throw new FrameVerifyError('not_mine', 'the named token output does not pay this device')
   if (!Number.isSafeInteger(decoded.amount) || decoded.amount < 1) {
     throw new FrameVerifyError('not_mine', `the named output carries no usable token amount: ${decoded.amount}`)
@@ -214,10 +253,7 @@ export async function verifyFramePayment(
   // "admitted" as the issuer's.
   const asset = opts.asset
   if (!asset || !sameOverlay(frame.token, asset)) {
-    throw new FrameVerifyError(
-      'not_covered',
-      `the frame’s admission evidence does not cover it: unsafe_asset`
-    )
+    throw new FrameVerifyError('not_covered', `the frame’s admission evidence does not cover it: unsafe_asset`)
   }
 
   const covered = await coverFromFrame(frame, opts.cover)
