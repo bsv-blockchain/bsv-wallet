@@ -401,7 +401,7 @@ const resources = {
       vault_remove_only: 'Remove',
       vault_key_removed_toast: 'Key removed',
       vault_export_explainer:
-        'Every vault deposit carries its public uniqueness salt in the locking script. Keep encrypted backup on so a new device can restore and authenticate the key records needed to use your YubiKeys.',
+        'Every vault deposit hides its salt until you spend it — nothing about it is visible in the locking script. Keep encrypted backup on so a new device can restore and authenticate the key records needed to use your YubiKeys.',
       vault_footnote: 'Only these keys open the vault. Your recovery phrase does not.',
       vault_floor_line:
         'Minimum deposit {{floorDisplay}} ({{floorSats}} sats). Creating a vault deposit costs about {{feeDisplay}}.',
@@ -781,6 +781,10 @@ const resources = {
       // `cancel` / `retry` keys, which are already translated everywhere.
       scan_shares_biometric_title: 'Biometric Access Required',
       scan_shares_biometric_message: 'Biometric access is needed to protect your wallet keys. Please try again.',
+      recovery_replace_wallet_title: 'Replace the wallet on this phone?',
+      recovery_replace_wallet_body:
+        'This phone already holds a wallet. Continuing replaces it and everything it can spend. If its recovery phrase is not saved somewhere, that money is gone for good.',
+      recovery_replace_wallet_confirm: 'Replace wallet',
       invalid_bsv_address: 'Invalid BSV address',
       scan_recipient_hint: 'Point the camera at a payment code',
       scan_qr_default_hint: 'Point the camera at a QR code',
@@ -939,6 +943,15 @@ const resources = {
       local_pay_received: 'Payment received',
       local_pay_added: 'Added to your wallet.',
       local_pay_added_multiple: '{{count}} payments added to your wallet.',
+      local_pay_received_confirming: 'Confirming with your wallet…',
+      local_pay_received_not_credited: 'Not added to your wallet yet. Check Activity before handing anything over.',
+      local_pay_decline_broadcast_title: 'A declined payment went through',
+      local_pay_decline_broadcast_body:
+        'A payment that was declined has since appeared on the network. Do not send it again — check Activity.',
+      local_pay_cancel_unverifiable_title: 'Cannot check this payment while offline',
+      local_pay_cancel_unverifiable_body:
+        'If the other person already scanned it, cancelling lets these coins be spent twice. Only cancel if you are sure it was never scanned.',
+      local_pay_cancel_unverifiable_confirm: 'Cancel anyway',
       local_pay_queued: 'Saved — it will be added to your wallet automatically.',
       local_pay_already_paid: 'This request has already been paid.',
       local_pay_failed: 'Payment failed',
@@ -1067,7 +1080,9 @@ const resources = {
       pay_review_note_edit: 'Add a note',
       pay_trust_contact: 'Your contact',
       pay_trust_handle_attested: 'Registered',
+      pay_trust_handle_domain_attested: 'Verified by {{domain}}',
       pay_trust_unverified: 'Not verified. Double-check this Identifier.',
+      pay_address_network_mismatch: 'This address belongs to a different network from the one you are using.',
       contacts_your_contacts: 'Your contacts',
       contacts_other_people: 'Other people',
       contacts_not_saved: 'Not saved',
@@ -1379,7 +1394,7 @@ const resources = {
       vault_remove_only: '仅移除',
       vault_key_removed_toast: '密钥已移除',
       vault_export_explainer:
-        '每笔保险库存入的锁定脚本都包含公开的唯一性盐值。请保持加密备份开启，以便新设备恢复并验证使用您的 YubiKey 所需的密钥记录。',
+        '每笔保险库存入都会隐藏其盐值，直到花费时才会用到——锁定脚本中看不到任何相关信息。请保持加密备份开启，以便新设备恢复并验证使用您的 YubiKey 所需的密钥记录。',
       vault_footnote: '只有这些密钥能打开保险库。您的恢复助记词不能。',
       vault_floor_line: '最低存入 {{floorDisplay}}（{{floorSats}} sats）。创建一笔保险库存入约需 {{feeDisplay}}。',
       vault_first_deposit_title: '首次保险库存入',
@@ -1713,6 +1728,10 @@ const resources = {
       scan_shares_duplicate: '此份额已经扫描过',
       scan_shares_biometric_title: '需要生物识别验证',
       scan_shares_biometric_message: '需要生物识别验证以保护您的钱包密钥。请重试。',
+      recovery_replace_wallet_title: '要替换此手机上的钱包吗？',
+      recovery_replace_wallet_body:
+        '此手机已保存一个钱包。继续操作将替换它以及它能花费的所有资金。如果它的恢复助记词没有保存在别处，那笔钱就会永久丢失。',
+      recovery_replace_wallet_confirm: '替换钱包',
       invalid_bsv_address: '无效的 BSV 地址',
       scan_recipient_hint: '将相机对准付款码',
       scan_qr_default_hint: '将相机对准二维码',
@@ -1866,6 +1885,14 @@ const resources = {
       local_pay_received: '已收到付款',
       local_pay_added: '已添加到您的钱包。',
       local_pay_added_multiple: '已将 {{count}} 笔付款添加到您的钱包。',
+      local_pay_received_confirming: '正在与您的钱包确认…',
+      local_pay_received_not_credited: '尚未添加到您的钱包。交出任何东西之前，请先查看"动态"。',
+      local_pay_decline_broadcast_title: '一笔被拒绝的付款已经上链',
+      local_pay_decline_broadcast_body: '一笔已被拒绝的付款后来出现在网络上。请勿再次发送——请查看"动态"。',
+      local_pay_cancel_unverifiable_title: '离线状态下无法核实此付款',
+      local_pay_cancel_unverifiable_body:
+        '如果对方已经扫描过此付款，取消会让这些币被双重花费。只有在确定它从未被扫描过时才能取消。',
+      local_pay_cancel_unverifiable_confirm: '仍要取消',
       local_pay_queued: '已保存 — 稍后会自动添加到您的钱包。',
       local_pay_already_paid: '此请求已经支付过了。',
       local_pay_failed: '付款失败',
@@ -1982,7 +2009,9 @@ const resources = {
       pay_review_note_edit: '添加备注',
       pay_trust_contact: '您的联系人',
       pay_trust_handle_attested: '已注册',
+      pay_trust_handle_domain_attested: '已由 {{domain}} 验证',
       pay_trust_unverified: '未验证。请仔细核对此标识符。',
+      pay_address_network_mismatch: '此地址属于与您当前使用的网络不同的网络。',
       contacts_your_contacts: '你的联系人',
       contacts_other_people: '其他人',
       contacts_not_saved: '未保存',
@@ -2322,7 +2351,7 @@ const resources = {
       vault_remove_only: 'केवल हटाएँ',
       vault_key_removed_toast: 'कुंजी हटाई गई',
       vault_export_explainer:
-        'हर वॉल्ट जमा की लॉकिंग स्क्रिप्ट में उसका सार्वजनिक विशिष्टता सॉल्ट होता है। एन्क्रिप्टेड बैकअप चालू रखें, ताकि नया डिवाइस आपकी YubiKeys के उपयोग के लिए आवश्यक कुंजी रिकॉर्ड पुनर्स्थापित और प्रमाणित कर सके।',
+        'हर वॉल्ट जमा तब तक अपना सॉल्ट छुपाए रखता है जब तक आप उसे खर्च नहीं करते — लॉकिंग स्क्रिप्ट में इसके बारे में कुछ भी दिखाई नहीं देता। एन्क्रिप्टेड बैकअप चालू रखें, ताकि नया डिवाइस आपकी YubiKeys के उपयोग के लिए आवश्यक कुंजी रिकॉर्ड पुनर्स्थापित और प्रमाणित कर सके।',
       vault_footnote: 'केवल ये कुंजियाँ वॉल्ट खोलती हैं। आपका रिकवरी फ़्रेज़ नहीं।',
       vault_floor_line:
         'न्यूनतम जमा {{floorDisplay}} ({{floorSats}} sats)। वॉल्ट जमा बनाने में लगभग {{feeDisplay}} लगता है।',
@@ -2672,6 +2701,10 @@ const resources = {
       scan_shares_biometric_title: 'बायोमेट्रिक एक्सेस आवश्यक',
       scan_shares_biometric_message:
         'आपके वॉलेट की कुंजियों की सुरक्षा के लिए बायोमेट्रिक एक्सेस आवश्यक है। कृपया पुनः प्रयास करें।',
+      recovery_replace_wallet_title: 'इस फ़ोन पर मौजूद वॉलेट बदलें?',
+      recovery_replace_wallet_body:
+        'इस फ़ोन में पहले से एक वॉलेट मौजूद है। जारी रखने पर यह उसे और उससे खर्च होने वाली हर चीज़ को बदल देगा। यदि उसका रिकवरी फ़्रेज़ कहीं सहेजा नहीं गया है, तो वह पैसा हमेशा के लिए खो जाएगा।',
+      recovery_replace_wallet_confirm: 'वॉलेट बदलें',
       invalid_bsv_address: 'अमान्य BSV पता',
       scan_recipient_hint: 'कैमरे को भुगतान कोड पर लगाएं',
       scan_qr_default_hint: 'कैमरे को QR कोड पर लगाएं',
@@ -2829,6 +2862,15 @@ const resources = {
       local_pay_received: 'भुगतान प्राप्त हुआ',
       local_pay_added: 'आपके वॉलेट में जोड़ दिया गया।',
       local_pay_added_multiple: '{{count}} भुगतान आपके वॉलेट में जोड़ दिए गए।',
+      local_pay_received_confirming: 'आपके वॉलेट से पुष्टि हो रही है…',
+      local_pay_received_not_credited: 'अभी आपके वॉलेट में नहीं जोड़ा गया है। कुछ भी सौंपने से पहले गतिविधि जांच लें।',
+      local_pay_decline_broadcast_title: 'अस्वीकृत भुगतान नेटवर्क पर चला गया',
+      local_pay_decline_broadcast_body:
+        'जो भुगतान अस्वीकृत किया गया था वह बाद में नेटवर्क पर दिखाई दिया है। इसे फिर से न भेजें — गतिविधि जांचें।',
+      local_pay_cancel_unverifiable_title: 'ऑफ़लाइन रहते हुए यह भुगतान जांचा नहीं जा सकता',
+      local_pay_cancel_unverifiable_body:
+        'अगर दूसरे व्यक्ति ने इसे पहले ही स्कैन कर लिया है, तो रद्द करने से ये सिक्के दोबारा खर्च हो सकते हैं। केवल तभी रद्द करें जब आप सुनिश्चित हों कि इसे कभी स्कैन नहीं किया गया।',
+      local_pay_cancel_unverifiable_confirm: 'फिर भी रद्द करें',
       local_pay_queued: 'सहेज लिया गया — यह अपने आप आपके वॉलेट में जुड़ जाएगा।',
       local_pay_already_paid: 'इस अनुरोध का भुगतान पहले ही हो चुका है।',
       local_pay_failed: 'भुगतान विफल',
@@ -2955,7 +2997,9 @@ const resources = {
       pay_review_note_edit: 'नोट जोड़ें',
       pay_trust_contact: 'आपका संपर्क',
       pay_trust_handle_attested: 'पंजीकृत',
+      pay_trust_handle_domain_attested: '{{domain}} द्वारा सत्यापित',
       pay_trust_unverified: 'सत्यापित नहीं। कृपया इस पहचानकर्ता की दोबारा जांच करें।',
+      pay_address_network_mismatch: 'यह पता आपके द्वारा उपयोग किए जा रहे नेटवर्क से अलग नेटवर्क का है।',
       contacts_your_contacts: 'आपके संपर्क',
       contacts_other_people: 'अन्य लोग',
       contacts_not_saved: 'सहेजा नहीं',
@@ -3296,7 +3340,7 @@ const resources = {
       vault_remove_only: 'Solo eliminar',
       vault_key_removed_toast: 'Llave eliminada',
       vault_export_explainer:
-        'Cada depósito en la caja fuerte incluye su salt público de unicidad en el script de bloqueo. Mantén activada la copia de seguridad cifrada para que un dispositivo nuevo pueda restaurar y autenticar los registros de claves necesarios para usar tus YubiKeys.',
+        'Cada depósito en la caja fuerte oculta su salt hasta que lo gastas — nada de eso es visible en el script de bloqueo. Mantén activada la copia de seguridad cifrada para que un dispositivo nuevo pueda restaurar y autenticar los registros de claves necesarios para usar tus YubiKeys.',
       vault_footnote: 'Solo estas llaves abren la caja fuerte. Tu frase de recuperación no.',
       vault_floor_line:
         'Depósito mínimo {{floorDisplay}} ({{floorSats}} sats). Crear un depósito en la caja fuerte cuesta unos {{feeDisplay}}.',
@@ -3654,6 +3698,10 @@ const resources = {
       scan_shares_biometric_title: 'Se requiere acceso biométrico',
       scan_shares_biometric_message:
         'Se necesita acceso biométrico para proteger las claves de tu billetera. Inténtalo de nuevo.',
+      recovery_replace_wallet_title: '¿Reemplazar la billetera de este teléfono?',
+      recovery_replace_wallet_body:
+        'Este teléfono ya tiene una billetera. Si continúas, la reemplazarás junto con todo lo que puede gastar. Si su frase de recuperación no está guardada en otro lugar, ese dinero se perderá para siempre.',
+      recovery_replace_wallet_confirm: 'Reemplazar billetera',
       invalid_bsv_address: 'Dirección BSV inválida',
       scan_recipient_hint: 'Apunte la cámara hacia un código de pago',
       scan_qr_default_hint: 'Apunte la cámara hacia un código QR',
@@ -3812,6 +3860,15 @@ const resources = {
       local_pay_received: 'Pago recibido',
       local_pay_added: 'Añadido a tu billetera.',
       local_pay_added_multiple: '{{count}} pagos añadidos a tu billetera.',
+      local_pay_received_confirming: 'Confirmando con tu billetera…',
+      local_pay_received_not_credited: 'Aún no se ha añadido a tu billetera. Revisa Actividad antes de entregar nada.',
+      local_pay_decline_broadcast_title: 'Un pago rechazado se transmitió',
+      local_pay_decline_broadcast_body:
+        'Un pago que fue rechazado ha aparecido en la red. No lo envíes de nuevo — revisa Actividad.',
+      local_pay_cancel_unverifiable_title: 'No se puede verificar este pago sin conexión',
+      local_pay_cancel_unverifiable_body:
+        'Si la otra persona ya lo escaneó, cancelar permite que estas monedas se gasten dos veces. Cancela solo si estás seguro de que nunca se escaneó.',
+      local_pay_cancel_unverifiable_confirm: 'Cancelar de todos modos',
       local_pay_queued: 'Guardado: se añadirá a tu billetera automáticamente.',
       local_pay_already_paid: 'Esta solicitud ya fue pagada.',
       local_pay_failed: 'El pago falló',
@@ -3942,7 +3999,9 @@ const resources = {
       pay_review_note_edit: 'Añadir una nota',
       pay_trust_contact: 'Tu contacto',
       pay_trust_handle_attested: 'Registrado',
+      pay_trust_handle_domain_attested: 'Verificado por {{domain}}',
       pay_trust_unverified: 'No verificado. Verifica bien este identificador.',
+      pay_address_network_mismatch: 'Esta dirección pertenece a una red distinta de la que estás usando.',
       contacts_your_contacts: 'Tus contactos',
       contacts_other_people: 'Otras personas',
       contacts_not_saved: 'Sin guardar',
@@ -4291,7 +4350,7 @@ const resources = {
       vault_remove_only: 'Retirer seulement',
       vault_key_removed_toast: 'Clé retirée',
       vault_export_explainer:
-        'Chaque dépôt dans le coffre contient son sel public d’unicité dans le script de verrouillage. Laissez la sauvegarde chiffrée activée afin qu’un nouvel appareil puisse restaurer et authentifier les fiches de clés nécessaires pour utiliser vos YubiKeys.',
+        'Chaque dépôt dans le coffre cache son sel jusqu’à ce que vous le dépensiez — rien à ce sujet n’est visible dans le script de verrouillage. Laissez la sauvegarde chiffrée activée afin qu’un nouvel appareil puisse restaurer et authentifier les fiches de clés nécessaires pour utiliser vos YubiKeys.',
       vault_footnote: 'Seules ces clés ouvrent le coffre. Votre phrase de récupération, non.',
       vault_floor_line:
         'Dépôt minimum {{floorDisplay}} ({{floorSats}} sats). Créer un dépôt dans le coffre coûte environ {{feeDisplay}}.',
@@ -4650,6 +4709,10 @@ const resources = {
       scan_shares_biometric_title: 'Accès biométrique requis',
       scan_shares_biometric_message:
         "L'accès biométrique est nécessaire pour protéger les clés de votre portefeuille. Veuillez réessayer.",
+      recovery_replace_wallet_title: 'Remplacer le portefeuille de ce téléphone ?',
+      recovery_replace_wallet_body:
+        'Ce téléphone contient déjà un portefeuille. Continuer le remplacera, ainsi que tout ce qu’il peut dépenser. Si sa phrase de récupération n’est pas sauvegardée ailleurs, cet argent est perdu pour toujours.',
+      recovery_replace_wallet_confirm: 'Remplacer le portefeuille',
       invalid_bsv_address: 'Adresse BSV invalide',
       scan_recipient_hint: 'Pointez la caméra vers un code de paiement',
       scan_qr_default_hint: 'Pointez la caméra vers un code QR',
@@ -4808,6 +4871,16 @@ const resources = {
       local_pay_received: 'Paiement reçu',
       local_pay_added: 'Ajouté à votre portefeuille.',
       local_pay_added_multiple: '{{count}} paiements ajoutés à votre portefeuille.',
+      local_pay_received_confirming: 'Confirmation avec votre portefeuille…',
+      local_pay_received_not_credited:
+        'Pas encore ajouté à votre portefeuille. Vérifiez l’Activité avant de remettre quoi que ce soit.',
+      local_pay_decline_broadcast_title: 'Un paiement refusé est passé sur le réseau',
+      local_pay_decline_broadcast_body:
+        'Un paiement qui avait été refusé est depuis apparu sur le réseau. Ne l’envoyez pas à nouveau — vérifiez l’Activité.',
+      local_pay_cancel_unverifiable_title: 'Impossible de vérifier ce paiement hors connexion',
+      local_pay_cancel_unverifiable_body:
+        'Si l’autre personne l’a déjà scanné, annuler permettrait de dépenser ces pièces deux fois. N’annulez que si vous êtes sûr qu’il n’a jamais été scanné.',
+      local_pay_cancel_unverifiable_confirm: 'Annuler quand même',
       local_pay_queued: 'Enregistré — il sera ajouté automatiquement à votre portefeuille.',
       local_pay_already_paid: 'Cette demande a déjà été payée.',
       local_pay_failed: 'Échec du paiement',
@@ -4941,7 +5014,9 @@ const resources = {
       pay_review_note_edit: 'Ajouter une note',
       pay_trust_contact: 'Votre contact',
       pay_trust_handle_attested: 'Enregistré',
+      pay_trust_handle_domain_attested: 'Vérifié par {{domain}}',
       pay_trust_unverified: 'Non vérifié. Vérifiez bien cet identifiant.',
+      pay_address_network_mismatch: 'Cette adresse appartient à un réseau différent de celui que vous utilisez.',
       contacts_your_contacts: 'Vos contacts',
       contacts_other_people: 'Autres personnes',
       contacts_not_saved: 'Non enregistré',
@@ -5257,7 +5332,7 @@ const resources = {
       vault_remove_only: 'إزالة فقط',
       vault_key_removed_toast: 'تمت إزالة المفتاح',
       vault_export_explainer:
-        'يتضمن نص القفل لكل إيداع في الخزنة قيمة الملح العامة الخاصة به. أبقِ النسخة الاحتياطية المشفّرة مفعّلة كي يتمكن جهاز جديد من استعادة سجلات المفاتيح اللازمة لاستخدام مفاتيح YubiKey والتحقق منها.',
+        'كل إيداع في الخزنة يُخفي قيمة ملحه إلى أن يُصرف — لا يظهر أي شيء عنه في نص القفل. أبقِ النسخة الاحتياطية المشفّرة مفعّلة كي يتمكن جهاز جديد من استعادة سجلات المفاتيح وتوثيقها لاستخدام مفاتيح YubiKey.',
       vault_footnote: 'هذه المفاتيح فقط تفتح الخزنة. عبارة الاسترداد لا تفتحها.',
       vault_floor_line:
         'الحدّ الأدنى للإيداع {{floorDisplay}} ({{floorSats}} ساتوشي). يكلّف إنشاء إيداع في الخزنة نحو {{feeDisplay}}.',
@@ -5602,6 +5677,10 @@ const resources = {
       scan_shares_duplicate: 'تم مسح هذه الحصة بالفعل',
       scan_shares_biometric_title: 'يلزم الوصول البيومتري',
       scan_shares_biometric_message: 'يلزم الوصول البيومتري لحماية مفاتيح محفظتك. يرجى المحاولة مرة أخرى.',
+      recovery_replace_wallet_title: 'استبدال المحفظة الموجودة على هذا الهاتف؟',
+      recovery_replace_wallet_body:
+        'يحتوي هذا الهاتف بالفعل على محفظة. الاستمرار يستبدلها مع كل ما يمكنها إنفاقه. إذا لم تكن عبارة الاسترداد الخاصة بها محفوظة في مكان آخر، فسيضيع ذلك المال إلى الأبد.',
+      recovery_replace_wallet_confirm: 'استبدال المحفظة',
       invalid_bsv_address: 'عنوان BSV غير صالح',
       scan_recipient_hint: 'وجّه الكاميرا نحو رمز الدفع',
       scan_qr_default_hint: 'وجّه الكاميرا نحو رمز QR',
@@ -5756,6 +5835,14 @@ const resources = {
       local_pay_received: 'تم استلام الدفعة',
       local_pay_added: 'تمت الإضافة إلى محفظتك.',
       local_pay_added_multiple: 'تمت إضافة {{count}} مدفوعات إلى محفظتك.',
+      local_pay_received_confirming: 'جارٍ التأكيد مع محفظتك…',
+      local_pay_received_not_credited: 'لم تُضَف إلى محفظتك بعد. تحقق من النشاط قبل تسليم أي شيء.',
+      local_pay_decline_broadcast_title: 'دفعة مرفوضة تم بثّها على الشبكة',
+      local_pay_decline_broadcast_body: 'ظهرت على الشبكة دفعة كانت قد رُفضت. لا ترسلها مرة أخرى — تحقق من النشاط.',
+      local_pay_cancel_unverifiable_title: 'لا يمكن التحقق من هذه الدفعة أثناء عدم الاتصال',
+      local_pay_cancel_unverifiable_body:
+        'إذا كان الطرف الآخر قد مسحها بالفعل، فإن الإلغاء يسمح بإنفاق هذه العملات مرتين. لا تُلغِ إلا إذا كنت متأكدًا من أنها لم تُمسح مطلقًا.',
+      local_pay_cancel_unverifiable_confirm: 'إلغاء مع ذلك',
       local_pay_queued: 'تم الحفظ — ستُضاف إلى محفظتك تلقائيًا.',
       local_pay_already_paid: 'تم دفع هذا الطلب بالفعل.',
       local_pay_failed: 'فشلت عملية الدفع',
@@ -5875,7 +5962,9 @@ const resources = {
       pay_review_note_edit: 'إضافة ملاحظة',
       pay_trust_contact: 'جهة اتصالك',
       pay_trust_handle_attested: 'مسجَّل',
+      pay_trust_handle_domain_attested: 'موثّق بواسطة {{domain}}',
       pay_trust_unverified: 'غير موثّق. تحقق جيدًا من هذا المعرّف.',
+      pay_address_network_mismatch: 'هذا العنوان ينتمي إلى شبكة مختلفة عن الشبكة التي تستخدمها.',
       contacts_your_contacts: 'جهات اتصالك',
       contacts_other_people: 'أشخاص آخرون',
       contacts_not_saved: 'غير محفوظ',
@@ -6217,7 +6306,7 @@ const resources = {
       vault_remove_only: 'Só remover',
       vault_key_removed_toast: 'Chave removida',
       vault_export_explainer:
-        'Cada depósito no cofre inclui seu salt público de unicidade no script de bloqueio. Mantenha o backup criptografado ativado para que um novo dispositivo possa restaurar e autenticar os registros de chaves necessários para usar suas YubiKeys.',
+        'Cada depósito no cofre esconde o seu salt até que você o gaste — nada disso é visível no script de bloqueio. Mantenha o backup criptografado ativado para que um novo dispositivo possa restaurar e autenticar os registros de chaves necessários para usar suas YubiKeys.',
       vault_footnote: 'Só estas chaves abrem o cofre. A sua frase de recuperação não.',
       vault_floor_line:
         'Depósito mínimo {{floorDisplay}} ({{floorSats}} sats). Criar um depósito no cofre custa cerca de {{feeDisplay}}.',
@@ -6573,6 +6662,10 @@ const resources = {
       scan_shares_biometric_title: 'Acesso biométrico necessário',
       scan_shares_biometric_message:
         'É necessário acesso biométrico para proteger as chaves da sua carteira. Tente novamente.',
+      recovery_replace_wallet_title: 'Substituir a carteira deste telefone?',
+      recovery_replace_wallet_body:
+        'Este telefone já tem uma carteira. Continuar vai substituí-la e tudo o que ela pode gastar. Se a frase de recuperação dela não estiver guardada em outro lugar, esse dinheiro estará perdido para sempre.',
+      recovery_replace_wallet_confirm: 'Substituir carteira',
       invalid_bsv_address: 'Endereço BSV inválido',
       scan_recipient_hint: 'Aponte a câmera para um código de pagamento',
       scan_qr_default_hint: 'Aponte a câmera para um código QR',
@@ -6730,6 +6823,16 @@ const resources = {
       local_pay_received: 'Pagamento recebido',
       local_pay_added: 'Adicionado à sua carteira.',
       local_pay_added_multiple: '{{count}} pagamentos adicionados à sua carteira.',
+      local_pay_received_confirming: 'Confirmando com a sua carteira…',
+      local_pay_received_not_credited:
+        'Ainda não foi adicionado à sua carteira. Verifique a Atividade antes de entregar qualquer coisa.',
+      local_pay_decline_broadcast_title: 'Um pagamento recusado foi transmitido',
+      local_pay_decline_broadcast_body:
+        'Um pagamento que havia sido recusado apareceu na rede. Não o envie de novo — verifique a Atividade.',
+      local_pay_cancel_unverifiable_title: 'Não é possível verificar este pagamento offline',
+      local_pay_cancel_unverifiable_body:
+        'Se a outra pessoa já escaneou, cancelar permite que essas moedas sejam gastas duas vezes. Só cancele se tiver certeza de que nunca foi escaneado.',
+      local_pay_cancel_unverifiable_confirm: 'Cancelar mesmo assim',
       local_pay_queued: 'Salvo — será adicionado à sua carteira automaticamente.',
       local_pay_already_paid: 'Esta solicitação já foi paga.',
       local_pay_failed: 'Falha no pagamento',
@@ -6860,7 +6963,9 @@ const resources = {
       pay_review_note_edit: 'Adicionar uma nota',
       pay_trust_contact: 'Seu contato',
       pay_trust_handle_attested: 'Registrado',
+      pay_trust_handle_domain_attested: 'Verificado por {{domain}}',
       pay_trust_unverified: 'Não verificado. Confira bem este identificador.',
+      pay_address_network_mismatch: 'Este endereço pertence a uma rede diferente da que você está usando.',
       contacts_your_contacts: 'Seus contatos',
       contacts_other_people: 'Outras pessoas',
       contacts_not_saved: 'Não salvo',
@@ -7197,7 +7302,7 @@ const resources = {
       vault_remove_only: 'কেবল সরান',
       vault_key_removed_toast: 'কী সরানো হয়েছে',
       vault_export_explainer:
-        'প্রতিটি ভল্ট জমার লকিং স্ক্রিপ্টে তার প্রকাশ্য ইউনিকনেস সল্ট থাকে। এনক্রিপ্টেড ব্যাকআপ চালু রাখুন, যাতে নতুন ডিভাইস আপনার YubiKey ব্যবহারের জন্য প্রয়োজনীয় কী রেকর্ড পুনরুদ্ধার ও প্রমাণীকরণ করতে পারে।',
+        'প্রতিটি ভল্ট জমা তার সল্ট গোপন রাখে যতক্ষণ না আপনি তা খরচ করেন — লকিং স্ক্রিপ্টে এর সম্পর্কে কিছুই দেখা যায় না। এনক্রিপ্টেড ব্যাকআপ চালু রাখুন, যাতে নতুন ডিভাইস আপনার YubiKey ব্যবহারের জন্য প্রয়োজনীয় কী রেকর্ড পুনরুদ্ধার ও প্রমাণীকরণ করতে পারে।',
       vault_footnote: 'কেবল এই কী-গুলিই ভল্ট খোলে। আপনার রিকভারি ফ্রেজ নয়।',
       vault_floor_line:
         'সর্বনিম্ন জমা {{floorDisplay}} ({{floorSats}} sats)। একটি ভল্ট জমা তৈরিতে প্রায় {{feeDisplay}} খরচ হয়।',
@@ -7545,6 +7650,10 @@ const resources = {
       scan_shares_biometric_title: 'বায়োমেট্রিক অ্যাক্সেস প্রয়োজন',
       scan_shares_biometric_message:
         'আপনার ওয়ালেট কী সুরক্ষিত রাখতে বায়োমেট্রিক অ্যাক্সেস প্রয়োজন। আবার চেষ্টা করুন।',
+      recovery_replace_wallet_title: 'এই ফোনের ওয়ালেটটি প্রতিস্থাপন করবেন?',
+      recovery_replace_wallet_body:
+        'এই ফোনে আগে থেকেই একটি ওয়ালেট আছে। এগিয়ে গেলে এটি এবং এর মাধ্যমে খরচযোগ্য সবকিছু প্রতিস্থাপিত হবে। এর রিকভারি ফ্রেজ যদি অন্য কোথাও সংরক্ষিত না থাকে, তাহলে সেই অর্থ চিরতরে হারিয়ে যাবে।',
+      recovery_replace_wallet_confirm: 'ওয়ালেট প্রতিস্থাপন করুন',
       invalid_bsv_address: 'অবৈধ BSV ঠিকানা',
       scan_recipient_hint: 'পেমেন্ট কোডে ক্যামেরা তাক করুন',
       scan_qr_default_hint: 'QR কোডে ক্যামেরা তাক করুন',
@@ -7701,6 +7810,15 @@ const resources = {
       local_pay_received: 'পেমেন্ট গ্রহণ করা হয়েছে',
       local_pay_added: 'আপনার ওয়ালেটে যোগ করা হয়েছে।',
       local_pay_added_multiple: '{{count}}টি পেমেন্ট আপনার ওয়ালেটে যোগ করা হয়েছে।',
+      local_pay_received_confirming: 'আপনার ওয়ালেটের সাথে নিশ্চিত করা হচ্ছে…',
+      local_pay_received_not_credited: 'এখনও আপনার ওয়ালেটে যোগ হয়নি। কিছু হস্তান্তর করার আগে কার্যকলাপ দেখে নিন।',
+      local_pay_decline_broadcast_title: 'একটি প্রত্যাখ্যাত পেমেন্ট নেটওয়ার্কে চলে গেছে',
+      local_pay_decline_broadcast_body:
+        'যে পেমেন্টটি প্রত্যাখ্যাত হয়েছিল তা পরে নেটওয়ার্কে দেখা গেছে। এটি আবার পাঠাবেন না — কার্যকলাপ দেখুন।',
+      local_pay_cancel_unverifiable_title: 'অফলাইনে থাকাকালীন এই পেমেন্ট যাচাই করা যাচ্ছে না',
+      local_pay_cancel_unverifiable_body:
+        'অন্য ব্যক্তি যদি এটি আগেই স্ক্যান করে থাকেন, তাহলে বাতিল করলে এই কয়েন দুইবার খরচ করা সম্ভব হবে। কেবল তখনই বাতিল করুন যদি আপনি নিশ্চিত হন যে এটি কখনো স্ক্যান করা হয়নি।',
+      local_pay_cancel_unverifiable_confirm: 'তবুও বাতিল করুন',
       local_pay_queued: 'সংরক্ষিত হয়েছে — এটি স্বয়ংক্রিয়ভাবে আপনার ওয়ালেটে যোগ হবে।',
       local_pay_already_paid: 'এই অনুরোধের পেমেন্ট আগেই হয়ে গেছে।',
       local_pay_failed: 'পেমেন্ট ব্যর্থ হয়েছে',
@@ -7827,7 +7945,10 @@ const resources = {
       pay_review_note_edit: 'একটি নোট যোগ করুন',
       pay_trust_contact: 'আপনার পরিচিতি',
       pay_trust_handle_attested: 'নিবন্ধিত',
+      pay_trust_handle_domain_attested: '{{domain}} দ্বারা যাচাইকৃত',
       pay_trust_unverified: 'যাচাই করা হয়নি। এই শনাক্তকারীটি ভালোভাবে যাচাই করুন।',
+      pay_address_network_mismatch:
+        'এই ঠিকানাটি আপনি যে নেটওয়ার্ক ব্যবহার করছেন তার থেকে ভিন্ন একটি নেটওয়ার্কের অন্তর্গত।',
       contacts_your_contacts: 'আপনার পরিচিতি',
       contacts_other_people: 'অন্য ব্যক্তিরা',
       contacts_not_saved: 'সংরক্ষিত নয়',
@@ -8169,7 +8290,7 @@ const resources = {
       vault_remove_only: 'Только удалить',
       vault_key_removed_toast: 'Ключ удалён',
       vault_export_explainer:
-        'Скрипт блокировки каждого пополнения хранилища содержит общедоступную соль уникальности. Не выключайте зашифрованную резервную копию, чтобы новое устройство могло восстановить и проверить записи ключей, необходимые для использования ваших YubiKey.',
+        'Каждое пополнение хранилища скрывает свою соль до момента, когда вы её потратите — в скрипте блокировки об этом ничего не видно. Не выключайте зашифрованную резервную копию, чтобы новое устройство могло восстановить и проверить записи ключей, необходимые для использования ваших YubiKey.',
       vault_footnote: 'Только эти ключи открывают хранилище. Фраза восстановления — нет.',
       vault_floor_line:
         'Минимальное пополнение {{floorDisplay}} ({{floorSats}} сат). Создание пополнения хранилища стоит около {{feeDisplay}}.',
@@ -8522,6 +8643,10 @@ const resources = {
       scan_shares_duplicate: 'Эта доля уже была отсканирована',
       scan_shares_biometric_title: 'Требуется биометрия',
       scan_shares_biometric_message: 'Биометрия нужна для защиты ключей вашего кошелька. Попробуйте ещё раз.',
+      recovery_replace_wallet_title: 'Заменить кошелёк на этом телефоне?',
+      recovery_replace_wallet_body:
+        'На этом телефоне уже есть кошелёк. Продолжив, вы замените его и всё, что он может потратить. Если его фраза восстановления не сохранена где-то ещё, эти деньги будут потеряны навсегда.',
+      recovery_replace_wallet_confirm: 'Заменить кошелёк',
       invalid_bsv_address: 'Недопустимый адрес BSV',
       scan_recipient_hint: 'Направьте камеру на платёжный код',
       scan_qr_default_hint: 'Направьте камеру на QR-код',
@@ -8678,6 +8803,16 @@ const resources = {
       local_pay_received: 'Платёж получен',
       local_pay_added: 'Добавлено в ваш кошелёк.',
       local_pay_added_multiple: '{{count}} платежей добавлено в ваш кошелёк.',
+      local_pay_received_confirming: 'Подтверждается вашим кошельком…',
+      local_pay_received_not_credited:
+        'Ещё не добавлено в ваш кошелёк. Проверьте Активность, прежде чем что-либо передавать.',
+      local_pay_decline_broadcast_title: 'Отклонённый платёж всё же прошёл',
+      local_pay_decline_broadcast_body:
+        'Платёж, который был отклонён, с тех пор появился в сети. Не отправляйте его снова — проверьте Активность.',
+      local_pay_cancel_unverifiable_title: 'Проверить этот платёж без подключения нельзя',
+      local_pay_cancel_unverifiable_body:
+        'Если получатель уже отсканировал платёж, отмена позволит потратить эти монеты повторно. Отменяйте только если уверены, что его никогда не сканировали.',
+      local_pay_cancel_unverifiable_confirm: 'Всё равно отменить',
       local_pay_queued: 'Сохранено — платёж будет добавлен в кошелёк автоматически.',
       local_pay_already_paid: 'Этот запрос уже оплачен.',
       local_pay_failed: 'Платёж не прошёл',
@@ -8807,7 +8942,9 @@ const resources = {
       pay_review_note_edit: 'Добавить заметку',
       pay_trust_contact: 'Ваш контакт',
       pay_trust_handle_attested: 'Зарегистрирован',
+      pay_trust_handle_domain_attested: 'Подтверждено {{domain}}',
       pay_trust_unverified: 'Не проверено. Внимательно проверьте этот идентификатор.',
+      pay_address_network_mismatch: 'Этот адрес принадлежит другой сети, отличной от той, которую вы используете.',
       contacts_your_contacts: 'Ваши контакты',
       contacts_other_people: 'Другие люди',
       contacts_not_saved: 'Не сохранён',
@@ -9150,7 +9287,7 @@ const resources = {
       vault_remove_only: 'Hapus saja',
       vault_key_removed_toast: 'Kunci dihapus',
       vault_export_explainer:
-        'Setiap setoran brankas memuat salt keunikan publik di dalam skrip penguncinya. Biarkan cadangan terenkripsi tetap aktif agar perangkat baru dapat memulihkan dan mengautentikasi catatan kunci yang diperlukan untuk memakai YubiKey Anda.',
+        'Setiap setoran brankas menyembunyikan salt-nya sampai Anda membelanjakannya — tidak ada yang terlihat mengenainya di skrip pengunci. Biarkan cadangan terenkripsi tetap aktif agar perangkat baru dapat memulihkan dan mengautentikasi catatan kunci yang diperlukan untuk memakai YubiKey Anda.',
       vault_footnote: 'Hanya kunci-kunci ini yang membuka brankas. Frasa pemulihan Anda tidak.',
       vault_floor_line:
         'Setoran minimum {{floorDisplay}} ({{floorSats}} sat). Membuat setoran brankas berbiaya sekitar {{feeDisplay}}.',
@@ -9499,6 +9636,10 @@ const resources = {
       scan_shares_biometric_title: 'Akses Biometrik Diperlukan',
       scan_shares_biometric_message:
         'Akses biometrik diperlukan untuk melindungi kunci dompet Anda. Silakan coba lagi.',
+      recovery_replace_wallet_title: 'Ganti dompet di ponsel ini?',
+      recovery_replace_wallet_body:
+        'Ponsel ini sudah menyimpan sebuah dompet. Melanjutkan akan menggantinya beserta semua yang bisa dibelanjakannya. Jika frasa pemulihannya tidak disimpan di tempat lain, uang itu akan hilang selamanya.',
+      recovery_replace_wallet_confirm: 'Ganti dompet',
       invalid_bsv_address: 'Alamat BSV tidak valid',
       scan_recipient_hint: 'Arahkan kamera ke kode pembayaran',
       scan_qr_default_hint: 'Arahkan kamera ke kode QR',
@@ -9657,6 +9798,16 @@ const resources = {
       local_pay_received: 'Pembayaran diterima',
       local_pay_added: 'Ditambahkan ke dompet Anda.',
       local_pay_added_multiple: '{{count}} pembayaran ditambahkan ke dompet Anda.',
+      local_pay_received_confirming: 'Mengonfirmasi dengan dompet Anda…',
+      local_pay_received_not_credited:
+        'Belum ditambahkan ke dompet Anda. Periksa Aktivitas sebelum menyerahkan apa pun.',
+      local_pay_decline_broadcast_title: 'Pembayaran yang ditolak ternyata tersiar',
+      local_pay_decline_broadcast_body:
+        'Pembayaran yang sebelumnya ditolak kini muncul di jaringan. Jangan kirim lagi — periksa Aktivitas.',
+      local_pay_cancel_unverifiable_title: 'Tidak dapat memeriksa pembayaran ini saat offline',
+      local_pay_cancel_unverifiable_body:
+        'Jika orang lain sudah memindainya, membatalkan akan memungkinkan koin ini dibelanjakan dua kali. Batalkan hanya jika Anda yakin itu belum pernah dipindai.',
+      local_pay_cancel_unverifiable_confirm: 'Batalkan saja',
       local_pay_queued: 'Tersimpan — akan ditambahkan ke dompet Anda secara otomatis.',
       local_pay_already_paid: 'Permintaan ini sudah dibayar.',
       local_pay_failed: 'Pembayaran gagal',
@@ -9788,7 +9939,9 @@ const resources = {
       pay_review_note_edit: 'Tambahkan catatan',
       pay_trust_contact: 'Kontak Anda',
       pay_trust_handle_attested: 'Terdaftar',
+      pay_trust_handle_domain_attested: 'Diverifikasi oleh {{domain}}',
       pay_trust_unverified: 'Belum diverifikasi. Periksa kembali Identifier ini.',
+      pay_address_network_mismatch: 'Alamat ini berasal dari jaringan yang berbeda dari yang sedang Anda gunakan.',
       contacts_your_contacts: 'Kontak Anda',
       contacts_other_people: 'Orang lain',
       contacts_not_saved: 'Belum disimpan',
@@ -10128,7 +10281,7 @@ const resources = {
       vault_remove_only: '削除のみ',
       vault_key_removed_toast: '鍵を削除しました',
       vault_export_explainer:
-        '保管庫への各入金では、公開された一意性ソルトがロックスクリプトに含まれます。暗号化バックアップをオンにしておくと、新しい端末で YubiKey の使用に必要な鍵記録を復元して認証できます。',
+        '保管庫への各入金は、使うまでソルトを隠したままにします — ロックスクリプトにはそれについて何も表示されません。暗号化バックアップをオンにしておくと、新しい端末で YubiKey の使用に必要な鍵記録を復元して認証できます。',
       vault_footnote: '保管庫を開けられるのはこれらの鍵だけです。リカバリーフレーズでは開けられません。',
       vault_floor_line:
         '最低入金額 {{floorDisplay}}（{{floorSats}} sats）。保管庫への入金の作成には約 {{feeDisplay}} かかります。',
@@ -10489,6 +10642,10 @@ const resources = {
       scan_shares_duplicate: 'このシェアは既にスキャンされています',
       scan_shares_biometric_title: '生体認証が必要です',
       scan_shares_biometric_message: 'ウォレットの鍵を保護するため生体認証が必要です。もう一度お試しください。',
+      recovery_replace_wallet_title: 'この端末のウォレットを置き換えますか？',
+      recovery_replace_wallet_body:
+        'この端末には既にウォレットがあります。続けると、それとそれで使えるすべての資金が置き換えられます。リカバリーフレーズがどこにも保存されていない場合、そのお金は永久に失われます。',
+      recovery_replace_wallet_confirm: 'ウォレットを置き換える',
       invalid_bsv_address: '無効なBSVアドレス',
       scan_recipient_hint: '支払いコードにカメラを向けてください',
       scan_qr_default_hint: 'QRコードにカメラを向けてください',
@@ -10647,6 +10804,16 @@ const resources = {
       local_pay_received: '支払いを受け取りました',
       local_pay_added: 'ウォレットに追加しました。',
       local_pay_added_multiple: '{{count}}件の支払いをウォレットに追加しました。',
+      local_pay_received_confirming: 'ウォレットで確認しています…',
+      local_pay_received_not_credited:
+        'まだウォレットに追加されていません。何かを渡す前にアクティビティを確認してください。',
+      local_pay_decline_broadcast_title: '拒否した支払いがネットワークに流れました',
+      local_pay_decline_broadcast_body:
+        '拒否された支払いが、その後ネットワーク上に現れました。再送しないでください — アクティビティを確認してください。',
+      local_pay_cancel_unverifiable_title: 'オフラインではこの支払いを確認できません',
+      local_pay_cancel_unverifiable_body:
+        '相手が既にスキャン済みの場合、キャンセルするとこのコインが二重に使われる可能性があります。一度もスキャンされていないと確信できる場合のみキャンセルしてください。',
+      local_pay_cancel_unverifiable_confirm: 'それでもキャンセル',
       local_pay_queued: '保存しました — 自動的にウォレットへ追加されます。',
       local_pay_already_paid: 'このリクエストはすでに支払われています。',
       local_pay_failed: '支払いに失敗しました',
@@ -10773,7 +10940,9 @@ const resources = {
       pay_review_note_edit: 'メモを追加',
       pay_trust_contact: 'あなたの連絡先',
       pay_trust_handle_attested: '登録済み',
+      pay_trust_handle_domain_attested: '{{domain}} により確認済み',
       pay_trust_unverified: '未確認です。この識別子をよく確認してください。',
+      pay_address_network_mismatch: 'このアドレスは、現在使用中のネットワークとは異なるネットワークのものです。',
       contacts_your_contacts: 'あなたの連絡先',
       contacts_other_people: 'その他の人',
       contacts_not_saved: '未保存',
@@ -11119,7 +11288,7 @@ const resources = {
       vault_remove_only: 'Tylko usuń',
       vault_key_removed_toast: 'Klucz usunięty',
       vault_export_explainer:
-        'Skrypt blokujący każdej wpłaty do sejfu zawiera publiczną sól unikalności. Zostaw włączoną zaszyfrowaną kopię zapasową, aby nowe urządzenie mogło przywrócić i uwierzytelnić zapisy kluczy potrzebne do użycia Twoich YubiKey.',
+        'Każda wpłata do sejfu skrywa swoją sól, aż do jej wydania — nic o niej nie widać w skrypcie blokującym. Zostaw włączoną zaszyfrowaną kopię zapasową, aby nowe urządzenie mogło przywrócić i uwierzytelnić zapisy kluczy potrzebne do użycia Twoich YubiKey.',
       vault_footnote: 'Sejf otwierają tylko te klucze. Twoja fraza odzyskiwania — nie.',
       vault_floor_line:
         'Minimalna wpłata {{floorDisplay}} ({{floorSats}} sat). Utworzenie wpłaty do sejfu kosztuje około {{feeDisplay}}.',
@@ -11485,6 +11654,10 @@ const resources = {
       scan_shares_biometric_title: 'Wymagany dostęp biometryczny',
       scan_shares_biometric_message:
         'Dostęp biometryczny jest potrzebny, aby chronić klucze portfela. Spróbuj ponownie.',
+      recovery_replace_wallet_title: 'Zastąpić portfel na tym telefonie?',
+      recovery_replace_wallet_body:
+        'Ten telefon już przechowuje portfel. Kontynuowanie zastąpi go razem z wszystkim, co może wydać. Jeśli jego fraza odzyskiwania nie jest zapisana gdzie indziej, te pieniądze przepadną na zawsze.',
+      recovery_replace_wallet_confirm: 'Zastąp portfel',
       invalid_bsv_address: 'Nieprawidłowy adres BSV',
       scan_recipient_hint: 'Skieruj kamerę na kod płatności',
       scan_qr_default_hint: 'Skieruj kamerę na kod QR',
@@ -11645,6 +11818,16 @@ const resources = {
       local_pay_received: 'Płatność odebrana',
       local_pay_added: 'Dodano do Twojego portfela.',
       local_pay_added_multiple: 'Dodano {{count}} płatności do Twojego portfela.',
+      local_pay_received_confirming: 'Potwierdzanie w portfelu…',
+      local_pay_received_not_credited:
+        'Jeszcze nie dodano do Twojego portfela. Sprawdź Aktywność, zanim coś przekażesz.',
+      local_pay_decline_broadcast_title: 'Odrzucona płatność jednak przeszła',
+      local_pay_decline_broadcast_body:
+        'Płatność, która została odrzucona, pojawiła się od tego czasu w sieci. Nie wysyłaj jej ponownie — sprawdź Aktywność.',
+      local_pay_cancel_unverifiable_title: 'Nie można sprawdzić tej płatności offline',
+      local_pay_cancel_unverifiable_body:
+        'Jeśli druga osoba już to zeskanowała, anulowanie pozwoli wydać te monety dwukrotnie. Anuluj tylko wtedy, gdy jesteś pewien, że nigdy nie zostało zeskanowane.',
+      local_pay_cancel_unverifiable_confirm: 'Anuluj mimo to',
       local_pay_queued: 'Zapisano — zostanie automatycznie dodane do portfela.',
       local_pay_already_paid: 'Ta prośba została już opłacona.',
       local_pay_failed: 'Płatność nie powiodła się',
@@ -11777,7 +11960,9 @@ const resources = {
       pay_review_note_edit: 'Dodaj notatkę',
       pay_trust_contact: 'Twój kontakt',
       pay_trust_handle_attested: 'Zarejestrowany',
+      pay_trust_handle_domain_attested: 'Zweryfikowane przez {{domain}}',
       pay_trust_unverified: 'Niezweryfikowane. Dokładnie sprawdź ten identyfikator.',
+      pay_address_network_mismatch: 'Ten adres należy do innej sieci niż ta, z której obecnie korzystasz.',
       contacts_your_contacts: 'Twoje kontakty',
       contacts_other_people: 'Inne osoby',
       contacts_not_saved: 'Niezapisany',
