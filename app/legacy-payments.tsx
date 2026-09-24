@@ -11,8 +11,5 @@ import { legacyRedirectTarget } from '@bsv/expo-wallet-toolbox'
 
 export default function RetiredLegacyPaymentsRoute() {
   const params = useLocalSearchParams<Record<string, string | string[]>>()
-  const flat = Object.fromEntries(
-    Object.entries(params).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v])
-  ) as Record<string, string | undefined>
-  return <Redirect href={legacyRedirectTarget('legacy-payments', flat)} />
+  return <Redirect href={legacyRedirectTarget('legacy-payments', params)} />
 }

@@ -195,12 +195,13 @@ export function classifyScan(raw: string): PayTarget | null {
  */
 export function legacyRedirectTarget(
   route: 'payments' | 'legacy-payments' | 'local-payments',
-  params: Record<string, string | undefined>
+  params: Record<string, string | string[] | undefined>
 ): { pathname: '/pay'; params: Record<string, string> } {
   const cell: PayCell = route === 'payments' ? 'pay-handle' : route === 'legacy-payments' ? 'get-address' : 'get-nearby'
   const forwarded: Record<string, string> = { cell }
   for (const key of ['peerpay', 'identityKey', 'sats'] as const) {
-    const value = params[key]
+    const raw = params[key]
+    const value = Array.isArray(raw) ? raw[0] : raw
     if (value !== undefined) forwarded[key] = value
   }
   return { pathname: '/pay', params: forwarded }

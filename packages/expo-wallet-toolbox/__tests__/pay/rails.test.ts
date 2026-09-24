@@ -146,6 +146,13 @@ describe('legacyRedirectTarget', () => {
   it('drops undefined params rather than forwarding them', () => {
     expect(legacyRedirectTarget('payments', { sats: undefined }).params).toEqual({ cell: 'pay-handle' })
   })
+
+  it('forwards the first element of an array-valued param — expo-router repeats a query key into an array', () => {
+    expect(legacyRedirectTarget('payments', { identityKey: [KEY], sats: ['500'] })).toEqual({
+      pathname: '/pay',
+      params: { cell: 'pay-handle', identityKey: KEY, sats: '500' }
+    })
+  })
 })
 
 describe('classifyRecipientInput', () => {

@@ -216,6 +216,7 @@ export type { FiatCurrency } from './displayCurrencies'
 
 // Pay rails
 export * from './pay/rails'
+export * from './pay/rails/nativeIntent'
 export * from './pay/beefRepair'
 export * from './pay/creditErrors'
 export * from './pay/creditInbox'
