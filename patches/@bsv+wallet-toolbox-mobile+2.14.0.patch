@@ -1,5 +1,5 @@
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
-index 26e6377..5f231a4 100644
+index 26e6377..1a7398c 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
 @@ -9456,10 +9456,158 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
@@ -228,28 +228,34 @@ index 26e6377..5f231a4 100644
  }
  async function validateNoSendChange(storage, userId, vargs, changeBasket) {
  	const r = [];
-@@ -14015,10 +14179,16 @@ function makeFundingParams(args) {
+@@ -14015,10 +14179,22 @@ function makeFundingParams(args) {
  		changeFirstSatoshis: compatibilityFallback ? 1 : preferredSatoshis,
  		changeLockingScriptLength: 25,
  		changeUnlockingScriptLength: 107,
 -		targetNetCount: changeBasket.numberOfDesiredUTXOs - healthyChangeCount,
-+		// PATCH(bsv-browser): keep a Vault deposit's transaction plan minimal.
++		// PATCH(bsv-browser): keep a Vault-admin action's transaction plan minimal.
 +		// UTXO-pool growth (targetNetCount), surplus shaping and change migration
 +		// would add funding inputs and split unrelated change into a transaction
 +		// carrying the large R1C output, increasing later BEEF and review costs.
-+		// The Vault path validates the complete signed plan before releasing it
-+		// from noSend.
-+		targetNetCount: (vargs.labels ?? []).includes("vault-deposit") ? void 0 : changeBasket.numberOfDesiredUTXOs - healthyChangeCount,
++		// A Vault deposit's path validates the complete signed plan before
++		// releasing it from noSend; a Vault withdrawal or re-lock is stricter
++		// still — validateSignableVaultPlan (transfers.ts) rejects the signable
++		// transaction outright if its input count no longer matches the approved
++		// vault input set, so an extra migration input here would fail the whole
++		// transfer, not just cost review. Keyed off the already-computed
++		// __bsvVaultAdminAuthorized flag (set above), not a label, so every
++		// vault-admin action is covered, not only 'vault-deposit'.
++		targetNetCount: vargs.__bsvVaultAdminAuthorized === true ? void 0 : changeBasket.numberOfDesiredUTXOs - healthyChangeCount,
  		maxChangeOutputs: brc177?.kind === "protected" ? 1 : storage.managedChangePolicy.maxOutputsPerAction,
 -		surplusPoolShaping: !compatibilityFallback,
 -		maxMigrationInputs: compatibilityFallback ? 0 : storage.managedChangePolicy.migrationInputsPerAction,
-+		surplusPoolShaping: !compatibilityFallback && !(vargs.labels ?? []).includes("vault-deposit"),
-+		maxMigrationInputs: compatibilityFallback || (vargs.labels ?? []).includes("vault-deposit") ? 0 : storage.managedChangePolicy.migrationInputsPerAction,
++		surplusPoolShaping: !compatibilityFallback && vargs.__bsvVaultAdminAuthorized !== true,
++		maxMigrationInputs: compatibilityFallback || vargs.__bsvVaultAdminAuthorized === true ? 0 : storage.managedChangePolicy.migrationInputsPerAction,
  		randomVals: vargs.randomVals
  	};
  }
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
-index 81baa70..cfadaf5 100644
+index 81baa70..46e05d3 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
 @@ -9421,10 +9421,158 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
@@ -478,23 +484,29 @@ index 81baa70..cfadaf5 100644
  }
  async function validateNoSendChange(storage, userId, vargs, changeBasket) {
  	const r = [];
-@@ -13980,10 +14144,16 @@ function makeFundingParams(args) {
+@@ -13980,10 +14144,22 @@ function makeFundingParams(args) {
  		changeFirstSatoshis: compatibilityFallback ? 1 : preferredSatoshis,
  		changeLockingScriptLength: 25,
  		changeUnlockingScriptLength: 107,
 -		targetNetCount: changeBasket.numberOfDesiredUTXOs - healthyChangeCount,
-+		// PATCH(bsv-browser): keep a Vault deposit's transaction plan minimal.
++		// PATCH(bsv-browser): keep a Vault-admin action's transaction plan minimal.
 +		// UTXO-pool growth (targetNetCount), surplus shaping and change migration
 +		// would add funding inputs and split unrelated change into a transaction
 +		// carrying the large R1C output, increasing later BEEF and review costs.
-+		// The Vault path validates the complete signed plan before releasing it
-+		// from noSend.
-+		targetNetCount: (vargs.labels ?? []).includes("vault-deposit") ? void 0 : changeBasket.numberOfDesiredUTXOs - healthyChangeCount,
++		// A Vault deposit's path validates the complete signed plan before
++		// releasing it from noSend; a Vault withdrawal or re-lock is stricter
++		// still — validateSignableVaultPlan (transfers.ts) rejects the signable
++		// transaction outright if its input count no longer matches the approved
++		// vault input set, so an extra migration input here would fail the whole
++		// transfer, not just cost review. Keyed off the already-computed
++		// __bsvVaultAdminAuthorized flag (set above), not a label, so every
++		// vault-admin action is covered, not only 'vault-deposit'.
++		targetNetCount: vargs.__bsvVaultAdminAuthorized === true ? void 0 : changeBasket.numberOfDesiredUTXOs - healthyChangeCount,
  		maxChangeOutputs: brc177?.kind === "protected" ? 1 : storage.managedChangePolicy.maxOutputsPerAction,
 -		surplusPoolShaping: !compatibilityFallback,
 -		maxMigrationInputs: compatibilityFallback ? 0 : storage.managedChangePolicy.migrationInputsPerAction,
-+		surplusPoolShaping: !compatibilityFallback && !(vargs.labels ?? []).includes("vault-deposit"),
-+		maxMigrationInputs: compatibilityFallback || (vargs.labels ?? []).includes("vault-deposit") ? 0 : storage.managedChangePolicy.migrationInputsPerAction,
++		surplusPoolShaping: !compatibilityFallback && vargs.__bsvVaultAdminAuthorized !== true,
++		maxMigrationInputs: compatibilityFallback || vargs.__bsvVaultAdminAuthorized === true ? 0 : storage.managedChangePolicy.migrationInputsPerAction,
  		randomVals: vargs.randomVals
  	};
  }
