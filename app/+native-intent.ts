@@ -7,9 +7,11 @@ import appJson from '../app.json'
 
 // This app's own custom URL schemes, read from app.json rather than
 // hard-coded, so the toolbox's route resolution stays reusable by a second
-// wallet app with different schemes. `pair` is rewritten to `connections` as
-// a whole route only — never a prefix — inside resolveNativeIntent; see its
-// doc comment for why.
+// wallet app with different schemes. `resolveNativeIntent` passes an
+// external `pair` link straight through to `/pair` (PairScreen's own
+// Approve/Reject card) and redirects the two destructive recovery routes
+// (`auth/scan-shares`, `auth/mnemonic?flow=import`) to `/`; see its doc
+// comment for why.
 const scheme = appJson.expo.scheme
 const walletSchemes = Array.isArray(scheme) ? scheme : [scheme]
 
