@@ -142,15 +142,70 @@ describe('TaskDrainOutbox backoff', () => {
   it('prunes expired sent entries after a successful drain', async () => {
     const prune = jest.fn().mockResolvedValue(undefined)
     TaskDrainOutbox.noteConnectivity(true)
-    const t = new TaskDrainOutbox(monitor, async () => idle, () => 0, prune)
+    const t = new TaskDrainOutbox(
+      monitor,
+      async () => idle,
+      () => 0,
+      prune
+    )
     await t.runTask()
     expect(prune).toHaveBeenCalledTimes(1)
   })
 })
 
+describe('TaskDrainOutbox concurrency guard', () => {
+  beforeEach(() => TaskDrainOutbox.resetForTests())
+
+  it('a second overlapping runTask call returns without draining', async () => {
+    TaskDrainOutbox.noteConnectivity(true)
+    let releaseFirst: () => void = () => {}
+    const drainCalls: number[] = []
+    const t = new TaskDrainOutbox(
+      monitor,
+      async () => {
+        drainCalls.push(drainCalls.length)
+        if (drainCalls.length === 1) {
+          await new Promise<void>(resolve => {
+            releaseFirst = resolve
+          })
+        }
+        return idle
+      },
+      () => 0
+    )
+
+    const first = t.runTask()
+    const second = t.runTask()
+    const secondResult = await second
+    expect(secondResult).toBe('')
+    expect(drainCalls).toHaveLength(1)
+
+    releaseFirst()
+    await first
+    expect(drainCalls).toHaveLength(1)
+  })
+
+  it('clears the guard on throw, so the next call can still drain', async () => {
+    const nowRef = { t: 0 }
+    TaskDrainOutbox.noteConnectivity(true)
+    const t = new TaskDrainOutbox(
+      monitor,
+      async () => {
+        throw new Error('boom')
+      },
+      () => nowRef.t
+    )
+    await t.runTask()
+    const { t: t2 } = task([idle], nowRef)
+    await t2.runTask()
+    expect(TaskDrainOutbox.hasPending).toBe(false)
+  })
+})
+
 describe('drainUnsentEntries', () => {
   it('retries each unsent entry and stops after the first throw', async () => {
-    const retry = jest.fn()
+    const retry = jest
+      .fn()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('box down'))
       .mockResolvedValueOnce(undefined)
