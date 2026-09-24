@@ -48,6 +48,11 @@ export class TaskDrainOutbox extends WalletMonitorTask {
   static hasPending = false
   static backoffMs = TaskDrainOutbox.BASE_BACKOFF_MS
   static nextDueAt = 0
+  /** A drain pass is in flight. Guards against MonitorSupervisor's watchdog
+   * restart overlapping an old generation's still-running runOnce() with a
+   * new generation's — without this, both could concurrently retry the same
+   * outbox entry (reviews/misc-p2.md misc-p2-08). */
+  static running = false
 
   static noteConnectivity(online: boolean): void {
     TaskDrainOutbox.onlineNow = online
@@ -77,6 +82,7 @@ export class TaskDrainOutbox extends WalletMonitorTask {
     TaskDrainOutbox.hasPending = false
     TaskDrainOutbox.backoffMs = TaskDrainOutbox.BASE_BACKOFF_MS
     TaskDrainOutbox.nextDueAt = 0
+    TaskDrainOutbox.running = false
   }
 
   constructor(
@@ -102,6 +108,12 @@ export class TaskDrainOutbox extends WalletMonitorTask {
   }
 
   async runTask(): Promise<string> {
+    // A watchdog restart can spawn a new generation's runOnce() while an old
+    // generation's own runOnce() is still executing (it is not cancelled,
+    // only stopped from looping again). Without this guard both could
+    // concurrently retry the same outbox entry.
+    if (TaskDrainOutbox.running) return ''
+    TaskDrainOutbox.running = true
     TaskDrainOutbox.checkNow = false
     try {
       const r = await this.drain()
@@ -117,6 +129,8 @@ export class TaskDrainOutbox extends WalletMonitorTask {
     } catch (e) {
       this.scheduleRetry()
       return `DrainOutbox failed: ${e instanceof Error ? e.message : String(e)}\n`
+    } finally {
+      TaskDrainOutbox.running = false
     }
   }
 }
