@@ -111,14 +111,14 @@ it.each(['bsv-wallet', 'bsv-browser'])('accepts a pasted %s pairing URI with int
   expect(mockToast).not.toHaveBeenCalled()
 })
 
-it('preserves parameters forwarded by the native deep-link route', async () => {
+it('does NOT auto-connect a deep link — pairing links now route to /pair for Approve/Reject (MITM-P1)', async () => {
   const params = pairingParams()
   mockDeepLinkParams = params
 
   render(<ConnectionsScreen />)
 
-  await waitFor(() => expect(mockConnect).toHaveBeenCalledTimes(1))
-  expect(mockConnect).toHaveBeenCalledWith(params, expect.any(Object))
+  await act(async () => {})
+  expect(mockConnect).not.toHaveBeenCalled()
 })
 
 it.each(['https', 'unrelated-app'])('rejects a pasted pairing URI from the %s scheme', async scheme => {

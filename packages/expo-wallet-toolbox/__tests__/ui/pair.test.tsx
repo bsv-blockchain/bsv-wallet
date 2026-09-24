@@ -141,3 +141,24 @@ test('Approve constructs the WalletClient from a GUARDED wallet, not the raw per
   } as any)
   expect(mockPermissionsManager.getPublicKey).toHaveBeenCalledTimes(1)
 })
+
+/**
+ * MITM-P1-deeplink-autoconnect: nativeIntent.ts now routes an external
+ * pairing link straight to /pair (no more rewrite to Connections), so this
+ * screen must render the same Approve/Reject card for deep-link-shaped
+ * params as it does for a scanned/pasted QR, and Reject must never connect.
+ * `mockParams` above already carries exactly the params a deep link
+ * forwards (topic, backendIdentityKey, protocolID, origin, expiry) — no
+ * separate fixture is needed to prove this.
+ */
+test('a deep-link-shaped param set renders the Approve/Reject card, and Reject never calls connect()', async () => {
+  const { getByText } = draw()
+
+  expect(getByText('Connect Wallet')).toBeTruthy()
+  expect(getByText('Approve')).toBeTruthy()
+  expect(getByText('Reject')).toBeTruthy()
+
+  fireEvent.press(getByText('Reject'))
+
+  expect(mockConnect).not.toHaveBeenCalled()
+})

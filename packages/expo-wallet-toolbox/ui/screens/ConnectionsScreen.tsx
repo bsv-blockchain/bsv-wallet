@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native'
 import { observer } from 'mobx-react-lite'
 import { WalletClient } from '@bsv/sdk'
@@ -157,24 +157,16 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
   const { connect, reconnect } = useWalletConnection()
   const insets = useSafeAreaInsets()
   const [scanning, setScanning] = useState(false)
-  const { router, useLocalSearchParams } = loadExpoRouter()
+  const { router } = loadExpoRouter()
   const Ionicons = loadIonicons()
-  const deepLinkParams = useLocalSearchParams<PairingParams>()
 
-  // Auto-connect when navigated here with deep link pairing params
-  useEffect(() => {
-    if (!deepLinkParams.topic || !managers.permissionsManager) return
-    const query = new URLSearchParams({
-      topic: deepLinkParams.topic,
-      backendIdentityKey: deepLinkParams.backendIdentityKey ?? '',
-      protocolID: deepLinkParams.protocolID ?? '',
-      origin: deepLinkParams.origin ?? '',
-      expiry: deepLinkParams.expiry ?? '',
-      sig: deepLinkParams.sig ?? ''
-    })
-    const uri = `bsv-wallet://pair?${query}`
-    handleScan(uri)
-  }, [deepLinkParams.topic, managers.permissionsManager]) // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: this screen used to auto-connect from `useLocalSearchParams`
+  // deep-link params the instant it saw a `topic`, with no user gesture in
+  // between (MITM-P1-deeplink-autoconnect). `nativeIntent.ts`'s
+  // `resolveNativeIntent` no longer routes an external pairing link here at
+  // all — it lands on `/pair` (PairScreen), which shows the same
+  // origin/permissions Approve/Reject card a scanned or pasted URI gets.
+  // This screen now only ever connects from an explicit scan or paste below.
 
   async function handleScan(data: string) {
     setScanning(false)
