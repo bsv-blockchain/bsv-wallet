@@ -117,8 +117,16 @@ interface NativeYubiKeyPiv {
 let injectedMock: VaultDriver | null = null
 let nativeCache: VaultDriver | null | undefined
 
-/** DEV/test seam: force the mock (or clear it). */
+/** DEV/test seam: force the mock (or clear it).
+ *
+ * Gated on __DEV__ here, not just in devMock.ts's wrapper, so anything with
+ * JS execution in a nominally-production bundle (a modified/unofficial
+ * build, or a compromised dependency) cannot call this directly to make
+ * getVaultDriver() prefer a software mock over real hardware and skip native
+ * attestation (reviews/vault.md F-09).
+ */
 export function setMockDriver(driver: VaultDriver | null): void {
+  if (!__DEV__) return
   injectedMock = driver
 }
 
