@@ -5,9 +5,13 @@
  * There is no sealed private YubiKey material or seed-derived spending
  * authority: the enrolled YubiKeys are the spending keys. The wallet root
  * derives deterministic HMAC salts from the ordered serial list.
- * Each output carries its salt in the locking script; customInstructions
- * mirror it for indexed discovery and are accepted only after exact script and
- * salt-derivation verification.
+ * The locking script commits only to HASH160(salt||table) — a set of 20-byte
+ * commitments, one per enrolled key. The salt itself never appears in the
+ * lock; it is supplied only in the spending witness (buildUnlock, r1comb.ts)
+ * and is mirrored into customInstructions purely so the wallet can index and
+ * re-derive it locally. customInstructions are accepted only after they are
+ * shown to rebuild the exact baked commitment set
+ * (verifyInstructionsAgainstLock, transfers.ts).
  */
 
 export type VaultErrorCode =

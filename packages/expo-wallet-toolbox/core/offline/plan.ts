@@ -245,11 +245,12 @@ export interface PostedResult {
  * (`attemptToPostReqsToNetwork.js:174-181`) so the codebase has one rule for it.
  *
  * A plain error is never read as invalidity. This ancestor arrived inside a BEEF
- * that `internalizeAction` had already verified — scripts and SPV both — so a
- * bare rejection is far more likely to mean our merged BEEF is missing bytes
- * this service needed than that the transaction is bad, and rejecting it would
- * cascade into money the user legitimately holds. Left retryable, the drain
- * simply stalls, which loses nothing.
+ * that `internalizeAction` had already verified for AtomicBEEF structure and SPV
+ * (merkle-proof) validity — it does not execute or verify the transaction's
+ * unlocking/locking scripts — so a bare rejection is far more likely to mean our
+ * merged BEEF is missing bytes this service needed than that the transaction is
+ * bad, and rejecting it would cascade into money the user legitimately holds.
+ * Left retryable, the drain simply stalls, which loses nothing.
  */
 export function outcomeOfForeignPost(args: { txid: string; results: PostedResult[] }): PostOutcome {
   let success = false

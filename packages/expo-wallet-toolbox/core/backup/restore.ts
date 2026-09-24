@@ -53,10 +53,14 @@ export async function listBackups (deps: {
 }
 
 /**
- * Replay the newest complete generation into `storage`.
+ * Replay the newest generation the manifest reports for the chosen device.
  *
- * Picks the newest generation rather than the oldest because a generation is a full
- * snapshot: the newest one alone is sufficient, and it is the shortest replay.
+ * A generation is intended by the writer (see push.ts rotate/shouldRotate) to
+ * be a coherent, self-contained snapshot, so the newest one alone should be
+ * sufficient and is the shortest replay — but this module has no independent
+ * way to confirm a generation is complete; it trusts the manifest and only
+ * checks that the number of chunks it received matches that same
+ * generation's own reported chunk count.
  */
 export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResult> {
   const client = resolveClient(deps)

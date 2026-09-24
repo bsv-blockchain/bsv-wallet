@@ -78,8 +78,8 @@ export interface DerivingWallet {
  *
  * Throws on every failure and returns on none, so a caller cannot mistake a
  * refusal for a zero-value payment. MUST be called before the settle path
- * latches or writes anything: every throw here has to remain a provable
- * "queued nothing" decline.
+ * latches or writes anything: every throw here has to remain an invariant
+ * this module enforces on itself — a "queued nothing" decline, by construction.
  */
 export async function verifyFramePayment(
   wallet: DerivingWallet,
@@ -200,7 +200,7 @@ export async function verifyFramePayment(
   // every token ancestor bottoms out at a σ_I this device can verify against
   // THIS session's overlay key, or at bytes it can walk further. Anything else
   // is refused here, before the settle path latches or writes anything, so the
-  // refusal stays a provable "queued nothing".
+  // refusal stays an unlatched "queued nothing" by construction.
   if (!opts?.cover) {
     throw new FrameVerifyError('not_covered', 'no coverage verifier was supplied for a token frame')
   }
