@@ -40,6 +40,10 @@ function makeDeps(): { deps: RestoreWalletDeps; order: string[] } {
       order.push('isWalletBuilt')
       return false
     }),
+    // Not pushed to `order`: restoreWallet.ts never reads this itself — the
+    // replace-wallet confirmation guard that reads it lives one layer up, in
+    // recoverWallet.ts, BEFORE the first restoreWallet call.
+    hasStoredIdentity: jest.fn(async () => false),
     getBackupRestore: jest.fn(() => {
       order.push('getBackupRestore')
       return { phase: 'restored' as const }

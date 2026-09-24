@@ -19,6 +19,10 @@
  *    (see recoverWallet.ts's docs) — an accidental tap-outside must never be
  *    read as "I accept that risk". 'retry' just returns the user to their
  *    input, which is always safe to default to.
+ *  - confirmReplace: dismiss → 'keep', never 'replace'. 'replace' overwrites
+ *    the device's only copy of an existing secret (see recoverWallet.ts's
+ *    docs) — an accidental tap-outside must never be read as "yes, destroy
+ *    my current wallet". 'keep' leaves the device exactly as it was.
  *
  * Does NOT decide the retry/skip POLICY (that's recoverWallet.ts, which
  * calls these and interprets the result) — this module only renders the two
@@ -54,6 +58,18 @@ export function restorePrompts(t: TFunctionLike): RestorePrompts {
         ]
       })
       return choice === 'skip' ? 'skip' : 'retry'
+    },
+
+    async confirmReplace() {
+      const choice = await showAlert({
+        title: t('recovery_replace_wallet_title'),
+        message: t('recovery_replace_wallet_body'),
+        buttons: [
+          { text: t('cancel'), style: 'cancel', key: 'keep' },
+          { text: t('recovery_replace_wallet_confirm'), style: 'destructive', key: 'replace' }
+        ]
+      })
+      return choice === 'replace' ? 'replace' : 'keep'
     }
   }
 }

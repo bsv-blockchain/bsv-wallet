@@ -72,6 +72,13 @@ export interface RestoreWalletDeps {
   rebuildWallet(opts?: { restoreFromBackup?: boolean }): Promise<void>
   /** Read fresh on every call — a React state snapshot goes stale across the awaits inside. */
   isWalletBuilt(): boolean
+  /**
+   * Is a secret already on this device? Used by `recoverWallet.ts`'s
+   * replace-wallet confirmation guard, BEFORE the first `restoreWallet`
+   * attempt — never read by `restoreWallet` itself, which stays a pure
+   * "one attempt" primitive with no policy of its own.
+   */
+  hasStoredIdentity(): Promise<boolean>
   getBackupRestore(): { phase: 'idle' | 'checking' | 'restoring' | 'restored' | 'no-backup' | 'failed'; error?: string }
   attest(identityKey: string, medium: BackupMedium): Promise<void>
 }

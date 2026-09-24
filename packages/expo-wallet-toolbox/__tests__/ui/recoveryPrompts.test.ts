@@ -88,4 +88,30 @@ describe('restorePrompts', () => {
       await expect(restorePrompts(t).restoreFailed('boom')).resolves.toBe('retry')
     })
   })
+
+  describe('confirmReplace', () => {
+    test('calls showAlert with the replace-wallet copy, destructive confirm button', async () => {
+      mockShowAlert.mockResolvedValueOnce('replace')
+      await restorePrompts(t).confirmReplace()
+
+      expect(mockShowAlert).toHaveBeenCalledWith({
+        title: t('recovery_replace_wallet_title'),
+        message: t('recovery_replace_wallet_body'),
+        buttons: [
+          { text: t('cancel'), style: 'cancel', key: 'keep' },
+          { text: t('recovery_replace_wallet_confirm'), style: 'destructive', key: 'replace' }
+        ]
+      })
+    })
+
+    test("resolves 'replace' when showAlert resolves 'replace'", async () => {
+      mockShowAlert.mockResolvedValueOnce('replace')
+      await expect(restorePrompts(t).confirmReplace()).resolves.toBe('replace')
+    })
+
+    test.each(['keep', 'cancel', undefined, ''])("resolves 'keep' for anything else (%s)", async other => {
+      mockShowAlert.mockResolvedValueOnce(other)
+      await expect(restorePrompts(t).confirmReplace()).resolves.toBe('keep')
+    })
+  })
 })
