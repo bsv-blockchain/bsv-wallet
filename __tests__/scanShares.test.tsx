@@ -31,6 +31,13 @@ const mockHapticSuccess = jest.fn()
 const mockHapticError = jest.fn()
 const mockShowAlert = jest.fn(async (_options: unknown) => 'ok')
 
+// Wraps the real secretFromShares by default (below), so tests can force a
+// throw from it (mockImplementationOnce) without disturbing the real
+// recombination other tests rely on.
+const mockSecretFromShares = jest.fn((shareStrings: string[]) =>
+  jest.requireActual('../packages/expo-wallet-toolbox/core/recovery/secret').secretFromShares(shareStrings)
+)
+
 let mockWalletBuilt = false
 let mockRestoreState: { phase: string; error?: string } = { phase: 'idle' }
 let mockBackupRestore: { phase: string; chunks: number; total: number } = { phase: 'idle', chunks: 0, total: 0 }
@@ -61,7 +68,6 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     '../packages/expo-wallet-toolbox/core/recovery/shareCollector'
   )
   const { recoverWallet } = jest.requireActual('../packages/expo-wallet-toolbox/core/recovery/recoverWallet')
-  const { secretFromShares } = jest.requireActual('../packages/expo-wallet-toolbox/core/recovery/secret')
 
   return {
     useTheme: () => ({ colors: {}, isDark: false }),
@@ -91,7 +97,11 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     },
     collectShare,
     emptyShareCollection,
-    secretFromShares,
+    // Wrapped (not assigned directly): the outer `mockSecretFromShares` isn't
+    // initialized yet when this factory itself runs (module setup order), so
+    // the reference has to be resolved lazily, on each call, same as the
+    // `haptics` functions below.
+    secretFromShares: (shareStrings: string[]) => mockSecretFromShares(shareStrings),
     recoverWallet
   }
 })
@@ -323,7 +333,7 @@ describe('scan-shares screen', () => {
     await waitFor(() => expect(screen.getByText('celebration')).toBeTruthy())
   })
 
-  test('a thrown build error shows the error message and resets the scanner', async () => {
+  test('a thrown build error shows the translated failure message, logs the detail, and resets the scanner', async () => {
     mockBuild.mockRejectedValueOnce(new Error('boom-build'))
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     const { mnemonic } = generateMnemonicWallet()
@@ -333,9 +343,29 @@ describe('scan-shares screen', () => {
     const screen = render(<ScanSharesScreen />)
     await scanAll(shares.slice(0, 2))
 
-    await waitFor(() => expect(screen.getByText('boom-build')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('scan_shares_recovery_failed')).toBeTruthy())
+    expect(screen.queryByText('boom-build')).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith('[ScanShares] Recovery failed:', 'boom-build')
     expect(mockHapticError).toHaveBeenCalled()
     await waitFor(() => expect(screen.getByText('scan_shares_scan_first')).toBeTruthy())
+    errorSpy.mockRestore()
+  })
+
+  test('a thrown secretFromShares error shows the translated failure message and logs the detail', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockSecretFromShares.mockImplementationOnce(() => {
+      throw new Error('bad shares detail')
+    })
+    const { mnemonic } = generateMnemonicWallet()
+    const entropy = Mnemonic.fromString(mnemonic).toEntropy()
+    const shares = generateEntropyShares(entropy)
+
+    const screen = render(<ScanSharesScreen />)
+    await scanAll(shares.slice(0, 2))
+
+    await waitFor(() => expect(screen.getByText('scan_shares_recovery_failed')).toBeTruthy())
+    expect(screen.queryByText('bad shares detail')).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith('[ScanShares] Recovery failed:', 'bad shares detail')
     errorSpy.mockRestore()
   })
 })

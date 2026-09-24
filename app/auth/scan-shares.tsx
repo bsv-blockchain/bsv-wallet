@@ -79,7 +79,8 @@ export default function ScanSharesScreen() {
         try {
           parsed = secretFromShares(shareStrings)
         } catch (err) {
-          fail(err instanceof Error ? err.message : t('scan_shares_recovery_failed'))
+          console.error('[ScanShares] Recovery failed:', err instanceof Error ? err.message : String(err))
+          fail(t('scan_shares_recovery_failed'))
           return
         }
 
@@ -109,7 +110,7 @@ export default function ScanSharesScreen() {
             break
           case 'failed':
             console.error('[ScanShares] Recovery failed:', outcome.error)
-            fail(outcome.error)
+            fail(t('scan_shares_recovery_failed'))
             break
         }
       } finally {

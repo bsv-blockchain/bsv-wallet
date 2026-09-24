@@ -705,6 +705,40 @@ test('a refused write with no existing identity toasts the new create_wallet_ref
   expect(mockToast).toHaveBeenCalledWith('create_wallet_refused', { type: 'error' })
 })
 
+test('a route flip to backup while the identity check is pending cancels quietly: nothing generated, stored, or toasted', async () => {
+  const screen = render(<MnemonicScreen />)
+  const create = await screen.findByText('create_new_wallet')
+
+  // mount's own "does an identity already exist" effect already consumed the
+  // first (default, immediately-resolving) call — queue the deferred
+  // implementation for the SECOND call, made by createNewWallet's own guard
+  // when the button below is pressed.
+  let finish!: (existing: boolean) => void
+  mockHasIdentity.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
+  fireEvent.press(create)
+  await waitFor(() => expect(mockHasIdentity).toHaveBeenCalledTimes(2))
+
+  // The route changes under the in-flight await — flowRef is refreshed on
+  // render, so a rerender is needed for isBackupFlow() to see it.
+  mockFlow = 'backup'
+  screen.rerender(<MnemonicScreen />)
+
+  await act(async () => {
+    finish(false)
+  })
+
+  expect(mockGenerate).not.toHaveBeenCalled()
+  expect(mockCreate).not.toHaveBeenCalled()
+  expect(mockToast).not.toHaveBeenCalled()
+  expect(mockReplace).not.toHaveBeenCalled()
+  expect(screen.queryByText('new test phrase')).toBeNull()
+})
+
 describe('import flow', () => {
   const HEX_KEY = 'a'.repeat(64)
 
@@ -827,6 +861,37 @@ describe('import flow', () => {
     expect(mockAttest).not.toHaveBeenCalled()
     expect(mockToast).toHaveBeenCalledWith('restore_backup_failed_title', { type: 'error' })
     expect(screen.queryByText('celebration')).toBeNull()
+  })
+
+  test('a route flip to backup mid-restore guards the outcome: no celebration, no toast, and the backup screen still reaches Confirm', async () => {
+    const { screen, input } = await renderImport()
+    fireEvent.changeText(input, 'valid test phrase')
+    // The route changes while `recoverWallet` is still in flight — flowRef is
+    // refreshed on render, so a rerender (triggered here, from inside the
+    // awaited build) is needed for the post-await isBackupFlow() check below
+    // to see it.
+    mockBuild.mockImplementationOnce(async () => {
+      mockRestoreState = { phase: 'restored', chunks: 0, total: 0 }
+      mockFlow = 'backup'
+      screen.rerender(<MnemonicScreen />)
+    })
+    await act(async () => {
+      pressContinue(screen)
+    })
+
+    // The celebration overlay is already gated on `!isBackup`, so it staying
+    // hidden here doesn't by itself prove the guard fired — an un-guarded
+    // `setCelebrating(true)` is invisible there but NOT invisible in
+    // `backupSession`'s own memo, which returns null while `celebrating` is
+    // true regardless of flow. That leak would permanently hide the backup
+    // screen's Confirm section, so reaching it is the real pin.
+    expect(screen.queryByText('celebration')).toBeNull()
+    expect(mockToast).not.toHaveBeenCalled()
+    await screen.findByText('existing test phrase')
+    act(() => {
+      jest.advanceTimersByTime(15_000)
+    })
+    expect(screen.getByTestId('backup-confirmation-section')).toBeTruthy()
   })
 
   test('invalid input shows the invalid-input alert without storing anything', async () => {

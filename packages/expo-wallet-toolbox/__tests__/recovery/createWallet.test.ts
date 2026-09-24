@@ -118,4 +118,19 @@ describe('createNewWallet', () => {
     const outcome = await createNewWallet(deps)
     expect(outcome).toEqual({ kind: 'failed', error: 'generate boom' })
   })
+
+  test('cancelled() true after the identity guard → cancelled, generate/createMnemonic never called', async () => {
+    const deps = makeDeps()
+    const outcome = await createNewWallet(deps, { cancelled: () => true })
+    expect(outcome).toEqual({ kind: 'cancelled' })
+    expect(deps.generate).not.toHaveBeenCalled()
+    expect(deps.createMnemonic).not.toHaveBeenCalled()
+  })
+
+  test('cancelled() false → proceeds as before', async () => {
+    const deps = makeDeps()
+    const outcome = await createNewWallet(deps, { cancelled: () => false })
+    expect(outcome).toEqual({ kind: 'created', mnemonic: generated.mnemonic, identityKey: generated.identityKey })
+    expect(deps.generate).toHaveBeenCalledTimes(1)
+  })
 })

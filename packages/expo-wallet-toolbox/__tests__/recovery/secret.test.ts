@@ -36,6 +36,17 @@ describe('classifyImportInput', () => {
     expect(result?.kind).toBe('wif')
   })
 
+  test('a hex string PrivateKey.fromHex cannot parse → null, symmetric with the mnemonic branch', () => {
+    const spy = jest.spyOn(PrivateKey, 'fromHex').mockImplementationOnce(() => {
+      throw new Error('bad key')
+    })
+    try {
+      expect(classifyImportInput('a'.repeat(64))).toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   test('63 hex chars → null', () => {
     const key = PrivateKey.fromRandom()
     const short = key.toHex().slice(0, 63)

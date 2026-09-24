@@ -40,8 +40,12 @@ export function classifyImportInput(text: string): WalletSecret | null {
   if (trimmed === '') return null
 
   if (HEX_64.test(trimmed)) {
-    const key = PrivateKey.fromHex(trimmed)
-    return { kind: 'wif', wif: key.toWif(), identityKey: key.toPublicKey().toString() }
+    try {
+      const key = PrivateKey.fromHex(trimmed)
+      return { kind: 'wif', wif: key.toWif(), identityKey: key.toPublicKey().toString() }
+    } catch {
+      return null
+    }
   }
 
   try {

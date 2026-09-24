@@ -11,9 +11,10 @@
  *    store attempt — restoreWallet's own write-order guarantee means a
  *    single refused attempt never partially wrote anything, so there is
  *    nothing to unwind.
- *  - `restore-failed`: the secret was stored and the wallet built, but the
- *    encrypted backup log failed to replay, so the wallet's transaction
- *    history is incomplete. `retry` returns control to the caller's input
+ *  - `restore-failed`: the secret was stored but the wallet was NOT built —
+ *    the encrypted backup log failed to replay, so `WalletContext` destroys
+ *    its never-published storage and the build never completes. `retry`
+ *    returns control to the caller's input
  *    state (`retry-later`) rather than looping here — a server-side failure
  *    does not get better by hammering it in a tight loop, and the user may
  *    want to check connectivity first. `skip` re-attempts with

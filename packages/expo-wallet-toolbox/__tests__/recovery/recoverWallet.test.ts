@@ -96,12 +96,24 @@ describe('recoverWallet', () => {
   test('restore failed → retry → retry-later; no further deps calls after the prompt', async () => {
     const getBackupRestore = jest.fn(() => ({ phase: 'failed' as const, error: 'boom' }))
     const deps = makeDeps({ getBackupRestore })
-    const prompts = makePrompts({ restoreFailed: jest.fn(async () => 'retry' as const) })
+    // Resolves 'retry' exactly once, then throws — a regression that loops
+    // instead of returning immediately on 'retry' would call this again and
+    // fail the test cleanly here, instead of spinning forever and OOM-ing
+    // jest.
+    const restoreFailed = jest
+      .fn(async () => 'retry' as const)
+      .mockImplementationOnce(async () => 'retry' as const)
+      .mockImplementation(() => {
+        throw new Error('prompted again')
+      })
+    const prompts = makePrompts({ restoreFailed })
 
     const outcome = await recoverWallet(deps, mnemonicSecret, { medium: 'phrase', prompts })
 
     expect(outcome).toEqual({ kind: 'retry-later' })
+    expect(prompts.restoreFailed).toHaveBeenCalledTimes(1)
     expect(deps.setMnemonic).toHaveBeenCalledTimes(1)
+    expect(deps.buildWalletFromMnemonic).toHaveBeenCalledTimes(1)
     expect(deps.attest).not.toHaveBeenCalled()
   })
 
