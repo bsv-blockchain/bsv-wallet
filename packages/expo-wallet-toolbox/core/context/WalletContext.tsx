@@ -198,7 +198,7 @@ import { getRegisteredDbs, registerDb, selectLatestDb } from '../walletDbRegistr
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import { getOnline, subscribeOnline } from '../net/online'
 import { canInternalizePending, processPending } from '../localpay/pending'
-import { replayPendingAborts } from '../localpay/pendingAborts'
+import { replayPendingAborts, verifyDeclinedAborts } from '../localpay/pendingAborts'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import { MONITOR_STALL_MS, MonitorSupervisor } from '../monitor/MonitorSupervisor'
 import { TaskCreditInbox } from '../monitor/TaskCreditInbox'
@@ -2501,6 +2501,30 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         abortAction: (args: { reference: string }, originator?: string) => Promise<{ aborted?: boolean } | void>
       },
       storage
+    })
+    // P1-3: a decline is the payee's own unverifiable claim that nothing was
+    // queued (see build.ts's `watchDeclinedAbort`). Checked at the same
+    // cadence as the pending-abort replay above — wallet build and every
+    // reconnect — so a declined txid that reaches the chain anyway is
+    // surfaced as a background notice rather than silently missed. Never
+    // blocks anything: the inputs were already freed when the decline
+    // was recorded.
+    void verifyDeclinedAborts({
+      storage,
+      getStatusForTxids: async txids => {
+        const services = storage.getServices() as {
+          getStatusForTxids?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
+        }
+        if (typeof services.getStatusForTxids !== 'function') return {}
+        return services.getStatusForTxids(txids)
+      }
+    }).then(surfaced => {
+      if (surfaced.length > 0) {
+        setLocalPayNotification({
+          message: `${t('local_pay_decline_broadcast_title')}. ${t('local_pay_decline_broadcast_body')}`,
+          type: 'error'
+        })
+      }
     })
 
     // Also run when connectivity is restored

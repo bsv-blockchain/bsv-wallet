@@ -86,7 +86,7 @@ import { useContactsStore } from '../hooks/useContactsStore'
 import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
 import { ImportFromBackupPrompt } from '../components/wallet/ImportFromBackupPrompt'
-import { cancelParkedPayment, type CancelParkedWallet } from '../../core/offline/cancelParked'
+import { cancelParkedPayment, runCancelParkedFlow, type CancelParkedWallet } from '../../core/offline/cancelParked'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import { storageMatchesNetwork } from '../../core/net/chainMatch'
@@ -115,6 +115,7 @@ import PressableScale from '../components/ui/PressableScale'
 import ScreenGradient from '../components/ui/ScreenGradient'
 import ScrollFade, { sampleScreenGradient } from '../components/ui/ScrollFade'
 import { showToast } from '../components/ui/Toast'
+import { showAlert } from '../components/ui/AlertCard'
 import { ListRow } from '../components/ui/ListRow'
 import { GroupedSection } from '../components/ui/GroupedList'
 import WalletLockNotice from '../components/security/WalletLockNotice'
@@ -1367,17 +1368,36 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       // which leaves a plain BSV cancel exactly as it behaves today.
       const isTokenRow = tokenByTxid.has(txid)
       try {
-        const outcome = await cancelParkedPayment({
-          storage,
-          wallet: pm as unknown as CancelParkedWallet,
-          originator: adminOriginator,
-          txid,
-          settlement: mandalaSettlement
+        // P1-3-localpay-cancelparked-bsv: `cancelParkedPayment` refuses to
+        // cancel silently while the chain status cannot be verified offline.
+        // `runCancelParkedFlow` shows the destructive confirm exactly once and
+        // retries with the acknowledgement only if the user accepts the risk.
+        const outcome = await runCancelParkedFlow({
+          cancel: acknowledgedUnverifiable =>
+            cancelParkedPayment({
+              storage,
+              wallet: pm as unknown as CancelParkedWallet,
+              originator: adminOriginator,
+              txid,
+              settlement: mandalaSettlement,
+              acknowledgedUnverifiable
+            }),
+          confirmUnverifiable: async () => {
+            const choice = await showAlert({
+              title: t('local_pay_cancel_unverifiable_title'),
+              message: t('local_pay_cancel_unverifiable_body'),
+              buttons: [
+                { text: t('cancel'), style: 'cancel', key: 'cancel' },
+                { text: t('local_pay_cancel_unverifiable_confirm'), style: 'destructive', key: 'confirm' }
+              ]
+            })
+            return choice === 'confirm'
+          }
         })
         if (outcome === 'cancelled') showToast(t('tx_abort_success'), { type: 'success' })
         else if (outcome === 'already-sent') {
           showToast(t(isTokenRow ? 'token_cancel_already_sent' : 'pay_parked_already_sent'), { type: 'info' })
-        } else showToast(t('tx_abort_failed'), { type: 'error' })
+        } else if (outcome !== 'unverifiable-offline') showToast(t('tx_abort_failed'), { type: 'error' })
         await onRefresh()
       } catch (e: unknown) {
         showToast(e instanceof Error ? e.message : t('unknown_error'), { type: 'error' })
