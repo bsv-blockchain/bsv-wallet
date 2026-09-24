@@ -34,13 +34,31 @@ export const ExchangeRateContextProvider: React.FC<{
       // could (and did) disagree with it. getExchangeRate() reads the cache
       // (or falls back) and kicks off its own background refresh for next
       // time; it never hangs, so no separate timeout is needed here.
+      let refreshed: Promise<number | undefined> | undefined
       try {
-        const { rate } = await getExchangeRate()
-        if (typeof rate === 'number' && rate > 0) {
-          setState(prev => ({ ...prev, satoshisPerUSD: SATS_PER_BSV / rate }))
+        const seed = await getExchangeRate()
+        refreshed = seed.refreshed
+        if (typeof seed.rate === 'number' && seed.rate > 0) {
+          setState(prev => ({ ...prev, satoshisPerUSD: SATS_PER_BSV / seed.rate }))
         }
       } catch (error) {
         console.error('Error loading exchange rate:', error)
+      }
+
+      // The cached/fallback rate above is shown immediately; this is the SAME
+      // background refresh, not a second fetch. It used to be fire-and-forget
+      // from this screen's point of view — its result only ever reached the
+      // UI on the NEXT cold start, so a session that opened stale stayed
+      // stale until it was closed and reopened. `refreshed` never rejects
+      // (exchangeRate.ts's own contract), so this only ever raises the rate
+      // to a freshly fetched one, never drops it back to the fallback.
+      try {
+        const live = await refreshed
+        if (typeof live === 'number' && live > 0) {
+          setState(prev => ({ ...prev, satoshisPerUSD: SATS_PER_BSV / live }))
+        }
+      } catch (error) {
+        console.error('Error applying the refreshed exchange rate:', error)
       }
 
       try {
