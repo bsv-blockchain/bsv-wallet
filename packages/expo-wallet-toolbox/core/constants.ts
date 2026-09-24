@@ -1,9 +1,22 @@
 /** Auto-approve transactions below this satoshi amount without showing the spend modal */
 export const DEFAULT_AUTO_APPROVE_THRESHOLD = 100_000
-/** Minimum milliseconds between auto-approved transactions (global, origin-agnostic) */
+/** Minimum milliseconds between two auto-approved transactions from the SAME originator */
 export const AUTO_APPROVE_COOLDOWN_MS = 10_000
 /** AsyncStorage key for persisted auto-approve threshold */
 export const AUTO_APPROVE_STORAGE_KEY = 'autoApproveThreshold'
+/**
+ * Global rolling 24h cumulative cap (satoshis) on auto-approved spending,
+ * across every originator combined — closes the gap where a single origin
+ * (or several) could otherwise auto-approve an unbounded total by staying
+ * under the per-request threshold and cooldown forever (misc-p2-04).
+ *
+ * PROVISIONAL: 10x the default per-request threshold, chosen only so the cap
+ * cannot bind in ordinary single-payment use. Pending product sign-off on
+ * the real number.
+ */
+export const AUTO_APPROVE_DAILY_CAP_SATS = 10 * DEFAULT_AUTO_APPROVE_THRESHOLD
+/** AsyncStorage key for the persisted rolling auto-approve ledger (best-effort; survives app restart) */
+export const AUTO_APPROVE_LEDGER_STORAGE_KEY = 'auto_approve_ledger'
 
 /**
  * AsyncStorage key for whether Settings' Advanced group is expanded.

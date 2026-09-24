@@ -155,7 +155,15 @@ const DEFAULT_SETTINGS: WalletSettings = {
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
 import { getBackupUrl, getMandalaEndpoints } from '../toolboxConfig'
-import { DEFAULT_AUTO_APPROVE_THRESHOLD, AUTO_APPROVE_COOLDOWN_MS, AUTO_APPROVE_STORAGE_KEY } from '../constants'
+import {
+  DEFAULT_AUTO_APPROVE_THRESHOLD,
+  AUTO_APPROVE_COOLDOWN_MS,
+  AUTO_APPROVE_STORAGE_KEY,
+  AUTO_APPROVE_DAILY_CAP_SATS,
+  AUTO_APPROVE_LEDGER_STORAGE_KEY
+} from '../constants'
+import { createAutoApprovePolicy } from '../services/autoApprovePolicy'
+import { deriveCallbackToken } from '../services/callbackToken'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { UserContext } from './UserContext'
 import { useLocalStorage } from './LocalStorageProvider'
@@ -219,6 +227,7 @@ import { sounds } from '../hooks/useConfirmationSound'
 import i18n from '../i18n/translations'
 import { makeBeefRepair } from '../pay/beefRepair'
 import { shouldReleaseUtxo, type UtxoProbe } from '../walletRepair/shouldReleaseUtxo'
+import { shouldMarkUnspendable } from '../walletRepair/shouldMarkUnspendable'
 import {
   acceptWithRetry,
   DEFAULT_MESSAGE_BOX_URL,
@@ -242,9 +251,42 @@ import { prewarmOwnRoots } from '../headers/prewarm'
 import { syncHeaders } from '../headers/syncHeaders'
 import type { HeaderSource } from '../headers/syncHeaders'
 
-// Global, origin-agnostic rate limit for auto-approved spending.
-// In-memory only — resets on app restart (intentional: more secure).
-let lastAutoApproveTime = 0
+// Auto-approve accounting (misc-p2-04). Previously a single global cooldown
+// timer let multiple paired origins accidentally throttle each other while
+// placing no ceiling on a single origin's cumulative total. autoApprovePolicy
+// keys the cooldown PER ORIGINATOR and adds a global rolling-24h cumulative
+// cap across every originator — see services/autoApprovePolicy.ts. Module
+// scope, same lifetime as the value it replaces; `threshold` reads a snapshot
+// updated on every spendingAuthorizationCallback call (see below) since the
+// persisted threshold is itself read fresh per-request.
+let autoApproveThresholdSnapshot = 0
+const autoApprovePolicy = createAutoApprovePolicy({
+  now: () => Date.now(),
+  threshold: () => autoApproveThresholdSnapshot,
+  cooldownMs: AUTO_APPROVE_COOLDOWN_MS,
+  dailyCapSats: AUTO_APPROVE_DAILY_CAP_SATS
+})
+
+// Best-effort persistence of the rolling ledger so an app restart does not
+// reset the daily cap. Loaded once per process; a read/write failure never
+// blocks a spend decision — the in-memory ledger stays authoritative either way.
+let autoApproveLedgerLoadedOnce = false
+async function loadAutoApproveLedgerOnce(): Promise<void> {
+  if (autoApproveLedgerLoadedOnce) return
+  autoApproveLedgerLoadedOnce = true
+  try {
+    const stored = await AsyncStorage.getItem(AUTO_APPROVE_LEDGER_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) autoApprovePolicy.loadLedger(parsed)
+    }
+  } catch {
+    // No persisted ledger to restore — start with an empty one, same as today.
+  }
+}
+function persistAutoApproveLedger(): void {
+  AsyncStorage.setItem(AUTO_APPROVE_LEDGER_STORAGE_KEY, JSON.stringify(autoApprovePolicy.getLedger())).catch(() => {})
+}
 
 // -----
 // Context Types
@@ -775,6 +817,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY).then(v => {
       if (v !== null) autoApproveThresholdRef.current = Number(v) || 0
     })
+    // Restores the rolling auto-approve ledger so an app restart does not
+    // reset the daily cap (misc-p2-04). Best-effort — see loadAutoApproveLedgerOnce.
+    loadAutoApproveLedgerOnce()
     AsyncStorage.getItem('walletSettings').then(v => {
       if (v) setSettings(prev => ({ ...prev, ...JSON.parse(v) }))
     })
@@ -942,36 +987,39 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const { requestID, originator, reason, renewal, spending } = args
       if (!requestID || !spending) return
 
-      // Auto-approve small transactions if within threshold and cooldown.
-      // Read the persisted threshold fresh on every request so a change made
-      // in wallet-config takes effect immediately (the mount-time ref read
-      // alone left the old value live until app restart — felt like
-      // auto-approve was "stuck on").
+      // Auto-approve small transactions if within threshold, per-originator
+      // cooldown, and the global rolling 24h cap (misc-p2-04) — accounting
+      // lives in autoApprovePolicy.ts. Read the persisted threshold fresh on
+      // every request so a change made in wallet-config takes effect
+      // immediately (the mount-time ref read alone left the old value live
+      // until app restart — felt like auto-approve was "stuck on").
       try {
         const stored = await AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY)
         if (stored !== null) autoApproveThresholdRef.current = Number(stored) || 0
       } catch {}
       const threshold = autoApproveThresholdRef.current
-      const now = Date.now()
-      const sinceLastMs = now - lastAutoApproveTime
+      autoApproveThresholdSnapshot = threshold
       // Logging gated behind __DEV__: an unconditional console.log here flushes
       // over the JS↔native bridge on every spend request — i.e. on the payment
       // hot path — and shows up as jank under any burst of micropayments.
-      if (threshold > 0 && spending.satoshis <= threshold) {
-        if (sinceLastMs >= AUTO_APPROVE_COOLDOWN_MS) {
-          lastAutoApproveTime = now
-          if (__DEV__) console.log(`[spend-auth] AUTO-APPROVING requestID=${requestID} sats=${spending.satoshis}`)
-          managersRef.current.permissionsManager?.grantPermission({
-            requestID,
-            ephemeral: true,
-            amount: spending.satoshis
-          })
-          return
-        }
-        if (__DEV__) console.log(`[spend-auth] cooldown blocked → manual modal requestID=${requestID}`)
-      } else if (__DEV__) {
+      const autoApproveDecision = autoApprovePolicy.shouldAutoApprove({
+        originator,
+        satoshis: spending.satoshis
+      })
+      if (autoApproveDecision.approve) {
+        autoApprovePolicy.record({ originator, satoshis: spending.satoshis, at: Date.now() })
+        persistAutoApproveLedger()
+        if (__DEV__) console.log(`[spend-auth] AUTO-APPROVING requestID=${requestID} sats=${spending.satoshis}`)
+        managersRef.current.permissionsManager?.grantPermission({
+          requestID,
+          ephemeral: true,
+          amount: spending.satoshis
+        })
+        return
+      }
+      if (__DEV__) {
         console.log(
-          `[spend-auth] not eligible → manual modal requestID=${requestID} sats=${spending.satoshis} threshold=${threshold}`
+          `[spend-auth] not eligible (${autoApproveDecision.reason}) → manual modal requestID=${requestID} sats=${spending.satoshis} threshold=${threshold}`
         )
       }
 
@@ -1097,7 +1145,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const signer = new WalletSigner(walletChain, keyDeriver, storageManager)
 
         const bsvExchangeRate = await getExchangeRate()
-        const callbackToken = keyDeriver.identityKey.substring(0, 32)
+        // Derived from PRIVATE key material (misc-p2-06) — was previously the
+        // first 32 chars of the PUBLIC identityKey, which any past
+        // counterparty can already reconstruct. See callbackToken.ts.
+        const callbackToken = deriveCallbackToken(keyDeriver)
 
         const [arcUrlOverride, arcApiTokenOverride] = await Promise.all([
           AsyncStorage.getItem(`arc_custom_url_${chain}`),
@@ -3149,9 +3200,58 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           continue
         }
 
+        // Second-source corroboration (misc-p2-01): a single WoC 200-with-txid
+        // response is not enough to permanently mark a UTXO unspendable — WoC
+        // can be wrong, stale, or answering for the wrong network, and this
+        // path never writes spentBy, so nothing can ever restore a wrong call
+        // later. Require the toolbox's own configured getUtxoStatus providers
+        // to ALSO report the output as no longer a UTXO before committing.
+        let utxoStatus: { status: 'success' | 'error'; isUtxo?: boolean } = { status: 'error' }
+        try {
+          const scriptedRows = await storage.findOutputs({ partial: { outputId: o.outputId } })
+          const scripted = scriptedRows[0]
+          const utxoServices = storage.getServices() as {
+            hashOutputScript?: (script: string) => string
+            getUtxoStatus?: (
+              output: string,
+              outputFormat?: string,
+              outpoint?: string
+            ) => Promise<{ status: 'success' | 'error'; isUtxo?: boolean }>
+          }
+          if (scripted?.lockingScript && utxoServices.hashOutputScript && utxoServices.getUtxoStatus) {
+            const scriptHash = utxoServices.hashOutputScript(Utils.toHex(scripted.lockingScript))
+            const result = await utxoServices.getUtxoStatus(scriptHash, undefined, `${o.txid}.${o.vout}`)
+            utxoStatus = { status: result.status, isUtxo: result.isUtxo }
+          }
+        } catch {
+          utxoStatus = { status: 'error' }
+        }
+
+        const markUnspendable = shouldMarkUnspendable({
+          wocProbe: probe,
+          wocSpendingTxid: spendingTxid,
+          utxoStatus
+        })
+        if (!markUnspendable) {
+          console.warn(
+            `[walletCheck] WoC claims ${o.txid}:${o.vout} spent by ${spendingTxid || '(no txid)'} but the second source did not corroborate — leaving spendable`
+          )
+          lines.push(
+            `  SPENT (unconfirmed by 2nd source): ${o.txid}:${o.vout} (${o.satoshis} sat) — claimed spender ${spendingTxid || '(no txid)'}, left spendable`
+          )
+          continue
+        }
+
         spentCount++
         lines.push(`  SPENT: ${o.txid}:${o.vout} (${o.satoshis} sat) → by ${spendingTxid}`)
-        await storage.updateOutput(o.outputId, { spendable: false as any })
+        // Paper trail for a repair pass: `spendingDescription` is a free-text
+        // column nothing else in this app reads or writes (unlike
+        // `customInstructions`, which carries live BRC-42 derivation data
+        // other flows depend on), so it is safe to repurpose as a note here.
+        await storage.updateOutput(o.outputId, {
+          spendable: false as any,
+          spendingDescription: JSON.stringify({ claimedSpender: spendingTxid, checkedAt: new Date().toISOString() })
+        } as any)
 
         if (!spendingTxid) continue
         try {
