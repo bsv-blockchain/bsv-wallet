@@ -73,6 +73,7 @@ import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
 import { frameTokenAmount, tokenFrameSourcesFromOfflineActions, tokenFrameSourcesFromPending } from '../offline/tokenFrames'
 import { resendTokenTransfer, type TokenResendAction, type TokenResendOutcome } from './resendTransfer'
+import { preHoldInboxSettlements } from './inboxPrehold'
 import type { CoverBundle, CoverVerifier } from './bundle'
 import { assembleBundle } from './bundle'
 import {
@@ -2362,12 +2363,59 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         devLog('[mandala] no MessageBox client for the inbox drain:', e)
         return { credited: 0, failed: 0 }
       }
-      const result = await receiveTokens({
-        wallet: bound,
-        messageBoxClient: box,
-        processed: processedMessages,
-        settle: settleThroughDrain
-      })
+
+      // P1-4: for every hand-over message this pass can decode, write its
+      // settlement row through the SAME settleThroughDrain/onTokenHeld path
+      // below BEFORE receiveTokens ever gets to call internalizeAction — see
+      // inboxPrehold.ts's header for exactly why that ordering is the whole
+      // fix. `cover` here is the real pure walk, crossing the app/lib
+      // @bsv/sdk seam the same way `libCoverArgs` does everywhere else in
+      // this file (never a reimplementation of its verdict).
+      let excluded: Set<string>
+      try {
+        excluded = await preHoldInboxSettlements({
+          messageBoxClient: box,
+          cover: (tip, bundle) =>
+            coverWalk(
+              ...libCoverArgs(
+                tip,
+                {
+                  assetId: bundle.assetId,
+                  overlayIdentityKey,
+                  tip,
+                  beef: bundle.beef,
+                  linkage: bundle.linkage,
+                  admissions: bundle.admissions
+                },
+                overlayIdentityKey
+              )
+            ),
+          settle: settleThroughDrain
+        })
+      } catch (e) {
+        // The pass could not even see the inbox, so there is nothing to
+        // filter with — skip the whole receive rather than let a hand-over
+        // credit run against receiveTokens with no guard in front of it.
+        devLog('[mandala] inbox pre-hold pass failed; skipping this receive pass:', e)
+        return { credited: 0, failed: 0 }
+      }
+      // A message whose pre-hold write failed is kept out of THIS
+      // receiveTokens call only (`processed` is the library's own message
+      // filter — receiveTokens skips any id already in it) and put back
+      // immediately after, so a transient failure here retries whole on the
+      // next drain tick instead of being credited on a bare table.
+      for (const id of excluded) processedMessages.add(id)
+      let result: { accepted: ReceivedTransfer[]; failed: { messageId: string; error: unknown; refusedCode?: string }[] }
+      try {
+        result = await receiveTokens({
+          wallet: bound,
+          messageBoxClient: box,
+          processed: processedMessages,
+          settle: settleThroughDrain
+        })
+      } finally {
+        for (const id of excluded) processedMessages.delete(id)
+      }
       for (const transfer of result.accepted) {
         try {
           await journalReceived(transfer)
