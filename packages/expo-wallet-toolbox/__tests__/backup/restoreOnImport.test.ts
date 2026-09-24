@@ -8,7 +8,7 @@
  */
 import { PrivateKey } from '@bsv/sdk'
 import type { DeviceSummary, LogEntry } from '../../core/backup/client'
-import { encodeChunk, emptyChunk } from '../../core/backup/codec'
+import { encodeChunk, encodeMarker, emptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { restoreOnImport } from '../../core/backup/restoreOnImport'
 import type { SyncChunk } from '../../core/toolboxTypes'
@@ -136,9 +136,13 @@ describe('restoreOnImport', () => {
     expect(client.manifest).toHaveBeenCalledTimes(1)
     // The target is resolved HERE and passed through explicitly — never left to
     // restoreFromBackup's own "most recently updated" default, which this device's
-    // own first push would win as soon as the monitor starts.
+    // own first push would win as soon as the monitor starts. None of these logs carry a
+    // completion marker, so pickTarget's verified-first ranking probes every candidate
+    // (including the older device) before falling back to today's newest-only heuristic —
+    // which lands on the same NEW_DEVICE/2 result the old plain heuristic always picked.
     expect(client.index).toHaveBeenCalledWith(NEW_DEVICE, 2)
-    expect(client.index).not.toHaveBeenCalledWith(OLD_DEVICE, 1)
+    expect(client.index).toHaveBeenCalledWith(OLD_DEVICE, 1)
+    expect(result.verified).toBe(false)
   })
 
   it('seeds the user row and the source device\'s syncState before the first chunk', async () => {
@@ -224,5 +228,53 @@ describe('restoreOnImport', () => {
     expect(validateRestoredCoins).toHaveBeenCalledTimes(1)
     expect(order).toEqual(['validate', 'returned'])
     expect(result.restored).toBe(true)
+  })
+
+  // ── P1-backup-incomplete-generation: verified-first target selection ─────
+  describe('verified-first target selection', () => {
+    it('prefers an older sealed generation over a newer, still-open one', async () => {
+      const w = deriveBackupWallet(PRIMARY, 'main')
+      const logs = {
+        // Generation 1: sealed — two real chunks, then this device's own completion marker.
+        [`${OLD_DEVICE}/1`]: [
+          await encodeChunk(w, chunkWithTx('g1-a'), 'main'),
+          await encodeChunk(w, chunkWithTx('g1-b'), 'main'),
+          await encodeMarker(w, { generation: 1, chunkCount: 2 }, 'main')
+        ],
+        // Generation 2: newer (rotated later) but its initial window has not closed yet —
+        // no marker at all, exactly the mid-rotation case P1 is about.
+        [`${OLD_DEVICE}/2`]: [await encodeChunk(w, chunkWithTx('g2-a'), 'main')]
+      }
+      const client = fakeClient(
+        [
+          summary({ deviceId: OLD_DEVICE, generation: 1, updatedAt: '2026-09-01T00:00:00Z' }),
+          summary({ deviceId: OLD_DEVICE, generation: 2, updatedAt: '2026-09-10T00:00:00Z' })
+        ],
+        logs
+      )
+      const storage = fakeStorage(2)
+
+      const result = await restoreOnImport(deps({ storage, client }))
+
+      expect(result.restored).toBe(true)
+      expect(result.generation).toBe(1)
+      expect(result.verified).toBe(true)
+      // Exactly the two real chunks replayed — the marker itself never reached storage.
+      expect(result.chunks).toBe(2)
+    })
+
+    it('reports verified:false and uses the plain newest-only fallback when nothing is marked', async () => {
+      const w = deriveBackupWallet(PRIMARY, 'main')
+      const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
+        [`${OLD_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('legacy'), 'main')]
+      })
+      const storage = fakeStorage(1)
+
+      const result = await restoreOnImport(deps({ storage, client }))
+
+      expect(result.restored).toBe(true)
+      expect(result.verified).toBe(false)
+      expect(result.chunks).toBe(1)
+    })
   })
 })

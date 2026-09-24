@@ -1388,6 +1388,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 `[WalletContext] backup restore · restored=${String(restored.restored)} · ` +
                   `chunks=${restored.chunks} · reason=${restored.reason ?? 'none'}`
               )
+              // See P1-backup-incomplete-generation: restoreOnImport.pickTarget falls back to
+              // an unverified (no completion-marker) target rather than blocking the import,
+              // so this is a warning rather than a thrown error — but it must not pass
+              // silently, since the replayed generation could be a partial mid-rotation
+              // snapshot.
+              if (restored.restored && restored.verified === false) {
+                console.warn(
+                  `[backup] restore completed but could not be verified as a complete ` +
+                    `generation · deviceId=${String(restored.deviceId)} · generation=${String(restored.generation)}`
+                )
+              }
               setBackupRestore(
                 restored.restored
                   ? { phase: 'restored', chunks: restored.chunks, total: restored.chunks }

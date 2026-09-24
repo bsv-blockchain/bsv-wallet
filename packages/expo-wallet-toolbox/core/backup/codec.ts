@@ -151,27 +151,108 @@ export async function encodeChunk (
 }
 
 /**
- * Decrypt and parse a sync chunk. Throws if the ciphertext was not written by this key,
- * or if the decrypted payload's chain label disagrees with the chain being restored.
+ * A completion marker's own payload: the generation it seals and how many ordinary chunk
+ * entries preceded it in that generation's log.
  */
-export async function decodeChunk (
+export interface BackupMarker {
+  generation: number
+  chunkCount: number
+}
+
+/**
+ * What a decrypted log entry turns out to be.
+ *
+ * Every entry the writer has ever appended is one of these two shapes — see encodeChunk vs
+ * encodeMarker — and a reader must tell them apart before doing anything else with an
+ * entry: a marker is backup-log bookkeeping, never a `SyncChunk`, and must never reach
+ * `processSyncChunk` (see push.ts's own note on why an ordinary empty SyncChunk cannot
+ * serve this role instead).
+ */
+export type DecodedEntry =
+  | { kind: 'chunk', chunk: SyncChunk }
+  | { kind: 'marker', marker: BackupMarker }
+
+/**
+ * Encrypt a completion marker.
+ *
+ * Distinct plaintext shape from encodeChunk's `{chain, chunk}` — `{chain, marker}` — so a
+ * reader can tell the two apart after decrypting, without any change to the ciphertext
+ * envelope or the key derivation. See DecodedEntry.
+ */
+export async function encodeMarker (
+  wallet: CompletedProtoWallet,
+  marker: BackupMarker,
+  chain: BackupChain
+): Promise<number[]> {
+  const json = stringifyJsonRpc({ chain, marker }, true)
+  const { ciphertext } = await wallet.encrypt({
+    plaintext: Utils.toArray(json, 'utf8'),
+    protocolID: BACKUP_PROTOCOL,
+    keyID: backupKeyId(chain),
+    counterparty: 'self'
+  })
+  return ciphertext
+}
+
+/**
+ * Decrypt a log entry and classify it as an ordinary chunk or a completion marker. Throws
+ * if the ciphertext was not written by this key, or if the decrypted payload's chain label
+ * disagrees with the chain being restored.
+ *
+ * Old-format ciphertext — the `{chain, chunk}` envelope written before markers existed —
+ * always classifies as `{kind:'chunk', ...}`, with the chunk decoded exactly as decodeChunk
+ * has always decoded it.
+ */
+export async function decodeEntry (
   wallet: CompletedProtoWallet,
   ciphertext: number[],
   chain: BackupChain
-): Promise<SyncChunk> {
+): Promise<DecodedEntry> {
   const { plaintext } = await wallet.decrypt({
     ciphertext,
     protocolID: BACKUP_PROTOCOL,
     keyID: backupKeyId(chain),
     counterparty: 'self'
   })
-  const envelope = parseJsonRpc(Utils.toUTF8(plaintext), true) as { chain?: unknown, chunk?: unknown }
+  const envelope = parseJsonRpc(Utils.toUTF8(plaintext), true) as {
+    chain?: unknown
+    chunk?: unknown
+    marker?: unknown
+  }
   if (envelope?.chain !== chain) {
     throw new Error(
       `backup blob is labeled for chain '${String(envelope?.chain)}' but '${chain}' was expected — refusing to restore across networks`
     )
   }
-  return unpackBytes(envelope.chunk) as SyncChunk
+  if (envelope.marker != null) {
+    const m = envelope.marker as { generation?: unknown, chunkCount?: unknown }
+    if (typeof m.generation !== 'number' || typeof m.chunkCount !== 'number') {
+      throw new Error('backup marker entry is malformed')
+    }
+    return { kind: 'marker', marker: { generation: m.generation, chunkCount: m.chunkCount } }
+  }
+  return { kind: 'chunk', chunk: unpackBytes(envelope.chunk) as SyncChunk }
+}
+
+/**
+ * Decrypt and parse a sync chunk. Throws if the ciphertext was not written by this key, if
+ * the decrypted payload's chain label disagrees with the chain being restored, or if the
+ * entry turns out to be a completion marker rather than a chunk.
+ *
+ * Kept as a thin wrapper over decodeEntry — RemoteSyncReader now calls decodeEntry directly
+ * so it can classify each entry, but this stays exported with its original signature and
+ * behaviour so existing callers (and the codec round-trip tests) are unaffected.
+ */
+export async function decodeChunk (
+  wallet: CompletedProtoWallet,
+  ciphertext: number[],
+  chain: BackupChain
+): Promise<SyncChunk> {
+  const decoded = await decodeEntry(wallet, ciphertext, chain)
+  if (decoded.kind !== 'chunk') {
+    throw new Error('expected a backup sync chunk but found a completion marker entry')
+  }
+  return decoded.chunk
 }
 
 /** The twelve entity arrays a SyncChunk carries, in the protocol's dependency order. */

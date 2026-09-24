@@ -4,6 +4,8 @@
  * Given nothing but a recovered seed (or the primary key from printed shares), rebuild the
  * wallet database from the encrypted log.
  */
+import type { CompletedProtoWallet } from '@bsv/sdk'
+import type { TableSettings } from '@bsv/wallet-toolbox-mobile'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { BackupClient, type DeviceSummary } from './client'
 import type { BackupChain } from './constants'
@@ -40,6 +42,15 @@ export interface RestoreResult {
   chunks: number
   deviceId: string
   generation: number
+  /**
+   * True when the replayed generation carried its own completion marker proving, to this
+   * device, that nothing between the start of the generation and the marker is missing —
+   * see codec.ts's DecodedEntry and push.ts's sealGeneration. False means either an
+   * explicit device/generation override was chosen with no marker, or no candidate
+   * anywhere in the manifest was marked complete and today's newest-only fallback was
+   * used instead. See P1-backup-incomplete-generation.
+   */
+  verified: boolean
 }
 
 /** What the user can choose between when more than one device has a backup. */
@@ -53,14 +64,15 @@ export async function listBackups (deps: {
 }
 
 /**
- * Replay the newest generation the manifest reports for the chosen device.
+ * Replay the best generation the manifest reports for the chosen device.
  *
- * A generation is intended by the writer (see push.ts rotate/shouldRotate) to
- * be a coherent, self-contained snapshot, so the newest one alone should be
- * sufficient and is the shortest replay — but this module has no independent
- * way to confirm a generation is complete; it trusts the manifest and only
- * checks that the number of chunks it received matches that same
- * generation's own reported chunk count.
+ * A generation is intended by the writer (see push.ts rotate/shouldRotate) to be a
+ * coherent, self-contained snapshot, so the newest one alone should be sufficient and is
+ * the shortest replay — but the manifest's own metadata carries no notion of "complete", so
+ * pickTarget prefers whichever candidate carries its own completion marker (see
+ * RemoteSyncReader.verifiedComplete) over blindly trusting recency. `verified` on the
+ * result says which way this restore was chosen; the chunk-count check below still runs
+ * either way as the last line of defence.
  */
 export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResult> {
   const client = resolveClient(deps)
@@ -71,9 +83,8 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
     throw new Error('No backup found for this wallet')
   }
 
-  const chosen = pickTarget(devices, deps.deviceId, deps.generation)
-
   const settings = await deps.storage.makeAvailable()
+  const chosen = await pickTarget(devices, client, wallet, deps.chain, settings, deps.deviceId, deps.generation)
 
   // processSyncChunk's preconditions, which a fresh, just-migrated database does
   // not meet: it does verifyTruthy(findUserByIdentityKey(identityKey)) and then
@@ -89,8 +100,10 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
     'backup-restore'
   )
 
-  const headSeq = devices.find(d => d.deviceId === chosen.deviceId && d.generation === chosen.generation)?.headSeq
-  const reader = new RemoteSyncReader(client, wallet, deps.chain, chosen.deviceId, chosen.generation, settings, headSeq)
+  // Reuses the exact reader pickTarget already probed (it may already have read this
+  // generation's index and decoded its newest entry while ranking candidates), rather than
+  // re-fetching the same index a second time.
+  const reader = chosen.reader
 
   let chunks = 0
   for (;;) {
@@ -124,7 +137,7 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
   }
 
   await reconcileRestoredProofs(deps.storage)
-  return { chunks, deviceId: chosen.deviceId, generation: chosen.generation }
+  return { chunks, deviceId: chosen.deviceId, generation: chosen.generation, verified: chosen.verified }
 }
 
 /**
@@ -170,31 +183,89 @@ async function reconcileRestoredProofs (storage: StorageExpoSQLite): Promise<voi
   }
 }
 
-function pickTarget (
+/** What pickTarget resolves to: the chosen device/generation, whether it is verified
+ * complete, and the reader that already probed it — reused by restoreFromBackup for the
+ * actual replay rather than re-reading the same index a second time. */
+export interface PickedTarget {
+  deviceId: string
+  generation: number
+  verified: boolean
+  reader: RemoteSyncReader
+}
+
+/**
+ * Choose which device/generation to replay.
+ *
+ * With an explicit `generation`, this is a forced selection — no ranking, exactly the
+ * generation asked for — but `verified` still reports whether IT happens to carry its own
+ * completion marker.
+ *
+ * Otherwise: every (device, generation) candidate is ranked newest-updatedAt first, and the
+ * first one whose own log proves itself complete (RemoteSyncReader.verifiedComplete) wins —
+ * an older but SEALED generation is safer to restore than a newer one still mid-rotation,
+ * which is the whole point of P1-backup-incomplete-generation's fix. Only when NONE of the
+ * manifest's candidates are marked (a fully legacy manifest, written entirely before this
+ * fix shipped) does this fall back to today's plain "most recently written device, then its
+ * newest generation" heuristic, with `verified: false` so the caller can warn rather than
+ * silently claim a verified restore.
+ */
+export async function pickTarget (
   devices: DeviceSummary[],
+  client: BackupClient,
+  wallet: CompletedProtoWallet,
+  chain: BackupChain,
+  settings: TableSettings,
   deviceId?: string,
   generation?: number
-): { deviceId: string, generation: number } {
+): Promise<PickedTarget> {
   const candidates = deviceId != null ? devices.filter(d => d.deviceId === deviceId) : devices
   if (candidates.length === 0) {
     throw new Error(`No backup found for device ${String(deviceId)}`)
   }
 
+  const readerFor = (d: DeviceSummary): RemoteSyncReader =>
+    new RemoteSyncReader(client, wallet, chain, d.deviceId, d.generation, settings, d.headSeq)
+
   if (generation != null) {
     const exact = candidates.find(d => d.generation === generation)
     if (exact == null) throw new Error(`No backup found for generation ${generation}`)
-    return { deviceId: exact.deviceId, generation: exact.generation }
+    const reader = readerFor(exact)
+    const verified = await reader.verifiedComplete()
+    return { deviceId: exact.deviceId, generation: exact.generation, verified, reader }
   }
 
-  // Most recently written device, then its newest generation.
-  const newest = candidates.reduce((best, d) =>
-    d.updatedAt > best.updatedAt ? d : best
-  )
+  // Newest updatedAt first, across every device in the candidate set — not scoped to the
+  // most recently written device alone, because the point is to prefer a sealed generation
+  // even if it belongs to a slightly less recently updated device.
+  const sorted = [...candidates].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+
+  for (const candidate of sorted) {
+    const reader = readerFor(candidate)
+    let verified: boolean
+    try {
+      verified = await reader.verifiedComplete()
+    } catch {
+      // Ranking must not abort the whole restore over a candidate that turns out unreadable
+      // and was never going to be chosen anyway — it is simply not verified.
+      verified = false
+    }
+    if (verified) return { deviceId: candidate.deviceId, generation: candidate.generation, verified: true, reader }
+  }
+
+  // Nothing in the manifest is marked complete: fall back to today's heuristic (most
+  // recently written device, then its newest generation) so a fully legacy manifest still
+  // restores exactly as before — just now saying honestly that it could not be verified.
+  const newest = candidates.reduce((best, d) => (d.updatedAt > best.updatedAt ? d : best))
   const newestGeneration = candidates
     .filter(d => d.deviceId === newest.deviceId)
     .reduce((best, d) => (d.generation > best.generation ? d : best))
 
-  return { deviceId: newestGeneration.deviceId, generation: newestGeneration.generation }
+  return {
+    deviceId: newestGeneration.deviceId,
+    generation: newestGeneration.generation,
+    verified: false,
+    reader: readerFor(newestGeneration)
+  }
 }
 
 function resolveClient (deps: { primaryKey: number[], chain: BackupChain, baseUrl?: string, client?: BackupClient }): BackupClient {
