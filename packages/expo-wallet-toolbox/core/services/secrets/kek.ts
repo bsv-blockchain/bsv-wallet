@@ -56,13 +56,27 @@ export function peekKek(): { kek: number[]; kekId: string } | null {
 
 /* ------------------------------- sentinel -------------------------------- */
 
-export async function readSentinel(): Promise<KekSentinel | null> {
+/**
+ * `{ strict: true }` rethrows instead of swallowing to null — mirroring the
+ * same idiom `readLegacySecret`/`hasSecret` already use elsewhere in this
+ * package. `putSecret` (store.ts) needs this: it uses a null sentinel as
+ * its signal that no wallet was EVER stored, and takes that straight to
+ * `provisionKek()`, which unconditionally deletes both KEK keychain items
+ * first. A transient read failure must never be read as "no wallet ever" —
+ * that would delete a real KEK out from under an already-sealed envelope,
+ * orphaning it beyond recovery. The default (non-strict) callers here
+ * (`recordSecretName`/`forgetSecretName`) keep the swallow: they already
+ * no-op on a missing/unreadable sentinel, so there is nothing for them to
+ * protect by throwing.
+ */
+export async function readSentinel(options?: { strict?: boolean }): Promise<KekSentinel | null> {
   try {
     const raw = await SecureStore.getItemAsync(SENTINEL_KEY, envOptions)
     if (!raw) return null
     const parsed = JSON.parse(raw) as KekSentinel
     return parsed?.v === 1 && typeof parsed.kekId === 'string' ? parsed : null
-  } catch {
+  } catch (err) {
+    if (options?.strict) throw err
     return null
   }
 }

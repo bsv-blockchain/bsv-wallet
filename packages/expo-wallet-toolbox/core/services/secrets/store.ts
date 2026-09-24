@@ -79,12 +79,31 @@ export async function getSecret(name: SecretName): Promise<string | null> {
  * Seal and store. Provisions a KEK on first use, which is the only moment a
  * write can prompt (and only on Android, where minting an auth-bound key
  * requires a ceremony).
+ *
+ * The sentinel read here is `{ strict: true }` (P2-store-transient-sentinel):
+ * a null sentinel means "provision a fresh KEK", and provisionKek() deletes
+ * both KEK keychain items unconditionally before minting a new one. A
+ * transient read failure must never be read the same way as a genuinely
+ * absent sentinel — that would delete a real KEK out from under an
+ * already-sealed envelope, orphaning it beyond recovery. Refusing the write
+ * (same externally-visible shape as a declined biometric prompt) is the safe
+ * failure here, not a silent re-provision.
  */
 export async function putSecret(name: SecretName, value: string): Promise<boolean> {
   let held = peekKek()
 
   if (!held) {
-    const sentinel = await readSentinel()
+    let sentinel: Awaited<ReturnType<typeof readSentinel>>
+    try {
+      sentinel = await readSentinel({ strict: true })
+    } catch (err) {
+      console.warn(
+        '[secrets] sentinel read failed; refusing to write rather than re-provision',
+        name,
+        (err as Error)?.message
+      )
+      return false
+    }
     const result = sentinel ? await unlockKek() : await provisionKek()
     if (result.status !== 'unlocked') return false
     held = peekKek()
