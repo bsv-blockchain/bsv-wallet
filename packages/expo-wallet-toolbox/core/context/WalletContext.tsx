@@ -330,6 +330,16 @@ export interface WalletBuildOptions {
    * to restore, and an auto-build on relaunch must not re-import over a live database.
    */
   restoreFromBackup?: boolean
+  /**
+   * Run the same spendability-reconciliation pass a backup restore runs, once local
+   * storage is attached — WITHOUT pulling or replaying the encrypted remote backup.
+   *
+   * Set ONLY by the raw-database-import flow (ui/importDatabases.ts): that flow already
+   * hands over a complete local database, so it must not also overlay a remote backup on
+   * top of it, but it still skipped the reconciliation review until this option existed
+   * (XR-079).
+   */
+  reviewImportedCoins?: boolean
 }
 
 export interface WalletContextValue {
@@ -386,8 +396,10 @@ export interface WalletContextValue {
   /** Tear down the current wallet and re-trigger auto-build (e.g. after DB import).
    * `restoreFromBackup` threads through to the auto-build's replay, for replacing
    * an already-built wallet with an imported one (e.g. onboarding's backup-reminder
-   * "import from backup" over an auto-created wallet). */
-  rebuildWallet: (opts?: { restoreFromBackup?: boolean }) => Promise<void>
+   * "import from backup" over an auto-created wallet). `reviewImportedCoins` threads
+   * through to a post-storage-attach reconciliation pass (no remote replay) for a raw
+   * database import that already carries a complete local database (XR-079). */
+  rebuildWallet: (opts?: { restoreFromBackup?: boolean; reviewImportedCoins?: boolean }) => Promise<void>
   storage: StorageExpoSQLite | null
   /**
    * Mandala stablecoins, or undefined.
@@ -728,6 +740,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * render — a state read there would see whatever was committed, which is a race.
    */
   const restoreIntentRef = useRef(false)
+  /**
+   * Set by a raw-database-import flow (ui/importDatabases.ts, via
+   * rebuildWallet's `reviewImportedCoins` option) immediately before it
+   * triggers a rebuild, and consumed (and cleared) once local storage is
+   * attached in the build this triggers. Deliberately separate from
+   * restoreIntentRef: a raw import already carries a complete local
+   * database, so it must NOT also pull and replay the encrypted remote
+   * backup — it only needs the same spendability reconciliation pass that
+   * restoreIntentRef's path runs after its own replay (XR-079).
+   */
+  const reviewImportedCoinsRef = useRef(false)
   /**
    * Set by rebuildWallet right before finalizeConfig, cleared by the auto-build
    * effect once it actually starts (or determines there is nothing to build).
@@ -1445,6 +1468,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             console.log('[WalletContext] Local storage provider added to wallet')
           } catch (error) {
             console.error('[WalletContext] Failed to add local storage provider:', error)
+          }
+
+          // A raw database import (ui/importDatabases.ts) armed this instead of
+          // restoreIntentRef: the imported database is already a complete local
+          // copy, so there is nothing to replay, but it never ran the same
+          // spendability reconciliation an encrypted restore runs above before
+          // its balance is trusted and displayed (XR-079).
+          if (reviewImportedCoinsRef.current) {
+            reviewImportedCoinsRef.current = false
+            try {
+              await wallet.reviewSpendableOutputs(false, true)
+            } catch (error) {
+              console.error('[WalletContext] Post-import reconciliation failed:', error)
+            }
           }
 
           let migrationUserId: number | undefined
@@ -2251,6 +2288,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // rebuildWallet until buildWallet consumes it. Explicit false still
         // allows the import screen to continue without restoring on retry.
         if (opts !== undefined) restoreIntentRef.current = opts.restoreFromBackup === true
+        if (opts !== undefined) reviewImportedCoinsRef.current = opts.reviewImportedCoins === true
 
         // Provide the primary key and privileged key manager to authenticate the wallet
         await swm.providePrimaryKey(primaryKey)
@@ -2285,6 +2323,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // Never leave the intent armed: the next build on this device would otherwise be
         // an auto-build on relaunch, which must not re-import over a live database.
         restoreIntentRef.current = false
+        reviewImportedCoinsRef.current = false
         walletBuildingRef.current = false
         setWalletBuilding(false)
         console.error('[WalletContext] Error building mnemonic wallet:', error)
@@ -2322,6 +2361,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // rebuildWallet until buildWallet consumes it. Explicit false still
         // allows the import screen to continue without restoring on retry.
         if (opts !== undefined) restoreIntentRef.current = opts.restoreFromBackup === true
+        if (opts !== undefined) reviewImportedCoinsRef.current = opts.reviewImportedCoins === true
 
         await swm.providePrimaryKey(primaryKey)
 
@@ -2339,6 +2379,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         logWithTimestamp(F, 'Recovered key wallet build completed')
       } catch (error: any) {
         restoreIntentRef.current = false
+        reviewImportedCoinsRef.current = false
         walletBuildingRef.current = false
         setWalletBuilding(false)
         console.error('[WalletContext] Error building wallet from recovered key:', error)
@@ -2350,12 +2391,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   // Tear down the current wallet and re-trigger auto-build.
   // Used after DB import and internally by switchNetwork.
-  const rebuildWallet = useCallback(async (opts?: { restoreFromBackup?: boolean }) => {
+  const rebuildWallet = useCallback(async (opts?: { restoreFromBackup?: boolean; reviewImportedCoins?: boolean }) => {
     logWithTimestamp(F, 'Rebuilding wallet')
     // Armed before teardown so the auto-build effect this triggers (via
     // finalizeConfig below) replays the backup log the same way an explicit
     // buildWalletFromMnemonic({ restoreFromBackup: true }) would.
     restoreIntentRef.current = opts?.restoreFromBackup === true
+    // Same arming pattern, for the raw-import reconciliation pass (XR-079).
+    reviewImportedCoinsRef.current = opts?.reviewImportedCoins === true
     // Any build already in flight belongs to the configuration being replaced.
     const token = buildGenRef.current.bump()
     // Invalidate Vault operations before the first teardown await. Otherwise a
