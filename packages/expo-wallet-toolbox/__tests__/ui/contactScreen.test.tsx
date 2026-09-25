@@ -355,14 +355,19 @@ describe('ContactsScreen', () => {
 })
 
 describe('IdentifierScreen', () => {
-  it('shows the registered paymail with no sigil in front of it', () => {
+  it('shows the registered paymail with no sigil in front of it', async () => {
     mockRouteParams = { identityKey: KEY, name: 'Dee K', handle: 'dee@deggen.com' }
+    // The route's identityKey is only ever shown once it matches the
+    // wallet's own resolved key (XR-070), so this — the legitimate
+    // same-device case Profile's own push produces — needs a wallet stub
+    // that actually answers with that same key.
+    mockWallet.managers = { permissionsManager: { getPublicKey: async () => ({ publicKey: KEY }) } }
     const s = render(
       <ThemeProvider>
         <IdentifierScreen />
       </ThemeProvider>
     )
-    expect(s.getByText('dee@deggen.com')).toBeTruthy()
+    await waitFor(() => expect(s.getByText('dee@deggen.com')).toBeTruthy())
     expect(s.queryByText('@dee@deggen.com')).toBeNull()
   })
 })
