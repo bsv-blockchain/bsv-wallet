@@ -146,6 +146,21 @@ export async function provisionKek(): Promise<UnlockState> {
 
   // Delete-then-add, never blind-write: writing over an existing item takes
   // iOS's update path, which prompts a second time on an ACL item.
+  //
+  // XQ-013: this guarantees that on iOS ONLY. iOS's deleteValueWithKeyAsync
+  // issues SecItemDelete against every Keychain alias for the key, so the
+  // add really does start clean. Android's deleteItemImpl only strips the
+  // SharedPreferences ciphertext record — it never calls the AndroidKeyStore
+  // `keyStore.deleteEntry` that would drop the underlying hardware-backed
+  // wrapping key (that call is reachable only from setItemImpl's
+  // KeyPermanentlyInvalidatedException retry branch, never from a plain
+  // delete). So on Android, "destroy then re-provision" removes the stored
+  // value but silently REUSES the pre-existing hardware key to wrap the new
+  // one, rather than minting a fresh one. This is not a secret-exposure or
+  // spend-authorization gap — the KEK value itself is still freshly random
+  // and still gated by a fresh biometric prompt before use — but nothing in
+  // this file (or its callers) should assume "full key rotation on both
+  // platforms" from a delete-then-add cycle; only iOS gets that.
   await deleteBothKekItems()
 
   try {
