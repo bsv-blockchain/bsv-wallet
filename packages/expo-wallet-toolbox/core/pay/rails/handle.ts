@@ -387,7 +387,19 @@ async function broadcastNoSend(
   if (!released) throw new Error('broadcast_not_confirmed')
 }
 
-/** Abort a PeerPay noSend by recovering its reference from listActions. */
+/**
+ * Abort a PeerPay noSend by recovering its reference from listActions.
+ *
+ * XR-034: the wrapped `abortAction` this wallet publishes can refuse with
+ * `{ aborted: false }` rather than throw (the abort guard's whole contract —
+ * see `abortGuard.ts`). Returning `true` unconditionally, as this used to,
+ * told `cancelOutboxPayment` the reservation was released when it was not,
+ * which for an `abandon` call then removed the outbox row that is the only
+ * record of this payment's delivery state — the exact row `isAbortSafe` (this
+ * file) relies on existing to refuse a later, unsafe generic abort. Checking
+ * the result keeps that row (and the reservation) in place until an abort
+ * actually lands.
+ */
 async function abortPeerPayNosend(
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>,
   adminOriginator: string,
@@ -398,8 +410,10 @@ async function abortPeerPayNosend(
   const { actions } = await wallet.listActions({ labels: ['peerpay'], limit: 1000 }, adminOriginator)
   const match = actions.find(a => a.txid === txid)
   if (!match?.reference) return false
-  await wallet.abortAction({ reference: match.reference }, adminOriginator)
-  return true
+  const result = (await wallet.abortAction({ reference: match.reference }, adminOriginator)) as
+    | { aborted?: boolean }
+    | undefined
+  return result?.aborted !== false
 }
 
 /**
