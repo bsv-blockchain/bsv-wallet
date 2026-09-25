@@ -529,7 +529,13 @@ describe('retryDelivery', () => {
     const w = fakeWallet()
     const entry = await stuckEntry(s, w)
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    await retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: client as never,
+      storage: s,
+      entry
+    })
     expect((await getOutboxEntries(s))[0].status).toBe('sent')
     expect(client.sendMessage).toHaveBeenCalledTimes(1)
     const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
@@ -542,7 +548,13 @@ describe('retryDelivery', () => {
     const w = fakeWallet()
     const entry = { ...(await stuckEntry(s, w)), delivered: true }
     const client = { sendMessage: jest.fn() }
-    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    await retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: client as never,
+      storage: s,
+      entry
+    })
     expect(client.sendMessage).not.toHaveBeenCalled()
     expect((await getOutboxEntries(s))[0].status).toBe('sent')
   })
@@ -553,7 +565,13 @@ describe('retryDelivery', () => {
     const entry = await stuckEntry(s, w)
     delete (entry as any).txid
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    await retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: client as never,
+      storage: s,
+      entry
+    })
     const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
     expect(sendWithCalls).toHaveLength(0)
     expect((await getOutboxEntries(s))[0].status).toBe('sent')
@@ -579,14 +597,20 @@ describe('retryDelivery — recipient host', () => {
     const s = fakeStorage()
     const w = fakeWallet()
     const failing = { sendMessage: jest.fn().mockRejectedValue(new Error('down')) }
-    await expect(
-      sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })
-    ).rejects.toThrow('down')
+    await expect(sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })).rejects.toThrow(
+      'down'
+    )
     const entry = (await getOutboxEntries(s))[0]
     expect(entry.status).toBe('unsent')
 
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    await retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: client as never,
+      storage: s,
+      entry
+    })
     expect(client.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: KEY }), 'https://their.box')
   })
 
@@ -597,7 +621,13 @@ describe('retryDelivery — recipient host', () => {
     await expect(sendViaHandle(sendArgs(w, failing, s))).rejects.toThrow('down')
     const entry = (await getOutboxEntries(s))[0]
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    await retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: client as never,
+      storage: s,
+      entry
+    })
     expect(client.sendMessage.mock.calls[0][1]).toBeUndefined()
   })
 })
@@ -643,7 +673,12 @@ describe('cancelOutboxPayment', () => {
     const entry = await undeliveredEntry(s)
     await updateOutboxEntry(s, entry.id, { delivered: true })
     const stale = { ...entry, delivered: false, delivering: false }
-    const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry: stale })
+    const result = await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry: stale
+    })
     expect(result.aborted).toBe(false)
     expect(result.needsAbandon).toBe(true)
     expect(w.abortAction).not.toHaveBeenCalled()
@@ -775,6 +810,61 @@ describe('cancelOutboxPayment', () => {
       expect.objectContaining({ messageBox: 'payment_control', recipient: KEY }),
       'https://their.box'
     )
+  })
+
+  it('XR-049: abandon keeps the entry when abort cannot confirm the action stopped', async () => {
+    const s = fakeStorage()
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    const w = fakeWallet()
+    // No match for this txid in listActions: abortPeerPayNosend cannot confirm
+    // the noSend action was actually aborted, so nothing was actually released.
+    w.listActions = jest.fn().mockResolvedValue({ actions: [] })
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    await updateOutboxEntry(s, id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
+    const result = await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: { sendMessage } as never,
+      mode: 'abandon'
+    })
+    expect(result.aborted).toBe(false)
+    // The recipient may still hold a broadcastable copy of this transaction —
+    // the row (and the reservation it represents) must not vanish silently.
+    expect(await getOutboxEntries(s)).toHaveLength(1)
+  })
+
+  it('XR-049: abandon keeps the entry when the abort call itself throws', async () => {
+    const s = fakeStorage()
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    const w = fakeWallet()
+    w.listActions = jest.fn().mockResolvedValue({ actions: [{ txid: 'aa', reference: 'r' }] })
+    w.abortAction = jest.fn().mockRejectedValue(new Error('storage busy'))
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    await updateOutboxEntry(s, id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
+    const result = await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: { sendMessage } as never,
+      mode: 'abandon'
+    })
+    expect(result.aborted).toBe(false)
+    expect(await getOutboxEntries(s)).toHaveLength(1)
   })
 
   it('abandon does not remove the entry when payment_cancelled cannot be sent', async () => {

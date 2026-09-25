@@ -569,14 +569,27 @@ export async function cancelOutboxPayment(args: {
     }
   }
   let aborted = false
+  let abortAttempted = false
   if (entry.txid) {
+    abortAttempted = true
     try {
       aborted = await abortPeerPayNosend(wallet, adminOriginator, entry.txid)
     } catch {
-      // The entry is still removed: the nosend row remains visible in wallet
-      // activity with its own abort control, so the money is never stranded
-      // invisibly.
+      // Handled below: an abandon must not remove the row on an unconfirmed
+      // abort. For plain 'undelivered' cancels this is unreachable — no one
+      // else holds the token, so the nosend row stays visible in wallet
+      // activity with its own abort control either way.
     }
+  }
+  if (mode === 'abandon' && abortAttempted && !aborted) {
+    // The recipient already holds this transaction. Abort did not confirm the
+    // action actually stopped, so the reservation may still be live on both
+    // sides — keep the row (and its reservation) rather than risk a
+    // conflicting spend, and surface it for a retry/manual reconciliation.
+    await updateOutboxEntry(storage, entry.id, {
+      lastError: 'Could not confirm the payment was stopped — it may still be delivered.'
+    })
+    return { aborted: false }
   }
   await removeOutboxEntry(storage, entry.id)
   return { aborted }
