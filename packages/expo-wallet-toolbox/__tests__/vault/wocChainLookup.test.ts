@@ -14,6 +14,12 @@
  * throws instead, so recoverVaultFromChain's own bounded problem-reporting
  * path (chainRecovery.test.ts's "bounded scan" describe block) handles it,
  * never the miss-counting path.
+ *
+ * Also exercises outputStatus's "'unknown' is never trusted as unspent"
+ * invariant: any response shape other than an explicit "spentTxId is null"
+ * must fall through to 'unknown', not 'unspent' — a missing or renamed field
+ * must never fail open into treating an already-spent output as
+ * internalizable.
  */
 // chainRecovery.ts transitively imports transfers.ts -> vaultStore.ts, which
 // imports AsyncStorage/expo-secure-store directly; neither transforms under
@@ -88,5 +94,44 @@ describe('wocChainLookup.transactionsForLockingScript', () => {
 
   it('THROWS for a script that is not a recognizable P2PKH marker, rather than silently reporting no history', async () => {
     await expect(wocChainLookup('test').transactionsForLockingScript('006a0548656c6c6f')).rejects.toThrow()
+  })
+})
+
+describe('wocChainLookup.outputStatus — "unknown" is never trusted as unspent', () => {
+  const OUTPOINT = { txid: 'a'.repeat(64), vout: 0 }
+
+  it("'unspent' only for an explicit null spentTxId", async () => {
+    mockFetchOnce(() => ({ ok: true, json: { spentTxId: null } }))
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unspent')
+  })
+
+  it("'spent' for a real spentTxId", async () => {
+    mockFetchOnce(() => ({ ok: true, json: { spentTxId: 'b'.repeat(64) } }))
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('spent')
+  })
+
+  it("falls to 'unknown' — NOT 'unspent' — when the field is simply absent (an unrecognized response shape)", async () => {
+    mockFetchOnce(() => ({ ok: true, json: { someOtherField: true } }))
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
+  })
+
+  it("falls to 'unknown' — NOT 'unspent' — for a non-object body", async () => {
+    mockFetchOnce(() => ({ ok: true, json: null }))
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
+  })
+
+  it("falls to 'unknown' — NOT 'unspent' — for an empty-string spentTxId", async () => {
+    mockFetchOnce(() => ({ ok: true, json: { spentTxId: '' } }))
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
+  })
+
+  it("'unknown' for a non-2xx response", async () => {
+    mockFetchOnce(() => ({ ok: false, status: 500 }))
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
+  })
+
+  it("'unknown' when fetch itself rejects", async () => {
+    global.fetch = jest.fn(async () => { throw new Error('simulated network failure') }) as unknown as typeof fetch
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
   })
 })

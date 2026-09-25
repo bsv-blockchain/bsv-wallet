@@ -421,12 +421,20 @@ export function wocChainLookup(chain: AppChain): VaultChainLookup {
     },
 
     async outputStatus(outpoint: { txid: string; vout: number }): Promise<'unspent' | 'spent' | 'unknown'> {
+      // Fail-safe default is 'unknown' (never trusted as unspent — see this
+      // file's VaultChainLookup interface doc). ONLY a well-formed response
+      // that explicitly carries `spentTxId: null` counts as confirmed
+      // unspent; any other shape — including the field simply being ABSENT,
+      // which `=== undefined` would previously conflate with an explicit
+      // null — falls through to 'unknown' rather than failing open.
       try {
         const response = await fetch(`${base}/tx/${outpoint.txid}/out/${outpoint.vout}`)
         if (!response.ok) return 'unknown'
         const info = await response.json()
-        if (info?.spentTxId === null || info?.spentTxId === undefined) return 'unspent'
-        return 'spent'
+        if (info === null || typeof info !== 'object' || !('spentTxId' in info)) return 'unknown'
+        if (info.spentTxId === null) return 'unspent'
+        if (typeof info.spentTxId === 'string' && info.spentTxId.length > 0) return 'spent'
+        return 'unknown'
       } catch {
         return 'unknown'
       }
