@@ -420,3 +420,62 @@ describe('XR-063: a stalled body converts to a serviceError instead of hanging f
     expect(result.txidResults[0].serviceError).toBe(true)
   })
 })
+
+/**
+ * XQ-011: `createWocBroadcastService`'s `chain` argument is
+ * `WalletContext.tsx`'s un-normalized `walletChain` — a corrupted/garbage
+ * persisted `finalConfig.network` value passes through `toWalletChain`
+ * (core/config.tsx) unchanged, since that helper only special-cases the
+ * literal `'teratest'` string. Every *other* consumer of that same raw value
+ * (`chaintracksUrlFor`, the `backupChain` ternary that actually buckets which
+ * local SQLite DB is opened, and `walletDbRegistry`'s registry key) fails
+ * safe by collapsing any unrecognized chain string to a teratest/testnet
+ * bucket. This one sibling switch did the opposite: its `else` branch
+ * resolved an unrecognized chain string to the LIVE mainnet WhatsOnChain
+ * broadcast endpoint — a live-network fetch is not itself an I3 fund-loss
+ * path (the DB a corrupted build actually opens is bucketed by the
+ * separately-normalized `backupChain`, so there are no real UTXOs to
+ * broadcast), but resolving an untrusted/corrupted value to the most
+ * privileged endpoint, rather than to the least, is the wrong fail-safe
+ * direction and worth closing regardless.
+ */
+describe('XQ-011: createWocBroadcastService fails safe on an unrecognized chain string', () => {
+  const txOf = () => {
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    return { tx, beef }
+  }
+
+  const urlOf = async (chain: string): Promise<string> => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => ''
+    }) as unknown as typeof fetch
+    const { tx, beef } = txOf()
+    const { service } = createWocBroadcastService(chain)
+    await service(beef, [tx.id('hex')])
+    return (global.fetch as jest.Mock).mock.calls[0][0] as string
+  }
+
+  it('main -> the mainnet endpoint (positive control)', async () => {
+    expect(await urlOf('main')).toMatch(/^https:\/\/api\.whatsonchain\.com\/v1\/bsv\/main/)
+  })
+
+  it('test -> the testnet endpoint (positive control)', async () => {
+    expect(await urlOf('test')).toMatch(/^https:\/\/api\.whatsonchain\.com\/v1\/bsv\/test/)
+  })
+
+  it('ttn -> the teratest endpoint (positive control)', async () => {
+    expect(await urlOf('ttn')).toMatch(/^https:\/\/api\.woc-ttn\.bsvblockchain\.tech\/v1\/bsv\/test/)
+  })
+
+  it('an unrecognized/corrupted chain string never resolves to the live mainnet endpoint', async () => {
+    const url = await urlOf('garbage-value')
+    expect(url).not.toMatch(/^https:\/\/api\.whatsonchain\.com\/v1\/bsv\/main/)
+    // Matches every other sibling consumer of the same raw value: fail safe
+    // to the teratest/testnet host, not a privileged mainnet one.
+    expect(url).toMatch(/^https:\/\/api\.woc-ttn\.bsvblockchain\.tech\/v1\/bsv\/test/)
+  })
+})
