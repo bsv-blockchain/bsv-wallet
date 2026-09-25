@@ -1,10 +1,12 @@
 import {
+  CONNECTION_AUTHORITY_SIGNATURE_DOMAIN,
   MAX_PAIRING_EXPIRY_HORIZON_SECONDS,
   MAX_RELAY_RESPONSE_BYTES,
   MAX_RPC_CIPHERTEXT_CHARS,
   MAX_RPC_PLAINTEXT_BYTES,
   MAX_RPC_WIRE_CHARS,
   PAIRING_SIGNATURE_DOMAIN,
+  buildConnectionAuthorityMessage,
   buildPairingSignatureMessage,
   buildRelayWebSocketUrl,
   parseBoundedWireEnvelope,
@@ -14,6 +16,7 @@ import {
   validateBackendIdentityKey,
   validateConnectParams,
   validateRelayUrl,
+  validateStoredConnectionAuthorityTag,
   validateStoredConnectionSequence,
   validateStoredConnectionFields
 } from '../../core/services/walletConnectionValidation'
@@ -111,6 +114,30 @@ describe('wallet connection parameter boundary', () => {
   it('validates the compressed key as a real secp256k1 point', () => {
     expect(validateBackendIdentityKey(VALID_KEY)).toBe(VALID_KEY)
     expect(() => validateBackendIdentityKey(`02${'1'.repeat(64)}`)).toThrow(/point/i)
+  })
+
+  it('binds the canonical connection tuple into a versioned authority transcript, distinct from the pairing-QR one', () => {
+    const tuple = {
+      origin: 'https://app.example',
+      topic: validParams().topic,
+      protocolID: VALID_PROTOCOL,
+      backendIdentityKey: VALID_KEY
+    }
+    expect(buildConnectionAuthorityMessage(tuple)).toBe(
+      `${CONNECTION_AUTHORITY_SIGNATURE_DOMAIN}|${tuple.origin}|${tuple.topic}|${tuple.protocolID}|${tuple.backendIdentityKey}`
+    )
+    expect(buildConnectionAuthorityMessage({ ...tuple, backendIdentityKey: `03${VALID_KEY.slice(2)}` }))
+      .not.toBe(buildConnectionAuthorityMessage(tuple))
+  })
+
+  it('treats a missing stored authority tag as "no tag" and rejects anything malformed', () => {
+    expect(validateStoredConnectionAuthorityTag(undefined)).toBeUndefined()
+    expect(validateStoredConnectionAuthorityTag(null)).toBeUndefined()
+    const canonical = 'A'.repeat(43)
+    expect(validateStoredConnectionAuthorityTag(canonical)).toBe(canonical)
+    for (const bad of ['A'.repeat(42), 'A'.repeat(44), 'not+base64/url'.padEnd(43, 'A'), 12345, {}]) {
+      expect(() => validateStoredConnectionAuthorityTag(bad as unknown)).toThrow(/authority tag/i)
+    }
   })
 
   it('accepts only canonical stored sequence values that remain safely incrementable', () => {

@@ -205,6 +205,37 @@ test('still allows the admin originator to use the address-rail/FT protocols dir
   expect(calls.find(c => c.method === 'getPublicKey')).toBeDefined()
 })
 
+test.each([
+  ['createHmac', [2, 'connection authority']],
+  ['verifyHmac', [2, 'connection authority']],
+  ['createHmac', [2, ' Connection Authority ']]
+] as const)(
+  // XR-027: the saved-pairing authority tag (connectionAuthority.ts) is only
+  // meaningful if a paired peer can never mint or verify it itself -- a
+  // paired origin's site-scoped WalletClient forwards createHmac/verifyHmac
+  // for any non-reserved namespace, so without this reservation the peer
+  // could compute the exact same tag over the same allowlisted RPC method.
+  'reserves the connection-authority protocol from external %s calls (%p)',
+  async (method, protocolID) => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await expect(
+      (guarded[method] as any)({ protocolID, keyID: 'topic-1', counterparty: 'self', data: [1, 2, 3] }, 'evil.com')
+    ).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(calls.find(call => call.method === method)).toBeUndefined()
+  }
+)
+
+test('still allows the admin originator to use the connection-authority protocol directly', async () => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+  await guarded.createHmac(
+    { protocolID: [2, 'connection authority'], keyID: 'topic-1', counterparty: 'self', data: [1, 2, 3] } as any,
+    ADMIN
+  )
+  expect(calls.find(c => c.method === 'createHmac')).toBeDefined()
+})
+
 test('passes a createAction that names no protected output', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)

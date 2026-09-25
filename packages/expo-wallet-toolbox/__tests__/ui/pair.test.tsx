@@ -46,17 +46,22 @@ import { Text } from 'react-native'
 import { render, fireEvent, waitFor } from '@testing-library/react-native'
 import { WalletClient } from '@bsv/sdk'
 import { PairScreen } from '../../ui/screens/PairScreen'
-import { ThemeProvider, VaultAccessDenied, type ConnectParams } from '@bsv/expo-wallet-toolbox'
+import { ThemeProvider, VaultAccessDenied, connectionStore, type ConnectParams } from '@bsv/expo-wallet-toolbox'
 
 // The wallet the screen is handed — a stand-in for the real
 // WalletPermissionsManager. Only `getPublicKey` needs to exist: guardVaultAccess's
 // Proxy only intercepts methods in its privileged-capable set, and getPublicKey
 // is one of the 9 the finding calls out as reachable through IMPLEMENTED_METHODS.
+// XR-027: handleApprove also computes a saved-pairing authority tag with an
+// ADMIN-scoped wallet built from this same object (real guardVaultAccess is
+// NOT mocked in this file -- see the file header), so createHmac must exist
+// too.
 const mockPermissionsManager = {
   // A real point (the generator): WalletClient validates the key it returns.
   getPublicKey: jest.fn(async () => ({
     publicKey: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
-  }))
+  })),
+  createHmac: jest.fn(async () => ({ hmac: [1, 2, 3, 4] }))
 }
 
 // Partial mock: app/pair.tsx pulls useWallet/useWalletConnection from the same
@@ -101,6 +106,7 @@ const draw = () =>
 beforeEach(() => {
   mockConnect.mockClear()
   mockPermissionsManager.getPublicKey.mockClear()
+  mockPermissionsManager.createHmac.mockClear()
 })
 
 afterEach(() => {
@@ -205,4 +211,36 @@ test('XR-028: discloses the standing auto-approve authority on the approval card
   const { findByText } = draw()
 
   await findByText(/Up to 100,000 sats per request, 1,000,000 sats\/24h total, without asking/)
+})
+
+/**
+ * XR-027: Approve must compute the saved-pairing authority tag with an
+ * ADMIN-scoped wallet (originator = ADMIN_ORIGINATOR, under the reserved
+ * `connection authority` namespace) and stage it on connectionStore BEFORE
+ * connect() is invoked -- never with `walletArg` (the peer-scoped
+ * WalletClient handed to connect()), which would let the peer itself
+ * reproduce the tag over the same allowlisted createHmac RPC method.
+ */
+test('XR-027: Approve stages an admin-scoped connection-authority tag before connecting', async () => {
+  const stageSpy = jest.spyOn(connectionStore, 'stageAuthorityTag')
+  const { getByText } = draw()
+
+  fireEvent.press(getByText('Approve'))
+
+  await waitFor(() => expect(mockPermissionsManager.createHmac).toHaveBeenCalledTimes(1))
+  const [hmacArgs, hmacOriginator] = mockPermissionsManager.createHmac.mock.calls[0]
+  expect(hmacOriginator).toBe('internal-admin.bsv-wallet.invalid')
+  expect(hmacArgs).toMatchObject({
+    protocolID: [2, 'connection authority'],
+    keyID: mockParams.topic,
+    counterparty: 'self'
+  })
+
+  await waitFor(() => expect(stageSpy).toHaveBeenCalledWith(mockParams.topic, expect.any(String)))
+  // Staged strictly before connect() is invoked.
+  const stageOrder = stageSpy.mock.invocationCallOrder[0]
+  const connectOrder = mockConnect.mock.invocationCallOrder[0]
+  expect(stageOrder).toBeLessThan(connectOrder)
+
+  stageSpy.mockRestore()
 })
