@@ -2,12 +2,15 @@ import {
   configureToolbox,
   getBackupUrl,
   getHandleRegistryConfig,
+  getMandalaEndpoints,
   getServiceConfig,
   isToolboxConfigured,
   isVaultAvailable,
   isVaultEnabled,
   resetToolboxConfig
 } from '../core/toolboxConfig'
+
+const VALID_OVERLAY_KEY = '02' + '11'.repeat(32)
 
 afterEach(() => {
   resetToolboxConfig()
@@ -48,6 +51,61 @@ describe('configureToolbox', () => {
     configureToolbox({ backupUrl: 'https://b.example.com' })
     expect(getBackupUrl()).toBe('https://b.example.com')
     expect(getServiceConfig('main')).toEqual({})
+  })
+
+  // XR-065 (SEC2-074): the BRC-103/104 handshake carries the wallet's own
+  // authentication over this origin -- a plain http: backup URL exposes it to
+  // any on-path attacker, and a credential-bearing URL leaks a bearer secret
+  // into every request this package makes.
+  it('rejects a plain http backup origin', () => {
+    expect(() => configureToolbox({ backupUrl: 'http://backup.example.com' })).toThrow(/https/)
+  })
+
+  it('rejects a backup origin carrying embedded credentials', () => {
+    expect(() => configureToolbox({ backupUrl: 'https://user:pass@backup.example.com' })).toThrow()
+  })
+
+  it('still allows a plain http backup origin for local development', () => {
+    configureToolbox({ backupUrl: 'http://localhost:8080' })
+    expect(getBackupUrl()).toBe('http://localhost:8080')
+  })
+})
+
+// XR-065 (SEC2-074): getMandalaEndpoints had no scheme policy at all --
+// unlike getHandleRegistryConfig's existing https-except-private-network
+// pattern, a plain http: overlay/messageBox origin (or one carrying
+// credentials) resolved to a fully populated, "working" config.
+describe('getMandalaEndpoints (XR-065)', () => {
+  const entry = (overrides: Partial<{ overlayUrl: string; messageBoxUrl: string }> = {}) => ({
+    overlayUrl: 'https://overlay.example',
+    overlayIdentityKey: VALID_OVERLAY_KEY,
+    messageBoxUrl: 'https://mb.example',
+    ...overrides
+  })
+
+  it('resolves an ordinary all-https entry', () => {
+    configureToolbox({ backupUrl: null, mandala: { main: entry() } })
+    expect(getMandalaEndpoints('main')).toEqual(entry())
+  })
+
+  it('refuses a plain http overlayUrl', () => {
+    configureToolbox({ backupUrl: null, mandala: { main: entry({ overlayUrl: 'http://overlay.example' }) } })
+    expect(getMandalaEndpoints('main')).toBeUndefined()
+  })
+
+  it('refuses a plain http messageBoxUrl', () => {
+    configureToolbox({ backupUrl: null, mandala: { main: entry({ messageBoxUrl: 'http://mb.example' }) } })
+    expect(getMandalaEndpoints('main')).toBeUndefined()
+  })
+
+  it('refuses a messageBoxUrl carrying embedded credentials', () => {
+    configureToolbox({ backupUrl: null, mandala: { main: entry({ messageBoxUrl: 'https://user:pass@mb.example' }) } })
+    expect(getMandalaEndpoints('main')).toBeUndefined()
+  })
+
+  it('still allows plain http to a local-dev host', () => {
+    configureToolbox({ backupUrl: null, mandala: { main: entry({ overlayUrl: 'http://localhost:9000' }) } })
+    expect(getMandalaEndpoints('main')).toEqual(entry({ overlayUrl: 'http://localhost:9000' }))
   })
 })
 

@@ -157,17 +157,93 @@ const orderChanged = (a: Certifier[], b: Certifier[]): boolean => {
 
 const fetchWithTimeout = async (url: string, ms: number) => {
   const controller = new AbortController()
+  const startedAt = Date.now()
   const id = setTimeout(() => controller.abort(), ms)
+  let res: Response
   try {
     // `redirect: 'error'` so an on-path attacker cannot substitute the origin
     // a trust-provider manifest is fetched from by redirecting the entered
     // HTTPS origin somewhere else (XR-076 / SEC2-011) — a legitimate provider
     // has no reason to redirect its own manifest.json.
-    const res = await fetch(url, { signal: controller.signal, redirect: 'error' })
-    return res
+    res = await fetch(url, { signal: controller.signal, redirect: 'error' })
   } finally {
     clearTimeout(id)
   }
+  // XR-075 (SEC2-090): `id` above bounds only the connection/headers --
+  // clearing it as soon as fetch() resolves left body consumption (the
+  // caller's later res.json()) completely unbounded: a provider that answers
+  // instantly and then stalls or drips its body could hang this screen's
+  // loading state forever. Mirrors core/identity/handleRegistry/resolver.ts's
+  // fetchWithTimeout: a second timer, scoped to the remaining time budget,
+  // keeps the same AbortController live through body consumption too, and
+  // the byte cap from readBoundedManifestJson (XR-074) applies here as well.
+  const originalJson = res.json.bind(res)
+  res.json = () =>
+    new Promise((resolve, reject) => {
+      const bodyTimer = setTimeout(
+        () => {
+          controller.abort()
+          reject(new Error(`The domain did not respond within ${Math.round(ms / 1000)} seconds`))
+        },
+        Math.max(0, ms - (Date.now() - startedAt))
+      )
+      void readBoundedManifestJson(res, originalJson)
+        .then(resolve, reject)
+        .finally(() => clearTimeout(bodyTimer))
+    })
+  return res
+}
+
+/**
+ * XR-074 (SEC2-012): every other JSON-consuming call site in the handle
+ * registry (resolver.ts's readBoundedJson, XR-077) bounds body bytes before
+ * parsing — this screen's own manifest fetch never got that treatment. A
+ * malicious or compromised trust-provider domain could otherwise answer with
+ * an arbitrarily large body and force a full JSON parse/allocation before
+ * validateTrust ever runs. A BRC-68 manifest is a few hundred bytes of JSON;
+ * this ceiling is comfortably over anything real while still bounding an
+ * attacker-controlled response.
+ */
+const MAX_TRUST_MANIFEST_BYTES = 64 * 1024
+
+/**
+ * Mirrors core/identity/handleRegistry/resolver.ts's readBoundedJson: a
+ * declared Content-Length over the cap is refused before anything is read;
+ * otherwise, when the runtime exposes the body as a stream, chunks are
+ * counted as they arrive and the read is aborted the instant the running
+ * total crosses the cap. `fallback` (the runtime's own `response.json`) is
+ * used only when no stream is available to count from.
+ */
+async function readBoundedManifestJson(res: Response, fallback: () => Promise<unknown>): Promise<unknown> {
+  const declared = res.headers?.get?.('content-length')
+  if (declared) {
+    const n = Number(declared)
+    if (Number.isFinite(n) && n > MAX_TRUST_MANIFEST_BYTES) {
+      throw new Error(`Trust manifest declared ${n} bytes, over the ${MAX_TRUST_MANIFEST_BYTES} byte limit`)
+    }
+  }
+  const reader = (res as { body?: ReadableStream<Uint8Array> | null }).body?.getReader?.()
+  if (!reader) return await fallback()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > MAX_TRUST_MANIFEST_BYTES) {
+      await reader.cancel().catch(() => {})
+      throw new Error(`Trust manifest exceeded the ${MAX_TRUST_MANIFEST_BYTES} byte limit while streaming`)
+    }
+    chunks.push(value)
+  }
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return JSON.parse(new TextDecoder().decode(merged))
 }
 
 // -------------------- Main Screen --------------------
@@ -493,7 +569,7 @@ function AddProviderModal({
         throw new Error('Could not fetch the trust data from that domain (it needs to follow the BRC-68 protocol)')
       }
       if (!res.ok) throw new Error('Failed to fetch trust manifest from that domain')
-      const json = await res.json()
+      const json = (await res.json()) as any
       const trust = json?.babbage?.trust
       if (!json?.babbage || !trust || typeof trust !== 'object') {
         throw new Error('This domain does not support importing a trust relationship (it needs to follow the BRC-68 protocol)')
