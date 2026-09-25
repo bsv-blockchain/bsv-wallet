@@ -194,6 +194,14 @@ export interface VaultWallet {
   listOutputs(args: unknown, originator: string): Promise<ListOutputsResult>
   abortAction(args: unknown, originator: string): Promise<unknown>
   listActions?(args: unknown, originator: string): Promise<{ actions: VaultActionRow[]; totalActions?: number }>
+  /** Marker key derivation (v7 output creation and chain recovery). */
+  getPublicKey(args: unknown, originator: string): Promise<{ publicKey: string }>
+  /** Descriptor encryption (v7 output creation). */
+  encrypt(args: unknown, originator: string): Promise<{ ciphertext: number[] }>
+  /** Descriptor decryption (chain recovery). */
+  decrypt(args: unknown, originator: string): Promise<{ plaintext: number[] }>
+  /** Insert a chain-recovered v7 output into the admin vault basket. */
+  internalizeAction(args: unknown, originator: string): Promise<{ accepted: true }>
   /** Network status lookup (mirrors storage/methods/processOfflineActions.ts'
    * networkAlreadyHas) used only by resolveHeldVaultDeposit to tell a held
    * signed deposit that already escaped to the network from one that has

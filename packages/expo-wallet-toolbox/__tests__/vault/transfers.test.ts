@@ -12,7 +12,7 @@
  *
  * Plan 1's r1comb.ts must exist.
  */
-import { Beef, Hash, KeyDeriver, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
+import { Beef, CompletedProtoWallet, Hash, KeyDeriver, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { sdk as toolboxSdk } from '@bsv/wallet-toolbox-mobile'
 import {
@@ -119,6 +119,11 @@ const ADMIN = 'admin.com'
 const VAULT_ID = '11'.repeat(32)
 const SCOPE_IDENTITY = `02${'22'.repeat(32)}`
 const SALT_DERIVER = new KeyDeriver(new PrivateKey(42))
+/** Real crypto for the v7 marker/descriptor surface (getPublicKey/encrypt/
+ * decrypt) — same root as SALT_DERIVER, so a wallet.createHmac 'vault salt'
+ * derivation and a wallet.getPublicKey 'vault marker' derivation come from
+ * the same fixture identity. */
+const CRYPTO_WALLET = new CompletedProtoWallet(new PrivateKey(42))
 let fixtureSaltIndex = 1000
 
 function fixtureSalt(index = fixtureSaltIndex++, serials: readonly string[] = ['A-1', 'B-1']): {
@@ -177,6 +182,10 @@ let wallet: VaultWallet & {
   abortAction: jest.Mock
   listActions: jest.Mock
   getStatusForTxids: jest.Mock
+  getPublicKey: jest.Mock
+  encrypt: jest.Mock
+  decrypt: jest.Mock
+  internalizeAction: jest.Mock
 }
 
 beforeEach(async () => {
@@ -230,7 +239,13 @@ beforeEach(async () => {
     listActions: jest.fn(async () => ({ actions: [] })),
     // Absent (empty results) reads as "unknown", same as every other failure
     // mode networkAlreadyHas treats that way — see vaultTxidAlreadyKnown.
-    getStatusForTxids: jest.fn(async () => ({ results: [] }))
+    getStatusForTxids: jest.fn(async () => ({ results: [] })),
+    // v7 marker/descriptor surface — real crypto, no existing (v6) test
+    // reaches these; see CRYPTO_WALLET.
+    getPublicKey: jest.fn(async (args: any) => await CRYPTO_WALLET.getPublicKey(args)),
+    encrypt: jest.fn(async (args: any) => await CRYPTO_WALLET.encrypt(args)),
+    decrypt: jest.fn(async (args: any) => await CRYPTO_WALLET.decrypt(args)),
+    internalizeAction: jest.fn(async () => ({ accepted: true as const }))
   }
   ;(isVaultEnabled as jest.Mock).mockReturnValue(true)
   ;(isVaultAvailable as jest.Mock).mockReset().mockReturnValue(true)
