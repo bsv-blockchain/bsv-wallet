@@ -11,7 +11,7 @@ const mockMigrate = jest.fn()
 const mockPutSecret = jest.fn()
 const mockAutoUnlock = jest.fn()
 const mockHasAnySecret = jest.fn()
-const mockDeleteAllSecrets = jest.fn<Promise<boolean>, []>()
+const mockDeleteAllSecrets = jest.fn<Promise<boolean>, unknown[]>()
 
 jest.mock('../../core/i18n/translations', () => ({ t: (key: string) => key }))
 jest.mock('../../core/services/secrets', () => ({

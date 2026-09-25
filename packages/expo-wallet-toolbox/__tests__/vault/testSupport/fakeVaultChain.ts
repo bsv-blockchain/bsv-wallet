@@ -331,7 +331,7 @@ export class FakeVaultWallet implements VaultWallet {
       if (meta.basket !== 'admin vault') return
       const output = tx.outputs[index]
       this.basket.set(`${txid}.${index}`, {
-        satoshis: output.satoshis,
+        satoshis: output.satoshis!,
         lockingScript: output.lockingScript.toHex(),
         customInstructions: meta.customInstructions,
         basket: 'admin vault',
@@ -352,7 +352,7 @@ export class FakeVaultWallet implements VaultWallet {
     for (const output of args.outputs as { outputIndex: number; insertionRemittance?: { basket: string; customInstructions?: string; tags?: string[] } }[]) {
       const real = tx.outputs[output.outputIndex]
       this.basket.set(`${txid}.${output.outputIndex}`, {
-        satoshis: real.satoshis,
+        satoshis: real.satoshis!,
         lockingScript: real.lockingScript.toHex(),
         customInstructions: output.insertionRemittance?.customInstructions,
         basket: output.insertionRemittance?.basket ?? '',

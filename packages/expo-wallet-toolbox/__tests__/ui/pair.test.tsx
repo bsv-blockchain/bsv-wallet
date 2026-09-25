@@ -44,7 +44,7 @@ jest.mock('expo-secure-store', () => ({
 import React from 'react'
 import { Text } from 'react-native'
 import { render, fireEvent, waitFor } from '@testing-library/react-native'
-import { WalletClient } from '@bsv/sdk'
+import { WalletClient, type CreateHmacArgs } from '@bsv/sdk'
 import { PairScreen } from '../../ui/screens/PairScreen'
 import { ThemeProvider, VaultAccessDenied, connectionStore, type ConnectParams } from '@bsv/expo-wallet-toolbox'
 
@@ -61,7 +61,7 @@ const mockPermissionsManager = {
   getPublicKey: jest.fn(async () => ({
     publicKey: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
   })),
-  createHmac: jest.fn(async () => ({ hmac: [1, 2, 3, 4] }))
+  createHmac: jest.fn<Promise<{ hmac: number[] }>, [CreateHmacArgs, string?]>(async () => ({ hmac: [1, 2, 3, 4] }))
 }
 
 // Partial mock: app/pair.tsx pulls useWallet/useWalletConnection from the same

@@ -27,6 +27,8 @@ import {
   sighashPreimage,
   signerDigest,
   vaultSaltHmacData,
+  type VaultInstructions,
+  type VaultInstructionsV6,
   type VaultSaltChain,
   verifyVaultInput
 } from '../../core/services/vault/r1comb'
@@ -300,6 +302,31 @@ afterEach(() => jest.restoreAllMocks())
 
 // ── withdraw fixtures ─────────────────────────────────────────────────────
 
+/**
+ * A few fixtures in this file are built directly through
+ * `vaultFixture`/`encodeVaultInstructions` with `v: 6`, so a decode of THEIR
+ * `customInstructions` is always the v6 (salt-bearing) member in practice.
+ * `VaultInstructions` is now a v6|v7 union, so a plain decode needs narrowing
+ * before `.salt` (v7 has none) or a v6-only spread is type-safe. This throws
+ * only if that invariant is ever actually violated.
+ */
+function asV6(ci: VaultInstructions): VaultInstructionsV6 {
+  if (ci.v !== 6) throw new Error('asV6: expected v6 (salt-bearing) vault instructions in this fixture')
+  return ci
+}
+
+/**
+ * Other reads decode an output this code path (`newVaultOutput` in
+ * transfers.ts) writes as v7 ONLY -- no persisted salt -- so `.salt` is
+ * genuinely `undefined` there at runtime, exactly as it was before
+ * `VaultInstructions` became a v6|v7 union. This restores that pre-union
+ * typing (a compile-time-only cast) without changing what the assertions
+ * below actually observe.
+ */
+function v6Shape(ci: VaultInstructions): VaultInstructionsV6 {
+  return ci as VaultInstructionsV6
+}
+
 interface VaultFixture {
   outpoint: string
   satoshis: number
@@ -358,7 +385,12 @@ function fixtureFromVaultOutput(output: { satoshis: number; lockingScript: strin
   return {
     outpoint: `${src.id('hex')}.0`,
     satoshis: output.satoshis,
-    salt: ci.salt,
+    // v7 outputs (all fresh writes since the recovery-extraction change) never
+    // persist a salt -- nothing downstream reads VaultFixture.salt for a
+    // fixture built from a real wallet output (only vaultFixture()'s v6
+    // fixtures are ever asserted on for their salt), so this is a harmless
+    // placeholder rather than a real value to narrow toward.
+    salt: ci.v === 6 ? ci.salt : '',
     keys: ci.keys.map(key => key.pubkey),
     lockingScript,
     src,
@@ -1373,7 +1405,7 @@ describe('depositToVault', () => {
     await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
     expect(wallet.createHmac).toHaveBeenCalledTimes(2)
     const created = depositArgs().outputs[0]
-    const createdInstructions = decodeVaultInstructions(created.customInstructions)!
+    const createdInstructions = v6Shape(decodeVaultInstructions(created.customInstructions)!)
     expect(createdInstructions.saltKeyId).toBe('2')
     expect(createdInstructions.salt).not.toBe(salt)
     expect(created.lockingScript).not.toBe(lock.toHex())
@@ -1419,7 +1451,7 @@ describe('depositToVault', () => {
     }))
 
     await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
-    const current = decodeVaultInstructions(depositArgs().outputs[0].customInstructions)!
+    const current = v6Shape(decodeVaultInstructions(depositArgs().outputs[0].customInstructions)!)
     expect(current.vaultId).toBe(VAULT_ID)
     expect(Number(current.saltKeyId)).toBe(42)
     expect(current.salt).not.toBe(salt)
@@ -3637,7 +3669,7 @@ describe('authenticated vault scans', () => {
   it('replaces a stale lower-revision local record with newer verified chain evidence', async () => {
     await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 1, createdAt: 1, keys: [KEY_A, KEY_B] })
     const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
-    const ci = decodeVaultInstructions(fixture.customInstructions)!
+    const ci = asV6(decodeVaultInstructions(fixture.customInstructions)!)
     fixture.customInstructions = encodeVaultInstructions({ ...ci, revision: 2 })
     serveVaultOutputs([fixture])
 
@@ -3651,7 +3683,7 @@ describe('authenticated vault scans', () => {
     const current = { v: 6 as const, vaultId: VAULT_ID, revision: 2, createdAt: 1, keys: [KEY_A, KEY_B] }
     await vaultStore.setMeta(current)
     const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
-    const ci = decodeVaultInstructions(fixture.customInstructions)!
+    const ci = asV6(decodeVaultInstructions(fixture.customInstructions)!)
     fixture.customInstructions = encodeVaultInstructions({ ...ci, revision: 2 })
     serveVaultOutputs([fixture])
 
@@ -3689,7 +3721,7 @@ describe('authenticated vault scans', () => {
 
   it('rejects a valid HMAC record whose salt does not rebuild the source lock commitments', async () => {
     const fixture = vaultFixture(100_000, [PUB_A, PUB_B])
-    const ci = decodeVaultInstructions(fixture.customInstructions)!
+    const ci = asV6(decodeVaultInstructions(fixture.customInstructions)!)
     const replacement = fixtureSalt(2, ['A-1', 'B-1'])
     fixture.customInstructions = encodeVaultInstructions({
       ...ci,

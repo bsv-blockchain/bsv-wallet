@@ -60,7 +60,7 @@ describe('connection authority tag (wiring)', () => {
   it('computes the tag under the reserved connection-authority namespace, keyed by topic, as the admin originator', async () => {
     const tuple = baseTuple()
     const createHmac = jest.fn(async () => ({ hmac: [1, 2, 3, 4] }))
-    const verifyHmac = jest.fn(async () => ({ valid: true }))
+    const verifyHmac = jest.fn(async () => ({ valid: true as const }))
     const wallet = { createHmac, verifyHmac }
 
     const tag = await computeConnectionAuthorityTag(wallet, ADMIN_ORIGINATOR, tuple)

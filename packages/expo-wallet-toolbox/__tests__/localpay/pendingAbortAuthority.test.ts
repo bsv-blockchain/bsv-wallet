@@ -63,7 +63,7 @@ describe('pending-abort authority tag (wiring)', () => {
   })
 
   it('verifies with the matching protocolID/keyID/hmac shape', async () => {
-    const verifyHmac = jest.fn(async () => ({ valid: true }))
+    const verifyHmac = jest.fn(async () => ({ valid: true as const }))
     await verifyPendingAbortAuthorityTag(
       { verifyHmac },
       ADMIN_ORIGINATOR,

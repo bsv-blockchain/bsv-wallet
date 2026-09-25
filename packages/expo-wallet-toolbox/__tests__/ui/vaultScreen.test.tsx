@@ -1,5 +1,6 @@
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
+import type { BackupAttestation } from '../../core/services/vault/backupAttestation'
 
 const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() }
@@ -19,7 +20,7 @@ const mockComputeVaultMetaAuthorityTag = jest.fn(
 const mockRelock = jest.fn()
 const mockRecover = jest.fn()
 const mockRecoverFromChain = jest.fn()
-const mockWocChainLookup = jest.fn(() => ({ marker: true }))
+const mockWocChainLookup = jest.fn<{ marker: boolean }, unknown[]>(() => ({ marker: true }))
 const mockAdopt = jest.fn()
 const mockBeginRemoval = jest.fn()
 const mockFinalizeRemoval = jest.fn()
@@ -39,7 +40,11 @@ const mockIsBackupPushEnabled = jest.fn(async () => mockBackupOn)
 // XR-003: attested by default so every existing deposit/enroll-initiation
 // test — none of which is about seed preservation — keeps its current
 // "a wallet exists, proceed" shape. The unattested case gets its own tests.
-const mockReadBackupAttestation = jest.fn(async () => ({ v: 1 as const, medium: 'phrase' as const, at: 1 }))
+const mockReadBackupAttestation = jest.fn<Promise<BackupAttestation | null>, unknown[]>(async () => ({
+  v: 1,
+  medium: 'phrase',
+  at: 1
+}))
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
