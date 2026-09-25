@@ -3049,9 +3049,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       if (!tx || tx.status === 'failed' || tx.status === 'completed') return 'pending'
 
       // A queued/posting offline payment is expected not to be on chain yet —
-      // failing it would release inputs the payee still holds.
+      // failing it would release inputs the payee still holds. Same for an
+      // 'import_hold' row (XR-085): a raw database import quarantines a
+      // copied-in queued/posting row under that status precisely because it
+      // may already be broadcast/handed off, so this lookup has to see it
+      // too or shouldFailUnprovenTx below never learns the row is held and
+      // can fail it on a stale, in-flight tx status alone.
       const db = storage.sqliteDb
-      const rows = db ? await findOfflineActions(db, { status: ['queued', 'posting'] }) : []
+      const rows = db ? await findOfflineActions(db, { status: ['queued', 'posting', 'import_hold'] }) : []
       const offlineStatus = rows.find(r => r.txid === txid)?.status
       if (
         shouldFailUnprovenTx({
