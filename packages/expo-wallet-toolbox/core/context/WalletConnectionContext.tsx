@@ -9,6 +9,7 @@ import {
   buildPairingSignatureMessage,
   buildRelayWebSocketUrl,
   MAX_IN_FLIGHT_RPC,
+  MAX_IN_FLIGHT_RPC_BYTES,
   MAX_RELAY_RESPONSE_BYTES,
   parseBoundedWireEnvelope,
   parseRelayResponse,
@@ -336,6 +337,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     lastSeqRef.current = initialSeq
     let firstMessageFired = false
     let inFlightRpc = 0
+    let inFlightBytes = 0
 
     ws.onmessage = async event => {
       if (inFlightRpc >= MAX_IN_FLIGHT_RPC) {
@@ -343,8 +345,26 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         return
       }
       inFlightRpc++
+      let reservedBytes = 0
       try {
         const envelope = parseBoundedWireEnvelope(event.data, meta.topic)
+
+        // XR-026: gate on the AGGREGATE estimated plaintext size of every
+        // message currently decrypting/dispatching, not just the count.
+        // MAX_IN_FLIGHT_RPC alone lets up to 4 near-ceiling messages decrypt
+        // at once; base64-decoded length is a tight estimate of the eventual
+        // plaintext (authenticated encryption only adds a small fixed
+        // overhead), and this must be checked BEFORE decryptPayload is even
+        // attempted — decoding the ciphertext into a number[] alone already
+        // allocates memory proportional to its size, before the wallet can
+        // authenticate it.
+        const estimatedBytes = Math.floor(envelope.ciphertext.length * 3 / 4)
+        if (inFlightBytes + estimatedBytes > MAX_IN_FLIGHT_RPC_BYTES) {
+          console.warn('[WalletConnection] dropping message: too many in-flight bytes')
+          return
+        }
+        reservedBytes = estimatedBytes
+        inFlightBytes += reservedBytes
 
         let plaintext: string
         try {
@@ -396,6 +416,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         // malformed outer envelope — drop silently
       } finally {
         inFlightRpc--
+        inFlightBytes -= reservedBytes
       }
     }
 
