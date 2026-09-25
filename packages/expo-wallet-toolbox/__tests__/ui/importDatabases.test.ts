@@ -414,6 +414,53 @@ describe('importWalletDatabase', () => {
     expect(result.imported).toBe(false)
   })
 
+  it('XR-082: rejects an image where an allow-listed index keeps its canonical name but its UNIQUE constraint was dropped', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // Same name as the wallet's real `idx_outputs_unique`
+    // (CREATE UNIQUE INDEX ... ON outputs(transactionId, vout, userId)), but
+    // redefined non-unique over a different column. A name-only allow-list
+    // check accepts this — the object is still called "idx_outputs_unique" —
+    // so the uniqueness guarantee on (transactionId, vout, userId) would be
+    // silently gone for every later write once `createTables()`'s `CREATE
+    // INDEX IF NOT EXISTS` is a no-op against this already-present name.
+    raw.exec(`DROP INDEX idx_outputs_unique`)
+    raw.exec(`CREATE INDEX idx_outputs_unique ON outputs(transactionId)`)
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    expect(mockOpenDbs.has(currentStorage.dbName)).toBe(false)
+    expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
+  it('XR-082: rejects an image where an allow-listed table keeps its canonical name but lost a UNIQUE column constraint', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // Same table name as the wallet's real `users` table, but its
+    // `identityKey TEXT NOT NULL UNIQUE` column constraint was dropped —
+    // a name-only allow-list check cannot see this, and a duplicate
+    // identityKey row that should be rejected would now be accepted.
+    raw.exec(`DROP TABLE users`)
+    raw.exec(`
+      CREATE TABLE users (
+        userId INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        identityKey TEXT NOT NULL,
+        activeStorage TEXT
+      )
+    `)
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    expect(mockOpenDbs.has(currentStorage.dbName)).toBe(false)
+    expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
   it('XR-080: a filename-suffix collision with a different full storageIdentityKey is rejected before it can be activated', async () => {
     // The picked file's NAME carries the victim's own 8-hex suffix, but its
     // settings row's real storageIdentityKey is a completely different full
