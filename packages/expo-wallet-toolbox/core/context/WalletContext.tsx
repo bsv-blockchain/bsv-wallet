@@ -202,7 +202,7 @@ import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-m
 import { StorageExpoSQLite } from '../storage'
 import { makeBuildGeneration } from './buildGeneration'
 import * as SQLite from 'expo-sqlite'
-import { getRegisteredDbs, registerDb, selectLatestDb } from '../walletDbRegistry'
+import { getRegisteredDbs, registerDb, selectLatestDb, unregisterDb } from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import { getOnline, subscribeOnline } from '../net/online'
 import { canInternalizePending, processPending } from '../localpay/pending'
@@ -1451,6 +1451,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               // connection before a retry opens the same database again.
               try {
                 await phoneStorage.destroy()
+              } catch {}
+              // restoreOnImport's precondition is always a freshly migrated,
+              // still-empty-of-real-data database — so a failed replay can safely be
+              // discarded rather than reused. Without this, a later build that skips
+              // another replay (recoverWallet's "skip", or any future
+              // restoreFromBackup:false call) would reselect this SAME partially replayed
+              // file via selectLatestDb and publish it as a working wallet. Both steps are
+              // best-effort cleanup: the ORIGINAL restore failure above is what must reach
+              // the caller, not a failure to tidy up after it.
+              try {
+                await unregisterDb(keySuffix, chainStr, selectedDb)
+              } catch {}
+              try {
+                await SQLite.deleteDatabaseAsync(selectedDb)
               } catch {}
               throw e
             }

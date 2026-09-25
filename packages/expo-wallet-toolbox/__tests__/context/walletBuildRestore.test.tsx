@@ -33,6 +33,16 @@ const mockDestroy = jest.fn(async () => {})
 const mockManagers: any[] = []
 let mockBuildMode: 'bypass' | 'real' = 'bypass'
 let mockSecretsReady = false
+// Stateful, unlike the rest of this file's mocks — XR-017 needs to observe a failed
+// restore's database actually leaving the registry, not just a fixed answer.
+let mockRegisteredDbs: string[] = []
+const mockRegisterDb = jest.fn(async (_keySuffix: string, _chain: string, filename: string) => {
+  if (!mockRegisteredDbs.includes(filename)) mockRegisteredDbs.push(filename)
+})
+const mockUnregisterDb = jest.fn(async (_keySuffix: string, _chain: string, filename: string) => {
+  mockRegisteredDbs = mockRegisteredDbs.filter(f => f !== filename)
+})
+const mockDeleteDatabaseAsync = jest.fn(async () => {})
 
 jest.mock('../../core/context/LocalStorageProvider', () => ({
   useLocalStorage: () => ({
@@ -83,8 +93,22 @@ jest.mock('../../core/services/walletServiceConfig', () => ({
   })
 }))
 jest.mock('../../core/walletDbRegistry', () => ({
-  getRegisteredDbs: async () => ['restore-test.db'],
-  selectLatestDb: () => 'restore-test.db'
+  getRegisteredDbs: async () => mockRegisteredDbs,
+  registerDb: (...args: [string, string, string]) => mockRegisterDb(...args),
+  unregisterDb: (...args: [string, string, string]) => mockUnregisterDb(...args),
+  // Real logic (pure — picks by embedded timestamp): a stateful registry needs it to
+  // actually distinguish the failed db from a freshly created one, not just echo a fixed
+  // name back.
+  selectLatestDb: (names: string[]) => jest.requireActual('../../core/walletDbRegistry').selectLatestDb(names)
+}))
+// WalletContext's own restore-failure cleanup calls this directly (see XR-017); the global
+// moduleNameMapper's expo-sqlite stub throws unconditionally, so this file needs its own to
+// observe the call.
+jest.mock('expo-sqlite', () => ({
+  openDatabaseAsync: async () => {
+    throw new Error('expo-sqlite is native: inject a database handle in tests')
+  },
+  deleteDatabaseAsync: (...args: [string]) => mockDeleteDatabaseAsync(...args)
 }))
 jest.mock('../../core/storage', () => ({
   StorageExpoSQLite: class {
@@ -133,6 +157,7 @@ beforeEach(() => {
   mockSecretsReady = false
   mockBuildMode = 'bypass'
   mockManagers.length = 0
+  mockRegisteredDbs = ['restore-test.db']
   mockGetMnemonic.mockResolvedValue(null)
   mockGetRecoveredKey.mockResolvedValue(null)
   mockRestore.mockRejectedValue(new Error('backup unavailable'))
@@ -202,7 +227,7 @@ it('preserves a rebuild restore request when automatic build falls back to a rec
 })
 
 it.each(['mnemonic', 'recovered key'] as const)(
-  'allows explicit restore=false after a failed %s restore',
+  'allows explicit restore=false after a failed %s restore, without reusing the tainted database',
   async kind => {
     await renderProvider()
     mockBuildMode = 'real'
@@ -215,11 +240,21 @@ it.each(['mnemonic', 'recovered key'] as const)(
     expect(mockRestore).toHaveBeenCalledTimes(1)
     expect(wallet.walletBuilt).toBe(false)
     expect(mockPostRestoreSetup).not.toHaveBeenCalled()
+    // XR-017: the freshly-migrated-but-partially-replayed database must not survive the
+    // failure, or a later build that skips another replay (recoverWallet's "skip", or this
+    // very restore:false call) would reselect it via selectLatestDb and publish it as a
+    // working wallet.
+    expect(mockUnregisterDb).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'restore-test.db')
+    expect(mockDeleteDatabaseAsync).toHaveBeenCalledWith('restore-test.db')
+    expect(mockRegisteredDbs).not.toContain('restore-test.db')
 
     await act(async () => build(false))
     expect(mockRestore).toHaveBeenCalledTimes(1)
     // The build reaches setup after the restore branch, without another replay.
     expect(mockPostRestoreSetup).toHaveBeenCalledTimes(1)
+    // A genuinely different (freshly created) database, not the failed one reselected.
+    expect(mockRegisteredDbs).not.toContain('restore-test.db')
+    expect(mockRegisteredDbs).toHaveLength(1)
   }
 )
 
