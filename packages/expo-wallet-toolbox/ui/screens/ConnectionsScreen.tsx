@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
 import { showToast } from '../components/ui/Toast'
+import { showAlert } from '../components/ui/AlertCard'
 import QRScanner from '../components/QRScanner'
 import {
   useTheme,
@@ -251,8 +252,31 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
 
   async function handleReconnect(conn: Connection) {
     if (!managers.permissionsManager) return
+    let external: ReturnType<typeof parseExternalOrigin>
     try {
-      const external = parseExternalOrigin(conn.origin)
+      external = parseExternalOrigin(conn.origin)
+    } catch (err) {
+      showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
+      return
+    }
+    // XR-027: reconnect authenticates only that the wallet's own PUBLIC
+    // identity key still matches — it never authenticates that the stored
+    // (origin, topic, protocolID, backendIdentityKey) tuple is the one the
+    // user actually approved, so a single silent tap was the only consent
+    // point in this whole path. Showing the canonicalized origin and
+    // requiring an explicit re-confirmation here does not detect a tampered
+    // record, but it does mean the user is never re-granted a paired RPC
+    // counterparty without seeing which origin it is for.
+    const choice = await showAlert({
+      title: t('reconnect_confirm_title'),
+      message: t('reconnect_confirm_message', { origin: external.originator }),
+      buttons: [
+        { text: t('reconnect'), key: 'reconnect' },
+        { text: t('cancel'), key: 'cancel', style: 'cancel' }
+      ]
+    })
+    if (choice !== 'reconnect') return
+    try {
       const wallet = new WalletClient(
         capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
         external.originator
