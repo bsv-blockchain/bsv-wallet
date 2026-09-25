@@ -8,7 +8,7 @@
  */
 import { Hash, PrivateKey, Utils } from '@bsv/sdk'
 import type { DeviceSummary, LogEntry } from '../../core/backup/client'
-import { encodeChunk, emptyChunk } from '../../core/backup/codec'
+import { encodeChunk, emptyChunk, isEmptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { restoreOnImport } from '../../core/backup/restoreOnImport'
 import type { SyncChunk } from '../../core/toolboxTypes'
@@ -66,24 +66,32 @@ function fakeClient (
   }
 }
 
-/** Storage stand-in: accepts chunks, reports done once it has seen them all. */
-function fakeStorage (expected: number): any {
-  let seen = 0
+/**
+ * Storage stand-in: accepts chunks, reports done once the reader itself signals completion
+ * (an all-empty chunk) — exactly like the real toolbox's own processSyncChunk, rather than
+ * a manually-supplied count. That makes it replay-agnostic: restoring more than one
+ * device's log (see XR-015) is just more calls into the same fake, each device's own
+ * reader emitting its own completion chunk when ITS index is exhausted. Every provenTx
+ * txid actually handed to it is recorded, across every device, so a test can assert on
+ * what ended up in "storage" instead of only on call counts.
+ */
+function fakeStorage (): any {
+  const receivedTxids: string[] = []
   const s: any = {
-    seen: () => seen,
+    receivedTxids,
     findProvenTxReqs: jest.fn().mockResolvedValue([]),
     makeAvailable: jest.fn().mockResolvedValue({ storageIdentityKey: 'fresh-local' }),
     findOrInsertUser: jest.fn(async () => ({ user: { userId: 7 }, isNew: true })),
     findOrInsertSyncStateAuth: jest.fn(async () => ({ syncState: {}, isNew: true })),
-    processSyncChunk: jest.fn(async () => {
+    processSyncChunk: jest.fn(async (_args: unknown, chunk: SyncChunk) => {
       // The real processSyncChunk verifyTruthy/verifyOne's these rows — a chunk
       // arriving before both seeds is exactly the "A truthy value is required"
       // failure on a fresh device.
       if (s.findOrInsertUser.mock.calls.length === 0 || s.findOrInsertSyncStateAuth.mock.calls.length === 0) {
         throw new Error('A truthy value is required.')
       }
-      if (seen >= expected) return { done: true, maxUpdated_at: undefined, updates: 0, inserts: 0 }
-      seen++
+      for (const tx of chunk.provenTxs ?? []) receivedTxids.push(tx.txid)
+      if (isEmptyChunk(chunk)) return { done: true, maxUpdated_at: undefined, updates: 0, inserts: 0 }
       return { done: false, maxUpdated_at: undefined, updates: 0, inserts: 0 }
     })
   }
@@ -99,7 +107,7 @@ const deps = (over: Record<string, unknown>): any => ({
 
 describe('restoreOnImport', () => {
   it('does nothing when no backup server is configured', async () => {
-    const storage = fakeStorage(0)
+    const storage = fakeStorage()
     const result = await restoreOnImport(deps({ storage, baseUrl: '' }))
 
     expect(result).toEqual({ restored: false, chunks: 0, reason: 'not-configured' })
@@ -109,7 +117,7 @@ describe('restoreOnImport', () => {
   it('reports no-backup for a wallet the server has never seen', async () => {
     // The ordinary case for a wallet imported from a phrase that was never backed up:
     // the import must continue, not fail.
-    const storage = fakeStorage(0)
+    const storage = fakeStorage()
     const client = fakeClient([])
     const result = await restoreOnImport(deps({ storage, client }))
 
@@ -118,7 +126,10 @@ describe('restoreOnImport', () => {
     expect(storage.processSyncChunk).not.toHaveBeenCalled()
   })
 
-  it('replays the newest generation of the most recently written device', async () => {
+  it('XR-015: replays EVERY device in the manifest, not only the most recently written one', async () => {
+    // OLD_DEVICE's log holds a record ('old') that exists nowhere else — exactly the
+    // independent, non-overlapping per-device history the finding is about. Restoring
+    // only NEW_DEVICE (the highest-ranked candidate) would silently drop it.
     const w = deriveBackupWallet(PRIMARY, 'main')
     const logs = {
       [`${OLD_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('old'), 'main')],
@@ -132,14 +143,18 @@ describe('restoreOnImport', () => {
       ],
       logs
     )
-    const storage = fakeStorage(2)
+    const storage = fakeStorage()
 
     const result = await restoreOnImport(deps({ storage, client }))
 
     expect(result.restored).toBe(true)
+    // The highest-ranked (primary) device/generation is still reported exactly as before —
+    // a single-device manifest is unaffected by this change.
     expect(result.deviceId).toBe(NEW_DEVICE)
     expect(result.generation).toBe(2)
-    expect(result.chunks).toBe(2)
+    // 1 chunk from OLD_DEVICE's own log plus 2 from NEW_DEVICE's — both replayed, not just
+    // the primary's 2.
+    expect(result.chunks).toBe(3)
     expect(client.manifest).toHaveBeenCalledTimes(1)
     // The target is resolved HERE and passed through explicitly — never left to
     // restoreFromBackup's own "most recently updated" default, which this device's
@@ -150,6 +165,8 @@ describe('restoreOnImport', () => {
     expect(client.index).toHaveBeenCalledWith(NEW_DEVICE, 2)
     expect(client.index).toHaveBeenCalledWith(OLD_DEVICE, 1)
     expect(result.verified).toBe(false)
+    // The actual point: OLD_DEVICE's unique record reached storage, alongside NEW_DEVICE's.
+    expect(storage.receivedTxids.sort()).toEqual(['new1', 'new2', 'old'])
   })
 
   it('seeds the user row and the source device\'s syncState before the first chunk', async () => {
@@ -157,7 +174,7 @@ describe('restoreOnImport', () => {
     const client = fakeClient([summary({ deviceId: NEW_DEVICE, generation: 1 })], {
       [`${NEW_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('only'), 'main')]
     })
-    const storage = fakeStorage(1)
+    const storage = fakeStorage()
     const identityKey = '02' + 'ab'.repeat(32)
 
     const result = await restoreOnImport(deps({ storage, client }))
@@ -185,7 +202,7 @@ describe('restoreOnImport', () => {
     const seen: Array<[number, number]> = []
 
     await restoreOnImport(
-      deps({ storage: fakeStorage(3), client, onProgress: (c: number, t: number) => seen.push([c, t]) })
+      deps({ storage: fakeStorage(), client, onProgress: (c: number, t: number) => seen.push([c, t]) })
     )
 
     expect(seen).toEqual([
@@ -205,13 +222,13 @@ describe('restoreOnImport', () => {
       { [`${OLD_DEVICE}/1`]: [{ seq: 2, sha256: 'sha2', prevSha256: 'sha1', size: 1, createdAt: 'z' }] }
     )
 
-    await expect(restoreOnImport(deps({ storage: fakeStorage(1), client }))).rejects.toThrow(/gap/)
+    await expect(restoreOnImport(deps({ storage: fakeStorage(), client }))).rejects.toThrow(/gap/)
   })
 
   it('does not validate coins when there is nothing to restore', async () => {
     const validateRestoredCoins = jest.fn()
     const result = await restoreOnImport(
-      deps({ storage: fakeStorage(0), client: fakeClient([]), validateRestoredCoins })
+      deps({ storage: fakeStorage(), client: fakeClient([]), validateRestoredCoins })
     )
     expect(result.reason).toBe('no-backup')
     expect(validateRestoredCoins).not.toHaveBeenCalled()
@@ -222,7 +239,7 @@ describe('restoreOnImport', () => {
     const client = fakeClient([summary({ deviceId: NEW_DEVICE, generation: 1 })], {
       [`${NEW_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('only'), 'main')]
     })
-    const storage = fakeStorage(1)
+    const storage = fakeStorage()
     const order: string[] = []
     const validateRestoredCoins = jest.fn(async () => {
       await new Promise(resolve => setTimeout(resolve, 30))
@@ -259,7 +276,7 @@ describe('restoreOnImport', () => {
         ],
         logs
       )
-      const storage = fakeStorage(2)
+      const storage = fakeStorage()
 
       const result = await restoreOnImport(deps({ storage, client }))
 
@@ -276,7 +293,7 @@ describe('restoreOnImport', () => {
       const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
         [`${OLD_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('legacy'), 'main')]
       })
-      const storage = fakeStorage(1)
+      const storage = fakeStorage()
 
       const result = await restoreOnImport(deps({ storage, client }))
 
