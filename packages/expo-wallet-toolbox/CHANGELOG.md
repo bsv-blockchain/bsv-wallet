@@ -94,6 +94,870 @@ committed key and its PIN, could spend without the mnemonic.
   treats as unrun for the Vault generally; it is proven here only with
   `MockYubiKey`'s real P-256 math.
 
+### Vault: forged-state, session, and chain-recovery hardening (external security review)
+
+- **Enrollment and meta forgery (XR-001, XR-002).** A `ready` enrollment draft
+  and the local `VaultMeta` record were previously trusted by shape alone — a
+  SecureStore-only attacker (no YubiKey, no wallet root) could inject a forged
+  draft, or inflate `VaultMeta`'s revision and key set, and have it committed
+  as spend authority with zero possession or hardware check.
+  `enrollKey`/`resumeEnrollmentDraft` now tag a `ready` draft with a wallet-
+  root HMAC the instant they write it (`computeVaultDraftAuthorityTag`, reusing
+  the `vault meta` protocol namespace `guard.ts` reserves), and
+  `requireReadyEnrollmentDrafts` verifies that tag before trusting a draft as
+  authority. Every meta-writing path (create, add/remove key, rename, restore)
+  now tags the record with a wallet-root HMAC over the fields that confer spend
+  authority, and `requireAuthenticatedMeta` re-derives the true key set from
+  chain history whenever a tag is missing or invalid before any deposit, re-
+  lock, or re-vaulted withdrawal remainder proceeds. `addVaultKey` additionally
+  re-verifies an existing meta's own tag before appending to it, closing a
+  laundering path where a forged meta could gain a valid tag merely because the
+  legitimate user's next action happened to add a key. Separately,
+  `EnrollWizard`'s add-key mode no longer auto-commits the first `ready` draft
+  it finds on mount — it now requires an explicit, named confirmation (new keys
+  `vault_resume_draft_confirm_title`/`_body`/`_use`/`_discard`) before use, and
+  discards a declined draft.
+- **Backup-attestation gate before enroll/deposit (XR-003).** Creating a wallet
+  from the Vault entry point used to route straight to enrollment or deposit
+  with no requirement that the auto-generated mnemonic was ever written down.
+  `VaultScreen` and `VaultTransferScreen` now block deposit and enrollment
+  behind `requireBackupAttested()`, routing to the existing backup ceremony
+  first whenever the current identity has no attestation record. New keys
+  `vault_seed_not_preserved_title`/`_body`/`_cta`.
+- **Superseded hardware session (XR-004).** `hardwareLease.ts` now tracks a
+  monotonic generation; `enrollKey` and `resetPivApplication` — the only
+  `withKeySession` callers that mutate vault state from inside the session
+  closure — check a `VaultSessionGuard` before writing, so a stalled native
+  call that eventually resumes after a retry has already taken over the lease
+  can no longer race a mutation in behind it. The existing "an abandoned call
+  frees the lease for a retry" availability behavior is unchanged.
+- **Slot-replacement and reset guards (XR-008, XQ-014).** Replacing an occupied
+  Vault slot now also checks `vaultStore.enrolledSerialsAcrossChains` and
+  `meta.pendingRemoval`, not just the current chain's key list, so an explicit
+  slot-replacement consent can no longer erase a signer still live under
+  another chain or mid-removal — mirroring the guard `pivReset` already
+  applied. A new device-wide, non-secret `enrolledSerialRegistry.ts` (bare
+  serials only, never pubkeys or keys) closes `pivReset`'s remaining cross-
+  identity blind spot: a serial recorded as enrolled anywhere on the device —
+  even under a different wallet identity SecureStore can't enumerate — now
+  refuses a PIV reset unconditionally, with no override. The reset-consent copy
+  that overclaimed "no vault on this device claims" this key is corrected to
+  disclose the actual uncertainty instead.
+- **Held signed withdraw/relock reconciliation (XR-006/INT-03).** The existing
+  "Finish the interrupted deposit" recovery (0.8.0) only recognized a held
+  deposit shape; a crash between `signAction` and `sendWith` on a withdrawal or
+  re-lock instead froze every later Vault operation with no vault-specific way
+  to clear it, and the resolve button treated any non-`'failed'` result —
+  including "nothing held" — as success. `resolveHeldVaultDeposit` now also
+  recognizes a held, signed vault-withdraw/vault-relock action and resends the
+  exact already-signed bytes (never a new transaction, never `abortAction`);
+  `VaultScreen` now surfaces "nothing held" as its own message rather than a
+  false success toast. New key `vault_resolve_held_deposit_none`.
+- **Reload reconciles on every mount, not only an empty cache
+  (INT-07/XR-007).** `VaultScreen.reload()` previously called the chain-
+  authenticated `recoverVaultMetaFromOutputs` only when no local record existed
+  at all, so a stale-but-present cached record (e.g. surviving a reinstall)
+  could permanently wedge every later Vault action. It now always reconciles,
+  relying on the existing revision/key-set ratchet to keep the cache whenever
+  the scan doesn't supersede it, and falls back to the last-read cache (rather
+  than a hard error) when the scan itself fails or is offline.
+- **`hasVaultMeta` race on cold start (INT-08).** `VaultContext` recomputed its
+  device-local `hasVaultMeta` flag only on ceremony-phase transitions, which on
+  a cold start settled to `false` before `WalletContext`'s async wallet-build
+  chain ever configured the vault scope — hiding an already-funded vault from
+  Home/Settings for the rest of the session. `vaultStore` gains an
+  `onScopeChange` subscription so the check re-fires the moment the scope
+  actually configures, not only at mount.
+- **Chain-recovery integrity (Availability review; INT-01/INT-06/XQ-012).**
+  `wocChainLookup`'s output-status check previously failed open — any response
+  shape it didn't recognize, including a schema mismatch, was read as "unspent"
+  rather than "unknown," and "unknown" is the one answer
+  `recoverVaultFromChain` must never treat as spendable; it now requires an
+  explicit `spentTxId: null` before reporting unspent. Its address-history
+  lookup likewise silently mapped a rate limit, a 5xx, or a thrown exception to
+  an empty "no marker here" result, which could stop a scan short of a real,
+  higher-index deposit; it now throws on any non-2xx response or exception so
+  the scan's own problem-reporting (not a silent miss) handles it. The scan
+  loop itself had no bound on consecutive lookup/derivation failures — a
+  reproducible livelock, confirmed by a hung 2+ minute run against the unfixed
+  code — and is now bounded by `VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS`, with
+  a second cap (`VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX`) limiting how many
+  candidate transactions per index one scan will inspect (a marker address's
+  history is public, so a stranger could otherwise force unbounded decrypt-and-
+  discard work by dusting it). The bounded-scan abort now throws a
+  `VaultError('chain-scan-failed', ...)` with translated copy in every locale,
+  instead of a plain `Error` that fell through to generic fallback text. The
+  lookup's base58check encoding now uses `@bsv/sdk`'s own public
+  `Utils.toBase58Check` instead of an unaudited hand-rolled implementation.
+- **RPC-boundary hardening (XR-019, XR-020, XR-102).** A non-admin (paired)
+  caller's `listOutputs` had no bound at all in `guardVaultAccess`; it is now
+  capped at 200 rows (25 when `includeTransactions` is set, since each such row
+  carries a full BEEF) and an existing offset ceiling, refused before the call
+  reaches the underlying wallet — a host whose connected app calls
+  `listOutputs` with a larger limit now gets `VaultAccessDenied` instead of a
+  large response. The address-rail, PeerPay, and Mandala/FT protocol namespaces
+  were never reserved the way Vault's own namespaces are, so a paired origin
+  could call the allowlisted `createSignature`/`getPublicKey` RPC methods
+  directly against them and receive a spend-ready signature for those rails
+  with no prompt at all; they are now denied the same way. A forged
+  `pending_aborts` entry naming the public `ADMIN_ORIGINATOR` could ride the
+  admin bypass straight past the vault-inventory check on replay; `guard.ts`
+  now opts a replayed admin abort into the same inventory check a non-admin
+  caller gets (`VAULT_ABORT_REPLAY_MARKER`), leaving a live interactive admin
+  abort unaffected.
+- **Proof bar.** Six standing regression proofs now run as a single suite:
+  script acceptance for N=1..5 with an independent P-256 check, the CRT-forgery
+  harness, a clean-device I1 recovery proof, the I2 exclusion matrix (mnemonic-
+  only, stolen-DB-and-key, wrong PIN, unenrolled key, DB-without-mnemonic,
+  external caller), an I3 rail-isolation proof against every rail with a real
+  wallet/storage, and a no-production-mock proof that the mock YubiKey driver
+  is unreachable outside `__DEV__` at the runtime, source, build-profile, and
+  UI layers. `scripts/run-proof-bar.cjs` runs all six in order and prints a
+  pass/fail summary.
+- **Production build gate.** `EXPO_PUBLIC_VAULT_ENABLED` is off again in the
+  production EAS build profile — Vault output creation stays disabled in
+  production until a v7 lock has actually been broadcast/mined and run once
+  against a physical YubiKey; development and dev-physical profiles keep it on.
+  An already-funded vault is not stranded by this: the entry point stays
+  visible whenever local Vault meta exists, and a full withdrawal is not gated
+  by the flag — only new deposits, re-locks, and withdrawal remainders are.
+
+### Secrets and biometrics
+
+- **Delete Wallet now actually erases everything, and fails closed if it can't
+  verify that (XQ-008, XR-107).** "Delete Wallet" closed the SQLite connection
+  but never deleted the underlying `.db` file(s) or the `walletDbRegistry`
+  entry — rebuilding with the same mnemonic silently reattached the "deleted"
+  wallet's full local history. `logout()` now purges every registered filename
+  for the identity/chain via `walletDbRegistry.purgeRegisteredDbFiles`, and
+  also sweeps the legacy plaintext secrets namespace
+  (mnemonic/recoveredKey/password) that lived outside the envelope scheme. Both
+  the legacy sweep's and the envelope KEK's deletions are now verified rather
+  than trusted blind: `deleteAllSecrets()`/`logout()`/`WalletConfigScreen` all
+  propagate a real success/failure result end to end, and a failed erasure now
+  shows a dedicated alert (new keys
+  `delete_wallet_failed_title`/`delete_wallet_failed_body`) and leaves the row
+  enabled for retry instead of reporting a clean deletion that didn't happen.
+- **KEK provisioning can no longer be silently downgraded or hijacked (XR-108,
+  XR-109, XR-111, XR-116).** A self-consistent but forged `{policy:'degraded',
+  kekId}` sentinel could previously ride the app's own automatic degraded-to-
+  biometric upgrade and silently overwrite the real biometric KEK with an
+  attacker's key; `upgradeToBiometric()` now reads the existing authenticated
+  KEK first and refuses the upgrade outright if one is already there, and
+  `doUnlock()` no longer treats a failed/refused mandatory upgrade as a
+  successful unlock. A parseable-but-wrong-shape sentinel (a truncated write, a
+  future/rolled-back version) used to read as "no wallet ever provisioned" and
+  trigger a full KEK re-provision that orphans any other already-sealed secret;
+  it's now treated as corrupt, not absent. `destroyKek()` and the migration's
+  final legacy sweep now read back and retry a delete before reporting success,
+  rather than trusting an unauthenticated SecureStore delete that iOS silently
+  no-ops; `upgradeToBiometric()`'s own delete-then-trust step gets the same
+  read-back-and-refuse-on-survival treatment.
+- **Legacy plaintext can no longer be served after a failed migration
+  (XR-112).** A cancelled or failed biometric-provisioning ceremony during
+  legacy-secret migration used to fall through to reading the raw,
+  unauthenticated pre-envelope mnemonic/recoveredKey directly — a fully
+  signing-capable wallet built from one declined OS prompt, no cryptographic
+  control involved. The migration-failure branch no longer special-cases a
+  plaintext read; a failed migration now correctly reports no secret at all and
+  retries on the next launch.
+- **Custom ARC API token moved off plaintext storage (XR-106).** The optional
+  custom ARC endpoint's bearer token — sent on every broadcast to that endpoint
+  — was persisted in plain `AsyncStorage` and shown unmasked. It now lives in
+  the platform SecureStore (`core/services/arcTokenStorage.ts`), with a one-
+  time migration of any existing plaintext value; `WalletConfigScreen`'s token
+  field is now `secureTextEntry`.
+- **Degraded (non-biometric) KEK provisioning is now disclosed (XR-114).** A
+  release device with no strong biometrics enrolled got an unauthenticated KEK
+  with the same "Protect your assets with Face ID or your fingerprint" promise
+  as a fully protected device. `BiometricAdvisoryModal` takes a `degraded` prop
+  that swaps in an honest disclosure (new key
+  `biometric_advisory_body_degraded`); `resolveProvisioningPolicy` is now re-
+  exported from the package root so a host screen can check it without a new
+  context method.
+- Documented, not code-fixed: `kek.ts`'s delete-then-add rotation comment
+  overclaimed a guarantee that does not hold on Android — `deleteItemImpl`
+  there never calls `keyStore.deleteEntry`, so a rotation cycle silently reuses
+  the existing hardware key (XQ-013). Not exploitable on its own (the KEK value
+  is still fresh-random and still biometric-gated); fixing it needs a native-
+  module patch, recorded as an open assurance gap rather than fixed here.
+
+### Pairing and paired RPC
+
+- **Superseded sockets are actually torn down (XR-018).**
+  `connect()`/`reconnect()` used to overwrite the live socket reference without
+  closing or detaching the one it replaced, so approving a second pairing (or
+  reconnecting a saved session) while one was already live left the first
+  socket's `onmessage` closure — still holding a valid `WalletClient`, topic,
+  and identity — decrypting and dispatching RPC for as long as the relay kept
+  it open. A `connectionGenerationRef` now gates every handler (`onopen`,
+  `onmessage`, `onerror`, `onclose`) so a superseded socket's already-in-flight
+  decrypt can no longer reach `handleRpc`. Disconnect and logout now actually
+  tear down the live paired socket too: `WalletConnectionContext` exports
+  `disconnectActivePairedSession()` so `WalletContext.logout()` (a React
+  ancestor of the connection provider) can call it directly, and
+  `ConnectionsScreen`'s Disconnect action calls the context's `disconnect()`
+  first rather than only flipping stored status and sending a best-effort
+  revoke message a non-cooperative peer can ignore.
+- **Replay-watermark durability (XR-021).** The anti-replay sequence watermark
+  advanced in memory immediately before dispatching a mutating RPC call, with
+  its only durable write a fire-and-forget one in `disconnect()`/`onclose` — a
+  crash in between let a retained relay message be replayed and re-executed on
+  reconnect. The accepted sequence is now durably written and awaited before
+  dispatch, with the message dropped (never dispatched) if that write itself
+  fails; a follow-up serializes the check-write-advance sequence per connection
+  so two concurrent messages can't each pass a stale check and land their
+  durable writes out of order.
+- **Origin display matches what gets approved (XR-023).** `PairScreen`'s
+  approval card used to render the raw, uncanonicalized origin with default
+  tail-truncation, so a long attacker-signed origin could show a trustworthy
+  prefix while clipping the real registrable-domain suffix — and
+  canonicalization only ran after the user had already looked and pressed
+  Approve. The card now canonicalizes on mount (showing the error state instead
+  of Approve/Reject if that fails) and truncates from the middle, so the domain
+  suffix always survives.
+- **Private-network destinations refused (XR-024).** Neither the pairing origin
+  parser nor the relay-URL validator checked what class of address a hostname
+  named — a self-signed pairing payload could point straight at a
+  loopback/RFC1918/link-local/`.internal` address with no DNS trickery needed.
+  Both now refuse via a shared `isPrivateNetworkHost` check (a floor, not a
+  firewall — a public hostname that only resolves to a private address via DNS
+  rebinding is not caught).
+- **Bounded relay discovery reads (XR-025).** A length-less, non-streaming
+  relay response could be buffered in full before its size was ever checked;
+  that one specific shape (no `Content-Length`, no stream reader) now fails
+  closed instead.
+- **Aggregate RPC byte budget and a crypto-call size cap (XR-026).**
+  `MAX_IN_FLIGHT_RPC` only bounded message count — several concurrently in-
+  flight messages could each be near the 5 MiB per-message ceiling, multiplying
+  peak memory. Concurrent messages on one connection now also share a
+  `MAX_IN_FLIGHT_RPC_BYTES` budget equal to the existing single-message
+  ceiling. Separately, `encrypt`/`decrypt`/`createHmac`/`verifyHmac`/`createSig
+  nature`/`verifySignature` had no per-call size cap at all beyond the
+  transport ceiling; they now share a 1 MiB `cryptoPayload` ceiling (halved on
+  low-tier devices). A connected app sending an oversized crypto-call payload,
+  or enough concurrent large messages to cross the shared budget, now has the
+  call/message dropped or refused where it previously went through.
+- **Saved-connection authenticity (XR-027).** A saved pairing record was plain,
+  unauthenticated `AsyncStorage` JSON, checked only against the wallet's own
+  public identity key on reconnect — insufficient to prove the record wasn't
+  substituted. Approval now stages a wallet-root HMAC over the connection tuple
+  (`connection authority` protocol namespace) that `add()` attaches to the
+  record; reconnect verifies it and treats a missing/failed tag as "needs re-
+  approval" (new key `reconnect_needs_reapproval`) rather than silently
+  trusting it. A companion, more limited hardening requires an explicit
+  confirmation naming the canonicalized origin before any reconnect at all (new
+  keys `reconnect_confirm_title`/`reconnect_confirm_message`) — full binding
+  would need an admin-scoped wallet threaded into `connect()`/`reconnect()`,
+  left as a larger follow-up.
+- **Auto-approve authority disclosed at pairing time (XR-028).** Approving a
+  pairing silently grants that origin standing auto-spend authority (up to the
+  persisted per-request threshold and the shared rolling 24h cap added in
+  0.8.0). The approval card now names both before Approve is tapped; the
+  underlying policy itself (a non-zero default threshold, and a cap shared
+  across all origins rather than per-origin) is unchanged and still flagged as
+  provisional pending product sign-off.
+
+### Backup and restore
+
+- **Wallet Check no longer reads a different identity's backup cursor as this
+  wallet's own (XR-009).** `getBackupUploadState()` filtered by a bare,
+  unscoped key prefix, so a same-device wallet swap (logout, then a new
+  identity on the same install) could report the new wallet "backed up" using
+  the old one's leftover cursor. It now takes `(chain, pseudonym)` and filters
+  by the fully-scoped key; `logout()` sweeps `backupCursor-*` alongside the
+  existing balance-cache sweep; `WalletContext` exposes a new
+  `getBackupPseudonym(chain)` getter so the UI never needs the primary key
+  itself.
+- **LocalPay and PeerPay in-flight state now survives encrypted backup (XR-011,
+  XR-012, XR-055).** `key_value_store` — and so a receiver's acknowledged-but-
+  not-yet-internalized Nearby/QR payment, an outbound PeerPay delivery
+  checkpoint, and every issued conventional-receive-address date — was entirely
+  outside the twelve toolbox-table `CHUNK_ENTITIES` the backup codec knew
+  about; a device loss before internalize/delivery completed could permanently
+  strand real money even with a perfect seed-plus-backup restore of everything
+  else. A new additive `appData` field on the existing per-chunk envelope
+  (dropped by any reader that predates it, so mixed builds keep working) now
+  carries `localpay_pending`, `peerpay_outbox`, and a new durable, count-capped
+  issued-receive-date history (`core/pay/receiveHistory.ts`) through push,
+  restore, and cross-device merge, applied through the same `setKeyValue` path
+  — never `internalizeAction`, broadcast, or abort — so a replayed row is
+  picked up by this device's own existing consumers exactly as if it had
+  written it itself. `WalletCheckScreen`'s repair loop now scans every recorded
+  issued-receive date instead of a fixed 30-day window, and the manual receive-
+  screen stepper widens to roughly ten years. Disclosed, not fixed: an
+  `appData`-only chunk can still never be sent alone (the toolbox's own sync
+  protocol treats an all-empty chunk as end-of-log), so isolated
+  LocalPay/PeerPay/receive-address activity in a window with no other wallet-
+  entity change can still miss a push — pinned end-to-end by a new test and
+  documented at each call site; `offline_actions` and `token_linkage_payloads`
+  remain out of scope for this pass.
+- **Restore-side resource bounds (XR-013).** Neither the remote sync index
+  (`RemoteSyncReader.ensureIndex()`) nor the restore-side body reader had any
+  cap beyond a server-supplied page-size hint and a time deadline. A
+  `MAX_INDEX_ENTRIES` ceiling (50,000) and a `MAX_RESTORE_RESPONSE_BYTES` check
+  against `Content-Length` (checked before any body reader is invoked) now
+  bound both — partial, since a response that omits `Content-Length` entirely
+  still can't be bounded on this platform's `fetch`.
+- **A restored chunk must match its own index entry (XR-014).**
+  `RemoteSyncReader.fetchAndDecode()` decrypted whatever bytes were returned
+  for a sequence without checking them against that sequence's own indexed
+  size/hash, so a malicious or compromised backup host could serve one
+  sequence's genuinely-authentic ciphertext back under a different sequence
+  number. Restore now rejects a length/sha256 mismatch. Documented as not a
+  full fix: the envelope still doesn't bind device/generation/sequence into
+  what it authenticates, and there's no persisted rollback checkpoint — both
+  need a broader format change.
+- **Every device in a multi-device manifest is now replayed on import
+  (XR-015).** `restoreOnImport` used to replay only the single highest-ranked
+  device's log; each device's log is an independent, non-overlapping history,
+  so a second device's unique records (a change output, a BRC-29 receipt) could
+  be permanently unreplayed after restore. It now replays every device present
+  in the manifest into the same storage, merging by record identity exactly as
+  ordinary live multi-device sync already does.
+- **Clock-rollback recovery (XR-016).** An incremental push window only ever
+  advances forward; a device clock moving backward could permanently orphan a
+  record stamped below an already-closed window. `PushCursor` now tracks the
+  highest wall-clock time ever observed and forces a full-snapshot rotation
+  whenever the current time falls behind it.
+- Locked, not changed: Android's `expo.android.allowBackup: false` (shipped in
+  0.8.0) now has a regression test guarding it (XQ-005); the iOS backup-
+  exclusion question and the malformed-but-SQLite-magic-passing import question
+  remain open, needing a real device build to exercise.
+
+### Mandala tokens
+
+- **Legacy settlement rows can no longer hide from the abort guard (XR-033).**
+  `token_settlements.reference` shipped later than the table itself, added by a
+  bare nullable `ALTER` with no backfill — every pre-migration row reads
+  `reference: undefined` forever, making it invisible to the abort guard's
+  lookup regardless of which action is later aborted. The same migration step
+  now backfills a blocked legacy row's reference from the `transactions` table
+  (the same mapping `abortAction` itself matches against); anything the
+  backfill can't resolve is covered by a coarser
+  `hasUnresolvedLegacyBlockedRows()` check that refuses every abort while any
+  such row exists, rather than risk releasing inputs a legacy row still has a
+  claim on.
+- **Token-abort guard fails closed (XR-034, XR-035).** A settlement-lookup
+  fault or a not-yet-built runtime previously read as "no blocking row, abort
+  is safe" — a transient DB error is not evidence a payment is safe to release.
+  The guard now distinguishes "no Mandala endpoints configured for this chain"
+  (provably no token action) from "the runtime hasn't built yet" or "a lookup
+  faulted" (real rows may be unreadable), refusing in the latter two cases. The
+  handle rail's settlement-journal write after a hand-over — the only durable
+  evidence a transfer happened — is now retried on a transient fault
+  (`upsertSettlementDurably`) rather than best-effort, closing the same root
+  cause XR-035's regression test locks. `abortPeerPayNosend` also now checks
+  its own `abortAction` result instead of assuming success.
+- **Token-bearing offline holds aren't drainable until their journal lands
+  (XR-036).** A token payment's offline-queue row used to go straight to
+  `'queued'` (drainable) before its settlement journal write was confirmed; a
+  process kill or transient write fault in that window let the automatic drain
+  post a token transaction the overlay never admitted.
+  `holdSentPaymentOffline`, `parkSentPaymentOffline`, and
+  `releaseParkedPayment` now keep a token-bearing row at `'parked'` until the
+  journal write is confirmed.
+- **Cached admissions are scoped to the vout that actually needs them
+  (XR-038).** A genuine, verified admission for any output of a multi-output
+  token transaction previously stood in for the whole transaction's submission
+  — a payer's own admitted change output could carry an unrelated, never-
+  admitted output along with it. Admission caching now requires every vout the
+  current walk actually needs to be inside the admission's own
+  `outputsToAdmit`, backed by a new `TokenSettlementRow.relevantVout` column
+  and the existing (previously unused) parent-vout edge data.
+- **Fail closed on an unreliable token-input classification (XR-039).** A
+  `listTokenOutpoints()` failure used to forward a `createAction` unchanged
+  instead of forcing Mandala's own consent review — a transient listing fault
+  or a basket over 10,000 outputs silently skipped the one thing that routes a
+  token spend's inputs to a token-aware review. It now forces the Mandala label
+  on any listing failure, and the listing itself paginates to completion
+  instead of reading one capped page.
+- **Every asset of a multi-asset approval is now shown (XR-040).**
+  `PermissionSheet` rendered only the primary asset/amount fields of what could
+  be a multi-asset `createAction`/`internalizeAction` — a connected app could
+  place an innocuous asset first and an unshown transfer right behind it in the
+  same approval. Every line is now rendered (numbered when more than one), and
+  a malformed or oversized `lines` payload now blocks approval outright instead
+  of falling back to the old primary-only view.
+- **Relinquish consent now names what's being removed (XR-041).** "Wants to
+  remove a Mandala token holding" named no asset, amount, or outpoint. The
+  prompt now resolves the target against this device's own current basket
+  listing (never the caller's claim) and names asset, amount, and outpoint —
+  refusing the whole call if it can't be conclusively resolved.
+- **A verified admission can't be undone by a later unsigned refusal
+  (XR-042).** An overlay's positive verdicts are signature-verified; its
+  negative (`refused`/`evicted`) verdicts are raw, unauthenticated HTTP — but
+  both were fed to settlement state unconditionally. A row already carrying a
+  verified admission for a txid is now left alone (or treated as a stall)
+  rather than downgraded by a later unsigned refusal.
+- **Token decimals bounded everywhere one is read (XR-043).** An extreme
+  `decimals` value from a session QR or a registry entry had no upper bound;
+  `formatTokenAmount(500, Number.MAX_SAFE_INTEGER)` reliably threw `RangeError:
+  Invalid string length`, and the crash re-triggered on every later render
+  since the metadata persists. Decode, registry resolution, formatting/parsing,
+  and the input mask now all clamp or reject outside `[0, 18]` — a host calling
+  `formatTokenAmount`/`parseTokenAmount` directly with an out-of-range value
+  now gets `null` back instead of a thrown exception.
+- **Issuer and asset fingerprint shown before send (XR-044).** Two assets
+  sharing a ticker (a look-alike distributed by a malicious issuer) were
+  visually indistinguishable through the whole select-to-send flow. The asset
+  switcher, asset picker, and the Send review step now all show `issuerName ·
+  fingerprint` alongside the ticker.
+- **Real token actions now reach the consent gate (XR-037).** Two different
+  constants both named `MANDALA_ACTION_LABEL` — one for home-screen
+  recognition, one for the P-routed `listActions` consent gate — and only the
+  former was ever applied to a nearby build or a handle-rail credit, so a real
+  Mandala action's metadata (txid, satoshis, description) was visible to a
+  paired caller's `listActions` with no consent prompt of any kind. Both labels
+  are now applied at every write site; `guard.ts`'s external-facing
+  `sanitizeAction` also now strips `customInstructions` directly as defense in
+  depth, rather than relying solely on a vendored patch doing it one layer
+  down.
+- **Token conservation enforced before crediting a nearby tip (XR-099).**
+  `verifyFramePayment`'s token branch checked ownership, asset, and ancestry-
+  admission, but never that token input value covers token output value —
+  Mandala's own COVER walk has no notion of amount at all. A payer could spend
+  a small admitted coin into an output naming any larger amount and have it
+  credited. A new `tokenConservationHolds` check sums the tip's own direct
+  token inputs against its outputs for the frame's asset and refuses
+  (`not_covered`) if they don't cover it.
+- A held withdraw/relock now resolves cleanly for tokens too, and
+  `wrapAbortActionForSettlements`/`processAction` fail the whole batch closed
+  rather than report an indeterminate held/not-held classification when
+  `token_settlements` can't be read for a broadcast decision (XR-045) — see
+  Wallet repair, proofs, headers, and broadcast below for the shared broadcast-
+  guard change.
+
+### Nearby / LocalPay
+
+- **Pending-abort queue integrity and authenticated replay (XR-088, XR-102).**
+  A read/parse failure against the local pending-abort queue collapsed to
+  "empty," so the next queue write silently erased every other durable, not-
+  yet-replayed abort reference; a fault now refuses the write instead of
+  overwriting. Every queued abort reference is now HMAC-tagged at write time
+  (`pending abort authority` protocol namespace) and re-verified before replay
+  — a forged or untagged `pending_aborts` KV entry naming a live action
+  reference is now dropped rather than replayed, surfaced to the user via a new
+  notice (keys `local_pay_pending_abort_dropped_title`/`_body`) pointing at
+  Activity's manual per-row cancel.
+- **Bounded inbound frame/ack decode (XR-090).** The shared base64-decode-then-
+  AES-GCM-decrypt-then-parse layer every transport (AWDL, Nearby, BLE) funnels
+  through had no size ceiling of its own. It now rejects an oversized encoded
+  or decoded payload before `atob()`/decrypt/parse ever runs (reusing
+  `@bsv/air-gap`'s existing 64 KiB frame ceiling; a much smaller ceiling for
+  acks); the Android Nearby native receive path is mirrored for the same gap
+  but is unverified without a device build.
+- **Never trust the payee's QR ticker/decimals for a real, unresolved holding
+  (XR-091).** A local ticker-resolution failure for a real, spendable holding
+  used to fall back to the payee's own unauthenticated session ticker/decimals.
+  It now fails closed to an "asset unidentified" state that disables Send,
+  rather than adopting the QR's claim — a brand-new, never-before-seen offline
+  asset (no local holding at all) is unaffected, since it has no known figure
+  to override.
+- **A malformed pending queue is quarantined, not read as empty (XR-092).** Any
+  syntactically valid non-array JSON under the LocalPay pending key used to
+  silently become an empty queue — and the very next save then destructively
+  overwrote whatever it actually held. It now takes the same quarantine-and-
+  notify path a JSON parse failure already does.
+- **Settlement-ack verification is bound to the payee's own output (XR-093).**
+  A verified admission for a sibling output on the same transaction (e.g. the
+  payer's own change) previously counted as proof of the payee's own
+  settlement. Verification now requires a matching output index too.
+- **Two remaining unconditional-release paths on a decline are closed (XR-095,
+  XR-103).** WalletHomeScreen's generic Activity "Abort" action could release a
+  parked nearby payment's inputs with no chain-status check, bypassing the
+  dedicated cancel-parked flow's gate; it now respects the same `!parked` guard
+  the row's own action chip already applied. A decline whose chain status is
+  genuinely unresolved — or whose txid the chain already shows — is now parked
+  (or refused) rather than released, closing the remaining window where a lying
+  or merely-early decline could race a real payment.
+- **Ambiguous send outcomes are now parked, not dead-ended (XR-096).** A screen
+  unmount mid-`radio.send()`, or a radio failure whose frame is too large to
+  fall back to a QR, previously left a signed reservation with no durable
+  trace. Both now park the payment (the oversized case gets a real recovery
+  path too, since a message-box resend has no QR size limit).
+- **Single-flight guards on Send and on session settlement (XR-097, XR-098).**
+  Nearby Send lacked a synchronous re-entrancy guard, so two overlapping
+  presses could each build and reserve their own noSend action with only one
+  recoverable; the session claim itself (check, persist, burn) was three
+  separate operations that a radio delivery could race against a QR scan for
+  the same session. Both are now atomic — a single synchronous latch on Send,
+  and a single locked `claimAndSavePending` for the settlement claim.
+- **Overlay unreachability is no longer read as "not admitted" (XR-100).**
+  `cancelParkedPayment`'s token check only special-cased a definite
+  `'admitted'` verdict; a genuinely unreachable overlay fell through to the
+  same-as-offline BSV check with no verification at all. It now routes an
+  unreachable/unavailable overlay through the same "unverifiable" confirmation
+  gate the BSV-rail check already uses, once a settlement row proves the
+  payment was genuinely handed over.
+- **Oversized notes can no longer strand a payment (XR-101).** A received peer
+  note has no wire-level length cap; `internalizeAction`'s real 2000-byte
+  description limit throws rather than truncating, so a hand-crafted oversized
+  note could make every retry fail until the pending-attempts ceiling
+  permanently stranded an already-accepted payment. The constructed description
+  is now truncated on a UTF-8 byte boundary before `internalizeAction` is
+  called (display-only; the payment itself is unaffected).
+- **Overlay identity anchored to device config (XR-104).**
+  `buildTokenPaymentFrame`'s exported, documented entry point read the payee's
+  session-claimed overlay identity/URL directly, which could redirect this
+  device's `SpecificKeyLinkage` disclosure to a verifier of the payee's
+  choosing; the app's own single caller already guarded against this ad hoc,
+  but the exported function itself did not. It's now read from device config,
+  never the session.
+- **Stale offline-queue bookkeeping is reconciled (XQ-009).** A
+  `networkAlreadyHas` check trusted a bare `'mined'/'known'` status string with
+  no proof — now also requires a validated Merkle proof
+  (`EntityProvenTx.fromTxid`) against this device's own chain tracker before
+  treating that as confirmation the network already has a transaction.
+  Separately, a row legitimately marked `'sent'` had no path back to
+  reconciliation if its backing request later moved to `'invalid'` (a reorg, a
+  proof timeout); `reconcileStaleSentActions()` now revisits and reclassifies
+  such rows.
+
+### PeerPay / handle rail
+
+- **Duplicate-delivery detection narrowed to the structured code (XR-046).**
+  `isDuplicateMessageError` matched free prose in a thrown error's message,
+  entirely attacker/host-controlled; it now requires `@bsv/message-box-
+  client`'s own structured `ERR_DUPLICATE_MESSAGE` code, which the client
+  validates before embedding.
+- **Inbox shape-check bounded (XR-047).** An unbounded
+  `transaction`/derivation-string length in a poisoned inbox message re-
+  triggered a full scan on every poll and background credit pass; both are now
+  capped against the existing shared `walletArgLimits` ceilings before the scan
+  runs.
+- **Retried entries are re-verified before broadcast (XR-048).** A retried
+  outbox entry's persisted `txid` was handed to `broadcastNoSend` with no check
+  that it actually corresponded to the entry's own token; a tampered store or
+  restore could point it at an unrelated pending action. The txid is now re-
+  derived from the entry's own token and required to match before broadcasting.
+- **Abandon no longer releases inputs the recipient may already hold
+  (XR-049).** Abandoning a delivered/delivering handle payment used to call
+  `abortAction` whenever it happened to succeed — never safe once a signed
+  token may already be with the recipient. Abandon now never calls
+  `abortAction`; it only drops the local tracking row. A companion fix keeps
+  the row (with the error recorded) rather than removing it unconditionally
+  when an abort attempt during abandon fails or throws.
+- **Broadcast confirmation requires a positive result (XR-050).** Any
+  `sendWith` result shape other than an explicit matching `'failed'` entry was
+  previously read as success; it now requires an explicit match with
+  `'sending'`/`'unproven'` status, failing closed on
+  missing/empty/unrelated/duplicate/unknown-status results.
+- **Resend requests are authenticated against the recorded recipient
+  (XR-051).** A `resend_request` control message from any authenticated sender
+  with a guessed real txid could force the full resend workflow repeatedly,
+  forever. It's now checked against the payment's actual recorded/resolved
+  recipient before any work happens.
+- **Retry side effects re-read the row first (XR-052).** A retry's network
+  calls could complete anyway even after a concurrent user-triggered
+  abandon/cancel removed the outbox row mid-flight. The row is now re-fetched
+  immediately before each side-effecting call, and the retry stops cleanly if
+  it's gone.
+- **Overridden delivery host shown before send (XR-053).** A `peerpay:` link's
+  `url` extension can silently redirect delivery to a different MessageBox host
+  with no identity binding; the review screen now shows the host whenever one
+  is link-supplied (new key `pay_review_delivery_host`) — the underlying trust
+  gap (no signed delivery receipt) is unchanged and not claimed as closed.
+- **Generic Activity abort refuses an unaccounted-for send (XR-012).** The
+  Activity screen's generic Abort button had no PeerPay awareness at all; a
+  restored wallet with no outbox row for an already-delivered/delivering send
+  could have its inputs released on a payment the recipient may already hold. A
+  new `isAbortSafe` check (also used internally by the existing cancel flow)
+  now refuses it (new key `tx_abort_maybe_delivered`).
+
+### Address rail and the Pay screen
+
+- **Bounded sweep work (XR-054).** A dusted receive address's sweep re-fetched,
+  verified, and internalized every distinct-txid UTXO on every 30-second pass
+  with an O(n^2) grouping step; sweeps are now capped at 200 distinct
+  transactions per pass (anything left over is picked up on the next pass —
+  nothing is lost or double-credited) with the grouping made linear.
+- **Sweep receipt amount comes from the verified transaction (XR-056).** The
+  "Received" overlay and background notification summed the untrusted indexer
+  listing's claimed value rather than the cryptographically-committed output
+  amount on the already-parsed, already-verified transaction; the wallet's
+  actual balance was never affected, but the displayed figure could be wrong.
+  It now sums from the parsed transaction's own output.
+- **`sendToAddress` rejects non-P2PKH addresses itself (XR-057).** The P2SH-
+  rejection guarantee this rail relies on lived entirely inside `@bsv/sdk`'s
+  internals with no repo-owned check; `sendToAddress` now rejects any non-
+  mainnet/testnet-P2PKH version byte before building a locking script,
+  independent of the SDK.
+- **Bounded UTXO listings and BEEF/hex response sizes (XR-059).** An oversized
+  indexer response could force unbounded per-txid network fanout and unbounded
+  hex-decode/merge work; `getUtxosForAddress` is now capped at
+  `MAX_UTXO_LISTING_ROWS` (2000) and hex bodies at `MAX_HEX_RESPONSE_CHARS`
+  (8,000,000) on both the address-sweep and PeerPay reorg-repair paths, and
+  later extended to `WalletContext.refreshProof`'s own merkle-BUMP and raw-tx
+  hex reads.
+- **Every conventional-receive date is scanned for recovery, not a fixed window
+  (XR-055)** — see Backup and restore above; the address-rail side of that fix
+  widens `recoveryDatesToScan` and the manual receive-screen stepper.
+- **Synchronous send latches (XR-061, XR-097).** `UniversalSend.handleSend` and
+  Nearby's own send path each relied only on async React state for mutual
+  exclusion, so two press activations landing in the same JS turn could
+  independently invoke a value-moving rail call. Both now set a synchronous
+  ref-backed latch as their first statement, before any `await`.
+
+### Wallet repair, proofs, headers, and broadcast
+
+- **Verify the alleged spender before marking a UTXO unspendable (XR-031).**
+  Wallet Check committed `spendable:false` as soon as two chain-service sources
+  agreed an output was spent, before ever checking that the alleged spender's
+  own inputs referenced that outpoint. It now fetches and verifies the
+  spender's BEEF first and requires an actual matching input.
+- **Stuck-reservation release is corroborated (XR-032).**
+  `releaseStuckReservations` restored every input reserved by a locally
+  `'failed'` transaction unconditionally, with no check against the safer
+  `proven_tx_reqs` status set the sibling repair path already uses; it now only
+  releases a reservation whose spender's proof-request rows are all in the
+  safe/terminal set.
+- **Header-sync and broadcast-log bounds (XR-060).** A `getHeaders` response
+  could return far more than was requested with no check on the returned
+  length; header sync now truncates to exactly what was asked for. Broadcast
+  response bodies logged in full with no size cap; logging is now capped at
+  2000 characters (classification still runs over the full body).
+- **Orphan-mempool is no longer treated as a double spend (XR-062).** ARC's
+  `SEEN_IN_ORPHAN_MEMPOOL` status — an ordinary propagation-timing condition,
+  not a proven conflict — was classified identically to a real double-spend and
+  triggered the same terminal rejection cascade for a chained/offline payment.
+  It now sets a retryable service-error instead.
+- **Broadcast body reads are bounded by time and size (XR-063, and the XR-060
+  remainder).** The ARC/WhatsOnChain broadcast providers cleared their timeout
+  as soon as headers arrived, before reading a potentially stalling or
+  oversized body — hanging the whole broadcast attempt with no fallback ever
+  tried. The body read is now raced against the same deadline as the
+  connection, and capped at `MAX_BROADCAST_BODY_BYTES` (1,000,000 bytes).
+- **Custom ARC endpoint policy (XR-064).** A custom ARC URL was persisted with
+  no scheme/origin validation, and a saved API token could silently carry over
+  to a newly entered, unrelated host. It now requires https (with a loopback
+  dev exception, new key `arc_url_https_required`), clears a token when the
+  origin changes, and requires an explicit accepted ARC status or matching txid
+  before treating a broadcast response as successful (closing a bare `200 {}`
+  response that previously suppressed the real HTTPS fallback chain).
+- **Backup/Mandala/MessageBox origin policy (XR-065).** These three
+  configurable origins had no scheme policy at all (unlike the handle
+  registry's own); they now share the same https-required
+  (loopback/RFC1918-dev-exception) check.
+- **`taalApiKey` no longer aliases `whatsOnChainApiKey` (XR-066).** A key
+  scoped to WhatsOnChain was silently sent to TAAL's own broadcast origin too.
+  A host that relied on the old fallback must now set
+  `EXPO_PUBLIC_TAAL_API_KEY` explicitly (README updated); no wallet funds were
+  ever at risk from this, only quota/credential exposure.
+- **Unknown chain string fails safe to testnet, not mainnet (XQ-011).** A
+  corrupted or garbage persisted network value resolved broadcast to the live
+  mainnet endpoint, the most privileged branch — every sibling consumer of the
+  same value already collapsed safely. It now matches them.
+- **`recordProof`'s directly-fetched raw tx is hash-checked (XR-029).** The
+  BUMP/root check only proves the requested txid is confirmed; nothing checked
+  that a separately-fetched raw-tx response actually hashed to that txid before
+  completing a transaction on it. It now requires `doubleSha256(rawTx) ===
+  txid`.
+- **Only an authoritative 404 proves chain absence (XR-030).** A manual proof
+  refresh treated any non-2xx response (a rate limit, a 5xx, an auth error)
+  identically to a definitive 404 and released reserved inputs on a stale row;
+  now only a 404 counts as proof of absence.
+- **Proof-of-work required outside the validated header window (XR-068).** A
+  miss or reorg-tail chaintracks answer was trusted on a bare, unauthenticated
+  `merkleRoot` with no PoW/linkage check at all; it's now required to satisfy
+  its own declared target before being trusted or cached (partial — no chain-
+  of-custody to a trusted checkpoint yet, so a forger who could actually mine a
+  low-difficulty historical header is still out of scope of this fix).
+- **Token broadcast guard fails closed on a read fault (XR-045).**
+  `tokenSettlementTxids()` collapsed a genuine `token_settlements` read failure
+  to the same empty result as "no token requests in this batch," so a transient
+  fault could let an unadmitted token request post straight past overlay
+  admission. It now throws on a read failure, and the one caller that can
+  actually broadcast holds the whole batch rather than deciding off an
+  incomplete answer.
+- **No overlapping background task passes (XR-105).** `TaskSendOffline` and
+  `TaskBackupPush` had no dedup guard against a watchdog restart racing a hung
+  pass, unlike two sibling tasks already protected; both now share the same in-
+  flight guard.
+
+### Database import and export
+
+- **CSV export can no longer carry a live spreadsheet formula (XR-078).** A
+  remote-supplied note beginning with `=`, `+`, `-`, `@`, a tab, or a CR became
+  a live formula on open in a spreadsheet application. Untrusted free-text
+  columns (description/tags/labels) are now formula-neutralized (OWASP leading-
+  apostrophe mitigation); a follow-up fix scoped that neutralization away from
+  the trusted, app-derived numeric/txid/status/blockHeight columns it had
+  initially been applied to as well, which it had been corrupting (e.g. turning
+  every outgoing amount into text).
+- **Unencrypted export now warns first (XR-086).** `exportAllWalletDatabases()`
+  hands a raw, unencrypted SQLite image to the OS share sheet with no
+  passphrase step; a warning naming what the file contains, with a real cancel,
+  now appears first (new keys
+  `export_unencrypted_title`/`export_unencrypted_message`). Full at-rest
+  encryption is a larger, deferred product decision (the importing device would
+  need a way to get the key back).
+- **Import file size ceiling (XR-087).** A picked backup was read into memory
+  with no size check at all. A 256 MiB ceiling is now enforced against both the
+  picker-reported size and the actual read length before any deserialization
+  (new keys `import_oversized_file`/`import_oversized_file_detail`).
+- **Raw database imports are authenticated before becoming active (XR-079, and
+  the narrower XR-080/XR-084 variants it also closes).** Identity, chain, and
+  freshness were derived purely from the picked filename, never the file's
+  contents — a same-filename import could overwrite the live database, a same-
+  suffix foreign database could win the next build's file selection, and the
+  spendability-reconciliation pass an encrypted restore always runs was skipped
+  entirely. An import now requires the deserialized image's own settings row to
+  match the currently unlocked wallet's identity and chain, rejects a filename
+  timestamp more than 5 minutes in the future, always synthesizes a destination
+  filename distinct from every live or registered one (never reusing the picked
+  name), and routes through the same `reviewSpendableOutputs` reconciliation
+  pass an encrypted restore uses.
+- **Imported queues and caches are quarantined at the import boundary, never
+  trusted as live state (XR-081, XR-083, XR-085).** A wholesale-imported
+  database could seed the live LocalPay pending queue with a frame that never
+  passed ownership/session/asset verification (now stripped on import), plant a
+  forged `proven_txs` row that could later let a forged proof pass as chain-
+  proven (now stripped), or silently auto-rebroadcast an already-aborted
+  `queued`/`posting` `offline_actions` row the instant the app goes online (now
+  rewritten to a new `'import_hold'` status the automatic drain never selects,
+  surfaced in Activity as "Held (imported)" — new key `tx_status_import_hold` —
+  with no UI yet to promote a held row back to queued, a deliberate, disclosed
+  gap). `refreshProof` and the WalletHomeScreen activity query both recognize
+  `'import_hold'` so a stale imported row can't be mistaken for a failed one
+  and have its inputs released via the manual Refresh action.
+- **Weakened or extra schema objects are rejected, not silently kept forever
+  (XR-082).** A crafted image could keep an allowed table/index's name while
+  dropping a `UNIQUE`/`NOT NULL` constraint, or smuggle in an extra
+  trigger/view/virtual table/table — `CREATE ... IF NOT EXISTS` never repairs
+  an existing weakened definition. Import now compares each allowed object's
+  actual definition (as an order-independent, whitespace-normalized
+  column/constraint set, so a genuine additive migration's reordered columns
+  are still tolerated) against a disposable in-memory reference schema, and
+  rejects anything outside the allow-list entirely.
+
+### Identity, registry, trust, and network destination policy
+
+- **A shared public-destination check closes several SSRF-shaped gaps
+  (XR-073).** Nothing previously bound a foreign paymail domain's advertised
+  capability templates or SRV target, a user-typed trust-provider domain, a
+  trust manifest's icon URL, a search-result avatar, or the identity-avatar
+  resolver's http(s)/UHRP fallback to an actual public internet destination —
+  each could be pointed at a loopback/RFC1918/link-local address with no DNS
+  trickery needed. A shared `isPublicHttpsUrl`
+  (`core/net/publicDestination.ts`) — a floor, not a firewall, since there's no
+  synchronous DNS resolution on this runtime to catch rebinding — is now
+  applied at all of them: handle-registry discovery, `TrustScreen`'s manifest
+  fetch and icon prefetch, `searchIdentities()`'s avatar mapping, and
+  `resolveAvatarURL`'s http(s)/UHRP branches.
+- **Trust-manifest fetch bounded and its deadline covers the body (XR-074,
+  XR-075).** The manifest fetch had no byte cap at all, and its timeout was
+  disarmed as soon as headers arrived — a slow or dripping body could hang the
+  loading state forever. It's now capped at 64 KiB with the same deadline
+  racing the body read, not just the connection.
+- **Downgraded trust-provider imports refused (XR-076).** An explicit `http://`
+  domain was accepted verbatim, and a manifest fetch followed redirects with no
+  origin check. Both are now refused outright — an explicit `http://` domain
+  fails before any request, and the manifest fetch fails closed on any
+  redirect.
+- **Handle-registry bodies bounded by byte count (XR-077).** Every handle-
+  registry read shared one timeout-only body reader; a foreign or compromised
+  registry could pace an unbounded body just under the deadline. A 256 KiB
+  ceiling now applies before any JSON parse.
+- **Deep-linked identity keys are never rendered as "Your Identifier"
+  (XR-070).** A crafted `bsv-wallet://identifier?identityKey=...` deep link
+  could render an attacker's key as the user's own QR/copy/share target. The
+  screen now always fetches and displays only the wallet's own key; a route-
+  supplied key is only ever compared against it, never rendered.
+- **Trust-on-first-use key pinning for paymails (XR-071).** A compromised or
+  malicious registry — including the pinned one — could mint a fresh
+  certificate redirecting an already-resolved paymail to a different key. The
+  first key ever resolved for a paymail is now pinned; a later certificate
+  under a different key for the same paymail is dropped regardless of which
+  registry served it (a from-scratch resolution of a paymail never seen before
+  is inherently unprotected by TOFU, and is out of scope).
+
+### Vendored toolbox patch
+
+- **`abortAction` fails closed on an unresolved chain status (XQ-016).**
+  `@bsv/wallet-toolbox-mobile` 2.14.0's `StorageProvider.abortAction` treated a
+  thrown/timed-out/non-success chain-status lookup as safe to invalidate and
+  release a `nosend` action's reserved inputs — including one already handed to
+  a counterparty over PeerPay or LocalPay, turning a chain-status outage into a
+  payer-side double-spend race. The patch (`patches/@bsv+wallet-toolbox-
+  mobile+2.14.0.patch`) now retries the chain-status check once and, if still
+  unresolved, throws instead of invalidating — every in-app `abortAction`
+  caller already handles a thrown result sensibly, and Vault's own abort calls
+  (strictly unsigned-only) are unaffected. Verified end to end through Vault's
+  own retry-heal path, not only in isolation.
+
+### Storage schema
+
+- **`transactions` table gains the vendor's BRC-177 `noSendExpiry*` columns
+  (NEW-01).** `@bsv/wallet-toolbox-mobile` 2.14.0 reads and writes
+  `noSendExpiryState`/`noSendExpiryReclaimTxid` and related columns this
+  package's schema never added — every `'failed'` transition of a signed
+  `nosend` transaction (an aborted action, a failed broadcast, a proof-check
+  timeout, or the periodic invalid-request sweep) threw "no such column"
+  instead of completing, wedging state inconsistently app-wide. A new
+  idempotent `ensureTransactionsColumns` migration (called from `createTables`,
+  so both a fresh and an existing database pick it up) adds the columns, and
+  `findSql.ts`'s column lists are updated so a `noRawTx`-projected read doesn't
+  silently drop them.
+
+### Copy and translations
+
+24 new keys across the sections above, in all 12 languages:
+`delete_wallet_failed_title`, `delete_wallet_failed_body`,
+`vault_resume_draft_confirm_title`, `vault_resume_draft_confirm_body`,
+`vault_resume_draft_confirm_use`, `vault_resume_draft_confirm_discard`,
+`vault_seed_not_preserved_title`, `vault_seed_not_preserved_body`,
+`vault_seed_not_preserved_cta`, `vault_resolve_held_deposit_none`,
+`reconnect_needs_reapproval`, `reconnect_confirm_title`,
+`reconnect_confirm_message`, `arc_url_https_required`,
+`export_unencrypted_title`, `export_unencrypted_message`,
+`import_oversized_file`, `import_oversized_file_detail`,
+`tx_abort_maybe_delivered`, `tx_status_import_hold`,
+`local_pay_pending_abort_dropped_title`,
+`local_pay_pending_abort_dropped_body`, `biometric_advisory_body_degraded`,
+`pay_review_delivery_host`. `vault_reset_unknown_ack` is also corrected in
+every locale: it previously told the user a physically-occupied, locally-
+unrecognized YubiKey slot definitely belonged to no vault on this device, a
+certainty SecureStore's per-identity isolation cannot actually support; it now
+discloses the uncertainty instead of overclaiming it. Non-English copy is
+machine-drafted and awaits native-speaker review, same as every previous
+translation batch in this changelog.
+
+### Known residuals
+
+Full disposition of every ledger row (fixed, already-fixed, invalid, needs-
+hardware-or-network, out-of-scope, or partial-with-a-recorded-blocker) and its
+proof artifacts are in `docs/security/external-review-closure.md`. Residuals
+surfaced above, collected here for visibility:
+
+- The physical-hardware run (a real, previously-enrolled YubiKey through a full
+  chain-recovered-lock-to-withdraw path) is still unrun for the Vault
+  generally, and production keeps Vault output creation disabled until a v7
+  lock has actually been broadcast, mined, and exercised on physical hardware.
+- Backup's `appData` channel still can't carry an isolated, single-entity
+  change on its own (an all-empty chunk is the sync protocol's own end-of-log
+  signal), and `offline_actions`/`token_linkage_payloads` are still outside
+  encrypted backup; the restore path still can't bound a response with no
+  declared `Content-Length`, and the chunk envelope still doesn't bind
+  device/generation/sequence into what it authenticates.
+- Full saved-connection binding still needs an admin-scoped wallet threaded
+  into `connect()`/`reconnect()`; the auto-approve default threshold and shared
+  daily cap remain provisional pending product sign-off.
+- PeerPay and LocalPay still have no signed delivery/non-delivery receipt
+  protocol — a dishonest decline made while the payee is genuinely offline, or
+  one that reaches the chain only after this device's own check runs, is
+  handled by detect-and-warn, not prevention.
+- Header validation outside the locally-validated window still has no chain-of-
+  custody back to a trusted checkpoint, so a forger capable of mining a valid
+  low-difficulty historical header is not excluded by this pass alone.
+- The iOS backup-exclusion question and the malformed-but-SQLite-magic-passing
+  import question both need a real device build to close; an imported,
+  quarantined `'import_hold'` offline-action row still has no in-app path to be
+  reviewed and re-promoted to `'queued'`.
+- Android's KEK delete-then-add cycle still does not rotate the underlying
+  hardware key (a vendored `expo-secure-store` limitation, not exploitable on
+  its own).
+
 ## 0.8.0
 
 ### Wallet recovery and creation module
