@@ -74,6 +74,7 @@ import {
   backupAttestation,
   isVaultAvailable,
   useVault,
+  resolveProvisioningPolicy,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
@@ -400,6 +401,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const [pendingDestination, setPendingDestination] = useState<string | null>(null)
   const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
   const [creatingWalletFromAdvisory, setCreatingWalletFromAdvisory] = useState(false)
+  // XR-114: whether provisioning would actually land on a disclosed
+  // (non-biometric) policy for this device/build, so the advisory below
+  // never promises Face ID/fingerprint protection it will not deliver.
+  const [advisoryDegraded, setAdvisoryDegraded] = useState(false)
 
   const destinationPress = useCallback(
     async (destination: string) => {
@@ -413,6 +418,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       } catch {
         return
       }
+      setAdvisoryDegraded((await resolveProvisioningPolicy()).disclose)
       setPendingDestination(destination)
       setShowBiometricAdvisory(true)
     },
@@ -1493,27 +1499,27 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // when a row is open) and memoizing them buys nothing, while calling a
   // memoized callback during render trips the compiler's purity rule.
   const detailParams = (action: ActivityAction): TransactionDetailParams => {
-      const key = action.txid || action.reference || ''
-      const token = action.labels?.includes('mandala') ? tokenProps.get(key) : undefined
-      return {
-        txid: action.txid,
-        satoshis: action.satoshis,
-        status: action.status,
-        description: action.description,
-        isOutgoing: action.isOutgoing,
-        createdAt: action.created_at ? new Date(action.created_at).toISOString() : undefined,
-        counterpartyKey: token?.counterpartyKey ?? action.senderIdentityKey,
-        ...(token
-          ? {
-              token: {
-                title: token.title,
-                amount: token.amount,
-                incoming: token.incoming,
-                statusText: token.statusText
-              }
+    const key = action.txid || action.reference || ''
+    const token = action.labels?.includes('mandala') ? tokenProps.get(key) : undefined
+    return {
+      txid: action.txid,
+      satoshis: action.satoshis,
+      status: action.status,
+      description: action.description,
+      isOutgoing: action.isOutgoing,
+      createdAt: action.created_at ? new Date(action.created_at).toISOString() : undefined,
+      counterpartyKey: token?.counterpartyKey ?? action.senderIdentityKey,
+      ...(token
+        ? {
+            token: {
+              title: token.title,
+              amount: token.amount,
+              incoming: token.incoming,
+              statusText: token.statusText
             }
-          : {})
-      }
+          }
+        : {})
+    }
   }
 
   /**
@@ -1521,47 +1527,45 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    * view's overflow menu. Same handlers, same guards — only the surface moved.
    */
   const detailActions = (action: ActivityAction): TransactionAction[] => {
-      const out: TransactionAction[] = []
-      const offline = action.txid ? offlineByTxid.get(action.txid) : undefined
-      const parked = offline?.status === 'parked'
-      if (action.txid && !parked && offline?.status !== 'queued' && offline?.status !== 'posting') {
-        out.push({
-          key: 'refresh',
-          label: t('tx_action_refresh'),
-          icon: 'refresh-outline',
-          onPress: () => void onRefreshTx(action.txid)
-        })
-      }
-      if (action.txid && !parked) {
-        out.push({
-          key: 'explorer',
-          label: t('tx_action_explorer'),
-          icon: 'link-outline',
-          onPress: () => onExplorer(action.txid)
-        })
-      }
-      if (action.reference && ABORTABLE_DETAIL_STATUSES.has(action.status)) {
-        out.push({
-          key: 'abort',
-          label: t('tx_action_abort'),
-          icon: 'close-circle-outline',
-          danger: true,
-          onPress: () => void onAbort(action.reference!)
-        })
-      }
-      if (parked && action.txid) {
-        out.push({
-          key: 'cancel-parked',
-          label: t('pay_parked_cancel'),
-          icon: 'close-circle-outline',
-          danger: true,
-          onPress: () => void onCancelParked(action.txid)
-        })
-      }
+    const out: TransactionAction[] = []
+    const offline = action.txid ? offlineByTxid.get(action.txid) : undefined
+    const parked = offline?.status === 'parked'
+    if (action.txid && !parked && offline?.status !== 'queued' && offline?.status !== 'posting') {
+      out.push({
+        key: 'refresh',
+        label: t('tx_action_refresh'),
+        icon: 'refresh-outline',
+        onPress: () => void onRefreshTx(action.txid)
+      })
+    }
+    if (action.txid && !parked) {
+      out.push({
+        key: 'explorer',
+        label: t('tx_action_explorer'),
+        icon: 'link-outline',
+        onPress: () => onExplorer(action.txid)
+      })
+    }
+    if (action.reference && ABORTABLE_DETAIL_STATUSES.has(action.status)) {
+      out.push({
+        key: 'abort',
+        label: t('tx_action_abort'),
+        icon: 'close-circle-outline',
+        danger: true,
+        onPress: () => void onAbort(action.reference!)
+      })
+    }
+    if (parked && action.txid) {
+      out.push({
+        key: 'cancel-parked',
+        label: t('pay_parked_cancel'),
+        icon: 'close-circle-outline',
+        danger: true,
+        onPress: () => void onCancelParked(action.txid)
+      })
+    }
     return out
   }
-
-
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item, index }) => {
@@ -2159,6 +2163,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       <BiometricAdvisoryModal
         visible={showBiometricAdvisory}
         loading={creatingWalletFromAdvisory}
+        degraded={advisoryDegraded}
         onCancel={() => {
           setShowBiometricAdvisory(false)
           setPendingDestination(null)

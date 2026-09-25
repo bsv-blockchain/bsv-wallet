@@ -707,6 +707,8 @@ const resources = {
       tx_detail_block: 'Block',
       tx_detail_block_pending: 'Waiting for a block',
       biometric_advisory_body: 'Protect your assets with Face ID or your fingerprint',
+      biometric_advisory_body_degraded:
+        'This device has no Face ID or fingerprint set up, so your wallet key is protected by your device passcode only.',
       import_prompt_title: 'Already have a wallet?',
       import_prompt_body: 'Restore it from your recovery key or shares.',
       import_prompt_action: 'Import from backup',
@@ -1668,6 +1670,7 @@ const resources = {
       tx_detail_block: '区块',
       tx_detail_block_pending: '等待打包进区块',
       biometric_advisory_body: '使用面容 ID 或指纹保护您的资产',
+      biometric_advisory_body_degraded: '此设备未设置面容 ID 或指纹，因此您的钱包密钥仅由设备密码保护。',
       import_prompt_title: '已经有钱包了？',
       import_prompt_body: '使用恢复密钥或恢复份额还原钱包。',
       import_prompt_action: '从备份导入',
@@ -2645,6 +2648,8 @@ const resources = {
       tx_detail_block: 'ब्लॉक',
       tx_detail_block_pending: 'ब्लॉक की प्रतीक्षा',
       biometric_advisory_body: 'अपनी संपत्ति को Face ID या अपनी उंगली की छाप से सुरक्षित करें',
+      biometric_advisory_body_degraded:
+        'इस डिवाइस पर Face ID या फ़िंगरप्रिंट सेट नहीं है, इसलिए आपकी वॉलेट कुंजी केवल डिवाइस पासकोड से सुरक्षित है।',
       import_prompt_title: 'पहले से वॉलेट है?',
       import_prompt_body: 'इसे अपनी रिकवरी कुंजी या शेयर से पुनर्स्थापित करें।',
       import_prompt_action: 'बैकअप से आयात करें',
@@ -3646,6 +3651,8 @@ const resources = {
       tx_detail_block: 'Bloque',
       tx_detail_block_pending: 'Esperando un bloque',
       biometric_advisory_body: 'Protege tus activos con Face ID o tu huella digital',
+      biometric_advisory_body_degraded:
+        'Este dispositivo no tiene Face ID ni huella digital configurados, por lo que la clave de tu billetera solo está protegida por el código de acceso del dispositivo.',
       import_prompt_title: '¿Ya tienes una billetera?',
       import_prompt_body: 'Restáurala desde tu clave de recuperación o tus partes.',
       import_prompt_action: 'Importar desde un respaldo',
@@ -4662,6 +4669,8 @@ const resources = {
       tx_detail_block: 'Bloc',
       tx_detail_block_pending: "En attente d'un bloc",
       biometric_advisory_body: 'Protégez vos actifs avec Face ID ou votre empreinte digitale',
+      biometric_advisory_body_degraded:
+        "Cet appareil n'a pas de Face ID ni d'empreinte digitale configurés, votre clé de portefeuille n'est donc protégée que par le code d'accès de l'appareil.",
       import_prompt_title: 'Vous avez déjà un portefeuille ?',
       import_prompt_body: 'Restaurez-le à partir de votre clé de récupération ou de vos parts.',
       import_prompt_action: 'Importer depuis une sauvegarde',
@@ -5640,6 +5649,8 @@ const resources = {
       tx_detail_block: 'الكتلة',
       tx_detail_block_pending: 'بانتظار كتلة',
       biometric_advisory_body: 'احمِ أصولك باستخدام Face ID أو بصمة إصبعك',
+      biometric_advisory_body_degraded:
+        'لا يحتوي هذا الجهاز على Face ID أو بصمة إصبع مُفعّلة، لذا فإن مفتاح محفظتك محمي فقط برمز مرور الجهاز.',
       import_prompt_title: 'لديك محفظة بالفعل؟',
       import_prompt_body: 'استعدها من مفتاح الاسترداد أو من الحصص.',
       import_prompt_action: 'استيراد من نسخة احتياطية',
@@ -6628,6 +6639,8 @@ const resources = {
       tx_detail_block: 'Bloco',
       tx_detail_block_pending: 'À espera de um bloco',
       biometric_advisory_body: 'Proteja os seus ativos com o Face ID ou a sua impressão digital',
+      biometric_advisory_body_degraded:
+        'Este dispositivo não tem Face ID ou impressão digital configurados, por isso a chave da sua carteira está protegida apenas pelo código do dispositivo.',
       import_prompt_title: 'Já tem uma carteira?',
       import_prompt_body: 'Restaure-a a partir da sua chave de recuperação ou das partes.',
       import_prompt_action: 'Importar de um backup',
@@ -7624,6 +7637,8 @@ const resources = {
       tx_detail_block: 'ব্লক',
       tx_detail_block_pending: 'ব্লকের অপেক্ষায়',
       biometric_advisory_body: 'আপনার সম্পদ Face ID বা আপনার আঙুলের ছাপ দিয়ে সুরক্ষিত করুন',
+      biometric_advisory_body_degraded:
+        'এই ডিভাইসে Face ID বা ফিঙ্গারপ্রিন্ট সেট করা নেই, তাই আপনার ওয়ালেট কী শুধুমাত্র ডিভাইসের পাসকোড দ্বারা সুরক্ষিত।',
       import_prompt_title: 'আগে থেকেই ওয়ালেট আছে?',
       import_prompt_body: 'আপনার রিকভারি কী বা শেয়ার থেকে সেটি পুনরুদ্ধার করুন।',
       import_prompt_action: 'ব্যাকআপ থেকে ইমপোর্ট করুন',
@@ -8623,6 +8638,8 @@ const resources = {
       tx_detail_block: 'Блок',
       tx_detail_block_pending: 'Ожидает блока',
       biometric_advisory_body: 'Защитите свои активы с помощью Face ID или отпечатка пальца',
+      biometric_advisory_body_degraded:
+        'На этом устройстве не настроены Face ID или отпечаток пальца, поэтому ключ вашего кошелька защищён только паролем устройства.',
       import_prompt_title: 'Уже есть кошелёк?',
       import_prompt_body: 'Восстановите его из ключа восстановления или долей.',
       import_prompt_action: 'Импортировать из копии',
@@ -9622,6 +9639,8 @@ const resources = {
       tx_detail_block: 'Blok',
       tx_detail_block_pending: 'Menunggu blok',
       biometric_advisory_body: 'Lindungi aset Anda dengan Face ID atau sidik jari Anda',
+      biometric_advisory_body_degraded:
+        'Perangkat ini belum mengatur Face ID atau sidik jari, jadi kunci dompet Anda hanya dilindungi oleh kode sandi perangkat.',
       import_prompt_title: 'Sudah punya dompet?',
       import_prompt_body: 'Pulihkan dari kunci pemulihan atau bagian cadangan Anda.',
       import_prompt_action: 'Impor dari cadangan',
@@ -10630,6 +10649,8 @@ const resources = {
       tx_detail_block: 'ブロック',
       tx_detail_block_pending: 'ブロック待ち',
       biometric_advisory_body: 'Face ID または指紋で資産を保護します',
+      biometric_advisory_body_degraded:
+        'このデバイスにはFace IDや指紋認証が設定されていないため、ウォレットの鍵は端末のパスコードのみで保護されます。',
       import_prompt_title: 'すでにウォレットをお持ちですか？',
       import_prompt_body: 'リカバリーキーまたはシェアから復元できます。',
       import_prompt_action: 'バックアップから読み込む',
@@ -11646,6 +11667,8 @@ const resources = {
       tx_detail_block: 'Blok',
       tx_detail_block_pending: 'Oczekuje na blok',
       biometric_advisory_body: 'Chroń swoje aktywa za pomocą Face ID lub odcisku palca',
+      biometric_advisory_body_degraded:
+        'To urządzenie nie ma skonfigurowanego Face ID ani odcisku palca, więc klucz Twojego portfela jest chroniony tylko kodem dostępu urządzenia.',
       import_prompt_title: 'Masz już portfel?',
       import_prompt_body: 'Odtwórz go z klucza odzyskiwania lub udziałów.',
       import_prompt_action: 'Importuj z kopii zapasowej',
