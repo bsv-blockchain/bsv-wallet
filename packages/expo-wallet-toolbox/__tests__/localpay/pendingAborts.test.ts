@@ -8,6 +8,8 @@ import {
   verifyDeclinedAborts
 } from '../../core/localpay/pendingAborts'
 import { ADMIN_ORIGINATOR } from '../../core/config'
+import { guardVaultAccess, VAULT_ABORT_REPLAY_MARKER } from '../../core/services/vault/guard'
+import { buildLock } from '../../core/services/vault/r1comb'
 
 function fakeStorage() {
   const map = new Map<string, string>()
@@ -36,8 +38,100 @@ describe('pending_aborts', () => {
 
     const wallet = { abortAction: jest.fn().mockResolvedValue({ aborted: true }) }
     await replayPendingAborts({ wallet, storage })
-    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+    // XR-102: the persisted `originator` is NEVER trusted, even a genuine-
+    // looking one — replay always calls with the real, imported
+    // ADMIN_ORIGINATOR, marked so a guardVaultAccess-wrapped wallet runs the
+    // same vault-inventory check a non-admin caller gets, rather than a
+    // forged-or-real admin string racing straight past it (see
+    // __tests__/vault/guard.test.ts and the end-to-end case below).
+    expect(wallet.abortAction).toHaveBeenCalledWith(
+      { reference: 'ref-1', [VAULT_ABORT_REPLAY_MARKER]: true },
+      ADMIN_ORIGINATOR
+    )
     expect(await loadPendingAborts(storage)).toEqual([])
+  })
+
+  // XR-102. A raw edit of the pending_aborts KV record — writable by anything
+  // with local storage access — used to be replayed unauthenticated at every
+  // wallet build, with the persisted `originator` trusted verbatim. Even
+  // with that closed (above), replay's own originator is necessarily the
+  // real ADMIN_ORIGINATOR (the underlying wallet's assertPendingActionOriginator
+  // requires it), which guardVaultAccess would otherwise trust unconditionally.
+  // This is the end-to-end case: a forged Vault reference must still be
+  // refused when replayed against the REAL guarded wallet.
+  describe('replay against a real guardVaultAccess-wrapped wallet', () => {
+    const TXID = 'ab'.repeat(32)
+    const vaultLock = () =>
+      buildLock({ commitments: ['11'.repeat(20), '22'.repeat(20)], saltHex64: '33'.repeat(32) }).toHex()
+
+    function vaultTaggedWallet() {
+      const abortAction = jest.fn().mockResolvedValue({ aborted: true })
+      const vaultAction = {
+        txid: TXID,
+        satoshis: 50_000,
+        status: 'nosend',
+        isOutgoing: true,
+        description: 'Vault deposit',
+        version: 1,
+        lockTime: 0,
+        reference: 'vault-ref-1',
+        labels: ['vault', 'vault-deposit'],
+        inputs: [],
+        outputs: [
+          {
+            satoshis: 50_000,
+            spendable: false,
+            tags: ['vault'],
+            outputIndex: 0,
+            outputDescription: 'Vault deposit',
+            basket: 'admin vault',
+            lockingScript: vaultLock()
+          }
+        ]
+      }
+      const listActions = jest.fn(async (args: { labels?: string[]; limit?: number; offset?: number } = {}) => {
+        const labels = args.labels ?? []
+        const matching =
+          labels.length === 0 ? [vaultAction] : labels.every(l => vaultAction.labels.includes(l)) ? [vaultAction] : []
+        const offset = args.offset ?? 0
+        const limit = args.limit ?? 10
+        return { totalActions: matching.length, actions: matching.slice(offset, offset + limit) }
+      })
+      return { wallet: { abortAction, listActions } as never, abortAction }
+    }
+
+    it('never invokes the underlying abortAction for a forged Vault reference, even with the real admin originator', async () => {
+      const { wallet, abortAction } = vaultTaggedWallet()
+      const guarded = guardVaultAccess(wallet, ADMIN_ORIGINATOR)
+
+      const storage = fakeStorage()
+      // Imported constant, not a copy-pasted string — this is exactly what a
+      // raw KV edit forging the (now load-bearing) admin originator produces.
+      storage.map.set(PENDING_ABORTS_KEY, JSON.stringify([{ reference: 'vault-ref-1', originator: ADMIN_ORIGINATOR }]))
+
+      await replayPendingAborts({ wallet: guarded as never, storage })
+
+      expect(abortAction).not.toHaveBeenCalled()
+      // Refused, not silently dropped: kept for the next replay attempt,
+      // exactly like any other abort that failed.
+      expect(await loadPendingAborts(storage)).toEqual([{ reference: 'vault-ref-1', originator: ADMIN_ORIGINATOR }])
+    })
+
+    it('still replays an ordinary, non-Vault reference through the same guarded wallet', async () => {
+      const { wallet, abortAction } = vaultTaggedWallet()
+      const guarded = guardVaultAccess(wallet, ADMIN_ORIGINATOR)
+
+      const storage = fakeStorage()
+      storage.map.set(
+        PENDING_ABORTS_KEY,
+        JSON.stringify([{ reference: 'localpay-ref-1', originator: 'forged.example' }])
+      )
+
+      await replayPendingAborts({ wallet: guarded as never, storage })
+
+      expect(abortAction).toHaveBeenCalledWith({ reference: 'localpay-ref-1' }, ADMIN_ORIGINATOR)
+      expect(await loadPendingAborts(storage)).toEqual([])
+    })
   })
 
   it('keeps an abort that still fails', async () => {

@@ -5,6 +5,7 @@
  * stands; the reference is retried on the next wallet build.
  */
 import { ADMIN_ORIGINATOR, LEGACY_ADMIN_ORIGINATOR } from '../config'
+import { VAULT_ABORT_REPLAY_MARKER } from '../services/vault/guard'
 
 interface StorageLike {
   getKeyValue: (key: string) => Promise<string | undefined>
@@ -50,7 +51,10 @@ export async function queuePendingAbort(storage: StorageLike, item: PendingAbort
 
 export async function replayPendingAborts(args: {
   wallet: {
-    abortAction: (args: { reference: string }, originator?: string) => Promise<{ aborted?: boolean } | void>
+    abortAction: (
+      args: { reference: string; [VAULT_ABORT_REPLAY_MARKER]?: true },
+      originator?: string
+    ) => Promise<{ aborted?: boolean } | void>
   }
   storage: StorageLike
 }): Promise<void> {
@@ -59,7 +63,25 @@ export async function replayPendingAborts(args: {
   const kept: PendingAbort[] = []
   for (const item of pending) {
     try {
-      const result = await args.wallet.abortAction({ reference: item.reference }, item.originator)
+      // XR-102: the persisted `originator` is never trusted here — this is a
+      // raw KV record, writable by anything with local storage access, and a
+      // forged admin-originator string used to replay straight past
+      // guardVaultAccess's inventory check. The ONLY originator ever used to
+      // replay is the real, imported constant every legitimate queued abort
+      // was already created under (see queuePendingAbort's call sites — all
+      // pass `adminOriginator`), never the field read back off disk.
+      //
+      // That alone is not enough: `assertPendingActionOriginator` requires
+      // this exact originator for a legitimate replay to succeed at all, and
+      // guardVaultAccess treats every admin-originator call as trusted. The
+      // marker opts this specific call OUT of that trust and into the same
+      // vault-inventory reference check a non-admin caller gets — so a
+      // reference an attacker injected that happens to name a Vault action is
+      // refused, while an ordinary localpay/PeerPay reference still replays.
+      const result = await args.wallet.abortAction(
+        { reference: item.reference, [VAULT_ABORT_REPLAY_MARKER]: true },
+        ADMIN_ORIGINATOR
+      )
       if (result && typeof result === 'object' && result.aborted === false) {
         kept.push(item)
       }

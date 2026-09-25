@@ -7,6 +7,7 @@ import {
   EXTERNAL_ACTION_READ_TIMEOUT_MS,
   guardVaultAccess,
   isR1CLockingScript,
+  VAULT_ABORT_REPLAY_MARKER,
   VaultAccessDenied
 } from '../../core/services/vault/guard'
 import { buildLock } from '../../core/services/vault/r1comb'
@@ -19,10 +20,11 @@ const ADMIN = 'admin.com'
 const TXID = 'ab'.repeat(32)
 const NORMAL_TXID = 'cd'.repeat(32)
 let cachedVaultLock: string | undefined
-const vaultLock = () => (cachedVaultLock ??= buildLock({
-  commitments: ['11'.repeat(20), '22'.repeat(20)],
-  saltHex64: '33'.repeat(32)
-}).toHex())
+const vaultLock = () =>
+  (cachedVaultLock ??= buildLock({
+    commitments: ['11'.repeat(20), '22'.repeat(20)],
+    saltHex64: '33'.repeat(32)
+  }).toHex())
 
 test('wallet history reveals custom instructions only to the configured first-party origin', async () => {
   const makeResult = () => ({
@@ -55,15 +57,17 @@ const action = (over: Record<string, unknown> = {}) => ({
   reference: 'normal-ref',
   labels: ['normal'],
   inputs: [],
-  outputs: [{
-    satoshis: 1,
-    spendable: true,
-    tags: [],
-    outputIndex: 0,
-    outputDescription: 'Normal output',
-    basket: 'normal',
-    lockingScript: '51'
-  }],
+  outputs: [
+    {
+      satoshis: 1,
+      spendable: true,
+      tags: [],
+      outputIndex: 0,
+      outputDescription: 'Normal output',
+      basket: 'normal',
+      lockingScript: '51'
+    }
+  ],
   ...over
 })
 
@@ -76,9 +80,10 @@ function fakeWallet(storedActions: any[] = []) {
   const listActions = async (args: any, originator?: string) => {
     calls.push({ method: 'listActions', args, originator })
     const labels: string[] = args?.labels ?? []
-    const matching = labels.length === 0
-      ? storedActions
-      : storedActions.filter(item => labels.every(label => item.labels?.includes(label)))
+    const matching =
+      labels.length === 0
+        ? storedActions
+        : storedActions.filter(item => labels.every(label => item.labels?.includes(label)))
     const offset = args?.offset ?? 0
     const limit = args?.limit ?? 10
     return { totalActions: matching.length, actions: matching.slice(offset, offset + limit) }
@@ -143,10 +148,7 @@ test.each([
     const { wallet, calls } = fakeWallet()
     const guarded = guardVaultAccess(wallet, ADMIN)
     await expect(
-      (guarded[method] as any)(
-        { protocolID, keyID: '1', counterparty: 'self' },
-        'evil.com'
-      )
+      (guarded[method] as any)({ protocolID, keyID: '1', counterparty: 'self' }, 'evil.com')
     ).rejects.toBeInstanceOf(VaultAccessDenied)
     expect(calls.find(call => call.method === method)).toBeUndefined()
   }
@@ -155,10 +157,7 @@ test.each([
 test('allows the Vault UI to derive its salt public key', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)
-  await guarded.getPublicKey(
-    { protocolID: [2, 'vault salt'], keyID: '1', counterparty: 'self' },
-    ADMIN
-  )
+  await guarded.getPublicKey({ protocolID: [2, 'vault salt'], keyID: '1', counterparty: 'self' }, ADMIN)
   expect(calls.find(call => call.method === 'getPublicKey')).toBeDefined()
 })
 
@@ -202,30 +201,36 @@ test('hides Vault actions and their outpoints from an external action listing', 
       txid: TXID,
       reference: 'vault-ref',
       labels: ['vault', 'vault-deposit'],
-      outputs: [{
-        satoshis: 50_000,
-        spendable: true,
-        tags: ['vault'],
-        outputIndex: 0,
-        outputDescription: 'Vault deposit',
-        basket: 'admin vault',
-        lockingScript: vaultLock()
-      }]
+      outputs: [
+        {
+          satoshis: 50_000,
+          spendable: true,
+          tags: ['vault'],
+          outputIndex: 0,
+          outputDescription: 'Vault deposit',
+          basket: 'admin vault',
+          lockingScript: vaultLock()
+        }
+      ]
     })
   ]
   const { wallet } = fakeWallet(stored)
   const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(guarded.listActions({ labels: [], includeOutputs: true, limit: 10 } as any, 'evil.com')).resolves.toMatchObject({
+  await expect(
+    guarded.listActions({ labels: [], includeOutputs: true, limit: 10 } as any, 'evil.com')
+  ).resolves.toMatchObject({
     totalActions: 1,
     actions: [{ txid: NORMAL_TXID }]
   })
 })
 
 test('streams enriched history pages while retaining only the requested visible slice', async () => {
-  const stored = Array.from({ length: 65 }, (_, i) => action({
-    txid: i.toString(16).padStart(64, '0'),
-    reference: `normal-${i}`
-  }))
+  const stored = Array.from({ length: 65 }, (_, i) =>
+    action({
+      txid: i.toString(16).padStart(64, '0'),
+      reference: `normal-${i}`
+    })
+  )
   const { wallet, calls } = fakeWallet(stored)
   const guarded = guardVaultAccess(wallet, ADMIN)
   await expect(
@@ -240,7 +245,9 @@ test('coalesces concurrent identical external action listings into one enriched 
   const { wallet } = fakeWallet([action()])
   const original = wallet.listActions.bind(wallet)
   let release!: () => void
-  const gate = new Promise<void>(resolve => { release = resolve })
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
   const list = jest.fn(async (args: any, originator?: string) => {
     await gate
     return await original(args, originator)
@@ -266,8 +273,10 @@ test('re-wrapping an existing guard is idempotent and cannot nest its queue', as
   const wrappedAgain = guardVaultAccess(guarded, ADMIN)
   expect(wrappedAgain).toBe(guarded)
 
-  await expect(wrappedAgain.createAction({ description: 'ordinary', inputs: [] } as any, 'evil.com'))
-    .resolves.toEqual({ ok: true, method: 'createAction' })
+  await expect(wrappedAgain.createAction({ description: 'ordinary', inputs: [] } as any, 'evil.com')).resolves.toEqual({
+    ok: true,
+    method: 'createAction'
+  })
   expect(calls.filter(call => call.method === 'listActions')).toHaveLength(1)
   expect(calls.filter(call => call.method === 'createAction')).toHaveLength(1)
 })
@@ -276,7 +285,9 @@ test('fails closed instead of growing an unbounded queue of distinct enriched sc
   const { wallet } = fakeWallet([action()])
   const original = wallet.listActions.bind(wallet)
   let release!: () => void
-  const gate = new Promise<void>(resolve => { release = resolve })
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
   wallet.listActions = jest.fn(async (args: any, originator?: string) => {
     await gate
     return await original(args, originator)
@@ -285,9 +296,9 @@ test('fails closed instead of growing an unbounded queue of distinct enriched sc
   const accepted = Array.from({ length: 16 }, (_, offset) =>
     guarded.listActions({ labels: [], offset, limit: 1 } as any, 'evil.com')
   )
-  await expect(
-    guarded.listActions({ labels: [], offset: 16, limit: 1 } as any, 'evil.com')
-  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(guarded.listActions({ labels: [], offset: 16, limit: 1 } as any, 'evil.com')).rejects.toBeInstanceOf(
+    VaultAccessDenied
+  )
   release()
   await expect(Promise.all(accepted)).resolves.toHaveLength(16)
 })
@@ -298,29 +309,36 @@ test('serializes external output-naming calls and rescans after each allowed mut
   wallet.createAction = jest.fn(async (args: any, originator?: string) => {
     calls.push({ method: 'createAction', args, originator })
     if (args.description === 'first') {
-      stored.push(action({
-        txid: TXID,
-        reference: 'vault-ref',
-        labels: ['vault'],
-        outputs: [{
-          satoshis: 50_000,
-          spendable: true,
-          tags: ['vault'],
-          outputIndex: 0,
-          outputDescription: 'Vault deposit',
-          basket: 'admin vault',
-          lockingScript: vaultLock()
-        }]
-      }))
+      stored.push(
+        action({
+          txid: TXID,
+          reference: 'vault-ref',
+          labels: ['vault'],
+          outputs: [
+            {
+              satoshis: 50_000,
+              spendable: true,
+              tags: ['vault'],
+              outputIndex: 0,
+              outputDescription: 'Vault deposit',
+              basket: 'admin vault',
+              lockingScript: vaultLock()
+            }
+          ]
+        })
+      )
     }
     return { ok: true }
   })
   const guarded = guardVaultAccess(wallet, ADMIN)
   const first = guarded.createAction({ description: 'first', inputs: [] } as any, 'evil.com')
-  const second = guarded.createAction({
-    description: 'second',
-    inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'input', unlockingScriptLength: 1 }]
-  } as any, 'evil.com')
+  const second = guarded.createAction(
+    {
+      description: 'second',
+      inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'input', unlockingScriptLength: 1 }]
+    } as any,
+    'evil.com'
+  )
   await expect(first).resolves.toEqual({ ok: true })
   await expect(second).rejects.toBeInstanceOf(VaultAccessDenied)
   expect(wallet.createAction).toHaveBeenCalledTimes(1)
@@ -331,33 +349,42 @@ test('an admin mutation cannot race an external inventory scan on the same walle
   const stored: any[] = []
   const { wallet } = fakeWallet(stored)
   let releaseAdmin!: () => void
-  const adminGate = new Promise<void>(resolve => { releaseAdmin = resolve })
+  const adminGate = new Promise<void>(resolve => {
+    releaseAdmin = resolve
+  })
   wallet.createAction = jest.fn(async (args: any) => {
     if (args.description === 'admin vault change') {
       await adminGate
-      stored.push(action({
-        txid: TXID,
-        reference: 'vault-ref',
-        labels: ['vault'],
-        outputs: [{
-          satoshis: 50_000,
-          spendable: true,
-          tags: ['vault'],
-          outputIndex: 0,
-          outputDescription: 'Vault deposit',
-          basket: 'admin vault',
-          lockingScript: vaultLock()
-        }]
-      }))
+      stored.push(
+        action({
+          txid: TXID,
+          reference: 'vault-ref',
+          labels: ['vault'],
+          outputs: [
+            {
+              satoshis: 50_000,
+              spendable: true,
+              tags: ['vault'],
+              outputIndex: 0,
+              outputDescription: 'Vault deposit',
+              basket: 'admin vault',
+              lockingScript: vaultLock()
+            }
+          ]
+        })
+      )
     }
     return { ok: true }
   })
   const guarded = guardVaultAccess(wallet, ADMIN)
   const admin = guarded.createAction({ description: 'admin vault change' } as any, ADMIN)
-  const external = guarded.createAction({
-    description: 'race the admin',
-    inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'input', unlockingScriptLength: 1 }]
-  } as any, 'evil.com')
+  const external = guarded.createAction(
+    {
+      description: 'race the admin',
+      inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'input', unlockingScriptLength: 1 }]
+    } as any,
+    'evil.com'
+  )
   await Promise.resolve()
   expect(wallet.createAction).toHaveBeenCalledTimes(1)
   releaseAdmin()
@@ -366,19 +393,17 @@ test('an admin mutation cannot race an external inventory scan on the same walle
   expect(wallet.createAction).toHaveBeenCalledTimes(1)
 })
 
-test.each([
-  { limit: '10000' },
-  { limit: 10001 },
-  { offset: -1 },
-  { includeInputs: 'true' }
-])('validates external listActions arguments before enriching its internal scan: %p', async invalid => {
-  const { wallet, calls } = fakeWallet([action()])
-  const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(guarded.listActions({ labels: [], ...invalid } as any, 'evil.com')).rejects.toBeInstanceOf(
-    VaultAccessDenied
-  )
-  expect(calls).toHaveLength(0)
-})
+test.each([{ limit: '10000' }, { limit: 10001 }, { offset: -1 }, { includeInputs: 'true' }])(
+  'validates external listActions arguments before enriching its internal scan: %p',
+  async invalid => {
+    const { wallet, calls } = fakeWallet([action()])
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await expect(guarded.listActions({ labels: [], ...invalid } as any, 'evil.com')).rejects.toBeInstanceOf(
+      VaultAccessDenied
+    )
+    expect(calls).toHaveLength(0)
+  }
+)
 
 test.each([
   { limit: 501 },
@@ -389,8 +414,9 @@ test.each([
 ])('bounds external listActions request and response work before scanning: %p', async invalid => {
   const { wallet, calls } = fakeWallet([action()])
   const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(guarded.listActions({ labels: [], ...invalid } as any, 'evil.com'))
-    .rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(guarded.listActions({ labels: [], ...invalid } as any, 'evil.com')).rejects.toBeInstanceOf(
+    VaultAccessDenied
+  )
   expect(calls).toHaveLength(0)
 })
 
@@ -410,8 +436,10 @@ test('a stalled external action read times out and releases the shared critical 
     await jest.advanceTimersByTimeAsync(EXTERNAL_ACTION_READ_TIMEOUT_MS + 1)
     await rejected
 
-    await expect(guarded.createAction({ description: 'ordinary', inputs: [] } as any, 'other.com'))
-      .resolves.toEqual({ ok: true, method: 'createAction' })
+    await expect(guarded.createAction({ description: 'ordinary', inputs: [] } as any, 'other.com')).resolves.toEqual({
+      ok: true,
+      method: 'createAction'
+    })
     expect(calls.some(call => call.method === 'createAction')).toBe(true)
   } finally {
     jest.useRealTimers()
@@ -419,52 +447,70 @@ test('a stalled external action read times out and releases the shared critical 
 })
 
 test('blocks external createAction from reserving a Vault output by outpoint', async () => {
-  const stored = [action({
-    txid: TXID,
-    reference: 'vault-ref',
-    labels: ['vault', 'vault-deposit'],
-    outputs: [{
-      satoshis: 50_000,
-      spendable: true,
-      tags: ['vault'],
-      outputIndex: 0,
-      outputDescription: 'Vault deposit',
-      basket: 'admin vault',
-      lockingScript: vaultLock()
-    }]
-  })]
+  const stored = [
+    action({
+      txid: TXID,
+      reference: 'vault-ref',
+      labels: ['vault', 'vault-deposit'],
+      outputs: [
+        {
+          satoshis: 50_000,
+          spendable: true,
+          tags: ['vault'],
+          outputIndex: 0,
+          outputDescription: 'Vault deposit',
+          basket: 'admin vault',
+          lockingScript: vaultLock()
+        }
+      ]
+    })
+  ]
   const { wallet, calls } = fakeWallet(stored)
   const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(guarded.createAction({
-    description: 'Reserve someone else output',
-    inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'Vault input', unlockingScriptLength: 100 }]
-  } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    guarded.createAction(
+      {
+        description: 'Reserve someone else output',
+        inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'Vault input', unlockingScriptLength: 100 }]
+      } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
   expect(calls.some(c => c.method === 'createAction')).toBe(false)
 })
 
 test.each(['00', '0e0', '-0', ''])(
   'canonicalizes SDK-accepted vout spelling %p before protecting a Vault outpoint',
   async spelling => {
-    const stored = [action({
-      txid: TXID,
-      reference: 'vault-ref',
-      labels: ['vault'],
-      outputs: [{
-        satoshis: 50_000,
-        spendable: true,
-        tags: ['vault'],
-        outputIndex: 0,
-        outputDescription: 'Vault deposit',
-        basket: 'admin vault',
-        lockingScript: vaultLock()
-      }]
-    })]
+    const stored = [
+      action({
+        txid: TXID,
+        reference: 'vault-ref',
+        labels: ['vault'],
+        outputs: [
+          {
+            satoshis: 50_000,
+            spendable: true,
+            tags: ['vault'],
+            outputIndex: 0,
+            outputDescription: 'Vault deposit',
+            basket: 'admin vault',
+            lockingScript: vaultLock()
+          }
+        ]
+      })
+    ]
     const { wallet, calls } = fakeWallet(stored)
     const guarded = guardVaultAccess(wallet, ADMIN)
-    await expect(guarded.createAction({
-      description: 'Alternate outpoint spelling',
-      inputs: [{ outpoint: `${TXID}.${spelling}`, inputDescription: 'Vault input', unlockingScriptLength: 100 }]
-    } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+    await expect(
+      guarded.createAction(
+        {
+          description: 'Alternate outpoint spelling',
+          inputs: [{ outpoint: `${TXID}.${spelling}`, inputDescription: 'Vault input', unlockingScriptLength: 100 }]
+        } as any,
+        'evil.com'
+      )
+    ).rejects.toBeInstanceOf(VaultAccessDenied)
     expect(calls.some(c => c.method === 'createAction')).toBe(false)
   }
 )
@@ -474,28 +520,37 @@ test('blocks external internalizeAction from reclassifying an existing Vault out
   tx.addOutput({ satoshis: 50_000, lockingScript: LockingScript.fromHex(vaultLock()) })
   const beef = new Beef()
   beef.mergeTransaction(tx)
-  const stored = [action({
-    txid: tx.id('hex'),
-    reference: 'vault-ref',
-    labels: ['vault', 'vault-deposit'],
-    outputs: [{
-      satoshis: 50_000,
-      spendable: true,
-      tags: ['vault'],
-      outputIndex: 0,
-      outputDescription: 'Vault deposit',
-      basket: 'admin vault',
-      lockingScript: vaultLock()
-    }]
-  })]
+  const stored = [
+    action({
+      txid: tx.id('hex'),
+      reference: 'vault-ref',
+      labels: ['vault', 'vault-deposit'],
+      outputs: [
+        {
+          satoshis: 50_000,
+          spendable: true,
+          tags: ['vault'],
+          outputIndex: 0,
+          outputDescription: 'Vault deposit',
+          basket: 'admin vault',
+          lockingScript: vaultLock()
+        }
+      ]
+    })
+  ]
   const { wallet, calls } = fakeWallet(stored)
   const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(guarded.internalizeAction({
-    tx: beef.toBinaryAtomic(tx.id('hex')),
-    description: 'Move Vault output',
-    labels: [],
-    outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
-  } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    guarded.internalizeAction(
+      {
+        tx: beef.toBinaryAtomic(tx.id('hex')),
+        description: 'Move Vault output',
+        labels: [],
+        outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
+      } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
   expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
 })
 
@@ -509,28 +564,37 @@ test.each(['', 'default'])(
     tx.addOutput({ satoshis: 50_000, lockingScript: LockingScript.fromHex(vaultLock()) })
     const beef = new Beef()
     beef.mergeTransaction(tx)
-    const stored = [action({
-      txid: tx.id('hex'),
-      reference: 'relinquished-ref',
-      labels: [],
-      outputs: [{
-        satoshis: 50_000,
-        spendable: true,
-        tags: [],
-        outputIndex: 0,
-        outputDescription: 'Relinquished output',
-        basket,
-        lockingScript: vaultLock()
-      }]
-    })]
+    const stored = [
+      action({
+        txid: tx.id('hex'),
+        reference: 'relinquished-ref',
+        labels: [],
+        outputs: [
+          {
+            satoshis: 50_000,
+            spendable: true,
+            tags: [],
+            outputIndex: 0,
+            outputDescription: 'Relinquished output',
+            basket,
+            lockingScript: vaultLock()
+          }
+        ]
+      })
+    ]
     const { wallet, calls } = fakeWallet(stored)
     const guarded = guardVaultAccess(wallet, ADMIN)
-    await expect(guarded.internalizeAction({
-      tx: beef.toBinaryAtomic(tx.id('hex')),
-      description: 'Move Vault output',
-      labels: [],
-      outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
-    } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+    await expect(
+      guarded.internalizeAction(
+        {
+          tx: beef.toBinaryAtomic(tx.id('hex')),
+          description: 'Move Vault output',
+          labels: [],
+          outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
+        } as any,
+        'evil.com'
+      )
+    ).rejects.toBeInstanceOf(VaultAccessDenied)
     expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
   }
 )
@@ -538,69 +602,99 @@ test.each(['', 'default'])(
 test('blocks external construction or internalization of a new R1C output', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(guarded.createAction({
-    description: 'Hidden Vault output',
-    outputs: [{ satoshis: 1, lockingScript: vaultLock(), outputDescription: 'Hidden lock', basket: 'normal' }]
-  } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    guarded.createAction(
+      {
+        description: 'Hidden Vault output',
+        outputs: [{ satoshis: 1, lockingScript: vaultLock(), outputDescription: 'Hidden lock', basket: 'normal' }]
+      } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
 
   const tx = new Transaction()
   tx.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(vaultLock()) })
   const beef = new Beef()
   beef.mergeTransaction(tx)
-  await expect(guarded.internalizeAction({
-    tx: beef.toBinaryAtomic(tx.id('hex')),
-    description: 'Hidden Vault internalization',
-    labels: [],
-    // The SDK accepts numeric spellings; the guard must normalize them too.
-    outputs: [{ outputIndex: '00', protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
-  } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    guarded.internalizeAction(
+      {
+        tx: beef.toBinaryAtomic(tx.id('hex')),
+        description: 'Hidden Vault internalization',
+        labels: [],
+        // The SDK accepts numeric spellings; the guard must normalize them too.
+        outputs: [{ outputIndex: '00', protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
+      } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
   expect(calls.some(c => c.method === 'createAction')).toBe(false)
   expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
 })
 
 test('blocks SDK-trimmed R1C script strings and protects an R1C action even without a Vault label', async () => {
-  const stored = [action({
-    txid: TXID,
-    reference: 'mislabeled-r1c-ref',
-    labels: ['ordinary'],
-    outputs: [{
-      satoshis: 50_000,
-      spendable: true,
-      tags: [],
-      outputIndex: 0,
-      outputDescription: 'Mislabeled lock',
-      basket: 'normal',
-      lockingScript: vaultLock()
-    }]
-  })]
+  const stored = [
+    action({
+      txid: TXID,
+      reference: 'mislabeled-r1c-ref',
+      labels: ['ordinary'],
+      outputs: [
+        {
+          satoshis: 50_000,
+          spendable: true,
+          tags: [],
+          outputIndex: 0,
+          outputDescription: 'Mislabeled lock',
+          basket: 'normal',
+          lockingScript: vaultLock()
+        }
+      ]
+    })
+  ]
   const { wallet, calls } = fakeWallet(stored)
   const guarded = guardVaultAccess(wallet, ADMIN)
 
-  await expect(guarded.createAction({
-    description: 'Whitespace-normalized R1C output',
-    outputs: [{ satoshis: 1, lockingScript: ` ${vaultLock()}\n`, outputDescription: 'Hidden lock', basket: 'normal' }]
-  } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
-  await expect(guarded.createAction({
-    description: 'Spend mislabeled R1C output',
-    inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'Input', unlockingScriptLength: 100 }]
-  } as any, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    guarded.createAction(
+      {
+        description: 'Whitespace-normalized R1C output',
+        outputs: [
+          { satoshis: 1, lockingScript: ` ${vaultLock()}\n`, outputDescription: 'Hidden lock', basket: 'normal' }
+        ]
+      } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    guarded.createAction(
+      {
+        description: 'Spend mislabeled R1C output',
+        inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'Input', unlockingScriptLength: 100 }]
+      } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
   expect(calls.some(c => c.method === 'createAction')).toBe(false)
 })
 
 test('blocks signAction for a pending Vault reference', async () => {
-  const stored = [action({
-    txid: TXID,
-    reference: 'vault-ref',
-    labels: ['vault', 'vault-withdraw'],
-    inputs: [{
-      sourceOutpoint: `${TXID}.0`,
-      sourceSatoshis: 50_000,
-      sourceLockingScript: vaultLock(),
-      inputDescription: 'Vault input',
-      sequenceNumber: 0xffffffff
-    }],
-    outputs: []
-  })]
+  const stored = [
+    action({
+      txid: TXID,
+      reference: 'vault-ref',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [
+        {
+          sourceOutpoint: `${TXID}.0`,
+          sourceSatoshis: 50_000,
+          sourceLockingScript: vaultLock(),
+          inputDescription: 'Vault input',
+          sequenceNumber: 0xffffffff
+        }
+      ],
+      outputs: []
+    })
+  ]
   const { wallet, calls } = fakeWallet(stored)
   const guarded = guardVaultAccess(wallet, ADMIN)
   await expect(guarded.signAction({ reference: 'vault-ref', spends: {} } as any, 'evil.com')).rejects.toBeInstanceOf(
@@ -609,29 +703,111 @@ test('blocks signAction for a pending Vault reference', async () => {
   expect(calls.some(c => c.method === 'signAction')).toBe(false)
 })
 
+// XR-102. `replayPendingAborts` must call the real wallet with the admin
+// originator — the toolbox's own `assertPendingActionOriginator` requires the
+// exact originator an action was created under, and every legitimate
+// first-party action (including an ordinary localpay abort) is created under
+// it — so it cannot be told apart from a live interactive admin flow by
+// originator alone. `VAULT_ABORT_REPLAY_MARKER` is that side channel: an
+// admin-originator abortAction call carrying it must get the SAME
+// vault-inventory reference check a non-admin caller already gets, not the
+// admin bypass.
+test('blocks a replay-marked admin-originator abortAction from releasing a Vault reference', async () => {
+  const stored = [
+    action({
+      txid: TXID,
+      reference: 'vault-ref',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [
+        {
+          sourceOutpoint: `${TXID}.0`,
+          sourceSatoshis: 50_000,
+          sourceLockingScript: vaultLock(),
+          inputDescription: 'Vault input',
+          sequenceNumber: 0xffffffff
+        }
+      ],
+      outputs: []
+    })
+  ]
+  const { wallet, calls } = fakeWallet(stored)
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await expect(
+    guarded.abortAction({ reference: 'vault-ref', [VAULT_ABORT_REPLAY_MARKER]: true } as any, ADMIN)
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(calls.some(c => c.method === 'abortAction')).toBe(false)
+})
+
+test('a replay-marked admin-originator abortAction still releases an ordinary, non-Vault reference', async () => {
+  const { wallet, calls } = fakeWallet([])
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await expect(
+    guarded.abortAction({ reference: 'localpay-ref-1', [VAULT_ABORT_REPLAY_MARKER]: true } as any, ADMIN)
+  ).resolves.toMatchObject({ ok: true })
+  const call = calls.find(c => c.method === 'abortAction')
+  expect(call?.args).toEqual({ reference: 'localpay-ref-1' })
+  expect(call?.originator).toBe(ADMIN)
+})
+
+// The bypass a LIVE interactive admin flow still needs: no marker, same
+// admin originator, same Vault reference — allowed straight through, exactly
+// as before this fix, so cancelling a Vault action from the admin UI itself
+// keeps working.
+test('an unmarked admin-originator abortAction still bypasses the inventory check', async () => {
+  const stored = [
+    action({
+      txid: TXID,
+      reference: 'vault-ref',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [
+        {
+          sourceOutpoint: `${TXID}.0`,
+          sourceSatoshis: 50_000,
+          sourceLockingScript: vaultLock(),
+          inputDescription: 'Vault input',
+          sequenceNumber: 0xffffffff
+        }
+      ],
+      outputs: []
+    })
+  ]
+  const { wallet, calls } = fakeWallet(stored)
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await expect(guarded.abortAction({ reference: 'vault-ref' } as any, ADMIN)).resolves.toMatchObject({ ok: true })
+  expect(calls.some(c => c.method === 'abortAction')).toBe(true)
+})
+
 test.each(['createAction', 'signAction'] as const)(
   'blocks external %s from releasing a held Vault transaction through sendWith',
   async method => {
-    const stored = [action({
-      txid: TXID,
-      reference: 'vault-ref',
-      status: 'nosend',
-      labels: ['vault', 'vault-deposit'],
-      outputs: [{
-        satoshis: 50_000,
-        spendable: false,
-        tags: ['vault'],
-        outputIndex: 0,
-        outputDescription: 'Vault deposit',
-        basket: 'admin vault',
-        lockingScript: vaultLock()
-      }]
-    })]
+    const stored = [
+      action({
+        txid: TXID,
+        reference: 'vault-ref',
+        status: 'nosend',
+        labels: ['vault', 'vault-deposit'],
+        outputs: [
+          {
+            satoshis: 50_000,
+            spendable: false,
+            tags: ['vault'],
+            outputIndex: 0,
+            outputDescription: 'Vault deposit',
+            basket: 'admin vault',
+            lockingScript: vaultLock()
+          }
+        ]
+      })
+    ]
     const { wallet, calls } = fakeWallet(stored)
     const guarded = guardVaultAccess(wallet, ADMIN)
-    const args = method === 'createAction'
-      ? { description: 'Release held transaction', options: { sendWith: [TXID.toUpperCase()] } }
-      : { reference: 'ordinary-ref', spends: {}, options: { sendWith: [TXID.toUpperCase()] } }
+    const args =
+      method === 'createAction'
+        ? { description: 'Release held transaction', options: { sendWith: [TXID.toUpperCase()] } }
+        : { reference: 'ordinary-ref', spends: {}, options: { sendWith: [TXID.toUpperCase()] } }
 
     await expect((guarded as any)[method](args, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
     expect(calls.some(c => c.method === method)).toBe(false)
@@ -643,9 +819,10 @@ test.each(['createAction', 'signAction'] as const)(
   async method => {
     const { wallet, calls } = fakeWallet([action()])
     const guarded = guardVaultAccess(wallet, ADMIN)
-    const args = method === 'createAction'
-      ? { description: 'Malformed sendWith', options: { sendWith: 'ab'.repeat(32) } }
-      : { reference: 'ordinary-ref', spends: {}, options: { sendWith: [123] } }
+    const args =
+      method === 'createAction'
+        ? { description: 'Malformed sendWith', options: { sendWith: 'ab'.repeat(32) } }
+        : { reference: 'ordinary-ref', spends: {}, options: { sendWith: [123] } }
 
     await expect((guarded as any)[method](args, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
     expect(calls.some(c => c.method === method)).toBe(false)
