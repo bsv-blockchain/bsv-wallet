@@ -174,6 +174,15 @@ export class FakeVaultWallet implements VaultWallet {
     return await this.crypto.createHmac(args as never)
   }
 
+  // XR-002: requireAuthenticatedMeta verifies vault-meta authority tags. No
+  // explicit return type: @bsv/sdk's own VerifyHmacResult types `valid` as
+  // the literal `true` (a mismatch REJECTS rather than resolving `false` —
+  // see connectionAuthority.ts's own comment on this), which this passthrough
+  // preserves exactly by inferring it instead of re-declaring a wider shape.
+  async verifyHmac(args: unknown) {
+    return await this.crypto.verifyHmac(args as never)
+  }
+
   // ── action history (no held/failed actions in this harness) ───────────
   async listActions(): Promise<{ actions: VaultActionRow[]; totalActions?: number }> {
     return { actions: [], totalActions: 0 }

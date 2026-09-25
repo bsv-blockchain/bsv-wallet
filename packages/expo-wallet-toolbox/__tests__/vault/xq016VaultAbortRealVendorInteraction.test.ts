@@ -44,21 +44,23 @@
  * orphan — which has no raw tx yet — hits that same scan path cleanly.)
  *
  * VERDICT (verified by this test, not just traced by hand): the interaction
- * is benign. `freeReservedInputs`'s own `abortActions` loop marks a reference
- * "aborted" the instant it decides to call `abortAction` on it — BEFORE
- * awaiting the result — and swallows any rejection into a `console.log`. So
- * when the real, patched `abortAction` now fails closed and throws, this
- * Vault-side retry-heal path still reports the orphan as "freed" even though
- * its input was NOT actually released. That miscount is a real, PRE-EXISTING
- * quirk in `transfers.ts` (it would misfire identically for ANY `abortAction`
- * rejection reason, not just this one, and predates the XQ-016 vendor patch
- * entirely) — flagged separately as a follow-up, not fixed here, since it is
- * an unrelated root cause and does not threaten I1/I2/I3: the observable
- * effect is that `createSignableVaultTx`'s single retry then fails the SAME
- * way (the input is still reserved), and that failure propagates as an
- * ordinary thrown error to the withdrawal caller — a failed retry, never a
- * silent spend, and never a released reservation while chain status is
- * genuinely unknown. That is the load-bearing assertion below.
+ * is benign. When the real, patched `abortAction` fails closed and throws,
+ * this Vault-side retry-heal path correctly reports the orphan as NOT freed
+ * (see the accounting fix below), so `createSignableVaultTx`'s single retry
+ * then fails the SAME way (the input is still reserved), and that failure
+ * propagates as an ordinary thrown error to the withdrawal caller — a failed
+ * retry, never a silent spend, and never a released reservation while chain
+ * status is genuinely unknown. That is the load-bearing assertion below.
+ *
+ * UPDATE: `abortActions` (core/services/vault/transfers.ts) used to mark a
+ * reference "aborted" — and `freeReservedInputs` used to report it "freed" —
+ * the instant it decided to call `abortAction` on it, BEFORE awaiting the
+ * result, with any rejection swallowed into a `console.log`. That miscount
+ * (it misfired identically for ANY `abortAction` rejection reason, not just
+ * this one, and predates the XQ-016 vendor patch entirely) is now fixed: a
+ * reference is only counted as freed once its `abortAction` call actually
+ * succeeds. See `__tests__/vault/abortAccounting.test.ts` for the focused
+ * regression test against a mocked wallet.
  */
 jest.mock('expo-sqlite', () => {
   const { DatabaseSync } = jest.requireActual('node:sqlite')
@@ -325,16 +327,11 @@ describe('XQ-016 review follow-up: freeReservedInputs against the REAL (non-mock
     // freed for a re-spend that could race a broadcast already in flight.
     expect(await fundingOutputSpendable(storage)).toBe(false)
 
-    // Documents the exact, separately-flagged miscount described in this
-    // file's header: `freeReservedInputs` still reports 1 "freed" reference
-    // here, because `abortActions` marks it aborted before awaiting
-    // `abortAction`'s outcome. This is why the caller in
-    // `createSignableVaultTx` would retry `createOnce()` once more — and,
-    // because the input is genuinely still reserved, that retry fails the
-    // same way, propagating as an ordinary error rather than ever completing
-    // a spend. Asserted here so a future change to that counting behavior
-    // must consciously update this documented interaction.
-    expect(freed).toBe(1)
+    // The accounting fix (see this file's header UPDATE note): a refused
+    // abortAction is never counted as freed, so `createSignableVaultTx`'s
+    // single retry will correctly see nothing was freed and rethrow the
+    // original error rather than retrying against a still-reserved input.
+    expect(freed).toBe(0)
 
     // Confirms the real, non-mocked chain-status gate was actually consulted
     // through Vault's path (retried once, per abortAction's existing

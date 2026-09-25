@@ -69,7 +69,9 @@ import {
 } from './r1comb'
 import { VaultError } from './types'
 import { metaFromVerifiedOutputs, VAULT_MIN_KEYS } from './VaultKeyService'
-import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken } from './vaultStore'
+import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
+import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
+import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
 
 export const VAULT_BASKET = 'admin vault'
 /** Wallet HMAC domain used only for Vault output salts. */
@@ -306,6 +308,9 @@ export const VAULT_HARD_MAX_INPUTS = 48
  * whole module is testable without the toolbox). */
 export interface VaultWallet {
   createHmac(args: unknown, originator: string): Promise<{ hmac: number[] }>
+  /** XR-002: verifies a vault-meta authority tag (metaAuthority.ts) before an
+   * output-creating operation trusts local meta. */
+  verifyHmac(args: unknown, originator: string): Promise<{ valid: boolean }>
   createAction(args: unknown, originator: string): Promise<CreateActionResult>
   signAction(args: unknown, originator: string): Promise<{
     txid?: string
@@ -328,6 +333,14 @@ export interface VaultWallet {
    * not. Optional: a wallet that cannot answer is treated as "unknown", same
    * as networkAlreadyHas' own every-failure-is-false rule. */
   getStatusForTxids?(txids: string[]): Promise<{ results?: { txid: string; status: string }[] }>
+}
+
+/** VaultWallet's createHmac/verifyHmac require `originator`; the SDK's own
+ * WalletInterface types it optional, which structurally is all
+ * metaAuthority.ts's HmacCapableWallet needs. Every call in this module
+ * already always supplies `adminOriginator`, so narrowing costs nothing. */
+function asHmacWallet(w: VaultWallet): HmacCapableWallet {
+  return w as unknown as HmacCapableWallet
 }
 
 /** The fields of a listActions row the reservation heal needs. `inputs` arrives
@@ -1437,9 +1450,15 @@ async function abortActions(
   let scanned = 0
   const seen: string[] = []
   const seenRows = new Set<string>()
-  // By reference, so the same orphan is never aborted twice — a second
-  // abortAction on it would be rejected, and counting it again would report a
-  // heal that did not happen.
+  // References this scan has already attempted, so the same orphan is never
+  // aborted twice — a second abortAction on it would be rejected regardless
+  // of the first attempt's outcome.
+  const attempted = new Set<string>()
+  // Only references whose abortAction call actually SUCCEEDED. A refused or
+  // rejected abort never released the input, so it must not be counted as
+  // freed — the caller (freeReservedInputs) uses this size to decide whether
+  // a retry can proceed, and a miscount here would retry against an input
+  // that is still genuinely reserved.
   const aborted = new Set<string>()
   try {
     let offset = 0
@@ -1471,12 +1490,15 @@ async function abortActions(
         seenRows.add(rowId)
         if (!matches(a)) continue
         seen.push(`${a.status}${a.reference ? '' : '/no-ref'}`)
-        if (a.reference && ABORTABLE.has(a.status) && !aborted.has(a.reference)) {
-          aborted.add(a.reference)
+        if (a.reference && ABORTABLE.has(a.status) && !attempted.has(a.reference)) {
+          attempted.add(a.reference)
           assertVaultScope(scopeToken)
-          await w.abortAction({ reference: a.reference }, adminOriginator).catch(err =>
+          try {
+            await w.abortAction({ reference: a.reference }, adminOriginator)
+            aborted.add(a.reference)
+          } catch (err) {
             console.log('[vault] abortAction rejected:', (err as Error)?.message)
-          )
+          }
           assertVaultScope(scopeToken)
         }
       }
@@ -1534,14 +1556,18 @@ async function abortReservingOutpoints(
       assertVaultScope(scopeToken)
       const rows = await findSpendingReferences(outpoints)
       assertVaultScope(scopeToken)
+      const attempted = new Set<string>()
       const aborted = new Set<string>()
       for (const r of rows) {
-        if (!ABORTABLE.has(r.status) || aborted.has(r.reference)) continue
-        aborted.add(r.reference)
+        if (!ABORTABLE.has(r.status) || attempted.has(r.reference)) continue
+        attempted.add(r.reference)
         assertVaultScope(scopeToken)
-        await w.abortAction({ reference: r.reference }, adminOriginator).catch(err =>
+        try {
+          await w.abortAction({ reference: r.reference }, adminOriginator)
+          aborted.add(r.reference)
+        } catch (err) {
           console.log('[vault] abortAction rejected:', (err as Error)?.message)
-        )
+        }
         assertVaultScope(scopeToken)
       }
       console.log('[vault] abort by outpoint · matched=%d · aborted=%d', rows.length, aborted.size)
@@ -1699,9 +1725,95 @@ export async function recoverVaultMetaFromOutputs(
     await verifyVaultSaltDerivations(w, adminOriginator, scan.inventory)
     const recovered = metaFromVerifiedOutputs(scan.state)
     if (existing && !recoveredSupersedesExisting(existing, recovered)) return existing
-    await vaultStore.restoreVerifiedMeta(recovered, scopeToken)
+    const scope = vaultStore.getScope()
+    await vaultStore.restoreVerifiedMeta(
+      recovered,
+      scopeToken,
+      scope ? next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope) : undefined
+    )
     return await vaultStore.getMeta(scopeToken)
   })
+}
+
+/**
+ * XR-002 (SEC2-088): the gate every operation that builds a NEW R1C output
+ * from local vault metadata must pass first — `meta.keys`/`meta.revision`
+ * become that output's lock directly (newVaultOutput). A SecureStore-only
+ * attacker who forges a higher revision or a substituted key set cannot
+ * compute metaAuthority.ts's wallet-root tag, so a mismatch here means
+ * `meta` was never written by this package's own legitimate code.
+ *
+ * A missing/invalid tag is not immediately fatal — it is exactly the state
+ * every enrollment created before this fix shipped is in. Recover instead of
+ * refusing outright, using the SAME authenticated on-chain scan
+ * recoverVaultMetaFromOutputs already uses, but with STRICT equality (never
+ * the "supersedes" ratchet, which exists for a different problem — a stale
+ * local cache after reinstall — and would let a forged revision that happens
+ * to be LOWER than real chain evidence slip through as "not superseded,
+ * keep it"): if a verified on-chain output for this exact vaultId proves
+ * `meta` byte-for-byte, adopt it and tag it going forward
+ * (vaultStore.restoreVerifiedMeta). Chain evidence that DISAGREES, or a
+ * vault with no chain evidence at all yet (a genuinely first-ever deposit,
+ * which legitimately shipped code always tags immediately at
+ * finalizeEnrollment), is the "never silently trust-on-first-use when a
+ * safer route exists" case: refuse and point at the safer route already
+ * available — disable (offered exactly at this zero-balance state) and
+ * re-enroll, which produces a freshly, correctly tagged record.
+ *
+ * Deliberately NEVER called for withdrawing an EXISTING output: that spend's
+ * authority is the output's own REAL R1C lock, independently verified
+ * against chain-listed BEEF (verifyListedVaultOutput / spendVaultOutputs) —
+ * never local meta. Gating a plain withdrawal here would block access to
+ * funds I1 requires stay reachable, over data that was never load-bearing
+ * for that spend in the first place.
+ */
+export async function requireAuthenticatedMeta(
+  w: VaultWallet,
+  adminOriginator: string,
+  scopeToken: VaultScopeToken,
+  meta: VaultMeta
+): Promise<VaultMeta> {
+  assertVaultScope(scopeToken)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+  const tag = await vaultStore.getMetaTag(scopeToken)
+  if (await verifyVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, meta, scope, tag)) return meta
+
+  const scan = await reduceVerifiedVaultOutputs(
+    w,
+    adminOriginator,
+    () => [] as { instructions: VaultInstructions; txid: string }[],
+    (records, output) => {
+      if (output.ci.vaultId !== meta.vaultId) return
+      records.push({ instructions: output.ci, txid: output.outpoint.slice(0, 64).toLowerCase() })
+    },
+    scopeToken
+  )
+  if (scan.state.length === 0) {
+    throw new VaultError(
+      'template-invalid',
+      'Vault enrollment metadata could not be authenticated and has no on-chain history to verify it against; disable and re-enroll this vault'
+    )
+  }
+  await verifyVaultSaltDerivations(w, adminOriginator, scan.inventory)
+  const recovered = metaFromVerifiedOutputs(scan.state)
+  if (
+    recovered.vaultId !== meta.vaultId ||
+    recovered.createdAt !== meta.createdAt ||
+    recovered.revision !== meta.revision ||
+    !sameInstructionKeys(meta.keys, recovered.keys)
+  ) {
+    throw new VaultError(
+      'template-invalid',
+      'Local vault enrollment metadata disagrees with authenticated on-chain history; re-verify before continuing'
+    )
+  }
+  await vaultStore.restoreVerifiedMeta(recovered, scopeToken, next =>
+    computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+  )
+  const reconciled = await vaultStore.getMeta(scopeToken)
+  if (!reconciled) throw new VaultError('not-enrolled', 'Vault is not set up')
+  return reconciled
 }
 
 /**
@@ -2114,7 +2226,8 @@ export async function depositToVault(
   assertVaultScope(scopeToken)
   await requirePrivateBackup(opts, 'Vault deposit')
   assertVaultScope(scopeToken)
-  const meta = await requireMeta(scopeToken)
+  // XR-002: authenticate meta BEFORE it is used to build a new output.
+  const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
   if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal before depositing')
   if (meta.recovery?.required) {
     const adopted = new Set(meta.recovery.adoptedSerials)
@@ -2962,11 +3075,17 @@ export async function withdrawFromVault(
     requireReleased(opts, scopeToken, 'Re-vaulting a remainder')
     await requirePrivateBackup(opts, 'Re-vaulting a remainder')
     assertVaultScope(scopeToken)
-    await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
+    // XR-002: authenticate meta BEFORE it is used to build the re-vaulted
+    // remainder's new output. Scoped to exactly this branch — the only one
+    // that creates an output — so an otherwise-unauthenticated meta never
+    // blocks a plain 'all' withdrawal, whose authority is its spent outputs'
+    // own real locks, never local meta (see requireAuthenticatedMeta).
+    const authenticatedMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, sel.meta)
+    await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, authenticatedMeta, scopeToken)
     outputs.push(...await newVaultOutput(
       w,
       adminOriginator,
-      sel.meta,
+      authenticatedMeta,
       remainder,
       'Vault change',
       sel.saltInventory,
@@ -3055,7 +3174,12 @@ export async function relockVault(
   assertVaultScope(scopeToken)
   await requirePrivateBackup(opts, 'Re-locking the vault')
   assertVaultScope(scopeToken)
-  const meta = await requireMeta(scopeToken)
+  // XR-002: authenticate meta BEFORE anything below uses it — relockVault
+  // always builds a new output, so unlike withdrawFromVault this runs
+  // unconditionally, and early enough that a reconciled/retagged meta is
+  // what selectVaultInputs (re-reading vaultStore.getMeta itself) and the
+  // fee estimate below both see.
+  const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
   await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
   const revokePubkey = opts?.revokePubkey
   const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, 'all', revokePubkey, scopeToken)
@@ -3189,7 +3313,13 @@ export async function beginVaultKeyRemoval(
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
-    const meta = await requireMeta(scopeToken)
+    // XR-002: this is a meta-mutating write (beginKeyRemoval), not an
+    // output-creating one, but its own `next` must still be tagged from an
+    // already-trustworthy `meta` — see vaultStore.addKey's laundering
+    // caveat, which applies identically here.
+    const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+    const scope = vaultStore.getScope()
+    if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
     const target = meta.keys.find(key => key.serial === serial)
     if (!target) throw new VaultError('not-enrolled', `Key ${serial} is not enrolled`)
     if (meta.keys.length <= VAULT_MIN_KEYS) {
@@ -3245,7 +3375,9 @@ export async function beginVaultKeyRemoval(
     if (before.state.wouldOrphan) {
       throw new VaultError('relock-required', 'A vault output would lose every remaining key')
     }
-    const pending = await vaultStore.beginKeyRemoval(serial, scopeToken)
+    const pending = await vaultStore.beginKeyRemoval(serial, scopeToken, next =>
+      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    )
     if (before.outputs > 0) return { complete: false, meta: pending }
 
     // Empty removal has no transaction to prove. Recheck after the metadata
@@ -3258,10 +3390,18 @@ export async function beginVaultKeyRemoval(
       scopeToken
     )
     if (after.outputs > 0) {
-      await vaultStore.cancelUnbroadcastKeyRemoval(scopeToken)
+      await vaultStore.cancelUnbroadcastKeyRemoval(scopeToken, next =>
+        computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+      )
       throw new VaultError('action-pending', 'A vault output appeared while removing the key')
     }
-    return { complete: true, meta: await vaultStore.finalizeEmptyKeyRemoval(scopeToken) }
+    const finalMeta = await vaultStore.finalizeEmptyKeyRemoval(scopeToken, next =>
+      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    )
+    // XQ-014: `serial` is now fully removed from this chain — forget it
+    // device-wide unless another chain of this same identity still holds it.
+    await forgetSerialsNoLongerEnrolledForIdentity([serial], () => vaultStore.enrolledSerialsAcrossChains(scopeToken))
+    return { complete: true, meta: finalMeta }
   })
 }
 
@@ -3372,7 +3512,14 @@ export async function finalizeVaultKeyRemoval(
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
-    let meta = await requireMeta(scopeToken)
+    // XR-002: same laundering caveat as beginVaultKeyRemoval — this function
+    // writes meta (markKeyRemovalBroadcast / finalizeEmptyKeyRemoval /
+    // finalizeProvenKeyRemoval below) from whatever `meta` currently is.
+    let meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+    const scope = vaultStore.getScope()
+    if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+    const tagger = (next: Parameters<typeof computeVaultMetaAuthorityTag>[2]) =>
+      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
     const pendingAtStart = meta.pendingRemoval
     if (!pendingAtStart) return false
     const first = await reduceVerifiedVaultOutputs(
@@ -3467,7 +3614,7 @@ export async function finalizeVaultKeyRemoval(
     }
 
     if (invalidCurrentRelock) return false
-    if (matchingRelock) await vaultStore.markKeyRemovalBroadcast(scopeToken)
+    if (matchingRelock) await vaultStore.markKeyRemovalBroadcast(scopeToken, tagger)
     meta = await requireMeta(scopeToken)
     const pending = meta.pendingRemoval
     if (!pending) return true
@@ -3488,7 +3635,11 @@ export async function finalizeVaultKeyRemoval(
         'allow'
       )
       if (second.state.authorizesPendingKey) return false
-      await vaultStore.finalizeEmptyKeyRemoval(scopeToken)
+      await vaultStore.finalizeEmptyKeyRemoval(scopeToken, tagger)
+      // XQ-014: the tombstoned key is now fully removed from this chain.
+      await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
+        vaultStore.enrolledSerialsAcrossChains(scopeToken)
+      )
       return true
     }
 
@@ -3506,7 +3657,11 @@ export async function finalizeVaultKeyRemoval(
       'allow'
     )
     if (second.state.authorizesPendingKey) return false
-    await vaultStore.finalizeProvenKeyRemoval(scopeToken)
+    await vaultStore.finalizeProvenKeyRemoval(scopeToken, tagger)
+    // XQ-014: the tombstoned key is now fully removed from this chain.
+    await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
+      vaultStore.enrolledSerialsAcrossChains(scopeToken)
+    )
     return true
   })
 }

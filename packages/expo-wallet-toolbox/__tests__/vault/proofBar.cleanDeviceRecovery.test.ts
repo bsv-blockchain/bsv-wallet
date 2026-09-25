@@ -76,7 +76,8 @@ import { setMockDriver } from '../../core/services/vault/driver'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { adoptVaultKey } from '../../core/services/vault/VaultKeyService'
 import { compressPubkey, signerDigest, sighashPreimage, verifyVaultInput } from '../../core/services/vault/r1comb'
-import { vaultStore, type VaultKeyRecord } from '../../core/services/vault/vaultStore'
+import { vaultStore, type VaultMeta, type VaultKeyRecord } from '../../core/services/vault/vaultStore'
+import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import { recoverVaultFromChain } from '../../core/services/vault/chainRecovery'
 import { depositToVault, getVaultBalance, relockVault, withdrawFromVault } from '../../core/services/vault/transfers'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
@@ -86,6 +87,18 @@ jest.setTimeout(300_000)
 const ADMIN = 'admin.com'
 const hex = (a: ArrayLike<number>): string => Utils.toHex(Array.from(a))
 const digestBytes = (digestHex: string): Uint8Array => Uint8Array.from(Utils.toArray(digestHex, 'hex') as number[])
+
+/** XR-002: seeds a device's very first local meta the way a real enrollment
+ * (finalizeEnrollment) leaves it — validly tagged with THAT device's own
+ * wallet-root HMAC — rather than the bare, untagged shape a SecureStore-only
+ * attacker could equally produce. This harness sets up its "device A already
+ * enrolled and has deposited before" starting state directly, never through
+ * the real card-enrollment ceremony (a separate, already-covered surface —
+ * see vaultKeyService.test.ts), so it has to do this step itself. */
+async function seedOwnMeta(owner: FakeVaultWallet, meta: VaultMeta): Promise<void> {
+  const scope = vaultStore.getScope()!
+  await vaultStore.setMeta(meta, undefined, next => computeVaultMetaAuthorityTag(owner, ADMIN, next, scope))
+}
 
 /** One MockYubiKey "keyring": every member gets its own persistent record
  * (insertKey/generateVaultKey), and switching `insertKey` back to a serial
@@ -207,7 +220,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
         const deviceA = new FakeVaultWallet(primaryKey, chain)
         vaultStore.clearScope()
         vaultStore.configureScope({ identityKey, chain: 'test' })
-        await vaultStore.setMeta({
+        await seedOwnMeta(deviceA, {
           v: 6, vaultId: hex(p256.utils.randomSecretKey()), revision: 1, createdAt: Date.now(), keys
         })
         armSigner(mock, keys[0].serial)
@@ -280,7 +293,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
 
     const deviceA = new FakeVaultWallet(owner.primaryKey, chain)
     vaultStore.configureScope({ identityKey, chain: 'test' })
-    await vaultStore.setMeta({ v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
+    await seedOwnMeta(deviceA, { v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
     armSigner(mock, keys[0].serial)
     await depositToVault(deviceA, ADMIN, 500_000)
 
@@ -305,7 +318,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
 
     const deviceA = new FakeVaultWallet(owner.primaryKey, chain)
     vaultStore.configureScope({ identityKey, chain: 'test' })
-    await vaultStore.setMeta({ v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
+    await seedOwnMeta(deviceA, { v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
     armSigner(mock, keys[0].serial)
     const deposit = await depositToVault(deviceA, ADMIN, 500_000)
     // FakeVaultWallet.release() publishes confirmed by default; simulate the
@@ -342,7 +355,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
 
     const deviceA = new FakeVaultWallet(owner.primaryKey, chain)
     vaultStore.configureScope({ identityKey, chain: 'test' })
-    await vaultStore.setMeta({ v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
+    await seedOwnMeta(deviceA, { v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
     armSigner(mock, keys[0].serial)
     // requirePrivateBackup's check passes (config exists, push enabled) —
     // this harness has no backup service to actually deliver anything to,
@@ -396,7 +409,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
 
     const owningWallet = new FakeVaultWallet(owner.primaryKey, chain)
     vaultStore.configureScope({ identityKey, chain: 'test' })
-    await vaultStore.setMeta({ v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
+    await seedOwnMeta(owningWallet, { v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
     armSigner(mock, keys[0].serial)
     await depositToVault(owningWallet, ADMIN, 500_000)
 

@@ -16,9 +16,23 @@ let mockMeta: unknown = null
 let mockDrafts: unknown[] = []
 let mockQuarantines: unknown[] = []
 
+// XR-001: a stand-in admin-scoped wallet, wired to the (mocked) enrollKey /
+// resumeEnrollmentDraft / finalizeEnrollment / addVaultKey the same way the
+// real EnrollWizard wires the real ones — this file never exercises the real
+// metaAuthority.ts crypto (that is vaultKeyService.test.ts's job), only that
+// EnrollWizard actually calls useWallet() and forwards its wallet/originator
+// through to every one of those four calls.
+const mockPermissionsManager = { createHmac: jest.fn(), verifyHmac: jest.fn() }
+const mockAdminOriginator = 'admin.enrollwizard.test'
+const mockUseWallet = jest.fn(() => ({
+  managers: { permissionsManager: mockPermissionsManager },
+  adminOriginator: mockAdminOriginator
+}))
+
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
   useTheme: () => ({ colors: {} }),
+  useWallet: () => mockUseWallet(),
   i18n: { t: (k: string, o?: Record<string, unknown>) => mockT(k, o) },
   VaultError: jest.requireActual('../../core/services/vault/types').VaultError,
   VaultEnrollmentPartialError: class VaultEnrollmentPartialError
@@ -713,6 +727,7 @@ test('add-key mode runs one key step, calls addVaultKey and ends on the re-lock 
   await enrolOneKey(screen)
   expect(mockAddVaultKey).toHaveBeenCalledWith(
     expect.objectContaining({ serial: '12340003', nickname: 'Car' }),
+    expect.anything(),
     expect.anything()
   )
   expect(mockShowToast).toHaveBeenCalledWith('vault_key_added_toast', { type: 'success' })
@@ -753,6 +768,7 @@ test('a ready draft in add-key mode is written only after an explicit confirmati
   expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Key 3') }))
   expect(mockAddVaultKey).toHaveBeenCalledWith(
     expect.objectContaining({ serial: 'DRAFT001', nickname: 'Key 3' }),
+    expect.anything(),
     expect.anything()
   )
   // Once. The restore reads state the write itself changes, so a re-running

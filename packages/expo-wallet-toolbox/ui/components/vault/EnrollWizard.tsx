@@ -41,6 +41,7 @@ import { vaultErrorCopy } from './vaultErrorCopy'
 import { vaultKeyLabel } from './KeyChooser'
 import {
   useTheme,
+  useWallet,
   spacing,
   radii,
   typography,
@@ -62,7 +63,8 @@ import {
   type VaultEnrollmentQuarantine,
   type VaultScopeToken,
   type VaultErrorCode,
-  type EnrollPhase
+  type EnrollPhase,
+  type VaultWalletAuthority
 } from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
@@ -264,6 +266,23 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   if (!scopeTokenRef.current) scopeTokenRef.current = vaultStore.captureScopeToken()
   const scopeToken = scopeTokenRef.current
 
+  // XR-001: the admin-scoped wallet capability every draft/meta authority tag
+  // in this wizard is computed and verified with (metaAuthority.ts). The
+  // wizard is only ever reached once a wallet is built (VaultScreen gates
+  // every door into it), so a missing permissions manager here is treated as
+  // the same programmer error `pm as unknown as VaultWallet` casts elsewhere
+  // in the vault UI already assume, not a recoverable runtime state.
+  const { managers, adminOriginator } = useWallet()
+  const authority: VaultWalletAuthority | null = managers?.permissionsManager
+    ? { wallet: managers.permissionsManager as unknown as VaultWalletAuthority['wallet'], adminOriginator }
+    : null
+  const requireAuthority = useCallback((): VaultWalletAuthority => {
+    if (!authority) {
+      throw new VaultError('driver-unavailable', 'Wallet is not ready for a vault enrollment operation')
+    }
+    return authority
+  }, [authority])
+
   const [step, setStep] = useState<Step>(mode === 'enroll' ? 'intro' : 'key')
   const [sub, setSub] = useState<KeySub>('pin')
   const [ack, setAck] = useState(false)
@@ -375,7 +394,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       setBusy(true)
       setStepError(null)
       try {
-        await addVaultKey(record, scopeToken)
+        await addVaultKey(record, scopeToken, requireAuthority())
         clearKeyInputs()
         haptics.success()
         showToast(t('vault_key_added_toast'), { type: 'success' })
@@ -398,7 +417,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         setBusy(false)
       }
     },
-    [k, mode, onCancel, scopeToken]
+    [k, mode, onCancel, scopeToken, requireAuthority]
   )
 
   /**
@@ -574,6 +593,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       const known = [...metaKeys.map(r => r.serial), ...pending.map(r => r.serial)]
       try {
         const record = await enrollKey({
+          ...requireAuthority(),
           scopeToken,
           acknowledgeDedicatedPivApplication: true,
           pendingSerials: known,
@@ -702,7 +722,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         tapInFlight.current = false
       }
     },
-    [k, metaKeys, pending, newPin, newPuk, onCancel, pivAck, saveKey, scopeToken, reloadDraftLists]
+    [k, metaKeys, pending, newPin, newPuk, onCancel, pivAck, saveKey, scopeToken, reloadDraftLists, requireAuthority]
   )
 
   /** Resume only the non-mutating possession challenge for a protected draft.
@@ -719,6 +739,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       clearResetConsent()
       try {
         const record = await resumeEnrollmentDraft({
+          ...requireAuthority(),
           entry,
           scopeToken,
           onPhase: setPhase,
@@ -774,7 +795,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         tapInFlight.current = false
       }
     },
-    [onCancel, newPin, pinOk, pivAck, saveKey, scopeToken]
+    [onCancel, newPin, pinOk, pivAck, saveKey, scopeToken, requireAuthority]
   )
 
   // ── finish (enroll mode) ────────────────────────────────────────────
@@ -783,7 +804,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     setBusy(true)
     setStepError(null)
     try {
-      await finalizeEnrollment(pending, scopeToken)
+      await finalizeEnrollment(pending, scopeToken, requireAuthority())
       // No tone here (see useConfirmationSound): vaultDeposit/vaultWithdraw
       // name an actual transfer, and enrolling isn't one.
       haptics.success()
@@ -795,7 +816,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     } finally {
       setBusy(false)
     }
-  }, [pending, busy, scopeToken])
+  }, [pending, busy, scopeToken, requireAuthority])
 
   const addAnother = useCallback(() => {
     setStepError(null)

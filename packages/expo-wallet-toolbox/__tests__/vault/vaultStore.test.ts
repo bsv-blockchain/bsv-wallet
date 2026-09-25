@@ -434,3 +434,85 @@ describe('vaultStore v6', () => {
     expect(await vaultStore.getMeta()).toEqual(META)
   })
 })
+
+// XR-002 / XR-001: the wallet-root authority tag stored beside VaultMeta and
+// beside a `ready` enrollment draft (metaAuthority.ts computes the actual
+// HMAC; this file only exercises vaultStore's storage/plumbing contract with
+// a fake tagger standing in for a real wallet call).
+describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
+  it('getMetaTag is null until a tagger is supplied, and reflects exactly the tagger-produced value after', async () => {
+    await vaultStore.createEnrollment(META)
+    expect(await vaultStore.getMetaTag()).toBeNull()
+
+    const tagger = jest.fn(async () => 'tag-for-next')
+    const added = await vaultStore.addKey(key(3), undefined, tagger)
+    expect(tagger).toHaveBeenCalledWith(added)
+    expect(await vaultStore.getMetaTag()).toBe('tag-for-next')
+  })
+
+  it('a mutation performed WITHOUT a tagger leaves a previously-stored tag exactly as it was, now stale for the new content', async () => {
+    await vaultStore.createEnrollment(META, undefined, async () => 'first-tag')
+    expect(await vaultStore.getMetaTag()).toBe('first-tag')
+
+    // renameKey with no tagger: meta changes (revision bumps, nickname
+    // changes) but the on-file tag is left untouched — detecting that it no
+    // longer matches the new content is verifyVaultMetaAuthorityTag's job
+    // (transfers.ts), never vaultStore's.
+    await vaultStore.renameKey(key(1).serial, 'Renamed')
+    expect(await vaultStore.getMetaTag()).toBe('first-tag')
+  })
+
+  it('a tagger that rejects leaves the write completely uncommitted — no "advanced but untagged" partial state', async () => {
+    await vaultStore.createEnrollment(META)
+    const before = await vaultStore.getMeta()
+    const tagger = jest.fn(async () => {
+      throw new Error('wallet refused')
+    })
+    await expect(vaultStore.addKey(key(3), undefined, tagger)).rejects.toThrow('wallet refused')
+    expect(await vaultStore.getMeta()).toEqual(before)
+    expect(await vaultStore.getMetaTag()).toBeNull()
+  })
+
+  it('clear() removes the stored authority tag along with the metadata', async () => {
+    await vaultStore.createEnrollment(META, undefined, async () => 'a-tag')
+    expect(await vaultStore.getMetaTag()).toBe('a-tag')
+    await vaultStore.clear()
+    expect(await vaultStore.getMetaTag()).toBeNull()
+  })
+
+  it('preserveEnrollmentDraft tags a `ready` entry but never a lower-assurance one', async () => {
+    const scopeToken = vaultStore.captureScopeToken()
+    const tagger = jest.fn(async (record: VaultKeyRecord) => `tag-${record.serial}`)
+
+    await vaultStore.preserveEnrollmentDraft({ record: key(1), assurance: 'challenge-required' }, scopeToken, tagger)
+    expect(tagger).not.toHaveBeenCalled()
+    expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBeNull()
+
+    await vaultStore.preserveEnrollmentDraft({ record: key(1), assurance: 'ready' }, scopeToken, tagger)
+    expect(tagger).toHaveBeenCalledWith(key(1))
+    expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBe(`tag-${key(1).serial}`)
+  })
+
+  it('discardEnrollmentDraft removes that serial\'s stored draft tag', async () => {
+    const scopeToken = vaultStore.captureScopeToken()
+    await vaultStore.preserveEnrollmentDraft(
+      { record: key(1), assurance: 'ready' },
+      scopeToken,
+      async () => 'a-draft-tag'
+    )
+    expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBe('a-draft-tag')
+    await vaultStore.discardEnrollmentDraft(key(1).serial, scopeToken)
+    expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBeNull()
+  })
+
+  it('clearEnrollmentDrafts wipes every stored draft tag', async () => {
+    const scopeToken = vaultStore.captureScopeToken()
+    await vaultStore.preserveEnrollmentDraft(
+      { record: key(1), assurance: 'ready' },
+      scopeToken,
+      async () => 'a-draft-tag'
+    )
+    await vaultStore.clearEnrollmentDrafts(scopeToken)
+    expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBeNull()
+  })
+})

@@ -199,6 +199,37 @@ test.each(['vault marker', 'vault descriptor'] as const)(
   }
 )
 
+// XR-001 / XR-002: metaAuthority.ts computes every vault-meta and
+// enrollment-draft integrity tag under this namespace. A connected/paired
+// caller must never be able to mint or verify one itself — see
+// metaAuthority.ts's header and guard.ts's VAULT_PROTOCOL_NAMES.
+test.each([
+  ['createHmac', [2, 'vault meta']],
+  ['verifyHmac', [2, 'vault meta']],
+  ['getPublicKey', [2, ' VAULT META ']],
+  ['createHmac', [2, 'vault meta', 'ignored by derivation']]
+] as const)(
+  'XR-001/XR-002: reserves the Vault meta authority-tag protocol from external %s calls even without privileged (%p)',
+  async (method, protocolID) => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await expect(
+      (guarded[method] as any)({ protocolID, keyID: 'test:meta', counterparty: 'self' }, 'evil.com')
+    ).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(calls.find(call => call.method === method)).toBeUndefined()
+  }
+)
+
+test('XR-001/XR-002: allows the admin originator through the reserved vault meta protocol', async () => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+  await guarded.createHmac(
+    { protocolID: [2, 'vault meta'], keyID: 'test:meta', counterparty: 'self', data: [1] } as any,
+    ADMIN
+  )
+  expect(calls.find(c => c.method === 'createHmac')).toBeDefined()
+})
+
 test('allows the Vault UI to derive its salt public key', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)

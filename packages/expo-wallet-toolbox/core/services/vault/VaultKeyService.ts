@@ -22,6 +22,14 @@
  * SECURITY: never log the PIN. Public keys and serials are public data.
  */
 import { getVaultDriver } from './driver'
+import { enrolledSerialRegistry, forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
+import {
+  computeVaultDraftAuthorityTag,
+  computeVaultMetaAuthorityTag,
+  verifyVaultDraftAuthorityTag,
+  verifyVaultMetaAuthorityTag,
+  type HmacCapableWallet
+} from './metaAuthority'
 import { compressPubkey, type VaultInstructions } from './r1comb'
 import { randomBytes } from './random'
 import { withKeySession, VaultSessionGuard } from './session'
@@ -38,6 +46,53 @@ import {
 } from './vaultStore'
 import { Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
+
+/**
+ * XR-001 / XR-002: the admin-scoped wallet capability every meta/draft-tag
+ * write and verification in this module needs. Callers pass the SAME
+ * admin-scoped wallet + `adminOriginator` transfers.ts already uses (see
+ * guardVaultAccess) — never a site-scoped WalletClient, which forwards
+ * createHmac/verifyHmac for any non-reserved namespace to the underlying
+ * wallet (see guard.ts's VAULT_PROTOCOL_NAMES / metaAuthority.ts's header).
+ */
+export interface VaultWalletAuthority {
+  wallet: HmacCapableWallet
+  adminOriginator: string
+}
+
+/** Re-verify `existing`'s own wallet-root tag before trusting it as the
+ * basis for a freshly, validly tagged `next` (addKey only APPENDS to
+ * `meta.keys`, so a forged `existing` would otherwise "launder" straight
+ * through the moment the legitimate user adds one more, genuinely their
+ * own, key — see vaultStore.addKey's laundering caveat).
+ *
+ * Unlike transfers.ts's requireAuthenticatedMeta, this has no on-chain
+ * fallback: VaultKeyService has no chain-scanning capability, and inventing
+ * one here only to duplicate transfers.ts's would need this module to import
+ * from it, which already imports FROM this module (metaFromVerifiedOutputs).
+ * A genuinely untagged-but-legitimate meta (every enrollment created before
+ * this fix shipped) is recovered instead through the existing VaultScreen
+ * reload() → recoverVaultMetaFromOutputs → restoreVerifiedMeta path, which
+ * DOES have chain access and tags the result going forward — the "safer
+ * route" this refusal directs the user to rather than ever trusting
+ * `existing` on sight. */
+async function requireTaggedMeta(
+  authority: VaultWalletAuthority,
+  meta: VaultMeta,
+  scopeToken: VaultScopeToken
+): Promise<void> {
+  vaultStore.assertScopeToken(scopeToken)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+  const tag = await vaultStore.getMetaTag(scopeToken)
+  const ok = await verifyVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, meta, scope, tag)
+  if (!ok) {
+    throw new VaultError(
+      'template-invalid',
+      'Vault enrollment metadata could not be authenticated; open the vault screen to re-verify it before adding a key'
+    )
+  }
+}
 
 export const VAULT_SLOT = 0x82
 
@@ -323,6 +378,11 @@ export async function enrollKey(args: {
   /** Explicit consent to destroy and replace an existing key in Vault's fixed
    * slot 0x82. Other occupied PIV slots remain a hard failure. */
   replaceOccupiedVaultSlot?: boolean
+  /** XR-001: the admin-scoped wallet capability used to tag this run's
+   * `ready` draft the instant it is written, so a later SecureStore-only
+   * attacker cannot forge an equivalent one. */
+  wallet: HmacCapableWallet
+  adminOriginator: string
 }): Promise<VaultKeyRecord> {
   const driver = getVaultDriver()
   if (!driver) throw new VaultError('driver-unavailable')
@@ -644,7 +704,11 @@ export async function enrollKey(args: {
         if (!signatureProvesKey(pubkey, challenge, signature)) {
           throw new VaultError('wrong-key', 'Generated YubiKey did not prove possession of its private key')
         }
-        await vaultStore.preserveEnrollmentDraft({ record: generated, assurance: 'ready' }, scopeToken)
+        const scope = vaultStore.getScope()
+        if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+        await vaultStore.preserveEnrollmentDraft({ record: generated, assurance: 'ready' }, scopeToken, record =>
+          computeVaultDraftAuthorityTag(args.wallet, args.adminOriginator, record, scope)
+        )
         assertSessionCurrent(session, scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('key-protected', e, generated, true)
@@ -683,6 +747,10 @@ export async function resumeEnrollmentDraft(args: {
   getPin: () => Promise<string>
   nfcMessage?: string
   scopeToken?: VaultScopeToken
+  /** XR-001: used both to verify a `ready` draft's existing tag before
+   * trusting its fast path, and to tag it again after a fresh challenge. */
+  wallet: HmacCapableWallet
+  adminOriginator: string
 }): Promise<VaultKeyRecord> {
   if (!isVaultKeyRecord(args.entry.record)) {
     throw new VaultError('template-invalid', 'Invalid enrollment recovery handle')
@@ -709,8 +777,20 @@ export async function resumeEnrollmentDraft(args: {
   }
   if (stored.assurance === 'ready') {
     vaultStore.assertScopeToken(scopeToken)
-    args.onPhase('done')
-    return { ...stored.record }
+    const scope = vaultStore.getScope()
+    const tag = scope ? await vaultStore.getEnrollmentDraftTag(stored.record.serial, scopeToken) : null
+    const authentic =
+      scope !== null && (await verifyVaultDraftAuthorityTag(args.wallet, args.adminOriginator, stored.record, scope, tag))
+    if (authentic) {
+      args.onPhase('done')
+      return { ...stored.record }
+    }
+    // XR-001: an unverifiable 'ready' draft — never tagged (every draft
+    // written before this fix shipped) or a forged SecureStore-only write —
+    // is never trusted on sight. Fall through to the same live driver
+    // challenge the 'challenge-required' case below already requires: a
+    // legitimate card can simply re-tap and prove itself again; an attacker
+    // without the physical key cannot.
   }
 
   args.onPhase('pin-check')
@@ -752,7 +832,11 @@ export async function resumeEnrollmentDraft(args: {
       () => args.onPhase('connecting'),
       { nfcMessage: args.nfcMessage }
     )
-    await vaultStore.preserveEnrollmentDraft({ record: stored.record, assurance: 'ready' }, scopeToken)
+    const scope = vaultStore.getScope()
+    if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+    await vaultStore.preserveEnrollmentDraft({ record: stored.record, assurance: 'ready' }, scopeToken, record =>
+      computeVaultDraftAuthorityTag(args.wallet, args.adminOriginator, record, scope)
+    )
     vaultStore.assertScopeToken(scopeToken)
   } catch (e) {
     if (e instanceof VaultError && e.code === 'scope-changed') {
@@ -891,13 +975,30 @@ export function metaFromVerifiedOutputs(outputs: readonly VerifiedVaultRecoveryO
   return meta
 }
 
+/**
+ * XR-001: a persisted 'ready' entry is data an attacker who can only write
+ * SecureStore could fabricate outright — matching serial/slot/pubkey/
+ * enrolledAt is a SHAPE check, never proof anyone tapped a real card. Every
+ * record this function accepts must ALSO carry a wallet-root authority tag
+ * (metaAuthority.ts) that verifies against the SAME record: a tag computed
+ * by legitimate code (enrollKey / resumeEnrollmentDraft, immediately after a
+ * live driver.signEcdsa challenge) the moment it wrote 'ready', which a
+ * storage-only attacker cannot reproduce without the real wallet's
+ * admin-scoped createHmac. Reuses the existing 'key-not-adopted' refusal —
+ * from the caller's perspective an unauthenticated 'ready' draft is exactly
+ * as insufficient as a missing one.
+ */
 async function requireReadyEnrollmentDrafts(
   records: readonly VaultKeyRecord[],
-  scopeToken: VaultScopeToken
+  scopeToken: VaultScopeToken,
+  authority: VaultWalletAuthority
 ): Promise<void> {
+  vaultStore.assertScopeToken(scopeToken)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
   const drafts = await vaultStore.getEnrollmentDrafts(scopeToken)
   for (const record of records) {
-    const ready = drafts.some(
+    const readyDraft = drafts.find(
       draft =>
         draft.assurance === 'ready' &&
         draft.record.serial === record.serial &&
@@ -905,7 +1006,11 @@ async function requireReadyEnrollmentDrafts(
         draft.record.pubkey === record.pubkey &&
         draft.record.enrolledAt === record.enrolledAt
     )
-    if (!ready) {
+    const tag = readyDraft ? await vaultStore.getEnrollmentDraftTag(record.serial, scopeToken) : null
+    const authentic =
+      readyDraft !== undefined &&
+      (await verifyVaultDraftAuthorityTag(authority.wallet, authority.adminOriginator, record, scope, tag))
+    if (!authentic) {
       throw new VaultError(
         'key-not-adopted',
         `Key ${record.serial} has not completed its protected live enrollment challenge`
@@ -925,7 +1030,11 @@ async function requireReadyEnrollmentDrafts(
  * existing code, whose copy the wizard already renders with the serial it
  * carries — rather than minting a new VaultErrorCode that would need its own
  * copy in every locale. */
-export async function finalizeEnrollment(records: VaultKeyRecord[], scopeToken?: VaultScopeToken): Promise<void> {
+export async function finalizeEnrollment(
+  records: VaultKeyRecord[],
+  scopeToken: VaultScopeToken | undefined,
+  authority: VaultWalletAuthority
+): Promise<void> {
   if (records.length < VAULT_MIN_KEYS) {
     throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${records.length} given`)
   }
@@ -949,17 +1058,29 @@ export async function finalizeEnrollment(records: VaultKeyRecord[], scopeToken?:
       { serial: existing.keys[0].serial }
     )
   }
-  await requireReadyEnrollmentDrafts(records, token)
-  await vaultStore.createEnrollment(
-    {
-      v: 6,
-      vaultId: Utils.toHex(randomBytes(32)),
-      revision: 1,
-      createdAt: Date.now(),
-      keys: records
-    },
-    token
+  // XR-001: every record must carry a live-challenge-backed, wallet-tagged
+  // 'ready' draft — not merely a structurally matching one.
+  await requireReadyEnrollmentDrafts(records, token, authority)
+  vaultStore.assertScopeToken(token)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+  const meta: VaultMeta = {
+    v: 6,
+    vaultId: Utils.toHex(randomBytes(32)),
+    revision: 1,
+    createdAt: Date.now(),
+    keys: records
+  }
+  // XR-002: a fresh enrollment has no prior `current` meta to launder — see
+  // vaultStore.createEnrollment's own comment — so tagging `meta` here is
+  // always safe.
+  await vaultStore.createEnrollment(meta, token, next =>
+    computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope)
   )
+  // XQ-014: record every committed serial in the device-wide registry
+  // (enrolledSerialRegistry.ts) — best-effort, never fails the enrollment
+  // that already committed.
+  await Promise.all(serials.map(serial => enrolledSerialRegistry.record(serial)))
   // Drafts are public recovery handles, not authority. A cleanup failure must
   // not report enrollment failure after the authoritative write committed.
   try {
@@ -971,7 +1092,11 @@ export async function finalizeEnrollment(records: VaultKeyRecord[], scopeToken?:
 
 /** Append one key to an enrolled vault (spec §3.4 "Add key"). vaultStore
  * enforces the duplicate-serial and five-key rules. */
-export async function addVaultKey(record: VaultKeyRecord, scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+export async function addVaultKey(
+  record: VaultKeyRecord,
+  scopeToken: VaultScopeToken | undefined,
+  authority: VaultWalletAuthority
+): Promise<VaultMeta> {
   if (!isVaultKeyRecord(record)) throw new VaultError('template-invalid', 'Invalid vault key record')
   const token = scopeToken ?? vaultStore.captureScopeToken()
   const existing = await vaultStore.getMeta(token)
@@ -982,8 +1107,19 @@ export async function addVaultKey(record: VaultKeyRecord, scopeToken?: VaultScop
   if (existing.keys.some(key => key.serial === record.serial || key.pubkey === record.pubkey)) {
     throw new VaultError('key-already-enrolled', record.serial, undefined, { serial: record.serial })
   }
-  await requireReadyEnrollmentDrafts([record], token)
-  const meta = await vaultStore.addKey(record, token)
+  // XR-002: verify `existing`'s own tag BEFORE trusting it as the basis for
+  // a freshly tagged `next` — see requireTaggedMeta's laundering caveat.
+  await requireTaggedMeta(authority, existing, token)
+  // XR-001: the record being added must itself carry a live-challenge-backed
+  // 'ready' draft.
+  await requireReadyEnrollmentDrafts([record], token, authority)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+  const meta = await vaultStore.addKey(record, token, next =>
+    computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope)
+  )
+  // XQ-014: record the newly committed serial device-wide.
+  await enrolledSerialRegistry.record(record.serial)
   try {
     await vaultStore.consumeEnrollmentDrafts([record.serial], token)
   } catch (error) {
@@ -996,5 +1132,18 @@ export async function addVaultKey(record: VaultKeyRecord, scopeToken?: VaultScop
  * §3.4); the keys themselves stay on the YubiKeys. */
 export async function disableVault(scopeToken?: VaultScopeToken): Promise<void> {
   const token = scopeToken ?? vaultStore.captureScopeToken()
+  const existing = await vaultStore.getMeta(token)
   await vaultStore.clear(token)
+  // XQ-014: a disabled vault's keys are no longer committed under THIS
+  // chain — forget any of them the device-wide registry no longer needs to
+  // remember, i.e. every one not still enrolled under another chain of this
+  // SAME identity (vaultStore.enrolledSerialsAcrossChains). See
+  // enrolledSerialRegistry's header for the cross-identity residual this
+  // does not resolve.
+  if (existing?.keys.length) {
+    await forgetSerialsNoLongerEnrolledForIdentity(
+      existing.keys.map(key => key.serial),
+      () => vaultStore.enrolledSerialsAcrossChains(token)
+    )
+  }
 }

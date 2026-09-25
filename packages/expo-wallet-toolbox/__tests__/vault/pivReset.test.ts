@@ -66,6 +66,7 @@ import * as SecureStore from 'expo-secure-store'
 import { Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { setMockDriver } from '../../core/services/vault/driver'
+import { enrolledSerialRegistry } from '../../core/services/vault/enrolledSerialRegistry'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { resetPivApplication, type PivResetPhase } from '../../core/services/vault/pivReset'
 import { vaultStore, VaultKeyRecord, VaultScopeChain } from '../../core/services/vault/vaultStore'
@@ -255,16 +256,59 @@ test('a corrupt key list on any chain fails closed rather than reporting an empt
   expectUntouched(spies)
 })
 
-test('another wallet identity is not consulted — that residual is guard 3, not this one', async () => {
-  // Documents the known limitation: SecureStore cannot be enumerated, so a
-  // second identity's vault is invisible here. The card's own occupied slot is
-  // what stops the wipe; see the slot-0x82 tests below.
+test('another wallet identity is not consulted by enrolledSerialsAcrossChains alone — that residual is now enrolledSerialRegistry, not guard 3', async () => {
+  // Documents the identity-scoped function's own limitation: SecureStore
+  // cannot be enumerated, so a second identity's vault meta is invisible to
+  // THIS function. A raw vaultStore.setMeta (unlike a real finalizeEnrollment/
+  // addVaultKey commit) also never touches the device-wide registry, so this
+  // specific write is invisible to resetPivApplication's OTHER check too —
+  // see the XQ-014 tests below for the registry actually closing the gap.
   const active = vaultStore.getScope()!
   vaultStore.configureScope({ identityKey: OTHER_IDENTITY, chain: 'main' })
   await vaultStore.setMeta(meta([rec(SERIAL), rec('MOCK-2', 2)]))
   vaultStore.configureScope(active)
 
   await expect(vaultStore.enrolledSerialsAcrossChains()).resolves.toEqual([])
+})
+
+// XQ-014: enrolledSerialRegistry.record(serial) is what every real
+// finalizeEnrollment/addVaultKey commit calls, under ANY wallet identity.
+// Seeding it directly here stands in for "a different identity already
+// committed this serial" without needing that whole ceremony.
+test('XQ-014: a serial committed under a DIFFERENT wallet identity is refused device-wide, unconditionally', async () => {
+  await enrolledSerialRegistry.record(SERIAL)
+  const spies = cardContact()
+
+  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject(
+    { code: 'key-already-enrolled', details: { serial: SERIAL } }
+  )
+  expectUntouched(spies)
+})
+
+test('XQ-014: acknowledgeUnrecognizedVaultKey cannot override a device-wide registry refusal', async () => {
+  await enrolledSerialRegistry.record(SERIAL)
+  const spies = cardContact()
+
+  await expect(
+    resetPivApplication({
+      serial: SERIAL,
+      acknowledgeDestroysAllCredentials: true,
+      acknowledgeUnrecognizedVaultKey: true
+    })
+  ).rejects.toMatchObject({ code: 'key-already-enrolled' })
+  expectUntouched(spies)
+})
+
+test('XQ-014: a serial not in the device-wide registry (or already forgotten) is unaffected by it', async () => {
+  await enrolledSerialRegistry.record(OTHER)
+  await enrolledSerialRegistry.forget(OTHER)
+  mock.occupySlot()
+  await resetPivApplication({
+    serial: SERIAL,
+    acknowledgeDestroysAllCredentials: true,
+    acknowledgeUnrecognizedVaultKey: true
+  })
+  expect(await mock.readVaultPublicKey(SERIAL)).toBeNull()
 })
 
 test('refuses a serial listed in refuseSerials, before touching the card', async () => {
