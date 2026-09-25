@@ -148,6 +148,64 @@ describe('pending_aborts', () => {
     await queuePendingAbort(storage, { reference: 'ref-1', originator: 'admin.com' })
     expect(await loadPendingAborts(storage)).toHaveLength(1)
   })
+
+  // XR-088. queuePendingAbort and replayPendingAborts were each a bare
+  // load-then-setKeyValue on the SAME PENDING_ABORTS_KEY, with no lock
+  // between them (unlike core/localpay/pending.ts's withQueueLock, which
+  // this codebase already uses for exactly this shape of race). A queue that
+  // starts while a replay is still in flight would build its own read from
+  // whatever was on disk before replay's read, and lose one of the two
+  // writes silently, whichever landed last.
+  it('XR-088: a queue that starts while a replay is in flight does not lose either reference', async () => {
+    const map = new Map<string, string>()
+    map.set(PENDING_ABORTS_KEY, JSON.stringify([{ reference: 'ref-old', originator: 'admin.com' }]))
+
+    let replayReachedWrite!: () => void
+    const replayAtWrite = new Promise<void>(r => {
+      replayReachedWrite = r
+    })
+    let releaseReplayWrite!: () => void
+    const replayWriteGate = new Promise<void>(r => {
+      releaseReplayWrite = r
+    })
+    let writes = 0
+
+    const storage = {
+      map,
+      getKeyValue: async (k: string) => map.get(k),
+      setKeyValue: async (k: string, v: string) => {
+        writes++
+        if (writes === 1) {
+          // This is replay's own write — pause it right here, the same
+          // "before the final setKeyValue" window the row's own
+          // regression_test_plan names.
+          replayReachedWrite()
+          await replayWriteGate
+        }
+        map.set(k, v)
+      }
+    }
+
+    const wallet = { abortAction: jest.fn().mockResolvedValue({ aborted: true }) }
+
+    const replay = replayPendingAborts({ wallet, storage })
+    await replayAtWrite
+
+    // Not awaited yet: under the fix this call must queue behind the
+    // still-in-flight replay and only run once the gate below is released —
+    // awaiting it here would hang the fixed version forever.
+    const queued = queuePendingAbort(storage, { reference: 'ref-new', originator: 'admin.com' })
+
+    releaseReplayWrite()
+    await replay
+    await queued
+
+    // Not just "ref-new survives" — 'ref-old' aborted successfully and must
+    // actually be gone, not resurrected by a queue that read a stale
+    // snapshot from before replay's write landed.
+    const all = JSON.parse(map.get(PENDING_ABORTS_KEY)!) as { reference: string }[]
+    expect(all.map(x => x.reference)).toEqual(['ref-new'])
+  })
 })
 
 describe('declined_abort_watch', () => {

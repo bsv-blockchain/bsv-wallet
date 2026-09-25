@@ -1739,7 +1739,15 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           // hand-over comes first, unconditionally, so a face-to-face payment
           // never waits on a network.
           session.asset ? mandala.runtime?.tokenBuildDeps : undefined,
-          note
+          note,
+          // XR-088: a build failure whose own release also fails used to be
+          // logged only — no durable retry record at all — unlike the
+          // decline path's `queueFailedAbort` a few lines below. Same queue,
+          // same replay on the next wallet build.
+          async reference => {
+            if (!storage) return
+            await queuePendingAbort(storage, { reference, originator: adminOriginator })
+          }
         )
       } catch (e) {
         // Build errors are wallet errors and must keep their own message. A

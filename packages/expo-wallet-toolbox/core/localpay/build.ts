@@ -243,7 +243,17 @@ export async function buildPaymentFrame(
   /** The payer's note. Becomes the action's description in place of the fixed
    * fallback, and rides on the frame so the payee's own activity row can show
    * it too. */
-  note?: string
+  note?: string,
+  /**
+   * XR-088: persists a reference whose own release (inside
+   * `releasingOnFailure`, below) failed after a build error, so it can be
+   * retried on the next wallet build instead of only being logged. Optional
+   * so a caller that has not wired it keeps today's log-only behaviour
+   * exactly — this is additive hardening, not a new requirement. The real
+   * app wires it to the same `queuePendingAbort` its decline path
+   * (`finalizeDelivery`) already uses.
+   */
+  queueFailedAbort?: (reference: string) => Promise<void>
 ): Promise<BuiltPayment> {
   if (!isRequestableAmount(amount)) {
     throw new Error('amount must be a positive whole number of satoshis')
@@ -255,7 +265,7 @@ export async function buildPaymentFrame(
     if (session.amount !== undefined && session.amount !== amount) {
       throw new Error('amount does not match the payee’s request')
     }
-    return buildTokenPaymentFrame(wallet, session, session.asset, originator, amount, token, note)
+    return buildTokenPaymentFrame(wallet, session, session.asset, originator, amount, token, note, queueFailedAbort)
   }
   // A payee that named a figure is stating a binding term of the request, and
   // its settle path refuses anything else. Catching the disagreement here — on
@@ -324,7 +334,7 @@ export async function buildPaymentFrame(
 
   const reference = result.signableTransaction?.reference
 
-  return await releasingOnFailure(wallet, reference, originator, async () => {
+  return await releasingOnFailure(wallet, reference, originator, queueFailedAbort, async () => {
     // With signAndProcess disabled, createAction returns an unsigned
     // `signableTransaction` rather than a final `tx`. We have no caller-supplied
     // inputs — all inputs are wallet-funded — so finalize by signing with empty
@@ -383,6 +393,8 @@ async function releasingOnFailure<T>(
   wallet: PayingWallet,
   reference: string | undefined,
   originator: string,
+  /** XR-088: see `buildPaymentFrame`'s own doc for this same parameter. */
+  queueFailedAbort: ((reference: string) => Promise<void>) | undefined,
   steps: () => Promise<T>
 ): Promise<T> {
   try {
@@ -394,6 +406,12 @@ async function releasingOnFailure<T>(
         if (result?.aborted === false) throw new Error('abortAction returned aborted:false')
       } catch (abortError) {
         console.warn('[localpay] could not release the failed build:', messageOf(abortError))
+        // Best-effort, same as finalizeDelivery's decline path: a failure to
+        // queue must not mask the original build error this function is
+        // about to rethrow.
+        if (queueFailedAbort) {
+          await queueFailedAbort(reference).catch(() => undefined)
+        }
       }
     }
     throw e
@@ -502,7 +520,9 @@ async function buildTokenPaymentFrame(
   originator: string,
   amount: number,
   deps: TokenBuildDeps,
-  note?: string
+  note?: string,
+  /** XR-088: see `buildPaymentFrame`'s own doc for this same parameter. */
+  queueFailedAbort?: (reference: string) => Promise<void>
 ): Promise<BuiltPayment> {
   if (!wallet.listOutputs) throw new Error('this wallet cannot list token outputs')
   if (!wallet.createSignature) throw new Error('this wallet cannot sign token inputs')
@@ -612,7 +632,7 @@ async function buildTokenPaymentFrame(
   if (!signable?.tx) throw new Error('createAction returned no signable token transaction')
   const signableTx = signable.tx
 
-  return await releasingOnFailure(wallet, signable.reference, originator, async () => {
+  return await releasingOnFailure(wallet, signable.reference, originator, queueFailedAbort, async () => {
     const unsigned = Transaction.fromBEEF(signableTx)
 
     // Input order is caller order — `randomizeOutputs` shuffles outputs only, and

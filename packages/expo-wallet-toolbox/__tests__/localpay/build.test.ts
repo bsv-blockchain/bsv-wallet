@@ -275,6 +275,83 @@ describe('buildPaymentFrame', () => {
     )
     expect(w.createAction).not.toHaveBeenCalled()
   })
+
+  // XR-088. `createAction` reserved this reference's inputs before any of these
+  // failures happened, and TaskFailAbandoned never sweeps a signed `nosend`
+  // action — the 2026-09-16 incident. Its own abortAction call failing used to
+  // only console.warn and rethrow the original build error, leaving no durable
+  // retry record at all: releasingOnFailure now also queues the reference for
+  // replay when supplied a queueFailedAbort dependency, same as
+  // finalizeDelivery's decline path already does.
+  describe('XR-088: a failed release during the build is durably queued for retry', () => {
+    it('queues the reference when the build fails AND the release itself fails', async () => {
+      const w = walletStub()
+      w.signAction.mockRejectedValue(new Error('signing blew up'))
+      w.abortAction.mockRejectedValue(new Error('abort also failed'))
+      const queueFailedAbort = jest.fn().mockResolvedValue(undefined)
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await expect(
+        buildPaymentFrame(w as never, session(), 'admin.com', 777, undefined, undefined, queueFailedAbort)
+      ).rejects.toThrow('signing blew up')
+
+      expect(queueFailedAbort).toHaveBeenCalledWith('ref-123')
+      warn.mockRestore()
+    })
+
+    it('also queues when abortAction resolves aborted:false rather than throwing', async () => {
+      const w = walletStub()
+      w.signAction.mockRejectedValue(new Error('signing blew up'))
+      w.abortAction.mockResolvedValue({ aborted: false })
+      const queueFailedAbort = jest.fn().mockResolvedValue(undefined)
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await expect(
+        buildPaymentFrame(w as never, session(), 'admin.com', 777, undefined, undefined, queueFailedAbort)
+      ).rejects.toThrow('signing blew up')
+
+      expect(queueFailedAbort).toHaveBeenCalledWith('ref-123')
+      warn.mockRestore()
+    })
+
+    it('does not queue anything when the release itself succeeds', async () => {
+      const w = walletStub()
+      w.signAction.mockRejectedValue(new Error('signing blew up'))
+      const queueFailedAbort = jest.fn().mockResolvedValue(undefined)
+
+      await expect(
+        buildPaymentFrame(w as never, session(), 'admin.com', 777, undefined, undefined, queueFailedAbort)
+      ).rejects.toThrow('signing blew up')
+
+      expect(queueFailedAbort).not.toHaveBeenCalled()
+    })
+
+    it('never throws from a queueFailedAbort failure, and still reports the original build error', async () => {
+      const w = walletStub()
+      w.signAction.mockRejectedValue(new Error('signing blew up'))
+      w.abortAction.mockRejectedValue(new Error('abort also failed'))
+      const queueFailedAbort = jest.fn().mockRejectedValue(new Error('storage down'))
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await expect(
+        buildPaymentFrame(w as never, session(), 'admin.com', 777, undefined, undefined, queueFailedAbort)
+      ).rejects.toThrow('signing blew up')
+
+      warn.mockRestore()
+    })
+
+    it('is a no-op for a caller that omits queueFailedAbort — only logs, exactly as before', async () => {
+      const w = walletStub()
+      w.signAction.mockRejectedValue(new Error('signing blew up'))
+      w.abortAction.mockRejectedValue(new Error('abort also failed'))
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await expect(buildPaymentFrame(w as never, session(), 'admin.com', 777)).rejects.toThrow('signing blew up')
+
+      expect(warn).toHaveBeenCalledWith('[localpay] could not release the failed build:', 'abort also failed')
+      warn.mockRestore()
+    })
+  })
 })
 
 describe('broadcastPayment', () => {
