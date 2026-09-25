@@ -827,7 +827,13 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       const db = storage?.sqliteDb
       if (!db) return
       const rows = await findOfflineActions(db, {
-        status: ['queued', 'posting', 'rejected', 'parked'],
+        // 'import_hold' included (XR-085 review follow-up) so a raw-import
+        // quarantined row reads as "Held (imported)" via txStatusView
+        // instead of falling through to its raw, uninformative status.
+        // Display-only here: nothing below acts on the row by this status
+        // (see ActivityRow's own parked/queued/posting gates), so this
+        // cannot reopen the automatic-drain bug XR-085 closed.
+        status: ['queued', 'posting', 'rejected', 'parked', 'import_hold'],
         ...(walletUserId === null ? {} : { userId: walletUserId })
       })
       setOfflineByTxid(new Map(rows.map(r => [r.txid, r])))
