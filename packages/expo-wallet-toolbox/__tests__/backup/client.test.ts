@@ -16,6 +16,7 @@ import {
   withBackupRequestTimeout
 } from '../../core/backup/client'
 import { backupPseudonym } from '../../core/backup/derive'
+import { MAX_RESTORE_RESPONSE_BYTES } from '../../core/backup/constants'
 
 const KEY = new PrivateKey(9).toArray('be', 32)
 const DEVICE = 'a'.repeat(32)
@@ -106,6 +107,42 @@ describe('BackupClient bodies', () => {
   })
 
   it('returns blob ciphertext as bytes', async () => {
+    const { client } = clientWith(() => new Response(new Uint8Array([9, 8, 7]), { status: 200 }))
+    expect(Array.from(await client.blob(DEVICE, 1, 1))).toEqual([9, 8, 7])
+  })
+})
+
+describe('BackupClient response size cap', () => {
+  it('XR-013: rejects a response whose declared length exceeds the restore cap, before ever reading its body', async () => {
+    // A real transport would still be buffering the body when this resolves (see
+    // withBackupRequestTimeout's own docstring) — the point of the cap is to refuse
+    // BEFORE that read is ever attempted, not to bound it afterwards.
+    const bodyRead = jest.fn(() => new Promise<ArrayBuffer>(() => {}))
+    const response = new Response(new Uint8Array([1]), {
+      status: 200,
+      headers: { 'Content-Length': String(MAX_RESTORE_RESPONSE_BYTES + 1) }
+    })
+    response.arrayBuffer = bodyRead
+    const { client } = clientWith(() => response)
+
+    await expect(client.blob(DEVICE, 1, 1)).rejects.toThrow(/too large|restore cap/i)
+    expect(bodyRead).not.toHaveBeenCalled()
+  })
+
+  it('allows a response whose declared length is within the cap', async () => {
+    const response = new Response(new Uint8Array([9, 8, 7]), {
+      status: 200,
+      headers: { 'Content-Length': '3' }
+    })
+    const { client } = clientWith(() => response)
+
+    expect(Array.from(await client.blob(DEVICE, 1, 1))).toEqual([9, 8, 7])
+  })
+
+  it('lets a response through when no Content-Length is declared at all', async () => {
+    // Documented residual gap: React Native's fetch has no way to bound a body that never
+    // declares its own length (see MAX_RESTORE_RESPONSE_BYTES's own docs) — this merely
+    // confirms the new check does not regress the ordinary no-header case.
     const { client } = clientWith(() => new Response(new Uint8Array([9, 8, 7]), { status: 200 }))
     expect(Array.from(await client.blob(DEVICE, 1, 1))).toEqual([9, 8, 7])
   })

@@ -1,5 +1,6 @@
 import { Hash, PrivateKey, Utils } from '@bsv/sdk'
 import type { LogEntry } from '../../core/backup/client'
+import { MAX_INDEX_ENTRIES } from '../../core/backup/constants'
 import { encodeChunk, emptyChunk, isEmptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { BackupChainError, RemoteSyncReader } from '../../core/backup/RemoteSyncReader'
@@ -194,6 +195,22 @@ describe('RemoteSyncReader reliability and scheduling', () => {
     seq: i + 1, sha256: ONE_BYTE_SHA, prevSha256: i ? ONE_BYTE_SHA : undefined,
     size: 1, createdAt: '2026-09-05T00:00:00Z'
   }))
+
+  it('XR-013: throws once the index grows past the entry ceiling, rather than accumulating without bound', async () => {
+    // No expectedHeadSeq and always a full page: nothing but the ceiling itself can ever
+    // stop this loop — exactly a malicious/compromised backup host that keeps paging
+    // forever to grow entries[] (and eventually every downloaded blob) without bound.
+    const pool = entries(MAX_INDEX_ENTRIES + 600)
+    const client = {
+      index: jest.fn(async (_d: string, _g: number, from = 1) => pool.slice(from - 1, from - 1 + 500)),
+      // Real, matching content for entry 1 — so an unbounded index would otherwise let this
+      // resolve normally instead of merely failing on an unrelated unconfigured mock.
+      blob: jest.fn().mockResolvedValue(new Uint8Array([1]))
+    }
+    const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
+    await expect(reader.getSyncChunk(args)).rejects.toThrow(/index has grown past|ceiling/i)
+    expect(client.blob).not.toHaveBeenCalled()
+  })
 
   it('reads beyond the server 500-entry page limit and replays every chunk in order', async () => {
     const all = entries(501)

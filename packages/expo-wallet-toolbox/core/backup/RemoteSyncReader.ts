@@ -10,7 +10,7 @@ import { Hash, Utils, type CompletedProtoWallet } from '@bsv/sdk'
 import type { TableSettings } from '@bsv/wallet-toolbox-mobile'
 import type { BackupClient, LogEntry } from './client'
 import { decodeEntry, emptyChunk, type DecodedEntry } from './codec'
-import type { BackupChain } from './constants'
+import { MAX_INDEX_ENTRIES, type BackupChain } from './constants'
 import type { RequestSyncChunkArgs, SyncChunk } from '../toolboxTypes'
 
 export class BackupChainError extends Error {
@@ -65,6 +65,11 @@ export class RemoteSyncReader {
       for (;;) {
         const pageStart = entries.length
         entries.push(...page)
+        // A malicious/compromised backup host could otherwise keep paging forever — nothing
+        // else in this loop depends on the server ever running out of entries to offer.
+        if (entries.length > MAX_INDEX_ENTRIES) {
+          throw new BackupChainError(`backup index has grown past ${MAX_INDEX_ENTRIES} entries without completing`)
+        }
         this.verifyChain(entries, pageStart)
         const missingHead = this.expectedHeadSeq != null && entries.length < this.expectedHeadSeq
         if (page.length === 0) {
