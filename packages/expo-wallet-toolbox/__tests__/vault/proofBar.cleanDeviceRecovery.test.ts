@@ -78,7 +78,7 @@ import { adoptVaultKey } from '../../core/services/vault/VaultKeyService'
 import { compressPubkey, signerDigest, sighashPreimage, verifyVaultInput } from '../../core/services/vault/r1comb'
 import { vaultStore, type VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import { recoverVaultFromChain } from '../../core/services/vault/chainRecovery'
-import { depositToVault, relockVault, withdrawFromVault } from '../../core/services/vault/transfers'
+import { depositToVault, getVaultBalance, relockVault, withdrawFromVault } from '../../core/services/vault/transfers'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 
 jest.setTimeout(300_000)
@@ -367,5 +367,57 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
     await adoptVaultKey({ record: keys[0], onPhase: () => {}, getPin: async () => '123456' })
     const spend = await withdrawFromVault(deviceB, ADMIN, 'all', 'Recovered without any backup', keys[0].serial)
     independentlyVerifySpend(chain, spend.txid, keys[0].pubkey)
+  })
+
+  // Test-honesty gap closed (ledger review): I2's "DB rows + a committed key
+  // + the correct PIN, but no mnemonic" claim was previously proven only at
+  // the crypto-primitive level (restoreSalt.test.ts calls
+  // CompletedProtoWallet.createHmac/decrypt directly). This proves the exact
+  // same claim END-TO-END, through the real read/spend path: a wallet that
+  // holds the real owner's local storage VERBATIM — the same vaultStore-
+  // backed meta (untouched — the literal "stolen SecureStore" of I2), the
+  // same basket rows (customInstructions + lockingScript — the literal
+  // "stolen SQLite outputs table"), and the same cached source transactions
+  // ("the DB rows also carry the raw tx bytes, as StorageExpoSQLite's
+  // outputs table does") — plus, generously, the committed key stays armed
+  // with its correct PIN throughout. Only the wallet ROOT differs (no live
+  // mnemonic session for the real owner). getVaultBalance and
+  // withdrawFromVault must both reject it, via the SAME
+  // verifyInstructionsAgainstLock throw restoreSalt.test.ts's primitive-level
+  // test predicts, never by silently reading zero or refusing for some other
+  // (weaker) reason.
+  it('a wallet holding the owner\'s local DB rows, a committed key and its correct PIN, but a DIFFERENT root, cannot read or spend the vault (I2, end-to-end)', async () => {
+    const identityKey = `02${'e7'.repeat(32)}`
+    const chain = new FakeChain()
+    const owner = generateMnemonicWallet()
+    const attacker = generateMnemonicWallet()
+    const { mock, keys } = await buildKeyring(2)
+    const vaultId = hex(p256.utils.randomSecretKey())
+
+    const owningWallet = new FakeVaultWallet(owner.primaryKey, chain)
+    vaultStore.configureScope({ identityKey, chain: 'test' })
+    await vaultStore.setMeta({ v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
+    armSigner(mock, keys[0].serial)
+    await depositToVault(owningWallet, ADMIN, 500_000)
+
+    // The attacker: NOT a phone-loss scenario — vaultStore's meta is left
+    // completely untouched (no AsyncStorage/SecureStore clear here, unlike
+    // every recovery test above), because I2's threat is "the attacker
+    // stole a snapshot of the real local storage," not "a fresh device."
+    // The basket rows and their cached source transactions are copied
+    // field-for-field from the real owner's wallet instance — modelling a
+    // raw copy of the SQLite outputs table plus its cached transaction
+    // bytes — into a wallet instance built from a DIFFERENT root.
+    const attackerWallet = new FakeVaultWallet(attacker.primaryKey, chain)
+    type WalletInternals = { basket: Map<string, unknown>; sourceTxByTxid: Map<string, unknown> }
+    ;(attackerWallet as unknown as WalletInternals).basket =
+      new Map((owningWallet as unknown as WalletInternals).basket)
+    ;(attackerWallet as unknown as WalletInternals).sourceTxByTxid =
+      new Map((owningWallet as unknown as WalletInternals).sourceTxByTxid)
+
+    await expect(getVaultBalance(attackerWallet, ADMIN)).rejects.toMatchObject({ code: 'template-invalid' })
+    await expect(
+      withdrawFromVault(attackerWallet, ADMIN, 'all', 'Attempted theft', keys[0].serial)
+    ).rejects.toMatchObject({ code: 'template-invalid' })
   })
 })
