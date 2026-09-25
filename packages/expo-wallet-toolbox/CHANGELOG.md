@@ -1,5 +1,99 @@
 # Changelog
 
+## Unreleased
+
+### Vault v7: chain-published recovery, no salt at rest (INT-01/02/03/04/06/10, XQ-012, XR-005/006)
+
+Closes the availability and exclusion gaps the external security review's
+ledger tracked under these rows: a clean device (mnemonic + one enrolled
+YubiKey + its PIN) could not locate or spend an existing Vault output
+without the old SQLite database or an encrypted backup, and the only copy
+of a v6 output's salt lived in plaintext in that same local
+`customInstructions` — a stolen DB/export/device-backup, plus a stolen
+committed key and its PIN, could spend without the mnemonic.
+
+- **v7 recovery metadata** (`r1comb.ts`): the v6 shape minus `salt` — 8
+  exact fields, `v===7`, no legacy reinterpretation, structurally unable to
+  carry a salt at rest. `decodeVaultInstructions` is now the union decoder
+  (v6 ?? v7); the v6 decoder/encoder are unchanged and still the only path
+  for existing outputs. Salt derivation itself is unchanged (same
+  `createHmac`, same `[2,'vault salt']` domain, same serial framing) — for
+  v7 it is re-derived in memory whenever needed and never persisted.
+- **On-chain marker + descriptor**: every v7 vault output is now followed by
+  two explicit outputs — a 1-sat P2PKH **marker**
+  (`wallet.getPublicKey([2,'vault marker'], keyID` `` `${chain}:${k}` ``
+  `, counterparty:'self')`, an ordinary indexer can answer) and a 0-sat
+  `OP_FALSE OP_RETURN 'r1c7' <ciphertext>` **descriptor** carrying the exact
+  v7 record, BRC-2 (AES-256-GCM) encrypted under
+  `[2,'vault descriptor']` at the same chain-scoped keyID. Neither goes in
+  any basket. `guard.ts`'s `VAULT_PROTOCOL_NAMES` reserves both new protocol
+  names in the same change that starts creating them, so a paired
+  non-admin BRC-100 caller can never derive a marker key or decrypt a
+  descriptor. `validateDepositPlan` and the re-lock/withdraw-remainder path
+  now pin all three outputs (vault, marker, descriptor) byte-exact, the
+  same discipline the vault output alone used to get; `estimateRelockFee`
+  reserves their byte cost too. Crash-recovery reconciliation
+  (`isValidHeldVaultDeposit`) recognizes the new 3-4-output shape so a v7
+  deposit interrupted mid-flight does not wedge every later vault
+  operation behind `action-pending`.
+- **`core/services/vault/chainRecovery.ts`** (new): `recoverVaultFromChain`
+  scans for the marker at index `k=1,2,…`, and for every candidate
+  transaction it finds, locates the `[vault, marker, descriptor]` triple by
+  the marker's exact position, decrypts the descriptor, hard-requires its
+  claimed index and chain match the scan position, re-derives the salt,
+  rebuilds the lock byte-exactly and compares it to the real output,
+  requires it unspent, and internalizes it into the `admin vault` basket —
+  before finally calling the existing `recoverVaultMetaFromOutputs`
+  unchanged. A found-but-unusable record at one index is reported
+  distinctly and never stops the scan; an unconfirmed candidate is
+  reported as pending rather than thrown. The injected `VaultChainLookup`
+  interface keeps the module network-agnostic and unit-testable;
+  `wocChainLookup` is the production WhatsOnChain implementation. The
+  YubiKey is never needed to restore — only to spend afterward, through
+  the completely unchanged withdraw path.
+- **UI**: VaultScreen's not-enrolled hero gains "Restore vault from the
+  blockchain", offered whenever a wallet identity exists and the vault is
+  available (never gated on YubiKey support). New i18n keys in all 12
+  languages; non-English copy is machine-drafted and awaits
+  native-speaker review, same as every previous translation batch in this
+  changelog.
+
+**Residuals, disclosed rather than silently left open:**
+
+- Existing v6 outputs are unaffected and still need the local DB or an
+  encrypted backup until they are re-locked (which converts them to v7).
+  No migration rewrites old rows, and this release adds no nudge to do so.
+- Recovery claims **confirmed** deposits. `internalizeAction`'s own SPV
+  gate requires a BUMP or a present raw-input ancestor chain; assembling
+  arbitrary-depth unconfirmed ancestor BEEF was considered and rejected as
+  open-ended complexity for a narrow confirmation-window edge case, not
+  required by the availability guarantee's core promise (surviving loss of
+  a *settled* deposit). An unconfirmed candidate is surfaced as "pending
+  confirmation," never silently dropped.
+- ARC/indexer acceptance of a transaction carrying a ~45 KB R1C lock plus a
+  1-sat P2PKH plus a ~1.5 KB `OP_RETURN` in one broadcast has not been
+  verified against a live network in this change; likewise `wocChainLookup`'s
+  exact WhatsOnChain response-shape assumptions (history endpoint, spent-output
+  endpoint) were not exercised against the live API. Both need a network
+  smoke test before this is fully relied upon in production;
+  `recoverVaultFromChain`'s own scan/authentication logic does not depend
+  on either being exactly right and is unit-tested against an in-memory
+  chain double.
+- A basketless marker output is not tracked by `guard.ts`'s vault
+  inventory. Read-only verification of the real `WalletPermissionsManager`
+  confirms a non-admin originator can name its outpoint in `createAction`
+  without any basket or protocol permission (spending it still requires a
+  signature from its key, which is reserved the same way the descriptor
+  key is) — financial exposure is 1 satoshi, and a stranger spending or
+  reserving it does not remove the marker transaction or its address's
+  history from any indexer, so it cannot defeat recovery. Accepted, not
+  fixed.
+- The physical-hardware run (a real, previously-enrolled YubiKey signing
+  through the full chain-recovered-lock-to-withdraw path on a wiped
+  device) remains the standing hardware gate this repository already
+  treats as unrun for the Vault generally; it is proven here only with
+  `MockYubiKey`'s real P-256 math.
+
 ## 0.8.0
 
 ### Wallet recovery and creation module
