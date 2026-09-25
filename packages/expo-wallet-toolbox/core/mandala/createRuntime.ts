@@ -1415,6 +1415,25 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           })
           continue
         }
+        // XR-042: `entry.kind === 'refused'/'evicted'` above (in `fetchAdmission`)
+        // is the raw, UNSIGNED overlay HTTP response — unlike the 'admitted'
+        // branch a few lines up, nothing here is checked against `overlayIdentityKey`
+        // at all. A row this device already holds a σ_I-VERIFIED admission for
+        // (`row.admissionSignatureHex`/`admissionOutputs`, only ever written
+        // after `verifyFetchedAdmission` succeeded — see `fetchAdmission` and
+        // `receiveFromInbox` above) is therefore not something a later unsigned
+        // negative may downgrade: that positive is cryptographic and this
+        // negative is not, so the positive stands. Reported as unattested
+        // rather than removed — the next pass asks again, exactly like an
+        // unreachable overlay.
+        if (row.admissionSignatureHex && row.admissionOutputs && row.admissionOutputs.length > 0) {
+          devLog(
+            `[mandala] token review: ${row.txid} already carries a verified admission; ` +
+              `ignoring the unsigned ${verdict.kind} verdict`
+          )
+          review.unattested++
+          continue
+        }
         const to: TokenSettlementState = verdict.kind === 'evicted' ? 'orphaned' : 'refused'
         await store.advanceSettlement(row.txid, [...NON_TERMINAL_SETTLEMENT_STATES], to, {
           refusedCode: verdict.kind === 'refused' ? verdict.code : undefined,

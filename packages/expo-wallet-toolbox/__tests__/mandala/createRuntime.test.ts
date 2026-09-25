@@ -3099,6 +3099,37 @@ describe('reviewTokenHoldings — Check Wallet asks the overlay about every sett
     expect(updateTransactionStatus).toHaveBeenCalledWith('failed', 41)
   })
 
+  // XR-042: a positive admission is σ_I-verified against `overlayIdentityKey`
+  // (checked a few lines above this call, in `fetchAdmission`); a negative
+  // ('refused'/'evicted') is the raw, unsigned overlay HTTP response, checked
+  // against nothing at all. A row this device already holds a verified
+  // admission for must not be unwound by a later unsigned negative for the
+  // SAME txid — a compromised or merely buggy overlay's HTTP layer (no
+  // signing key needed) must not be able to corrupt settlement state for a
+  // payment this device has cryptographic proof of.
+  it('XR-042: a σ_I-verified admission is not undone by a later unsigned refusal', async () => {
+    const { storage, updateTransactionStatus } = checkStorage()
+    const runtime = build({ storage })
+    await runtime.store.upsertSettlement({
+      txid: SENT_TXID,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state: 'admitted',
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY,
+      amountBaseUnits: 40,
+      admissionOutputs: [0],
+      admissionSignatureHex: signAdmission(SENT_TXID, [0])
+    })
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({ kind: 'refused', code: 'ERR_X' })
+
+    const r = await runtime.reviewTokenHoldings()
+
+    expect((await runtime.store.getSettlement(SENT_TXID))?.state).toBe('admitted')
+    expect(r.removed).toBe(0)
+    expect(updateTransactionStatus).not.toHaveBeenCalled()
+  })
+
   it('an evicted row is closed as orphaned', async () => {
     const { storage, updateTransactionStatus } = checkStorage()
     const runtime = build({ storage })
