@@ -6,6 +6,7 @@ import {
 } from '../../core/backup/appData'
 import { PENDING_KEY } from '../../core/localpay/pending'
 import { OUTBOX_KEY } from '../../core/peerpay/outbox'
+import { RECEIVE_HISTORY_KEY } from '../../core/pay/receiveHistory'
 
 function fakeStorage(initial: Record<string, string> = {}) {
   const map = new Map<string, string>(Object.entries(initial))
@@ -25,12 +26,20 @@ describe('XR-011: isEmptyAppData', () => {
     expect(isEmptyAppData({})).toBe(true)
   })
 
+  it('is true for an empty receiveIssuedDates array', () => {
+    expect(isEmptyAppData({ receiveIssuedDates: [] })).toBe(true)
+  })
+
   it('is false when localpayPending is set', () => {
     expect(isEmptyAppData({ localpayPending: '[]' })).toBe(false)
   })
 
   it('is false when peerpayOutbox is set', () => {
     expect(isEmptyAppData({ peerpayOutbox: '[]' })).toBe(false)
+  })
+
+  it('is false when receiveIssuedDates has entries', () => {
+    expect(isEmptyAppData({ receiveIssuedDates: ['2026-08-01'] })).toBe(false)
   })
 })
 
@@ -50,6 +59,14 @@ describe('XR-011: captureAppDataSnapshot', () => {
       peerpayOutbox: outbox
     })
   })
+
+  it('captures the issued-date history (XR-055)', async () => {
+    const storage = fakeStorage({ [RECEIVE_HISTORY_KEY]: JSON.stringify(['2026-08-01', '2026-07-01']) })
+
+    await expect(captureAppDataSnapshot(storage)).resolves.toEqual({
+      receiveIssuedDates: ['2026-07-01', '2026-08-01']
+    })
+  })
 })
 
 describe('XR-011: applyAppData', () => {
@@ -62,6 +79,13 @@ describe('XR-011: applyAppData', () => {
 
     expect(storage.map.get(PENDING_KEY)).toBe(pending)
     expect(storage.map.get(OUTBOX_KEY)).toBe(outbox)
+  })
+
+  it('writes the issued-date history', async () => {
+    const storage = fakeStorage()
+    await applyAppData(storage, { receiveIssuedDates: ['2026-08-01', '2026-08-01', '2026-07-01'] })
+
+    expect(JSON.parse(storage.map.get(RECEIVE_HISTORY_KEY)!)).toEqual(['2026-07-01', '2026-08-01'])
   })
 
   it('never touches a row the snapshot did not carry', async () => {
@@ -96,9 +120,10 @@ describe('XR-011: applyAppData', () => {
     }
     await applyAppData(narrow, {
       localpayPending: '[]',
-      peerpayOutbox: '[]'
+      peerpayOutbox: '[]',
+      receiveIssuedDates: ['2026-08-01']
     })
-    expect(calls).toEqual([`set:${PENDING_KEY}`, `set:${OUTBOX_KEY}`])
+    expect(calls).toEqual([`set:${PENDING_KEY}`, `set:${OUTBOX_KEY}`, `set:${RECEIVE_HISTORY_KEY}`])
   })
 })
 
@@ -128,6 +153,11 @@ describe('XR-011/XR-015: mergeAppData', () => {
     const merged = mergeAppData(a, b)
 
     expect(JSON.parse(merged.localpayPending!)).toHaveLength(1)
+  })
+
+  it('unions issued-date histories', () => {
+    const merged = mergeAppData({ receiveIssuedDates: ['2026-08-01'] }, { receiveIssuedDates: ['2026-07-01'] })
+    expect(merged.receiveIssuedDates).toEqual(['2026-07-01', '2026-08-01'])
   })
 
   it('is undefined-safe on either side', () => {

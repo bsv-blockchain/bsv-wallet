@@ -284,6 +284,14 @@ export {
   touchWatched,
   unwatchAddress
 } from './pay/watchlist'
+// receiveHistory.ts's own KVStorage is omitted for the same reason watchlist.ts's is above.
+export {
+  RECEIVE_HISTORY_KEY,
+  MAX_RECEIVE_HISTORY,
+  recordIssuedDate,
+  getIssuedDates,
+  setIssuedDates
+} from './pay/receiveHistory'
 // isCompressedPublicKey is omitted here because './pay/rails' above already
 // re-exports the same binding; naming it twice trips eslint's import/export rule.
 export {

@@ -14,8 +14,11 @@
  *   · never older than MAX_WATCH_DAYS by its issue date
  *
  * A dropped address is not lost money: the Get paid → conventional wallet view
- * re-registers today's address every time it is opened, and the earlier-day
- * recovery stepper can reach back MAX_RECOVERY_DAYS and sweep by hand.
+ * re-registers today's address every time it is opened, the durable issued-date
+ * history (pay/receiveHistory.ts, XR-055) lets the automatic repair scan reach
+ * ANY previously issued date regardless of age, and the earlier-day recovery
+ * stepper can reach back MAX_MANUAL_RECOVERY_DAYS (core/pay/rails/address.ts)
+ * and sweep by hand.
  */
 
 export const WATCHLIST_KEY = 'pay_address_watchlist'

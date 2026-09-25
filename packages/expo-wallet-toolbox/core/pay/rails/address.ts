@@ -92,6 +92,40 @@ export function derivationPrefixFor(date: string): string {
   return Utils.toBase64(Utils.toArray(date, 'utf8'))
 }
 
+/**
+ * XR-055. Upper bound for the MANUAL recovery stepper only (AddressReceive.tsx) — distinct
+ * from MAX_RECOVERY_DAYS, which also bounds runWalletCheck's automatic bulk repair scan (see
+ * recoveryDatesToScan below) and stays small there because that scan makes one WhatsOnChain
+ * round trip per candidate day. Nothing in this codebase tracks a wallet-creation timestamp
+ * to bound the manual, one-address-at-a-time stepper by, so it uses a generous constant
+ * instead: comfortably longer than this project has existed, so a user with a genuinely old
+ * address is never blocked from reaching it by hand — the one recovery path that must keep
+ * working even on a device with no persisted issued-date history at all (a fresh import with
+ * no backup, so pay/receiveHistory.ts has nothing recorded).
+ */
+export const MAX_MANUAL_RECOVERY_DAYS = 3650
+
+/**
+ * Which calendar dates conventional-address recovery should try, given this device's durable
+ * issued-date history if it has one (pay/receiveHistory.ts, XR-055).
+ *
+ * The watchlist (pay/watchlist.ts) prunes by a 7-day calendar age no matter how recently it
+ * was swept, and the fixed MAX_RECOVERY_DAYS lookback below is itself only 30 days — so a
+ * payer who sat on a legitimately-displayed address for longer than either window had no
+ * shipped recovery path back to internalizeAction. Scanning every date this device has ever
+ * actually issued fixes that regardless of age, since sweepAddress is idempotent and cheap to
+ * retry for a date that turns out to hold nothing.
+ *
+ * Falls back to the previous fixed MAX_RECOVERY_DAYS lookback only when there is no history
+ * to consult at all — a device that predates this feature, or one restored with neither a
+ * backup nor any local history of its own — which is exactly today's unchanged behaviour for
+ * that case.
+ */
+export function recoveryDatesToScan(recordedDates: readonly string[], now: Date = new Date()): string[] {
+  if (recordedDates.length > 0) return [...new Set(recordedDates)]
+  return Array.from({ length: MAX_RECOVERY_DAYS }, (_, day) => getCurrentDate(day, now))
+}
+
 /** One ASCII space. The wallet derives a different key for any other separator. */
 export function legacyKeyId(derivationPrefix: string): string {
   return `${derivationPrefix} ${LEGACY_DERIVATION_SUFFIX}`

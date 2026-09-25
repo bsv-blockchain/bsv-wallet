@@ -344,6 +344,21 @@ describe('XR-011: restoreOnImport replays appData', () => {
     expect(storage.kv.get('peerpay_outbox')).toBe(outbox)
   })
 
+  it('restores the durable issued-receive-date history (XR-055)', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, {
+      receiveIssuedDates: ['2026-06-01', '2026-08-15']
+    })
+    const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
+      [`${OLD_DEVICE}/1`]: [chunk]
+    })
+    const storage = fakeStorage()
+
+    await restoreOnImport(deps({ storage, client }))
+
+    expect(JSON.parse(storage.kv.get('pay_receive_issued_dates'))).toEqual(['2026-06-01', '2026-08-15'])
+  })
+
   it('does nothing to key_value_store when no chunk ever carried appData', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
@@ -394,7 +409,8 @@ describe('XR-011: restoreOnImport replays appData', () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, {
       localpayPending: '[{"id":"p1"}]',
-      peerpayOutbox: '[{"id":"o1","delivered":true}]'
+      peerpayOutbox: '[{"id":"o1","delivered":true}]',
+      receiveIssuedDates: ['2026-08-01']
     })
     const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
       [`${OLD_DEVICE}/1`]: [chunk]
@@ -406,5 +422,6 @@ describe('XR-011: restoreOnImport replays appData', () => {
     expect(result.restored).toBe(true)
     expect(storage.setKeyValue).toHaveBeenCalledWith('localpay_pending', '[{"id":"p1"}]')
     expect(storage.setKeyValue).toHaveBeenCalledWith('peerpay_outbox', '[{"id":"o1","delivered":true}]')
+    expect(storage.setKeyValue).toHaveBeenCalledWith('pay_receive_issued_dates', JSON.stringify(['2026-08-01']))
   })
 })

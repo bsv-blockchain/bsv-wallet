@@ -7,7 +7,8 @@
  * PaymentFrame (localpay_pending) and an outbound PeerPay token's delivery checkpoint
  * (peerpay_outbox) were never backed up at all: a device loss before internalize/delivery
  * completed stranded them permanently, even with a perfect seed+backup restore of everything
- * else.
+ * else. XR-055 adds a third row, the durable issued-conventional-receive-date history
+ * (pay/receiveHistory.ts), for the same reason: it also lives only in key_value_store.
  *
  * This module is the ONLY place these rows cross from local storage into the backup log and
  * back. It deliberately knows nothing about how to internalize a payment, retry a delivery,
@@ -27,6 +28,7 @@
  */
 import { OUTBOX_KEY } from '../peerpay/outbox'
 import { PENDING_KEY } from '../localpay/pending'
+import { getIssuedDates, setIssuedDates } from '../pay/receiveHistory'
 import type { AppDataSnapshot } from './codec'
 
 export interface KVStorage {
@@ -39,7 +41,12 @@ export interface KVStorage {
  * encodeChunk docs on why an unsealed/appData-less chunk must serialise byte-for-byte as the
  * old-format envelope). */
 export function isEmptyAppData (appData: AppDataSnapshot | undefined): boolean {
-  return appData == null || (appData.localpayPending === undefined && appData.peerpayOutbox === undefined)
+  return (
+    appData == null ||
+    (appData.localpayPending === undefined &&
+      appData.peerpayOutbox === undefined &&
+      (appData.receiveIssuedDates?.length ?? 0) === 0)
+  )
 }
 
 /**
@@ -49,26 +56,31 @@ export function isEmptyAppData (appData: AppDataSnapshot | undefined): boolean {
  * only ever rides an already-non-empty chunk.
  */
 export async function captureAppDataSnapshot (storage: KVStorage): Promise<AppDataSnapshot> {
-  const [localpayPending, peerpayOutbox] = await Promise.all([
+  const [localpayPending, peerpayOutbox, receiveIssuedDates] = await Promise.all([
     storage.getKeyValue(PENDING_KEY),
-    storage.getKeyValue(OUTBOX_KEY)
+    storage.getKeyValue(OUTBOX_KEY),
+    getIssuedDates(storage)
   ])
   const snapshot: AppDataSnapshot = {}
   if (localpayPending !== undefined) snapshot.localpayPending = localpayPending
   if (peerpayOutbox !== undefined) snapshot.peerpayOutbox = peerpayOutbox
+  if (receiveIssuedDates.length > 0) snapshot.receiveIssuedDates = receiveIssuedDates
   return snapshot
 }
 
 /**
  * Apply a decoded snapshot to local storage. The ONLY effect of a restore replaying appData
- * — plain key_value_store writes, nothing else. Skips a field the snapshot did not carry
- * (rather than overwriting with nothing), so replaying an OLDER chunk's appData after a newer
- * one already landed (e.g. re-running an interrupted restore) can never regress a row that a
- * later chunk already updated in this same pass.
+ * — three plain key_value_store writes, nothing else. Skips a field the snapshot did not
+ * carry (rather than overwriting with nothing), so replaying an OLDER chunk's appData after
+ * a newer one already landed (e.g. re-running an interrupted restore) can never regress a
+ * row that a later chunk already updated in this same pass.
  */
 export async function applyAppData (storage: KVStorage, snapshot: AppDataSnapshot): Promise<void> {
   if (snapshot.localpayPending !== undefined) await storage.setKeyValue(PENDING_KEY, snapshot.localpayPending)
   if (snapshot.peerpayOutbox !== undefined) await storage.setKeyValue(OUTBOX_KEY, snapshot.peerpayOutbox)
+  if (snapshot.receiveIssuedDates !== undefined && snapshot.receiveIssuedDates.length > 0) {
+    await setIssuedDates(storage, snapshot.receiveIssuedDates)
+  }
 }
 
 /** Parses a KV row's raw JSON text into an array of plain objects, never throwing — a
@@ -118,6 +130,10 @@ function mergeJsonArrayById (a: string | undefined, b: string | undefined): stri
 export function mergeAppData (a: AppDataSnapshot | undefined, b: AppDataSnapshot | undefined): AppDataSnapshot {
   return {
     localpayPending: mergeJsonArrayById(a?.localpayPending, b?.localpayPending),
-    peerpayOutbox: mergeJsonArrayById(a?.peerpayOutbox, b?.peerpayOutbox)
+    peerpayOutbox: mergeJsonArrayById(a?.peerpayOutbox, b?.peerpayOutbox),
+    receiveIssuedDates:
+      a?.receiveIssuedDates === undefined && b?.receiveIssuedDates === undefined
+        ? undefined
+        : [...new Set([...(a?.receiveIssuedDates ?? []), ...(b?.receiveIssuedDates ?? [])])].sort()
   }
 }

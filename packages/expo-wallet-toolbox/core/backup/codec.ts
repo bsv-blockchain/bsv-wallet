@@ -113,7 +113,9 @@ export function estimateEncodedBytes (chunk: SyncChunk): number {
  */
 export function estimateAppDataBytes (appData: AppDataSnapshot | undefined): number {
   if (appData == null) return 0
-  return (appData.localpayPending?.length ?? 0) + (appData.peerpayOutbox?.length ?? 0)
+  let bytes = (appData.localpayPending?.length ?? 0) + (appData.peerpayOutbox?.length ?? 0)
+  for (const d of appData.receiveIssuedDates ?? []) bytes += d.length
+  return bytes
 }
 
 /** The table columns the toolbox types as Date. BinaryJson has no Date support:
@@ -159,16 +161,18 @@ export interface BackupSeal {
  *
  * This type is deliberately generic: it is just what the envelope carries. What populates
  * and consumes it — reading/writing key_value_store, merging across devices — lives in
- * backup/appData.ts, which is the only module that needs to know these rows exist (XR-011).
- * Every field is a plain string — neither needs `packBytes`' treatment, because a
- * payment/outbox queue's own (de)serialisers (localpay/pending.ts, peerpay/outbox.ts)
- * already write plain-JSON, byte-array-as-number[] text.
+ * backup/appData.ts, which is the only module that needs to know these rows exist (XR-011,
+ * XR-055). Every field is a plain string or string array — none of them needs `packBytes`'
+ * treatment, because a payment/outbox queue's own (de)serialisers (localpay/pending.ts,
+ * peerpay/outbox.ts) already write plain-JSON, byte-array-as-number[] text.
  */
 export interface AppDataSnapshot {
   /** Verbatim value of key_value_store['localpay_pending'] at push time. */
   localpayPending?: string
   /** Verbatim value of key_value_store['peerpay_outbox'] at push time. */
   peerpayOutbox?: string
+  /** Every YYYY-MM-DD a conventional-receive address has been issued for, deduplicated. */
+  receiveIssuedDates?: string[]
 }
 
 /**
@@ -271,16 +275,23 @@ export async function decodeEntry (
  * restore, not quietly disappear (same failure posture as a malformed seal, above). */
 function decodeAppData (raw: unknown): AppDataSnapshot | undefined {
   if (raw == null) return undefined
-  const a = raw as { localpayPending?: unknown, peerpayOutbox?: unknown }
+  const a = raw as { localpayPending?: unknown, peerpayOutbox?: unknown, receiveIssuedDates?: unknown }
   if (a.localpayPending !== undefined && typeof a.localpayPending !== 'string') {
     throw new Error('backup appData.localpayPending is malformed')
   }
   if (a.peerpayOutbox !== undefined && typeof a.peerpayOutbox !== 'string') {
     throw new Error('backup appData.peerpayOutbox is malformed')
   }
+  if (
+    a.receiveIssuedDates !== undefined &&
+    (!Array.isArray(a.receiveIssuedDates) || !a.receiveIssuedDates.every(d => typeof d === 'string'))
+  ) {
+    throw new Error('backup appData.receiveIssuedDates is malformed')
+  }
   return {
     localpayPending: a.localpayPending as string | undefined,
-    peerpayOutbox: a.peerpayOutbox as string | undefined
+    peerpayOutbox: a.peerpayOutbox as string | undefined,
+    receiveIssuedDates: a.receiveIssuedDates as string[] | undefined
   }
 }
 

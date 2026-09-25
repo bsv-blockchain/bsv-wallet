@@ -22,7 +22,7 @@ import {
   spacing,
   typography,
   useWallet,
-  MAX_RECOVERY_DAYS,
+  MAX_MANUAL_RECOVERY_DAYS,
   derivationPrefixFor,
   getCurrentDate,
   getPaymentAddress,
@@ -30,7 +30,8 @@ import {
   sweepAddress,
   wocConfigFor,
   type ProcessedTx,
-  watchAddress
+  watchAddress,
+  recordIssuedDate
 } from '@bsv/expo-wallet-toolbox'
 import type { DismissTarget } from '../../dismissTarget'
 
@@ -183,7 +184,13 @@ export default function AddressReceive({
         setAddress(next)
         // Registering is what makes the background sweeper poll it. Every
         // address the user is shown gets watched — including a recovered one.
-        if (storage) await watchAddress(storage as any, { address: next, date, derivationPrefix })
+        if (storage) {
+          await watchAddress(storage as any, { address: next, date, derivationPrefix })
+          // XR-055: remembered durably (count-capped, not the watchlist's 7-day age
+          // cap) so recovery can scan every date this device has ever issued, and so
+          // it survives encrypted backup/restore — see pay/receiveHistory.ts.
+          await recordIssuedDate(storage as any, date)
+        }
         const rows = await getProcessedTransactions(wallet as any, adminOriginator, next)
         setProcessed(rows)
         // A different address means a different history: re-baseline, or stepping
@@ -397,15 +404,15 @@ export default function AddressReceive({
             <View style={styles.recovery}>
               <View style={styles.dateRow}>
                 <TouchableOpacity
-                  onPress={() => void load(Math.min(MAX_RECOVERY_DAYS, daysOffset + 1))}
-                  disabled={daysOffset >= MAX_RECOVERY_DAYS}
+                  onPress={() => void load(Math.min(MAX_MANUAL_RECOVERY_DAYS, daysOffset + 1))}
+                  disabled={daysOffset >= MAX_MANUAL_RECOVERY_DAYS}
                   hitSlop={8}
                   style={styles.dateArrow}
                 >
                   <Ionicons
                     name="chevron-back"
                     size={20}
-                    color={daysOffset >= MAX_RECOVERY_DAYS ? colors.textQuaternary : colors.accent}
+                    color={daysOffset >= MAX_MANUAL_RECOVERY_DAYS ? colors.textQuaternary : colors.accent}
                   />
                 </TouchableOpacity>
                 <Text style={[styles.dateText, { color: colors.textSecondary }]}>{getCurrentDate(daysOffset)}</Text>

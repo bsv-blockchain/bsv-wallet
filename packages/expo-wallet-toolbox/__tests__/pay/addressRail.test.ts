@@ -2,11 +2,15 @@ import {
   availableUtxos,
   derivationPrefixFor,
   fetchBalance,
+  getCurrentDate,
   getInternalizedUtxos,
   getProcessedTransactions,
   getUtxosForAddress,
+  MAX_MANUAL_RECOVERY_DAYS,
+  MAX_RECOVERY_DAYS,
   parseWocBeefBody,
   payerAddressOf,
+  recoveryDatesToScan,
   sendToAddress,
   sweepAddress,
   wocConfigFor
@@ -503,5 +507,43 @@ describe('sendToAddress', () => {
       sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: 'nope', satoshis: 10 })
     ).rejects.toThrow(/address/i)
     expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+})
+
+describe('XR-055: recoveryDatesToScan', () => {
+  const NOW = new Date('2026-09-25T12:00:00.000Z')
+
+  it('falls back to the fixed MAX_RECOVERY_DAYS lookback when there is no recorded history', () => {
+    const dates = recoveryDatesToScan([], NOW)
+    expect(dates).toHaveLength(MAX_RECOVERY_DAYS)
+    expect(dates[0]).toBe(getCurrentDate(0, NOW))
+    expect(dates[MAX_RECOVERY_DAYS - 1]).toBe(getCurrentDate(MAX_RECOVERY_DAYS - 1, NOW))
+  })
+
+  it('reaches a date issued 45 days ago when it is in the recorded history — the fixed 30-day loop never would', () => {
+    // The ledger's own regression scenario: an address issued at day 0, funded 45 days
+    // later. A payer this patient has no shipped recovery path under the fixed
+    // day < MAX_RECOVERY_DAYS(=30) loop; the persisted issued-date history fixes that
+    // regardless of how old the date is.
+    const issuedDayZero = getCurrentDate(45, NOW)
+    expect(recoveryDatesToScan([issuedDayZero], NOW)).toEqual([issuedDayZero])
+    // Confirms the premise: that date really is outside the old fixed window.
+    const oldFixedWindow = Array.from({ length: MAX_RECOVERY_DAYS }, (_, day) => getCurrentDate(day, NOW))
+    expect(oldFixedWindow).not.toContain(issuedDayZero)
+  })
+
+  it('deduplicates recorded dates', () => {
+    expect(recoveryDatesToScan(['2026-08-01', '2026-08-01'], NOW)).toEqual(['2026-08-01'])
+  })
+
+  it('scans every recorded date regardless of order or count', () => {
+    const recorded = ['2026-01-01', '2025-01-01', '2026-09-01']
+    expect(recoveryDatesToScan(recorded, NOW).sort()).toEqual([...recorded].sort())
+  })
+})
+
+describe('XR-055: MAX_MANUAL_RECOVERY_DAYS', () => {
+  it('is comfortably larger than the automatic-scan bound, for the manual stepper last-resort case', () => {
+    expect(MAX_MANUAL_RECOVERY_DAYS).toBeGreaterThan(MAX_RECOVERY_DAYS)
   })
 })
