@@ -60,8 +60,20 @@ function tierLimits(): WalletArgLimits {
   }
 }
 
-/** The calls that can carry transaction bytes. */
-const SIZED = new Set<keyof WalletInterface>(['createAction', 'signAction', 'internalizeAction'])
+/** The calls that can carry transaction bytes, plus the byte-bearing crypto
+ * calls (XR-026) that previously had no per-call cap at all beyond the raw
+ * transport ceiling shared with every other paired-RPC method. */
+const SIZED = new Set<keyof WalletInterface>([
+  'createAction',
+  'signAction',
+  'internalizeAction',
+  'encrypt',
+  'decrypt',
+  'createHmac',
+  'verifyHmac',
+  'createSignature',
+  'verifySignature'
+])
 
 /**
  * Wrap `wallet` so oversize arguments are refused before it is called.

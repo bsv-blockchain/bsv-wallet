@@ -3,6 +3,10 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { ConnectionsScreen } from '../../ui/screens/ConnectionsScreen'
 
 const mockConnect = jest.fn(async () => {})
+const mockReconnect = jest.fn(async () => {})
+const mockDisconnect = jest.fn()
+const mockShowAlert = jest.fn(async () => 'reconnect')
+let mockSessionMeta: { topic: string } | null = null
 const mockClipboard = jest.fn()
 const mockToast = jest.fn()
 const mockPermissionsManager = {}
@@ -26,7 +30,12 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
   useTheme: () => ({ colors: {} }),
   useWallet: () => ({ managers: { permissionsManager: mockPermissionsManager } }),
-  useWalletConnection: () => ({ connect: mockConnect, reconnect: jest.fn() }),
+  useWalletConnection: () => ({
+    connect: mockConnect,
+    reconnect: mockReconnect,
+    disconnect: mockDisconnect,
+    sessionMeta: mockSessionMeta
+  }),
   guardVaultAccess: (wallet: unknown) => wallet,
   capWalletArgs: (wallet: unknown) => wallet,
   ADMIN_ORIGINATOR: 'admin.test',
@@ -64,6 +73,7 @@ jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...args: unknown[]) => mockToast(...args) }))
+jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: (...args: unknown[]) => mockShowAlert(...args) }))
 jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ children }: any) => children }))
 jest.mock('../../ui/components/ui/ListRow', () => ({ ListRow: ({ trailing }: any) => trailing }))
 jest.mock('../../ui/components/QRScanner', () => () => null)
@@ -82,6 +92,7 @@ beforeEach(() => {
   mockDeepLinkParams = {}
   mockConnections.splice(0)
   mockWebSockets.splice(0)
+  mockSessionMeta = null
   mockGetStoredSequence.mockResolvedValue(null)
   mockGetIdentityKey.mockResolvedValue({ publicKey: '02' + 'aa'.repeat(32) })
   ;(global as any).WebSocket = mockWebSocketConstructor
@@ -188,4 +199,65 @@ it.each([
   await waitFor(() => expect(mockSetConnectionStatus).toHaveBeenCalled())
   await act(async () => {})
   expect(mockWebSocketConstructor).not.toHaveBeenCalled()
+})
+
+/**
+ * XR-018: "Disconnect" used to only flip ConnectionStore's persisted status
+ * and open a SEPARATE, throwaway WebSocket for a best-effort session_revoke
+ * message — it never touched the provider's own live socket, so a
+ * non-cooperative (or offline) paired peer kept full RPC reachability after
+ * the user believed they had revoked it. Local revocation must not depend
+ * on the peer's cooperation.
+ */
+it('XR-018: tearing down the connection that IS the live session calls context disconnect() first', async () => {
+  mockSessionMeta = { topic: 'stored-session' }
+  mockConnections.push(storedConnection())
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('disconnect'))
+
+  await waitFor(() => expect(mockDisconnect).toHaveBeenCalledTimes(1))
+  expect(mockSetConnectionStatus).toHaveBeenCalledWith('stored-session', 'disconnected')
+})
+
+it('does not call context disconnect() for a stored connection that is not the live session', async () => {
+  mockSessionMeta = { topic: 'some-other-live-session' }
+  mockConnections.push(storedConnection())
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('disconnect'))
+
+  await waitFor(() => expect(mockSetConnectionStatus).toHaveBeenCalled())
+  expect(mockDisconnect).not.toHaveBeenCalled()
+})
+
+/**
+ * XR-027: reconnect() authenticates only that the wallet's own PUBLIC
+ * identity key still matches -- it never authenticates that the stored
+ * (origin, topic, protocolID, backendIdentityKey) tuple is the one the user
+ * actually approved, so a single silent tap was the only consent point in
+ * this whole path. This does not detect a tampered AsyncStorage record, but
+ * it does mean the user is never re-granted a paired RPC counterparty
+ * without an explicit confirmation naming which origin it is for.
+ */
+it('XR-027: reconnect requires an explicit confirmation naming the canonicalized origin', async () => {
+  mockConnections.push(storedConnection({ status: 'disconnected' }))
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('reconnect'))
+
+  await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+  expect(mockShowAlert.mock.calls[0][0]).toMatchObject({ title: 'reconnect_confirm_title' })
+  await waitFor(() => expect(mockReconnect).toHaveBeenCalledTimes(1))
+})
+
+it('XR-027: does not reconnect when the user declines the confirmation', async () => {
+  mockShowAlert.mockResolvedValueOnce('cancel')
+  mockConnections.push(storedConnection({ status: 'disconnected' }))
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('reconnect'))
+
+  await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+  expect(mockReconnect).not.toHaveBeenCalled()
 })

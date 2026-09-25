@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   ActivityIndicator,
 } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { WalletClient } from '@bsv/sdk'
 import {
   useWallet,
@@ -18,7 +19,10 @@ import {
   guardVaultAccess,
   capWalletArgs,
   ADMIN_ORIGINATOR,
-  parseExternalOrigin
+  parseExternalOrigin,
+  DEFAULT_AUTO_APPROVE_THRESHOLD,
+  AUTO_APPROVE_STORAGE_KEY,
+  AUTO_APPROVE_DAILY_CAP_SATS
 } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -62,6 +66,21 @@ export function PairScreen() {
   // Pre-connection validation error (before connect() is called)
   const [preConnectError, setPreConnectError] = useState<string | null>(null)
 
+  // XR-023: the ONLY value ever shown to the user pre-approval must be the
+  // same validated/canonicalized origin handleApprove authorizes — never the
+  // raw, attacker-controlled route param. Set once validation below passes.
+  const [canonicalOrigin, setCanonicalOrigin] = useState<string | null>(null)
+
+  // XR-028: the standing auto-spend authority a paired origin gets was never
+  // disclosed at approval time. Read the SAME persisted threshold WalletContext
+  // reads for spendingAuthorizationCallback — 0/unset means auto-approve is off.
+  const [autoApproveThreshold, setAutoApproveThreshold] = useState(DEFAULT_AUTO_APPROVE_THRESHOLD)
+  useEffect(() => {
+    AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY)
+      .then(v => { if (v !== null) setAutoApproveThreshold(Number(v) || 0) })
+      .catch(() => {})
+  }, [])
+
   // Whether this mount is a reconnect (explicitly passed from connections screen)
   const isReconnect = params.reconnect === 'true'
 
@@ -90,6 +109,15 @@ export function PairScreen() {
     if (Date.now() / 1000 > Number(expiry)) {
       setPreConnectError('QR code has expired')
       return
+    }
+    // Canonicalize BEFORE it is ever rendered — the same validator
+    // handleApprove uses, run up front instead of only at Approve time, so
+    // the displayed value and the authorized value are never different
+    // objects. An unparseable origin must never reach the Approve card.
+    try {
+      setCanonicalOrigin(parseExternalOrigin(origin).originator)
+    } catch (err) {
+      setPreConnectError(err instanceof Error ? err.message : 'Origin URL is not valid')
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -172,13 +200,30 @@ export function PairScreen() {
           <View style={styles.infoBox}>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Origin</Text>
-              <Text style={styles.infoValue} numberOfLines={1}>{params.origin}</Text>
+              {/* ellipsizeMode="middle" (not RN's tail-truncating default)
+                  keeps the registrable-domain suffix visible even for a long
+                  attacker-chosen hostname designed to hide it behind a
+                  trustworthy-looking prefix. */}
+              <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="middle">
+                {canonicalOrigin ?? ''}
+              </Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Permissions</Text>
               <Text style={styles.infoValue}>getPublicKey, listOutputs + more</Text>
             </View>
+            {autoApproveThreshold > 0 && (
+              <>
+                <View style={styles.divider} />
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Auto-approve</Text>
+                  <Text style={styles.infoValue}>
+                    Up to {autoApproveThreshold.toLocaleString()} sats per request, {AUTO_APPROVE_DAILY_CAP_SATS.toLocaleString()} sats/24h total, without asking
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
 
           <View style={styles.buttonRow}>

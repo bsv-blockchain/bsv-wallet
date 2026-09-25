@@ -25,6 +25,20 @@ export const MAX_RPC_CIPHERTEXT_BYTES = MAX_RPC_PLAINTEXT_BYTES + 256
 export const MAX_RPC_CIPHERTEXT_CHARS = Math.ceil(MAX_RPC_CIPHERTEXT_BYTES * 4 / 3)
 export const MAX_RPC_WIRE_CHARS = MAX_RPC_CIPHERTEXT_CHARS + 1024
 export const MAX_IN_FLIGHT_RPC = 4
+/**
+ * XR-026: MAX_IN_FLIGHT_RPC bounds the COUNT of concurrent messages, but each
+ * can independently be up to MAX_RPC_PLAINTEXT_BYTES — so up to
+ * MAX_IN_FLIGHT_RPC of them decrypting at once multiplies that ceiling by up
+ * to 4x before the ~20-30x native amplification documented in
+ * walletArgLimits.ts (a single ~5 MiB call is already ~100-150 MB of peak
+ * RSS). This bounds the SUM of estimated plaintext bytes across every
+ * message currently being decrypted or dispatched on one connection, to no
+ * worse than today's already-accepted single-message ceiling — a message
+ * that would push the running total over it is dropped, exactly like the
+ * existing MAX_IN_FLIGHT_RPC count gate, rather than allowed to add to an
+ * unbounded concurrent total.
+ */
+export const MAX_IN_FLIGHT_RPC_BYTES = MAX_RPC_PLAINTEXT_BYTES
 
 export interface ConnectParams {
   topic: string
