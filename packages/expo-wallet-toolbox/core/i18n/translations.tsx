@@ -770,6 +770,9 @@ const resources = {
       entire_wallet_balance: 'Entire wallet balance',
       entire_vault_balance: 'Entire vault balance',
       export_wallet_data: 'Export Wallet Data',
+      export_unencrypted_title: 'This File Is Not Encrypted',
+      export_unencrypted_message:
+        'The exported file is a plain, unencrypted copy of your wallet data — including identity and certificate information, transaction history, and contacts. Anyone who gets this file can read it. Only share it somewhere you trust.',
       import_wallet_data: 'Import Wallet Data',
       import_conflict_title: 'Database Already Exists',
       import_conflict_message:
@@ -1764,6 +1767,9 @@ const resources = {
       entire_wallet_balance: '全部钱包余额',
       entire_vault_balance: '保险库全部余额',
       export_wallet_data: '导出钱包数据',
+      export_unencrypted_title: '此文件未加密',
+      export_unencrypted_message:
+        '导出的文件是钱包数据的明文未加密副本，包含身份和证书信息、交易记录及联系人。任何拿到此文件的人都能读取其内容。请只将其分享到您信任的地方。',
       import_wallet_data: '导入钱包数据',
       import_conflict_title: '数据库已存在',
       import_conflict_message:
@@ -2776,6 +2782,9 @@ const resources = {
       entire_wallet_balance: 'पूरी वॉलेट शेष राशि',
       entire_vault_balance: 'पूरा वॉल्ट बैलेंस',
       export_wallet_data: 'वॉलेट डेटा निर्यात करें',
+      export_unencrypted_title: 'यह फ़ाइल एन्क्रिप्टेड नहीं है',
+      export_unencrypted_message:
+        'निर्यात की गई फ़ाइल आपके वॉलेट डेटा की एक सादी, अनएन्क्रिप्टेड प्रति है — जिसमें पहचान और प्रमाणपत्र जानकारी, लेन-देन इतिहास और संपर्क शामिल हैं। यह फ़ाइल जिसके पास भी हो, वह इसे पढ़ सकता है। इसे केवल किसी विश्वसनीय जगह ही साझा करें।',
       import_wallet_data: 'वॉलेट डेटा आयात करें',
       import_conflict_title: 'डेटाबेस पहले से मौजूद है',
       import_conflict_message:
@@ -3817,6 +3826,9 @@ const resources = {
       entire_wallet_balance: 'Todo el saldo de la billetera',
       entire_vault_balance: 'Todo el saldo de la caja fuerte',
       export_wallet_data: 'Exportar datos de cartera',
+      export_unencrypted_title: 'Este archivo no está cifrado',
+      export_unencrypted_message:
+        'El archivo exportado es una copia sin cifrar de los datos de tu cartera, incluida información de identidad y certificados, historial de transacciones y contactos. Cualquiera que obtenga este archivo puede leerlo. Compártelo solo en un lugar de confianza.',
       import_wallet_data: 'Importar datos de cartera',
       import_conflict_title: 'La base de datos ya existe',
       import_conflict_message:
@@ -4872,6 +4884,9 @@ const resources = {
       entire_wallet_balance: 'Solde total du portefeuille',
       entire_vault_balance: 'Tout le solde du coffre',
       export_wallet_data: 'Exporter les données du portefeuille',
+      export_unencrypted_title: "Ce fichier n'est pas chiffré",
+      export_unencrypted_message:
+        "Le fichier exporté est une copie non chiffrée de vos données de portefeuille — informations d'identité et de certificat, historique des transactions et contacts inclus. Quiconque obtient ce fichier peut le lire. Ne le partagez qu'avec une personne ou un endroit de confiance.",
       import_wallet_data: 'Importer les données du portefeuille',
       import_conflict_title: 'Base de données existante',
       import_conflict_message:
@@ -5886,6 +5901,9 @@ const resources = {
       entire_wallet_balance: 'رصيد المحفظة بالكامل',
       entire_vault_balance: 'كامل رصيد الخزنة',
       export_wallet_data: 'تصدير بيانات المحفظة',
+      export_unencrypted_title: 'هذا الملف غير مشفّر',
+      export_unencrypted_message:
+        'الملف المُصدَّر هو نسخة غير مشفّرة من بيانات محفظتك — بما في ذلك معلومات الهوية والشهادات وسجل المعاملات وجهات الاتصال. يمكن لأي شخص يحصل على هذا الملف قراءته. شاركه فقط في مكان تثق به.',
       import_wallet_data: 'استيراد بيانات المحفظة',
       import_conflict_title: 'قاعدة البيانات موجودة بالفعل',
       import_conflict_message:
@@ -6914,6 +6932,9 @@ const resources = {
       entire_wallet_balance: 'Saldo total da carteira',
       entire_vault_balance: 'Todo o saldo do cofre',
       export_wallet_data: 'Exportar dados da carteira',
+      export_unencrypted_title: 'Este arquivo não está criptografado',
+      export_unencrypted_message:
+        'O arquivo exportado é uma cópia simples e não criptografada dos dados da sua carteira — incluindo informações de identidade e certificados, histórico de transações e contatos. Qualquer pessoa que obtiver este arquivo poderá lê-lo. Compartilhe-o apenas em um lugar de confiança.',
       import_wallet_data: 'Importar dados da carteira',
       import_conflict_title: 'Banco de dados já existe',
       import_conflict_message:
@@ -7947,6 +7968,9 @@ const resources = {
       entire_wallet_balance: 'সম্পূর্ণ ওয়ালেট ব্যালেন্স',
       entire_vault_balance: 'ভল্টের পুরো ব্যালেন্স',
       export_wallet_data: 'ওয়ালেট ডেটা রপ্তানি করুন',
+      export_unencrypted_title: 'এই ফাইলটি এনক্রিপ্ট করা নয়',
+      export_unencrypted_message:
+        'রপ্তানি করা ফাইলটি আপনার ওয়ালেট ডেটার একটি সাধারণ, এনক্রিপ্ট না করা কপি — যার মধ্যে রয়েছে পরিচয় ও সার্টিফিকেট তথ্য, লেনদেনের ইতিহাস এবং পরিচিতি। এই ফাইলটি যার কাছেই থাকুক না কেন, সে এটি পড়তে পারবে। এটি শুধুমাত্র বিশ্বস্ত কোথাও শেয়ার করুন।',
       import_wallet_data: 'ওয়ালেট ডেটা আমদানি করুন',
       import_conflict_title: 'ডেটাবেস ইতিমধ্যে বিদ্যমান',
       import_conflict_message:
@@ -8985,6 +9009,9 @@ const resources = {
       entire_wallet_balance: 'Весь баланс кошелька',
       entire_vault_balance: 'Весь баланс хранилища',
       export_wallet_data: 'Экспортировать данные кошелька',
+      export_unencrypted_title: 'Этот файл не зашифрован',
+      export_unencrypted_message:
+        'Экспортированный файл — это обычная, незашифрованная копия данных вашего кошелька, включая сведения об идентификации и сертификатах, историю транзакций и контакты. Любой, кто получит этот файл, сможет его прочитать. Делитесь им только там, где вы уверены в надёжности.',
       import_wallet_data: 'Импортировать данные кошелька',
       import_conflict_title: 'База данных уже существует',
       import_conflict_message:
@@ -10022,6 +10049,9 @@ const resources = {
       entire_wallet_balance: 'Seluruh saldo dompet',
       entire_vault_balance: 'Seluruh saldo brankas',
       export_wallet_data: 'Ekspor Data Dompet',
+      export_unencrypted_title: 'File Ini Tidak Terenkripsi',
+      export_unencrypted_message:
+        'File yang diekspor adalah salinan data dompet Anda yang polos dan tidak terenkripsi — termasuk informasi identitas dan sertifikat, riwayat transaksi, dan kontak. Siapa pun yang mendapatkan file ini dapat membacanya. Bagikan hanya ke tempat yang Anda percayai.',
       import_wallet_data: 'Impor Data Dompet',
       import_conflict_title: 'Basis Data Sudah Ada',
       import_conflict_message:
@@ -11071,6 +11101,9 @@ const resources = {
       entire_wallet_balance: 'ウォレットの全残高',
       entire_vault_balance: '保管庫の全額',
       export_wallet_data: 'ウォレットデータをエクスポート',
+      export_unencrypted_title: 'このファイルは暗号化されていません',
+      export_unencrypted_message:
+        'エクスポートされたファイルは、ウォレットデータの暗号化されていない平文のコピーです。身元情報や証明書情報、取引履歴、連絡先が含まれます。このファイルを入手した人は誰でも内容を読むことができます。信頼できる相手・場所とのみ共有してください。',
       import_wallet_data: 'ウォレットデータをインポート',
       import_conflict_title: 'データベースが既に存在します',
       import_conflict_message:
@@ -12127,6 +12160,9 @@ const resources = {
       entire_wallet_balance: 'Całe saldo portfela',
       entire_vault_balance: 'Całe saldo sejfu',
       export_wallet_data: 'Eksportuj dane portfela',
+      export_unencrypted_title: 'Ten plik nie jest zaszyfrowany',
+      export_unencrypted_message:
+        'Wyeksportowany plik to zwykła, niezaszyfrowana kopia danych Twojego portfela — w tym informacji o tożsamości i certyfikatach, historii transakcji i kontaktów. Każdy, kto zdobędzie ten plik, będzie mógł go odczytać. Udostępniaj go wyłącznie w zaufanym miejscu.',
       import_wallet_data: 'Importuj dane portfela',
       import_conflict_title: 'Baza danych już istnieje',
       import_conflict_message:

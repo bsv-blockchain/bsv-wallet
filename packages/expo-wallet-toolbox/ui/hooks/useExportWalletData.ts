@@ -9,10 +9,23 @@
  * Lifted from WalletConfigScreen.handleExportData so both screens share one
  * implementation: one export at a time, `exporting` for the spinner, failures
  * logged rather than surfaced (a dismissed share sheet is not an error).
+ *
+ * XR-086: exportAllWalletDatabases() writes the raw, unencrypted SQLite image
+ * straight to the OS share sheet — identity keys, certificate fields,
+ * transaction/derivation metadata and contacts, with no passphrase or
+ * authenticated-encryption step. Wrapping it in one would need a product
+ * decision this hook cannot make alone (how the *importing* device gets the
+ * key/passphrase back — see importDatabases.ts, which has no decrypt step
+ * either); that is recorded as a design delta on XR-086, not silently
+ * skipped. What actually ships here is the part that needs no such decision:
+ * an explicit warning naming what the file contains and that it is not
+ * encrypted, with a real chance to back out, shared by both call sites since
+ * they both go through this one hook.
  */
 import { useCallback, useRef, useState } from 'react'
-import { useWallet } from '@bsv/expo-wallet-toolbox'
+import { i18n, useWallet } from '@bsv/expo-wallet-toolbox'
 import { exportAllWalletDatabases } from '../exportDatabases'
+import { showAlert } from '../components/ui/AlertCard'
 
 export function useExportWalletData(): { exportData: () => Promise<void>; exporting: boolean } {
   const { storage } = useWallet()
@@ -26,6 +39,15 @@ export function useExportWalletData(): { exportData: () => Promise<void>; export
     inFlightRef.current = true
     setExporting(true)
     try {
+      const choice = await showAlert({
+        title: i18n.t('export_unencrypted_title'),
+        message: i18n.t('export_unencrypted_message'),
+        buttons: [
+          { text: i18n.t('cancel'), style: 'cancel', key: 'cancel' },
+          { text: i18n.t('export_wallet_data'), style: 'destructive', key: 'export' }
+        ]
+      })
+      if (choice !== 'export') return
       await exportAllWalletDatabases(storage)
     } catch (e) {
       console.warn('[exportWalletData] Export failed:', e)
