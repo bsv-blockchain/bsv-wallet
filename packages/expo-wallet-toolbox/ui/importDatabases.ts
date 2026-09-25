@@ -50,10 +50,45 @@ export interface ImportResult {
  */
 const MAX_FUTURE_SKEW_SECONDS = 300
 
+/**
+ * A conservative ceiling on how large a picked wallet backup may be. Without
+ * one, `DocumentPicker` accepts any file type at all and the import path
+ * unconditionally materializes the whole thing into a JS byte array
+ * (`pickedFile.bytes()`) before any format check, and `prepareSqliteImageForDeserialize`
+ * can then allocate a second full-size copy on top of that for any
+ * WAL-header-shaped input — so an oversized file (deliberately crafted or
+ * merely a bad pick) can exhaust device memory/storage and freeze or kill the
+ * app during an explicit, user-initiated import (XR-087). Comfortably above
+ * any real wallet database this app would ever produce, while still bounding
+ * the worst case.
+ */
+const MAX_IMPORT_BYTES = 256 * 1024 * 1024 // 256 MiB
+
 async function rejectAsUntrusted(): Promise<ImportResult> {
   await showAlert({
     title: i18n.t('import_untrusted_file'),
     message: i18n.t('import_untrusted_file_detail'),
+    buttons: [{ text: i18n.t('done'), key: 'ok' }]
+  })
+  return { imported: false }
+}
+
+/**
+ * Reject a picked file that is too large (or whose size the picker did not
+ * report at all — untrusted metadata that fails closed) to safely read into
+ * memory, and best-effort delete whatever `copyToCacheDirectory: true`
+ * already placed in the cache for it (XR-087).
+ */
+async function rejectAsOversized(cacheUri: string | undefined): Promise<ImportResult> {
+  if (cacheUri) {
+    try {
+      const { File } = loadExpoFileSystem()
+      new File(cacheUri).delete()
+    } catch {}
+  }
+  await showAlert({
+    title: i18n.t('import_oversized_file'),
+    message: i18n.t('import_oversized_file_detail'),
     buttons: [{ text: i18n.t('done'), key: 'ok' }]
   })
   return { imported: false }
@@ -263,6 +298,15 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
   const asset = result.assets[0]
   const pickedName = asset.name
 
+  // ── 1.5 Enforce a size ceiling ───────────────────────────────────────────
+  // Picker metadata is untrusted, but it is still the cheapest possible
+  // rejection — refuse before ever constructing a File or reading a byte
+  // (XR-087). A missing size is treated the same as an oversized one: fail
+  // closed rather than assume a small file.
+  if (asset.size == null || asset.size > MAX_IMPORT_BYTES) {
+    return rejectAsOversized(asset.uri)
+  }
+
   // ── 2. Validate filename ──────────────────────────────────────────────────
   const parsed = parseDbFilename(pickedName)
   if (!parsed) {
@@ -330,6 +374,13 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
     console.error('[importDatabases] Failed to read picked file:', e.message)
     showToast(e.message, { type: 'error' })
     return { imported: false }
+  }
+
+  // Picker-reported `asset.size` is untrusted metadata — re-check the actual
+  // byte count before it ever reaches WAL normalization/deserialization,
+  // which can allocate a second full-size copy on top of this one (XR-087).
+  if (bytes.length > MAX_IMPORT_BYTES) {
+    return rejectAsOversized(asset.uri)
   }
 
   // ── 5. Place the database via deserialize → backup ────────────────────────

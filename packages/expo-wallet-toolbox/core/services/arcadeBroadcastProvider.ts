@@ -316,14 +316,22 @@ export function createGorillaPoolBroadcastService(arcUrl: string) {
  * WhatsOnChain broadcast service — raw tx hex.
  */
 export function createWocBroadcastService(chain: string, apiKey?: string) {
+  // XQ-011: `chain` here is WalletContext.tsx's un-normalized `walletChain`,
+  // which a corrupted/garbage persisted finalConfig.network value passes
+  // through unchanged (toWalletChain only special-cases the literal
+  // 'teratest'). Every sibling consumer of that same raw value —
+  // chaintracksUrlFor, the backupChain ternary that actually buckets which
+  // local DB is opened, walletDbRegistry's registry key — fails safe by
+  // collapsing any unrecognized string to a teratest/testnet bucket. This
+  // switch used to do the opposite, defaulting an unrecognized value to the
+  // live mainnet broadcast endpoint: the most privileged branch, not the
+  // least. Fail safe the same direction as every other consumer instead.
   const baseUrl =
     chain === 'main'
       ? 'https://api.whatsonchain.com/v1/bsv/main'
       : chain === 'test'
         ? 'https://api.whatsonchain.com/v1/bsv/test'
-        : chain === 'ttn'
-          ? 'https://api.woc-ttn.bsvblockchain.tech/v1/bsv/test'
-          : 'https://api.whatsonchain.com/v1/bsv/main'
+        : 'https://api.woc-ttn.bsvblockchain.tech/v1/bsv/test'
   const name = 'WhatsOnChain'
 
   return {

@@ -770,6 +770,9 @@ const resources = {
       entire_wallet_balance: 'Entire wallet balance',
       entire_vault_balance: 'Entire vault balance',
       export_wallet_data: 'Export Wallet Data',
+      export_unencrypted_title: 'This File Is Not Encrypted',
+      export_unencrypted_message:
+        'The exported file is a plain, unencrypted copy of your wallet data — including identity and certificate information, transaction history, and contacts. Anyone who gets this file can read it. Only share it somewhere you trust.',
       import_wallet_data: 'Import Wallet Data',
       import_conflict_title: 'Database Already Exists',
       import_conflict_message:
@@ -780,6 +783,9 @@ const resources = {
       import_invalid_file: 'Invalid Backup File',
       import_invalid_file_detail:
         'This file is not a valid wallet database backup. Expected a filename like wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'Backup File Too Large',
+      import_oversized_file_detail:
+        'This file is larger than a wallet backup should be, so it was not read. Choose a genuine wallet database backup file.',
       import_untrusted_file: 'Cannot Import This Backup',
       import_untrusted_file_detail:
         'This backup could not be verified as belonging to this wallet, or its contents could not be trusted. It was not imported.',
@@ -1761,6 +1767,9 @@ const resources = {
       entire_wallet_balance: '全部钱包余额',
       entire_vault_balance: '保险库全部余额',
       export_wallet_data: '导出钱包数据',
+      export_unencrypted_title: '此文件未加密',
+      export_unencrypted_message:
+        '导出的文件是钱包数据的明文未加密副本，包含身份和证书信息、交易记录及联系人。任何拿到此文件的人都能读取其内容。请只将其分享到您信任的地方。',
       import_wallet_data: '导入钱包数据',
       import_conflict_title: '数据库已存在',
       import_conflict_message:
@@ -1771,6 +1780,8 @@ const resources = {
       import_invalid_file: '无效的备份文件',
       import_invalid_file_detail:
         '此文件不是有效的钱包数据库备份。预期文件名格式如 wallet-XXXXXXXX-mainnet-TIMESTAMP.db。',
+      import_oversized_file: '备份文件过大',
+      import_oversized_file_detail: '此文件大小超出钱包备份应有的范围，因此未被读取。请选择真实的钱包数据库备份文件。',
       import_untrusted_file: '无法导入此备份',
       import_untrusted_file_detail: '此备份无法验证为属于此钱包,或其内容不可信。未导入。',
       import_anyway: '仍然导入',
@@ -2771,6 +2782,9 @@ const resources = {
       entire_wallet_balance: 'पूरी वॉलेट शेष राशि',
       entire_vault_balance: 'पूरा वॉल्ट बैलेंस',
       export_wallet_data: 'वॉलेट डेटा निर्यात करें',
+      export_unencrypted_title: 'यह फ़ाइल एन्क्रिप्टेड नहीं है',
+      export_unencrypted_message:
+        'निर्यात की गई फ़ाइल आपके वॉलेट डेटा की एक सादी, अनएन्क्रिप्टेड प्रति है — जिसमें पहचान और प्रमाणपत्र जानकारी, लेन-देन इतिहास और संपर्क शामिल हैं। यह फ़ाइल जिसके पास भी हो, वह इसे पढ़ सकता है। इसे केवल किसी विश्वसनीय जगह ही साझा करें।',
       import_wallet_data: 'वॉलेट डेटा आयात करें',
       import_conflict_title: 'डेटाबेस पहले से मौजूद है',
       import_conflict_message:
@@ -2781,6 +2795,9 @@ const resources = {
       import_invalid_file: 'अमान्य बैकअप फ़ाइल',
       import_invalid_file_detail:
         'यह फ़ाइल एक मान्य वॉलेट डेटाबेस बैकअप नहीं है। अपेक्षित फ़ाइल नाम जैसे wallet-XXXXXXXX-mainnet-TIMESTAMP.db।',
+      import_oversized_file: 'बैकअप फ़ाइल बहुत बड़ी है',
+      import_oversized_file_detail:
+        'यह फ़ाइल वॉलेट बैकअप के लिए अपेक्षित आकार से बड़ी है, इसलिए इसे नहीं पढ़ा गया। कृपया एक वास्तविक वॉलेट डेटाबेस बैकअप फ़ाइल चुनें।',
       import_untrusted_file: 'यह बैकअप आयात नहीं किया जा सका',
       import_untrusted_file_detail:
         'यह बैकअप इस वॉलेट से संबंधित सत्यापित नहीं किया जा सका, या इसकी सामग्री पर भरोसा नहीं किया जा सका। इसे आयात नहीं किया गया।',
@@ -3809,6 +3826,9 @@ const resources = {
       entire_wallet_balance: 'Todo el saldo de la billetera',
       entire_vault_balance: 'Todo el saldo de la caja fuerte',
       export_wallet_data: 'Exportar datos de cartera',
+      export_unencrypted_title: 'Este archivo no está cifrado',
+      export_unencrypted_message:
+        'El archivo exportado es una copia sin cifrar de los datos de tu cartera, incluida información de identidad y certificados, historial de transacciones y contactos. Cualquiera que obtenga este archivo puede leerlo. Compártelo solo en un lugar de confianza.',
       import_wallet_data: 'Importar datos de cartera',
       import_conflict_title: 'La base de datos ya existe',
       import_conflict_message:
@@ -3819,6 +3839,9 @@ const resources = {
       import_invalid_file: 'Archivo de respaldo inválido',
       import_invalid_file_detail:
         'Este archivo no es un respaldo válido de base de datos. Se esperaba un nombre como wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'Archivo de respaldo demasiado grande',
+      import_oversized_file_detail:
+        'Este archivo es más grande de lo que debería ser un respaldo de cartera, por lo que no se leyó. Elige un archivo de respaldo de base de datos de cartera genuino.',
       import_untrusted_file: 'No se puede importar este respaldo',
       import_untrusted_file_detail:
         'No se pudo verificar que este respaldo pertenezca a esta cartera, o no se pudo confiar en su contenido. No se importó.',
@@ -4861,6 +4884,9 @@ const resources = {
       entire_wallet_balance: 'Solde total du portefeuille',
       entire_vault_balance: 'Tout le solde du coffre',
       export_wallet_data: 'Exporter les données du portefeuille',
+      export_unencrypted_title: "Ce fichier n'est pas chiffré",
+      export_unencrypted_message:
+        "Le fichier exporté est une copie non chiffrée de vos données de portefeuille — informations d'identité et de certificat, historique des transactions et contacts inclus. Quiconque obtient ce fichier peut le lire. Ne le partagez qu'avec une personne ou un endroit de confiance.",
       import_wallet_data: 'Importer les données du portefeuille',
       import_conflict_title: 'Base de données existante',
       import_conflict_message:
@@ -4871,6 +4897,9 @@ const resources = {
       import_invalid_file: 'Fichier de sauvegarde invalide',
       import_invalid_file_detail:
         "Ce fichier n'est pas une sauvegarde de base de données valide. Nom de fichier attendu : wallet-XXXXXXXX-mainnet-TIMESTAMP.db.",
+      import_oversized_file: 'Fichier de sauvegarde trop volumineux',
+      import_oversized_file_detail:
+        "Ce fichier est plus volumineux qu'une sauvegarde de portefeuille ne devrait l'être, il n'a donc pas été lu. Choisissez un fichier de sauvegarde de base de données de portefeuille authentique.",
       import_untrusted_file: "Impossible d'importer cette sauvegarde",
       import_untrusted_file_detail:
         "Cette sauvegarde n'a pas pu être vérifiée comme appartenant à ce portefeuille, ou son contenu n'a pas pu être approuvé. Elle n'a pas été importée.",
@@ -5872,6 +5901,9 @@ const resources = {
       entire_wallet_balance: 'رصيد المحفظة بالكامل',
       entire_vault_balance: 'كامل رصيد الخزنة',
       export_wallet_data: 'تصدير بيانات المحفظة',
+      export_unencrypted_title: 'هذا الملف غير مشفّر',
+      export_unencrypted_message:
+        'الملف المُصدَّر هو نسخة غير مشفّرة من بيانات محفظتك — بما في ذلك معلومات الهوية والشهادات وسجل المعاملات وجهات الاتصال. يمكن لأي شخص يحصل على هذا الملف قراءته. شاركه فقط في مكان تثق به.',
       import_wallet_data: 'استيراد بيانات المحفظة',
       import_conflict_title: 'قاعدة البيانات موجودة بالفعل',
       import_conflict_message:
@@ -5882,6 +5914,9 @@ const resources = {
       import_invalid_file: 'ملف نسخ احتياطي غير صالح',
       import_invalid_file_detail:
         'هذا الملف ليس نسخة احتياطية صالحة لقاعدة بيانات المحفظة. اسم الملف المتوقع مثل wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'ملف النسخة الاحتياطية كبير جدًا',
+      import_oversized_file_detail:
+        'هذا الملف أكبر مما ينبغي أن تكون عليه النسخة الاحتياطية للمحفظة، لذا لم تتم قراءته. اختر ملف نسخة احتياطية حقيقي لقاعدة بيانات المحفظة.',
       import_untrusted_file: 'تعذر استيراد هذه النسخة الاحتياطية',
       import_untrusted_file_detail:
         'تعذر التحقق من أن هذه النسخة الاحتياطية تخص هذه المحفظة، أو تعذر الوثوق بمحتواها. لم يتم استيرادها.',
@@ -6897,6 +6932,9 @@ const resources = {
       entire_wallet_balance: 'Saldo total da carteira',
       entire_vault_balance: 'Todo o saldo do cofre',
       export_wallet_data: 'Exportar dados da carteira',
+      export_unencrypted_title: 'Este arquivo não está criptografado',
+      export_unencrypted_message:
+        'O arquivo exportado é uma cópia simples e não criptografada dos dados da sua carteira — incluindo informações de identidade e certificados, histórico de transações e contatos. Qualquer pessoa que obtiver este arquivo poderá lê-lo. Compartilhe-o apenas em um lugar de confiança.',
       import_wallet_data: 'Importar dados da carteira',
       import_conflict_title: 'Banco de dados já existe',
       import_conflict_message:
@@ -6907,6 +6945,9 @@ const resources = {
       import_invalid_file: 'Arquivo de backup inválido',
       import_invalid_file_detail:
         'Este arquivo não é um backup válido de banco de dados. Nome de arquivo esperado como wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'Arquivo de backup muito grande',
+      import_oversized_file_detail:
+        'Este arquivo é maior do que um backup de carteira deveria ser, por isso não foi lido. Escolha um arquivo de backup de banco de dados de carteira genuíno.',
       import_untrusted_file: 'Não é possível importar este backup',
       import_untrusted_file_detail:
         'Não foi possível verificar se este backup pertence a esta carteira, ou seu conteúdo não pôde ser confiável. Não foi importado.',
@@ -7927,6 +7968,9 @@ const resources = {
       entire_wallet_balance: 'সম্পূর্ণ ওয়ালেট ব্যালেন্স',
       entire_vault_balance: 'ভল্টের পুরো ব্যালেন্স',
       export_wallet_data: 'ওয়ালেট ডেটা রপ্তানি করুন',
+      export_unencrypted_title: 'এই ফাইলটি এনক্রিপ্ট করা নয়',
+      export_unencrypted_message:
+        'রপ্তানি করা ফাইলটি আপনার ওয়ালেট ডেটার একটি সাধারণ, এনক্রিপ্ট না করা কপি — যার মধ্যে রয়েছে পরিচয় ও সার্টিফিকেট তথ্য, লেনদেনের ইতিহাস এবং পরিচিতি। এই ফাইলটি যার কাছেই থাকুক না কেন, সে এটি পড়তে পারবে। এটি শুধুমাত্র বিশ্বস্ত কোথাও শেয়ার করুন।',
       import_wallet_data: 'ওয়ালেট ডেটা আমদানি করুন',
       import_conflict_title: 'ডেটাবেস ইতিমধ্যে বিদ্যমান',
       import_conflict_message:
@@ -7937,6 +7981,9 @@ const resources = {
       import_invalid_file: 'অবৈধ ব্যাকআপ ফাইল',
       import_invalid_file_detail:
         'এই ফাইলটি একটি বৈধ ওয়ালেট ডেটাবেস ব্যাকআপ নয়। প্রত্যাশিত ফাইলের নাম যেমন wallet-XXXXXXXX-mainnet-TIMESTAMP.db।',
+      import_oversized_file: 'ব্যাকআপ ফাইলটি অনেক বড়',
+      import_oversized_file_detail:
+        'এই ফাইলটি একটি ওয়ালেট ব্যাকআপের জন্য প্রত্যাশিত আকারের চেয়ে বড়, তাই এটি পড়া হয়নি। একটি প্রকৃত ওয়ালেট ডেটাবেস ব্যাকআপ ফাইল নির্বাচন করুন।',
       import_untrusted_file: 'এই ব্যাকআপ আমদানি করা যায়নি',
       import_untrusted_file_detail:
         'এই ব্যাকআপটি এই ওয়ালেটের অন্তর্গত হিসেবে যাচাই করা যায়নি, অথবা এর বিষয়বস্তু বিশ্বাসযোগ্য ছিল না। এটি আমদানি করা হয়নি।',
@@ -8962,6 +9009,9 @@ const resources = {
       entire_wallet_balance: 'Весь баланс кошелька',
       entire_vault_balance: 'Весь баланс хранилища',
       export_wallet_data: 'Экспортировать данные кошелька',
+      export_unencrypted_title: 'Этот файл не зашифрован',
+      export_unencrypted_message:
+        'Экспортированный файл — это обычная, незашифрованная копия данных вашего кошелька, включая сведения об идентификации и сертификатах, историю транзакций и контакты. Любой, кто получит этот файл, сможет его прочитать. Делитесь им только там, где вы уверены в надёжности.',
       import_wallet_data: 'Импортировать данные кошелька',
       import_conflict_title: 'База данных уже существует',
       import_conflict_message:
@@ -8972,6 +9022,9 @@ const resources = {
       import_invalid_file: 'Недопустимый файл резервной копии',
       import_invalid_file_detail:
         'Этот файл не является допустимой резервной копией базы данных кошелька. Ожидаемое имя файла: wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'Файл резервной копии слишком большой',
+      import_oversized_file_detail:
+        'Этот файл больше, чем должна быть резервная копия кошелька, поэтому он не был прочитан. Выберите настоящий файл резервной копии базы данных кошелька.',
       import_untrusted_file: 'Не удалось импортировать эту резервную копию',
       import_untrusted_file_detail:
         'Не удалось подтвердить, что эта резервная копия принадлежит этому кошельку, или её содержимому нельзя доверять. Она не была импортирована.',
@@ -9996,6 +10049,9 @@ const resources = {
       entire_wallet_balance: 'Seluruh saldo dompet',
       entire_vault_balance: 'Seluruh saldo brankas',
       export_wallet_data: 'Ekspor Data Dompet',
+      export_unencrypted_title: 'File Ini Tidak Terenkripsi',
+      export_unencrypted_message:
+        'File yang diekspor adalah salinan data dompet Anda yang polos dan tidak terenkripsi — termasuk informasi identitas dan sertifikat, riwayat transaksi, dan kontak. Siapa pun yang mendapatkan file ini dapat membacanya. Bagikan hanya ke tempat yang Anda percayai.',
       import_wallet_data: 'Impor Data Dompet',
       import_conflict_title: 'Basis Data Sudah Ada',
       import_conflict_message:
@@ -10006,6 +10062,9 @@ const resources = {
       import_invalid_file: 'File Cadangan Tidak Valid',
       import_invalid_file_detail:
         'File ini bukan cadangan basis data dompet yang valid. Nama file yang diharapkan seperti wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'File Cadangan Terlalu Besar',
+      import_oversized_file_detail:
+        'File ini lebih besar dari yang seharusnya untuk cadangan dompet, sehingga tidak dibaca. Pilih file cadangan basis data dompet yang asli.',
       import_untrusted_file: 'Tidak dapat mengimpor cadangan ini',
       import_untrusted_file_detail:
         'Cadangan ini tidak dapat diverifikasi sebagai milik dompet ini, atau isinya tidak dapat dipercaya. Cadangan ini tidak diimpor.',
@@ -11042,6 +11101,9 @@ const resources = {
       entire_wallet_balance: 'ウォレットの全残高',
       entire_vault_balance: '保管庫の全額',
       export_wallet_data: 'ウォレットデータをエクスポート',
+      export_unencrypted_title: 'このファイルは暗号化されていません',
+      export_unencrypted_message:
+        'エクスポートされたファイルは、ウォレットデータの暗号化されていない平文のコピーです。身元情報や証明書情報、取引履歴、連絡先が含まれます。このファイルを入手した人は誰でも内容を読むことができます。信頼できる相手・場所とのみ共有してください。',
       import_wallet_data: 'ウォレットデータをインポート',
       import_conflict_title: 'データベースが既に存在します',
       import_conflict_message:
@@ -11052,6 +11114,9 @@ const resources = {
       import_invalid_file: '無効なバックアップファイル',
       import_invalid_file_detail:
         'このファイルは有効なウォレットデータベースのバックアップではありません。wallet-XXXXXXXX-mainnet-TIMESTAMP.db のようなファイル名が必要です。',
+      import_oversized_file: 'バックアップファイルが大きすぎます',
+      import_oversized_file_detail:
+        'このファイルはウォレットのバックアップとして想定されるサイズを超えているため、読み込まれませんでした。正しいウォレットデータベースのバックアップファイルを選択してください。',
       import_untrusted_file: 'このバックアップをインポートできません',
       import_untrusted_file_detail:
         'このバックアップがこのウォレットに属することを確認できなかったか、内容を信頼できませんでした。インポートされませんでした。',
@@ -12095,6 +12160,9 @@ const resources = {
       entire_wallet_balance: 'Całe saldo portfela',
       entire_vault_balance: 'Całe saldo sejfu',
       export_wallet_data: 'Eksportuj dane portfela',
+      export_unencrypted_title: 'Ten plik nie jest zaszyfrowany',
+      export_unencrypted_message:
+        'Wyeksportowany plik to zwykła, niezaszyfrowana kopia danych Twojego portfela — w tym informacji o tożsamości i certyfikatach, historii transakcji i kontaktów. Każdy, kto zdobędzie ten plik, będzie mógł go odczytać. Udostępniaj go wyłącznie w zaufanym miejscu.',
       import_wallet_data: 'Importuj dane portfela',
       import_conflict_title: 'Baza danych już istnieje',
       import_conflict_message:
@@ -12105,6 +12173,9 @@ const resources = {
       import_invalid_file: 'Nieprawidłowy plik kopii zapasowej',
       import_invalid_file_detail:
         'Ten plik nie jest prawidłową kopią zapasową bazy danych portfela. Oczekiwana nazwa pliku w formacie wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'Plik kopii zapasowej jest zbyt duży',
+      import_oversized_file_detail:
+        'Ten plik jest większy, niż powinna być kopia zapasowa portfela, więc nie został odczytany. Wybierz prawdziwy plik kopii zapasowej bazy danych portfela.',
       import_untrusted_file: 'Nie można zaimportować tej kopii zapasowej',
       import_untrusted_file_detail:
         'Nie udało się zweryfikować, że ta kopia zapasowa należy do tego portfela, lub jej zawartości nie można było zaufać. Nie została zaimportowana.',
