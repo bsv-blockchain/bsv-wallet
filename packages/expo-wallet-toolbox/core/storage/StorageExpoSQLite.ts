@@ -2104,12 +2104,21 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   /**
-   * Which of these txids the Mandala settlement drain owns.
+   * Which of these txids the Mandala settlement drain owns — THROWS if the
+   * read itself could not be answered.
    *
-   * A missing table (a device that has not yet run the additive migration) or
-   * any other read failure yields the empty set, which is exactly the
-   * pre-feature behaviour — logged, never thrown, because a broken read here
-   * must not take down every broadcast in the wallet.
+   * XR-045: this used to collapse "the read failed" into the same empty set as
+   * "no token requests here", which is exactly what "treat it as plain BSV"
+   * means to every caller — so a transient SQLite fault (busy/locked, a
+   * corrupt page) on a table that had just been written to successfully
+   * looked identical to "this feature does not apply", and an unadmitted token
+   * request went straight to broadcast. Never swallowed here any more: each
+   * caller already decides what a failure costs it — `holdTokenReqsForDrain`
+   * withholds its whole batch on any exception, and `attemptToPostReqsToNetwork`
+   * (guard #2, the one that can actually broadcast) does the same rather than
+   * deciding off an incomplete answer. `heldTokenTxidsIn` (guard #2's result
+   * half, reporting only) already documented "read failures propagate; the one
+   * caller decides" — this is what makes that true.
    */
   private async tokenSettlementTxids(txids: string[]): Promise<Set<string>> {
     if (txids.length === 0 || !this.db) return new Set()
@@ -2120,8 +2129,8 @@ export class StorageExpoSQLite extends StorageProvider {
       )) as { txid: string }[]
       return new Set(rows.map(r => r.txid))
     } catch (e) {
-      devLog('[StorageExpoSQLite] could not read token_settlements, treating every req as plain BSV:', e)
-      return new Set()
+      devLog('[StorageExpoSQLite] could not read token_settlements:', e)
+      throw e
     }
   }
 
@@ -2266,7 +2275,20 @@ export class StorageExpoSQLite extends StorageProvider {
   ): Promise<PostReqsToNetworkResult> {
     if (reqs.length === 0) return await super.attemptToPostReqsToNetwork(reqs, trx, logger)
 
-    const tokenTxids = await this.tokenSettlementTxids(reqs.map(r => r.txid))
+    let tokenTxids: Set<string>
+    try {
+      tokenTxids = await this.tokenSettlementTxids(reqs.map(r => r.txid))
+    } catch (e) {
+      // XR-045: the read could not be answered, so this call does not know
+      // which of `reqs` are token requests — and "I could not tell" must never
+      // resolve to "post them", the exact fail-open this guard exists to
+      // prevent. Hold the WHOLE batch, as if every txid in it needed the
+      // drain: a plain BSV req held this way is not lost, only delayed until
+      // `processOfflineActions` (or a later, healthy read) finds no settlement
+      // row for it and posts it normally.
+      devLog('[StorageExpoSQLite] could not read token_settlements; holding the whole batch rather than guessing:', e)
+      tokenTxids = new Set(reqs.map(r => r.txid))
+    }
     const tokenReqs = tokenTxids.size > 0 ? reqs.filter(r => tokenTxids.has(r.txid)) : []
     const rest = tokenTxids.size > 0 ? reqs.filter(r => !tokenTxids.has(r.txid)) : reqs
 

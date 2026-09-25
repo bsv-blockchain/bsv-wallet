@@ -36,12 +36,34 @@ describe('handleArcResponse', () => {
     expect(result.status).toBe('success')
   })
 
-  it('marks double-spend statuses without success', () => {
-    for (const txStatus of ['DOUBLE_SPEND_ATTEMPTED', 'SEEN_IN_ORPHAN_MEMPOOL'] as const) {
-      const result = handleArcResponse('Arcade', { ok: true, status: 200 }, { txid: txids[0], txStatus }, txids)
-      expect(result.status).toBe('error')
-      expect(result.doubleSpend).toBe(true)
-    }
+  it('marks a proven double-spend attempt as doubleSpend, not just error', () => {
+    const result = handleArcResponse(
+      'Arcade',
+      { ok: true, status: 200 },
+      { txid: txids[0], txStatus: 'DOUBLE_SPEND_ATTEMPTED' },
+      txids
+    )
+    expect(result.status).toBe('error')
+    expect(result.doubleSpend).toBe(true)
+  })
+
+  // XR-062: SEEN_IN_ORPHAN_MEMPOOL means the parent hasn't propagated yet — a
+  // missing/unpropagated-parent transport condition, not a proven conflict.
+  // It used to be lumped in with DOUBLE_SPEND_ATTEMPTED and fed the same
+  // terminal rejection cascade (offline/plan.ts applyOutcome), permanently
+  // rejecting a valid chained/offline payment and releasing its reservations
+  // purely from ordinary propagation timing. It must be retryable
+  // (serviceError), never doubleSpend.
+  it('XR-062: marks an orphan-mempool status as a retryable serviceError, not doubleSpend', () => {
+    const result = handleArcResponse(
+      'Arcade',
+      { ok: true, status: 200 },
+      { txid: txids[0], txStatus: 'SEEN_IN_ORPHAN_MEMPOOL' },
+      txids
+    )
+    expect(result.status).toBe('error')
+    expect(result.doubleSpend).not.toBe(true)
+    expect(result.serviceError).toBe(true)
   })
 
   it('marks REJECTED and non-ok HTTP as serviceError', () => {
@@ -64,9 +86,32 @@ describe('handleArcResponse', () => {
     expect(httpErr.serviceError).toBe(true)
   })
 
-  it('treats missing txStatus with ok response as success (built-in ARC parity)', () => {
+  it('treats missing txStatus with ok response as success when the txid matches (built-in ARC parity)', () => {
     const result = handleArcResponse('TaalArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
     expect(result.status).toBe('success')
+  })
+
+  // XR-064: a custom (person-configured) ARC endpoint's success predicate was
+  // `response.ok && data.txStatus !== 'REJECTED'` — with no txid match and no
+  // requirement that txStatus be an explicit accepted value. An on-path
+  // attacker on a person-chosen plaintext ARC endpoint (or simply a
+  // misbehaving deployment) could return a bare `200 {}` and stop the
+  // UntilSuccess chain right there, suppressing the real broadcast/fallback.
+  it('XR-064: does NOT treat a bare 2xx body (no txStatus, no txid) as success', () => {
+    const result = handleArcResponse('CustomArc', { ok: true, status: 200 }, {}, txids)
+    expect(result.status).not.toBe('success')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('XR-064: does not accept an unrecognized txStatus when the txid does not match either', () => {
+    const result = handleArcResponse(
+      'CustomArc',
+      { ok: true, status: 200 },
+      { txid: 'some-other-txid', txStatus: 'TOTALLY_MADE_UP' },
+      txids
+    )
+    expect(result.status).not.toBe('success')
+    expect(result.serviceError).toBe(true)
   })
 })
 
@@ -190,5 +235,60 @@ describe('createWocBroadcastService classification', () => {
     const [, loggedSnippet] = logSpy.mock.calls[0] as [string, string]
     expect(loggedSnippet.length).toBeLessThan(hugeBody.length)
     logSpy.mockRestore()
+  })
+})
+
+/**
+ * XR-063: a broadcast provider that returns headers within the deadline and
+ * then stalls its body used to hold the whole `service()` promise open
+ * forever — the AbortController's timer was cleared as soon as fetch()
+ * resolved, before response.json()/text() ever ran. Since this provider sits
+ * first in the UntilSuccess fallback chain, a stall here blocked every later
+ * fallback (Taal, GorillaPool, WoC) from ever being tried.
+ */
+describe('XR-063: a stalled body converts to a serviceError instead of hanging forever', () => {
+  beforeEach(() => jest.useFakeTimers())
+  afterEach(() => jest.useRealTimers())
+
+  const txOf = () => {
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    return { tx, beef }
+  }
+
+  it('Arcade (ARC) resolves with a serviceError rather than hanging when .json() never resolves', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => new Promise(() => {})
+    }) as unknown as typeof fetch
+    const { tx, beef } = txOf()
+    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+
+    const pending = service(beef, [tx.id('hex')])
+    await jest.advanceTimersByTimeAsync(30_000)
+    const result = await pending
+
+    expect(result.status).toBe('error')
+    expect(result.txidResults[0].serviceError).toBe(true)
+    expect(result.txidResults[0].doubleSpend).toBeUndefined()
+  })
+
+  it('WhatsOnChain resolves with a serviceError rather than hanging when .text() never resolves', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => new Promise(() => {})
+    }) as unknown as typeof fetch
+    const { tx, beef } = txOf()
+    const { service } = createWocBroadcastService('main')
+
+    const pending = service(beef, [tx.id('hex')])
+    await jest.advanceTimersByTimeAsync(30_000)
+    const result = await pending
+
+    expect(result.status).toBe('error')
+    expect(result.txidResults[0].serviceError).toBe(true)
   })
 })

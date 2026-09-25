@@ -8,17 +8,20 @@
 jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
 jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake').fake)
 
+import { Utils } from '@bsv/sdk'
 import { fake as secureStore } from '../__mocks__/secureStoreFake'
 import { fake as localAuth } from '../__mocks__/localAuthFake'
 import {
   __resetForTests,
   autoUnlockKek,
   destroyKek,
+  isUnlocked,
   provisionKek,
   readSentinel,
   recordSecretName,
   unlockKek
 } from '../../core/services/secrets/kek'
+import { generateKek, generateKekId, sealSecret } from '../../core/services/secrets/envelope'
 import { KEK_AUTH_KEY, KEK_PLAIN_KEY } from '../../core/services/secrets/policy'
 
 const KEK_SERVICE = 'bsvb.kek.v1'
@@ -33,9 +36,16 @@ async function provisionWithSecret() {
   return state
 }
 
+// Captured once, before any test can override it, so a test that swaps
+// deleteItemAsync's implementation (to simulate a silent no-op delete)
+// cannot leak that override into a later test — __reset() clears calls but,
+// like jest's own mockClear(), does not touch a previously-set implementation.
+const defaultDeleteImpl = secureStore.deleteItemAsync.getMockImplementation()!
+
 describe('KEK lifecycle', () => {
   beforeEach(() => {
     secureStore.__reset()
+    secureStore.deleteItemAsync.mockImplementation(defaultDeleteImpl)
     localAuth.__reset()
     __resetForTests()
     ;(global as any).__DEV__ = false
@@ -171,16 +181,43 @@ describe('KEK lifecycle', () => {
     // Rewrite the sentinel as if the install were degraded. The KEK still only
     // exists under the authenticated key name, so this buys the attacker a
     // failed lookup, not a decryption.
-    secureStore.__seed(
-      'secretsSentinelV1',
-      JSON.stringify({ ...sentinel, policy: 'degraded' }),
-      { service: ENV_SERVICE }
-    )
+    secureStore.__seed('secretsSentinelV1', JSON.stringify({ ...sentinel, policy: 'degraded' }), {
+      service: ENV_SERVICE
+    })
     secureStore.setItemAsync.mockClear()
 
     const state = await unlockKek()
     expect(state.status).toBe('lost')
     expect(secureStore.setItemAsync).not.toHaveBeenCalled()
+  })
+
+  it('XR-108: a forged degraded sentinel cannot relegitimize over an existing biometric identity', async () => {
+    // A real, honestly-provisioned biometric install.
+    await provisionWithSecret()
+    const sentinel = await readSentinel()
+    __resetForTests()
+
+    // Attacker plants a self-consistent but entirely separate identity: a
+    // "degraded" sentinel pointing at their own kekId, a matching
+    // unauthenticated plain KEK, and an envelope that decrypts under it.
+    // None of this needs a live biometric ceremony to write.
+    const attackerKek = generateKek()
+    const attackerKekId = generateKekId()
+    secureStore.__seed('secretsSentinelV1', JSON.stringify({ ...sentinel, policy: 'degraded', kekId: attackerKekId }), {
+      service: ENV_SERVICE
+    })
+    secureStore.__seed(KEK_PLAIN_KEY, Utils.toHex(attackerKek), { service: KEK_SERVICE, auth: false })
+    const blob = sealSecret(attackerKek, attackerKekId, 'mnemonic', 'attacker mnemonic')
+    secureStore.__seed('envV1.mnemonic', JSON.stringify(blob), { service: ENV_SERVICE })
+
+    const state = await unlockKek()
+
+    // The device's own next launch must not silently promote the attacker's
+    // key into the biometric slot and report success.
+    expect(state.status).not.toBe('unlocked')
+    expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(true)
+    // And the real biometric key must be untouched, not overwritten.
+    expect(secureStore.__get(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).not.toBe(Utils.toHex(attackerKek))
   })
 
   it('re-wraps a dev-provisioned KEK when a production build finds biometrics', async () => {
@@ -202,6 +239,50 @@ describe('KEK lifecycle', () => {
     expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(false)
     expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(true)
     expect((await readSentinel())?.policy).toBe('biometric')
+  })
+
+  it('XR-113: a failed mandatory rewrap never leaves the wallet reporting unlocked', async () => {
+    ;(global as any).__DEV__ = true
+    localAuth.__setLevel(localAuth.SecurityLevel.NONE)
+    await provisionWithSecret()
+
+    __resetForTests()
+    ;(global as any).__DEV__ = false
+    localAuth.__setLevel(localAuth.SecurityLevel.BIOMETRIC_STRONG)
+    // The authenticated write inside the upgrade fails (declined ceremony,
+    // keystore error, ...).
+    secureStore.setItemAsync.mockRejectedValueOnce(new Error('boom'))
+
+    const state = await unlockKek()
+
+    expect(state.status).not.toBe('unlocked')
+    expect(isUnlocked()).toBe(false)
+    // The pre-upgrade plain KEK must not still be usable via a cached value.
+    expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(false)
+  })
+
+  it('XR-116: does not report a rewrap as biometric-only when the old plain KEK survives deletion', async () => {
+    ;(global as any).__DEV__ = true
+    localAuth.__setLevel(localAuth.SecurityLevel.NONE)
+    await provisionWithSecret()
+
+    __resetForTests()
+    ;(global as any).__DEV__ = false
+    localAuth.__setLevel(localAuth.SecurityLevel.BIOMETRIC_STRONG)
+    // iOS's documented silent-no-op delete: the call resolves without
+    // actually removing the entry.
+    const realDelete = secureStore.deleteItemAsync.getMockImplementation()!
+    secureStore.deleteItemAsync.mockImplementation(async (key: string, options: unknown) => {
+      if (key === KEK_PLAIN_KEY) return
+      return realDelete(key, options)
+    })
+
+    const state = await unlockKek()
+
+    expect(state).not.toEqual({ status: 'unlocked', kekId: expect.anything(), policy: 'biometric' })
+    // The unauthenticated copy is still readable with zero ceremony — exactly
+    // what the sentinel's now-committed 'biometric' policy claims is untrue.
+    expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(true)
   })
 
   it('keeps a degraded install degraded on a device with no biometrics', async () => {
@@ -228,6 +309,31 @@ describe('KEK lifecycle', () => {
     expect(secureStore.__prompts()).toBe(before)
     expect(await readSentinel()).toBeNull()
     expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(false)
+  })
+
+  it('XR-111: retries deleting the unauthenticated plain KEK so a transient no-op does not leave it readable', async () => {
+    ;(global as any).__DEV__ = true
+    localAuth.__setLevel(localAuth.SecurityLevel.NONE)
+    await provisionWithSecret() // dev-plain: KEK_PLAIN_KEY holds the live key
+    expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(true)
+
+    // iOS's documented silent-no-op delete, but only once — a transient
+    // failure, not a permanent one.
+    const realDelete = secureStore.deleteItemAsync.getMockImplementation()!
+    let calls = 0
+    secureStore.deleteItemAsync.mockImplementation(async (key: string, options: unknown) => {
+      if (key === KEK_PLAIN_KEY && calls++ === 0) return
+      return realDelete(key, options)
+    })
+
+    const before = secureStore.__prompts()
+    await destroyKek()
+
+    expect(secureStore.__prompts()).toBe(before) // still no ceremony
+    // The plain KEK is the mnemonic-decrypting key sitting in cleartext, not
+    // inert metadata — a surviving copy after "log out"/"delete wallet" is a
+    // real disclosure, unlike a merely-orphaned envelope blob.
+    expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(false)
   })
 
   it('readSentinel swallows a read failure by default, so a missing sentinel still reads as null', async () => {

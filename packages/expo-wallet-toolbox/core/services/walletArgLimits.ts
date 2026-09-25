@@ -54,6 +54,13 @@ export interface WalletArgLimits {
   internalizeTx: number
   /** One output's customInstructions string. */
   customInstructions: number
+  /** One byte-array field of encrypt/decrypt/createHmac/verifyHmac/
+   * createSignature/verifySignature (plaintext, ciphertext, data, hmac,
+   * signature, hashToDirectlySign, hashToDirectlyVerify). These carry small,
+   * bounded payloads in every legitimate use (a hash, a short ciphertext) —
+   * nothing like a transaction — so this is set far below the raw transport
+   * ceiling (MAX_RPC_PLAINTEXT_BYTES) rather than sized to it. */
+  cryptoPayload: number
 }
 
 const MB = 1024 * 1024
@@ -68,7 +75,8 @@ const BASE: WalletArgLimits = {
   unlockingScript: 100_000,
   inputBEEF: 2 * MB,
   internalizeTx: 1 * MB,
-  customInstructions: 4096
+  customInstructions: 4096,
+  cryptoPayload: 1 * MB
 }
 
 /**
@@ -80,7 +88,9 @@ const BASE: WalletArgLimits = {
  * observed traffic, not to the memory budget.
  */
 export function limitsForTier(tier: DeviceTier): WalletArgLimits {
-  return tier === 'low' ? { ...BASE, aggregate: BASE.aggregate / 2 } : { ...BASE }
+  return tier === 'low'
+    ? { ...BASE, aggregate: BASE.aggregate / 2, cryptoPayload: BASE.cryptoPayload / 2 }
+    : { ...BASE }
 }
 
 export interface ArgRefusal {
@@ -92,6 +102,25 @@ export interface ArgRefusal {
 
 /** Calls that can carry transaction bytes. Everything else passes untouched. */
 const SIZED_CALLS = new Set(['createAction', 'signAction', 'internalizeAction'])
+
+/**
+ * XR-026: these carry only small byte-array fields (a hash, a short
+ * ciphertext) in every legitimate use, but previously had NO per-call size
+ * cap at all beyond the raw 5 MiB transport ceiling shared with every other
+ * paired-RPC method.
+ */
+const CRYPTO_CALLS = new Set(['encrypt', 'decrypt', 'createHmac', 'verifyHmac', 'createSignature', 'verifySignature'])
+/** The byte-array fields these calls can carry. Checked by name rather than
+ * per-call, since each call only ever supplies a subset of them. */
+const CRYPTO_PAYLOAD_FIELDS = [
+  'plaintext',
+  'ciphertext',
+  'data',
+  'hmac',
+  'signature',
+  'hashToDirectlySign',
+  'hashToDirectlyVerify'
+] as const
 
 const refuse = (field: string, actual: number, limit: number, why?: string): ArgRefusal => ({
   field,
@@ -127,6 +156,20 @@ const startsWithInvalidOpcode = (script: unknown): boolean =>
  * surface as an opaque wallet error instead of a size refusal.
  */
 export function checkWalletArgs(call: string, args: unknown, limits: WalletArgLimits): ArgRefusal | null {
+  if (CRYPTO_CALLS.has(call)) {
+    const a = asRecord(args)
+    if (!a) return null
+    try {
+      for (const field of CRYPTO_PAYLOAD_FIELDS) {
+        const bytes = arrayBytes(a[field])
+        if (bytes > limits.cryptoPayload) return refuse(field, bytes, limits.cryptoPayload)
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
   if (!SIZED_CALLS.has(call)) return null
   const a = asRecord(args)
   if (!a) return null

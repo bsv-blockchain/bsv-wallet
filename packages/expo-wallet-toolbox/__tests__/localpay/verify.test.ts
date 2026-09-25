@@ -369,6 +369,28 @@ function tokenScript(amount: number, pkh: number[] = payeePkh()): string {
   return new MandalaToken().lock(ASSET_ID, amount, pkh).toHex()
 }
 
+/**
+ * A real, conserving AtomicBEEF: a funding input worth `amount`, spent whole
+ * into a single output of `amount` at `pkh` — XR-099's conservation check
+ * reads inputs as well as outputs now, so the token branch's default fixture
+ * needs a real ancestor, not just a bare output.
+ */
+function tokenBeefWithInput(amount: number, pkh: number[] = payeePkh()): Uint8Array {
+  const parent = new Transaction()
+  parent.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(tokenScript(amount, pkh)) })
+  const tip = new Transaction()
+  tip.addInput({
+    sourceTransaction: parent,
+    sourceOutputIndex: 0,
+    unlockingScript: new UnlockingScript([]),
+    sequence: 0xffffffff
+  })
+  tip.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(tokenScript(amount, pkh)) })
+  const beef = new Beef()
+  beef.mergeTransaction(tip)
+  return new Uint8Array(beef.toBinaryAtomic(tip.id('hex')))
+}
+
 const tokenFrame = (overrides: Partial<PaymentFrame> = {}): PaymentFrame => ({
   version: 4,
   kind: 'token',
@@ -384,7 +406,7 @@ const tokenFrame = (overrides: Partial<PaymentFrame> = {}): PaymentFrame => ({
     linkage: [],
     admissions: []
   },
-  transaction: beefOf([{ satoshis: 1, scriptHex: tokenScript(500) }]),
+  transaction: tokenBeefWithInput(500),
   ...overrides
 })
 
@@ -407,6 +429,54 @@ describe('verifyFramePayment: token kind', () => {
   it('returns the decoded token amount, assetId, and what COVER says must still be submitted', async () => {
     const result = await verifyFramePayment(payeeWallet(), tokenFrame(), 'test', covers)
     expect(result).toEqual({ kind: 'token', assetId: ASSET_ID, amount: 500, mustSubmit: ['tip'] })
+  })
+
+  // XR-099: COVER only checks ancestry admission, never value. Ownership,
+  // assetId and amount-is-a-positive-integer all pass for a tip whose single
+  // decodable token input is worth far less than the output it pays out —
+  // nothing before this point sums input value against output value, so a
+  // payer could mint counterfeit token value into an otherwise-legitimate
+  // frame just by naming a bigger output amount than it actually admits in.
+  it('XR-099: refuses a tip whose decodable token input is worth less than its output', async () => {
+    const parent = new Transaction()
+    parent.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(tokenScript(1)) })
+    const tip = new Transaction()
+    tip.addInput({
+      sourceTransaction: parent,
+      sourceOutputIndex: 0,
+      unlockingScript: new UnlockingScript([]),
+      sequence: 0xffffffff
+    })
+    tip.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(tokenScript(100)) })
+    const beef = new Beef()
+    beef.mergeTransaction(tip)
+    const transaction = new Uint8Array(beef.toBinaryAtomic(tip.id('hex')))
+
+    await expect(
+      verifyFramePayment(payeeWallet(), tokenFrame({ transaction }), 'test', covers)
+    ).rejects.toMatchObject({ kind: 'not_covered' })
+  })
+
+  // The rightful case: input value covers (or exceeds, e.g. token change
+  // returned elsewhere in the same tx) the output value. Must still pass.
+  it('XR-099: accepts a tip whose decodable token input value covers its output', async () => {
+    const parent = new Transaction()
+    parent.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(tokenScript(500)) })
+    const tip = new Transaction()
+    tip.addInput({
+      sourceTransaction: parent,
+      sourceOutputIndex: 0,
+      unlockingScript: new UnlockingScript([]),
+      sequence: 0xffffffff
+    })
+    tip.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(tokenScript(500)) })
+    const beef = new Beef()
+    beef.mergeTransaction(tip)
+    const transaction = new Uint8Array(beef.toBinaryAtomic(tip.id('hex')))
+
+    await expect(
+      verifyFramePayment(payeeWallet(), tokenFrame({ transaction }), 'test', covers)
+    ).resolves.toMatchObject({ kind: 'token', amount: 500 })
   })
 
   it('derives with the mandala FT protocol, not PEERPAY', async () => {

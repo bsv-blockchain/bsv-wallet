@@ -45,6 +45,16 @@ export const RUNG_MASK = 0x00ff
 export type SessionOs = 'ios' | 'android'
 
 /**
+ * Bound on `SessionAsset.decimals` (XR-043), mirrored at every other boundary
+ * that ever reads a token's decimals — `ui/tokenFormat.ts`'s formatters and
+ * `core/mandala/createRuntime.ts`'s asset-metadata resolution. Nothing
+ * token-shaped this wallet knows of uses more than a handful; an unbounded
+ * value here is how an extreme decimals figure from a session QR reaches
+ * `String(...).padStart` deep in the confirmation UI and blows up the render.
+ */
+export const MAX_TOKEN_DECIMALS = 18
+
+/**
  * The asset a token request names. When present on a Session, `amount` is
  * BASE UNITS of this asset, not satoshis, and remains a binding term.
  * label/ticker/decimals are payee-supplied display hints; overlayUrl and
@@ -121,6 +131,16 @@ export function mintSession(args: {
   if (args.asset !== undefined && args.asset.overlayIdentityKey.length !== 66) {
     throw new CodecError('bad asset overlayIdentityKey')
   }
+  // XR-043: same bound `decodeSession` enforces below, checked here too for
+  // the same reason `amount` is — an out-of-range figure minted on THIS
+  // device would render (and crash) on its own screen before any decoder
+  // ever saw it.
+  if (
+    args.asset?.decimals !== undefined &&
+    (!Number.isInteger(args.asset.decimals) || args.asset.decimals < 0 || args.asset.decimals > MAX_TOKEN_DECIMALS)
+  ) {
+    throw new CodecError('bad asset decimals')
+  }
   return {
     version: SESSION_VERSION,
     caps:
@@ -136,7 +156,7 @@ export function mintSession(args: {
     ...(args.asset === undefined ? {} : { asset: args.asset }),
     derivationPrefix: args.derivationPrefix,
     derivationSuffix: args.derivationSuffix,
-    ...(args.os === undefined ? {} : { os: args.os }),
+    ...(args.os === undefined ? {} : { os: args.os })
   }
 }
 
@@ -176,18 +196,20 @@ export function encodeSession(s: Session): string {
     i: s.identityKey,
     ...(s.os === undefined ? {} : { o: s.os === 'ios' ? 'i' : 'a' }),
     ...(s.amount === undefined ? {} : { a: s.amount }),
-    ...(s.asset === undefined ? {} : {
-      t: {
-        i: s.asset.id,
-        ...(s.asset.label === undefined ? {} : { n: s.asset.label }),
-        ...(s.asset.ticker === undefined ? {} : { s: s.asset.ticker }),
-        ...(s.asset.decimals === undefined ? {} : { d: s.asset.decimals }),
-        u: s.asset.overlayUrl,
-        k: s.asset.overlayIdentityKey,
-      },
-    }),
+    ...(s.asset === undefined
+      ? {}
+      : {
+          t: {
+            i: s.asset.id,
+            ...(s.asset.label === undefined ? {} : { n: s.asset.label }),
+            ...(s.asset.ticker === undefined ? {} : { s: s.asset.ticker }),
+            ...(s.asset.decimals === undefined ? {} : { d: s.asset.decimals }),
+            u: s.asset.overlayUrl,
+            k: s.asset.overlayIdentityKey
+          }
+        }),
     p: s.derivationPrefix,
-    x: s.derivationSuffix,
+    x: s.derivationSuffix
   })
   return 'bsvpay1:' + toB64url(new TextEncoder().encode(body))
 }
@@ -235,17 +257,20 @@ export function decodeSession(text: string): Session {
     if (typeof ok !== 'string' || ok.length !== 66) throw new CodecError('bad overlayIdentityKey')
     if (n !== undefined && typeof n !== 'string') throw new CodecError('bad asset label')
     if (tick !== undefined && typeof tick !== 'string') throw new CodecError('bad asset ticker')
-    if (d !== undefined && (typeof d !== 'number' || !Number.isSafeInteger(d) || d < 0)) throw new CodecError('bad asset decimals')
+    if (d !== undefined && (typeof d !== 'number' || !Number.isSafeInteger(d) || d < 0 || d > MAX_TOKEN_DECIMALS))
+      throw new CodecError('bad asset decimals')
     asset = {
-      id: ai, overlayUrl: u, overlayIdentityKey: ok,
+      id: ai,
+      overlayUrl: u,
+      overlayIdentityKey: ok,
       ...(n === undefined ? {} : { label: n }),
       ...(tick === undefined ? {} : { ticker: tick }),
-      ...(d === undefined ? {} : { decimals: d }),
+      ...(d === undefined ? {} : { decimals: d })
     }
   }
   return {
     version: v as number,
-    caps: (typeof c === 'number' ? c : 0),
+    caps: typeof c === 'number' ? c : 0,
     sessionId,
     psk,
     identityKey: i,
@@ -253,7 +278,7 @@ export function decodeSession(text: string): Session {
     ...(asset === undefined ? {} : { asset }),
     derivationPrefix: p,
     derivationSuffix: x,
-    ...(os === undefined ? {} : { os }),
+    ...(os === undefined ? {} : { os })
   }
 }
 

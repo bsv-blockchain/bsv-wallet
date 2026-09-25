@@ -18,6 +18,12 @@ const wallet = () => ({
   internalizeAction: jest.fn(async () => ({ accepted: true })),
   getPublicKey: jest.fn(async () => ({ publicKey: 'k' })),
   listOutputs: jest.fn(async () => ({ outputs: [] })),
+  encrypt: jest.fn(async () => ({ ciphertext: [] })),
+  decrypt: jest.fn(async () => ({ plaintext: [] })),
+  createHmac: jest.fn(async () => ({ hmac: [] })),
+  verifyHmac: jest.fn(async () => ({ valid: true })),
+  createSignature: jest.fn(async () => ({ signature: [] })),
+  verifySignature: jest.fn(async () => ({ valid: true })),
   // The vault guard proves a non-admin output-naming call names no vault
   // output by scanning the action history first; an empty history is a
   // wallet with no vault, so the scan passes and the guard lets it through.
@@ -120,6 +126,32 @@ describe('capWalletArgs', () => {
       outputs: [{ lockingScript: hex(959_632) }]
     })
     expect(w.createAction).toHaveBeenCalled()
+  })
+
+  it('XR-026: refuses an oversize encrypt plaintext with code 6 and never calls the wallet', async () => {
+    const w = wallet()
+    await expect(
+      capWalletArgs(w as any, L).encrypt(
+        { protocolID: [1, 'x'], keyID: '1', counterparty: 'self', plaintext: new Array(5_000_000).fill(0) },
+        'page.com'
+      )
+    ).rejects.toMatchObject({ code: 6, field: 'plaintext' })
+    expect(w.encrypt).not.toHaveBeenCalled()
+  })
+
+  it('XR-026: passes an ordinary-size encrypt/createSignature payload straight through', async () => {
+    const w = wallet()
+    const capped = capWalletArgs(w as any, L)
+    await capped.encrypt(
+      { protocolID: [1, 'x'], keyID: '1', counterparty: 'self', plaintext: new Array(1024).fill(0) },
+      'page.com'
+    )
+    await capped.createSignature(
+      { protocolID: [1, 'x'], keyID: '1', hashToDirectlySign: new Array(32).fill(0) },
+      'page.com'
+    )
+    expect(w.encrypt).toHaveBeenCalled()
+    expect(w.createSignature).toHaveBeenCalled()
   })
 
   it('applies the low-tier aggregate when given those limits', async () => {

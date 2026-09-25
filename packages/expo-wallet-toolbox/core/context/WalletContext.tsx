@@ -124,6 +124,15 @@ async function resolveMandalaAssetMetadata(assetId: string): Promise<MandalaAsse
   }
 }
 
+// XR-039: same paging discipline as `core/localpay/build.ts`'s
+// `listTokenBasket` and `core/mandala/createRuntime.ts`'s `listTokenOutputs`
+// -- a page size generous enough that any realistic basket is one round
+// trip, and a hard page ceiling so a wallet that reports a `totalOutputs` it
+// never actually serves (or repeats a page forever) cannot spin
+// `listMandalaTokenOutpoints` into an infinite loop.
+const MANDALA_OUTPOINT_LIST_PAGE = 1000
+const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
+
 const DEFAULT_SETTINGS: WalletSettings = {
   ...LIB_DEFAULT_SETTINGS,
   trustSettings: {
@@ -170,15 +179,27 @@ import { useLocalStorage } from './LocalStorageProvider'
 import { usePermissionQueue } from '../hooks/usePermissionQueue'
 import { configureMandala, resolveAssetMetadata } from '@bsv/mandala'
 import { MessageBoxClient } from '@bsv/message-box-client'
-import { MandalaTokenModule, wrapCreateActionForTokenInputs, type MandalaAssetMetadata } from '../mandala/permissionModule'
+import {
+  MandalaTokenModule,
+  wrapCreateActionForTokenInputs,
+  listAllOutpoints,
+  resolveMandalaOutput,
+  type MandalaAssetMetadata
+} from '../mandala/permissionModule'
 import { wrapAbortActionForSettlements } from '../mandala/abortGuard'
 import { migrateMandalaBasketName } from '../mandala/basketMigration'
-import { bindOriginator, createMandalaKvStorage, createMandalaRuntime, type MandalaMessageBox } from '../mandala/createRuntime'
+import {
+  bindOriginator,
+  createMandalaKvStorage,
+  createMandalaRuntime,
+  type MandalaMessageBox
+} from '../mandala/createRuntime'
 import type { MandalaRuntime } from '../mandala/runtime'
 import { MANDALA_BASKET } from '../mandala/types'
 import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
 import { drainMandalaInbox } from '../pay/rails/handle'
 import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
+import { disconnectActivePairedSession } from './WalletConnectionContext'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
 import {
   boundReviewProvenTxs,
@@ -202,7 +223,7 @@ import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-m
 import { StorageExpoSQLite } from '../storage'
 import { makeBuildGeneration } from './buildGeneration'
 import * as SQLite from 'expo-sqlite'
-import { getRegisteredDbs, registerDb, selectLatestDb } from '../walletDbRegistry'
+import { getRegisteredDbs, registerDb, selectLatestDb, unregisterDb } from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import { getOnline, subscribeOnline } from '../net/online'
 import { canInternalizePending, processPending } from '../localpay/pending'
@@ -214,9 +235,11 @@ import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
 import { restoreOnImport } from '../backup/restoreOnImport'
+import { backupPseudonym } from '../backup/derive'
+import type { BackupChain } from '../backup/constants'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
-import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
+import { isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../pay/refreshProofGuard'
 import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueuedAncestors'
 import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { recordProof } from '../pay/recordProof'
@@ -228,6 +251,8 @@ import i18n from '../i18n/translations'
 import { makeBeefRepair } from '../pay/beefRepair'
 import { shouldReleaseUtxo, type UtxoProbe } from '../walletRepair/shouldReleaseUtxo'
 import { shouldMarkUnspendable } from '../walletRepair/shouldMarkUnspendable'
+import { spenderConsumesOutpoint } from '../walletRepair/spenderConsumesOutpoint'
+import { releaseStuckReservationsOnDb } from '../walletRepair/releaseStuckReservations'
 import {
   acceptWithRetry,
   DEFAULT_MESSAGE_BOX_URL,
@@ -373,6 +398,13 @@ export interface WalletContextValue {
    */
   getBackupRestore: () => BackupRestoreState
   /**
+   * This wallet's own backup-server pseudonym for `chain`, or undefined when no wallet is
+   * built for that chain (or none at all). Not a secret — it is exactly what the backup
+   * server sees as this wallet's account — but deriving it needs the primary key, so it is
+   * exposed this way rather than the key itself. See XR-009 / getBackupUploadState.
+   */
+  getBackupPseudonym: (chain: BackupChain) => string | undefined
+  /**
    * The same value as `walletBuilt`, read fresh.
    *
    * Mirrors `getBackupRestore`'s rationale: a caller that awaits a build or rebuild
@@ -465,6 +497,7 @@ export const WalletContext = createContext<WalletContextValue>({
   buildWalletFromRecoveredKey: async () => {},
   backupRestore: { phase: 'idle', chunks: 0, total: 0 },
   getBackupRestore: () => ({ phase: 'idle', chunks: 0, total: 0 }),
+  getBackupPseudonym: () => undefined,
   getWalletBuilt: () => false,
   switchNetwork: async () => {},
   rebuildWallet: async () => {},
@@ -721,6 +754,21 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   }, [])
   const getBackupRestore = useCallback((): BackupRestoreState => backupRestoreRef.current, [])
   const getWalletBuilt = useCallback((): boolean => walletBuiltRef.current, [])
+  /**
+   * Set once buildWallet resolves this build's backup chain/pseudonym, so a screen (Wallet
+   * Check) can scope a backup-cursor lookup to the CURRENT identity (see XR-009) without
+   * ever seeing the primary key itself — the pseudonym is derived from it but is not a
+   * secret; it is exactly what the backup server sees as this wallet's account. Cleared on
+   * logout so a departed wallet's pseudonym is never read back before the next build sets
+   * its own; `getBackupPseudonym` also refuses to answer for any OTHER chain, so a stale
+   * entry from a network switch can never be misread as the current one's.
+   */
+  const backupIdentityRef = useRef<{ chain: BackupChain, pseudonym: string } | null>(null)
+  const getBackupPseudonym = useCallback(
+    (chain: BackupChain): string | undefined =>
+      backupIdentityRef.current?.chain === chain ? backupIdentityRef.current.pseudonym : undefined,
+    []
+  )
   /**
    * Set by an import flow immediately before it hands the primary key over, and consumed
    * (and cleared) by the buildWallet pass it triggers. A ref rather than state because
@@ -1146,6 +1194,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // the backup derivation is frozen on the app-level names.
         const backupChain =
           chain === 'main' ? ('main' as const) : chain === 'test' ? ('test' as const) : ('teratest' as const)
+        // See getBackupPseudonym's own docs: this is what lets Wallet Check scope its
+        // cursor lookup to THIS identity without the primary key itself leaving this scope.
+        backupIdentityRef.current = { chain: backupChain, pseudonym: backupPseudonym(primaryKey, backupChain) }
         const keyDeriver = new KeyDeriver(new PrivateKey(primaryKey))
         const storageManager = new WalletStorageManager(keyDeriver.identityKey)
         const signer = new WalletSigner(walletChain, keyDeriver, storageManager)
@@ -1319,6 +1370,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // ── Select the best database file from the registry ──
           let knownDbs = await getRegisteredDbs(keySuffix, chainStr)
 
+          // Whether THIS build attempt is the one that created selectedDb below, as
+          // opposed to reselecting a file that already existed before this attempt
+          // started (an already-onboarded identity's real database, or a legacy file
+          // discovered on disk). Only true in the "fresh user" branch — see its use at
+          // the restore-failure cleanup further down (XR-017 review follow-up).
+          let dbWasFreshlyCreatedThisAttempt = false
+
           if (knownDbs.length === 0) {
             // First launch after update or fresh user.
             // Probe for a legacy (no-timestamp) database file.
@@ -1334,6 +1392,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               const newName = `wallet-${keySuffix}-${chainStr}net-${ts}.db`
               await registerDb(keySuffix, chainStr, newName)
               knownDbs = [newName]
+              dbWasFreshlyCreatedThisAttempt = true
               console.log(`[WalletContext] Created new timestamped DB: ${newName}`)
             }
           }
@@ -1424,6 +1483,32 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               try {
                 await phoneStorage.destroy()
               } catch {}
+              // restoreOnImport's precondition is that the database is freshly migrated
+              // and still empty of real data — but that is only actually guaranteed when
+              // THIS attempt is the one that just created selectedDb (dbWasFreshlyCreated
+              // ThisAttempt). rebuildWallet({restoreFromBackup:true}) takes this same path
+              // to "recover over an already-onboarded wallet" (see restoreWallet.ts), and
+              // recoverWallet.ts's confirmReplace does not check whether the newly
+              // supplied secret differs from the one already active — so selectedDb can
+              // instead be a pre-existing, already-registered database (this identity's
+              // real, live wallet, or a legacy file just discovered on disk) that this
+              // attempt only SELECTED, never created. Deleting that on a restore failure
+              // would destroy locally-cached change-output/BRC-29 metadata the seed cannot
+              // reconstruct (see XR-017 review follow-up). Only ever discard a database
+              // this exact attempt created: a later build that skips another replay
+              // (recoverWallet's "skip", or any future restoreFromBackup:false call) would
+              // otherwise reselect this SAME partially replayed file via selectLatestDb and
+              // publish it as a working wallet. Both steps are best-effort cleanup: the
+              // ORIGINAL restore failure above is what must reach the caller, not a failure
+              // to tidy up after it.
+              if (dbWasFreshlyCreatedThisAttempt) {
+                try {
+                  await unregisterDb(keySuffix, chainStr, selectedDb)
+                } catch {}
+                try {
+                  await SQLite.deleteDatabaseAsync(selectedDb)
+                } catch {}
+              }
               throw e
             }
           }
@@ -1512,20 +1597,53 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // module's own admin pass-through branch). Shared by the module's
         // deps below AND by wrapCreateActionForTokenInputs's wrapper further
         // down, so both use the exact same listing.
-        const listMandalaTokenOutpoints = async (): Promise<Set<string>> => {
-          try {
-            const { outputs } = await wallet.listOutputs(
-              { basket: MANDALA_BASKET, includeCustomInstructions: false, limit: 10000 } as never,
-              adminOriginator
-            )
-            return new Set(outputs.map((o: { outpoint: string }) => o.outpoint))
-          } catch {
-            // A wallet with no Mandala basket yet, or a storage fault -- treat
-            // as "no known token inputs" rather than blocking createAction;
-            // see permissionModule.ts's doc on this dep failing open.
-            return new Set()
-          }
-        }
+        //
+        // XR-039: paginated to completion via `listAllOutpoints` (a single
+        // 10,000-row page silently truncated a larger basket, and a spend of
+        // an input past that page read as "not a token input" -- the same
+        // balance-truncation bug `core/localpay/build.ts`'s `listTokenBasket`
+        // and `createRuntime.ts`'s `listTokenOutputs` were already fixed
+        // for), and a genuine listing fault now PROPAGATES instead of being
+        // swallowed into an authoritative-looking empty Set -- an empty Set
+        // here reads as "confirmed no token inputs" to every caller, which a
+        // storage fault or a wallet with no Mandala basket are not
+        // distinguishable from without this throwing. The two callers
+        // (`injectMandalaLabelIfTokenInputsPresent`, `anyInputIsTokenCoin`)
+        // are exactly what now fails closed on that throw.
+        const listMandalaTokenOutpoints = (): Promise<Set<string>> =>
+          listAllOutpoints(
+            async (limit, offset) =>
+              await wallet.listOutputs(
+                { basket: MANDALA_BASKET, includeCustomInstructions: false, limit, offset } as never,
+                adminOriginator
+              ),
+            MANDALA_OUTPOINT_LIST_PAGE,
+            MANDALA_OUTPOINT_LIST_MAX_PAGES
+          )
+
+        // XR-041: resolves ONE outpoint named on a `relinquishOutput` call to
+        // its decoded `{assetId, amount}`, from this device's OWN current
+        // MANDALA_BASKET listing — `include: 'locking scripts'` is the one
+        // difference from `listMandalaTokenOutpoints` above, since naming the
+        // holding needs the script, not just the outpoint. Same admin-
+        // originator, zero-prompt listing; same to-completion paging.
+        const resolveMandalaOutputForRelinquish = (outpoint: string) =>
+          resolveMandalaOutput(
+            async (limit, offset) =>
+              await wallet.listOutputs(
+                {
+                  basket: MANDALA_BASKET,
+                  include: 'locking scripts',
+                  includeCustomInstructions: false,
+                  limit,
+                  offset
+                } as never,
+                adminOriginator
+              ),
+            outpoint,
+            MANDALA_OUTPOINT_LIST_PAGE,
+            MANDALA_OUTPOINT_LIST_MAX_PAGES
+          )
 
         // Mandala's own P-module (schemeID 'mandala', basket MANDALA_BASKET =
         // 'p mandala') -- same routing mechanism as BTMS above
@@ -1536,7 +1654,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           adminOriginator,
           requestTokenAccess: mandalaPromptHandler,
           resolveAssetMetadata: resolveMandalaAssetMetadata,
-          listTokenOutpoints: listMandalaTokenOutpoints
+          listTokenOutpoints: listMandalaTokenOutpoints,
+          resolveMandalaOutput: resolveMandalaOutputForRelinquish
         })
 
         // Setup permissions with provided callbacks and BTMS module.
@@ -1904,7 +2023,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // the drain so the parent goes out first.
           if (phoneStorage) {
             const sendWaiting = monitor._tasks.find(t => t.name === 'SendWaiting') as
-              | { processUnsent?: (reqApis: Array<{ txid: string; rawTx?: number[] }>, indent?: number) => Promise<string> }
+              | {
+                  processUnsent?: (
+                    reqApis: Array<{ txid: string; rawTx?: number[] }>,
+                    indent?: number
+                  ) => Promise<string>
+                }
               | undefined
             if (sendWaiting?.processUnsent) {
               const orig = sendWaiting.processUnsent.bind(sendWaiting)
@@ -1913,7 +2037,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 // row is the settlement drain's to broadcast, after `/submit`,
                 // never the monitor's. Held here and dropped from this pass.
                 const heldTokenTxids = await phoneStorage.holdTokenReqsForDrain(allReqApis as never)
-                const reqApis = heldTokenTxids.size > 0 ? allReqApis.filter(r => !heldTokenTxids.has(r.txid)) : allReqApis
+                const reqApis =
+                  heldTokenTxids.size > 0 ? allReqApis.filter(r => !heldTokenTxids.has(r.txid)) : allReqApis
                 if (heldTokenTxids.size > 0) TaskSendOffline.requestNow()
                 let queuedTxids = new Set<string>()
                 try {
@@ -1934,7 +2059,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 if (deferred > 0) TaskSendOffline.requestNow()
                 if (ready.length === 0) {
                   const notes: string[] = []
-                  if (heldTokenTxids.size > 0) notes.push(`held ${heldTokenTxids.size} token req(s) for the settlement drain`)
+                  if (heldTokenTxids.size > 0)
+                    notes.push(`held ${heldTokenTxids.size} token req(s) for the settlement drain`)
                   if (deferred > 0) notes.push(`deferred ${deferred} req(s) behind queued ancestors`)
                   return notes.length > 0 ? `${notes.join('; ')}\n` : ''
                 }
@@ -2350,73 +2476,76 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   // Tear down the current wallet and re-trigger auto-build.
   // Used after DB import and internally by switchNetwork.
-  const rebuildWallet = useCallback(async (opts?: { restoreFromBackup?: boolean }) => {
-    logWithTimestamp(F, 'Rebuilding wallet')
-    // Armed before teardown so the auto-build effect this triggers (via
-    // finalizeConfig below) replays the backup log the same way an explicit
-    // buildWalletFromMnemonic({ restoreFromBackup: true }) would.
-    restoreIntentRef.current = opts?.restoreFromBackup === true
-    // Any build already in flight belongs to the configuration being replaced.
-    const token = buildGenRef.current.bump()
-    // Invalidate Vault operations before the first teardown await. Otherwise a
-    // signer/listing already in flight can resume against the departing wallet.
-    vaultStore.clearScope()
-    vaultCeremony.cancel()
+  const rebuildWallet = useCallback(
+    async (opts?: { restoreFromBackup?: boolean }) => {
+      logWithTimestamp(F, 'Rebuilding wallet')
+      // Armed before teardown so the auto-build effect this triggers (via
+      // finalizeConfig below) replays the backup log the same way an explicit
+      // buildWalletFromMnemonic({ restoreFromBackup: true }) would.
+      restoreIntentRef.current = opts?.restoreFromBackup === true
+      // Any build already in flight belongs to the configuration being replaced.
+      const token = buildGenRef.current.bump()
+      // Invalidate Vault operations before the first teardown await. Otherwise a
+      // signer/listing already in flight can resume against the departing wallet.
+      vaultStore.clearScope()
+      vaultCeremony.cancel()
 
-    // Stop any running monitor and let its current pass drain before the
-    // storage teardown below closes the connection under it.
-    {
-      const monitor = monitorRef.current
-      if (monitor) {
-        monitorRef.current = null
-        await stopMonitorAndDrain(monitor)
+      // Stop any running monitor and let its current pass drain before the
+      // storage teardown below closes the connection under it.
+      {
+        const monitor = monitorRef.current
+        if (monitor) {
+          monitorRef.current = null
+          await stopMonitorAndDrain(monitor)
+        }
       }
-    }
-    // Same convention as monitorRef above: clear so a stale deferred header
-    // init or reconnect handler from the old build can't pair a leftover
-    // store/tracker across the rebuild.
-    offlineChaintracksRef.current = undefined
-    headerStoreRef.current = undefined
+      // Same convention as monitorRef above: clear so a stale deferred header
+      // init or reconnect handler from the old build can't pair a leftover
+      // store/tracker across the rebuild.
+      offlineChaintracksRef.current = undefined
+      headerStoreRef.current = undefined
 
-    // Close the current storage connection so the new build can open
-    // whichever DB file the registry selects.
-    if (storage?.db) {
-      try {
-        await storage.destroy()
-      } catch {}
-    }
-    // And drop the handle with it. Leaving a destroyed storage in state kept
-    // the screens reading the OLD chain's database until the new build
-    // replaced it — which is how a testnet wallet displayed mainnet money.
-    setStorage(null)
-    // The runtime holds this build's settlement store, which is a handle on
-    // the database just destroyed. Dropping it here is what stops a monitor
-    // task or a screen draining the departed wallet's tables.
-    mandalaRef.current = undefined
-    setMandala(undefined)
-    forgetSessionPsks()
+      // Close the current storage connection so the new build can open
+      // whichever DB file the registry selects.
+      if (storage?.db) {
+        try {
+          await storage.destroy()
+        } catch {}
+      }
+      // And drop the handle with it. Leaving a destroyed storage in state kept
+      // the screens reading the OLD chain's database until the new build
+      // replaced it — which is how a testnet wallet displayed mainnet money.
+      setStorage(null)
+      // The runtime holds this build's settlement store, which is a handle on
+      // the database just destroyed. Dropping it here is what stops a monitor
+      // task or a screen draining the departed wallet's tables.
+      mandalaRef.current = undefined
+      setMandala(undefined)
+      forgetSessionPsks()
 
-    // Tear down current wallet state (but keep mnemonic / config)
-    vaultStore.clearScope()
-    updateManagers({})
-    walletBuiltRef.current = false
-    setWalletBuilt(false)
-    walletBuildingRef.current = false
-    setWalletBuilding(false)
+      // Tear down current wallet state (but keep mnemonic / config)
+      vaultStore.clearScope()
+      updateManagers({})
+      walletBuiltRef.current = false
+      setWalletBuilt(false)
+      walletBuildingRef.current = false
+      setWalletBuilding(false)
 
-    // Re-finalize with current config — triggers auto-build effect
-    const config = { wabUrl: 'noWAB', method: 'mnemonic', network: selectedNetwork, storageUrl: 'local' }
-    pendingAutoBuildRef.current = true
-    finalizeConfig(config)
-    logWithTimestamp(F, 'Wallet rebuild triggered')
-    // finalizeConfig above only requests the rebuild; without this,
-    // rebuildWallet's promise resolved before the auto-build effect had even
-    // run, so `await rebuildWallet(...)` callers (e.g. the import screens
-    // replacing an auto-created wallet) saw pre-rebuild managers and a
-    // pre-rebuild walletBuilt — silently skipping anything gated on the new
-    // wallet actually existing, such as recording a backup attestation.
-    await waitForRebuild(token)
-  }, [selectedNetwork, storage, finalizeConfig, waitForRebuild])
+      // Re-finalize with current config — triggers auto-build effect
+      const config = { wabUrl: 'noWAB', method: 'mnemonic', network: selectedNetwork, storageUrl: 'local' }
+      pendingAutoBuildRef.current = true
+      finalizeConfig(config)
+      logWithTimestamp(F, 'Wallet rebuild triggered')
+      // finalizeConfig above only requests the rebuild; without this,
+      // rebuildWallet's promise resolved before the auto-build effect had even
+      // run, so `await rebuildWallet(...)` callers (e.g. the import screens
+      // replacing an auto-created wallet) saw pre-rebuild managers and a
+      // pre-rebuild walletBuilt — silently skipping anything gated on the new
+      // wallet actually existing, such as recording a backup attestation.
+      await waitForRebuild(token)
+    },
+    [selectedNetwork, storage, finalizeConfig, waitForRebuild]
+  )
 
   // Switch network: tear down wallet, update config, and rebuild on new chain
   const switchNetwork = useCallback(
@@ -2847,6 +2976,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // hardware session before monitor or storage teardown yields.
     vaultStore.clearScope()
     vaultCeremony.cancel()
+    // XR-018: a live paired RPC socket otherwise outlives logout/wallet
+    // deletion — the peer would keep dispatching allowlisted BRC-100 methods
+    // against a wallet the user believes they've logged out of.
+    disconnectActivePairedSession()
     ;(async () => {
       // Tear the wallet down the same way rebuildWallet does. Logout used to
       // skip this, which orphaned a running monitor AND left the SQLite
@@ -2863,6 +2996,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       }
       offlineChaintracksRef.current = undefined
       headerStoreRef.current = undefined
+      backupIdentityRef.current = null
       if (storage?.db) {
         try {
           await storage.destroy()
@@ -2892,6 +3026,19 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         if (stale.length > 0) await AsyncStorage.multiRemove(stale)
       } catch (err) {
         console.warn('[logout] failed to clear cached balance', err)
+      }
+
+      // A departed wallet's push cursor must not linger to be misread as THIS device
+      // already having backed up the next wallet built here — deviceId never changes
+      // across a logout/re-import on the same install (see deviceId.ts and XR-009), so an
+      // unscoped Wallet Check read would otherwise inherit it. Sweeps every identity's
+      // cursor, not just the one just logged out of, same as the balance-cache sweep above.
+      try {
+        const keys = await AsyncStorage.getAllKeys()
+        const stale = keys.filter(k => k.startsWith('backupCursor-'))
+        if (stale.length > 0) await AsyncStorage.multiRemove(stale)
+      } catch (err) {
+        console.warn('[logout] failed to clear backup cursor', err)
       }
 
       // Awaited, and it removes the KEK along with the ciphertexts: leaving the
@@ -2990,6 +3137,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         const head = await fetch(`${wocBase}/v1/bsv/${chain}/tx/hash/${txid}`)
         onChain = head.ok
+        // XR-030: any other non-OK (429/500/401/403/...) is a service
+        // problem, not proof of absence — only a 404 is authoritative.
+        if (!onChain && !isChainAbsenceConfirmed(head.status)) return 'pending'
       } catch {
         // Network unreachable — we cannot prove absence, so never fail the tx.
         return 'pending'
@@ -3100,20 +3250,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     const db = (storage as any)?.sqliteDb
     if (!db?.runAsync) return 'DB not available'
     try {
-      const rows = (await db.getAllAsync(
-        `SELECT o.outputId AS outputId, o.satoshis AS satoshis, t.txid AS txid
-           FROM outputs o JOIN transactions t ON t.transactionId = o.spentBy
-          WHERE t.status = 'failed'`
-      )) as { outputId: number; satoshis: number; txid: string }[]
-      if (!rows || rows.length === 0) return 'No stuck reservations found.'
-      await db.runAsync(
-        `UPDATE outputs SET spentBy = NULL, spendable = 1
-           WHERE spentBy IN (SELECT transactionId FROM transactions WHERE status = 'failed')`
-      )
-      const detail = rows
-        .map(r => `  • ${r.satoshis} sat (output ${r.outputId}) ← failed ${String(r.txid).slice(0, 12)}…`)
-        .join('\n')
-      return `✓ Released ${rows.length} stuck reservation(s):\n${detail}`
+      return await releaseStuckReservationsOnDb(db)
     } catch (e: any) {
       return `⚠ Release failed: ${e.message}`
     }
@@ -3264,6 +3401,46 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           continue
         }
 
+        // XR-031: markUnspendable only means two independent chain-service
+        // oracles AGREE the output is spent — neither of them is the spending
+        // transaction. Fetch and parse the alleged spender's own BEEF and
+        // require it to actually consume this exact outpoint BEFORE
+        // committing spendable:false; a claim that fails to fetch, fails to
+        // parse, hashes to a different tx, or simply doesn't reference this
+        // outpoint is left spendable rather than mutated.
+        if (!spendingTxid) continue // shouldMarkUnspendable already requires this; narrows the type below.
+        let spenderTx: Transaction | undefined
+        try {
+          const beefResp = await throttledFetch(`${wocBase}/tx/${spendingTxid}/beef`)
+          if (!beefResp.ok) {
+            lines.push(
+              `  SPENT (unverified, spender BEEF fetch HTTP ${beefResp.status}): ${o.txid}:${o.vout} — left spendable`
+            )
+            continue
+          }
+          const beefHex = await beefResp.text()
+          const beefBytes = Utils.toArray(beefHex, 'hex')
+          const tx = Transaction.fromBEEF(beefBytes)
+          const confirmed = spenderConsumesOutpoint({
+            parsedTxid: tx.id('hex'),
+            expectedTxid: spendingTxid,
+            inputs: tx.inputs,
+            outpoint: { txid: o.txid, vout: o.vout }
+          })
+          if (!confirmed) {
+            lines.push(
+              `  SPENT (unverified, spender does not reference this outpoint): ${o.txid}:${o.vout} — left spendable`
+            )
+            continue
+          }
+          spenderTx = tx
+        } catch (e: any) {
+          lines.push(
+            `  SPENT (unverified, could not parse spender BEEF: ${e.message}): ${o.txid}:${o.vout} — left spendable`
+          )
+          continue
+        }
+
         spentCount++
         lines.push(`  SPENT: ${o.txid}:${o.vout} (${o.satoshis} sat) → by ${spendingTxid}`)
         // Paper trail for a repair pass: `spendingDescription` is a free-text
@@ -3275,17 +3452,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           spendingDescription: JSON.stringify({ claimedSpender: spendingTxid, checkedAt: new Date().toISOString() })
         } as any)
 
-        if (!spendingTxid) continue
         try {
-          const beefResp = await throttledFetch(`${wocBase}/tx/${spendingTxid}/beef`)
-          if (!beefResp.ok) {
-            lines.push(`    ↳ BEEF fetch failed (HTTP ${beefResp.status}), skipping change recovery`)
-            continue
-          }
-          const beefHex = await beefResp.text()
-          const beefBytes = Utils.toArray(beefHex, 'hex')
-          const tx = Transaction.fromBEEF(beefBytes)
-          const atomicBeef = tx.toAtomicBEEF()
+          const atomicBeef = spenderTx.toAtomicBEEF()
 
           const changeOutputs = await storage.findOutputs({
             partial: { change: true as any, spendable: false as any },
@@ -3380,6 +3548,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildWalletFromRecoveredKey,
       backupRestore,
       getBackupRestore,
+      getBackupPseudonym,
       getWalletBuilt,
       switchNetwork,
       rebuildWallet,
@@ -3428,6 +3597,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildWalletFromRecoveredKey,
       backupRestore,
       getBackupRestore,
+      getBackupPseudonym,
       getWalletBuilt,
       switchNetwork,
       rebuildWallet,

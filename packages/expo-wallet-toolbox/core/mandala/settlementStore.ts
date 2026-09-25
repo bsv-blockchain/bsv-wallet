@@ -69,6 +69,7 @@ interface SettlementDbRow {
   overlayIdentityKey: string
   admissionOutputsJson: string | null
   admissionSignatureHex: string | null
+  relevantVout: number | null
   refusedCode: string | null
   refusedPayloadHash: string | null
   poisonedByTxid: string | null
@@ -101,6 +102,7 @@ function toSettlement(row: SettlementDbRow): TokenSettlementRow {
     overlayIdentityKey: row.overlayIdentityKey,
     admissionOutputs: readNumberArray(row.admissionOutputsJson),
     admissionSignatureHex: row.admissionSignatureHex ?? undefined,
+    relevantVout: row.relevantVout ?? undefined,
     refusedCode: row.refusedCode ?? undefined,
     refusedPayloadHash: row.refusedPayloadHash ?? undefined,
     poisonedByTxid: row.poisonedByTxid ?? undefined,
@@ -196,6 +198,24 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
       return row ? toSettlement(row) : undefined
     },
 
+    /**
+     * XR-033: the coarse fallback `getSettlementByReference` cannot offer for
+     * a row with no reference at all. `state` names the same set
+     * `abortGuard.ts`'s `ABORT_BLOCKED_SETTLEMENT_STATES` does — duplicated
+     * rather than imported, in keeping with this file's own rule that it is
+     * statements only, with no cross-module logic.
+     */
+    async hasUnresolvedLegacyBlockedRows(): Promise<boolean> {
+      const row = (await db.getFirstAsync(
+        `SELECT 1 FROM token_settlements
+          WHERE reference IS NULL
+            AND state IN ('held','handed_over','submitting','admitted','broadcast')
+          LIMIT 1`,
+        []
+      )) as unknown
+      return row != null
+    },
+
     async listSettlements(filter = {}): Promise<TokenSettlementRow[]> {
       const where: string[] = []
       const params: SettlementBindValue[] = []
@@ -225,9 +245,9 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
       await db.runAsync(
         `INSERT INTO token_settlements
            (txid, role, assetId, state, counterpartyKey, amountBaseUnits, overlayUrl, overlayIdentityKey,
-            admissionOutputsJson, admissionSignatureHex, refusedCode, refusedPayloadHash, poisonedByTxid,
+            admissionOutputsJson, admissionSignatureHex, relevantVout, refusedCode, refusedPayloadHash, poisonedByTxid,
             reference, createdAt, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(txid) DO UPDATE SET
            assetId = excluded.assetId,
            counterpartyKey = COALESCE(excluded.counterpartyKey, token_settlements.counterpartyKey),
@@ -236,6 +256,7 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
            overlayIdentityKey = excluded.overlayIdentityKey,
            admissionOutputsJson = COALESCE(excluded.admissionOutputsJson, token_settlements.admissionOutputsJson),
            admissionSignatureHex = COALESCE(excluded.admissionSignatureHex, token_settlements.admissionSignatureHex),
+           relevantVout = COALESCE(excluded.relevantVout, token_settlements.relevantVout),
            reference = COALESCE(excluded.reference, token_settlements.reference),
            updatedAt = excluded.updatedAt`,
         [
@@ -249,6 +270,7 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
           row.overlayIdentityKey,
           row.admissionOutputs ? JSON.stringify(row.admissionOutputs) : null,
           row.admissionSignatureHex ?? null,
+          row.relevantVout ?? null,
           row.refusedCode ?? null,
           row.refusedPayloadHash ?? null,
           row.poisonedByTxid ?? null,

@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite'
 import type { BindValue } from '../methods/offlineActions'
+import { devLog } from '../../logging'
 
 /**
  * SQL statements to create all wallet storage tables
@@ -423,6 +424,7 @@ export async function createMandalaSettlementTables(
       overlayIdentityKey    TEXT NOT NULL,
       admissionOutputsJson  TEXT,
       admissionSignatureHex TEXT,
+      relevantVout          INTEGER,
       refusedCode           TEXT,
       refusedPayloadHash    TEXT,
       poisonedByTxid        TEXT,
@@ -522,7 +524,13 @@ export async function ensureOfflineActionsColumns(db: {
  * wallet action reference — so the backfill is simply the next hand-over.
  */
 const TOKEN_SETTLEMENT_COLUMNS: { name: string; ddl: string }[] = [
-  { name: 'reference', ddl: 'ALTER TABLE token_settlements ADD COLUMN reference TEXT' }
+  { name: 'reference', ddl: 'ALTER TABLE token_settlements ADD COLUMN reference TEXT' },
+  // XR-038: the wallet-relevant output index, so a cached admission for some
+  // OTHER output of the same txid can never stand in for this one. Nullable,
+  // no default — an existing row reads back `relevantVout === undefined`,
+  // which `postTokenStep` reads as 0 (the payee's-output convention), exactly
+  // as it always has for every row written before this column existed.
+  { name: 'relevantVout', ddl: 'ALTER TABLE token_settlements ADD COLUMN relevantVout INTEGER' }
 ]
 
 export async function ensureTokenSettlementColumns(db: {
@@ -532,6 +540,54 @@ export async function ensureTokenSettlementColumns(db: {
   const info = (await db.getAllAsync('PRAGMA table_info(token_settlements)', [])) as { name: string }[]
   const have = new Set(info.map(c => c.name))
   for (const col of TOKEN_SETTLEMENT_COLUMNS) {
-    if (!have.has(col.name)) await db.execAsync(col.ddl)
+    if (have.has(col.name)) continue
+    await db.execAsync(col.ddl)
+    // XR-033: this ALTER just gave every existing row a NULL `reference`, and
+    // the abort guard's primary check (`getSettlementByReference`) can never
+    // match a NULL one against any reference — so backfill it now, in the
+    // same migration step, rather than leaving it to "the next hand-over"
+    // (which never comes for a row already stuck in a blocked state).
+    if (col.name === 'reference') await backfillLegacyTokenSettlementReferences(db)
+  }
+}
+
+/**
+ * XR-033: resolves each pre-migration row's `reference` from `transactions`,
+ * the SAME table `abortAction({reference})` itself matches a reference
+ * against (`findTransactions({partial:{reference}})`) — so this backfills
+ * from the one mapping that is already authoritative, rather than guessing.
+ *
+ * Scoped to rows that both need it and can be resolved: still blocked (the
+ * same states `abortGuard.ts`'s `ABORT_BLOCKED_SETTLEMENT_STATES` lists —
+ * duplicated here, not imported, for the reason `settlementStore.ts` gives:
+ * this schema file is statements, not cross-module logic) and whose
+ * transaction row still exists to resolve from. A row that cannot be
+ * resolved (its transaction is gone) is left NULL; the abort guard's own
+ * second, coarser check (`hasUnresolvedLegacyBlockedRows`) covers that case
+ * without this migration needing to.
+ *
+ * Never throws: this runs inside the ADD COLUMN step of the wallet's whole
+ * migration ladder, and `transactions` — always present in the real app,
+ * created earlier in this same `createTables` — is not guaranteed by this
+ * function's own narrow signature. A device where the backfill itself cannot
+ * run is exactly what `hasUnresolvedLegacyBlockedRows` exists to catch at
+ * `abortAction` time instead, so a failure here costs that coarser refusal,
+ * never a broken migration.
+ */
+async function backfillLegacyTokenSettlementReferences(db: {
+  execAsync(sql: string): Promise<unknown>
+}): Promise<void> {
+  try {
+    await db.execAsync(`
+      UPDATE token_settlements
+         SET reference = (
+           SELECT reference FROM transactions WHERE transactions.txid = token_settlements.txid
+         )
+       WHERE reference IS NULL
+         AND state IN ('held','handed_over','submitting','admitted','broadcast')
+         AND EXISTS (SELECT 1 FROM transactions WHERE transactions.txid = token_settlements.txid)
+    `)
+  } catch (e) {
+    devLog('[createTables] could not backfill legacy token_settlements references:', e)
   }
 }

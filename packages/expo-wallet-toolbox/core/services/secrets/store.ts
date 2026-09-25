@@ -8,15 +8,8 @@
  */
 import * as SecureStore from 'expo-secure-store'
 import { openSecret, sealSecret, assertKekId } from './envelope'
-import {
-  destroyKek,
-  forgetSecretName,
-  peekKek,
-  provisionKek,
-  readSentinel,
-  recordSecretName,
-  unlockKek
-} from './kek'
+import { destroyKek, forgetSecretName, peekKek, provisionKek, readSentinel, recordSecretName, unlockKek } from './kek'
+import { sweepLegacyKeys } from './migration'
 import { envKey, envOptions } from './storage'
 import { EnvelopeBlob, EnvelopeError, SECRET_NAMES, SecretName } from './types'
 
@@ -142,5 +135,10 @@ export async function deleteAllSecrets(): Promise<void> {
       /* best effort — destroyKek below is what matters */
     }
   }
+  // XR-107: a pre-envelope legacy plaintext (mnemonic/recoveredKey/password)
+  // is a separate keychain namespace from the envelope above and survives it
+  // untouched otherwise, letting a later holder of this device rebuild full
+  // spend authority after the user believes "Delete Wallet" erased everything.
+  await sweepLegacyKeys()
   await destroyKek()
 }

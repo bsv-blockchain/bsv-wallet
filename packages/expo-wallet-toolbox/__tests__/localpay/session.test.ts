@@ -1,7 +1,22 @@
 import QRCode from 'qrcode'
 import {
-  mintSession, encodeSession, decodeSession, instanceName, CAP_AWDL, CAP_NEARBY, SESSION_VERSION, CAP_BLE, CAP_BLE_SCAN,
-  HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC, RUNG_MASK, type SessionAsset,
+  mintSession,
+  encodeSession,
+  decodeSession,
+  instanceName,
+  CAP_AWDL,
+  CAP_NEARBY,
+  SESSION_VERSION,
+  CAP_BLE,
+  CAP_BLE_SCAN,
+  HINT_ONLINE,
+  HINT_ONLINE_KNOWN,
+  HINT_NET,
+  HINT_WIFI,
+  HINT_BT,
+  HINT_NFC,
+  RUNG_MASK,
+  type SessionAsset
 } from '../../core/localpay/session'
 import { CodecError } from '../../core/localpay/codec'
 
@@ -10,7 +25,7 @@ const args = {
   amount: 5000,
   derivationPrefix: 'cHJlZml4',
   derivationSuffix: 'c3VmZml4',
-  supportsAwdl: true,
+  supportsAwdl: true
 }
 
 // Helper to encode a custom JSON envelope as a QR string
@@ -117,7 +132,7 @@ describe('localpay session', () => {
       supportsAwdl: true,
       supportsNearby: true,
       supportsBle: true,
-      hints: HINT_ONLINE | HINT_ONLINE_KNOWN | HINT_NET | HINT_WIFI | HINT_BT | HINT_NFC,
+      hints: HINT_ONLINE | HINT_ONLINE_KNOWN | HINT_NET | HINT_WIFI | HINT_BT | HINT_NFC
     })
     expect(s.caps).toBe(0x3f07)
     // decodeSession is untouched by this change: `c` was already "any number",
@@ -152,7 +167,7 @@ describe('localpay session', () => {
       derivationPrefix: nonce(),
       derivationSuffix: nonce(),
       os: 'ios',
-      hints: 0x3f00,
+      hints: 0x3f00
     })
     expect(s.caps).toBe(0x3f01)
     const text = encodeSession(s)
@@ -189,7 +204,7 @@ describe('localpay session', () => {
       i: args.identityKey,
       a: 5000,
       p: 'cHJlZml4',
-      x: 'c3VmZml4',
+      x: 'c3VmZml4'
     })
     expect(() => decodeSession(qr)).toThrow(CodecError)
   })
@@ -202,7 +217,7 @@ describe('localpay session', () => {
       i: args.identityKey,
       a: 5000,
       p: 'cHJlZml4',
-      x: 'c3VmZml4',
+      x: 'c3VmZml4'
     })
     expect(() => decodeSession(qr)).toThrow(CodecError)
   })
@@ -215,7 +230,7 @@ describe('localpay session', () => {
       k: 'AAAA',
       i: args.identityKey,
       a: 5000,
-      x: 'c3VmZml4',
+      x: 'c3VmZml4'
     })
     expect(() => decodeSession(qr)).toThrow(CodecError)
   })
@@ -228,7 +243,7 @@ describe('localpay session', () => {
       k: 'AAAA',
       i: args.identityKey,
       a: 5000,
-      p: 'cHJlZml4',
+      p: 'cHJlZml4'
     })
     expect(() => decodeSession(qr)).toThrow(CodecError)
   })
@@ -236,23 +251,21 @@ describe('localpay session', () => {
   // The amount drives both the payer's confirm screen and the payee's
   // session-binding check, so anything that is not a whole positive satoshi
   // count must be refused at the door rather than rendered.
-  const amountQr = (a: unknown) => encodeCustomQR({
-    v: SESSION_VERSION,
-    c: 0,
-    s: 'A'.repeat(22), // 16 bytes
-    k: 'A'.repeat(43), // 32 bytes
-    i: args.identityKey,
-    a,
-    p: 'cHJlZml4',
-    x: 'c3VmZml4',
-  })
+  const amountQr = (a: unknown) =>
+    encodeCustomQR({
+      v: SESSION_VERSION,
+      c: 0,
+      s: 'A'.repeat(22), // 16 bytes
+      k: 'A'.repeat(43), // 32 bytes
+      i: args.identityKey,
+      a,
+      p: 'cHJlZml4',
+      x: 'c3VmZml4'
+    })
 
-  it.each([-1, -5000, 0, 0.5, 1234.56, 2 ** 53, 'ten', null])(
-    'rejects a non-positive-integer amount %p',
-    a => {
-      expect(() => decodeSession(amountQr(a))).toThrow(CodecError)
-    }
-  )
+  it.each([-1, -5000, 0, 0.5, 1234.56, 2 ** 53, 'ten', null])('rejects a non-positive-integer amount %p', a => {
+    expect(() => decodeSession(amountQr(a))).toThrow(CodecError)
+  })
 
   it('accepts a valid positive integer amount', () => {
     expect(decodeSession(amountQr(5000)).amount).toBe(5000)
@@ -299,7 +312,7 @@ describe('localpay session', () => {
       k: 'A'.repeat(43),
       i: args.identityKey,
       p: 'cHJlZml4',
-      x: 'c3VmZml4',
+      x: 'c3VmZml4'
     })
     expect(decodeSession(qr).amount).toBeUndefined()
   })
@@ -323,7 +336,7 @@ describe('localpay session', () => {
       i: args.identityKey,
       a: 5000,
       p: 'cHJlZml4',
-      x: 'c3VmZml4',
+      x: 'c3VmZml4'
     })
     expect(() => decodeSession(qr)).toThrow(CodecError)
   })
@@ -366,7 +379,7 @@ const baseMintArgs = () => ({
   identityKey: '02'.padEnd(66, 'd'),
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
-  supportsAwdl: true,
+  supportsAwdl: true
 })
 
 const bytesToB64url = (b: Uint8Array) => {
@@ -386,7 +399,7 @@ const asset = (): SessionAsset => ({
   ticker: 'EXD',
   decimals: 2,
   overlayUrl: 'https://overlay.issuer.example',
-  overlayIdentityKey: '03'.padEnd(66, 'b'),
+  overlayIdentityKey: '03'.padEnd(66, 'b')
 })
 
 describe('session asset block', () => {
@@ -416,6 +429,36 @@ describe('session asset block', () => {
     raw.t.k = 'short'
     const forged = 'bsvpay1:' + bytesToB64url(new TextEncoder().encode(JSON.stringify(raw)))
     expect(() => decodeSession(forged)).toThrow(CodecError)
+  })
+
+  // XR-043: an extreme decimals value from a session QR reached
+  // ui/tokenFormat.ts's formatters unbounded and crashed the confirmation
+  // view with `RangeError: Invalid string length`.
+  it('XR-043: refuses an out-of-range asset decimals value at decode', () => {
+    const s = mintSession({ ...baseMintArgs(), asset: asset() })
+    const raw = JSON.parse(new TextDecoder().decode(b64urlToBytes(encodeSession(s).slice('bsvpay1:'.length))))
+    raw.t.d = Number.MAX_SAFE_INTEGER
+    const forged = 'bsvpay1:' + bytesToB64url(new TextEncoder().encode(JSON.stringify(raw)))
+    expect(() => decodeSession(forged)).toThrow(CodecError)
+  })
+
+  it('XR-043: 18 decimals still decodes; 19 is refused', () => {
+    const eighteen = mintSession({ ...baseMintArgs(), asset: { ...asset(), decimals: 18 } })
+    expect(decodeSession(encodeSession(eighteen)).asset?.decimals).toBe(18)
+
+    const raw = JSON.parse(new TextDecoder().decode(b64urlToBytes(encodeSession(eighteen).slice('bsvpay1:'.length))))
+    raw.t.d = 19
+    const forged = 'bsvpay1:' + bytesToB64url(new TextEncoder().encode(JSON.stringify(raw)))
+    expect(() => decodeSession(forged)).toThrow(CodecError)
+  })
+
+  // Validated at the mint too, not only at decode (same principle as `amount`
+  // above it in this file) — an out-of-range figure minted on THIS device
+  // would render on its own screen before any decoder ever saw it.
+  it('XR-043: refuses an out-of-range asset decimals value at mint', () => {
+    expect(() => mintSession({ ...baseMintArgs(), asset: { ...asset(), decimals: 19 } })).toThrow(CodecError)
+    expect(() => mintSession({ ...baseMintArgs(), asset: { ...asset(), decimals: -1 } })).toThrow(CodecError)
+    expect(() => mintSession({ ...baseMintArgs(), asset: { ...asset(), decimals: 2.5 } })).toThrow(CodecError)
   })
 
   // The old check (`length < 66 && includes('.')`) accepted this: 66 chars,

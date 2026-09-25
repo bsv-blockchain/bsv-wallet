@@ -271,6 +271,24 @@ describe('UniversalSend', () => {
     expect(s.getByText('bad')).toBeTruthy()
   })
 
+  // XR-053: a peerpay: link's `url` extension silently overrides normal
+  // recipient-host resolution — surfacing it on the last screen before Send
+  // is the local hardening that makes a substituted/unexpected host visible.
+  it('XR-053: review shows the delivery host a link named via its url extension', () => {
+    const s = draw({
+      initialTarget: { kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://evil.example' },
+      initialSats: 500
+    })
+    fireEvent.press(s.getByText('pay_step_continue'))
+    expect(s.getByText(/evil\.example/)).toBeTruthy()
+  })
+
+  it('XR-053: review shows no delivery-host row for a handle with no linked host', () => {
+    const s = draw({ initialTarget: { kind: 'handle', identityKey: KEY }, initialSats: 500 })
+    fireEvent.press(s.getByText('pay_step_continue'))
+    expect(s.queryByText('pay_review_delivery_host')).toBeNull()
+  })
+
   it('never shows the message-box server bar', () => {
     const s = draw()
     expect(s.queryByLabelText('message_box_server')).toBeNull()

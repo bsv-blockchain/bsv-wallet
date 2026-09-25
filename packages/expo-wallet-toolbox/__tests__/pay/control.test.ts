@@ -1,4 +1,7 @@
-import { PAYMENT_CONTROL_BOX, parseControlMessage, sendControlMessage,
+import {
+  PAYMENT_CONTROL_BOX,
+  parseControlMessage,
+  sendControlMessage,
   isDuplicateMessageError
 } from '../../core/peerpay/control'
 
@@ -68,23 +71,32 @@ describe('sendControlMessage', () => {
 // The box keys a message by an HMAC of its body against the recipient, so
 // re-delivering an unchanged token collides with the copy already there.
 describe('isDuplicateMessageError', () => {
-  it('recognises the box refusing a message it already holds', () => {
-    expect(
-      isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - Message already exists'))
-    ).toBe(true)
+  it('recognises the box refusing a message it already holds, by its structured code', () => {
     expect(
       isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - ERR_DUPLICATE_MESSAGE duplicate'))
     ).toBe(true)
   })
 
+  // XR-046: a malicious/compromised recipientHost fully controls the free-text
+  // portion of a thrown Error's message. Prose alone — even prose that reads
+  // exactly like a duplicate refusal — must never be trusted as proof the
+  // recipient already holds the token; only the client's own structured code
+  // (built from a server field it validates, never copied from free text) can
+  // stand for that. Before the fix this returned true and would have made
+  // retryDelivery mark the entry delivered and broadcast off a forged refusal.
+  it('XR-046: does not trust forged/free-text duplicate wording without the structured code', () => {
+    expect(isDuplicateMessageError(new Error('Message sending failed: HTTP 400 - Message already exists'))).toBe(false)
+    expect(isDuplicateMessageError(new Error('HTTP 400 - already delivered, already received'))).toBe(false)
+  })
+
   // @bsv/message-box-client 2.5.3 names only a validated ERR_* code.
   it('recognises the client wording from message-box-client 2.5.3', () => {
-    expect(
-      isDuplicateMessageError(new Error('Message Box send failed with HTTP 400 (ERR_DUPLICATE_MESSAGE).'))
-    ).toBe(true)
-    expect(
-      isDuplicateMessageError(new Error('Message Box send failed with HTTP 400 (ERR_MESSAGE_TOO_LARGE).'))
-    ).toBe(false)
+    expect(isDuplicateMessageError(new Error('Message Box send failed with HTTP 400 (ERR_DUPLICATE_MESSAGE).'))).toBe(
+      true
+    )
+    expect(isDuplicateMessageError(new Error('Message Box send failed with HTTP 400 (ERR_MESSAGE_TOO_LARGE).'))).toBe(
+      false
+    )
     expect(isDuplicateMessageError(new Error('Message Box send failed with HTTP 400.'))).toBe(false)
   })
 

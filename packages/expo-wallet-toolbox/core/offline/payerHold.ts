@@ -119,20 +119,23 @@ async function advanceToHandedOver(storage: StorageExpoSQLite, txid: string): Pr
 
 /**
  * Persist what the plaintext frame carries, for the state this call just put
- * the payment in. Never throws: the queue row is already durable by the time
- * this runs, and a payment that IS queued must not be reported as un-queued
- * because a cache write failed.
+ * the payment in. Never throws — the caller decides what a failed journal
+ * costs, from the boolean this returns, rather than finding out from a thrown
+ * exception. `true` for a plain BSV hold (nothing to journal) and for a token
+ * hold whose write landed; `false` only when a token hold's write did not.
  */
 async function journalHandover(
   deps: TokenHandoverDeps,
   txid: string,
   state: 'parked' | 'handed_over'
-): Promise<void> {
-  if (!deps.frame?.token || !deps.onTokenHandedOver) return
+): Promise<boolean> {
+  if (!deps.frame?.token || !deps.onTokenHandedOver) return true
   try {
     await deps.onTokenHandedOver(deps.frame, txid, state, deps.reference)
+    return true
   } catch (e) {
     devLog(`[payerHold] could not journal the ${state} settlement for ${txid}:`, e)
+    return false
   }
 }
 
@@ -147,6 +150,20 @@ async function journalHandover(
  * the wallet has already failed or cancelled.
  */
 const ADVANCEABLE_TO_QUEUED = new Set(['parked', 'queued'])
+
+/**
+ * XR-036: whether this hold has a settlement row to wait for at all.
+ *
+ * `processOfflineActions.ts`'s `readSettlement` tells "ordinary BSV" from
+ * "token, needs overlay admission first" by whether ANY `token_settlements`
+ * row exists for the txid — so a token hold's queue row may not be promoted
+ * to 'queued' (which wakes the drain) until `journalHandover` has actually
+ * written that row. A plain BSV hold has no such row to wait for and keeps
+ * its old, immediate promotion.
+ */
+function isTokenHold(deps: TokenHandoverDeps): boolean {
+  return !!(deps.frame?.token && deps.onTokenHandedOver)
+}
 
 export async function holdSentPaymentOffline(
   args: TokenHandoverDeps & {
@@ -189,11 +206,25 @@ export async function holdSentPaymentOffline(
       devLog(`[holdSentPaymentOffline] ${txid} is already '${existing.status}', leaving it alone`)
       return
     }
-    // Same two writes and the same order as the insert path: the durable row
-    // first, the promotion after.
-    await updateOfflineAction(db, txid, { status: 'queued' })
-    TaskSendOffline.noteEnqueued()
-    await journalHandover(args, txid, 'handed_over')
+    if (isTokenHold(args)) {
+      // XR-036: do NOT wake the drain until the settlement row is durable —
+      // leave the row exactly where a park would (non-drainable) if the write
+      // fails, rather than handing the drain a 'queued' row with nothing in
+      // `token_settlements` to stop it reading this as plain BSV.
+      const journaled = await journalHandover(args, txid, 'handed_over')
+      if (journaled) {
+        await updateOfflineAction(db, txid, { status: 'queued' })
+        TaskSendOffline.noteEnqueued()
+      } else {
+        devLog(`[holdSentPaymentOffline] ${txid} left '${existing.status}': its settlement could not be journaled`)
+      }
+    } else {
+      // Same two writes and the same order as before: the durable row first,
+      // the promotion after — unchanged for the plain BSV rail, which has no
+      // settlement row to wait for.
+      await updateOfflineAction(db, txid, { status: 'queued' })
+      TaskSendOffline.noteEnqueued()
+    }
     await advanceToHandedOver(storage, txid)
     // Only while still withheld: if the payee already broadcast and this device
     // saw it, the transaction has moved on and this write would be a lie.
@@ -201,18 +232,32 @@ export async function holdSentPaymentOffline(
     return
   }
 
-  // Insert before promote — see the ORDER MATTERS note above.
-  await insertOfflineAction(db, { userId: tx.userId, txid, role: 'sent', framePayload })
-  TaskSendOffline.noteEnqueued()
-  // Queue row first, settlement second, for the reason the ORDER MATTERS note
-  // gives: the queue row is what the drain finds, and it is durable. The
-  // advance is issued even on this path because a row may already exist at
-  // `parked` from a park that never got its queue row written.
-  await journalHandover(args, txid, 'handed_over')
+  if (isTokenHold(args)) {
+    // XR-036: insert at 'parked' — durable (`findOfflineActions` never reads
+    // it, so the drain leaves it alone), and NOT promoted to 'queued' until
+    // `journalHandover`'s write to `token_settlements` has actually landed.
+    // Without this, a process kill or a transient write fault right here left
+    // a 'queued' row with no settlement to match it, and
+    // `processOfflineActions`'s `readSettlement` reads that absence as "this
+    // is an ordinary BSV transaction" and posts it straight past overlay
+    // admission (§4.3).
+    await insertOfflineAction(db, { userId: tx.userId, txid, role: 'sent', framePayload }, 'parked')
+    const journaled = await journalHandover(args, txid, 'handed_over')
+    if (journaled) {
+      await updateOfflineAction(db, txid, { status: 'queued' })
+      TaskSendOffline.noteEnqueued()
+    } else {
+      devLog(`[holdSentPaymentOffline] ${txid} left 'parked': its settlement could not be journaled`)
+    }
+  } else {
+    // Insert before promote — see the ORDER MATTERS note above. Unchanged for
+    // the plain BSV rail.
+    await insertOfflineAction(db, { userId: tx.userId, txid, role: 'sent', framePayload })
+    TaskSendOffline.noteEnqueued()
+  }
   await advanceToHandedOver(storage, txid)
   await storage.updateTransactionStatus('unproven', tx.transactionId)
 }
-
 
 /**
  * Keep a handed-over payment WITHOUT releasing it for broadcast.
@@ -235,7 +280,7 @@ export async function parkSentPaymentOffline(
     txid: string
     framePayload?: string
   }
-): Promise<void> {
+): Promise<boolean> {
   const { storage, txid, framePayload } = args
   const db = storage.sqliteDb
   if (!db) throw new Error('the database is not open, cannot park this payment')
@@ -251,9 +296,14 @@ export async function parkSentPaymentOffline(
   // `attemptToPostReqsToNetwork` both key their token branch on. That is the
   // durability this call buys and the sealed `framePayload` cannot: after a
   // restart the session PSK is gone and these bytes can no longer be opened.
-  await journalHandover(args, txid, 'parked')
+  //
+  // XR-036 review follow-up: this used to discard journalHandover's result,
+  // so nothing downstream could tell a landed token journal from a silently
+  // failed one. Returned now so a caller (and `releaseParkedPayment`'s own
+  // settlement check) has something to act on. A plain BSV park still
+  // resolves `true` (there is nothing to journal).
+  return journalHandover(args, txid, 'parked')
 }
-
 
 /**
  * Release a parked payment: the payer showed the code again and this time
@@ -262,14 +312,40 @@ export async function parkSentPaymentOffline(
  * The same two writes `holdSentPaymentOffline` makes, minus the insert — the
  * row already exists from parking, so it is flipped to 'queued' instead. Same
  * order for the same reason: the durable row moves first, the promotion after.
+ *
+ * XR-036 review follow-up: no frame is threaded here (the row already exists
+ * from the park), so this cannot re-attempt `journalHandover` the way a second
+ * `holdSentPaymentOffline` confirm can. What it CAN and must do is refuse to
+ * repeat XR-036's own defect through this second entry point: a token-bearing
+ * park whose `journalHandover(..., 'parked')` write silently failed (see
+ * `parkSentPaymentOffline`) has no `token_settlements` row, and
+ * `processOfflineActions`'s `readSettlement` reads that absence as "ordinary
+ * BSV" and posts it straight past overlay admission. `isTokenHold` is the
+ * caller's own knowledge of which rail this txid took (WalletHomeScreen.tsx's
+ * resend flow already derives it from the action's 'mandala' label); when set,
+ * the row is only promoted once a settlement row proves the park-time journal
+ * actually landed, otherwise it is left at 'parked' exactly like a fresh
+ * journal failure in `holdSentPaymentOffline`.
  */
-export async function releaseParkedPayment(args: { storage: StorageExpoSQLite; txid: string }): Promise<void> {
-  const { storage, txid } = args
+export async function releaseParkedPayment(args: {
+  storage: StorageExpoSQLite
+  txid: string
+  isTokenHold?: boolean
+}): Promise<void> {
+  const { storage, txid, isTokenHold } = args
   const db = storage.sqliteDb
   if (!db) throw new Error('the database is not open, cannot release this payment')
 
   const tx = (await storage.findTransactions({ partial: { txid }, noRawTx: true }))[0]
   if (!tx) throw new Error(`no transaction record for ${txid}, cannot release it`)
+
+  if (isTokenHold) {
+    const settlement = await createSettlementStore(db as unknown as SettlementDb).getSettlement(txid)
+    if (!settlement) {
+      devLog(`[releaseParkedPayment] ${txid} left 'parked': no settlement row to release a token hold from`)
+      return
+    }
+  }
 
   await updateOfflineAction(db, txid, { status: 'queued' })
   TaskSendOffline.noteEnqueued()

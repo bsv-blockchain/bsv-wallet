@@ -4,6 +4,8 @@
  * is reached from the `ui` barrel. TrustScreen gives its Image the same
  * treatment.
  */
+import { isPublicHttpsUrl } from '../core/net/publicDestination'
+
 type ExpoImageModule = typeof import('expo-image')
 let expoImage: ExpoImageModule | undefined
 function loadExpoImage(): ExpoImageModule {
@@ -15,6 +17,10 @@ function loadExpoImage(): ExpoImageModule {
 }
 
 export default async (url: string): Promise<boolean> => {
+  // A trust manifest's icon URL is exactly as untrusted as the rest of the
+  // manifest — prefetching it must not be able to reach a loopback or
+  // private-network service (XR-073 / SEC2-057, SEC2-076).
+  if (!isPublicHttpsUrl(url)) return false
   try {
     return await loadExpoImage().Image.prefetch(url)
   } catch {

@@ -533,3 +533,80 @@ describe('serverNow', () => {
     expect(client.serverNow().getTime()).toBe(device)
   })
 })
+
+/**
+ * XR-071 — a compromised (or merely malicious) registry, including our OWN
+ * pinned one, can mint a fresh, self-signed, structurally valid certificate
+ * for somebody else's paymail. `verifyProfileCertificate` alone cannot catch
+ * this: a self-signed cert only has to prove `subject === certifier`, and an
+ * attacker key satisfies that about itself. Trust-on-first-use closes the
+ * window that matters in practice — the registry changing its answer for a
+ * paymail this device has already resolved — without needing a naming
+ * authority.
+ */
+describe('key pinning (XR-071)', () => {
+  const paymail = `victim@${PIN.domain}`
+
+  it('pins the first key seen for a paymail and rejects a later cert for a different key, even from the pinned registry', async () => {
+    const honestCert = await buildProfileCertificate({
+      signer: new ProtoWallet(PrivateKey.fromRandom()) as unknown as ProfileSigner,
+      paymail,
+      issuedAt: new Date('2026-09-18T10:00:00.000Z')
+    })
+    const first = transport(() => ({ status: 200, body: [honestCert] }))
+    const seen = await createHandleRegistryClient({ pinned: PIN, fetchImpl: first.fetchImpl }).search(paymail)
+    expect(seen).toHaveLength(1)
+    expect(seen[0].identityKey).toBe(honestCert.subject)
+
+    // A different installation of the client (a fresh screen mount, in
+    // production) asking the same question later must still honour the pin —
+    // it is not per-instance state.
+    const attackerCert = await buildProfileCertificate({
+      signer: new ProtoWallet(PrivateKey.fromRandom()) as unknown as ProfileSigner,
+      paymail,
+      issuedAt: new Date('2026-09-19T10:00:00.000Z')
+    })
+    const attacking = transport(() => ({ status: 200, body: [attackerCert] }))
+    const swapped = await createHandleRegistryClient({ pinned: PIN, fetchImpl: attacking.fetchImpl }).search(paymail)
+    expect(swapped).toEqual([])
+  })
+
+  it('keeps answering once a key is pinned, for the honest cert that pinned it', async () => {
+    const honestCert = await buildProfileCertificate({
+      signer: new ProtoWallet(PrivateKey.fromRandom()) as unknown as ProfileSigner,
+      paymail: `stable@${PIN.domain}`,
+      issuedAt: new Date('2026-09-18T10:00:00.000Z')
+    })
+    const { fetchImpl } = transport(() => ({ status: 200, body: [honestCert] }))
+    const client = createHandleRegistryClient({ pinned: PIN, fetchImpl })
+    expect(await client.search(`stable@${PIN.domain}`)).toHaveLength(1)
+    // Re-fetching the SAME certificate (a refreshed displayName, a renewed
+    // issuedAt, the ordinary republish flow) is not a key change and must
+    // keep working from a second client instance, too.
+    expect((await client.search(`stable@${PIN.domain}`))[0].identityKey).toBe(honestCert.subject)
+  })
+
+  it('rejects a substituted key via lookupProfile/lookupIdentityKey too, not only search', async () => {
+    const key = `reverse@${PIN.domain}`
+    const honestCert = await buildProfileCertificate({
+      signer: new ProtoWallet(PrivateKey.fromRandom()) as unknown as ProfileSigner,
+      paymail: key,
+      issuedAt: new Date('2026-09-18T10:00:00.000Z')
+    })
+    const first = transport(() => ({ status: 200, body: honestCert }))
+    const found = await createHandleRegistryClient({ pinned: PIN, fetchImpl: first.fetchImpl }).lookupProfile(
+      honestCert.subject
+    )
+    expect(found.kind).toBe('found')
+
+    const attackerCert = await buildProfileCertificate({
+      signer: new ProtoWallet(PrivateKey.fromRandom()) as unknown as ProfileSigner,
+      paymail: key,
+      issuedAt: new Date('2026-09-19T10:00:00.000Z')
+    })
+    const attacking = transport(() => ({ status: 200, body: attackerCert }))
+    const client = createHandleRegistryClient({ pinned: PIN, fetchImpl: attacking.fetchImpl })
+    expect(await client.lookupProfile(attackerCert.subject)).toEqual({ kind: 'none' })
+    expect(await client.lookupIdentityKey(attackerCert.subject)).toBeNull()
+  })
+})

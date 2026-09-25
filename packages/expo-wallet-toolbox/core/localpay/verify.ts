@@ -229,6 +229,15 @@ export async function verifyFramePayment(
     throw new FrameVerifyError('not_mine', `the named output carries no usable token amount: ${decoded.amount}`)
   }
 
+  // XR-099. COVER proves ancestry admission, never value: nothing before this
+  // point sums a token input against a token output, so a payer could spend a
+  // real, small admitted coin into an output naming any larger amount it
+  // likes and have it accepted. Cheap and certain, like the ownership checks
+  // above it, so it runs before the COVER walk below.
+  if (!tokenConservationHolds(tx, frame.token.assetId)) {
+    throw new FrameVerifyError('not_covered', 'the frame’s admission evidence does not cover it: conservation')
+  }
+
   // Coverage runs LAST, and only for an output already proven to be ours.
   // Ownership is the cheaper, more certain check, and running a third party's
   // injected verifier over a stranger's frame would hand it bytes that were
@@ -286,4 +295,49 @@ function sameOverlay(
 
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/**
+ * XR-099. Sums `tip`'s own decodable token inputs and outputs for `assetId`
+ * and reports whether the outputs are actually covered by the inputs.
+ *
+ * Deliberately scoped to the tip's OWN direct inputs, not the whole ancestor
+ * tree COVER walks: a direct input's previous output is always present in the
+ * frame's AtomicBEEF regardless (the payer needs its locking script to build
+ * and sign against it), so this is real evidence, not an assumption. An input
+ * whose `sourceTransaction` is absent, or whose source output is not a
+ * MandalaToken of this asset at all (an ordinary BSV fee input, most
+ * commonly), contributes nothing to `inputSum` — which only ever makes this
+ * check MORE likely to refuse, never less: there is no way to under-count an
+ * output or over-count an input by omission, so this cannot be defeated by a
+ * payer hiding a real input behind a hole.
+ */
+function tokenConservationHolds(tip: Transaction, assetId: string): boolean {
+  let inputSum = 0
+  for (const input of tip.inputs) {
+    const source = input.sourceTransaction
+    const output = source?.outputs[input.sourceOutputIndex]
+    if (!output?.lockingScript) continue
+    try {
+      const decoded = MandalaToken.decode(output.lockingScript)
+      if (decoded.assetId === assetId && Number.isSafeInteger(decoded.amount) && decoded.amount > 0) {
+        inputSum += decoded.amount
+      }
+    } catch {
+      // Not a token script — an ordinary fee input, per FIX K (see
+      // core/mandala/bundle.ts's `tokenParentsOf`).
+    }
+  }
+  let outputSum = 0
+  for (const output of tip.outputs) {
+    try {
+      const decoded = MandalaToken.decode(output.lockingScript)
+      if (decoded.assetId === assetId && Number.isSafeInteger(decoded.amount) && decoded.amount > 0) {
+        outputSum += decoded.amount
+      }
+    } catch {
+      // Not a token output of this asset.
+    }
+  }
+  return outputSum <= inputSum
 }

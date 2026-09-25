@@ -15,12 +15,7 @@ export type PaymentControlMessage =
   | { type: 'resend_request'; txid: string; reason: ResendReason; messageId?: string }
   | { type: 'payment_cancelled'; txid: string }
 
-const RESEND_REASONS: ReadonlySet<string> = new Set([
-  'corrupt',
-  'uncreditible',
-  'double_spent',
-  'bounced_offline'
-])
+const RESEND_REASONS: ReadonlySet<string> = new Set(['corrupt', 'uncreditible', 'double_spent', 'bounced_offline'])
 
 function asObject(body: unknown): Record<string, unknown> | undefined {
   let value: unknown = body
@@ -76,15 +71,9 @@ export async function sendControlMessage(
 export type ControlBoxMessage = { messageId: string; sender: string; body: unknown }
 
 /** Raw `payment_control` messages. `acceptPayments: false` avoids fee auto-internalize. */
-export async function listControlMessages(
-  client: {
-    listMessages(args: {
-      messageBox: string
-      host?: string
-      acceptPayments?: boolean
-    }): Promise<ControlBoxMessage[]>
-  }
-): Promise<ControlBoxMessage[]> {
+export async function listControlMessages(client: {
+  listMessages(args: { messageBox: string; host?: string; acceptPayments?: boolean }): Promise<ControlBoxMessage[]>
+}): Promise<ControlBoxMessage[]> {
   const listed = await client.listMessages({
     messageBox: PAYMENT_CONTROL_BOX,
     acceptPayments: false
@@ -112,11 +101,21 @@ export async function ackControlMessages(
  * never succeed — and the alternative, perturbing the body so it earns a fresh
  * id, would plant a second copy of a payment the recipient already holds.
  *
- * Matched on the server's own words rather than the bare status, so a 400 for
- * any other reason still surfaces as the failure it is.
+ * XR-046: matched ONLY on `@bsv/message-box-client`'s own structured
+ * `ERR_DUPLICATE_MESSAGE` code (`Message Box send failed with HTTP 400
+ * (ERR_DUPLICATE_MESSAGE).`), never on free prose. The client builds that
+ * string itself from a server response field it validates against
+ * `/^ERR_[A-Z0-9_]{1,64}$/` before embedding it — everything else in a
+ * thrown Error's message is attacker/host-controlled text a malicious or
+ * compromised recipientHost can fabricate at will for a 400 the recipient
+ * never actually received, which would wrongly mark retryDelivery's caller
+ * `delivered` and broadcast. Narrowing this does not close the deeper gap —
+ * a bare, non-throwing `sendMessage` success is still accepted with no
+ * recipient-authenticated receipt — closing that needs a receipt protocol
+ * change out of scope for this fix.
  */
 export function isDuplicateMessageError(e: unknown): boolean {
   const text = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
   if (!/\b400\b/.test(text)) return false
-  return /duplicate|already[ _-]?(exists|sent|delivered|present|received)|ERR_DUPLICATE/i.test(text)
+  return /\bERR_DUPLICATE_MESSAGE\b/.test(text)
 }

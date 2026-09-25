@@ -9,6 +9,7 @@ import {
   buildPairingSignatureMessage,
   buildRelayWebSocketUrl,
   MAX_IN_FLIGHT_RPC,
+  MAX_IN_FLIGHT_RPC_BYTES,
   MAX_RELAY_RESPONSE_BYTES,
   parseBoundedWireEnvelope,
   parseRelayResponse,
@@ -176,6 +177,26 @@ export function useWalletConnection() {
   return ctx
 }
 
+/**
+ * XR-018: WalletContext.tsx's logout() is a REACT ANCESTOR of
+ * WalletConnectionProvider (app/_layout.tsx nests the connection provider
+ * INSIDE WalletContextProvider), so it cannot call useWalletConnection()
+ * itself — there is no ancestor WalletConnectionContext.Provider at that
+ * point in the tree. Exactly one WalletConnectionProvider is ever mounted
+ * (app/_layout.tsx), matching this package's other module-level
+ * single-wallet-session state (e.g. WalletContext.tsx's
+ * autoApproveThresholdSnapshot), so a plain module-level handle is enough to
+ * let logout revoke any live paired session without becoming a consumer of
+ * this context.
+ */
+let activeDisconnect: (() => void) | null = null
+
+/** Tear down any live paired RPC socket. No-op if no WalletConnectionProvider
+ * is mounted or no session is currently connected. */
+export function disconnectActivePairedSession(): void {
+  activeDisconnect?.()
+}
+
 interface WalletConnectionProviderProps {
   children: React.ReactNode
   /** Sent to the desktop session as `walletMeta.name` during pairing. Host
@@ -217,6 +238,14 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     setSessionMeta(null)
     setStatus('idle')
   }, [])
+
+  // Keep the module-level handle current so logout (a react ancestor of this
+  // provider) can reach the LATEST disconnect closure. Clearing it on
+  // unmount stops a stale/unmounted provider's disconnect from being called.
+  useEffect(() => {
+    activeDisconnect = disconnect
+    return () => { if (activeDisconnect === disconnect) activeDisconnect = null }
+  }, [disconnect])
 
   // ── Nav timer (pair screen lifecycle) ─────────────────────────────────────
 
@@ -308,6 +337,17 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     lastSeqRef.current = initialSeq
     let firstMessageFired = false
     let inFlightRpc = 0
+    let inFlightBytes = 0
+    // XR-021 review follow-up: MAX_IN_FLIGHT_RPC lets several messages
+    // decrypt concurrently, so the sequence check-then-durable-write-then-
+    // advance below is chained through this promise — each message's commit
+    // only runs once the previous one has fully resolved (write landed, ref
+    // advanced), and re-checks the watermark at that point. Without this,
+    // two concurrent messages can both pass the check against the same stale
+    // watermark and have their durable writes resolve out of order,
+    // regressing the watermark and letting an already-executed higher-
+    // sequence ciphertext be replayed immediately (no crash needed).
+    let seqCommitChain: Promise<boolean> = Promise.resolve(true)
 
     ws.onmessage = async event => {
       if (inFlightRpc >= MAX_IN_FLIGHT_RPC) {
@@ -315,8 +355,26 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         return
       }
       inFlightRpc++
+      let reservedBytes = 0
       try {
         const envelope = parseBoundedWireEnvelope(event.data, meta.topic)
+
+        // XR-026: gate on the AGGREGATE estimated plaintext size of every
+        // message currently decrypting/dispatching, not just the count.
+        // MAX_IN_FLIGHT_RPC alone lets up to 4 near-ceiling messages decrypt
+        // at once; base64-decoded length is a tight estimate of the eventual
+        // plaintext (authenticated encryption only adds a small fixed
+        // overhead), and this must be checked BEFORE decryptPayload is even
+        // attempted — decoding the ciphertext into a number[] alone already
+        // allocates memory proportional to its size, before the wallet can
+        // authenticate it.
+        const estimatedBytes = Math.floor(envelope.ciphertext.length * 3 / 4)
+        if (inFlightBytes + estimatedBytes > MAX_IN_FLIGHT_RPC_BYTES) {
+          console.warn('[WalletConnection] dropping message: too many in-flight bytes')
+          return
+        }
+        reservedBytes = estimatedBytes
+        inFlightBytes += reservedBytes
 
         let plaintext: string
         try {
@@ -336,7 +394,36 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
           console.warn('[WalletConnection] dropping message: seq', sequence, '<= lastSeq', lastSeqRef.current)
           return
         }
-        lastSeqRef.current = sequence
+        // XR-021: commit the accepted sequence durably BEFORE dispatching the
+        // wallet's side-effecting call below (createAction, signAction, ...),
+        // and before advancing the in-memory watermark. Previously the
+        // watermark only advanced in memory, and the only durable write was
+        // fire-and-forget in disconnect()/onclose — a crash/kill between the
+        // wallet call completing and that write landing left SecureStore
+        // behind what actually ran, so a captured ciphertext replayed after
+        // reconnect re-executed the identical mutating call. Fail closed: if
+        // the durable write itself fails, drop the message rather than
+        // dispatching with no durable record of having accepted it.
+        //
+        // Chained through seqCommitChain (review follow-up): re-checks the
+        // watermark once it's this message's turn, so a concurrent message
+        // that already committed a higher sequence in the meantime causes
+        // this one to be dropped instead of regressing the watermark.
+        const accepted = await (seqCommitChain = seqCommitChain.then(async () => {
+          if (sequence <= lastSeqRef.current) return false
+          try {
+            await SecureStore.setItemAsync(lastSeqKey(meta.topic), String(sequence))
+          } catch (err) {
+            console.warn('[WalletConnection] dropping message: failed to persist sequence', err)
+            return false
+          }
+          lastSeqRef.current = sequence
+          return true
+        }))
+        if (!accepted) {
+          console.warn('[WalletConnection] dropping message: seq', sequence, 'superseded before durable commit')
+          return
+        }
 
         if (!firstMessageFired) {
           firstMessageFired = true
@@ -352,6 +439,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         // malformed outer envelope — drop silently
       } finally {
         inFlightRpc--
+        inFlightBytes -= reservedBytes
       }
     }
 
