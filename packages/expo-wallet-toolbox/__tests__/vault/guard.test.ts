@@ -152,6 +152,51 @@ test.each([
   }
 )
 
+// INT-04: the v7 marker/descriptor protocol names must be reserved the same
+// way 'vault salt' already is — atomically with the release that starts
+// creating v7 outputs (guard.ts's VAULT_PROTOCOL_NAMES). Mirrors the
+// 'vault salt' coverage above across every PRIVILEGED_CAPABLE method that
+// could otherwise derive a marker key or decrypt a descriptor.
+test.each([
+  ['getPublicKey', [2, 'vault marker']],
+  ['getPublicKey', [2, 'vault descriptor']],
+  ['encrypt', [2, 'vault descriptor']],
+  ['decrypt', [2, 'vault descriptor']],
+  ['createHmac', [2, 'vault marker']],
+  ['createSignature', [2, 'vault marker']],
+  ['revealSpecificKeyLinkage', [2, 'vault descriptor']],
+  ['verifyHmac', [2, 'vault marker']],
+  ['verifySignature', [2, 'vault descriptor']],
+  ['revealCounterpartyKeyLinkage', [2, 'vault marker']],
+  // Case/whitespace normalization, matching KeyDeriver.computeInvoiceNumber.
+  ['getPublicKey', [2, ' VAULT MARKER ']],
+  ['decrypt', [2, ' Vault Descriptor ']],
+  ['getPublicKey', [2, 'vault marker', 'ignored by derivation']]
+] as const)(
+  'reserves the Vault marker/descriptor protocols from external %s calls even without privileged (%p)',
+  async (method, protocolID) => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await expect(
+      (guarded[method] as any)(
+        { protocolID, keyID: 'test:1', counterparty: 'self' },
+        'evil.com'
+      )
+    ).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(calls.find(call => call.method === method)).toBeUndefined()
+  }
+)
+
+test.each(['vault marker', 'vault descriptor'] as const)(
+  'allows the admin originator through the reserved %s protocol',
+  async protocolName => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await guarded.getPublicKey({ protocolID: [2, protocolName], keyID: 'test:1', counterparty: 'self' } as any, ADMIN)
+    expect(calls.find(call => call.method === 'getPublicKey')).toBeDefined()
+  }
+)
+
 test('allows the Vault UI to derive its salt public key', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)

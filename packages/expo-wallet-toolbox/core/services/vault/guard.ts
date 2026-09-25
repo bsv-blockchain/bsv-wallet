@@ -74,7 +74,7 @@ const PRIVILEGED_CAPABLE = new Set<keyof WalletInterface>([
 /** Protocol namespaces whose derived keys are internal Vault state. The
  * permissions manager deliberately exempts ordinary public-key revelation,
  * so this boundary must reserve them even when `privileged` is false. */
-const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt'])
+const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt', 'vault marker', 'vault descriptor'])
 
 function requestsVaultProtocol(args: unknown): boolean {
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
