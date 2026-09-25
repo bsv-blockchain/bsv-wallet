@@ -84,6 +84,7 @@ const KEY: Record<VaultErrorCode, string> = {
   'key-already-enrolled': 'vault_err_key_already_enrolled',
   'key-not-adopted': 'vault_err_key_not_adopted',
   'too-many-keys': 'vault_err_too_many_keys',
+  'too-many-active-keys': 'vault_err_too_many_active_keys',
   'last-keys': 'vault_err_last_keys',
   'relock-required': 'vault_err_relock_required',
   'action-pending': 'vault_err_action_pending',

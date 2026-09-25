@@ -3304,6 +3304,70 @@ describe('relockVault', () => {
   }, 120_000)
 })
 
+// Owner rule 2026-09-25: to replace a key in a full vault, the replacement is
+// added first (six keys, never locked to) and the key it replaces removed
+// next; one re-lock at five covers both. Nothing may lock to six, or to one.
+describe('six active keys: held, never locked to', () => {
+  const extraKey = (serial: string, nickname: string, enrolledAt: number): VaultKeyRecord => ({
+    serial,
+    slot: 0x82,
+    pubkey: Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), true))),
+    nickname,
+    enrolledAt
+  })
+  const KEY_D = extraKey('D-1', 'Bank', 4)
+  const KEY_E = extraKey('E-1', 'Office', 5)
+  const KEY_F = extraKey('F-1', 'Spare', 6)
+  const SIX = [KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F]
+
+  it('refuses a re-lock before any card is asked to sign', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])], SIX)
+    await expect(relockVault(wallet, ADMIN, 'Re-lock vault', 'A-1')).rejects.toMatchObject({
+      code: 'too-many-active-keys'
+    })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('refuses a deposit before building anything', async () => {
+    await seedMeta(SIX)
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'too-many-active-keys' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('refuses a partial withdrawal whose remainder would go back into the vault', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])], SIX)
+    await expect(withdrawFromVault(wallet, ADMIN, 100_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
+      code: 'too-many-active-keys'
+    })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('still allows a full withdrawal, which creates no Vault output', async () => {
+    const fx = [vaultFixture(500_000, [PUB_A, PUB_B])]
+    await seedVault(fx, SIX)
+    await withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'A-1')
+    const [caArgs] = wallet.createAction.mock.calls[0]
+    expect((caArgs.outputs ?? []).some((o: any) => o.basket === VAULT_BASKET)).toBe(false)
+    validateSpends(fx)
+  }, 60_000)
+
+  it('removing one of six leaves five, and the removal re-lock commits exactly those five', async () => {
+    const fx = [vaultFixture(500_000, [PUB_A, PUB_B, KEY_F.pubkey])]
+    await seedVault(fx, SIX)
+    const begun = await beginVaultKeyRemoval(wallet, ADMIN, KEY_F.serial)
+    expect(begun.complete).toBe(false)
+    expect(begun.meta.keys).toEqual([KEY_A, KEY_B, KEY_C, KEY_D, KEY_E])
+
+    await relockVault(wallet, ADMIN, 'Remove F', 'A-1', { revokePubkey: KEY_F.pubkey })
+    const out = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(5))
+    expect(decodeVaultInstructions(out.customInstructions)!.keys).toEqual([KEY_A, KEY_B, KEY_C, KEY_D, KEY_E])
+    validateSpends(fx)
+  }, 90_000)
+})
+
 describe('key removal pending-action gate', () => {
   const funded = () => seedVault([vaultFixture(500_000, [PUB_A, PUB_B, KEY_C.pubkey])], [KEY_A, KEY_B, KEY_C])
 
@@ -3340,6 +3404,48 @@ describe('key removal pending-action gate', () => {
 
     expect(begun.complete).toBe(false)
     expect(begun.meta.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
+  }, 90_000)
+
+  // Review 2026-09-25: removing a key no output commits (a key added and not
+  // yet re-locked to — the add-then-remove flow) used to open a re-lock that
+  // could only fail with vault-empty. Nothing needs re-locking, so it
+  // finishes at once.
+  it('removes a key no output commits at once, with no re-lock, on a funded vault', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])], [KEY_A, KEY_B, KEY_C])
+    const begun = await beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)
+    expect(begun.complete).toBe(true)
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.pendingRemoval).toBeUndefined()
+    expect(meta.keys).toEqual([KEY_A, KEY_B])
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  }, 90_000)
+
+  it('does not finish an uncommitted key\'s removal while a held deposit could still commit it', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])], [KEY_A, KEY_B, KEY_C])
+    wallet.listActions.mockImplementation(async () => ({ actions: [heldDepositAction('nosend')] }))
+    await expect(beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)).rejects.toMatchObject({ code: 'action-pending' })
+    expect((await vaultStore.getMeta())!.pendingRemoval).toBeUndefined()
+  }, 90_000)
+
+  it('keeps the key if an output committing it appears between the two scans', async () => {
+    const without = vaultFixture(500_000, [PUB_A, PUB_B])
+    const withC = vaultFixture(300_000, [PUB_A, PUB_B, KEY_C.pubkey])
+    await seedVault([without], [KEY_A, KEY_B, KEY_C])
+    const firstScan = wallet.listOutputs.getMockImplementation()!
+    let basketScans = 0
+    wallet.listOutputs.mockImplementation(async (args: any) => {
+      if (args?.basket !== VAULT_BASKET) return firstScan(args)
+      basketScans++
+      const fx = basketScans === 1 ? [without] : [without, withC]
+      return {
+        outputs: fx.map(f => ({ outpoint: f.outpoint, satoshis: f.satoshis, customInstructions: f.customInstructions })),
+        BEEF: stitchBeef(fx)
+      }
+    })
+    await expect(beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)).rejects.toMatchObject({ code: 'action-pending' })
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.pendingRemoval).toBeUndefined()
+    expect(meta.keys).toEqual([KEY_A, KEY_B, KEY_C])
   }, 90_000)
 
   it('still refuses while an unbroadcast vault action reserves the outputs a re-lock must spend', async () => {
@@ -3485,7 +3591,23 @@ describe('two-phase key removal reconciliation', () => {
     expect(wallet.listOutputs.mock.calls.length).toBeGreaterThanOrEqual(2)
   }, 90_000)
 
-  it('derives prepared → broadcast from an authenticated pending relock after a crash, but does not finalize it', async () => {
+  // Owner decision 2026-09-25: a removal is final once the network ACCEPTS
+  // its re-lock ('unproven'), not once a block includes it ('completed').
+  it('finalizes once the matching relock is accepted (unproven), without waiting for a block', async () => {
+    const old = await beginRemoval()
+    await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
+    const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    const replacement = fixtureFromVaultOutput(replacementOutput)
+    serveVaultOutputs([replacement])
+    serveHistory([historyAction(replacementOutput, old, 'unproven')])
+
+    await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).resolves.toBe(true)
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.pendingRemoval).toBeUndefined()
+    expect(meta.keys).toEqual([KEY_A, KEY_B])
+  }, 90_000)
+
+  it('finalizes a crash-interrupted removal from an accepted relock it has to infer as broadcast', async () => {
     const old = await beginRemoval()
     await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
     const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
@@ -3494,12 +3616,48 @@ describe('two-phase key removal reconciliation', () => {
     await vaultStore.setMeta({
       ...afterRelock,
       pendingRemoval: { ...afterRelock.pendingRemoval!, state: 'prepared' }
-    })
+    }, undefined, tagFor)
     serveVaultOutputs([replacement])
     serveHistory([historyAction(replacementOutput, old, 'unproven')])
 
-    await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).resolves.toBe(false)
-    expect((await vaultStore.getMeta())!.pendingRemoval?.state).toBe('broadcast')
+    await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).resolves.toBe(true)
+    expect((await vaultStore.getMeta())!.pendingRemoval).toBeUndefined()
+  }, 90_000)
+
+  // 'sending': posted, but ARC has not accepted it yet (the toolbox may still
+  // be retrying).
+  it.each(['sending'])(
+    'derives prepared → broadcast from a %s relock after a crash, but does not finalize before the network accepts it',
+    async status => {
+      const old = await beginRemoval()
+      await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
+      const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+      const replacement = fixtureFromVaultOutput(replacementOutput)
+      const afterRelock = (await vaultStore.getMeta())!
+      await vaultStore.setMeta({
+        ...afterRelock,
+        pendingRemoval: { ...afterRelock.pendingRemoval!, state: 'prepared' }
+      })
+      serveVaultOutputs([replacement])
+      serveHistory([historyAction(replacementOutput, old, status)])
+
+      await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).resolves.toBe(false)
+      expect((await vaultStore.getMeta())!.pendingRemoval?.state).toBe('broadcast')
+    },
+    90_000
+  )
+
+  // Physical-device report 2026-09-25: after a removal re-lock the stored
+  // meta (state 'broadcast') no longer matched its authority tag, which was
+  // still the 'prepared' one, so every later check fell back to a full
+  // chain re-authentication and failed closed whenever that scan could not
+  // yet see the re-lock output.
+  it('re-tags the meta when a removal re-lock marks the tombstone broadcast', async () => {
+    await beginRemoval()
+    await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.pendingRemoval?.state).toBe('broadcast')
+    expect(await vaultStore.getMetaTag()).toBe(await tagFor(meta))
   }, 90_000)
 
   it('keeps the tombstone while a matching relock is failed', async () => {
@@ -3514,7 +3672,31 @@ describe('two-phase key removal reconciliation', () => {
     expect((await vaultStore.getMeta())!.pendingRemoval).toBeDefined()
   }, 90_000)
 
-  it.each(['unproven', 'failed'])('does not finalize while a %s ordinary withdrawal hides the old-authority source', async status => {
+  const ordinaryWithdrawalOfOldSource = (old: VaultFixture[], status: string) => ({
+    txid: 'dd'.repeat(32),
+    reference: `ordinary-${status}`,
+    status,
+    labels: ['vault', 'vault-withdraw'],
+    inputs: old.map(source => ({
+      sourceOutpoint: source.outpoint,
+      sourceSatoshis: source.satoshis,
+      sourceLockingScript: source.lockingScript.toHex()
+    })),
+    outputs: []
+  })
+
+  // An accepted full withdrawal of the only output that authorized the key
+  // leaves nothing to re-lock: under the acceptance rule the removal is done.
+  it('finalizes an empty removal once an accepted (unproven) withdrawal has spent the old-authority source', async () => {
+    const old = await beginRemoval()
+    serveVaultOutputs([])
+    serveHistory([ordinaryWithdrawalOfOldSource(old, 'unproven')])
+
+    await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).resolves.toBe(true)
+    expect((await vaultStore.getMeta())!.pendingRemoval).toBeUndefined()
+  })
+
+  it.each(['sending', 'failed'])('does not finalize while a %s ordinary withdrawal hides the old-authority source', async status => {
     const old = await beginRemoval()
     serveVaultOutputs([])
     serveHistory([{

@@ -55,11 +55,12 @@ import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
  * at all. See eas.json.
  *
  * vaultEnabled: the YubiKey vault's release gate (its spec §0 / §5.5). Only
- * the literal string "true" turns it on. EAS development and dev-physical
- * enable it; production does not (docs/security/external-review-closure.md:
- * the v7 output shape has no real-network or physical-YubiKey proof yet). With
- * it off, no Vault output is created (deposit, re-lock, withdrawal remainder),
- * while an existing vault stays reachable for a full withdrawal.
+ * the literal string "true" turns it on. EAS development, dev-physical and
+ * production enable it. Production was re-enabled on 2026-09-25 by owner
+ * decision after every existing vault was emptied, so only v7 outputs exist
+ * (docs/security/external-review-closure.md, "Owner decision"). With it off,
+ * no Vault output is created (deposit, re-lock, withdrawal remainder), while
+ * an existing vault stays reachable for a full withdrawal.
  */
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,

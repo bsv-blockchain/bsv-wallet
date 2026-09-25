@@ -70,6 +70,7 @@ import { VaultError } from '../../core/services/vault/types'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import {
   VAULT_MAX_KEYS,
+  VAULT_MAX_ACTIVE_KEYS,
   VAULT_MIN_KEYS,
   VAULT_SLOT,
   addVaultKey,
@@ -1204,9 +1205,10 @@ describe('metaFromVerifiedOutputs', () => {
 })
 
 describe('finalizeEnrollment', () => {
-  test('the bounds are 2 and 5', () => {
+  test('the bounds are 2 and 5, with room for one replacement key beyond the lock', () => {
     expect(VAULT_MIN_KEYS).toBe(2)
     expect(VAULT_MAX_KEYS).toBe(5)
+    expect(VAULT_MAX_ACTIVE_KEYS).toBe(6)
   })
 
   test('one record → not-enough-keys, nothing written', async () => {
@@ -1380,11 +1382,20 @@ describe('addVaultKey / disableVault', () => {
     expect((await vaultStore.getMeta())!.keys).toHaveLength(2)
   })
 
-  test('addVaultKey refuses a duplicate serial, a sixth key, and an unenrolled vault', async () => {
-    await expect(addVaultKey(rec(1), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'not-enrolled' })
+  // Owner rule 2026-09-25: a full vault adds the replacement before removing
+  // the key it replaces, so a sixth key is held (never locked to); a seventh
+  // is refused.
+  test('addVaultKey takes a sixth key on a full vault and refuses a seventh', async () => {
     await finalizeReady([1, 2, 3, 4, 5].map(rec))
-    await expect(addVaultKey(rec(6), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'too-many-keys' })
-    await disableVault()
+    await stageReady(rec(6))
+    await addVaultKey(rec(6), undefined, AUTHORITY)
+    expect((await vaultStore.getMeta())!.keys.map(k => k.serial)).toEqual([1, 2, 3, 4, 5, 6].map(n => rec(n).serial))
+    await expect(addVaultKey(rec(7), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'too-many-keys' })
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(6)
+  })
+
+  test('addVaultKey refuses a duplicate serial and an unenrolled vault', async () => {
+    await expect(addVaultKey(rec(1), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'not-enrolled' })
     await finalizeReady([rec(1), rec(2)])
     await expect(addVaultKey({ ...rec(1), nickname: 'again' }, undefined, AUTHORITY)).rejects.toMatchObject({
       code: 'key-already-enrolled'

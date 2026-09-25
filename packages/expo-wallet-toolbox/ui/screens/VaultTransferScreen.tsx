@@ -206,10 +206,16 @@ export function VaultTransferScreen() {
     ? Number.isFinite(sats) && sats >= VAULT_DEPOSIT_MIN
     : isMax || (Number.isFinite(sats) && sats > 0)
   const transfersBlocked = !!meta?.pendingRemoval
+  // Six keys is one more than a lock holds (a replacement waiting for the
+  // removal of the key it replaces), so nothing that creates a Vault output
+  // runs. A deposit always would; a withdrawal only when its remainder is
+  // re-vaulted, which run() learns from the preview.
+  const overLockLimit = allKeys.length > VAULT_MAX_KEYS
   const canRun =
     validAmount &&
     !busy &&
     !transfersBlocked &&
+    !(isDeposit && overLockLimit) &&
     !!pm &&
     balance !== null &&
     (isDeposit ? released : chosen !== undefined)
@@ -370,6 +376,14 @@ export function VaultTransferScreen() {
           if (choice !== 'all') return
           withdrawAll = true
         }
+        // A remainder that goes back into the vault needs a lock, and six
+        // keys is one more than a lock holds. Refuse before any NFC sheet;
+        // the service refuses too.
+        if (overLockLimit && !withdrawAll && remainder >= VAULT_DEPOSIT_MIN) {
+          haptics.error()
+          setError(vaultErrorCopy('too-many-active-keys'))
+          return
+        }
         setBusy(true)
         const result: VaultSpendResult = await withdrawFromVault(
           w,
@@ -443,6 +457,7 @@ export function VaultTransferScreen() {
     balance,
     isDeposit,
     isMax,
+    overLockLimit,
     sats,
     keys.length,
     allNames,
@@ -520,7 +535,13 @@ export function VaultTransferScreen() {
         )}
 
         {transfersBlocked && (
-          <Text style={[styles.floor, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>
+          <Text style={[styles.floor, { color: colors.warning }]}>
+            {t(meta?.pendingRemoval?.state === 'broadcast' ? 'vault_removal_awaiting_network' : 'vault_err_relock_required')}
+          </Text>
+        )}
+
+        {isDeposit && overLockLimit && !transfersBlocked && (
+          <Text style={[styles.floor, { color: colors.warning }]}>{t('vault_err_too_many_active_keys')}</Text>
         )}
 
         {!isDeposit && meta?.recovery?.required && keys.length === 0 && (

@@ -79,8 +79,13 @@ export type VaultErrorCode =
   /** Restored metadata exists, but this serial has not yet passed the fresh
    * possession challenge on this device. */
   | 'key-not-adopted'
-  /** VAULT_MAX_KEYS keys already enrolled. */
+  /** VAULT_MAX_ACTIVE_KEYS keys already enrolled (one more than a lock holds). */
   | 'too-many-keys'
+  /** The key list holds more keys than a lock can commit (VAULT_MAX_KEYS): a
+   * replacement was added and the key it replaces is not removed yet. Nothing
+   * that creates a Vault output (deposit, re-lock, partial-withdrawal
+   * remainder) runs until a removal brings the list back to VAULT_MAX_KEYS. */
+  | 'too-many-active-keys'
   /** Removing this key would leave fewer than VAULT_MIN_KEYS. */
   | 'last-keys'
   /** Removing this key would orphan an output only it can open — re-lock first.

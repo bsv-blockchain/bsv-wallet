@@ -82,6 +82,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   R1C_LOCK_LEN: () => 45204,
   VAULT_MIN_KEYS: 2,
   VAULT_MAX_KEYS: 5,
+  VAULT_MAX_ACTIVE_KEYS: 6,
   getOnline: async () => true,
   generateMnemonicWallet: jest.fn(),
   backupAttestation: { markPending: jest.fn() },
@@ -185,6 +186,7 @@ const META2 = {
 }
 const META3 = { ...META2, keys: [...META2.keys, key(3, 'Car', 'c')] }
 const META5 = { ...META2, keys: [...META3.keys, key(4, 'Bank', 'd'), key(5, 'Parents', 'e')] }
+const META6 = { ...META2, keys: [...META5.keys, key(6, 'Spare', 'f')] }
 const CLEAN = { outputs: 4, stale: 0, missingKeys: [], removedKeyOutputs: 0 }
 const NO_UNREACHABLE = { count: 0, satoshis: 0, keys: [] }
 
@@ -437,11 +439,66 @@ describe('enrolled', () => {
     expect(screen.getByText('WIZARD:add-key')).toBeTruthy()
   })
 
-  test('Add key is hidden at five keys', async () => {
+  // Owner rule 2026-09-25: a full vault adds the replacement first (a sixth
+  // key, never locked to), then removes the key it replaces; one re-lock at
+  // five covers both.
+  test('Add key is still offered at five keys, so a replacement can be added before the removal', async () => {
     mockGetMeta.mockResolvedValue(META5)
     const screen = await renderVault()
     expect(screen.getByText('vault_key_section:{"count":5}')).toBeTruthy()
+    await act(async () => fireEvent.press(screen.getByText('vault_add_key_row')))
+    expect(screen.getByText('WIZARD:add-key')).toBeTruthy()
+  })
+
+  test('six keys: no Add, no deposit, no re-lock offer, a remove-one notice, and a header that never reads "6 of 5"', async () => {
+    mockGetMeta.mockResolvedValue(META6)
+    mockBalance = 300_000
+    mockCoverage = { outputs: 4, stale: 4, missingKeys: [PUB('f')], removedKeyOutputs: 0 }
+    const screen = await renderVault()
     expect(screen.queryByText('vault_add_key_row')).toBeNull()
+    expect(screen.getByText('vault_key_section_over_limit:{"count":6}')).toBeTruthy()
+    expect(screen.queryByText(/vault_key_section:/)).toBeNull()
+    expect(screen.getByText('vault_err_too_many_active_keys')).toBeTruthy()
+    expect(actionAccessibilityState(screen, 'vault_deposit_cta')).toEqual({ disabled: true })
+    // A full withdrawal creates no Vault output, so it stays open.
+    expect(actionAccessibilityState(screen, 'vault_withdraw_cta')).toEqual({ disabled: false })
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":4,"nickname":"Spare"}')))
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
+  })
+
+  test('six keys offer Remove, and removing one brings the header back to "of 5"', async () => {
+    mockGetMeta.mockResolvedValue(META6)
+    mockBalance = 300_000
+    const PENDING = {
+      ...META6,
+      keys: META6.keys.filter(k => k.serial !== '12340001'),
+      pendingRemoval: { key: META6.keys[0], keyIndex: 0, startedAt: 1, revision: 2, state: 'prepared' as const }
+    }
+    mockBeginRemoval.mockImplementation(async () => {
+      mockGetMeta.mockResolvedValue(PENDING)
+      return { complete: false, meta: PENDING }
+    })
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
+    await settle()
+    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.key)).toEqual(['rename', 'remove', 'cancel'])
+    expect(mockBeginRemoval).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340001')
+    expect(screen.getByText('vault_relock_choose')).toBeTruthy()
+    expect(screen.getByText('vault_key_section:{"count":5}')).toBeTruthy()
+    expect(screen.queryByText('vault_err_too_many_active_keys')).toBeNull()
+  })
+
+  test('finishing the add-key wizard at five keys does not open a re-lock sheet that would lock to six', async () => {
+    mockBalance = 300_000
+    mockGetMeta.mockResolvedValue(META5)
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_add_key_row')))
+    mockGetMeta.mockResolvedValue(META6)
+    await act(async () => fireEvent.press(screen.getByText('WIZARD_DONE')))
+    await settle()
+    expect(screen.getByText('vault_key_section_over_limit:{"count":6}')).toBeTruthy()
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
   })
 
   test('cancelling the add-key wizard reloads the key list and offers no re-lock', async () => {
@@ -580,8 +637,31 @@ describe('enrolled', () => {
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
     await settle()
+    // Owner rule 2026-09-25: the key menu does not offer Remove below three
+    // keys (a re-lock to one key must never be reachable)...
+    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.key)).toEqual(['rename', 'cancel'])
+    // ...and removeKey still refuses on its own if it is reached anyway.
     expect(mockShowAlert.mock.calls[1][0].message).toBe('vault_err_last_keys')
     expect(mockBeginRemoval).not.toHaveBeenCalled()
+  })
+
+  test('the key menu offers Remove at three keys but not while another removal is pending', async () => {
+    mockGetMeta.mockResolvedValue(META3)
+    mockShowAlert.mockResolvedValue('cancel')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Desk · 12 340 001')))
+    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.key)).toEqual(['rename', 'remove', 'cancel'])
+    screen.unmount()
+
+    mockShowAlert.mockClear()
+    mockGetMeta.mockResolvedValue({
+      ...META5,
+      keys: META5.keys.slice(1),
+      pendingRemoval: { key: META5.keys[0], keyIndex: 0, startedAt: 1, revision: 2, state: 'prepared' as const }
+    })
+    const pending = await renderVault()
+    await act(async () => fireEvent.press(pending.getByText('Safe · 12 340 002')))
+    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.key)).toEqual(['rename', 'cancel'])
   })
 
   test('removal failure from the authoritative two-phase service is shown and never opens re-lock', async () => {
@@ -859,6 +939,143 @@ describe('enrolled', () => {
     // not a transaction waiting for confirmation, and only a re-lock ends it.
     expect(screen.getByText('vault_key_pending_removal')).toBeTruthy()
     expect(screen.queryByText('tx_still_pending')).toBeNull()
+  })
+
+  // Physical-device report 2026-09-25: after a removal's re-lock was signed
+  // and broadcast, the screen still said "re-lock the vault first" and the
+  // removed key's row opened a second re-lock sheet. Nothing is left to
+  // re-lock; the tombstone clears once the network accepts the re-lock.
+  const BROADCAST_REMOVAL = {
+    ...META3,
+    revision: 2,
+    keys: [META3.keys[0], META3.keys[2]],
+    pendingRemoval: { key: META3.keys[1], keyIndex: 1, startedAt: 2, revision: 2, state: 'broadcast' as const }
+  }
+
+  test('a broadcast removal says it is waiting for the network and offers no second re-lock', async () => {
+    mockBalance = 300_000
+    mockGetMeta.mockResolvedValue(BROADCAST_REMOVAL)
+    const screen = await renderVault()
+    expect(actionAccessibilityState(screen, 'vault_deposit_cta')).toEqual({ disabled: true })
+    expect(actionAccessibilityState(screen, 'vault_withdraw_cta')).toEqual({ disabled: true })
+    expect(screen.getByText('vault_removal_awaiting_network')).toBeTruthy()
+    expect(screen.queryByText('vault_err_relock_required')).toBeNull()
+    expect(screen.getByText('vault_key_removal_awaiting_network')).toBeTruthy()
+    expect(screen.queryByText('vault_key_pending_removal')).toBeNull()
+    await act(async () => fireEvent.press(screen.getByText('Safe · 12 340 002')))
+    expect(screen.queryByText('vault_relock_choose')).toBeNull()
+  })
+
+  test('a broadcast removal is re-checked while the screen stays open and clears once the re-lock is accepted', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] })
+    try {
+      mockBalance = 300_000
+      mockGetMeta.mockResolvedValue(BROADCAST_REMOVAL)
+      const screen = await renderVault()
+      expect(mockFinalizeRemoval).toHaveBeenCalledTimes(1)
+      expect(screen.getByText('vault_removal_awaiting_network')).toBeTruthy()
+
+      // Accepted: the reconciliation clears the tombstone.
+      const FINAL = { ...BROADCAST_REMOVAL }
+      delete (FINAL as { pendingRemoval?: unknown }).pendingRemoval
+      mockFinalizeRemoval.mockImplementation(async () => {
+        mockGetMeta.mockResolvedValue(FINAL)
+        return true
+      })
+      await act(async () => {
+        jest.advanceTimersByTime(30_000)
+      })
+      await settle()
+      expect(mockFinalizeRemoval).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText('vault_removal_awaiting_network')).toBeNull()
+      expect(screen.queryByText('Safe · 12 340 002')).toBeNull()
+      expect(actionAccessibilityState(screen, 'vault_withdraw_cta')).toEqual({ disabled: false })
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('a prepared removal is not polled: only a re-lock can move it on', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] })
+    try {
+      mockGetMeta.mockResolvedValue({
+        ...BROADCAST_REMOVAL,
+        pendingRemoval: { ...BROADCAST_REMOVAL.pendingRemoval, state: 'prepared' as const }
+      })
+      const screen = await renderVault()
+      expect(screen.getByText('vault_err_relock_required')).toBeTruthy()
+      expect(screen.getByText('vault_key_pending_removal')).toBeTruthy()
+      const calls = mockFinalizeRemoval.mock.calls.length
+      await act(async () => {
+        jest.advanceTimersByTime(180_000)
+      })
+      await settle()
+      expect(mockFinalizeRemoval.mock.calls.length).toBe(calls)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('a removal re-lock the network accepts at once finishes the removal and says so', async () => {
+    mockBalance = 300_000
+    mockGetMeta.mockResolvedValue(META3)
+    const PENDING = {
+      ...META3,
+      keys: [META3.keys[0], META3.keys[1]],
+      pendingRemoval: { key: META3.keys[2], keyIndex: 2, startedAt: 1, revision: 2, state: 'prepared' as const }
+    }
+    mockBeginRemoval.mockImplementation(async () => {
+      mockGetMeta.mockResolvedValue(PENDING)
+      return { complete: false, meta: PENDING }
+    })
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValueOnce('remove')
+    mockRelock.mockResolvedValueOnce({ txid: 'a', cappedInputs: 0, unreachable: NO_UNREACHABLE })
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('Car · 12 340 003')))
+    await settle()
+    const FINAL = { ...META3, revision: 2, keys: [META3.keys[0], META3.keys[1]] }
+    mockFinalizeRemoval.mockImplementation(async () => {
+      mockGetMeta.mockResolvedValue(FINAL)
+      return true
+    })
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
+    await settle()
+    expect(mockRelock).toHaveBeenCalledWith(
+      mockWallet.managers.permissionsManager,
+      'admin.test',
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ revokePubkey: META3.keys[2].pubkey })
+    )
+    expect(mockShowToast).toHaveBeenCalledWith('vault_key_removed_toast', { type: 'info' })
+    expect(mockShowToast).not.toHaveBeenCalledWith('tx_still_pending', expect.anything())
+    expect(screen.queryByText('Car · 12 340 003')).toBeNull()
+    expect(actionAccessibilityState(screen, 'vault_deposit_cta')).toEqual({ disabled: false })
+  })
+
+  test('a broadcast removal is re-checked when the app returns to the foreground', async () => {
+    const { AppState } = require('react-native')
+    const listeners: ((s: string) => void)[] = []
+    const spy = jest.spyOn(AppState, 'addEventListener').mockImplementation((...args: unknown[]) => {
+      const [event, cb] = args as [string, (s: string) => void]
+      if (event === 'change') listeners.push(cb)
+      return { remove: () => listeners.splice(listeners.indexOf(cb), 1) }
+    })
+    try {
+      mockGetMeta.mockResolvedValue(BROADCAST_REMOVAL)
+      const screen = await renderVault()
+      expect(mockFinalizeRemoval).toHaveBeenCalledTimes(1)
+      expect(listeners).toHaveLength(1)
+      await act(async () => listeners[0]('background'))
+      expect(mockFinalizeRemoval).toHaveBeenCalledTimes(1)
+      await act(async () => listeners[0]('active'))
+      await settle()
+      expect(mockFinalizeRemoval).toHaveBeenCalledTimes(2)
+      screen.unmount()
+      expect(listeners).toHaveLength(0)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   test('the export row runs the shared export action', async () => {

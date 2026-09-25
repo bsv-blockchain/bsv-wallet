@@ -94,6 +94,68 @@ committed key and its PIN, could spend without the mnemonic.
   treats as unrun for the Vault generally; it is proven here only with
   `MockYubiKey`'s real P-256 math.
 
+### Vault: replace a key by adding first; locks hold 2 to 5 keys (owner rule, 2026-09-25)
+
+- **Remove needs three keys.** VaultScreen's key menu offers Remove only when
+  the vault has more than `VAULT_MIN_KEYS` active keys and no removal is
+  pending; before, it always offered Remove and refused afterwards. The
+  service and store refusals (`last-keys`) are unchanged.
+- **A sixth key, never locked to.** New `VAULT_MAX_ACTIVE_KEYS` = 6
+  (`VaultKeyService.ts`, mirrored in `vaultStore.ts`): a full vault can add
+  the replacement key before removing the key it replaces, and one re-lock at
+  five covers both. `isVaultMeta`, `vaultStore.addKey` and `addVaultKey`
+  accept six; a seventh is still `too-many-keys`. `VAULT_MAX_KEYS` (5, the
+  R1C lock ceiling) is unchanged.
+- **Nothing locks to six, or to one.** New `too-many-active-keys` error:
+  `newVaultOutput` (deposit, re-lock, partial-withdrawal remainder) and
+  `relockVault` (before its fee estimate) refuse unless the key list is 2..5.
+  A full withdrawal creates no Vault output and stays allowed.
+- **Removing a key no output commits finishes at once** (`beginVaultKeyRemoval`):
+  it used to return `complete: false` whenever the vault held any output, so
+  removing a key added but not yet re-locked to (the add-then-remove flow)
+  opened a re-lock that could only fail with `vault-empty`. It now checks
+  whether any output commits that key; if none does, the removal completes
+  with no re-lock. A held deposit (which may still commit the key) makes
+  that case wait with `action-pending`, and an output committing the key
+  that appears between the two scans cancels the removal as before.
+- **UI at six keys**: no Add; Deposit disabled with
+  `vault_err_too_many_active_keys`; a partial withdrawal is refused (before
+  any card tap) only when its remainder would go back into the vault, so a
+  remainder under the floor still offers withdrawing everything; the
+  coverage badge does not open a re-lock; the header drops "of 5" (`vault_key_section_over_limit`); after
+  adding the sixth, no automatic re-lock sheet, and the wizard's done step
+  says to remove the replaced key (`vault_add_key_done_over_limit`, button
+  "Done"). Three new strings in 12 languages.
+
+### Vault: key removal finishes on network acceptance (physical-device report, 2026-09-25)
+
+- **Finalize on acceptance** (`transfers.ts`, owner decision): a key removal
+  used to stay pending — deposits and withdrawals blocked, the removed key
+  listed as "re-lock to finish" — until its re-lock was mined and proven
+  (`completed`). `finalizeVaultKeyRemoval` now clears the tombstone once the
+  re-lock is accepted by the network (`unproven`: ARC returned an accepted
+  status). New `ACCEPTED_ACTION_STATUSES` = `unproven`, `completed`; any
+  other Vault action status (`sending` included) still blocks, and a failed
+  withdrawal or re-lock still blocks. Should an accepted re-lock still be
+  dropped, its sources return as outputs committed to a key the vault no
+  longer lists, and the removed-key badge offers the re-lock again.
+- **Untagged broadcast write** (`transfers.ts`): `relockVault` marked a
+  removal's tombstone `broadcast` without re-tagging the meta. The tag
+  covers `pendingRemoval.state`, so the stored meta stopped verifying and
+  every later check fell back to a full chain re-authentication (failing
+  closed whenever that scan could not see the re-lock output). It is now
+  tagged like every other meta write.
+- **VaultScreen / VaultTransferScreen**: a removal whose re-lock is broadcast
+  but not yet accepted said "Re-lock the vault first", and the removed key's
+  row opened a second re-lock sheet (which would have been refused as
+  `vault-empty`, since no output still commits that key). The screens now
+  say the re-lock was sent and deposits and withdrawals open again once the
+  network accepts it (`vault_removal_awaiting_network`,
+  `vault_key_removal_awaiting_network`, 12 languages); the row is inert in
+  that state. The screen re-runs `finalizeVaultKeyRemoval` every 30 s and on
+  return to the foreground while it waits. Withdraw is drawn disabled when
+  it is.
+
 ### Vault: forged-state, session, and chain-recovery hardening (external security review)
 
 - **Enrollment and meta forgery (XR-001, XR-002).** A `ready` enrollment draft

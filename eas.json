@@ -71,6 +71,7 @@
         "EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL": "https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1",
         "EXPO_PUBLIC_TERATEST_WOC_API_KEY": "testnet_8a709373c94c6e372b90458fee766b04",
         "EXPO_PUBLIC_BACKUP_URL": "https://backup.bsvblockchain.tech",
+        "EXPO_PUBLIC_VAULT_ENABLED": "true",
         "EXPO_PUBLIC_TEST_MANDALA_OVERLAY_URL": "https://mandala-test-overlay.bsvblockchain.tech",
         "EXPO_PUBLIC_TEST_MANDALA_OVERLAY_IDENTITY_KEY": "0215643bc656ca42007faa32e94f70050f64a566ffd9e3a2ebc098389936dea57e",
         "EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL": "https://gmb.bsvblockchain.tech",

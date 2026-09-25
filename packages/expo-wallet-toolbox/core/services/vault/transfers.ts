@@ -68,7 +68,7 @@ import {
   verifyVaultInput
 } from './r1comb'
 import { VaultError } from './types'
-import { metaFromVerifiedOutputs, VAULT_MIN_KEYS } from './VaultKeyService'
+import { metaFromVerifiedOutputs, VAULT_MAX_KEYS, VAULT_MIN_KEYS } from './VaultKeyService'
 import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
 import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
@@ -710,6 +710,17 @@ const PENDING_ACTION_STATUSES = new Set(['unsigned', 'nosend', 'nonfinal', 'unpr
  * actually posted it.
  */
 const BROADCAST_ACTION_STATUSES = new Set(['sending', 'unproven'])
+
+/**
+ * The statuses in which the network has ACCEPTED a transaction: ARC answered
+ * with an accepted status ('unproven'), or it is mined ('completed'). `sending`
+ * is absent: the toolbox has posted it but holds no acceptance yet and may
+ * still be retrying. A key removal is final once its re-lock is accepted, not
+ * once it is mined (owner decision, 2026-09-25): should an accepted re-lock
+ * still be dropped, its sources return as outputs committed to a key the
+ * vault no longer lists, which the coverage badge offers to re-lock.
+ */
+const ACCEPTED_ACTION_STATUSES = new Set(['unproven', 'completed'])
 
 /** Authenticate pagination while consuming one action at a time. Detailed
  * action rows may contain several 45 KB source/output scripts, so callers must
@@ -1975,6 +1986,19 @@ interface VaultOutputSpec {
   tags?: string[]
 }
 
+/** A new Vault output commits VAULT_MIN_KEYS..VAULT_MAX_KEYS keys. */
+function requireLockableKeyCount(count: number): void {
+  if (count < VAULT_MIN_KEYS) {
+    throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${count} remain`)
+  }
+  if (count > VAULT_MAX_KEYS) {
+    throw new VaultError(
+      'too-many-active-keys',
+      `A vault output commits at most ${VAULT_MAX_KEYS} keys; remove one of the ${count} first`
+    )
+  }
+}
+
 async function newVaultOutput(
   w: VaultWallet,
   adminOriginator: string,
@@ -1984,6 +2008,11 @@ async function newVaultOutput(
   inventory: VaultSaltInventory,
   chain: VaultScopeToken['chain']
 ): Promise<[vault: VaultOutputSpec, marker: VaultOutputSpec, descriptor: VaultOutputSpec]> {
+  // Every output-creating path (deposit, re-lock, partial-withdrawal
+  // remainder) comes through here. The key list may briefly hold one key more
+  // than a lock commits (VAULT_MAX_ACTIVE_KEYS); never lock to it, and never
+  // to fewer than VAULT_MIN_KEYS.
+  requireLockableKeyCount(meta.keys.length)
   const pubkeys = meta.keys.map(k => k.pubkey)
   const keyIndex = inventory.maxKeyIndex + 1
   if (!Number.isSafeInteger(keyIndex)) {
@@ -3196,9 +3225,8 @@ export async function relockVault(
   if (revokePubkey && sel.meta.pendingRemoval?.key.pubkey !== revokePubkey) {
     throw new VaultError('not-enrolled', 'The key being revoked does not match the pending removal')
   }
-  if (sel.keys.length < VAULT_MIN_KEYS) {
-    throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${sel.keys.length} remain`)
-  }
+  // Before the fee estimate below, which cannot size a lock outside 2..5.
+  requireLockableKeyCount(sel.keys.length)
   await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
   const fee = estimateRelockFee(sel.selected.length, R1C_LOCK_LEN(sel.keys.length))
   const relocked = sel.acc - fee
@@ -3233,7 +3261,17 @@ export async function relockVault(
     opts,
     scopeToken
   )
-  if (revokePubkey) await vaultStore.markKeyRemovalBroadcast(scopeToken)
+  if (revokePubkey) {
+    // The tag covers pendingRemoval.state, so the 'broadcast' write must be
+    // re-tagged like every other meta write, or the stored meta stops
+    // verifying and every later check falls back to a chain re-scan.
+    assertVaultScope(scopeToken)
+    const scope = vaultStore.getScope()
+    if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+    await vaultStore.markKeyRemovalBroadcast(scopeToken, next =>
+      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    )
+  }
   return result
   })
 }
@@ -3337,6 +3375,7 @@ export async function beginVaultKeyRemoval(
     // re-lock would need, so it must not block starting a removal either —
     // see the 'vault-deposit' exemption just below.
     let pendingAction = false
+    let heldDeposit = false
     await scanVaultActions(
       w,
       adminOriginator,
@@ -3351,13 +3390,9 @@ export async function beginVaultKeyRemoval(
       // prevented. A 'vault-deposit' holds no EXISTING vault output — see the
       // note above — so it is exempt from this check the same way.
       action => {
-        if (
-          !(action.labels ?? []).includes('vault-deposit') &&
-          PENDING_ACTION_STATUSES.has(action.status) &&
-          !BROADCAST_ACTION_STATUSES.has(action.status)
-        ) {
-          pendingAction = true
-        }
+        if (!PENDING_ACTION_STATUSES.has(action.status) || BROADCAST_ACTION_STATUSES.has(action.status)) return
+        if ((action.labels ?? []).includes('vault-deposit')) heldDeposit = true
+        else pendingAction = true
       },
       scopeToken
     )
@@ -3368,10 +3403,11 @@ export async function beginVaultKeyRemoval(
     const before = await reduceVerifiedVaultOutputs(
       w,
       adminOriginator,
-      () => ({ wouldOrphan: false }),
+      () => ({ wouldOrphan: false, targetCommitted: false }),
       (state, output) => {
         requireOutputMetaConsistency([output], meta)
         if (!output.ci.keys.some(key => remaining.has(key.pubkey))) state.wouldOrphan = true
+        if (output.ci.keys.some(key => key.pubkey === target.pubkey)) state.targetCommitted = true
       },
       scopeToken,
       'repair-unsigned'
@@ -3379,21 +3415,31 @@ export async function beginVaultKeyRemoval(
     if (before.state.wouldOrphan) {
       throw new VaultError('relock-required', 'A vault output would lose every remaining key')
     }
+    // No output commits the key (an empty vault, or a key added and not yet
+    // re-locked to — the owner's add-then-remove flow): there is nothing to
+    // re-lock, so the removal finishes here. A held deposit may still commit
+    // it once broadcast, so that case waits until the deposit is resolved.
+    if (!before.state.targetCommitted && heldDeposit) {
+      throw new VaultError('action-pending', 'Resolve the held vault deposit before removing this key')
+    }
     const pending = await vaultStore.beginKeyRemoval(serial, scopeToken, next =>
       computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
     )
-    if (before.outputs > 0) return { complete: false, meta: pending }
+    if (before.state.targetCommitted) return { complete: false, meta: pending }
 
-    // Empty removal has no transaction to prove. Recheck after the metadata
-    // transition because the wallet monitor is outside the process mutex.
+    // Nothing to re-lock, so no transaction to prove. Recheck after the
+    // metadata transition because the wallet monitor is outside the process
+    // mutex: an output committing the key must not have appeared meanwhile.
     const after = await reduceVerifiedVaultOutputs(
       w,
       adminOriginator,
-      () => undefined,
-      () => {},
+      () => ({ targetCommitted: false }),
+      (state, output) => {
+        if (output.ci.keys.some(key => key.pubkey === target.pubkey)) state.targetCommitted = true
+      },
       scopeToken
     )
-    if (after.outputs > 0) {
+    if (after.state.targetCommitted) {
       await vaultStore.cancelUnbroadcastKeyRemoval(scopeToken, next =>
         computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
       )
@@ -3506,9 +3552,9 @@ async function isUnbroadcastPendingRemovalRelock(
 
 /** Reconcile a durable pending removal. A bounded broadcast marker is inferred
  * after a crash only from an authenticated matching re-lock action. The
- * tombstone is cleared only when no pending/failed Vault action exists, a
- * matching re-lock is completed, and two authenticated scans find no lock
- * authorizing the key. */
+ * tombstone is cleared only when every Vault action is accepted by the network
+ * (ACCEPTED_ACTION_STATUSES) or is a failed deposit, a matching re-lock is
+ * accepted, and two authenticated scans find no lock authorizing the key. */
 export async function finalizeVaultKeyRemoval(
   w: VaultWallet,
   adminOriginator: string
@@ -3543,7 +3589,7 @@ export async function finalizeVaultKeyRemoval(
     const unsignedRelockReferences: string[] = []
     let invalidCurrentRelock = false
     let matchingRelock = false
-    let completedMatchingRelock = false
+    let acceptedMatchingRelock = false
     let actionStateBlocks = false
     const actionSaltInventory = emptyVaultSaltInventory()
     await addHistoricalVaultSaltInventory(w, adminOriginator, actionSaltInventory, meta, scopeToken)
@@ -3562,18 +3608,18 @@ export async function finalizeVaultKeyRemoval(
         if (!actionSpendsPendingRemovalKey(action, meta, actionSaltInventory)) invalidCurrentRelock = true
         else {
           matchingRelock = true
-          if (action.status === 'completed') completedMatchingRelock = true
+          if (ACCEPTED_ACTION_STATUSES.has(action.status)) acceptedMatchingRelock = true
         }
       }
       if (!actionTouchesVault(action)) return
-      if (PENDING_ACTION_STATUSES.has(action.status)) {
-        actionStateBlocks = true
-      } else if (action.status === 'failed') {
+      if (ACCEPTED_ACTION_STATUSES.has(action.status)) return
+      if (action.status === 'failed') {
         const labels = new Set(action.labels ?? [])
         if (!(labels.has('vault-deposit') && !labels.has('vault-withdraw') && !labels.has('vault-relock'))) {
           actionStateBlocks = true
         }
-      } else if (action.status !== 'completed') {
+      } else {
+        // Not yet accepted ('sending' included) or an unknown status.
         actionStateBlocks = true
       }
     }, scopeToken, true)
@@ -3647,7 +3693,7 @@ export async function finalizeVaultKeyRemoval(
       return true
     }
 
-    if (!completedMatchingRelock) return false
+    if (!acceptedMatchingRelock) return false
 
     const second = await reduceVerifiedVaultOutputs(
       w,

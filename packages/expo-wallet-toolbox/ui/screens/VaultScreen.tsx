@@ -20,7 +20,7 @@
  * key can sign.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native'
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, AppState } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
@@ -66,6 +66,7 @@ import {
   type AdoptPhase,
   VAULT_MIN_KEYS,
   VAULT_MAX_KEYS,
+  VAULT_MAX_ACTIVE_KEYS,
   getVaultDriver,
   isVaultEnabled,
   isVaultAvailable,
@@ -84,6 +85,9 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
+
+/** How often a removal whose re-lock is not yet accepted is re-checked. */
+const REMOVAL_RECHECK_MS = 30_000
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -323,18 +327,57 @@ export function VaultScreen() {
     }
   }, [pm, adminOriginator, resolvingDeposit, reload, t])
 
+  // A removal whose re-lock is broadcast finishes once the network accepts
+  // that re-lock ('unproven'). Usually that is already true when the re-lock
+  // returns; when the toolbox is still retrying ('sending'), nothing else
+  // reloads this screen when it lands. Re-check while it waits (and on return
+  // to the foreground) so the user is not told to leave and come back. A
+  // 'prepared' removal is not polled: it needs a re-lock, which reconciles on
+  // its own.
+  const removalState = meta?.pendingRemoval?.state
   useEffect(() => {
     if (!pm || !meta?.pendingRemoval) return
     let stale = false
-    void finalizeVaultKeyRemoval(pm as unknown as VaultWallet, adminOriginator)
-      .then(async complete => {
-        if (!stale && complete) await reload()
-      })
-      .catch(error => console.error('[vault] pending key-removal reconciliation failed:', error))
+    let running = false
+    const reconcile = () => {
+      if (running) return
+      running = true
+      void finalizeVaultKeyRemoval(pm as unknown as VaultWallet, adminOriginator)
+        .then(async complete => {
+          if (stale) return
+          if (complete) {
+            await reload()
+            return
+          }
+          // Reconciliation can itself infer 'broadcast' for a crash-interrupted
+          // re-lock; show that without a full rescan.
+          const current = await vaultStore.getMeta()
+          if (!stale && current?.pendingRemoval?.state !== metaRef.current?.pendingRemoval?.state) {
+            metaRef.current = current
+            setMeta(current)
+          }
+        })
+        .catch(error => console.error('[vault] pending key-removal reconciliation failed:', error))
+        .finally(() => {
+          running = false
+        })
+    }
+    reconcile()
+    if (removalState !== 'broadcast') {
+      return () => {
+        stale = true
+      }
+    }
+    const timer = setInterval(reconcile, REMOVAL_RECHECK_MS)
+    const foreground = AppState.addEventListener('change', next => {
+      if (next === 'active') reconcile()
+    })
     return () => {
       stale = true
+      clearInterval(timer)
+      foreground.remove()
     }
-  }, [pm, meta?.pendingRemoval, adminOriginator, reload])
+  }, [pm, meta?.pendingRemoval, removalState, adminOriginator, reload])
 
   // ── helpers ─────────────────────────────────────────────────────────
   /** `nickname · …tail4` for each referenced key; a key no longer in meta shows its pubkey tail. */
@@ -596,7 +639,9 @@ export function VaultScreen() {
     // The new key can open deposits made from now on; a re-lock makes it open
     // everything. Pointless on an empty vault, so only offered when it holds
     // something — the wizard's done step already said so either way.
-    if (added.length > 0 && (balance ?? 0) > 0) {
+    // Not at six keys either: a lock holds five, so the key being replaced has
+    // to be removed first, and that removal's re-lock covers both changes.
+    if (added.length > 0 && (balance ?? 0) > 0 && m.keys.length <= VAULT_MAX_KEYS) {
       openRelock({
         reason: t('vault_relock_reason', { names: others.map(vaultKeyLabel).join(', ') }),
         exclude: added[0].serial
@@ -709,14 +754,14 @@ export function VaultScreen() {
 
   const keyActions = useCallback(
     async (rec: VaultKeyRecord) => {
-      const choice = await showAlert({
-        title: vaultKeyLabel(rec),
-        buttons: [
-          { text: t('vault_key_action_rename'), key: 'rename' },
-          { text: t('vault_key_action_remove'), key: 'remove', style: 'destructive' },
-          { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
-        ]
-      })
+      // Remove only when it leaves at least VAULT_MIN_KEYS, and one removal at
+      // a time. To replace a key in a two-key vault, add the new one first.
+      const current = metaRef.current
+      const canRemove = !!current && !current.pendingRemoval && current.keys.length > VAULT_MIN_KEYS
+      const buttons: AlertButton[] = [{ text: t('vault_key_action_rename'), key: 'rename' }]
+      if (canRemove) buttons.push({ text: t('vault_key_action_remove'), key: 'remove', style: 'destructive' })
+      buttons.push({ text: t('vault_cancel'), key: 'cancel', style: 'cancel' })
+      const choice = await showAlert({ title: vaultKeyLabel(rec), buttons })
       if (choice === 'rename') {
         setRenameText(rec.nickname)
         setRenaming(rec)
@@ -1071,14 +1116,20 @@ export function VaultScreen() {
   }
 
   // ── enrolled ─────────────────────────────────────────────────────────
-  const canAdd = enabled && !meta.pendingRemoval && meta.keys.length < VAULT_MAX_KEYS
+  const canAdd = enabled && !meta.pendingRemoval && meta.keys.length < VAULT_MAX_ACTIVE_KEYS
+  // Six keys: one more than a lock holds, so nothing that creates a Vault
+  // output runs until one is removed. A full withdrawal creates none.
+  const overLockLimit = meta.keys.length > VAULT_MAX_KEYS
   const adoptedSerials = new Set(meta.recovery?.adoptedSerials ?? [])
   const recoveryRequired = meta.recovery?.required === true
   const adoptedKeyCount = meta.keys.filter(key => adoptedSerials.has(key.serial)).length
   const hasAdoptedKey = !recoveryRequired || adoptedKeyCount > 0
   const hasRecoveryRedundancy = !recoveryRequired || adoptedKeyCount >= VAULT_MIN_KEYS
   const transfersBlocked = !!meta.pendingRemoval
-  const canDeposit = enabled && !transfersBlocked && hasRecoveryRedundancy
+  // Re-lock signed and broadcast: nothing is left to re-lock, only the
+  // network's acceptance to wait for (the effect above re-checks).
+  const removalAwaitingNetwork = meta.pendingRemoval?.state === 'broadcast'
+  const canDeposit = enabled && !transfersBlocked && hasRecoveryRedundancy && !overLockLimit
   const canWithdraw = !transfersBlocked && hasAdoptedKey
   const missingNames = coverage
     ? meta.keys
@@ -1087,9 +1138,16 @@ export function VaultScreen() {
         .join(', ')
     : ''
   const relockCandidates = relock?.exclude ? meta.keys.filter(k => k.serial !== relock.exclude) : meta.keys
-  const openGenericRelock = enabled
-    ? () => openRelock({ reason: t('vault_relock_reason_generic'), revoke: meta.pendingRemoval?.key })
-    : undefined
+  const openGenericRelock =
+    enabled && !overLockLimit
+      ? () => openRelock({ reason: t('vault_relock_reason_generic'), revoke: meta.pendingRemoval?.key })
+      : undefined
+  // The header counts the removed key while its removal is pending, but never
+  // reads "6 of 5": over the limit it drops the "of 5".
+  const listedKeys = meta.keys.length + (meta.pendingRemoval ? 1 : 0)
+  const keySectionHeader = overLockLimit
+    ? t('vault_key_section_over_limit', { count: meta.keys.length })
+    : t('vault_key_section', { count: listedKeys > VAULT_MAX_KEYS ? meta.keys.length : listedKeys })
 
   return (
     <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
@@ -1141,13 +1199,20 @@ export function VaultScreen() {
               }
             ]}
           >
-            <Ionicons name="arrow-up" size={18} color={colors.accent} />
-            <Text style={[styles.actionLabel, { color: colors.accent }]}>{t('vault_withdraw_cta')}</Text>
+            <Ionicons name="arrow-up" size={18} color={canWithdraw ? colors.accent : colors.textTertiary} />
+            <Text style={[styles.actionLabel, { color: canWithdraw ? colors.accent : colors.textTertiary }]}>
+              {t('vault_withdraw_cta')}
+            </Text>
           </PressableScale>
         </View>
         {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>}
         {transfersBlocked && (
-          <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>
+          <Text style={[styles.notice, { color: colors.warning }]}>
+            {t(removalAwaitingNetwork ? 'vault_removal_awaiting_network' : 'vault_err_relock_required')}
+          </Text>
+        )}
+        {overLockLimit && !transfersBlocked && (
+          <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_too_many_active_keys')}</Text>
         )}
         {recoveryRequired && !hasRecoveryRedundancy && (
           <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
@@ -1172,7 +1237,7 @@ export function VaultScreen() {
         )}
 
         <GroupedSection
-          header={t('vault_key_section', { count: meta.keys.length + (meta.pendingRemoval ? 1 : 0) })}
+          header={keySectionHeader}
           footer={t('vault_footnote')}
         >
           {coverage && coverage.missingKeys.length > 0 && (
@@ -1212,11 +1277,11 @@ export function VaultScreen() {
             <ListRow
               key={`pending-${meta.pendingRemoval.key.serial}`}
               label={`${meta.pendingRemoval.key.nickname} · ${formatVaultSerial(meta.pendingRemoval.key.serial)}`}
-              subtitle={t('vault_key_pending_removal')}
+              subtitle={t(removalAwaitingNetwork ? 'vault_key_removal_awaiting_network' : 'vault_key_pending_removal')}
               icon="time-outline"
               iconColor={colors.warning}
               showChevron={false}
-              onPress={openGenericRelock}
+              onPress={removalAwaitingNetwork ? undefined : openGenericRelock}
               isLast={!canAdd}
             />
           )}

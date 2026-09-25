@@ -345,8 +345,25 @@ describe('vaultStore v6', () => {
   it('enforces minimum and maximum key counts', async () => {
     await vaultStore.setMeta(META)
     await expect(vaultStore.beginKeyRemoval(key(1).serial)).rejects.toMatchObject({ code: 'last-keys' })
+    // A full vault holds one replacement key beyond the lock (owner rule
+    // 2026-09-25) and refuses a seventh.
     await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5)] })
-    await expect(vaultStore.addKey(key(6))).rejects.toMatchObject({ code: 'too-many-keys' })
+    const six = await vaultStore.addKey(key(6))
+    expect(six.keys).toHaveLength(6)
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(6)
+    await expect(vaultStore.addKey(key(7))).rejects.toMatchObject({ code: 'too-many-keys' })
+  })
+
+  it('stores a six-key list, refuses seven, and removes from six back to five', async () => {
+    const six = [key(1), key(2), key(3), key(4), key(5), key(6)]
+    await vaultStore.setMeta({ ...META, keys: six })
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(6)
+    await expect(vaultStore.setMeta({ ...META, keys: [...six, key(7)] })).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    const removing = await vaultStore.beginKeyRemoval(key(2).serial)
+    expect(removing.keys).toHaveLength(5)
+    expect(removing.pendingRemoval?.key.serial).toBe(key(2).serial)
   })
 
   it('rename and last-used updates validate their target', async () => {

@@ -737,6 +737,31 @@ test('add-key mode runs one key step, calls addVaultKey and ends on the re-lock 
   expect(mockFinalize).not.toHaveBeenCalled()
 })
 
+// Owner rule 2026-09-25: a sixth key is a replacement waiting for the removal
+// of the key it replaces; a re-lock now would be refused, so the done step
+// says what comes next and only closes.
+test('add-key mode on a five-key vault ends on the remove-one hint, not a re-lock', async () => {
+  mockMeta = {
+    v: 5,
+    createdAt: 1,
+    keys: ['a', 'b', 'c', 'd', 'e'].map((c, i) => ({ ...record(`1234000${i + 1}`, c), nickname: `Key ${i + 1}` }))
+  }
+  mockEnrollKey.mockResolvedValueOnce({ ...record('12340006', 'f'), nickname: 'Spare' })
+  const onDone = jest.fn()
+  const screen = render(<EnrollWizard mode="add-key" onDone={onDone} onCancel={jest.fn()} />)
+  await settle()
+  await enrolOneKey(screen)
+  expect(mockAddVaultKey).toHaveBeenCalledWith(
+    expect.objectContaining({ serial: '12340006', nickname: 'Spare' }),
+    expect.anything(),
+    expect.anything()
+  )
+  expect(screen.getByText('vault_add_key_done_over_limit:{"nickname":"Spare"}')).toBeTruthy()
+  expect(screen.queryByText('vault_relock_now')).toBeNull()
+  fireEvent.press(screen.getByText('vault_done_cta'))
+  expect(onDone).toHaveBeenCalledTimes(1)
+})
+
 test('a failed add-key write is retried from the save page, without touching the card again', async () => {
   // The token is already personalized and its slot occupied, so a retry that
   // re-ran the tap would be refused by the service. Only the write repeats.

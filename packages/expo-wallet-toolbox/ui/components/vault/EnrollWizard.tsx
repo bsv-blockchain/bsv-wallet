@@ -1452,6 +1452,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   }
 
   // ── done ────────────────────────────────────────────────────────────
+  // A sixth key is one more than a lock holds: the next step is removing the
+  // key it replaces, not a re-lock (which would be refused).
+  const overLockLimit = mode === 'add-key' && enrolledCount + 1 > VAULT_MAX_KEYS
   return (
     <View style={[styles.body, styles.doneBody]}>
       <Ionicons name="checkmark-circle" size={56} color={colors.success} style={styles.hero} />
@@ -1461,9 +1464,12 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       <Text style={[styles.p, { color: colors.textSecondary }]}>
         {mode === 'enroll'
           ? t('vault_done_body', { count: pending.length })
-          : t('vault_add_key_done', { nickname: addedNickname })}
+          : t(overLockLimit ? 'vault_add_key_done_over_limit' : 'vault_add_key_done', { nickname: addedNickname })}
       </Text>
-      <ActionButton label={mode === 'enroll' ? t('vault_done_cta') : t('vault_relock_now')} onPress={onDone} />
+      <ActionButton
+        label={mode === 'enroll' || overLockLimit ? t('vault_done_cta') : t('vault_relock_now')}
+        onPress={onDone}
+      />
     </View>
   )
 }

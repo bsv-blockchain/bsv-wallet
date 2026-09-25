@@ -100,6 +100,13 @@ export const VAULT_SLOT = 0x82
  * at most five (R1C_MAX_KEYS — the lock carries one commitment per key). */
 export const VAULT_MIN_KEYS = 2
 export const VAULT_MAX_KEYS = 5
+/** The key list may hold ONE key beyond the lock's ceiling, never committed:
+ * a replacement is added before the key it replaces is removed, so a full
+ * vault passes through six on its way back to five, and a single re-lock
+ * covers both changes. Nothing locks to more than VAULT_MAX_KEYS (see
+ * newVaultOutput and relockVault). Mirrored in vaultStore.ts, which cannot
+ * import this module. */
+export const VAULT_MAX_ACTIVE_KEYS = VAULT_MAX_KEYS + 1
 
 const DEFAULT_PIV_PIN = '123456'
 const DEFAULT_PIV_PUK = '12345678'
@@ -1091,7 +1098,7 @@ export async function finalizeEnrollment(
 }
 
 /** Append one key to an enrolled vault (spec §3.4 "Add key"). vaultStore
- * enforces the duplicate-serial and five-key rules. */
+ * enforces the duplicate-serial and VAULT_MAX_ACTIVE_KEYS rules. */
 export async function addVaultKey(
   record: VaultKeyRecord,
   scopeToken: VaultScopeToken | undefined,
@@ -1101,8 +1108,8 @@ export async function addVaultKey(
   const token = scopeToken ?? vaultStore.captureScopeToken()
   const existing = await vaultStore.getMeta(token)
   if (!existing) throw new VaultError('not-enrolled', 'Vault is not set up')
-  if (existing.keys.length >= VAULT_MAX_KEYS) {
-    throw new VaultError('too-many-keys', `The vault already has ${VAULT_MAX_KEYS} keys`)
+  if (existing.keys.length >= VAULT_MAX_ACTIVE_KEYS) {
+    throw new VaultError('too-many-keys', `The vault already has ${VAULT_MAX_ACTIVE_KEYS} keys`)
   }
   if (existing.keys.some(key => key.serial === record.serial || key.pubkey === record.pubkey)) {
     throw new VaultError('key-already-enrolled', record.serial, undefined, { serial: record.serial })

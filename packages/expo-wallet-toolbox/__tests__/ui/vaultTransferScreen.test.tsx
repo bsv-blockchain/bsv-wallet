@@ -347,6 +347,66 @@ describe('deposit', () => {
   })
 })
 
+// Owner rule 2026-09-25: six keys (a replacement added before the key it
+// replaces is removed) is one more than a lock holds. Nothing that creates a
+// Vault output runs; a full withdrawal creates none.
+describe('six active keys', () => {
+  const SIX = {
+    ...META,
+    keys: [
+      key(1, 'Desk', 'a'),
+      key(2, 'Safe', 'b'),
+      key(3, 'Car', 'c'),
+      key(4, 'Bank', 'd'),
+      key(5, 'Parents', 'e'),
+      key(6, 'Spare', 'f')
+    ]
+  }
+
+  test('a deposit is inert and says to remove a key', async () => {
+    mockMeta = SIX
+    const screen = await renderTransfer('deposit')
+    expect(screen.getByText('vault_err_too_many_active_keys')).toBeTruthy()
+    await typeAndRun(screen, '250000', 'vault_deposit_cta')
+    expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
+  test('a partial withdrawal whose remainder would go back into the vault is refused before any card tap', async () => {
+    mockMeta = SIX
+    mockBalance = 500_000
+    const screen = await renderTransfer('withdraw')
+    expect(screen.queryByText('vault_err_too_many_active_keys')).toBeNull()
+    await typeAndRun(screen, '100000', 'vault_withdraw_cta')
+    expect(mockPreview).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('vault_err_too_many_active_keys')).toBeTruthy()
+    expect(mockWithdraw).not.toHaveBeenCalled()
+  })
+
+  test('a partial withdrawal whose remainder is under the floor offers withdrawing everything, as below six keys', async () => {
+    mockMeta = SIX
+    mockBalance = 150_000
+    mockShowAlert.mockResolvedValueOnce('all')
+    mockGetVaultBalance.mockResolvedValueOnce(0)
+    const screen = await renderTransfer('withdraw')
+    await typeAndRun(screen, '80000', 'vault_withdraw_cta')
+    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'vault_remainder_title' }))
+    expect(mockWithdraw.mock.calls[0][2]).toBe('all')
+    expect(screen.queryByText('vault_err_too_many_active_keys')).toBeNull()
+  })
+
+  test('a full withdrawal runs, and the remove-a-key notice never shows on the withdraw screen', async () => {
+    mockMeta = SIX
+    mockBalance = 500_000
+    mockGetVaultBalance.mockResolvedValueOnce(0)
+    const screen = await renderTransfer('withdraw')
+    expect(screen.queryByText('vault_err_too_many_active_keys')).toBeNull()
+    await typeAndRun(screen, '2099999999999999', 'vault_withdraw_cta')
+    expect(mockWithdraw.mock.calls[0][2]).toBe('all')
+    // The amount resets before navigating back; that must not bring it up.
+    expect(screen.queryByText('vault_err_too_many_active_keys')).toBeNull()
+  })
+})
+
 describe('withdraw', () => {
   test('shows the key chooser with the last-used key selected', async () => {
     mockBalance = 500_000

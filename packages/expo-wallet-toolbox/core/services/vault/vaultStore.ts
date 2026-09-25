@@ -28,6 +28,10 @@ const SECURE_OPTIONS: SecureStore.SecureStoreOptions = {
 }
 const MIN_KEYS = 2
 const MAX_KEYS = 5
+/** VaultKeyService.VAULT_MAX_ACTIVE_KEYS: one key beyond the lock's ceiling,
+ * held only while a replacement waits for the removal of the key it replaces.
+ * Keep in step with VaultKeyService.ts (which imports this module). */
+const MAX_ACTIVE_KEYS = MAX_KEYS + 1
 const VAULT_SLOT = 0x82
 
 export type VaultScopeChain = 'main' | 'test' | 'teratest'
@@ -415,7 +419,7 @@ export function isVaultMeta(value: unknown): value is VaultMeta {
   if (m.v !== 6 || typeof m.vaultId !== 'string' || !/^[0-9a-f]{64}$/.test(m.vaultId)) return false
   if (typeof m.revision !== 'number' || !Number.isSafeInteger(m.revision) || m.revision < 1) return false
   if (!isSafeTime(m.createdAt)) return false
-  if (!Array.isArray(m.keys) || m.keys.length < MIN_KEYS || m.keys.length > MAX_KEYS) return false
+  if (!Array.isArray(m.keys) || m.keys.length < MIN_KEYS || m.keys.length > MAX_ACTIVE_KEYS) return false
   if (!m.keys.every(isVaultKeyRecord)) return false
   const keys = m.keys as VaultKeyRecord[]
   if (new Set(keys.map(k => k.serial)).size !== keys.length) return false
@@ -1048,8 +1052,8 @@ export const vaultStore = {
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
-      if (meta.keys.length >= MAX_KEYS) {
-        throw new VaultError('too-many-keys', `The vault already has ${MAX_KEYS} keys`)
+      if (meta.keys.length >= MAX_ACTIVE_KEYS) {
+        throw new VaultError('too-many-keys', `The vault already has ${MAX_ACTIVE_KEYS} keys`)
       }
       if (meta.keys.some(x => x.serial === k.serial || x.pubkey === k.pubkey)) {
         throw new VaultError('key-already-enrolled', k.serial, undefined, { serial: k.serial })
@@ -1134,7 +1138,8 @@ export const vaultStore = {
 
   /**
    * Complete a removal when the authoritative preflight and postflight scans
-   * both prove there were no vault outputs to relock. The transfer layer owns
+   * both prove no vault output commits the key, so there is nothing to
+   * relock (an empty vault, or a key never locked to). The transfer layer owns
    * those scans and serializes them with deposits; this method only permits
    * the corresponding untouched, unbroadcast state transition.
    */

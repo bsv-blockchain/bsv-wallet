@@ -12,6 +12,7 @@ const R1C_CODES: VaultErrorCode[] = [
   'not-enough-keys',
   'key-already-enrolled',
   'too-many-keys',
+  'too-many-active-keys',
   'last-keys',
   'relock-required',
   'action-pending',
