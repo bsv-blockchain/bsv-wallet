@@ -239,7 +239,7 @@ import { backupPseudonym } from '../backup/derive'
 import type { BackupChain } from '../backup/constants'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
-import { isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../pay/refreshProofGuard'
+import { boundedHexResponse, isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../pay/refreshProofGuard'
 import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueuedAncestors'
 import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { recordProof } from '../pay/recordProof'
@@ -263,7 +263,7 @@ import {
   retryDelivery
 } from '../pay/rails/handle'
 import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
-import { wocConfigFor } from '../pay/rails/address'
+import { MAX_HEX_RESPONSE_CHARS, wocConfigFor } from '../pay/rails/address'
 import { PeerPayClient } from '@bsv/message-box-client'
 import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../pay/sweeper'
 import { formatAmount } from '../amountFormatHelpers'
@@ -3141,7 +3141,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const res = await fetch(`${wocBase}/v1/bsv/${chain}/tx/${txid}/proof/bump`)
 
       if (res.ok) {
-        const bumpHex = (await res.text()).trim()
+        // XR-059 remainder: a compromised/misbehaving configured indexer must
+        // not be able to force an unbounded hex-decode here just by sending
+        // back an oversized (or malformed) proof body — same guard as
+        // address.ts's parseWocBeefBody / beefRepair.ts's refetchAtomicBeef.
+        // An oversized/invalid proof is indistinguishable from "no usable
+        // proof yet", so this fails closed to 'pending', exactly like a 404.
+        const bumpHex = boundedHexResponse(await res.text(), MAX_HEX_RESPONSE_CHARS)
+        if (bumpHex === undefined) return 'pending'
         const merklePath = MerklePath.fromHex(bumpHex)
         const merkleRoot = merklePath.computeRoot(txid)
         const ct = offlineChaintracksRef.current
@@ -3173,7 +3180,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           fetchRawTx: async () => {
             const r = await fetch(`${wocBase}/v1/bsv/${chain}/tx/${txid}/hex`)
             if (!r.ok) throw new Error(`raw tx fetch failed: ${r.status}`)
-            return Utils.toArray((await r.text()).trim(), 'hex')
+            // XR-059 remainder: same unbounded-hex-decode gap as the BUMP
+            // fetch above, on the raw-tx body this time. Throwing here (like
+            // the !r.ok case just above) is refreshProof's existing
+            // fail-closed shape for a raw-tx read it cannot trust.
+            const hex = boundedHexResponse(await r.text(), MAX_HEX_RESPONSE_CHARS)
+            if (hex === undefined) throw new Error('raw tx fetch: response too large or not valid hex')
+            return Utils.toArray(hex, 'hex')
           }
         })
         setTxStatusVersion(v => v + 1)

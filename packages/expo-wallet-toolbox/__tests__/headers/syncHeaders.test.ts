@@ -79,6 +79,24 @@ describe('syncHeaders', () => {
     await expect(syncHeaders({ store: s, client, chunkSize: 1 })).rejects.toThrow(/previous hash/i)
   })
 
+  it('XR-060: never persists more headers from one chunk than were requested', async () => {
+    // Each header here is individually genuine (real PoW, correctly chained),
+    // so a compromised/misbehaving chaintracks handing back MORE of them than
+    // `want` cannot be caught by per-header validation alone — only a cap
+    // tied to what was actually requested can bound how much a single
+    // response is allowed to persist.
+    const client = {
+      getPresentHeight: async () => 2,
+      // Asked for exactly 1 header at height 1, but answers with 2.
+      getHeaders: async (height: number) => (height === 1 ? H1 + H2 : '')
+    }
+    const s = await store()
+    const r = await syncHeaders({ store: s, client, chunkSize: 1 })
+    expect(r.added).toBe(1)
+    expect(r.tipHeight).toBe(1)
+    expect(s.tipHeight).toBe(1)
+  })
+
   it('rewinds an orphaned tip and retries from the new height', async () => {
     const s = await store()
     await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)

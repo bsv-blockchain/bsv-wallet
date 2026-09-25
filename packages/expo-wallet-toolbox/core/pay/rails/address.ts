@@ -23,7 +23,7 @@ import {
 } from '@bsv/sdk'
 import type { AppChain } from '../../config'
 import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABEL_PREFIX } from '../counterparty'
-import { isValidBsvAddress } from './index'
+import { addressNetwork, isValidBsvAddress } from './index'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
 
@@ -56,7 +56,9 @@ export function addressRailAvailability(args: {
   recipientRefusal?: (recipient: string) => string | null
 }): AddressRailAvailability {
   if (args.assetId === undefined || args.assetId === '') {
-    return isValidBsvAddress(args.address) ? { kind: 'available' } : { kind: 'unavailable', reason: 'Invalid BSV address' }
+    return isValidBsvAddress(args.address)
+      ? { kind: 'available' }
+      : { kind: 'unavailable', reason: 'Invalid BSV address' }
   }
   const reason = args.recipientRefusal?.(args.address)
   return {
@@ -152,10 +154,26 @@ export interface AddressRailWallet extends AddressDerivingWallet {
   createAction(args: unknown, originator?: string): Promise<unknown>
 }
 
+/**
+ * Resource bounds for chain-service responses (XR-059/XR-060). Every
+ * configured chain-service call this rail makes trusts the *content* of what
+ * comes back (verified downstream by the real transaction bytes, a merkle
+ * path, or the wallet's own ledger) but not its *size* — a compromised or
+ * merely misbehaving indexer must not be able to force unbounded allocation,
+ * hex-decode/BEEF-merge work, or per-row network fanout just by sending back
+ * more than any real address or transaction could ever legitimately produce.
+ */
+export const MAX_UTXO_LISTING_ROWS = 2000
+export const MAX_HEX_RESPONSE_CHARS = 8_000_000
+
 export async function getUtxosForAddress(woc: WocConfig, address: string): Promise<Utxo[]> {
   const response = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/address/${address}/unspent/all`)
   const rp = await response.json()
+  // A live receive address never legitimately carries anywhere near this many
+  // UTXOs; sweepAddress fetches one BEEF per distinct txid in the result, so
+  // an unbounded row count is also unbounded network fanout.
   return rp.result
+    .slice(0, MAX_UTXO_LISTING_ROWS)
     .filter((r: any) => r.isSpentInMempoolTx === false)
     .map((r: any) => ({ txid: r.tx_hash, vout: r.tx_pos, satoshis: r.value }))
 }
@@ -248,7 +266,8 @@ export async function getProcessedTransactions(
 export function parseWocBeefBody(resp: { ok: boolean; text: string }): number[] | undefined {
   if (!resp.ok) return undefined
   const hex = resp.text.trim()
-  if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) return undefined
+  if (hex.length === 0 || hex.length > MAX_HEX_RESPONSE_CHARS || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex))
+    return undefined
   try {
     return Utils.toArray(hex, 'hex')
   } catch {
@@ -334,7 +353,19 @@ export async function sweepAddress(args: {
         failureCount++
         continue
       }
-      const outputs: InternalizeOutput[] = relevant.map(o => ({
+      // XR-056: `o.satoshis` here is the chain-indexer's own unauthenticated
+      // `value` field (see getUtxosForAddress) — a faulty or malicious
+      // indexer can report any figure it likes. `tx` is the cryptographically
+      // parsed, atomic-BEEF-verified transaction the wallet is about to
+      // internalize, so its own outputs are the only trustworthy amount.
+      // A listing row whose vout doesn't even exist on the real transaction
+      // is dropped rather than internalized.
+      const verified = relevant.filter(o => tx.outputs[o.vout] !== undefined)
+      if (verified.length === 0) {
+        failureCount++
+        continue
+      }
+      const outputs: InternalizeOutput[] = verified.map(o => ({
         outputIndex: o.vout,
         protocol: 'wallet payment' as const,
         paymentRemittance: {
@@ -360,8 +391,9 @@ export async function sweepAddress(args: {
         ]
       }
       const response = await wallet.internalizeAction(internalizeArgs, adminOriginator)
-      if (response?.accepted) importedSatoshis += relevant.reduce((sum, o) => sum + o.satoshis, 0)
-      else failureCount++
+      if (response?.accepted) {
+        importedSatoshis += verified.reduce((sum, o) => sum + (tx.outputs[o.vout]?.satoshis ?? 0), 0)
+      } else failureCount++
     } catch {
       failureCount++
     }
@@ -391,6 +423,13 @@ export async function sendToAddress(args: {
   const sats = Math.round(Number(satoshis))
   if (!Number.isFinite(sats) || sats <= 0) throw new Error('Invalid amount')
   if (!isValidBsvAddress(address)) throw new Error('Invalid BSV address')
+  // XR-057 (SEC2-065): this rail only ever builds a P2PKH lock (see the D4
+  // comment above — P2SH is deliberately unsupported), so a well-formed
+  // base58check address whose version byte names neither mainnet nor a test
+  // chain (e.g. a P2SH `3...` address) must be refused here, as a repo-owned
+  // guarantee, rather than relying on @bsv/sdk's P2PKH.lock() to keep
+  // throwing for a non-P2PKH version byte.
+  if (addressNetwork(address) === undefined) throw new Error('Unsupported address type')
   const lockingScript = new P2PKH().lock(address).toHex()
   // A send-max request carries maxPossibleSatoshis and the wallet rewrites the
   // output to whatever the inputs can fund, so the real figure only exists on

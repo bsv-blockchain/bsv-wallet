@@ -53,3 +53,23 @@ export function shouldFailUnprovenTx(args: {
   if (args.updatedAtMs && args.nowMs - args.updatedAtMs < STUCK_AFTER_MS) return 'pending'
   return 'failed'
 }
+
+/**
+ * XR-059 remainder: refreshProof's two chain-service reads — the merkle BUMP
+ * hex from WoC's /proof/bump, and the raw-tx hex fetched inside its
+ * fetchRawTx callback — were unbounded, exactly like the address-sweep/BEEF
+ * reads XR-059 already bounded in address.ts's parseWocBeefBody and
+ * beefRepair.ts's refetchAtomicBeef. Same guard, same shape: a
+ * compromised/misbehaving configured indexer must not be able to force an
+ * arbitrarily large hex-decode (MerklePath.fromHex / Utils.toArray) just by
+ * answering with more bytes than any real proof or raw tx ever carries.
+ * Returns undefined for anything empty, oversized, odd-length, or not hex —
+ * the caller fails closed exactly as it already does for an unparseable body.
+ */
+export function boundedHexResponse(text: string, maxChars: number): string | undefined {
+  const hex = text.trim()
+  if (hex.length === 0 || hex.length > maxChars || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) {
+    return undefined
+  }
+  return hex
+}

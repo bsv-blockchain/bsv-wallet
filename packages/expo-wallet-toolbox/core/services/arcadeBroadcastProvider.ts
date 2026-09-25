@@ -4,6 +4,81 @@ import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
 const BROADCAST_TIMEOUT_MS = 30_000
 
 /**
+ * XR-060 remainder: XR-063's body deadline below bounds how long a stalled
+ * body can hang, but not how LARGE a body that does arrive can be — a
+ * compromised/misbehaving broadcast endpoint could still force an unbounded
+ * JSON parse or string allocation over a multi-megabyte response before
+ * classification (and the already-capped log line) ever run. Comfortably
+ * over anything a real ARC/WoC reply ever carries.
+ */
+const MAX_BROADCAST_BODY_BYTES = 1_000_000
+
+/**
+ * Reads a body no bigger than `maxBytes`. Mirrors
+ * core/identity/handleRegistry/resolver.ts's readBoundedJson (XR-077 /
+ * SEC2-027): a declared Content-Length over the cap is refused before
+ * anything is read; otherwise, when the runtime exposes the body as a
+ * stream, chunks are counted as they arrive and the read is aborted the
+ * instant the running total crosses the cap, so an untrusted endpoint cannot
+ * make this buffer more than the cap regardless of what it claims or how it
+ * paces the bytes. Returns undefined when neither check applies (no
+ * Content-Length header and no stream to count from), leaving the caller to
+ * fall back to the runtime's own read and check its decoded size instead —
+ * a floor, not a firewall, for a runtime (or test double) with no stream.
+ */
+async function readBoundedBytes(res: Response, maxBytes: number): Promise<Uint8Array | undefined> {
+  const declared = res.headers?.get?.('content-length')
+  if (declared) {
+    const n = Number(declared)
+    if (Number.isFinite(n) && n > maxBytes) {
+      throw new Error(`broadcast response declared ${n} bytes, over the ${maxBytes} byte limit`)
+    }
+  }
+  const reader = (res as { body?: ReadableStream<Uint8Array> | null }).body?.getReader?.()
+  if (!reader) return undefined
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {})
+      throw new Error(`broadcast response exceeded the ${maxBytes} byte limit while streaming`)
+    }
+    chunks.push(value)
+  }
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return merged
+}
+
+async function readBoundedText(res: Response, fallback: () => Promise<string>, maxBytes: number): Promise<string> {
+  const bytes = await readBoundedBytes(res, maxBytes)
+  if (bytes !== undefined) return new TextDecoder().decode(bytes)
+  const text = await fallback()
+  if (text.length > maxBytes) {
+    throw new Error(`broadcast response exceeded the ${maxBytes} byte limit`)
+  }
+  return text
+}
+
+async function readBoundedJson(res: Response, fallback: () => Promise<unknown>, maxBytes: number): Promise<unknown> {
+  const bytes = await readBoundedBytes(res, maxBytes)
+  if (bytes !== undefined) return JSON.parse(new TextDecoder().decode(bytes))
+  const data = await fallback()
+  if (JSON.stringify(data).length > maxBytes) {
+    throw new Error(`broadcast response exceeded the ${maxBytes} byte limit`)
+  }
+  return data
+}
+
+/**
  * XR-063: a broadcast provider that delivers headers within the deadline and
  * then stalls (or drips) its body used to hold this promise open forever —
  * the AbortController's timer was cleared as soon as fetch() resolved,
@@ -12,7 +87,9 @@ const BROADCAST_TIMEOUT_MS = 30_000
  * fallback from ever being tried. Mirrors
  * core/identity/handleRegistry/resolver.ts's fetchWithTimeout: the same
  * overall deadline that bounds the connection also bounds the body read, by
- * racing it against a timer that aborts the underlying request too.
+ * racing it against a timer that aborts the underlying request too. Combined
+ * with readBoundedJson/readBoundedText above, the body read is now bounded
+ * in both time (this deadline) and size (XR-060 remainder).
  */
 async function fetchWithBodyDeadline(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController()
@@ -41,8 +118,14 @@ async function fetchWithBodyDeadline(url: string, init: RequestInit, timeoutMs: 
       })
     }
   }
-  if (typeof response.json === 'function') response.json = withBodyDeadline(response.json.bind(response))
-  if (typeof response.text === 'function') response.text = withBodyDeadline(response.text.bind(response))
+  if (typeof response.json === 'function') {
+    const originalJson = response.json.bind(response)
+    response.json = withBodyDeadline(() => readBoundedJson(response, originalJson, MAX_BROADCAST_BODY_BYTES))
+  }
+  if (typeof response.text === 'function') {
+    const originalText = response.text.bind(response)
+    response.text = withBodyDeadline(() => readBoundedText(response, originalText, MAX_BROADCAST_BODY_BYTES))
+  }
   return response
 }
 
@@ -85,6 +168,20 @@ const ARC_ACCEPTED_STATUSES = new Set([
   'MINED',
   'IMMUTABLE'
 ])
+
+/**
+ * XR-060: a compromised/misbehaving broadcast endpoint can answer with a
+ * response body far larger than any real ARC/WoC reply. Classification below
+ * still runs over the full body — this only bounds what a diagnostic log line
+ * repeats into memory/log storage.
+ */
+const MAX_LOGGED_BODY_CHARS = 2000
+
+function loggableSnippet(text: string): string {
+  return text.length > MAX_LOGGED_BODY_CHARS
+    ? `${text.slice(0, MAX_LOGGED_BODY_CHARS)}… [${text.length} chars total]`
+    : text
+}
 
 /**
  * Shared response handling for ARC-compatible services (Arcade, Taal, GorillaPool).
@@ -170,7 +267,7 @@ function createArcBroadcastService(
           BROADCAST_TIMEOUT_MS
         )
         const data = await response.json()
-        console.log(`[${name}] POST ${txPath} ${response.status}`, JSON.stringify(data))
+        console.log(`[${name}] POST ${txPath} ${response.status}`, loggableSnippet(JSON.stringify(data)))
         const txResult = handleArcResponse(name, response, data, txids)
         r.txidResults.push(txResult)
         r.status = txResult.status
@@ -251,7 +348,7 @@ export function createWocBroadcastService(chain: string, apiKey?: string) {
           BROADCAST_TIMEOUT_MS
         )
         const body = await response.text()
-        console.log(`[${name}] POST /tx/raw ${response.status}`, body)
+        console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
         const txResult: PostTxResultForTxid = {
           txid: txids[0],
           status: 'error',

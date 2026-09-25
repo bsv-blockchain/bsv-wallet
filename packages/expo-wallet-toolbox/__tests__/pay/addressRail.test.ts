@@ -66,7 +66,11 @@ async function p2pkhSpendBeef(payerKeyScalar: number, satoshis: number) {
   const source = new Transaction()
   source.addOutput({ lockingScript: new P2PKH().lock(payerAddress), satoshis: satoshis + 500 })
   const signing = new Transaction()
-  signing.addInput({ sourceTransaction: source, sourceOutputIndex: 0, unlockingScriptTemplate: new P2PKH().unlock(payerKey) })
+  signing.addInput({
+    sourceTransaction: source,
+    sourceOutputIndex: 0,
+    unlockingScriptTemplate: new P2PKH().unlock(payerKey)
+  })
   signing.addOutput({ lockingScript: new P2PKH().lock(ADDRESS), satoshis })
   await signing.sign()
   const tx = Transaction.fromHex(signing.toHex())
@@ -135,6 +139,14 @@ describe('parseWocBeefBody', () => {
   it('returns undefined for odd-length hex', () => {
     expect(parseWocBeefBody({ ok: true, text: 'abc' })).toBeUndefined()
   })
+
+  it('XR-059: rejects an oversized body before hex-decoding it', () => {
+    // A well-formed but absurdly large hex body (well beyond any real BEEF for
+    // a wallet payment) must be rejected before Utils.toArray/Beef.mergeBeef
+    // ever run on it — that decode+merge is the expensive step being guarded.
+    const oversized = '00'.repeat(9_000_000)
+    expect(parseWocBeefBody({ ok: true, text: oversized })).toBeUndefined()
+  })
 })
 
 describe('getUtxosForAddress', () => {
@@ -154,6 +166,21 @@ describe('getUtxosForAddress', () => {
     mockFetchOnce(() => ({ json: { result: [] } }))
     await getUtxosForAddress(woc, ADDRESS)
     expect(global.fetch).toHaveBeenCalledWith(`https://api.whatsonchain.com/v1/bsv/main/address/${ADDRESS}/unspent/all`)
+  })
+
+  it('XR-059: caps how many rows of an oversized listing are ever processed', async () => {
+    // A compromised/misbehaving indexer returning far more rows than any real
+    // address could hold must not turn into unbounded parse work and, in
+    // sweepAddress, one BEEF fetch per row.
+    const huge = Array.from({ length: 500_000 }, (_, i) => ({
+      tx_hash: `t${i}`,
+      tx_pos: 0,
+      value: 1,
+      isSpentInMempoolTx: false
+    }))
+    mockFetchOnce(() => ({ json: { result: huge } }))
+    const result = await getUtxosForAddress(woc, ADDRESS)
+    expect(result.length).toBeLessThan(huge.length)
   })
 })
 
@@ -400,6 +427,29 @@ describe('sweepAddress', () => {
     expect(wallet.internalizeAction).toHaveBeenCalledTimes(1)
   })
 
+  it('XR-056: importedSatoshis reflects the parsed transaction output, not the untrusted indexer listing value', async () => {
+    // The real, committed output pays 1 satoshi; the indexer's `/unspent/all`
+    // listing claims a wildly inflated value for the same txid/vout. The
+    // reported imported amount must come from the parsed BEEF, not the
+    // listing — an indexer that lies about `value` must not be able to
+    // inflate the receipt shown to the user.
+    const real = paymentBeef(1)
+    mockFetchOnce(url =>
+      url.includes('/unspent/all')
+        ? { json: { result: [{ tx_hash: real.txid, tx_pos: 0, value: 100_000_000, isSpentInMempoolTx: false }] } }
+        : { text: real.hex }
+    )
+    const wallet = walletWithNothingImported()
+    const result = await sweepAddress({
+      wallet: wallet as never,
+      adminOriginator: 'admin.com',
+      woc,
+      address: ADDRESS,
+      derivationPrefix: prefix
+    })
+    expect(result.importedSatoshis).toBe(1)
+  })
+
   it('skips outputs already internalized, so a second sweep is a no-op', async () => {
     mockFetchOnce(() => ({
       json: { result: [{ tx_hash: 'aa', tx_pos: 0, value: 1000, isSpentInMempoolTx: false }] }
@@ -501,6 +551,21 @@ describe('sendToAddress', () => {
     const wallet = { createAction: jest.fn() }
     await expect(
       sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: 'nope', satoshis: 10 })
+    ).rejects.toThrow(/address/i)
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
+  // XR-057 (SEC2-065): the address rail only ever builds a P2PKH lock (see
+  // the D4 comment above — P2SH is deliberately unsupported), so a
+  // structurally valid P2SH address must never reach wallet.createAction.
+  // This used to hold only because @bsv/sdk's own P2PKH.lock() throws for a
+  // non-P2PKH version byte; the guard below makes it a repo-owned guarantee
+  // that does not depend on that upstream internal staying that way.
+  it('XR-057: rejects a well-formed P2SH address before touching the wallet, independent of the SDK', async () => {
+    const P2SH_ADDRESS = '3P14159f73E4gFr7JterCCQh9QjiTjiZrG'
+    const wallet = { createAction: jest.fn() }
+    await expect(
+      sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: P2SH_ADDRESS, satoshis: 10 })
     ).rejects.toThrow(/address/i)
     expect(wallet.createAction).not.toHaveBeenCalled()
   })

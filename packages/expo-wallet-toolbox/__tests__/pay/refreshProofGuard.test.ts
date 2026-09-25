@@ -1,4 +1,4 @@
-import { isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../../core/pay/refreshProofGuard'
+import { boundedHexResponse, isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../../core/pay/refreshProofGuard'
 
 const IN_FLIGHT = { txStatus: 'nosend', updatedAtMs: 0, nowMs: 10 * 60 * 1000 }
 
@@ -58,5 +58,41 @@ describe('XR-030: isChainAbsenceConfirmed', () => {
     for (const status of [429, 500, 502, 503, 401, 403]) {
       expect(isChainAbsenceConfirmed(status)).toBe(false)
     }
+  })
+})
+
+// XR-059 remainder: refreshProof's merkle-BUMP and raw-tx hex reads were
+// unbounded, unlike the address-sweep/BEEF reads XR-059 already bounded
+// elsewhere with this exact guard shape (address.ts's parseWocBeefBody,
+// beefRepair.ts's refetchAtomicBeef).
+describe('XR-059 remainder: boundedHexResponse', () => {
+  it('trims and returns ordinary hex unchanged', () => {
+    expect(boundedHexResponse('  deadBEEF01  ', 1000)).toBe('deadBEEF01')
+  })
+
+  it('rejects an empty body', () => {
+    expect(boundedHexResponse('', 1000)).toBeUndefined()
+    expect(boundedHexResponse('   ', 1000)).toBeUndefined()
+  })
+
+  it('rejects a body over the byte cap, without ever hex-decoding it', () => {
+    // A compromised/misbehaving indexer answering with far more bytes than
+    // any real merkle proof or raw tx could legitimately carry.
+    const oversized = 'ab'.repeat(600_000) // 1,200,000 hex chars
+    expect(boundedHexResponse(oversized, 1_000_000)).toBeUndefined()
+  })
+
+  it('accepts a body exactly at the cap', () => {
+    const atCap = 'ab'.repeat(500_000) // exactly 1,000,000 hex chars
+    expect(boundedHexResponse(atCap, 1_000_000)).toBe(atCap)
+  })
+
+  it('rejects odd-length hex', () => {
+    expect(boundedHexResponse('abc', 1000)).toBeUndefined()
+  })
+
+  it('rejects non-hex characters', () => {
+    expect(boundedHexResponse('not hex at all', 1000)).toBeUndefined()
+    expect(boundedHexResponse('<html>404</html>', 1000)).toBeUndefined()
   })
 })

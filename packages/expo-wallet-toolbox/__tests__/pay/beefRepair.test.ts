@@ -30,11 +30,13 @@ function paymentAt(height: number): { txid: string; beefHex: string; parentTxid:
   return { txid: tx.id('hex'), beefHex: Utils.toHex(tx.toBEEF()), parentTxid }
 }
 
-const responds = (body: string, ok = true, status = 200): FetchLike => async () => ({
-  ok,
-  status,
-  text: async () => body
-})
+const responds =
+  (body: string, ok = true, status = 200): FetchLike =>
+  async () => ({
+    ok,
+    status,
+    text: async () => body
+  })
 
 describe('refetchAtomicBeef', () => {
   const { txid, beefHex, parentTxid } = paymentAt(963600)
@@ -62,11 +64,26 @@ describe('refetchAtomicBeef', () => {
     ['a prose body', responds('Transaction not found')],
     ['an empty body', responds('')],
     ['odd-length hex', responds('abc')],
-    ['a fetch that throws', (async () => {
-      throw new Error('ENETDOWN')
-    }) as unknown as FetchLike]
+    [
+      'a fetch that throws',
+      (async () => {
+        throw new Error('ENETDOWN')
+      }) as unknown as FetchLike
+    ]
   ])('returns undefined for %s', async (_label, fetchImpl) => {
     await expect(refetchAtomicBeef({ woc, txid, fetchImpl })).resolves.toBeUndefined()
+  })
+
+  it('XR-059: rejects an oversized hex body before it is ever decoded or merged', async () => {
+    // All-zero bytes are not valid BEEF, so Beef.mergeBeef would throw on this
+    // body anyway — that would mask a missing size guard as a pass. Spying on
+    // mergeBeef proves the size check rejects it BEFORE that expensive
+    // decode+merge step runs at all, which is the actual thing being guarded.
+    const mergeSpy = jest.spyOn(Beef.prototype, 'mergeBeef')
+    const oversized = '00'.repeat(9_000_000)
+    await expect(refetchAtomicBeef({ woc, txid, fetchImpl: responds(oversized) })).resolves.toBeUndefined()
+    expect(mergeSpy).not.toHaveBeenCalled()
+    mergeSpy.mockRestore()
   })
 
   it('refuses a valid beef that is about a different transaction', async () => {

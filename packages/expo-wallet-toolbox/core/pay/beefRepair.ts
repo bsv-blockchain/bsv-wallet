@@ -23,7 +23,7 @@
  * and `makeBeefRepair` declines rather than burning an attempt on it.
  */
 import { Beef, Utils } from '@bsv/sdk'
-import type { WocConfig } from './rails/address'
+import { MAX_HEX_RESPONSE_CHARS, type WocConfig } from './rails/address'
 
 /** Injectable for tests; production uses global fetch. */
 export type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>
@@ -53,7 +53,11 @@ export async function refetchAtomicBeef(args: {
     // a code path the user never asked for.
     if (!resp.ok) return undefined
     const hex = (await resp.text()).trim()
-    if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) return undefined
+    // XR-059: reject an oversized body before it is ever hex-decoded or
+    // merged into a Beef — a compromised/misbehaving indexer must not be able
+    // to force that work with an arbitrarily large response.
+    if (hex.length === 0 || hex.length > MAX_HEX_RESPONSE_CHARS || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex))
+      return undefined
     bytes = Utils.toArray(hex, 'hex')
   } catch {
     return undefined
