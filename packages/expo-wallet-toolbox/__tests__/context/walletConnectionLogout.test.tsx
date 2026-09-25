@@ -81,7 +81,7 @@ function fakeMobileWallet() {
 }
 
 test('XR-018: disconnectActivePairedSession() closes the live socket of a connected WalletConnectionProvider', async () => {
-  const { result } = renderHook(() => useWalletConnection(), {
+  const { result, unmount } = renderHook(() => useWalletConnection(), {
     wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
   })
 
@@ -100,6 +100,7 @@ test('XR-018: disconnectActivePairedSession() closes the live socket of a connec
   })
 
   expect(ws.close).toHaveBeenCalledTimes(1)
+  unmount()
 })
 
 test('XR-018: disconnectActivePairedSession() is a safe no-op with no live session or no mounted provider', () => {

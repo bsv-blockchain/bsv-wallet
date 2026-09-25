@@ -364,6 +364,22 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
           console.warn('[WalletConnection] dropping message: seq', sequence, '<= lastSeq', lastSeqRef.current)
           return
         }
+        // XR-021: commit the accepted sequence durably BEFORE dispatching the
+        // wallet's side-effecting call below (createAction, signAction, ...),
+        // and before advancing the in-memory watermark. Previously the
+        // watermark only advanced in memory, and the only durable write was
+        // fire-and-forget in disconnect()/onclose — a crash/kill between the
+        // wallet call completing and that write landing left SecureStore
+        // behind what actually ran, so a captured ciphertext replayed after
+        // reconnect re-executed the identical mutating call. Fail closed: if
+        // the durable write itself fails, drop the message rather than
+        // dispatching with no durable record of having accepted it.
+        try {
+          await SecureStore.setItemAsync(lastSeqKey(meta.topic), String(sequence))
+        } catch (err) {
+          console.warn('[WalletConnection] dropping message: failed to persist sequence', err)
+          return
+        }
         lastSeqRef.current = sequence
 
         if (!firstMessageFired) {
