@@ -170,6 +170,25 @@ describe('relay URL and response boundary', () => {
     expect(() => validateRelayUrl(relay)).toThrow()
   })
 
+  /**
+   * XR-024 (SEC2-055): the origin server's relay URL is exactly as untrusted
+   * as the pairing origin itself -- nothing stopped it from naming a
+   * loopback/private/link-local literal, sending the device's WebSocket
+   * connection into its own local network.
+   */
+  it.each([
+    'wss://127.0.0.1/',
+    'wss://192.168.1.5/',
+    'wss://10.0.0.5/',
+    'wss://169.254.1.1/',
+    'wss://localhost/',
+    'wss://relay.local/',
+    'wss://relay.internal/',
+    'wss://[::1]/'
+  ])('rejects a relay URL naming a private-network destination: %s', relay => {
+    expect(() => validateRelayUrl(relay)).toThrow()
+  })
+
   it('caps and validates the relay discovery JSON before using its URL', () => {
     expect(parseRelayResponse('{"relay":"wss://relay.example/"}')).toBe('wss://relay.example')
     expect(() => parseRelayResponse('{"relay":"ws://relay.example"}')).toThrow()

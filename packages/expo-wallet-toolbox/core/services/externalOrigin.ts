@@ -1,4 +1,5 @@
 import { ADMIN_ORIGINATOR } from '../config'
+import { isPrivateNetworkHost } from '../net/publicDestination'
 
 export interface ExternalOrigin {
   /** Canonical HTTPS origin used for relay discovery and persistence. */
@@ -37,6 +38,16 @@ export function parseExternalOrigin(raw: string): ExternalOrigin {
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
   if (hostname === 'invalid' || hostname.endsWith('.invalid') || originator === ADMIN_ORIGINATOR.toLowerCase()) {
     throw new Error('Origin is reserved for the wallet')
+  }
+  // XR-024 (SEC2-055): TLS certificate validity gates WHO can claim a given
+  // hostname, not WHERE that hostname points -- a self-signed pairing payload
+  // naming a loopback/RFC1918/link-local literal directly gets a real fetch
+  // into the device's own local network with no DNS trickery needed. This is
+  // a floor, not a firewall: a public hostname that only *resolves* to such
+  // an address (DNS rebinding) needs a redirect/connect-time check on the
+  // platform's networking stack, which this codebase does not have.
+  if (isPrivateNetworkHost(url.hostname)) {
+    throw new Error('Origin must not name a loopback or private-network destination')
   }
   return { origin: url.origin, originator }
 }

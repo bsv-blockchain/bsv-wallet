@@ -5,7 +5,7 @@
  * so a hostname that only *resolves* to a private address is not caught. What
  * this closes is a destination that names one directly.
  */
-import { isPublicHttpsUrl } from '../../core/net/publicDestination'
+import { isPrivateNetworkHost, isPublicHttpsUrl } from '../../core/net/publicDestination'
 
 describe('isPublicHttpsUrl', () => {
   it('accepts an ordinary public https URL', () => {
@@ -50,5 +50,31 @@ describe('isPublicHttpsUrl', () => {
 
   it('rejects an IPv4-mapped IPv6 literal that embeds a private address', () => {
     expect(isPublicHttpsUrl('https://[::ffff:127.0.0.1]/x')).toBe(false)
+  })
+})
+
+/**
+ * XR-024 (SEC2-055): the address-class half of isPublicHttpsUrl, exposed for
+ * validators (parseExternalOrigin's https origin, validateRelayUrl's wss
+ * origin) that enforce a different scheme themselves.
+ */
+describe('isPrivateNetworkHost', () => {
+  it('accepts an ordinary public hostname', () => {
+    expect(isPrivateNetworkHost('example.com')).toBe(false)
+  })
+
+  it('rejects loopback, RFC1918, link-local, and reserved-TLD literals', () => {
+    expect(isPrivateNetworkHost('127.0.0.1')).toBe(true)
+    expect(isPrivateNetworkHost('10.1.2.3')).toBe(true)
+    expect(isPrivateNetworkHost('192.168.1.1')).toBe(true)
+    expect(isPrivateNetworkHost('169.254.1.1')).toBe(true)
+    expect(isPrivateNetworkHost('localhost')).toBe(true)
+    expect(isPrivateNetworkHost('printer.local')).toBe(true)
+    expect(isPrivateNetworkHost('host.internal')).toBe(true)
+    expect(isPrivateNetworkHost('[::1]')).toBe(true)
+  })
+
+  it('rejects the empty hostname', () => {
+    expect(isPrivateNetworkHost('')).toBe(true)
   })
 })

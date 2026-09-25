@@ -1,5 +1,6 @@
 import { PublicKey, type WalletProtocol } from '@bsv/sdk'
 import { parseExternalOrigin, type ExternalOrigin } from './externalOrigin'
+import { isPrivateNetworkHost } from '../net/publicDestination'
 
 const KB = 1024
 const MB = 1024 * KB
@@ -285,6 +286,13 @@ export function validateRelayUrl(raw: unknown): string {
   if (url.username || url.password) throw new Error('Relay URL must not include credentials')
   if (url.pathname !== '/' || url.search || url.hash) {
     throw new Error('Relay URL must be a bare WSS origin')
+  }
+  // XR-024 (SEC2-055): the origin server's relay URL is exactly as untrusted
+  // as the pairing origin it came from (see parseExternalOrigin) -- nothing
+  // stopped it from naming a loopback/private/link-local literal and sending
+  // the device's WebSocket connection into its own local network.
+  if (isPrivateNetworkHost(url.hostname)) {
+    throw new Error('Relay URL must not name a loopback or private-network destination')
   }
   return url.origin
 }

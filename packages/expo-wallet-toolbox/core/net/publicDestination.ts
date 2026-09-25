@@ -55,10 +55,28 @@ function isPrivateIPv6(host: string): boolean {
 }
 
 /**
+ * The address-class half of `isPublicHttpsUrl`, exposed on its own for
+ * validators that enforce a different scheme themselves (e.g. `wss://`
+ * relay URLs, or the `https://` pairing origin's own reserved-`.invalid`
+ * check) and only need "is this hostname loopback/private/link-local/
+ * reserved/a bare local-network literal" (XR-024 / SEC2-055). Takes a URL's
+ * already-punycoded `.hostname` — bracketed IPv6 included.
+ */
+export function isPrivateNetworkHost(rawHost: string): boolean {
+  const host = rawHost.toLowerCase().replace(/\.$/, '')
+  if (!host) return true
+  if (host === 'localhost' || host.endsWith('.localhost')) return true
+  if (host === 'local' || host.endsWith('.local')) return true
+  if (host === 'internal' || host.endsWith('.internal')) return true
+  if (host.startsWith('[') || host.includes(':')) return isPrivateIPv6(host)
+  return isPrivateIPv4(host)
+}
+
+/**
  * A parseable, credential-free `https://` URL whose host is not a loopback,
- * private-use, link-local, CGNAT, multicast/reserved, or `.local`/`localhost`
- * address. The path/query is not otherwise restricted — this is a host-class
- * check, not a full origin policy.
+ * private-use, link-local, CGNAT, multicast/reserved, or `.local`/`localhost`/
+ * `.internal` address. The path/query is not otherwise restricted — this is a
+ * host-class check, not a full origin policy.
  */
 export function isPublicHttpsUrl(raw: string): boolean {
   let url: URL
@@ -69,10 +87,5 @@ export function isPublicHttpsUrl(raw: string): boolean {
   }
   if (url.protocol !== 'https:') return false
   if (url.username || url.password) return false
-  const host = url.hostname.toLowerCase().replace(/\.$/, '')
-  if (!host) return false
-  if (host === 'localhost' || host.endsWith('.localhost')) return false
-  if (host === 'local' || host.endsWith('.local')) return false
-  if (host.startsWith('[') || host.includes(':')) return !isPrivateIPv6(host)
-  return !isPrivateIPv4(host)
+  return !isPrivateNetworkHost(url.hostname)
 }
