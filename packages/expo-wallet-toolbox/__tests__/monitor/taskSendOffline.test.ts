@@ -188,3 +188,58 @@ describe('the release wrapper bump condition (context/WalletContext.tsx) — pur
     expect(bump).toHaveBeenCalledTimes(2)
   })
 })
+
+// XR-105: MonitorSupervisor.restart() starts a new generation's loop without
+// cancelling or awaiting the prior generation's in-flight runOnce(). Unlike
+// TaskDrainOutbox (guarded since 8f959528) and TaskCreditInbox (its own
+// pre-existing inFlight mutex), TaskSendOffline had no guard at all, so a
+// watchdog restart during a hung release() could run two concurrent passes
+// over the offline-send queue.
+describe('TaskSendOffline concurrency guard', () => {
+  beforeEach(() => TaskSendOffline.resetForTests())
+
+  it('a second overlapping runTask call returns without releasing', async () => {
+    TaskSendOffline.noteConnectivity(true)
+    let releaseFirst: () => void = () => {}
+    const releaseCalls: number[] = []
+    const t = new TaskSendOffline(
+      monitor,
+      async () => {
+        releaseCalls.push(releaseCalls.length)
+        if (releaseCalls.length === 1) {
+          await new Promise<void>(resolve => {
+            releaseFirst = resolve
+          })
+        }
+        return idle
+      },
+      () => 0
+    )
+
+    const first = t.runTask()
+    const second = t.runTask()
+    expect(await second).toBe('')
+    expect(releaseCalls).toHaveLength(1)
+
+    releaseFirst()
+    await first
+    expect(releaseCalls).toHaveLength(1)
+  })
+
+  it('clears the guard on throw, so the next call can still release', async () => {
+    TaskSendOffline.noteConnectivity(true)
+    let shouldThrow = true
+    const t = new TaskSendOffline(
+      monitor,
+      async () => {
+        if (shouldThrow) throw new Error('boom')
+        return idle
+      },
+      () => 0
+    )
+
+    await t.runTask()
+    shouldThrow = false
+    expect(await t.runTask()).toBe('')
+  })
+})

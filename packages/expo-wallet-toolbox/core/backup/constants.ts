@@ -80,9 +80,38 @@ export const MIN_PUSH_INTERVAL_MS = 60_000
  */
 export const MAX_BLOB_BYTES = 1 << 20
 
+/**
+ * Hard ceiling on a single restore-side HTTP response body, enforced against the
+ * Content-Length header before any transport call materializes it.
+ *
+ * Independent of the server's own advertised cap (`client.limits().maxBlobBytes`, up to
+ * 200 MiB) — this exists so a malicious or compromised backup host cannot exhaust mobile
+ * memory merely by declaring (and then sending) an oversized body. React Native's fetch has
+ * no incremental/streaming read mode (see client.ts's withBackupRequestTimeout), so the
+ * only point at which an oversized body can be bounded at all is before it is ever
+ * requested to be read — hence the check runs on the header, not the bytes.
+ */
+export const MAX_RESTORE_RESPONSE_BYTES = 64 * 1024 * 1024
+
+/**
+ * Hard ceiling on how many entries a single generation's index may accumulate across pages.
+ *
+ * `INDEX_PAGE_SIZE` (RemoteSyncReader.ts) is only a server-supplied paging hint — a
+ * malicious or compromised backup host could otherwise keep returning full pages forever,
+ * growing `entries[]` without bound. Far beyond any real wallet's expected chunk count:
+ * `GENERATION_CHUNK_THRESHOLD` rotates a generation long before this many chunks land.
+ */
+export const MAX_INDEX_ENTRIES = 50_000
+
 /** AsyncStorage keys. */
 export const DEVICE_ID_KEY = 'backupDeviceId'
 // The chain is redundant with the pseudonym (which already differs per chain) but explicit:
 // a cursor must never be consulted for the wrong network's database.
+//
+// Exported separately from cursorKey so a caller that wants EVERY device's cursor for one
+// identity — e.g. a Wallet Check that must not see a different (departed) wallet's leftover
+// cursor on the same install — can scan by prefix without needing this device's own id.
+export const cursorKeyPrefix = (chain: BackupChain, pseudonym: string): string =>
+  `backupCursor-${chain}-${pseudonym}-`
 export const cursorKey = (chain: BackupChain, pseudonym: string, deviceId: string): string =>
-  `backupCursor-${chain}-${pseudonym}-${deviceId}`
+  `${cursorKeyPrefix(chain, pseudonym)}${deviceId}`

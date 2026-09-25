@@ -248,6 +248,15 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
             client()?.disconnectFromEndpoint(endpointId)
             return
           }
+          if (bytes.size > MAX_BYTES_PAYLOAD) {
+            // XR-090: mirrors sendFrame's own outbound ceiling (below). A
+            // payload beyond the wire-protocol's frame limit is not a larger
+            // legitimate frame, just more bytes to Base64-encode and forward
+            // to JS for no reason — refused here rather than accepted.
+            cancelIdleReaper(endpointId)
+            client()?.disconnectFromEndpoint(endpointId)
+            return
+          }
           // First-success-wins, like the Swift listener: stop advertising and
           // hold this connection open for the ack JS will decide on.
           cancelIdleReaper(endpointId)
@@ -487,6 +496,14 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
             }
             TYPE_ACK -> {
               val ack = bytes.copyOfRange(1, bytes.size)
+              if (ack.size > MAX_ACK_BYTES_PAYLOAD) {
+                // XR-090: an ack is `{ok, error?}` — nowhere near this size
+                // legitimately. Refused here rather than Base64-encoded and
+                // handed to JS's own parseAck, which enforces the same
+                // ceiling but only after this native hop already paid for it.
+                settle { promise.reject(Error("ack payload too large")) }
+                return
+              }
               settle { promise.resolve(Base64.encodeToString(ack, Base64.NO_WRAP)) }
             }
             else -> settle { promise.reject(Error("unexpected payload from peer")) }
@@ -572,6 +589,10 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
     private const val ROLE_A: Byte = 0x01
     private const val ROLE_B: Byte = 0x02
     private const val MAX_BYTES_PAYLOAD = 32768
+    // XR-090: an ack is `{ok, error?}` — a short machine code at most, never
+    // anything close to a frame's size. Generous headroom over any real
+    // reason string.
+    private const val MAX_ACK_BYTES_PAYLOAD = 4096
     private const val IDLE_CONNECTION_TIMEOUT_MS = 30_000L
     private const val PENDING_ACK_TIMEOUT_MS = 60_000L
   }

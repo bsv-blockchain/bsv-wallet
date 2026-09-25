@@ -10,6 +10,7 @@ import {
   DEFAULT_ARC_URLS,
   arcUrlStorageKey,
   arcApiTokenStorageKey,
+  validateArcUrl,
   useTheme,
   spacing,
   typography,
@@ -176,6 +177,7 @@ export function WalletConfigScreen() {
   const [arcUrlInput, setArcUrlInput] = useState('')
   const [arcTokenInput, setArcTokenInput] = useState('')
   const [arcSaving, setArcSaving] = useState(false)
+  const [arcUrlError, setArcUrlError] = useState(false)
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
 
   const currentCurrency = settings?.currency || 'BSV'
@@ -434,20 +436,39 @@ export function WalletConfigScreen() {
 
   const handleApplyArc = async () => {
     if (arcSaving) return
+    const url = arcUrlInput.trim()
+    const defaultUrl = DEFAULT_ARC_URLS[selectedNetwork] ?? ''
+    // XR-064: a custom endpoint carries the signed transaction (and any
+    // configured API token) over the wire — require https, with a narrow
+    // loopback exception for local dev.
+    if (url && url !== defaultUrl && !validateArcUrl(url)) {
+      setArcUrlError(true)
+      return
+    }
+    setArcUrlError(false)
     setArcSaving(true)
     try {
-      const url = arcUrlInput.trim()
       const token = arcTokenInput.trim()
-      const defaultUrl = DEFAULT_ARC_URLS[selectedNetwork] ?? ''
+      const previousUrl = (await AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork))) ?? defaultUrl
+      const previousToken = (await AsyncStorage.getItem(arcApiTokenStorageKey(selectedNetwork))) ?? ''
+      const nextUrl = url || defaultUrl
+      const originChanged = previousUrl !== nextUrl
+      // XR-064: a token left exactly as loaded from storage must never
+      // silently follow onto a different origin the person just switched
+      // to — require it to be re-entered for the new host. A token the
+      // person actually typed in this same action (different from what was
+      // stored) is an intentional, explicit entry and is still honored.
+      const stalePriorToken = originChanged && token === previousToken
       if (url && url !== defaultUrl) {
         await AsyncStorage.setItem(arcUrlStorageKey(selectedNetwork), url)
       } else {
         await AsyncStorage.removeItem(arcUrlStorageKey(selectedNetwork))
       }
-      if (token) {
+      if (token && !stalePriorToken) {
         await AsyncStorage.setItem(arcApiTokenStorageKey(selectedNetwork), token)
       } else {
         await AsyncStorage.removeItem(arcApiTokenStorageKey(selectedNetwork))
+        if (stalePriorToken) setArcTokenInput('')
       }
       setArcExpanded(false)
       await rebuildWallet()
@@ -465,6 +486,7 @@ export function WalletConfigScreen() {
     ])
     setArcUrlInput(DEFAULT_ARC_URLS[selectedNetwork] ?? '')
     setArcTokenInput('')
+    setArcUrlError(false)
     setArcExpanded(false)
     await rebuildWallet()
   }
@@ -663,9 +685,15 @@ export function WalletConfigScreen() {
                 <View style={localStyles.arcInputRow}>
                   <Text style={[localStyles.arcLabel, { color: colors.textSecondary }]}>{t('arc_custom_url')}</Text>
                   <TextInput
-                    style={[localStyles.arcInput, { color: colors.textPrimary, borderColor: colors.separator }]}
+                    style={[
+                      localStyles.arcInput,
+                      { color: colors.textPrimary, borderColor: arcUrlError ? colors.error : colors.separator }
+                    ]}
                     value={arcUrlInput}
-                    onChangeText={setArcUrlInput}
+                    onChangeText={text => {
+                      setArcUrlInput(text)
+                      if (arcUrlError) setArcUrlError(false)
+                    }}
                     placeholder="https://..."
                     placeholderTextColor={colors.textSecondary}
                     autoCapitalize="none"
@@ -673,6 +701,9 @@ export function WalletConfigScreen() {
                     keyboardType="url"
                     returnKeyType="next"
                   />
+                  {arcUrlError && (
+                    <Text style={{ ...typography.caption1, color: colors.error }}>{t('arc_url_https_required')}</Text>
+                  )}
                 </View>
                 <View style={localStyles.arcInputRow}>
                   <Text style={[localStyles.arcLabel, { color: colors.textSecondary }]}>{t('arc_api_token')}</Text>

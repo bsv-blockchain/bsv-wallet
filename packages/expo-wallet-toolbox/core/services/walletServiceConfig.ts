@@ -1,10 +1,7 @@
 import type { AppChain } from '../config'
 import { toWalletChain } from '../config'
 import { getServiceConfig } from '../toolboxConfig'
-import {
-  ChaintracksServiceClient,
-  Services
-} from '@bsv/wallet-toolbox-mobile'
+import { ChaintracksServiceClient, Services } from '@bsv/wallet-toolbox-mobile'
 import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { ChainTracker } from '@bsv/sdk'
 import type { BsvExchangeRate, WalletServicesOptions } from '../toolboxTypes'
@@ -103,6 +100,11 @@ export function createServiceOptions(
   }
   const arcade = { arcUrl: arcadeUrl, arcConfig, arcadeUrl, arcadeConfig: arcConfig }
 
+  // XR-066: taalApiKey must never fall back to whatsOnChainApiKey. TAAL and
+  // WhatsOnChain are different origins (createTaalBroadcastService sends
+  // this key as a Bearer token to arc.taal.com et al. on every ordinary
+  // broadcast) — a host that scoped a key to WhatsOnChain must not have it
+  // silently disclosed to TAAL just because it left taalApiKey unset.
   if (network === 'main') {
     return {
       ...base,
@@ -110,7 +112,7 @@ export function createServiceOptions(
       bsvUpdateMsecs: 60 * 60 * 1000,
       fiatUpdateMsecs: 60 * 60 * 1000,
       whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
-      taalApiKey: svc.taalApiKey ?? svc.whatsOnChainApiKey ?? '',
+      taalApiKey: svc.taalApiKey ?? '',
       chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
     }
   }
@@ -122,7 +124,7 @@ export function createServiceOptions(
       bsvUpdateMsecs: 60 * 60 * 1000000,
       fiatUpdateMsecs: 60 * 60 * 1000000,
       whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
-      taalApiKey: svc.taalApiKey ?? svc.whatsOnChainApiKey ?? '',
+      taalApiKey: svc.taalApiKey ?? '',
       chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
     }
   }
@@ -134,7 +136,7 @@ export function createServiceOptions(
     bsvUpdateMsecs: 60 * 60 * 1000000,
     fiatUpdateMsecs: 60 * 60 * 1000000,
     whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
-    taalApiKey: svc.taalApiKey ?? svc.whatsOnChainApiKey ?? '',
+    taalApiKey: svc.taalApiKey ?? '',
     chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
   }
 }

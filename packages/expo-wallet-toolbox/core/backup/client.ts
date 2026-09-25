@@ -30,7 +30,7 @@ import {
   type Limits,
   type LogEntry
 } from '@bsv/backup-cache-client'
-import type { BackupChain } from './constants'
+import { MAX_RESTORE_RESPONSE_BYTES, type BackupChain } from './constants'
 import { deriveBackupWallet } from './derive'
 
 export { BackupHttpError, ERR_BLOB_TOO_LARGE, ERR_SEQ_CONFLICT }
@@ -135,6 +135,20 @@ export function withBackupRequestTimeout(transport: typeof fetch): typeof fetch 
     }
 
     const response = await bounded(() => transport(input, { ...init, signal: controller.signal }))
+    // Refuse before EITHER reader is ever wrapped, let alone called: on this platform fetch
+    // has no incremental/streaming read mode (see this function's own docstring), so a
+    // declared-oversized body can only be bounded here, never partway through reading it.
+    // A response that omits Content-Length entirely passes through unchanged — a documented
+    // residual gap (see MAX_RESTORE_RESPONSE_BYTES), not a false rejection of ordinary
+    // traffic that happens not to declare a length.
+    const declaredLength = Number(response.headers.get('content-length'))
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_RESTORE_RESPONSE_BYTES) {
+      throw new BackupHttpError(
+        response.status,
+        'ERR_RESPONSE_TOO_LARGE',
+        `response declared ${declaredLength} bytes, over the ${MAX_RESTORE_RESPONSE_BYTES}-byte restore cap`
+      )
+    }
     const readJson = response.json.bind(response)
     const readArrayBuffer = response.arrayBuffer.bind(response)
     response.json = () => bounded(readJson)

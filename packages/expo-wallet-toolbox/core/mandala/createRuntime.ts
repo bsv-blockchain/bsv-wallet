@@ -71,7 +71,12 @@ import { getPending, type KVStorage, type TokenCreditedHook } from '../localpay/
 import type { PaymentFrame } from '../localpay/codec'
 import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
-import { frameTokenAmount, tokenFrameSourcesFromOfflineActions, tokenFrameSourcesFromPending } from '../offline/tokenFrames'
+import { MAX_TOKEN_DECIMALS } from '../localpay/session'
+import {
+  frameTokenAmount,
+  tokenFrameSourcesFromOfflineActions,
+  tokenFrameSourcesFromPending
+} from '../offline/tokenFrames'
 import { resendTokenTransfer, type TokenResendAction, type TokenResendOutcome } from './resendTransfer'
 import { preHoldInboxSettlements } from './inboxPrehold'
 import type { CoverBundle, CoverVerifier } from './bundle'
@@ -274,6 +279,21 @@ const TOKEN_LIST_PAGE = 1000
 const TOKEN_LIST_MAX_PAGES = 1000
 
 /**
+ * `meta.decimals` comes from the overlay's own asset registry — an external,
+ * issuer-controlled source — and flows straight into `TokenAssetInfo
+ * .decimals`, from there into every `ui/tokenFormat.ts` formatter downstream
+ * (XR-043: an unbounded decimals figure is how a malicious registry entry
+ * crashes the balance/activity UI, not just a session QR). Out-of-range or
+ * unresolvable reads as "unknown" — 0, the same fallback the previous
+ * `Number(meta?.decimals) || 0` already used — never a value past what any
+ * `ui/tokenFormat.ts` formatter will accept.
+ */
+function safeTokenDecimals(value: unknown): number {
+  const n = Number(value)
+  return Number.isInteger(n) && n >= 0 && n <= MAX_TOKEN_DECIMALS ? n : 0
+}
+
+/**
  * Every lib call runs as the admin originator.
  *
  * `@bsv/mandala` takes a `WalletInterface` and passes no originator, which
@@ -372,11 +392,39 @@ function referenceOf(result: unknown): { reference?: string } {
   return typeof reference === 'string' && reference.length > 0 ? { reference } : {}
 }
 
+/**
+ * XR-034/XR-035: the payee already holds the bytes by the time this runs, so a
+ * transient write fault here (a busy/locked SQLite, a brief disk hiccup) must
+ * not be the only thing standing between "journaled" and "no durable record
+ * exists at all" — the latter is what leaves `wrapAbortActionForSettlements`
+ * nothing to block on. Three attempts, a short fixed backoff: enough for an
+ * ordinary transient fault to clear, small enough not to make a payer wait on
+ * a send that has already gone out. `upsertSettlement` is a plain upsert keyed
+ * on `txid`, so retrying it after a failed attempt is safe — nothing partial
+ * can have been committed for the caller to retry over.
+ */
+async function upsertSettlementDurably(
+  store: Pick<SettlementStore, 'upsertSettlement'>,
+  row: Parameters<SettlementStore['upsertSettlement']>[0]
+): Promise<void> {
+  const attempts = 3
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await store.upsertSettlement(row)
+      return
+    } catch (e) {
+      if (attempt === attempts) throw e
+      await new Promise(resolve => setTimeout(resolve, attempt * 100))
+    }
+  }
+}
+
 /** A store for a runtime with no database: every read is empty, every write a no-op. */
 function nullStore(): SettlementStore {
   return {
     getSettlement: async () => undefined,
     getSettlementByReference: async () => undefined,
+    hasUnresolvedLegacyBlockedRows: async () => false,
     listSettlements: async () => [],
     upsertSettlement: async () => undefined,
     advanceSettlement: async () => false,
@@ -422,7 +470,11 @@ interface ListedTokenOutput {
  * ux copy means by "settled with {{issuer}}". The broadcast that follows is
  * this device's bookkeeping, not the payment's fate.
  */
-export function activityStatusOf(row: TokenSettlementRow, nowMs: number, olderThanMs = STUCK_AFTER_MS): TokenActivityStatus {
+export function activityStatusOf(
+  row: TokenSettlementRow,
+  nowMs: number,
+  olderThanMs = STUCK_AFTER_MS
+): TokenActivityStatus {
   switch (row.state) {
     case 'broadcast':
     case 'admitted':
@@ -487,7 +539,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
 
   const metadataCache = new Map<string, { label?: string; ticker?: string; decimals?: number } | null>()
   const resolveMetadata = args.resolveMetadata ?? (async (assetId: string) => await resolveAssetMetadata(assetId))
-  const metadataOf = async (assetId: string): Promise<{ label?: string; ticker?: string; decimals?: number } | null> => {
+  const metadataOf = async (
+    assetId: string
+  ): Promise<{ label?: string; ticker?: string; decimals?: number } | null> => {
     const cached = metadataCache.get(assetId)
     if (cached !== undefined) return cached
     let resolved: { label?: string; ticker?: string; decimals?: number } | null = null
@@ -509,7 +563,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       assetId,
       label: meta?.label && meta.label !== '' ? meta.label : `${assetId.slice(0, 20)}…`,
       ticker: meta?.ticker ?? '',
-      decimals: Number(meta?.decimals) || 0,
+      decimals: safeTokenDecimals(meta?.decimals),
       ...(typeof issuerName === 'string' && issuerName !== '' ? { issuerName } : {}),
       overlayUrl,
       overlayIdentityKey
@@ -539,7 +593,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const isAdmittedIn = (rows: OverlayRegistryRow[], key: string): boolean =>
     rows.some(r => r.identityKey.toLowerCase() === key.toLowerCase() && r.status === 'admitted')
 
-  const loadAssetStatusSnapshot = async (assetId: string, opts: { force?: boolean } = {}): Promise<AssetStatusSnapshot> => {
+  const loadAssetStatusSnapshot = async (
+    assetId: string,
+    opts: { force?: boolean } = {}
+  ): Promise<AssetStatusSnapshot> => {
     const [state, registryRows, meta] = await Promise.all([
       (async () => {
         try {
@@ -998,7 +1055,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         signerKey
       })
       if (!trusted) {
-        devLog(`[mandala] /submit of ${txid}: admission signature does not verify under the configured key; not an admission`)
+        devLog(
+          `[mandala] /submit of ${txid}: admission signature does not verify under the configured key; not an admission`
+        )
         return { kind: 'unavailable', code: 'ERR_BAD_ADMISSION', retryable: true }
       }
       return { kind: 'admitted', outputsToAdmit: admitted.outputsToAdmit, signatureHex, signerKey }
@@ -1039,7 +1098,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const resolveEmptyAdmittedSet = async (txid: string): Promise<OverlayVerdict> => {
     const onRecord = await fetchAdmission(overlayUrl, txid)
     if (onRecord === undefined || onRecord.kind === 'unavailable') {
-      devLog(`[mandala] /submit of ${txid} admitted nothing and no admission is on record; the step is retried next pass`)
+      devLog(
+        `[mandala] /submit of ${txid} admitted nothing and no admission is on record; the step is retried next pass`
+      )
       return { kind: 'unavailable', code: 'ERR_EMPTY_ADMISSION', retryable: true }
     }
     devLog(`[mandala] /submit of ${txid} admitted nothing; the overlay's record says '${onRecord.kind}'`)
@@ -1082,7 +1143,17 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         devLog(`[mandala] could not read the cached admission of ${txid}:`, e)
         continue
       }
-      if (cached && cached.signatureHex !== '' && cached.signerKey === overlayIdentityKey) continue
+      // XR-038: a cached admission that does not cover every vout THIS device
+      // currently holds of `txid` is not "good enough, skip" — it would hand a
+      // future offline payee an entry that (rightly) never covers the coin
+      // being spent, so the fetch below still runs and the row is refreshed.
+      if (
+        cached &&
+        cached.signatureHex !== '' &&
+        cached.signerKey === overlayIdentityKey &&
+        vouts.every(v => cached.outputsToAdmit.includes(v))
+      )
+        continue
       const verdict = await fetchAdmission(overlayUrl, txid)
       if (verdict?.kind !== 'admitted') continue
       try {
@@ -1101,15 +1172,16 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       }
       const unadmitted = vouts.filter(v => !verdict.outputsToAdmit.includes(v))
       if (unadmitted.length > 0) {
-        console.warn(`[mandala] ${txid} is admitted but not for held output(s) ${unadmitted.join(',')}; those coins will not cover offline`)
+        console.warn(
+          `[mandala] ${txid} is admitted but not for held output(s) ${unadmitted.join(',')}; those coins will not cover offline`
+        )
       }
     }
     return fetched
   }
 
   /** DerSignature (string | number[] | Uint8Array), as the hex string OverlayVerdict wants. */
-  const derSignatureHex = (sig: DerSignature): string =>
-    typeof sig === 'string' ? sig : Utils.toHex(Array.from(sig))
+  const derSignatureHex = (sig: DerSignature): string => (typeof sig === 'string' ? sig : Utils.toHex(Array.from(sig)))
 
   /**
    * GET /admin/admission/:txid (wire contract v2 §3), mapped onto
@@ -1385,6 +1457,25 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             admissionOutputs: verdict.outputsToAdmit,
             admissionSignatureHex: verdict.signatureHex
           })
+          continue
+        }
+        // XR-042: `entry.kind === 'refused'/'evicted'` above (in `fetchAdmission`)
+        // is the raw, UNSIGNED overlay HTTP response — unlike the 'admitted'
+        // branch a few lines up, nothing here is checked against `overlayIdentityKey`
+        // at all. A row this device already holds a σ_I-VERIFIED admission for
+        // (`row.admissionSignatureHex`/`admissionOutputs`, only ever written
+        // after `verifyFetchedAdmission` succeeded — see `fetchAdmission` and
+        // `receiveFromInbox` above) is therefore not something a later unsigned
+        // negative may downgrade: that positive is cryptographic and this
+        // negative is not, so the positive stands. Reported as unattested
+        // rather than removed — the next pass asks again, exactly like an
+        // unreachable overlay.
+        if (row.admissionSignatureHex && row.admissionOutputs && row.admissionOutputs.length > 0) {
+          devLog(
+            `[mandala] token review: ${row.txid} already carries a verified admission; ` +
+              `ignoring the unsigned ${verdict.kind} verdict`
+          )
+          review.unattested++
           continue
         }
         const to: TokenSettlementState = verdict.kind === 'evicted' ? 'orphaned' : 'refused'
@@ -1808,6 +1899,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       amountBaseUnits: frameTokenAmount(frame),
       overlayUrl,
       overlayIdentityKey,
+      // XR-038: the payee's own output — read as 0 when the frame carries none,
+      // same as `frameTokenAmount` already does — so a cached admission that
+      // covers some OTHER output of this txid can never stand in for a real
+      // `/submit` of the one THIS device is actually owed.
+      relevantVout: frame.outputIndex ?? 0,
       createdAt: existing?.createdAt
     })
     emit()
@@ -1841,7 +1937,12 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     // branches on it, and `putLinkage` never overwrites a row already here.)
     await cacheFrameEvidence(frame, `a ${state} frame`, { linkageSource: 'minted' })
     const existing = await store.getSettlement(txid)
-    await store.upsertSettlement({
+    // XR-036: retried, same reason as `sendToHandle`'s own journal write
+    // (`upsertSettlementDurably`) — `payerHold.ts`'s `holdSentPaymentOffline`
+    // keeps its queue row non-drainable until THIS write lands, so a transient
+    // fault here should not be the difference between a guarded hold and one
+    // stuck at 'parked' for a later manual reconciliation.
+    await upsertSettlementDurably(store, {
       txid,
       role: 'sent',
       assetId: token.assetId,
@@ -1852,6 +1953,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       amountBaseUnits: frameTokenAmount(frame),
       overlayUrl,
       overlayIdentityKey,
+      // XR-038: same convention as `onTokenHeld` — output 0 is the payee's
+      // unless the frame says otherwise, and that is the one output a cached
+      // admission has to cover before the drain may skip a real `/submit` of
+      // this tip.
+      relevantVout: frame.outputIndex ?? 0,
       // The nearby rail's half of the abort guard: the action that built this
       // tip is `noSend` and stays that way until the drain broadcasts it, so
       // the reference is recorded the same moment the row is. Absent for a
@@ -1941,9 +2047,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             overlayUrl,
             overlayIdentityKey,
             linkage:
-              bytes.offChainValues.length > 0
-                ? [{ txid: id, payload: Uint8Array.from(bytes.offChainValues) }]
-                : []
+              bytes.offChainValues.length > 0 ? [{ txid: id, payload: Uint8Array.from(bytes.offChainValues) }] : []
           },
           transaction: Uint8Array.from(bytes.beef)
         },
@@ -1994,6 +2098,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       amountBaseUnits: Number(transfer.amount) || undefined,
       overlayUrl,
       overlayIdentityKey,
+      // XR-038: `outputIndex` is where the SENDER's (randomised) tx put our
+      // output — 0 for legacy messages — the one output a cached admission
+      // has to cover before the drain may skip a real `/submit` of this txid.
+      relevantVout: transfer.outputIndex ?? 0,
       ...(verified && admission
         ? { admissionOutputs: [...admission.outputsToAdmit], admissionSignatureHex: admission.signature }
         : {}),
@@ -2103,7 +2211,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       return await resendTokenTransfer(txid, {
         blindingRecord: async id => {
           const record = await blindingGet(id)
-          return record ? { recipient: record.recipient, senderBlinded: record.senderBlinded, keyID: record.keyID } : undefined
+          return record
+            ? { recipient: record.recipient, senderBlinded: record.senderBlinded, keyID: record.keyID }
+            : undefined
         },
         // The `mandala`-labelled action with its outputs: both rails write the
         // label (the nearby rail since 2026-09-16) and the payee output's marker.
@@ -2127,7 +2237,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           const cached = await store.getAdmission(id)
           // An unsigned entry (see `submit`) is bookkeeping, not evidence to forward.
           if (!cached || cached.signatureHex === '' || cached.signerKey === '') return undefined
-          return { outputsToAdmit: cached.outputsToAdmit, signatureHex: cached.signatureHex, signerKey: cached.signerKey }
+          return {
+            outputsToAdmit: cached.outputsToAdmit,
+            signatureHex: cached.signatureHex,
+            signerKey: cached.signerKey
+          }
         },
         journal: { put: notifyPut, remove: notifyRemove },
         sendMessage: args => box.sendMessage(args as never),
@@ -2264,7 +2378,13 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           devLog(`[mandala] sent ${result.txid} but could not cache its evidence:`, e)
         }
         try {
-          await store.upsertSettlement({
+          // XR-034/XR-035: retried (see `upsertSettlementDurably`) because this
+          // row is the ONLY durable evidence of the hand-over — there is no
+          // queue row and no pre-hand-over marker (the reference below does not
+          // exist until `transferTokens` has already returned it), so losing
+          // this write to one transient fault leaves the abort guard nothing to
+          // block on for a payment the payee may already hold or have submitted.
+          await upsertSettlementDurably(store, {
             txid: result.txid,
             role: 'sent',
             assetId,
@@ -2290,9 +2410,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             ...referenceOf(result)
           })
         } catch (e) {
-          // The transfer is committed; a journal failure costs a later
-          // reconciliation pass, never the payment.
-          devLog(`[mandala] sent ${result.txid} but could not journal it:`, e)
+          // Every retry was exhausted: the transfer is still committed (the
+          // payee already has the bytes), and this is now genuinely a later
+          // reconciliation pass's problem, not the payment's.
+          devLog(`[mandala] sent ${result.txid} but could not journal it after retrying:`, e)
         }
         emit()
         // `notified === false` is "committed, but the payee has not been told
@@ -2405,7 +2526,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       // immediately after, so a transient failure here retries whole on the
       // next drain tick instead of being credited on a bare table.
       for (const id of excluded) processedMessages.add(id)
-      let result: { accepted: ReceivedTransfer[]; failed: { messageId: string; error: unknown; refusedCode?: string }[] }
+      let result: {
+        accepted: ReceivedTransfer[]
+        failed: { messageId: string; error: unknown; refusedCode?: string }[]
+      }
       try {
         result = await receiveTokens({
           wallet: bound,
@@ -2482,4 +2606,3 @@ function assetIdOfTx(tx: Transaction): string | undefined {
   }
   return undefined
 }
-

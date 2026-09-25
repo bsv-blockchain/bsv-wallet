@@ -19,12 +19,7 @@
  * formats apart on recovery.
  */
 import { Mnemonic, PrivateKey } from '@bsv/sdk'
-import {
-  ENTROPY_BYTES,
-  generateEntropyShares,
-  generateLegacyKeyShares,
-  generatePrintHTML
-} from './backupShares'
+import { ENTROPY_BYTES, generateEntropyShares, generateLegacyKeyShares, generatePrintHTML } from './backupShares'
 import { recoverMnemonicWallet } from '@bsv/expo-wallet-toolbox'
 
 /**
@@ -64,9 +59,7 @@ export type PrintSharesResult =
  * message. A dismissed print sheet still rejects from expo-print and is the
  * caller's business.
  */
-export async function printRecoveryShares(
-  sources: PrintSharesSources
-): Promise<PrintSharesResult> {
+export async function printRecoveryShares(sources: PrintSharesSources): Promise<PrintSharesResult> {
   const Print = loadExpoPrint()
   let shares: string[]
   let identityKey: string
@@ -88,6 +81,12 @@ export async function printRecoveryShares(
     return { ok: false, reason: 'no-material' }
   }
 
-  await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format, sources.appName) })
+  // XR-110: one native print job per share, never all of them in a single
+  // document. The 2-of-3 threshold means any single job — spooled, retained
+  // or logged anywhere along the OS print pipeline — must not by itself carry
+  // enough shares to reconstruct the wallet.
+  for (let i = 0; i < shares.length; i++) {
+    await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format, sources.appName, i) })
+  }
   return { ok: true, format }
 }

@@ -76,16 +76,33 @@ const PRIVILEGED_CAPABLE = new Set<keyof WalletInterface>([
  * so this boundary must reserve them even when `privileged` is false. */
 const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt'])
 
-function requestsVaultProtocol(args: unknown): boolean {
+/** Protocol namespaces this package's OWN internal, fund-controlling payment
+ * rails derive under: the BRC-29 address rail / PeerPay (address.ts's
+ * BRC29_PROTOCOL_ID and localpay/pending.ts's identical PEERPAY_PROTOCOL_ID,
+ * both `[2, '3241645161d8']`) and the FT/mandala-token rail (localpay/verify.ts's
+ * FT_PROTOCOL_ID, `[2, 'mandala token']`). These are not Vault state, but
+ * core/localpay/build.ts proves createSignature+getPublicKey over them is
+ * sufficient to construct a valid spend -- so a connected origin must not be
+ * able to mint either primitive under these namespaces itself, exactly as
+ * for Vault's own namespaces. */
+const RESERVED_RAIL_PROTOCOL_NAMES = new Set(['3241645161d8', 'mandala token'])
+
+function matchesProtocolNamespace(args: unknown, names: Set<string>): boolean {
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
   const protocolID = (args as { protocolID?: unknown }).protocolID
   // Match KeyDeriver.computeInvoiceNumber's namespace normalization exactly.
   // Otherwise e.g. ` VAULT SALT ` reaches the same child key while evading a
   // literal boundary comparison. Reject matching malformed/extended tuples
   // here too; validation deeper in the wallet is not an authorization layer.
-  return Array.isArray(protocolID) &&
-    typeof protocolID[1] === 'string' &&
-    VAULT_PROTOCOL_NAMES.has(protocolID[1].toLowerCase().trim())
+  return Array.isArray(protocolID) && typeof protocolID[1] === 'string' && names.has(protocolID[1].toLowerCase().trim())
+}
+
+function requestsVaultProtocol(args: unknown): boolean {
+  return matchesProtocolNamespace(args, VAULT_PROTOCOL_NAMES)
+}
+
+function requestsReservedRailProtocol(args: unknown): boolean {
+  return matchesProtocolNamespace(args, RESERVED_RAIL_PROTOCOL_NAMES)
 }
 
 /** Operations that can name an existing output or unsigned action without
@@ -153,7 +170,9 @@ async function withGuardSlot<T>(runtime: GuardRuntime, work: () => Promise<T>, t
   runtime.queued++
   const predecessor = runtime.tail
   let release!: () => void
-  runtime.tail = new Promise<void>(resolve => { release = resolve })
+  runtime.tail = new Promise<void>(resolve => {
+    release = resolve
+  })
   await predecessor
   try {
     return await work()
@@ -212,8 +231,14 @@ async function beforeReadDeadline<T>(promise: Promise<T>, deadline: ReadDeadline
   return await new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Guarded wallet read timed out')), remaining)
     promise.then(
-      value => { clearTimeout(timer); resolve(value) },
-      error => { clearTimeout(timer); reject(error) }
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      error => {
+        clearTimeout(timer)
+        reject(error)
+      }
     )
   })
 }
@@ -347,11 +372,17 @@ async function listActionsForExternal(
   const { offset, limit } = requested
   let visibleCount = 0
   const visible: ExtendedWalletAction[] = []
-  await scanAllActions(call, { ...requested, limit: undefined, offset: undefined }, originator, action => {
-    if (isSensitiveAction(action)) return
-    if (visibleCount >= offset && visible.length < limit) visible.push(sanitizeAction(action, requested))
-    visibleCount++
-  }, deadline)
+  await scanAllActions(
+    call,
+    { ...requested, limit: undefined, offset: undefined },
+    originator,
+    action => {
+      if (isSensitiveAction(action)) return
+      if (visibleCount >= offset && visible.length < limit) visible.push(sanitizeAction(action, requested))
+      visibleCount++
+    },
+    deadline
+  )
   return {
     totalActions: visibleCount,
     actions: visible
@@ -423,11 +454,12 @@ function requestedOutpoints(method: keyof WalletInterface, args: any): string[] 
     }
   }
   const canonical = values.map(canonicalOutpoint)
-  return canonical.some(value => value === undefined) ? undefined : canonical as string[]
+  return canonical.some(value => value === undefined) ? undefined : (canonical as string[])
 }
 
 function carriesR1COutput(method: keyof WalletInterface, args: any): boolean {
-  if (method === 'createAction') return !!args?.outputs?.some((output: any) => isR1CLockingScript(output?.lockingScript))
+  if (method === 'createAction')
+    return !!args?.outputs?.some((output: any) => isR1CLockingScript(output?.lockingScript))
   if (method !== 'internalizeAction') return false
   try {
     const tx = Transaction.fromAtomicBEEF(args?.tx)
@@ -471,9 +503,8 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
             // stalls, later reads expire together instead of each retaining the
             // critical slot for another full timeout.
             const deadline = { expiresAt: Date.now() + EXTERNAL_ACTION_READ_TIMEOUT_MS }
-            const pending = withGuardSlot(
-              runtime,
-              () => listActionsForExternal(bound, requested, externalOriginator, deadline)
+            const pending = withGuardSlot(runtime, () =>
+              listActionsForExternal(bound, requested, externalOriginator, deadline)
             )
             runtime.reads.set(key, pending)
             try {
@@ -490,7 +521,11 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
       if (!PRIVILEGED_CAPABLE.has(method) && !OUTPUT_NAMING.has(method)) return value.bind(target)
 
       return async (args: any, originator?: string) => {
-        if (PRIVILEGED_CAPABLE.has(method) && originator !== adminOriginator && requestsVaultProtocol(args)) {
+        if (
+          PRIVILEGED_CAPABLE.has(method) &&
+          originator !== adminOriginator &&
+          (requestsVaultProtocol(args) || requestsReservedRailProtocol(args))
+        ) {
           return deny(String(method), originator)
         }
         if (PRIVILEGED_CAPABLE.has(method) && args?.privileged && originator !== adminOriginator) {

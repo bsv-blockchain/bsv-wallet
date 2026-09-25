@@ -4,7 +4,31 @@ import { memoryHeaderFs } from '../../core/headers/fs'
 import { Utils } from '@bsv/sdk'
 
 const ANCHOR = { height: 0, hash: '00'.repeat(32) }
-const ROOT = 'ab'.repeat(32)
+
+// Two real, consecutive ttn headers (same fixture as headerStore.test.ts's
+// TTN_1_AND_2, deserialized) — genuinely proof-of-work-valid, so a mock built
+// from them passes the XR-068 PoW check the same way a real chaintracks
+// response would.
+const VALID_HEADER_1 = {
+  version: 536870912,
+  previousHash: '000000000499eabba0a88f5b3747231c74b9191c1a4a04b2c2ea817976b7776d',
+  merkleRoot: '2e650ee9705b54c8d94ea92fd03469afb77dbab072529b7f3496f8f9d1a724f8',
+  time: 1755630093,
+  bits: 486604799,
+  nonce: 4197783250
+}
+// Real header 2 — a second, independently-valid header with a different
+// merkleRoot, used wherever a test needs a distinct "healed" root.
+const VALID_HEADER_2 = {
+  version: 536870912,
+  previousHash: '00000000b0d8e3f1cc18460d4ea585b013134e305c56dab9987e503c7809d14b',
+  merkleRoot: '6817de212e62baeeafc40dc91bddc468188ece17628dea8a96eb83c2c11c8ffc',
+  time: 1755630103,
+  bits: 486604799,
+  nonce: 3008811781
+}
+const ROOT = VALID_HEADER_1.merkleRoot
+const HEALED_ROOT = VALID_HEADER_2.merkleRoot
 
 async function storeWithExtraRoot(height: number, root: string) {
   const s = await HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR)
@@ -14,7 +38,7 @@ async function storeWithExtraRoot(height: number, root: string) {
 
 function remote(overrides: Record<string, unknown> = {}) {
   return {
-    findHeaderForHeight: jest.fn().mockResolvedValue({ merkleRoot: ROOT, height: 5 }),
+    findHeaderForHeight: jest.fn().mockResolvedValue({ ...VALID_HEADER_1, height: 5 }),
     currentHeight: jest.fn().mockResolvedValue(999),
     isValidRootForHeight: jest.fn().mockResolvedValue(true),
     getChain: jest.fn().mockResolvedValue('ttn'),
@@ -209,28 +233,59 @@ describe('OfflineFirstChaintracks', () => {
       expect(store.rootForHeight(10)).toBe(rootFor(10))
     })
 
-    it('still consults the remote and self-heals for a height outside the window entirely', async () => {
+    it('still consults the remote for a height outside the window entirely, and self-heals when the header is genuinely proof-of-work-valid', async () => {
       const store = await seedWindow(10) // tipHeight=10
-      const healedRoot = 'ee'.repeat(32)
-      const findHeaderForHeight = jest.fn().mockResolvedValue({ merkleRoot: healedRoot })
+      const findHeaderForHeight = jest.fn().mockResolvedValue({ ...VALID_HEADER_2, height: 50 })
       const r = remote({ findHeaderForHeight })
       const ct = new OfflineFirstChaintracks(r, async () => true)
       ct.setStore(store)
-      expect(await ct.isValidRootForHeight(healedRoot, 50)).toBe(true)
+      expect(await ct.isValidRootForHeight(HEALED_ROOT, 50)).toBe(true)
       expect(findHeaderForHeight).toHaveBeenCalled()
-      expect(store.rootForHeight(50)).toBe(healedRoot)
+      expect(store.rootForHeight(50)).toBe(HEALED_ROOT)
     })
 
-    it("keeps today's behaviour for the last-6 reorg tail: a mismatch there still consults the remote", async () => {
-      const store = await seedWindow(10) // tipHeight=10, tail=[5,10]
-      const healedRoot = 'ee'.repeat(32)
-      const findHeaderForHeight = jest.fn().mockResolvedValue({ merkleRoot: healedRoot })
+    // XR-068: the miss/tail fallback used to trust a bare, unauthenticated
+    // `{ merkleRoot }` from a single findHeaderForHeight response with zero
+    // proof-of-work check — exactly the shape a compromised/MITM'd
+    // chaintracks operator would return to make a forged BEEF root verify.
+    it('XR-068: refuses a forged miss/tail header that carries no valid proof-of-work, and does not cache it', async () => {
+      const store = await seedWindow(10) // tipHeight=10, height 50 is a genuine miss
+      const forgedRoot = 'ee'.repeat(32)
+      // A bare header claim, same shape the original bug accepted outright.
+      const findHeaderForHeight = jest.fn().mockResolvedValue({ merkleRoot: forgedRoot })
       const r = remote({ findHeaderForHeight })
       const ct = new OfflineFirstChaintracks(r, async () => true)
       ct.setStore(store)
-      // The window's own root for height 8 disagrees with healedRoot, but 8 is
-      // in the tail, so the old self-heal path still runs and agrees.
-      expect(await ct.isValidRootForHeight(healedRoot, 8)).toBe(true)
+      expect(await ct.isValidRootForHeight(forgedRoot, 50)).toBe(false)
+      expect(findHeaderForHeight).toHaveBeenCalled()
+      expect(store.rootForHeight(50)).toBeUndefined()
+      expect(ct.lastMissHeight).toBe(50)
+    })
+
+    // Same shape of forgery, but for a disagreement inside the last-6 reorg
+    // tail rather than a complete miss — the other fallback path that still
+    // reaches the network.
+    it('XR-068: also refuses a forged header for a reorg-tail disagreement', async () => {
+      const store = await seedWindow(10) // tipHeight=10, tail=[5,10]
+      const forgedRoot = 'ee'.repeat(32)
+      const findHeaderForHeight = jest.fn().mockResolvedValue({ merkleRoot: forgedRoot })
+      const r = remote({ findHeaderForHeight })
+      const ct = new OfflineFirstChaintracks(r, async () => true)
+      ct.setStore(store)
+      expect(await ct.isValidRootForHeight(forgedRoot, 8)).toBe(false)
+      expect(store.rootForHeight(8)).toBe(rootFor(8)) // unchanged, not overwritten with the forgery
+    })
+
+    it("keeps today's behaviour for the last-6 reorg tail: a genuinely valid header there still consults and heals via the remote", async () => {
+      const store = await seedWindow(10) // tipHeight=10, tail=[5,10]
+      const findHeaderForHeight = jest.fn().mockResolvedValue({ ...VALID_HEADER_2, height: 8 })
+      const r = remote({ findHeaderForHeight })
+      const ct = new OfflineFirstChaintracks(r, async () => true)
+      ct.setStore(store)
+      // The window's own root for height 8 disagrees with HEALED_ROOT, but 8 is
+      // in the tail, so the old self-heal path still runs and agrees — now
+      // gated on the header actually satisfying its own proof-of-work.
+      expect(await ct.isValidRootForHeight(HEALED_ROOT, 8)).toBe(true)
       expect(findHeaderForHeight).toHaveBeenCalled()
     })
   })

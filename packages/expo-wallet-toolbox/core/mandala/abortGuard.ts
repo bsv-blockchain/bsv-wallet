@@ -78,7 +78,9 @@ export interface AbortableManager {
  * `undefined` (no runtime, no database, not a Mandala chain) means "no token
  * payment can be at stake", which is the correct answer, not a failure.
  */
-export type SettlementStoreLookup = () => Pick<SettlementStore, 'getSettlementByReference'> | undefined
+export type SettlementStoreLookup = () =>
+  | Pick<SettlementStore, 'getSettlementByReference' | 'hasUnresolvedLegacyBlockedRows'>
+  | undefined
 
 /**
  * Wrap `abortAction` so an action that built a token transaction the overlay
@@ -94,6 +96,16 @@ export type SettlementStoreLookup = () => Pick<SettlementStore, 'getSettlementBy
  * because one read threw would strand inputs across the whole app — including
  * for plain BSV payments this guard has no business touching. The read is
  * cheap, indexed, and asked only of `abortAction`.
+ *
+ * **XR-033, a second and coarser check.** A row that predates the `reference`
+ * column (or whose backfill at migration time could not resolve one — see
+ * `createTables.ts`'s `ensureTokenSettlementColumns`) reads back with
+ * `reference === undefined` forever, which the lookup above can never match
+ * against ANY reference — so a legacy row stuck in a blocked state is
+ * invisible to it no matter which action is being aborted. `hasUnresolvedLegacyBlockedRows`
+ * asks the coarser question instead: does ANY such row exist at all. It only
+ * ever narrows an abort from allowed to refused, never the reverse, and (like
+ * the lookup above) fails OPEN on its own read fault for the same reason.
  */
 export function wrapAbortActionForSettlements<T extends AbortableManager>(
   manager: T,
@@ -108,6 +120,14 @@ export function wrapAbortActionForSettlements<T extends AbortableManager>(
             console.warn(
               `[mandala] refusing to abort ${row!.txid}: its settlement is '${row!.state}', ` +
                 'so releasing these inputs would double spend a transaction the overlay may already have'
+            )
+            return { aborted: false }
+          }
+          if (await hasUnresolvedLegacyBlockedRow(settlements)) {
+            console.warn(
+              '[mandala] refusing to abort: an unresolved legacy settlement row exists with no reference to ' +
+                'match against — releasing any inputs while it is unresolved risks double spending a token ' +
+                'payment that row already has a claim on'
             )
             return { aborted: false }
           }
@@ -130,5 +150,14 @@ async function lookupSettlement(
   } catch (e) {
     console.warn('[mandala] could not check the settlement of an aborted action; allowing the abort:', e)
     return undefined
+  }
+}
+
+async function hasUnresolvedLegacyBlockedRow(settlements: SettlementStoreLookup): Promise<boolean> {
+  try {
+    return (await settlements()?.hasUnresolvedLegacyBlockedRows()) ?? false
+  } catch (e) {
+    console.warn('[mandala] could not check for unresolved legacy settlement rows; allowing the abort:', e)
+    return false
   }
 }

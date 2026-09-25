@@ -1831,7 +1831,21 @@ function NearbyFlow({
                   // The noSend action's own reference, onto the settlement row:
                   // it is what lets the abort guard tell a handed-over token
                   // payment from an abandoned one (core/mandala/abortGuard.ts).
-                  reference: built.reference
+                  reference: built.reference,
+                  // XR-036: this rail acked over the radio and never sealed a
+                  // QR, so unlike the QR/fallback paths it had no framePayload
+                  // to give FIX G's re-derivation. Sealed here purely for local
+                  // durability — never rendered — so a restart that loses the
+                  // in-memory session PSK still has bytes to re-derive this
+                  // settlement row from if the journal write below did not land.
+                  ...(() => {
+                    try {
+                      return { framePayload: sealedToQr(sealFrame(built.frame, session.psk)) }
+                    } catch (e) {
+                      console.warn('[localpay] could not seal a fallback framePayload for the queue row:', e)
+                      return {}
+                    }
+                  })()
                 }
               : {})
           })
@@ -1852,6 +1866,18 @@ function NearbyFlow({
             peerIdentityKey: session.identityKey,
             at: Date.now()
           })
+        },
+        // XR-103: the same call WalletContext already makes for the identical
+        // question (`verifyDeclinedAborts`) — asked here too so a decline
+        // that lies about a transaction already on the network is caught
+        // before the abort runs, not just surfaced afterwards.
+        checkChainStatus: async txids => {
+          if (!storage) return {}
+          const services = storage.getServices() as {
+            getStatusForTxids?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
+          }
+          if (typeof services.getStatusForTxids !== 'function') return {}
+          return services.getStatusForTxids(txids)
         }
       })
       if (controller.signal.aborted) return

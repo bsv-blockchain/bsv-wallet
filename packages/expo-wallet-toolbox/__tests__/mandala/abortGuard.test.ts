@@ -197,4 +197,52 @@ describe('wrapAbortActionForSettlements', () => {
     expect(manager.createAction).toHaveBeenCalledTimes(1)
     expect(wrapped.marker).toBe(7)
   })
+
+  // XR-033: a row that predates the `reference` column (or whose migration-time
+  // backfill could not resolve one) reads back `reference === undefined`
+  // forever, so `getSettlementByReference` can never match it against ANY
+  // reference — a legacy row stuck in a blocked state is invisible to the
+  // primary check no matter which action is later aborted.
+  it('XR-033: refuses every abort while a legacy reference-less row is stuck in a blocked state', async () => {
+    // Bypasses `upsertSettlement` on purpose, to simulate a genuinely
+    // pre-migration row: written with SQL alone, `reference` left NULL.
+    raw
+      .prepare(
+        `INSERT INTO token_settlements
+           (txid, role, assetId, state, overlayUrl, overlayIdentityKey, reference, createdAt, updatedAt)
+         VALUES (?,?,?,?,?,?,NULL,?,?)`
+      )
+      .run(TXID, 'sent', `${'ee'.repeat(32)}.0`, 'handed_over', 'https://overlay.issuer.example', OVERLAY_KEY, 'n', 'n')
+
+    const { manager, abortAction } = managerWith()
+    const wrapped = wrapAbortActionForSettlements(manager, () => store)
+
+    // A reference that names some OTHER, unrelated action — the legacy row
+    // has none to match against, which is exactly the gap.
+    await expect(wrapped.abortAction({ reference: 'some-unrelated-action-reference' })).resolves.toEqual({
+      aborted: false
+    })
+    expect(abortAction).not.toHaveBeenCalled()
+  })
+
+  it('does not refuse an unrelated abort once the legacy row is reconciled', async () => {
+    raw
+      .prepare(
+        `INSERT INTO token_settlements
+           (txid, role, assetId, state, overlayUrl, overlayIdentityKey, reference, createdAt, updatedAt)
+         VALUES (?,?,?,?,?,?,NULL,?,?)`
+      )
+      .run(TXID, 'sent', `${'ee'.repeat(32)}.0`, 'handed_over', 'https://overlay.issuer.example', OVERLAY_KEY, 'n', 'n')
+    // Reconciled: the row now has a reference, so it is no longer "legacy and
+    // unresolved" — the coarse check must stand down for everyone else.
+    raw.prepare('UPDATE token_settlements SET reference = ? WHERE txid = ?').run(REFERENCE, TXID)
+
+    const { manager, abortAction } = managerWith()
+    const wrapped = wrapAbortActionForSettlements(manager, () => store)
+
+    await expect(wrapped.abortAction({ reference: 'some-unrelated-action-reference' })).resolves.toEqual({
+      aborted: true
+    })
+    expect(abortAction).toHaveBeenCalledTimes(1)
+  })
 })

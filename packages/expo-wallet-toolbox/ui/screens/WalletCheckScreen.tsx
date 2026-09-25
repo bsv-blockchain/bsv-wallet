@@ -132,6 +132,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
     adminOriginator,
     storage,
     selectedNetwork,
+    getBackupPseudonym,
     checkUtxoSpendability,
     releaseStuckReservations,
     runMonitorTask,
@@ -143,7 +144,10 @@ function useWalletCheckPorts(): WalletCheckPorts {
   return useMemo<WalletCheckPorts>(
     () => ({
       checkOnline: async () => ({ online: await getOnline() }),
-      checkBackup: async () => await getBackupUploadState(),
+      // Scoped to THIS wallet's own identity — see XR-009 / getBackupUploadState. No
+      // pseudonym yet (no wallet built for this chain) can never match a real cursor key,
+      // so `enabled` still reads the ordinary opt-out preference while `uploaded` is false.
+      checkBackup: async () => await getBackupUploadState(selectedNetwork, getBackupPseudonym(selectedNetwork) ?? ''),
       checkPhraseBackup: async () => {
         // Advisory: it records that someone pressed "I have written these
         // down" or completed a print. Nothing verifies the paper exists — but
@@ -232,6 +236,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
     [
       adminOriginator,
       checkUtxoSpendability,
+      getBackupPseudonym,
       mandala,
       releaseStuckReservations,
       runMonitorTask,

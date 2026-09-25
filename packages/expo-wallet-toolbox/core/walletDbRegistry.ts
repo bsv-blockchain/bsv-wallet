@@ -122,3 +122,18 @@ export async function registerDb(keySuffix: string, chain: string, filename: str
   existing.push(filename)
   await getAsyncStorage().setItem(registryKey(keySuffix, chain), JSON.stringify(existing))
 }
+
+/**
+ * Remove a filename from the registry (no-op if not present).
+ *
+ * Used when a database this registry pointed at turns out to be unsafe to reuse — e.g. a
+ * failed import-time restore left it only partially replayed (see XR-017) — so a later
+ * `selectLatestDb` can never select it again. Removing the registry entry alone is enough
+ * for that; deleting the underlying file is the caller's separate decision.
+ */
+export async function unregisterDb(keySuffix: string, chain: string, filename: string): Promise<void> {
+  const existing = await getRegisteredDbs(keySuffix, chain)
+  const next = existing.filter(f => f !== filename)
+  if (next.length === existing.length) return
+  await getAsyncStorage().setItem(registryKey(keySuffix, chain), JSON.stringify(next))
+}

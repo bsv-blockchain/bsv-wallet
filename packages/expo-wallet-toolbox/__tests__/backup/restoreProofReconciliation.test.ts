@@ -1,4 +1,4 @@
-import { PrivateKey } from '@bsv/sdk'
+import { Hash, PrivateKey, Utils } from '@bsv/sdk'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { encodeChunk, emptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
@@ -90,7 +90,8 @@ async function clientFor(chunks: SyncChunk[]): Promise<any> {
       deviceId: DEVICE, generation: 1, headSeq: blobs.length, updatedAt: LATER.toISOString()
     }]),
     index: jest.fn().mockResolvedValue(blobs.map((blob, i) => ({
-      seq: i + 1, size: blob.length, sha256: `sha${i + 1}`, prevSha256: i ? `sha${i}` : undefined,
+      seq: i + 1, size: blob.length, sha256: Utils.toHex(Hash.sha256(blob)),
+      prevSha256: i ? Utils.toHex(Hash.sha256(blobs[i - 1])) : undefined,
       createdAt: LATER.toISOString()
     }))),
     blob: jest.fn(async (_device, _generation, seq) => new Uint8Array(blobs[seq - 1]))

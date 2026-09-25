@@ -360,12 +360,12 @@ export interface TokenStepDeps extends EvidenceTrustAnchor {
 /**
  * Whether a cached admission may stand in for a submit.
  *
- * **Both halves are required, and the cryptographic one is not optional.** The
- * structural half — a non-empty admitted set, signed by the wallet's CONFIGURED
- * overlay identity key — only says the entry is addressed to the right overlay.
- * It says nothing about whether that overlay actually signed it, and this entry
- * may have arrived on a frame a counterparty composed. Skipping a `/submit` on
- * a forged entry is how a transaction the overlay has never seen reaches a real
+ * **Three halves are required, and none is optional.** The structural half —
+ * a non-empty admitted set, signed by the wallet's CONFIGURED overlay identity
+ * key — only says the entry is addressed to the right overlay. It says nothing
+ * about whether that overlay actually signed it, and this entry may have
+ * arrived on a frame a counterparty composed. Skipping a `/submit` on a forged
+ * entry is how a transaction the overlay has never seen reaches a real
  * broadcast: the drain would mark the ancestor `admitted` from the lie, walk
  * past it, and put an unadmitted chain on chain.
  *
@@ -376,13 +376,25 @@ export interface TokenStepDeps extends EvidenceTrustAnchor {
  * that column is re-derived from counterparty frame bytes by
  * `reconcileSettlements`, so anchoring trust in it would let the frame name its
  * own signer (wire contract §9.10).
+ *
+ * **The third half (XR-038): `requiredVouts` scoping.** A genuine σ_I over
+ * `(txid, outputsToAdmit)` proves the overlay admitted THOSE outputs of
+ * `txid` — nothing says the output THIS walk actually needs (the tip's own
+ * held/payee vout, or an ancestor edge's `parentVout`) is one of them. A payer
+ * who obtains a real admission for one output of a multi-output token tx
+ * (their own change, say) must not get the WHOLE transaction — including an
+ * output the issuer never admitted — treated as admitted. `requiredVouts`
+ * empty means "not proven which vout matters", never "no vout matters", so it
+ * is refused exactly like an absent row.
  */
 async function admissionStandsIn(
   row: TokenAdmissionRow | undefined,
-  anchor: EvidenceTrustAnchor
+  anchor: EvidenceTrustAnchor,
+  requiredVouts: readonly number[]
 ): Promise<boolean> {
   if (row === undefined) return false
   if (row.signatureHex.length === 0 || row.outputsToAdmit.length === 0) return false
+  if (requiredVouts.length === 0 || !requiredVouts.every(v => row.outputsToAdmit.includes(v))) return false
   return await entryIsTrustworthy(
     {
       txid: row.txid,
@@ -392,6 +404,32 @@ async function admissionStandsIn(
     },
     anchor
   )
+}
+
+/**
+ * Which vout(s) of `parentTxid` THIS walk actually needs it admitted for —
+ * from every `token_admission_edges` row already recorded (FIX K: derived
+ * once from the beef itself, never from a counterparty's say-so) for a
+ * transaction still in `mustSubmit` that spends `parentTxid`.
+ *
+ * Empty means "not proven", not "nothing needed": no cached edge names
+ * `parentTxid` as a parent of anything still being walked — most likely
+ * because evidence population has not run or lost a race — so the caller
+ * (`admissionStandsIn`) must refuse to skip rather than guess.
+ */
+async function requiredVoutsOfAncestor(
+  store: SettlementStore,
+  parentTxid: string,
+  mustSubmit: readonly string[]
+): Promise<number[]> {
+  const vouts = new Set<number>()
+  for (const childTxid of mustSubmit) {
+    if (childTxid === parentTxid) continue
+    for (const edge of await store.parentsOf(childTxid)) {
+      if (edge.parentTxid === parentTxid) vouts.add(edge.parentVout)
+    }
+  }
+  return [...vouts]
 }
 
 /**
@@ -444,6 +482,12 @@ export async function postTokenStep(
   const { store } = deps
   const now = deps.now ?? (() => new Date())
   const tip = step.txid
+  // The wallet-relevant output of the TIP itself — see `TokenSettlementRow
+  // .relevantVout`. Nothing locally spends the tip, so this is the one vout
+  // an admission for `tip` has to cover, on both the fast path just below and
+  // the ordinary walk's own pass over the tip (it is always `mustSubmit`'s
+  // last entry).
+  const tipRequiredVouts = [settlement.relevantVout ?? 0]
 
   // The overlay's own σ_I over the tip is its ruling on the tip's ENTIRE
   // ancestry — nothing in the local evidence can outrank it, so there is
@@ -452,7 +496,7 @@ export async function postTokenStep(
   // bytes this device does not hold) left an already-admitted tip at
   // `admitted` on every tick, never broadcast (2026-09-16).
   const tipAdmission = await store.getAdmission(tip)
-  if (await admissionStandsIn(tipAdmission, deps)) {
+  if (await admissionStandsIn(tipAdmission, deps, tipRequiredVouts)) {
     await store.advanceSettlement(tip, PRE_ADMIT_STATES, 'admitted', {
       admissionOutputs: tipAdmission?.outputsToAdmit,
       admissionSignatureHex: tipAdmission?.signatureHex
@@ -494,7 +538,13 @@ export async function postTokenStep(
     }
 
     const cached = await store.getAdmission(ancestorTxid)
-    if (await admissionStandsIn(cached, deps)) {
+    // The tip's own required vout(s) when the walk reaches it (mustSubmit's
+    // last entry) — nothing spends the tip locally, so an edge lookup would
+    // find nothing. Every other entry is a true ancestor, scoped to whichever
+    // vout(s) of it something still in this walk actually spends.
+    const requiredVouts =
+      ancestorTxid === tip ? tipRequiredVouts : await requiredVoutsOfAncestor(store, ancestorTxid, cover.mustSubmit)
+    if (await admissionStandsIn(cached, deps, requiredVouts)) {
       await store.advanceSettlement(ancestorTxid, PRE_ADMIT_STATES, 'admitted', {
         admissionOutputs: cached?.outputsToAdmit,
         admissionSignatureHex: cached?.signatureHex
@@ -514,11 +564,18 @@ export async function postTokenStep(
       if (
         deps.verifyAdmission !== undefined &&
         !(await entryIsTrustworthy(
-          { txid: ancestorTxid, outputsToAdmit: verdict.outputsToAdmit, signature: hexToBytes(verdict.signatureHex), signerKey: verdict.signerKey },
+          {
+            txid: ancestorTxid,
+            outputsToAdmit: verdict.outputsToAdmit,
+            signature: hexToBytes(verdict.signatureHex),
+            signerKey: verdict.signerKey
+          },
           deps
         ))
       ) {
-        devLog(`[mandala] /submit of ${ancestorTxid} answered admitted without a verifiable σ_I; treated as unavailable`)
+        devLog(
+          `[mandala] /submit of ${ancestorTxid} answered admitted without a verifiable σ_I; treated as unavailable`
+        )
         if (before && SUBMITTABLE_STATES.includes(before.state)) {
           await store.advanceSettlement(ancestorTxid, ['submitting'], before.state)
         }
@@ -545,6 +602,27 @@ export async function postTokenStep(
       // and stall the WHOLE step — never partially advance a chain past a
       // liftable stall; the whole prefix is retried next pass, idempotently.
       if (before && SUBMITTABLE_STATES.includes(before.state)) {
+        await store.advanceSettlement(ancestorTxid, ['submitting'], before.state)
+      }
+      return 'serviceError'
+    }
+
+    // XR-042: `deps.submit`'s negative verdicts, unlike its 'admitted' branch
+    // (checked above against `deps.verifyAdmission`), carry no signature at
+    // all. A row this device already holds a σ_I-VERIFIED admission for —
+    // `admissionSignatureHex`/`admissionOutputs`, only ever written after a
+    // verified admission (`admissionStandsIn`'s own callers, and
+    // `fetchAdmission`/`receiveFromInbox` upstream) — must not be unwound by a
+    // LATER unsigned negative for the same txid: that positive is
+    // cryptographic and this negative is not, so the positive stands. Put the
+    // row back where it was and stall, exactly like an 'unavailable' verdict,
+    // rather than treat "the overlay said no, unsigned" as final.
+    if (before?.admissionSignatureHex && before.admissionOutputs && before.admissionOutputs.length > 0) {
+      devLog(
+        `[mandala] /submit of ${ancestorTxid} answered ${verdict.kind} without a signature, but this device ` +
+          'already holds a verified admission for it; treated as unavailable'
+      )
+      if (SUBMITTABLE_STATES.includes(before.state)) {
         await store.advanceSettlement(ancestorTxid, ['submitting'], before.state)
       }
       return 'serviceError'

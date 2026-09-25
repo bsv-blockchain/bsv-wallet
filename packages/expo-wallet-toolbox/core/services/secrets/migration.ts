@@ -29,7 +29,14 @@ const MAX_ATTEMPTS = 3
 
 export type MigrationResult =
   | { outcome: 'not-needed' }
-  | { outcome: 'migrated'; names: SecretName[] }
+  /** XR-111: `legacyCleanupPending` is set when sweepLegacyKeys() could not
+   * verify every legacy item is gone (iOS's delete discards every OSStatus
+   * and never throws, so a resolved call is not evidence). The migration
+   * itself — envelope write, read-back, verify, sentinel commit — already
+   * fully succeeded either way; only the irreversible plaintext erasure did
+   * not, and it is retried on every subsequent launch via the `not-needed`
+   * branch above, which also sweeps. */
+  | { outcome: 'migrated'; names: SecretName[]; legacyCleanupPending?: true }
   | { outcome: 'failed'; stage: string; retryable: boolean }
 
 /** Reads a legacy plaintext item. Prompt-free — these were always written
@@ -181,9 +188,14 @@ export async function migrateLegacySecrets(): Promise<MigrationResult> {
     await recordSecretName(name)
   }
 
-  // Step 7 — the irreversible bit.
-  await sweepLegacyKeys()
+  // Step 7 — the irreversible bit. The boolean matters: a `false` here means
+  // a legacy plaintext survived verified deletion, and the caller must not
+  // be told cleanup is done when it is not (XR-111). The sweep itself
+  // already retries on every subsequent launch via the `not-needed` branch
+  // above, so this only affects what THIS call reports, not whether cleanup
+  // keeps being attempted.
+  const swept = await sweepLegacyKeys()
   await AsyncStorage.removeItem(FAILURE_COUNT_KEY).catch(() => {})
 
-  return { outcome: 'migrated', names }
+  return swept ? { outcome: 'migrated', names } : { outcome: 'migrated', names, legacyCleanupPending: true }
 }
