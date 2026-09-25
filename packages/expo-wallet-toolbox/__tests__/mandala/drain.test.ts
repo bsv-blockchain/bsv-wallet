@@ -688,6 +688,47 @@ describe('postTokenStep', () => {
     expect(await store.getSettlement(TIP)).toMatchObject({ state: 'orphaned', poisonedByTxid: ANCESTOR })
   })
 
+  // XR-042: `submit`'s 'admitted' verdicts are σ_I-verified (see the belt-and-braces
+  // check above, against `deps.verifyAdmission`); its 'refused'/'evicted' verdicts
+  // are the raw, unsigned overlay HTTP response. An ancestor already carrying a
+  // verified admission ON ITS OWN ROW — set here without ever populating the
+  // SEPARATE `token_admissions` cache `admissionStandsIn` reads, so that
+  // short-circuit cannot be what protects it — must not be unwound by a later
+  // unsigned negative for the same txid.
+  it('XR-042: an ancestor already carrying a verified admission is not unwound by a later unsigned refusal', async () => {
+    await store.upsertSettlement({
+      txid: TIP,
+      role: 'received',
+      assetId: ASSET_ID,
+      state: 'held',
+      overlayUrl: OVERLAY,
+      overlayIdentityKey: OVERLAY_KEY
+    })
+    await store.upsertSettlement({
+      txid: ANCESTOR,
+      role: 'received',
+      assetId: ASSET_ID,
+      state: 'admitted',
+      overlayUrl: OVERLAY,
+      overlayIdentityKey: OVERLAY_KEY,
+      admissionOutputs: [0],
+      admissionSignatureHex: Utils.toHex(Array.from(signAdmission(ANCESTOR, [0])))
+    })
+    // No `store.putAdmission` call: the cached-admission short-circuit
+    // (`admissionStandsIn`) has nothing to stand in with, so this ancestor
+    // reaches `submit` exactly as an ordinary un-admitted one would.
+    const settlement = (await store.getSettlement(TIP))!
+    const d = deps({
+      submit: async (txid: string): Promise<OverlayVerdict> =>
+        txid === ANCESTOR ? { kind: 'refused', code: 'ERR_X' } : admitted(txid)
+    })
+
+    await expect(postTokenStep(d, settlement, step)).resolves.toBe('serviceError')
+    expect((await store.getSettlement(ANCESTOR))?.state).toBe('admitted')
+    expect((await store.getSettlement(TIP))?.state).toBe('held')
+    expect(d.broadcasts).toEqual([])
+  })
+
   it('refuses the tip itself without inventing a poisoner', async () => {
     const settlement = await seed()
     const d = deps({

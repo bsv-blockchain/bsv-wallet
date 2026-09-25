@@ -372,11 +372,39 @@ function referenceOf(result: unknown): { reference?: string } {
   return typeof reference === 'string' && reference.length > 0 ? { reference } : {}
 }
 
+/**
+ * XR-034/XR-035: the payee already holds the bytes by the time this runs, so a
+ * transient write fault here (a busy/locked SQLite, a brief disk hiccup) must
+ * not be the only thing standing between "journaled" and "no durable record
+ * exists at all" — the latter is what leaves `wrapAbortActionForSettlements`
+ * nothing to block on. Three attempts, a short fixed backoff: enough for an
+ * ordinary transient fault to clear, small enough not to make a payer wait on
+ * a send that has already gone out. `upsertSettlement` is a plain upsert keyed
+ * on `txid`, so retrying it after a failed attempt is safe — nothing partial
+ * can have been committed for the caller to retry over.
+ */
+async function upsertSettlementDurably(
+  store: Pick<SettlementStore, 'upsertSettlement'>,
+  row: Parameters<SettlementStore['upsertSettlement']>[0]
+): Promise<void> {
+  const attempts = 3
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await store.upsertSettlement(row)
+      return
+    } catch (e) {
+      if (attempt === attempts) throw e
+      await new Promise(resolve => setTimeout(resolve, attempt * 100))
+    }
+  }
+}
+
 /** A store for a runtime with no database: every read is empty, every write a no-op. */
 function nullStore(): SettlementStore {
   return {
     getSettlement: async () => undefined,
     getSettlementByReference: async () => undefined,
+    hasUnresolvedLegacyBlockedRows: async () => false,
     listSettlements: async () => [],
     upsertSettlement: async () => undefined,
     advanceSettlement: async () => false,
@@ -1387,6 +1415,25 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           })
           continue
         }
+        // XR-042: `entry.kind === 'refused'/'evicted'` above (in `fetchAdmission`)
+        // is the raw, UNSIGNED overlay HTTP response — unlike the 'admitted'
+        // branch a few lines up, nothing here is checked against `overlayIdentityKey`
+        // at all. A row this device already holds a σ_I-VERIFIED admission for
+        // (`row.admissionSignatureHex`/`admissionOutputs`, only ever written
+        // after `verifyFetchedAdmission` succeeded — see `fetchAdmission` and
+        // `receiveFromInbox` above) is therefore not something a later unsigned
+        // negative may downgrade: that positive is cryptographic and this
+        // negative is not, so the positive stands. Reported as unattested
+        // rather than removed — the next pass asks again, exactly like an
+        // unreachable overlay.
+        if (row.admissionSignatureHex && row.admissionOutputs && row.admissionOutputs.length > 0) {
+          devLog(
+            `[mandala] token review: ${row.txid} already carries a verified admission; ` +
+              `ignoring the unsigned ${verdict.kind} verdict`
+          )
+          review.unattested++
+          continue
+        }
         const to: TokenSettlementState = verdict.kind === 'evicted' ? 'orphaned' : 'refused'
         await store.advanceSettlement(row.txid, [...NON_TERMINAL_SETTLEMENT_STATES], to, {
           refusedCode: verdict.kind === 'refused' ? verdict.code : undefined,
@@ -1841,7 +1888,12 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     // branches on it, and `putLinkage` never overwrites a row already here.)
     await cacheFrameEvidence(frame, `a ${state} frame`, { linkageSource: 'minted' })
     const existing = await store.getSettlement(txid)
-    await store.upsertSettlement({
+    // XR-036: retried, same reason as `sendToHandle`'s own journal write
+    // (`upsertSettlementDurably`) — `payerHold.ts`'s `holdSentPaymentOffline`
+    // keeps its queue row non-drainable until THIS write lands, so a transient
+    // fault here should not be the difference between a guarded hold and one
+    // stuck at 'parked' for a later manual reconciliation.
+    await upsertSettlementDurably(store, {
       txid,
       role: 'sent',
       assetId: token.assetId,
@@ -2264,7 +2316,13 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           devLog(`[mandala] sent ${result.txid} but could not cache its evidence:`, e)
         }
         try {
-          await store.upsertSettlement({
+          // XR-034/XR-035: retried (see `upsertSettlementDurably`) because this
+          // row is the ONLY durable evidence of the hand-over — there is no
+          // queue row and no pre-hand-over marker (the reference below does not
+          // exist until `transferTokens` has already returned it), so losing
+          // this write to one transient fault leaves the abort guard nothing to
+          // block on for a payment the payee may already hold or have submitted.
+          await upsertSettlementDurably(store, {
             txid: result.txid,
             role: 'sent',
             assetId,
@@ -2290,9 +2348,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             ...referenceOf(result)
           })
         } catch (e) {
-          // The transfer is committed; a journal failure costs a later
-          // reconciliation pass, never the payment.
-          devLog(`[mandala] sent ${result.txid} but could not journal it:`, e)
+          // Every retry was exhausted: the transfer is still committed (the
+          // payee already has the bytes), and this is now genuinely a later
+          // reconciliation pass's problem, not the payment's.
+          devLog(`[mandala] sent ${result.txid} but could not journal it after retrying:`, e)
         }
         emit()
         // `notified === false` is "committed, but the payee has not been told

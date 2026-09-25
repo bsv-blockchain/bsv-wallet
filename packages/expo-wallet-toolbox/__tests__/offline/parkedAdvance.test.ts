@@ -243,9 +243,15 @@ describe('a token payment’s settlement row survives the session key', () => {
     expect(await settlements.getSettlement(TXID)).toBeUndefined()
   })
 
-  // The queue row is the durable fact; a settlement write is a re-derivable
-  // cache (FIX G). A failing cache write must not un-queue a real payment.
-  it('a throwing hook never costs the payment its queue row', async () => {
+  // XR-036: updated from "a throwing hook never costs the payment its queue
+  // row" — that used to mean the row was promoted to 'queued' (drainable)
+  // regardless, which is exactly the gap XR-036 closes: `processOfflineActions`
+  // tells "ordinary BSV" from "token, needs overlay admission" by whether ANY
+  // `token_settlements` row exists, so a drainable row with a failed journal
+  // write was read as plain BSV and posted straight past admission. The queue
+  // row is still never LOST (it exists, at 'parked'), it is just not handed to
+  // the drain until the journal write that protects it has actually landed.
+  it('a throwing hook leaves the queue row parked, not drainable, for a token hold', async () => {
     await expect(
       holdSentPaymentOffline({
         storage: storageStub('nosend'),
@@ -257,7 +263,9 @@ describe('a token payment’s settlement row survives the session key', () => {
       })
     ).resolves.toBeUndefined()
 
-    expect(await drainable()).toEqual([expect.objectContaining({ txid: TXID, status: 'queued' })])
+    expect(await drainable()).toEqual([])
+    const rows = (await findOfflineActions(conn as never, {})) as OfflineActionRow[]
+    expect(rows).toEqual([expect.objectContaining({ txid: TXID, status: 'parked' })])
     expect(promoted).toEqual([['unproven', 99]])
   })
 })

@@ -65,6 +65,7 @@ import {
 } from '@bsv/mandala'
 import { resolveAssetState } from '@bsv/mandala/adminState'
 import { createTables } from '../../core/storage/schema/createTables'
+import { wrapAbortActionForSettlements } from '../../core/mandala/abortGuard'
 import {
   activityStatusOf,
   bindOriginator,
@@ -721,6 +722,61 @@ describe('sendToHandle', () => {
     expect(transferTokens).not.toHaveBeenCalled()
     expect(runtime.recipientRefusal('1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2')).toMatch(/identity key/i)
     expect(runtime.recipientRefusal(PAYEE)).toBeNull()
+  })
+
+  it('XR-034: a transient journal write failure after hand-over does not lose the settlement row or the abort guard', async () => {
+    const txid = '93'.repeat(32)
+    const reference = 'xr-034-noSend-reference'
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true, reference })
+    const runtime = build()
+
+    // The bytes are already with the payee by the time this throws — a single
+    // transient write fault (SQLITE_BUSY, a brief disk hiccup) must not be the
+    // difference between a guarded and an unguarded hand-over.
+    const original = runtime.store.upsertSettlement.bind(runtime.store)
+    let calls = 0
+    jest.spyOn(runtime.store, 'upsertSettlement').mockImplementation(async row => {
+      calls++
+      if (calls === 1) throw new Error('SQLITE_BUSY: database is locked')
+      return original(row)
+    })
+
+    const result = await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12 })
+    expect(result).toMatchObject({ kind: 'sent', txid })
+    expect(calls).toBeGreaterThan(1)
+
+    const row = await runtime.store.getSettlement(txid)
+    expect(row?.state).toBe('handed_over')
+    expect(row?.reference).toBe(reference)
+
+    const wrapped = wrapAbortActionForSettlements(
+      { abortAction: async () => ({ aborted: true }) },
+      () => runtime.store
+    )
+    expect(await wrapped.abortAction({ reference })).toEqual({ aborted: false })
+  })
+
+  it('XR-035: the handle rail’s journal survives repeated transient faults, not only a single one', async () => {
+    // Same durability-ordering defect as XR-034 (transferTokens hands the
+    // bytes to the payee before the journal write that protects them), locked
+    // here against its own ledger id: two consecutive faults, still inside the
+    // retry's bound, must not lose the row either.
+    const txid = '92'.repeat(32)
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true })
+    const runtime = build()
+
+    const original = runtime.store.upsertSettlement.bind(runtime.store)
+    let calls = 0
+    jest.spyOn(runtime.store, 'upsertSettlement').mockImplementation(async row => {
+      calls++
+      if (calls <= 2) throw new Error('SQLITE_BUSY: database is locked')
+      return original(row)
+    })
+
+    const result = await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12 })
+    expect(result).toMatchObject({ kind: 'sent', txid })
+    expect(calls).toBe(3)
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')
   })
 })
 
@@ -3041,6 +3097,37 @@ describe('reviewTokenHoldings — Check Wallet asks the overlay about every sett
     expect((await runtime.store.getSettlement(SENT_TXID))?.state).toBe('refused')
     expect((await runtime.store.getSettlement(SENT_TXID))?.refusedCode).toBe('ERR_INPUT_SPENT')
     expect(updateTransactionStatus).toHaveBeenCalledWith('failed', 41)
+  })
+
+  // XR-042: a positive admission is σ_I-verified against `overlayIdentityKey`
+  // (checked a few lines above this call, in `fetchAdmission`); a negative
+  // ('refused'/'evicted') is the raw, unsigned overlay HTTP response, checked
+  // against nothing at all. A row this device already holds a verified
+  // admission for must not be unwound by a later unsigned negative for the
+  // SAME txid — a compromised or merely buggy overlay's HTTP layer (no
+  // signing key needed) must not be able to corrupt settlement state for a
+  // payment this device has cryptographic proof of.
+  it('XR-042: a σ_I-verified admission is not undone by a later unsigned refusal', async () => {
+    const { storage, updateTransactionStatus } = checkStorage()
+    const runtime = build({ storage })
+    await runtime.store.upsertSettlement({
+      txid: SENT_TXID,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state: 'admitted',
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY,
+      amountBaseUnits: 40,
+      admissionOutputs: [0],
+      admissionSignatureHex: signAdmission(SENT_TXID, [0])
+    })
+    ;(libFetchAdmission as jest.Mock).mockResolvedValue({ kind: 'refused', code: 'ERR_X' })
+
+    const r = await runtime.reviewTokenHoldings()
+
+    expect((await runtime.store.getSettlement(SENT_TXID))?.state).toBe('admitted')
+    expect(r.removed).toBe(0)
+    expect(updateTransactionStatus).not.toHaveBeenCalled()
   })
 
   it('an evicted row is closed as orphaned', async () => {

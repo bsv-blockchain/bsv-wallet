@@ -126,6 +126,48 @@ describe('schema', () => {
     legacy.close()
   })
 
+  // XR-033: the backfill half of the fix. A row stuck in a BLOCKED state whose
+  // transaction is still on file gets its reference back at the same migration
+  // step, rather than waiting for "the next hand-over" that a stuck row never
+  // gets — see `abortGuard.ts`'s coarser second check for the row this cannot
+  // resolve (no matching transaction).
+  it('XR-033: backfills a blocked legacy row’s reference from the transactions table', async () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec(`
+      CREATE TABLE transactions (
+        transactionId INTEGER PRIMARY KEY, reference TEXT NOT NULL UNIQUE, txid TEXT
+      );
+      CREATE TABLE token_settlements (
+        txid TEXT PRIMARY KEY, role TEXT NOT NULL, assetId TEXT NOT NULL, state TEXT NOT NULL,
+        counterpartyKey TEXT, amountBaseUnits INTEGER, overlayUrl TEXT NOT NULL, overlayIdentityKey TEXT NOT NULL,
+        admissionOutputsJson TEXT, admissionSignatureHex TEXT, refusedCode TEXT, refusedPayloadHash TEXT,
+        poisonedByTxid TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+      );`)
+    legacy.prepare(`INSERT INTO transactions (reference, txid) VALUES (?,?)`).run('the-real-reference', TIP)
+    legacy
+      .prepare(
+        `INSERT INTO token_settlements (txid, role, assetId, state, overlayUrl, overlayIdentityKey, createdAt, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?)`
+      )
+      .run(TIP, 'sent', 'a.0', 'handed_over', 'u', KEY, 'n', 'n')
+    // A SAFE-to-abort row (payer's own state) with a matching transaction too —
+    // must NOT be backfilled, since it is not what the abort guard blocks on.
+    legacy.prepare(`INSERT INTO transactions (reference, txid) VALUES (?,?)`).run('parked-reference', PARENT)
+    legacy
+      .prepare(
+        `INSERT INTO token_settlements (txid, role, assetId, state, overlayUrl, overlayIdentityKey, createdAt, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?)`
+      )
+      .run(PARENT, 'sent', 'a.0', 'parked', 'u', KEY, 'n', 'n')
+
+    await ensureTokenSettlementColumns(adapt(legacy) as never)
+
+    const legacyStore = createSettlementStore(adapt(legacy) as unknown as SettlementDb)
+    expect((await legacyStore.getSettlement(TIP))?.reference).toBe('the-real-reference')
+    expect((await legacyStore.getSettlement(PARENT))?.reference).toBeUndefined()
+    legacy.close()
+  })
+
   it('refuses a state the machine does not define', () => {
     expect(() =>
       raw

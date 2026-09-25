@@ -149,11 +149,40 @@ describe('guard #2: a token req is held regardless of connectivity', () => {
     expect(mockGetOnline).not.toHaveBeenCalled()
   })
 
-  // A broken or pre-migration database must not silently become a broadcast.
-  it('falls back to the pre-feature behaviour when the settlement table cannot be read', async () => {
+  // XR-045: a broken database must not silently become a broadcast. This used
+  // to fall back to "treat every req as plain BSV" (the pre-feature
+  // behaviour) — indistinguishable, to every caller, from "no token requests
+  // here" — so a transient read fault posted an unadmitted token request
+  // straight past overlay admission. Whether the table is simply missing or
+  // the read throws for some other reason, the batch is held, never posted.
+  it('holds rather than posts when the settlement table cannot be read at all', async () => {
     raw.exec('DROP TABLE token_settlements')
     await storage.attemptToPostReqsToNetwork([reqOf(TOKEN_TXID, 1)])
-    expect(superPost).toHaveBeenCalledTimes(1)
+    expect(superPost).not.toHaveBeenCalled()
+  })
+
+  it('XR-045: a genuine read fault — not merely a missing table — holds the WHOLE batch, never posts', async () => {
+    // TOKEN_TXID already has a real settlement row (see beforeEach): the fault
+    // is in the READ, not in the data's absence, which is exactly what used to
+    // be misread as "plain BSV, go ahead".
+    const original = storage.conn.getAllAsync.bind(storage.conn)
+    const getAllAsync = jest
+      .spyOn(storage.conn, 'getAllAsync')
+      .mockImplementation(async (sql: string, params: unknown[] = []) => {
+        if (sql.includes('token_settlements')) throw new Error('SQLITE_BUSY: database is locked')
+        return original(sql, params)
+      })
+
+    const r = await storage.attemptToPostReqsToNetwork([reqOf(TOKEN_TXID, 1), reqOf(BSV_TXID, 2)])
+
+    expect(superPost).not.toHaveBeenCalled()
+    // The caller's result must still cover every txid it handed in, or
+    // `internalizeAction` rolls back a payment that was actually accepted.
+    expect(r.details.map(d => d.txid).sort()).toEqual([TOKEN_TXID, BSV_TXID].sort())
+    getAllAsync.mockRestore()
+    expect((await findOfflineActions(storage.sqliteDb as never, {})).map(x => x.txid).sort()).toEqual(
+      [TOKEN_TXID, BSV_TXID].sort()
+    )
   })
 })
 

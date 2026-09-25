@@ -550,6 +550,27 @@ export async function postTokenStep(
       return 'serviceError'
     }
 
+    // XR-042: `deps.submit`'s negative verdicts, unlike its 'admitted' branch
+    // (checked above against `deps.verifyAdmission`), carry no signature at
+    // all. A row this device already holds a σ_I-VERIFIED admission for —
+    // `admissionSignatureHex`/`admissionOutputs`, only ever written after a
+    // verified admission (`admissionStandsIn`'s own callers, and
+    // `fetchAdmission`/`receiveFromInbox` upstream) — must not be unwound by a
+    // LATER unsigned negative for the same txid: that positive is
+    // cryptographic and this negative is not, so the positive stands. Put the
+    // row back where it was and stall, exactly like an 'unavailable' verdict,
+    // rather than treat "the overlay said no, unsigned" as final.
+    if (before?.admissionSignatureHex && before.admissionOutputs && before.admissionOutputs.length > 0) {
+      devLog(
+        `[mandala] /submit of ${ancestorTxid} answered ${verdict.kind} without a signature, but this device ` +
+          'already holds a verified admission for it; treated as unavailable'
+      )
+      if (SUBMITTABLE_STATES.includes(before.state)) {
+        await store.advanceSettlement(ancestorTxid, ['submitting'], before.state)
+      }
+      return 'serviceError'
+    }
+
     // A final verdict for THIS txid. Evicted means it was admitted and then
     // undone (inputs restored overlay-side); refused means it never was.
     const to: TokenSettlementState = verdict.kind === 'evicted' ? 'orphaned' : 'refused'
