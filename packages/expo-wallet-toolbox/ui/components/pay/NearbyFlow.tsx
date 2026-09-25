@@ -111,6 +111,7 @@ import { useTranslation } from 'react-i18next'
 import { Beef, createNonce, type WalletInterface } from '@bsv/sdk'
 import { finalizeDelivery } from '../../../core/localpay/build'
 import { queuePendingAbort, queueDeclinedAbortWatch } from '../../../core/localpay/pendingAborts'
+import type { PendingAbortTagWallet } from '../../../core/localpay/pendingAbortAuthority'
 import { receiptBroadcastFromReqStatus } from '../../../core/offline/plan'
 import { userFacingPayError } from '../../../core/pay/userError'
 
@@ -1695,7 +1696,10 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         } catch (e) {
           console.warn('[localpay] abortAction failed:', messageOf(e))
           if (storage) {
-            await queuePendingAbort(storage, { reference, originator: adminOriginator }).catch(() => undefined)
+            await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
+              wallet: wallet as unknown as PendingAbortTagWallet,
+              originator: adminOriginator
+            }).catch(() => undefined)
           }
         }
       })()
@@ -1803,7 +1807,10 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           // same replay on the next wallet build.
           async reference => {
             if (!storage) return
-            await queuePendingAbort(storage, { reference, originator: adminOriginator })
+            await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
+              wallet: wallet as unknown as PendingAbortTagWallet,
+              originator: adminOriginator
+            })
           }
         )
       } catch (e) {
@@ -1949,7 +1956,10 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         },
         queueFailedAbort: async reference => {
           if (!storage) return
-          await queuePendingAbort(storage, { reference, originator: adminOriginator })
+          await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
+            wallet: wallet as unknown as PendingAbortTagWallet,
+            originator: adminOriginator
+          })
         },
         // P1-3: the payee's decline is unverifiable from here — watch the
         // txid so a later reappearance on chain (the payee's claim was wrong,
@@ -2200,7 +2210,10 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           },
           queueFailedAbort: async reference => {
             if (!storage) return
-            await queuePendingAbort(storage, { reference, originator: adminOriginator })
+            await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
+              wallet: wallet as unknown as PendingAbortTagWallet,
+              originator: adminOriginator
+            })
           }
         }
       )

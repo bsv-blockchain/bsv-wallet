@@ -101,6 +101,18 @@ const RESERVED_RAIL_PROTOCOL_NAMES = new Set(['3241645161d8', 'mandala token'])
  * computation in connectionAuthority.ts actually mean something. */
 const CONNECTION_AUTHORITY_PROTOCOL_NAMES = new Set(['connection authority'])
 
+/** XR-102 (non-Vault residual): protocol namespace `core/localpay/
+ * pendingAbortAuthority.ts`'s HMAC tag is derived under. `pending_aborts` is a
+ * plain KV record with no MAC of its own; `queuePendingAbort` tags each entry
+ * it writes, and `replayPendingAborts` drops any entry whose tag is missing or
+ * does not verify before ever calling `abortAction` -- see that module's own
+ * doc. Reserved for exactly the same reason as `connection authority` above:
+ * a connected/paired origin's site-scoped WalletClient forwards createHmac/
+ * verifyHmac for any non-reserved namespace, so without this reservation that
+ * same peer could mint or verify the tag itself over the already-allowlisted
+ * RPC method, authenticating nothing. */
+const PENDING_ABORT_AUTHORITY_PROTOCOL_NAMES = new Set(['pending abort authority'])
+
 function matchesProtocolNamespace(args: unknown, names: Set<string>): boolean {
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
   const protocolID = (args as { protocolID?: unknown }).protocolID
@@ -121,6 +133,10 @@ function requestsReservedRailProtocol(args: unknown): boolean {
 
 function requestsConnectionAuthorityProtocol(args: unknown): boolean {
   return matchesProtocolNamespace(args, CONNECTION_AUTHORITY_PROTOCOL_NAMES)
+}
+
+function requestsPendingAbortAuthorityProtocol(args: unknown): boolean {
+  return matchesProtocolNamespace(args, PENDING_ABORT_AUTHORITY_PROTOCOL_NAMES)
 }
 
 /** Operations that can name an existing output or unsigned action without
@@ -563,7 +579,10 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
         if (
           PRIVILEGED_CAPABLE.has(method) &&
           originator !== adminOriginator &&
-          (requestsVaultProtocol(args) || requestsReservedRailProtocol(args) || requestsConnectionAuthorityProtocol(args))
+          (requestsVaultProtocol(args) ||
+            requestsReservedRailProtocol(args) ||
+            requestsConnectionAuthorityProtocol(args) ||
+            requestsPendingAbortAuthorityProtocol(args))
         ) {
           return deny(String(method), originator)
         }

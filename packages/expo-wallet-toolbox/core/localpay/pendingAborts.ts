@@ -6,6 +6,12 @@
  */
 import { ADMIN_ORIGINATOR, LEGACY_ADMIN_ORIGINATOR } from '../config'
 import { VAULT_ABORT_REPLAY_MARKER } from '../services/vault/guard'
+import {
+  computePendingAbortAuthorityTag,
+  verifyPendingAbortAuthorityTag,
+  type PendingAbortTagWallet,
+  type PendingAbortVerifyWallet
+} from './pendingAbortAuthority'
 
 interface StorageLike {
   getKeyValue: (key: string) => Promise<string | undefined>
@@ -17,6 +23,16 @@ export const PENDING_ABORTS_KEY = 'pending_aborts'
 export interface PendingAbort {
   reference: string
   originator: string
+  /** XR-102: HMAC over `reference`, computed by `queuePendingAbort` with the
+   * ADMIN-scoped wallet under the reserved `pending abort authority`
+   * namespace (see pendingAbortAuthority.ts). Absent on a legacy pre-XR-102
+   * entry or a forged one — `replayPendingAborts` drops either, never
+   * replays them. */
+  tag?: string
+}
+
+function messageOf(e: unknown): string {
+  return e instanceof Error && e.message ? e.message : String(e)
 }
 
 // XR-088: every read-modify-write sequence on PENDING_ABORTS_KEY shares one
@@ -33,36 +49,103 @@ function withPendingAbortsLock<T>(fn: () => Promise<T>): Promise<T> {
   return run
 }
 
-export async function loadPendingAborts(storage: StorageLike): Promise<PendingAbort[]> {
-  try {
-    const raw = await storage.getKeyValue(PENDING_ABORTS_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    const out: PendingAbort[] = []
-    for (const item of parsed) {
-      if (!item || typeof item !== 'object') continue
-      const reference = (item as { reference?: unknown }).reference
-      const originator = (item as { originator?: unknown }).originator
-      if (typeof reference === 'string' && reference && typeof originator === 'string') {
+/** XR-088 (SEC1-026's own second, separately-named defect): a sentinel that
+ * distinguishes "the key is genuinely absent/empty" from "the read or parse
+ * itself failed" — the two used to be collapsed into the same `[]`, which let
+ * `queuePendingAbort` treat a transient storage hiccup as an authoritative
+ * empty queue and overwrite every other durable, not-yet-replayed reference
+ * with just the one item it was trying to add. */
+const READ_FAILED = Symbol('pending-aborts-read-failed')
+
+function parsePendingAborts(parsed: unknown): PendingAbort[] | typeof READ_FAILED {
+  if (!Array.isArray(parsed)) return READ_FAILED
+  const out: PendingAbort[] = []
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') continue
+    const reference = (item as { reference?: unknown }).reference
+    const originator = (item as { originator?: unknown }).originator
+    const tag = (item as { tag?: unknown }).tag
+    if (typeof reference === 'string' && reference && typeof originator === 'string') {
+      out.push({
+        reference,
         // An abort queued before the internal label moved into hostname space
         // would otherwise fail originator validation on every replay, forever.
-        out.push({ reference, originator: originator === LEGACY_ADMIN_ORIGINATOR ? ADMIN_ORIGINATOR : originator })
-      }
+        originator: originator === LEGACY_ADMIN_ORIGINATOR ? ADMIN_ORIGINATOR : originator,
+        ...(typeof tag === 'string' && tag ? { tag } : {})
+      })
     }
-    return out
-  } catch {
-    return []
   }
+  return out
 }
 
-export async function queuePendingAbort(storage: StorageLike, item: PendingAbort): Promise<void> {
+async function loadPendingAbortsOrFail(storage: StorageLike): Promise<PendingAbort[] | typeof READ_FAILED> {
+  let raw: string | undefined
+  try {
+    raw = await storage.getKeyValue(PENDING_ABORTS_KEY)
+  } catch (e) {
+    console.warn('[localpay] could not read the pending-abort queue:', messageOf(e))
+    return READ_FAILED
+  }
+  if (!raw) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (e) {
+    console.warn('[localpay] the pending-abort queue is not valid JSON:', messageOf(e))
+    return READ_FAILED
+  }
+  return parsePendingAborts(parsed)
+}
+
+export async function loadPendingAborts(storage: StorageLike): Promise<PendingAbort[]> {
+  const result = await loadPendingAbortsOrFail(storage)
+  return result === READ_FAILED ? [] : result
+}
+
+export async function queuePendingAbort(
+  storage: StorageLike,
+  item: PendingAbort,
+  /** XR-102: the ADMIN-scoped wallet (and its originator) this entry's
+   * authenticity tag is computed with — every real call site already has
+   * one, since it is the same wallet `abortAction` itself is called on. */
+  authority: { wallet: PendingAbortTagWallet; originator: string }
+): Promise<void> {
   if (!item.reference) return
   return withPendingAbortsLock(async () => {
-    const all = await loadPendingAborts(storage)
-    if (all.some(a => a.reference === item.reference)) return
-    await storage.setKeyValue(PENDING_ABORTS_KEY, JSON.stringify([...all, item]))
+    const loaded = await loadPendingAbortsOrFail(storage)
+    if (loaded === READ_FAILED) {
+      // XR-088: never overwrite on a read/parse failure — fail this queue
+      // call instead. Every real call site already wraps queuePendingAbort in
+      // its own best-effort `.catch()`, so this costs exactly one reference
+      // not being queued THIS attempt (the same outcome a rejected write
+      // would have had); what it does NOT cost is every other, unrelated,
+      // already-durable abort reference silently erased underneath it.
+      throw new Error('pending_aborts: could not read the existing queue, refusing to overwrite it')
+    }
+    if (loaded.some(a => a.reference === item.reference)) return
+    let tag: string | undefined
+    try {
+      tag = await computePendingAbortAuthorityTag(authority.wallet, authority.originator, item.reference)
+    } catch (e) {
+      // An untagged entry can never pass replayPendingAborts's verification
+      // (below) and so can never auto-release — but it is still worth
+      // recording durably rather than losing the reference outright: it stays
+      // visible, and a stuck `nosend` row remains recoverable through
+      // WalletHomeScreen's manual per-row abort, which does not go through
+      // this queue or its authority check at all.
+      console.warn('[localpay] could not tag a pending abort for authenticated replay:', messageOf(e))
+    }
+    await storage.setKeyValue(PENDING_ABORTS_KEY, JSON.stringify([...loaded, { ...item, ...(tag ? { tag } : {}) }]))
   })
+}
+
+export interface ReplayPendingAbortsResult {
+  /** XR-102: entries dropped because their authority tag was missing or did
+   * not verify — never replayed, never called abortAction. Surfaced so the
+   * UI can tell the user something was ignored, in case it corresponds to a
+   * payment that now looks stuck (still recoverable via WalletHomeScreen's
+   * per-row Cancel, which does not depend on this queue). */
+  droppedUntrusted: number
 }
 
 export async function replayPendingAborts(args: {
@@ -71,14 +154,29 @@ export async function replayPendingAborts(args: {
       args: { reference: string; [VAULT_ABORT_REPLAY_MARKER]?: true },
       originator?: string
     ) => Promise<{ aborted?: boolean } | void>
-  }
+  } & PendingAbortVerifyWallet
   storage: StorageLike
-}): Promise<void> {
+}): Promise<ReplayPendingAbortsResult> {
   return withPendingAbortsLock(async () => {
     const pending = await loadPendingAborts(args.storage)
-    if (pending.length === 0) return
+    if (pending.length === 0) return { droppedUntrusted: 0 }
     const kept: PendingAbort[] = []
+    let droppedUntrusted = 0
     for (const item of pending) {
+      // XR-102 (non-Vault residual): the vault-inventory replay marker below
+      // only protects a Vault reference — an ordinary localpay/PeerPay
+      // reference has no settlement row and no vault-inventory entry, so
+      // nothing else stops a forged `pending_aborts` entry naming one from
+      // being replayed. Authenticate first: an entry this wallet did not
+      // itself tag at queue time (queuePendingAbort) is dropped, never
+      // replayed — fail closed, since the only thing a replay ever does is
+      // free a reservation, and a dropped reference stays recoverable through
+      // WalletHomeScreen's manual per-row abort.
+      const authentic = await verifyPendingAbortAuthorityTag(args.wallet, ADMIN_ORIGINATOR, item.reference, item.tag)
+      if (!authentic) {
+        droppedUntrusted++
+        continue
+      }
       try {
         // XR-102: the persisted `originator` is never trusted here — this is a
         // raw KV record, writable by anything with local storage access, and a
@@ -94,7 +192,8 @@ export async function replayPendingAborts(args: {
         // marker opts this specific call OUT of that trust and into the same
         // vault-inventory reference check a non-admin caller gets — so a
         // reference an attacker injected that happens to name a Vault action is
-        // refused, while an ordinary localpay/PeerPay reference still replays.
+        // refused, while an ordinary (and authentically-tagged) localpay/
+        // PeerPay reference still replays.
         const result = await args.wallet.abortAction(
           { reference: item.reference, [VAULT_ABORT_REPLAY_MARKER]: true },
           ADMIN_ORIGINATOR
@@ -107,6 +206,7 @@ export async function replayPendingAborts(args: {
       }
     }
     await args.storage.setKeyValue(PENDING_ABORTS_KEY, JSON.stringify(kept))
+    return { droppedUntrusted }
   })
 }
 
