@@ -181,3 +181,58 @@ describe('createWocBroadcastService classification', () => {
     expect(r.txidResults[0].serviceError).toBe(true)
   })
 })
+
+/**
+ * XR-063: a broadcast provider that returns headers within the deadline and
+ * then stalls its body used to hold the whole `service()` promise open
+ * forever — the AbortController's timer was cleared as soon as fetch()
+ * resolved, before response.json()/text() ever ran. Since this provider sits
+ * first in the UntilSuccess fallback chain, a stall here blocked every later
+ * fallback (Taal, GorillaPool, WoC) from ever being tried.
+ */
+describe('XR-063: a stalled body converts to a serviceError instead of hanging forever', () => {
+  beforeEach(() => jest.useFakeTimers())
+  afterEach(() => jest.useRealTimers())
+
+  const txOf = () => {
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    return { tx, beef }
+  }
+
+  it('Arcade (ARC) resolves with a serviceError rather than hanging when .json() never resolves', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => new Promise(() => {})
+    }) as unknown as typeof fetch
+    const { tx, beef } = txOf()
+    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+
+    const pending = service(beef, [tx.id('hex')])
+    await jest.advanceTimersByTimeAsync(30_000)
+    const result = await pending
+
+    expect(result.status).toBe('error')
+    expect(result.txidResults[0].serviceError).toBe(true)
+    expect(result.txidResults[0].doubleSpend).toBeUndefined()
+  })
+
+  it('WhatsOnChain resolves with a serviceError rather than hanging when .text() never resolves', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => new Promise(() => {})
+    }) as unknown as typeof fetch
+    const { tx, beef } = txOf()
+    const { service } = createWocBroadcastService('main')
+
+    const pending = service(beef, [tx.id('hex')])
+    await jest.advanceTimersByTimeAsync(30_000)
+    const result = await pending
+
+    expect(result.status).toBe('error')
+    expect(result.txidResults[0].serviceError).toBe(true)
+  })
+})
