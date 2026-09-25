@@ -348,6 +348,20 @@ export function payerAddressOf(tx: Transaction, network: 'mainnet' | 'testnet' =
  * Each UTXO is fetched and internalized in its own try/catch so one bad BEEF
  * cannot skip the rest of the address.
  */
+/**
+ * XR-054: the number of distinct transactions sweepAddress will fetch+verify+
+ * internalize in a single call. getUtxosForAddress already caps the raw UTXO
+ * listing at MAX_UTXO_LISTING_ROWS (XR-059), but that still allows up to that
+ * many distinct txids, each costing one sequential network fetch — dusting a
+ * published receive address with many small, distinct-txid payments would
+ * otherwise make every 30-second sweeper.ts pass do that many fetches, over
+ * and over, forever. Capping here bounds the work any one pass can do; any
+ * txid left over this pass is simply still "available" (not yet
+ * internalized) and gets picked up by a later pass — nothing is lost or
+ * double-credited, since internalizeAction is idempotent per output.
+ */
+export const MAX_SWEEP_TXIDS_PER_PASS = 200
+
 export async function sweepAddress(args: {
   wallet: AddressRailWallet
   adminOriginator: string
@@ -367,14 +381,22 @@ export async function sweepAddress(args: {
   const senderIdentityKey = new PrivateKey(1).toPublicKey().toString()
   let importedSatoshis = 0
   let failureCount = 0
-  const seen = new Set<string>()
 
+  // XR-054: a single linear grouping pass (was: one `.filter()` over the
+  // whole `utxos` array per unique txid inside this same loop, i.e. O(n^2)
+  // for n outputs), plus the per-pass txid cap above.
+  const byTxid = new Map<string, Utxo[]>()
   for (const utxo of utxos) {
-    if (seen.has(utxo.txid)) continue
-    seen.add(utxo.txid)
-    const relevant = utxos.filter(o => o.txid === utxo.txid)
+    const group = byTxid.get(utxo.txid)
+    if (group) group.push(utxo)
+    else byTxid.set(utxo.txid, [utxo])
+  }
+  const txids = Array.from(byTxid.keys()).slice(0, MAX_SWEEP_TXIDS_PER_PASS)
+
+  for (const txid of txids) {
+    const relevant = byTxid.get(txid) as Utxo[]
     try {
-      const resp = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${utxo.txid}/beef`)
+      const resp = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/beef`)
       const bytes = parseWocBeefBody({ ok: resp.ok, text: await resp.text() })
       if (!bytes) {
         failureCount++
@@ -382,7 +404,7 @@ export async function sweepAddress(args: {
       }
       const beef = new Beef()
       beef.mergeBeef(bytes)
-      const tx = beef.findAtomicTransaction(utxo.txid)
+      const tx = beef.findAtomicTransaction(txid)
       if (!tx) {
         failureCount++
         continue
