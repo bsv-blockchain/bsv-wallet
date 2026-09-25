@@ -368,12 +368,15 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     wallet: WalletClient,
     meta: SessionMeta,
     initialSeq: number,
+    // XR-018: this socket's own identity for the generation check below —
+    // the caller (connect()/reconnect()) allocates it right after
+    // supersedeExistingSocket() and before opening `ws`, and reuses the same
+    // value to guard its own onopen handler, so a stale in-flight onopen
+    // from a socket superseded in the meantime is guarded exactly like
+    // onmessage/onerror/onclose below.
+    myGeneration: number,
     onFirstMessage: () => void,
   ) {
-    // XR-018: this socket's own identity for the generation check below —
-    // captured once, at wiring time, so it stays fixed even though
-    // connectionGenerationRef.current keeps advancing for later sockets.
-    const myGeneration = ++connectionGenerationRef.current
     wsRef.current      = ws
     lastSeqRef.current = initialSeq
     let firstMessageFired = false
@@ -576,8 +579,11 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     const mobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
 
     // XR-018: tear down any live socket for a DIFFERENT prior session before
-    // wiring this one — see supersedeExistingSocket for why.
+    // wiring this one — see supersedeExistingSocket for why. myGeneration is
+    // allocated right after, so this connection's onopen AND wireSocket's
+    // handlers all guard against the same supersede event.
     supersedeExistingSocket()
+    const myGeneration = ++connectionGenerationRef.current
 
     const meta: SessionMeta = {
       topic: validated.params.topic, origin: validated.external.origin, relay,
@@ -589,6 +595,11 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     const ws = new WebSocket(buildRelayWebSocketUrl(relay, validated.params.topic))
 
     ws.onopen = async () => {
+      // XR-018: this connection attempt may already have been superseded by
+      // a later connect()/reconnect()/disconnect() while relay/verify above
+      // were in flight — a stale send here must not touch the new session's
+      // state, and must not fire on an already-detached socket.
+      if (connectionGenerationRef.current !== myGeneration) return
       try {
         const payload = JSON.stringify({
           id: crypto.randomUUID(), seq: 1, method: 'pairing_approved',
@@ -602,14 +613,16 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         const ciphertext = await encryptPayload(
           wallet, protocolID, validated.params.topic, validated.params.backendIdentityKey, payload
         )
+        if (connectionGenerationRef.current !== myGeneration) return
         ws.send(JSON.stringify({ topic: validated.params.topic, mobileIdentityKey, ciphertext } satisfies WireEnvelope))
       } catch {
+        if (connectionGenerationRef.current !== myGeneration) return
         setErrorMsg('Failed to send pairing message')
         setStatus('error')
       }
     }
 
-    wireSocket(ws, wallet, meta, 0, () => {
+    wireSocket(ws, wallet, meta, 0, myGeneration, () => {
       connectionStore.add({
         sessionId: validated.params.topic, origin: validated.external.origin, relay,
         backendIdentityKey: validated.params.backendIdentityKey, mobileIdentityKey,
@@ -641,8 +654,11 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     const initialSeq = validateStoredConnectionSequence(storedSeq)
 
     // XR-018: tear down any live socket for a DIFFERENT prior session before
-    // wiring this one — see supersedeExistingSocket for why.
+    // wiring this one — see supersedeExistingSocket for why. myGeneration is
+    // allocated right after, so this connection's onopen AND wireSocket's
+    // handlers all guard against the same supersede event.
     supersedeExistingSocket()
+    const myGeneration = ++connectionGenerationRef.current
 
     const meta: SessionMeta = {
       topic: validated.topic, origin: validated.external.origin, relay,
@@ -655,6 +671,8 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     const ws = new WebSocket(buildRelayWebSocketUrl(relay, validated.topic))
 
     ws.onopen = async () => {
+      // XR-018: see the identical guard in connect()'s onopen.
+      if (connectionGenerationRef.current !== myGeneration) return
       try {
         const payload = JSON.stringify({
           id: crypto.randomUUID(), seq: initialSeq + 1, method: 'pairing_approved',
@@ -668,18 +686,20 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         const ciphertext = await encryptPayload(
           wallet, protocolID, validated.topic, validated.backendIdentityKey, payload,
         )
+        if (connectionGenerationRef.current !== myGeneration) return
         ws.send(JSON.stringify({
           topic: validated.topic,
           mobileIdentityKey: validated.mobileIdentityKey,
           ciphertext,
         } satisfies WireEnvelope))
       } catch {
+        if (connectionGenerationRef.current !== myGeneration) return
         setErrorMsg('Failed to send reconnect message')
         setStatus('error')
       }
     }
 
-    wireSocket(ws, wallet, meta, initialSeq, () => {
+    wireSocket(ws, wallet, meta, initialSeq, myGeneration, () => {
       connectionStore.setStatus(validated.topic, 'active')
       setStatus('connected')
     })
