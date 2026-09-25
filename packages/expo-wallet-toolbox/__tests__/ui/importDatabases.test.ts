@@ -141,6 +141,11 @@ jest.mock('expo-sqlite', () => ({
 // ── expo-file-system / expo-document-picker ─────────────────────────────────
 
 const mockFileBytes = new Map<string, Uint8Array>()
+// XR-087: counts real calls to File#bytes()/delete(), so a size-gate test can
+// assert the oversized file was never actually read into memory, not merely
+// that the import was refused (which a later, unrelated failure could also
+// cause).
+const mockBytesCallCount = { bytes: 0, delete: 0 }
 
 jest.mock('expo-file-system', () => ({
   File: class {
@@ -149,14 +154,18 @@ jest.mock('expo-file-system', () => ({
       this.uri = uri
     }
     async bytes(): Promise<Uint8Array> {
+      mockBytesCallCount.bytes++
       const b = mockFileBytes.get(this.uri)
       if (!b) throw new Error('test: no bytes registered for ' + this.uri)
       return b
     }
+    delete(): void {
+      mockBytesCallCount.delete++
+    }
   }
 }))
 
-let mockPickedAsset: { name: string; uri: string } | null = null
+let mockPickedAsset: { name: string; uri: string; size?: number } | null = null
 jest.mock('expo-document-picker', () => ({
   getDocumentAsync: async () => {
     if (!mockPickedAsset) return { canceled: true, assets: null }
@@ -236,14 +245,19 @@ beforeEach(async () => {
   mockAlertChoice = 'import'
   mockShowAlert.mockClear()
   mockShowToast.mockClear()
+  mockBytesCallCount.bytes = 0
+  mockBytesCallCount.delete = 0
   await AsyncStorage.clear()
   currentStorage = await buildCurrentStorage(`wallet-${KEY_SUFFIX}-${CHAIN}net-1000.db`)
 })
 
-function pickFile(name: string, raw: DatabaseSync): void {
+// A real backup is a handful of KB-to-MB; every pre-existing test in this
+// file picks a file without caring about size, so the default here must sit
+// comfortably under importDatabases.ts's MAX_IMPORT_BYTES ceiling.
+function pickFile(name: string, raw: DatabaseSync, size = 4096): void {
   const uri = `file://test/${name}`
   mockFileBytes.set(uri, mockRegisterSource(name, raw))
-  mockPickedAsset = { name, uri }
+  mockPickedAsset = { name, uri, size }
 }
 
 describe('importWalletDatabase', () => {
@@ -611,5 +625,45 @@ describe('importWalletDatabase', () => {
     expect(result.imported).toBe(true)
     expect(result.filename).not.toBe(alreadyRegistered)
     expect(result.filename).not.toBe(currentStorage.dbName)
+  })
+
+  it('XR-087: rejects a picked file whose picker-reported size exceeds the import ceiling, before ever reading its bytes', async () => {
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    // 1 byte over whatever ceiling importDatabases.ts enforces would still be
+    // a false negative if the test hard-codes a guess at the constant, so
+    // this uses a value no real wallet backup could plausibly reach instead.
+    pickFile(name, await buildWalletDb(CURRENT_IDENTITY_KEY), 8 * 1024 * 1024 * 1024) // 8 GiB
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    // The whole point: an oversized file must never be materialized into a
+    // JS byte array at all, regardless of what alert copy or code path
+    // rejects it.
+    expect(mockBytesCallCount.bytes).toBe(0)
+    expect(mockOpenDbs.has(currentStorage.dbName)).toBe(false)
+    expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
+  it('XR-087: rejects a picked file with no picker-reported size at all, before reading its bytes', async () => {
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    const uri = `file://test/${name}`
+    mockFileBytes.set(uri, mockRegisterSource(name, await buildWalletDb(CURRENT_IDENTITY_KEY)))
+    mockPickedAsset = { name, uri, size: undefined } // picker declined to report a size
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    expect(mockBytesCallCount.bytes).toBe(0)
+  })
+
+  it('XR-087: still imports a normally-sized backup (the size gate is not just "always reject")', async () => {
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, await buildWalletDb(CURRENT_IDENTITY_KEY), 4096)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(true)
+    expect(mockBytesCallCount.bytes).toBe(1)
   })
 })
