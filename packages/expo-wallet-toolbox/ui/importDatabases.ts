@@ -252,6 +252,17 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
       // boundary, before the copy is ever registered or read: an imported
       // backup must never be able to seed the live queue (XR-081).
       await destDb.runAsync('DELETE FROM key_value_store WHERE key IN (?, ?)', [PENDING_KEY, PENDING_SUMMARY_KEY])
+
+      // prewarmOwnRoots (core/headers/prewarm.ts) reads proven_txs's own
+      // (height, merkleRoot) pairs straight off this device's active
+      // database and trusts a match against them offline, forever, with no
+      // further check — so an imported file's proven_txs rows would become
+      // permanently-trusted chain proof for whatever heights it names. This
+      // device already re-derives every proof it needs from its own header
+      // sync and recordProof (see unprovenWithoutReqSql.ts's doc comment for
+      // that self-healing path), so nothing legitimate is lost by refusing to
+      // carry an import's copy of this table forward (XR-083).
+      await destDb.runAsync('DELETE FROM proven_txs')
     }
   } catch (e: any) {
     console.error('[importDatabases] Failed to place database:', e.message)

@@ -320,4 +320,23 @@ describe('importWalletDatabase', () => {
     // Only the two localpay keys are quarantined — everything else survives.
     expect(keys).toContain('unrelated_key')
   })
+
+  it('XR-083: strips imported proven_txs rows, so a forged (height, merkleRoot) pair cannot reach prewarmOwnRoots', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // A forged proof: an attacker-chosen height/merkleRoot pair this device
+    // never derived from its own header sync.
+    raw.exec(
+      `INSERT INTO proven_txs (created_at, updated_at, txid, height, "index", merklePath, rawTx, blockHash, merkleRoot)
+       VALUES ('${NOW}', '${NOW}', '${'f'.repeat(64)}', 999999, 0, x'00', x'00', '${'a'.repeat(64)}', '${'b'.repeat(64)}')`
+    )
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(true)
+    const destHandle = mockOpenDbs.get(result.filename as string)
+    const rows = (await destHandle!.getAllAsync('SELECT * FROM proven_txs')) as unknown[]
+    expect(rows).toHaveLength(0)
+  })
 })
