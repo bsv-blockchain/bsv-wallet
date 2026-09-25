@@ -309,13 +309,32 @@ export async function upgradeToBiometric(
 
 /* -------------------------------- teardown -------------------------------- */
 
-/** Prompt-free, and works while locked or lost — otherwise a user whose
- * biometrics changed could never log out. */
+/**
+ * Prompt-free, and works while locked or lost — otherwise a user whose
+ * biometrics changed could never log out.
+ *
+ * KEK_AUTH_KEY stays a single blind delete: verifying it would require an
+ * authenticated read, i.e. exactly the live ceremony this function must never
+ * need. KEK_PLAIN_KEY and the sentinel are both unauthenticated, so verifying
+ * (and retrying) their removal is free — and matters more here, since a
+ * surviving KEK_PLAIN_KEY is the mnemonic-decrypting key sitting in
+ * cleartext, not merely an inert, harmless leftover (XR-111; same iOS
+ * silent-no-op-delete rationale as migration.ts's sweepLegacyKeys).
+ */
 export async function destroyKek(): Promise<void> {
   cached = null
   autoUnlockSpent = false
-  await deleteBothKekItems()
-  await SecureStore.deleteItemAsync(SENTINEL_KEY, envOptions).catch(() => {})
+  await SecureStore.deleteItemAsync(KEK_AUTH_KEY, kekOptions(true)).catch(() => {})
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await SecureStore.deleteItemAsync(KEK_PLAIN_KEY, kekOptions(false)).catch(() => {})
+    await SecureStore.deleteItemAsync(SENTINEL_KEY, envOptions).catch(() => {})
+    const plainGone = (await SecureStore.getItemAsync(KEK_PLAIN_KEY, kekOptions(false)).catch(() => null)) === null
+    const sentinelGone = (await SecureStore.getItemAsync(SENTINEL_KEY, envOptions).catch(() => null)) === null
+    if (plainGone && sentinelGone) break
+    if (attempt === 1) console.warn('[secrets] plain KEK or sentinel survived deletion')
+  }
+
   setState({ status: 'absent' })
 }
 

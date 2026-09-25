@@ -36,9 +36,16 @@ async function provisionWithSecret() {
   return state
 }
 
+// Captured once, before any test can override it, so a test that swaps
+// deleteItemAsync's implementation (to simulate a silent no-op delete)
+// cannot leak that override into a later test — __reset() clears calls but,
+// like jest's own mockClear(), does not touch a previously-set implementation.
+const defaultDeleteImpl = secureStore.deleteItemAsync.getMockImplementation()!
+
 describe('KEK lifecycle', () => {
   beforeEach(() => {
     secureStore.__reset()
+    secureStore.deleteItemAsync.mockImplementation(defaultDeleteImpl)
     localAuth.__reset()
     __resetForTests()
     ;(global as any).__DEV__ = false
@@ -302,6 +309,31 @@ describe('KEK lifecycle', () => {
     expect(secureStore.__prompts()).toBe(before)
     expect(await readSentinel()).toBeNull()
     expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(false)
+  })
+
+  it('XR-111: retries deleting the unauthenticated plain KEK so a transient no-op does not leave it readable', async () => {
+    ;(global as any).__DEV__ = true
+    localAuth.__setLevel(localAuth.SecurityLevel.NONE)
+    await provisionWithSecret() // dev-plain: KEK_PLAIN_KEY holds the live key
+    expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(true)
+
+    // iOS's documented silent-no-op delete, but only once — a transient
+    // failure, not a permanent one.
+    const realDelete = secureStore.deleteItemAsync.getMockImplementation()!
+    let calls = 0
+    secureStore.deleteItemAsync.mockImplementation(async (key: string, options: unknown) => {
+      if (key === KEK_PLAIN_KEY && calls++ === 0) return
+      return realDelete(key, options)
+    })
+
+    const before = secureStore.__prompts()
+    await destroyKek()
+
+    expect(secureStore.__prompts()).toBe(before) // still no ceremony
+    // The plain KEK is the mnemonic-decrypting key sitting in cleartext, not
+    // inert metadata — a surviving copy after "log out"/"delete wallet" is a
+    // real disclosure, unlike a merely-orphaned envelope blob.
+    expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(false)
   })
 
   it('readSentinel swallows a read failure by default, so a missing sentinel still reads as null', async () => {
