@@ -95,3 +95,13 @@ it('still fetches an ordinary bare domain over https', async () => {
   expect(String(url)).toBe('https://trustedentity.com/manifest.json')
   expect(init?.redirect).toBe('error')
 })
+
+it('XR-073: never fetches a domain field typed as a loopback address, with no DNS trickery needed', async () => {
+  const screen = draw()
+  openAddProviderModal(screen)
+  fireEvent.changeText(screen.getByPlaceholderText('trustedentity.com'), '127.0.0.1')
+  fireEvent.press(screen.getByText('get_provider_details'))
+
+  await waitFor(() => expect(screen.getByText('That domain does not name a public trust provider')).toBeTruthy())
+  expect(global.fetch).not.toHaveBeenCalled()
+})

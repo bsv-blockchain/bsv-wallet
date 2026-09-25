@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next'
 // settings types.
 import type { Certifier as WalletCertifier } from '@bsv/wallet-toolbox-mobile'
 import validateTrust from '../validateTrust'
+import { isPublicHttpsUrl } from '../../core/net/publicDestination'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { showAlert } from '../components/ui/AlertCard'
 import { haptics, useTheme, spacing, radii, typography, useWallet } from '@bsv/expo-wallet-toolbox'
@@ -477,6 +478,13 @@ function AddProviderModal({
         throw new Error('Trust providers must be imported over https://')
       }
       const url = domain.startsWith('https://') ? `${domain}/manifest.json` : `https://${domain}/manifest.json`
+      // A user-typed domain needs no DNS trickery to reach a loopback or
+      // private-network service directly (XR-073 / SEC2-057, SEC2-076) —
+      // refuse it before making the request, same host-class check the
+      // handle registry applies to a foreign domain's own capabilities.
+      if (!isPublicHttpsUrl(url)) {
+        throw new Error('That domain does not name a public trust provider')
+      }
       let res: Response
       try {
         res = await fetchWithTimeout(url, 15000)

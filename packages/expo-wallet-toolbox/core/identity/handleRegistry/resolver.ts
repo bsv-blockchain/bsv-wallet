@@ -12,6 +12,7 @@
  * nothing that `https://<domain>` would not already have reached.
  */
 import { BRFC_LOOKUP, BRFC_REVERSE_LOOKUP, looksLikeDomain } from './rules'
+import { isPublicHttpsUrl } from '../../net/publicDestination'
 
 /** The domain this build's own handles live under, and the host serving it. */
 export interface RegistryPin {
@@ -138,9 +139,19 @@ function parseSrv(data: string): SrvRecord | null {
   return { priority, weight, port, target }
 }
 
+/**
+ * A foreign domain's own `.well-known/bsvalias` document names WHERE its
+ * search/reverse routes live — nothing binds that to the domain the request
+ * was made about. Without a host-class check, a foreign domain (no DNSSEC
+ * spoofing needed against anyone else — an attacker publishing this for their
+ * own domain is enough) could advertise a capability template rooted at a
+ * loopback or private address and have every later search/reverse request
+ * this feature makes land there instead (XR-073 / SEC2-057, SEC2-076).
+ */
 function templateOf(value: unknown, placeholder: string): string | null {
   if (typeof value !== 'string' || !value.startsWith('https://')) return null
-  return value.includes(placeholder) ? value : null
+  if (!value.includes(placeholder)) return null
+  return isPublicHttpsUrl(value) ? value : null
 }
 
 export function createRegistryResolver(args: {
@@ -205,6 +216,11 @@ export function createRegistryResolver(args: {
     const host = await lookupSrv(domain)
     if (!host) return null
     const origin = `https://${host.target}${host.port === 443 ? '' : `:${host.port}`}`
+    // An SRV target is ordinarily just a hostname, but nothing stops one from
+    // being an IP literal, `localhost`, or a `.local` name — and DNSSEC only
+    // authenticates that the domain's own zone said so, not that it is a
+    // sensible destination (XR-073 / SEC2-057, SEC2-076).
+    if (!isPublicHttpsUrl(`${origin}/`)) return null
     let capabilities: Record<string, unknown>
     try {
       const res = await fetchWithTimeout(fetchImpl, `${origin}/.well-known/bsvalias`, {

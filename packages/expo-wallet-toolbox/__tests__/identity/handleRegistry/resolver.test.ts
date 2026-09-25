@@ -450,3 +450,65 @@ describe('fetchWithTimeout', () => {
     expect(jest.getTimerCount()).toBe(0)
   })
 })
+
+/**
+ * XR-073 (SEC2-057, SEC2-076): a foreign domain's `.well-known/bsvalias`
+ * document names where its OWN search/reverse routes live, and nothing binds
+ * that to the domain a request was made about — no DNSSEC spoofing against a
+ * third party is needed, only an attacker publishing this for their own
+ * domain. Without a host-class check, every later search/reverse request this
+ * feature makes for that domain would land wherever the template says.
+ */
+describe('a capability template rooted at a private address (XR-073)', () => {
+  it('is refused, so the domain resolves to no usable registry rather than one bound to loopback', async () => {
+    const { fetchImpl } = transport([
+      ['cloudflare-dns.com', async () => ok(srv('10 5 443 mb.other.example.'))],
+      [
+        '/.well-known/bsvalias',
+        async () =>
+          ok(
+            wellKnown({
+              '0ace65da5987': 'https://127.0.0.1:4873/api/handle/{query}',
+              '43dcf83ddc5f': 'https://127.0.0.1:4873/api/identityKey/{pubkey}'
+            })
+          )
+      ]
+    ])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints).toBeNull()
+  })
+
+  it('is refused for a loopback hostname too, not only a bare IP literal', async () => {
+    const { fetchImpl } = transport([
+      ['cloudflare-dns.com', async () => ok(srv('10 5 443 mb.other.example.'))],
+      [
+        '/.well-known/bsvalias',
+        async () =>
+          ok(
+            wellKnown({
+              '0ace65da5987': 'https://localhost/api/handle/{query}',
+              '43dcf83ddc5f': 'https://localhost/api/identityKey/{pubkey}'
+            })
+          )
+      ]
+    ])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints).toBeNull()
+  })
+
+  it('still resolves normally when the templates are rooted at the discovered host', async () => {
+    const { fetchImpl } = transport([
+      ['cloudflare-dns.com', async () => ok(srv('10 5 443 mb.other.example.'))],
+      ['/.well-known/bsvalias', async () => ok(wellKnown())]
+    ])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints?.search('dee')).toBe('https://mb.other.example/api/handle/dee')
+  })
+
+  it('refuses an SRV target that is itself a loopback literal, before ever asking it for capabilities', async () => {
+    const { fetchImpl, calls } = transport([['cloudflare-dns.com', async () => ok(srv('10 5 443 127.0.0.1.'))]])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints).toBeNull()
+    expect(calls.some(c => c.includes('/.well-known/bsvalias'))).toBe(false)
+  })
+})
