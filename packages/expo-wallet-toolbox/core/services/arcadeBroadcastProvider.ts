@@ -58,10 +58,15 @@ function beefToEF(beef: Beef): Uint8Array {
 
 /**
  * Create an ARC-compatible broadcast service that posts EF-format transactions.
+ *
+ * `txPath` is where the deployment serves its submit route. Arcade serves
+ * POST /tx at the root; standard ARC (TAAL, GorillaPool) serves POST /v1/tx and
+ * answers POST /tx with 404. Both take EF as application/octet-stream.
  */
 function createArcBroadcastService(
   name: string,
   arcUrl: string,
+  txPath: '/tx' | '/v1/tx',
   headers: Record<string, string>
 ) {
   return {
@@ -74,7 +79,7 @@ function createArcBroadcastService(
         const timeout = setTimeout(() => controller.abort(), 30_000)
         let response: Response
         try {
-          response = await fetch(`${arcUrl}/tx`, {
+          response = await fetch(`${arcUrl}${txPath}`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
@@ -87,12 +92,12 @@ function createArcBroadcastService(
           clearTimeout(timeout)
         }
         const data = await response.json()
-        console.log(`[${name}] POST /tx ${response.status}`, JSON.stringify(data))
+        console.log(`[${name}] POST ${txPath} ${response.status}`, JSON.stringify(data))
         const txResult = handleArcResponse(name, response, data, txids)
         r.txidResults.push(txResult)
         r.status = txResult.status
       } catch (err: any) {
-        console.log(`[${name}] POST /tx error: ${err.message}`)
+        console.log(`[${name}] POST ${txPath} error: ${err.message}`)
         r.status = 'error'
         r.txidResults.push({
           txid: txids[0],
@@ -110,7 +115,7 @@ function createArcBroadcastService(
  * Arcade broadcast service — EF format with callback token for SSE updates.
  */
 export function createArcadeBroadcastService(arcadeUrl: string, callbackToken: string) {
-  return createArcBroadcastService('Arcade', arcadeUrl, {
+  return createArcBroadcastService('Arcade', arcadeUrl, '/tx', {
     'X-CallbackToken': callbackToken,
     'X-FullStatusUpdates': 'true'
   })
@@ -122,14 +127,14 @@ export function createArcadeBroadcastService(arcadeUrl: string, callbackToken: s
 export function createTaalBroadcastService(arcUrl: string, apiKey?: string) {
   const headers: Record<string, string> = {}
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-  return createArcBroadcastService('TaalArc', arcUrl, headers)
+  return createArcBroadcastService('TaalArc', arcUrl, '/v1/tx', headers)
 }
 
 /**
  * GorillaPool ARC broadcast service — EF format.
  */
 export function createGorillaPoolBroadcastService(arcUrl: string) {
-  return createArcBroadcastService('GorillaPoolArc', arcUrl, {})
+  return createArcBroadcastService('GorillaPoolArc', arcUrl, '/v1/tx', {})
 }
 
 /**

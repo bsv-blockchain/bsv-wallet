@@ -81,7 +81,7 @@ export function createServiceOptions(
   // toolbox's generic ARC slot (broadcast fallback, `services.arcTaal`).
   // `arcadeUrl` is what makes `Services` construct its `Arcade` provider —
   // and that provider is the only `getMerklePath` source that can answer for
-  // a transaction the moment Arcade sees it mined (GET /v1/tx/{txid} carries
+  // a transaction the moment Arcade sees it mined (GET /tx/{txid} carries
   // the BUMP), and the only thing `TaskArcadeSSE` will subscribe to. Without
   // it every proof lookup went straight to WhatsOnChain/Bitails, and the
   // monitor logged "no arcadeUrl configured; SSE disabled" on every start —

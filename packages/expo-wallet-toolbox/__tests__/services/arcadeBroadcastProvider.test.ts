@@ -1,5 +1,11 @@
 import { Beef, Transaction } from '@bsv/sdk'
-import { createWocBroadcastService, handleArcResponse } from '../../core/services/arcadeBroadcastProvider'
+import {
+  createArcadeBroadcastService,
+  createGorillaPoolBroadcastService,
+  createTaalBroadcastService,
+  createWocBroadcastService,
+  handleArcResponse
+} from '../../core/services/arcadeBroadcastProvider'
 
 describe('handleArcResponse', () => {
   const txids = ['abc123']
@@ -76,6 +82,60 @@ describe('handleArcResponse', () => {
       txids
     )
     expect(result.status).toBe('success')
+  })
+})
+
+describe('ARC-compatible factories post to the path each deployment serves', () => {
+  // Arcade serves POST /tx at the root. TAAL and GorillaPool are standard ARC,
+  // where POST /tx is a 404 ("no matching operation was found") and the route
+  // is POST /v1/tx — probed live 2026-09-24.
+  const postOne = async (factory: { service: (beef: Beef, txids: string[]) => Promise<unknown> }) => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ txid: 'ignored', txStatus: 'SEEN_ON_NETWORK' }),
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    const result = await factory.service(beef, [tx.id('hex')])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    return { url, init, result, ef: new Uint8Array(tx.toEF()) }
+  }
+
+  it('Arcade posts EF to /tx at the root', async () => {
+    const { url, init, ef } = await postOne(
+      createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    )
+    expect(url).toBe('https://arcade-v2-us-1.bsvblockchain.tech/tx')
+    expect(init.method).toBe('POST')
+    expect(init.headers['Content-Type']).toBe('application/octet-stream')
+    expect(init.headers['X-CallbackToken']).toBe('cb-token')
+    expect(Array.from(init.body)).toEqual(Array.from(ef))
+  })
+
+  it('TAAL posts EF to /v1/tx with its bearer key', async () => {
+    const { url, init, ef } = await postOne(createTaalBroadcastService('https://arc.taal.com', 'taal-key'))
+    expect(url).toBe('https://arc.taal.com/v1/tx')
+    expect(init.method).toBe('POST')
+    expect(init.headers['Content-Type']).toBe('application/octet-stream')
+    expect(init.headers.Authorization).toBe('Bearer taal-key')
+    expect(Array.from(init.body)).toEqual(Array.from(ef))
+  })
+
+  it('TAAL testnet posts to /v1/tx', async () => {
+    const { url } = await postOne(createTaalBroadcastService('https://arc-test.taal.com'))
+    expect(url).toBe('https://arc-test.taal.com/v1/tx')
+  })
+
+  it('GorillaPool posts EF to /v1/tx', async () => {
+    const { url, init, ef } = await postOne(createGorillaPoolBroadcastService('https://arc.gorillapool.io'))
+    expect(url).toBe('https://arc.gorillapool.io/v1/tx')
+    expect(init.method).toBe('POST')
+    expect(init.headers['Content-Type']).toBe('application/octet-stream')
+    expect(Array.from(init.body)).toEqual(Array.from(ef))
   })
 })
 
