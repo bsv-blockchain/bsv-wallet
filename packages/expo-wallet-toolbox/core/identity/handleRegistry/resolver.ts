@@ -39,10 +39,60 @@ export const REGISTRY_TIMEOUT_MS = 8000
 export const RESOLVER_SUCCESS_TTL_MS = 10 * 60 * 1000
 export const RESOLVER_FAILURE_TTL_MS = 60 * 1000
 export const DOH_ENDPOINTS: readonly string[] = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve']
+/**
+ * Comfortably over ten capped profile certificates (MAX_SEARCH_RESULTS *
+ * MAX_CERT_BODY_BYTES, ~160 KiB) plus JSON overhead — nothing this feature
+ * legitimately reads is anywhere near this large (XR-077 / SEC2-027).
+ */
+export const REGISTRY_MAX_BODY_BYTES = 256 * 1024
 
 const SRV_TYPE = 33
 const NOERROR = 0
 const NXDOMAIN = 3
+
+/**
+ * Reads a body no bigger than `maxBytes`, in whatever way the runtime allows.
+ * A declared `Content-Length` over the cap is refused before anything is
+ * read; otherwise, when the runtime exposes the body as a stream, chunks are
+ * counted as they arrive and the read is aborted the instant the running
+ * total crosses the cap — an untrusted host cannot make this allocate more
+ * than the cap regardless of what it claims or how it paces the bytes
+ * (XR-077 / SEC2-027). `fallback` (the original, unbounded `response.json`)
+ * is used only when the runtime gives no stream to count from at all, which
+ * this feature's own test doubles do — a floor, not a firewall, on a runtime
+ * where nothing better is available.
+ */
+async function readBoundedJson(res: Response, fallback: () => Promise<unknown>, url: string): Promise<unknown> {
+  const declared = res.headers?.get?.('content-length')
+  if (declared) {
+    const n = Number(declared)
+    if (Number.isFinite(n) && n > REGISTRY_MAX_BODY_BYTES) {
+      throw new Error(`handleRegistry: ${url} declared ${n} bytes, over the ${REGISTRY_MAX_BODY_BYTES} byte limit`)
+    }
+  }
+  const reader = (res as { body?: ReadableStream<Uint8Array> | null }).body?.getReader?.()
+  if (!reader) return await fallback()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > REGISTRY_MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => {})
+      throw new Error(`handleRegistry: ${url} exceeded the ${REGISTRY_MAX_BODY_BYTES} byte limit while streaming`)
+    }
+    chunks.push(value)
+  }
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return JSON.parse(new TextDecoder().decode(merged))
+}
 
 /**
  * One attempt, bounded — headers AND body. There is no shared fetch helper in
@@ -79,10 +129,12 @@ export async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, ini
     clearTimeout(timer)
   }
   const readJson = typeof response.json === 'function' ? response.json.bind(response) : null
-  if (!readJson) {
+  const hasBody = !!(response as { body?: unknown }).body
+  if (!readJson && !hasBody) {
     release()
     return response
   }
+  const fallback = readJson ?? (() => Promise.reject(new Error(`handleRegistry: ${url} has no json() and no body`)))
   // Rebinding the reader rather than buffering the body here: what each caller
   // asks for is all that is ever allocated. The abort is what stops a real
   // stalled stream; the rejection is what stops a transport that ignores it.
@@ -97,7 +149,7 @@ export async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, ini
           },
           Math.max(0, REGISTRY_TIMEOUT_MS - (Date.now() - startedAt))
         )
-        void readJson().then(resolve, reject)
+        void readBoundedJson(response, fallback, url).then(resolve, reject)
       })
     } finally {
       if (bodyTimer !== undefined) clearTimeout(bodyTimer)
