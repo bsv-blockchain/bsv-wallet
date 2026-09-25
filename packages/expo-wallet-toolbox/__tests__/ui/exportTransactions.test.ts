@@ -67,6 +67,28 @@ function walletWithDescription(description: string) {
   } as never
 }
 
+function walletWithOutgoingAmount(satoshis: number) {
+  return {
+    listActions: jest.fn(async ({ offset }: { offset: number }) => {
+      if (offset > 0) return { totalActions: 1, actions: [] }
+      return {
+        totalActions: 1,
+        actions: [
+          {
+            txid: 'b'.repeat(64),
+            satoshis,
+            isOutgoing: true,
+            status: 'completed',
+            description: 'Coffee with Alice',
+            labels: [],
+            outputs: []
+          }
+        ]
+      }
+    })
+  } as never
+}
+
 beforeEach(() => {
   delete mockEvents.write
 })
@@ -104,5 +126,37 @@ describe('exportTransactionsAsCsv (XR-078)', () => {
     const dataRow = (mockEvents.write as string).split('\n')[1]
     const descriptionCell = dataRow.split(',')[2]
     expect(descriptionCell).toBe('Coffee with Alice')
+  })
+})
+
+/**
+ * XR-078 review follow-up: neutralizeFormula() was wired into csvEscape(),
+ * which every column goes through — including `satoshis`, a signed number
+ * (`a.isOutgoing ? -Math.abs(a.satoshis) : Math.abs(a.satoshis)`) that is
+ * never attacker-controlled. For every outgoing transaction its string form
+ * starts with '-', which matches neutralizeFormula's own
+ * /^[=+\-@\t\r]/ trigger set, so the numeric cell was corrupted from a plain
+ * number (e.g. `-50000`) into a text string (`'-50000`) with a forced
+ * leading apostrophe — breaking SUM/sort/import of the exported CSV for
+ * every outgoing payment, even though the value contains no untrusted text.
+ * Only the genuinely untrusted string columns (description, tags, labels,
+ * outputDescriptions) should ever be run through neutralizeFormula.
+ */
+describe('exportTransactionsAsCsv (XR-078 review follow-up: satoshis column)', () => {
+  it('never mangles an outgoing (negative) satoshis amount with a formula-neutralizing apostrophe', async () => {
+    await exportTransactionsAsCsv(walletWithOutgoingAmount(50000), null, 'admin')
+
+    expect(mockEvents.write).toBeDefined()
+    const dataRow = (mockEvents.write as string).split('\n')[1]
+    const satoshisCell = dataRow.split(',')[1]
+    // The trusted numeric column must stay a plain number, not text.
+    expect(satoshisCell).toBe('-50000')
+  })
+
+  it('still writes an ordinary positive (incoming) satoshis amount as a plain number', async () => {
+    await exportTransactionsAsCsv(walletWithDescription('Coffee with Alice'), null, 'admin')
+    const dataRow = (mockEvents.write as string).split('\n')[1]
+    const satoshisCell = dataRow.split(',')[1]
+    expect(satoshisCell).toBe('1000')
   })
 })

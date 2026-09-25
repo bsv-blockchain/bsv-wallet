@@ -38,9 +38,24 @@ function neutralizeFormula(s: string): string {
 
 function csvEscape(v: unknown): string {
   if (v == null) return ''
-  const s = neutralizeFormula(String(v))
+  const s = String(v)
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
   return s
+}
+
+/**
+ * Same as csvEscape, but for the columns that can carry attacker-controlled
+ * free text (description, tags, labels, outputDescriptions) — these alone
+ * are run through neutralizeFormula first. Columns that are always
+ * app-derived (txid, satoshis, status, blockHeight) use plain csvEscape:
+ * `satoshis` in particular is a signed number whose string form starts with
+ * '-' for every outgoing transaction, which would otherwise trip
+ * neutralizeFormula's leading-character check and corrupt a plain numeric
+ * cell (e.g. `-50000`) into text (`'-50000`) for no security benefit.
+ */
+function csvEscapeUntrusted(v: unknown): string {
+  if (v == null) return ''
+  return csvEscape(neutralizeFormula(String(v)))
 }
 
 /**
@@ -108,12 +123,12 @@ export async function exportTransactionsAsCsv(
     return [
       csvEscape(a.txid),
       csvEscape(sats),
-      csvEscape(a.description),
+      csvEscapeUntrusted(a.description),
       csvEscape(a.status),
       csvEscape(height),
-      csvEscape(tags),
-      csvEscape(labels),
-      csvEscape(outDescs)
+      csvEscapeUntrusted(tags),
+      csvEscapeUntrusted(labels),
+      csvEscapeUntrusted(outDescs)
     ].join(',')
   })
 
