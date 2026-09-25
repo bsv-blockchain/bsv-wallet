@@ -366,4 +366,20 @@ describe('importWalletDatabase', () => {
     }[]
     expect(rows.map(r => r.status)).toEqual(['import_hold', 'import_hold', 'sent'])
   })
+
+  it('XR-080: a filename-suffix collision with a different full storageIdentityKey is rejected before it can be activated', async () => {
+    // The picked file's NAME carries the victim's own 8-hex suffix, but its
+    // settings row's real storageIdentityKey is a completely different full
+    // key — the narrower claim XR-080 makes about XR-079's same fix.
+    const collidingName = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(collidingName, await buildWalletDb(FOREIGN_IDENTITY_KEY))
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    expect(mockOpenDbs.has(currentStorage.dbName)).toBe(false)
+    // Never reaches the registry, so it can never be selected as the active
+    // database on a later build either.
+    expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
 })
