@@ -775,7 +775,7 @@ describe('sendToHandle', () => {
     expect(row?.reference).toBe(reference)
 
     const wrapped = wrapAbortActionForSettlements(
-      { abortAction: async () => ({ aborted: true }) },
+      { abortAction: async (_args: { reference: string }) => ({ aborted: true }) },
       () => runtime.store
     )
     expect(await wrapped.abortAction({ reference })).toEqual({ aborted: false })

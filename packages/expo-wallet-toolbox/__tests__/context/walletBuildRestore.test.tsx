@@ -42,7 +42,7 @@ const mockRegisterDb = jest.fn(async (_keySuffix: string, _chain: string, filena
 const mockUnregisterDb = jest.fn(async (_keySuffix: string, _chain: string, filename: string) => {
   mockRegisteredDbs = mockRegisteredDbs.filter(f => f !== filename)
 })
-const mockDeleteDatabaseAsync = jest.fn(async () => {})
+const mockDeleteDatabaseAsync = jest.fn(async (_name: string) => {})
 
 jest.mock('../../core/context/LocalStorageProvider', () => ({
   useLocalStorage: () => ({

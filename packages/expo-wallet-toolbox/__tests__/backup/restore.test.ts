@@ -276,7 +276,7 @@ describe('RemoteSyncReader reliability and scheduling', () => {
     const big = new Uint8Array(2 * 1024 * 1024)
     const bigSha = sha256Hex(big)
     const index = entries(2).map(e => ({ ...e, size: big.length, sha256: bigSha, prevSha256: bigSha }))
-    index[0].prevSha256 = undefined
+    ;(index[0] as { prevSha256?: string }).prevSha256 = undefined
     const client = { index: jest.fn().mockResolvedValue(index), blob: jest.fn().mockResolvedValue(big) }
     const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
     await reader.getSyncChunk(args)

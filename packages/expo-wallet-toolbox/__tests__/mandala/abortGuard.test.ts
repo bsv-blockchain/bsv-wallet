@@ -171,7 +171,8 @@ describe('wrapAbortActionForSettlements', () => {
     const throwing = wrapAbortActionForSettlements(manager, () => ({
       getSettlementByReference: async () => {
         throw new Error('database is not open')
-      }
+      },
+      hasUnresolvedLegacyBlockedRows: async () => false
     }))
     await expect(throwing.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: true })
     expect(abortAction).toHaveBeenCalledTimes(2)

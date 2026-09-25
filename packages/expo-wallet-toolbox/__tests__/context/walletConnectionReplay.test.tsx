@@ -182,9 +182,9 @@ test('XR-021: two concurrent messages whose durable writes resolve out of order 
   // out-of-order resolution MAX_IN_FLIGHT_RPC (>1) permits in production.
   const pendingWrites: Record<string, () => void> = {}
   mockSetItemAsync.mockImplementation(
-    (_key: string, value: string) =>
+    (...args: unknown[]) =>
       new Promise<void>(resolve => {
-        pendingWrites[value] = resolve
+        pendingWrites[args[1] as string] = resolve
       })
   )
 

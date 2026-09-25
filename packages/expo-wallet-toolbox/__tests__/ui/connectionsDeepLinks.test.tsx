@@ -5,7 +5,7 @@ import { ConnectionsScreen } from '../../ui/screens/ConnectionsScreen'
 const mockConnect = jest.fn(async () => {})
 const mockReconnect = jest.fn(async () => {})
 const mockDisconnect = jest.fn()
-const mockShowAlert = jest.fn(async () => 'reconnect')
+const mockShowAlert = jest.fn(async (..._args: unknown[]) => 'reconnect')
 let mockSessionMeta: { topic: string } | null = null
 const mockClipboard = jest.fn()
 const mockToast = jest.fn()

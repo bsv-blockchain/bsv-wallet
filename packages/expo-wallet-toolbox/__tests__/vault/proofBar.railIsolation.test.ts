@@ -94,7 +94,8 @@ import {
   Random,
   Transaction,
   Utils,
-  type ChainTracker
+  type ChainTracker,
+  type WalletInterface
 } from '@bsv/sdk'
 import { Wallet, WalletPermissionsManager, WalletSigner, WalletStorageManager } from '@bsv/wallet-toolbox-mobile'
 import { MandalaToken } from '@bsv/templates'
@@ -573,7 +574,7 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
     const vault = await fundVault(wallet, VAULT_SATS, 10)
     const funding = await fundDefault(wallet, keyDeriver, DEFAULT_SATS)
 
-    const guarded = guardVaultAccess(wallet as never, ADMIN)
+    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN)
     const ext = (await guarded.listActions(
       { labels: [], includeOutputs: true, includeInputs: true, includeInputSourceLockingScripts: true, limit: 50, offset: 0 } as never,
       'evil.com'
@@ -593,7 +594,7 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
     // a positive control here.
     const ordinary = await fundGeneralBasket(wallet, 'general', DEFAULT_SATS)
 
-    const guarded = guardVaultAccess(wallet as never, ADMIN)
+    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN)
     await expect(
       guarded.createAction(
         {
@@ -621,7 +622,7 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
 
   it('I3: internalizeAction refuses a non-admin originator carrying a fresh R1C output (positive control: an ordinary output is accepted)', async () => {
     const { wallet } = await makeWallet(112)
-    const guarded = guardVaultAccess(wallet as never, ADMIN)
+    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN)
 
     // A FRESH R1C-locked transaction — deliberately not one already resident
     // in this wallet's history — since `carriesR1COutput` inspects the
@@ -691,7 +692,7 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
     const permissionsManager = new WalletPermissionsManager(wallet as never, ADMIN, {
       seekBasketListingPermissions: false
     } as never)
-    const guarded = guardVaultAccess(permissionsManager as never, ADMIN)
+    const guarded = guardVaultAccess(permissionsManager as unknown as WalletInterface, ADMIN)
 
     await expect(
       guarded.listOutputs({ basket: VAULT_BASKET, limit: 10, offset: 0 } as never, 'evil.com')
