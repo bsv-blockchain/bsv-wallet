@@ -139,6 +139,14 @@ describe('parseWocBeefBody', () => {
   it('returns undefined for odd-length hex', () => {
     expect(parseWocBeefBody({ ok: true, text: 'abc' })).toBeUndefined()
   })
+
+  it('XR-059: rejects an oversized body before hex-decoding it', () => {
+    // A well-formed but absurdly large hex body (well beyond any real BEEF for
+    // a wallet payment) must be rejected before Utils.toArray/Beef.mergeBeef
+    // ever run on it — that decode+merge is the expensive step being guarded.
+    const oversized = '00'.repeat(9_000_000)
+    expect(parseWocBeefBody({ ok: true, text: oversized })).toBeUndefined()
+  })
 })
 
 describe('getUtxosForAddress', () => {
@@ -158,6 +166,21 @@ describe('getUtxosForAddress', () => {
     mockFetchOnce(() => ({ json: { result: [] } }))
     await getUtxosForAddress(woc, ADDRESS)
     expect(global.fetch).toHaveBeenCalledWith(`https://api.whatsonchain.com/v1/bsv/main/address/${ADDRESS}/unspent/all`)
+  })
+
+  it('XR-059: caps how many rows of an oversized listing are ever processed', async () => {
+    // A compromised/misbehaving indexer returning far more rows than any real
+    // address could hold must not turn into unbounded parse work and, in
+    // sweepAddress, one BEEF fetch per row.
+    const huge = Array.from({ length: 500_000 }, (_, i) => ({
+      tx_hash: `t${i}`,
+      tx_pos: 0,
+      value: 1,
+      isSpentInMempoolTx: false
+    }))
+    mockFetchOnce(() => ({ json: { result: huge } }))
+    const result = await getUtxosForAddress(woc, ADDRESS)
+    expect(result.length).toBeLessThan(huge.length)
   })
 })
 

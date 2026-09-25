@@ -154,10 +154,26 @@ export interface AddressRailWallet extends AddressDerivingWallet {
   createAction(args: unknown, originator?: string): Promise<unknown>
 }
 
+/**
+ * Resource bounds for chain-service responses (XR-059/XR-060). Every
+ * configured chain-service call this rail makes trusts the *content* of what
+ * comes back (verified downstream by the real transaction bytes, a merkle
+ * path, or the wallet's own ledger) but not its *size* — a compromised or
+ * merely misbehaving indexer must not be able to force unbounded allocation,
+ * hex-decode/BEEF-merge work, or per-row network fanout just by sending back
+ * more than any real address or transaction could ever legitimately produce.
+ */
+export const MAX_UTXO_LISTING_ROWS = 2000
+export const MAX_HEX_RESPONSE_CHARS = 8_000_000
+
 export async function getUtxosForAddress(woc: WocConfig, address: string): Promise<Utxo[]> {
   const response = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/address/${address}/unspent/all`)
   const rp = await response.json()
+  // A live receive address never legitimately carries anywhere near this many
+  // UTXOs; sweepAddress fetches one BEEF per distinct txid in the result, so
+  // an unbounded row count is also unbounded network fanout.
   return rp.result
+    .slice(0, MAX_UTXO_LISTING_ROWS)
     .filter((r: any) => r.isSpentInMempoolTx === false)
     .map((r: any) => ({ txid: r.tx_hash, vout: r.tx_pos, satoshis: r.value }))
 }
@@ -250,7 +266,8 @@ export async function getProcessedTransactions(
 export function parseWocBeefBody(resp: { ok: boolean; text: string }): number[] | undefined {
   if (!resp.ok) return undefined
   const hex = resp.text.trim()
-  if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) return undefined
+  if (hex.length === 0 || hex.length > MAX_HEX_RESPONSE_CHARS || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex))
+    return undefined
   try {
     return Utils.toArray(hex, 'hex')
   } catch {
