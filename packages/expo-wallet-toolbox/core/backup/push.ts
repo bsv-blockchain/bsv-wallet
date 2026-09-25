@@ -16,8 +16,9 @@
  * pass.
  */
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
+import { captureAppDataSnapshot, isEmptyAppData } from './appData'
 import { BackupClient, BackupHttpError, ERR_SEQ_CONFLICT } from './client'
-import { encodeChunk, estimateEncodedBytes, isEmptyChunk, type BackupSeal } from './codec'
+import { encodeChunk, estimateAppDataBytes, estimateEncodedBytes, isEmptyChunk, type BackupSeal } from './codec'
 import { GENERATION_CHUNK_THRESHOLD, MAX_ITEMS, MAX_ROUGH_SIZE, type BackupChain } from './constants'
 import {
   ENTITY_NAMES,
@@ -131,6 +132,17 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   })
 
   if (isEmptyChunk(chunk)) {
+    // KNOWN, STILL-OPEN GAP (XR-011/XR-055): this branch returns before captureAppDataSnapshot
+    // is ever called below, on purpose (see that call's own comment and codec.ts's encodeChunk
+    // docs for why an appData-only entry is unsafe to append) — but the practical consequence
+    // is that ANY appData queued right now (a just-acknowledged localpay_pending frame, a
+    // peerpay_outbox delivery checkpoint, a just-recorded receiveIssuedDates entry) is not
+    // merely delayed, it never reaches THIS push at all: the window closes with nothing sent,
+    // and the row stays local-only until some unrelated entity change happens to close a
+    // later window. See appData.ts's module docstring for the design delta this needs, and
+    // __tests__/backup/appDataIsolatedActivity.test.ts, which pins this exact scenario
+    // end-to-end (push → restore) rather than only at this function's own unit level.
+    //
     // Window exhausted. Advance `since` past everything seen and reset the offsets, as
     // EntitySyncState does when its merge reports done — except that we advance PAST the
     // high-water mark rather than onto it. See nextInstant.
@@ -154,6 +166,15 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
     return { pushed: 0, bytes: 0, windowClosed: true, rotated }
   }
 
+  // Read alongside the chunk, before the size gate below, so a large pending/outbox queue
+  // (XR-011) or a long issued-date history (XR-055) counts toward the oversize check exactly
+  // like the chunk's own records do — appData rides in the SAME encrypted envelope (see
+  // codec.ts's encodeChunk), so it costs real bytes against the same server cap. `undefined`
+  // when there is nothing app-owned to add, so a chunk with an empty queue serialises
+  // byte-for-byte as the pre-appData envelope (see encodeChunk's own docs).
+  const appData = await captureAppDataSnapshot(deps.storage)
+  const appDataToSend = isEmptyAppData(appData) ? undefined : appData
+
   // Bail BEFORE the expensive part when the chunk cannot possibly be accepted.
   //
   // maxRoughSize bounds what the toolbox accumulates across records; it cannot bound ONE
@@ -165,7 +186,7 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   // Ordering is still the point. Encrypting and signing a doomed payload is synchronous
   // CPU work that blocked the JS thread for ~50s per attempt on device; checking here
   // makes a doomed pass nearly free instead of nearly a minute.
-  const estimate = estimateEncodedBytes(chunk)
+  const estimate = estimateEncodedBytes(chunk) + estimateAppDataBytes(appDataToSend)
   const { maxBlobBytes } = await client.limits()
   if (estimate > maxBlobBytes) {
     // Interpolated, not printf-style: React Native's console does not substitute %d, so a
@@ -189,7 +210,7 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
     cursor.initialChunkCount != null
       ? { generation: cursor.generation, initialChunkCount: cursor.initialChunkCount }
       : undefined
-  const ciphertext = await encodeChunk(wallet, chunk, deps.chain, seal)
+  const ciphertext = await encodeChunk(wallet, chunk, deps.chain, seal, appDataToSend)
 
   const seq = cursor.seq + 1
   let sha: string

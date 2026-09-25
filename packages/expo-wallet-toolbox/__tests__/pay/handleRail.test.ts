@@ -14,6 +14,7 @@ import {
   sendViaHandle
 } from '../../core/pay/rails/handle'
 import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
+import { applyAppData } from '../../core/backup/appData'
 import { getOutboxEntries, saveOutboxEntry, unsentEntries, updateOutboxEntry } from '../../core/peerpay/outbox'
 import { validatePeerPayURI } from '../../core/parsePeerPayURI'
 import { abbreviateKey } from '../../core/pay/counterparty'
@@ -1082,6 +1083,25 @@ describe('isAbortSafe', () => {
   it('leaves every non-peerpay action alone', () => {
     const action = { labels: ['someOtherRail'], txid: 'zz' }
     expect(isAbortSafe(action, [])).toEqual({ aborted: true })
+  })
+
+  it('XR-011/XR-012: now that peerpay_outbox survives restore, a restored delivered entry is refused on its real status — not the no-entry default', async () => {
+    // Before XR-011, the ONLY thing standing between a restored wallet and a duplicate spend
+    // here was isAbortSafe's "no matching entry => refuse" default (see the first test in
+    // this block) — peerpay_outbox never reached the backup log at all, so `stored` was
+    // always undefined post-restore. Now that appData.ts's applyAppData actually replays the
+    // row, the SAME scenario should find the real, delivered entry directly.
+    const s = fakeStorage()
+    const outbox = JSON.stringify([{ id: 'o1', txid: 'aa', status: 'sent', delivered: true }])
+
+    await applyAppData(s, { peerpayOutbox: outbox })
+    const entries = await getOutboxEntries(s)
+
+    const action = { labels: ['peerpay', 'someone'], txid: 'aa', status: 'nosend' }
+    const result = isAbortSafe(action, entries)
+
+    expect(entries).toHaveLength(1)
+    expect(result).toEqual({ aborted: false, needsAbandon: true })
   })
 })
 

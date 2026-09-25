@@ -237,3 +237,102 @@ describe('backup chunk seals', () => {
     await expect(decodeEntry(w, ciphertext, 'main')).rejects.toThrow(/seal is malformed/)
   })
 })
+
+describe('XR-011: backup chunk appData', () => {
+  const appData = {
+    localpayPending: '[{"id":"p1","status":"pending"}]',
+    peerpayOutbox: '[{"id":"o1","status":"unsent"}]',
+    receiveIssuedDates: ['2026-08-01', '2026-09-01']
+  }
+
+  it('round-trips appData in the same envelope as the chunk', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', undefined, appData)
+
+    const decoded = await decodeEntry(w, ciphertext, 'main')
+
+    expect(decoded.kind).toBe('chunk')
+    expect(decoded.appData).toEqual(appData)
+    expect(decoded.chunk.provenTxs?.[0].txid).toBe('deadbeefcafe')
+  })
+
+  it('round-trips appData alongside a seal, in the same envelope as both', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const seal = { generation: 3, initialChunkCount: 17 }
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', seal, appData)
+
+    const decoded = await decodeEntry(w, ciphertext, 'main')
+
+    expect(decoded.seal).toEqual(seal)
+    expect(decoded.appData).toEqual(appData)
+  })
+
+  it('older-reader tolerance: decodeChunk (predates appData) still returns the same chunk from an appData-carrying entry', async () => {
+    // decodeChunk is the thin wrapper every reader used before appData existed (see its own
+    // docs). A writer that now always includes appData must not change what decodeChunk
+    // returns for existing callers/tests that only ever cared about the chunk.
+    const w = deriveBackupWallet(KEY, 'main')
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', undefined, appData)
+
+    const viaDecodeChunk = await decodeChunk(w, ciphertext, 'main')
+    const viaDecodeEntry = await decodeEntry(w, ciphertext, 'main')
+
+    expect(viaDecodeChunk).toEqual(viaDecodeEntry.chunk)
+  })
+
+  it('an appData of undefined serialises to the exact old-format envelope (no appData field at all)', async () => {
+    // encodeChunk itself only drops `undefined` (JSON.stringify's own behaviour) — it is
+    // pushOnce's job to turn "nothing app-owned queued" into literally `undefined` rather
+    // than an empty object before calling encodeChunk (see appData.ts's isEmptyAppData,
+    // exercised directly in appData.test.ts). This test pins encodeChunk's half of that
+    // contract: passing undefined must decode with appData omitted, exactly like a
+    // pre-XR-011 blob.
+    const w = deriveBackupWallet(KEY, 'main')
+    const withUndefined = await encodeChunk(w, chunkWithBinary(), 'main', undefined, undefined)
+
+    expect((await decodeEntry(w, withUndefined, 'main')).appData).toBeUndefined()
+  })
+
+  it('old-format ciphertext (no appData field at all) decodes with appData undefined', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main')
+
+    const decoded = await decodeEntry(w, ciphertext, 'main')
+
+    expect(decoded.appData).toBeUndefined()
+  })
+
+  it('rejects a malformed appData.localpayPending', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const forged = { chain: 'main', chunk: emptyChunk('a', 'b', 'c'), appData: { localpayPending: 123 } }
+    const { ciphertext } = await w.encrypt({
+      plaintext: Utils.toArray(JSON.stringify(forged), 'utf8'),
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
+    })
+
+    await expect(decodeEntry(w, ciphertext, 'main')).rejects.toThrow(/appData\.localpayPending is malformed/)
+  })
+
+  it('rejects a malformed appData.receiveIssuedDates', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const forged = { chain: 'main', chunk: emptyChunk('a', 'b', 'c'), appData: { receiveIssuedDates: ['ok', 5] } }
+    const { ciphertext } = await w.encrypt({
+      plaintext: Utils.toArray(JSON.stringify(forged), 'utf8'),
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
+    })
+
+    await expect(decodeEntry(w, ciphertext, 'main')).rejects.toThrow(/appData\.receiveIssuedDates is malformed/)
+  })
+
+  it('does not leak appData plaintext into the ciphertext', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const ct = await encodeChunk(w, chunkWithBinary(), 'main', undefined, appData)
+
+    expect(Buffer.from(ct).toString('utf8')).not.toContain('localpayPending')
+    expect(Buffer.from(ct).toString('utf8')).not.toContain('2026-08-01')
+  })
+})

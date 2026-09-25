@@ -34,7 +34,9 @@
  * failed to restore.
  */
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
+import { applyAppData, mergeAppData } from './appData'
 import { BackupClient } from './client'
+import type { AppDataSnapshot } from './codec'
 import type { BackupChain } from './constants'
 import { deriveBackupWallet } from './derive'
 import { listBackups, pickTarget, restoreFromBackup } from './restore'
@@ -123,6 +125,11 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
 
   let chunks = primaryResult.chunks
   let verified = primaryResult.verified
+  // Folded together across every device before the single write below (XR-011) — never
+  // applied per-device: each restoreFromBackup call only RETURNS its own appData rather than
+  // writing it, precisely so one device's snapshot can never clobber another's (see
+  // mergeAppData's own docs on why this is a union, not last-write-wins).
+  let appData: AppDataSnapshot | undefined = primaryResult.appData
 
   // Every OTHER device in the manifest is an independent, non-overlapping backup history
   // (see XR-015) — a device's own change/receipt records exist ONLY in its own log, never
@@ -148,6 +155,17 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
     })
     chunks += result.chunks
     verified = verified && result.verified
+    appData = mergeAppData(appData, result.appData)
+  }
+
+  // Written once, here, BEFORE validateRestoredCoins/reviewSpendableOutputs and well before
+  // the caller marks the wallet built (WalletContext.tsx) — the existing background
+  // pending-queue effect and the outbox's own consumers pick these rows up on their own next
+  // tick, through their own existing guards, exactly as if this device had written them
+  // itself. No new hook, and nothing here ever internalizes, broadcasts or releases anything
+  // (see appData.ts's applyAppData docs).
+  if (appData !== undefined) {
+    await applyAppData(deps.storage, appData)
   }
 
   if (deps.validateRestoredCoins) {

@@ -418,3 +418,57 @@ describe('RemoteSyncReader seals', () => {
     expect(client.blob.mock.calls.filter((c: any[]) => c[2] === 1).length).toBe(blobCallsAfterVerify)
   })
 })
+
+// ── XR-011: appData ──────────────────────────────────────────────────────────
+describe('RemoteSyncReader appData', () => {
+  it('is undefined before anything has been replayed, and for a log with no appData at all', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const reader = new RemoteSyncReader(fakeClient([await encodeChunk(w, chunkWithTx('aaa'), 'main')]), w, 'main', DEVICE, 1, SETTINGS)
+
+    expect(reader.appData).toBeUndefined()
+    await reader.getSyncChunk(args)
+    expect(reader.appData).toBeUndefined()
+  })
+
+  it('reflects the newest entry replayed so far, updating as replay proceeds', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const first = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { localpayPending: '[{"id":"p1"}]' })
+    const second = await encodeChunk(w, chunkWithTx('bbb'), 'main', undefined, { localpayPending: '[{"id":"p1"},{"id":"p2"}]' })
+    const reader = new RemoteSyncReader(fakeClient([first, second]), w, 'main', DEVICE, 1, SETTINGS)
+
+    await reader.getSyncChunk(args)
+    expect(reader.appData).toEqual({ localpayPending: '[{"id":"p1"}]' })
+
+    await reader.getSyncChunk(args)
+    expect(reader.appData).toEqual({ localpayPending: '[{"id":"p1"},{"id":"p2"}]' })
+  })
+
+  it('keeps the last known snapshot when a later entry carries none at all (never regresses to undefined)', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const withAppData = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { peerpayOutbox: '[{"id":"o1"}]' })
+    const withoutAppData = await encodeChunk(w, chunkWithTx('bbb'), 'main')
+    const reader = new RemoteSyncReader(fakeClient([withAppData, withoutAppData]), w, 'main', DEVICE, 1, SETTINGS)
+
+    await reader.getSyncChunk(args)
+    await reader.getSyncChunk(args)
+
+    expect(reader.appData).toEqual({ peerpayOutbox: '[{"id":"o1"}]' })
+  })
+
+  it('still captures appData when the entry was already decoded ahead of time by verifiedComplete', async () => {
+    // verifiedComplete decodes the LAST entry up front and caches it (decodedCache) purely to
+    // rank restore candidates; when replay's own sequential pointer later reaches that same
+    // entry, getSyncChunk must still read its appData off the cache-hit path, not only off a
+    // fresh decode.
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const only = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { localpayPending: '[{"id":"p1"}]' })
+    const client = fakeClient([only])
+    const reader = new RemoteSyncReader(client, w, 'main', DEVICE, 1, SETTINGS)
+
+    await reader.verifiedComplete()
+    expect(reader.appData).toBeUndefined() // look-ahead alone must not publish it early
+
+    await reader.getSyncChunk(args)
+    expect(reader.appData).toEqual({ localpayPending: '[{"id":"p1"}]' })
+  })
+})

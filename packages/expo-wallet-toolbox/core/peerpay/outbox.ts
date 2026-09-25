@@ -80,7 +80,9 @@ interface StorageLike {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const OUTBOX_KEY = 'peerpay_outbox'
+/** Exported so backup/appData.ts (XR-011/XR-012) can snapshot/replay this row without
+ * duplicating the literal — this module stays the single source of truth for the key. */
+export const OUTBOX_KEY = 'peerpay_outbox'
 
 /** How long sent entries are kept as a sender-side token copy before pruning. */
 export const SENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000

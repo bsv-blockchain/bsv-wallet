@@ -29,12 +29,12 @@ import {
 } from '../../core/pay/rails/handle'
 import {
   derivationPrefixFor,
-  getCurrentDate,
   getPaymentAddress,
-  MAX_RECOVERY_DAYS,
+  recoveryDatesToScan,
   sweepAddress,
   wocConfigFor
 } from '../../core/pay/rails/address'
+import { getIssuedDates } from '../../core/pay/receiveHistory'
 import {
   runWalletCheck,
   type WalletCheckPorts,
@@ -214,9 +214,15 @@ function useWalletCheckPorts(): WalletCheckPorts {
         if (!wallet) return { imported: 0 }
         const woc = wocConfigFor(selectedNetwork)
         let imported = 0
-        for (let day = 0; day < MAX_RECOVERY_DAYS; day++) {
+        // XR-055: scan every date this device has actually issued a receive address for
+        // (pay/receiveHistory.ts), not a fixed 30-day lookback — a payer who sat on a
+        // legitimately-displayed address longer than that had no shipped path back to
+        // internalizeAction. Falls back to the old fixed-window loop only when there is no
+        // recorded history at all (unchanged behaviour for that case).
+        const recorded = storage ? await getIssuedDates(storage as never) : []
+        for (const date of recoveryDatesToScan(recorded)) {
           try {
-            const prefix = derivationPrefixFor(getCurrentDate(day))
+            const prefix = derivationPrefixFor(date)
             const address = await getPaymentAddress(wallet, adminOriginator, prefix, woc.network)
             const result = await sweepAddress({
               wallet: wallet as never,
@@ -227,7 +233,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
             })
             if (result.importedSatoshis > 0) imported++
           } catch {
-            // One day's miss must not skip the rest of the lookback.
+            // One date's miss must not skip the rest of the scan.
           }
         }
         return { imported }

@@ -77,8 +77,14 @@ function fakeClient (
  */
 function fakeStorage (): any {
   const receivedTxids: string[] = []
+  const kv = new Map<string, string>()
   const s: any = {
     receivedTxids,
+    kv,
+    // XR-011: the appData half of a replay reaches storage through these two — a plain
+    // in-memory KV map is a faithful double of key_value_store for that purpose.
+    getKeyValue: jest.fn(async (k: string) => kv.get(k)),
+    setKeyValue: jest.fn(async (k: string, v: string) => void kv.set(k, v)),
     findProvenTxReqs: jest.fn().mockResolvedValue([]),
     makeAvailable: jest.fn().mockResolvedValue({ storageIdentityKey: 'fresh-local' }),
     findOrInsertUser: jest.fn(async () => ({ user: { userId: 7 }, isNew: true })),
@@ -301,5 +307,121 @@ describe('restoreOnImport', () => {
       expect(result.verified).toBe(false)
       expect(result.chunks).toBe(1)
     })
+  })
+})
+
+// ── XR-011: restore replays app-owned recovery-critical rows ─────────────────
+describe('XR-011: restoreOnImport replays appData', () => {
+  it('restores a receiver-side acknowledged, not-yet-internalized localpay pending frame', async () => {
+    // The ledger's own concrete scenario: an acknowledged Nearby/QR PaymentFrame that never
+    // reached internalizeAction before device loss. At HEAD this row lived only in
+    // key_value_store['localpay_pending'], entirely outside every pushed/replayed SyncChunk.
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const pending = '[{"id":"p1","status":"pending","frame":{}}]'
+    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { localpayPending: pending })
+    const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
+      [`${OLD_DEVICE}/1`]: [chunk]
+    })
+    const storage = fakeStorage()
+
+    const result = await restoreOnImport(deps({ storage, client }))
+
+    expect(result.restored).toBe(true)
+    expect(storage.kv.get('localpay_pending')).toBe(pending)
+  })
+
+  it('restores the peerpay_outbox delivery checkpoint (XR-012)', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const outbox = '[{"id":"o1","status":"unsent","delivered":true}]'
+    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { peerpayOutbox: outbox })
+    const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
+      [`${OLD_DEVICE}/1`]: [chunk]
+    })
+    const storage = fakeStorage()
+
+    await restoreOnImport(deps({ storage, client }))
+
+    expect(storage.kv.get('peerpay_outbox')).toBe(outbox)
+  })
+
+  it('restores the durable issued-receive-date history (XR-055)', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, {
+      receiveIssuedDates: ['2026-06-01', '2026-08-15']
+    })
+    const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
+      [`${OLD_DEVICE}/1`]: [chunk]
+    })
+    const storage = fakeStorage()
+
+    await restoreOnImport(deps({ storage, client }))
+
+    expect(JSON.parse(storage.kv.get('pay_receive_issued_dates'))).toEqual(['2026-06-01', '2026-08-15'])
+  })
+
+  it('does nothing to key_value_store when no chunk ever carried appData', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
+      [`${OLD_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('aaa'), 'main')]
+    })
+    const storage = fakeStorage()
+
+    await restoreOnImport(deps({ storage, client }))
+
+    expect(storage.setKeyValue).not.toHaveBeenCalled()
+  })
+
+  it('XR-015: merges appData across two devices rather than the second clobbering the first', async () => {
+    // Each device's own localpay_pending queue is independent and non-overlapping, exactly
+    // like the toolbox's own entity tables — a payment received on OLD_DEVICE alone must
+    // survive even though NEW_DEVICE (the primary/highest-ranked device) is replayed too.
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const logs = {
+      [`${OLD_DEVICE}/1`]: [
+        await encodeChunk(w, chunkWithTx('old'), 'main', undefined, { localpayPending: '[{"id":"p-old"}]' })
+      ],
+      [`${NEW_DEVICE}/1`]: [
+        await encodeChunk(w, chunkWithTx('new'), 'main', undefined, { localpayPending: '[{"id":"p-new"}]' })
+      ]
+    }
+    const client = fakeClient(
+      [
+        summary({ deviceId: OLD_DEVICE, generation: 1, updatedAt: '2026-08-01T00:00:00Z' }),
+        summary({ deviceId: NEW_DEVICE, generation: 1, updatedAt: '2026-08-09T00:00:00Z' })
+      ],
+      logs
+    )
+    const storage = fakeStorage()
+
+    const result = await restoreOnImport(deps({ storage, client }))
+
+    expect(result.deviceId).toBe(NEW_DEVICE)
+    const merged = JSON.parse(storage.kv.get('localpay_pending'))
+    expect(merged.map((p: any) => p.id).sort()).toEqual(['p-new', 'p-old'])
+  })
+
+  it('a replayed row never calls anything but getKeyValue/setKeyValue — no internalize, broadcast or abort', async () => {
+    // The concrete safety property the ledger asks for. This fake storage exposes exactly
+    // the methods a real StorageExpoSQLite (plus the toolbox's own processSyncChunk
+    // preconditions) needs for an ordinary restore — no internalizeAction, no broadcast, no
+    // abortAction anywhere on it — so a passing restore here is a structural guarantee, not
+    // just a behavioural one: there is nothing else on this double for a regression to call.
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, {
+      localpayPending: '[{"id":"p1"}]',
+      peerpayOutbox: '[{"id":"o1","delivered":true}]',
+      receiveIssuedDates: ['2026-08-01']
+    })
+    const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
+      [`${OLD_DEVICE}/1`]: [chunk]
+    })
+    const storage = fakeStorage()
+
+    const result = await restoreOnImport(deps({ storage, client }))
+
+    expect(result.restored).toBe(true)
+    expect(storage.setKeyValue).toHaveBeenCalledWith('localpay_pending', '[{"id":"p1"}]')
+    expect(storage.setKeyValue).toHaveBeenCalledWith('peerpay_outbox', '[{"id":"o1","delivered":true}]')
+    expect(storage.setKeyValue).toHaveBeenCalledWith('pay_receive_issued_dates', JSON.stringify(['2026-08-01']))
   })
 })
