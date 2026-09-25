@@ -146,6 +146,19 @@ describe('secret store', () => {
     expect(secureStore.__prompts()).toBe(0)
   })
 
+  it('XR-107: erases a surviving legacy plaintext secret when the wallet is deleted', async () => {
+    await putSecret('mnemonic', MNEMONIC)
+    // A pre-envelope plaintext that migration never touched (e.g. a
+    // recoveredKey the user never actually had, or a leftover from a crash
+    // between commit and sweep) must not survive "Delete Wallet".
+    secureStore.__seed('recoveredKey', WIF)
+
+    await deleteAllSecrets()
+
+    expect(await readLegacySecret('recoveredKey')).toBeNull()
+    expect(await hasSecret('mnemonic')).toBe(false)
+  })
+
   it('leaves the next launch looking like a clean install after a wipe', async () => {
     await putSecret('mnemonic', MNEMONIC)
     await deleteAllSecrets()
