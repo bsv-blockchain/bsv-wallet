@@ -1115,7 +1115,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           // too, instead of leaving it looking like it never went anywhere.
           if (storage && offlineByTxid.get(txid)?.status === 'parked') {
             try {
-              await releaseParkedPayment({ storage, txid })
+              // XR-036 review follow-up: `isToken` (derived above from the
+              // action's own 'mandala' label) is the only signal
+              // `releaseParkedPayment` has for whether this txid needs a
+              // durable token_settlements row before it may be promoted.
+              await releaseParkedPayment({ storage, txid, isTokenHold: isToken })
             } catch (e) {
               console.warn('[localpay] resent but could not release:', e instanceof Error ? e.message : e)
             }

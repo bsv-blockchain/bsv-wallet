@@ -259,7 +259,6 @@ export async function holdSentPaymentOffline(
   await storage.updateTransactionStatus('unproven', tx.transactionId)
 }
 
-
 /**
  * Keep a handed-over payment WITHOUT releasing it for broadcast.
  *
@@ -281,7 +280,7 @@ export async function parkSentPaymentOffline(
     txid: string
     framePayload?: string
   }
-): Promise<void> {
+): Promise<boolean> {
   const { storage, txid, framePayload } = args
   const db = storage.sqliteDb
   if (!db) throw new Error('the database is not open, cannot park this payment')
@@ -297,9 +296,14 @@ export async function parkSentPaymentOffline(
   // `attemptToPostReqsToNetwork` both key their token branch on. That is the
   // durability this call buys and the sealed `framePayload` cannot: after a
   // restart the session PSK is gone and these bytes can no longer be opened.
-  await journalHandover(args, txid, 'parked')
+  //
+  // XR-036 review follow-up: this used to discard journalHandover's result,
+  // so nothing downstream could tell a landed token journal from a silently
+  // failed one. Returned now so a caller (and `releaseParkedPayment`'s own
+  // settlement check) has something to act on. A plain BSV park still
+  // resolves `true` (there is nothing to journal).
+  return journalHandover(args, txid, 'parked')
 }
-
 
 /**
  * Release a parked payment: the payer showed the code again and this time
@@ -308,14 +312,40 @@ export async function parkSentPaymentOffline(
  * The same two writes `holdSentPaymentOffline` makes, minus the insert — the
  * row already exists from parking, so it is flipped to 'queued' instead. Same
  * order for the same reason: the durable row moves first, the promotion after.
+ *
+ * XR-036 review follow-up: no frame is threaded here (the row already exists
+ * from the park), so this cannot re-attempt `journalHandover` the way a second
+ * `holdSentPaymentOffline` confirm can. What it CAN and must do is refuse to
+ * repeat XR-036's own defect through this second entry point: a token-bearing
+ * park whose `journalHandover(..., 'parked')` write silently failed (see
+ * `parkSentPaymentOffline`) has no `token_settlements` row, and
+ * `processOfflineActions`'s `readSettlement` reads that absence as "ordinary
+ * BSV" and posts it straight past overlay admission. `isTokenHold` is the
+ * caller's own knowledge of which rail this txid took (WalletHomeScreen.tsx's
+ * resend flow already derives it from the action's 'mandala' label); when set,
+ * the row is only promoted once a settlement row proves the park-time journal
+ * actually landed, otherwise it is left at 'parked' exactly like a fresh
+ * journal failure in `holdSentPaymentOffline`.
  */
-export async function releaseParkedPayment(args: { storage: StorageExpoSQLite; txid: string }): Promise<void> {
-  const { storage, txid } = args
+export async function releaseParkedPayment(args: {
+  storage: StorageExpoSQLite
+  txid: string
+  isTokenHold?: boolean
+}): Promise<void> {
+  const { storage, txid, isTokenHold } = args
   const db = storage.sqliteDb
   if (!db) throw new Error('the database is not open, cannot release this payment')
 
   const tx = (await storage.findTransactions({ partial: { txid }, noRawTx: true }))[0]
   if (!tx) throw new Error(`no transaction record for ${txid}, cannot release it`)
+
+  if (isTokenHold) {
+    const settlement = await createSettlementStore(db as unknown as SettlementDb).getSettlement(txid)
+    if (!settlement) {
+      devLog(`[releaseParkedPayment] ${txid} left 'parked': no settlement row to release a token hold from`)
+      return
+    }
+  }
 
   await updateOfflineAction(db, txid, { status: 'queued' })
   TaskSendOffline.noteEnqueued()
