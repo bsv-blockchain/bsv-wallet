@@ -22,6 +22,7 @@
  * SECURITY: never log the PIN. Public keys and serials are public data.
  */
 import { getVaultDriver } from './driver'
+import { enrolledSerialRegistry, forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
 import {
   computeVaultDraftAuthorityTag,
   computeVaultMetaAuthorityTag,
@@ -1076,6 +1077,10 @@ export async function finalizeEnrollment(
   await vaultStore.createEnrollment(meta, token, next =>
     computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope)
   )
+  // XQ-014: record every committed serial in the device-wide registry
+  // (enrolledSerialRegistry.ts) — best-effort, never fails the enrollment
+  // that already committed.
+  await Promise.all(serials.map(serial => enrolledSerialRegistry.record(serial)))
   // Drafts are public recovery handles, not authority. A cleanup failure must
   // not report enrollment failure after the authoritative write committed.
   try {
@@ -1113,6 +1118,8 @@ export async function addVaultKey(
   const meta = await vaultStore.addKey(record, token, next =>
     computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope)
   )
+  // XQ-014: record the newly committed serial device-wide.
+  await enrolledSerialRegistry.record(record.serial)
   try {
     await vaultStore.consumeEnrollmentDrafts([record.serial], token)
   } catch (error) {
@@ -1125,5 +1132,18 @@ export async function addVaultKey(
  * §3.4); the keys themselves stay on the YubiKeys. */
 export async function disableVault(scopeToken?: VaultScopeToken): Promise<void> {
   const token = scopeToken ?? vaultStore.captureScopeToken()
+  const existing = await vaultStore.getMeta(token)
   await vaultStore.clear(token)
+  // XQ-014: a disabled vault's keys are no longer committed under THIS
+  // chain — forget any of them the device-wide registry no longer needs to
+  // remember, i.e. every one not still enrolled under another chain of this
+  // SAME identity (vaultStore.enrolledSerialsAcrossChains). See
+  // enrolledSerialRegistry's header for the cross-identity residual this
+  // does not resolve.
+  if (existing?.keys.length) {
+    await forgetSerialsNoLongerEnrolledForIdentity(
+      existing.keys.map(key => key.serial),
+      () => vaultStore.enrolledSerialsAcrossChains(token)
+    )
+  }
 }

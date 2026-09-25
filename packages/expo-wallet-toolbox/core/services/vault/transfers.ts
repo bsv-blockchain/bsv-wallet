@@ -71,6 +71,7 @@ import { VaultError } from './types'
 import { metaFromVerifiedOutputs, VAULT_MIN_KEYS } from './VaultKeyService'
 import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
+import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
 
 export const VAULT_BASKET = 'admin vault'
 /** Wallet HMAC domain used only for Vault output salts. */
@@ -3394,12 +3395,13 @@ export async function beginVaultKeyRemoval(
       )
       throw new VaultError('action-pending', 'A vault output appeared while removing the key')
     }
-    return {
-      complete: true,
-      meta: await vaultStore.finalizeEmptyKeyRemoval(scopeToken, next =>
-        computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
-      )
-    }
+    const finalMeta = await vaultStore.finalizeEmptyKeyRemoval(scopeToken, next =>
+      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    )
+    // XQ-014: `serial` is now fully removed from this chain — forget it
+    // device-wide unless another chain of this same identity still holds it.
+    await forgetSerialsNoLongerEnrolledForIdentity([serial], () => vaultStore.enrolledSerialsAcrossChains(scopeToken))
+    return { complete: true, meta: finalMeta }
   })
 }
 
@@ -3634,6 +3636,10 @@ export async function finalizeVaultKeyRemoval(
       )
       if (second.state.authorizesPendingKey) return false
       await vaultStore.finalizeEmptyKeyRemoval(scopeToken, tagger)
+      // XQ-014: the tombstoned key is now fully removed from this chain.
+      await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
+        vaultStore.enrolledSerialsAcrossChains(scopeToken)
+      )
       return true
     }
 
@@ -3652,6 +3658,10 @@ export async function finalizeVaultKeyRemoval(
     )
     if (second.state.authorizesPendingKey) return false
     await vaultStore.finalizeProvenKeyRemoval(scopeToken, tagger)
+    // XQ-014: the tombstoned key is now fully removed from this chain.
+    await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
+      vaultStore.enrolledSerialsAcrossChains(scopeToken)
+    )
     return true
   })
 }

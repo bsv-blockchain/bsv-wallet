@@ -30,15 +30,24 @@
  *    testnet enrollment wizard sees as unknown, so the refusal set comes from
  *    `vaultStore.enrolledSerialsAcrossChains`, not `getMeta`.
  *
- * What that still cannot see is a vault belonging to a DIFFERENT wallet
- * identity on this device: SecureStore cannot be enumerated, so proving that
- * negative needs a device-wide serial index this module does not have. Against
- * that residual there is one last, purely local signal — a key sitting in slot
- * 0x82 means this card is a vault key for SOME vault — so an occupied slot is
- * refused unless the caller passes `acknowledgeUnrecognizedVaultKey`. That one
- * IS overridable, because a card left over from a vault the user has already
- * abandoned is the whole reason this service exists; the enrolled-serial
- * refusal above is not.
+ * XQ-014 UPDATE. `vaultStore.enrolledSerialsAcrossChains` still only ever
+ * sees ONE wallet identity: a vault belonging to a DIFFERENT identity on this
+ * device was genuinely invisible to it, because SecureStore cannot be
+ * enumerated across identities. `enrolledSerialRegistry.ts` closes most of
+ * that gap: a plain, device-wide, non-secret set of bare serials that EVERY
+ * identity's vaultStore writes to when it commits or fully removes an
+ * enrolled key, checked below alongside the identity-scoped set and refused
+ * exactly as unconditionally. What is left, and cannot be fully resolved
+ * without the same cross-identity enumeration SecureStore disallows, is one
+ * physical key committed under two different identities' vaults on this
+ * device where one identity has since fully removed its own copy — see
+ * enrolledSerialRegistry.ts's header. Against THAT narrower residual there is
+ * still the one last, purely local signal — a key sitting in slot 0x82 means
+ * this card is a vault key for SOME vault — so an occupied slot is refused
+ * unless the caller passes `acknowledgeUnrecognizedVaultKey`. That one IS
+ * overridable, because a card left over from a vault the user has already
+ * abandoned is the whole reason this service exists; neither enrolled-serial
+ * refusal above is.
  *
  * That occupancy question goes to `isVaultSlotOccupied`, which both platforms
  * answer from the card (iOS attests the slot; Android reads its metadata) and
@@ -48,6 +57,7 @@
  * reports null for every 0x82 and this refusal would never fire there.
  */
 import { getVaultDriver } from './driver'
+import { enrolledSerialRegistry } from './enrolledSerialRegistry'
 import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
 import { isVaultSerial, vaultStore, type VaultScopeToken } from './vaultStore'
@@ -102,6 +112,13 @@ export async function resetPivApplication(args: {
     ])
     if (enrolled.has(args.serial)) {
       // The message IS the serial, matching enrollKey's convention.
+      throw new VaultError('key-already-enrolled', args.serial, undefined, { serial: args.serial })
+    }
+    // XQ-014: the device-wide registry can see a serial committed under a
+    // DIFFERENT wallet identity's vault on this device — never overridable
+    // by `acknowledgeUnrecognizedVaultKey`, exactly like the identity-scoped
+    // check above (see this module's header).
+    if (await enrolledSerialRegistry.has(args.serial)) {
       throw new VaultError('key-already-enrolled', args.serial, undefined, { serial: args.serial })
     }
   }
