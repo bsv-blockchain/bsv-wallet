@@ -179,6 +179,7 @@ import { MANDALA_BASKET } from '../mandala/types'
 import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
 import { drainMandalaInbox } from '../pay/rails/handle'
 import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
+import { disconnectActivePairedSession } from './WalletConnectionContext'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
 import {
   boundReviewProvenTxs,
@@ -2847,6 +2848,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // hardware session before monitor or storage teardown yields.
     vaultStore.clearScope()
     vaultCeremony.cancel()
+    // XR-018: a live paired RPC socket otherwise outlives logout/wallet
+    // deletion — the peer would keep dispatching allowlisted BRC-100 methods
+    // against a wallet the user believes they've logged out of.
+    disconnectActivePairedSession()
     ;(async () => {
       // Tear the wallet down the same way rebuildWallet does. Logout used to
       // skip this, which orphaned a running monitor AND left the SQLite

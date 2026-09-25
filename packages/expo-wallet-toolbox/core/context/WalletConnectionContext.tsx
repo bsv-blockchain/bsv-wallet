@@ -176,6 +176,26 @@ export function useWalletConnection() {
   return ctx
 }
 
+/**
+ * XR-018: WalletContext.tsx's logout() is a REACT ANCESTOR of
+ * WalletConnectionProvider (app/_layout.tsx nests the connection provider
+ * INSIDE WalletContextProvider), so it cannot call useWalletConnection()
+ * itself — there is no ancestor WalletConnectionContext.Provider at that
+ * point in the tree. Exactly one WalletConnectionProvider is ever mounted
+ * (app/_layout.tsx), matching this package's other module-level
+ * single-wallet-session state (e.g. WalletContext.tsx's
+ * autoApproveThresholdSnapshot), so a plain module-level handle is enough to
+ * let logout revoke any live paired session without becoming a consumer of
+ * this context.
+ */
+let activeDisconnect: (() => void) | null = null
+
+/** Tear down any live paired RPC socket. No-op if no WalletConnectionProvider
+ * is mounted or no session is currently connected. */
+export function disconnectActivePairedSession(): void {
+  activeDisconnect?.()
+}
+
 interface WalletConnectionProviderProps {
   children: React.ReactNode
   /** Sent to the desktop session as `walletMeta.name` during pairing. Host
@@ -217,6 +237,14 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     setSessionMeta(null)
     setStatus('idle')
   }, [])
+
+  // Keep the module-level handle current so logout (a react ancestor of this
+  // provider) can reach the LATEST disconnect closure. Clearing it on
+  // unmount stops a stale/unmounted provider's disconnect from being called.
+  useEffect(() => {
+    activeDisconnect = disconnect
+    return () => { if (activeDisconnect === disconnect) activeDisconnect = null }
+  }, [disconnect])
 
   // ── Nav timer (pair screen lifecycle) ─────────────────────────────────────
 

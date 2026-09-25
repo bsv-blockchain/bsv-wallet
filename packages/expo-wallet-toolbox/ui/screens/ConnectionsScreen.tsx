@@ -154,7 +154,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
   const { colors } = useTheme()
   const { t } = useTranslation()
   const { managers } = useWallet()
-  const { connect, reconnect } = useWalletConnection()
+  const { connect, reconnect, disconnect, sessionMeta } = useWalletConnection()
   const insets = useSafeAreaInsets()
   const [scanning, setScanning] = useState(false)
   const { router } = loadExpoRouter()
@@ -192,6 +192,12 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
   }
 
   async function handleDisconnect(conn: Connection) {
+    // XR-018: local revocation must not depend on the peer's cooperation, or
+    // on the best-effort session_revoke send below succeeding. If this is
+    // the provider's own live socket for this session, tear it down FIRST —
+    // that's the only thing that actually stops wireSocket's onmessage from
+    // continuing to dispatch privileged RPC methods to it.
+    if (sessionMeta?.topic === conn.sessionId) disconnect()
     connectionStore.setStatus(conn.sessionId, 'disconnected')
 
     if (!managers.permissionsManager) return

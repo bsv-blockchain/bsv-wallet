@@ -3,6 +3,8 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { ConnectionsScreen } from '../../ui/screens/ConnectionsScreen'
 
 const mockConnect = jest.fn(async () => {})
+const mockDisconnect = jest.fn()
+let mockSessionMeta: { topic: string } | null = null
 const mockClipboard = jest.fn()
 const mockToast = jest.fn()
 const mockPermissionsManager = {}
@@ -26,7 +28,12 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
   useTheme: () => ({ colors: {} }),
   useWallet: () => ({ managers: { permissionsManager: mockPermissionsManager } }),
-  useWalletConnection: () => ({ connect: mockConnect, reconnect: jest.fn() }),
+  useWalletConnection: () => ({
+    connect: mockConnect,
+    reconnect: jest.fn(),
+    disconnect: mockDisconnect,
+    sessionMeta: mockSessionMeta
+  }),
   guardVaultAccess: (wallet: unknown) => wallet,
   capWalletArgs: (wallet: unknown) => wallet,
   ADMIN_ORIGINATOR: 'admin.test',
@@ -82,6 +89,7 @@ beforeEach(() => {
   mockDeepLinkParams = {}
   mockConnections.splice(0)
   mockWebSockets.splice(0)
+  mockSessionMeta = null
   mockGetStoredSequence.mockResolvedValue(null)
   mockGetIdentityKey.mockResolvedValue({ publicKey: '02' + 'aa'.repeat(32) })
   ;(global as any).WebSocket = mockWebSocketConstructor
@@ -188,4 +196,34 @@ it.each([
   await waitFor(() => expect(mockSetConnectionStatus).toHaveBeenCalled())
   await act(async () => {})
   expect(mockWebSocketConstructor).not.toHaveBeenCalled()
+})
+
+/**
+ * XR-018: "Disconnect" used to only flip ConnectionStore's persisted status
+ * and open a SEPARATE, throwaway WebSocket for a best-effort session_revoke
+ * message — it never touched the provider's own live socket, so a
+ * non-cooperative (or offline) paired peer kept full RPC reachability after
+ * the user believed they had revoked it. Local revocation must not depend
+ * on the peer's cooperation.
+ */
+it('XR-018: tearing down the connection that IS the live session calls context disconnect() first', async () => {
+  mockSessionMeta = { topic: 'stored-session' }
+  mockConnections.push(storedConnection())
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('disconnect'))
+
+  await waitFor(() => expect(mockDisconnect).toHaveBeenCalledTimes(1))
+  expect(mockSetConnectionStatus).toHaveBeenCalledWith('stored-session', 'disconnected')
+})
+
+it('does not call context disconnect() for a stored connection that is not the live session', async () => {
+  mockSessionMeta = { topic: 'some-other-live-session' }
+  mockConnections.push(storedConnection())
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('disconnect'))
+
+  await waitFor(() => expect(mockSetConnectionStatus).toHaveBeenCalled())
+  expect(mockDisconnect).not.toHaveBeenCalled()
 })
