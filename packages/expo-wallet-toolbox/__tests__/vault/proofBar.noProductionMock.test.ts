@@ -85,6 +85,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     setMockPresentKey: jest.requireActual('../../core/services/vault/devMock').setMockPresentKey,
     getMockPresentKey: jest.requireActual('../../core/services/vault/devMock').getMockPresentKey,
     arcUrlStorageKey: () => 'arc_url',
+    getArcApiToken: async () => null,
     arcApiTokenStorageKey: () => 'arc_token',
     DEFAULT_ARC_URLS: { main: 'https://arc.gorillapool.io' },
     KNOWN_ARC_URLS: [],
