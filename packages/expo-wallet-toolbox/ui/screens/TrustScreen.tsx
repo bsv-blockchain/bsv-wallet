@@ -158,7 +158,11 @@ const fetchWithTimeout = async (url: string, ms: number) => {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), ms)
   try {
-    const res = await fetch(url, { signal: controller.signal })
+    // `redirect: 'error'` so an on-path attacker cannot substitute the origin
+    // a trust-provider manifest is fetched from by redirecting the entered
+    // HTTPS origin somewhere else (XR-076 / SEC2-011) — a legitimate provider
+    // has no reason to redirect its own manifest.json.
+    const res = await fetch(url, { signal: controller.signal, redirect: 'error' })
     return res
   } finally {
     clearTimeout(id)
@@ -465,7 +469,14 @@ function AddProviderModal({
       if (!domain) return
       setLoading(true)
       setDomainError(null)
-      const url = domain.startsWith('http') ? `${domain}/manifest.json` : `https://${domain}/manifest.json`
+      // An explicit http:// origin is a downgrade a passive network attacker
+      // can force just by intercepting the connection — refuse it outright
+      // rather than fetching it (XR-076 / SEC2-011). A bare domain always
+      // resolves to https://; an explicit https:// origin is passed through.
+      if (/^http:\/\//i.test(domain)) {
+        throw new Error('Trust providers must be imported over https://')
+      }
+      const url = domain.startsWith('https://') ? `${domain}/manifest.json` : `https://${domain}/manifest.json`
       let res: Response
       try {
         res = await fetchWithTimeout(url, 15000)
