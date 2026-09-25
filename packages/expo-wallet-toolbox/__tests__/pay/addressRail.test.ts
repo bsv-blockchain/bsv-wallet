@@ -404,6 +404,29 @@ describe('sweepAddress', () => {
     expect(wallet.internalizeAction).toHaveBeenCalledTimes(1)
   })
 
+  it('XR-056: importedSatoshis reflects the parsed transaction output, not the untrusted indexer listing value', async () => {
+    // The real, committed output pays 1 satoshi; the indexer's `/unspent/all`
+    // listing claims a wildly inflated value for the same txid/vout. The
+    // reported imported amount must come from the parsed BEEF, not the
+    // listing — an indexer that lies about `value` must not be able to
+    // inflate the receipt shown to the user.
+    const real = paymentBeef(1)
+    mockFetchOnce(url =>
+      url.includes('/unspent/all')
+        ? { json: { result: [{ tx_hash: real.txid, tx_pos: 0, value: 100_000_000, isSpentInMempoolTx: false }] } }
+        : { text: real.hex }
+    )
+    const wallet = walletWithNothingImported()
+    const result = await sweepAddress({
+      wallet: wallet as never,
+      adminOriginator: 'admin.com',
+      woc,
+      address: ADDRESS,
+      derivationPrefix: prefix
+    })
+    expect(result.importedSatoshis).toBe(1)
+  })
+
   it('skips outputs already internalized, so a second sweep is a no-op', async () => {
     mockFetchOnce(() => ({
       json: { result: [{ tx_hash: 'aa', tx_pos: 0, value: 1000, isSpentInMempoolTx: false }] }

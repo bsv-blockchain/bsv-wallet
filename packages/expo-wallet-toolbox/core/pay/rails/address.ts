@@ -336,7 +336,19 @@ export async function sweepAddress(args: {
         failureCount++
         continue
       }
-      const outputs: InternalizeOutput[] = relevant.map(o => ({
+      // XR-056: `o.satoshis` here is the chain-indexer's own unauthenticated
+      // `value` field (see getUtxosForAddress) — a faulty or malicious
+      // indexer can report any figure it likes. `tx` is the cryptographically
+      // parsed, atomic-BEEF-verified transaction the wallet is about to
+      // internalize, so its own outputs are the only trustworthy amount.
+      // A listing row whose vout doesn't even exist on the real transaction
+      // is dropped rather than internalized.
+      const verified = relevant.filter(o => tx.outputs[o.vout] !== undefined)
+      if (verified.length === 0) {
+        failureCount++
+        continue
+      }
+      const outputs: InternalizeOutput[] = verified.map(o => ({
         outputIndex: o.vout,
         protocol: 'wallet payment' as const,
         paymentRemittance: {
@@ -362,8 +374,9 @@ export async function sweepAddress(args: {
         ]
       }
       const response = await wallet.internalizeAction(internalizeArgs, adminOriginator)
-      if (response?.accepted) importedSatoshis += relevant.reduce((sum, o) => sum + o.satoshis, 0)
-      else failureCount++
+      if (response?.accepted) {
+        importedSatoshis += verified.reduce((sum, o) => sum + (tx.outputs[o.vout]?.satoshis ?? 0), 0)
+      } else failureCount++
     } catch {
       failureCount++
     }
