@@ -137,3 +137,51 @@ export async function unregisterDb(keySuffix: string, chain: string, filename: s
   if (next.length === existing.length) return
   await getAsyncStorage().setItem(registryKey(keySuffix, chain), JSON.stringify(next))
 }
+
+/**
+ * XQ-008: "Delete Wallet" only ever closed the SQLite connection
+ * (`storage.destroy()`) — it never deleted the underlying `.db` file(s) or
+ * cleared this registry's entry for them, so a "deleted" wallet's complete
+ * plaintext transaction/output/contact/note history stayed on disk
+ * indefinitely and silently reattached with everything intact the next time
+ * the same mnemonic was built on the same device.
+ *
+ * Deletes every filename this identity+chain's registry knows about (not
+ * just `dbName`, in case an earlier build left a stale entry pointing at a
+ * different file) via the host-supplied `deleteFile` — kept as a parameter
+ * rather than a static `expo-sqlite` import so this stays a plain leaf module
+ * a non-native host (e.g. Jest) can load without pulling in a native module,
+ * same reasoning as `getAsyncStorage` above — and clears each one's registry
+ * entry. `dbName` itself is always included even if the registry never
+ * recorded it, so the file actually open at logout time can never be the one
+ * left behind.
+ *
+ * Best-effort per file: one file's delete or unregister failing must not stop
+ * the rest from being attempted, and a `dbName` that does not parse as a
+ * wallet DB filename is treated as nothing to do rather than an error — this
+ * runs during logout, after the decision to erase the wallet has already
+ * been made elsewhere, and a cleanup failure here must never surface as (or
+ * be mistaken for) that erasure failing.
+ */
+export async function purgeRegisteredDbFiles(
+  dbName: string,
+  deleteFile: (filename: string) => Promise<void>
+): Promise<void> {
+  const parsed = parseDbFilename(dbName)
+  if (!parsed) return
+  const { keySuffix, chain } = parsed
+  const registered = await getRegisteredDbs(keySuffix, chain)
+  const filenames = registered.includes(dbName) ? registered : [...registered, dbName]
+  for (const filename of filenames) {
+    try {
+      await deleteFile(filename)
+    } catch {
+      // Best-effort — see doc comment above.
+    }
+    try {
+      await unregisterDb(keySuffix, chain, filename)
+    } catch {
+      // Best-effort — see doc comment above.
+    }
+  }
+}

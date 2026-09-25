@@ -224,7 +224,13 @@ import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-m
 import { StorageExpoSQLite } from '../storage'
 import { makeBuildGeneration } from './buildGeneration'
 import * as SQLite from 'expo-sqlite'
-import { getRegisteredDbs, registerDb, selectLatestDb, unregisterDb } from '../walletDbRegistry'
+import {
+  getRegisteredDbs,
+  purgeRegisteredDbFiles,
+  registerDb,
+  selectLatestDb,
+  unregisterDb
+} from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import { getOnline, subscribeOnline } from '../net/online'
 import { canInternalizePending, processPending } from '../localpay/pending'
@@ -3078,10 +3084,25 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       offlineChaintracksRef.current = undefined
       headerStoreRef.current = undefined
       backupIdentityRef.current = null
-      if (storage?.db) {
+      if (storage) {
+        const dbName = storage.dbName
+        if (storage.db) {
+          try {
+            await storage.destroy()
+          } catch {}
+        }
+        // XQ-008: destroy() only closes the connection — it never deleted the
+        // underlying .db file(s) or the walletDbRegistry entry that points at
+        // them, so a "deleted" wallet's complete plaintext history stayed on
+        // disk indefinitely and silently reattached with everything intact if
+        // the same mnemonic was ever built again on this device. dbName is a
+        // plain field that survives destroy(), so it is still readable after
+        // the connection is closed.
         try {
-          await storage.destroy()
-        } catch {}
+          await purgeRegisteredDbFiles(dbName, SQLite.deleteDatabaseAsync)
+        } catch (err) {
+          console.warn('[logout] failed to purge wallet db file(s)/registry', err)
+        }
       }
       setStorage(null)
       mandalaRef.current = undefined
