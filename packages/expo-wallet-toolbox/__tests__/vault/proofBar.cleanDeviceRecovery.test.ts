@@ -323,4 +323,49 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
     expect(result.pendingConfirmation).toBe(1)
     expect(result.problems).toEqual([])
   })
+
+  // XR-005 / INT-02, v7 half: requirePrivateBackup only checks that a backup
+  // service is CONFIGURED and enabled — it has never been an exact-record
+  // delivery receipt (that gap is real and stays open for v6, unchanged by
+  // this plan). For v7, recoverability no longer depends on the backup
+  // service's durability AT ALL: this harness has no backup implementation
+  // whatsoever (the push the "enabled" check passed for never happens, by
+  // construction — there is nothing here to push to), and local storage is
+  // wiped on top of that, yet chain-only recovery still finds and spends the
+  // v7 output.
+  it('backup "enabled" but the push never happens, local DB/SecureStore wiped — chain-only recovery still finds and spends the v7 output', async () => {
+    const identityKey = `02${'d4'.repeat(32)}`
+    const chain = new FakeChain()
+    const owner = generateMnemonicWallet()
+    const { mock, keys } = await buildKeyring(2)
+    const vaultId = hex(p256.utils.randomSecretKey())
+
+    const deviceA = new FakeVaultWallet(owner.primaryKey, chain)
+    vaultStore.configureScope({ identityKey, chain: 'test' })
+    await vaultStore.setMeta({ v: 6, vaultId, revision: 1, createdAt: Date.now(), keys })
+    armSigner(mock, keys[0].serial)
+    // requirePrivateBackup's check passes (config exists, push enabled) —
+    // this harness has no backup service to actually deliver anything to,
+    // which is exactly the residual XR-005/INT-02 describes: a release that
+    // checked only configuration, not an exact-record receipt.
+    await depositToVault(deviceA, ADMIN, 500_000, { backupEnabled: async () => true })
+
+    // Phone loss / reinstall / wiped DB, no backup to restore from either.
+    await AsyncStorage.clear()
+    ;(jest.requireMock('expo-secure-store') as { __clear: () => void }).__clear()
+    vaultStore.clearScope()
+    vaultStore.configureScope({ identityKey, chain: 'test' })
+    expect(await vaultStore.getMeta()).toBeNull()
+
+    const deviceB = new FakeVaultWallet(owner.primaryKey, chain)
+    const recovery = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+    expect(recovery.found).toBe(1)
+    expect(recovery.problems).toEqual([])
+    expect((await vaultStore.getMeta())?.keys).toEqual(keys)
+
+    armSigner(mock, keys[0].serial)
+    await adoptVaultKey({ record: keys[0], onPhase: () => {}, getPin: async () => '123456' })
+    const spend = await withdrawFromVault(deviceB, ADMIN, 'all', 'Recovered without any backup', keys[0].serial)
+    independentlyVerifySpend(chain, spend.txid, keys[0].pubkey)
+  })
 })
