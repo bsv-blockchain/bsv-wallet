@@ -356,8 +356,18 @@ export interface HandleRailWallet {
   abortAction(args: unknown, originator?: string): Promise<unknown>
 }
 
-/** Broadcast a previously-minted noSend transaction. A createAction call whose
- * only job is `options.sendWith` — no new outputs are created. */
+/**
+ * Broadcast a previously-minted noSend transaction. A createAction call whose
+ * only job is `options.sendWith` — no new outputs are created.
+ *
+ * Requires positive confirmation, the same fail-closed check the Vault path
+ * uses (`requireReleasedHeldTransaction`): exactly one result whose txid
+ * matches (case-insensitively) with status `sending` or `unproven`. Anything
+ * else — missing/empty results, an unrelated or duplicate txid, an unknown
+ * status — is treated as unconfirmed and throws, so the caller's existing
+ * failure path leaves the outbox entry unsent and retryable rather than
+ * marking a possibly-still-reserved transaction as sent.
+ */
 async function broadcastNoSend(
   wallet: Pick<HandleRailWallet, 'createAction'>,
   adminOriginator: string,
@@ -367,8 +377,14 @@ async function broadcastNoSend(
     { description: 'PeerPay payment broadcast', options: { sendWith: [txid] } },
     adminOriginator
   )) as { sendWithResults?: { txid?: string; status?: string }[] }
-  const failed = result.sendWithResults?.find(o => o.txid === txid && o.status === 'failed')
-  if (failed) throw new Error('broadcast_failed')
+  const results = result.sendWithResults
+  const released =
+    Array.isArray(results) &&
+    results.length === 1 &&
+    typeof results[0]?.txid === 'string' &&
+    results[0].txid.toLowerCase() === txid.toLowerCase() &&
+    (results[0].status === 'sending' || results[0].status === 'unproven')
+  if (!released) throw new Error('broadcast_not_confirmed')
 }
 
 /** Abort a PeerPay noSend by recovering its reference from listActions. */
@@ -569,14 +585,27 @@ export async function cancelOutboxPayment(args: {
     }
   }
   let aborted = false
+  let abortAttempted = false
   if (entry.txid) {
+    abortAttempted = true
     try {
       aborted = await abortPeerPayNosend(wallet, adminOriginator, entry.txid)
     } catch {
-      // The entry is still removed: the nosend row remains visible in wallet
-      // activity with its own abort control, so the money is never stranded
-      // invisibly.
+      // Handled below: an abandon must not remove the row on an unconfirmed
+      // abort. For plain 'undelivered' cancels this is unreachable — no one
+      // else holds the token, so the nosend row stays visible in wallet
+      // activity with its own abort control either way.
     }
+  }
+  if (mode === 'abandon' && abortAttempted && !aborted) {
+    // The recipient already holds this transaction. Abort did not confirm the
+    // action actually stopped, so the reservation may still be live on both
+    // sides — keep the row (and its reservation) rather than risk a
+    // conflicting spend, and surface it for a retry/manual reconciliation.
+    await updateOutboxEntry(storage, entry.id, {
+      lastError: 'Could not confirm the payment was stopped — it may still be delivered.'
+    })
+    return { aborted: false }
   }
   await removeOutboxEntry(storage, entry.id)
   return { aborted }
@@ -699,8 +728,17 @@ export async function retryDelivery(args: {
 }): Promise<void> {
   const { wallet, adminOriginator, client, storage, entry } = args
   await updateOutboxEntry(storage, entry.id, { lastAttemptAt: new Date().toISOString() })
+  // XR-052: a concurrent UI abandon (cancelOutboxPayment) can remove this same
+  // row between awaits — it shares no lock with the background drain beyond
+  // the per-storage-mutation lock in outbox.ts, which only serializes the
+  // write itself. Re-read by id immediately before each side-effecting step
+  // (mirrors cancelOutboxPayment's own re-read for its 'undelivered' mode) and
+  // stop cleanly if the row is gone, so an in-flight retry cannot still
+  // deliver or broadcast a payment the user just cancelled.
+  const stillPending = async (): Promise<boolean> => (await getOutboxEntries(storage)).some(e => e.id === entry.id)
   try {
     if (entry.delivered !== true) {
+      if (!(await stillPending())) return
       await updateOutboxEntry(storage, entry.id, { delivering: true })
       try {
         await client.sendMessage(
@@ -720,6 +758,17 @@ export async function retryDelivery(args: {
       await updateOutboxEntry(storage, entry.id, { delivered: true })
     }
     if (entry.txid) {
+      if (!(await stillPending())) return
+      // XR-048: the persisted `txid` is unauthenticated — a tampered/imported
+      // outbox row (local storage tamper, malicious backup restore) could
+      // point it at an unrelated, still-pending noSend action's txid while
+      // leaving `token.transaction` alone. Re-derive the txid this entry's own
+      // token actually names and refuse to broadcast on a mismatch, rather
+      // than handing an attacker-chosen txid straight to `sendWith`.
+      const ownTxid = safeAtomicTxid(entry.token.transaction)
+      if (!ownTxid || ownTxid.toLowerCase() !== entry.txid.toLowerCase()) {
+        throw new Error('outbox_txid_mismatch')
+      }
       await broadcastNoSend(wallet, adminOriginator, entry.txid)
     }
     await markOutboxSent(storage, entry.id)
