@@ -216,7 +216,7 @@ import { pushOnce } from '../backup/push'
 import { restoreOnImport } from '../backup/restoreOnImport'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
-import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
+import { isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../pay/refreshProofGuard'
 import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueuedAncestors'
 import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { recordProof } from '../pay/recordProof'
@@ -2990,6 +2990,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         const head = await fetch(`${wocBase}/v1/bsv/${chain}/tx/hash/${txid}`)
         onChain = head.ok
+        // XR-030: any other non-OK (429/500/401/403/...) is a service
+        // problem, not proof of absence — only a 404 is authoritative.
+        if (!onChain && !isChainAbsenceConfirmed(head.status)) return 'pending'
       } catch {
         // Network unreachable — we cannot prove absence, so never fail the tx.
         return 'pending'

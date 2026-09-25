@@ -19,6 +19,17 @@ export type OfflineRefreshStatus =
   // posting, a Refresh must not decide such a transaction has failed.
   | 'parked'
 
+/**
+ * refreshProof's /tx/hash/{txid} probe is advisory, single-source. Only an
+ * authoritative 404 means the network doesn't have the tx; any other
+ * completed non-OK response (429 rate-limit, 5xx, 401/403 auth trouble, ...)
+ * is a service problem, not proof of absence, and must be treated as
+ * inconclusive — exactly like a thrown network error.
+ */
+export function isChainAbsenceConfirmed(status: number): boolean {
+  return status === 404
+}
+
 export function shouldFailUnprovenTx(args: {
   offlineStatus?: OfflineRefreshStatus
   txStatus: string
