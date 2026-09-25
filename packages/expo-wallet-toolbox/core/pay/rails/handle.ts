@@ -724,6 +724,16 @@ export async function retryDelivery(args: {
       await updateOutboxEntry(storage, entry.id, { delivered: true })
     }
     if (entry.txid) {
+      // XR-048: the persisted `txid` is unauthenticated — a tampered/imported
+      // outbox row (local storage tamper, malicious backup restore) could
+      // point it at an unrelated, still-pending noSend action's txid while
+      // leaving `token.transaction` alone. Re-derive the txid this entry's own
+      // token actually names and refuse to broadcast on a mismatch, rather
+      // than handing an attacker-chosen txid straight to `sendWith`.
+      const ownTxid = safeAtomicTxid(entry.token.transaction)
+      if (!ownTxid || ownTxid.toLowerCase() !== entry.txid.toLowerCase()) {
+        throw new Error('outbox_txid_mismatch')
+      }
       await broadcastNoSend(wallet, adminOriginator, entry.txid)
     }
     await markOutboxSent(storage, entry.id)

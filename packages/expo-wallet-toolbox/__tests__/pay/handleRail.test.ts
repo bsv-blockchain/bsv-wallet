@@ -614,6 +614,23 @@ describe('retryDelivery', () => {
     expect((await getOutboxEntries(s))[0].status).toBe('sent')
   })
 
+  it("XR-048: refuses to broadcast when the persisted txid does not match the entry's own token", async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    // Tamper only the `txid` field — as a local storage tamper or a malicious
+    // backup/restore could — pointing it at an unrelated (but validly-shaped)
+    // txid while leaving `token.transaction` exactly as minted.
+    const entry = { ...(await stuckEntry(s, w)), delivered: true, txid: 'ff'.repeat(32) }
+    const client = { sendMessage: jest.fn() }
+    await expect(
+      retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    ).rejects.toThrow(/outbox_txid_mismatch/)
+    // Must never hand the tampered, unrelated txid to sendWith.
+    const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
+    expect(sendWithCalls).toHaveLength(0)
+    expect((await getOutboxEntries(s))[0].status).toBe('unsent')
+  })
+
   it('only re-delivers a legacy entry (no txid) — its transaction was broadcast at creation', async () => {
     const s = fakeStorage()
     const w = fakeWallet()
