@@ -227,6 +227,144 @@ describe('handleResendRequests', () => {
     expect(r.pending).toEqual([{ txid: 'aa'.repeat(32), sender: '02attacker' }])
   })
 
+  // XR-051: a resend_request's sender must be authenticated against the
+  // payment's own recorded recipient BEFORE any decrypt/rebuild/refetch/send
+  // work happens, and before the row is persisted as pending -- otherwise any
+  // peer who can address this wallet's control box and knows/guesses a real
+  // txid can force that work (and a persistent retry of it) forever.
+  describe('XR-051: unauthorised resend requests', () => {
+    it('handleResendRequests never rebuilds/delivers/persists a resend_request from a sender that is not the recorded recipient, and acks it away', async () => {
+      const sendMessage = jest.fn()
+      const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
+      const refetch = jest.fn(async () => [8, 8, 8])
+      const client = {
+        listMessages: jest.fn().mockResolvedValue([
+          {
+            messageId: 'c1',
+            sender: '02attacker',
+            body: { type: 'resend_request', txid: 'aa', reason: 'corrupt' }
+          }
+        ]),
+        sendMessage,
+        acknowledgeMessage
+      }
+      const storage = fakeStorage()
+      // A real outbox row exists, with a DIFFERENT recorded recipient than
+      // the control message's sender.
+      await saveOutboxEntry(storage, {
+        recipient: '02bb',
+        token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 5 },
+        messageBoxUrl: 'https://mb',
+        txid: 'aa'
+      })
+      const r = await handleResendRequests({
+        client: client as never,
+        storage,
+        listPeerPayAction: async () => undefined,
+        refetch
+      })
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(refetch).not.toHaveBeenCalled()
+      expect(r.resent).toBe(0)
+      // Not surfaced as an unanswered resend, unlike a genuinely unrebuildable
+      // request -- this one is refused, not merely unresolved.
+      expect(r.pending).toEqual([])
+      expect(await loadUnansweredResends(storage)).toEqual([])
+      // Ack'd away so it cannot be replayed to try again on the next poll.
+      expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c1'] })
+    })
+
+    it('handleResendRequests still authenticates against a recipient resolved via listPeerPayAction labels (no outbox row)', async () => {
+      const recipient = '02' + 'c'.repeat(64)
+      const sendMessage = jest.fn()
+      const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
+      const refetch = jest.fn(async () => [3, 3])
+      const client = {
+        listMessages: jest.fn().mockResolvedValue([
+          {
+            messageId: 'c2',
+            sender: '02attacker',
+            body: { type: 'resend_request', txid: 'dd', reason: 'uncreditible' }
+          }
+        ]),
+        sendMessage,
+        acknowledgeMessage
+      }
+      const r = await handleResendRequests({
+        client: client as never,
+        storage: fakeStorage(),
+        listPeerPayAction: async txid =>
+          txid === 'dd'
+            ? {
+                txid: 'dd',
+                labels: ['peerpay', recipient],
+                outputs: [{ customInstructions: { derivationPrefix: 'x', derivationSuffix: 'y' }, satoshis: 9 }]
+              }
+            : undefined,
+        refetch
+      })
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(refetch).not.toHaveBeenCalled()
+      expect(r.pending).toEqual([])
+      expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c2'] })
+    })
+
+    it('listPendingResendRequests does not persist a resend_request from a sender that is not the recorded recipient', async () => {
+      const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
+      const storage = fakeStorage()
+      await saveOutboxEntry(storage, {
+        recipient: '02bb',
+        token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 5 },
+        messageBoxUrl: 'https://mb',
+        txid: 'aa'
+      })
+      const r = await listPendingResendRequests({
+        client: {
+          listMessages: jest.fn().mockResolvedValue([
+            {
+              messageId: 'c1',
+              sender: '02attacker',
+              body: { type: 'resend_request', txid: 'aa', reason: 'corrupt' }
+            }
+          ]),
+          acknowledgeMessage
+        } as never,
+        storage,
+        listPeerPayAction: async () => undefined
+      })
+      expect(r.pending).toEqual([])
+      expect(await loadUnansweredResends(storage)).toEqual([])
+      expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c1'] })
+    })
+
+    it('a genuine resend_request from the recorded recipient still works exactly as before (no behavior change for the legitimate case)', async () => {
+      const sendMessage = jest.fn().mockResolvedValue(undefined)
+      const acknowledgeMessage = jest.fn().mockResolvedValue(undefined)
+      const storage = fakeStorage()
+      await saveOutboxEntry(storage, {
+        recipient: '02bb',
+        token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 5 },
+        messageBoxUrl: 'https://mb',
+        txid: 'aa'
+      })
+      const r = await handleResendRequests({
+        client: {
+          listMessages: jest.fn().mockResolvedValue([
+            { messageId: 'c1', sender: '02bb', body: { type: 'resend_request', txid: 'aa', reason: 'corrupt' } }
+          ]),
+          sendMessage,
+          acknowledgeMessage
+        } as never,
+        storage,
+        listPeerPayAction: async () => undefined,
+        refetch: async () => [8, 8, 8]
+      })
+      expect(r.resent).toBe(1)
+      expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: '02bb' }))
+      expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c1'] })
+    })
+  })
+
   it('acks only after send succeeds', async () => {
     const order: string[] = []
     const client = {

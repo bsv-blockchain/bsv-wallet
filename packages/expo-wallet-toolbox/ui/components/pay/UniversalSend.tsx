@@ -72,7 +72,8 @@ import {
   type OutboxEntry,
   type Session,
   haptics,
-  listPendingResendRequests
+  listPendingResendRequests,
+  makeListPeerPayAction
 } from '@bsv/expo-wallet-toolbox'
 import type { DismissTarget } from '../../dismissTarget'
 
@@ -818,11 +819,14 @@ function UniversalSendInner(
     const client = peerPayClient
     if (!client || !storage) return
     try {
-      await listPendingResendRequests({ client, storage })
+      // XR-051: without this, an unauthenticated resend_request could not be
+      // told apart from a legitimate one and would be surfaced (and kept
+      // being surfaced) as pending forever.
+      await listPendingResendRequests({ client, storage, listPeerPayAction: makeListPeerPayAction(wallet, adminOriginator) })
     } catch {
       // Home owns the unanswered-resend banner; a failed poll here is retryable.
     }
-  }, [peerPayClient, storage])
+  }, [peerPayClient, storage, wallet, adminOriginator])
 
   useEffect(() => {
     void pollResendRequests()
