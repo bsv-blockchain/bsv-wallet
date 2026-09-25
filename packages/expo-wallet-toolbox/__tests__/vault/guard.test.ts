@@ -281,6 +281,35 @@ test('still allows the admin originator to use the connection-authority protocol
   expect(calls.find(c => c.method === 'createHmac')).toBeDefined()
 })
 
+test.each([
+  ['createHmac', [2, 'pending abort authority']],
+  ['verifyHmac', [2, 'pending abort authority']],
+  ['createHmac', [2, ' Pending Abort Authority ']]
+] as const)(
+  // XR-102 (non-Vault residual): core/localpay/pendingAbortAuthority.ts's tag
+  // is only meaningful if a paired/connected origin can never mint or verify
+  // it itself -- same reasoning as `connection authority` above.
+  'reserves the pending-abort-authority protocol from external %s calls (%p)',
+  async (method, protocolID) => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await expect(
+      (guarded[method] as any)({ protocolID, keyID: 'ref-1', counterparty: 'self', data: [1, 2, 3] }, 'evil.com')
+    ).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(calls.find(call => call.method === method)).toBeUndefined()
+  }
+)
+
+test('still allows the admin originator to use the pending-abort-authority protocol directly', async () => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+  await guarded.createHmac(
+    { protocolID: [2, 'pending abort authority'], keyID: 'ref-1', counterparty: 'self', data: [1, 2, 3] } as any,
+    ADMIN
+  )
+  expect(calls.find(c => c.method === 'createHmac')).toBeDefined()
+})
+
 test('passes a createAction that names no protected output', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)
@@ -845,6 +874,13 @@ test('blocks a replay-marked admin-originator abortAction from releasing a Vault
   expect(calls.some(c => c.method === 'abortAction')).toBe(false)
 })
 
+// This guard-layer check alone only ever protects Vault outpoints/references/
+// txids — it was never meant to authenticate that a replay is legitimate.
+// That is a separate, higher layer: core/localpay/pendingAbortAuthority.ts's
+// HMAC tag, verified by pendingAborts.ts's replayPendingAborts BEFORE it ever
+// calls abortAction (so a forged, untagged non-Vault reference never reaches
+// this guard at all — see __tests__/localpay/pendingAborts.test.ts's
+// "XR-102: drops an UNTAGGED, forged non-Vault reference" for that layer).
 test('a replay-marked admin-originator abortAction still releases an ordinary, non-Vault reference', async () => {
   const { wallet, calls } = fakeWallet([])
   const guarded = guardVaultAccess(wallet, ADMIN)

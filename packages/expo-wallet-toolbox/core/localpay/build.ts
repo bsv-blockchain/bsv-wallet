@@ -976,30 +976,38 @@ export async function finalizeDelivery(
      */
     checkChainStatus?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
     /**
-     * XR-095: before releasing inputs on a decline, ask the chain directly
-     * whether it already knows this exact txid — mirrors
+     * XR-095/XR-103: before releasing inputs on a decline, ask the chain
+     * directly whether it already knows this exact txid — mirrors
      * core/offline/cancelParked.ts's `chainAlreadyKnows`, run only while
      * online (a failed/offline probe means this cannot be asked). A `true`
      * answer means the payee's copy is already out, so aborting would race a
-     * double-spend against them; the release is skipped instead. Optional so
-     * a caller that has not wired it keeps today's abort-on-every-decline
-     * behaviour exactly — this is additive hardening, not a new requirement.
-     * Checked after `checkChainStatus` above: that probe already covers the
-     * "already known" case up front, so this is the second, independent
-     * layer for a caller that wires both, or the only one for a caller that
-     * wires just this pair.
+     * double-spend against them; the release is skipped instead.
+     *
+     * A `false` answer is NOT proof of the opposite: `getStatusForTxids` has
+     * no "confirmed absent" status, only 'mined'/'known'/'unknown', so `false`
+     * here means "unresolved", not "safe". That falls through to
+     * `parkUnverifiable` below exactly like being offline does — see there.
+     * Optional so a caller that has not wired it keeps today's
+     * abort-on-every-decline behaviour exactly — this is additive hardening,
+     * not a new requirement. Checked after `checkChainStatus` above: that
+     * probe already covers the "already known" case up front, so this is the
+     * second, independent layer for a caller that wires both, or the only one
+     * for a caller that wires just this pair.
      */
     chainAlreadyKnows?: (txid: string) => Promise<boolean>
     /**
-     * XR-095: durably keeps this decline's inputs reserved instead of
-     * releasing them, for the one case neither `chainAlreadyKnows` nor the
-     * existing `watchDeclinedAbort` can cover — genuinely offline, so this
-     * device cannot ask the chain anything either way. Fail closed: same
-     * "keep reserved, resolve later" shape as `parkSentPaymentOffline`, which
-     * the payer can safely unwind afterward through
+     * XR-095/XR-103: durably keeps this decline's inputs reserved instead of
+     * releasing them, for every case `chainAlreadyKnows` cannot rule out —
+     * genuinely offline (cannot ask at all), or online but the chain answers
+     * 'unknown'/anything short of confirmed known-or-mined (asked, and still
+     * cannot rule out the payee broadcasting moments later). Fail closed:
+     * same "keep reserved, resolve later" shape as `parkSentPaymentOffline`,
+     * which the payer can safely unwind afterward through
      * `cancelParkedPayment`'s own chain-status gate once back online. Only
      * consulted when `chainAlreadyKnows` is also supplied — a caller opting
-     * into the online check gets the offline half too.
+     * into the online check gets the offline half too. Not wiring this keeps
+     * today's release-on-any-decline behaviour exactly, for a caller that has
+     * not adopted it.
      */
     parkUnverifiable?: (txid: string) => Promise<void>
   }
@@ -1028,19 +1036,35 @@ export async function finalizeDelivery(
         } catch (e) {
           console.warn('[localpay] connectivity probe failed, assuming online:', messageOf(e))
         }
-        if (onlineNow) {
+        // XR-103: `getStatusForTxids` — what `chainAlreadyKnows` is built on —
+        // has no "confirmed absent" verdict, only 'mined'/'known'/'unknown'.
+        // A `false` result here is therefore never proof the payee has not
+        // broadcast; it only means this device could not confirm that they
+        // have, YET. Releasing on that answer while online raced a lying (or
+        // merely early) decline exactly like releasing while offline did —
+        // both are now the same "cannot confirm" outcome, and both park
+        // instead of releasing.
+        const txid = built.txid
+        const tryPark = async (): Promise<boolean> => {
+          if (!deps.parkUnverifiable) return false
           try {
-            if (await deps.chainAlreadyKnows(built.txid)) skipRelease = true
-          } catch (e) {
-            console.warn('[localpay] chain-status check failed, proceeding as an ordinary decline:', messageOf(e))
-          }
-        } else if (deps.parkUnverifiable) {
-          try {
-            await deps.parkUnverifiable(built.txid)
-            skipRelease = true
+            await deps.parkUnverifiable(txid)
+            return true
           } catch (e) {
             console.warn('[localpay] could not park the unverifiable decline, releasing instead:', messageOf(e))
+            return false
           }
+        }
+        if (onlineNow) {
+          let confirmedKnown = false
+          try {
+            confirmedKnown = await deps.chainAlreadyKnows(txid)
+          } catch (e) {
+            console.warn('[localpay] chain-status check failed, treating as unresolved:', messageOf(e))
+          }
+          skipRelease = confirmedKnown ? true : await tryPark()
+        } else {
+          skipRelease = await tryPark()
         }
       }
 

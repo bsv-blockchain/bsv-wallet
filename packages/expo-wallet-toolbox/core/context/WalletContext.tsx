@@ -2751,8 +2751,23 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     void replayPendingAborts({
       wallet: managers.permissionsManager as {
         abortAction: (args: { reference: string }, originator?: string) => Promise<{ aborted?: boolean } | void>
+        verifyHmac: NonNullable<typeof managers.permissionsManager>['verifyHmac']
       },
       storage
+    }).then(result => {
+      // XR-102: an entry replayPendingAborts dropped as untrusted (missing or
+      // mismatching authority tag) never called abortAction at all, so
+      // whatever it named — if it was even real — is unaffected; the only
+      // thing to tell the user is that a stored release record was ignored,
+      // in case a payment still looks stuck (Activity's manual per-row
+      // Cancel remains available either way, and does not depend on this
+      // queue).
+      if (result.droppedUntrusted > 0) {
+        setLocalPayNotification({
+          message: `${t('local_pay_pending_abort_dropped_title')}. ${t('local_pay_pending_abort_dropped_body')}`,
+          type: 'error'
+        })
+      }
     })
     // P1-3: a decline is the payee's own unverifiable claim that nothing was
     // queued (see build.ts's `watchDeclinedAbort`). Checked at the same

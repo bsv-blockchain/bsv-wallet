@@ -982,6 +982,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'A declined payment went through',
       local_pay_decline_broadcast_body:
         'A payment that was declined has since appeared on the network. Do not send it again — check Activity.',
+      local_pay_pending_abort_dropped_title: 'Ignored an unverified release request',
+      local_pay_pending_abort_dropped_body:
+        'A saved payment-release record could not be verified, so nothing was released. If a payment still looks stuck, cancel it from Activity.',
       local_pay_cancel_unverifiable_title: 'Cannot check this payment while offline',
       local_pay_cancel_unverifiable_body:
         'If the other person already scanned it, cancelling lets these coins be spent twice. Only cancel if you are sure it was never scanned.',
@@ -1955,6 +1958,8 @@ const resources = {
       local_pay_received_not_credited: '尚未添加到您的钱包。交出任何东西之前，请先查看"动态"。',
       local_pay_decline_broadcast_title: '一笔被拒绝的付款已经上链',
       local_pay_decline_broadcast_body: '一笔已被拒绝的付款后来出现在网络上。请勿再次发送——请查看"动态"。',
+      local_pay_pending_abort_dropped_title: '已忽略一条未经验证的释放请求',
+      local_pay_pending_abort_dropped_body: '一条已保存的付款释放记录无法验证，因此未释放任何内容。如果某笔付款仍显示卡住，请在"动态"中取消它。',
       local_pay_cancel_unverifiable_title: '离线状态下无法核实此付款',
       local_pay_cancel_unverifiable_body:
         '如果对方已经扫描过此付款，取消会让这些币被双重花费。只有在确定它从未被扫描过时才能取消。',
@@ -2969,6 +2974,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'अस्वीकृत भुगतान नेटवर्क पर चला गया',
       local_pay_decline_broadcast_body:
         'जो भुगतान अस्वीकृत किया गया था वह बाद में नेटवर्क पर दिखाई दिया है। इसे फिर से न भेजें — गतिविधि जांचें।',
+      local_pay_pending_abort_dropped_title: 'एक असत्यापित रिलीज़ अनुरोध को अनदेखा किया गया',
+      local_pay_pending_abort_dropped_body:
+        'एक सहेजा गया भुगतान-रिलीज़ रिकॉर्ड सत्यापित नहीं किया जा सका, इसलिए कुछ भी रिलीज़ नहीं किया गया। यदि कोई भुगतान अभी भी अटका हुआ दिखे, तो उसे गतिविधि से रद्द करें।',
       local_pay_cancel_unverifiable_title: 'ऑफ़लाइन रहते हुए यह भुगतान जांचा नहीं जा सकता',
       local_pay_cancel_unverifiable_body:
         'अगर दूसरे व्यक्ति ने इसे पहले ही स्कैन कर लिया है, तो रद्द करने से ये सिक्के दोबारा खर्च हो सकते हैं। केवल तभी रद्द करें जब आप सुनिश्चित हों कि इसे कभी स्कैन नहीं किया गया।',
@@ -4004,6 +4012,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'Un pago rechazado se transmitió',
       local_pay_decline_broadcast_body:
         'Un pago que fue rechazado ha aparecido en la red. No lo envíes de nuevo — revisa Actividad.',
+      local_pay_pending_abort_dropped_title: 'Se ignoró una solicitud de liberación no verificada',
+      local_pay_pending_abort_dropped_body:
+        'No se pudo verificar un registro guardado de liberación de pago, así que no se liberó nada. Si un pago sigue pareciendo bloqueado, cancélalo desde Actividad.',
       local_pay_cancel_unverifiable_title: 'No se puede verificar este pago sin conexión',
       local_pay_cancel_unverifiable_body:
         'Si la otra persona ya lo escaneó, cancelar permite que estas monedas se gasten dos veces. Cancela solo si estás seguro de que nunca se escaneó.',
@@ -5053,6 +5064,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'Un paiement refusé est passé sur le réseau',
       local_pay_decline_broadcast_body:
         'Un paiement qui avait été refusé est depuis apparu sur le réseau. Ne l’envoyez pas à nouveau — vérifiez l’Activité.',
+      local_pay_pending_abort_dropped_title: 'Demande de libération non vérifiée ignorée',
+      local_pay_pending_abort_dropped_body:
+        'Un enregistrement de libération de paiement n’a pas pu être vérifié, donc rien n’a été libéré. Si un paiement semble toujours bloqué, annulez-le depuis l’Activité.',
       local_pay_cancel_unverifiable_title: 'Impossible de vérifier ce paiement hors connexion',
       local_pay_cancel_unverifiable_body:
         'Si l’autre personne l’a déjà scanné, annuler permettrait de dépenser ces pièces deux fois. N’annulez que si vous êtes sûr qu’il n’a jamais été scanné.',
@@ -6050,6 +6064,9 @@ const resources = {
       local_pay_received_not_credited: 'لم تُضَف إلى محفظتك بعد. تحقق من النشاط قبل تسليم أي شيء.',
       local_pay_decline_broadcast_title: 'دفعة مرفوضة تم بثّها على الشبكة',
       local_pay_decline_broadcast_body: 'ظهرت على الشبكة دفعة كانت قد رُفضت. لا ترسلها مرة أخرى — تحقق من النشاط.',
+      local_pay_pending_abort_dropped_title: 'تم تجاهل طلب تحرير غير موثّق',
+      local_pay_pending_abort_dropped_body:
+        'تعذّر التحقق من سجل محفوظ لتحرير دفعة، لذا لم يتم تحرير أي شيء. إذا بدت إحدى الدفعات عالقة، فألغِها من النشاط.',
       local_pay_cancel_unverifiable_title: 'لا يمكن التحقق من هذه الدفعة أثناء عدم الاتصال',
       local_pay_cancel_unverifiable_body:
         'إذا كان الطرف الآخر قد مسحها بالفعل، فإن الإلغاء يسمح بإنفاق هذه العملات مرتين. لا تُلغِ إلا إذا كنت متأكدًا من أنها لم تُمسح مطلقًا.',
@@ -7077,6 +7094,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'Um pagamento recusado foi transmitido',
       local_pay_decline_broadcast_body:
         'Um pagamento que havia sido recusado apareceu na rede. Não o envie de novo — verifique a Atividade.',
+      local_pay_pending_abort_dropped_title: 'Um pedido de liberação não verificado foi ignorado',
+      local_pay_pending_abort_dropped_body:
+        'Não foi possível verificar um registro salvo de liberação de pagamento, então nada foi liberado. Se um pagamento ainda parecer travado, cancele-o em Atividade.',
       local_pay_cancel_unverifiable_title: 'Não é possível verificar este pagamento offline',
       local_pay_cancel_unverifiable_body:
         'Se a outra pessoa já escaneou, cancelar permite que essas moedas sejam gastas duas vezes. Só cancele se tiver certeza de que nunca foi escaneado.',
@@ -8099,6 +8119,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'একটি প্রত্যাখ্যাত পেমেন্ট নেটওয়ার্কে চলে গেছে',
       local_pay_decline_broadcast_body:
         'যে পেমেন্টটি প্রত্যাখ্যাত হয়েছিল তা পরে নেটওয়ার্কে দেখা গেছে। এটি আবার পাঠাবেন না — কার্যকলাপ দেখুন।',
+      local_pay_pending_abort_dropped_title: 'একটি অযাচাইকৃত মুক্তির অনুরোধ উপেক্ষা করা হয়েছে',
+      local_pay_pending_abort_dropped_body:
+        'একটি সংরক্ষিত পেমেন্ট-মুক্তির রেকর্ড যাচাই করা যায়নি, তাই কিছুই মুক্ত করা হয়নি। যদি কোনো পেমেন্ট এখনও আটকে থাকার মতো দেখায়, তবে কার্যকলাপ থেকে এটি বাতিল করুন।',
       local_pay_cancel_unverifiable_title: 'অফলাইনে থাকাকালীন এই পেমেন্ট যাচাই করা যাচ্ছে না',
       local_pay_cancel_unverifiable_body:
         'অন্য ব্যক্তি যদি এটি আগেই স্ক্যান করে থাকেন, তাহলে বাতিল করলে এই কয়েন দুইবার খরচ করা সম্ভব হবে। কেবল তখনই বাতিল করুন যদি আপনি নিশ্চিত হন যে এটি কখনো স্ক্যান করা হয়নি।',
@@ -9130,6 +9153,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'Отклонённый платёж всё же прошёл',
       local_pay_decline_broadcast_body:
         'Платёж, который был отклонён, с тех пор появился в сети. Не отправляйте его снова — проверьте Активность.',
+      local_pay_pending_abort_dropped_title: 'Непроверенный запрос на освобождение проигнорирован',
+      local_pay_pending_abort_dropped_body:
+        'Не удалось проверить сохранённую запись об освобождении платежа, поэтому ничего не было освобождено. Если платёж всё ещё выглядит зависшим, отмените его в разделе Активность.',
       local_pay_cancel_unverifiable_title: 'Проверить этот платёж без подключения нельзя',
       local_pay_cancel_unverifiable_body:
         'Если получатель уже отсканировал платёж, отмена позволит потратить эти монеты повторно. Отменяйте только если уверены, что его никогда не сканировали.',
@@ -10161,6 +10187,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'Pembayaran yang ditolak ternyata tersiar',
       local_pay_decline_broadcast_body:
         'Pembayaran yang sebelumnya ditolak kini muncul di jaringan. Jangan kirim lagi — periksa Aktivitas.',
+      local_pay_pending_abort_dropped_title: 'Permintaan pelepasan yang tidak terverifikasi diabaikan',
+      local_pay_pending_abort_dropped_body:
+        'Catatan pelepasan pembayaran yang tersimpan tidak dapat diverifikasi, sehingga tidak ada yang dilepaskan. Jika pembayaran masih terlihat macet, batalkan dari Aktivitas.',
       local_pay_cancel_unverifiable_title: 'Tidak dapat memeriksa pembayaran ini saat offline',
       local_pay_cancel_unverifiable_body:
         'Jika orang lain sudah memindainya, membatalkan akan memungkinkan koin ini dibelanjakan dua kali. Batalkan hanya jika Anda yakin itu belum pernah dipindai.',
@@ -11204,6 +11233,9 @@ const resources = {
       local_pay_decline_broadcast_title: '拒否した支払いがネットワークに流れました',
       local_pay_decline_broadcast_body:
         '拒否された支払いが、その後ネットワーク上に現れました。再送しないでください — アクティビティを確認してください。',
+      local_pay_pending_abort_dropped_title: '未検証の解放リクエストを無視しました',
+      local_pay_pending_abort_dropped_body:
+        '保存されていた支払い解放記録を検証できなかったため、何も解放されませんでした。支払いがまだ止まっているように見える場合は、アクティビティからキャンセルしてください。',
       local_pay_cancel_unverifiable_title: 'オフラインではこの支払いを確認できません',
       local_pay_cancel_unverifiable_body:
         '相手が既にスキャン済みの場合、キャンセルするとこのコインが二重に使われる可能性があります。一度もスキャンされていないと確信できる場合のみキャンセルしてください。',
@@ -12255,6 +12287,9 @@ const resources = {
       local_pay_decline_broadcast_title: 'Odrzucona płatność jednak przeszła',
       local_pay_decline_broadcast_body:
         'Płatność, która została odrzucona, pojawiła się od tego czasu w sieci. Nie wysyłaj jej ponownie — sprawdź Aktywność.',
+      local_pay_pending_abort_dropped_title: 'Zignorowano niezweryfikowaną prośbę o zwolnienie',
+      local_pay_pending_abort_dropped_body:
+        'Nie udało się zweryfikować zapisanego rekordu zwolnienia płatności, więc nic nie zostało zwolnione. Jeśli płatność nadal wygląda na zablokowaną, anuluj ją w Aktywności.',
       local_pay_cancel_unverifiable_title: 'Nie można sprawdzić tej płatności offline',
       local_pay_cancel_unverifiable_body:
         'Jeśli druga osoba już to zeskanowała, anulowanie pozwoli wydać te monety dwukrotnie. Anuluj tylko wtedy, gdy jesteś pewien, że nigdy nie zostało zeskanowane.',

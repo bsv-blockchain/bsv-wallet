@@ -595,6 +595,48 @@ describe('finalizeDelivery', () => {
       expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
     })
 
+    // XR-103: `getStatusForTxids` (and this codebase's `chainAlreadyKnows`
+    // wrapper around it) has no "confirmed absent" verdict -- only
+    // known/mined or unknown. An online check that comes back "not known" is
+    // exactly as inconclusive as being unable to ask at all: the payee may
+    // simply not have broadcast YET. Releasing synchronously on that answer
+    // races a double-spend against a payee who broadcasts moments later, so
+    // this must defer (park) exactly like the genuinely-offline case, not
+    // release.
+    it('XR-103: parks instead of releasing a decline the chain cannot confirm, even while online', async () => {
+      const w = payerStub()
+      const chainAlreadyKnows = jest.fn().mockResolvedValue(false)
+      const parkUnverifiable = jest.fn().mockResolvedValue(undefined)
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        chainAlreadyKnows,
+        parkUnverifiable
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(chainAlreadyKnows).toHaveBeenCalledWith('tx-1')
+      expect(parkUnverifiable).toHaveBeenCalledWith('tx-1')
+      expect(w.abortAction).not.toHaveBeenCalled()
+    })
+
+    it('XR-103: a failing chain-status check while online also parks rather than releasing', async () => {
+      const w = payerStub()
+      const chainAlreadyKnows = jest.fn().mockRejectedValue(new Error('offline probe'))
+      const parkUnverifiable = jest.fn().mockResolvedValue(undefined)
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        chainAlreadyKnows,
+        parkUnverifiable
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(parkUnverifiable).toHaveBeenCalledWith('tx-1')
+      expect(w.abortAction).not.toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
     it('parks instead of releasing a decline it cannot verify while offline', async () => {
       const w = payerStub()
       const chainAlreadyKnows = jest.fn().mockResolvedValue(false)
