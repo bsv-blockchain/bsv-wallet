@@ -141,11 +141,7 @@ export async function provisionKek(): Promise<UnlockState> {
   await deleteBothKekItems()
 
   try {
-    await SecureStore.setItemAsync(
-      resolved.keyName,
-      Utils.toHex(kek),
-      kekOptions(resolved.requireAuthentication)
-    )
+    await SecureStore.setItemAsync(resolved.keyName, Utils.toHex(kek), kekOptions(resolved.requireAuthentication))
   } catch (err) {
     return setState(classifyAuthError(err))
   }
@@ -214,10 +210,7 @@ async function doUnlock(promptMessage?: string): Promise<UnlockState> {
   const resolved = policyFor(sentinel.policy)
   let raw: string | null
   try {
-    raw = await SecureStore.getItemAsync(
-      resolved.keyName,
-      kekOptions(resolved.requireAuthentication, promptMessage)
-    )
+    raw = await SecureStore.getItemAsync(resolved.keyName, kekOptions(resolved.requireAuthentication, promptMessage))
   } catch (err) {
     return setState(classifyAuthError(err))
   }
@@ -226,34 +219,71 @@ async function doUnlock(promptMessage?: string): Promise<UnlockState> {
   // report that as a plain null, which is why the sentinel has to exist.
   if (raw === null) return setState({ status: 'lost' })
 
-  cached = { kek: Utils.toArray(raw, 'hex') as number[], kekId: sentinel.kekId, policy: sentinel.policy }
+  // Held locally, NOT in the module-level `cached`, until any mandatory
+  // upgrade below has actually completed. Populating `cached` early (as this
+  // used to) makes `isUnlocked()`/`getSecret()` honour a non-biometric value
+  // even when the upgrade that was supposed to gate it fails or is refused.
+  const pending = { kek: Utils.toArray(raw, 'hex') as number[], kekId: sentinel.kekId, policy: sentinel.policy }
 
   // A production build must not keep running on a KEK that a development
-  // build provisioned without OS enforcement.
+  // build (or a forged sentinel) provisioned without OS enforcement.
   if (await needsUpgrade(sentinel.policy)) {
-    const upgraded = await upgradeToBiometric(sentinel)
-    if (upgraded) return setState(upgraded)
+    const upgraded = await upgradeToBiometric(sentinel, pending)
+    if (!upgraded) {
+      // The mandatory rewrap did not happen: a declined/failed ceremony, a
+      // write failure, or (XR-108) a sentinel claiming a weaker policy than
+      // an identity this device already has. Never fall through to
+      // `unlocked` on the pre-upgrade value — that is exactly the bypass
+      // this gate exists to prevent. Nothing was cached, so the KEK stays
+      // locked; the next launch (or an explicit retry) tries again.
+      return setState({ status: 'cancelled' })
+    }
+    cached = { kek: pending.kek, kekId: pending.kekId, policy: 'biometric' }
+    return setState(upgraded)
   }
 
+  cached = pending
   return setState({ status: 'unlocked', kekId: sentinel.kekId, policy: cached.policy })
 }
 
 /**
- * Re-wrap the same KEK value under an authenticated item. The envelope blobs
- * are untouched because the KEK itself does not change.
+ * Re-wrap a KEK value under an authenticated item. The envelope blobs are
+ * untouched because the KEK itself does not change.
+ *
+ * Takes the pending KEK explicitly rather than reading module-level `cached`:
+ * this runs before the caller has decided the upgrade succeeded, so nothing
+ * should be globally visible as "the" KEK yet.
  */
-export async function upgradeToBiometric(sentinel: KekSentinel): Promise<UnlockState | null> {
-  if (!cached) return null
+export async function upgradeToBiometric(
+  sentinel: KekSentinel,
+  pending: { kek: number[]; kekId: string }
+): Promise<UnlockState | null> {
   try {
+    // XR-108: refuse to relegitimize a weaker (or forged) sentinel over an
+    // install that already has a genuine biometric-protected key. A value
+    // here means a real ceremony produced it at some point; any sentinel now
+    // claiming a non-biometric policy is stale at best, forged at worst —
+    // either way it must not get laundered into the authenticated slot.
+    // This read costs exactly the ceremony an honest upgrade needs anyway
+    // (the device has strong biometrics, or `needsUpgrade` would be false),
+    // and a thrown/cancelled read is treated the same as "found something":
+    // refuse, rather than assume empty and proceed.
+    let existingAuthKey: string | null
+    try {
+      existingAuthKey = await SecureStore.getItemAsync(KEK_AUTH_KEY, kekOptions(true))
+    } catch {
+      return null
+    }
+    if (existingAuthKey !== null) return null
+
     await SecureStore.deleteItemAsync(KEK_AUTH_KEY, kekOptions(true)).catch(() => {})
-    await SecureStore.setItemAsync(KEK_AUTH_KEY, Utils.toHex(cached.kek), kekOptions(true))
+    await SecureStore.setItemAsync(KEK_AUTH_KEY, Utils.toHex(pending.kek), kekOptions(true))
     await writeSentinel({ ...sentinel, policy: 'biometric' })
     await SecureStore.deleteItemAsync(KEK_PLAIN_KEY, kekOptions(false)).catch(() => {})
-    cached = { ...cached, policy: 'biometric' }
-    return { status: 'unlocked', kekId: cached.kekId, policy: 'biometric' }
+    return { status: 'unlocked', kekId: pending.kekId, policy: 'biometric' }
   } catch {
-    // Leave the install exactly as it was; we still hold the KEK in memory for
-    // this session and will retry the upgrade on the next launch.
+    // Leave the install exactly as it was; the caller does not cache
+    // anything on a null return, and will retry the upgrade on next launch.
     return null
   }
 }
