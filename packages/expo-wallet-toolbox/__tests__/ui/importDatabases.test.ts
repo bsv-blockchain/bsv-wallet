@@ -15,7 +15,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { createTables } from '../../core/storage/schema/createTables'
+import { createTables, createMandalaSettlementTables } from '../../core/storage/schema/createTables'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 
 // The repo's jest mock for this package (jest/async-storage-mock.js) is a
@@ -406,6 +406,169 @@ describe('importWalletDatabase', () => {
   it('XR-082: rejects an image whose schema carries an unexpected extra table', async () => {
     const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
     raw.exec(`CREATE TABLE evil_extra_table (id INTEGER PRIMARY KEY, payload TEXT)`)
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+  })
+
+  it('XR-082: rejects an image where an allow-listed index keeps its canonical name but its UNIQUE constraint was dropped', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // Same name as the wallet's real `idx_outputs_unique`
+    // (CREATE UNIQUE INDEX ... ON outputs(transactionId, vout, userId)), but
+    // redefined non-unique over a different column. A name-only allow-list
+    // check accepts this — the object is still called "idx_outputs_unique" —
+    // so the uniqueness guarantee on (transactionId, vout, userId) would be
+    // silently gone for every later write once `createTables()`'s `CREATE
+    // INDEX IF NOT EXISTS` is a no-op against this already-present name.
+    raw.exec(`DROP INDEX idx_outputs_unique`)
+    raw.exec(`CREATE INDEX idx_outputs_unique ON outputs(transactionId)`)
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    expect(mockOpenDbs.has(currentStorage.dbName)).toBe(false)
+    expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
+  it('XR-082: rejects an image where an allow-listed table keeps its canonical name but lost a UNIQUE column constraint', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // Same table name as the wallet's real `users` table, but its
+    // `identityKey TEXT NOT NULL UNIQUE` column constraint was dropped —
+    // a name-only allow-list check cannot see this, and a duplicate
+    // identityKey row that should be rejected would now be accepted.
+    raw.exec(`DROP TABLE users`)
+    raw.exec(`
+      CREATE TABLE users (
+        userId INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        identityKey TEXT NOT NULL,
+        activeStorage TEXT
+      )
+    `)
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    expect(mockOpenDbs.has(currentStorage.dbName)).toBe(false)
+    expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
+  it('XR-082: accepts a genuine backup whose token_settlements table went through the real ensureTokenSettlementColumns migration (ALTER-appended columns, not createTables()\'s inline order)', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // Recreate token_settlements exactly as it looked on-disk BEFORE the
+    // `reference`/`relevantVout` columns existed (same remaining columns, same
+    // order, no tampering) — the real historical shape any device that had
+    // Mandala/token-settlement activity before this migration shipped still
+    // carries until it re-runs createTables().
+    raw.exec('DROP TABLE token_settlements')
+    raw.exec(`
+      CREATE TABLE token_settlements (
+        txid                  TEXT PRIMARY KEY,
+        role                  TEXT NOT NULL CHECK (role IN ('sent','received')),
+        assetId               TEXT NOT NULL,
+        state                 TEXT NOT NULL CHECK (state IN (
+                                'built','parked','handed_over','held',
+                                'submitting','admitted','broadcast','refused','orphaned')),
+        counterpartyKey       TEXT,
+        amountBaseUnits       INTEGER,
+        overlayUrl            TEXT NOT NULL,
+        overlayIdentityKey    TEXT NOT NULL,
+        admissionOutputsJson  TEXT,
+        admissionSignatureHex TEXT,
+        refusedCode           TEXT,
+        refusedPayloadHash    TEXT,
+        poisonedByTxid        TEXT,
+        createdAt             TEXT NOT NULL,
+        updatedAt             TEXT NOT NULL
+      )
+    `)
+    // Run the SAME migration entry point the real app calls on every boot —
+    // this is the shipped upgrade path, not tampering. SQLite's ALTER TABLE
+    // ADD COLUMN appends new columns at the very end of the column list when
+    // (as here) the table has no trailing table-level constraint clause, so
+    // this device's resulting sqlite_master.sql text for token_settlements
+    // permanently differs in column order from a fresh createTables() run,
+    // even though every column definition is identical.
+    await createMandalaSettlementTables(mockAdapt(raw) as never)
+
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(true)
+  })
+
+  it('XR-082: still rejects a token_settlements table that is missing the migrated reference/relevantVout columns entirely (never ran the migration, not just reordered)', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    raw.exec('DROP TABLE token_settlements')
+    raw.exec(`
+      CREATE TABLE token_settlements (
+        txid                  TEXT PRIMARY KEY,
+        role                  TEXT NOT NULL CHECK (role IN ('sent','received')),
+        assetId               TEXT NOT NULL,
+        state                 TEXT NOT NULL CHECK (state IN (
+                                'built','parked','handed_over','held',
+                                'submitting','admitted','broadcast','refused','orphaned')),
+        counterpartyKey       TEXT,
+        amountBaseUnits       INTEGER,
+        overlayUrl            TEXT NOT NULL,
+        overlayIdentityKey    TEXT NOT NULL,
+        admissionOutputsJson  TEXT,
+        admissionSignatureHex TEXT,
+        refusedCode           TEXT,
+        refusedPayloadHash    TEXT,
+        poisonedByTxid        TEXT,
+        createdAt             TEXT NOT NULL,
+        updatedAt             TEXT NOT NULL
+      )
+    `)
+    // Deliberately never runs ensureTokenSettlementColumns/createMandalaSettlementTables:
+    // the order-independent column-set comparison must still catch a
+    // genuinely different column SET (a schema-stale device), not just
+    // tolerate reordering of an identical set.
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+  })
+
+  it('XR-082: rejects a token_settlements table whose migrated-in reference column was retyped, even though the migration reordered it to the end', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    raw.exec('DROP TABLE token_settlements')
+    raw.exec(`
+      CREATE TABLE token_settlements (
+        txid                  TEXT PRIMARY KEY,
+        role                  TEXT NOT NULL CHECK (role IN ('sent','received')),
+        assetId               TEXT NOT NULL,
+        state                 TEXT NOT NULL CHECK (state IN (
+                                'built','parked','handed_over','held',
+                                'submitting','admitted','broadcast','refused','orphaned')),
+        counterpartyKey       TEXT,
+        amountBaseUnits       INTEGER,
+        overlayUrl            TEXT NOT NULL,
+        overlayIdentityKey    TEXT NOT NULL,
+        admissionOutputsJson  TEXT,
+        admissionSignatureHex TEXT,
+        refusedCode           TEXT,
+        refusedPayloadHash    TEXT,
+        poisonedByTxid        TEXT,
+        createdAt             TEXT NOT NULL,
+        updatedAt             TEXT NOT NULL,
+        relevantVout          INTEGER,
+        reference             INTEGER
+      )
+    `)
     const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
     pickFile(name, raw)
 

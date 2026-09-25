@@ -84,17 +84,104 @@ async function readSourceIdentity(
 }
 
 /**
- * Reject a picked image that carries any schema object this wallet did not
- * itself create: a trigger, a view, a virtual table, or any table/index name
- * outside its own real schema. `CREATE TABLE/INDEX IF NOT EXISTS` (the whole
- * of createTables()'s migration) leaves any such pre-existing object in
- * place forever, live for every later write this device makes — so this
- * runs against the deserialized image BEFORE it is ever copied into the
- * real, on-disk database directory (XR-082).
+ * Collapse insignificant whitespace so two `sqlite_master.sql` texts that
+ * differ only in formatting still compare equal. SQLite already strips a
+ * leading `IF NOT EXISTS` from the stored text on its own, so this is the
+ * only normalization needed before an exact structural comparison.
+ */
+function normalizeSql(sql: string | null): string {
+  if (!sql) return ''
+  return sql.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Split a `CREATE TABLE`'s parenthesized body into its top-level
+ * column/constraint definitions, respecting nested parens (a `CHECK (x IN
+ * (...))`'s internal commas, a table-level `FOREIGN KEY (...) REFERENCES
+ * t(...)`'s, etc. must never cause a false split).
+ */
+function splitTopLevel(inner: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let current = ''
+  for (const ch of inner) {
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    if (ch === ',' && depth === 0) {
+      parts.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  parts.push(current)
+  return parts
+}
+
+/**
+ * Extract a `CREATE TABLE ... (...)` statement's column/constraint
+ * definitions as an order-independent, whitespace-normalized multiset (a
+ * sorted array). Returns `null` if `sql` does not look like a single
+ * parenthesized table body (e.g. no `(` at all), in which case callers must
+ * fail closed rather than treat two un-parseable strings as equivalent.
  *
- * The allow-list is built by running the wallet's own createTables() against
- * a disposable reference database, rather than a hand-maintained list, so it
+ * Column ORDER is deliberately not part of the comparison: SQLite's `ALTER
+ * TABLE ADD COLUMN` rewrites a table's stored `sqlite_master.sql` by
+ * inserting the new column just before any trailing table-level constraint
+ * clause, or — when the table has none — appending it at the very end of the
+ * column list. `createTables()`'s own inline definitions place some
+ * migrated-in columns earlier for readability, so a genuine device that ran
+ * the real, shipped additive migration (e.g. `ensureTokenSettlementColumns`)
+ * ends up with the exact same set of column/constraint definitions as a
+ * fresh `createTables()` run, just in a different order — not tampering, and
+ * not something `isSchemaTrusted` should reject. Every individual
+ * column/constraint's own text (type, NOT NULL, UNIQUE, CHECK, default,
+ * FOREIGN KEY, ...) is still compared exactly, so a weakened or removed
+ * constraint, a retyped or dropped column, or an added one is still caught.
+ */
+function extractTableDefParts(sql: string | null): string[] | null {
+  if (!sql) return null
+  const start = sql.indexOf('(')
+  const end = sql.lastIndexOf(')')
+  if (start === -1 || end === -1 || end <= start) return null
+  const inner = sql.slice(start + 1, end)
+  return splitTopLevel(inner)
+    .map(normalizeSql)
+    .filter(p => p.length > 0)
+    .sort()
+}
+
+function sameParts(a: string[] | null, b: string[] | null): boolean {
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  return a.every((part, i) => part === b[i])
+}
+
+/**
+ * Reject a picked image that carries any schema object this wallet did not
+ * itself create: a trigger, a view, a virtual table, any table/index name
+ * outside its own real schema, or — just as dangerous — an allow-listed
+ * table/index whose own definition was weakened (e.g. a dropped UNIQUE, a
+ * retyped or removed column, a redefined index). `CREATE TABLE/INDEX IF NOT
+ * EXISTS` (the whole of createTables()'s migration) is a no-op once an
+ * object with that name already exists, so either kind of tampering would
+ * otherwise survive forever and stay live for every later write this device
+ * makes — so this runs against the deserialized image BEFORE it is ever
+ * copied into the real, on-disk database directory (XR-082).
+ *
+ * The allow-list — both the set of names AND each name's exact canonical
+ * `sql` text — is built by running the wallet's own createTables() against a
+ * disposable reference database, rather than a hand-maintained copy, so it
  * can never drift out of sync with the real schema.
+ *
+ * A `table` object's `sql` is compared column-set-wise rather than as raw
+ * text (see `extractTableDefParts`), because a genuine device that ran a
+ * real, shipped `ALTER TABLE ADD COLUMN` migration (e.g.
+ * `ensureTokenSettlementColumns`) ends up with its migrated-in columns in a
+ * different position than `createTables()`'s current inline definition, with
+ * no tampering involved (XR-082 follow-up). Every other object type (index,
+ * and anything else that reaches this point) is still compared as exact
+ * normalized text, since those are never rewritten by an additive migration.
  */
 async function isSchemaTrusted(sourceDb: SQLite.SQLiteDatabase): Promise<boolean> {
   let refDb: SQLite.SQLiteDatabase | undefined
@@ -102,9 +189,9 @@ async function isSchemaTrusted(sourceDb: SQLite.SQLiteDatabase): Promise<boolean
     refDb = await SQLite.openDatabaseAsync(':memory:')
     await createTables(refDb)
     const allowedRows = (await refDb.getAllAsync(
-      `SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
-    )) as Array<{ name: string }>
-    const allowed = new Set(allowedRows.map(r => r.name))
+      `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
+    )) as Array<{ type: string; name: string; sql: string | null }>
+    const allowed = new Map(allowedRows.map(r => [r.name, { type: r.type, sql: r.sql }]))
 
     const objects = (await sourceDb.getAllAsync(
       `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
@@ -112,7 +199,14 @@ async function isSchemaTrusted(sourceDb: SQLite.SQLiteDatabase): Promise<boolean
     for (const obj of objects) {
       if (obj.type === 'trigger' || obj.type === 'view') return false
       if (obj.sql && /^\s*create\s+virtual\s+table/i.test(obj.sql)) return false
-      if (!allowed.has(obj.name)) return false
+      const canonical = allowed.get(obj.name)
+      if (canonical === undefined) return false
+      if (obj.type !== canonical.type) return false
+      if (obj.type === 'table') {
+        if (!sameParts(extractTableDefParts(obj.sql), extractTableDefParts(canonical.sql))) return false
+      } else if (normalizeSql(obj.sql) !== normalizeSql(canonical.sql)) {
+        return false
+      }
     }
     return true
   } catch {
