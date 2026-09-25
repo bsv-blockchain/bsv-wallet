@@ -530,6 +530,90 @@ const heldDepositAction = (
   }
 }
 
+/** A v7 vault-deposit action as listActions reports it: [vault, marker,
+ * descriptor, optional change] — the shape isValidHeldVaultDeposit's v7
+ * branch (XR-006/INT-03) must recognize instead of wedging every subsequent
+ * vault operation behind 'action-pending' forever. */
+const heldDepositActionV7 = async (
+  status: 'unsigned' | 'nosend' | 'unproven' | 'sending' | 'unprocessed' | 'nonfinal' = 'nosend',
+  opts: { chain?: VaultSaltChain; withChange?: boolean; saltKeyId?: number } = {}
+) => {
+  const chain = opts.chain ?? 'test'
+  const { salt, saltKeyId } = fixtureSalt(opts.saltKeyId ?? 901)
+  const lockingScript = buildLock({
+    commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+    saltHex64: salt
+  }).toHex()
+  const v7Instructions = {
+    v: 7 as const, type: 'R1C' as const, saltKeyId, chain, vaultId: VAULT_ID, revision: 2, createdAt: 1, keys: [KEY_A, KEY_B]
+  }
+  const customInstructions = JSON.stringify(v7Instructions)
+  const { publicKey: markerPub } = await CRYPTO_WALLET.getPublicKey({
+    protocolID: [2, 'vault marker'],
+    keyID: `${chain}:${saltKeyId}`,
+    counterparty: 'self'
+  })
+  const markerScript = new P2PKH().lock(PublicKey.fromString(markerPub).toAddress()).toHex()
+  const { ciphertext } = await CRYPTO_WALLET.encrypt({
+    plaintext: Utils.toArray(customInstructions, 'utf8'),
+    protocolID: [2, 'vault descriptor'],
+    keyID: `${chain}:${saltKeyId}`,
+    counterparty: 'self'
+  })
+  const tagBytes = Utils.toArray('r1c7', 'utf8') as number[]
+  const payload = [...encPush(tagBytes), ...encPush(ciphertext)]
+  const descriptorScript = new LockingScript([{ op: OP.OP_FALSE }, { op: OP.OP_RETURN, data: payload }]).toHex()
+  const outputs = [{
+    satoshis: 250_000,
+    spendable: true,
+    customInstructions,
+    lockingScript,
+    outputIndex: 0,
+    basket: VAULT_BASKET
+  }, {
+    satoshis: 1,
+    spendable: true,
+    lockingScript: markerScript,
+    outputIndex: 1,
+    basket: ''
+  }, {
+    satoshis: 0,
+    spendable: true,
+    lockingScript: descriptorScript,
+    outputIndex: 2,
+    basket: ''
+  }]
+  if (opts.withChange !== false) {
+    outputs.push({
+      satoshis: 9_500,
+      spendable: true,
+      lockingScript: new P2PKH().lock(Utils.toArray('d8'.repeat(20), 'hex')).toHex(),
+      outputIndex: 3,
+      basket: 'default'
+    } as any)
+  }
+  return {
+    ...(status === 'unsigned' ? {} : { txid: 'd5'.repeat(32) }),
+    reference: 'held-deposit-ref',
+    status,
+    labels: ['vault', 'vault-deposit'],
+    inputs: [{
+      sourceOutpoint: `${'d6'.repeat(32)}.0`,
+      sourceSatoshis: 260_000,
+      sourceLockingScript: new P2PKH().lock(Utils.toArray('d7'.repeat(20), 'hex')).toHex()
+    }],
+    outputs
+  }
+}
+
+/** Minimal standalone push encoder matching r1comb's pushData, for building
+ * a test-only OP_RETURN payload without importing a private helper. */
+function encPush(data: number[]): number[] {
+  if (data.length <= 75) return [data.length, ...data]
+  if (data.length <= 0xff) return [OP.OP_PUSHDATA1, data.length, ...data]
+  return [OP.OP_PUSHDATA2, data.length & 0xff, (data.length >>> 8) & 0xff, ...data]
+}
+
 // ── deposit ───────────────────────────────────────────────────────────────
 
 describe('depositToVault', () => {
@@ -666,6 +750,84 @@ describe('depositToVault', () => {
     expect(detailed.length).toBeGreaterThan(0)
     expect(detailed.every(args => args.limit === 8)).toBe(true)
     expect(detailed.some(args => args.offset === 8)).toBe(true)
+  })
+
+  // XR-006 / INT-03: a v7 held deposit (3-4 outputs: vault, marker,
+  // descriptor, optional change) must be recognized by isValidHeldVaultDeposit
+  // instead of falling through to the old v6 1-2-output cap, which would
+  // wedge every subsequent vault operation behind 'action-pending' forever.
+  describe('v7 held deposits (XR-006 / INT-03)', () => {
+    it('recognizes and aborts an unbroadcast (unsigned) v7 held deposit, unwedging the vault', async () => {
+      await seedMeta()
+      const unsigned = await heldDepositActionV7('unsigned')
+      let aborted = false
+      wallet.listActions.mockImplementation(async (args: any) => ({
+        actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || aborted ? [] : [unsigned]
+      }))
+      wallet.abortAction.mockImplementation(async ({ reference }: any) => {
+        expect(reference).toBe('held-deposit-ref')
+        aborted = true
+        return {}
+      })
+
+      await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
+      expect(wallet.abortAction).toHaveBeenCalledTimes(1)
+    })
+
+    it('recognizes a signed-noSend v7 held deposit as a legitimate hold (manual reconciliation), never as an unrecognized/malformed one', async () => {
+      await seedMeta()
+      wallet.listActions.mockImplementation(async (args: any) => ({
+        actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [await heldDepositActionV7('nosend')]
+      }))
+
+      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({
+        code: 'action-pending',
+        // The v7-aware message proves isValidHeldVaultDeposit recognized the
+        // shape (reached `signed++`) rather than rejecting it outright with
+        // the generic "unknown or potentially broadcast state" message a
+        // pre-fix 1-2-output check would produce for every v7 deposit.
+        message: 'A signed Vault deposit needs manual broadcast-state reconciliation'
+      })
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+      expect(wallet.createAction).not.toHaveBeenCalled()
+    })
+
+    it('does not wedge a v7 held deposit without its optional change output', async () => {
+      await seedMeta()
+      const unsigned = await heldDepositActionV7('unsigned', { withChange: false })
+      let aborted = false
+      wallet.listActions.mockImplementation(async (args: any) => ({
+        actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || aborted ? [] : [unsigned]
+      }))
+      wallet.abortAction.mockImplementation(async () => {
+        aborted = true
+        return {}
+      })
+
+      await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
+      expect(wallet.abortAction).toHaveBeenCalledTimes(1)
+    })
+
+    it('fails closed on a v7 held deposit whose marker does not match the derived address', async () => {
+      await seedMeta()
+      const tampered = await heldDepositActionV7('unsigned')
+      tampered.outputs[1].lockingScript = new P2PKH().lock(Utils.toArray('e1'.repeat(20), 'hex')).toHex()
+      wallet.listActions.mockResolvedValue({ actions: [tampered] })
+
+      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'action-pending' })
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+    })
+
+    it('fails closed on a v7 held deposit whose descriptor decrypts to a different record', async () => {
+      await seedMeta()
+      const tampered = await heldDepositActionV7('unsigned')
+      const other = await heldDepositActionV7('unsigned', { saltKeyId: 902 })
+      tampered.outputs[2].lockingScript = other.outputs[2].lockingScript
+      wallet.listActions.mockResolvedValue({ actions: [tampered] })
+
+      await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'action-pending' })
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+    })
   })
 
   it('recovers an unsigned deposit and indexes its real failed-history shape by reference when txid is empty', async () => {

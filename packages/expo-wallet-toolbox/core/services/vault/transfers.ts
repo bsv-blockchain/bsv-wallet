@@ -94,7 +94,7 @@ export function vaultChainKeyId(chain: VaultScopeToken['chain'], saltKeyId: stri
 
 /** The deterministic P2PKH marker script for output index `saltKeyId` on
  * `chain` — reproducible from nothing but the wallet root, chain and index. */
-async function deriveVaultMarkerScript(
+export async function deriveVaultMarkerScript(
   w: VaultWallet,
   adminOriginator: string,
   chain: VaultScopeToken['chain'],
@@ -121,7 +121,7 @@ async function deriveVaultMarkerScript(
  * parseVaultDescriptorScript can split them back out with an ordinary
  * (non-OP_RETURN) chunk parse of the blob alone.
  */
-function buildVaultDescriptorScript(ciphertext: number[]): LockingScript {
+export function buildVaultDescriptorScript(ciphertext: number[]): LockingScript {
   const tagBytes = Utils.toArray(VAULT_DESCRIPTOR_TAG, 'utf8') as number[]
   const payload = [...pushData(tagBytes), ...pushData(ciphertext)]
   return new LockingScript([{ op: OP.OP_FALSE }, { op: OP.OP_RETURN, data: payload }])
@@ -130,7 +130,7 @@ function buildVaultDescriptorScript(ciphertext: number[]): LockingScript {
 /** Parse a script built by buildVaultDescriptorScript. Returns null for
  * anything else — including an oversized ciphertext, which is never trusted,
  * only reported as unusable by the caller. */
-function parseVaultDescriptorScript(lockingScript: LockingScript): { ciphertext: number[] } | null {
+export function parseVaultDescriptorScript(lockingScript: LockingScript): { ciphertext: number[] } | null {
   const chunks = lockingScript.chunks
   if (chunks.length !== 2) return null
   if (chunks[0].op !== OP.OP_0 && chunks[0].op !== OP.OP_FALSE) return null
@@ -151,7 +151,7 @@ function parseVaultDescriptorScript(lockingScript: LockingScript): { ciphertext:
 
 /** Encrypt a v7 customInstructions JSON string for the descriptor output,
  * enforcing the byte budget at creation time (fail closed, never truncate). */
-async function encryptVaultDescriptorPlaintext(
+export async function encryptVaultDescriptorPlaintext(
   w: VaultWallet,
   adminOriginator: string,
   chain: VaultScopeToken['chain'],
@@ -174,7 +174,7 @@ async function encryptVaultDescriptorPlaintext(
 /** Decrypt a descriptor's ciphertext back to its plaintext customInstructions
  * JSON string. Throws (never silently returns garbage) on any wallet-level
  * decrypt failure — the caller decides how an unusable record is reported. */
-async function decryptVaultDescriptorPlaintext(
+export async function decryptVaultDescriptorPlaintext(
   w: VaultWallet,
   adminOriginator: string,
   chain: VaultScopeToken['chain'],
@@ -537,7 +537,7 @@ interface VerifiedVaultOutput {
  * the serial list), so there is no separate claim to falsify: deriving IS
  * the authentication.
  */
-async function resolveVaultSalt(w: VaultWallet, adminOriginator: string, ci: VaultInstructions): Promise<string> {
+export async function resolveVaultSalt(w: VaultWallet, adminOriginator: string, ci: VaultInstructions): Promise<string> {
   if (ci.v === 6) return ci.salt
   return await deriveVaultSalt(w, adminOriginator, ci.saltKeyId, ci.keys.map(key => key.serial))
 }
@@ -821,7 +821,7 @@ async function isValidHeldVaultDeposit(
   }
 
   const outputs = action.outputs ?? []
-  if (outputs.length < 1 || outputs.length > 2) return false
+  if (outputs.length < 1 || outputs.length > 4) return false
   const indices = new Set<number>()
   for (const output of outputs) {
     if (!Number.isSafeInteger(output.outputIndex) || output.outputIndex < 0 || indices.has(output.outputIndex)) return false
@@ -851,17 +851,62 @@ async function isValidHeldVaultDeposit(
     return false
   }
 
-  const implicit = outputs.filter(candidate => candidate !== output)
-  if (implicit.length === 1) {
-    const change = implicit[0]
-    if (
-      !Number.isSafeInteger(change.satoshis) ||
-      change.satoshis <= 0 ||
-      !change.lockingScript
-    ) return false
+  // v6: everything but the vault output is at most one ordinary P2PKH
+  // implicit change output — UNCHANGED, since a v6-shaped held deposit can
+  // still exist from a build predating this release.
+  //
+  // v7: the marker (index 1) and descriptor (index 2) are fixed, expected
+  // outputs — authenticated the same byte-exact/decrypt-and-compare way the
+  // creation-time validators check them — with at most one implicit P2PKH
+  // change at index 3. Recognizing this shape (instead of falling through to
+  // the v6 1-2-output cap) is what keeps a v7 deposit from wedging every
+  // subsequent vault operation behind 'action-pending' after a crash.
+  if (ci.v === 7) {
+    if (outputs.length < 3 || outputs.length > 4) return false
+    const markerOutput = outputs.find(candidate => candidate.outputIndex === 1)
+    const descriptorOutput = outputs.find(candidate => candidate.outputIndex === 2)
+    if (!markerOutput || !descriptorOutput) return false
+    if (markerOutput.basket || descriptorOutput.basket) return false
+    if (markerOutput.satoshis !== 1 || descriptorOutput.satoshis !== 0) return false
+    if (!markerOutput.lockingScript || !descriptorOutput.lockingScript) return false
     try {
-      if (!isStandardP2PKH(LockingScript.fromHex(change.lockingScript))) return false
+      const expectedMarker = await deriveVaultMarkerScript(w, adminOriginator, expectedChain, ci.saltKeyId)
+      if (markerOutput.lockingScript.toLowerCase() !== expectedMarker.toHex().toLowerCase()) return false
+      const parsedDescriptor = parseVaultDescriptorScript(LockingScript.fromHex(descriptorOutput.lockingScript))
+      if (!parsedDescriptor) return false
+      const descriptorPlaintext = await decryptVaultDescriptorPlaintext(
+        w, adminOriginator, expectedChain, ci.saltKeyId, parsedDescriptor.ciphertext
+      )
+      if (descriptorPlaintext !== output.customInstructions) return false
     } catch {
+      return false
+    }
+    const implicit = outputs.filter(candidate => candidate.outputIndex >= 3)
+    if (implicit.length > 1) return false
+    if (implicit.length === 1) {
+      const change = implicit[0]
+      if (!Number.isSafeInteger(change.satoshis) || change.satoshis <= 0 || !change.lockingScript) return false
+      try {
+        if (!isStandardP2PKH(LockingScript.fromHex(change.lockingScript))) return false
+      } catch {
+        return false
+      }
+    }
+  } else {
+    const implicit = outputs.filter(candidate => candidate !== output)
+    if (implicit.length === 1) {
+      const change = implicit[0]
+      if (
+        !Number.isSafeInteger(change.satoshis) ||
+        change.satoshis <= 0 ||
+        !change.lockingScript
+      ) return false
+      try {
+        if (!isStandardP2PKH(LockingScript.fromHex(change.lockingScript))) return false
+      } catch {
+        return false
+      }
+    } else if (implicit.length > 1) {
       return false
     }
   }
@@ -1188,7 +1233,7 @@ function rememberVaultSalt(
 }
 
 /** Derive one canonical 32-byte wallet HMAC under the exact Vault domain. */
-async function deriveVaultSalt(
+export async function deriveVaultSalt(
   w: VaultWallet,
   adminOriginator: string,
   saltKeyId: string,
