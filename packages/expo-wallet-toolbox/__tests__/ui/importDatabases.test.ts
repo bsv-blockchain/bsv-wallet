@@ -57,6 +57,21 @@ export type FakeDb = ReturnType<typeof mockAdapt>
  * (a page-level copy, not a filtered logical one). */
 function mockCopyDb(src: DatabaseSync, dest: DatabaseSync): void {
   dest.exec('PRAGMA foreign_keys = OFF')
+  // A real backupDatabaseAsync replaces the destination file's pages
+  // wholesale (sqlite3_backup_init/step/finish) rather than merging schemas
+  // into whatever the destination already had — so a destination that was
+  // pre-seeded with its own content (simulating "this filename already has a
+  // file on disk") must be wiped first, or replaying source's own verbatim
+  // CREATE statements onto it would collide with what is already there.
+  const existing = dest.prepare(`SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`).all() as {
+    type: string
+    name: string
+  }[]
+  for (const kind of ['trigger', 'view', 'index', 'table']) {
+    for (const obj of existing.filter(o => o.type === kind)) {
+      dest.exec(`DROP ${kind.toUpperCase()} IF EXISTS "${obj.name}"`)
+    }
+  }
   const objects = src
     .prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'`)
     .all() as { type: string; name: string; sql: string }[]
@@ -173,6 +188,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 
 import { importWalletDatabase } from '../../ui/importDatabases'
 import { PENDING_KEY, PENDING_SUMMARY_KEY } from '../../core/localpay/pending'
+import { registerDb } from '../../core/walletDbRegistry'
 
 // ── Test fixtures ────────────────────────────────────────────────────────────
 
@@ -412,5 +428,25 @@ describe('importWalletDatabase', () => {
     // Never reaches the registry, so it can never be selected as the active
     // database on a later build either.
     expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
+  it('XR-084: a same-basename backup matching an already-registered (non-live) filename is never opened/overwritten either', async () => {
+    // A second, previously-imported database already registered under this
+    // identity/chain — distinct from the live storage.dbName.
+    const alreadyRegistered = `wallet-${KEY_SUFFIX}-${CHAIN}net-1500.db`
+    await registerDb(KEY_SUFFIX, CHAIN, alreadyRegistered)
+    mockOpenDbs.set(alreadyRegistered, mockAdapt(await buildWalletDb(CURRENT_IDENTITY_KEY)))
+
+    // The picked backup's name exactly matches that already-registered file,
+    // not the live one — the conflict dialog's "import anyway" path.
+    mockAlertChoice = 'import'
+    pickFile(alreadyRegistered, await buildWalletDb(CURRENT_IDENTITY_KEY))
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(mockShowAlert).toHaveBeenCalled() // the conflict/confirm dialog did fire
+    expect(result.imported).toBe(true)
+    expect(result.filename).not.toBe(alreadyRegistered)
+    expect(result.filename).not.toBe(currentStorage.dbName)
   })
 })
