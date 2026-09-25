@@ -20,6 +20,10 @@
  * must fall through to 'unknown', not 'unspent' — a missing or renamed field
  * must never fail open into treating an already-spent output as
  * internalizable.
+ *
+ * And proves (exclusion-crypto review, low severity): address derivation
+ * goes through @bsv/sdk's own public Utils.toBase58Check, not a hand-rolled
+ * encoder.
  */
 // chainRecovery.ts transitively imports transfers.ts -> vaultStore.ts, which
 // imports AsyncStorage/expo-secure-store directly; neither transforms under
@@ -133,5 +137,25 @@ describe('wocChainLookup.outputStatus — "unknown" is never trusted as unspent'
   it("'unknown' when fetch itself rejects", async () => {
     global.fetch = jest.fn(async () => { throw new Error('simulated network failure') }) as unknown as typeof fetch
     expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
+  })
+})
+
+describe('wocChainLookup address derivation (exclusion-crypto review: no hand-rolled base58check)', () => {
+  it('derives the address via the public @bsv/sdk Utils.toBase58Check helper, for both mainnet and testnet prefixes', async () => {
+    const hash160 = Utils.toArray('11'.repeat(20), 'hex') as number[]
+    const script = new P2PKH().lock(hash160).toHex()
+
+    let mainUrl = ''
+    mockFetchOnce(url => { mainUrl = url; return { ok: true, json: [] } })
+    await wocChainLookup('main').transactionsForLockingScript(script)
+    expect(mainUrl).toContain(`/address/${Utils.toBase58Check(hash160, [0x00])}/history`)
+
+    let testUrl = ''
+    mockFetchOnce(url => { testUrl = url; return { ok: true, json: [] } })
+    await wocChainLookup('test').transactionsForLockingScript(script)
+    expect(testUrl).toContain(`/address/${Utils.toBase58Check(hash160, [0x6f])}/history`)
+
+    // mainnet and testnet addresses for the same hash160 must differ.
+    expect(mainUrl).not.toBe(testUrl)
   })
 })

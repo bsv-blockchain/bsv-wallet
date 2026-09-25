@@ -26,7 +26,7 @@
  * reported back as `pendingConfirmation`, never thrown and never silently
  * dropped, and does not consume a gap-scan slot.
  */
-import { Hash, Transaction, Utils } from '@bsv/sdk'
+import { Transaction, Utils } from '@bsv/sdk'
 import {
   buildLock,
   commitment,
@@ -457,7 +457,10 @@ function parseWocBeefBodyText(ok: boolean, text: string): number[] | undefined {
 }
 
 /** hash160 out of a standard P2PKH script, re-encoded as a base58check
- * address for the WoC address-history endpoint. Returns undefined for
+ * address for the WoC address-history endpoint, via @bsv/sdk's own public
+ * `Utils.toBase58Check` (already imported for toHex/toArray above) — the
+ * same primitive `PublicKey.prototype.toAddress()` uses internally elsewhere
+ * in this codebase (core/pay/rails/address.ts). Returns undefined for
  * anything else (defensive — deriveVaultMarkerScript always builds P2PKH). */
 function p2pkhAddressFromScript(lockingScriptHex: string, network: 'mainnet' | 'testnet'): string | undefined {
   let bytes: number[]
@@ -470,28 +473,5 @@ function p2pkhAddressFromScript(lockingScriptHex: string, network: 'mainnet' | '
     return undefined
   }
   const hash160 = bytes.slice(3, 23)
-  return base58CheckEncode([network === 'mainnet' ? 0x00 : 0x6f, ...hash160])
-}
-
-/** Minimal base58check (version/payload already concatenated), local to
- * avoid depending on an internal @bsv/sdk primitive that is not part of its
- * public export surface. Matches the standard Bitcoin address encoding
- * (sha256d checksum, base58 with leading-zero preservation). */
-function base58CheckEncode(data: number[]): string {
-  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-  const checksum = Array.from(Hash.hash256(data)).slice(0, 4)
-  const full = [...data, ...checksum]
-  let value = 0n
-  for (const byte of full) value = (value << 8n) | BigInt(byte)
-  let out = ''
-  while (value > 0n) {
-    const rem = value % 58n
-    out = ALPHABET[Number(rem)] + out
-    value /= 58n
-  }
-  for (const byte of full) {
-    if (byte === 0) out = ALPHABET[0] + out
-    else break
-  }
-  return out
+  return Utils.toBase58Check(hash160, [network === 'mainnet' ? 0x00 : 0x6f])
 }
