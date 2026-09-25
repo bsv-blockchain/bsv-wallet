@@ -18,7 +18,7 @@
  * database reads, writes and logging, which is validated on device.
  */
 import { Beef } from '@bsv/sdk'
-import { attemptToPostReqsToNetwork, EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile'
+import { attemptToPostReqsToNetwork, EntityProvenTx, EntityProvenTxReq } from '@bsv/wallet-toolbox-mobile'
 import type { TableProvenTxReq, TableTransaction } from '@bsv/wallet-toolbox-mobile'
 import type { StorageExpoSQLite } from '../StorageExpoSQLite'
 import { findOfflineActions, updateOfflineAction, type OfflineActionRow, type OfflineDb } from './offlineActions'
@@ -33,13 +33,7 @@ import {
 } from '../../offline/plan'
 import { descendantsOf, type OrderableTx } from '../../offline/order'
 import { postTokenStep, reconcileSettlements, type TokenFrameSource } from '../../mandala/drain'
-import type {
-  AdmissionVerifier,
-  CoverFn,
-  SettlementStore,
-  SubmitFn,
-  TokenSettlementRow
-} from '../../mandala/types'
+import type { AdmissionVerifier, CoverFn, SettlementStore, SubmitFn, TokenSettlementRow } from '../../mandala/types'
 import { devLog } from '../../logging'
 import { getOnline } from '../../net/online'
 
@@ -526,7 +520,7 @@ async function postOwned(storage: StorageExpoSQLite, api: TableProvenTxReq): Pro
   // can only read as serviceError: re-held, re-queued, and stuck on every tick
   // while the activity list says settled (2026-09-16). Asking first costs one
   // status lookup and lets storage record what already happened.
-  if (await networkAlreadyHas(storage, api.txid)) {
+  if (await networkAlreadyHas(storage, api.txid, api.rawTx)) {
     devLog(`[processOfflineActions] the network already has ${api.txid}; recording delivery without a post`)
     await recordDeliveredElsewhere(storage, api)
     return 'success'
@@ -605,21 +599,47 @@ export async function postOwnedByTxid(storage: StorageExpoSQLite, txid: string):
   return await postOwned(storage, api)
 }
 
+/** Whatever `EntityProvenTx.fromTxid` actually needs — extracted rather than
+ * importing the (unexported) `WalletServices` type by name. */
+type ProvenTxServices = Parameters<typeof EntityProvenTx.fromTxid>[1]
+
 /**
- * Whether the network already has `txid`, by the services' own status lookup
- * ('mined' or 'known'). Every failure — no such service, a transport fault, an
- * unexpected shape — is `false`: the answer then falls back to the ordinary
- * post, whose own result decides. Never a reason to stall.
+ * Whether the network already has `txid`, PROVEN.
+ *
+ * XQ-009: a bare `getStatusForTxids` 'mined'/'known' string costs nothing for
+ * an attacker who controls, or MITMs, the status endpoint — and both callers
+ * below treat a `true` answer as licence to skip this device's own broadcast
+ * and record the transaction as durably delivered, with no reconciliation
+ * path if that later turns out to be wrong. So the status string is only the
+ * cheap first check; a positive answer must still be confirmed by the same
+ * chain-tracker-validated proof the toolbox's own `TaskCheckForProofs`
+ * already trusts (`EntityProvenTx.fromTxid`) — this device's OWN `rawTx`
+ * (never fetched from the network) plus a Merkle path whose root validates
+ * against this wallet's independently-maintained chain tracker. Forging a
+ * status string is free; forging a Merkle path that validates against a real
+ * chain tracker would require actually getting the transaction mined.
+ *
+ * `rawTx` is optional only so a caller with no local copy of the candidate
+ * transaction (a foreign ancestor whose beef entry is txid-only) degrades to
+ * the pre-existing "no proof, no shortcut" answer rather than skipping proof
+ * entirely — it never widens what counts as proof.
+ *
+ * Every failure — no such service, a transport fault, an unexpected shape, no
+ * valid proof — is `false`: the answer then falls back to the ordinary post,
+ * whose own result decides. Never a reason to stall.
  */
-async function networkAlreadyHas(storage: StorageExpoSQLite, txid: string): Promise<boolean> {
+async function networkAlreadyHas(storage: StorageExpoSQLite, txid: string, rawTx?: number[]): Promise<boolean> {
   try {
-    const services = storage.getServices() as {
+    const services = storage.getServices() as ProvenTxServices & {
       getStatusForTxids?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
     }
     if (typeof services.getStatusForTxids !== 'function') return false
     const r = await services.getStatusForTxids([txid])
     const status = r.results?.find(x => x.txid === txid)?.status
-    return status === 'mined' || status === 'known'
+    if (status !== 'mined' && status !== 'known') return false
+    if (!rawTx) return false
+    const { proven } = await EntityProvenTx.fromTxid(txid, services, rawTx)
+    return proven !== undefined
   } catch (e) {
     devLog(`[processOfflineActions] could not ask the network whether it has ${txid}:`, e)
     return false
@@ -675,8 +695,12 @@ async function closeSettlementAsBroadcast(store: SettlementStore, txid: string):
 async function postForeign(storage: StorageExpoSQLite, merged: Beef, txid: string): Promise<PostOutcome> {
   // Same witness as `postOwned`: an ancestor that arrived inside a counterparty's
   // BEEF was usually broadcast by that counterparty already, and a failed
-  // re-post of it would block every owned transaction behind it.
-  if (await networkAlreadyHas(storage, txid)) {
+  // re-post of it would block every owned transaction behind it. The
+  // candidate rawTx for the proof check comes from the merged graph itself
+  // (a counterparty's own bytes) rather than the network — absent only when
+  // that entry is txid-only, in which case `networkAlreadyHas` degrades to
+  // its pre-existing "no proof, no shortcut" answer.
+  if (await networkAlreadyHas(storage, txid, merged.findTxid(txid)?.tx?.toBinary())) {
     devLog(`[processOfflineActions] the network already has foreign ancestor ${txid}; not posting`)
     return 'success'
   }
