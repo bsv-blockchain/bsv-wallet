@@ -8,7 +8,10 @@ import {
   registerDb,
   selectLatestDb,
   parseTimestampFromFilename,
-  prepareSqliteImageForDeserialize
+  prepareSqliteImageForDeserialize,
+  PENDING_KEY,
+  PENDING_SUMMARY_KEY,
+  createTables
 } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from './components/ui/AlertCard'
 import { showToast } from './components/ui/Toast'
@@ -37,6 +40,105 @@ export interface ImportResult {
   filename?: string
   keySuffix?: string
   chain?: string
+}
+
+/**
+ * How far a filename's embedded timestamp may sit in the future before the
+ * import is refused outright. Without this, a forged timestamp is a way to
+ * make an attacker-authored database permanently win `selectLatestDb` on
+ * every later build (XR-079).
+ */
+const MAX_FUTURE_SKEW_SECONDS = 300
+
+async function rejectAsUntrusted(): Promise<ImportResult> {
+  await showAlert({
+    title: i18n.t('import_untrusted_file'),
+    message: i18n.t('import_untrusted_file_detail'),
+    buttons: [{ text: i18n.t('done'), key: 'ok' }]
+  })
+  return { imported: false }
+}
+
+/**
+ * Read the (sole) settings row directly out of the deserialized source
+ * image, before any of its bytes are written to disk under an authoritative
+ * name. Returns `null` if the row is missing, duplicated, or unreadable —
+ * any of which means the image cannot be trusted to belong to this wallet
+ * (XR-079/XR-080).
+ */
+async function readSourceIdentity(
+  sourceDb: SQLite.SQLiteDatabase
+): Promise<{ storageIdentityKey: string; chain: string } | null> {
+  try {
+    const rows = (await sourceDb.getAllAsync('SELECT storageIdentityKey, chain FROM settings')) as Array<{
+      storageIdentityKey: string
+      chain: string
+    }>
+    if (rows.length !== 1) return null
+    const { storageIdentityKey, chain } = rows[0]
+    if (!storageIdentityKey || !chain) return null
+    return { storageIdentityKey, chain }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Reject a picked image that carries any schema object this wallet did not
+ * itself create: a trigger, a view, a virtual table, or any table/index name
+ * outside its own real schema. `CREATE TABLE/INDEX IF NOT EXISTS` (the whole
+ * of createTables()'s migration) leaves any such pre-existing object in
+ * place forever, live for every later write this device makes — so this
+ * runs against the deserialized image BEFORE it is ever copied into the
+ * real, on-disk database directory (XR-082).
+ *
+ * The allow-list is built by running the wallet's own createTables() against
+ * a disposable reference database, rather than a hand-maintained list, so it
+ * can never drift out of sync with the real schema.
+ */
+async function isSchemaTrusted(sourceDb: SQLite.SQLiteDatabase): Promise<boolean> {
+  let refDb: SQLite.SQLiteDatabase | undefined
+  try {
+    refDb = await SQLite.openDatabaseAsync(':memory:')
+    await createTables(refDb)
+    const allowedRows = (await refDb.getAllAsync(
+      `SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
+    )) as Array<{ name: string }>
+    const allowed = new Set(allowedRows.map(r => r.name))
+
+    const objects = (await sourceDb.getAllAsync(
+      `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
+    )) as Array<{ type: string; name: string; sql: string | null }>
+    for (const obj of objects) {
+      if (obj.type === 'trigger' || obj.type === 'view') return false
+      if (obj.sql && /^\s*create\s+virtual\s+table/i.test(obj.sql)) return false
+      if (!allowed.has(obj.name)) return false
+    }
+    return true
+  } catch {
+    return false
+  } finally {
+    try {
+      await refDb?.closeAsync()
+    } catch {}
+  }
+}
+
+/**
+ * Build a destination filename guaranteed not to collide with the currently
+ * active database or any already-registered one. An import must never place
+ * its bytes under a name another connection could already have open, and
+ * must never silently become indistinguishable from — or overwrite — a file
+ * already in the registry (XR-079/XR-084).
+ */
+function buildUniqueTargetFilename(keySuffix: string, chain: string, baseTs: number, taken: Set<string>): string {
+  let ts = baseTs
+  let name = `wallet-${keySuffix}-${chain}net-${ts}.db`
+  while (taken.has(name)) {
+    ts += 1
+    name = `wallet-${keySuffix}-${chain}net-${ts}.db`
+  }
+  return name
 }
 
 /**
@@ -73,32 +175,33 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
     await showAlert({
       title: i18n.t('import_invalid_file'),
       message: i18n.t('import_invalid_file_detail'),
-      buttons: [{ text: i18n.t('done'), key: 'ok' }],
+      buttons: [{ text: i18n.t('done'), key: 'ok' }]
     })
     return { imported: false }
   }
 
   const { keySuffix, chain } = parsed
 
-  // If the imported file has no timestamp (legacy format), assign the current
-  // time so it gets a unique filename and participates in timestamp selection.
-  let targetFilename: string
-  if (parsed.timestamp === 0) {
-    const ts = Math.floor(Date.now() / 1000)
-    targetFilename = `wallet-${keySuffix}-${chain}net-${ts}.db`
-  } else {
-    targetFilename = pickedName
+  const nowSec = Math.floor(Date.now() / 1000)
+  if (parsed.timestamp > nowSec + MAX_FUTURE_SKEW_SECONDS) {
+    // A filename timestamp from the future can only be forged — reject
+    // before it ever gets a chance to compete in selectLatestDb (XR-079).
+    return rejectAsUntrusted()
   }
+
+  // Used only for the conflict dialog's "will this become active" messaging
+  // below — the actual on-disk destination filename is always synthesized
+  // fresh in step 5, never reused from the picked name (XR-079/XR-084).
+  const displayTs = parsed.timestamp === 0 ? nowSec : parsed.timestamp
 
   // ── 3. Check for conflicts ────────────────────────────────────────────────
   const existingDbs = await getRegisteredDbs(keySuffix, chain)
-  const importTs = parseTimestampFromFilename(targetFilename)
 
   if (existingDbs.length > 0) {
     const currentBest = selectLatestDb(existingDbs)
     const currentBestTs = parseTimestampFromFilename(currentBest)
 
-    if (currentBestTs >= importTs) {
+    if (currentBestTs >= displayTs) {
       // Existing DB has a higher or equal timestamp — imported file will NOT
       // become the active database.
       const choice = await showAlert({
@@ -106,8 +209,8 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
         message: i18n.t('import_conflict_message'),
         buttons: [
           { text: i18n.t('cancel'), style: 'cancel', key: 'cancel' },
-          { text: i18n.t('import_anyway'), style: 'destructive', key: 'import' },
-        ],
+          { text: i18n.t('import_anyway'), style: 'destructive', key: 'import' }
+        ]
       })
       if (choice !== 'import') return { imported: false }
     } else {
@@ -117,8 +220,8 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
         message: i18n.t('import_confirm_message'),
         buttons: [
           { text: i18n.t('cancel'), style: 'cancel', key: 'cancel' },
-          { text: i18n.t('import_wallet_data'), key: 'import' },
-        ],
+          { text: i18n.t('import_wallet_data'), key: 'import' }
+        ]
       })
       if (choice !== 'import') return { imported: false }
     }
@@ -138,6 +241,8 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
   // ── 5. Place the database via deserialize → backup ────────────────────────
   let sourceDb: SQLite.SQLiteDatabase | undefined
   let destDb: SQLite.SQLiteDatabase | undefined
+  let untrusted = false
+  let targetFilename = ''
   try {
     // Deserialize the imported bytes into an in-memory database. Exports of
     // the WAL-mode wallet DB carry a WAL header, which the in-memory VFS
@@ -145,15 +250,76 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
     // rollback-journal mode first.
     sourceDb = await SQLite.deserializeDatabaseAsync(prepareSqliteImageForDeserialize(bytes))
 
-    // Open (or create) a file-backed database with the target filename.
-    // This places the file in the default expo-sqlite database directory.
-    destDb = await SQLite.openDatabaseAsync(targetFilename)
+    // Authenticate the image against the currently unlocked wallet BEFORE any
+    // of it is written to disk under an authoritative name: exactly one
+    // settings row, whose storageIdentityKey and chain match this wallet's
+    // own. A same-suffix foreign database, a multi-identity image, or a
+    // picked file with no wallet schema at all are all rejected here
+    // (XR-079/XR-080). `storage` is required — with no active wallet to
+    // authenticate against, the image cannot be trusted either.
+    const sourceIdentity = await readSourceIdentity(sourceDb)
+    const expectedIdentityKey = storage?.getSettings().storageIdentityKey
+    const expectedChain = storage?.chain
+    const schemaTrusted = await isSchemaTrusted(sourceDb)
+    if (
+      !schemaTrusted ||
+      !sourceIdentity ||
+      !expectedIdentityKey ||
+      !expectedChain ||
+      sourceIdentity.storageIdentityKey !== expectedIdentityKey ||
+      sourceIdentity.chain !== expectedChain
+    ) {
+      untrusted = true
+    } else {
+      // Always synthesize a fresh destination name: never the picked name,
+      // never a name already registered, never the live database's own
+      // filename. This is what actually stops a same-filename import from
+      // overwriting (or racing) the active database (XR-079/XR-084).
+      const taken = new Set<string>(existingDbs)
+      if (storage.dbName) taken.add(storage.dbName)
+      targetFilename = buildUniqueTargetFilename(keySuffix, chain, displayTs, taken)
 
-    // Copy all data from the in-memory source into the file-backed dest
-    await SQLite.backupDatabaseAsync({
-      sourceDatabase: sourceDb,
-      destDatabase: destDb
-    })
+      // Open (or create) a file-backed database with the target filename.
+      // This places the file in the default expo-sqlite database directory.
+      destDb = await SQLite.openDatabaseAsync(targetFilename)
+
+      // Copy all data from the in-memory source into the file-backed dest
+      await SQLite.backupDatabaseAsync({
+        sourceDatabase: sourceDb,
+        destDatabase: destDb
+      })
+
+      // backupDatabaseAsync just copied key_value_store verbatim, including
+      // any localpay_pending queue the source had — a record placed there by
+      // whoever wrote that file, never re-verified by processPending before
+      // it is drained into internalizeAction/onTokenHeld. Quarantine at this
+      // boundary, before the copy is ever registered or read: an imported
+      // backup must never be able to seed the live queue (XR-081).
+      await destDb.runAsync('DELETE FROM key_value_store WHERE key IN (?, ?)', [PENDING_KEY, PENDING_SUMMARY_KEY])
+
+      // prewarmOwnRoots (core/headers/prewarm.ts) reads proven_txs's own
+      // (height, merkleRoot) pairs straight off this device's active
+      // database and trusts a match against them offline, forever, with no
+      // further check — so an imported file's proven_txs rows would become
+      // permanently-trusted chain proof for whatever heights it names. This
+      // device already re-derives every proof it needs from its own header
+      // sync and recordProof (see unprovenWithoutReqSql.ts's doc comment for
+      // that self-healing path), so nothing legitimate is lost by refusing to
+      // carry an import's copy of this table forward (XR-083).
+      await destDb.runAsync('DELETE FROM proven_txs')
+
+      // A 'queued'/'posting' offline_actions row is a signed, possibly
+      // already-handed-off spend that only the automatic post-build drain
+      // (WalletContext's TaskSendOffline) is waiting to rebroadcast. Nothing
+      // distinguishes a row copied in by this import from one this device
+      // queued itself, so without this, an imported snapshot that predates
+      // the user aborting a payment would have it posted again, unattended,
+      // the next time the app is online. Downgrade to 'import_hold' — a
+      // status no drain query ever selects — so it stays put until reviewed;
+      // never delete or otherwise mutate the row, since it may already have
+      // been broadcast (XR-085).
+      await destDb.runAsync(`UPDATE offline_actions SET status = 'import_hold' WHERE status IN ('queued', 'posting')`)
+    }
   } catch (e: any) {
     console.error('[importDatabases] Failed to place database:', e.message)
     showToast(e.message, { type: 'error' })
@@ -165,6 +331,10 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
     try {
       await destDb?.closeAsync()
     } catch {}
+  }
+
+  if (untrusted) {
+    return rejectAsUntrusted()
   }
 
   // ── 6. Register in the wallet DB registry ─────────────────────────────────

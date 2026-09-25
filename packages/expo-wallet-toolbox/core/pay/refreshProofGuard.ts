@@ -18,6 +18,11 @@ export type OfflineRefreshStatus =
   // Held back deliberately, never released for broadcast. Like queued and
   // posting, a Refresh must not decide such a transaction has failed.
   | 'parked'
+  // Written only by a raw database import (ui/importDatabases.ts) over a
+  // copied-in 'queued'/'posting' row (XR-085): still an unresolved, possibly
+  // already-handed-off spend awaiting the user's renewed review, so it must
+  // not be failed either — same reasoning as 'parked'.
+  | 'import_hold'
 
 /**
  * refreshProof's /tx/hash/{txid} probe is advisory, single-source. Only an
@@ -36,7 +41,12 @@ export function shouldFailUnprovenTx(args: {
   updatedAtMs: number
   nowMs: number
 }): 'pending' | 'failed' {
-  if (args.offlineStatus === 'queued' || args.offlineStatus === 'posting' || args.offlineStatus === 'parked') {
+  if (
+    args.offlineStatus === 'queued' ||
+    args.offlineStatus === 'posting' ||
+    args.offlineStatus === 'parked' ||
+    args.offlineStatus === 'import_hold'
+  ) {
     return 'pending'
   }
   if (!IN_FLIGHT.has(args.txStatus)) return 'pending'

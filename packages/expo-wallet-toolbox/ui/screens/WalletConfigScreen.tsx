@@ -407,7 +407,10 @@ export function WalletConfigScreen() {
       const result = await importWalletDatabase(storage)
       if (result.imported) {
         showToast(t('import_success'), { type: 'success' })
-        await rebuildWallet()
+        // Not restoreFromBackup: a raw db import already carries a complete
+        // local database and must not also replay the encrypted remote
+        // backup on top of it — only the same reconciliation pass (XR-079).
+        await rebuildWallet({ reviewImportedCoins: true })
       }
     } catch (e) {
       console.warn('[WalletConfig] Import failed:', e)

@@ -28,6 +28,23 @@ describe('parked payments', () => {
   })
 })
 
+// XR-085: a raw database import downgrades a copied-in 'queued'/'posting' row
+// to 'import_hold' so the automatic drain cannot rebroadcast it. That same row
+// must not be failed by Refresh either — it is still an unresolved, possibly
+// already-handed-off spend, and failing it would release its inputs.
+describe('import_hold payments', () => {
+  it('is pending, never failed', () => {
+    expect(
+      shouldFailUnprovenTx({
+        offlineStatus: 'import_hold',
+        txStatus: 'nosend',
+        updatedAtMs: 0,
+        nowMs: 10 * 60 * 1000
+      })
+    ).toBe('pending')
+  })
+})
+
 // XR-030: refreshProof's /tx/hash/{txid} probe must only treat an
 // authoritative 404 as proof the network doesn't have the tx. Any other
 // completed non-OK response (429/500/401/403/...) is a service problem, not

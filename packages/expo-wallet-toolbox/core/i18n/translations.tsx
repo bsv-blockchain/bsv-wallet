@@ -760,6 +760,9 @@ const resources = {
       import_invalid_file: 'Invalid Backup File',
       import_invalid_file_detail:
         'This file is not a valid wallet database backup. Expected a filename like wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_untrusted_file: 'Cannot Import This Backup',
+      import_untrusted_file_detail:
+        'This backup could not be verified as belonging to this wallet, or its contents could not be trusted. It was not imported.',
       import_anyway: 'Import Anyway',
       import_invalid_input_title: 'Invalid Input',
       import_invalid_input_message:
@@ -1030,6 +1033,7 @@ const resources = {
       pay_parked_already_sent: 'This payment was already sent',
       token_cancel_already_sent: "This payment already went through and can't be cancelled.",
       tx_status_parked: 'Not handed over',
+      tx_status_import_hold: 'Held (imported)',
       resend_sending: 'Sending via message box',
       cancelling_payment: 'Cancelling the payment',
 
@@ -1725,6 +1729,8 @@ const resources = {
       import_invalid_file: '无效的备份文件',
       import_invalid_file_detail:
         '此文件不是有效的钱包数据库备份。预期文件名格式如 wallet-XXXXXXXX-mainnet-TIMESTAMP.db。',
+      import_untrusted_file: '无法导入此备份',
+      import_untrusted_file_detail: '此备份无法验证为属于此钱包,或其内容不可信。未导入。',
       import_anyway: '仍然导入',
       import_invalid_input_title: '无效输入',
       import_invalid_input_message: '请输入有效的恢复短语（12-24 个单词）或 64 位十六进制私钥。',
@@ -1976,6 +1982,7 @@ const resources = {
       pay_parked_already_sent: '此付款已发送',
       token_cancel_already_sent: '此付款已经完成，无法取消。',
       tx_status_parked: '尚未交付',
+      tx_status_import_hold: '已导入并暂扣',
       resend_sending: '正在通过消息盒发送',
       cancelling_payment: '正在取消付款',
 
@@ -2709,6 +2716,9 @@ const resources = {
       import_invalid_file: 'अमान्य बैकअप फ़ाइल',
       import_invalid_file_detail:
         'यह फ़ाइल एक मान्य वॉलेट डेटाबेस बैकअप नहीं है। अपेक्षित फ़ाइल नाम जैसे wallet-XXXXXXXX-mainnet-TIMESTAMP.db।',
+      import_untrusted_file: 'यह बैकअप आयात नहीं किया जा सका',
+      import_untrusted_file_detail:
+        'यह बैकअप इस वॉलेट से संबंधित सत्यापित नहीं किया जा सका, या इसकी सामग्री पर भरोसा नहीं किया जा सका। इसे आयात नहीं किया गया।',
       import_anyway: 'फिर भी आयात करें',
       import_invalid_input_title: 'अमान्य इनपुट',
       import_invalid_input_message:
@@ -2975,6 +2985,7 @@ const resources = {
       pay_parked_already_sent: 'यह भुगतान पहले ही भेज दिया गया है',
       token_cancel_already_sent: 'यह भुगतान पहले ही पूरा हो चुका है और इसे रद्द नहीं किया जा सकता।',
       tx_status_parked: 'सौंपा नहीं गया',
+      tx_status_import_hold: 'आयात के बाद रोका गया',
       resend_sending: 'मैसेज बॉक्स से भेजा जा रहा है',
       cancelling_payment: 'भुगतान रद्द किया जा रहा है',
 
@@ -3718,6 +3729,9 @@ const resources = {
       import_invalid_file: 'Archivo de respaldo inválido',
       import_invalid_file_detail:
         'Este archivo no es un respaldo válido de base de datos. Se esperaba un nombre como wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_untrusted_file: 'No se puede importar este respaldo',
+      import_untrusted_file_detail:
+        'No se pudo verificar que este respaldo pertenezca a esta cartera, o no se pudo confiar en su contenido. No se importó.',
       import_anyway: 'Importar igual',
       import_invalid_input_title: 'Entrada no válida',
       import_invalid_input_message:
@@ -3989,6 +4003,7 @@ const resources = {
       pay_parked_already_sent: 'Este pago ya se envió',
       token_cancel_already_sent: 'Este pago ya se completó y no se puede cancelar.',
       tx_status_parked: 'No entregado',
+      tx_status_import_hold: 'Retenido (importado)',
       resend_sending: 'Enviando por el buzón de mensajes',
       cancelling_payment: 'Cancelando el pago',
 
@@ -4741,6 +4756,9 @@ const resources = {
       import_invalid_file: 'Fichier de sauvegarde invalide',
       import_invalid_file_detail:
         "Ce fichier n'est pas une sauvegarde de base de données valide. Nom de fichier attendu : wallet-XXXXXXXX-mainnet-TIMESTAMP.db.",
+      import_untrusted_file: "Impossible d'importer cette sauvegarde",
+      import_untrusted_file_detail:
+        "Cette sauvegarde n'a pas pu être vérifiée comme appartenant à ce portefeuille, ou son contenu n'a pas pu être approuvé. Elle n'a pas été importée.",
       import_anyway: 'Importer',
       import_invalid_input_title: 'Saisie invalide',
       import_invalid_input_message:
@@ -5017,6 +5035,7 @@ const resources = {
       pay_parked_already_sent: 'Ce paiement a déjà été envoyé',
       token_cancel_already_sent: 'Ce paiement est déjà passé et ne peut pas être annulé.',
       tx_status_parked: 'Non remis',
+      tx_status_import_hold: 'Suspendu (importé)',
       resend_sending: 'Envoi via la boîte à messages',
       cancelling_payment: 'Annulation du paiement',
 
@@ -5725,6 +5744,9 @@ const resources = {
       import_invalid_file: 'ملف نسخ احتياطي غير صالح',
       import_invalid_file_detail:
         'هذا الملف ليس نسخة احتياطية صالحة لقاعدة بيانات المحفظة. اسم الملف المتوقع مثل wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_untrusted_file: 'تعذر استيراد هذه النسخة الاحتياطية',
+      import_untrusted_file_detail:
+        'تعذر التحقق من أن هذه النسخة الاحتياطية تخص هذه المحفظة، أو تعذر الوثوق بمحتواها. لم يتم استيرادها.',
       import_anyway: 'استيراد على أي حال',
       import_invalid_input_title: 'إدخال غير صالح',
       import_invalid_input_message:
@@ -5980,6 +6002,7 @@ const resources = {
       pay_parked_already_sent: 'تم إرسال هذه الدفعة بالفعل',
       token_cancel_already_sent: 'تم تنفيذ هذه الدفعة بالفعل ولا يمكن إلغاؤها.',
       tx_status_parked: 'لم يُسلَّم',
+      tx_status_import_hold: 'موقوف (مستورد)',
       resend_sending: 'جارٍ الإرسال عبر صندوق الرسائل',
       cancelling_payment: 'جارٍ إلغاء الدفعة',
 
@@ -6721,6 +6744,9 @@ const resources = {
       import_invalid_file: 'Arquivo de backup inválido',
       import_invalid_file_detail:
         'Este arquivo não é um backup válido de banco de dados. Nome de arquivo esperado como wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_untrusted_file: 'Não é possível importar este backup',
+      import_untrusted_file_detail:
+        'Não foi possível verificar se este backup pertence a esta carteira, ou seu conteúdo não pôde ser confiável. Não foi importado.',
       import_anyway: 'Importar',
       import_invalid_input_title: 'Entrada inválida',
       import_invalid_input_message:
@@ -6991,6 +7017,7 @@ const resources = {
       pay_parked_already_sent: 'Este pagamento já foi enviado',
       token_cancel_already_sent: 'Este pagamento já foi concluído e não pode ser cancelado.',
       tx_status_parked: 'Não entregue',
+      tx_status_import_hold: 'Retido (importado)',
       resend_sending: 'Enviando pela caixa de mensagens',
       cancelling_payment: 'Cancelando o pagamento',
 
@@ -7723,6 +7750,9 @@ const resources = {
       import_invalid_file: 'অবৈধ ব্যাকআপ ফাইল',
       import_invalid_file_detail:
         'এই ফাইলটি একটি বৈধ ওয়ালেট ডেটাবেস ব্যাকআপ নয়। প্রত্যাশিত ফাইলের নাম যেমন wallet-XXXXXXXX-mainnet-TIMESTAMP.db।',
+      import_untrusted_file: 'এই ব্যাকআপ আমদানি করা যায়নি',
+      import_untrusted_file_detail:
+        'এই ব্যাকআপটি এই ওয়ালেটের অন্তর্গত হিসেবে যাচাই করা যায়নি, অথবা এর বিষয়বস্তু বিশ্বাসযোগ্য ছিল না। এটি আমদানি করা হয়নি।',
       import_anyway: 'তবুও আমদানি করুন',
       import_invalid_input_title: 'অবৈধ ইনপুট',
       import_invalid_input_message:
@@ -7989,6 +8019,7 @@ const resources = {
       pay_parked_already_sent: 'এই পেমেন্ট ইতিমধ্যে পাঠানো হয়েছে',
       token_cancel_already_sent: 'এই পেমেন্টটি ইতিমধ্যে সম্পন্ন হয়েছে এবং এটি বাতিল করা যাবে না।',
       tx_status_parked: 'হস্তান্তর হয়নি',
+      tx_status_import_hold: 'আমদানির পর স্থগিত',
       resend_sending: 'মেসেজ বক্সের মাধ্যমে পাঠানো হচ্ছে',
       cancelling_payment: 'পেমেন্ট বাতিল করা হচ্ছে',
 
@@ -8729,6 +8760,9 @@ const resources = {
       import_invalid_file: 'Недопустимый файл резервной копии',
       import_invalid_file_detail:
         'Этот файл не является допустимой резервной копией базы данных кошелька. Ожидаемое имя файла: wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_untrusted_file: 'Не удалось импортировать эту резервную копию',
+      import_untrusted_file_detail:
+        'Не удалось подтвердить, что эта резервная копия принадлежит этому кошельку, или её содержимому нельзя доверять. Она не была импортирована.',
       import_anyway: 'Импортировать',
       import_invalid_input_title: 'Неверные данные',
       import_invalid_input_message:
@@ -8998,6 +9032,7 @@ const resources = {
       pay_parked_already_sent: 'Этот платёж уже отправлен',
       token_cancel_already_sent: 'Этот платёж уже прошёл, и его нельзя отменить.',
       tx_status_parked: 'Не передан',
+      tx_status_import_hold: 'Удержано (импортировано)',
       resend_sending: 'Отправка через почтовый ящик',
       cancelling_payment: 'Отмена платежа',
 
@@ -9735,6 +9770,9 @@ const resources = {
       import_invalid_file: 'File Cadangan Tidak Valid',
       import_invalid_file_detail:
         'File ini bukan cadangan basis data dompet yang valid. Nama file yang diharapkan seperti wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_untrusted_file: 'Tidak dapat mengimpor cadangan ini',
+      import_untrusted_file_detail:
+        'Cadangan ini tidak dapat diverifikasi sebagai milik dompet ini, atau isinya tidak dapat dipercaya. Cadangan ini tidak diimpor.',
       import_anyway: 'Tetap Impor',
       import_invalid_input_title: 'Masukan Tidak Valid',
       import_invalid_input_message:
@@ -10007,6 +10045,7 @@ const resources = {
       pay_parked_already_sent: 'Pembayaran ini sudah terkirim',
       token_cancel_already_sent: 'Pembayaran ini sudah berhasil dan tidak dapat dibatalkan.',
       tx_status_parked: 'Belum diserahkan',
+      tx_status_import_hold: 'Ditahan (diimpor)',
       resend_sending: 'Mengirim lewat kotak pesan',
       cancelling_payment: 'Membatalkan pembayaran',
 
@@ -10752,6 +10791,9 @@ const resources = {
       import_invalid_file: '無効なバックアップファイル',
       import_invalid_file_detail:
         'このファイルは有効なウォレットデータベースのバックアップではありません。wallet-XXXXXXXX-mainnet-TIMESTAMP.db のようなファイル名が必要です。',
+      import_untrusted_file: 'このバックアップをインポートできません',
+      import_untrusted_file_detail:
+        'このバックアップがこのウォレットに属することを確認できなかったか、内容を信頼できませんでした。インポートされませんでした。',
       import_anyway: 'インポート',
       import_invalid_input_title: '無効な入力',
       import_invalid_input_message:
@@ -11022,6 +11064,7 @@ const resources = {
       pay_parked_already_sent: 'この支払いはすでに送信されました',
       token_cancel_already_sent: 'この支払いはすでに完了しており、キャンセルできません。',
       tx_status_parked: '未受け渡し',
+      tx_status_import_hold: 'インポートで保留中',
       resend_sending: 'メッセージボックス経由で送信中',
       cancelling_payment: '支払いをキャンセル中',
 
@@ -11776,6 +11819,9 @@ const resources = {
       import_invalid_file: 'Nieprawidłowy plik kopii zapasowej',
       import_invalid_file_detail:
         'Ten plik nie jest prawidłową kopią zapasową bazy danych portfela. Oczekiwana nazwa pliku w formacie wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_untrusted_file: 'Nie można zaimportować tej kopii zapasowej',
+      import_untrusted_file_detail:
+        'Nie udało się zweryfikować, że ta kopia zapasowa należy do tego portfela, lub jej zawartości nie można było zaufać. Nie została zaimportowana.',
       import_anyway: 'Importuj mimo to',
       import_invalid_input_title: 'Nieprawidłowe dane wejściowe',
       import_invalid_input_message:
@@ -12053,6 +12099,7 @@ const resources = {
       pay_parked_already_sent: 'Ta płatność została już wysłana',
       token_cancel_already_sent: 'Ta płatność już przeszła i nie można jej anulować.',
       tx_status_parked: 'Nie przekazano',
+      tx_status_import_hold: 'Wstrzymane (zaimportowane)',
       resend_sending: 'Wysyłanie przez skrzynkę wiadomości',
       cancelling_payment: 'Anulowanie płatności',
 

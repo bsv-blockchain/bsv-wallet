@@ -827,7 +827,18 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       const db = storage?.sqliteDb
       if (!db) return
       const rows = await findOfflineActions(db, {
-        status: ['queued', 'posting', 'rejected', 'parked'],
+        // 'import_hold' included (XR-085 review follow-up) so a raw-import
+        // quarantined row reaches offlineByTxid and reads as "Held (imported)"
+        // via txStatusView/ActivityRow instead of falling through to its raw,
+        // uninformative status. This is safe ONLY because the derived `queued`
+        // value below (which feeds OfflineNotice's count/Send-now/Show-code
+        // and the queued-count badge) explicitly excludes 'import_hold' too —
+        // an earlier version of this comment claimed that filtering was
+        // unnecessary ("nothing below acts on the row by this status"), which
+        // was false and let a held row render as an ordinary active payment
+        // waiting to be broadcast. Do not widen `queued`'s exclusion list
+        // without keeping 'import_hold' in it.
+        status: ['queued', 'posting', 'rejected', 'parked', 'import_hold'],
         ...(walletUserId === null ? {} : { userId: walletUserId })
       })
       setOfflineByTxid(new Map(rows.map(r => [r.txid, r])))
@@ -1240,10 +1251,20 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // broadcast them, so folding them into "waiting to be broadcast" would say
   // something untrue about both.
   //
+  // An import_hold row is excluded for the same reason, more strongly: it is
+  // not merely not-waiting, it is quarantined (XR-085) precisely so nothing
+  // treats it as live. offlineByTxid (above) still carries it for ActivityRow,
+  // so it still reads "Held (imported)" there — but it must never inflate this
+  // screen's queued count, feed OfflineNotice's "Send now" banner, or make a
+  // surviving framePayload reachable via queuedSent's "Show code" affordance.
+  //
   // The rest pass through the grace filter: online, a payment the drain is
   // about to post says nothing worth reading, and the banner appearing for the
   // half second before it lands reads as a fault that is not there.
-  const queued = useMemo(() => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked'), [offlineRows])
+  const queued = useMemo(
+    () => offlineRows.filter(r => r.status !== 'rejected' && r.status !== 'parked' && r.status !== 'import_hold'),
+    [offlineRows]
+  )
   const { shown: queuedShown, nextCheckMs } = useMemo(
     // graceNonce is a dependency only: it carries no value into the call, it
     // just re-runs it once a young row has aged past the grace.
