@@ -196,11 +196,35 @@ describe('a token payment', () => {
     await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
   })
 
-  it('never polls when offline — there is nothing to ask', async () => {
+  // XR-100: a settlement row genuinely present means this txid WAS handed
+  // over — silently treating "cannot verify" as "not admitted" is exactly
+  // the fail-open the finding describes. `never polls when offline` used to
+  // assert this fell straight through to `cancelled`; it now has to route
+  // through the same acknowledgedUnverifiable gate the BSV-rail check uses.
+  it('XR-100: refuses to cancel silently when the settlement probe is offline and a row exists to protect', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
     const { deps } = settlementDeps({ online: false, verdict: { kind: 'admitted', outputsToAdmit: [0] } })
 
-    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
+    const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })
+
+    expect(outcome).toBe('unverifiable-offline')
+    expect(deps.fetchAdmission).not.toHaveBeenCalled()
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  it('XR-100: cancels once the offline settlement probe is acknowledged', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    const { deps } = settlementDeps({ online: false, verdict: { kind: 'admitted', outputsToAdmit: [0] } })
+
+    const outcome = await cancelParkedPayment({
+      storage,
+      wallet,
+      txid: TXID,
+      settlement: deps,
+      acknowledgedUnverifiable: true
+    })
+
+    expect(outcome).toBe('cancelled')
     expect(deps.fetchAdmission).not.toHaveBeenCalled()
   })
 
@@ -213,18 +237,44 @@ describe('a token payment', () => {
     expect(deps.fetchAdmission).not.toHaveBeenCalled()
   })
 
-  it('falls back to the local check when the overlay cannot be reached', async () => {
+  // XR-100: the real runtime's `fetchAdmission` never throws — an unreachable
+  // overlay comes back as a distinct `{ kind: 'unavailable' }` verdict — but
+  // whatever the shape, "the overlay could not be asked" must not be read as
+  // "the overlay says no". This mock throws to simulate a caller/dependency
+  // that fails outright; `fetchAdmissionSafely` folds that into the same
+  // 'unavailable' signal `cancelParkedPayment` now refuses to cancel on.
+  it("XR-100: refuses to cancel silently when the overlay cannot be reached — 'unavailable' is not 'not admitted'", async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
     const { deps } = settlementDeps({ throws: 'fetch' })
 
-    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
+    const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })
+
+    expect(outcome).toBe('unverifiable-offline')
+    expect(wallet.abortAction).not.toHaveBeenCalled()
   })
 
-  it('falls back to the local check when the connectivity probe throws', async () => {
+  it('XR-100: cancels an unreachable-overlay decline once acknowledged', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    const { deps } = settlementDeps({ throws: 'fetch' })
+
+    const outcome = await cancelParkedPayment({
+      storage,
+      wallet,
+      txid: TXID,
+      settlement: deps,
+      acknowledgedUnverifiable: true
+    })
+
+    expect(outcome).toBe('cancelled')
+  })
+
+  it('XR-100: refuses to cancel silently when the settlement connectivity probe throws', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
     const { deps } = settlementDeps({ throws: 'probe' })
 
-    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
+    const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })
+
+    expect(outcome).toBe('unverifiable-offline')
     expect(deps.fetchAdmission).not.toHaveBeenCalled()
   })
 
