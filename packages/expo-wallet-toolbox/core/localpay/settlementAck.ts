@@ -104,15 +104,24 @@ function hexToBytes(hex: string): Uint8Array {
  * `expectTxid` binds the payload to the transaction actually handed over: an
  * ack naming a DIFFERENT txid is somebody else's admission, replayed. It
  * verifies perfectly and proves nothing about this payment.
+ *
+ * `expectVout` binds it further, to the payee's OWN output on that
+ * transaction (XR-093): the overlay signs `outputsToAdmit` as a set, so a
+ * genuine admission of a sibling output on the same tip — the payer's own
+ * token change, say — verifies just as well as one that actually covers the
+ * payee's output. Without this check the two are indistinguishable and the
+ * payer's screen could claim 'sent-settled' for a payment the overlay never
+ * admitted.
  */
 export async function readSettlementAck(
   ack: Ack,
-  args: { overlayIdentityKey: string; expectTxid?: string; verify: VerifyAdmissionFn }
+  args: { overlayIdentityKey: string; expectTxid?: string; expectVout: number; verify: VerifyAdmissionFn }
 ): Promise<AdmissionEntryWire | undefined> {
   if (!ack.ok) return undefined
   const payload = decodeSettlementAck(ack.error)
   if (!payload) return undefined
   if (args.expectTxid !== undefined && payload.txid !== args.expectTxid.toLowerCase()) return undefined
+  if (!payload.outputsToAdmit.includes(args.expectVout)) return undefined
 
   const entry: AdmissionEntryWire = {
     txid: payload.txid,

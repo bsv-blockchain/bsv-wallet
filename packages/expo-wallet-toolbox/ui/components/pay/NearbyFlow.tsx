@@ -2058,6 +2058,7 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
             ? await readSettlementAck(ack, {
                 overlayIdentityKey: session.asset.overlayIdentityKey,
                 expectTxid: built.txid,
+                expectVout: built.frame.outputIndex,
                 verify
               })
             : undefined
