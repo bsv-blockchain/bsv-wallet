@@ -1,4 +1,4 @@
-import { PrivateKey, Utils } from '@bsv/sdk'
+import { Hash, PrivateKey, Utils } from '@bsv/sdk'
 import type { LogEntry } from '../../core/backup/client'
 import { encodeChunk, emptyChunk, isEmptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
@@ -20,12 +20,18 @@ function chunkWithTx (txid: string): SyncChunk {
   return c as unknown as SyncChunk
 }
 
+/** Same digest RemoteSyncReader now checks a downloaded blob against — kept alongside the
+ * fixtures below so every fake index entry's sha256/size genuinely describes its blob. */
+function sha256Hex (bytes: Uint8Array | number[]): string {
+  return Utils.toHex(Hash.sha256(bytes as number[]))
+}
+
 /** A client backed by an in-memory log, standing in for the server. */
 function fakeClient (blobs: number[][], entries?: LogEntry[]): any {
   const index: LogEntry[] = entries ?? blobs.map((b, i) => ({
     seq: i + 1,
-    sha256: `sha${i + 1}`,
-    prevSha256: i === 0 ? undefined : `sha${i}`,
+    sha256: sha256Hex(b),
+    prevSha256: i === 0 ? undefined : sha256Hex(blobs[i - 1]),
     size: b.length,
     createdAt: '2026-08-15T00:00:00Z'
   }))
@@ -153,6 +159,27 @@ describe('RemoteSyncReader', () => {
     expect(restored.outputs[0].derivationSuffix).toBe('c3VmZml4')
     expect(restored.outputs[0].lockingScript).toEqual(Array.from({ length: 64 }, (_, i) => i))
   })
+
+  it('XR-014: rejects a blob whose bytes disagree with the index entry it was fetched for', async () => {
+    // Decryption alone cannot catch this: the AEAD envelope authenticates only
+    // {chain, chunk, seal} (see codec.ts), never the position a chunk was appended at, so a
+    // same-wallet ciphertext that is genuinely authentic FOR SEQUENCE 1 still decrypts
+    // cleanly if a compromised/malicious backup service serves it back for sequence 2. The
+    // index (also server-controlled) still truthfully reports sequence 2's OWN digest/size
+    // for that slot, so comparing the downloaded bytes against it catches the swap.
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const seq1 = await encodeChunk(w, chunkWithTx('aaa'), 'main')
+    const seq2 = await encodeChunk(w, chunkWithTx('bbb'), 'main')
+    const client = fakeClient([seq1, seq2])
+    const realBlob = client.blob
+    client.blob = jest.fn(async (d: string, g: number, seq: number) =>
+      seq === 2 ? await realBlob(d, g, 1) : await realBlob(d, g, seq))
+
+    const reader = new RemoteSyncReader(client, w, 'main', DEVICE, 1, SETTINGS)
+    // Sequence 1 is served honestly, so replay reaches the tampered sequence 2 before failing.
+    expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('aaa')
+    await expect(reader.getSyncChunk(args)).rejects.toThrow(/digest|does not match/i)
+  })
 })
 
 
@@ -160,9 +187,12 @@ describe('RemoteSyncReader reliability and scheduling', () => {
   const wallet = () => ({ decrypt: jest.fn(async () => ({
     plaintext: Utils.toArray(JSON.stringify({ chain: 'main', chunk: chunkWithTx('restored') }), 'utf8')
   })) }) as any
+  // Every seq below is served the same one-byte blob (see `blob` mocks in this describe
+  // block), so every entry can legitimately share that blob's own digest/size.
+  const ONE_BYTE_SHA = sha256Hex([1])
   const entries = (n: number): LogEntry[] => Array.from({ length: n }, (_, i) => ({
-    seq: i + 1, sha256: `sha${i + 1}`, prevSha256: i ? `sha${i}` : undefined,
-    size: 10, createdAt: '2026-09-05T00:00:00Z'
+    seq: i + 1, sha256: ONE_BYTE_SHA, prevSha256: i ? ONE_BYTE_SHA : undefined,
+    size: 1, createdAt: '2026-09-05T00:00:00Z'
   }))
 
   it('reads beyond the server 500-entry page limit and replays every chunk in order', async () => {
@@ -223,8 +253,14 @@ describe('RemoteSyncReader reliability and scheduling', () => {
   })
 
   it('keeps large chunks sequential to avoid doubling mobile memory pressure', async () => {
-    const index = entries(2).map(e => ({ ...e, size: 2 * 1024 * 1024 }))
-    const client = { index: jest.fn().mockResolvedValue(index), blob: jest.fn().mockResolvedValue(new Uint8Array([1])) }
+    // Only the FIRST entry is ever actually downloaded here (prefetch of the second is
+    // skipped because both are over the prefetch threshold), so only it needs bytes that
+    // truly match its declared size/digest — the second is never fetched or checked.
+    const big = new Uint8Array(2 * 1024 * 1024)
+    const bigSha = sha256Hex(big)
+    const index = entries(2).map(e => ({ ...e, size: big.length, sha256: bigSha, prevSha256: bigSha }))
+    index[0].prevSha256 = undefined
+    const client = { index: jest.fn().mockResolvedValue(index), blob: jest.fn().mockResolvedValue(big) }
     const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
     await reader.getSyncChunk(args)
     expect(client.blob).toHaveBeenCalledTimes(1)
@@ -260,8 +296,8 @@ describe('RemoteSyncReader seals', () => {
     }
     const entries: LogEntry[] = blobs.map((b, i) => ({
       seq: i + 1,
-      sha256: `sha${i + 1}`,
-      prevSha256: i === 0 ? undefined : `sha${i}`,
+      sha256: sha256Hex(b),
+      prevSha256: i === 0 ? undefined : sha256Hex(blobs[i - 1]),
       size: b.length,
       createdAt: '2026-09-20T00:00:00Z'
     }))
@@ -331,7 +367,13 @@ describe('RemoteSyncReader seals', () => {
     const blobs = [...sealed.blobs, extra]
     const entries: LogEntry[] = [
       ...sealed.entries,
-      { seq: 3, sha256: 'sha3', prevSha256: 'sha2', size: extra.length, createdAt: '2026-09-21T00:00:00Z' }
+      {
+        seq: 3,
+        sha256: sha256Hex(extra),
+        prevSha256: sealed.entries[sealed.entries.length - 1].sha256,
+        size: extra.length,
+        createdAt: '2026-09-21T00:00:00Z'
+      }
     ]
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
 

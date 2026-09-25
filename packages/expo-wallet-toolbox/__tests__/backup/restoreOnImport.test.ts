@@ -6,7 +6,7 @@
  * is nothing to replay, and that a broken log stops the import rather than producing a
  * wallet that looks healthy and is missing outputs.
  */
-import { PrivateKey } from '@bsv/sdk'
+import { Hash, PrivateKey, Utils } from '@bsv/sdk'
 import type { DeviceSummary, LogEntry } from '../../core/backup/client'
 import { encodeChunk, emptyChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
@@ -27,6 +27,12 @@ const summary = (over: Partial<DeviceSummary>): DeviceSummary => ({
   ...over
 })
 
+/** Same digest RemoteSyncReader now checks a downloaded blob against — kept alongside the
+ * fixtures below so every fake index entry's sha256/size genuinely describes its blob. */
+function sha256Hex (bytes: number[]): string {
+  return Utils.toHex(Hash.sha256(bytes))
+}
+
 function chunkWithTx (txid: string): SyncChunk {
   const c = emptyChunk('a', 'b', 'user') as unknown as Record<string, unknown[]>
   c.provenTxs = [{ provenTxId: 1, txid, rawTx: [1, 2, 3] }]
@@ -45,10 +51,11 @@ function fakeClient (
     index: jest.fn(async (d: string, g: number) => {
       const override = indexOverride?.[key(d, g)]
       if (override != null) return override
-      return (logs[key(d, g)] ?? []).map((b, i) => ({
+      const blobs = logs[key(d, g)] ?? []
+      return blobs.map((b, i) => ({
         seq: i + 1,
-        sha256: `sha${i + 1}`,
-        prevSha256: i === 0 ? undefined : `sha${i}`,
+        sha256: sha256Hex(b),
+        prevSha256: i === 0 ? undefined : sha256Hex(blobs[i - 1]),
         size: b.length,
         createdAt: '2026-08-15T00:00:00Z'
       }))
