@@ -74,7 +74,15 @@ export async function readSentinel(options?: { strict?: boolean }): Promise<KekS
     const raw = await SecureStore.getItemAsync(SENTINEL_KEY, envOptions)
     if (!raw) return null
     const parsed = JSON.parse(raw) as KekSentinel
-    return parsed?.v === 1 && typeof parsed.kekId === 'string' ? parsed : null
+    if (parsed?.v === 1 && typeof parsed.kekId === 'string') return parsed
+    // XR-109: the item exists and parses as JSON, but not into a committed
+    // sentinel's shape (a truncated write, a future/rolled-back version, ...).
+    // This must not be indistinguishable from "no sentinel" to a strict
+    // caller: putSecret takes a null sentinel as "provision a fresh KEK",
+    // which deletes both KEK keychain items before minting a new one —
+    // exactly the destructive path a merely-unreadable sentinel already
+    // guards against below.
+    throw new Error('sentinel: corrupt')
   } catch (err) {
     if (options?.strict) throw err
     return null

@@ -96,6 +96,26 @@ describe('secret store', () => {
     expect(secureStore.setItemAsync).not.toHaveBeenCalled()
   })
 
+  it('XR-109: refuses to provision a fresh KEK when the sentinel is present but the wrong shape', async () => {
+    await putSecret('recoveredKey', WIF) // an existing, live envelope + KEK
+    __resetForTests()
+    secureStore.__clearPrompts()
+    // A parseable-but-wrong-shape sentinel (truncated write, rolled-back
+    // version, ...) — not a rejected read, not unparseable JSON, both of
+    // which are already handled.
+    secureStore.__overrideRead('secretsSentinelV1', JSON.stringify({ v: 2, kekId: 'x' }))
+    secureStore.setItemAsync.mockClear()
+    secureStore.deleteItemAsync.mockClear()
+
+    expect(await putSecret('mnemonic', MNEMONIC)).toBe(false)
+    // The single most important negative assertion: a wrong-shape sentinel
+    // must never take the provisionKek() branch, which deletes both KEK
+    // keychain items before minting a new one — orphaning the still-live
+    // recoveredKey envelope sealed under the real KEK.
+    expect(secureStore.deleteItemAsync).not.toHaveBeenCalled()
+    expect(secureStore.setItemAsync).not.toHaveBeenCalled()
+  })
+
   it('still provisions normally when the sentinel is genuinely absent (no regression to fresh-install)', async () => {
     expect(await putSecret('mnemonic', MNEMONIC)).toBe(true)
     expect(await hasSecret('mnemonic')).toBe(true)
