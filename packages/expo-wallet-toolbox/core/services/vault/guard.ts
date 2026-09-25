@@ -14,6 +14,7 @@ import {
   Validation,
   type ListActionsArgs,
   type ListActionsResult,
+  type ListOutputsArgs,
   type WalletAction,
   type WalletInterface
 } from '@bsv/sdk'
@@ -30,6 +31,20 @@ const MAX_EXTERNAL_ACTION_RESULTS = 500
 const MAX_EXTERNAL_ACTION_LABELS = 64
 const MAX_EXTERNAL_ACTION_LABEL_BYTES = 4096
 const MAX_EXTERNAL_ACTION_OFFSET = MAX_ACTION_SCAN
+/**
+ * XR-019: listOutputs had no bridge-level bound at all beyond the SDK's own
+ * hard ceiling (limit <= 10000) — a normal-sized *request* from an
+ * authenticated paired peer can still force a normal-sized *response* to
+ * balloon, because each row can carry a full aggregate BEEF
+ * (includeTransactions) or a locking script. These are deliberately far
+ * below the SDK's 10000 cap: they bound what a legitimate basket check
+ * (a handful to a few hundred rows) ever needs, the same relationship
+ * MAX_EXTERNAL_ACTION_RESULTS has to listActions' own 10000 SDK ceiling.
+ * The transactions variant is tighter because each row then also carries a
+ * full BEEF, not just an outpoint + locking script.
+ */
+const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS = 200
+const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS_WITH_TRANSACTIONS = 25
 /** Permission-backed reads must never retain the exclusive inventory slot
  * indefinitely while a connected origin leaves a prompt unanswered. */
 export const EXTERNAL_ACTION_READ_TIMEOUT_MS = 30_000
@@ -282,6 +297,28 @@ function validateExternalListActionsArgs(args: unknown): ValidatedListActionsArg
 function externalReadKey(args: ValidatedListActionsArgs, originator: string): string {
   // `args` is a small, normalized object produced by the validator above.
   return `${originator}\0${JSON.stringify(args)}`
+}
+
+type ValidatedListOutputsArgs = ReturnType<typeof Validation.validateListOutputsArgs>
+
+/**
+ * XR-019: bound limit/offset for an external listOutputs call BEFORE it
+ * reaches the underlying wallet, mirroring validateExternalListActionsArgs
+ * above. The SDK's own validateListOutputsArgs already clamps limit to
+ * [1, 10000] and offset to a non-negative integer — this only tightens that
+ * ceiling for a non-admin caller, it does not relax anything the SDK enforces.
+ */
+function validateExternalListOutputsArgs(args: unknown): ValidatedListOutputsArgs {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+    throw new Error('Invalid listOutputs arguments')
+  }
+  const requested = Validation.validateListOutputsArgs(args as ListOutputsArgs)
+  const cap = requested.includeTransactions
+    ? MAX_EXTERNAL_LIST_OUTPUTS_RESULTS_WITH_TRANSACTIONS
+    : MAX_EXTERNAL_LIST_OUTPUTS_RESULTS
+  if (requested.limit > cap) throw new Error('listOutputs limit is too large')
+  if (requested.offset > MAX_EXTERNAL_ACTION_OFFSET) throw new Error('listOutputs offset is too large')
+  return requested
 }
 
 interface ReadDeadline {
@@ -575,6 +612,25 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
             } finally {
               if (runtime.reads.get(key) === pending) runtime.reads.delete(key)
             }
+          } catch {
+            return deny(String(method), originator)
+          }
+        }
+      }
+
+      // XR-019: listOutputs had no bridge-level bound at all — a non-admin
+      // caller could request an arbitrarily (well, SDK-cap-arbitrarily: up to
+      // 10000) large page, and includeTransactions makes each row carry a
+      // full aggregate BEEF, big enough to plausibly OOM a mobile app. This
+      // is a resource bound, not a Vault-outpoint check, so it runs for every
+      // non-admin originator regardless of PRIVILEGED_CAPABLE/OUTPUT_NAMING
+      // membership, exactly like the listActions case above.
+      if (method === 'listOutputs') {
+        return async (args: unknown, originator?: string) => {
+          if (originator === adminOriginator) return await bound(args, originator)
+          try {
+            const requested = validateExternalListOutputsArgs(args)
+            return await bound(requested, originator)
           } catch {
             return deny(String(method), originator)
           }
