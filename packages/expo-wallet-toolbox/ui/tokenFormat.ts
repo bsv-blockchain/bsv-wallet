@@ -106,3 +106,21 @@ export function tokenAmountInputText(baseUnits: number, decimals: number): strin
   // cannot produce and `parseTokenAmount` would refuse on the next keystroke.
   return formatted.replace(/[^\d.]/g, '')
 }
+
+/**
+ * A short, human-scannable form of a long `'<64-hex>.<vout>'` assetId —
+ * `"a1b2c3d4…ef01.0"`. Same truncation `core/mandala/permissionModule.ts`'s
+ * own (unexported) `shortAssetId` uses for prompt copy, kept as a small
+ * separate copy here rather than an import so the UI layer does not reach
+ * into `core/mandala` for a pure string helper.
+ *
+ * XR-044: an issuer-chosen ticker/label is not unique — a look-alike asset
+ * from a different issuer can share both. `assetId` is the one thing that
+ * cannot collide, so every asset-selection row and the final send
+ * confirmation show this fingerprint alongside the ticker/label, not instead
+ * of it.
+ */
+export function shortAssetId(assetId: string): string {
+  if (!assetId || assetId.length <= 16) return assetId
+  return `${assetId.slice(0, 8)}…${assetId.slice(-6)}`
+}

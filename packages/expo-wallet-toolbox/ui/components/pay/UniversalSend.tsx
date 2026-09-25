@@ -40,7 +40,7 @@ import { useAssetStatus, useMandala } from '../../hooks/useMandala'
 import { useSpendableBalance } from '../../hooks/useSpendableBalance'
 import { useContactsStore } from '../../hooks/useContactsStore'
 import ContactSigil from '../wallet/ContactSigil'
-import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
+import { formatTokenAmount, formatTokenAmountWithUnit, shortAssetId } from '../../tokenFormat'
 import { abbreviateKey } from '../../../core/pay/counterparty'
 import type { ContactRow } from '../../../core/contacts/contactsStore'
 import { createHandleRegistryClient } from '../../../core/identity/handleRegistry/client'
@@ -1279,6 +1279,11 @@ function UniversalSendInner(
   const reviewAmount = asset
     ? { value: formatTokenAmount(baseUnits, asset.decimals) ?? '', unit: asset.ticker }
     : { value: formatSatoshisAsBsvDecimal(sendSats), unit: 'BSV' }
+  // XR-044: the last on-screen chance to catch a look-alike asset before Send
+  // — issuerName is unverified, but assetId cannot collide, so the review
+  // step shows both, not only the ticker/label the amount is already keyed
+  // to. Absent for a BSV send: there is no issuer/assetId to show.
+  const reviewAssetIdentity = asset ? [asset.issuerName, shortAssetId(asset.assetId)].filter(Boolean).join(' · ') : ''
   const reviewPrimary =
     recipient.selectedIdentity?.name ||
     (target?.kind === 'handle' ? abbreviateKey(target.identityKey) : target?.kind === 'address' ? target.address : '')
@@ -1462,16 +1467,25 @@ function UniversalSendInner(
               style={[styles.reviewRow, !showNoteRow && styles.reviewRowLast, { borderBottomColor: colors.separator }]}
             >
               <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_amount')}</Text>
-              {/* No adjustsFontSizeToFit / numberOfLines: iOS's shrink floor is a fixed 4pt and in this
-                  flex row it collapsed the amount to illegible. A long amount wraps instead, so no digit
-                  is ever hidden on the screen that confirms it. */}
-              <Text
-                style={[styles.reviewAmount, { color: colors.textPrimary }]}
-                accessibilityLabel={`${reviewAmount.value} ${reviewAmount.unit}`}
-              >
-                {reviewAmount.value}{' '}
-                <Text style={[styles.reviewUnit, { color: colors.textSecondary }]}>{reviewAmount.unit}</Text>
-              </Text>
+              <View style={styles.reviewAmountBlock}>
+                {/* No adjustsFontSizeToFit / numberOfLines: iOS's shrink floor is a fixed 4pt and in this
+                    flex row it collapsed the amount to illegible. A long amount wraps instead, so no digit
+                    is ever hidden on the screen that confirms it. */}
+                <Text
+                  style={[styles.reviewAmount, { color: colors.textPrimary }]}
+                  accessibilityLabel={[reviewAmount.value, reviewAmount.unit, reviewAssetIdentity]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {reviewAmount.value}{' '}
+                  <Text style={[styles.reviewUnit, { color: colors.textSecondary }]}>{reviewAmount.unit}</Text>
+                </Text>
+                {!!reviewAssetIdentity && (
+                  <Text style={[styles.reviewAssetIdentity, { color: colors.textTertiary }]} numberOfLines={1}>
+                    {reviewAssetIdentity}
+                  </Text>
+                )}
+              </View>
             </View>
 
             {showNoteRow && (
@@ -1639,8 +1653,12 @@ const styles = StyleSheet.create({
   reviewNameSub: { ...typography.subhead, flexShrink: 1 },
   reviewTrustRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   reviewTrust: { ...typography.caption1 },
-  reviewAmount: { ...typography.title2, fontWeight: '700', fontVariant: ['tabular-nums'], flex: 1 },
+  reviewAmountBlock: { flex: 1 },
+  reviewAmount: { ...typography.title2, fontWeight: '700', fontVariant: ['tabular-nums'] },
   reviewUnit: { ...typography.headline, fontWeight: '600' },
+  // XR-044: smaller and dimmer than the amount — the last-chance identity
+  // check, not something every glance needs.
+  reviewAssetIdentity: { ...typography.caption2, marginTop: 2, fontVariant: ['tabular-nums'] },
   reviewNoteInput: { ...typography.body, flex: 1, minWidth: 0, paddingVertical: 0 },
 
   // Consequence line + call to action
