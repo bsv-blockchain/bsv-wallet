@@ -806,10 +806,7 @@ async function mintTipLinkage(
 ): Promise<Uint8Array> {
   const reveal = wallet.revealSpecificKeyLinkage as NonNullable<PayingWallet['revealSpecificKeyLinkage']>
   const forOverlay = (keyID: string, counterparty: string) =>
-    reveal(
-      { counterparty, verifier: args.overlayIdentityKey, protocolID: FT_PROTOCOL_ID, keyID },
-      args.originator
-    )
+    reveal({ counterparty, verifier: args.overlayIdentityKey, protocolID: FT_PROTOCOL_ID, keyID }, args.originator)
 
   const outputs: { index: number; linkage: unknown }[] = [{ index: 0, linkage: args.payeeLinkage }]
   if (args.changeKeyID !== undefined) {
@@ -942,9 +939,39 @@ export async function finalizeDelivery(
      * verifyDeclinedAborts.
      */
     watchDeclinedAbort?: (entry: { txid: string; reference: string }) => Promise<void>
+    /**
+     * XR-103: a negative ack is the payee's own unverifiable claim that
+     * nothing was queued (see `watchDeclinedAbort` above) — but if this exact
+     * txid is ALREADY known to the network at the moment of the decline, the
+     * payee did in fact spend these inputs and is simply lying about it now.
+     * Aborting in that case would free inputs this wallet no longer owns and
+     * let the payer re-spend them into a real double-spend against the
+     * payment that just landed. The same call this codebase already makes for
+     * the identical question elsewhere (core/offline/cancelParked.ts's
+     * `chainAlreadyKnows`, core/localpay/pendingAborts.ts's
+     * `verifyDeclinedAborts`). Optional and best-effort: a missing dep or a
+     * failed probe falls back to the existing detect-and-warn abort below,
+     * never blocks it — this only narrows the window, it does not replace the
+     * watch.
+     */
+    checkChainStatus?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
   }
 ): Promise<DeliveryOutcome> {
   if (!ack.ok) {
+    if (built.txid && deps.checkChainStatus && (await chainAlreadyKnowsTxid(deps.checkChainStatus, built.txid))) {
+      // The decline was a lie: the network already has this transaction.
+      // Never release inputs that are, in fact, already spent — persist the
+      // same way a positive ack would (best-effort; a failure here must not
+      // turn a real payment into a reported failure) and report it as sent.
+      if (typeof deps.hold === 'function') {
+        await deps.hold(built.txid).catch(() => undefined)
+      }
+      return {
+        kind: 'sent',
+        broadcast: 'ok',
+        detail: 'the payee declined, but this transaction was already found on the network'
+      }
+    }
     if (built.reference) {
       // A failed abort is a stuck UTXO, not a lost payment, and must not
       // displace the decline reason the caller is about to show. `{ aborted:
@@ -1050,4 +1077,24 @@ export async function finalizeDelivery(
 
 function messageOf(e: unknown): string {
   return e instanceof Error && e.message ? e.message : String(e)
+}
+
+/**
+ * XR-103. Mirrors core/offline/cancelParked.ts's `chainAlreadyKnows` /
+ * core/storage/methods/processOfflineActions.ts's `networkAlreadyHas`: a
+ * failed or malformed probe is treated as "not known" so it falls back to the
+ * existing decline-abort behaviour rather than blocking it.
+ */
+async function chainAlreadyKnowsTxid(
+  checkChainStatus: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>,
+  txid: string
+): Promise<boolean> {
+  try {
+    const r = await checkChainStatus([txid])
+    const status = r.results?.find(x => x.txid === txid)?.status
+    return status === 'mined' || status === 'known'
+  } catch (e) {
+    console.warn(`[localpay] could not ask the network about ${txid}, treating as unknown:`, messageOf(e))
+    return false
+  }
 }
