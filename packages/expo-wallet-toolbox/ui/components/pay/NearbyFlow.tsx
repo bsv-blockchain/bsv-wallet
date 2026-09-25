@@ -707,6 +707,16 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
   const abortsRef = useRef<Set<AbortController>>(new Set())
   /** One-shot latch: two concurrent settles would both clear the spent check. */
   const settlingRef = useRef(false)
+  /**
+   * XR-097: whole-lifetime re-entrancy guard for executeSend, mirroring
+   * VaultTransferScreen's own `runningRef`. `canSend`/`phase` alone cannot
+   * stop a double-tap: both onPress events dispatch, and read the same
+   * pre-render `phase`, before React ever re-renders with the disabled
+   * button — so a second call that lands before the first one's first
+   * `await` still passes every check and builds a second, independently
+   * reserved payment.
+   */
+  const sendInFlightRef = useRef(false)
   /** Ignores the repeat reads multiScan produces while a scan is being handled. */
   const scanLatchRef = useRef(false)
   /** Assembles animated fountain parts across the continuous scanner's reads. */
@@ -1530,8 +1540,9 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
    * selectTransport() reaches through to localSupportsAwdl(), which is a native
    * call, and the confirm screen reads it twice on every render.
    *
-   * Declared above executeSend on purpose — a useCallback dependency array is
-   * evaluated at render time, so referencing it from below would hit the TDZ.
+   * Declared above executeSendLocked on purpose — a useCallback dependency
+   * array is evaluated at render time, so referencing it from below would
+   * hit the TDZ.
    */
   const sendKind = useMemo(() => (scannedSession ? selectTransport(scannedSession) : null), [scannedSession])
 
@@ -1693,7 +1704,7 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
 
   // ── Send: build and deliver ──
 
-  const executeSend = useCallback(async () => {
+  const executeSendLocked = useCallback(async () => {
     const session = scannedSession
     if (!session || !sendKind) return
     // Guards the open-request path: with no figure there is nothing to build,
@@ -2022,6 +2033,25 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
     fail,
     t
   ])
+
+  // XR-097: the actual onPress target. A synchronous, whole-lifetime
+  // re-entrancy guard around executeSendLocked's entire body — set as the
+  // very first statement, before any `await` — so a second call dispatched
+  // before the first one's first `await` (a double-tap, or any two
+  // overlapping invocations) sees the latch already held instead of passing
+  // every check `executeSendLocked` itself makes and building a second,
+  // independently reserved payment. Every early `return` inside
+  // `executeSendLocked` still releases it via this `finally`, since none of
+  // those paths build anything.
+  const executeSend = useCallback(async () => {
+    if (sendInFlightRef.current) return
+    sendInFlightRef.current = true
+    try {
+      await executeSendLocked()
+    } finally {
+      sendInFlightRef.current = false
+    }
+  }, [executeSendLocked])
 
   // ── Send: the payer asserts QR delivery ──
   //

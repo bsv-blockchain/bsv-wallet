@@ -240,3 +240,38 @@ describe('XR-096: a radio failure with no representable QR fallback parks the pa
     expect(mockFinalizeDelivery).not.toHaveBeenCalled()
   })
 })
+
+// XR-097. Two `fireEvent.press` calls issued back to back, before either
+// dispatch's async handler has reached its first await, mirror a genuine
+// double-tap: both land while `phase` is still whatever it was before the
+// first press, so a re-render-based disabled state cannot have caught up yet.
+describe('XR-097: a double-tap cannot build two independent payments', () => {
+  it('calls buildPaymentFrame exactly once when Send is pressed twice before the first build resolves', async () => {
+    let resolveBuild!: (v: unknown) => void
+    mockBuildPaymentFrame.mockReturnValue(
+      new Promise(resolve => {
+        resolveBuild = resolve
+      })
+    )
+    mockAwdlSend.mockResolvedValue({ ok: true })
+
+    const s = wrap(<NearbyFlow role="payer" initialSession={session()} onExit={jest.fn()} />)
+    await settle()
+
+    const button = s.getByLabelText('local_pay_send')
+    await act(async () => {
+      fireEvent.press(button)
+      fireEvent.press(button)
+    })
+
+    expect(mockBuildPaymentFrame).toHaveBeenCalledTimes(1)
+
+    // Let the one build resolve so nothing leaks a dangling promise into the
+    // next test.
+    await act(async () => {
+      resolveBuild({ frame: {}, reference: 'ref-1', txid: 'd'.repeat(64), satoshis: 2500 })
+      await new Promise(resolve => setImmediate(resolve))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+  })
+})
