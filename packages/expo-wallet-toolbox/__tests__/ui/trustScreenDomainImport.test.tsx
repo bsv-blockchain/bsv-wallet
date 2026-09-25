@@ -105,3 +105,73 @@ it('XR-073: never fetches a domain field typed as a loopback address, with no DN
   await waitFor(() => expect(screen.getByText('That domain does not name a public trust provider')).toBeTruthy())
   expect(global.fetch).not.toHaveBeenCalled()
 })
+
+/**
+ * XR-074 (SEC2-012): every other JSON-consuming call site in the handle
+ * registry (resolver.ts / client.ts) bounds body bytes before parsing
+ * (XR-077) -- this screen's own manifest fetch never got that treatment. A
+ * malicious or compromised trust-provider domain could answer with an
+ * arbitrarily large body and force a full JSON parse/allocation before
+ * validateTrust ever runs.
+ */
+it('XR-074: refuses a manifest response that declares more bytes than the limit, without ever parsing it', async () => {
+  const jsonSpy = jest.fn().mockResolvedValue({ babbage: { trust: {} } })
+  ;(global.fetch as jest.Mock).mockResolvedValue({
+    ok: true,
+    headers: { get: (name: string) => (name.toLowerCase() === 'content-length' ? '5000000' : null) },
+    json: jsonSpy
+  })
+  const screen = draw()
+  openAddProviderModal(screen)
+  fireEvent.changeText(screen.getByPlaceholderText('trustedentity.com'), 'trustedentity.com')
+  fireEvent.press(screen.getByText('get_provider_details'))
+
+  await waitFor(() => expect(screen.getByText(/byte limit/i)).toBeTruthy())
+  expect(jsonSpy).not.toHaveBeenCalled()
+})
+
+it('XR-074: rejects a streamed manifest body once it crosses the byte cap, without buffering the rest of it', async () => {
+  const chunk = new Uint8Array(64 * 1024)
+  let pulls = 0
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls += 1
+      controller.enqueue(chunk)
+      if (pulls > 200) controller.close()
+    }
+  })
+  ;(global.fetch as jest.Mock).mockResolvedValue({
+    ok: true,
+    headers: { get: () => null },
+    body: stream,
+    json: jest.fn()
+  })
+  const screen = draw()
+  openAddProviderModal(screen)
+  fireEvent.changeText(screen.getByPlaceholderText('trustedentity.com'), 'trustedentity.com')
+  fireEvent.press(screen.getByText('get_provider_details'))
+
+  await waitFor(() => expect(screen.getByText(/byte limit/i)).toBeTruthy())
+  expect(pulls).toBeLessThan(10)
+})
+
+it('still parses an ordinary small manifest body with no declared Content-Length', async () => {
+  // A body well under the cap must reach validateTrust unaffected -- proven by
+  // failing for an ORDINARY, unrelated validation reason (name too short)
+  // rather than the new byte-limit error.
+  const jsonSpy = jest.fn().mockResolvedValue({
+    babbage: { trust: { name: 'ab', note: 'a normal note', icon: '', publicKey: '02' + '11'.repeat(32) } }
+  })
+  ;(global.fetch as jest.Mock).mockResolvedValue({
+    ok: true,
+    headers: { get: () => null },
+    json: jsonSpy
+  })
+  const screen = draw()
+  openAddProviderModal(screen)
+  fireEvent.changeText(screen.getByPlaceholderText('trustedentity.com'), 'trustedentity.com')
+  fireEvent.press(screen.getByText('get_provider_details'))
+
+  await waitFor(() => expect(jsonSpy).toHaveBeenCalled())
+  await waitFor(() => expect(screen.getByText(/name must be 5-30/i)).toBeTruthy())
+})
