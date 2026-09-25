@@ -1709,6 +1709,37 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
     const controller = new AbortController()
     registry.add(controller)
 
+    // XR-096: keeps a built payment reserved instead of an untracked orphan
+    // for the two genuinely ambiguous radio outcomes below — a screen
+    // blur/unmount mid-send, and a radio failure with no representable QR
+    // fallback. Mirrors the QR screen's own "back out" park exactly (see
+    // completeQrDelivery's `!release` branch). Best-effort and never throws:
+    // a park failure must not turn an already uncertain delivery into a
+    // crash, and the built noSend action — not this bookkeeping row — is
+    // what actually matters.
+    const parkUncertainDelivery = async (
+      built: Awaited<ReturnType<typeof buildPaymentFrame>>,
+      framePayload: string
+    ) => {
+      if (!storage || !built.txid) return
+      try {
+        await parkSentPaymentOffline({
+          storage,
+          txid: built.txid,
+          framePayload,
+          ...(session.asset
+            ? {
+                frame: built.frame,
+                onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                reference: built.reference
+              }
+            : {})
+        })
+      } catch (e) {
+        console.warn('[localpay] could not park an uncertain delivery:', e instanceof Error ? e.message : e)
+      }
+    }
+
     // A token request this wallet is not set up for is refused before anything
     // is built: v1 resolves one overlay, and paying a token whose issuer this
     // device cannot reach would produce a frame nobody can settle.
@@ -1803,7 +1834,17 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         }
         ack = await radio.send(session, built.frame, controller.signal)
       } catch (e) {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) {
+          // XR-096: the screen blurred or unmounted while this native send
+          // was in flight. The OS may already have finished handing the
+          // bytes to the peer even though the AbortController fired — a lost
+          // ack does not prove non-delivery on the happy path just above, and
+          // an abort proves even less — so this must not be treated as "never
+          // delivered". Park instead of leaving the signed noSend action with
+          // no durable trace beyond the raw wallet transaction row.
+          await parkUncertainDelivery(built, sealedToQr(sealFrame(built.frame, session.psk)))
+          return
+        }
         // The radio path failed: connect timeout (radios off, peer gone),
         // Local Network denial, or a lost ack. The frame is signed and noSend,
         // so the QR still completes this payment — fall straight through to
@@ -1817,7 +1858,12 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         // the QR string below share these bytes.
         const sealed = sealFrame(built.frame, session.psk)
         if (sealed.length > MAX_MESSAGE_BYTES) {
-          // No radio and no representable code: the one genuinely dead end.
+          // No radio and no representable code: the frame cannot be shown,
+          // but it can still be parked (XR-096) — that row also unlocks a
+          // message-box resend later, which has no QR size limit — rather
+          // than left as an untracked orphan reachable only by the
+          // unrestricted generic Abort action.
+          await parkUncertainDelivery(built, sealedToQr(sealed))
           fail(looksLikeLocalNetworkDenial(message) ? 'network' : 'generic', t('local_pay_too_large'))
           return
         }
