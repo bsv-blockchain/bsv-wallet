@@ -7,6 +7,7 @@ import {
   internalizeIncoming,
   resetCreditAckQueueForTests,
   cancelOutboxPayment,
+  isAbortSafe,
   isMessageBoxNetworkError,
   peerPayLinkFor,
   retryDelivery,
@@ -802,6 +803,37 @@ describe('cancelOutboxPayment', () => {
     ).rejects.toThrow('offline')
     expect(w.abortAction).not.toHaveBeenCalled()
     expect(await getOutboxEntries(s)).toHaveLength(1)
+  })
+})
+
+describe('isAbortSafe', () => {
+  it('XR-012: refuses abort for a peerpay action with no matching outbox entry (restored wallet)', () => {
+    // The exact post-restore case: key_value_store (and so the outbox row) did not survive
+    // backup/restore, but the action itself (an ordinary toolbox entity) did — so the
+    // generic Activity abort path sees a perfectly normal-looking 'nosend' peerpay action
+    // with nothing in the outbox to say whether it was ever delivered.
+    const action = { labels: ['peerpay', 'someone'], txid: 'aa', status: 'nosend' }
+    const result = isAbortSafe(action, [])
+    expect(result.aborted).toBe(false)
+    expect(result.needsAbandon).toBe(true)
+  })
+
+  it('refuses abort when the matching outbox entry is delivered or delivering', () => {
+    const action = { labels: ['peerpay', 'someone'], txid: 'aa' }
+    expect(isAbortSafe(action, [{ txid: 'aa', delivered: true }]).aborted).toBe(false)
+    expect(isAbortSafe(action, [{ txid: 'aa', delivering: true }]).aborted).toBe(false)
+  })
+
+  it('allows abort for a peerpay action whose outbox entry is still undelivered', () => {
+    const action = { labels: ['peerpay', 'someone'], txid: 'aa' }
+    const result = isAbortSafe(action, [{ txid: 'aa', delivered: false, delivering: false }])
+    expect(result.aborted).toBe(true)
+    expect(result.needsAbandon).toBeUndefined()
+  })
+
+  it('leaves every non-peerpay action alone', () => {
+    const action = { labels: ['someOtherRail'], txid: 'zz' }
+    expect(isAbortSafe(action, [])).toEqual({ aborted: true })
   })
 })
 

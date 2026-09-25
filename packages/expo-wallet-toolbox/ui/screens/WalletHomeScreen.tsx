@@ -70,6 +70,7 @@ import {
   retryDelivery,
   makePeerPayClient,
   isMessageBoxNetworkError,
+  isAbortSafe,
   generateMnemonicWallet,
   backupAttestation,
   isVaultAvailable,
@@ -1002,12 +1003,28 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     [busyRow, refreshProof, t]
   )
 
-  /** Abort a still-local transaction, releasing the inputs it reserved. */
+  /**
+   * Abort a still-local transaction, releasing the inputs it reserved.
+   *
+   * `action` is passed by every caller that has it (the row and the detail sheet both
+   * render from a loaded ActivityAction). For a `peerpay` action it is checked against the
+   * live outbox before this ever reaches `abortAction`: that outbox row is the only record
+   * of whether the recipient may already hold this payment's token, and it does not survive
+   * a backup/restore (key_value_store is not currently part of the encrypted backup) — so a
+   * restored wallet must refuse rather than guess "never delivered" from a missing row.
+   */
   const onAbort = useCallback(
-    async (reference: string) => {
+    async (reference: string, action?: ActivityAction) => {
       if (!managers.permissionsManager || busyRow) return
       setBusyRow(reference)
       try {
+        if (action?.labels?.includes('peerpay')) {
+          const entries = storage ? await getOutboxEntries(storage) : []
+          if (!isAbortSafe(action, entries).aborted) {
+            showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+            return
+          }
+        }
         const r = (await managers.permissionsManager.abortAction({ reference }, adminOriginator)) as
           | { aborted?: boolean }
           | undefined
@@ -1024,7 +1041,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         setBusyLabel(undefined)
       }
     },
-    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, t]
+    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, storage, t]
   )
 
   const onResendPending = useCallback(async () => {
@@ -1546,7 +1563,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           label: t('tx_action_abort'),
           icon: 'close-circle-outline',
           danger: true,
-          onPress: () => void onAbort(action.reference!)
+          onPress: () => void onAbort(action.reference!, action)
         })
       }
       if (parked && action.txid) {
