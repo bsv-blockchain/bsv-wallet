@@ -575,6 +575,8 @@ const resources = {
       delete_wallet_warning_body:
         'This will permanently delete your wallet keys from this device. If you have not backed up your recovery phrase or printed recovery shares, you will lose access to your wallet forever.',
       delete_wallet_confirm: 'Delete Wallet',
+      delete_wallet_failed_title: 'Delete Wallet Failed',
+      delete_wallet_failed_body: 'Your wallet could not be fully erased from this device. Some key material may still be present. Please try again.',
       bsv_network: 'BSV Network',
       arc_endpoint: 'ARC Endpoint',
       arc_api_token: 'API Token',
@@ -1582,6 +1584,8 @@ const resources = {
       delete_wallet_warning_body:
         '这将永久从此设备删除您的钱包密钥。如果您没有备份助记词或打印恢复份额，您将永远无法访问您的钱包。',
       delete_wallet_confirm: '删除钱包',
+      delete_wallet_failed_title: '删除钱包失败',
+      delete_wallet_failed_body: '未能从此设备完全删除您的钱包。部分密钥数据可能仍然存在。请重试。',
       bsv_network: 'BSV 网络',
       arc_endpoint: 'ARC 节点',
       arc_api_token: 'API 密钥',
@@ -2587,6 +2591,8 @@ const resources = {
       delete_wallet_warning_body:
         'यह इस डिवाइस से आपकी वॉलेट कुंजियाँ स्थायी रूप से हटा देगा। यदि आपने अपना रिकवरी फ्रेज़ बैकअप नहीं किया है या रिकवरी शेयर प्रिंट नहीं किए हैं, तो आप अपने वॉलेट तक हमेशा के लिए पहुँच खो देंगे।',
       delete_wallet_confirm: 'वॉलेट हटाएं',
+      delete_wallet_failed_title: 'वॉलेट हटाना विफल रहा',
+      delete_wallet_failed_body: 'आपका वॉलेट इस डिवाइस से पूरी तरह हटाया नहीं जा सका। कुछ कुंजी सामग्री अभी भी मौजूद हो सकती है। कृपया पुनः प्रयास करें।',
       bsv_network: 'BSV नेटवर्क',
       arc_endpoint: 'ARC एंडपॉइंट',
       arc_api_token: 'API टोकन',
@@ -3622,6 +3628,8 @@ const resources = {
       delete_wallet_warning_body:
         'Esto eliminará permanentemente las claves de tu billetera de este dispositivo. Si no has guardado tu frase de recuperación ni impreso las partes de recuperación, perderás el acceso a tu billetera para siempre.',
       delete_wallet_confirm: 'Eliminar',
+      delete_wallet_failed_title: 'Error al eliminar la billetera',
+      delete_wallet_failed_body: 'No se pudo eliminar completamente tu billetera de este dispositivo. Es posible que parte del material de la clave aún esté presente. Vuelve a intentarlo.',
       bsv_network: 'Red BSV',
       arc_endpoint: 'Endpoint ARC',
       arc_api_token: 'Token API',
@@ -4672,6 +4680,8 @@ const resources = {
       delete_wallet_warning_body:
         "Cela supprimera définitivement les clés de votre portefeuille de cet appareil. Si vous n'avez pas sauvegardé votre phrase de récupération ou imprimé les parts de récupération, vous perdrez l'accès à votre portefeuille pour toujours.",
       delete_wallet_confirm: 'Supprimer',
+      delete_wallet_failed_title: 'Échec de la suppression du portefeuille',
+      delete_wallet_failed_body: 'Votre portefeuille n\'a pas pu être entièrement supprimé de cet appareil. Certaines données de clé peuvent encore être présentes. Veuillez réessayer.',
       bsv_network: 'Réseau BSV',
       arc_endpoint: 'Point de terminaison ARC',
       arc_api_token: "Jeton d'API",
@@ -5683,6 +5693,8 @@ const resources = {
       delete_wallet_warning_body:
         'سيؤدي هذا إلى حذف مفاتيح محفظتك بشكل دائم من هذا الجهاز. إذا لم تقم بعمل نسخة احتياطية لعبارة الاسترداد أو طباعة حصص الاسترداد، فستفقد الوصول إلى محفظتك إلى الأبد.',
       delete_wallet_confirm: 'حذف المحفظة',
+      delete_wallet_failed_title: 'فشل حذف المحفظة',
+      delete_wallet_failed_body: 'تعذّر حذف محفظتك بالكامل من هذا الجهاز. قد تظل بعض بيانات المفتاح موجودة. يرجى المحاولة مرة أخرى.',
       bsv_network: 'شبكة BSV',
       arc_endpoint: 'نقطة نهاية ARC',
       arc_api_token: 'رمز API',
@@ -6704,6 +6716,8 @@ const resources = {
       delete_wallet_warning_body:
         'Isso excluirá permanentemente as chaves da sua carteira deste dispositivo. Se você não fez backup da sua frase de recuperação ou imprimiu as partes de recuperação, você perderá o acesso à sua carteira para sempre.',
       delete_wallet_confirm: 'Excluir carteira',
+      delete_wallet_failed_title: 'Falha ao excluir carteira',
+      delete_wallet_failed_body: 'Não foi possível excluir totalmente sua carteira deste dispositivo. Parte do material da chave pode ainda estar presente. Tente novamente.',
       bsv_network: 'Rede BSV',
       arc_endpoint: 'Endpoint ARC',
       arc_api_token: 'Token de API',
@@ -7733,6 +7747,8 @@ const resources = {
       delete_wallet_warning_body:
         'এটি এই ডিভাইস থেকে আপনার ওয়ালেট কী স্থায়ীভাবে মুছে ফেলবে। যদি আপনি আপনার রিকভারি ফ্রেজ ব্যাকআপ না করেন বা রিকভারি শেয়ার প্রিন্ট না করেন, তাহলে আপনি চিরতরে আপনার ওয়ালেটে অ্যাক্সেস হারাবেন।',
       delete_wallet_confirm: 'ওয়ালেট মুছুন',
+      delete_wallet_failed_title: 'ওয়ালেট মোছা ব্যর্থ হয়েছে',
+      delete_wallet_failed_body: 'আপনার ওয়ালেটটি এই ডিভাইস থেকে সম্পূর্ণভাবে মোছা যায়নি। কিছু কী-উপাদান এখনও থাকতে পারে। অনুগ্রহ করে আবার চেষ্টা করুন।',
       bsv_network: 'BSV নেটওয়ার্ক',
       arc_endpoint: 'ARC এন্ডপয়েন্ট',
       arc_api_token: 'API টোকেন',
@@ -8766,6 +8782,8 @@ const resources = {
       delete_wallet_warning_body:
         'Это безвозвратно удалит ключи вашего кошелька с этого устройства. Если вы не создали резервную копию фразы восстановления или не распечатали доли восстановления, вы навсегда потеряете доступ к кошельку.',
       delete_wallet_confirm: 'Удалить кошелёк',
+      delete_wallet_failed_title: 'Не удалось удалить кошелёк',
+      delete_wallet_failed_body: 'Не удалось полностью удалить ваш кошелёк с этого устройства. Часть ключевых данных может всё ещё оставаться. Пожалуйста, попробуйте снова.',
       bsv_network: 'Сеть BSV',
       arc_endpoint: 'Конечная точка ARC',
       arc_api_token: 'API-токен',
@@ -9798,6 +9816,8 @@ const resources = {
       delete_wallet_warning_body:
         'Ini akan menghapus kunci dompet Anda secara permanen dari perangkat ini. Jika Anda belum mencadangkan frasa pemulihan atau mencetak bagian pemulihan, Anda akan kehilangan akses ke dompet Anda selamanya.',
       delete_wallet_confirm: 'Hapus Dompet',
+      delete_wallet_failed_title: 'Gagal Menghapus Dompet',
+      delete_wallet_failed_body: 'Dompet Anda tidak dapat sepenuhnya dihapus dari perangkat ini. Sebagian materi kunci mungkin masih ada. Silakan coba lagi.',
       bsv_network: 'Jaringan BSV',
       arc_endpoint: 'Endpoint ARC',
       arc_api_token: 'Token API',
@@ -10834,6 +10854,8 @@ const resources = {
       delete_wallet_warning_body:
         'このデバイスからウォレットの鍵が完全に削除されます。リカバリーフレーズのバックアップまたはリカバリーシェアの印刷を行っていない場合、ウォレットへのアクセスを永久に失います。',
       delete_wallet_confirm: 'ウォレットを削除',
+      delete_wallet_failed_title: 'ウォレットの削除に失敗しました',
+      delete_wallet_failed_body: 'このデバイスからウォレットを完全に削除できませんでした。一部の鍵データが残っている可能性があります。もう一度お試しください。',
       bsv_network: 'BSVネットワーク',
       arc_endpoint: 'ARC エンドポイント',
       arc_api_token: 'API トークン',
@@ -11883,6 +11905,8 @@ const resources = {
       delete_wallet_warning_body:
         'Spowoduje to trwałe usunięcie kluczy portfela z tego urządzenia. Jeśli nie wykonałeś kopii zapasowej frazy odzyskiwania ani nie wydrukowałeś udziałów odzyskiwania, utracisz dostęp do portfela na zawsze.',
       delete_wallet_confirm: 'Usuń portfel',
+      delete_wallet_failed_title: 'Nie udało się usunąć portfela',
+      delete_wallet_failed_body: 'Nie udało się całkowicie usunąć portfela z tego urządzenia. Część danych klucza może nadal być obecna. Spróbuj ponownie.',
       bsv_network: 'Sieć BSV',
       arc_endpoint: 'Punkt końcowy ARC',
       arc_api_token: 'Token API',

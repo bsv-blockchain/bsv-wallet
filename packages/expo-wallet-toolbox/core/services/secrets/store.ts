@@ -125,20 +125,31 @@ export async function deleteSecret(name: SecretName): Promise<void> {
   }
 }
 
-/** Removes every wrapped secret and the KEK itself, so the next launch reads
- * as a clean install rather than prompting for a wallet that no longer exists. */
-export async function deleteAllSecrets(): Promise<void> {
+/**
+ * Removes every wrapped secret and the KEK itself, so the next launch reads
+ * as a clean install rather than prompting for a wallet that no longer exists.
+ *
+ * Returns whether the legacy plaintext namespace was actually verified gone.
+ * XR-107: sweepLegacyKeys() read-back-verifies its own deletes, so `false`
+ * here is real evidence — not a guess — that a mnemonic/recoveredKey/password
+ * item survived. The caller (Delete Wallet) must not report success or
+ * navigate away as though the wallet were fully erased when this is false;
+ * it must fail closed and let the user retry.
+ */
+export async function deleteAllSecrets(): Promise<boolean> {
   for (const name of SECRET_NAMES) {
     try {
       await SecureStore.deleteItemAsync(envKey(name), envOptions)
     } catch {
-      /* best effort — destroyKek below is what matters */
+      /* best effort: these are ciphertext, and the unconditional destroyKek()
+       * below is what actually renders any surviving blob unreadable. */
     }
   }
   // XR-107: a pre-envelope legacy plaintext (mnemonic/recoveredKey/password)
   // is a separate keychain namespace from the envelope above and survives it
   // untouched otherwise, letting a later holder of this device rebuild full
   // spend authority after the user believes "Delete Wallet" erased everything.
-  await sweepLegacyKeys()
+  const legacyErased = await sweepLegacyKeys()
   await destroyKek()
+  return legacyErased
 }

@@ -177,6 +177,26 @@ describe('secret store', () => {
 
     expect(await readLegacySecret('recoveredKey')).toBeNull()
     expect(await hasSecret('mnemonic')).toBe(false)
+    // A verified-clean wipe must say so — the caller (Delete Wallet) relies
+    // on this to know it may report success and navigate away.
+    expect(await deleteAllSecrets()).toBe(true)
+  })
+
+  it('XR-107: reports failure (does not claim erasure) when a legacy secret survives deletion', async () => {
+    await putSecret('mnemonic', MNEMONIC)
+    secureStore.__seed('recoveredKey', WIF)
+    // A persistent SecureStore delete failure: the item keeps reading back
+    // as present no matter how many times deleteItemAsync is called on it —
+    // this is the "iOS discards the OSStatus" scenario sweepLegacyKeys()
+    // exists to catch.
+    secureStore.__overrideRead('recoveredKey', WIF)
+
+    const erased = await deleteAllSecrets()
+
+    // The caller MUST be told this did not verify clean, so it can fail
+    // closed (report an error, offer retry) instead of behaving as though
+    // "Delete Wallet" fully succeeded while a spend-capable secret survives.
+    expect(erased).toBe(false)
   })
 
   it('leaves the next launch looking like a clean install after a wipe', async () => {

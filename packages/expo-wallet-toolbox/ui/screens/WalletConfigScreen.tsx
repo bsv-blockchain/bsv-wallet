@@ -989,15 +989,32 @@ export function WalletConfigScreen() {
               if (choice !== 'delete') return
               setLoggingOut(true)
               // No artificial yield before this call, unlike the wallet-creation
-              // spinner: logout() itself is a fire-and-forget kickoff (its first
-              // real work is behind an await inside its own async IIFE), so it
-              // returns to let React paint the spinner on its own. Deliberately
-              // NOT delayed further — logout's very first synchronous step stops
-              // the background monitor's task loop, and a gap here let the
-              // monitor's own pending tick sneak in a fresh task run against
-              // storage that was about to be torn down (WERR_UNKNOWN "Database
-              // not initialized" from a task caught mid-flight).
-              logout()
+              // spinner: logout()'s synchronous prefix (which stops the
+              // background monitor's task loop) still runs before its first
+              // await, exactly as before — a gap here let the monitor's own
+              // pending tick sneak in a fresh task run against storage that
+              // was about to be torn down (WERR_UNKNOWN "Database not
+              // initialized" from a task caught mid-flight). Awaiting the
+              // result below only affects what happens AFTER that teardown.
+              //
+              // XR-107: logout() now resolves to whether the secrets layer
+              // verified every legacy plaintext item erased. A persistent
+              // SecureStore delete failure must be reported, not silently
+              // treated as a completed "Delete Wallet" — the user needs to
+              // know and be able to retry, rather than being navigated away
+              // as though nothing were left behind.
+              const erased = await logout()
+              if (!erased) {
+                setLoggingOut(false)
+                await showAlert({
+                  title: t('delete_wallet_failed_title'),
+                  message: t('delete_wallet_failed_body'),
+                  buttons: [{ text: t('vault_ok'), key: 'ok' }],
+                })
+              }
+              // On success logout() has already navigated away — the screen
+              // that owns `loggingOut` is gone, so there is nothing left to
+              // reset here.
             }}
             destructive
             showChevron={false}

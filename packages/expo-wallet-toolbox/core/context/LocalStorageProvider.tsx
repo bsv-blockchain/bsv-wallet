@@ -44,7 +44,11 @@ export interface LocalStorageContextType {
   setRecoveredKey: (wif: string) => Promise<boolean>
   getRecoveredKey: () => Promise<string | null>
   deleteRecoveredKey: () => Promise<void>
-  deleteAllWalletKeys: () => Promise<void>
+  /** Returns whether every legacy plaintext item was verified erased (XR-107).
+   * The caller MUST NOT treat "Delete Wallet" as complete when this is
+   * false — a persistent SecureStore delete failure means a legacy
+   * mnemonic/recoveredKey/password may still be readable on this device. */
+  deleteAllWalletKeys: () => Promise<boolean>
   /** Prompt-free existence check (mnemonic or recovered key) — no biometric,
    * no wallet build. For UI gating that must never wait on the wallet build,
    * e.g. "is there already a wallet on this device" before offering import. */
@@ -74,7 +78,8 @@ export const LocalStorageContext = createContext<LocalStorageContextType>({
   setRecoveredKey: async () => false,
   getRecoveredKey: async () => null,
   deleteRecoveredKey: async () => {},
-  deleteAllWalletKeys: async () => {},
+  // Fail-closed default: outside a real provider, nothing was verified erased.
+  deleteAllWalletKeys: async () => false,
   hasStoredIdentity: async () => false,
 
   /* unlock */
@@ -172,7 +177,11 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
 
   /** Wipes the secrets and the key protecting them, so the next launch reads as
    * a clean install instead of prompting for a wallet that no longer exists.
-   * Works while locked or lost — deleting ciphertext needs no key. */
+   * Works while locked or lost — deleting ciphertext needs no key.
+   *
+   * Returns whether the legacy plaintext namespace was verified erased —
+   * see deleteAllSecrets (XR-107). The caller must check this before treating
+   * "Delete Wallet" as complete. */
   const deleteAllWalletKeys = useCallback(() => deleteAllSecrets(), [])
 
   const hasStoredIdentity = useCallback(async (): Promise<boolean> => {
