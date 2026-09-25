@@ -628,12 +628,20 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
       if (method === 'listOutputs') {
         return async (args: unknown, originator?: string) => {
           if (originator === adminOriginator) return await bound(args, originator)
+          // Only the bound-validation step is caught here: a rejection from
+          // `bound` itself (the underlying wallet/permissions-manager call)
+          // must propagate unchanged, not be swallowed into a generic
+          // "not permitted" — the admin-basket rule that already refuses an
+          // admin-vault listOutputs one layer further out (see this test's
+          // own file: proofBar.railIsolation.test.ts's I3 listOutputs case)
+          // throws its own specific error, and this bound must never mask it.
+          let requested: ValidatedListOutputsArgs
           try {
-            const requested = validateExternalListOutputsArgs(args)
-            return await bound(requested, originator)
+            requested = validateExternalListOutputsArgs(args)
           } catch {
             return deny(String(method), originator)
           }
+          return await bound(requested, originator)
         }
       }
 
