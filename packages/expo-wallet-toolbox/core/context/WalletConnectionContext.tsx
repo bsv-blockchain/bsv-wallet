@@ -142,6 +142,16 @@ async function readBoundedRelayResponse(res: Response): Promise<string> {
     return new TextDecoder().decode(joined)
   }
 
+  // XR-025 (SEC2-094): no declared Content-Length AND no streamable body
+  // means there is no way to observe bytes as they arrive — `res.text()`
+  // would fully buffer the response before any size check could run, on an
+  // attacker-controlled canonical origin drawn straight from signed
+  // pairing/QR data. Fail closed rather than allocate an unbounded body in
+  // that specific case; a DECLARED length was already checked above, so
+  // reading the body here is still bounded defense-in-depth, not the gap.
+  if (declared === null) {
+    throw new Error('Origin server relay response has no declared length and cannot be streamed')
+  }
   const text = await res.text()
   if (text.length > MAX_RELAY_RESPONSE_BYTES || new TextEncoder().encode(text).length > MAX_RELAY_RESPONSE_BYTES) {
     throw new Error('Origin server relay response is too large')

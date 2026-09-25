@@ -45,11 +45,17 @@ beforeEach(() => {
   mockWebSockets.splice(0)
   mockWebSocketConstructor.mockClear()
   ;(global as any).WebSocket = mockWebSocketConstructor
-  global.fetch = jest.fn(async () => ({
-    ok: true,
-    headers: { get: () => null },
-    text: async () => JSON.stringify({ relay: 'wss://relay.example' })
-  })) as any
+  global.fetch = jest.fn(async () => {
+    const relayBody = JSON.stringify({ relay: 'wss://relay.example' })
+    return {
+      ok: true,
+      // XR-025: a real relay server declares Content-Length for a small,
+      // deterministic JSON body -- the readBoundedRelayResponse fallback
+      // now fails closed when it is absent and no stream reader exists.
+      headers: { get: (name: string) => (name.toLowerCase() === 'content-length' ? String(relayBody.length) : null) },
+      text: async () => relayBody
+    }
+  }) as any
 })
 
 async function signedPairingParams(topic: string) {
