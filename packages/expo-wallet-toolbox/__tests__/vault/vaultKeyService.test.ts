@@ -107,6 +107,11 @@ const PIN = '123456'
 // always answers `valid: true`.
 const WALLET_ROOT = new KeyDeriver(new PrivateKey(919))
 const ADMIN = 'admin.vaultkeyservice.test'
+// @bsv/sdk's own VerifyHmacResult types `valid` as the literal `true`: a
+// mismatched HMAC REJECTS rather than resolving `valid: false` (see
+// connectionAuthority.ts's own comment on this) — matched exactly here so a
+// forged tag exercises the real rejection path metaAuthority.ts's try/catch
+// is written to handle, not a resolved-false shortcut.
 const FAKE_WALLET: HmacCapableWallet = {
   createHmac: async (hmacArgs: any) => ({
     hmac: Array.from(
@@ -123,7 +128,8 @@ const FAKE_WALLET: HmacCapableWallet = {
         hmacArgs.data
       )
     )
-    return { valid: JSON.stringify(expected) === JSON.stringify(hmacArgs.hmac) }
+    if (JSON.stringify(expected) !== JSON.stringify(hmacArgs.hmac)) throw new Error('HMAC mismatch')
+    return { valid: true }
   }
 }
 const AUTHORITY = { wallet: FAKE_WALLET, adminOriginator: ADMIN }
@@ -132,7 +138,9 @@ const AUTHORITY = { wallet: FAKE_WALLET, adminOriginator: ADMIN }
  * attacker's forged tag can never verify against the real one. */
 const OTHER_WALLET: HmacCapableWallet = {
   createHmac: async () => ({ hmac: [1, 2, 3, 4] }),
-  verifyHmac: async () => ({ valid: false })
+  verifyHmac: async () => {
+    throw new Error('HMAC mismatch')
+  }
 }
 
 /** Enrollment args with the contract's required fields filled in. */
