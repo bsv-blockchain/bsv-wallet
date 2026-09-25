@@ -5,7 +5,7 @@ import {
   chaintracksUrlFor
 } from '../../core/services/walletServiceConfig'
 import { Services } from '@bsv/wallet-toolbox-mobile'
-import { configureToolbox, resetToolboxConfig } from '../../core/toolboxConfig'
+import { configureToolbox, resetToolboxConfig, type ToolboxServiceConfig } from '../../core/toolboxConfig'
 
 // The service config now comes from the host, not from process.env — see
 // core/toolboxConfig.ts. An empty `services` block is the "host stated nothing
@@ -144,5 +144,33 @@ describe('Arcade wiring', () => {
     const { services } = createServices('test', 'callback-token', exchangeRate())
     const names = (services as any).getMerklePathServices.services.map((s: { name: string }) => s.name)
     expect(names[0]).toBe('Arcade')
+  })
+})
+
+// XR-066: taalApiKey silently aliased whatsOnChainApiKey on every network, so
+// a host that scoped a key to WhatsOnChain unknowingly disclosed it to TAAL
+// (arcadeBroadcastProvider's createTaalBroadcastService sends it as a Bearer
+// token to a different origin on every ordinary broadcast).
+describe('XR-066: taalApiKey must not fall back to whatsOnChainApiKey', () => {
+  it.each(['main', 'test', 'teratest'] as const)(
+    '%s: an omitted taalApiKey stays empty even when whatsOnChainApiKey is configured',
+    network => {
+      configureToolbox({
+        backupUrl: null,
+        services: { [network]: { whatsOnChainApiKey: 'woc-key' } as ToolboxServiceConfig }
+      })
+      const options = createServiceOptions(network, 'callback-token', exchangeRate())
+      expect(options.whatsOnChainApiKey).toBe('woc-key')
+      expect(options.taalApiKey).toBe('')
+    }
+  )
+
+  it('a configured taalApiKey is still used, independent of whatsOnChainApiKey', () => {
+    configureToolbox({
+      backupUrl: null,
+      services: { main: { whatsOnChainApiKey: 'woc-key', taalApiKey: 'taal-key' } }
+    })
+    const options = createServiceOptions('main', 'callback-token', exchangeRate())
+    expect(options.taalApiKey).toBe('taal-key')
   })
 })
