@@ -31,24 +31,14 @@ describe('handleArcResponse', () => {
     'SEEN_MULTIPLE_NODES',
     'MINED',
     'IMMUTABLE'
-  ] as const)('treats %s as success when response.ok', (txStatus) => {
-    const result = handleArcResponse(
-      'Arcade',
-      { ok: true, status: 200 },
-      { txid: txids[0], txStatus },
-      txids
-    )
+  ] as const)('treats %s as success when response.ok', txStatus => {
+    const result = handleArcResponse('Arcade', { ok: true, status: 200 }, { txid: txids[0], txStatus }, txids)
     expect(result.status).toBe('success')
   })
 
   it('marks double-spend statuses without success', () => {
     for (const txStatus of ['DOUBLE_SPEND_ATTEMPTED', 'SEEN_IN_ORPHAN_MEMPOOL'] as const) {
-      const result = handleArcResponse(
-        'Arcade',
-        { ok: true, status: 200 },
-        { txid: txids[0], txStatus },
-        txids
-      )
+      const result = handleArcResponse('Arcade', { ok: true, status: 200 }, { txid: txids[0], txStatus }, txids)
       expect(result.status).toBe('error')
       expect(result.doubleSpend).toBe(true)
     }
@@ -75,12 +65,7 @@ describe('handleArcResponse', () => {
   })
 
   it('treats missing txStatus with ok response as success (built-in ARC parity)', () => {
-    const result = handleArcResponse(
-      'TaalArc',
-      { ok: true, status: 200 },
-      { txid: txids[0] },
-      txids
-    )
+    const result = handleArcResponse('TaalArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
     expect(result.status).toBe('success')
   })
 })
@@ -93,7 +78,7 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ txid: 'ignored', txStatus: 'SEEN_ON_NETWORK' }),
+      json: async () => ({ txid: 'ignored', txStatus: 'SEEN_ON_NETWORK' })
     })
     global.fetch = fetchMock as unknown as typeof fetch
     const tx = new Transaction()
@@ -137,6 +122,28 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
     expect(init.headers['Content-Type']).toBe('application/octet-stream')
     expect(Array.from(init.body)).toEqual(Array.from(ef))
   })
+
+  it('XR-060: caps the logged response body instead of logging it in full', async () => {
+    // A compromised/misbehaving ARC endpoint can return an oversized
+    // txStatus/body field; logging it in full is itself unbounded memory/log
+    // work on top of the JSON parse. The classification logic is untouched —
+    // only what reaches console.log is capped.
+    const hugeStatus = 'x'.repeat(5_000_000)
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ txid: 'abc', txStatus: hugeStatus })
+    }) as unknown as typeof fetch
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    const { service } = createTaalBroadcastService('https://arc.taal.com', 'key')
+    await service(beef, [tx.id('hex')])
+    const [, loggedSnippet] = logSpy.mock.calls[0] as [string, string]
+    expect(loggedSnippet.length).toBeLessThan(hugeStatus.length)
+    logSpy.mockRestore()
+  })
 })
 
 describe('createWocBroadcastService classification', () => {
@@ -147,7 +154,7 @@ describe('createWocBroadcastService classification', () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
       status,
-      text: async () => body,
+      text: async () => body
     }) as unknown as typeof fetch
     const tx = new Transaction()
     const beef = new Beef()
@@ -172,5 +179,16 @@ describe('createWocBroadcastService classification', () => {
     const r = await postOne(422, '258: txn-mempool-conflict')
     expect(r.txidResults[0].doubleSpend).toBeUndefined()
     expect(r.txidResults[0].serviceError).toBe(true)
+  })
+
+  it('XR-060: caps the logged response body instead of logging it in full', async () => {
+    const hugeBody = 'z'.repeat(5_000_000)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    const r = await postOne(500, hugeBody)
+    // Classification still runs over the full body — only the log is capped.
+    expect(r.txidResults[0].serviceError).toBe(true)
+    const [, loggedSnippet] = logSpy.mock.calls[0] as [string, string]
+    expect(loggedSnippet.length).toBeLessThan(hugeBody.length)
+    logSpy.mockRestore()
   })
 })

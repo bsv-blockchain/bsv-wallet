@@ -26,6 +26,9 @@ export interface SyncHeadersResult {
 /** Walk back at most this many headers before giving up and resetting. */
 const REWIND_CAP = 144
 
+/** Bytes in one serialized block header. */
+const HEADER_BYTES = 80
+
 function isFirstHeaderPrevHashError(err: unknown, firstHeight: number): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return /previous hash/i.test(msg) && msg.includes(`header at height ${firstHeight} `)
@@ -49,8 +52,16 @@ export async function syncHeaders(args: {
     const want = Math.min(chunkSize, presentHeight - store.tipHeight)
     const hex = await client.getHeaders(from, want)
     if (!hex) break
-    const bytes = new Uint8Array(Utils.toArray(hex, 'hex'))
+    let bytes = new Uint8Array(Utils.toArray(hex, 'hex'))
     if (bytes.length === 0) break
+    // XR-060: each header still has to pass real PoW and chain-linkage
+    // validation below, so a compromised/misbehaving chaintracks endpoint
+    // cannot inject fabricated headers this way — but it could still hand
+    // back a far larger batch of genuine headers than `want`, forcing
+    // unbounded validation work and disk persistence in one call. Never
+    // accept more than was actually requested.
+    const maxBytes = want * HEADER_BYTES
+    if (bytes.length > maxBytes) bytes = bytes.subarray(0, maxBytes)
     try {
       added += await store.append(bytes, from)
       onProgress?.(store.tipHeight, presentHeight)

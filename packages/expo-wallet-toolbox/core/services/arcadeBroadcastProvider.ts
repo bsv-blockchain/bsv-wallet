@@ -8,10 +8,21 @@ import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
  * non-double-spend 2xx as success — match that so we do not fail over to WoC
  * after Arcade already accepted the tx.
  */
-const ARC_DOUBLE_SPEND_STATUSES = new Set([
-  'DOUBLE_SPEND_ATTEMPTED',
-  'SEEN_IN_ORPHAN_MEMPOOL'
-])
+const ARC_DOUBLE_SPEND_STATUSES = new Set(['DOUBLE_SPEND_ATTEMPTED', 'SEEN_IN_ORPHAN_MEMPOOL'])
+
+/**
+ * XR-060: a compromised/misbehaving broadcast endpoint can answer with a
+ * response body far larger than any real ARC/WoC reply. Classification below
+ * still runs over the full body — this only bounds what a diagnostic log line
+ * repeats into memory/log storage.
+ */
+const MAX_LOGGED_BODY_CHARS = 2000
+
+function loggableSnippet(text: string): string {
+  return text.length > MAX_LOGGED_BODY_CHARS
+    ? `${text.slice(0, MAX_LOGGED_BODY_CHARS)}… [${text.length} chars total]`
+    : text
+}
 
 /**
  * Shared response handling for ARC-compatible services (Arcade, Taal, GorillaPool).
@@ -28,12 +39,14 @@ export function handleArcResponse(
   const txResult: PostTxResultForTxid = {
     txid: data.txid || txids[0],
     status: 'error',
-    notes: [{
-      when: new Date().toISOString(),
-      what: `${serviceName}PostEF`,
-      txStatus: data.txStatus,
-      httpStatus: response.status
-    }]
+    notes: [
+      {
+        when: new Date().toISOString(),
+        what: `${serviceName}PostEF`,
+        txStatus: data.txStatus,
+        httpStatus: response.status
+      }
+    ]
   }
   if (data.txStatus && ARC_DOUBLE_SPEND_STATUSES.has(data.txStatus)) {
     txResult.doubleSpend = true
@@ -92,7 +105,7 @@ function createArcBroadcastService(
           clearTimeout(timeout)
         }
         const data = await response.json()
-        console.log(`[${name}] POST ${txPath} ${response.status}`, JSON.stringify(data))
+        console.log(`[${name}] POST ${txPath} ${response.status}`, loggableSnippet(JSON.stringify(data)))
         const txResult = handleArcResponse(name, response, data, txids)
         r.txidResults.push(txResult)
         r.status = txResult.status
@@ -164,7 +177,7 @@ export function createWocBroadcastService(chain: string, apiKey?: string) {
         try {
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
-            'Accept': 'text/plain'
+            Accept: 'text/plain'
           }
           if (apiKey) headers['woc-api-key'] = apiKey
           response = await fetch(`${baseUrl}/tx/raw`, {
@@ -177,7 +190,7 @@ export function createWocBroadcastService(chain: string, apiKey?: string) {
           clearTimeout(timeout)
         }
         const body = await response.text()
-        console.log(`[${name}] POST /tx/raw ${response.status}`, body)
+        console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
         const txResult: PostTxResultForTxid = {
           txid: txids[0],
           status: 'error',
