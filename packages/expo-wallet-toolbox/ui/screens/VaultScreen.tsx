@@ -46,6 +46,8 @@ import {
   useLocalStorage,
   relockVault,
   recoverVaultMetaFromOutputs,
+  recoverVaultFromChain,
+  wocChainLookup,
   resolveHeldVaultDeposit,
   adoptVaultKey,
   beginVaultKeyRemoval,
@@ -165,6 +167,11 @@ export function VaultScreen() {
   // resolution (resolveHeldVaultDeposit) instead of leaving the vault stuck.
   const [actionPendingNotice, setActionPendingNotice] = useState(false)
   const [resolvingDeposit, setResolvingDeposit] = useState(false)
+  // Chain recovery (v7 marker/descriptor, spec v7 §1.2 item 3): offered only
+  // while this wallet has no local vault meta at all. Never needs a YubiKey —
+  // only the wallet identity — so it is not gated on `supported`.
+  const [restoringFromChain, setRestoringFromChain] = useState(false)
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null)
 
   // Release flag AND mainnet (task 11). Read from the reactive `selectedNetwork`
   // so everything this gates collapses on a network switch without a remount —
@@ -210,6 +217,41 @@ export function VaultScreen() {
     setMeta(undefined)
     void reload().catch(error => console.error('[vault] recovery scan failed:', error))
   }, [reload])
+
+  /**
+   * Restore vault from the blockchain (spec v7 §1.2 item 3 / item 7):
+   * scans for chain-published v7 markers and internalizes every confirmed,
+   * unspent, authenticated one — no local DB, SecureStore, or backup needed,
+   * and no YubiKey either (that is only needed afterward, to spend). Shown
+   * only while this wallet has no local vault meta at all.
+   */
+  const onRestoreFromChain = useCallback(async () => {
+    if (!pm || restoringFromChain) return
+    setRestoringFromChain(true)
+    setRestoreNotice(null)
+    try {
+      const result = await recoverVaultFromChain(
+        pm as unknown as VaultWallet,
+        adminOriginator,
+        wocChainLookup(selectedNetwork),
+        selectedNetwork
+      )
+      if (result.found > 0) {
+        haptics.success()
+        setRestoreNotice(t('vault_restore_found', { count: result.found }))
+        await reload()
+      } else if (result.pendingConfirmation > 0) {
+        setRestoreNotice(t('vault_restore_pending', { count: result.pendingConfirmation }))
+      } else {
+        setRestoreNotice(t('vault_restore_none_found'))
+      }
+    } catch (error) {
+      haptics.error()
+      setRestoreNotice(vaultErrorCopy(error instanceof VaultError ? error.code : undefined))
+    } finally {
+      setRestoringFromChain(false)
+    }
+  }, [pm, restoringFromChain, adminOriginator, selectedNetwork, reload])
 
   /** F-04: surface the one recovery action for a signed deposit crash left
    * behind — every other vault call keeps refusing with 'action-pending'
@@ -846,6 +888,29 @@ export function VaultScreen() {
                 <View style={styles.heroNotice}>
                   <Text style={[styles.heroNoticeTitle, { color: colors.error }]}>{t('vault_unsupported_title')}</Text>
                   <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t('vault_unsupported_body')}</Text>
+                </View>
+              )}
+              {/* No local vault meta at all: a wiped device / reinstall with
+                  the same wallet identity may still have vault deposits
+                  on-chain. Needs the wallet identity (pm) but never a
+                  YubiKey — that is only needed afterward, to spend. */}
+              {enabled && !!pm && (
+                <View style={styles.heroNotice}>
+                  <PressableScale
+                    haptic="tap"
+                    onPress={restoringFromChain ? undefined : () => void onRestoreFromChain()}
+                    accessibilityState={{ disabled: restoringFromChain }}
+                    style={styles.secondary}
+                  >
+                    {restoringFromChain ? (
+                      <ActivityIndicator color={colors.accent} />
+                    ) : (
+                      <Text style={[styles.secondaryLabel, { color: colors.accent }]}>{t('vault_restore_from_chain')}</Text>
+                    )}
+                  </PressableScale>
+                  {restoreNotice && (
+                    <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{restoreNotice}</Text>
+                  )}
                 </View>
               )}
             </View>

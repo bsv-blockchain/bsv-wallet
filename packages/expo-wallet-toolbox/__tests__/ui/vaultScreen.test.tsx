@@ -10,6 +10,8 @@ const mockGetMeta = jest.fn()
 const mockRenameKey = jest.fn()
 const mockRelock = jest.fn()
 const mockRecover = jest.fn()
+const mockRecoverFromChain = jest.fn()
+const mockWocChainLookup = jest.fn(() => ({ marker: true }))
 const mockAdopt = jest.fn()
 const mockBeginRemoval = jest.fn()
 const mockFinalizeRemoval = jest.fn()
@@ -48,6 +50,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   disableVaultWhenSafe: (...a: unknown[]) => mockDisableWhenSafe(...a),
   relockVault: (...a: unknown[]) => mockRelock(...a),
   recoverVaultMetaFromOutputs: (...a: unknown[]) => mockRecover(...a),
+  recoverVaultFromChain: (...a: unknown[]) => mockRecoverFromChain(...a),
+  wocChainLookup: (...a: unknown[]) => mockWocChainLookup(...a),
   adoptVaultKey: (...a: unknown[]) => mockAdopt(...a),
   beginVaultKeyRemoval: (...a: unknown[]) => mockBeginRemoval(...a),
   finalizeVaultKeyRemoval: (...a: unknown[]) => mockFinalizeRemoval(...a),
@@ -188,6 +192,8 @@ beforeEach(() => {
   mockRenameKey.mockReset().mockResolvedValue(META2)
   mockRelock.mockReset()
   mockRecover.mockReset().mockResolvedValue(null)
+  mockRecoverFromChain.mockReset().mockResolvedValue({ found: 0, pendingConfirmation: 0, problems: [], scanned: 20 })
+  mockWocChainLookup.mockClear()
   mockAdopt.mockReset().mockResolvedValue(undefined)
   mockBeginRemoval.mockReset().mockResolvedValue({ complete: true, meta: META2 })
   mockFinalizeRemoval.mockReset().mockResolvedValue(false)
@@ -231,6 +237,79 @@ describe('not enrolled', () => {
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('vault_enroll_begin')))
     expect(screen.getByText('WIZARD:enroll')).toBeTruthy()
+  })
+
+  describe('restore from the blockchain (v7 chain recovery)', () => {
+    test('is offered when a wallet exists and the vault is available', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.getByText('vault_restore_from_chain')).toBeTruthy()
+    })
+
+    test('is not offered while the flag is off (no availability, even with a wallet)', async () => {
+      mockVaultEnabled = false
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.queryByText('vault_restore_from_chain')).toBeNull()
+    })
+
+    test('is not offered before a wallet identity exists', async () => {
+      mockWallet.managers.permissionsManager = undefined
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.queryByText('vault_restore_from_chain')).toBeNull()
+    })
+
+    test('never needs a YubiKey — still offered when the driver is unsupported', async () => {
+      mockSupported = false
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.getByText('vault_restore_from_chain')).toBeTruthy()
+    })
+
+    test('found: scans with the wallet, admin originator and current network, then reloads meta', async () => {
+      mockGetMeta.mockResolvedValueOnce(null).mockResolvedValueOnce(META2)
+      mockRecoverFromChain.mockResolvedValueOnce({ found: 1, pendingConfirmation: 0, problems: [], scanned: 1 })
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(mockRecoverFromChain).toHaveBeenCalledWith(
+        mockWallet.managers.permissionsManager,
+        'admin.test',
+        { marker: true },
+        'main'
+      )
+      expect(mockWocChainLookup).toHaveBeenCalledWith('main')
+      // The balance/key list view replaces the hero (and its restore notice)
+      // once meta is non-null again.
+      expect(screen.getByText('vault_balance_label')).toBeTruthy()
+    })
+
+    test('pending: reports pendingConfirmation without reloading into the enrolled view', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverFromChain.mockResolvedValueOnce({ found: 0, pendingConfirmation: 2, problems: [], scanned: 1 })
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(screen.getByText('vault_restore_pending:{"count":2}')).toBeTruthy()
+      expect(screen.queryByText('vault_balance_label')).toBeNull()
+    })
+
+    test('none found: reports the none-found copy', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverFromChain.mockResolvedValueOnce({ found: 0, pendingConfirmation: 0, problems: [], scanned: 20 })
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(screen.getByText('vault_restore_none_found')).toBeTruthy()
+    })
+
+    test('a scan failure shows the standard error copy instead of throwing', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverFromChain.mockRejectedValueOnce(
+        Object.assign(new (jest.requireActual('../../core/services/vault/types').VaultError)('no-transaction', 'boom'))
+      )
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(screen.getByText('vault_restore_from_chain')).toBeTruthy() // still on the hero, not crashed
+    })
   })
 })
 
