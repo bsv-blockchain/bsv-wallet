@@ -239,7 +239,7 @@ import { backupPseudonym } from '../backup/derive'
 import type { BackupChain } from '../backup/constants'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
-import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
+import { isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../pay/refreshProofGuard'
 import { inputTxidsFromRawTx, shouldDeferSendWaiting } from '../storage/skipQueuedAncestors'
 import { provenTxFromBump } from '../pay/provenTxFromBump'
 import { recordProof } from '../pay/recordProof'
@@ -251,6 +251,8 @@ import i18n from '../i18n/translations'
 import { makeBeefRepair } from '../pay/beefRepair'
 import { shouldReleaseUtxo, type UtxoProbe } from '../walletRepair/shouldReleaseUtxo'
 import { shouldMarkUnspendable } from '../walletRepair/shouldMarkUnspendable'
+import { spenderConsumesOutpoint } from '../walletRepair/spenderConsumesOutpoint'
+import { releaseStuckReservationsOnDb } from '../walletRepair/releaseStuckReservations'
 import {
   acceptWithRetry,
   DEFAULT_MESSAGE_BOX_URL,
@@ -3135,6 +3137,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         const head = await fetch(`${wocBase}/v1/bsv/${chain}/tx/hash/${txid}`)
         onChain = head.ok
+        // XR-030: any other non-OK (429/500/401/403/...) is a service
+        // problem, not proof of absence — only a 404 is authoritative.
+        if (!onChain && !isChainAbsenceConfirmed(head.status)) return 'pending'
       } catch {
         // Network unreachable — we cannot prove absence, so never fail the tx.
         return 'pending'
@@ -3245,20 +3250,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     const db = (storage as any)?.sqliteDb
     if (!db?.runAsync) return 'DB not available'
     try {
-      const rows = (await db.getAllAsync(
-        `SELECT o.outputId AS outputId, o.satoshis AS satoshis, t.txid AS txid
-           FROM outputs o JOIN transactions t ON t.transactionId = o.spentBy
-          WHERE t.status = 'failed'`
-      )) as { outputId: number; satoshis: number; txid: string }[]
-      if (!rows || rows.length === 0) return 'No stuck reservations found.'
-      await db.runAsync(
-        `UPDATE outputs SET spentBy = NULL, spendable = 1
-           WHERE spentBy IN (SELECT transactionId FROM transactions WHERE status = 'failed')`
-      )
-      const detail = rows
-        .map(r => `  • ${r.satoshis} sat (output ${r.outputId}) ← failed ${String(r.txid).slice(0, 12)}…`)
-        .join('\n')
-      return `✓ Released ${rows.length} stuck reservation(s):\n${detail}`
+      return await releaseStuckReservationsOnDb(db)
     } catch (e: any) {
       return `⚠ Release failed: ${e.message}`
     }
@@ -3409,6 +3401,46 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           continue
         }
 
+        // XR-031: markUnspendable only means two independent chain-service
+        // oracles AGREE the output is spent — neither of them is the spending
+        // transaction. Fetch and parse the alleged spender's own BEEF and
+        // require it to actually consume this exact outpoint BEFORE
+        // committing spendable:false; a claim that fails to fetch, fails to
+        // parse, hashes to a different tx, or simply doesn't reference this
+        // outpoint is left spendable rather than mutated.
+        if (!spendingTxid) continue // shouldMarkUnspendable already requires this; narrows the type below.
+        let spenderTx: Transaction | undefined
+        try {
+          const beefResp = await throttledFetch(`${wocBase}/tx/${spendingTxid}/beef`)
+          if (!beefResp.ok) {
+            lines.push(
+              `  SPENT (unverified, spender BEEF fetch HTTP ${beefResp.status}): ${o.txid}:${o.vout} — left spendable`
+            )
+            continue
+          }
+          const beefHex = await beefResp.text()
+          const beefBytes = Utils.toArray(beefHex, 'hex')
+          const tx = Transaction.fromBEEF(beefBytes)
+          const confirmed = spenderConsumesOutpoint({
+            parsedTxid: tx.id('hex'),
+            expectedTxid: spendingTxid,
+            inputs: tx.inputs,
+            outpoint: { txid: o.txid, vout: o.vout }
+          })
+          if (!confirmed) {
+            lines.push(
+              `  SPENT (unverified, spender does not reference this outpoint): ${o.txid}:${o.vout} — left spendable`
+            )
+            continue
+          }
+          spenderTx = tx
+        } catch (e: any) {
+          lines.push(
+            `  SPENT (unverified, could not parse spender BEEF: ${e.message}): ${o.txid}:${o.vout} — left spendable`
+          )
+          continue
+        }
+
         spentCount++
         lines.push(`  SPENT: ${o.txid}:${o.vout} (${o.satoshis} sat) → by ${spendingTxid}`)
         // Paper trail for a repair pass: `spendingDescription` is a free-text
@@ -3420,17 +3452,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           spendingDescription: JSON.stringify({ claimedSpender: spendingTxid, checkedAt: new Date().toISOString() })
         } as any)
 
-        if (!spendingTxid) continue
         try {
-          const beefResp = await throttledFetch(`${wocBase}/tx/${spendingTxid}/beef`)
-          if (!beefResp.ok) {
-            lines.push(`    ↳ BEEF fetch failed (HTTP ${beefResp.status}), skipping change recovery`)
-            continue
-          }
-          const beefHex = await beefResp.text()
-          const beefBytes = Utils.toArray(beefHex, 'hex')
-          const tx = Transaction.fromBEEF(beefBytes)
-          const atomicBeef = tx.toAtomicBEEF()
+          const atomicBeef = spenderTx.toAtomicBEEF()
 
           const changeOutputs = await storage.findOutputs({
             partial: { change: true as any, spendable: false as any },

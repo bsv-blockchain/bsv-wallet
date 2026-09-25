@@ -42,6 +42,11 @@ export class TaskSendOffline extends WalletMonitorTask {
    * alone will not help, and nothing else in the system records it.
    */
   static lastStall: string | undefined
+  /** A release pass is in flight. Guards against MonitorSupervisor's watchdog
+   * restart overlapping an old generation's still-running runOnce() with a
+   * new generation's — without this, both could concurrently release the
+   * same offline queue (XR-105; same pattern as TaskDrainOutbox.running). */
+  static running = false
 
   static noteConnectivity(online: boolean): void {
     TaskSendOffline.onlineNow = online
@@ -73,6 +78,7 @@ export class TaskSendOffline extends WalletMonitorTask {
     TaskSendOffline.backoffMs = TaskSendOffline.BASE_BACKOFF_MS
     TaskSendOffline.nextDueAt = 0
     TaskSendOffline.lastStall = undefined
+    TaskSendOffline.running = false
   }
 
   constructor(
@@ -97,6 +103,12 @@ export class TaskSendOffline extends WalletMonitorTask {
   }
 
   async runTask(): Promise<string> {
+    // A watchdog restart can spawn a new generation's runOnce() while an old
+    // generation's own runOnce() is still executing (it is not cancelled,
+    // only stopped from looping again). Without this guard both could
+    // concurrently release the same offline queue (XR-105).
+    if (TaskSendOffline.running) return ''
+    TaskSendOffline.running = true
     TaskSendOffline.checkNow = false
     try {
       const r = await this.release()
@@ -118,6 +130,8 @@ export class TaskSendOffline extends WalletMonitorTask {
       // a failed drain, so it earns a retry rather than silence.
       this.scheduleRetry()
       return `SendOffline failed: ${e instanceof Error ? e.message : String(e)}\n`
+    } finally {
+      TaskSendOffline.running = false
     }
   }
 }

@@ -8,9 +8,22 @@
  */
 import { recordProof, type ProofStorage } from '../../core/pay/recordProof'
 
-const TXID = 'fc'.repeat(32)
-const PROOF = { index: 3, height: 965078, blockHash: 'ab'.repeat(32), merklePath: [1, 2, 3], merkleRoot: 'cd'.repeat(32) }
-const RAW_TX = [0, 1, 0, 0, 0]
+const PROOF = {
+  index: 3,
+  height: 965078,
+  blockHash: 'ab'.repeat(32),
+  merklePath: [1, 2, 3],
+  merkleRoot: 'cd'.repeat(32)
+}
+// A real, minimal, round-trippable transaction (version 1, locktime 0, no
+// inputs/outputs) and its actual hash — recordProof's direct path must
+// recompute this from the fetched bytes, so the fixtures have to agree for
+// real rather than being an arbitrary txid/byte-array pair.
+const RAW_TX = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+const TXID = 'd21633ba23f70118185227be58a63527675641ad37967e2aa461559f577aec43'
+// Same shape, but locktime 1 — parses fine, hashes to a DIFFERENT txid than
+// TXID above. Stands in for a compromised/faulty raw-tx endpoint response.
+const WRONG_RAW_TX = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0]
 
 function fakeStorage(seed: {
   reqs?: { provenTxReqId: number; status: string; attempts: number; history: string }[]
@@ -40,7 +53,9 @@ function fakeStorage(seed: {
 
 describe('recordProof', () => {
   it('goes through the req when one exists, and never fetches the raw tx', async () => {
-    const { storage, calls } = fakeStorage({ reqs: [{ provenTxReqId: 9, status: 'unmined', attempts: 2, history: '{}' }] })
+    const { storage, calls } = fakeStorage({
+      reqs: [{ provenTxReqId: 9, status: 'unmined', attempts: 2, history: '{}' }]
+    })
     const fetchRawTx = jest.fn()
     const outcome = await recordProof(storage, { txid: TXID, proof: PROOF, fetchRawTx })
     expect(outcome).toBe('via-req')
@@ -103,5 +118,27 @@ describe('recordProof', () => {
     await expect(recordProof(storage, { txid: TXID, proof: PROOF, fetchRawTx: async () => RAW_TX })).rejects.toThrow(
       /no record/i
     )
+  })
+
+  // XR-029: the direct (no-proven_tx_req) path inserted whatever bytes
+  // fetchRawTx returned under the already-authenticated txid, with nothing
+  // anywhere in the chain parsing them or checking their hash equals txid.
+  // A compromised/faulty raw-tx endpoint (or a mismatched response) could
+  // corrupt local data and promote transactions to 'completed' under an
+  // unrelated (or garbage) rawTx.
+  it('XR-029: rejects raw bytes that hash to a different transaction than the proven txid, and mutates nothing', async () => {
+    const { storage, calls } = fakeStorage({ txs: [{ transactionId: 1, status: 'unproven' }] })
+    await expect(
+      recordProof(storage, { txid: TXID, proof: PROOF, fetchRawTx: async () => WRONG_RAW_TX })
+    ).rejects.toThrow(/hash/i)
+    expect(calls).toEqual([])
+  })
+
+  it('XR-029: rejects raw bytes that do not even parse as a transaction, and mutates nothing', async () => {
+    const { storage, calls } = fakeStorage({ txs: [{ transactionId: 1, status: 'unproven' }] })
+    await expect(
+      recordProof(storage, { txid: TXID, proof: PROOF, fetchRawTx: async () => [0, 1, 0, 0, 0] })
+    ).rejects.toThrow()
+    expect(calls).toEqual([])
   })
 })
