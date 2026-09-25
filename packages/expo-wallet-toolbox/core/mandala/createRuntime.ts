@@ -1868,7 +1868,12 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     // branches on it, and `putLinkage` never overwrites a row already here.)
     await cacheFrameEvidence(frame, `a ${state} frame`, { linkageSource: 'minted' })
     const existing = await store.getSettlement(txid)
-    await store.upsertSettlement({
+    // XR-036: retried, same reason as `sendToHandle`'s own journal write
+    // (`upsertSettlementDurably`) — `payerHold.ts`'s `holdSentPaymentOffline`
+    // keeps its queue row non-drainable until THIS write lands, so a transient
+    // fault here should not be the difference between a guarded hold and one
+    // stuck at 'parked' for a later manual reconciliation.
+    await upsertSettlementDurably(store, {
       txid,
       role: 'sent',
       assetId: token.assetId,
