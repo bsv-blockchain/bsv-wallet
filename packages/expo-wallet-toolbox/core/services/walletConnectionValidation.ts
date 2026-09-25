@@ -57,15 +57,12 @@ export interface ValidatedConnectParams {
   expiry: number
 }
 
-export const PAIRING_SIGNATURE_DOMAIN = 'bsv-wallet-pairing-v1'
-
 /** XR-027: the protocol namespace an admin-scoped wallet derives the saved-
  * pairing authority tag under (reserved in core/services/vault/guard.ts so a
  * paired peer's own, site-scoped WalletClient can never mint or verify it),
- * and the versioned transcript that tag is computed over. Mirrors
- * PAIRING_SIGNATURE_DOMAIN/buildPairingSignatureMessage's shape exactly, one
- * field narrower: `expiry`/`sig` are the QR's own one-time proof and are not
- * part of what a saved, reusable connection record needs to keep authentic. */
+ * and the versioned transcript that tag is computed over. `expiry`/`sig` are
+ * the QR's own one-time proof and are not part of what a saved, reusable
+ * connection record needs to keep authentic. */
 export const CONNECTION_AUTHORITY_PROTOCOL_ID: WalletProtocol = [2, 'connection authority']
 export const CONNECTION_AUTHORITY_SIGNATURE_DOMAIN = 'bsv-wallet-connection-authority-v1'
 /** HMAC-SHA256 output, base64url-encoded without padding (32 bytes -> 43 chars). */
@@ -92,16 +89,16 @@ export function buildConnectionAuthorityMessage(tuple: ConnectionAuthorityTuple)
   ].join('|')
 }
 
-/** Exact transcript signed by the desktop pairing peer. Every field that
- * chooses the transport endpoint or its BRC-42 key namespace is included. */
+/** Exact transcript signed by the desktop pairing peer, matching
+ * @bsv/wallet-relay 0.5.x (`topic|backendIdentityKey|origin|expiry`).
+ * protocolID is not signed by the library; changing this format must be
+ * coordinated with wallet-relay and every backend that uses it. */
 export function buildPairingSignatureMessage(
-  params: Pick<Required<ConnectParams>, 'topic' | 'backendIdentityKey' | 'protocolID' | 'origin' | 'expiry'>
+  params: Pick<Required<ConnectParams>, 'topic' | 'backendIdentityKey' | 'origin' | 'expiry'>
 ): string {
   return [
-    PAIRING_SIGNATURE_DOMAIN,
     params.topic,
     params.backendIdentityKey,
-    params.protocolID,
     params.origin,
     params.expiry
   ].join('|')
