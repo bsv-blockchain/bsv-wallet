@@ -45,7 +45,13 @@ export const STALL_FOREIGN_ANCESTOR = 'offline_stall_foreign_ancestor'
 export interface ProcessOfflineActionsResult {
   /** Queue rows moved to 'sent'. A foreign ancestor's broadcast is logged, not counted. */
   sent: number
-  /** Transactions whose local records were changed to record a rejection. */
+  /**
+   * Transactions whose local records were changed to record a rejection.
+   * Includes both a rejection this pass's own cascade decided and a stale
+   * 'sent' row this pass reconciled against a since-invalidated request
+   * (XQ-009 remainder) — both are "a local record changed to record a
+   * rejection", and neither needs its own counter.
+   */
   rejected: number
   /**
    * True if at least one subtree of the plan could not finish and was left
@@ -146,12 +152,28 @@ export async function processOfflineActions(args: {
     }
   }
 
+  // XQ-009 remainder: a row this device once honestly marked 'sent' (real
+  // proof, or a real broadcast) can still have its backing request later
+  // reclaimed by the toolbox's own proof-timeout machinery
+  // (`EntityProvenTxReq`'s `applyProofTimeout`, reached from `TaskSendWaiting`
+  // once `attempts` runs out) if the transaction never actually confirms — a
+  // reorg, or a rarer race. When that happens the toolbox's OWN request row
+  // already reflects it (`status: 'invalid'`) and has already reclaimed the
+  // spendable inputs; this queue's own 'sent' row just never learns about it,
+  // leaving the activity list and any resend logic reading a stale success
+  // forever. Purely local and read-only against the toolbox's own tables —
+  // it never re-broadcasts, aborts, or writes a transaction/request row
+  // itself, only brings this queue's bookkeeping in line with a decision the
+  // toolbox already made — so it runs unconditionally, before the
+  // connectivity probe and even when there is nothing else to do this pass.
+  const staleReconciled = await reconcileStaleSentActions(storage, db)
+
   // 'posting' is included so a run interrupted mid-flight resumes rather than
   // stranding its rows. Re-posting is safe: a transaction the network already has
   // comes back as accepted (ARC's `SEEN_ON_NETWORK`), and a request storage has
   // already recorded as delivered is not posted again at all — see `postOwned`.
   const queued = await findOfflineActions(db, { status: ['queued', 'posting'] })
-  if (queued.length === 0) return { sent: 0, rejected: 0, stopped: false }
+  if (queued.length === 0) return { sent: 0, rejected: staleReconciled, stopped: false }
 
   // BEFORE the connectivity probe, because it needs none: a row whose request
   // storage already records as delivered ('unmined', 'completed', …) has
@@ -175,11 +197,11 @@ export async function processOfflineActions(args: {
       rows.push(row)
     }
   }
-  if (rows.length === 0) return { sent, rejected: 0, stopped: false }
+  if (rows.length === 0) return { sent, rejected: staleReconciled, stopped: false }
 
   if (!(await probeOnline())) {
     devLog(`[processOfflineActions] offline, leaving ${rows.length} action(s) queued`)
-    return { sent, rejected: 0, stopped: true }
+    return { sent, rejected: staleReconciled, stopped: true }
   }
 
   // Merge every held request's BEEF into one graph. Anything that cannot be read
@@ -245,7 +267,7 @@ export async function processOfflineActions(args: {
   const txs: OrderableTx[] = merged.txs
   const plan = planRelease({ rows, txs })
 
-  let rejected = 0
+  let rejected = staleReconciled
   const resolved = new Set<string>()
   const skip = new Set<string>()
   const stallNotes: string[] = blocked.length > 0 ? [...blocked] : []
@@ -461,6 +483,53 @@ async function findReq(storage: StorageExpoSQLite, txid: string): Promise<TableP
     devLog(`[processOfflineActions] could not read the request for ${txid}:`, e)
     return undefined
   }
+}
+
+/**
+ * XQ-009 remainder: bring a 'sent' queue row back in line once its backing
+ * request has since been invalidated.
+ *
+ * A row only ever reaches 'sent' from either a real, verified proof
+ * (`postOwned`/`postForeign`'s Merkle-path-checked `networkAlreadyHas`) or
+ * this device's own successful broadcast — never from a bare, unauthenticated
+ * status claim (that is exactly what XQ-009's own fix closed). What this
+ * reconciles is the narrower case left after that: a transaction that really
+ * did look delivered at the time can still fail to confirm — a reorg, or a
+ * rarer race — and the toolbox's OWN monitor eventually notices on its own
+ * timeline (`EntityProvenTxReq`'s proof-timeout marks the request `invalid`
+ * once its retry budget is exhausted, `TaskSendWaiting` reclaiming the
+ * spendable inputs as part of that). Nothing here decides any of that, or
+ * touches a proven_tx_req/transaction row at all — it only reads what the
+ * toolbox already decided and updates this queue's OWN bookkeeping table to
+ * match, so the activity list and any resend logic stop reading a stale
+ * 'sent' as reality. Never re-broadcasts, never releases or aborts anything.
+ *
+ * Read-only against `findOfflineActions`/`findReq`, both already
+ * fault-tolerant (a read failure there returns nothing, not a throw), so a
+ * failure here costs only a skipped row for one pass, not the rest of the
+ * run — errors are still caught around the one write, for the same reason.
+ */
+async function reconcileStaleSentActions(storage: StorageExpoSQLite, db: OfflineDb): Promise<number> {
+  let sentRows: OfflineActionRow[]
+  try {
+    sentRows = await findOfflineActions(db, { status: ['sent'] })
+  } catch (e) {
+    devLog('[processOfflineActions] could not read sent rows to reconcile:', e)
+    return 0
+  }
+  let reconciled = 0
+  for (const row of sentRows) {
+    const api = await findReq(storage, row.txid)
+    if (api?.status !== 'invalid') continue
+    try {
+      await updateOfflineAction(db, row.txid, { status: 'rejected', rejectedReason: 'proof_timeout' })
+      devLog(`[processOfflineActions] reconciled stale 'sent' row ${row.txid}: its request is now 'invalid'`)
+      reconciled++
+    } catch (e) {
+      devLog(`[processOfflineActions] could not reconcile stale 'sent' row ${row.txid}:`, e)
+    }
+  }
+  return reconciled
 }
 
 /** Return every unresolved row we may have moved to 'posting' to 'queued'. */

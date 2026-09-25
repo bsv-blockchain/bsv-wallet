@@ -86,7 +86,11 @@ function fakeDb(rows: OfflineActionRow[]) {
   const writes: { sql: string; params: BindValue[] }[] = []
   return {
     writes,
-    getAllAsync: async () => rows,
+    // XQ-009's reconciliation pass queries `status: ['sent']` separately from
+    // the main drain's `status: ['queued', 'posting']` — a real filter is
+    // needed so one call does not see the other's rows.
+    getAllAsync: async (sql: string, params: BindValue[]) =>
+      sql.includes('status IN') ? rows.filter(r => params.includes(r.status)) : rows,
     runAsync: async (sql: string, params: BindValue[]) => {
       writes.push({ sql, params })
     },
@@ -508,5 +512,66 @@ describe('a transaction the network already has', () => {
     expect(postBeef).not.toHaveBeenCalled()
     expect(mockPostReqs).toHaveBeenCalledTimes(1)
     expect(r).toMatchObject({ sent: 1, rejected: 0, stopped: false })
+  })
+})
+
+// XQ-009 remainder: a row this device once honestly marked 'sent' (real proof,
+// or a real broadcast) can still have its backing request later reclaimed by
+// the toolbox's own proof-timeout machinery if the transaction never actually
+// confirms. Until now nothing ever revisited a 'sent' row again — the queue
+// only ever re-queries 'queued'/'posting' — so the activity list kept saying
+// "sent" forever even after the toolbox itself gave up on the transaction and
+// reclaimed its inputs.
+describe('XQ-009 remainder: reconciling a stale sent row', () => {
+  it("moves a 'sent' row to rejected once its backing request has gone invalid", async () => {
+    const tx = txSpending('77'.repeat(32))
+    const txid = tx.id('hex')
+    // Genuinely marked 'sent' at some point in the past; its request has since
+    // been reclaimed by the toolbox's own proof-timeout, exactly as
+    // `applyProofTimeout` would leave it after `attempts` runs out.
+    const api = req({ txid, rawTx: tx.toBinary(), status: 'invalid' })
+    const db = fakeDb([row({ txid, role: 'sent', status: 'sent' })])
+    const storage = fakeStorage({ db, reqs: [api] })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(r).toMatchObject({ sent: 0, rejected: 1 })
+    expect(
+      db.writes.some(
+        w => w.sql.includes('offline_actions') && w.params.includes('rejected') && w.params.includes(txid)
+      )
+    ).toBe(true)
+    // Purely local bookkeeping: never re-broadcasts, and never touches the
+    // toolbox's own request/transaction rows.
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(storage.updateProvenTxReq).not.toHaveBeenCalled()
+    expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
+  })
+
+  it("leaves a 'sent' row alone while its backing request is still undecided", async () => {
+    const tx = txSpending('78'.repeat(32))
+    const txid = tx.id('hex')
+    const api = req({ txid, rawTx: tx.toBinary(), status: 'unmined' })
+    const db = fakeDb([row({ txid, role: 'sent', status: 'sent' })])
+    const storage = fakeStorage({ db, reqs: [api] })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(r).toMatchObject({ sent: 0, rejected: 0 })
+    expect(db.writes.some(w => w.params.includes('rejected'))).toBe(false)
+  })
+
+  it('reconciles a stale sent row even while offline, before anything asks about connectivity', async () => {
+    ;(getOnline as jest.Mock).mockResolvedValueOnce(false)
+    const tx = txSpending('79'.repeat(32))
+    const txid = tx.id('hex')
+    const api = req({ txid, rawTx: tx.toBinary(), status: 'invalid' })
+    const db = fakeDb([row({ txid, role: 'sent', status: 'sent' })])
+    const storage = fakeStorage({ db, reqs: [api] })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(r.rejected).toBe(1)
+    expect(getOnline).not.toHaveBeenCalled()
   })
 })
