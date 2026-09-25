@@ -662,6 +662,60 @@ describe('retryDelivery', () => {
     expect(after.lastError).toBe('still offline')
     expect(after.lastAttemptAt).toBeTruthy()
   })
+
+  it('XR-052: a concurrent abandon mid-retry stops the retry before it delivers or broadcasts', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const entry = await stuckEntry(s, w)
+    // Signals when the in-flight retry's sendMessage call has actually started
+    // (and is blocked), so the concurrent abandon below is deterministic
+    // rather than relying on a guessed number of microtask ticks.
+    let started!: () => void
+    const startedPromise = new Promise<void>(resolve => {
+      started = resolve
+    })
+    let resolveSend!: () => void
+    const sendGate = new Promise<void>(resolve => {
+      resolveSend = resolve
+    })
+    const deliverClient = {
+      sendMessage: jest.fn(async () => {
+        started()
+        await sendGate
+      })
+    }
+    const retryPromise = retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: deliverClient as never,
+      storage: s,
+      entry
+    })
+    await startedPromise
+    // The row is now `delivering` — cancelOutboxPayment's default
+    // ('undelivered') mode refuses to touch it, exactly as an explicit
+    // 'Abandon payment' UI action would be reached in this state.
+    expect((await getOutboxEntries(s))[0].delivering).toBe(true)
+    w.listActions.mockResolvedValue({ actions: [{ txid: entry.txid, reference: 'ref-1' }] })
+    const abandonClient = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    const cancelResult = await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: abandonClient as never,
+      mode: 'abandon'
+    })
+    expect(cancelResult.aborted).toBe(true)
+    expect(await getOutboxEntries(s)).toHaveLength(0)
+    // Only now does the retry's blocked sendMessage resolve.
+    resolveSend()
+    await retryPromise
+    // The retry must not have gone on to broadcast, nor to re-create the row.
+    const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
+    expect(sendWithCalls).toHaveLength(0)
+    expect(await getOutboxEntries(s)).toHaveLength(0)
+  })
 })
 
 describe('retryDelivery — recipient host', () => {

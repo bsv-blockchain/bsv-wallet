@@ -703,8 +703,17 @@ export async function retryDelivery(args: {
 }): Promise<void> {
   const { wallet, adminOriginator, client, storage, entry } = args
   await updateOutboxEntry(storage, entry.id, { lastAttemptAt: new Date().toISOString() })
+  // XR-052: a concurrent UI abandon (cancelOutboxPayment) can remove this same
+  // row between awaits — it shares no lock with the background drain beyond
+  // the per-storage-mutation lock in outbox.ts, which only serializes the
+  // write itself. Re-read by id immediately before each side-effecting step
+  // (mirrors cancelOutboxPayment's own re-read for its 'undelivered' mode) and
+  // stop cleanly if the row is gone, so an in-flight retry cannot still
+  // deliver or broadcast a payment the user just cancelled.
+  const stillPending = async (): Promise<boolean> => (await getOutboxEntries(storage)).some(e => e.id === entry.id)
   try {
     if (entry.delivered !== true) {
+      if (!(await stillPending())) return
       await updateOutboxEntry(storage, entry.id, { delivering: true })
       try {
         await client.sendMessage(
@@ -724,6 +733,7 @@ export async function retryDelivery(args: {
       await updateOutboxEntry(storage, entry.id, { delivered: true })
     }
     if (entry.txid) {
+      if (!(await stillPending())) return
       // XR-048: the persisted `txid` is unauthenticated — a tampered/imported
       // outbox row (local storage tamper, malicious backup restore) could
       // point it at an unrelated, still-pending noSend action's txid while
