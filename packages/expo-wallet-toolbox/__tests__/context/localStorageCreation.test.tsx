@@ -216,6 +216,17 @@ it.each(['mnemonic', 'recoveredKey'])('XR-112: never surfaces the legacy %s once
   expect(await getter()).toBeNull()
 })
 
+it('XR-115: getMnemonic never returns the legacy plaintext when migration fails permanently', async () => {
+  mockLegacy.set('mnemonic', 'existing legacy identity')
+  mockMigrate.mockResolvedValue({ outcome: 'failed', stage: 'attempts-exhausted', retryable: false })
+  const { context } = await renderStorage()
+
+  // Same bypass as XR-112, exercised at the "attempts exhausted" outcome
+  // this row's finding pairs with kek.ts's failed-rewrap fail-open path
+  // (locked separately in __tests__/secrets/kek.test.ts, "XR-113").
+  expect(await context.getMnemonic()).toBeNull()
+})
+
 it('keeps explicit import replacement available through setMnemonic', async () => {
   mockEncrypted.set('mnemonic', 'existing test mnemonic')
   const { context } = await renderStorage()
