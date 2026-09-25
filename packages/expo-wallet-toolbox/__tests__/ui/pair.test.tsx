@@ -162,3 +162,18 @@ test('a deep-link-shaped param set renders the Approve/Reject card, and Reject n
 
   expect(mockConnect).not.toHaveBeenCalled()
 })
+
+/**
+ * XR-028: this screen is the ONLY moment a user is asked to consent to
+ * pairing with an origin, and it never disclosed that a paired origin also
+ * gets a standing auto-spend authority (up to the persisted per-request
+ * threshold, up to the shared 24h cap) with no further prompt. Default
+ * AsyncStorage mock returns null for AUTO_APPROVE_STORAGE_KEY, so this
+ * exercises the DEFAULT_AUTO_APPROVE_THRESHOLD (nonzero out of the box)
+ * path — the common case, not an opt-in edge case.
+ */
+test('XR-028: discloses the standing auto-approve authority on the approval card', async () => {
+  const { findByText } = draw()
+
+  await findByText(/Up to 100,000 sats per request, 1,000,000 sats\/24h total, without asking/)
+})
