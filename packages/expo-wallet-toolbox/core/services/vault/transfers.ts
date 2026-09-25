@@ -1437,9 +1437,15 @@ async function abortActions(
   let scanned = 0
   const seen: string[] = []
   const seenRows = new Set<string>()
-  // By reference, so the same orphan is never aborted twice — a second
-  // abortAction on it would be rejected, and counting it again would report a
-  // heal that did not happen.
+  // References this scan has already attempted, so the same orphan is never
+  // aborted twice — a second abortAction on it would be rejected regardless
+  // of the first attempt's outcome.
+  const attempted = new Set<string>()
+  // Only references whose abortAction call actually SUCCEEDED. A refused or
+  // rejected abort never released the input, so it must not be counted as
+  // freed — the caller (freeReservedInputs) uses this size to decide whether
+  // a retry can proceed, and a miscount here would retry against an input
+  // that is still genuinely reserved.
   const aborted = new Set<string>()
   try {
     let offset = 0
@@ -1471,12 +1477,15 @@ async function abortActions(
         seenRows.add(rowId)
         if (!matches(a)) continue
         seen.push(`${a.status}${a.reference ? '' : '/no-ref'}`)
-        if (a.reference && ABORTABLE.has(a.status) && !aborted.has(a.reference)) {
-          aborted.add(a.reference)
+        if (a.reference && ABORTABLE.has(a.status) && !attempted.has(a.reference)) {
+          attempted.add(a.reference)
           assertVaultScope(scopeToken)
-          await w.abortAction({ reference: a.reference }, adminOriginator).catch(err =>
+          try {
+            await w.abortAction({ reference: a.reference }, adminOriginator)
+            aborted.add(a.reference)
+          } catch (err) {
             console.log('[vault] abortAction rejected:', (err as Error)?.message)
-          )
+          }
           assertVaultScope(scopeToken)
         }
       }
@@ -1534,14 +1543,18 @@ async function abortReservingOutpoints(
       assertVaultScope(scopeToken)
       const rows = await findSpendingReferences(outpoints)
       assertVaultScope(scopeToken)
+      const attempted = new Set<string>()
       const aborted = new Set<string>()
       for (const r of rows) {
-        if (!ABORTABLE.has(r.status) || aborted.has(r.reference)) continue
-        aborted.add(r.reference)
+        if (!ABORTABLE.has(r.status) || attempted.has(r.reference)) continue
+        attempted.add(r.reference)
         assertVaultScope(scopeToken)
-        await w.abortAction({ reference: r.reference }, adminOriginator).catch(err =>
+        try {
+          await w.abortAction({ reference: r.reference }, adminOriginator)
+          aborted.add(r.reference)
+        } catch (err) {
           console.log('[vault] abortAction rejected:', (err as Error)?.message)
-        )
+        }
         assertVaultScope(scopeToken)
       }
       console.log('[vault] abort by outpoint · matched=%d · aborted=%d', rows.length, aborted.size)
