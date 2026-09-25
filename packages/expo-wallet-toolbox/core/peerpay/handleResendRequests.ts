@@ -271,6 +271,30 @@ export function makeListPeerPayAction(
   }
 }
 
+/**
+ * The payment's recorded recipient for `txid`, or undefined when this device
+ * cannot resolve one (matches the recipient half of rebuildAndDeliver's own
+ * resolution exactly, but without building the full action or touching
+ * derivation data / the network — this is the cheap pre-check that has to run
+ * BEFORE any of that expensive work, not a replacement for it).
+ *
+ * XR-051: this is the authority a resend_request's sender is checked
+ * against. `entry.recipient` (an outbox row this device itself created) is
+ * always trusted over a listed action's labels, exactly like
+ * rebuildAndDeliver.
+ */
+async function resolveResendRecipient(
+  storage: StorageLike,
+  txid: string,
+  listPeerPayAction?: (txid: string) => Promise<PeerPayActionLike | undefined>
+): Promise<string | undefined> {
+  const entries = await getOutboxEntries(storage)
+  const entry = entries.find(e => outboxTxid(e) === txid)
+  if (entry?.recipient) return entry.recipient
+  const listed = listPeerPayAction ? await listPeerPayAction(txid) : undefined
+  return recipientFromLabels(listed?.labels)
+}
+
 export async function loadUnansweredResends(storage: StorageLike): Promise<PendingResend[]> {
   try {
     const raw = await storage.getKeyValue(UNANSWERED_RESENDS_KEY)
@@ -301,6 +325,12 @@ async function storeUnansweredResends(storage: StorageLike, pending: PendingRese
 export async function listPendingResendRequests(args: {
   client: ListAckClient
   storage: StorageLike
+  /** Optional for backward compatibility: omitting it preserves the exact
+   * pre-XR-051 behavior (every resend_request is surfaced as pending) since
+   * without a way to list this wallet's own actions there is no way to
+   * resolve a recipient to check the sender against. Every production caller
+   * should pass it. */
+  listPeerPayAction?: (txid: string) => Promise<PeerPayActionLike | undefined>
 }): Promise<{ pending: PendingResend[] }> {
   const messages = await listControlMessages(args.client)
   const pending: PendingResend[] = []
@@ -316,10 +346,22 @@ export async function listPendingResendRequests(args: {
       continue
     }
     if (!parsed || parsed.type !== 'resend_request') continue
-    pending.push({
-      txid: parsed.txid,
-      sender: typeof msg.sender === 'string' ? msg.sender : ''
-    })
+    const sender = typeof msg.sender === 'string' ? msg.sender : ''
+    try {
+      // XR-051: a resend_request whose sender is provably NOT the payment's
+      // recorded recipient must never be persisted (or it would keep showing
+      // up as an unanswered resend banner forever) -- ack it away instead.
+      const recipient = await resolveResendRecipient(args.storage, parsed.txid, args.listPeerPayAction)
+      if (recipient !== undefined && recipient !== sender) {
+        await ackControlMessages(args.client, [msg.messageId])
+        continue
+      }
+    } catch {
+      // Resolution failed transiently (e.g. a storage read error) -- fall
+      // through and surface it as pending like before this fix, rather than
+      // silently dropping a request that might be entirely legitimate.
+    }
+    pending.push({ txid: parsed.txid, sender })
   }
   await storeUnansweredResends(args.storage, pending)
   return { pending }
@@ -450,6 +492,18 @@ export async function handleResendRequests(args: {
     if (!parsed || parsed.type !== 'resend_request') continue
     const sender = typeof msg.sender === 'string' ? msg.sender : ''
     try {
+      // XR-051: authenticate the request BEFORE any of the decrypt/rebuild/
+      // refetch/send work below. A resend_request is legitimate only from
+      // the payment's own recorded recipient -- anyone else who can address
+      // this wallet's control box must never be able to trigger that work
+      // (or a persistent retry of it) just by naming a txid it knows or
+      // guesses. Ack-and-drop silently: the requester gets no signal either
+      // way, and the control message cannot be replayed to try again.
+      const recipient = await resolveResendRecipient(storage, parsed.txid, listPeerPayAction)
+      if (recipient !== undefined && recipient !== sender) {
+        await ackControlMessages(client, [msg.messageId])
+        continue
+      }
       const deliveredTo = await rebuildAndDeliver({
         client,
         storage,

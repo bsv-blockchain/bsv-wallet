@@ -6,6 +6,13 @@ import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { WalletConfigScreen } from '../../ui/screens/WalletConfigScreen'
+import { fake as secureStoreFake } from '../__mocks__/secureStoreFake'
+import { arcApiTokenStorageKey } from '../../core/constants'
+
+// XR-106: the token is SecureStore-backed now, keyed by the real (unmocked)
+// arcApiTokenStorageKey — only the URL half still goes through the
+// `arcUrlStorageKey: () => 'arc_url'` AsyncStorage-key mock below.
+const TOKEN_KEY = arcApiTokenStorageKey('main')
 
 const mockRouter = { push: jest.fn(), replace: jest.fn() }
 let mockWallet: any
@@ -56,6 +63,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     }),
     arcUrlStorageKey: () => 'arc_url',
     arcApiTokenStorageKey: () => 'arc_token',
+    getArcApiToken: jest.requireActual('../../core/services/arcTokenStorage').getArcApiToken,
+    setArcApiToken: jest.requireActual('../../core/services/arcTokenStorage').setArcApiToken,
     DEFAULT_ARC_URLS: { main: 'https://arc.gorillapool.io' },
     KNOWN_ARC_URLS: [],
     DISPLAY_CURRENCY_OPTIONS: [],
@@ -121,6 +130,7 @@ const mockRebuildWallet = jest.fn(async () => {})
 beforeEach(async () => {
   jest.clearAllMocks()
   await AsyncStorage.clear()
+  secureStoreFake.__reset()
   mockWallet = {
     managers: { permissionsManager: { getPublicKey: jest.fn(async () => ({ publicKey: '02' + 'a'.repeat(64) })) } },
     adminOriginator: 'admin.test',
@@ -168,8 +178,35 @@ describe('XR-064: custom ARC endpoint validation and token scoping', () => {
     await act(async () => fireEvent.press(screen.getByText('arc_apply')))
 
     expect(await AsyncStorage.getItem('arc_url')).toBe('https://custom.example.com')
-    expect(await AsyncStorage.getItem('arc_token')).toBe('secret-token-A')
+    // XR-106: the token lands in SecureStore, never in plaintext AsyncStorage.
+    expect(secureStoreFake.__get(TOKEN_KEY)).toBe('secret-token-A')
+    expect(await AsyncStorage.getItem(TOKEN_KEY)).toBeNull()
     expect(mockRebuildWallet).toHaveBeenCalledTimes(1)
+  })
+
+  // XR-106: ARC API tokens are a live Bearer credential and must never be
+  // stored in plaintext AsyncStorage or rendered unmasked.
+  it('XR-106: masks the token field and never touches plaintext AsyncStorage', async () => {
+    secureStoreFake.__seed(TOKEN_KEY, 'secret-token-A')
+
+    const screen = await renderConfig()
+    await openArcSection(screen)
+
+    const tokenInput = screen.getByPlaceholderText('Optional')
+    expect(tokenInput.props.secureTextEntry).toBe(true)
+    expect(tokenInput.props.value).toBe('secret-token-A')
+    expect(await AsyncStorage.getItem(TOKEN_KEY)).toBeNull()
+  })
+
+  it('XR-106: migrates a legacy plaintext AsyncStorage token into SecureStore on load', async () => {
+    await AsyncStorage.setItem(TOKEN_KEY, 'legacy-plaintext-token')
+
+    const screen = await renderConfig()
+    await openArcSection(screen)
+
+    expect(screen.getByDisplayValue('legacy-plaintext-token')).toBeTruthy()
+    expect(secureStoreFake.__get(TOKEN_KEY)).toBe('legacy-plaintext-token')
+    expect(await AsyncStorage.getItem(TOKEN_KEY)).toBeNull()
   })
 
   // XR-064: the API token is saved/cleared independently of the URL, so
@@ -177,7 +214,7 @@ describe('XR-064: custom ARC endpoint validation and token scoping', () => {
   // attached to the new host.
   it('does NOT carry a previously-saved token over to a newly-applied, different origin', async () => {
     await AsyncStorage.setItem('arc_url', 'https://custom.example.com')
-    await AsyncStorage.setItem('arc_token', 'secret-token-A')
+    secureStoreFake.__seed(TOKEN_KEY, 'secret-token-A')
 
     const screen = await renderConfig()
     await openArcSection(screen)
@@ -193,24 +230,24 @@ describe('XR-064: custom ARC endpoint validation and token scoping', () => {
 
     expect(await AsyncStorage.getItem('arc_url')).toBe('https://other.example.com')
     // The old token must not have followed to the new origin.
-    expect(await AsyncStorage.getItem('arc_token')).toBeNull()
+    expect(secureStoreFake.__get(TOKEN_KEY)).toBeUndefined()
   })
 
   it('keeps the token when re-applying the same origin unchanged', async () => {
     await AsyncStorage.setItem('arc_url', 'https://custom.example.com')
-    await AsyncStorage.setItem('arc_token', 'secret-token-A')
+    secureStoreFake.__seed(TOKEN_KEY, 'secret-token-A')
 
     const screen = await renderConfig()
     await openArcSection(screen)
     await act(async () => fireEvent.press(screen.getByText('arc_apply')))
 
     expect(await AsyncStorage.getItem('arc_url')).toBe('https://custom.example.com')
-    expect(await AsyncStorage.getItem('arc_token')).toBe('secret-token-A')
+    expect(secureStoreFake.__get(TOKEN_KEY)).toBe('secret-token-A')
   })
 
   it('honors a genuinely new token typed alongside a new origin in the same action', async () => {
     await AsyncStorage.setItem('arc_url', 'https://custom.example.com')
-    await AsyncStorage.setItem('arc_token', 'secret-token-A')
+    secureStoreFake.__seed(TOKEN_KEY, 'secret-token-A')
 
     const screen = await renderConfig()
     await openArcSection(screen)
@@ -221,7 +258,7 @@ describe('XR-064: custom ARC endpoint validation and token scoping', () => {
     await act(async () => fireEvent.press(screen.getByText('arc_apply')))
 
     expect(await AsyncStorage.getItem('arc_url')).toBe('https://other.example.com')
-    expect(await AsyncStorage.getItem('arc_token')).toBe('secret-token-B')
+    expect(secureStoreFake.__get(TOKEN_KEY)).toBe('secret-token-B')
   })
 
   it('allows the explicit http://localhost loopback dev exception', async () => {

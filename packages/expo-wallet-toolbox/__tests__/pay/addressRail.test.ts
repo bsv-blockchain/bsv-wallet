@@ -8,6 +8,7 @@ import {
   getUtxosForAddress,
   MAX_MANUAL_RECOVERY_DAYS,
   MAX_RECOVERY_DAYS,
+  MAX_SWEEP_TXIDS_PER_PASS,
   parseWocBeefBody,
   payerAddressOf,
   recoveryDatesToScan,
@@ -452,6 +453,37 @@ describe('sweepAddress', () => {
       derivationPrefix: prefix
     })
     expect(result.importedSatoshis).toBe(1)
+  })
+
+  // XR-054: dusting a published receive address with many small, distinct-
+  // txid payments used to make sweepAddress fetch+verify every one of them
+  // sequentially, every 30s sweeper.ts pass, forever — no per-pass budget
+  // existed beyond getUtxosForAddress's own row cap (XR-059).
+  it('XR-054: caps the number of distinct transactions fetched in a single sweep pass', async () => {
+    const utxoCount = MAX_SWEEP_TXIDS_PER_PASS + 50
+    const listing = Array.from({ length: utxoCount }, (_, i) => ({
+      tx_hash: `dust${i}`,
+      tx_pos: 0,
+      value: 1,
+      isSpentInMempoolTx: false
+    }))
+    let beefFetches = 0
+    mockFetchOnce(url => {
+      if (url.includes('/unspent/all')) return { json: { result: listing } }
+      beefFetches++
+      return { ok: false, text: 'Transaction not found' }
+    })
+    const wallet = walletWithNothingImported()
+    const result = await sweepAddress({
+      wallet: wallet as never,
+      adminOriginator: 'admin.com',
+      woc,
+      address: ADDRESS,
+      derivationPrefix: prefix
+    })
+    expect(beefFetches).toBe(MAX_SWEEP_TXIDS_PER_PASS)
+    expect(result.failureCount).toBe(MAX_SWEEP_TXIDS_PER_PASS)
+    expect(result.foundOnChain).toBe(true)
   })
 
   it('skips outputs already internalized, so a second sweep is a no-op', async () => {

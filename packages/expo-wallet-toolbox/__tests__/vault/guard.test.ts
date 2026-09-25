@@ -103,7 +103,8 @@ function fakeWallet(storedActions: any[] = []) {
       acquireCertificate: rec('acquireCertificate'),
       proveCertificate: rec('proveCertificate'),
       listCertificates: rec('listCertificates'),
-      // not privileged-capable → must always pass through
+      // not privileged-capable / not outpoint-naming → not vault-guarded, but
+      // still bound for size (XR-019) when the caller is non-admin
       listOutputs: rec('listOutputs'),
       listActions,
       createAction: rec('createAction'),
@@ -625,6 +626,38 @@ test.each([
     VaultAccessDenied
   )
   expect(calls).toHaveLength(0)
+})
+
+// XR-019: listOutputs had no bridge-level bound at all — an authenticated
+// paired peer could request up to the SDK's own 10000-row ceiling, and with
+// includeTransactions each row also carries a full aggregate BEEF, big
+// enough to plausibly OOM a mobile app. This must be refused before it
+// reaches the underlying wallet, exactly like the listActions bounds above.
+test.each([
+  { limit: 201 },
+  { limit: 10000 },
+  { limit: 26, include: 'entire transactions' },
+  { offset: 10_001 }
+])('bounds external listOutputs request before it reaches the underlying wallet: %p', async invalid => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+  await expect(guarded.listOutputs({ basket: 'x', ...invalid } as any, 'evil.com')).rejects.toBeInstanceOf(
+    VaultAccessDenied
+  )
+  expect(calls.some(c => c.method === 'listOutputs')).toBe(false)
+})
+
+test('allows an external listOutputs call within the bound, and an admin call above it', async () => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await guarded.listOutputs({ basket: 'x', limit: 200 } as any, 'evil.com')
+  expect(calls.some(c => c.method === 'listOutputs' && c.originator === 'evil.com')).toBe(true)
+
+  // The admin (this app's own code) originator is never bound by this — it
+  // is not the untrusted caller this guard defends against.
+  await guarded.listOutputs({ basket: 'x', limit: 10000 } as any, ADMIN)
+  expect(calls.some(c => c.method === 'listOutputs' && c.originator === ADMIN)).toBe(true)
 })
 
 test('a stalled external action read times out and releases the shared critical queue', async () => {

@@ -201,6 +201,7 @@ import { drainMandalaInbox } from '../pay/rails/handle'
 import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
 import { disconnectActivePairedSession } from './WalletConnectionContext'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
+import { getArcApiToken } from '../services/arcTokenStorage'
 import {
   boundReviewProvenTxs,
   configureNewHeaderPolling,
@@ -223,7 +224,13 @@ import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-m
 import { StorageExpoSQLite } from '../storage'
 import { makeBuildGeneration } from './buildGeneration'
 import * as SQLite from 'expo-sqlite'
-import { getRegisteredDbs, registerDb, selectLatestDb, unregisterDb } from '../walletDbRegistry'
+import {
+  getRegisteredDbs,
+  purgeRegisteredDbFiles,
+  registerDb,
+  selectLatestDb,
+  unregisterDb
+} from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import { getOnline, subscribeOnline } from '../net/online'
 import { canInternalizePending, processPending } from '../localpay/pending'
@@ -1235,9 +1242,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // counterparty can already reconstruct. See callbackToken.ts.
         const callbackToken = deriveCallbackToken(keyDeriver)
 
+        // XR-106: the token half is SecureStore-backed (getArcApiToken also
+        // migrates away any plaintext value a pre-fix build left in
+        // AsyncStorage under this same key) — only the URL, which is not a
+        // credential, still lives in plain AsyncStorage.
         const [arcUrlOverride, arcApiTokenOverride] = await Promise.all([
           AsyncStorage.getItem(`arc_custom_url_${chain}`),
-          AsyncStorage.getItem(`arc_custom_api_token_${chain}`)
+          getArcApiToken(chain)
         ])
 
         // The remote client the wrapper delegates to. Built here rather than
@@ -3073,10 +3084,25 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       offlineChaintracksRef.current = undefined
       headerStoreRef.current = undefined
       backupIdentityRef.current = null
-      if (storage?.db) {
+      if (storage) {
+        const dbName = storage.dbName
+        if (storage.db) {
+          try {
+            await storage.destroy()
+          } catch {}
+        }
+        // XQ-008: destroy() only closes the connection — it never deleted the
+        // underlying .db file(s) or the walletDbRegistry entry that points at
+        // them, so a "deleted" wallet's complete plaintext history stayed on
+        // disk indefinitely and silently reattached with everything intact if
+        // the same mnemonic was ever built again on this device. dbName is a
+        // plain field that survives destroy(), so it is still readable after
+        // the connection is closed.
         try {
-          await storage.destroy()
-        } catch {}
+          await purgeRegisteredDbFiles(dbName, SQLite.deleteDatabaseAsync)
+        } catch (err) {
+          console.warn('[logout] failed to purge wallet db file(s)/registry', err)
+        }
       }
       setStorage(null)
       mandalaRef.current = undefined
