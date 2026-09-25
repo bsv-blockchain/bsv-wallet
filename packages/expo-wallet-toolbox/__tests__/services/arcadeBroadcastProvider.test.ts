@@ -86,9 +86,32 @@ describe('handleArcResponse', () => {
     expect(httpErr.serviceError).toBe(true)
   })
 
-  it('treats missing txStatus with ok response as success (built-in ARC parity)', () => {
+  it('treats missing txStatus with ok response as success when the txid matches (built-in ARC parity)', () => {
     const result = handleArcResponse('TaalArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
     expect(result.status).toBe('success')
+  })
+
+  // XR-064: a custom (person-configured) ARC endpoint's success predicate was
+  // `response.ok && data.txStatus !== 'REJECTED'` — with no txid match and no
+  // requirement that txStatus be an explicit accepted value. An on-path
+  // attacker on a person-chosen plaintext ARC endpoint (or simply a
+  // misbehaving deployment) could return a bare `200 {}` and stop the
+  // UntilSuccess chain right there, suppressing the real broadcast/fallback.
+  it('XR-064: does NOT treat a bare 2xx body (no txStatus, no txid) as success', () => {
+    const result = handleArcResponse('CustomArc', { ok: true, status: 200 }, {}, txids)
+    expect(result.status).not.toBe('success')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('XR-064: does not accept an unrecognized txStatus when the txid does not match either', () => {
+    const result = handleArcResponse(
+      'CustomArc',
+      { ok: true, status: 200 },
+      { txid: 'some-other-txid', txStatus: 'TOTALLY_MADE_UP' },
+      txids
+    )
+    expect(result.status).not.toBe('success')
+    expect(result.serviceError).toBe(true)
   })
 })
 

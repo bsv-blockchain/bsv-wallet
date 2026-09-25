@@ -67,6 +67,26 @@ const ARC_DOUBLE_SPEND_STATUSES = new Set(['DOUBLE_SPEND_ATTEMPTED'])
 const ARC_RETRYABLE_STATUSES = new Set(['SEEN_IN_ORPHAN_MEMPOOL'])
 
 /**
+ * XR-064: explicit ARC statuses that mean "accepted for relay". A custom
+ * (person-configured) ARC endpoint's success predicate used to be
+ * `response.ok && data.txStatus !== 'REJECTED'` — no txid match, no
+ * requirement that txStatus be one of these. An on-path attacker on a
+ * person-chosen plaintext endpoint (or a misbehaving deployment) could
+ * therefore return a bare `200 {}` and have it accepted as delivery,
+ * suppressing the real broadcast/fallback chain for that attempt.
+ */
+const ARC_ACCEPTED_STATUSES = new Set([
+  'RECEIVED',
+  'STORED',
+  'SENT_TO_NETWORK',
+  'ACCEPTED_BY_NETWORK',
+  'SEEN_ON_NETWORK',
+  'SEEN_MULTIPLE_NODES',
+  'MINED',
+  'IMMUTABLE'
+])
+
+/**
  * Shared response handling for ARC-compatible services (Arcade, Taal, GorillaPool).
  * Maps txStatus to the correct PostTxResultForTxid fields.
  *
@@ -90,16 +110,21 @@ export function handleArcResponse(
       }
     ]
   }
+  const hasAcceptedStatus = data.txStatus !== undefined && ARC_ACCEPTED_STATUSES.has(data.txStatus)
+  const hasMatchingTxid = data.txid !== undefined && data.txid === txids[0]
   if (data.txStatus && ARC_DOUBLE_SPEND_STATUSES.has(data.txStatus)) {
     txResult.doubleSpend = true
   } else if (data.txStatus && ARC_RETRYABLE_STATUSES.has(data.txStatus)) {
     txResult.serviceError = true
-  } else if (response.ok && data.txStatus !== 'REJECTED') {
+  } else if (response.ok && data.txStatus !== 'REJECTED' && (hasAcceptedStatus || hasMatchingTxid)) {
     // RECEIVED / STORED / SENT_TO_NETWORK / ACCEPTED_BY_NETWORK / SEEN_* / MINED
     // all mean the broadcaster accepted the tx. Page-load 402 must not wait for
-    // SSE SEEN_ON_NETWORK before treating the post as successful.
+    // SSE SEEN_ON_NETWORK before treating the post as successful. An
+    // unrecognized-but-matching-txid response is also accepted (forward
+    // compatibility with a status this list doesn't know yet) — but a bare
+    // or unrelated response is not (XR-064).
     txResult.status = 'success'
-  } else if (data.txStatus === 'REJECTED' || !response.ok) {
+  } else {
     txResult.serviceError = true
   }
   return txResult
