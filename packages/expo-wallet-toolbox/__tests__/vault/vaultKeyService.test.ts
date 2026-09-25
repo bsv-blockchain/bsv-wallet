@@ -56,10 +56,15 @@ jest.mock('expo-secure-store', () => ({
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
-import { PrivateKey, Utils } from '@bsv/sdk'
+import { Hash, KeyDeriver, PrivateKey, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { setMockDriver } from '../../core/services/vault/driver'
+import {
+  computeVaultDraftAuthorityTag,
+  verifyVaultMetaAuthorityTag,
+  type HmacCapableWallet
+} from '../../core/services/vault/metaAuthority'
 import { compressPubkey } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
@@ -95,6 +100,41 @@ afterEach(() => {
 
 const PIN = '123456'
 
+// XR-001 / XR-002: a deterministic, real-crypto stand-in for the admin-scoped
+// wallet — matches transfers.test.ts's own `wallet.createHmac` fixture
+// (SALT_DERIVER.deriveSymmetricKey + Hash.sha256hmac) so verifyHmac can
+// genuinely round-trip a tag createHmac produced, not merely a stub that
+// always answers `valid: true`.
+const WALLET_ROOT = new KeyDeriver(new PrivateKey(919))
+const ADMIN = 'admin.vaultkeyservice.test'
+const FAKE_WALLET: HmacCapableWallet = {
+  createHmac: async (hmacArgs: any) => ({
+    hmac: Array.from(
+      Hash.sha256hmac(
+        WALLET_ROOT.deriveSymmetricKey(hmacArgs.protocolID, hmacArgs.keyID, hmacArgs.counterparty).toArray(),
+        hmacArgs.data
+      )
+    )
+  }),
+  verifyHmac: async (hmacArgs: any) => {
+    const expected = Array.from(
+      Hash.sha256hmac(
+        WALLET_ROOT.deriveSymmetricKey(hmacArgs.protocolID, hmacArgs.keyID, hmacArgs.counterparty).toArray(),
+        hmacArgs.data
+      )
+    )
+    return { valid: JSON.stringify(expected) === JSON.stringify(hmacArgs.hmac) }
+  }
+}
+const AUTHORITY = { wallet: FAKE_WALLET, adminOriginator: ADMIN }
+/** A wallet whose createHmac/verifyHmac never agree with FAKE_WALLET's — a
+ * stand-in for "not the real wallet", the same way a SecureStore-only
+ * attacker's forged tag can never verify against the real one. */
+const OTHER_WALLET: HmacCapableWallet = {
+  createHmac: async () => ({ hmac: [1, 2, 3, 4] }),
+  verifyHmac: async () => ({ valid: false })
+}
+
 /** Enrollment args with the contract's required fields filled in. */
 const args = (over: Record<string, unknown> = {}) => ({
   pendingSerials: [] as string[],
@@ -103,6 +143,7 @@ const args = (over: Record<string, unknown> = {}) => ({
   acknowledgeDedicatedPivApplication: true as const,
   requestPinChange: async () => ({ oldPin: PIN, newPin: '654321' }),
   requestPukChange: async () => ({ oldPuk: '12345678', newPuk: '87654321' }),
+  ...AUTHORITY,
   ...over
 })
 
@@ -122,16 +163,27 @@ const meta = (keys: VaultKeyRecord[]) => ({
   keys
 })
 
+/** Stages a `ready` draft the way legitimate code does — WITH the wallet-root
+ * authority tag a live challenge would have produced (enrollKey's own
+ * challenge is exercised directly by the 'enrollKey' describe block below;
+ * this fixture stands in for "already proved possession" for tests whose
+ * point is elsewhere). This is deliberately NOT `vaultStore.preserveEnrollmentDraft`
+ * with no tagger at all — that shape is exactly XR-001's attack primitive,
+ * exercised on its own by name below. */
+async function stageReady(record: VaultKeyRecord): Promise<void> {
+  const scopeToken = vaultStore.captureScopeToken()
+  const scope = vaultStore.getScope()!
+  await vaultStore.preserveEnrollmentDraft({ record, assurance: 'ready' }, scopeToken, r =>
+    computeVaultDraftAuthorityTag(FAKE_WALLET, ADMIN, r, scope)
+  )
+}
+
 async function finalizeReady(records: VaultKeyRecord[]): Promise<void> {
   const scopeToken = vaultStore.captureScopeToken()
   for (const record of records) {
-    await vaultStore.preserveEnrollmentDraft({ record, assurance: 'ready' }, scopeToken)
+    await stageReady(record)
   }
-  await finalizeEnrollment(records, scopeToken)
-}
-
-async function stageReady(record: VaultKeyRecord): Promise<void> {
-  await vaultStore.preserveEnrollmentDraft({ record, assurance: 'ready' }, vaultStore.captureScopeToken())
+  await finalizeEnrollment(records, scopeToken, AUTHORITY)
 }
 
 /** An NFC-shaped mock whose start() "connects the tap" at once. */
@@ -170,10 +222,14 @@ describe('enrollKey', () => {
     const first = await enrollKey(args())
     mock.insertKey('MOCK-2')
     const second = await enrollKey(args({ pendingSerials: [first.serial] }))
-    await finalizeEnrollment([
-      { ...first, nickname: 'Desk' },
-      { ...second, nickname: 'Safe' }
-    ])
+    await finalizeEnrollment(
+      [
+        { ...first, nickname: 'Desk' },
+        { ...second, nickname: 'Safe' }
+      ],
+      undefined,
+      AUTHORITY
+    )
     expect((await vaultStore.getMeta())!.keys.map(key => key.nickname)).toEqual(['Desk', 'Safe'])
     expect(await vaultStore.getEnrollmentDrafts()).toEqual([])
   })
@@ -651,7 +707,9 @@ describe('enrollKey', () => {
     const [draft] = await vaultStore.getEnrollmentDrafts()
     expect(draft).toEqual({ record: err.record, assurance: 'management-uncertain' })
     const pin = jest.fn(async () => '654321')
-    await expect(resumeEnrollmentDraft({ entry: draft, onPhase: () => {}, getPin: pin })).rejects.toMatchObject({
+    await expect(
+      resumeEnrollmentDraft({ ...AUTHORITY, entry: draft, onPhase: () => {}, getPin: pin })
+    ).rejects.toMatchObject({
       code: 'enrollment-partial',
       stage: 'key-generated'
     })
@@ -673,7 +731,7 @@ describe('enrollKey', () => {
     expect(draft).toEqual({ record: err.record, assurance: 'challenge-required' })
     ;(mock.signEcdsa as jest.Mock).mockRestore()
     await expect(
-      resumeEnrollmentDraft({ entry: draft, onPhase: () => {}, getPin: async () => '654321' })
+      resumeEnrollmentDraft({ ...AUTHORITY, entry: draft, onPhase: () => {}, getPin: async () => '654321' })
     ).resolves.toEqual(err.record)
     expect(await vaultStore.getEnrollmentDrafts()).toEqual([{ record: err.record, assurance: 'ready' }])
   })
@@ -1035,7 +1093,7 @@ describe('adoptVaultKey', () => {
   test('proves possession of a restored record with a fresh signature without changing the slot', async () => {
     const enrolled = await enrollKey(args())
     await stageReady(rec(2))
-    await finalizeEnrollment([enrolled, rec(2)])
+    await finalizeEnrollment([enrolled, rec(2)], undefined, AUTHORITY)
     await vaultStore.clear()
     await vaultStore.restoreVerifiedMeta({
       v: 6,
@@ -1144,24 +1202,30 @@ describe('finalizeEnrollment', () => {
   })
 
   test('one record → not-enough-keys, nothing written', async () => {
-    await expect(finalizeEnrollment([rec(1)])).rejects.toMatchObject({ code: 'not-enough-keys' })
+    await expect(finalizeEnrollment([rec(1)], undefined, AUTHORITY)).rejects.toMatchObject({ code: 'not-enough-keys' })
     expect(await vaultStore.getMeta()).toBeNull()
   })
 
   test('six records → too-many-keys, nothing written', async () => {
-    await expect(finalizeEnrollment([1, 2, 3, 4, 5, 6].map(rec))).rejects.toMatchObject({ code: 'too-many-keys' })
+    await expect(finalizeEnrollment([1, 2, 3, 4, 5, 6].map(rec), undefined, AUTHORITY)).rejects.toMatchObject({
+      code: 'too-many-keys'
+    })
     expect(await vaultStore.getMeta()).toBeNull()
   })
 
   test('duplicate serials → key-already-enrolled (defensive: the wizard already refuses them)', async () => {
-    const err = await finalizeEnrollment([rec(1), { ...rec(2), serial: rec(1).serial }]).catch(e => e)
+    const err = await finalizeEnrollment([rec(1), { ...rec(2), serial: rec(1).serial }], undefined, AUTHORITY).catch(
+      e => e
+    )
     expect(err).toMatchObject({ code: 'key-already-enrolled' })
     expect(err.details).toEqual({ serial: rec(1).serial })
     expect(await vaultStore.getMeta()).toBeNull()
   })
 
   test('valid-looking public records cannot become deposit authority without ready challenge drafts', async () => {
-    await expect(finalizeEnrollment([rec(1), rec(2)])).rejects.toMatchObject({ code: 'key-not-adopted' })
+    await expect(finalizeEnrollment([rec(1), rec(2)], undefined, AUTHORITY)).rejects.toMatchObject({
+      code: 'key-not-adopted'
+    })
     expect(await vaultStore.getMeta()).toBeNull()
   })
 
@@ -1185,7 +1249,9 @@ describe('finalizeEnrollment', () => {
   test('a wizard scope token cannot finalize into a wallet selected later', async () => {
     const wizardScope = vaultStore.captureScopeToken()
     vaultStore.configureScope({ identityKey: '03' + 'cd'.repeat(32), chain: 'test' })
-    await expect(finalizeEnrollment([rec(1), rec(2)], wizardScope)).rejects.toMatchObject({ code: 'scope-changed' })
+    await expect(finalizeEnrollment([rec(1), rec(2)], wizardScope, AUTHORITY)).rejects.toMatchObject({
+      code: 'scope-changed'
+    })
     expect(await vaultStore.getMeta()).toBeNull()
   })
 
@@ -1196,7 +1262,7 @@ describe('finalizeEnrollment', () => {
     await finalizeReady([rec(1), rec(2)])
     await stageReady(rec(3))
     await stageReady(rec(4))
-    const err = await finalizeEnrollment([rec(3), rec(4)]).catch(e => e)
+    const err = await finalizeEnrollment([rec(3), rec(4)], undefined, AUTHORITY).catch(e => e)
     expect(err).toMatchObject({ code: 'key-already-enrolled' })
     expect(err.details).toEqual({ serial: rec(1).serial })
     expect((await vaultStore.getMeta())!.keys).toEqual([rec(1), rec(2)])
@@ -1210,7 +1276,7 @@ describe('finalizeEnrollment', () => {
     const a = await enrollKey(args({ nickname: 'Desk' }))
     mock.insertKey('MOCK-2')
     const b = await enrollKey(args({ pendingSerials: [a.serial], nickname: 'Safe' }))
-    await finalizeEnrollment([a, b])
+    await finalizeEnrollment([a, b], undefined, AUTHORITY)
     const meta = (await vaultStore.getMeta())!
     expect(await vaultStore.getEnrollmentDrafts()).toEqual([])
     expect(meta.keys.map(k => k.serial)).toEqual(['MOCK-1', 'MOCK-2'])
@@ -1221,30 +1287,89 @@ describe('finalizeEnrollment', () => {
       expect(k.slot).toBe(0x82)
     }
   })
+
+  // XR-001: SEC2-087 — a local storage attacker (no YubiKey, no wallet) who
+  // can write the enrollment-draft SecureStore key used to inject a
+  // structurally valid `ready` draft and have BOTH finalizeEnrollment and
+  // addVaultKey commit it as deposit authority. These are exactly the shape
+  // vaultKeyService.test.ts's own (pre-fix) finalizeReady/stageReady helpers
+  // produced — the suite's own happy-path fixture WAS the attack primitive.
+  test('XR-001: a ready draft written directly to storage (no live driver challenge, no wallet tag) is refused by finalizeEnrollment', async () => {
+    const forged = rec(9)
+    // The exact SEC2-087 attack primitive: preserveEnrollmentDraft called
+    // directly with assurance 'ready' and NO tagger — no wallet.createHmac
+    // ever ran for it, matching what a SecureStore-only attacker (who has no
+    // wallet and no YubiKey) can produce.
+    await vaultStore.preserveEnrollmentDraft({ record: forged, assurance: 'ready' }, vaultStore.captureScopeToken())
+    await expect(finalizeEnrollment([forged, rec(2)], undefined, AUTHORITY)).rejects.toMatchObject({
+      code: 'key-not-adopted'
+    })
+    expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  test('XR-001: a ready draft tagged by a DIFFERENT wallet is refused by finalizeEnrollment', async () => {
+    const forged = rec(9)
+    const scopeToken = vaultStore.captureScopeToken()
+    const scope = vaultStore.getScope()!
+    await vaultStore.preserveEnrollmentDraft({ record: forged, assurance: 'ready' }, scopeToken, r =>
+      computeVaultDraftAuthorityTag(OTHER_WALLET, ADMIN, r, scope)
+    )
+    await expect(finalizeEnrollment([forged, rec(2)], undefined, AUTHORITY)).rejects.toMatchObject({
+      code: 'key-not-adopted'
+    })
+    expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  test('XR-001: resumeEnrollmentDraft never fast-paths a forged ready draft — it falls through to a live challenge instead', async () => {
+    const forged = rec(9)
+    await vaultStore.preserveEnrollmentDraft({ record: forged, assurance: 'ready' }, vaultStore.captureScopeToken())
+    // No card matching this forged serial is inserted, so the live-challenge
+    // fallback (the only path left once the unverifiable fast path is
+    // refused) fails exactly as an honest re-tap of the wrong card would —
+    // proving the forged record was never simply handed back.
+    await expect(
+      resumeEnrollmentDraft({
+        ...AUTHORITY,
+        entry: { record: forged, assurance: 'ready' },
+        onPhase: () => {},
+        getPin: async () => PIN
+      })
+    ).rejects.toMatchObject({ code: 'serial-mismatch' })
+  })
 })
 
 describe('addVaultKey / disableVault', () => {
   test('addVaultKey appends through vaultStore.addKey and returns the new meta', async () => {
     await finalizeReady([rec(1), rec(2)])
     await stageReady(rec(3))
-    const meta = await addVaultKey(rec(3))
+    const meta = await addVaultKey(rec(3), undefined, AUTHORITY)
     expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003'])
     expect((await vaultStore.getMeta())!.keys).toHaveLength(3)
   })
 
   test('addVaultKey requires the exact ready draft produced by enrollment', async () => {
     await finalizeReady([rec(1), rec(2)])
-    await expect(addVaultKey(rec(3))).rejects.toMatchObject({ code: 'key-not-adopted' })
+    await expect(addVaultKey(rec(3), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'key-not-adopted' })
+    expect((await vaultStore.getMeta())!.keys).toHaveLength(2)
+  })
+
+  test('XR-001: a ready draft written directly to storage (no live driver challenge, no wallet tag) is refused by addVaultKey', async () => {
+    await finalizeReady([rec(1), rec(2)])
+    const forged = rec(9)
+    await vaultStore.preserveEnrollmentDraft({ record: forged, assurance: 'ready' }, vaultStore.captureScopeToken())
+    await expect(addVaultKey(forged, undefined, AUTHORITY)).rejects.toMatchObject({ code: 'key-not-adopted' })
     expect((await vaultStore.getMeta())!.keys).toHaveLength(2)
   })
 
   test('addVaultKey refuses a duplicate serial, a sixth key, and an unenrolled vault', async () => {
-    await expect(addVaultKey(rec(1))).rejects.toMatchObject({ code: 'not-enrolled' })
+    await expect(addVaultKey(rec(1), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'not-enrolled' })
     await finalizeReady([1, 2, 3, 4, 5].map(rec))
-    await expect(addVaultKey(rec(6))).rejects.toMatchObject({ code: 'too-many-keys' })
+    await expect(addVaultKey(rec(6), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'too-many-keys' })
     await disableVault()
     await finalizeReady([rec(1), rec(2)])
-    await expect(addVaultKey({ ...rec(1), nickname: 'again' })).rejects.toMatchObject({ code: 'key-already-enrolled' })
+    await expect(addVaultKey({ ...rec(1), nickname: 'again' }, undefined, AUTHORITY)).rejects.toMatchObject({
+      code: 'key-already-enrolled'
+    })
   })
 
   test('an add-key wizard token cannot write into a wallet selected later', async () => {
@@ -1252,7 +1377,7 @@ describe('addVaultKey / disableVault', () => {
     await stageReady(rec(3))
     const wizardScope = vaultStore.captureScopeToken()
     vaultStore.configureScope({ identityKey: '03' + 'cd'.repeat(32), chain: 'test' })
-    await expect(addVaultKey(rec(3), wizardScope)).rejects.toMatchObject({ code: 'scope-changed' })
+    await expect(addVaultKey(rec(3), wizardScope, AUTHORITY)).rejects.toMatchObject({ code: 'scope-changed' })
     expect(await vaultStore.getMeta()).toBeNull()
   })
 
@@ -1261,5 +1386,52 @@ describe('addVaultKey / disableVault', () => {
     await disableVault()
     expect(await vaultStore.isEnrolled()).toBe(false)
     expect(await vaultStore.getMeta()).toBeNull()
+  })
+
+  // XR-002: SEC2-088 — a local storage attacker who can overwrite vaultStore's
+  // scoped SecureStore record with a higher revision and a substituted key
+  // set must not have that forgery "laundered" into a freshly, validly
+  // tagged meta merely because the legitimate user's next action happens to
+  // be addVaultKey (which only APPENDS to meta.keys — the attacker's
+  // injected keys would otherwise remain live spend authority forever).
+  test('XR-002: addVaultKey refuses to build on a forged, untagged local meta rather than laundering it', async () => {
+    // A legitimately enrolled, correctly tagged vault…
+    await finalizeReady([rec(1), rec(2)])
+    // …then a SecureStore-only attacker overwrites it: same vaultId, a
+    // strictly higher revision, and a substituted key set — vaultStore.setMeta
+    // never touches the authority tag, so the on-file tag now belongs to
+    // completely different content.
+    const meta = (await vaultStore.getMeta())!
+    const attackerKey = rec(666)
+    await vaultStore.setMeta({ ...meta, revision: meta.revision + 5, keys: [attackerKey, rec(2)] })
+
+    await stageReady(rec(3))
+    await expect(addVaultKey(rec(3), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'template-invalid' })
+    // The forged key set was never committed further, and the legitimate
+    // rec(3) key was never appended on top of it either. The on-file tag is
+    // left exactly as finalizeReady wrote it — genuinely valid for the
+    // ORIGINAL (pre-attack) content, which is exactly why it no longer
+    // matches the attacker's substituted revision/keys.
+    expect((await vaultStore.getMeta())!.keys).toEqual([attackerKey, rec(2)])
+    const scope = vaultStore.getScope()!
+    const staleTag = await vaultStore.getMetaTag()
+    await expect(
+      verifyVaultMetaAuthorityTag(FAKE_WALLET, ADMIN, { ...meta, revision: meta.revision + 5, keys: [attackerKey, rec(2)] }, scope, staleTag)
+    ).resolves.toBe(false)
+  })
+
+  test('XR-002: addVaultKey proceeds normally when the existing meta is validly tagged (multiple local revision bumps, no outputs)', async () => {
+    // The exact scenario the previous fix attempt's on-chain-ceiling approach
+    // broke (69/195 transfers.test.ts failures): several legitimate local
+    // key adds in a row with no intervening deposit. The wallet-root tag
+    // (not an on-chain ceiling) is what distinguishes this from the forgery
+    // above — every one of these writes is freshly, validly re-tagged.
+    await finalizeReady([rec(1), rec(2)])
+    await stageReady(rec(3))
+    await addVaultKey(rec(3), undefined, AUTHORITY)
+    await stageReady(rec(4))
+    const meta = await addVaultKey(rec(4), undefined, AUTHORITY)
+    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003', '10000004'])
+    expect(await vaultStore.getMetaTag()).not.toBeNull()
   })
 })
