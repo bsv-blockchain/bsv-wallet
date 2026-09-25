@@ -582,6 +582,31 @@ export async function cancelOutboxPayment(args: {
   return { aborted }
 }
 
+/**
+ * Whether the generic Activity "Abort" action may call `abortAction` for this action as-is.
+ *
+ * A `peerpay` outbound payment's real delivery state lives only in its outbox row (see
+ * `OutboxEntry`) — `key_value_store`, where that row lives, is not currently part of the
+ * encrypted backup, so a wallet restored from backup has NO row at all for an outbox entry
+ * that may already have reached the recipient's MessageBox. Unlike `cancelOutboxPayment`'s
+ * own live-device guard, the generic Activity abort path has no concept of "peerpay" at
+ * all, so without this check it would release the payer's inputs for ANY
+ * nosend/unsigned/failed/nonfinal action regardless of label — including one whose
+ * recipient may already hold a signed, deliverable token. A missing row must be treated
+ * exactly like a row that IS delivered/delivering: refuse, rather than assume "never sent".
+ */
+export function isAbortSafe (
+  action: { labels?: string[], txid?: string },
+  outboxEntries: Array<Pick<OutboxEntry, 'txid' | 'delivered' | 'delivering'>>
+): { aborted: boolean, needsAbandon?: boolean } {
+  if (!action.labels?.includes('peerpay')) return { aborted: true }
+  const stored = action.txid != null ? outboxEntries.find(e => e.txid === action.txid) : undefined
+  if (stored == null || stored.delivered === true || stored.delivering === true) {
+    return { aborted: false, needsAbandon: true }
+  }
+  return { aborted: true }
+}
+
 // ── The token half of the handle rail (offline-settlement spec §4.5) ──
 //
 // Same rail, different pipeline. A satoshi payment is minted here and delivered

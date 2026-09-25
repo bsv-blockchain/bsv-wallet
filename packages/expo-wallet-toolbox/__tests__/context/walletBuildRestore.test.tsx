@@ -33,6 +33,16 @@ const mockDestroy = jest.fn(async () => {})
 const mockManagers: any[] = []
 let mockBuildMode: 'bypass' | 'real' = 'bypass'
 let mockSecretsReady = false
+// Stateful, unlike the rest of this file's mocks — XR-017 needs to observe a failed
+// restore's database actually leaving the registry, not just a fixed answer.
+let mockRegisteredDbs: string[] = []
+const mockRegisterDb = jest.fn(async (_keySuffix: string, _chain: string, filename: string) => {
+  if (!mockRegisteredDbs.includes(filename)) mockRegisteredDbs.push(filename)
+})
+const mockUnregisterDb = jest.fn(async (_keySuffix: string, _chain: string, filename: string) => {
+  mockRegisteredDbs = mockRegisteredDbs.filter(f => f !== filename)
+})
+const mockDeleteDatabaseAsync = jest.fn(async () => {})
 
 jest.mock('../../core/context/LocalStorageProvider', () => ({
   useLocalStorage: () => ({
@@ -83,8 +93,22 @@ jest.mock('../../core/services/walletServiceConfig', () => ({
   })
 }))
 jest.mock('../../core/walletDbRegistry', () => ({
-  getRegisteredDbs: async () => ['restore-test.db'],
-  selectLatestDb: () => 'restore-test.db'
+  getRegisteredDbs: async () => mockRegisteredDbs,
+  registerDb: (...args: [string, string, string]) => mockRegisterDb(...args),
+  unregisterDb: (...args: [string, string, string]) => mockUnregisterDb(...args),
+  // Real logic (pure — picks by embedded timestamp): a stateful registry needs it to
+  // actually distinguish the failed db from a freshly created one, not just echo a fixed
+  // name back.
+  selectLatestDb: (names: string[]) => jest.requireActual('../../core/walletDbRegistry').selectLatestDb(names)
+}))
+// WalletContext's own restore-failure cleanup calls this directly (see XR-017); the global
+// moduleNameMapper's expo-sqlite stub throws unconditionally, so this file needs its own to
+// observe the call.
+jest.mock('expo-sqlite', () => ({
+  openDatabaseAsync: async () => {
+    throw new Error('expo-sqlite is native: inject a database handle in tests')
+  },
+  deleteDatabaseAsync: (...args: [string]) => mockDeleteDatabaseAsync(...args)
 }))
 jest.mock('../../core/storage', () => ({
   StorageExpoSQLite: class {
@@ -133,6 +157,7 @@ beforeEach(() => {
   mockSecretsReady = false
   mockBuildMode = 'bypass'
   mockManagers.length = 0
+  mockRegisteredDbs = ['restore-test.db']
   mockGetMnemonic.mockResolvedValue(null)
   mockGetRecoveredKey.mockResolvedValue(null)
   mockRestore.mockRejectedValue(new Error('backup unavailable'))
@@ -202,10 +227,18 @@ it('preserves a rebuild restore request when automatic build falls back to a rec
 })
 
 it.each(['mnemonic', 'recovered key'] as const)(
-  'allows explicit restore=false after a failed %s restore',
+  'XR-017: allows explicit restore=false after a failed %s restore, without reusing the tainted database',
   async kind => {
     await renderProvider()
     mockBuildMode = 'real'
+    // A genuinely fresh identity: knownDbs.length === 0, so this very attempt's db-selection
+    // block is what creates the database restoreOnImport then partially replays into and
+    // fails against. This is the only case the cleanup below may touch — see the review
+    // follow-up test below for the "database predates this attempt" case it must NOT touch.
+    mockRegisteredDbs = []
+    let clock = 1700000000000
+    jest.spyOn(Date, 'now').mockImplementation(() => clock)
+
     const build = (restoreFromBackup: boolean) =>
       kind === 'mnemonic'
         ? wallet.buildWalletFromMnemonic('synthetic test key', { restoreFromBackup })
@@ -215,13 +248,54 @@ it.each(['mnemonic', 'recovered key'] as const)(
     expect(mockRestore).toHaveBeenCalledTimes(1)
     expect(wallet.walletBuilt).toBe(false)
     expect(mockPostRestoreSetup).not.toHaveBeenCalled()
+    // The name this attempt's own db-selection block generated (not a hardcoded fixture) —
+    // it must have been registered exactly once, by the "fresh user" branch.
+    expect(mockRegisterDb).toHaveBeenCalledTimes(1)
+    const firstDb = mockRegisterDb.mock.calls[0][2]
+    // XR-017: the freshly-created-but-partially-replayed database must not survive the
+    // failure, or a later build that skips another replay (recoverWallet's "skip", or this
+    // very restore:false call) would reselect it via selectLatestDb and publish it as a
+    // working wallet.
+    expect(mockUnregisterDb).toHaveBeenCalledWith(expect.any(String), expect.any(String), firstDb)
+    expect(mockDeleteDatabaseAsync).toHaveBeenCalledWith(firstDb)
+    expect(mockRegisteredDbs).not.toContain(firstDb)
 
+    clock += 1000 // distinct timestamp so the retry's fresh db can't collide with the first
     await act(async () => build(false))
     expect(mockRestore).toHaveBeenCalledTimes(1)
     // The build reaches setup after the restore branch, without another replay.
     expect(mockPostRestoreSetup).toHaveBeenCalledTimes(1)
+    // A genuinely different (freshly created) database, not the failed one reselected.
+    expect(mockRegisteredDbs).not.toContain(firstDb)
+    expect(mockRegisteredDbs).toHaveLength(1)
   }
 )
+
+it('XR-017: review follow-up — never deletes/unregisters a database that predates this restore attempt', async () => {
+  await renderProvider()
+  mockBuildMode = 'real'
+  // Simulates "recover over an already-onboarded wallet" — core/recovery/restoreWallet.ts's
+  // rebuildWallet({restoreFromBackup:true}) path, taken whenever isWalletBuilt() is already
+  // true (e.g. the user re-enters the SAME mnemonic that already built their working
+  // wallet; recoverWallet.ts's confirmReplace gate does not check whether the new secret
+  // differs from the one already active). The registry already names this identity's real,
+  // live database BEFORE this attempt starts: knownDbs.length is 1, so the db-selection
+  // block never takes the "create a fresh db" branch — this attempt did not create the
+  // file selectLatestDb hands it.
+  const preExisting = 'wallet-aaaaaaaa-mainnet-1700000000.db'
+  mockRegisteredDbs = [preExisting]
+
+  await act(async () => wallet.buildWalletFromMnemonic('synthetic test key', { restoreFromBackup: true }))
+
+  expect(mockRestore).toHaveBeenCalledTimes(1)
+  expect(wallet.walletBuilt).toBe(false)
+  // The database predates this attempt — it may be the user's real, already-transacting
+  // wallet with seed-unrecoverable change-output/BRC-29 metadata — so a failed restore's
+  // cleanup must leave it completely alone.
+  expect(mockUnregisterDb).not.toHaveBeenCalled()
+  expect(mockDeleteDatabaseAsync).not.toHaveBeenCalled()
+  expect(mockRegisteredDbs).toEqual([preExisting])
+})
 
 it('getWalletBuilt() is a ref-backed read that reflects walletBuilt after a build', async () => {
   await renderProvider()

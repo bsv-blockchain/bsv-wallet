@@ -89,6 +89,27 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
 
   let cursor = await loadCursor(deps.chain, pseudonym, deviceId)
 
+  // Clock-regression guard: `since` only ever advances forward via nextInstant, and the
+  // column comparison is `>=`, so a record stamped BELOW a window this cursor already
+  // closed can never be selected by any future incremental pass — the exact scenario a
+  // backward-moving device clock creates (see nextInstant's own docs). `maxObservedWallClock`
+  // tracks the highest wall-clock value ever seen at push time, independent of `since` (which
+  // only moves when a window happens to close), so a clock that is now BEHIND it is
+  // detected here regardless of what `since` currently holds. Treated as a fresh generation
+  // rather than merely resetting `since`: a full snapshot sees every record regardless of
+  // its timestamp, so this is the only reset that is actually safe to trust.
+  const nowIso = new Date().toISOString()
+  if (cursor.maxObservedWallClock != null && nowIso < cursor.maxObservedWallClock) {
+    cursor = rotate(cursor)
+  }
+  cursor = {
+    ...cursor,
+    maxObservedWallClock:
+      cursor.maxObservedWallClock != null && cursor.maxObservedWallClock > nowIso
+        ? cursor.maxObservedWallClock
+        : nowIso
+  }
+
   // Back-fill: this cursor's window closed at least once (since is set) with real chunks
   // pushed (chunksInGeneration > 0), but under an older build that predates sealing —
   // initialChunkCount was never set. Set it now, purely locally: the log through the

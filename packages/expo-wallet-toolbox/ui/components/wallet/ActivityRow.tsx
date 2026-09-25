@@ -130,7 +130,7 @@ interface Props {
   onOpen?: (action: ActivityAction) => void
   onExplorer: (txid: string) => void
   onRefreshTx: (txid: string) => void
-  onAbort: (reference: string) => void
+  onAbort: (reference: string, action?: ActivityAction) => void
   /** Rebuild and re-deliver a PeerPay token without waiting for a NACK. */
   onSendPaymentDetails?: (txid: string) => void
   /** Start a new payment (or retryDelivery) for a failed outbound row. */
@@ -515,7 +515,7 @@ function ActivityRowBase({
                   label={t('cancel')}
                   accessibilityLabel={t('tx_action_abort')}
                   danger
-                  onPress={() => onAbort(action.reference!)}
+                  onPress={() => onAbort(action.reference!, action)}
                 />
               ) : null}
               {canResendDetails ? (

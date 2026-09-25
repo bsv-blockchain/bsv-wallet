@@ -77,6 +77,13 @@ export interface PushCursor {
    * first snapshot.
    */
   initialChunkCount?: number
+  /**
+   * The highest wall-clock value this device has ever observed at the start of a push
+   * pass, independent of `since`/`maxUpdatedAt` — see pushOnce's own clock-regression guard.
+   * Undefined for a cursor written before this field existed; pushOnce treats that as "no
+   * known ceiling yet" rather than as evidence of a rollback.
+   */
+  maxObservedWallClock?: string
 }
 
 export function freshCursor (generation = 1): PushCursor {
@@ -88,7 +95,8 @@ export function freshCursor (generation = 1): PushCursor {
     seq: 0,
     prevSha256: undefined,
     chunksInGeneration: 0,
-    initialChunkCount: undefined
+    initialChunkCount: undefined,
+    maxObservedWallClock: undefined
   }
 }
 
@@ -124,7 +132,10 @@ export async function loadCursor (chain: BackupChain, pseudonym: string, deviceI
       // back-fill case push.ts's pushOnce checks for, so it must default to undefined,
       // never to chunksInGeneration here (the back-fill only happens once `since` is
       // known to be set too, which pushOnce itself checks).
-      initialChunkCount: parsed.initialChunkCount
+      initialChunkCount: parsed.initialChunkCount,
+      // Absent on every cursor written before the clock-regression guard existed — treated
+      // as "no known ceiling yet" by pushOnce, never as evidence of a rollback.
+      maxObservedWallClock: parsed.maxObservedWallClock
     }
   } catch {
     // A corrupt cursor must not wedge backups forever. Starting a fresh generation costs
