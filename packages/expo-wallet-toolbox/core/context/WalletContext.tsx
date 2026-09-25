@@ -1121,6 +1121,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // Replace all default broadcast providers with EF/rawtx-only services.
         // Order: Arcade → Taal → GorillaPool → WoC → Bitails. UntilSuccess stops at first success.
+        // Taal runs on main + test only, GorillaPool on main only; teratest has no public ARC.
         // 'ArcadeBeef' is the toolbox's own Arcade broadcaster, registered
         // because serviceOptions now carries arcadeUrl (needed for Arcade-first
         // proofs and SSE). Our createArcadeBroadcastService replaces it here so
@@ -1132,13 +1133,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         services.postBeefServices.remove('Bitails')
         services.postBeefServices.remove('WhatsOnChain')
         services.postBeefServices.add(createArcadeBroadcastService(serviceOptions.arcUrl!, callbackToken))
-        const taalArcUrl =
-          chain === 'main'
-            ? 'https://arc.taal.com'
-            : chain === 'test'
-              ? 'https://arc-test.taal.com'
-              : 'https://arc-teratest.taal.com'
-        services.postBeefServices.add(createTaalBroadcastService(taalArcUrl, serviceOptions.taalApiKey))
+        if (chain === 'main' || chain === 'test') {
+          const taalArcUrl = chain === 'main' ? 'https://arc.taal.com' : 'https://arc-test.taal.com'
+          services.postBeefServices.add(createTaalBroadcastService(taalArcUrl, serviceOptions.taalApiKey))
+        }
         if (chain === 'main') {
           services.postBeefServices.add(createGorillaPoolBroadcastService('https://arc.gorillapool.io'))
         }
@@ -1149,7 +1147,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // Replace WoC getMerklePath with BUMP endpoint — no TSC→BUMP conversion needed.
         // The toolbox's 'Arcade' provider stays where Services put it: first.
-        // Every tx this wallet sends goes through Arcade, so GET /v1/tx/{txid}
+        // Every tx this wallet sends goes through Arcade, so GET /tx/{txid}
         // there is the one lookup that can answer as soon as it is mined. WoC
         // BUMP and Bitails are re-added after it as fallbacks, in that order.
         const wocBumpBase =
