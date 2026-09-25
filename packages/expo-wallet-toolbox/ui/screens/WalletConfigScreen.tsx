@@ -9,7 +9,8 @@ import {
   KNOWN_ARC_URLS,
   DEFAULT_ARC_URLS,
   arcUrlStorageKey,
-  arcApiTokenStorageKey,
+  getArcApiToken,
+  setArcApiToken,
   validateArcUrl,
   useTheme,
   spacing,
@@ -367,15 +368,15 @@ export function WalletConfigScreen() {
     }
   }, [storageBusy, storage, managers, adminOriginator, t])
 
-  // Load persisted ARC URL + token for current network
+  // Load persisted ARC URL + token for current network. The token is read
+  // via getArcApiToken (XR-106: SecureStore-backed, not plaintext AsyncStorage).
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork)),
-      AsyncStorage.getItem(arcApiTokenStorageKey(selectedNetwork))
-    ]).then(([url, token]) => {
-      setArcUrlInput(url ?? DEFAULT_ARC_URLS[selectedNetwork] ?? '')
-      setArcTokenInput(token ?? '')
-    })
+    Promise.all([AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork)), getArcApiToken(selectedNetwork)]).then(
+      ([url, token]) => {
+        setArcUrlInput(url ?? DEFAULT_ARC_URLS[selectedNetwork] ?? '')
+        setArcTokenInput(token ?? '')
+      }
+    )
   }, [selectedNetwork])
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -450,7 +451,7 @@ export function WalletConfigScreen() {
     try {
       const token = arcTokenInput.trim()
       const previousUrl = (await AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork))) ?? defaultUrl
-      const previousToken = (await AsyncStorage.getItem(arcApiTokenStorageKey(selectedNetwork))) ?? ''
+      const previousToken = (await getArcApiToken(selectedNetwork)) ?? ''
       const nextUrl = url || defaultUrl
       const originChanged = previousUrl !== nextUrl
       // XR-064: a token left exactly as loaded from storage must never
@@ -465,9 +466,9 @@ export function WalletConfigScreen() {
         await AsyncStorage.removeItem(arcUrlStorageKey(selectedNetwork))
       }
       if (token && !stalePriorToken) {
-        await AsyncStorage.setItem(arcApiTokenStorageKey(selectedNetwork), token)
+        await setArcApiToken(selectedNetwork, token)
       } else {
-        await AsyncStorage.removeItem(arcApiTokenStorageKey(selectedNetwork))
+        await setArcApiToken(selectedNetwork, null)
         if (stalePriorToken) setArcTokenInput('')
       }
       setArcExpanded(false)
@@ -482,7 +483,7 @@ export function WalletConfigScreen() {
   const handleResetArc = async () => {
     await Promise.all([
       AsyncStorage.removeItem(arcUrlStorageKey(selectedNetwork)),
-      AsyncStorage.removeItem(arcApiTokenStorageKey(selectedNetwork))
+      setArcApiToken(selectedNetwork, null)
     ])
     setArcUrlInput(DEFAULT_ARC_URLS[selectedNetwork] ?? '')
     setArcTokenInput('')
@@ -716,7 +717,9 @@ export function WalletConfigScreen() {
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="done"
-                    secureTextEntry={false}
+                    // XR-106: this is a live Bearer credential, not display
+                    // text — mask it like any other secret field.
+                    secureTextEntry
                   />
                 </View>
                 <View style={localStyles.arcButtonRow}>

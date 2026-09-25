@@ -330,6 +330,7 @@ export * from './services/arcadeBroadcastProvider'
 export * from './services/walletArgLimits'
 export * from './services/capWalletArgs'
 export * from './services/externalOrigin'
+export * from './services/arcTokenStorage'
 
 // Encrypted wallet backup log
 export * from './backup/RemoteSyncReader'

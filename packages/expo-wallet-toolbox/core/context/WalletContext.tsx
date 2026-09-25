@@ -201,6 +201,7 @@ import { drainMandalaInbox } from '../pay/rails/handle'
 import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
 import { disconnectActivePairedSession } from './WalletConnectionContext'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
+import { getArcApiToken } from '../services/arcTokenStorage'
 import {
   boundReviewProvenTxs,
   configureNewHeaderPolling,
@@ -1235,9 +1236,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // counterparty can already reconstruct. See callbackToken.ts.
         const callbackToken = deriveCallbackToken(keyDeriver)
 
+        // XR-106: the token half is SecureStore-backed (getArcApiToken also
+        // migrates away any plaintext value a pre-fix build left in
+        // AsyncStorage under this same key) — only the URL, which is not a
+        // credential, still lives in plain AsyncStorage.
         const [arcUrlOverride, arcApiTokenOverride] = await Promise.all([
           AsyncStorage.getItem(`arc_custom_url_${chain}`),
-          AsyncStorage.getItem(`arc_custom_api_token_${chain}`)
+          getArcApiToken(chain)
         ])
 
         // The remote client the wrapper delegates to. Built here rather than
