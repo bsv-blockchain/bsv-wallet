@@ -222,6 +222,15 @@ committed key and its PIN, could spend without the mnemonic.
   visible whenever local Vault meta exists, and a full withdrawal is not gated
   by the flag — only new deposits, re-locks, and withdrawal remainders are.
 
+- **A held Vault transaction is never reported resolved on a bare status
+  claim (NEW-07).** `resolveHeldVaultDeposit` used to skip releasing a held,
+  already-signed Vault transaction when a chain service answered 'mined' or
+  'known', so a wrong or malicious service made the app report success while
+  the signed bytes were never broadcast. It now always releases the wallet's
+  own signed bytes through the existing `sendWith` path and derives success
+  (and the broadcast vs already-known distinction) only from the toolbox's
+  confirmed release result.
+
 ### Secrets and biometrics
 
 - **Delete Wallet now actually erases everything, and fails closed if it can't
