@@ -18,7 +18,9 @@ import {
   buildLock, bakedCommitments, completeMixedAddScript, recode, sharedSuffix, shiftFor,
   sighashPreimage, signerDigest, pushTxSignatureS, pushTxDerCheck, decodeDerSignature, R1C_PREIMAGE_LEN, R1C_SIGHASH,
   fullR, buildUnlock, verifyVaultInput, R1C_VERIFY_FLAGS, vaultSaltHmacData,
-  encodeVaultInstructions, decodeVaultInstructions, type VaultInstructionKey, type VaultInstructionsV6
+  encodeVaultInstructions, decodeVaultInstructions, type VaultInstructionKey, type VaultInstructionsV6,
+  encodeVaultInstructionsV7, decodeVaultInstructionsV7, decodeVaultInstructionsV6, type VaultInstructionsV7,
+  MAX_DESCRIPTOR_CIPHERTEXT_BYTES
 } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 
@@ -1254,5 +1256,80 @@ describe('customInstructions v6 recovery codec', () => {
     expect(() => encodeVaultInstructions({ ...record(), revision: 0 })).toThrow(VaultError)
     const withExtra = { ...record([keys5[0]]), runtimeOnly: true } as VaultInstructionsV6
     expect(encodeVaultInstructions(withExtra)).toBe(JSON.stringify(record([keys5[0]])))
+  })
+
+  // ── INT-10: v7 carries no salt field, and the union decoder cannot confuse the two versions ──
+  describe('customInstructions v7 recovery codec (no salt at rest)', () => {
+    const recordV7 = (keys = keys5.slice(0, 2)): VaultInstructionsV7 => ({
+      v: 7, type: 'R1C', saltKeyId, chain: 'test', vaultId, revision: 1, createdAt, keys
+    })
+
+    it.each([1, 2, 3, 4, 5])('round-trips %i full key records in commitment order, with no salt field', n => {
+      const rec = recordV7(keys5.slice(0, n))
+      const encoded = encodeVaultInstructionsV7(rec)
+      expect(encoded).toBe(JSON.stringify(rec))
+      expect(JSON.parse(encoded)).not.toHaveProperty('salt')
+      expect(decodeVaultInstructionsV7(encoded)).toEqual(rec)
+      expect(decodeVaultInstructions(encoded)).toEqual(rec)
+    })
+
+    it('the v7 decoder rejects a record carrying a salt field', () => {
+      const withSalt = { ...recordV7(), salt: 'ab'.repeat(32) }
+      expect(decodeVaultInstructionsV7(JSON.stringify(withSalt))).toBeNull()
+      // The union decoder must not silently accept it as v6 either (v!==6).
+      expect(decodeVaultInstructions(JSON.stringify(withSalt))).toBeNull()
+    })
+
+    it('the v7 decoder rejects p.v !== 7 and a v6-shaped 9-field record', () => {
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...recordV7(), v: 6 }))).toBeNull()
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...recordV7(), v: 8 }))).toBeNull()
+      expect(decodeVaultInstructionsV7(encodeVaultInstructions(record()))).toBeNull()
+    })
+
+    it('the v6 decoder rejects an exact v7-shaped 8-field record (no salt), and vice versa — never cross-decodes', () => {
+      const v7 = recordV7()
+      expect(decodeVaultInstructionsV6(JSON.stringify(v7))).toBeNull()
+      const v6 = record()
+      expect(decodeVaultInstructionsV7(JSON.stringify(v6))).toBeNull()
+    })
+
+    it('the union decoder tries v6 first, then v7, and returns null for neither', () => {
+      expect(decodeVaultInstructions(encodeVaultInstructions(record()))).toEqual(record())
+      expect(decodeVaultInstructions(encodeVaultInstructionsV7(recordV7()))).toEqual(recordV7())
+      expect(decodeVaultInstructions('not json')).toBeNull()
+    })
+
+    it('rejects extra top-level or key fields, and the same v6 field-level negatives', () => {
+      const rec = recordV7([keys5[0]])
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...rec, extra: true }))).toBeNull()
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...rec, keys: [{ ...rec.keys[0], extra: true }] }))).toBeNull()
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...rec, chain: 'regtest' }))).toBeNull()
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...rec, saltKeyId: '01' }))).toBeNull()
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...rec, revision: 0 }))).toBeNull()
+      expect(decodeVaultInstructionsV7(JSON.stringify({ ...rec, keys: [] }))).toBeNull()
+    })
+
+    it('encoder self-checks and strips runtime-only extra fields, matching the v6 encoder\'s discipline', () => {
+      expect(() => encodeVaultInstructionsV7({ ...recordV7(), revision: 0 })).toThrow(VaultError)
+      const withExtra = { ...recordV7([keys5[0]]), runtimeOnly: true } as VaultInstructionsV7
+      expect(encodeVaultInstructionsV7(withExtra)).toBe(JSON.stringify(recordV7([keys5[0]])))
+    })
+
+    it('worst case (N=5, max-length fields) descriptor plaintext fits comfortably under the ciphertext cap minus AES-GCM overhead (48 B)', () => {
+      const maxKeys: VaultInstructionKey[] = [...Array(5)].map((_, i) => ({
+        serial: `${i}${'S'.repeat(63)}`,
+        slot: 0x82,
+        pubkey: newMember().pub,
+        nickname: 'N'.repeat(64),
+        // Every field at its allowed maximum length/magnitude.
+        enrolledAt: 9_007_199_254_740_991
+      }))
+      const worst = encodeVaultInstructionsV7({
+        v: 7, type: 'R1C', saltKeyId: '9007199254740991', chain: 'teratest',
+        vaultId: 'ab'.repeat(32), revision: 9_007_199_254_740_991, createdAt: 9_007_199_254_740_991, keys: maxKeys
+      })
+      const plaintextBytes = Utils.toArray(worst, 'utf8').length
+      expect(plaintextBytes).toBeLessThan(MAX_DESCRIPTOR_CIPHERTEXT_BYTES - 48)
+    })
   })
 })

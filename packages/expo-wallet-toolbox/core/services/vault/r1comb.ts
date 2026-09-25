@@ -870,7 +870,38 @@ export interface VaultInstructionsV6 {
   createdAt: number
   keys: VaultInstructionKey[]
 }
-export type VaultInstructions = VaultInstructionsV6
+/**
+ * v7 recovery metadata: exactly the v6 fields minus `salt`. The salt is never
+ * persisted for a v7 output — it is re-derived in memory (deriveVaultSalt)
+ * whenever a v7 lock must be rebuilt or a v7 witness built, from the same
+ * unchanged HMAC protocol v6 always used. See docs/security's v7 design: the
+ * exact 8-field shape and the `v===7` gate make it structurally impossible
+ * for a salt to ride along with a v7 record, and structurally impossible for
+ * a v6 record (which REQUIRES `salt`) to decode as v7 or vice versa.
+ */
+export interface VaultInstructionsV7 {
+  v: 7
+  type: 'R1C'
+  /** Canonical positive decimal wallet key index (`"1"`, `"2"`, ...). */
+  saltKeyId: string
+  /** Network scope of the output. */
+  chain: VaultSaltChain
+  vaultId: string
+  revision: number
+  createdAt: number
+  keys: VaultInstructionKey[]
+}
+export type VaultInstructions = VaultInstructionsV6 | VaultInstructionsV7
+
+/**
+ * Hard cap on the v7 descriptor's AES-256-GCM ciphertext
+ * (`iv(32B) || ciphertext || authTag(16B)`, @bsv/sdk SymmetricKey.encrypt),
+ * enforced at both encode time (creation fails closed) and decode time (an
+ * oversized blob is never trusted, not merely truncated). Measured worst case:
+ * N=5 keys at max field lengths serializes to roughly 1.45 KB of v7 JSON, so
+ * +48 B of AES-GCM overhead leaves a comfortable margin under 2,200.
+ */
+export const MAX_DESCRIPTOR_CIPHERTEXT_BYTES = 2200
 
 const MAX_CUSTOM_INSTRUCTIONS_CHARS = 4096
 const exactFields = (v: Record<string, unknown>, fields: readonly string[]): boolean => {
@@ -883,7 +914,7 @@ const positiveSafeInteger = (v: unknown): v is number => Number.isSafeInteger(v)
  * Parse exact v6 output recovery metadata. Older and extended shapes fail
  * closed: future code must explicitly version any semantic change.
  */
-export function decodeVaultInstructions(ci?: string): VaultInstructionsV6 | null {
+export function decodeVaultInstructionsV6(ci?: string): VaultInstructionsV6 | null {
   if (typeof ci !== 'string' || ci.length === 0 || ci.length > MAX_CUSTOM_INSTRUCTIONS_CHARS) return null
   let parsed: unknown
   try {
@@ -971,6 +1002,111 @@ export function encodeVaultInstructions(i: VaultInstructionsV6): string {
       enrolledAt: k.enrolledAt
     }))
   })
-  if (decodeVaultInstructions(s) === null) throw invalid('encodeVaultInstructions: record would not decode as canonical v6 vault metadata')
+  if (decodeVaultInstructionsV6(s) === null) throw invalid('encodeVaultInstructions: record would not decode as canonical v6 vault metadata')
   return s
+}
+
+/**
+ * Parse exact v7 output recovery metadata: the v6 shape minus `salt`. A
+ * record carrying a `salt` field (extra field), a `p.v` other than 7, or any
+ * other v6-shaped field set fails closed here — see VaultInstructionsV7's
+ * docstring. Every other field rule is identical to the v6 decoder.
+ */
+export function decodeVaultInstructionsV7(ci?: string): VaultInstructionsV7 | null {
+  if (typeof ci !== 'string' || ci.length === 0 || ci.length > MAX_CUSTOM_INSTRUCTIONS_CHARS) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(ci)
+  } catch {
+    return null
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const p = parsed as Record<string, unknown>
+  if (!exactFields(p, ['v', 'type', 'saltKeyId', 'chain', 'vaultId', 'revision', 'createdAt', 'keys'])) return null
+  if (p.v !== 7 || p.type !== 'R1C') return null
+  if (typeof p.vaultId !== 'string' || !/^[0-9a-f]{64}$/.test(p.vaultId)) return null
+  if (
+    typeof p.saltKeyId !== 'string' ||
+    !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)
+  ) return null
+  if (p.chain !== 'main' && p.chain !== 'test' && p.chain !== 'teratest') return null
+  const saltIndex = Number(p.saltKeyId)
+  if (!positiveSafeInteger(saltIndex)) return null
+  if (!positiveSafeInteger(p.revision) || !positiveSafeInteger(p.createdAt)) return null
+  if (!Array.isArray(p.keys) || p.keys.length < 1 || p.keys.length > R1C_MAX_KEYS) return null
+  const keys: VaultInstructionKey[] = []
+  for (const raw of p.keys) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const k = raw as Record<string, unknown>
+    if (!exactFields(k, ['serial', 'slot', 'pubkey', 'nickname', 'enrolledAt'])) return null
+    if (typeof k.serial !== 'string' || !/^[A-Za-z0-9._:-]{1,64}$/.test(k.serial)) return null
+    if (k.slot !== 0x82) return null
+    if (typeof k.pubkey !== 'string' || !/^0[23][0-9a-f]{64}$/.test(k.pubkey)) return null
+    if (
+      typeof k.nickname !== 'string' || k.nickname.length < 1 || k.nickname.length > 64 ||
+      k.nickname !== k.nickname.trim() || /[\u0000-\u001f\u007f]/.test(k.nickname)
+    ) return null
+    if (!positiveSafeInteger(k.enrolledAt)) return null
+    try {
+      if (compressPubkey(k.pubkey) !== k.pubkey) return null
+    } catch {
+      return null
+    }
+    keys.push({
+      serial: k.serial,
+      slot: k.slot,
+      pubkey: k.pubkey,
+      nickname: k.nickname,
+      enrolledAt: k.enrolledAt
+    })
+  }
+  if (new Set(keys.map(k => k.serial)).size !== keys.length) return null
+  if (new Set(keys.map(k => k.pubkey)).size !== keys.length) return null
+  try {
+    vaultSaltHmacData(keys.map(k => k.serial))
+  } catch {
+    return null
+  }
+  return {
+    v: 7,
+    type: 'R1C',
+    saltKeyId: p.saltKeyId,
+    chain: p.chain,
+    vaultId: p.vaultId,
+    revision: p.revision,
+    createdAt: p.createdAt,
+    keys
+  }
+}
+
+/** Serialise only the canonical v7 fields (no `salt`), after applying the decoder's validation. */
+export function encodeVaultInstructionsV7(i: VaultInstructionsV7): string {
+  const s = JSON.stringify({
+    v: 7,
+    type: 'R1C',
+    saltKeyId: i.saltKeyId,
+    chain: i.chain,
+    vaultId: i.vaultId,
+    revision: i.revision,
+    createdAt: i.createdAt,
+    keys: i.keys.map(k => ({
+      serial: k.serial,
+      slot: k.slot,
+      pubkey: k.pubkey,
+      nickname: k.nickname,
+      enrolledAt: k.enrolledAt
+    }))
+  })
+  if (decodeVaultInstructionsV7(s) === null) throw invalid('encodeVaultInstructionsV7: record would not decode as canonical v7 vault metadata')
+  return s
+}
+
+/**
+ * Union decoder: try the exact v6 shape (carries `salt`), then the exact v7
+ * shape (no `salt`). The two decoders' exact-field checks and `v` gate make
+ * the two shapes mutually exclusive, so this can never reinterpret one
+ * version as the other.
+ */
+export function decodeVaultInstructions(ci?: string): VaultInstructions | null {
+  return decodeVaultInstructionsV6(ci) ?? decodeVaultInstructionsV7(ci)
 }
