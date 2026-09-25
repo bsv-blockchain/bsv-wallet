@@ -13,7 +13,9 @@ const mockRenameKey = jest.fn()
 // to prove VaultScreen actually calls them with a sane admin wallet before
 // calling vaultStore.renameKey.
 const mockRequireAuthenticatedMeta = jest.fn(async (_w: unknown, _o: unknown, _scope: unknown, meta: unknown) => meta)
-const mockComputeVaultMetaAuthorityTag = jest.fn(async () => 'mock-meta-tag')
+const mockComputeVaultMetaAuthorityTag = jest.fn(
+  async (_wallet: unknown, _o: unknown, _meta: unknown, _scope: unknown) => 'mock-meta-tag'
+)
 const mockRelock = jest.fn()
 const mockRecover = jest.fn()
 const mockRecoverFromChain = jest.fn()
@@ -52,8 +54,10 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     getMeta: (...a: unknown[]) => mockGetMeta(...a),
     renameKey: (...a: unknown[]) => mockRenameKey(...a)
   },
-  requireAuthenticatedMeta: (...a: unknown[]) => mockRequireAuthenticatedMeta(...a),
-  computeVaultMetaAuthorityTag: (...a: unknown[]) => mockComputeVaultMetaAuthorityTag(...a),
+  requireAuthenticatedMeta: (w: unknown, o: unknown, scope: unknown, meta: unknown) =>
+    mockRequireAuthenticatedMeta(w, o, scope, meta),
+  computeVaultMetaAuthorityTag: (wallet: unknown, o: unknown, meta: unknown, scope: unknown) =>
+    mockComputeVaultMetaAuthorityTag(wallet, o, meta, scope),
   getVaultDriver: () => ({ isSupported: () => mockSupported }),
   isVaultEnabled: () => mockVaultEnabled,
   isVaultAvailable: (chain: string) => mockVaultEnabled && chain === 'main',
