@@ -91,15 +91,8 @@ jest.mock('expo-sqlite', () => {
       this.db.close()
     }
   }
-  const registry: Map<string, InstanceType<typeof TestDatabase>> = ((globalThis as Record<string, unknown>)
-    .__xq016VaultTestDbs as never) ?? new Map()
-  ;(globalThis as Record<string, unknown>).__xq016VaultTestDbs = registry
   return {
-    openDatabaseAsync: async (name: string) => {
-      const db = new TestDatabase()
-      registry.set(name, db)
-      return db
-    }
+    openDatabaseAsync: async () => new TestDatabase()
   }
 })
 jest.mock('../../core/diskSpace', () => ({ diskPressure: () => 'ok' }))
@@ -205,18 +198,14 @@ async function setupFundedWallet(seed: number) {
   } as never)
   await storage.migrate(dbName, payerIdentityKey)
 
-  // Same pre-existing, separately-flagged schema-drift workaround as
-  // abortActionChainStatus.test.ts — this package's `transactions` table has
-  // never added the vendor's BRC-177 columns, which blocks any 'failed'
-  // transition (including a rejected abortAction's own invalidation attempt)
-  // on the real app schema. Added to this test's own throwaway database only.
-  const registry = (globalThis as Record<string, unknown>).__xq016VaultTestDbs as
-    | Map<string, { execAsync(sql: string): Promise<void> }>
-    | undefined
-  const rawDb = registry?.get(dbName)
-  if (!rawDb) throw new Error('test setup: could not reach the underlying in-memory database')
-  await rawDb.execAsync('ALTER TABLE transactions ADD COLUMN noSendExpiryState TEXT')
-  await rawDb.execAsync('ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimTxid TEXT')
+  // NEW-01 (fixed): this test used to carry the same ad hoc ALTER TABLE
+  // workaround as abortActionChainStatus.test.ts for the vendor's BRC-177
+  // columns, which blocked any 'failed' transition (including a rejected
+  // abortAction's own invalidation attempt) on the real app schema.
+  // `core/storage/schema/createTables.ts`'s `ensureTransactionsColumns` now
+  // adds these columns for every database, so `storage.migrate()` above is
+  // sufficient — see `__tests__/storage/noSendExpirySchema.test.ts` for the
+  // regression coverage of that migration itself.
 
   const storageManager = new WalletStorageManager(payerIdentityKey, storage as never)
   const signer = new WalletSigner('test' as never, payerKeyDeriver as never, storageManager)

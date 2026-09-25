@@ -62,17 +62,8 @@ jest.mock('expo-sqlite', () => {
       this.db.close()
     }
   }
-  // Keyed by dbName so the test can reach back into the exact underlying
-  // in-memory database `StorageExpoSQLite.migrate()` just created.
-  const registry: Map<string, InstanceType<typeof TestDatabase>> = ((globalThis as Record<string, unknown>)
-    .__xq016TestDbs as never) ?? new Map()
-  ;(globalThis as Record<string, unknown>).__xq016TestDbs = registry
   return {
-    openDatabaseAsync: async (name: string) => {
-      const db = new TestDatabase()
-      registry.set(name, db)
-      return db
-    }
+    openDatabaseAsync: async () => new TestDatabase()
   }
 })
 jest.mock('../../core/diskSpace', () => ({ diskPressure: () => 'ok' }))
@@ -135,26 +126,17 @@ async function setupFundedWallet(seed: number) {
   } as never)
   await storage.migrate(dbName, payerIdentityKey)
 
-  // This package's `transactions` table (core/storage/schema/createTables.ts)
-  // predates @bsv/wallet-toolbox-mobile's BRC-177 columns and has never added
-  // them, because this app does not use BRC-177 early-reclaim actions. But
-  // `StorageProvider.updateTransactionStatus`'s generic 'failed' path
-  // (shared by every abort/failure, not just BRC-177 ones) unconditionally
-  // queries `noSendExpiryReclaimTxid` via `protectNoSendExpiryReclaimInputOnFailure`
-  // — so on the real app schema that query throws "no such column" instead of
-  // returning "no match", and NO 'failed' transition (this ledger row's fix
-  // included) can complete. That is a real, separate schema-drift bug this
-  // ledger row does not fix (flagged separately) — added here, in the test's
-  // own database only, purely so this test can exercise XQ-016's actual
-  // target (`observeAbortChainProtection` / `abortAction`) rather than being
-  // blocked by that unrelated gap.
-  const registry = (globalThis as Record<string, unknown>).__xq016TestDbs as
-    | Map<string, { execAsync(sql: string): Promise<void> }>
-    | undefined
-  const rawDb = registry?.get(dbName)
-  if (!rawDb) throw new Error('test setup: could not reach the underlying in-memory database')
-  await rawDb.execAsync('ALTER TABLE transactions ADD COLUMN noSendExpiryState TEXT')
-  await rawDb.execAsync('ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimTxid TEXT')
+  // NEW-01 (fixed): this package's `transactions` table used to predate
+  // @bsv/wallet-toolbox-mobile's BRC-177 columns, so `StorageProvider`'s
+  // generic 'failed' path (shared by every abort/failure, not just BRC-177
+  // ones — `protectNoSendExpiryReclaimInputOnFailure` queries
+  // `noSendExpiryReclaimTxid` unconditionally) threw "no such column" instead
+  // of "no match", and NO 'failed' transition could complete on the real app
+  // schema. `core/storage/schema/createTables.ts`'s `ensureTransactionsColumns`
+  // (run from `StorageExpoSQLite.migrate()` above) now adds these columns for
+  // every database, so this test exercises the real, unmodified app schema —
+  // see `__tests__/storage/noSendExpirySchema.test.ts` for the regression
+  // coverage of that migration itself.
 
   const storageManager = new WalletStorageManager(payerIdentityKey, storage as never)
   const signer = new WalletSigner('test' as never, payerKeyDeriver as never, storageManager)

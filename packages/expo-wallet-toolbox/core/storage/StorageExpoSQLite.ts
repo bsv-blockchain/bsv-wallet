@@ -1166,7 +1166,9 @@ export class StorageExpoSQLite extends StorageProvider {
       args,
       'transactionId',
       extraConditions.length > 0 ? { conditions: extraConditions, params: extraParams } : undefined,
-      args.noRawTx ? columnsExcluding('transactions', ['rawTx', 'inputBEEF']) : undefined
+      // NEW-01: noSendExpiryReclaimRawTx is the other large blob TABLE_COLUMNS
+      // now lists for this table — exclude it too, or noRawTx stops being cheap.
+      args.noRawTx ? columnsExcluding('transactions', ['rawTx', 'inputBEEF', 'noSendExpiryReclaimRawTx']) : undefined
     )
 
     const results = this.validateEntities(rows, undefined, ['isOutgoing'])

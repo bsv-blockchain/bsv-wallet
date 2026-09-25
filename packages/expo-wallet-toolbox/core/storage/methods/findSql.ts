@@ -67,7 +67,23 @@ export const TABLE_COLUMNS: Record<string, string[]> = {
     'txid',
     'inputBEEF',
     'rawTx',
-    'provenTxId'
+    'provenTxId',
+    // NEW-01: BRC-177 lifecycle columns (core/storage/schema/createTables.ts's
+    // ensureTransactionsColumns) — without these here, a noRawTx-projected
+    // findTransactions() silently drops them even though the table has them.
+    'noSendExpiryMode',
+    'noSendExpiryValue',
+    'noSendExpiryDeadline',
+    'noSendExpiryState',
+    'noSendExpiryAnchorTxid',
+    'noSendExpiryAnchorVout',
+    'noSendExpiryReleasedAt',
+    'noSendExpiryObservedAt',
+    'noSendExpiryReclaimTxid',
+    'noSendExpiryReclaimRawTx',
+    'noSendExpiryReclaimDerivationPrefix',
+    'noSendExpiryReclaimDerivationSuffix',
+    'noSendExpiryReclaimSatoshis'
   ],
   outputs: [
     'outputId',
@@ -113,7 +129,10 @@ export const TABLE_COLUMNS: Record<string, string[]> = {
 export const BLOB_COLUMNS: Record<string, string[]> = {
   proven_txs: ['merklePath', 'rawTx'],
   proven_tx_reqs: ['rawTx', 'inputBEEF'],
-  transactions: ['inputBEEF', 'rawTx'],
+  // NEW-01: noSendExpiryReclaimRawTx is a BLOB (the signed reclaim tx bytes)
+  // exactly like rawTx/inputBEEF — declared here so writes go through the same
+  // explicit bytesForColumn() path as every other blob column.
+  transactions: ['inputBEEF', 'rawTx', 'noSendExpiryReclaimRawTx'],
   outputs: ['lockingScript'],
   commissions: ['lockingScript']
 }
