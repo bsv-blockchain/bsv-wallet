@@ -278,6 +278,12 @@ describe('recoverVaultFromChain', () => {
       await expect(recoverVaultFromChain(wallet, ADMIN, alwaysThrows, CHAIN)).rejects.toThrow(
         /recovery scan could not complete/i
       )
+      // A VaultError with a code VaultScreen's copy table already translates
+      // — a plain Error left it showing the generic fallback instead of a
+      // message describing what actually happened.
+      await expect(recoverVaultFromChain(wallet, ADMIN, alwaysThrows, CHAIN)).rejects.toMatchObject({
+        code: 'chain-scan-failed'
+      })
     })
 
     it('throws a clear error instead of looping forever when the wallet cannot derive its own marker key', async () => {
@@ -290,6 +296,9 @@ describe('recoverVaultFromChain', () => {
       await expect(recoverVaultFromChain(brokenWallet, ADMIN, fakeChainLookup(chain), CHAIN)).rejects.toThrow(
         /recovery scan could not complete/i
       )
+      await expect(recoverVaultFromChain(brokenWallet, ADMIN, fakeChainLookup(chain), CHAIN)).rejects.toMatchObject({
+        code: 'chain-scan-failed'
+      })
     })
 
     it('tolerates an occasional transient failure without aborting — only a PERSISTENT run does', async () => {

@@ -457,6 +457,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'This vault holds less than 100,000 sats, which is too small to re-lock. Withdraw it instead and deposit again.',
       vault_err_bad_version: 'The transaction was built in the wrong format. Nothing was signed — try again.',
+      vault_err_chain_scan_failed:
+        'Could not finish scanning the blockchain for vault deposits. Check your connection and try again.',
       // enrollment
       vault_shares_unavailable: 'No key material available to print.',
       vault_enroll_begin: 'Set up vault',
@@ -1467,6 +1469,7 @@ const resources = {
         '{{nickname}} 可以打开保险库中 {{total}} 里的 {{reachable}}。请最多取出 {{reachable}}，或改用 {{otherNames}}。',
       vault_err_too_small_to_relock: '此保险库的余额不足 100,000 sats，太少而无法重新锁定。请改为取出后再存入。',
       vault_err_bad_version: '交易以错误的格式构建。尚未签名 — 请重试。',
+      vault_err_chain_scan_failed: '无法完成保险库存款的区块链扫描。请检查网络连接后重试。',
       vault_shares_unavailable: '没有可打印的密钥材料。',
       vault_enroll_begin: '设置保险库',
       vault_enroll_phase_connecting: '正在读取您的密钥…',
@@ -2450,6 +2453,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'इस वॉल्ट में 100,000 sats से कम है, जो री-लॉक के लिए बहुत कम है। इसे निकालें और फिर जमा करें।',
       vault_err_bad_version: 'लेन-देन गलत फ़ॉर्मैट में बना। कुछ भी हस्ताक्षरित नहीं हुआ — फिर कोशिश करें।',
+      vault_err_chain_scan_failed:
+        'वॉल्ट जमा के लिए ब्लॉकचेन स्कैन पूरा नहीं हो सका। अपना कनेक्शन जाँचें और फिर कोशिश करें।',
       vault_shares_unavailable: 'प्रिंट करने के लिए कोई कुंजी सामग्री उपलब्ध नहीं है।',
       vault_enroll_begin: 'वॉल्ट सेट करें',
       vault_enroll_phase_connecting: 'आपकी कुंजी पढ़ी जा रही है…',
@@ -3466,6 +3471,8 @@ const resources = {
         'Esta caja fuerte tiene menos de 100,000 sats, demasiado poco para volver a bloquear. Retíralo y deposita de nuevo.',
       vault_err_bad_version:
         'La transacción se construyó en un formato incorrecto. No se firmó nada: inténtalo de nuevo.',
+      vault_err_chain_scan_failed:
+        'No se pudo terminar de escanear la cadena de bloques en busca de depósitos de la bóveda. Comprueba tu conexión e inténtalo de nuevo.',
       vault_shares_unavailable: 'No hay material de clave disponible para imprimir.',
       vault_enroll_begin: 'Configurar caja fuerte',
       vault_enroll_phase_connecting: 'Leyendo tu llave…',
@@ -4498,6 +4505,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'Ce coffre contient moins de 100 000 sats, trop peu pour reverrouiller. Retirez-le plutôt et déposez à nouveau.',
       vault_err_bad_version: 'La transaction a été construite dans le mauvais format. Rien n’a été signé — réessayez.',
+      vault_err_chain_scan_failed:
+        "Impossible de terminer l'analyse de la blockchain à la recherche de dépôts du coffre. Vérifiez votre connexion et réessayez.",
       vault_shares_unavailable: 'Aucun matériel de clé disponible à imprimer.',
       vault_enroll_begin: 'Configurer le coffre',
       vault_enroll_phase_connecting: 'Lecture de votre clé…',
@@ -5500,6 +5509,7 @@ const resources = {
       vault_err_too_small_to_relock:
         'تحوي هذه الخزنة أقل من 100,000 ساتوشي، وهو أقل من أن يُعاد قفله. اسحبها بدلًا من ذلك ثم أودع مجددًا.',
       vault_err_bad_version: 'بُنيت المعاملة بتنسيق خاطئ. لم يُوقَّع شيء — حاول مجددًا.',
+      vault_err_chain_scan_failed: 'تعذّر إكمال فحص سلسلة الكتل بحثًا عن إيداعات الخزنة. تحقق من اتصالك وحاول مجددًا.',
       vault_shares_unavailable: 'لا توجد مادة مفتاح متاحة للطباعة.',
       vault_enroll_begin: 'إعداد الخزنة',
       vault_enroll_phase_connecting: 'جارٍ قراءة مفتاحك…',
@@ -6498,6 +6508,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'Este cofre tem menos de 100.000 sats, pouco demais para retrancar. Saque-o e deposite de novo.',
       vault_err_bad_version: 'A transação foi montada no formato errado. Nada foi assinado — tente de novo.',
+      vault_err_chain_scan_failed:
+        'Não foi possível concluir a varredura da blockchain em busca de depósitos do cofre. Verifique sua conexão e tente novamente.',
       vault_shares_unavailable: 'Não há material de chave disponível para imprimir.',
       vault_enroll_begin: 'Configurar cofre',
       vault_enroll_phase_connecting: 'Lendo a sua chave…',
@@ -7514,6 +7526,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'এই ভল্টে ১০০,০০০ sats-এর কম আছে, যা পুনরায় লক করার জন্য খুব কম। বরং তুলে নিয়ে আবার জমা দিন।',
       vault_err_bad_version: 'লেনদেনটি ভুল ফরম্যাটে তৈরি হয়েছে। কিছুই সই হয়নি — আবার চেষ্টা করুন।',
+      vault_err_chain_scan_failed:
+        'ভল্ট জমার জন্য ব্লকচেইন স্ক্যান সম্পূর্ণ করা যায়নি। আপনার সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।',
       vault_shares_unavailable: 'প্রিন্ট করার মতো কোনো কী উপাদান নেই।',
       vault_enroll_begin: 'ভল্ট সেট আপ করুন',
       vault_enroll_phase_connecting: 'আপনার কী পড়া হচ্ছে…',
@@ -8526,6 +8540,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'В этом хранилище меньше 100 000 сат — слишком мало для перезапирания. Выведите их и пополните снова.',
       vault_err_bad_version: 'Транзакция собрана в неверном формате. Ничего не подписано — попробуйте снова.',
+      vault_err_chain_scan_failed:
+        'Не удалось завершить сканирование блокчейна на предмет депозитов хранилища. Проверьте соединение и повторите попытку.',
       vault_shares_unavailable: 'Нет ключевого материала для печати.',
       vault_enroll_begin: 'Настроить хранилище',
       vault_enroll_phase_connecting: 'Чтение ключа…',
@@ -9545,6 +9561,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'Brankas ini berisi kurang dari 100.000 sat, terlalu kecil untuk dikunci ulang. Tarik saja lalu setor lagi.',
       vault_err_bad_version: 'Transaksi dibangun dalam format yang salah. Tidak ada yang ditandatangani — coba lagi.',
+      vault_err_chain_scan_failed:
+        'Tidak dapat menyelesaikan pemindaian blockchain untuk setoran vault. Periksa koneksi Anda dan coba lagi.',
       vault_shares_unavailable: 'Tidak ada materi kunci yang bisa dicetak.',
       vault_enroll_begin: 'Siapkan brankas',
       vault_enroll_phase_connecting: 'Membaca kunci Anda…',
@@ -10563,6 +10581,8 @@ const resources = {
         'この保管庫の残高は 100,000 sats 未満で、再ロックするには少なすぎます。代わりに引き出してから再度入金してください。',
       vault_err_bad_version:
         'トランザクションが誤った形式で作成されました。何も署名されていません — もう一度お試しください。',
+      vault_err_chain_scan_failed:
+        'Vaultへの入金についてブロックチェーンのスキャンを完了できませんでした。接続を確認してもう一度お試しください。',
       vault_shares_unavailable: '印刷できる鍵データがありません。',
       vault_enroll_begin: '保管庫を設定',
       vault_enroll_phase_connecting: 'キーを読み取っています…',
@@ -11592,6 +11612,8 @@ const resources = {
       vault_err_too_small_to_relock:
         'Ten sejf zawiera mniej niż 100 000 sat — za mało, by zablokować go ponownie. Zamiast tego wypłać i wpłać ponownie.',
       vault_err_bad_version: 'Transakcja została zbudowana w złym formacie. Nic nie podpisano — spróbuj ponownie.',
+      vault_err_chain_scan_failed:
+        'Nie udało się zakończyć skanowania blockchainu w poszukiwaniu depozytów do Skarbca. Sprawdź połączenie i spróbuj ponownie.',
       vault_shares_unavailable: 'Brak materiału klucza do wydrukowania.',
       vault_enroll_begin: 'Skonfiguruj sejf',
       vault_enroll_phase_connecting: 'Odczytywanie klucza…',

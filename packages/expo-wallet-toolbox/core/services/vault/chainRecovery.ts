@@ -298,7 +298,12 @@ export async function recoverVaultFromChain(
       // looping forever (INT-01/INT-06/XQ-012 availability review).
       problems.push({ index: k, reason: 'could not derive the marker key for this index' })
       if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
-        throw new Error(
+        // A plain Error here left VaultScreen (vaultErrorCopy(undefined))
+        // showing its generic fallback copy instead of a message actually
+        // describing what happened — 'chain-scan-failed' is a code the UI
+        // already translates.
+        throw new VaultError(
+          'chain-scan-failed',
           `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
         )
       }
@@ -311,7 +316,8 @@ export async function recoverVaultFromChain(
     } catch {
       problems.push({ index: k, reason: 'chain lookup failed for this marker' })
       if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
-        throw new Error(
+        throw new VaultError(
+          'chain-scan-failed',
           `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
         )
       }
