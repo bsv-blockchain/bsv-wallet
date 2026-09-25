@@ -19,7 +19,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useMessageBoxConfig } from '../../ui/components/pay/MessageBoxConfig'
 import { DEFAULT_MESSAGE_BOX_URL } from '../../core/pay/rails/handle'
 
-const t = (key: string) => key
+// useMessageBoxConfig's `t` param is react-i18next's branded TFunction, which
+// a plain function literal can never structurally satisfy (it carries a
+// private $TFunctionBrand). Cast through the real parameter type — rather
+// than importing/duplicating the inline i18next type expression — so this
+// stays correct even if that signature changes.
+const t = ((key: string) => key) as unknown as Parameters<typeof useMessageBoxConfig>[0]
 
 beforeEach(async () => {
   await AsyncStorage.clear()
