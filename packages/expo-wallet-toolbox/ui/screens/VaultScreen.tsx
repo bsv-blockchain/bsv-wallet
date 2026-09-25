@@ -73,6 +73,7 @@ import {
   getOnline,
   generateMnemonicWallet,
   backupAttestation,
+  readBackupAttestation,
   VaultError,
   haptics,
   i18n
@@ -286,7 +287,9 @@ export function VaultScreen() {
         if (!stale && complete) await reload()
       })
       .catch(error => console.error('[vault] pending key-removal reconciliation failed:', error))
-    return () => { stale = true }
+    return () => {
+      stale = true
+    }
   }, [pm, meta?.pendingRemoval, adminOriginator, reload])
 
   // ── helpers ─────────────────────────────────────────────────────────
@@ -296,8 +299,9 @@ export function VaultScreen() {
       refs
         .map(r => {
           const current = metaRef.current
-          const rec = [...(current?.keys ?? []), ...(current?.pendingRemoval ? [current.pendingRemoval.key] : [])]
-            .find(k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey)
+          const rec = [...(current?.keys ?? []), ...(current?.pendingRemoval ? [current.pendingRemoval.key] : [])].find(
+            k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey
+          )
           return rec ? vaultKeyLabel(rec) : `…${r.pubkey.slice(-4)}`
         })
         .join(', '),
@@ -376,10 +380,12 @@ export function VaultScreen() {
         return
       }
       if (vaultError?.code === 'pin-invalid') setAdoptionPin('')
-      setAdoptionError(vaultErrorCopy(vaultError?.code, {
-        count: vaultError?.retriesLeft,
-        names: metaRef.current?.keys.map(vaultKeyLabel).join(', ') || undefined
-      }))
+      setAdoptionError(
+        vaultErrorCopy(vaultError?.code, {
+          count: vaultError?.retriesLeft,
+          names: metaRef.current?.keys.map(vaultKeyLabel).join(', ') || undefined
+        })
+      )
     } finally {
       setAdoptionBusy(false)
     }
@@ -439,7 +445,8 @@ export function VaultScreen() {
           throw new VaultError('template-invalid', 'Vault re-lock made no progress')
         }
         previousCapped = result.cappedInputs
-        if (result.cappedInputs > 0) showToast(t('vault_relock_capped', { count: result.cappedInputs }), { type: 'info' })
+        if (result.cappedInputs > 0)
+          showToast(t('vault_relock_capped', { count: result.cappedInputs }), { type: 'info' })
       } while (result.cappedInputs > 0)
       refresh()
       refreshCoverage()
@@ -496,7 +503,20 @@ export function VaultScreen() {
     } finally {
       setRelocking(false)
     }
-  }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor, reload, backupOffAlert])
+  }, [
+    pm,
+    relock,
+    relockSerial,
+    relocking,
+    adminOriginator,
+    transferOpts,
+    closeRelock,
+    refresh,
+    refreshCoverage,
+    namesFor,
+    reload,
+    backupOffAlert
+  ])
 
   // ── wizard hand-offs ────────────────────────────────────────────────
   /**
@@ -608,7 +628,10 @@ export function VaultScreen() {
         // for the re-lock that makes the keys still on it open every deposit.
         openRelock({
           reason: t('vault_relock_reason_remaining', {
-            names: m.keys.filter(k => k.serial !== rec.serial).map(vaultKeyLabel).join(', ')
+            names: m.keys
+              .filter(k => k.serial !== rec.serial)
+              .map(vaultKeyLabel)
+              .join(', ')
           }),
           revoke: rec
         })
@@ -706,6 +729,13 @@ export function VaultScreen() {
    * destinationPress → BiometricAdvisoryModal → ensureWalletExists.
    */
   const creatingWalletRef = useRef(false)
+  // XR-003: set only on the branch below that generates a BRAND NEW mnemonic.
+  // A freshly generated wallet is certainly unattested (markPending was just
+  // written for it); onAdvisoryContinue reads this to skip a redundant
+  // attestation lookup and go straight to the mandatory seed-preservation
+  // screen, rather than risk a stale `managers.permissionsManager` closure
+  // read immediately after this same call just built it.
+  const justCreatedIdentityRef = useRef<string | null>(null)
   const ensureWalletExists = useCallback(async (): Promise<boolean> => {
     if (managers.permissionsManager) return true
     if (!secretsReady || walletBuilding || creatingWalletRef.current) return false
@@ -723,6 +753,7 @@ export function VaultScreen() {
         if (!(await hasStoredIdentity())) router.replace('/auth/mnemonic')
         return false
       }
+      justCreatedIdentityRef.current = wallet.identityKey
       try {
         await backupAttestation.markPending(wallet.identityKey)
       } catch (error) {
@@ -736,10 +767,42 @@ export function VaultScreen() {
     } finally {
       creatingWalletRef.current = false
     }
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, createMnemonic, buildWalletFromMnemonic, router])
+  }, [
+    managers.permissionsManager,
+    secretsReady,
+    walletBuilding,
+    hasStoredIdentity,
+    createMnemonic,
+    buildWalletFromMnemonic,
+    router
+  ])
+
+  /**
+   * XR-003: neither the enroll wizard nor a deposit may be reached before the
+   * mnemonic that alone can recover this vault (I1/I2 — YubiKeys carry no
+   * seed) has been durably preserved off-device at least once. Distinct from
+   * the ordinary wallet's dismissible backupAttestation reminder (which stays
+   * non-blocking): here the same record BLOCKS instead of reminding, because
+   * real money is about to depend on it. `knownUnattested` skips the lookup
+   * for the one caller (onAdvisoryContinue, immediately after generating a
+   * brand new mnemonic) where `managers.permissionsManager` may still be a
+   * stale pre-build closure read.
+   */
+  const requireBackupAttested = useCallback(
+    async (knownUnattested = false): Promise<boolean> => {
+      const attested = knownUnattested
+        ? null
+        : await readBackupAttestation(managers.permissionsManager, adminOriginator)
+      if (attested) return true
+      router.push('/auth/mnemonic?flow=backup')
+      return false
+    },
+    [managers.permissionsManager, adminOriginator, router]
+  )
 
   const onDeposit = useCallback(async () => {
     if (managers.permissionsManager) {
+      if (!(await requireBackupAttested())) return
       router.push('/vault-transfer?direction=deposit')
       return
     }
@@ -751,10 +814,11 @@ export function VaultScreen() {
     }
     setWalletCreationIntent('deposit')
     setShowBiometricAdvisory(true)
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, router])
+  }, [managers.permissionsManager, requireBackupAttested, secretsReady, walletBuilding, hasStoredIdentity, router])
 
   const onBeginEnrollment = useCallback(async () => {
     if (managers.permissionsManager) {
+      if (!(await requireBackupAttested())) return
       setWizard('enroll')
       return
     }
@@ -766,7 +830,7 @@ export function VaultScreen() {
     }
     setWalletCreationIntent('enroll')
     setShowBiometricAdvisory(true)
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity])
+  }, [managers.permissionsManager, requireBackupAttested, secretsReady, walletBuilding, hasStoredIdentity])
 
   const onAdvisoryContinue = useCallback(() => {
     // Kept up (with a spinner in place of the label) until wallet creation
@@ -779,6 +843,9 @@ export function VaultScreen() {
         const created = await ensureWalletExists()
         setShowBiometricAdvisory(false)
         if (created) {
+          const justCreated = justCreatedIdentityRef.current !== null
+          justCreatedIdentityRef.current = null
+          if (!(await requireBackupAttested(justCreated))) return
           if (walletCreationIntent === 'enroll') setWizard('enroll')
           else router.push('/vault-transfer?direction=deposit')
         }
@@ -786,7 +853,7 @@ export function VaultScreen() {
         setCreatingWallet(false)
       }
     })()
-  }, [ensureWalletExists, router, walletCreationIntent])
+  }, [ensureWalletExists, requireBackupAttested, router, walletCreationIntent])
 
   // ── header ──────────────────────────────────────────────────────────
   // While the wizard is up, back means "leave set-up" and goes through the
@@ -813,7 +880,11 @@ export function VaultScreen() {
         <View style={styles.centered}>
           <Ionicons name="alert-circle-outline" size={44} color={colors.error} />
           <Text style={[styles.p, { color: colors.textPrimary }]}>{recoveryError}</Text>
-          <PressableScale haptic="tap" onPress={retryRecovery} style={[styles.primary, { backgroundColor: colors.accent }]}>
+          <PressableScale
+            haptic="tap"
+            onPress={retryRecovery}
+            style={[styles.primary, { backgroundColor: colors.accent }]}
+          >
             <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_retry')}</Text>
           </PressableScale>
         </View>
@@ -837,7 +908,11 @@ export function VaultScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
-        <EnrollWizard mode={wizard} onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded} onCancel={() => void closeWizard()} />
+        <EnrollWizard
+          mode={wizard}
+          onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded}
+          onCancel={() => void closeWizard()}
+        />
       </View>
     )
   }
@@ -869,7 +944,11 @@ export function VaultScreen() {
                   styles.primary,
                   canEnroll
                     ? { backgroundColor: colors.accent }
-                    : { backgroundColor: 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }
+                    : {
+                        backgroundColor: 'transparent',
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: colors.separator
+                      }
                 ]}
               >
                 <Text style={[styles.primaryLabel, { color: canEnroll ? colors.textOnAccent : colors.textTertiary }]}>
@@ -887,7 +966,9 @@ export function VaultScreen() {
               {enabled && !supported && (
                 <View style={styles.heroNotice}>
                   <Text style={[styles.heroNoticeTitle, { color: colors.error }]}>{t('vault_unsupported_title')}</Text>
-                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t('vault_unsupported_body')}</Text>
+                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                    {t('vault_unsupported_body')}
+                  </Text>
                 </View>
               )}
               {/* No local vault meta at all: a wiped device / reinstall with
@@ -905,7 +986,9 @@ export function VaultScreen() {
                     {restoringFromChain ? (
                       <ActivityIndicator color={colors.accent} />
                     ) : (
-                      <Text style={[styles.secondaryLabel, { color: colors.accent }]}>{t('vault_restore_from_chain')}</Text>
+                      <Text style={[styles.secondaryLabel, { color: colors.accent }]}>
+                        {t('vault_restore_from_chain')}
+                      </Text>
                     )}
                   </PressableScale>
                   {restoreNotice && (
@@ -991,7 +1074,11 @@ export function VaultScreen() {
             accessibilityState={{ disabled: !canWithdraw }}
             style={[
               styles.actionBtn,
-              { backgroundColor: colors.backgroundElevated, borderColor: colors.separator, borderWidth: StyleSheet.hairlineWidth }
+              {
+                backgroundColor: colors.backgroundElevated,
+                borderColor: colors.separator,
+                borderWidth: StyleSheet.hairlineWidth
+              }
             ]}
           >
             <Ionicons name="arrow-up" size={18} color={colors.accent} />
@@ -999,7 +1086,9 @@ export function VaultScreen() {
           </PressableScale>
         </View>
         {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>}
-        {transfersBlocked && <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>}
+        {transfersBlocked && (
+          <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>
+        )}
         {recoveryRequired && !hasRecoveryRedundancy && (
           <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
         )}
@@ -1072,7 +1161,13 @@ export function VaultScreen() {
             />
           )}
           {canAdd && (
-            <ListRow label={t('vault_add_key_row')} icon="add-circle-outline" iconColor={colors.info} onPress={openAddKey} isLast />
+            <ListRow
+              label={t('vault_add_key_row')}
+              icon="add-circle-outline"
+              iconColor={colors.info}
+              onPress={openAddKey}
+              isLast
+            />
           )}
         </GroupedSection>
 
@@ -1129,7 +1224,11 @@ export function VaultScreen() {
             onSubmitEditing={() => void saveRename()}
             autoFocus
           />
-          <PressableScale haptic="confirm" onPress={() => void saveRename()} style={[styles.primary, { backgroundColor: colors.accent }]}>
+          <PressableScale
+            haptic="confirm"
+            onPress={() => void saveRename()}
+            style={[styles.primary, { backgroundColor: colors.accent }]}
+          >
             <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_rename_save')}</Text>
           </PressableScale>
           <PressableScale onPress={() => setRenaming(null)} style={styles.secondary}>
@@ -1196,7 +1295,12 @@ export function VaultScreen() {
       </Sheet>
 
       {/* Re-lock — choose the key, then one ceremony tap per pass. */}
-      <Sheet visible={relock !== null} onClose={relocking ? noop : closeRelock} title={t('vault_relock_row')} fitContent>
+      <Sheet
+        visible={relock !== null}
+        onClose={relocking ? noop : closeRelock}
+        title={t('vault_relock_row')}
+        fitContent
+      >
         <View style={styles.sheetBody}>
           {relock?.reason ? <Text style={[styles.p, { color: colors.textSecondary }]}>{relock.reason}</Text> : null}
           <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_relock_choose')}</Text>

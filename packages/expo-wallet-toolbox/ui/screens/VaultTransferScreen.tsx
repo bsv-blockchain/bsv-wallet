@@ -53,6 +53,7 @@ import {
   isVaultAvailable,
   isBackupPushEnabled,
   getBackupUrl,
+  readBackupAttestation,
   type VaultWallet,
   type VaultMeta,
   type VaultSpendResult,
@@ -176,9 +177,7 @@ export function VaultTransferScreen() {
       if (!m || m.keys.length === 0) return
       // Restored records are offered only after this device has proved live
       // possession. Default to the last eligible key, then the first.
-      const eligible = m.recovery?.required
-        ? m.keys.filter(k => m.recovery!.adoptedSerials.includes(k.serial))
-        : m.keys
+      const eligible = m.recovery?.required ? m.keys.filter(k => m.recovery!.adoptedSerials.includes(k.serial)) : m.keys
       const lastUsed = eligible.find(k => k.serial === m.lastUsedSerial)
       setChosenSerial((lastUsed ?? eligible[0])?.serial)
     })
@@ -191,9 +190,8 @@ export function VaultTransferScreen() {
   // every render would invalidate them all.
   const allKeys = useMemo(() => meta?.keys ?? [], [meta])
   const keys = useMemo(
-    () => meta?.recovery?.required
-      ? allKeys.filter(key => meta.recovery!.adoptedSerials.includes(key.serial))
-      : allKeys,
+    () =>
+      meta?.recovery?.required ? allKeys.filter(key => meta.recovery!.adoptedSerials.includes(key.serial)) : allKeys,
     [meta, allKeys]
   )
   const chosen = keys.find(k => k.serial === chosenSerial)
@@ -245,6 +243,29 @@ export function VaultTransferScreen() {
     if (choice === 'settings') router.push('/wallet-config?section=backup' as never)
   }, [backupConfigured, router])
 
+  /**
+   * XR-003: a distinct, blocking check from `privateBackupEnabled` above —
+   * that one gates the encrypted REMOTE backup upload; this one gates the
+   * LOCAL mnemonic that alone can recover this vault (I1/I2 — YubiKeys carry
+   * no seed) ever having been preserved off-device. VaultScreen's own
+   * deposit/enroll entry points already require this before reaching this
+   * screen, but a session that reached here some other way (a deep link, or
+   * one that skipped the ceremony before this fix shipped) must still be
+   * caught at the funding boundary rather than only at first creation.
+   */
+  const seedNotPreservedAlert = useCallback(async () => {
+    haptics.error()
+    const choice = await showAlert({
+      title: t('vault_seed_not_preserved_title'),
+      message: t('vault_seed_not_preserved_body'),
+      buttons: [
+        { text: t('vault_seed_not_preserved_cta'), key: 'backup' },
+        { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+      ]
+    })
+    if (choice === 'backup') router.push('/auth/mnemonic?flow=backup' as never)
+  }, [router])
+
   /** Everything vaultErrorCopy can name for this screen's errors. */
   const errorParams = useCallback(
     (e: unknown): VaultErrorParams => {
@@ -284,6 +305,15 @@ export function VaultTransferScreen() {
     setError(null)
     try {
       if (isDeposit) {
+        // XR-003: checked before privateBackupEnabled and before the
+        // first-deposit confirmation, for the same reason both of those run
+        // early — the user must never be asked to approve a transfer that a
+        // missing recovery prerequisite would make catastrophic instead of
+        // merely rejected.
+        if (!(await readBackupAttestation(pm, adminOriginator))) {
+          await seedNotPreservedAlert()
+          return
+        }
         // Check before first-deposit confirmation so the user is never asked
         // to approve a transfer the service must reject. The service receives
         // the same callback and checks again at the output-creation boundary.
@@ -423,6 +453,7 @@ export function VaultTransferScreen() {
     namesFor,
     privateBackupEnabled,
     backupOffAlert,
+    seedNotPreservedAlert,
     errorParams,
     refresh,
     router

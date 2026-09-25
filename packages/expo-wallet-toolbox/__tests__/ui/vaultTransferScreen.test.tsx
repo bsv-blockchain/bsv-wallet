@@ -1,8 +1,7 @@
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() }
 const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
@@ -20,6 +19,10 @@ let mockBackupOn = true
 let mockBackupUrl = 'https://backup.example.test'
 let mockWallet: any
 const mockIsBackupPushEnabled = jest.fn(async () => mockBackupOn)
+// XR-003: attested by default so every existing deposit test — none of which
+// is about seed preservation — keeps depositing. The unattested case gets
+// its own test.
+const mockReadBackupAttestation = jest.fn(async () => ({ v: 1 as const, medium: 'phrase' as const, at: 1 }))
 
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
@@ -41,6 +44,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     isVaultAvailable: (chain: string) => mockVaultEnabled && chain === 'main',
     isBackupPushEnabled: () => mockIsBackupPushEnabled(),
     getBackupUrl: () => mockBackupUrl,
+    readBackupAttestation: (...a: unknown[]) => mockReadBackupAttestation(...a),
     getOnline: async () => true,
     estimateRelockFee: () => 3080,
     R1C_LOCK_LEN: () => 27881,
@@ -49,7 +53,11 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     haptics: { tap: jest.fn(), confirm: jest.fn(), success: jest.fn(), warning: jest.fn(), error: jest.fn() }
   }
 })
-jest.mock('expo-router', () => ({ router: mockRouter, useLocalSearchParams: () => mockParams, useFocusEffect: () => {} }))
+jest.mock('expo-router', () => ({
+  router: mockRouter,
+  useLocalSearchParams: () => mockParams,
+  useFocusEffect: () => {}
+}))
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null, MaterialCommunityIcons: () => null }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
 jest.mock('../../ui/components/ui/PressableScale', () => {
@@ -67,7 +75,8 @@ jest.mock('../../ui/components/wallet/AmountInput', () => {
   const { TextInput } = require('react-native')
   return {
     SEND_MAX_VALUE: '2099999999999999',
-    AmountInput: ({ value, onChangeText }: any) => React.createElement(TextInput, { testID: 'amount', value, onChangeText })
+    AmountInput: ({ value, onChangeText }: any) =>
+      React.createElement(TextInput, { testID: 'amount', value, onChangeText })
   }
 })
 jest.mock('../../ui/components/wallet/AmountDisplay', () => {
@@ -141,6 +150,7 @@ beforeEach(() => {
   mockGetVaultBalance.mockReset().mockRejectedValue(new Error('getVaultBalance not mocked for this test'))
   mockExpectBalance.mockReset()
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
+  mockReadBackupAttestation.mockReset().mockResolvedValue({ v: 1, medium: 'phrase', at: 1 })
   mockShowAlert.mockReset()
   mockWallet = {
     managers: { permissionsManager: { createAction: jest.fn() } },
@@ -168,7 +178,9 @@ describe('deposit', () => {
   test('renders the floor and fee line', async () => {
     const screen = await renderTransfer('deposit')
     expect(
-      screen.getByText('vault_floor_line:{"floorDisplay":"100,000 sats","floorSats":"100,000","feeDisplay":"3,080 sats"}')
+      screen.getByText(
+        'vault_floor_line:{"floorDisplay":"100,000 sats","floorSats":"100,000","feeDisplay":"3,080 sats"}'
+      )
     ).toBeTruthy()
     expect(screen.getByText('vault_deposit_sub')).toBeTruthy()
     expect(screen.queryByText('vault_choose_key')).toBeNull()
@@ -192,7 +204,11 @@ describe('deposit', () => {
       })
     )
     expect(mockDeposit).toHaveBeenCalledTimes(1)
-    expect(mockDeposit.mock.calls[0].slice(0, 3)).toEqual([mockWallet.managers.permissionsManager, 'admin.test', 150000])
+    expect(mockDeposit.mock.calls[0].slice(0, 3)).toEqual([
+      mockWallet.managers.permissionsManager,
+      'admin.test',
+      150000
+    ])
     expect(mockDeposit.mock.calls[0]).toHaveLength(4)
     expect(mockShowToast).toHaveBeenCalledWith('vault_deposit_done', { type: 'success' })
     expect(mockRefresh).toHaveBeenCalled()
@@ -218,7 +234,10 @@ describe('deposit', () => {
     mockBalance = 500_000
     let resolveBackup: (v: boolean) => void = () => {}
     mockIsBackupPushEnabled.mockImplementationOnce(
-      () => new Promise<boolean>(resolve => { resolveBackup = resolve })
+      () =>
+        new Promise<boolean>(resolve => {
+          resolveBackup = resolve
+        })
     )
     const screen = await renderTransfer('deposit')
     fireEvent.changeText(screen.getByTestId('amount'), '200000')
@@ -252,14 +271,36 @@ describe('deposit', () => {
     expect(mockDeposit).not.toHaveBeenCalled()
   })
 
+  test('XR-003: an unattested recovery phrase blocks the deposit before the backup-service check', async () => {
+    mockReadBackupAttestation.mockResolvedValue(null)
+    mockShowAlert.mockResolvedValueOnce('backup')
+    const screen = await renderTransfer('deposit')
+    await typeAndRun(screen, '150000', 'vault_deposit_cta')
+    expect(mockShowAlert).toHaveBeenCalledWith({
+      title: 'vault_seed_not_preserved_title',
+      message: 'vault_seed_not_preserved_body',
+      buttons: [
+        { text: 'vault_seed_not_preserved_cta', key: 'backup' },
+        { text: 'vault_cancel', key: 'cancel', style: 'cancel' }
+      ]
+    })
+    expect(mockRouter.push).toHaveBeenCalledWith('/auth/mnemonic?flow=backup')
+    // The recovery-phrase gate is unconditional: it must never even reach the
+    // (independent, mockable) backup-service check.
+    expect(mockIsBackupPushEnabled).not.toHaveBeenCalled()
+    expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
   test('no configured backup service: explains the requirement without offering an unusable settings route', async () => {
     mockBackupUrl = ''
     mockShowAlert.mockResolvedValueOnce('ok')
     const screen = await renderTransfer('deposit')
     await typeAndRun(screen, '150000', 'vault_deposit_cta')
-    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({
-      buttons: [{ text: 'vault_ok', key: 'ok' }]
-    }))
+    expect(mockShowAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttons: [{ text: 'vault_ok', key: 'ok' }]
+      })
+    )
     expect(mockIsBackupPushEnabled).not.toHaveBeenCalled()
     expect(mockRouter.push).not.toHaveBeenCalled()
     expect(mockDeposit).not.toHaveBeenCalled()
@@ -376,7 +417,10 @@ describe('withdraw', () => {
         message: 'vault_remainder_body:{"amount":"80,000 sats","remainder":"70,000 sats"}'
       })
     )
-    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.text)).toEqual(['vault_remainder_all', 'vault_remainder_change'])
+    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.text)).toEqual([
+      'vault_remainder_all',
+      'vault_remainder_change'
+    ])
     expect(mockWithdraw.mock.calls[0][2]).toBe('all')
     expect(mockWithdraw.mock.calls[0][3]).toBe('vault_withdraw_reason:{"amount":150000}')
   })
@@ -399,13 +443,15 @@ describe('withdraw', () => {
     expect(mockWithdraw.mock.calls[0][2]).toBe(100000)
   })
 
-  test('the remainder is measured against the CHOSEN key\'s selectable total, not the balance: vault 300,000, key reaches 200,000, withdraw 150,000 → confirm, and Withdraw everything runs with all', async () => {
+  test("the remainder is measured against the CHOSEN key's selectable total, not the balance: vault 300,000, key reaches 200,000, withdraw 150,000 → confirm, and Withdraw everything runs with all", async () => {
     // Spec §4.2 step 4. Against the balance the remainder would be 150,000
     // (no prompt); the service folds against the key's 200,000, so 50,000
     // would silently move — the confirmation must fire.
     mockBalance = 300_000
     mockPreview.mockResolvedValueOnce(
-      previewOf(200_000, { unreachable: { count: 1, satoshis: 100_000, keys: [{ serial: '12340001', pubkey: PUB('a') }] } })
+      previewOf(200_000, {
+        unreachable: { count: 1, satoshis: 100_000, keys: [{ serial: '12340001', pubkey: PUB('a') }] }
+      })
     )
     mockShowAlert.mockResolvedValueOnce('all')
     const screen = await renderTransfer('withdraw')
@@ -422,7 +468,7 @@ describe('withdraw', () => {
     expect(mockWithdraw.mock.calls[0][4]).toBe('12340002')
   })
 
-  test('no confirm when the chosen key\'s selectable total leaves a remainder at the floor, whatever the balance', async () => {
+  test("no confirm when the chosen key's selectable total leaves a remainder at the floor, whatever the balance", async () => {
     mockBalance = 300_000
     mockPreview.mockResolvedValueOnce(previewOf(250_000))
     const screen = await renderTransfer('withdraw')
@@ -462,7 +508,12 @@ describe('withdraw', () => {
   test('a double tap during the preview withdraws only once', async () => {
     mockBalance = 500_000
     let resolvePreview: (v: unknown) => void = () => {}
-    mockPreview.mockImplementationOnce(() => new Promise(resolve => { resolvePreview = resolve }))
+    mockPreview.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolvePreview = resolve
+        })
+    )
     const screen = await renderTransfer('withdraw')
     fireEvent.changeText(screen.getByTestId('amount'), '50000')
     await act(async () => {
@@ -537,7 +588,6 @@ describe('withdraw', () => {
     // A typed amount moves exactly that much, whatever stayed unreachable.
     expect(mockExpectBalance).toHaveBeenCalledWith(450_000)
   })
-
 
   test('a capped withdrawal alerts with the remaining count', async () => {
     mockBalance = 5_000_000

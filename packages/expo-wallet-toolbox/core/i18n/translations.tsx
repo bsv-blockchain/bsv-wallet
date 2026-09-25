@@ -417,6 +417,10 @@ const resources = {
       vault_backup_off_body:
         'Private backup must be on before the wallet creates another Vault output. It stores the authenticated YubiKey records and wallet history needed for recovery. You can still withdraw everything without creating Vault change.',
       vault_backup_off_cta: 'Open backup settings',
+      vault_seed_not_preserved_title: 'Save your recovery phrase first',
+      vault_seed_not_preserved_body:
+        'Your Vault can only be recovered with your recovery phrase plus one of your YubiKeys. YubiKeys hold no copy of it — if it is lost before you write it down, these funds cannot be recovered. Save it now before depositing.',
+      vault_seed_not_preserved_cta: 'Save recovery phrase',
       vault_choose_key: 'Which key will you tap?',
       vault_remainder_title: 'Withdraw everything?',
       vault_remainder_body:
@@ -1425,6 +1429,10 @@ const resources = {
       vault_backup_off_body:
         '钱包创建新的保险库输出前，必须开启私密备份。备份会保存恢复所需的经过验证的 YubiKey 记录和钱包历史。您仍可全部取出，而不创建保险库找零。',
       vault_backup_off_cta: '打开备份设置',
+      vault_seed_not_preserved_title: '请先保存您的恢复短语',
+      vault_seed_not_preserved_body:
+        '您的保险库只能使用恢复短语加上一枚 YubiKey 来恢复。YubiKey 上不保存该短语的副本——如果在您记下它之前将其遗失，这些资金将无法恢复。请在存款前立即保存。',
+      vault_seed_not_preserved_cta: '保存恢复短语',
       vault_choose_key: '您将轻触哪把密钥？',
       vault_remainder_title: '全部取出？',
       vault_remainder_body:
@@ -2399,6 +2407,10 @@ const resources = {
       vault_backup_off_body:
         'वॉलेट के नया वॉल्ट आउटपुट बनाने से पहले निजी बैकअप चालू होना चाहिए। इसमें रिकवरी के लिए आवश्यक प्रमाणित YubiKey रिकॉर्ड और वॉलेट इतिहास सुरक्षित रहते हैं। आप वॉल्ट चेंज बनाए बिना अब भी सब कुछ निकाल सकते हैं।',
       vault_backup_off_cta: 'बैकअप सेटिंग्स खोलें',
+      vault_seed_not_preserved_title: 'पहले अपना रिकवरी वाक्यांश सहेजें',
+      vault_seed_not_preserved_body:
+        'आपका वॉल्ट केवल आपके रिकवरी वाक्यांश और आपकी किसी एक YubiKey से ही पुनर्प्राप्त किया जा सकता है। YubiKeys में इसकी कोई प्रति नहीं रहती — यदि आप इसे लिखने से पहले खो देते हैं, तो यह धनराशि पुनर्प्राप्त नहीं की जा सकेगी। जमा करने से पहले अभी इसे सहेजें।',
+      vault_seed_not_preserved_cta: 'रिकवरी वाक्यांश सहेजें',
       vault_choose_key: 'आप कौन-सी कुंजी टैप करेंगे?',
       vault_remainder_title: 'सब कुछ निकालें?',
       vault_remainder_body:
@@ -3405,6 +3417,10 @@ const resources = {
       vault_backup_off_body:
         'La copia privada debe estar activada antes de que la billetera cree otra salida de la caja fuerte. Conserva los registros autenticados de las YubiKey y el historial de la billetera necesarios para la recuperación. Aún puedes retirar todo sin crear cambio en la caja fuerte.',
       vault_backup_off_cta: 'Abrir ajustes de copia',
+      vault_seed_not_preserved_title: 'Guarda primero tu frase de recuperación',
+      vault_seed_not_preserved_body:
+        'Tu Bóveda solo puede recuperarse con tu frase de recuperación más una de tus YubiKeys. Las YubiKeys no guardan ninguna copia de ella; si se pierde antes de que la anotes, estos fondos no podrán recuperarse. Guárdala ahora antes de depositar.',
+      vault_seed_not_preserved_cta: 'Guardar frase de recuperación',
       vault_choose_key: '¿Qué llave tocarás?',
       vault_remainder_title: '¿Retirar todo?',
       vault_remainder_body:
@@ -4432,6 +4448,10 @@ const resources = {
       vault_backup_off_body:
         'La sauvegarde privée doit être activée avant que le portefeuille crée une nouvelle sortie du coffre. Elle conserve les fiches YubiKey authentifiées et l’historique du portefeuille nécessaires à la récupération. Vous pouvez toujours tout retirer sans créer de monnaie dans le coffre.',
       vault_backup_off_cta: 'Ouvrir les réglages de sauvegarde',
+      vault_seed_not_preserved_title: "Enregistrez d'abord votre phrase de récupération",
+      vault_seed_not_preserved_body:
+        "Votre coffre ne peut être récupéré qu'avec votre phrase de récupération et l'une de vos YubiKeys. Les YubiKeys n'en conservent aucune copie : si elle est perdue avant que vous ne la notiez, ces fonds ne pourront pas être récupérés. Enregistrez-la maintenant avant de déposer.",
+      vault_seed_not_preserved_cta: 'Enregistrer la phrase de récupération',
       vault_choose_key: 'Quelle clé allez-vous approcher ?',
       vault_remainder_title: 'Tout retirer ?',
       vault_remainder_body:
@@ -5430,6 +5450,10 @@ const resources = {
       vault_backup_off_body:
         'يجب تفعيل النسخة الاحتياطية الخاصة قبل أن تنشئ المحفظة مخرج خزنة جديدًا. فهي تحفظ سجلات YubiKey الموثّقة وسجل المحفظة اللازمين للاسترداد. ولا يزال بإمكانك سحب كل شيء من دون إنشاء باقي في الخزنة.',
       vault_backup_off_cta: 'فتح إعدادات النسخ الاحتياطي',
+      vault_seed_not_preserved_title: 'احفظ عبارة الاسترداد أولاً',
+      vault_seed_not_preserved_body:
+        'لا يمكن استرداد خزنتك إلا باستخدام عبارة الاسترداد الخاصة بك مع إحدى مفاتيح YubiKey. لا تحتفظ مفاتيح YubiKey بأي نسخة منها — إذا فُقدت قبل أن تدوّنها، فلن يمكن استرداد هذه الأموال. احفظها الآن قبل الإيداع.',
+      vault_seed_not_preserved_cta: 'حفظ عبارة الاسترداد',
       vault_choose_key: 'أي مفتاح ستلمس؟',
       vault_remainder_title: 'سحب كل شيء؟',
       vault_remainder_body:
@@ -6421,6 +6445,10 @@ const resources = {
       vault_backup_off_body:
         'O backup privado deve estar ativo antes que a carteira crie outra saída do cofre. Ele guarda os registros autenticados das YubiKeys e o histórico da carteira necessários para a recuperação. Você ainda pode sacar tudo sem criar troco no cofre.',
       vault_backup_off_cta: 'Abrir configurações de backup',
+      vault_seed_not_preserved_title: 'Salve primeiro sua frase de recuperação',
+      vault_seed_not_preserved_body:
+        'Seu Cofre só pode ser recuperado com sua frase de recuperação mais uma de suas YubiKeys. As YubiKeys não guardam nenhuma cópia dela — se ela for perdida antes de você anotá-la, esses fundos não poderão ser recuperados. Salve-a agora antes de depositar.',
+      vault_seed_not_preserved_cta: 'Salvar frase de recuperação',
       vault_choose_key: 'Qual chave você vai encostar?',
       vault_remainder_title: 'Sacar tudo?',
       vault_remainder_body:
@@ -7433,6 +7461,10 @@ const resources = {
       vault_backup_off_body:
         'ওয়ালেট নতুন ভল্ট আউটপুট তৈরি করার আগে ব্যক্তিগত ব্যাকআপ চালু থাকতে হবে। এটি পুনরুদ্ধারের জন্য প্রয়োজনীয় প্রমাণীকৃত YubiKey রেকর্ড এবং ওয়ালেট ইতিহাস সংরক্ষণ করে। ভল্ট চেঞ্জ তৈরি না করে আপনি এখনও সব তুলে নিতে পারেন।',
       vault_backup_off_cta: 'ব্যাকআপ সেটিংস খুলুন',
+      vault_seed_not_preserved_title: 'প্রথমে আপনার রিকভারি বাক্যাংশ সংরক্ষণ করুন',
+      vault_seed_not_preserved_body:
+        'আপনার ভল্ট শুধুমাত্র আপনার রিকভারি বাক্যাংশ এবং আপনার একটি YubiKey দিয়ে পুনরুদ্ধার করা যেতে পারে। YubiKey-তে এর কোনো কপি থাকে না — আপনি এটি লিখে রাখার আগে হারিয়ে গেলে এই তহবিল পুনরুদ্ধার করা যাবে না। জমা দেওয়ার আগে এখনই এটি সংরক্ষণ করুন।',
+      vault_seed_not_preserved_cta: 'রিকভারি বাক্যাংশ সংরক্ষণ করুন',
       vault_choose_key: 'কোন কী ট্যাপ করবেন?',
       vault_remainder_title: 'সব তুলে নেবেন?',
       vault_remainder_body:
@@ -8438,6 +8470,10 @@ const resources = {
       vault_backup_off_body:
         'Приватная копия должна быть включена до создания нового выхода хранилища. Она сохраняет проверенные записи YubiKey и историю кошелька, необходимые для восстановления. Вы по-прежнему можете вывести всё без создания сдачи в хранилище.',
       vault_backup_off_cta: 'Открыть настройки копии',
+      vault_seed_not_preserved_title: 'Сначала сохраните фразу восстановления',
+      vault_seed_not_preserved_body:
+        'Ваше Хранилище можно восстановить только с помощью фразы восстановления и одного из ваших YubiKey. YubiKey не хранит её копию — если она будет потеряна до того, как вы её запишете, эти средства нельзя будет восстановить. Сохраните её сейчас, прежде чем вносить депозит.',
+      vault_seed_not_preserved_cta: 'Сохранить фразу восстановления',
       vault_choose_key: 'Какой ключ вы приложите?',
       vault_remainder_title: 'Вывести всё?',
       vault_remainder_body:
@@ -9451,6 +9487,10 @@ const resources = {
       vault_backup_off_body:
         'Cadangan pribadi harus aktif sebelum dompet membuat output brankas baru. Cadangan ini menyimpan catatan YubiKey terautentikasi dan riwayat dompet yang diperlukan untuk pemulihan. Anda tetap dapat menarik semuanya tanpa membuat kembalian brankas.',
       vault_backup_off_cta: 'Buka pengaturan cadangan',
+      vault_seed_not_preserved_title: 'Simpan dulu frasa pemulihan Anda',
+      vault_seed_not_preserved_body:
+        'Vault Anda hanya bisa dipulihkan dengan frasa pemulihan Anda ditambah salah satu YubiKey Anda. YubiKey tidak menyimpan salinannya — jika frasa itu hilang sebelum Anda mencatatnya, dana ini tidak dapat dipulihkan. Simpan sekarang sebelum melakukan setoran.',
+      vault_seed_not_preserved_cta: 'Simpan frasa pemulihan',
       vault_choose_key: 'Kunci mana yang akan Anda tempelkan?',
       vault_remainder_title: 'Tarik semuanya?',
       vault_remainder_body:
@@ -10462,6 +10502,10 @@ const resources = {
       vault_backup_off_body:
         'ウォレットが新しい保管庫出力を作成する前に、プライベートバックアップをオンにする必要があります。復旧に必要な認証済み YubiKey 記録とウォレット履歴が保存されます。保管庫のおつりを作成せずに、すべてを引き出すことはできます。',
       vault_backup_off_cta: 'バックアップ設定を開く',
+      vault_seed_not_preserved_title: '先に復元フレーズを保存してください',
+      vault_seed_not_preserved_body:
+        'このVaultは復元フレーズとYubiKeyのいずれか1つがなければ復元できません。YubiKeyにはそのコピーは保存されません——書き留める前に紛失すると、この資金は復元できなくなります。入金する前に今すぐ保存してください。',
+      vault_seed_not_preserved_cta: '復元フレーズを保存',
       vault_choose_key: 'どの鍵をかざしますか？',
       vault_remainder_title: 'すべて引き出しますか？',
       vault_remainder_body:
@@ -11486,6 +11530,10 @@ const resources = {
       vault_backup_off_body:
         'Prywatna kopia musi być włączona, zanim portfel utworzy nowe wyjście sejfu. Przechowuje uwierzytelnione zapisy YubiKey i historię portfela potrzebne do odzyskania. Nadal możesz wypłacić wszystko bez tworzenia reszty w sejfie.',
       vault_backup_off_cta: 'Otwórz ustawienia kopii',
+      vault_seed_not_preserved_title: 'Najpierw zapisz swoją frazę odzyskiwania',
+      vault_seed_not_preserved_body:
+        'Twój Skarbiec można odzyskać wyłącznie za pomocą frazy odzyskiwania i jednego z Twoich kluczy YubiKey. Klucze YubiKey nie przechowują jej kopii — jeśli zgubisz ją, zanim ją zapiszesz, tych środków nie da się odzyskać. Zapisz ją teraz, zanim dokonasz wpłaty.',
+      vault_seed_not_preserved_cta: 'Zapisz frazę odzyskiwania',
       vault_choose_key: 'Który klucz przyłożysz?',
       vault_remainder_title: 'Wypłacić wszystko?',
       vault_remainder_body:
