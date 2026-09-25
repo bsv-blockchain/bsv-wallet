@@ -25,6 +25,24 @@
  * how a restored row's local `seq` should interleave with whatever this fresh device's own
  * autoincrement has already assigned. Both are tractable but are a separate, larger change
  * from the three KV rows here, which is why they are not included yet.
+ *
+ * KNOWN, STILL-OPEN GAP (see XR-011's reviewer follow-up): a row written here is only ever
+ * actually PERSISTED to the backup log on a push whose CHUNK already carries a real toolbox-
+ * entity change — see push.ts's own comment at its `captureAppDataSnapshot` call and
+ * codec.ts's encodeChunk docs for why (an appData-only entry, with every entity array empty,
+ * would trip the toolbox's own processSyncChunk completion sentinel for a downstream reader
+ * that doesn't yet understand this field). That means the row's own headline scenario — an
+ * acknowledged Nearby/QR payment, a PeerPay delivery checkpoint, or an issued receive date,
+ * with NOTHING ELSE touching an entity table in that same window — is NOT covered: the row
+ * stays local-only until some unrelated entity-bearing push happens to close a later window,
+ * which may never occur before the device is lost. This is pinned end-to-end (not merely at
+ * the pushOnce-unit level) by
+ * __tests__/backup/appDataIsolatedActivity.test.ts. Closing it for real needs either a
+ * dedicated appData-only log-entry shape — safe only once every device in the fleet is known
+ * to run a build that understands it — or a separate backup-server channel outside the
+ * per-device chunk log; both are wire/server changes shared with other devices, not a
+ * same-device code fix, so they are recorded here as an open design delta rather than
+ * attempted.
  */
 import { OUTBOX_KEY } from '../peerpay/outbox'
 import { PENDING_KEY } from '../localpay/pending'

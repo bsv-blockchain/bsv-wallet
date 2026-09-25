@@ -12,10 +12,13 @@
  *
  * This store answers that question. It is capped by COUNT, not calendar age — an issued
  * date is worth remembering indefinitely, since sweepAddress (core/pay/rails/address.ts) is
- * idempotent and cheap to retry for a date that turns out to hold nothing — and it is
- * included in the encrypted backup envelope (core/backup/appData.ts) so a restored device
- * can resume scanning every date this wallet has ever shown, not just the ones the
- * restoring device itself issued.
+ * idempotent and cheap to retry for a date that turns out to hold nothing — and it rides the
+ * encrypted backup envelope (core/backup/appData.ts) so a restored device CAN resume
+ * scanning every date this wallet has ever shown, not just the ones the restoring device
+ * itself issued — but only for a date recorded in a window where some OTHER entity change
+ * also happened to get pushed; see appData.ts's own "KNOWN, STILL-OPEN GAP" note for why a
+ * date issued with nothing else going on in the wallet at the time can still fail to reach
+ * the log at all.
  */
 
 export const RECEIVE_HISTORY_KEY = 'pay_receive_issued_dates'

@@ -132,6 +132,17 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   })
 
   if (isEmptyChunk(chunk)) {
+    // KNOWN, STILL-OPEN GAP (XR-011/XR-055): this branch returns before captureAppDataSnapshot
+    // is ever called below, on purpose (see that call's own comment and codec.ts's encodeChunk
+    // docs for why an appData-only entry is unsafe to append) — but the practical consequence
+    // is that ANY appData queued right now (a just-acknowledged localpay_pending frame, a
+    // peerpay_outbox delivery checkpoint, a just-recorded receiveIssuedDates entry) is not
+    // merely delayed, it never reaches THIS push at all: the window closes with nothing sent,
+    // and the row stays local-only until some unrelated entity change happens to close a
+    // later window. See appData.ts's module docstring for the design delta this needs, and
+    // __tests__/backup/appDataIsolatedActivity.test.ts, which pins this exact scenario
+    // end-to-end (push → restore) rather than only at this function's own unit level.
+    //
     // Window exhausted. Advance `since` past everything seen and reset the offsets, as
     // EntitySyncState does when its merge reports done — except that we advance PAST the
     // high-water mark rather than onto it. See nextInstant.
