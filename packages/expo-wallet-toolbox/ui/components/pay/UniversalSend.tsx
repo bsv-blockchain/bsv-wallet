@@ -383,6 +383,12 @@ function UniversalSendInner(
     initialNotice ? { type: 'error', message: initialNotice } : null
   )
   const [isSending, setIsSending] = useState(false)
+  // XR-061: synchronous in-flight latch for handleSend. `isSending` is React
+  // state and only takes effect on the next render, so two activations in the
+  // same JS turn (double-tap, or two gesture callbacks before the disabled
+  // prop reaches the native view) would both pass its checks; this ref is
+  // read-and-set before any await.
+  const sendingRef = useRef(false)
   const [sendResult, setSendResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   /**
    * The failed-token-send note, kept apart from `sendResult` because it carries
@@ -958,65 +964,78 @@ function UniversalSendInner(
   )
 
   const handleSend = useCallback(async () => {
-    if (!target) return
-    // Guard before any side effect: a wallet that is not ready must leave the
-    // form exactly as typed, with a banner, not a cleared field and silence.
-    // On the token path the runtime IS the wallet — it holds its own manager,
-    // storage and journal — so that is what has to be ready.
-    if (asset ? !mandala.runtime : !wallet || !storage) {
-      flashResult({ type: 'error', message: t('wallet_not_ready') })
-      return
-    }
-    // The same integer either way — satoshis on the BSV rail, base units of the
-    // asset on the token rail. The field emits whole units in both modes.
-    const amount = Math.round(Number(sendAmount))
-    if (!Number.isFinite(amount) || amount <= 0) {
-      flashResult({ type: 'error', message: t('enter_valid_amount') })
-      return
-    }
-    haptics.confirm()
-    setIsSending(true)
-    setTokenFailure(null)
+    // XR-061: isSending is React state and does not commit synchronously, so
+    // two activations landing in the same JS turn (a double-tap, or two
+    // gesture callbacks firing before the disabled prop reaches the native
+    // view) would both pass every guard below and independently reach a
+    // value-moving rail call. This ref is checked and set synchronously,
+    // before any await, so the second activation returns immediately; it is
+    // released in the same `finally` that clears `isSending`.
+    if (sendingRef.current) return
+    sendingRef.current = true
     try {
-      if (asset) {
-        // D4: a token has no address rail, and `canSend` has already refused
-        // one. This is the second gate, because the first is a render.
-        if (target.kind !== 'handle') return
-        const sent = await sendToken(target, amount)
-        if (!sent) return
-      } else if (target.kind === 'handle') await sendHandle(target, amount)
-      else await sendAddress(target, amount)
-      setFigure(current => ({ ...current, text: '' }))
-      setNote('')
-      recipient.clearRecipient()
-      setStep('who')
-    } catch (error: any) {
-      if (await handleWalletCheck(error)) return
-      if (asset) {
-        console.warn('[mandala] token send threw:', error)
-        // A throw out of the token path is NOT a refusal: the overlay may have
-        // admitted the transaction and lost the response, so the copy claims
-        // nothing and offers a balance check rather than a retry.
-        setTokenFailure(
-          tokenThrowCopy(error, {
-            ticker: asset.ticker,
-            issuer: asset.issuerName,
-            issuerFallback: t('token_issuer_fallback')
-          })
-        )
+      if (!target) return
+      // Guard before any side effect: a wallet that is not ready must leave the
+      // form exactly as typed, with a banner, not a cleared field and silence.
+      // On the token path the runtime IS the wallet — it holds its own manager,
+      // storage and journal — so that is what has to be ready.
+      if (asset ? !mandala.runtime : !wallet || !storage) {
+        flashResult({ type: 'error', message: t('wallet_not_ready') })
         return
       }
-      const message =
-        error instanceof RangeError
-          ? t('enter_valid_amount')
-          : isMessageBoxNetworkError(error)
-            ? t('message_box_unreachable')
-            : error?.message || t('unknown_error')
-      flashResult({ type: 'error', message })
-      // A failed handle send leaves its entry 'unsent' and offered for retry below.
-      if (target.kind === 'handle') await loadOutbox()
+      // The same integer either way — satoshis on the BSV rail, base units of the
+      // asset on the token rail. The field emits whole units in both modes.
+      const amount = Math.round(Number(sendAmount))
+      if (!Number.isFinite(amount) || amount <= 0) {
+        flashResult({ type: 'error', message: t('enter_valid_amount') })
+        return
+      }
+      haptics.confirm()
+      setIsSending(true)
+      setTokenFailure(null)
+      try {
+        if (asset) {
+          // D4: a token has no address rail, and `canSend` has already refused
+          // one. This is the second gate, because the first is a render.
+          if (target.kind !== 'handle') return
+          const sent = await sendToken(target, amount)
+          if (!sent) return
+        } else if (target.kind === 'handle') await sendHandle(target, amount)
+        else await sendAddress(target, amount)
+        setFigure(current => ({ ...current, text: '' }))
+        setNote('')
+        recipient.clearRecipient()
+        setStep('who')
+      } catch (error: any) {
+        if (await handleWalletCheck(error)) return
+        if (asset) {
+          console.warn('[mandala] token send threw:', error)
+          // A throw out of the token path is NOT a refusal: the overlay may have
+          // admitted the transaction and lost the response, so the copy claims
+          // nothing and offers a balance check rather than a retry.
+          setTokenFailure(
+            tokenThrowCopy(error, {
+              ticker: asset.ticker,
+              issuer: asset.issuerName,
+              issuerFallback: t('token_issuer_fallback')
+            })
+          )
+          return
+        }
+        const message =
+          error instanceof RangeError
+            ? t('enter_valid_amount')
+            : isMessageBoxNetworkError(error)
+              ? t('message_box_unreachable')
+              : error?.message || t('unknown_error')
+        flashResult({ type: 'error', message })
+        // A failed handle send leaves its entry 'unsent' and offered for retry below.
+        if (target.kind === 'handle') await loadOutbox()
+      } finally {
+        setIsSending(false)
+      }
     } finally {
-      setIsSending(false)
+      sendingRef.current = false
     }
   }, [
     target,

@@ -73,6 +73,10 @@ jest.mock('../../ui/resolveIdentity', () => ({
   searchIdentities: jest.fn(async () => [])
 }))
 const mockSendViaHandle = jest.fn()
+// XR-061: a bare jest.fn() spy on the address rail's send call, so the
+// double-activation regression test can count how many times a value-moving
+// call actually went out, independent of what the real rail would do.
+const mockSendToAddress = jest.fn()
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
   useWallet: () => ({
@@ -87,6 +91,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   // `makePeerPayClient` stays real: the "no message-box server" case below
   // depends on its sentinel returning null.
   sendViaHandle: (...args: unknown[]) => mockSendViaHandle(...args),
+  sendToAddress: (...args: unknown[]) => mockSendToAddress(...args),
   listPendingResendRequests: jest.fn(async () => ({ pending: [] }))
 }))
 
@@ -152,6 +157,8 @@ describe('UniversalSend', () => {
     mockRouterPush.mockReset()
     mockSendViaHandle.mockReset()
     mockSendViaHandle.mockResolvedValue({ satoshis: 2500 })
+    mockSendToAddress.mockReset()
+    mockSendToAddress.mockResolvedValue({ paidSatoshis: 500 })
     resetToolboxConfig()
     await AsyncStorage.clear()
   })
@@ -314,6 +321,31 @@ describe('UniversalSend', () => {
     expect(s.getByTestId('amount-input').props.value).toBe('500')
     pressBack()
     expect(s.getByPlaceholderText('recipient_placeholder').props.value).toBe(ADDRESS)
+  })
+
+  it('XR-061: two overlapping activations of the CTA send only once', async () => {
+    // isSending is React state — it does not commit synchronously. Two
+    // activations landing in the same JS turn (a real double-tap, or two
+    // gesture callbacks firing before the disabled prop reaches the native
+    // view) must still reach the value-moving rail call only once.
+    mockManagers = { permissionsManager: {} }
+    mockStorage = { getKeyValue: async () => undefined, setKeyValue: async () => {} }
+    const s = draw()
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), ADDRESS)
+    await waitFor(() => expect(s.getByText('valid_bsv_address')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    fireEvent.changeText(s.getByTestId('amount-input'), '500')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    const sendBtn = s.getByLabelText('send')
+    // Both activations fire inside one synchronous act() so neither sees the
+    // other's isSending commit in between — the exact race the reviewer
+    // described (two press callbacks landing in the same JS turn).
+    act(() => {
+      fireEvent.press(sendBtn)
+      fireEvent.press(sendBtn)
+    })
+    await waitFor(() => expect(mockSendToAddress).toHaveBeenCalled())
+    expect(mockSendToAddress).toHaveBeenCalledTimes(1)
   })
 
   /**
