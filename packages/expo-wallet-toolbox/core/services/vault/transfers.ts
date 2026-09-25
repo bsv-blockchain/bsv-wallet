@@ -1309,8 +1309,18 @@ async function abortReservingOutpoints(
  *
  * `ours` bounds the damage: only a reservation on an outpoint THIS withdrawal
  * is trying to spend justifies aborting somebody else's transaction.
+ *
+ * Exported (XQ-016 review follow-up) ONLY so its interaction with the real,
+ * non-mocked vendor `abortAction` can be exercised directly —
+ * __tests__/vault/xq016VaultAbortRealVendorInteraction.test.ts. `ABORTABLE`
+ * above includes `'nosend'`, and this function (via `abortReservingOutpoints`
+ * / `abortActions`) is reachable from the live withdrawal-creation retry path
+ * in `createSignableVaultTx`, so it DOES call the vendor's `abortAction` on a
+ * real signed `nosend` orphan — see that test for the verified behavior.
+ * Every other caller in this module still calls it unexported-style, from
+ * within the same module scope; this export adds no new call site.
  */
-async function freeReservedInputs(
+export async function freeReservedInputs(
   w: VaultWallet,
   adminOriginator: string,
   e: unknown,
