@@ -404,6 +404,7 @@ function nullStore(): SettlementStore {
   return {
     getSettlement: async () => undefined,
     getSettlementByReference: async () => undefined,
+    hasUnresolvedLegacyBlockedRows: async () => false,
     listSettlements: async () => [],
     upsertSettlement: async () => undefined,
     advanceSettlement: async () => false,

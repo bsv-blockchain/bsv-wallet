@@ -132,6 +132,19 @@ export interface SettlementStore {
    * row at all — so it is one indexed statement rather than a scan.
    */
   getSettlementByReference(reference: string): Promise<TokenSettlementRow | undefined>
+  /**
+   * XR-033: whether any row is stuck in a blocked state (see
+   * `abortGuard.ts`'s `ABORT_BLOCKED_SETTLEMENT_STATES`) with no `reference`
+   * to match an `abortAction` against — a pre-migration row the one-time
+   * backfill (`createTables.ts`'s `ensureTokenSettlementColumns`) could not
+   * resolve, most likely because its transaction row is gone. Such a row is
+   * invisible to `getSettlementByReference` no matter what reference is
+   * asked for, so the abort guard's second, coarser layer asks this instead:
+   * true refuses EVERY abort until the row is reconciled, which trades an
+   * occasional over-refusal of an unrelated action for never silently
+   * releasing inputs a legacy row still has a claim on.
+   */
+  hasUnresolvedLegacyBlockedRows(): Promise<boolean>
   listSettlements(filter?: { state?: TokenSettlementState[]; role?: TokenSettlementRole }): Promise<TokenSettlementRow[]>
   upsertSettlement(row: Omit<TokenSettlementRow, 'createdAt' | 'updatedAt'> & { createdAt?: string }): Promise<void>
   /** Single-statement state advance; returns false if the row was not in one of `from`. */

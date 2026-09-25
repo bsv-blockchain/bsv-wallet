@@ -196,6 +196,24 @@ export function createSettlementStore(db: SettlementDb): SqlSettlementStore {
       return row ? toSettlement(row) : undefined
     },
 
+    /**
+     * XR-033: the coarse fallback `getSettlementByReference` cannot offer for
+     * a row with no reference at all. `state` names the same set
+     * `abortGuard.ts`'s `ABORT_BLOCKED_SETTLEMENT_STATES` does — duplicated
+     * rather than imported, in keeping with this file's own rule that it is
+     * statements only, with no cross-module logic.
+     */
+    async hasUnresolvedLegacyBlockedRows(): Promise<boolean> {
+      const row = (await db.getFirstAsync(
+        `SELECT 1 FROM token_settlements
+          WHERE reference IS NULL
+            AND state IN ('held','handed_over','submitting','admitted','broadcast')
+          LIMIT 1`,
+        []
+      )) as unknown
+      return row != null
+    },
+
     async listSettlements(filter = {}): Promise<TokenSettlementRow[]> {
       const where: string[] = []
       const params: SettlementBindValue[] = []
