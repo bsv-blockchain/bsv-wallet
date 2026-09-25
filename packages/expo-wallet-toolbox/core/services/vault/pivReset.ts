@@ -48,9 +48,22 @@
  * reports null for every 0x82 and this refusal would never fire there.
  */
 import { getVaultDriver } from './driver'
-import { withKeySession } from './session'
+import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
 import { isVaultSerial, vaultStore, type VaultScopeToken } from './vaultStore'
+
+/**
+ * XR-004: mirrors VaultKeyService.ts's assertSessionCurrent — the same
+ * wallet/chain scope check this reset already runs before every mutation,
+ * plus session.assertCurrent so a timed-out/detached session's continuation
+ * (the native reset/discard calls it wraps cannot be cancelled) refuses its
+ * next write once a NEWER Vault hardware session has been acquired, instead
+ * of racing a retry's.
+ */
+function assertSessionCurrent(session: VaultSessionGuard, scopeToken: VaultScopeToken): void {
+  session.assertCurrent()
+  vaultStore.assertScopeToken(scopeToken)
+}
 
 export type PivResetPhase = 'waiting' | 'resetting'
 
@@ -99,8 +112,8 @@ export async function resetPivApplication(args: {
 
   await withKeySession(
     driver,
-    async () => {
-      vaultStore.assertScopeToken(scopeToken)
+    async session => {
+      assertSessionCurrent(session, scopeToken)
       const info = await driver.getKeyInfo()
       if (info.serial !== args.serial) {
         throw new VaultError('serial-mismatch', 'A different YubiKey was presented', undefined, {
@@ -112,7 +125,7 @@ export async function resetPivApplication(args: {
       // first check and the tap, and this is the last chance before an
       // irreversible destruction.
       await refuse()
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
 
       // Guard 3: the card's own answer, for the vaults no namespace on this
       // device can show us. Reused code, not new copy: 'slot-occupied' is
@@ -132,14 +145,21 @@ export async function resetPivApplication(args: {
           { serial: args.serial }
         )
       }
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
 
       args.onPhase?.('resetting')
       await driver.resetPivApplication(args.serial)
 
       // The reset destroyed whatever partial state these described. Leaving
-      // them would refuse this key forever.
-      vaultStore.assertScopeToken(scopeToken)
+      // them would refuse this key forever — but XR-004 still applies here:
+      // if this continuation is only resuming now because the native reset
+      // call stalled and a NEWER session has since run (e.g. re-enrolling
+      // this same, now-actually-reset serial), these discards must not wipe
+      // out whatever fresh draft/quarantine state that session just wrote.
+      // Refusing here leaves a stale entry that the next explicit reset
+      // attempt clears — a mild extra tap, not a permanent block, since the
+      // card is by then already factory and that retry completes at once.
+      assertSessionCurrent(session, scopeToken)
       await vaultStore.discardEnrollmentDraft(args.serial, scopeToken)
       await vaultStore.discardEnrollmentQuarantine(args.serial, scopeToken)
     },

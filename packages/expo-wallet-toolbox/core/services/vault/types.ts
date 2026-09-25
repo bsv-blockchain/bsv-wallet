@@ -104,6 +104,12 @@ export type VaultErrorCode =
   /** The signable transaction is not consensus-bound version 1 — refused
    *  before any signature. */
   | 'bad-version'
+  /** recoverVaultFromChain's bounded scan hit
+   *  VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS consecutive marker-derivation
+   *  or chain-lookup failures (a persistent outage, or a bug) and aborted
+   *  rather than looping forever. Distinct from 'no-transaction': nothing
+   *  about a specific transfer failed, the scan itself could not complete. */
+  | 'chain-scan-failed'
 
 export class VaultError extends Error {
   code: VaultErrorCode

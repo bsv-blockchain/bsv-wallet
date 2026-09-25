@@ -22,9 +22,9 @@
  * SECURITY: never log the PIN. Public keys and serials are public data.
  */
 import { getVaultDriver } from './driver'
-import { compressPubkey, type VaultInstructionsV6 } from './r1comb'
+import { compressPubkey, type VaultInstructions } from './r1comb'
 import { randomBytes } from './random'
-import { withKeySession } from './session'
+import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
 import {
   isVaultKeyRecord,
@@ -122,6 +122,20 @@ function requirePivCode(value: string, label: 'PIN' | 'PUK'): void {
   if (!PIV_CODE.test(value)) {
     throw new VaultError('template-invalid', `PIV ${label} must be 6 to 8 ASCII digits`)
   }
+}
+
+/**
+ * XR-004: the same checkpoint enrollKey's session already runs before every
+ * mutation (assertScopeToken — wallet/chain unchanged), plus session.assertCurrent
+ * — no NEWER Vault hardware session has been acquired since this one started.
+ * A timed-out/detached session's continuation can still be running (the native
+ * calls it wraps cannot be cancelled) after the lease has already been freed
+ * for a retry; this refuses that continuation's next write instead of letting
+ * it race the retry's.
+ */
+function assertSessionCurrent(session: VaultSessionGuard, scopeToken: VaultScopeToken): void {
+  session.assertCurrent()
+  vaultStore.assertScopeToken(scopeToken)
 }
 
 /**
@@ -321,12 +335,20 @@ export async function enrollKey(args: {
   }
 
   // The enrolled key list, read once from device-only secure storage before any user input or
-  // key contact. Refused alongside pendingSerials below — meta ∪ pending —
-  // so an enrolled card is refused even when the caller's own copy of meta
-  // has not loaded (the wizard's key list arrives asynchronously).
-  const meta = await vaultStore.getMeta(scopeToken)
+  // key contact. Refused alongside pendingSerials below — across every chain
+  // of this identity, plus a key mid-removal, plus pending — so an enrolled
+  // card is refused even when the caller's own copy of meta has not loaded
+  // (the wizard's key list arrives asynchronously), and even when it is
+  // enrolled under a different chain of the same wallet identity, or sits in
+  // meta.pendingRemoval in this chain (XR-008: `enrolledSerialsAcrossChains`
+  // already covers both — it folds pendingRemoval into every chain it scans —
+  // and is the exact non-overridable refusal set pivReset.ts already uses
+  // before its own destructive card mutation).
   const quarantines = await vaultStore.getEnrollmentQuarantines(scopeToken)
-  const refused = new Set<string>([...(meta?.keys.map(k => k.serial) ?? []), ...args.pendingSerials])
+  const refused = new Set<string>([
+    ...(await vaultStore.enrolledSerialsAcrossChains(scopeToken)),
+    ...args.pendingSerials
+  ])
   const k = args.pendingSerials.length + 1
   const nickname = enrollmentNickname(args.nickname, k)
   const enrolledAt = Date.now()
@@ -366,8 +388,8 @@ export async function enrollKey(args: {
   let tappedSerial: string | undefined
   const record = await withKeySession(
     driver,
-    async () => {
-      vaultStore.assertScopeToken(scopeToken)
+    async session => {
+      assertSessionCurrent(session, scopeToken)
       const info = await driver.getKeyInfo()
       if (!isVaultSerial(info.serial)) {
         throw new VaultError('template-invalid', 'YubiKey returned an invalid serial number')
@@ -439,14 +461,14 @@ export async function enrollKey(args: {
       await requireEmptyVaultSlot(info.serial, args.replaceOccupiedVaultSlot === true)
       // Everything above is read-only. This is the last guard before the
       // first irreversible token mutation.
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
       args.onPhase('personalizing')
       if (pinChange) {
         // Write intent before the irreversible APDU. If the process dies while
         // changePin is executing, the next launch must quarantine this serial
         // instead of guessing which PIN is current and spending retries.
         await vaultStore.preserveEnrollmentQuarantine(info.serial, 'pin-change-uncertain', scopeToken)
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
         try {
           await driver.changePin(info.serial, pinChange.oldPin, pinChange.newPin)
         } catch (e) {
@@ -476,7 +498,7 @@ export async function enrollKey(args: {
         try {
           const changed = await driver.verifyPin(info.serial, pin)
           requireVerifiedPin(changed, 'New PIN was not accepted')
-          vaultStore.assertScopeToken(scopeToken)
+          assertSessionCurrent(session, scopeToken)
         } catch (e) {
           throw new VaultEnrollmentPartialError('pin-changed', e, undefined, true)
         }
@@ -496,7 +518,7 @@ export async function enrollKey(args: {
         if (pinChange) throw new VaultEnrollmentPartialError('pin-changed', e, undefined, true)
         throw e
       }
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
       try {
         await driver.changePuk(info.serial, pukChange.oldPuk, pukChange.newPuk)
       } catch (e) {
@@ -533,7 +555,7 @@ export async function enrollKey(args: {
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
       }
       try {
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
       } catch (e) {
         // PIN/PUK personalization is confirmed, but no slot key exists yet.
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
@@ -547,7 +569,7 @@ export async function enrollKey(args: {
       } catch (e) {
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
       }
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
       // Generation is authorized by the still-default management key. The key
       // is not returned as enrolled until that credential has been replaced by
       // native CSPRNG material that never crosses the JS bridge.
@@ -593,7 +615,7 @@ export async function enrollKey(args: {
         throw new VaultEnrollmentPartialError('key-generated', e, generated)
       }
       try {
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('key-generated', e, generated, true)
       }
@@ -617,13 +639,13 @@ export async function enrollKey(args: {
       args.onPhase('challenging')
       const challenge = Uint8Array.from(randomBytes(32))
       try {
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
         const { signature } = await driver.signEcdsa(info.serial, pin, Utils.toHex(challenge))
         if (!signatureProvesKey(pubkey, challenge, signature)) {
           throw new VaultError('wrong-key', 'Generated YubiKey did not prove possession of its private key')
         }
         await vaultStore.preserveEnrollmentDraft({ record: generated, assurance: 'ready' }, scopeToken)
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('key-protected', e, generated, true)
       }
@@ -807,8 +829,10 @@ export async function adoptVaultKey(args: {
 }
 
 export interface VerifiedVaultRecoveryOutput {
-  /** Decoded only after baked-salt and exact-lock verification by transfers. */
-  instructions: VaultInstructionsV6
+  /** Decoded only after baked-salt and exact-lock verification by transfers.
+   * v6 or v7 — this function only reads fields common to both shapes
+   * (vaultId, revision, createdAt, keys), never `salt`. */
+  instructions: VaultInstructions
   /** Transaction containing this currently spendable output. */
   txid: string
 }
@@ -817,7 +841,10 @@ export interface VerifiedVaultRecoveryOutput {
  * Reconstruct one current enrollment from authoritative spendable R1C outputs.
  * The transfer layer owns pagination and lock verification; this function owns
  * conflict detection and version selection. It never accepts a mixture of
- * enrollment ids or two different key sets at the same revision.
+ * enrollment ids or two different key sets at the same revision. A mixed
+ * v6+v7 output set reduces to one VaultMeta the same way a same-version
+ * mixture does — version is not part of the conflict/version-selection
+ * identity here, only vaultId/createdAt/revision/keys are.
  */
 export function metaFromVerifiedOutputs(outputs: readonly VerifiedVaultRecoveryOutput[]): VaultMeta {
   if (outputs.length === 0) throw new VaultError('vault-empty', 'No verified vault outputs to recover')

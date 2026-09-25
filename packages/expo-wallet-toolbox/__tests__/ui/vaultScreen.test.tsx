@@ -1,8 +1,7 @@
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() }
 const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
@@ -10,6 +9,8 @@ const mockGetMeta = jest.fn()
 const mockRenameKey = jest.fn()
 const mockRelock = jest.fn()
 const mockRecover = jest.fn()
+const mockRecoverFromChain = jest.fn()
+const mockWocChainLookup = jest.fn(() => ({ marker: true }))
 const mockAdopt = jest.fn()
 const mockBeginRemoval = jest.fn()
 const mockFinalizeRemoval = jest.fn()
@@ -26,6 +27,10 @@ let mockBalance: number | null = 0
 let mockCoverage: unknown = null
 let mockWallet: any
 const mockIsBackupPushEnabled = jest.fn(async () => mockBackupOn)
+// XR-003: attested by default so every existing deposit/enroll-initiation
+// test — none of which is about seed preservation — keeps its current
+// "a wallet exists, proceed" shape. The unattested case gets its own tests.
+const mockReadBackupAttestation = jest.fn(async () => ({ v: 1 as const, medium: 'phrase' as const, at: 1 }))
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
@@ -48,6 +53,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   disableVaultWhenSafe: (...a: unknown[]) => mockDisableWhenSafe(...a),
   relockVault: (...a: unknown[]) => mockRelock(...a),
   recoverVaultMetaFromOutputs: (...a: unknown[]) => mockRecover(...a),
+  recoverVaultFromChain: (...a: unknown[]) => mockRecoverFromChain(...a),
+  wocChainLookup: (...a: unknown[]) => mockWocChainLookup(...a),
   adoptVaultKey: (...a: unknown[]) => mockAdopt(...a),
   beginVaultKeyRemoval: (...a: unknown[]) => mockBeginRemoval(...a),
   finalizeVaultKeyRemoval: (...a: unknown[]) => mockFinalizeRemoval(...a),
@@ -59,6 +66,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   getOnline: async () => true,
   generateMnemonicWallet: jest.fn(),
   backupAttestation: { markPending: jest.fn() },
+  readBackupAttestation: (...a: unknown[]) => mockReadBackupAttestation(...a),
   sounds: { vaultOpen: jest.fn(), vaultClose: jest.fn() },
   haptics: { tap: jest.fn(), confirm: jest.fn(), success: jest.fn(), warning: jest.fn(), error: jest.fn() }
 }))
@@ -102,7 +110,10 @@ jest.mock('../../ui/components/ui/GroupedList', () => {
 })
 jest.mock('../../ui/components/ui/Sheet', () => {
   const React = require('react')
-  return { __esModule: true, default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null) }
+  return {
+    __esModule: true,
+    default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null)
+  }
 })
 jest.mock('../../ui/components/wallet/AmountDisplay', () => {
   const React = require('react')
@@ -187,7 +198,16 @@ beforeEach(() => {
   mockGetMeta.mockReset().mockResolvedValue(META2)
   mockRenameKey.mockReset().mockResolvedValue(META2)
   mockRelock.mockReset()
-  mockRecover.mockReset().mockResolvedValue(null)
+  // INT-07/XR-007: reload() now calls this unconditionally, even when a
+  // cached record already exists. The real recoverVaultMetaFromOutputs keeps
+  // the existing record whenever the chain scan does not supersede it — the
+  // default here mirrors that "nothing new, keep the cache" behavior so every
+  // existing enrolled-vault test (seeded via mockGetMeta) keeps working
+  // without having to know this call now happens. Tests about the scan
+  // itself (found-on-chain, offline fallback) override it explicitly.
+  mockRecover.mockReset().mockImplementation(async () => mockGetMeta())
+  mockRecoverFromChain.mockReset().mockResolvedValue({ found: 0, pendingConfirmation: 0, problems: [], scanned: 20 })
+  mockWocChainLookup.mockClear()
   mockAdopt.mockReset().mockResolvedValue(undefined)
   mockBeginRemoval.mockReset().mockResolvedValue({ complete: true, meta: META2 })
   mockFinalizeRemoval.mockReset().mockResolvedValue(false)
@@ -196,6 +216,7 @@ beforeEach(() => {
   mockDisableWhenSafe.mockReset().mockResolvedValue(true)
   mockShowAlert.mockReset()
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
+  mockReadBackupAttestation.mockReset().mockResolvedValue({ v: 1, medium: 'phrase', at: 1 })
   mockWallet = {
     managers: { permissionsManager: { listOutputs: jest.fn() } },
     adminOriginator: 'admin.test',
@@ -231,6 +252,121 @@ describe('not enrolled', () => {
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('vault_enroll_begin')))
     expect(screen.getByText('WIZARD:enroll')).toBeTruthy()
+  })
+
+  test('XR-003: enrollment never opens the wizard while the recovery phrase is unattested', async () => {
+    mockReadBackupAttestation.mockResolvedValue(null)
+    mockGetMeta.mockResolvedValue(null)
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_enroll_begin')))
+    expect(screen.queryByText('WIZARD:enroll')).toBeNull()
+    expect(mockRouter.push).toHaveBeenCalledWith('/auth/mnemonic?flow=backup')
+  })
+
+  describe('restore from the blockchain (v7 chain recovery)', () => {
+    test('is offered when a wallet exists and the vault is available', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.getByText('vault_restore_from_chain')).toBeTruthy()
+    })
+
+    test('is not offered while the flag is off (no availability, even with a wallet)', async () => {
+      mockVaultEnabled = false
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.queryByText('vault_restore_from_chain')).toBeNull()
+    })
+
+    test('is not offered before a wallet identity exists', async () => {
+      mockWallet.managers.permissionsManager = undefined
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.queryByText('vault_restore_from_chain')).toBeNull()
+    })
+
+    test('never needs a YubiKey — still offered when the driver is unsupported', async () => {
+      mockSupported = false
+      mockGetMeta.mockResolvedValue(null)
+      const screen = await renderVault()
+      expect(screen.getByText('vault_restore_from_chain')).toBeTruthy()
+    })
+
+    test('found: scans with the wallet, admin originator and current network, then reloads meta', async () => {
+      mockGetMeta.mockResolvedValueOnce(null).mockResolvedValueOnce(META2)
+      // INT-07/XR-007: reload() now reconciles unconditionally. Keep the
+      // initial mount genuinely "nothing found yet" so the not-enrolled hero
+      // (and its restore-from-chain offer) is what the test presses.
+      mockRecover.mockResolvedValueOnce(null)
+      mockRecoverFromChain.mockResolvedValueOnce({ found: 1, pendingConfirmation: 0, problems: [], scanned: 1 })
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(mockRecoverFromChain).toHaveBeenCalledWith(
+        mockWallet.managers.permissionsManager,
+        'admin.test',
+        { marker: true },
+        'main'
+      )
+      expect(mockWocChainLookup).toHaveBeenCalledWith('main')
+      // The balance/key list view replaces the hero (and its restore notice)
+      // once meta is non-null again.
+      expect(screen.getByText('vault_balance_label')).toBeTruthy()
+    })
+
+    test('pending: reports pendingConfirmation without reloading into the enrolled view', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverFromChain.mockResolvedValueOnce({ found: 0, pendingConfirmation: 2, problems: [], scanned: 1 })
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(screen.getByText('vault_restore_pending:{"count":2}')).toBeTruthy()
+      expect(screen.queryByText('vault_balance_label')).toBeNull()
+    })
+
+    test('none found: reports the none-found copy', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverFromChain.mockResolvedValueOnce({ found: 0, pendingConfirmation: 0, problems: [], scanned: 20 })
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(screen.getByText('vault_restore_none_found')).toBeTruthy()
+    })
+
+    test('a scan failure shows the standard error copy instead of throwing', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverFromChain.mockRejectedValueOnce(
+        Object.assign(new (jest.requireActual('../../core/services/vault/types').VaultError)('no-transaction', 'boom'))
+      )
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(screen.getByText('vault_restore_from_chain')).toBeTruthy() // still on the hero, not crashed
+    })
+  })
+})
+
+// INT-07 / XR-007: recoverVaultMetaFromOutputs' authenticated reconciliation
+// must run on every reload, not only when vaultStore.getMeta() returns null
+// — otherwise a stale-but-present local record can never be corrected
+// against a newer verified on-chain revision, with no in-app escape hatch.
+describe('stale local metadata reconciliation (INT-07 / XR-007)', () => {
+  test('reload reconciles against chain evidence even when a non-null local record already exists', async () => {
+    // The suite's own default: mockGetMeta resolves META2 (non-null).
+    const screen = await renderVault()
+    expect(mockRecover).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test')
+    expect(screen.queryByText('vault_retry')).toBeNull()
+  })
+
+  test('a failed reconciliation scan (offline, etc.) still shows the cached record rather than a hard recovery error', async () => {
+    mockRecover
+      .mockReset()
+      .mockRejectedValue(
+        new (jest.requireActual('../../core/services/vault/types').VaultError)('no-transaction', 'offline')
+      )
+    const screen = await renderVault()
+    // The scan must actually have been attempted (proving this is a real
+    // fallback, not merely the old "never called it" behavior) and still
+    // fail over to the cached META2 record — its keys are on screen — rather
+    // than a hard recovery-error state.
+    expect(mockRecover).toHaveBeenCalled()
+    expect(screen.getByText('Desk · 12 340 001')).toBeTruthy()
+    expect(screen.queryByText('vault_retry')).toBeNull()
   })
 })
 
@@ -367,9 +503,7 @@ describe('enrolled', () => {
 
     expect(mockBeginRemoval).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test', '12340001')
     expect(screen.getByText('vault_relock_choose')).toBeTruthy()
-    expect(
-      screen.getByText('vault_relock_reason_remaining:{"names":"Safe · …0002, Car · …0003"}')
-    ).toBeTruthy()
+    expect(screen.getByText('vault_relock_reason_remaining:{"names":"Safe · …0002, Car · …0003"}')).toBeTruthy()
   })
 
   // beginVaultKeyRemoval writes a durable pendingRemoval tombstone, and ONLY a
@@ -549,6 +683,33 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_resolve_held_deposit_action')).toBeNull()
   })
 
+  test('XR-006 / INT-03: "nothing-held" is never reported as success — the notice and offer both stay', async () => {
+    mockBalance = 50_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    const { VaultError } = jest.requireActual('../../core/services/vault/types')
+    mockRelock.mockRejectedValueOnce(new VaultError('action-pending'))
+    // The real function's shape when a held signed action exists that this
+    // resolve path does not (yet, or ever) know how to authenticate — e.g. a
+    // held vault-withdraw/vault-relock before XR-006/INT-03, or any future
+    // shape it still cannot recognize. This must never be read as "resolved".
+    mockResolveHeldDeposit.mockReset().mockResolvedValueOnce({ kind: 'nothing-held' })
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
+    await settle()
+    expect(screen.getByText('vault_resolve_held_deposit_action')).toBeTruthy()
+
+    await act(async () => fireEvent.press(screen.getByText('vault_resolve_held_deposit_action')))
+    await settle()
+    expect(mockResolveHeldDeposit).toHaveBeenCalledWith(expect.anything(), 'admin.test', META2)
+    // No false success: the done toast never fires, and the offer/notice —
+    // the underlying block is still there — both survive.
+    expect(mockShowToast).not.toHaveBeenCalledWith('vault_resolve_held_deposit_done', { type: 'success' })
+    expect(mockShowToast).toHaveBeenCalledWith('vault_resolve_held_deposit_none', { type: 'error' })
+    expect(screen.getByText('vault_resolve_held_deposit_action')).toBeTruthy()
+    expect(screen.getAllByText('vault_err_action_pending').length).toBeGreaterThan(0)
+  })
+
   test('backup-off during re-lock opens backup settings and leaves the sheet available to retry', async () => {
     mockBalance = 300_000
     mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
@@ -559,10 +720,12 @@ describe('enrolled', () => {
     await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
     await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
     await settle()
-    expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'vault_backup_off_title',
-      message: 'vault_backup_off_body'
-    }))
+    expect(mockShowAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'vault_backup_off_title',
+        message: 'vault_backup_off_body'
+      })
+    )
     expect(mockRouter.push).toHaveBeenCalledWith('/wallet-config?section=backup')
     expect(screen.getByText('vault_relock_choose')).toBeTruthy()
     expect(screen.queryByText('vault_err_backup_off')).toBeNull()
@@ -602,17 +765,22 @@ describe('enrolled', () => {
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('vault_disable_row')))
     await settle()
-    expect(mockShowAlert).toHaveBeenLastCalledWith(expect.objectContaining({
-      title: 'vault_disable_title',
-      message: 'vault_err_template_invalid'
-    }))
+    expect(mockShowAlert).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: 'vault_disable_title',
+        message: 'vault_err_template_invalid'
+      })
+    )
     expect(mockDisable).not.toHaveBeenCalled()
   })
 
   test('a recovered key requires a live adoption challenge and keeps the opening scope token', async () => {
     const recovered = { ...META2, recovery: { required: true, adoptedSerials: [] } }
     const adopted = { ...META2, recovery: { required: true, adoptedSerials: ['12340001'] } }
-    mockGetMeta.mockResolvedValueOnce(recovered).mockResolvedValueOnce(adopted)
+    // INT-07/XR-007: reload() now always reconciles via recoverVaultMetaFromOutputs,
+    // so this sequence (not the local-cache read) is what the screen ends up
+    // showing on each of the two reloads exercised here.
+    mockRecover.mockReset().mockResolvedValueOnce(recovered).mockResolvedValueOnce(adopted)
     const screen = await renderVault()
     expect(screen.getAllByText('vault_err_key_not_adopted').length).toBeGreaterThan(0)
 
@@ -621,10 +789,12 @@ describe('enrolled', () => {
     await act(async () => fireEvent.press(screen.getByText('vault_continue')))
     await settle()
 
-    expect(mockAdopt).toHaveBeenCalledWith(expect.objectContaining({
-      record: META2.keys[0],
-      scopeToken: { identityKey: 'scope', chain: 'test', generation: 1 }
-    }))
+    expect(mockAdopt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        record: META2.keys[0],
+        scopeToken: { identityKey: 'scope', chain: 'test', generation: 1 }
+      })
+    )
     await expect(mockAdopt.mock.calls[0][0].getPin()).resolves.toBe('654321')
     expect(mockShowToast).toHaveBeenCalledWith('vault_recovery_verified', { type: 'success' })
   })
@@ -679,4 +849,11 @@ describe('enrolled', () => {
     expect(mockRouter.push).toHaveBeenCalledWith('/vault-transfer?direction=withdraw')
   })
 
+  test('XR-003: deposit never reaches the transfer route while the recovery phrase is unattested', async () => {
+    mockReadBackupAttestation.mockResolvedValue(null)
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_deposit_cta')))
+    expect(mockRouter.push).toHaveBeenCalledWith('/auth/mnemonic?flow=backup')
+    expect(mockRouter.push).not.toHaveBeenCalledWith('/vault-transfer?direction=deposit')
+  })
 })

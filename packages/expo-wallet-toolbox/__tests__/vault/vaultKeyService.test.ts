@@ -765,6 +765,40 @@ describe('enrollKey', () => {
     expect(record.pubkey).toBe(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey))
   })
 
+  test('XR-008: an explicit slot replacement never erases a signer enrolled under another chain of the same wallet', async () => {
+    const identity = '02' + 'ab'.repeat(32)
+    // Enrolled as a live signer on mainnet...
+    vaultStore.configureScope({ identityKey: identity, chain: 'main' })
+    await vaultStore.setMeta(meta([{ ...rec(1), serial: 'MOCK-1' }, rec(2)]))
+    // ...then the SAME physical card is tapped while the wizard is open on
+    // testnet, whose own key list is empty (a YubiKey is one physical
+    // object; enrollKey must not judge occupancy from one chain's view).
+    vaultStore.configureScope({ identityKey: identity, chain: 'test' })
+    expect(await vaultStore.getMeta()).toBeNull()
+    mock.occupySlot()
+    const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
+    const genSpy = jest.spyOn(mock, 'generateVaultKey')
+    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true })).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-already-enrolled', details: { serial: 'MOCK-1' } })
+    expect(genSpy).not.toHaveBeenCalled()
+    expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
+  })
+
+  test('XR-008: an explicit slot replacement never erases a signer that is mid-removal in the current chain', async () => {
+    await vaultStore.setMeta(meta([{ ...rec(1), serial: 'MOCK-1' }, rec(2), rec(3)]))
+    // isVaultMeta guarantees a pendingRemoval key is absent from meta.keys, so
+    // a refusal set built from meta.keys alone lets it straight through — it
+    // is still recoverable (cancelUnbroadcastKeyRemoval splices it back in).
+    await vaultStore.beginKeyRemoval('MOCK-1')
+    mock.occupySlot()
+    const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
+    const genSpy = jest.spyOn(mock, 'generateVaultKey')
+    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true })).catch(e => e)
+    expect(err).toMatchObject({ code: 'key-already-enrolled', details: { serial: 'MOCK-1' } })
+    expect(genSpy).not.toHaveBeenCalled()
+    expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
+  })
+
   test('explicit Vault-slot replacement does not permit another occupied PIV slot', async () => {
     mock.occupyOtherPivSlot()
     await expect(enrollKey(args({ replaceOccupiedVaultSlot: true }))).rejects.toMatchObject({

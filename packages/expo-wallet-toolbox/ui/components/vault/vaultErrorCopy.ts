@@ -90,7 +90,8 @@ const KEY: Record<VaultErrorCode, string> = {
   'key-not-committed': 'vault_err_key_not_committed',
   'key-cannot-cover': 'vault_err_key_cannot_cover',
   'too-small-to-relock': 'vault_err_too_small_to_relock',
-  'bad-version': 'vault_err_bad_version'
+  'bad-version': 'vault_err_bad_version',
+  'chain-scan-failed': 'vault_err_chain_scan_failed'
 }
 
 /**

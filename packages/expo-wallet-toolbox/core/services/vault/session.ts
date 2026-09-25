@@ -21,8 +21,21 @@
  * swallows several failure paths, so no delegate fix makes this redundant).
  */
 import { VaultDriver } from './driver'
-import { acquireVaultHardwareLease } from './hardwareLease'
+import { acquireVaultHardwareLease, currentVaultHardwareGeneration, isCurrentVaultHardwareGeneration } from './hardwareLease'
 import { VaultError } from './types'
+
+/**
+ * XR-004: `work()` is unbounded native work this function cannot cancel — a
+ * lost completion can still be running (and can still resolve much later)
+ * after the timeout/detach race below has already settled and released the
+ * lease for a retry. `work` receives this guard so it can refuse its own
+ * next mutation once a NEWER session has been acquired since, rather than
+ * racing that retry's writes to vaultStore/the card. Cheap and synchronous:
+ * safe to call as often as the existing per-step scope checks already do.
+ */
+export interface VaultSessionGuard {
+  assertCurrent(): void
+}
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -59,13 +72,21 @@ const DEFAULT_WORK_TIMEOUT_MS = 180_000
 
 export async function withKeySession<T>(
   driver: VaultDriver,
-  work: () => Promise<T>,
+  work: (session: VaultSessionGuard) => Promise<T>,
   onWaiting?: () => void,
   opts?: { nfcMessage?: string; attachTimeoutMs?: number; workTimeoutMs?: number }
 ): Promise<T> {
   const releaseLease = acquireVaultHardwareLease()
+  const generation = currentVaultHardwareGeneration()
+  const session: VaultSessionGuard = {
+    assertCurrent(): void {
+      if (!isCurrentVaultHardwareGeneration(generation)) {
+        throw new VaultError('scope-changed', 'A newer Vault hardware session has started; this one was abandoned')
+      }
+    }
+  }
   try {
-    if (!driver.sessionBased) return await work()
+    if (!driver.sessionBased) return await work(session)
 
     const connected = defer<void>()
     // Rejects when the key leaves before `work` has resolved; raced against it.
@@ -105,7 +126,7 @@ export async function withKeySession<T>(
       )
       ;(workWatchdog as { unref?: () => void }).unref?.()
       try {
-        return await Promise.race([work(), detached.promise, stalled.promise])
+        return await Promise.race([work(session), detached.promise, stalled.promise])
       } finally {
         clearTimeout(workWatchdog)
       }

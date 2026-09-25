@@ -46,6 +46,47 @@ describe('withKeySession', () => {
     await expect(run).resolves.toBe('ok')
   })
 
+  test('XR-004: a superseded session\'s guard refuses once a newer session has been acquired', async () => {
+    // The timeout above frees the lease immediately (a deliberate choice,
+    // confirmed by the previous test) even though the native call it wraps
+    // cannot actually be cancelled and may still be running. work() receives
+    // a session guard for exactly this: its own continuation must refuse to
+    // mutate anything once a NEWER session has since been acquired, instead
+    // of racing whatever that successor is doing.
+    const m = nfcMock()
+    let captured: { assertCurrent(): void } | undefined
+    const stuck = withKeySession(
+      m,
+      session => {
+        captured = session
+        return new Promise<never>(() => {})
+      },
+      undefined,
+      { workTimeoutMs: 20 }
+    )
+    await flush()
+    m.insertKey('MOCK-1')
+    await expect(stuck).rejects.toMatchObject({ code: 'nfc-lost' })
+    expect(captured).toBeDefined()
+
+    // No successor yet: the abandoned continuation's own guard still reports
+    // current.
+    expect(() => captured!.assertCurrent()).not.toThrow()
+
+    // A successor acquires and completes a brand-new session — the lease was
+    // freed by the timeout above.
+    const second = nfcMock()
+    const run = withKeySession(second, async () => 'ok')
+    await flush()
+    second.insertKey('MOCK-2')
+    await expect(run).resolves.toBe('ok')
+
+    // The original, abandoned continuation's guard must now refuse: this
+    // fails on the unfixed session.ts (assertCurrent does not exist / never
+    // throws) and passes once a newer generation is tracked and checked.
+    expect(() => captured!.assertCurrent()).toThrow(expect.objectContaining({ code: 'scope-changed' }))
+  })
+
   test('one process-wide hardware lease rejects overlap and releases after teardown', async () => {
     const firstDriver = new MockYubiKey()
     const secondDriver = new MockYubiKey()

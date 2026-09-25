@@ -9,6 +9,7 @@ const mockAddVaultKey = jest.fn()
 const mockResumeEnrollmentDraft = jest.fn()
 const mockResetPiv = jest.fn()
 const mockAcrossChains = jest.fn()
+const mockDiscardDraft = jest.fn()
 const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
 let mockMeta: unknown = null
@@ -47,7 +48,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     getMeta: async () => mockMeta,
     getEnrollmentDrafts: async () => mockDrafts,
     getEnrollmentQuarantines: async () => mockQuarantines,
-    enrolledSerialsAcrossChains: (...a: unknown[]) => mockAcrossChains(...a)
+    enrolledSerialsAcrossChains: (...a: unknown[]) => mockAcrossChains(...a),
+    discardEnrollmentDraft: (...a: unknown[]) => mockDiscardDraft(...a)
   },
   VAULT_MIN_KEYS: 2,
   VAULT_MAX_KEYS: 5,
@@ -127,6 +129,7 @@ beforeEach(() => {
   mockAcrossChains.mockReset().mockResolvedValue([])
   mockFinalize.mockReset().mockResolvedValue(undefined)
   mockAddVaultKey.mockReset().mockResolvedValue({ v: 5, createdAt: 1, keys: [] })
+  mockDiscardDraft.mockReset().mockResolvedValue(undefined)
   mockShowAlert.mockReset()
   backHandlers.length = 0
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, handler) => {
@@ -737,11 +740,17 @@ test('a failed add-key write is retried from the save page, without touching the
   expect(screen.getByText('vault_add_key_done:{"nickname":"vault_name_default:{\\"k\\":3}"}')).toBeTruthy()
 })
 
-test('a ready draft in add-key mode is written on sight, with nothing asked and no tap', async () => {
+test('a ready draft in add-key mode is written only after an explicit confirmation naming it', async () => {
   mockMeta = { v: 5, createdAt: 1, keys: [record('12340001', 'a'), record('12340002', 'b')] }
   mockDrafts = [{ record: { ...record('DRAFT001', 'd'), nickname: 'Key 3' }, assurance: 'ready' }]
+  mockShowAlert.mockResolvedValueOnce('use')
   const screen = render(<EnrollWizard mode="add-key" onDone={jest.fn()} onCancel={jest.fn()} />)
   await settle()
+  // XR-001: a persisted 'ready' draft is not itself proof of possession (it
+  // may be a forged SecureStore entry, never tapped on any real card), so it
+  // must never gain vault spend authority without the user confirming it —
+  // by name — first.
+  expect(mockShowAlert).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Key 3') }))
   expect(mockAddVaultKey).toHaveBeenCalledWith(
     expect.objectContaining({ serial: 'DRAFT001', nickname: 'Key 3' }),
     expect.anything()
@@ -751,6 +760,20 @@ test('a ready draft in add-key mode is written on sight, with nothing asked and 
   expect(mockAddVaultKey).toHaveBeenCalledTimes(1)
   expect(mockEnrollKey).not.toHaveBeenCalled()
   expect(screen.getByText('vault_add_key_done:{"nickname":"Key 3"}')).toBeTruthy()
+})
+
+test('XR-001: a ready draft in add-key mode is never written on sight — declining discards it instead', async () => {
+  mockMeta = { v: 5, createdAt: 1, keys: [record('12340001', 'a'), record('12340002', 'b')] }
+  mockDrafts = [{ record: { ...record('DRAFT001', 'd'), nickname: 'Key 3' }, assurance: 'ready' }]
+  mockShowAlert.mockResolvedValueOnce('discard')
+  render(<EnrollWizard mode="add-key" onDone={jest.fn()} onCancel={jest.fn()} />)
+  await settle()
+  expect(mockShowAlert).toHaveBeenCalledTimes(1)
+  // The finding: a draft this app never itself proved possession of (no tap
+  // in this run) must not silently become spend authority. Declining must
+  // leave it unwritten and remove the unproven handle rather than retry it.
+  expect(mockAddVaultKey).not.toHaveBeenCalled()
+  expect(mockDiscardDraft).toHaveBeenCalledWith('DRAFT001', expect.anything())
 })
 
 // ── the in-app PIV reset ──────────────────────────────────────────────

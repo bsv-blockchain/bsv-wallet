@@ -124,6 +124,17 @@ let activeScope: VaultStoreScope | null = null
 let scopeGeneration = 0
 let mutationTail: Promise<void> = Promise.resolve()
 
+/** INT-08: subscribers notified whenever configureScope/clearScope actually
+ * runs, so a reader started before the wallet-build chain reaches
+ * configureScope (VaultContext's boot-time hasVaultMeta check, structurally
+ * guaranteed to settle to `false` first — see INT-08) can react to the scope
+ * becoming available instead of latching a stale answer for the rest of the
+ * session. Mirrors ceremony.subscribe's plain listener-set shape. */
+const scopeListeners = new Set<() => void>()
+function notifyScopeChange(): void {
+  for (const listener of scopeListeners) listener()
+}
+
 /** Serialize every scoped write so two callers cannot both read revision N and
  * then last-write competing N+1 states. A rejected mutation never poisons the
  * queue. Each operation captures its scope before joining and rechecks it when
@@ -464,12 +475,23 @@ export const vaultStore = {
   configureScope(scope: VaultStoreScope): void {
     activeScope = normalizeScope(scope)
     scopeGeneration++
+    notifyScopeChange()
   },
 
   /** Drop the in-memory authority during logout, wallet rebuild or teardown. */
   clearScope(): void {
     activeScope = null
     scopeGeneration++
+    notifyScopeChange()
+  },
+
+  /** INT-08: notified after every configureScope/clearScope. Returns an
+   * unsubscribe function, matching ceremony.subscribe's shape. */
+  onScopeChange(cb: () => void): () => void {
+    scopeListeners.add(cb)
+    return () => {
+      scopeListeners.delete(cb)
+    }
   },
 
   getScope(): VaultStoreScope | null {

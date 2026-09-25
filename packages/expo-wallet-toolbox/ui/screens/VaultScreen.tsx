@@ -46,6 +46,8 @@ import {
   useLocalStorage,
   relockVault,
   recoverVaultMetaFromOutputs,
+  recoverVaultFromChain,
+  wocChainLookup,
   resolveHeldVaultDeposit,
   adoptVaultKey,
   beginVaultKeyRemoval,
@@ -71,6 +73,7 @@ import {
   getOnline,
   generateMnemonicWallet,
   backupAttestation,
+  readBackupAttestation,
   VaultError,
   haptics,
   i18n,
@@ -170,6 +173,11 @@ export function VaultScreen() {
   // resolution (resolveHeldVaultDeposit) instead of leaving the vault stuck.
   const [actionPendingNotice, setActionPendingNotice] = useState(false)
   const [resolvingDeposit, setResolvingDeposit] = useState(false)
+  // Chain recovery (v7 marker/descriptor, spec v7 §1.2 item 3): offered only
+  // while this wallet has no local vault meta at all. Never needs a YubiKey —
+  // only the wallet identity — so it is not gated on `supported`.
+  const [restoringFromChain, setRestoringFromChain] = useState(false)
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null)
 
   // Release flag AND mainnet (task 11). Read from the reactive `selectedNetwork`
   // so everything this gates collapses on a network switch without a remount —
@@ -186,20 +194,46 @@ export function VaultScreen() {
   const pm = managers?.permissionsManager
 
   const reload = useCallback(async (): Promise<VaultMeta | null> => {
+    if (!pm) {
+      metaRef.current = null
+      setMeta(null)
+      setRecoveryError(null)
+      return null
+    }
+    // INT-07 / XR-007: recoverVaultMetaFromOutputs used to run only when the
+    // local cache was EMPTY. A stale-but-PRESENT local record (an iOS
+    // reinstall Keychain survives, or a revision bump made elsewhere for the
+    // same enrollment) then skipped this reconciliation forever — every
+    // subsequent spend against the newer on-chain revision failed closed
+    // with 'template-invalid', with no in-app way to force it (disableVault
+    // refuses on any funded vault). recoverVaultMetaFromOutputs already keeps
+    // the cached record whenever the authenticated scan does not supersede it
+    // (recoveredSupersedesExisting), so calling it unconditionally only
+    // widens WHEN that existing ratchet runs, never what it decides.
+    let cached: VaultMeta | null = null
     try {
-      if (!pm) {
-        metaRef.current = null
-        setMeta(null)
-        setRecoveryError(null)
-        return null
-      }
-      let m = await vaultStore.getMeta()
-      if (!m) m = await recoverVaultMetaFromOutputs(pm as unknown as VaultWallet, adminOriginator)
+      cached = await vaultStore.getMeta()
+    } catch {
+      // Nothing to fall back to either; the scan below still gets a chance.
+    }
+    try {
+      const m = await recoverVaultMetaFromOutputs(pm as unknown as VaultWallet, adminOriginator)
       metaRef.current = m
       setMeta(m)
       setRecoveryError(null)
       return m
     } catch (error) {
+      // A scan that cannot complete (offline, a pending action another call
+      // site already surfaces its own notice for, etc.) must not regress an
+      // already-correct cached record's instant, offline-safe display into a
+      // hard recoveryError screen — only a device with NOTHING cached has
+      // nothing safe to fall back to.
+      if (cached) {
+        metaRef.current = cached
+        setMeta(cached)
+        setRecoveryError(null)
+        return cached
+      }
       metaRef.current = null
       setRecoveryError(vaultErrorCopy(error instanceof VaultError ? error.code : undefined))
       throw error
@@ -216,6 +250,41 @@ export function VaultScreen() {
     void reload().catch(error => console.error('[vault] recovery scan failed:', error))
   }, [reload])
 
+  /**
+   * Restore vault from the blockchain (spec v7 §1.2 item 3 / item 7):
+   * scans for chain-published v7 markers and internalizes every confirmed,
+   * unspent, authenticated one — no local DB, SecureStore, or backup needed,
+   * and no YubiKey either (that is only needed afterward, to spend). Shown
+   * only while this wallet has no local vault meta at all.
+   */
+  const onRestoreFromChain = useCallback(async () => {
+    if (!pm || restoringFromChain) return
+    setRestoringFromChain(true)
+    setRestoreNotice(null)
+    try {
+      const result = await recoverVaultFromChain(
+        pm as unknown as VaultWallet,
+        adminOriginator,
+        wocChainLookup(selectedNetwork),
+        selectedNetwork
+      )
+      if (result.found > 0) {
+        haptics.success()
+        setRestoreNotice(t('vault_restore_found', { count: result.found }))
+        await reload()
+      } else if (result.pendingConfirmation > 0) {
+        setRestoreNotice(t('vault_restore_pending', { count: result.pendingConfirmation }))
+      } else {
+        setRestoreNotice(t('vault_restore_none_found'))
+      }
+    } catch (error) {
+      haptics.error()
+      setRestoreNotice(vaultErrorCopy(error instanceof VaultError ? error.code : undefined))
+    } finally {
+      setRestoringFromChain(false)
+    }
+  }, [pm, restoringFromChain, adminOriginator, selectedNetwork, reload])
+
   /** F-04: surface the one recovery action for a signed deposit crash left
    * behind — every other vault call keeps refusing with 'action-pending'
    * until this resolves it, and there was previously no in-app way to. */
@@ -227,6 +296,16 @@ export function VaultScreen() {
       if (result.kind === 'failed') {
         console.error('[vault] could not resolve the held deposit:', result.error)
         showToast(vaultErrorCopy('action-pending'), { type: 'error' })
+        return
+      }
+      if (result.kind === 'nothing-held') {
+        // XR-006 / INT-03: 'nothing-held' means no held deposit OR
+        // withdraw/relock this function knows how to authenticate was
+        // found — it does NOT mean the underlying action-pending block is
+        // gone. Reporting success here previously cleared the notice while
+        // the freeze remained, silently reappearing on the very next vault
+        // operation.
+        showToast(t('vault_resolve_held_deposit_none'), { type: 'error' })
         return
       }
       setActionPendingNotice(false)
@@ -691,6 +770,13 @@ export function VaultScreen() {
    * destinationPress → BiometricAdvisoryModal → ensureWalletExists.
    */
   const creatingWalletRef = useRef(false)
+  // XR-003: set only on the branch below that generates a BRAND NEW mnemonic.
+  // A freshly generated wallet is certainly unattested (markPending was just
+  // written for it); onAdvisoryContinue reads this to skip a redundant
+  // attestation lookup and go straight to the mandatory seed-preservation
+  // screen, rather than risk a stale `managers.permissionsManager` closure
+  // read immediately after this same call just built it.
+  const justCreatedIdentityRef = useRef<string | null>(null)
   const ensureWalletExists = useCallback(async (): Promise<boolean> => {
     if (managers.permissionsManager) return true
     if (!secretsReady || walletBuilding || creatingWalletRef.current) return false
@@ -708,6 +794,7 @@ export function VaultScreen() {
         if (!(await hasStoredIdentity())) router.replace('/auth/mnemonic')
         return false
       }
+      justCreatedIdentityRef.current = wallet.identityKey
       try {
         await backupAttestation.markPending(wallet.identityKey)
       } catch (error) {
@@ -731,8 +818,32 @@ export function VaultScreen() {
     router
   ])
 
+  /**
+   * XR-003: neither the enroll wizard nor a deposit may be reached before the
+   * mnemonic that alone can recover this vault (I1/I2 — YubiKeys carry no
+   * seed) has been durably preserved off-device at least once. Distinct from
+   * the ordinary wallet's dismissible backupAttestation reminder (which stays
+   * non-blocking): here the same record BLOCKS instead of reminding, because
+   * real money is about to depend on it. `knownUnattested` skips the lookup
+   * for the one caller (onAdvisoryContinue, immediately after generating a
+   * brand new mnemonic) where `managers.permissionsManager` may still be a
+   * stale pre-build closure read.
+   */
+  const requireBackupAttested = useCallback(
+    async (knownUnattested = false): Promise<boolean> => {
+      const attested = knownUnattested
+        ? null
+        : await readBackupAttestation(managers.permissionsManager, adminOriginator)
+      if (attested) return true
+      router.push('/auth/mnemonic?flow=backup')
+      return false
+    },
+    [managers.permissionsManager, adminOriginator, router]
+  )
+
   const onDeposit = useCallback(async () => {
     if (managers.permissionsManager) {
+      if (!(await requireBackupAttested())) return
       router.push('/vault-transfer?direction=deposit')
       return
     }
@@ -745,10 +856,11 @@ export function VaultScreen() {
     setAdvisoryDegraded((await resolveProvisioningPolicy()).disclose)
     setWalletCreationIntent('deposit')
     setShowBiometricAdvisory(true)
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, router])
+  }, [managers.permissionsManager, requireBackupAttested, secretsReady, walletBuilding, hasStoredIdentity, router])
 
   const onBeginEnrollment = useCallback(async () => {
     if (managers.permissionsManager) {
+      if (!(await requireBackupAttested())) return
       setWizard('enroll')
       return
     }
@@ -761,7 +873,7 @@ export function VaultScreen() {
     setAdvisoryDegraded((await resolveProvisioningPolicy()).disclose)
     setWalletCreationIntent('enroll')
     setShowBiometricAdvisory(true)
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity])
+  }, [managers.permissionsManager, requireBackupAttested, secretsReady, walletBuilding, hasStoredIdentity])
 
   const onAdvisoryContinue = useCallback(() => {
     // Kept up (with a spinner in place of the label) until wallet creation
@@ -774,6 +886,9 @@ export function VaultScreen() {
         const created = await ensureWalletExists()
         setShowBiometricAdvisory(false)
         if (created) {
+          const justCreated = justCreatedIdentityRef.current !== null
+          justCreatedIdentityRef.current = null
+          if (!(await requireBackupAttested(justCreated))) return
           if (walletCreationIntent === 'enroll') setWizard('enroll')
           else router.push('/vault-transfer?direction=deposit')
         }
@@ -781,7 +896,7 @@ export function VaultScreen() {
         setCreatingWallet(false)
       }
     })()
-  }, [ensureWalletExists, router, walletCreationIntent])
+  }, [ensureWalletExists, requireBackupAttested, router, walletCreationIntent])
 
   // ── header ──────────────────────────────────────────────────────────
   // While the wizard is up, back means "leave set-up" and goes through the
@@ -897,6 +1012,31 @@ export function VaultScreen() {
                   <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
                     {t('vault_unsupported_body')}
                   </Text>
+                </View>
+              )}
+              {/* No local vault meta at all: a wiped device / reinstall with
+                  the same wallet identity may still have vault deposits
+                  on-chain. Needs the wallet identity (pm) but never a
+                  YubiKey — that is only needed afterward, to spend. */}
+              {enabled && !!pm && (
+                <View style={styles.heroNotice}>
+                  <PressableScale
+                    haptic="tap"
+                    onPress={restoringFromChain ? undefined : () => void onRestoreFromChain()}
+                    accessibilityState={{ disabled: restoringFromChain }}
+                    style={styles.secondary}
+                  >
+                    {restoringFromChain ? (
+                      <ActivityIndicator color={colors.accent} />
+                    ) : (
+                      <Text style={[styles.secondaryLabel, { color: colors.accent }]}>
+                        {t('vault_restore_from_chain')}
+                      </Text>
+                    )}
+                  </PressableScale>
+                  {restoreNotice && (
+                    <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{restoreNotice}</Text>
+                  )}
                 </View>
               )}
             </View>
