@@ -90,6 +90,36 @@ describe('localpay pending queue', () => {
     expect(saved.status).toBe('pending')
   })
 
+  // XR-092. A syntactically valid but wrong-shaped value ('{}', 'null',
+  // '"x"', '42') took a completely different code path from invalid JSON:
+  // `Array.isArray(parsed) ? ... : []` silently treated it as an empty
+  // queue, clearing the corruption notice — and the very next savePending
+  // destructively overwrote it with a fresh array, discarding whatever it
+  // actually held. Must be quarantined exactly like '{not json'.
+  it.each(['{}', 'null', '"x"', '42'])(
+    'quarantines a syntactically valid non-array value (%s) instead of treating it as an empty queue',
+    async value => {
+      const s = fakeStorage()
+      s.map.set(PENDING_KEY, value)
+      await expect(getPending(s)).rejects.toBeInstanceOf(PendingCorruptError)
+      const keys = [...s.map.keys()]
+      expect(keys.some(k => k.startsWith('localpay_pending_corrupt_'))).toBe(true)
+      // Quarantined, not silently replaced with an empty queue a subsequent
+      // savePending could destructively overwrite the original value through.
+      expect(JSON.parse(s.map.get(PENDING_KEY)!)).toEqual([])
+      expect(getPendingCorruptNotice()).toBe(true)
+    }
+  )
+
+  it.each(['{}', 'null', '"x"', '42'])(
+    'getUnprocessed also quarantines a syntactically valid non-array value (%s)',
+    async value => {
+      const s = fakeStorage()
+      s.map.set(PENDING_KEY, value)
+      await expect(getUnprocessed(s)).rejects.toBeInstanceOf(PendingCorruptError)
+    }
+  )
+
   it('does not let a stale corrupt-repair wipe a later save', async () => {
     const corrupt = '{not json'
     const map = new Map<string, string>()

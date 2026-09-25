@@ -184,8 +184,17 @@ async function readAll(storage: KVStorage): Promise<PendingPayment[]> {
   }
   try {
     const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      // XR-092: a syntactically valid non-array (an object, string, number,
+      // or null) is just as wrong-shaped as invalid JSON. Silently reading it
+      // as an empty queue cleared the corruption notice and left `writeAll`'s
+      // very next save free to destructively overwrite whatever this value
+      // actually held. Thrown here so it takes the exact same quarantine path
+      // as a JSON.parse failure, below — never treated as "nothing pending".
+      throw new Error('localpay_pending is not an array')
+    }
     pendingCorruptNotice = false
-    return Array.isArray(parsed) ? (parsed as Serialised[]).map(fromWire) : []
+    return (parsed as Serialised[]).map(fromWire)
   } catch {
     pendingCorruptNotice = true
     try {
