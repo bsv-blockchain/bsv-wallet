@@ -172,8 +172,11 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
     // A compromised/misbehaving ARC endpoint can return an oversized
     // txStatus/body field; logging it in full is itself unbounded memory/log
     // work on top of the JSON parse. The classification logic is untouched —
-    // only what reaches console.log is capped.
-    const hugeStatus = 'x'.repeat(5_000_000)
+    // only what reaches console.log is capped. Kept well under
+    // MAX_BROADCAST_BODY_BYTES (the separate XR-060 remainder bound below) so
+    // this test still exercises log truncation on a body the size bound lets
+    // through.
+    const hugeStatus = 'x'.repeat(100_000)
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -227,7 +230,9 @@ describe('createWocBroadcastService classification', () => {
   })
 
   it('XR-060: caps the logged response body instead of logging it in full', async () => {
-    const hugeBody = 'z'.repeat(5_000_000)
+    // Kept well under MAX_BROADCAST_BODY_BYTES (see below) so this still
+    // exercises log truncation on a body the size bound lets through.
+    const hugeBody = 'z'.repeat(100_000)
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const r = await postOne(500, hugeBody)
     // Classification still runs over the full body — only the log is capped.
@@ -235,6 +240,129 @@ describe('createWocBroadcastService classification', () => {
     const [, loggedSnippet] = logSpy.mock.calls[0] as [string, string]
     expect(loggedSnippet.length).toBeLessThan(hugeBody.length)
     logSpy.mockRestore()
+  })
+})
+
+/**
+ * XR-060 remainder: XR-063's fetchWithBodyDeadline bounds how long a stalled
+ * body can hang, but until now nothing bounded how LARGE a body that does
+ * arrive can be before it is fully parsed/buffered — a compromised or
+ * misbehaving endpoint could still force an unbounded JSON parse or string
+ * allocation over a multi-megabyte response, exactly the gap XR-060's
+ * original triage flagged and its first pass (commit f7c12255) deliberately
+ * left open pending this fix. Mirrors
+ * core/identity/handleRegistry/resolver.ts's XR-077/SEC2-027 byte cap: a
+ * declared Content-Length over the cap is refused before anything is read,
+ * and a streamed body is aborted the instant it crosses the cap — falling
+ * back to a post-hoc size check only when the runtime (or a test double)
+ * exposes no stream to count from. Either path fails to the ordinary
+ * retryable serviceError outcome, never success.
+ */
+describe('XR-060 remainder: bounds the broadcast body size itself, not just what gets logged', () => {
+  it('Arcade (ARC): an oversized parsed body is rejected as serviceError, never success', async () => {
+    // No response.body stream in this mock, so the fallback path applies:
+    // the original json() is still called (a real runtime with no stream
+    // support is the "floor, not a firewall" case), but its result is
+    // rejected once its size is over the cap, before handleArcResponse ever
+    // sees it as a would-be RECEIVED/success.
+    const hugePayload = { txid: 'abc123', txStatus: 'RECEIVED', junk: 'x'.repeat(3_000_000) }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => hugePayload
+    }) as unknown as typeof fetch
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const result = await service(beef, [tx.id('hex')])
+    expect(result.status).not.toBe('success')
+    expect(result.txidResults[0].serviceError).toBe(true)
+    expect(result.txidResults[0].doubleSpend).toBeUndefined()
+  })
+
+  // Deliberately does NOT rely on the body ever failing to resolve (that is
+  // XR-063's job, already covered below) — this stream resolves fully and
+  // quickly, just with far more bytes than any real WoC reply. Pre-fix,
+  // nothing stops that from completing and being classified as an ordinary
+  // response.ok success; only a byte cap catches it.
+  it('WhatsOnChain: a streamed body is aborted the instant it crosses the byte cap, never buffered whole', async () => {
+    const chunk = new Uint8Array(256 * 1024).fill(0x7a) // 256 KiB of 'z' per pull
+    let pulls = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        controller.enqueue(chunk)
+        // Safety valve only, well above the ~4-chunk cap — the fix must stop
+        // long before this; the unfixed code relies on it to finish at all.
+        if (pulls > 100) controller.close()
+      }
+    })
+    // A stand-in for what a real Response.text() does: drain the same
+    // underlying stream and decode it. The unfixed code calls this directly
+    // with no cap, so it happily returns the full ~25 MB body.
+    const readStreamAsText = async (): Promise<string> => {
+      const reader = stream.getReader()
+      const parts: Uint8Array[] = []
+      let total = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) {
+          parts.push(value)
+          total += value.byteLength
+        }
+      }
+      const merged = new Uint8Array(total)
+      let offset = 0
+      for (const part of parts) {
+        merged.set(part, offset)
+        offset += part.byteLength
+      }
+      return new TextDecoder().decode(merged)
+    }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: readStreamAsText,
+      body: stream
+    }) as unknown as typeof fetch
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    const { service } = createWocBroadcastService('main')
+    const result = await service(beef, [tx.id('hex')])
+    expect(result.status).not.toBe('success')
+    expect(result.txidResults[0].serviceError).toBe(true)
+    // MAX_BROADCAST_BODY_BYTES is 1,000,000; four 256 KiB chunks already
+    // crosses it, so a bounded read must stop within a handful of chunks
+    // rather than draining all 100+.
+    expect(pulls).toBeLessThan(10)
+  })
+
+  it('WhatsOnChain: a declared Content-Length over the cap is refused before reading anything', async () => {
+    const read = jest.fn()
+    const body = { getReader: () => ({ read, cancel: jest.fn() }) }
+    // If this were ever reached, it would read as an ordinary small success
+    // body — proving the rejection came from the declared length, not from
+    // the content itself.
+    const textSpy = jest.fn(async () => '')
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: (h: string) => (h.toLowerCase() === 'content-length' ? '99999999' : null) },
+      text: textSpy,
+      body
+    }) as unknown as typeof fetch
+    const tx = new Transaction()
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    const { service } = createWocBroadcastService('main')
+    const result = await service(beef, [tx.id('hex')])
+    expect(result.status).not.toBe('success')
+    expect(result.txidResults[0].serviceError).toBe(true)
+    expect(read).not.toHaveBeenCalled()
+    expect(textSpy).not.toHaveBeenCalled()
   })
 })
 
