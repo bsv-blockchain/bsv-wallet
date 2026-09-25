@@ -37,25 +37,34 @@ async function generateQRCodeSVG(data: string, size: number = 180): Promise<stri
  *   - Recovery instructions footer
  *
  * Pages are separated by CSS page-break-after for print dialogue.
+ *
+ * `only`, when given, renders a single page (share index `only` of `shares`,
+ * still labelled "Share <only+1> of <shares.length>") as a standalone
+ * one-page document instead of every share in one multi-page document. See
+ * printRecoveryShares.ts (XR-110): the default flow calls this once per
+ * share so no single print job carries more than one of the threshold.
  */
 export async function generatePrintHTML(
   shares: string[],
   identityKey: string,
   format: 'entropy' | 'legacy' = 'entropy',
-  appName: string = 'your wallet app'
+  appName: string = 'your wallet app',
+  only?: number
 ): Promise<string> {
   const now = new Date()
   const date = now.toISOString().split('T')[0]
   const time = now.toISOString().split('T')[1].split('.')[0]
   const dateStamp = `${date} ${time}`
 
-  // Pre-generate all QR codes
-  const shareQRs = await Promise.all(shares.map(s => generateQRCodeSVG(s, 180)))
+  const indices = only === undefined ? shares.map((_, i) => i) : [only]
+
+  // Pre-generate the QR codes this document actually needs.
+  const shareQRs = await Promise.all(indices.map(i => generateQRCodeSVG(shares[i], 180)))
   const identityQR = await generateQRCodeSVG(identityKey, 150)
 
-  const pages = shares.map(
-    (share, i) => `
-    <div class="page${i < shares.length - 1 ? '' : ' last'}">
+  const pages = indices.map(
+    (i, renderIdx) => `
+    <div class="page${renderIdx < indices.length - 1 ? '' : ' last'}">
       <div class="header">
         <span class="share-label">Share ${i + 1} of ${shares.length}</span>
         <span class="date-stamp">${dateStamp}</span>
@@ -74,10 +83,10 @@ export async function generatePrintHTML(
 
       <div class="section">
         <div class="qr-container">
-          ${shareQRs[i]}
+          ${shareQRs[renderIdx]}
         </div>
         <div class="data-label">Backup Share</div>
-        <div class="data-value share-text">${share}</div>
+        <div class="data-value share-text">${shares[i]}</div>
       </div>
 
       <div class="divider"></div>

@@ -1,12 +1,4 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import i18n from '../i18n/translations'
 import {
@@ -134,10 +126,7 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
 
   /* --------------------------------- unlock -------------------------------- */
 
-  const unlock = useCallback(
-    () => unlockKek(i18n.t('biometric_unlock_wallet')),
-    []
-  )
+  const unlock = useCallback(() => unlockKek(i18n.t('biometric_unlock_wallet')), [])
 
   /**
    * The single implicit ceremony. Called on the read path so the returning
@@ -153,13 +142,16 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
 
   /* -------------------------------- secure --------------------------------- */
 
-  const setMnemonic = useCallback(
-    (mnemonic: string) => putSecret('mnemonic', mnemonic),
-    []
-  )
+  const setMnemonic = useCallback((mnemonic: string) => putSecret('mnemonic', mnemonic), [])
 
+  // XR-112: a failed migration must never hand back the legacy plaintext —
+  // that would let anyone who just declines/fails the biometric ceremony read
+  // a fully signing-capable secret with no authentication at all. A failed
+  // migration also never committed an envelope, so hasSecret() below already
+  // reports false for this state; retry happens on the next launch, when
+  // migration runs again.
   const getMnemonic = useCallback(async (): Promise<string | null> => {
-    if (legacyFallback.current) return readLegacySecret('mnemonic')
+    if (legacyFallback.current) return null
     if (!(await hasSecret('mnemonic'))) return null
     if (!(await ensureUnlocked())) return null
     return getSecret('mnemonic')
@@ -167,13 +159,10 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
 
   const deleteMnemonic = useCallback(() => deleteSecret('mnemonic'), [])
 
-  const setRecoveredKey = useCallback(
-    (wif: string) => putSecret('recoveredKey', wif),
-    []
-  )
+  const setRecoveredKey = useCallback((wif: string) => putSecret('recoveredKey', wif), [])
 
   const getRecoveredKey = useCallback(async (): Promise<string | null> => {
-    if (legacyFallback.current) return readLegacySecret('recoveredKey')
+    if (legacyFallback.current) return null
     if (!(await hasSecret('recoveredKey'))) return null
     if (!(await ensureUnlocked())) return null
     return getSecret('recoveredKey')
@@ -187,24 +176,29 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
   const deleteAllWalletKeys = useCallback(() => deleteAllSecrets(), [])
 
   const hasStoredIdentity = useCallback(async (): Promise<boolean> => {
-    return (await hasAnySecret({ strict: true })) ||
+    return (
+      (await hasAnySecret({ strict: true })) ||
       (await readLegacySecret('mnemonic', { strict: true })) != null ||
       (await readLegacySecret('recoveredKey', { strict: true })) != null
+    )
   }, [])
 
-  const createMnemonic = useCallback(async (mnemonic: string): Promise<boolean> => {
-    // A failed migration cannot establish that storage is safely empty.
-    if (!secretsReadyRef.current || legacyFallback.current || creatingMnemonic) return false
-    creatingMnemonic = true
-    try {
-      if (await hasStoredIdentity()) return false
-      // The provider may have unmounted while checking storage.
-      if (!secretsReadyRef.current) return false
-      return await putSecret('mnemonic', mnemonic)
-    } finally {
-      creatingMnemonic = false
-    }
-  }, [hasStoredIdentity])
+  const createMnemonic = useCallback(
+    async (mnemonic: string): Promise<boolean> => {
+      // A failed migration cannot establish that storage is safely empty.
+      if (!secretsReadyRef.current || legacyFallback.current || creatingMnemonic) return false
+      creatingMnemonic = true
+      try {
+        if (await hasStoredIdentity()) return false
+        // The provider may have unmounted while checking storage.
+        if (!secretsReadyRef.current) return false
+        return await putSecret('mnemonic', mnemonic)
+      } finally {
+        creatingMnemonic = false
+      }
+    },
+    [hasStoredIdentity]
+  )
 
   /* -------------------------------- output --------------------------------- */
 
