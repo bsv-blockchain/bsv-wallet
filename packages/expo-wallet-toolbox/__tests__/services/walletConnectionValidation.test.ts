@@ -5,7 +5,6 @@ import {
   MAX_RPC_CIPHERTEXT_CHARS,
   MAX_RPC_PLAINTEXT_BYTES,
   MAX_RPC_WIRE_CHARS,
-  PAIRING_SIGNATURE_DOMAIN,
   buildConnectionAuthorityMessage,
   buildPairingSignatureMessage,
   buildRelayWebSocketUrl,
@@ -42,13 +41,11 @@ describe('wallet connection parameter boundary', () => {
     })
   })
 
-  it('binds the canonical transport protocol into a versioned QR signature transcript', () => {
+  it('builds the QR signature transcript @bsv/wallet-relay 0.5.x signs', () => {
     const params = validParams()
     expect(buildPairingSignatureMessage(params)).toBe(
-      `${PAIRING_SIGNATURE_DOMAIN}|${params.topic}|${params.backendIdentityKey}|${params.protocolID}|${params.origin}|${params.expiry}`
+      `${params.topic}|${params.backendIdentityKey}|${params.origin}|${params.expiry}`
     )
-    expect(buildPairingSignatureMessage({ ...params, protocolID: '[1,"mobile wallet session"]' }))
-      .not.toBe(buildPairingSignatureMessage(params))
   })
 
   it.each([

@@ -64,7 +64,7 @@ async function signedPairingParams() {
   const origin = 'https://app.example'
   const expiry = String(Math.floor(Date.now() / 1000) + 60)
 
-  const message = buildPairingSignatureMessage({ topic, backendIdentityKey, protocolID, origin, expiry })
+  const message = buildPairingSignatureMessage({ topic, backendIdentityKey, origin, expiry })
   const backendWallet = new ProtoWallet(backendKey)
   const { signature } = await backendWallet.createSignature({
     data: Array.from(new TextEncoder().encode(message)),
