@@ -1309,6 +1309,12 @@ describe('finalizeEnrollment', () => {
     // ever ran for it, matching what a SecureStore-only attacker (who has no
     // wallet and no YubiKey) can produce.
     await vaultStore.preserveEnrollmentDraft({ record: forged, assurance: 'ready' }, vaultStore.captureScopeToken())
+    // rec(2) gets a LEGITIMATE ready draft (real wallet-root tag) so this
+    // test isolates the refusal to `forged`'s own missing tag — without
+    // this, rec(2) has no draft at all and requireReadyEnrollmentDrafts
+    // throws key-not-adopted for rec(2) alone regardless of whether forged's
+    // tag is ever checked (SEC2-087 external review, XR-001 verification gap).
+    await stageReady(rec(2))
     await expect(finalizeEnrollment([forged, rec(2)], undefined, AUTHORITY)).rejects.toMatchObject({
       code: 'key-not-adopted'
     })
@@ -1322,6 +1328,11 @@ describe('finalizeEnrollment', () => {
     await vaultStore.preserveEnrollmentDraft({ record: forged, assurance: 'ready' }, scopeToken, r =>
       computeVaultDraftAuthorityTag(OTHER_WALLET, ADMIN, r, scope)
     )
+    // rec(2) gets a LEGITIMATE ready draft (real wallet-root tag) so this
+    // test isolates the refusal to `forged`'s wrong-wallet tag — see the
+    // comment on the previous test for why an untagged rec(2) would make
+    // this test pass regardless of whether forged's tag is ever checked.
+    await stageReady(rec(2))
     await expect(finalizeEnrollment([forged, rec(2)], undefined, AUTHORITY)).rejects.toMatchObject({
       code: 'key-not-adopted'
     })
