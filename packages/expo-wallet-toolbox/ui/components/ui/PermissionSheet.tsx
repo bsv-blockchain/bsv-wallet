@@ -71,7 +71,7 @@ interface GroupPermissions {
 }
 
 /** Common shape derived from the four existing modals. */
-interface ActivePermission {
+export interface ActivePermission {
   kind: PermissionKind
   requestID: string
   originator: string
@@ -88,6 +88,52 @@ interface ActivePermission {
   renewal?: boolean
   /** Group-specific sub-permissions. */
   groupPermissions?: GroupPermissions
+  /**
+   * XR-040: set when a `mandala_spend`/`mandala_credit` prompt's per-asset
+   * `lines` could not be trusted to be the WHOLE request (absent, malformed,
+   * empty, or past `MANDALA_MAX_PROMPT_LINES`) — every asset a single
+   * approval would release has to be shown, and a request this sheet cannot
+   * fully enumerate must never be approvable. `handleDeny` is unaffected;
+   * only the Allow control reads this.
+   */
+  approvalBlocked?: boolean
+}
+
+/** One line of a `mandala_spend`/`mandala_credit` prompt's `lines[]` array,
+ * as loosely as a JSON.parse of counterparty-adjacent data should be trusted. */
+interface MandalaPromptLine {
+  assetId?: unknown
+  sendAmount?: unknown
+  changeAmount?: unknown
+  creditAmount?: unknown
+  tokenName?: unknown
+  /** Pre-formatted, e.g. "25.00 USDX" — see `MandalaSpendLine`/`MandalaCreditLine`. */
+  display?: unknown
+}
+
+/**
+ * A sane display ceiling for a multi-asset Mandala prompt. Every real prompt
+ * this app's own `MandalaTokenModule` builds groups by assetId — a handful at
+ * most — so a `lines` array past this is either a bug or a bad-faith caller,
+ * either way not something to enumerate as if it were the whole request.
+ */
+const MANDALA_MAX_PROMPT_LINES = 25
+
+/**
+ * `promptData.lines`, validated into a bounded array of loosely-typed line
+ * objects — or `null` for anything this sheet cannot enumerate in full
+ * (absent, not an array, empty, oversized, or containing a non-object entry).
+ * `null` is the caller's signal to block approval rather than silently fall
+ * back to the primary-only view (XR-040).
+ */
+function sanitizedMandalaLines(raw: unknown): MandalaPromptLine[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MANDALA_MAX_PROMPT_LINES) return null
+  const lines: MandalaPromptLine[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') return null
+    lines.push(entry as MandalaPromptLine)
+  }
+  return lines
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +144,9 @@ interface ActivePermission {
  * Derive the human-friendly "what is being asked" description for each
  * permission type. Technical specifics go into the expandable Details section.
  */
-function deriveActive(
+// Exported so the mandala prompt's own display-building logic (XR-040) is
+// unit-testable without rendering the whole sheet's component tree.
+export function deriveActive(
   ctx: {
     protocolRequests: any[]
     basketRequests: any[]
@@ -270,6 +318,7 @@ function deriveActive(
       sendAmount?: number
       changeAmount?: number
       creditAmount?: number
+      lines?: unknown
     } = {}
     try {
       promptData = JSON.parse(r.message)
@@ -291,11 +340,59 @@ function deriveActive(
     }
 
     const details: { label: string; value: string }[] = []
-    if (promptData.tokenName) details.push({ label: 'Token', value: promptData.tokenName })
-    if (promptData.sendAmount != null) details.push({ label: 'Send amount', value: String(promptData.sendAmount) })
-    if (promptData.changeAmount != null) details.push({ label: 'Change', value: String(promptData.changeAmount) })
-    if (promptData.creditAmount != null) details.push({ label: 'Credit amount', value: String(promptData.creditAmount) })
-    if (promptData.assetId) details.push({ label: 'Asset ID', value: truncate(promptData.assetId, 28) })
+    let approvalBlocked = false
+
+    if (promptData.type === 'mandala_spend' || promptData.type === 'mandala_credit') {
+      // XR-040: `lines` carries EVERY asset this request touches — rendering
+      // only the primary (back-compat) fields below is how a single approval
+      // silently released a second, unshown asset. Every sanitized line is
+      // rendered; an unsanitizable `lines` blocks approval instead of falling
+      // back to a primary-only view that looks complete but is not.
+      const lines = sanitizedMandalaLines(promptData.lines)
+      if (lines === null) {
+        approvalBlocked = true
+        details.push({
+          label: 'Warning',
+          value: 'Could not verify this is the full request — deny and try again.'
+        })
+      } else {
+        const numbered = lines.length > 1
+        lines.forEach((line, i) => {
+          const suffix = numbered ? ` ${i + 1}` : ''
+          if (typeof line.tokenName === 'string' && line.tokenName) {
+            details.push({ label: `Token${suffix}`, value: line.tokenName })
+          }
+          if (typeof line.sendAmount === 'number') {
+            details.push({
+              label: `Send amount${suffix}`,
+              value: typeof line.display === 'string' ? line.display : String(line.sendAmount)
+            })
+          }
+          if (typeof line.changeAmount === 'number' && line.changeAmount !== 0) {
+            details.push({ label: `Change${suffix}`, value: String(line.changeAmount) })
+          }
+          if (typeof line.creditAmount === 'number') {
+            details.push({
+              label: `Credit amount${suffix}`,
+              value: typeof line.display === 'string' ? line.display : String(line.creditAmount)
+            })
+          }
+          if (typeof line.assetId === 'string' && line.assetId) {
+            details.push({ label: `Asset ID${suffix}`, value: truncate(line.assetId, 28) })
+          }
+        })
+      }
+    } else {
+      if (promptData.assetId) details.push({ label: 'Asset ID', value: truncate(promptData.assetId, 28) })
+    }
+
+    // Said in the ALWAYS-VISIBLE description, not only the collapsed Details
+    // section — the whole point is that this cannot be missed on the way to
+    // an (already-disabled) Allow button.
+    if (approvalBlocked) {
+      description =
+        'wants to spend or credit Mandala tokens, but the full request could not be verified — deny and try again.'
+    }
 
     return {
       kind: 'mandala',
@@ -304,7 +401,8 @@ function deriveActive(
       originator: r.originator || 'Unknown app',
       title: 'Token Spend Request',
       description,
-      details
+      details,
+      approvalBlocked
     }
   }
 
@@ -503,61 +601,67 @@ const PermissionSheet: React.FC = () => {
   // the UI can show the checkmark morph for 400 ms before dismissal.
   // Takes an explicit snapshot of the request to act on so it is safe to call
   // from the flush-on-preempt path where `active` may have already changed.
-  const executeGrant = useCallback((request: ActivePermission) => {
-    // Clear the pending ref so flush-on-preempt guards don't double-fire.
-    pendingGrantRef.current = null
+  const executeGrant = useCallback(
+    (request: ActivePermission) => {
+      // Clear the pending ref so flush-on-preempt guards don't double-fire.
+      pendingGrantRef.current = null
 
-    if (request.kind === 'btms') {
-      advanceBtmsQueue(true)
-    } else if (request.kind === 'mandala') {
-      advanceMandalaQueue(true)
-    } else if (request.kind === 'spending') {
-      managers.permissionsManager?.grantPermission({
-        requestID: request.requestID,
-        ephemeral: true,
-        amount: request.amount
-      })
-      advanceSpendingQueue()
-      setSpendingAuthorizationModalOpen(false)
-    } else {
-      managers.permissionsManager?.grantPermission({
-        requestID: request.requestID
-      })
-      switch (request.kind) {
-        case 'protocol':
-          advanceProtocolQueue()
-          setProtocolAccessModalOpen(false)
-          break
-        case 'basket':
-          advanceBasketQueue()
-          setBasketAccessModalOpen(false)
-          break
-        case 'certificate':
-          advanceCertificateQueue()
-          setCertificateAccessModalOpen(false)
-          break
+      if (request.kind === 'btms') {
+        advanceBtmsQueue(true)
+      } else if (request.kind === 'mandala') {
+        advanceMandalaQueue(true)
+      } else if (request.kind === 'spending') {
+        managers.permissionsManager?.grantPermission({
+          requestID: request.requestID,
+          ephemeral: true,
+          amount: request.amount
+        })
+        advanceSpendingQueue()
+        setSpendingAuthorizationModalOpen(false)
+      } else {
+        managers.permissionsManager?.grantPermission({
+          requestID: request.requestID
+        })
+        switch (request.kind) {
+          case 'protocol':
+            advanceProtocolQueue()
+            setProtocolAccessModalOpen(false)
+            break
+          case 'basket':
+            advanceBasketQueue()
+            setBasketAccessModalOpen(false)
+            break
+          case 'certificate':
+            advanceCertificateQueue()
+            setCertificateAccessModalOpen(false)
+            break
+        }
       }
-    }
-    setDetailsExpanded(false)
-    // Reset granted so that consecutive BTMS/Mandala requests (sharing sentinel requestID '')
-    // don't leave the sheet permanently in granted state / deadlocked.
-    setGranted(false)
-  }, [
-    managers.permissionsManager,
-    advanceProtocolQueue,
-    advanceBasketQueue,
-    advanceCertificateQueue,
-    advanceSpendingQueue,
-    advanceBtmsQueue,
-    advanceMandalaQueue,
-    setProtocolAccessModalOpen,
-    setBasketAccessModalOpen,
-    setCertificateAccessModalOpen,
-    setSpendingAuthorizationModalOpen
-  ])
+      setDetailsExpanded(false)
+      // Reset granted so that consecutive BTMS/Mandala requests (sharing sentinel requestID '')
+      // don't leave the sheet permanently in granted state / deadlocked.
+      setGranted(false)
+    },
+    [
+      managers.permissionsManager,
+      advanceProtocolQueue,
+      advanceBasketQueue,
+      advanceCertificateQueue,
+      advanceSpendingQueue,
+      advanceBtmsQueue,
+      advanceMandalaQueue,
+      setProtocolAccessModalOpen,
+      setBasketAccessModalOpen,
+      setCertificateAccessModalOpen,
+      setSpendingAuthorizationModalOpen
+    ]
+  )
 
   const handleGrant = useCallback(() => {
-    if (!active || granted) return
+    // XR-040: belt-and-braces alongside the Allow button's own `disabled` —
+    // a mandala_spend/mandala_credit prompt whose `lines` this sheet could
+    // not fully enumerate must never be approvable, from any call path.
+    if (!active || granted || active.approvalBlocked) return
     haptics.success()
     setGranted(true)
     if (grantTimerRef.current !== null) {
@@ -766,12 +870,13 @@ const PermissionSheet: React.FC = () => {
             <PressableScale
               style={[styles.buttonAllow, { backgroundColor: colors.accent }]}
               onPress={handleGrant}
-              disabled={granted}
+              disabled={granted || active.approvalBlocked}
             >
-              {granted
-                ? <Ionicons name="checkmark" size={22} color={colors.textOnAccent} />
-                : <Text style={[styles.buttonAllowText, { color: colors.textOnAccent }]}>{t('authorize')}</Text>
-              }
+              {granted ? (
+                <Ionicons name="checkmark" size={22} color={colors.textOnAccent} />
+              ) : (
+                <Text style={[styles.buttonAllowText, { color: colors.textOnAccent }]}>{t('authorize')}</Text>
+              )}
             </PressableScale>
           </View>
         </View>
