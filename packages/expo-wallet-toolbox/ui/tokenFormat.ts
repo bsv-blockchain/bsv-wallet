@@ -18,6 +18,19 @@
  * vouching for someone else's peg (ux §6.1).
  */
 
+/**
+ * XR-043: mirrored at every other boundary that ever reads a token's
+ * decimals — `core/localpay/session.ts`'s session codec and
+ * `core/mandala/createRuntime.ts`'s asset-metadata resolution enforce the
+ * same bound at THEIR boundaries; this is the last line of defense inside
+ * the formatters themselves, since a decimals value can reach here from a
+ * path neither of those touches (a stale cached asset, a test double, a
+ * future caller). Nothing token-shaped this wallet knows of uses more than a
+ * handful; an unbounded decimals value is how `String(...).padStart` (and
+ * an unbounded regex quantifier below) blows up the confirmation UI.
+ */
+const MAX_TOKEN_DECIMALS = 18
+
 /** Grouping separators for the integer part, in the device's own locale. */
 function groupInteger(digits: string): string {
   const n = Number(digits)
@@ -37,7 +50,8 @@ export function formatTokenAmount(
   decimals: number,
   opts: { showPlus?: boolean } = {}
 ): string | null {
-  if (!Number.isFinite(baseUnits) || !Number.isFinite(decimals) || decimals < 0) return null
+  if (!Number.isFinite(baseUnits) || !Number.isInteger(decimals) || decimals < 0 || decimals > MAX_TOKEN_DECIMALS)
+    return null
   const d = Math.floor(decimals)
   const rounded = Math.round(Math.abs(baseUnits))
   const digits = String(rounded).padStart(d + 1, '0')
@@ -78,7 +92,7 @@ export function formatTokenAmountWithUnit(
  * different amount than the one on screen.
  */
 export function parseTokenAmount(text: string, decimals: number): number | null {
-  if (!Number.isFinite(decimals) || decimals < 0) return null
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > MAX_TOKEN_DECIMALS) return null
   const trimmed = text.trim()
   if (!trimmed) return null
   const d = Math.floor(decimals)
@@ -92,9 +106,17 @@ export function parseTokenAmount(text: string, decimals: number): number | null 
   return Number.isSafeInteger(value) ? value : null
 }
 
-/** The input mask for an asset's decimals: digits, one point, at most N places. */
+/**
+ * The input mask for an asset's decimals: digits, one point, at most N places.
+ *
+ * XR-043: clamped rather than refused (unlike the formatters above) — this
+ * always has to return SOME usable mask for the field to render with, so an
+ * out-of-range `decimals` is treated as `MAX_TOKEN_DECIMALS` instead of
+ * reaching an unbounded regex quantifier.
+ */
 export function tokenAmountMask(decimals: number): RegExp {
-  const d = Math.max(0, Math.floor(decimals))
+  const bounded = Number.isFinite(decimals) ? decimals : 0
+  const d = Math.min(MAX_TOKEN_DECIMALS, Math.max(0, Math.floor(bounded)))
   return d === 0 ? /^\d*$/ : new RegExp(`^\\d*\\.?\\d{0,${d}}$`)
 }
 

@@ -71,6 +71,7 @@ import { getPending, type KVStorage, type TokenCreditedHook } from '../localpay/
 import type { PaymentFrame } from '../localpay/codec'
 import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
+import { MAX_TOKEN_DECIMALS } from '../localpay/session'
 import {
   frameTokenAmount,
   tokenFrameSourcesFromOfflineActions,
@@ -276,6 +277,21 @@ export interface CreateMandalaRuntimeArgs {
  */
 const TOKEN_LIST_PAGE = 1000
 const TOKEN_LIST_MAX_PAGES = 1000
+
+/**
+ * `meta.decimals` comes from the overlay's own asset registry — an external,
+ * issuer-controlled source — and flows straight into `TokenAssetInfo
+ * .decimals`, from there into every `ui/tokenFormat.ts` formatter downstream
+ * (XR-043: an unbounded decimals figure is how a malicious registry entry
+ * crashes the balance/activity UI, not just a session QR). Out-of-range or
+ * unresolvable reads as "unknown" — 0, the same fallback the previous
+ * `Number(meta?.decimals) || 0` already used — never a value past what any
+ * `ui/tokenFormat.ts` formatter will accept.
+ */
+function safeTokenDecimals(value: unknown): number {
+  const n = Number(value)
+  return Number.isInteger(n) && n >= 0 && n <= MAX_TOKEN_DECIMALS ? n : 0
+}
 
 /**
  * Every lib call runs as the admin originator.
@@ -519,7 +535,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       assetId,
       label: meta?.label && meta.label !== '' ? meta.label : `${assetId.slice(0, 20)}…`,
       ticker: meta?.ticker ?? '',
-      decimals: Number(meta?.decimals) || 0,
+      decimals: safeTokenDecimals(meta?.decimals),
       ...(typeof issuerName === 'string' && issuerName !== '' ? { issuerName } : {}),
       overlayUrl,
       overlayIdentityKey
