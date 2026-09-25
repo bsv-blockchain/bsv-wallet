@@ -124,6 +124,15 @@ async function resolveMandalaAssetMetadata(assetId: string): Promise<MandalaAsse
   }
 }
 
+// XR-039: same paging discipline as `core/localpay/build.ts`'s
+// `listTokenBasket` and `core/mandala/createRuntime.ts`'s `listTokenOutputs`
+// -- a page size generous enough that any realistic basket is one round
+// trip, and a hard page ceiling so a wallet that reports a `totalOutputs` it
+// never actually serves (or repeats a page forever) cannot spin
+// `listMandalaTokenOutpoints` into an infinite loop.
+const MANDALA_OUTPOINT_LIST_PAGE = 1000
+const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
+
 const DEFAULT_SETTINGS: WalletSettings = {
   ...LIB_DEFAULT_SETTINGS,
   trustSettings: {
@@ -170,10 +179,20 @@ import { useLocalStorage } from './LocalStorageProvider'
 import { usePermissionQueue } from '../hooks/usePermissionQueue'
 import { configureMandala, resolveAssetMetadata } from '@bsv/mandala'
 import { MessageBoxClient } from '@bsv/message-box-client'
-import { MandalaTokenModule, wrapCreateActionForTokenInputs, type MandalaAssetMetadata } from '../mandala/permissionModule'
+import {
+  MandalaTokenModule,
+  wrapCreateActionForTokenInputs,
+  listAllOutpoints,
+  type MandalaAssetMetadata
+} from '../mandala/permissionModule'
 import { wrapAbortActionForSettlements } from '../mandala/abortGuard'
 import { migrateMandalaBasketName } from '../mandala/basketMigration'
-import { bindOriginator, createMandalaKvStorage, createMandalaRuntime, type MandalaMessageBox } from '../mandala/createRuntime'
+import {
+  bindOriginator,
+  createMandalaKvStorage,
+  createMandalaRuntime,
+  type MandalaMessageBox
+} from '../mandala/createRuntime'
 import type { MandalaRuntime } from '../mandala/runtime'
 import { MANDALA_BASKET } from '../mandala/types'
 import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
@@ -1512,20 +1531,29 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // module's own admin pass-through branch). Shared by the module's
         // deps below AND by wrapCreateActionForTokenInputs's wrapper further
         // down, so both use the exact same listing.
-        const listMandalaTokenOutpoints = async (): Promise<Set<string>> => {
-          try {
-            const { outputs } = await wallet.listOutputs(
-              { basket: MANDALA_BASKET, includeCustomInstructions: false, limit: 10000 } as never,
-              adminOriginator
-            )
-            return new Set(outputs.map((o: { outpoint: string }) => o.outpoint))
-          } catch {
-            // A wallet with no Mandala basket yet, or a storage fault -- treat
-            // as "no known token inputs" rather than blocking createAction;
-            // see permissionModule.ts's doc on this dep failing open.
-            return new Set()
-          }
-        }
+        //
+        // XR-039: paginated to completion via `listAllOutpoints` (a single
+        // 10,000-row page silently truncated a larger basket, and a spend of
+        // an input past that page read as "not a token input" -- the same
+        // balance-truncation bug `core/localpay/build.ts`'s `listTokenBasket`
+        // and `createRuntime.ts`'s `listTokenOutputs` were already fixed
+        // for), and a genuine listing fault now PROPAGATES instead of being
+        // swallowed into an authoritative-looking empty Set -- an empty Set
+        // here reads as "confirmed no token inputs" to every caller, which a
+        // storage fault or a wallet with no Mandala basket are not
+        // distinguishable from without this throwing. The two callers
+        // (`injectMandalaLabelIfTokenInputsPresent`, `anyInputIsTokenCoin`)
+        // are exactly what now fails closed on that throw.
+        const listMandalaTokenOutpoints = (): Promise<Set<string>> =>
+          listAllOutpoints(
+            async (limit, offset) =>
+              await wallet.listOutputs(
+                { basket: MANDALA_BASKET, includeCustomInstructions: false, limit, offset } as never,
+                adminOriginator
+              ),
+            MANDALA_OUTPOINT_LIST_PAGE,
+            MANDALA_OUTPOINT_LIST_MAX_PAGES
+          )
 
         // Mandala's own P-module (schemeID 'mandala', basket MANDALA_BASKET =
         // 'p mandala') -- same routing mechanism as BTMS above
@@ -1904,7 +1932,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // the drain so the parent goes out first.
           if (phoneStorage) {
             const sendWaiting = monitor._tasks.find(t => t.name === 'SendWaiting') as
-              | { processUnsent?: (reqApis: Array<{ txid: string; rawTx?: number[] }>, indent?: number) => Promise<string> }
+              | {
+                  processUnsent?: (
+                    reqApis: Array<{ txid: string; rawTx?: number[] }>,
+                    indent?: number
+                  ) => Promise<string>
+                }
               | undefined
             if (sendWaiting?.processUnsent) {
               const orig = sendWaiting.processUnsent.bind(sendWaiting)
@@ -1913,7 +1946,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 // row is the settlement drain's to broadcast, after `/submit`,
                 // never the monitor's. Held here and dropped from this pass.
                 const heldTokenTxids = await phoneStorage.holdTokenReqsForDrain(allReqApis as never)
-                const reqApis = heldTokenTxids.size > 0 ? allReqApis.filter(r => !heldTokenTxids.has(r.txid)) : allReqApis
+                const reqApis =
+                  heldTokenTxids.size > 0 ? allReqApis.filter(r => !heldTokenTxids.has(r.txid)) : allReqApis
                 if (heldTokenTxids.size > 0) TaskSendOffline.requestNow()
                 let queuedTxids = new Set<string>()
                 try {
@@ -1934,7 +1968,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 if (deferred > 0) TaskSendOffline.requestNow()
                 if (ready.length === 0) {
                   const notes: string[] = []
-                  if (heldTokenTxids.size > 0) notes.push(`held ${heldTokenTxids.size} token req(s) for the settlement drain`)
+                  if (heldTokenTxids.size > 0)
+                    notes.push(`held ${heldTokenTxids.size} token req(s) for the settlement drain`)
                   if (deferred > 0) notes.push(`deferred ${deferred} req(s) behind queued ancestors`)
                   return notes.length > 0 ? `${notes.join('; ')}\n` : ''
                 }
@@ -2350,73 +2385,76 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   // Tear down the current wallet and re-trigger auto-build.
   // Used after DB import and internally by switchNetwork.
-  const rebuildWallet = useCallback(async (opts?: { restoreFromBackup?: boolean }) => {
-    logWithTimestamp(F, 'Rebuilding wallet')
-    // Armed before teardown so the auto-build effect this triggers (via
-    // finalizeConfig below) replays the backup log the same way an explicit
-    // buildWalletFromMnemonic({ restoreFromBackup: true }) would.
-    restoreIntentRef.current = opts?.restoreFromBackup === true
-    // Any build already in flight belongs to the configuration being replaced.
-    const token = buildGenRef.current.bump()
-    // Invalidate Vault operations before the first teardown await. Otherwise a
-    // signer/listing already in flight can resume against the departing wallet.
-    vaultStore.clearScope()
-    vaultCeremony.cancel()
+  const rebuildWallet = useCallback(
+    async (opts?: { restoreFromBackup?: boolean }) => {
+      logWithTimestamp(F, 'Rebuilding wallet')
+      // Armed before teardown so the auto-build effect this triggers (via
+      // finalizeConfig below) replays the backup log the same way an explicit
+      // buildWalletFromMnemonic({ restoreFromBackup: true }) would.
+      restoreIntentRef.current = opts?.restoreFromBackup === true
+      // Any build already in flight belongs to the configuration being replaced.
+      const token = buildGenRef.current.bump()
+      // Invalidate Vault operations before the first teardown await. Otherwise a
+      // signer/listing already in flight can resume against the departing wallet.
+      vaultStore.clearScope()
+      vaultCeremony.cancel()
 
-    // Stop any running monitor and let its current pass drain before the
-    // storage teardown below closes the connection under it.
-    {
-      const monitor = monitorRef.current
-      if (monitor) {
-        monitorRef.current = null
-        await stopMonitorAndDrain(monitor)
+      // Stop any running monitor and let its current pass drain before the
+      // storage teardown below closes the connection under it.
+      {
+        const monitor = monitorRef.current
+        if (monitor) {
+          monitorRef.current = null
+          await stopMonitorAndDrain(monitor)
+        }
       }
-    }
-    // Same convention as monitorRef above: clear so a stale deferred header
-    // init or reconnect handler from the old build can't pair a leftover
-    // store/tracker across the rebuild.
-    offlineChaintracksRef.current = undefined
-    headerStoreRef.current = undefined
+      // Same convention as monitorRef above: clear so a stale deferred header
+      // init or reconnect handler from the old build can't pair a leftover
+      // store/tracker across the rebuild.
+      offlineChaintracksRef.current = undefined
+      headerStoreRef.current = undefined
 
-    // Close the current storage connection so the new build can open
-    // whichever DB file the registry selects.
-    if (storage?.db) {
-      try {
-        await storage.destroy()
-      } catch {}
-    }
-    // And drop the handle with it. Leaving a destroyed storage in state kept
-    // the screens reading the OLD chain's database until the new build
-    // replaced it — which is how a testnet wallet displayed mainnet money.
-    setStorage(null)
-    // The runtime holds this build's settlement store, which is a handle on
-    // the database just destroyed. Dropping it here is what stops a monitor
-    // task or a screen draining the departed wallet's tables.
-    mandalaRef.current = undefined
-    setMandala(undefined)
-    forgetSessionPsks()
+      // Close the current storage connection so the new build can open
+      // whichever DB file the registry selects.
+      if (storage?.db) {
+        try {
+          await storage.destroy()
+        } catch {}
+      }
+      // And drop the handle with it. Leaving a destroyed storage in state kept
+      // the screens reading the OLD chain's database until the new build
+      // replaced it — which is how a testnet wallet displayed mainnet money.
+      setStorage(null)
+      // The runtime holds this build's settlement store, which is a handle on
+      // the database just destroyed. Dropping it here is what stops a monitor
+      // task or a screen draining the departed wallet's tables.
+      mandalaRef.current = undefined
+      setMandala(undefined)
+      forgetSessionPsks()
 
-    // Tear down current wallet state (but keep mnemonic / config)
-    vaultStore.clearScope()
-    updateManagers({})
-    walletBuiltRef.current = false
-    setWalletBuilt(false)
-    walletBuildingRef.current = false
-    setWalletBuilding(false)
+      // Tear down current wallet state (but keep mnemonic / config)
+      vaultStore.clearScope()
+      updateManagers({})
+      walletBuiltRef.current = false
+      setWalletBuilt(false)
+      walletBuildingRef.current = false
+      setWalletBuilding(false)
 
-    // Re-finalize with current config — triggers auto-build effect
-    const config = { wabUrl: 'noWAB', method: 'mnemonic', network: selectedNetwork, storageUrl: 'local' }
-    pendingAutoBuildRef.current = true
-    finalizeConfig(config)
-    logWithTimestamp(F, 'Wallet rebuild triggered')
-    // finalizeConfig above only requests the rebuild; without this,
-    // rebuildWallet's promise resolved before the auto-build effect had even
-    // run, so `await rebuildWallet(...)` callers (e.g. the import screens
-    // replacing an auto-created wallet) saw pre-rebuild managers and a
-    // pre-rebuild walletBuilt — silently skipping anything gated on the new
-    // wallet actually existing, such as recording a backup attestation.
-    await waitForRebuild(token)
-  }, [selectedNetwork, storage, finalizeConfig, waitForRebuild])
+      // Re-finalize with current config — triggers auto-build effect
+      const config = { wabUrl: 'noWAB', method: 'mnemonic', network: selectedNetwork, storageUrl: 'local' }
+      pendingAutoBuildRef.current = true
+      finalizeConfig(config)
+      logWithTimestamp(F, 'Wallet rebuild triggered')
+      // finalizeConfig above only requests the rebuild; without this,
+      // rebuildWallet's promise resolved before the auto-build effect had even
+      // run, so `await rebuildWallet(...)` callers (e.g. the import screens
+      // replacing an auto-created wallet) saw pre-rebuild managers and a
+      // pre-rebuild walletBuilt — silently skipping anything gated on the new
+      // wallet actually existing, such as recording a backup attestation.
+      await waitForRebuild(token)
+    },
+    [selectedNetwork, storage, finalizeConfig, waitForRebuild]
+  )
 
   // Switch network: tear down wallet, update config, and rebuild on new chain
   const switchNetwork = useCallback(

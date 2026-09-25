@@ -36,6 +36,81 @@ import { MANDALA_BASKET } from './types'
 const SESSION_TIMEOUT_MS = 60_000
 const SESSION_CLEANUP_INTERVAL_MS = 30_000
 
+/**
+ * Normalises an outpoint the same way the SDK's own `Number(...)` coercion
+ * of a vout would (mirrors `services/vault/guard.ts`'s own
+ * `canonicalOutpoint`, kept as a separate small copy rather than a shared
+ * import so Mandala's permission gate does not depend on Vault's module).
+ *
+ * XR-039: `listMandalaTokenOutpoints`'s Set and an input's own `outpoint`
+ * string have to agree on ONE spelling of the same outpoint, or an alternate
+ * spelling ("00", "0e0", a differently-cased txid) lets a real token input
+ * slip past the `.has()` check unmatched. `undefined` for anything that is
+ * not a well-formed `<64-hex-txid>.<vout>` — callers then never match it
+ * against anything, which is the safe default.
+ */
+export function canonicalOutpoint(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const parts = value.split('.')
+  if (parts.length !== 2 || !/^[0-9a-fA-F]{64}$/.test(parts[0])) return undefined
+  const vout = Number(parts[1])
+  if (!Number.isSafeInteger(vout) || vout < 0) return undefined
+  return `${parts[0].toLowerCase()}.${vout}`
+}
+
+/** One `listOutputs`-shaped page, as `listAllOutpoints` needs to see it. */
+export interface OutpointListPage {
+  outputs: { outpoint: string }[]
+  totalOutputs?: number
+}
+
+/**
+ * Every outpoint a paged listing reports, to completion, canonicalized.
+ *
+ * XR-039: `listMandalaTokenOutpoints` (WalletContext.tsx) used to read a
+ * single capped page and call that the whole basket — a spend of an input
+ * past that page read as "not a token input" to every caller of the Set this
+ * builds, exactly the same balance-truncation bug `core/localpay/build.ts`'s
+ * `listTokenBasket` and `core/mandala/createRuntime.ts`'s `listTokenOutputs`
+ * were already fixed for. Same paging discipline here: the wallet's own
+ * `totalOutputs` ends the loop when it reports one, a short/empty page ends
+ * it otherwise, and `maxPages` is the hard stop against a wallet that ignores
+ * `offset` or reports a total it never actually serves.
+ *
+ * A pure function over an injected `list` rather than a method on the wallet
+ * itself so this loop — the actual security-relevant logic, not just glue —
+ * is unit-testable without a real wallet/storage stack.
+ */
+export async function listAllOutpoints(
+  list: (limit: number, offset: number) => Promise<OutpointListPage>,
+  pageSize = 1000,
+  maxPages = 1000
+): Promise<Set<string>> {
+  const outpoints = new Set<string>()
+  let offset = 0
+  for (let page = 0; page < maxPages; page++) {
+    const { outputs, totalOutputs } = await list(pageSize, offset)
+    for (const o of outputs) {
+      const canonical = canonicalOutpoint(o.outpoint)
+      if (canonical !== undefined) outpoints.add(canonical)
+    }
+    // An empty page always ends it — that, plus the page ceiling, is what
+    // keeps a wallet that ignores `offset` from looping forever.
+    if (outputs.length === 0) break
+    offset += outputs.length
+    if (typeof totalOutputs === 'number') {
+      // The wallet's own count is authoritative when it reports one. A SHORT
+      // page must not end the loop here: a wallet may cap `limit` below what
+      // was asked for, and treating that cap as "end of basket" would
+      // re-introduce the truncation this loop exists to remove.
+      if (offset >= totalOutputs) break
+    } else if (outputs.length < pageSize) {
+      break
+    }
+  }
+  return outpoints
+}
+
 export interface MandalaAssetMetadata {
   label?: string
   ticker?: string
@@ -499,7 +574,10 @@ export class MandalaTokenModule implements PermissionsModule {
     } catch {
       return false
     }
-    return inputs.some(input => !!input?.outpoint && tokenOutpoints.has(input.outpoint))
+    return inputs.some(input => {
+      const outpoint = canonicalOutpoint(input?.outpoint)
+      return outpoint !== undefined && tokenOutpoints.has(outpoint)
+    })
   }
 
   private async buildSpendLines(
@@ -596,17 +674,17 @@ export class MandalaTokenModule implements PermissionsModule {
  * (a test double, a future second entry point) that skips this wrapper
  * reopens exactly the gap described above.
  */
-export function wrapCreateActionForTokenInputs<T extends { createAction: (args: any, originator: string) => Promise<unknown> }>(
-  manager: T,
-  listTokenOutpoints: () => Promise<Set<string>>,
-  adminOriginator?: string
-): T {
+export function wrapCreateActionForTokenInputs<
+  T extends { createAction: (args: any, originator: string) => Promise<unknown> }
+>(manager: T, listTokenOutpoints: () => Promise<Set<string>>, adminOriginator?: string): T {
   return new Proxy(manager, {
     get(target, prop, receiver) {
       if (prop === 'createAction') {
         return async (args: MandalaCreateActionArgsLike & { labels?: string[] }, originator: string) => {
           const routedArgs =
-            originator === adminOriginator ? args : await injectMandalaLabelIfTokenInputsPresent(args, listTokenOutpoints)
+            originator === adminOriginator
+              ? args
+              : await injectMandalaLabelIfTokenInputsPresent(args, listTokenOutpoints)
           return target.createAction(routedArgs, originator)
         }
       }
@@ -623,20 +701,30 @@ async function injectMandalaLabelIfTokenInputsPresent(
   const inputs = args?.inputs
   if (!Array.isArray(inputs) || inputs.length === 0) return args
 
+  const labels = Array.isArray(args.labels) ? args.labels : []
+  if (labels.includes(MANDALA_ACTION_LABEL)) return args
+
   let tokenOutpoints: Set<string>
   try {
     tokenOutpoints = await listTokenOutpoints()
   } catch {
-    // Never block a createAction call on a listing fault — the module's own
-    // input check (if routing happens to fire some other way) and the
-    // output-side gate remain the backstop.
-    return args
+    // XR-039: forwarding `args` UNCHANGED here is how a full-balance (no
+    // basketed change) Mandala spend hit by a transient listing fault used to
+    // reach the manager's generic, no-token-amount-awareness review instead
+    // of this module's own. `MANDALA_ACTION_LABEL` is the ONLY thing that
+    // routes an input-only Mandala spend to `MandalaTokenModule.onRequest` at
+    // all — with no reliable read on whether these inputs spend a token coin,
+    // fail closed and force it, same as a confirmed match below. Worst case
+    // (a plain, non-Mandala action) still resolves to `promptForSpend`'s own
+    // generic fallback, which is a real, interactive approval — never a
+    // silent one.
+    return { ...args, labels: [...labels, MANDALA_ACTION_LABEL] }
   }
 
-  const spendsTokenInput = inputs.some(input => !!input?.outpoint && tokenOutpoints.has(input.outpoint))
+  const spendsTokenInput = inputs.some(input => {
+    const outpoint = canonicalOutpoint(input?.outpoint)
+    return outpoint !== undefined && tokenOutpoints.has(outpoint)
+  })
   if (!spendsTokenInput) return args
-
-  const labels = Array.isArray(args.labels) ? args.labels : []
-  if (labels.includes(MANDALA_ACTION_LABEL)) return args
   return { ...args, labels: [...labels, MANDALA_ACTION_LABEL] }
 }
