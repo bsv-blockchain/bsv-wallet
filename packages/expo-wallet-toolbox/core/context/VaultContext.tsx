@@ -61,21 +61,33 @@ export const VaultProvider: React.FC<{ children: React.ReactNode; onToast?: Vaul
 
   useEffect(() => ceremony.subscribe(setState), [])
 
-  // Re-check once per ceremony-phase transition — enrollment, key removal and
-  // re-lock all happen around a ceremony, so this stays fresh without giving
-  // every render its own device-local read.
+  // Re-check on every ceremony-phase transition — enrollment, key removal and
+  // re-lock all happen around a ceremony — AND on every vaultStore scope
+  // change. The phase dependency alone loses a structural race on a cold
+  // start: this effect's own vaultStore.isEnrolled() read needs no native
+  // I/O and resolves before WalletContext's async wallet-build chain ever
+  // reaches vaultStore.configureScope(), so it always latches `false` first
+  // and, with nothing else to re-trigger it, would stay wrong for the rest
+  // of the session (INT-08). onScopeChange fires exactly when that build
+  // chain actually configures the scope, so the check re-runs the moment
+  // there is anything new to find.
   useEffect(() => {
     let cancelled = false
-    vaultStore
-      .isEnrolled()
-      .then(enrolled => {
-        if (!cancelled) setHasVaultMeta(enrolled)
-      })
-      .catch(() => {
-        if (!cancelled) setHasVaultMeta(false)
-      })
+    const recheck = (): void => {
+      vaultStore
+        .isEnrolled()
+        .then(enrolled => {
+          if (!cancelled) setHasVaultMeta(enrolled)
+        })
+        .catch(() => {
+          if (!cancelled) setHasVaultMeta(false)
+        })
+    }
+    recheck()
+    const unsubscribe = vaultStore.onScopeChange(recheck)
     return () => {
       cancelled = true
+      unsubscribe()
     }
   }, [state.phase])
 
