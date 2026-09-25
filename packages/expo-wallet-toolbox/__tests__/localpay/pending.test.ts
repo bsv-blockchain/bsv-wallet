@@ -305,6 +305,32 @@ describe('localpay pending queue', () => {
     expect(args.description).toBe('🪿'.padEnd(5))
   })
 
+  // XR-101: internalizeAction's real SDK contract THROWS (never truncates) a
+  // description over 2000 UTF-8 bytes (validateStringLength). A hostile or
+  // merely careless peer note beyond that, reaching the decoder directly
+  // (the 280-char TextInput cap is UI-only), used to fail every retry until
+  // MAX_PENDING_ATTEMPTS tripped and strand an already-accepted payment
+  // forever. The description must be capped before it ever reaches the wallet.
+  it('XR-101: truncates an oversized note so an oversized description never strands a real payment', async () => {
+    const s = fakeStorage()
+    const hugeNote = '💰'.repeat(3000) // ~4 bytes/char in UTF-8, well past 2000 bytes
+    await savePending(s, { ...frame(), note: hugeNote })
+    const encoder = new TextEncoder()
+    const wallet = {
+      internalizeAction: jest.fn().mockImplementation(async (args: { description: string }) => {
+        if (encoder.encode(args.description).length > 2000) {
+          throw new Error('WERR_INVALID_PARAMETER: description exceeds 2000 bytes')
+        }
+        return { accepted: true }
+      })
+    }
+    const results = await processPending(wallet as never, s, 'admin.com')
+
+    expect(results).toEqual([expect.objectContaining({ success: true })])
+    const args = wallet.internalizeAction.mock.calls[0][0]
+    expect(encoder.encode(args.description).length).toBeLessThanOrEqual(2000)
+  })
+
   it('marks failed and keeps the entry when internalizeAction throws', async () => {
     const s = fakeStorage()
     await savePending(s, frame())

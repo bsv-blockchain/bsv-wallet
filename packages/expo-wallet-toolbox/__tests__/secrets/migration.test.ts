@@ -16,11 +16,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -97,10 +105,7 @@ describe('legacy secret migration', () => {
   it('keeps the plaintext and writes no sentinel when verification fails', async () => {
     await seedLegacyInstall()
     // Corrupt only the verification read-back, as a storage-layer bug would.
-    secureStore.__overrideRead(
-      'envV1.mnemonic',
-      JSON.stringify({ v: 1, kekId: 'x', salt: 'aa', c: 'bb' })
-    )
+    secureStore.__overrideRead('envV1.mnemonic', JSON.stringify({ v: 1, kekId: 'x', salt: 'aa', c: 'bb' }))
 
     const result = await migrateLegacySecrets()
 
@@ -160,6 +165,26 @@ describe('legacy secret migration', () => {
 
     expect(result).toEqual({ outcome: 'not-needed' })
     expect(secureStore.__has('mnemonic')).toBe(false)
+  })
+
+  it('XR-111: reports incomplete cleanup when the legacy plaintext survives its own deletion', async () => {
+    await seedLegacyInstall({ recoveredKey: WIF })
+    // iOS's delete discards every OSStatus and never throws: simulate the
+    // documented silent-no-op case by having the read keep answering with
+    // the old value even though the delete call itself resolved normally.
+    secureStore.__overrideRead('mnemonic', MNEMONIC)
+
+    const result = await migrateLegacySecrets()
+
+    expect(result).toMatchObject({
+      outcome: 'migrated',
+      names: ['mnemonic', 'recoveredKey'],
+      legacyCleanupPending: true
+    })
+    // The migration itself still fully succeeded — only the legacy sweep did
+    // not — so the user must still have a working, envelope-backed wallet.
+    expect(await getSecret('mnemonic')).toBe(MNEMONIC)
+    expect(await getSecret('recoveredKey')).toBe(WIF)
   })
 
   it('is a no-op on a fresh install and never prompts', async () => {

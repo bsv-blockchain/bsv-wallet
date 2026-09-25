@@ -43,9 +43,15 @@ export const BiometricAdvisoryModal: React.FC<{
    * looking frozen for that whole stretch, with nothing on screen explaining
    * why. Keeping the modal up with a spinner in place of the label instead. */
   loading?: boolean
+  /** XR-114: true when this device/build will NOT actually get biometric
+   * protection (resolveProvisioningPolicy().disclose) — no strong biometrics
+   * enrolled, or a dev build without them. The unconditional "protected by
+   * Face ID/fingerprint" promise is false in that case; swap in an honest
+   * disclosure instead of silently degrading with no visible change. */
+  degraded?: boolean
   onCancel: () => void
   onContinue: () => void
-}> = ({ visible, loading = false, onCancel, onContinue }) => {
+}> = ({ visible, loading = false, degraded = false, onCancel, onContinue }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
 
@@ -74,7 +80,9 @@ export const BiometricAdvisoryModal: React.FC<{
             <Ionicons name="finger-print" size={28} color={colors.accent} />
           </View>
           <Text style={[styles.title, { color: colors.textPrimary }]}>{t('biometric_advisory_title')}</Text>
-          <Text style={[styles.body, { color: colors.textSecondary }]}>{t('biometric_advisory_body')}</Text>
+          <Text style={[styles.body, { color: colors.textSecondary }]}>
+            {t(degraded ? 'biometric_advisory_body_degraded' : 'biometric_advisory_body')}
+          </Text>
 
           <PressableScale
             haptic="confirm"
@@ -89,7 +97,12 @@ export const BiometricAdvisoryModal: React.FC<{
             )}
           </PressableScale>
 
-          <PressableScale haptic="tap" onPress={loading ? undefined : onCancel} disabled={loading} style={styles.secondary}>
+          <PressableScale
+            haptic="tap"
+            onPress={loading ? undefined : onCancel}
+            disabled={loading}
+            style={styles.secondary}
+          >
             <Text style={[styles.secondaryLabel, { color: loading ? colors.textTertiary : colors.textSecondary }]}>
               {t('cancel')}
             </Text>

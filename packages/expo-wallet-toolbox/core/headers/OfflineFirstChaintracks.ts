@@ -14,8 +14,10 @@
  * whose ancestry we resolved once should verify offline forever after.
  */
 import { Utils } from '@bsv/sdk'
-import type { Chain, ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
+import { utils as chaintracksUtils, type Chain, type ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderStore } from './headerStore'
+
+const { blockHash, validateHeaderProofOfWork } = chaintracksUtils
 
 /** A merkle root as display-order hex, whether the source gave us a hex string
  * or raw bytes. The remote's `findHeaderForHeight` may return either; plain
@@ -117,6 +119,30 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
         this.lastMissHeight = height
         return false
       }
+
+      // XR-068: outside the PoW-validated window body (a miss entirely, or the
+      // last-6 reorg tail) this response is otherwise a bare, unauthenticated
+      // claim from a single chaintracks call — exactly what a compromised or
+      // MITM'd deployment would need to make a forged BEEF root verify. Never
+      // trust the remote's self-reported `header.hash`: recompute it from the
+      // header's own fields (the same way HeaderStore.append does for window
+      // headers) and require it to satisfy its own declared difficulty. This
+      // does not establish chain-of-custody back to a trusted anchor — it
+      // only turns a zero-cost forgery into one that needs a real,
+      // difficulty-valid header.
+      let computedHash: string
+      try {
+        computedHash = blockHash(header)
+        validateHeaderProofOfWork({ ...header, hash: computedHash })
+      } catch (e: any) {
+        console.warn(
+          `[OfflineFirstChaintracks] REFUSED height ${height}: chaintracks-reported header failed ` +
+            `proof-of-work validation (${e?.message ?? e}).`
+        )
+        this.lastMissHeight = height
+        return false
+      }
+
       const remoteRoot = rootHex(header.merkleRoot)
       // Refresh the cache with the authoritative value (self-heals a poisoned
       // extra entry from an earlier bad conversion).

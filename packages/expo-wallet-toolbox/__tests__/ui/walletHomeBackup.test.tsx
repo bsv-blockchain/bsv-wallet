@@ -73,7 +73,13 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     DEFAULT_AUTO_APPROVE_THRESHOLD: 0,
     AUTO_APPROVE_STORAGE_KEY: 'auto_approve',
     ADVANCED_SETTINGS_EXPANDED_KEY: 'advanced',
-    getBackupUrl: () => ''
+    getBackupUrl: () => '',
+    resolveProvisioningPolicy: async () => ({
+      policy: 'biometric',
+      keyName: 'kekAuthV1',
+      requireAuthentication: true,
+      disclose: false
+    })
   }
 })
 jest.mock('expo-router', () => ({

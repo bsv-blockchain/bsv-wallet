@@ -47,6 +47,35 @@ export function isPendingExhausted(p: PendingPayment): boolean {
   return p.status === 'failed' && (p.attempts ?? 0) >= MAX_PENDING_ATTEMPTS
 }
 
+/**
+ * XR-101. internalizeAction's real contract (validateStringLength in
+ * @bsv/sdk's validationHelpers) THROWS WERR_INVALID_PARAMETER — never
+ * truncates — for a `description` over 2000 UTF-8 bytes. The peer `note` this
+ * builds the description from arrives over the wire with no length cap of its
+ * own (the 280-char TextInput limit is a UI convenience, not a decoder check),
+ * so an oversized note used to fail internalizeAction on every retry until
+ * `MAX_PENDING_ATTEMPTS` tripped, permanently stranding an already-accepted
+ * payment. Capping here keeps a real payment creditable regardless of note
+ * length, without rejecting the frame outright.
+ */
+export const MAX_INTERNALIZE_DESCRIPTION_BYTES = 2000
+
+const descriptionEncoder = new TextEncoder()
+const descriptionDecoder = new TextDecoder()
+
+/**
+ * Truncates on the UTF-8 byte boundary, not the JS string index — slicing by
+ * character count alone can still overshoot the byte ceiling for non-ASCII
+ * text. A multi-byte character cut in half at the boundary decodes back as
+ * U+FFFD under TextDecoder's default lenient mode rather than throwing, which
+ * is fine here: this is a display fallback, not the payment amount.
+ */
+export function truncateUtf8Bytes(s: string, maxBytes: number): string {
+  const bytes = descriptionEncoder.encode(s)
+  if (bytes.length <= maxBytes) return s
+  return descriptionDecoder.decode(bytes.slice(0, maxBytes))
+}
+
 export interface PendingSummary {
   /** Still worth retrying. */
   waiting: number
@@ -567,8 +596,9 @@ export async function processPending(
           // rendered as a BSV row over "+0 sats" (2026-09-16). A sender's note
           // on the frame overrides this fixed wording, same as the message-box
           // rail's PeerPay note.
-          description: (p.frame.note?.trim() || (p.frame.kind === 'token' ? 'Received token' : 'Received BSV')).padEnd(
-            5
+          description: truncateUtf8Bytes(
+            (p.frame.note?.trim() || (p.frame.kind === 'token' ? 'Received token' : 'Received BSV')).padEnd(5),
+            MAX_INTERNALIZE_DESCRIPTION_BYTES
           ),
           labels: p.frame.kind === 'token' ? [PEERPAY_LABEL, MANDALA_ACTION_LABEL] : [PEERPAY_LABEL]
         },

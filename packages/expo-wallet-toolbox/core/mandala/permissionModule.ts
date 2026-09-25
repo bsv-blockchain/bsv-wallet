@@ -36,6 +36,81 @@ import { MANDALA_BASKET } from './types'
 const SESSION_TIMEOUT_MS = 60_000
 const SESSION_CLEANUP_INTERVAL_MS = 30_000
 
+/**
+ * Normalises an outpoint the same way the SDK's own `Number(...)` coercion
+ * of a vout would (mirrors `services/vault/guard.ts`'s own
+ * `canonicalOutpoint`, kept as a separate small copy rather than a shared
+ * import so Mandala's permission gate does not depend on Vault's module).
+ *
+ * XR-039: `listMandalaTokenOutpoints`'s Set and an input's own `outpoint`
+ * string have to agree on ONE spelling of the same outpoint, or an alternate
+ * spelling ("00", "0e0", a differently-cased txid) lets a real token input
+ * slip past the `.has()` check unmatched. `undefined` for anything that is
+ * not a well-formed `<64-hex-txid>.<vout>` — callers then never match it
+ * against anything, which is the safe default.
+ */
+export function canonicalOutpoint(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const parts = value.split('.')
+  if (parts.length !== 2 || !/^[0-9a-fA-F]{64}$/.test(parts[0])) return undefined
+  const vout = Number(parts[1])
+  if (!Number.isSafeInteger(vout) || vout < 0) return undefined
+  return `${parts[0].toLowerCase()}.${vout}`
+}
+
+/** One `listOutputs`-shaped page, as `listAllOutpoints` needs to see it. */
+export interface OutpointListPage {
+  outputs: { outpoint: string }[]
+  totalOutputs?: number
+}
+
+/**
+ * Every outpoint a paged listing reports, to completion, canonicalized.
+ *
+ * XR-039: `listMandalaTokenOutpoints` (WalletContext.tsx) used to read a
+ * single capped page and call that the whole basket — a spend of an input
+ * past that page read as "not a token input" to every caller of the Set this
+ * builds, exactly the same balance-truncation bug `core/localpay/build.ts`'s
+ * `listTokenBasket` and `core/mandala/createRuntime.ts`'s `listTokenOutputs`
+ * were already fixed for. Same paging discipline here: the wallet's own
+ * `totalOutputs` ends the loop when it reports one, a short/empty page ends
+ * it otherwise, and `maxPages` is the hard stop against a wallet that ignores
+ * `offset` or reports a total it never actually serves.
+ *
+ * A pure function over an injected `list` rather than a method on the wallet
+ * itself so this loop — the actual security-relevant logic, not just glue —
+ * is unit-testable without a real wallet/storage stack.
+ */
+export async function listAllOutpoints(
+  list: (limit: number, offset: number) => Promise<OutpointListPage>,
+  pageSize = 1000,
+  maxPages = 1000
+): Promise<Set<string>> {
+  const outpoints = new Set<string>()
+  let offset = 0
+  for (let page = 0; page < maxPages; page++) {
+    const { outputs, totalOutputs } = await list(pageSize, offset)
+    for (const o of outputs) {
+      const canonical = canonicalOutpoint(o.outpoint)
+      if (canonical !== undefined) outpoints.add(canonical)
+    }
+    // An empty page always ends it — that, plus the page ceiling, is what
+    // keeps a wallet that ignores `offset` from looping forever.
+    if (outputs.length === 0) break
+    offset += outputs.length
+    if (typeof totalOutputs === 'number') {
+      // The wallet's own count is authoritative when it reports one. A SHORT
+      // page must not end the loop here: a wallet may cap `limit` below what
+      // was asked for, and treating that cap as "end of basket" would
+      // re-introduce the truncation this loop exists to remove.
+      if (offset >= totalOutputs) break
+    } else if (outputs.length < pageSize) {
+      break
+    }
+  }
+  return outpoints
+}
+
 export interface MandalaAssetMetadata {
   label?: string
   ticker?: string
@@ -67,6 +142,16 @@ export interface MandalaTokenModuleDeps {
    * not toward "silently allow".
    */
   listTokenOutpoints: () => Promise<Set<string>>
+  /**
+   * XR-041: resolves ONE currently-held `MANDALA_BASKET` outpoint to its
+   * decoded `{assetId, amount}`, via the admin-originator wallet's own
+   * listing — never from anything a caller claims. `null` for an outpoint
+   * this device does not currently hold as a Mandala coin (already spent,
+   * never was one, or an unresolvable/malformed one) — `promptForRelinquish`
+   * fails CLOSED on `null` rather than falling back to unlabeled copy: an
+   * app must not be able to get an unnamed holding removed.
+   */
+  resolveMandalaOutput: (outpoint: string) => Promise<DecodedMandalaOutput | null>
 }
 
 /** The slice of `CreateActionOutput` this module reads. Structural, not the
@@ -74,6 +159,11 @@ export interface MandalaTokenModuleDeps {
 interface MandalaCreateActionOutputLike {
   lockingScript?: string
   basket?: string
+}
+/** The slice of `RelinquishOutputArgs` this module reads. */
+interface MandalaRelinquishOutputArgsLike {
+  basket?: string
+  output?: string
 }
 /** The slice of `CreateActionInput` this module reads. */
 interface MandalaCreateActionInputLike {
@@ -103,7 +193,7 @@ interface MandalaListOutputsArgsLike {
   [key: string]: unknown
 }
 
-interface DecodedMandalaOutput {
+export interface DecodedMandalaOutput {
   assetId: string
   amount: number
 }
@@ -135,7 +225,7 @@ export interface MandalaCreditLine {
  * shape, and every caller here treats "not a Mandala output" the same way
  * whether the script is empty, foreign, or simply malformed.
  */
-function tryDecodeMandalaOutput(lockingScriptHex: string | undefined): DecodedMandalaOutput | null {
+export function tryDecodeMandalaOutput(lockingScriptHex: string | undefined): DecodedMandalaOutput | null {
   if (!lockingScriptHex) return null
   try {
     const script = LockingScript.fromHex(lockingScriptHex)
@@ -144,6 +234,57 @@ function tryDecodeMandalaOutput(lockingScriptHex: string | undefined): DecodedMa
   } catch {
     return null
   }
+}
+
+/** One `listOutputs`-shaped page carrying locking scripts, as `resolveMandalaOutput` needs them. */
+export interface ScriptedOutputPage {
+  outputs: { outpoint: string; lockingScript?: string }[]
+  totalOutputs?: number
+}
+
+/**
+ * Finds ONE currently-held outpoint in a paged listing, to completion, and
+ * decodes its Mandala token script.
+ *
+ * XR-041: `promptForRelinquish` used to authorize removing a holding with no
+ * more than the bare action name — "wants to remove a Mandala token holding
+ * from your wallet" — never which one. This is what lets it name the target:
+ * `assetId`/`amount` resolved from the wallet's OWN current listing, never
+ * from anything the caller claims. `null` — not found (already spent, never
+ * held, or `target` malformed), or the page ceiling was hit without a match —
+ * is the caller's signal to fail closed rather than approve an unlabeled
+ * removal; same truncation discipline as `listAllOutpoints` (XR-039), because
+ * a holding on page two must be just as nameable as one on page one.
+ */
+export async function resolveMandalaOutput(
+  list: (limit: number, offset: number) => Promise<ScriptedOutputPage>,
+  target: string,
+  pageSize = 1000,
+  maxPages = 1000
+): Promise<DecodedMandalaOutput | null> {
+  const canonicalTarget = canonicalOutpoint(target)
+  if (canonicalTarget === undefined) return null
+  let offset = 0
+  for (let page = 0; page < maxPages; page++) {
+    const { outputs, totalOutputs } = await list(pageSize, offset)
+    for (const o of outputs) {
+      if (canonicalOutpoint(o.outpoint) === canonicalTarget) return tryDecodeMandalaOutput(o.lockingScript)
+    }
+    // An empty page always ends it — that, plus the page ceiling, is what
+    // keeps a wallet that ignores `offset` from looping forever.
+    if (outputs.length === 0) break
+    offset += outputs.length
+    if (typeof totalOutputs === 'number') {
+      // The wallet's own count is authoritative when it reports one. A SHORT
+      // page must not end the loop here: a wallet may cap `limit` below what
+      // was asked for, and treating that cap as "end of basket" would
+      // re-introduce the truncation this loop exists to remove.
+      if (offset >= totalOutputs) break
+    } else if (outputs.length < pageSize) {
+      break
+    }
+  }
+  return null
 }
 
 /** A short, human-scannable form of a long `'<64-hex>.<vout>'` assetId. */
@@ -280,7 +421,7 @@ export class MandalaTokenModule implements PermissionsModule {
         await this.promptOnceForAccess(originator, 'listActions')
         break
       case 'relinquishOutput':
-        await this.promptForRelinquish(originator)
+        await this.promptForRelinquish(args as MandalaRelinquishOutputArgsLike, originator)
         break
       case 'createAction':
         await this.promptForSpend(args as MandalaCreateActionArgsLike, originator)
@@ -327,9 +468,37 @@ export class MandalaTokenModule implements PermissionsModule {
    * a holding from the wallet is consequential enough that every call must
    * show its own prompt, and approving it must not silently unlock
    * listOutputs/listActions for the rest of the session window.
+   *
+   * XR-041: the prompt used to say only "wants to remove a Mandala token
+   * holding from your wallet" — never which one, or how much. `args.output`
+   * is resolved against this device's OWN current listing (never trusted
+   * from the caller) into `{assetId, amount}` before anything is shown, and
+   * an unresolved target fails the whole call closed — a consequential,
+   * irreversible-feeling removal must never be approved uninformed.
    */
-  private async promptForRelinquish(originator: string): Promise<void> {
-    const message = JSON.stringify({ type: 'mandala_access', action: 'relinquishOutput' })
+  private async promptForRelinquish(args: MandalaRelinquishOutputArgsLike, originator: string): Promise<void> {
+    const outpoint = typeof args?.output === 'string' ? args.output : undefined
+    let resolved: DecodedMandalaOutput | null = null
+    if (outpoint) {
+      try {
+        resolved = await this.deps.resolveMandalaOutput(outpoint)
+      } catch {
+        resolved = null
+      }
+    }
+    if (!resolved) {
+      throw new Error('Could not identify the Mandala holding to be removed')
+    }
+    const { tokenName, decimals } = await this.resolveAssetDisplay(resolved.assetId)
+    const message = JSON.stringify({
+      type: 'mandala_access',
+      action: 'relinquishOutput',
+      assetId: resolved.assetId,
+      tokenName,
+      amount: resolved.amount,
+      display: formatTokenAmount(resolved.amount, decimals, tokenName, resolved.assetId),
+      outpoint
+    })
     const approved = await this.deps.requestTokenAccess(originator, message)
     if (!approved) {
       throw new Error('User denied permission to access Mandala tokens')
@@ -499,7 +668,10 @@ export class MandalaTokenModule implements PermissionsModule {
     } catch {
       return false
     }
-    return inputs.some(input => !!input?.outpoint && tokenOutpoints.has(input.outpoint))
+    return inputs.some(input => {
+      const outpoint = canonicalOutpoint(input?.outpoint)
+      return outpoint !== undefined && tokenOutpoints.has(outpoint)
+    })
   }
 
   private async buildSpendLines(
@@ -596,17 +768,17 @@ export class MandalaTokenModule implements PermissionsModule {
  * (a test double, a future second entry point) that skips this wrapper
  * reopens exactly the gap described above.
  */
-export function wrapCreateActionForTokenInputs<T extends { createAction: (args: any, originator: string) => Promise<unknown> }>(
-  manager: T,
-  listTokenOutpoints: () => Promise<Set<string>>,
-  adminOriginator?: string
-): T {
+export function wrapCreateActionForTokenInputs<
+  T extends { createAction: (args: any, originator: string) => Promise<unknown> }
+>(manager: T, listTokenOutpoints: () => Promise<Set<string>>, adminOriginator?: string): T {
   return new Proxy(manager, {
     get(target, prop, receiver) {
       if (prop === 'createAction') {
         return async (args: MandalaCreateActionArgsLike & { labels?: string[] }, originator: string) => {
           const routedArgs =
-            originator === adminOriginator ? args : await injectMandalaLabelIfTokenInputsPresent(args, listTokenOutpoints)
+            originator === adminOriginator
+              ? args
+              : await injectMandalaLabelIfTokenInputsPresent(args, listTokenOutpoints)
           return target.createAction(routedArgs, originator)
         }
       }
@@ -623,20 +795,30 @@ async function injectMandalaLabelIfTokenInputsPresent(
   const inputs = args?.inputs
   if (!Array.isArray(inputs) || inputs.length === 0) return args
 
+  const labels = Array.isArray(args.labels) ? args.labels : []
+  if (labels.includes(MANDALA_ACTION_LABEL)) return args
+
   let tokenOutpoints: Set<string>
   try {
     tokenOutpoints = await listTokenOutpoints()
   } catch {
-    // Never block a createAction call on a listing fault — the module's own
-    // input check (if routing happens to fire some other way) and the
-    // output-side gate remain the backstop.
-    return args
+    // XR-039: forwarding `args` UNCHANGED here is how a full-balance (no
+    // basketed change) Mandala spend hit by a transient listing fault used to
+    // reach the manager's generic, no-token-amount-awareness review instead
+    // of this module's own. `MANDALA_ACTION_LABEL` is the ONLY thing that
+    // routes an input-only Mandala spend to `MandalaTokenModule.onRequest` at
+    // all — with no reliable read on whether these inputs spend a token coin,
+    // fail closed and force it, same as a confirmed match below. Worst case
+    // (a plain, non-Mandala action) still resolves to `promptForSpend`'s own
+    // generic fallback, which is a real, interactive approval — never a
+    // silent one.
+    return { ...args, labels: [...labels, MANDALA_ACTION_LABEL] }
   }
 
-  const spendsTokenInput = inputs.some(input => !!input?.outpoint && tokenOutpoints.has(input.outpoint))
+  const spendsTokenInput = inputs.some(input => {
+    const outpoint = canonicalOutpoint(input?.outpoint)
+    return outpoint !== undefined && tokenOutpoints.has(outpoint)
+  })
   if (!spendsTokenInput) return args
-
-  const labels = Array.isArray(args.labels) ? args.labels : []
-  if (labels.includes(MANDALA_ACTION_LABEL)) return args
   return { ...args, labels: [...labels, MANDALA_ACTION_LABEL] }
 }

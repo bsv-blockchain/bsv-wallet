@@ -40,7 +40,7 @@ import { useAssetStatus, useMandala } from '../../hooks/useMandala'
 import { useSpendableBalance } from '../../hooks/useSpendableBalance'
 import { useContactsStore } from '../../hooks/useContactsStore'
 import ContactSigil from '../wallet/ContactSigil'
-import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
+import { formatTokenAmount, formatTokenAmountWithUnit, shortAssetId } from '../../tokenFormat'
 import { abbreviateKey } from '../../../core/pay/counterparty'
 import type { ContactRow } from '../../../core/contacts/contactsStore'
 import { createHandleRegistryClient } from '../../../core/identity/handleRegistry/client'
@@ -1279,6 +1279,11 @@ function UniversalSendInner(
   const reviewAmount = asset
     ? { value: formatTokenAmount(baseUnits, asset.decimals) ?? '', unit: asset.ticker }
     : { value: formatSatoshisAsBsvDecimal(sendSats), unit: 'BSV' }
+  // XR-044: the last on-screen chance to catch a look-alike asset before Send
+  // — issuerName is unverified, but assetId cannot collide, so the review
+  // step shows both, not only the ticker/label the amount is already keyed
+  // to. Absent for a BSV send: there is no issuer/assetId to show.
+  const reviewAssetIdentity = asset ? [asset.issuerName, shortAssetId(asset.assetId)].filter(Boolean).join(' · ') : ''
   const reviewPrimary =
     recipient.selectedIdentity?.name ||
     (target?.kind === 'handle' ? abbreviateKey(target.identityKey) : target?.kind === 'address' ? target.address : '')
@@ -1297,6 +1302,15 @@ function UniversalSendInner(
       ? { icon: 'shield-checkmark-outline', color: colors.textSecondary, text: t('pay_trust_handle_attested') }
       : { icon: 'alert-circle-outline', color: colors.warning, text: t('pay_trust_unverified') }
   const showNoteRow = isHandle || (isAddress && !asset)
+  // XR-053: a `peerpay:` link's `url` extension silently overrides normal
+  // recipient-host resolution (the overlay/advertisement lookup) with no
+  // binding to the recipient's identity. Surfacing the resolved host on the
+  // last screen before Send is the local, backwards-compatible hardening —
+  // the payer can catch a substituted/unexpected host before committing;
+  // full closure (a recipient-signed delivery receipt) is a wire-protocol
+  // change out of scope here.
+  const linkHost = target?.kind === 'handle' ? target.messageBoxUrl : undefined
+  const showHostRow = !!linkHost
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -1459,20 +1473,51 @@ function UniversalSendInner(
             </View>
 
             <View
-              style={[styles.reviewRow, !showNoteRow && styles.reviewRowLast, { borderBottomColor: colors.separator }]}
+              style={[
+                styles.reviewRow,
+                !showNoteRow && !showHostRow && styles.reviewRowLast,
+                { borderBottomColor: colors.separator }
+              ]}
             >
               <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_amount')}</Text>
-              {/* No adjustsFontSizeToFit / numberOfLines: iOS's shrink floor is a fixed 4pt and in this
-                  flex row it collapsed the amount to illegible. A long amount wraps instead, so no digit
-                  is ever hidden on the screen that confirms it. */}
-              <Text
-                style={[styles.reviewAmount, { color: colors.textPrimary }]}
-                accessibilityLabel={`${reviewAmount.value} ${reviewAmount.unit}`}
-              >
-                {reviewAmount.value}{' '}
-                <Text style={[styles.reviewUnit, { color: colors.textSecondary }]}>{reviewAmount.unit}</Text>
-              </Text>
+              <View style={styles.reviewAmountBlock}>
+                {/* No adjustsFontSizeToFit / numberOfLines: iOS's shrink floor is a fixed 4pt and in this
+                    flex row it collapsed the amount to illegible. A long amount wraps instead, so no digit
+                    is ever hidden on the screen that confirms it. */}
+                <Text
+                  style={[styles.reviewAmount, { color: colors.textPrimary }]}
+                  accessibilityLabel={[reviewAmount.value, reviewAmount.unit, reviewAssetIdentity]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {reviewAmount.value}{' '}
+                  <Text style={[styles.reviewUnit, { color: colors.textSecondary }]}>{reviewAmount.unit}</Text>
+                </Text>
+                {!!reviewAssetIdentity && (
+                  <Text style={[styles.reviewAssetIdentity, { color: colors.textTertiary }]} numberOfLines={1}>
+                    {reviewAssetIdentity}
+                  </Text>
+                )}
+              </View>
             </View>
+
+            {/* A link-named host is never silent (XR-053): the review screen is the
+                last stop before Send, and Send is the only confirmation this
+                narrow fix adds — no separate dialog to build or maintain. */}
+            {showHostRow && (
+              <View
+                style={[
+                  styles.reviewRow,
+                  !showNoteRow && styles.reviewRowLast,
+                  { borderBottomColor: colors.separator }
+                ]}
+              >
+                <Ionicons name="alert-circle-outline" size={16} color={colors.warning} />
+                <Text style={[styles.reviewHostText, { color: colors.warning }]} numberOfLines={2}>
+                  {t('pay_review_delivery_host')} <Text style={{ fontWeight: '600' }}>{linkHost}</Text>
+                </Text>
+              </View>
+            )}
 
             {showNoteRow && (
               <View style={[styles.reviewRow, styles.reviewRowLast]}>
@@ -1639,9 +1684,14 @@ const styles = StyleSheet.create({
   reviewNameSub: { ...typography.subhead, flexShrink: 1 },
   reviewTrustRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   reviewTrust: { ...typography.caption1 },
-  reviewAmount: { ...typography.title2, fontWeight: '700', fontVariant: ['tabular-nums'], flex: 1 },
+  reviewAmountBlock: { flex: 1 },
+  reviewAmount: { ...typography.title2, fontWeight: '700', fontVariant: ['tabular-nums'] },
   reviewUnit: { ...typography.headline, fontWeight: '600' },
+  // XR-044: smaller and dimmer than the amount — the last-chance identity
+  // check, not something every glance needs.
+  reviewAssetIdentity: { ...typography.caption2, marginTop: 2, fontVariant: ['tabular-nums'] },
   reviewNoteInput: { ...typography.body, flex: 1, minWidth: 0, paddingVertical: 0 },
+  reviewHostText: { ...typography.footnote, flex: 1 },
 
   // Consequence line + call to action
   consequence: {

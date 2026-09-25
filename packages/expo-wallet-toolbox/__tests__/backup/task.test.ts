@@ -195,3 +195,46 @@ describe('TaskBackupPush opt-out', () => {
     expect(TaskBackupPush.lastSuccessAt).toBeUndefined()
   })
 })
+
+// XR-105: MonitorSupervisor.restart() starts a new generation's loop without
+// cancelling or awaiting the prior generation's in-flight runOnce(). Unlike
+// TaskDrainOutbox (guarded since 8f959528) and TaskCreditInbox (its own
+// pre-existing inFlight mutex), TaskBackupPush had no guard at all, so a
+// watchdog restart during a hung push() could run two concurrent passes over
+// the backup log.
+describe('TaskBackupPush concurrency guard', () => {
+  it('a second overlapping runTask call returns without pushing', async () => {
+    let releaseFirst: () => void = () => {}
+    const pushCalls: number[] = []
+    const t = task(async () => {
+      pushCalls.push(pushCalls.length)
+      if (pushCalls.length === 1) {
+        await new Promise<void>(resolve => {
+          releaseFirst = resolve
+        })
+      }
+      return ok()
+    })
+
+    const first = t.runTask()
+    const second = t.runTask()
+    expect(await second).toBe('')
+    expect(pushCalls).toHaveLength(1)
+
+    releaseFirst()
+    await first
+    expect(pushCalls).toHaveLength(1)
+  })
+
+  it('clears the guard on throw, so the next call can still push', async () => {
+    let shouldThrow = true
+    const t = task(async () => {
+      if (shouldThrow) throw new Error('boom')
+      return ok()
+    })
+
+    await t.runTask()
+    shouldThrow = false
+    expect(await t.runTask()).toBe('')
+  })
+})

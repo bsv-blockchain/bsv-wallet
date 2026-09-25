@@ -10,6 +10,7 @@
  * no req, the proof is written directly: a proven_tx row (the toolbox's own
  * `findOrInsertProvenTx` shape) and the transaction promoted to `completed`.
  */
+import { Transaction } from '@bsv/sdk'
 import type { TableProvenTx, TableProvenTxReq, TableTransaction } from '@bsv/wallet-toolbox-mobile'
 import type { UpdateProvenTxReqWithNewProvenTxArgs } from '../toolboxTypes'
 
@@ -70,13 +71,30 @@ export async function recordProof(
 
   let provenTxId = (await storage.findProvenTxs({ partial: { txid } }))[0]?.provenTxId
   if (provenTxId === undefined) {
+    // XR-029: the direct path has no proven_tx_req to have already checked
+    // these bytes against anything — the BUMP/root check that authenticated
+    // `txid` never touches the separately-fetched rawTx. Require it to
+    // actually parse and hash to the txid we are recording a proof for
+    // before it is ever inserted or a transaction is promoted to completed;
+    // a mismatched or unparsable response from a compromised/faulty raw-tx
+    // endpoint must not corrupt local data.
+    const rawTx = await args.fetchRawTx()
+    let parsedTxid: string
+    try {
+      parsedTxid = Transaction.fromBinary(rawTx).id('hex')
+    } catch (e: any) {
+      throw new Error(`recordProof: fetched raw tx for ${txid} does not parse as a transaction: ${e.message}`)
+    }
+    if (parsedTxid !== txid) {
+      throw new Error(`recordProof: fetched raw tx hashes to ${parsedTxid}, expected ${txid}`)
+    }
     const now = new Date()
     provenTxId = await storage.insertProvenTx({
       created_at: now,
       updated_at: now,
       provenTxId: 0,
       txid,
-      rawTx: await args.fetchRawTx(),
+      rawTx,
       ...proof
     })
   }

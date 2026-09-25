@@ -73,7 +73,8 @@ import {
   backupAttestation,
   VaultError,
   haptics,
-  i18n
+  i18n,
+  resolveProvisioningPolicy
 } from '@bsv/expo-wallet-toolbox'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
@@ -153,6 +154,10 @@ export function VaultScreen() {
   const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
   const [creatingWallet, setCreatingWallet] = useState(false)
   const [walletCreationIntent, setWalletCreationIntent] = useState<'deposit' | 'enroll'>('deposit')
+  // XR-114: whether provisioning would actually land on a disclosed
+  // (non-biometric) policy for this device/build, so the advisory below
+  // never promises Face ID/fingerprint protection it will not deliver.
+  const [advisoryDegraded, setAdvisoryDegraded] = useState(false)
   const [recoveryError, setRecoveryError] = useState<string | null>(null)
   const [adopting, setAdopting] = useState<{ record: VaultKeyRecord; scopeToken: VaultScopeToken } | null>(null)
   const [adoptionPin, setAdoptionPin] = useState('')
@@ -244,7 +249,9 @@ export function VaultScreen() {
         if (!stale && complete) await reload()
       })
       .catch(error => console.error('[vault] pending key-removal reconciliation failed:', error))
-    return () => { stale = true }
+    return () => {
+      stale = true
+    }
   }, [pm, meta?.pendingRemoval, adminOriginator, reload])
 
   // ── helpers ─────────────────────────────────────────────────────────
@@ -254,8 +261,9 @@ export function VaultScreen() {
       refs
         .map(r => {
           const current = metaRef.current
-          const rec = [...(current?.keys ?? []), ...(current?.pendingRemoval ? [current.pendingRemoval.key] : [])]
-            .find(k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey)
+          const rec = [...(current?.keys ?? []), ...(current?.pendingRemoval ? [current.pendingRemoval.key] : [])].find(
+            k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey
+          )
           return rec ? vaultKeyLabel(rec) : `…${r.pubkey.slice(-4)}`
         })
         .join(', '),
@@ -334,10 +342,12 @@ export function VaultScreen() {
         return
       }
       if (vaultError?.code === 'pin-invalid') setAdoptionPin('')
-      setAdoptionError(vaultErrorCopy(vaultError?.code, {
-        count: vaultError?.retriesLeft,
-        names: metaRef.current?.keys.map(vaultKeyLabel).join(', ') || undefined
-      }))
+      setAdoptionError(
+        vaultErrorCopy(vaultError?.code, {
+          count: vaultError?.retriesLeft,
+          names: metaRef.current?.keys.map(vaultKeyLabel).join(', ') || undefined
+        })
+      )
     } finally {
       setAdoptionBusy(false)
     }
@@ -397,7 +407,8 @@ export function VaultScreen() {
           throw new VaultError('template-invalid', 'Vault re-lock made no progress')
         }
         previousCapped = result.cappedInputs
-        if (result.cappedInputs > 0) showToast(t('vault_relock_capped', { count: result.cappedInputs }), { type: 'info' })
+        if (result.cappedInputs > 0)
+          showToast(t('vault_relock_capped', { count: result.cappedInputs }), { type: 'info' })
       } while (result.cappedInputs > 0)
       refresh()
       refreshCoverage()
@@ -454,7 +465,20 @@ export function VaultScreen() {
     } finally {
       setRelocking(false)
     }
-  }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor, reload, backupOffAlert])
+  }, [
+    pm,
+    relock,
+    relockSerial,
+    relocking,
+    adminOriginator,
+    transferOpts,
+    closeRelock,
+    refresh,
+    refreshCoverage,
+    namesFor,
+    reload,
+    backupOffAlert
+  ])
 
   // ── wizard hand-offs ────────────────────────────────────────────────
   /**
@@ -566,7 +590,10 @@ export function VaultScreen() {
         // for the re-lock that makes the keys still on it open every deposit.
         openRelock({
           reason: t('vault_relock_reason_remaining', {
-            names: m.keys.filter(k => k.serial !== rec.serial).map(vaultKeyLabel).join(', ')
+            names: m.keys
+              .filter(k => k.serial !== rec.serial)
+              .map(vaultKeyLabel)
+              .join(', ')
           }),
           revoke: rec
         })
@@ -694,7 +721,15 @@ export function VaultScreen() {
     } finally {
       creatingWalletRef.current = false
     }
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, createMnemonic, buildWalletFromMnemonic, router])
+  }, [
+    managers.permissionsManager,
+    secretsReady,
+    walletBuilding,
+    hasStoredIdentity,
+    createMnemonic,
+    buildWalletFromMnemonic,
+    router
+  ])
 
   const onDeposit = useCallback(async () => {
     if (managers.permissionsManager) {
@@ -707,6 +742,7 @@ export function VaultScreen() {
     } catch {
       return
     }
+    setAdvisoryDegraded((await resolveProvisioningPolicy()).disclose)
     setWalletCreationIntent('deposit')
     setShowBiometricAdvisory(true)
   }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, router])
@@ -722,6 +758,7 @@ export function VaultScreen() {
     } catch {
       return
     }
+    setAdvisoryDegraded((await resolveProvisioningPolicy()).disclose)
     setWalletCreationIntent('enroll')
     setShowBiometricAdvisory(true)
   }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity])
@@ -771,7 +808,11 @@ export function VaultScreen() {
         <View style={styles.centered}>
           <Ionicons name="alert-circle-outline" size={44} color={colors.error} />
           <Text style={[styles.p, { color: colors.textPrimary }]}>{recoveryError}</Text>
-          <PressableScale haptic="tap" onPress={retryRecovery} style={[styles.primary, { backgroundColor: colors.accent }]}>
+          <PressableScale
+            haptic="tap"
+            onPress={retryRecovery}
+            style={[styles.primary, { backgroundColor: colors.accent }]}
+          >
             <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_retry')}</Text>
           </PressableScale>
         </View>
@@ -795,7 +836,11 @@ export function VaultScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
-        <EnrollWizard mode={wizard} onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded} onCancel={() => void closeWizard()} />
+        <EnrollWizard
+          mode={wizard}
+          onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded}
+          onCancel={() => void closeWizard()}
+        />
       </View>
     )
   }
@@ -827,7 +872,11 @@ export function VaultScreen() {
                   styles.primary,
                   canEnroll
                     ? { backgroundColor: colors.accent }
-                    : { backgroundColor: 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }
+                    : {
+                        backgroundColor: 'transparent',
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: colors.separator
+                      }
                 ]}
               >
                 <Text style={[styles.primaryLabel, { color: canEnroll ? colors.textOnAccent : colors.textTertiary }]}>
@@ -845,7 +894,9 @@ export function VaultScreen() {
               {enabled && !supported && (
                 <View style={styles.heroNotice}>
                   <Text style={[styles.heroNoticeTitle, { color: colors.error }]}>{t('vault_unsupported_title')}</Text>
-                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t('vault_unsupported_body')}</Text>
+                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                    {t('vault_unsupported_body')}
+                  </Text>
                 </View>
               )}
             </View>
@@ -855,6 +906,7 @@ export function VaultScreen() {
         <BiometricAdvisoryModal
           visible={showBiometricAdvisory}
           loading={creatingWallet}
+          degraded={advisoryDegraded}
           onCancel={() => setShowBiometricAdvisory(false)}
           onContinue={onAdvisoryContinue}
         />
@@ -926,7 +978,11 @@ export function VaultScreen() {
             accessibilityState={{ disabled: !canWithdraw }}
             style={[
               styles.actionBtn,
-              { backgroundColor: colors.backgroundElevated, borderColor: colors.separator, borderWidth: StyleSheet.hairlineWidth }
+              {
+                backgroundColor: colors.backgroundElevated,
+                borderColor: colors.separator,
+                borderWidth: StyleSheet.hairlineWidth
+              }
             ]}
           >
             <Ionicons name="arrow-up" size={18} color={colors.accent} />
@@ -934,7 +990,9 @@ export function VaultScreen() {
           </PressableScale>
         </View>
         {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>}
-        {transfersBlocked && <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>}
+        {transfersBlocked && (
+          <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_relock_required')}</Text>
+        )}
         {recoveryRequired && !hasRecoveryRedundancy && (
           <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
         )}
@@ -1007,7 +1065,13 @@ export function VaultScreen() {
             />
           )}
           {canAdd && (
-            <ListRow label={t('vault_add_key_row')} icon="add-circle-outline" iconColor={colors.info} onPress={openAddKey} isLast />
+            <ListRow
+              label={t('vault_add_key_row')}
+              icon="add-circle-outline"
+              iconColor={colors.info}
+              onPress={openAddKey}
+              isLast
+            />
           )}
         </GroupedSection>
 
@@ -1064,7 +1128,11 @@ export function VaultScreen() {
             onSubmitEditing={() => void saveRename()}
             autoFocus
           />
-          <PressableScale haptic="confirm" onPress={() => void saveRename()} style={[styles.primary, { backgroundColor: colors.accent }]}>
+          <PressableScale
+            haptic="confirm"
+            onPress={() => void saveRename()}
+            style={[styles.primary, { backgroundColor: colors.accent }]}
+          >
             <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_rename_save')}</Text>
           </PressableScale>
           <PressableScale onPress={() => setRenaming(null)} style={styles.secondary}>
@@ -1131,7 +1199,12 @@ export function VaultScreen() {
       </Sheet>
 
       {/* Re-lock — choose the key, then one ceremony tap per pass. */}
-      <Sheet visible={relock !== null} onClose={relocking ? noop : closeRelock} title={t('vault_relock_row')} fitContent>
+      <Sheet
+        visible={relock !== null}
+        onClose={relocking ? noop : closeRelock}
+        title={t('vault_relock_row')}
+        fitContent
+      >
         <View style={styles.sheetBody}>
           {relock?.reason ? <Text style={[styles.p, { color: colors.textSecondary }]}>{relock.reason}</Text> : null}
           <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_relock_choose')}</Text>
@@ -1158,6 +1231,7 @@ export function VaultScreen() {
       <BiometricAdvisoryModal
         visible={showBiometricAdvisory}
         loading={creatingWallet}
+        degraded={advisoryDegraded}
         onCancel={() => setShowBiometricAdvisory(false)}
         onContinue={onAdvisoryContinue}
       />

@@ -175,6 +175,36 @@ test('allows non-privileged ops from any origin', async () => {
   expect(calls.find(c => c.method === 'getPublicKey')).toBeDefined()
 })
 
+test.each([
+  ['getPublicKey', [2, '3241645161d8']],
+  ['createSignature', [2, '3241645161d8']],
+  ['getPublicKey', [2, 'mandala token']],
+  ['createSignature', [2, 'mandala token']],
+  ['getPublicKey', [2, ' Mandala Token ']]
+] as const)(
+  // XR-020: the address rail / PeerPay ([2,'3241645161d8']) and the FT rail
+  // ([2,'mandala token']) are this wallet's OWN payment-signing namespaces,
+  // not Vault state -- but a paired origin must still be unable to mint a
+  // raw signature or public key under them, or it can assemble an
+  // unauthorized spend without ever going through createAction/signAction.
+  'reserves the wallet-internal payment-rail protocols from external %s calls (%p)',
+  async (method, protocolID) => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await expect(
+      (guarded[method] as any)({ protocolID, keyID: 'x', counterparty: 'anyone' }, 'evil.com')
+    ).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(calls.find(call => call.method === method)).toBeUndefined()
+  }
+)
+
+test('still allows the admin originator to use the address-rail/FT protocols directly', async () => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+  await guarded.getPublicKey({ protocolID: [2, '3241645161d8'], keyID: 'x', counterparty: 'anyone' } as any, ADMIN)
+  expect(calls.find(c => c.method === 'getPublicKey')).toBeDefined()
+})
+
 test('passes a createAction that names no protected output', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)

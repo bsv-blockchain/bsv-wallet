@@ -639,6 +639,64 @@ describe('finalizeDelivery', () => {
       expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
     })
   })
+
+  // XR-103: a lying decline must not free inputs the payee already spent. If
+  // the chain already reports this exact txid known/mined despite the
+  // negative ack, abortAction would hand the payer a double-spend against a
+  // payment that in fact landed — refuse the abort instead of racing it.
+  describe('XR-103: checking chain status before a decline-abort', () => {
+    it('refuses to abort when the chain already reports this txid known/mined', async () => {
+      const w = payerStub()
+      const checkChainStatus = jest.fn().mockResolvedValue({ results: [{ txid: 'tx-1', status: 'known' }] })
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        checkChainStatus
+      })
+
+      expect(checkChainStatus).toHaveBeenCalledWith(['tx-1'])
+      expect(w.abortAction).not.toHaveBeenCalled()
+      expect(outcome.kind).not.toBe('declined')
+      expect(outcome).toMatchObject({ kind: 'sent', broadcast: 'ok' })
+    })
+
+    it('still aborts when the chain does not know this txid', async () => {
+      const w = payerStub()
+      const checkChainStatus = jest.fn().mockResolvedValue({ results: [{ txid: 'tx-1', status: 'unknown' }] })
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        checkChainStatus
+      })
+
+      expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+    })
+
+    it('still aborts when no checkChainStatus dep is supplied (unchanged default behaviour)', async () => {
+      const w = payerStub()
+      const outcome = await finalizeDelivery(
+        w as never,
+        built,
+        { ok: false, error: 'save_failed' },
+        'admin.com',
+        online
+      )
+
+      expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+    })
+
+    it('a failing checkChainStatus probe never blocks the ordinary decline-abort', async () => {
+      const w = payerStub()
+      const checkChainStatus = jest.fn().mockRejectedValue(new Error('offline'))
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        checkChainStatus
+      })
+
+      expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+    })
+  })
 })
 
 describe('finalizeDelivery when offline', () => {

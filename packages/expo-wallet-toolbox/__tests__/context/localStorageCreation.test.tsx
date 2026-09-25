@@ -31,7 +31,9 @@ jest.mock('../../core/services/secrets', () => ({
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(done => { resolve = done })
+  const promise = new Promise<T>(done => {
+    resolve = done
+  })
   return { promise, resolve }
 }
 
@@ -41,9 +43,18 @@ async function renderStorage() {
     context = useLocalStorage()
     return null
   }
-  const renderer = render(<LocalStorageProvider><Observe /></LocalStorageProvider>)
+  const renderer = render(
+    <LocalStorageProvider>
+      <Observe />
+    </LocalStorageProvider>
+  )
   await act(async () => {})
-  return { get context() { return context }, renderer }
+  return {
+    get context() {
+      return context
+    },
+    renderer
+  }
 }
 
 beforeEach(() => {
@@ -93,9 +104,9 @@ it.each([
   ['recoveredKey', 'not-needed']
 ])('preserves a legacy %s when migration reports %s', async (name, outcome) => {
   mockLegacy.set(name, 'existing legacy identity')
-  mockMigrate.mockResolvedValue(outcome === 'failed'
-    ? { outcome: 'failed', stage: 'provision', retryable: true }
-    : { outcome: 'not-needed' })
+  mockMigrate.mockResolvedValue(
+    outcome === 'failed' ? { outcome: 'failed', stage: 'provision', retryable: true } : { outcome: 'not-needed' }
+  )
   const { context } = await renderStorage()
 
   expect(await context.createMnemonic('new test mnemonic')).toBe(false)
@@ -192,6 +203,28 @@ it('refuses creation through a callback from an unmounted provider', async () =>
 
   expect(await context.createMnemonic('new test mnemonic')).toBe(false)
   expect(mockPutSecret).not.toHaveBeenCalled()
+})
+
+it.each(['mnemonic', 'recoveredKey'])('XR-112: never surfaces the legacy %s once migration has failed', async name => {
+  mockLegacy.set(name, 'existing legacy identity')
+  mockMigrate.mockResolvedValue({ outcome: 'failed', stage: 'provision', retryable: true })
+  const { context } = await renderStorage()
+
+  const getter = name === 'mnemonic' ? context.getMnemonic : context.getRecoveredKey
+  // Declining/failing the biometric provisioning ceremony must never hand
+  // back the unauthenticated legacy plaintext — that is a full auth bypass.
+  expect(await getter()).toBeNull()
+})
+
+it('XR-115: getMnemonic never returns the legacy plaintext when migration fails permanently', async () => {
+  mockLegacy.set('mnemonic', 'existing legacy identity')
+  mockMigrate.mockResolvedValue({ outcome: 'failed', stage: 'attempts-exhausted', retryable: false })
+  const { context } = await renderStorage()
+
+  // Same bypass as XR-112, exercised at the "attempts exhausted" outcome
+  // this row's finding pairs with kek.ts's failed-rewrap fail-open path
+  // (locked separately in __tests__/secrets/kek.test.ts, "XR-113").
+  expect(await context.getMnemonic()).toBeNull()
 })
 
 it('keeps explicit import replacement available through setMnemonic', async () => {

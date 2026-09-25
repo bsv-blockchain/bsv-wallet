@@ -6,11 +6,11 @@
  * toolbox at all. `WalletStorageManager.syncFromReader` drives this exactly as it would
  * drive a live remote storage provider.
  */
-import type { CompletedProtoWallet } from '@bsv/sdk'
+import { Hash, Utils, type CompletedProtoWallet } from '@bsv/sdk'
 import type { TableSettings } from '@bsv/wallet-toolbox-mobile'
 import type { BackupClient, LogEntry } from './client'
 import { decodeEntry, emptyChunk, type DecodedEntry } from './codec'
-import type { BackupChain } from './constants'
+import { MAX_INDEX_ENTRIES, type BackupChain } from './constants'
 import type { RequestSyncChunkArgs, SyncChunk } from '../toolboxTypes'
 
 export class BackupChainError extends Error {
@@ -65,6 +65,11 @@ export class RemoteSyncReader {
       for (;;) {
         const pageStart = entries.length
         entries.push(...page)
+        // A malicious/compromised backup host could otherwise keep paging forever — nothing
+        // else in this loop depends on the server ever running out of entries to offer.
+        if (entries.length > MAX_INDEX_ENTRIES) {
+          throw new BackupChainError(`backup index has grown past ${MAX_INDEX_ENTRIES} entries without completing`)
+        }
         this.verifyChain(entries, pageStart)
         const missingHead = this.expectedHeadSeq != null && entries.length < this.expectedHeadSeq
         if (page.length === 0) {
@@ -92,6 +97,24 @@ export class RemoteSyncReader {
       ciphertext = result.bytes
     } else {
       ciphertext = await this.client.blob(this.deviceId, this.generation, entry.seq)
+    }
+    // The index is itself server-supplied, but it is fetched from a separate endpoint than
+    // the blob body — a malicious or compromised service can serve the wrong (though still
+    // authentic, same-wallet) ciphertext at a given sequence while its own index entry for
+    // that sequence still carries the digest/size of what that sequence actually holds.
+    // Decryption alone cannot catch this: the AEAD envelope authenticates only
+    // {chain, chunk, seal} (see codec.ts), never the position a chunk was appended at.
+    // Checking the downloaded bytes against the index's own claim for THIS entry, before
+    // ever decrypting them, rejects a substituted or reordered blob outright instead of
+    // silently replaying it mislabeled.
+    if (ciphertext.length !== entry.size) {
+      throw new BackupChainError(
+        `backup blob at sequence ${entry.seq} is ${ciphertext.length} bytes but the index recorded ${entry.size}`
+      )
+    }
+    const digest = Utils.toHex(Hash.sha256(Array.from(ciphertext)))
+    if (digest !== entry.sha256) {
+      throw new BackupChainError(`backup blob at sequence ${entry.seq} does not match the index's recorded digest`)
     }
     return await decodeEntry(this.wallet, Array.from(ciphertext), this.chain)
   }

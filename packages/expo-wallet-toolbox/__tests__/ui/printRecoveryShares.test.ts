@@ -49,17 +49,26 @@ describe('printRecoveryShares', () => {
     const result = await printRecoveryShares({ mnemonic: mnemonic.toString() })
 
     expect(result).toEqual({ ok: true, format: 'entropy' })
-    expect(printAsync).toHaveBeenCalledTimes(1)
+    // XR-110: one print job per share, never all of the threshold in one job.
+    expect(printAsync).toHaveBeenCalledTimes(3)
 
-    const html = (printAsync.mock.calls[0][0] as { html: string }).html
-    const shares = sharesFromHtml(html)
+    const shares = printAsync.mock.calls.map(call => sharesFromHtml((call[0] as { html: string }).html)).flat()
     expect(shares).toHaveLength(3)
 
     const recovered = recoverSecretFromShares(shares.slice(0, 2))
     expect(recovered.kind).toBe('entropy')
-    expect(
-      recovered.kind === 'entropy' && Mnemonic.fromEntropy(recovered.entropy).toString()
-    ).toBe(mnemonic.toString())
+    expect(recovered.kind === 'entropy' && Mnemonic.fromEntropy(recovered.entropy).toString()).toBe(mnemonic.toString())
+  })
+
+  test('XR-110: no single print job carries more than one recovery share', async () => {
+    const mnemonic = Mnemonic.fromRandom(128)
+    await printRecoveryShares({ mnemonic: mnemonic.toString() })
+
+    expect(printAsync).toHaveBeenCalledTimes(3)
+    for (const call of printAsync.mock.calls) {
+      const html = (call[0] as { html: string }).html
+      expect(sharesFromHtml(html)).toHaveLength(1)
+    }
   })
 
   test('refuses a 24-word wallet, because 32 bytes of entropy leaves no room for the tag', async () => {
@@ -75,12 +84,10 @@ describe('printRecoveryShares', () => {
 
     expect(result).toEqual({ ok: true, format: 'legacy' })
 
-    const html = (printAsync.mock.calls[0][0] as { html: string }).html
-    const recovered = recoverSecretFromShares(sharesFromHtml(html).slice(0, 2))
+    const shares = printAsync.mock.calls.map(call => sharesFromHtml((call[0] as { html: string }).html)).flat()
+    const recovered = recoverSecretFromShares(shares.slice(0, 2))
     expect(recovered.kind).toBe('legacy')
-    expect(recovered.kind === 'legacy' && recovered.primaryKey).toEqual(
-      Array.from(PrivateKey.fromWif(wif).toArray())
-    )
+    expect(recovered.kind === 'legacy' && recovered.primaryKey).toEqual(Array.from(PrivateKey.fromWif(wif).toArray()))
   })
 
   test('reports no material rather than throwing', async () => {

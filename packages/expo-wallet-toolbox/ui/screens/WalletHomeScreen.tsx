@@ -70,10 +70,12 @@ import {
   retryDelivery,
   makePeerPayClient,
   isMessageBoxNetworkError,
+  isAbortSafe,
   generateMnemonicWallet,
   backupAttestation,
   isVaultAvailable,
   useVault,
+  resolveProvisioningPolicy,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
@@ -393,6 +395,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const [pendingDestination, setPendingDestination] = useState<string | null>(null)
   const [showBiometricAdvisory, setShowBiometricAdvisory] = useState(false)
   const [creatingWalletFromAdvisory, setCreatingWalletFromAdvisory] = useState(false)
+  // XR-114: whether provisioning would actually land on a disclosed
+  // (non-biometric) policy for this device/build, so the advisory below
+  // never promises Face ID/fingerprint protection it will not deliver.
+  const [advisoryDegraded, setAdvisoryDegraded] = useState(false)
 
   const destinationPress = useCallback(
     async (destination: string) => {
@@ -406,6 +412,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       } catch {
         return
       }
+      setAdvisoryDegraded((await resolveProvisioningPolicy()).disclose)
       setPendingDestination(destination)
       setShowBiometricAdvisory(true)
     },
@@ -995,12 +1002,28 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     [busyRow, refreshProof, t]
   )
 
-  /** Abort a still-local transaction, releasing the inputs it reserved. */
+  /**
+   * Abort a still-local transaction, releasing the inputs it reserved.
+   *
+   * `action` is passed by every caller that has it (the row and the detail sheet both
+   * render from a loaded ActivityAction). For a `peerpay` action it is checked against the
+   * live outbox before this ever reaches `abortAction`: that outbox row is the only record
+   * of whether the recipient may already hold this payment's token, and it does not survive
+   * a backup/restore (key_value_store is not currently part of the encrypted backup) — so a
+   * restored wallet must refuse rather than guess "never delivered" from a missing row.
+   */
   const onAbort = useCallback(
-    async (reference: string) => {
+    async (reference: string, action?: ActivityAction) => {
       if (!managers.permissionsManager || busyRow) return
       setBusyRow(reference)
       try {
+        if (action?.labels?.includes('peerpay')) {
+          const entries = storage ? await getOutboxEntries(storage) : []
+          if (!isAbortSafe(action, entries).aborted) {
+            showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+            return
+          }
+        }
         const r = (await managers.permissionsManager.abortAction({ reference }, adminOriginator)) as
           | { aborted?: boolean }
           | undefined
@@ -1017,7 +1040,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         setBusyLabel(undefined)
       }
     },
-    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, t]
+    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, storage, t]
   )
 
   const onResendPending = useCallback(async () => {
@@ -1108,7 +1131,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           // too, instead of leaving it looking like it never went anywhere.
           if (storage && offlineByTxid.get(txid)?.status === 'parked') {
             try {
-              await releaseParkedPayment({ storage, txid })
+              // XR-036 review follow-up: `isToken` (derived above from the
+              // action's own 'mandala' label) is the only signal
+              // `releaseParkedPayment` has for whether this txid needs a
+              // durable token_settlements row before it may be promoted.
+              await releaseParkedPayment({ storage, txid, isTokenHold: isToken })
             } catch (e) {
               console.warn('[localpay] resent but could not release:', e instanceof Error ? e.message : e)
             }
@@ -1544,7 +1571,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         label: t('tx_action_abort'),
         icon: 'close-circle-outline',
         danger: true,
-        onPress: () => void onAbort(action.reference!)
+        // `action` is passed so a peerpay abort gets the same outbox
+        // delivered-check `onAbort` already runs for `ActivityRow`'s own
+        // Cancel chip — this detail-sheet surface must not be a way around it.
+        onPress: () => void onAbort(action.reference!, action)
       })
     }
     if (keys.includes('cancel-parked')) {
@@ -2155,6 +2185,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       <BiometricAdvisoryModal
         visible={showBiometricAdvisory}
         loading={creatingWalletFromAdvisory}
+        degraded={advisoryDegraded}
         onCancel={() => {
           setShowBiometricAdvisory(false)
           setPendingDestination(null)

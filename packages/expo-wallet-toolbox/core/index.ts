@@ -13,6 +13,7 @@ export { TaskSendOffline } from './monitor/TaskSendOffline'
 export { TaskCreditInbox } from './monitor/TaskCreditInbox'
 export { TaskDrainOutbox, drainUnsentEntries } from './monitor/TaskDrainOutbox'
 export { getOnline, subscribeOnline, probeOnline } from './net/online'
+export { validateArcUrl } from './net/validateArcUrl'
 export * from './logging'
 export * from './diskSpace'
 export type { AppChain, WalletChain } from './config'
@@ -195,6 +196,10 @@ export {
   LocalStorageContext,
   type LocalStorageContextType
 } from './context/LocalStorageProvider'
+// XR-114: lets a consent screen check, before it promises biometric
+// protection, whether provisioning would actually land on a disclosed
+// (non-biometric) policy for this device/build.
+export { resolveProvisioningPolicy, type ResolvedPolicy } from './services/secrets/policy'
 
 // User context and native handlers
 export { UserContextProvider, UserContext } from './context/UserContext'

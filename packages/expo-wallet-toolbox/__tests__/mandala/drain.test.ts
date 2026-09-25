@@ -272,9 +272,7 @@ describe('populateEvidenceFromFrame', () => {
     const r = await populateEvidenceFromFrame(
       store,
       frame({
-        admissions: [
-          { txid: g.id('hex'), outputsToAdmit: [0], signature: forged, signerKey: OVERLAY_KEY }
-        ]
+        admissions: [{ txid: g.id('hex'), outputsToAdmit: [0], signature: forged, signerKey: OVERLAY_KEY }]
       }),
       anchor
     )
@@ -289,7 +287,12 @@ describe('populateEvidenceFromFrame', () => {
       store,
       frame({
         admissions: [
-          { txid: g.id('hex'), outputsToAdmit: [0, 1], signature: signAdmission(g.id('hex'), [0]), signerKey: OVERLAY_KEY }
+          {
+            txid: g.id('hex'),
+            outputsToAdmit: [0, 1],
+            signature: signAdmission(g.id('hex'), [0]),
+            signerKey: OVERLAY_KEY
+          }
         ]
       }),
       anchor
@@ -403,6 +406,12 @@ async function seed(state: 'held' | 'handed_over' = 'held', role: 'sent' | 'rece
     overlayUrl: OVERLAY,
     overlayIdentityKey: OVERLAY_KEY
   })
+  // XR-038: the ordinary shape every other test in this file assumes — TIP
+  // spends ANCESTOR's vout 0, and the tip's own relevant vout defaults to 0 —
+  // so a genuine admission for outputsToAdmit:[0] may still stand in for a
+  // submit exactly as it always has. Tests that need a MISMATCHED vout
+  // override this edge for themselves.
+  await store.putEdges([{ childTxid: TIP, parentTxid: ANCESTOR, parentVout: 0 }])
   return (await store.getSettlement(TIP))!
 }
 
@@ -481,7 +490,10 @@ describe('postTokenStep', () => {
       source: 'submitted',
       obtainedAt: 'now'
     })
-    const d = deps({ ...anchor, cover: async (): Promise<CoverResult> => ({ ok: false, reason: 'uncovered_ancestor' }) })
+    const d = deps({
+      ...anchor,
+      cover: async (): Promise<CoverResult> => ({ ok: false, reason: 'uncovered_ancestor' })
+    })
 
     await expect(postTokenStep(d, (await store.getSettlement(TIP))!, step)).resolves.toBe('success')
     expect(d.submitted).toEqual([])
@@ -500,7 +512,10 @@ describe('postTokenStep', () => {
       source: 'submitted',
       obtainedAt: 'now'
     })
-    const d = deps({ ...anchor, cover: async (): Promise<CoverResult> => ({ ok: false, reason: 'uncovered_ancestor' }) })
+    const d = deps({
+      ...anchor,
+      cover: async (): Promise<CoverResult> => ({ ok: false, reason: 'uncovered_ancestor' })
+    })
 
     await expect(postTokenStep(d, (await store.getSettlement(TIP))!, step)).resolves.toBe('serviceError')
     expect(d.broadcasts).toEqual([])
@@ -602,6 +617,10 @@ describe('postTokenStep', () => {
       overlayUrl: OVERLAY,
       overlayIdentityKey: impostorKey
     })
+    // So the vout-scoping check (XR-038) passes and this test actually
+    // exercises the anchor check it is named for, rather than short-circuiting
+    // on an unresolved vout first.
+    await store.putEdges([{ childTxid: TIP, parentTxid: ANCESTOR, parentVout: 0 }])
     await cacheAdmission(signAdmission(ANCESTOR, [0], impostor), impostorKey)
     const d = deps(anchor)
 
@@ -686,6 +705,47 @@ describe('postTokenStep', () => {
     await expect(postTokenStep(d, settlement, step)).resolves.toBe('doubleSpend')
     expect((await store.getSettlement(ANCESTOR))?.state).toBe('orphaned')
     expect(await store.getSettlement(TIP)).toMatchObject({ state: 'orphaned', poisonedByTxid: ANCESTOR })
+  })
+
+  // XR-042: `submit`'s 'admitted' verdicts are σ_I-verified (see the belt-and-braces
+  // check above, against `deps.verifyAdmission`); its 'refused'/'evicted' verdicts
+  // are the raw, unsigned overlay HTTP response. An ancestor already carrying a
+  // verified admission ON ITS OWN ROW — set here without ever populating the
+  // SEPARATE `token_admissions` cache `admissionStandsIn` reads, so that
+  // short-circuit cannot be what protects it — must not be unwound by a later
+  // unsigned negative for the same txid.
+  it('XR-042: an ancestor already carrying a verified admission is not unwound by a later unsigned refusal', async () => {
+    await store.upsertSettlement({
+      txid: TIP,
+      role: 'received',
+      assetId: ASSET_ID,
+      state: 'held',
+      overlayUrl: OVERLAY,
+      overlayIdentityKey: OVERLAY_KEY
+    })
+    await store.upsertSettlement({
+      txid: ANCESTOR,
+      role: 'received',
+      assetId: ASSET_ID,
+      state: 'admitted',
+      overlayUrl: OVERLAY,
+      overlayIdentityKey: OVERLAY_KEY,
+      admissionOutputs: [0],
+      admissionSignatureHex: Utils.toHex(Array.from(signAdmission(ANCESTOR, [0])))
+    })
+    // No `store.putAdmission` call: the cached-admission short-circuit
+    // (`admissionStandsIn`) has nothing to stand in with, so this ancestor
+    // reaches `submit` exactly as an ordinary un-admitted one would.
+    const settlement = (await store.getSettlement(TIP))!
+    const d = deps({
+      submit: async (txid: string): Promise<OverlayVerdict> =>
+        txid === ANCESTOR ? { kind: 'refused', code: 'ERR_X' } : admitted(txid)
+    })
+
+    await expect(postTokenStep(d, settlement, step)).resolves.toBe('serviceError')
+    expect((await store.getSettlement(ANCESTOR))?.state).toBe('admitted')
+    expect((await store.getSettlement(TIP))?.state).toBe('held')
+    expect(d.broadcasts).toEqual([])
   })
 
   it('refuses the tip itself without inventing a poisoner', async () => {
@@ -812,6 +872,70 @@ describe('postTokenStep', () => {
     await expect(postTokenStep(d, settlement, step)).resolves.toBe('success')
     expect(d.submitted).toEqual([foreign, TIP])
     expect(await store.getAdmission(foreign)).toMatchObject({ source: 'submitted' })
+  })
+
+  // ───────────────────────────── XR-038 ─────────────────────────────
+  // A genuine σ_I over one output of a multi-output token tx must never stand
+  // in for a DIFFERENT output of that same tx — the payer's own change is not
+  // proof the payee's output (or any other ancestor's held output) was ever
+  // admitted.
+  describe('XR-038 — an admission for the wrong output never stands in', () => {
+    it('does not skip the tip’s own submit on a genuine admission for a DIFFERENT output of the tip', async () => {
+      await store.upsertSettlement({
+        txid: TIP,
+        role: 'received',
+        assetId: ASSET_ID,
+        state: 'held',
+        overlayUrl: OVERLAY,
+        overlayIdentityKey: OVERLAY_KEY,
+        relevantVout: 0 // this device is owed the tip's OWN output 0
+      })
+      // A REAL, verifying admission — but for output 1 (say, the payer's own
+      // change), never output 0.
+      await store.putAdmission({
+        txid: TIP,
+        outputsToAdmit: [1],
+        signatureHex: Utils.toHex(Array.from(signAdmission(TIP, [1]))),
+        signerKey: OVERLAY_KEY,
+        source: 'bundle',
+        obtainedAt: 'now'
+      })
+      const d = deps({ ...anchor, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [TIP] }) })
+
+      await postTokenStep(d, (await store.getSettlement(TIP))!, step)
+
+      // The fast path must not have short-circuited straight to a broadcast
+      // from the mismatched cached entry — a real submit of the tip is the
+      // only way this device's own output can be confirmed admitted.
+      expect(d.submitted).toEqual([TIP])
+      expect(d.broadcasts).toEqual([TIP])
+    })
+
+    it('does not skip an ancestor’s own submit on a genuine admission for a DIFFERENT vout of that ancestor', async () => {
+      const settlement = await seed()
+      // seed() wires the edge as TIP spends ANCESTOR's vout 0; this payment's
+      // real edge is vout 2 — replace it.
+      raw.prepare('DELETE FROM token_admission_edges WHERE childTxid = ? AND parentTxid = ?').run(TIP, ANCESTOR)
+      await store.putEdges([{ childTxid: TIP, parentTxid: ANCESTOR, parentVout: 2 }])
+      // A REAL, verifying admission for ANCESTOR — but for vout 3, never the
+      // vout 2 this chain actually spends.
+      await store.putAdmission({
+        txid: ANCESTOR,
+        outputsToAdmit: [3],
+        signatureHex: Utils.toHex(Array.from(signAdmission(ANCESTOR, [3]))),
+        signerKey: OVERLAY_KEY,
+        source: 'bundle',
+        obtainedAt: 'now'
+      })
+      const d = deps(anchor)
+
+      await postTokenStep(d, settlement, step)
+
+      // ANCESTOR must be submitted for real, not skipped from the mismatched
+      // cached entry.
+      expect(d.submitted).toEqual([ANCESTOR, TIP])
+      expect((await store.getSettlement(ANCESTOR))?.state).toBe('admitted')
+    })
   })
 })
 

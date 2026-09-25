@@ -1,4 +1,5 @@
 import type { LocalPayTransport } from '@bsv/react-native-localpay-transport'
+import { MAX_MESSAGE_BYTES } from '@bsv/air-gap'
 import { sealFrame, unsealFrame, type PaymentFrame } from '../codec'
 import { instanceName, type Session } from '../session'
 import {
@@ -9,6 +10,27 @@ import {
   type LocalPaymentTransport,
   type ReceivedFrame
 } from '../types'
+
+/**
+ * XR-090. The ceiling every sealed frame this device would ever SEND already
+ * respects — `@bsv/air-gap`'s own limit, shared with the QR/fountain encoder
+ * (see codec.ts's FRAME_QR_PREFIX docs) — reused here as the ceiling on what
+ * this device will DECODE from a counterparty. Without it, an oversized
+ * radio payload reached `atob()` -> AES-GCM decrypt -> JSON.parse in full
+ * before anything refused it: unbounded memory/CPU per received message, on
+ * every transport that shares this decode layer (AWDL, Nearby JS, and BLE's
+ * onFrame all call `fromBase64` before anything else looks at the bytes).
+ */
+export const MAX_INBOUND_FRAME_BYTES = MAX_MESSAGE_BYTES
+
+/**
+ * An ack is `{ ok: boolean, error?: string }`, and `error` is one of a
+ * handful of short machine codes (see `DeclineReason`) or, at most, an
+ * echoed message — never anything close to a frame's size. Generous headroom
+ * over any real reason string, nowhere near large enough to matter for
+ * memory/CPU even if a counterparty sends nothing but padding.
+ */
+export const MAX_INBOUND_ACK_BYTES = 4096
 
 /**
  * Whole-exchange budget: connect + transfer + the payee's save + ack. Shared
@@ -44,8 +66,35 @@ export function toBase64(b: Uint8Array): string {
   return globalThis.btoa(s)
 }
 
-export function fromBase64(s: string): Uint8Array {
-  return Uint8Array.from(globalThis.atob(s), c => c.charCodeAt(0))
+/**
+ * The largest base64 STRING whose decode cannot exceed `maxBytes` — checked
+ * before `atob()` runs, not after. Base64 expands 3 bytes to 4 characters, so
+ * this is the same bound `atob()` would enforce itself if it refused rather
+ * than happily decoding a payload of any size handed to it.
+ */
+function maxBase64Length(maxBytes: number): number {
+  return Math.ceil(maxBytes / 3) * 4
+}
+
+/**
+ * XR-090: `maxBytes` defaults to a full frame's ceiling since that is this
+ * function's most common and most sensitive caller; `parseAck` below passes
+ * the much smaller ack ceiling explicitly. Rejects by encoded length before
+ * `atob()` ever runs, so an oversized payload never reaches decode at all.
+ */
+export function fromBase64(s: string, maxBytes: number = MAX_INBOUND_FRAME_BYTES): Uint8Array {
+  if (s.length > maxBase64Length(maxBytes)) {
+    throw new Error(`base64 payload of ${s.length} chars exceeds the ${maxBytes}-byte ceiling`)
+  }
+  const bytes = Uint8Array.from(globalThis.atob(s), c => c.charCodeAt(0))
+  // The length check above is a cheap, coarse circuit-breaker on the ENCODED
+  // string (base64 groups 3 bytes into 4 characters, so it can only bound the
+  // decode to within a couple of bytes of `maxBytes`). This is the precise
+  // one, on the actual decoded length.
+  if (bytes.length > maxBytes) {
+    throw new Error(`base64 payload decodes to ${bytes.length} bytes, exceeding the ${maxBytes}-byte ceiling`)
+  }
+  return bytes
 }
 
 /**
@@ -56,7 +105,7 @@ export function fromBase64(s: string): Uint8Array {
 export function parseAck(ackBase64: string): Ack {
   let parsed: unknown
   try {
-    parsed = JSON.parse(new TextDecoder().decode(fromBase64(ackBase64)))
+    parsed = JSON.parse(new TextDecoder().decode(fromBase64(ackBase64, MAX_INBOUND_ACK_BYTES)))
   } catch {
     throw new AckError('malformed ack: invalid base64 or JSON')
   }
