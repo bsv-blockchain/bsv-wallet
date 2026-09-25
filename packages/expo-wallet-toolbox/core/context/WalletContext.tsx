@@ -228,6 +228,7 @@ import i18n from '../i18n/translations'
 import { makeBeefRepair } from '../pay/beefRepair'
 import { shouldReleaseUtxo, type UtxoProbe } from '../walletRepair/shouldReleaseUtxo'
 import { shouldMarkUnspendable } from '../walletRepair/shouldMarkUnspendable'
+import { releaseStuckReservationsOnDb } from '../walletRepair/releaseStuckReservations'
 import {
   acceptWithRetry,
   DEFAULT_MESSAGE_BOX_URL,
@@ -3103,20 +3104,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     const db = (storage as any)?.sqliteDb
     if (!db?.runAsync) return 'DB not available'
     try {
-      const rows = (await db.getAllAsync(
-        `SELECT o.outputId AS outputId, o.satoshis AS satoshis, t.txid AS txid
-           FROM outputs o JOIN transactions t ON t.transactionId = o.spentBy
-          WHERE t.status = 'failed'`
-      )) as { outputId: number; satoshis: number; txid: string }[]
-      if (!rows || rows.length === 0) return 'No stuck reservations found.'
-      await db.runAsync(
-        `UPDATE outputs SET spentBy = NULL, spendable = 1
-           WHERE spentBy IN (SELECT transactionId FROM transactions WHERE status = 'failed')`
-      )
-      const detail = rows
-        .map(r => `  • ${r.satoshis} sat (output ${r.outputId}) ← failed ${String(r.txid).slice(0, 12)}…`)
-        .join('\n')
-      return `✓ Released ${rows.length} stuck reservation(s):\n${detail}`
+      return await releaseStuckReservationsOnDb(db)
     } catch (e: any) {
       return `⚠ Release failed: ${e.message}`
     }
