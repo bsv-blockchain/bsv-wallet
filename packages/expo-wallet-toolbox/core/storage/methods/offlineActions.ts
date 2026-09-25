@@ -11,8 +11,17 @@
  * 'queued'/'posting', so a parked row is inert by construction — it exists to
  * keep the frame (for re-showing the code) and to keep the transaction
  * cancellable.
+ *
+ * `import_hold` is the same kind of deliberately-inert status, written only by
+ * ui/importDatabases.ts: a raw database import downgrades every 'queued'/
+ * 'posting' row it copies in to this status so the automatic post-build drain
+ * (WalletContext's TaskSendOffline) cannot rebroadcast an already-signed
+ * payment the user may have aborted, without a renewed review (XR-085). No
+ * query anywhere promotes a row out of 'import_hold' — until that review UI
+ * exists, an imported queue row stays held rather than being silently dropped
+ * or silently resumed.
  */
-export type OfflineActionStatus = 'queued' | 'posting' | 'sent' | 'rejected' | 'acknowledged' | 'parked'
+export type OfflineActionStatus = 'queued' | 'posting' | 'sent' | 'rejected' | 'acknowledged' | 'parked' | 'import_hold'
 export type OfflineActionRole = 'received' | 'sent'
 
 export interface OfflineActionRow {

@@ -339,4 +339,31 @@ describe('importWalletDatabase', () => {
     const rows = (await destHandle!.getAllAsync('SELECT * FROM proven_txs')) as unknown[]
     expect(rows).toHaveLength(0)
   })
+
+  it("XR-085: downgrades an imported 'queued'/'posting' offline_actions row to 'import_hold', leaving terminal rows alone", async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    raw.exec(
+      `INSERT INTO users (created_at, updated_at, identityKey) VALUES ('${NOW}', '${NOW}', '${CURRENT_IDENTITY_KEY}')`
+    )
+    // A signed payment the source device may have aborted after this backup
+    // was taken — still 'queued', so the live automatic drain would post it.
+    raw.exec(
+      `INSERT INTO offline_actions (created_at, updated_at, userId, txid, seq, role, status) VALUES
+         ('${NOW}', '${NOW}', 1, '${'c'.repeat(64)}', 1, 'sent', 'queued'),
+         ('${NOW}', '${NOW}', 1, '${'d'.repeat(64)}', 2, 'sent', 'posting'),
+         ('${NOW}', '${NOW}', 1, '${'e'.repeat(64)}', 3, 'sent', 'sent')`
+    )
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(true)
+    const destHandle = mockOpenDbs.get(result.filename as string)
+    const rows = (await destHandle!.getAllAsync('SELECT txid, status FROM offline_actions ORDER BY seq')) as {
+      txid: string
+      status: string
+    }[]
+    expect(rows.map(r => r.status)).toEqual(['import_hold', 'import_hold', 'sent'])
+  })
 })

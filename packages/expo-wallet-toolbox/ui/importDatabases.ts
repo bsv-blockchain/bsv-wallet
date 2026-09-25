@@ -263,6 +263,18 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
       // that self-healing path), so nothing legitimate is lost by refusing to
       // carry an import's copy of this table forward (XR-083).
       await destDb.runAsync('DELETE FROM proven_txs')
+
+      // A 'queued'/'posting' offline_actions row is a signed, possibly
+      // already-handed-off spend that only the automatic post-build drain
+      // (WalletContext's TaskSendOffline) is waiting to rebroadcast. Nothing
+      // distinguishes a row copied in by this import from one this device
+      // queued itself, so without this, an imported snapshot that predates
+      // the user aborting a payment would have it posted again, unattended,
+      // the next time the app is online. Downgrade to 'import_hold' — a
+      // status no drain query ever selects — so it stays put until reviewed;
+      // never delete or otherwise mutate the row, since it may already have
+      // been broadcast (XR-085).
+      await destDb.runAsync(`UPDATE offline_actions SET status = 'import_hold' WHERE status IN ('queued', 'posting')`)
     }
   } catch (e: any) {
     console.error('[importDatabases] Failed to place database:', e.message)

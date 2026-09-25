@@ -1027,6 +1027,7 @@ const resources = {
       pay_parked_already_sent: 'This payment was already sent',
       token_cancel_already_sent: "This payment already went through and can't be cancelled.",
       tx_status_parked: 'Not handed over',
+      tx_status_import_hold: 'Held (imported)',
       resend_sending: 'Sending via message box',
       cancelling_payment: 'Cancelling the payment',
 
@@ -1969,6 +1970,7 @@ const resources = {
       pay_parked_already_sent: '此付款已发送',
       token_cancel_already_sent: '此付款已经完成，无法取消。',
       tx_status_parked: '尚未交付',
+      tx_status_import_hold: '已导入并暂扣',
       resend_sending: '正在通过消息盒发送',
       cancelling_payment: '正在取消付款',
 
@@ -2964,6 +2966,7 @@ const resources = {
       pay_parked_already_sent: 'यह भुगतान पहले ही भेज दिया गया है',
       token_cancel_already_sent: 'यह भुगतान पहले ही पूरा हो चुका है और इसे रद्द नहीं किया जा सकता।',
       tx_status_parked: 'सौंपा नहीं गया',
+      tx_status_import_hold: 'आयात के बाद रोका गया',
       resend_sending: 'मैसेज बॉक्स से भेजा जा रहा है',
       cancelling_payment: 'भुगतान रद्द किया जा रहा है',
 
@@ -3974,6 +3977,7 @@ const resources = {
       pay_parked_already_sent: 'Este pago ya se envió',
       token_cancel_already_sent: 'Este pago ya se completó y no se puede cancelar.',
       tx_status_parked: 'No entregado',
+      tx_status_import_hold: 'Retenido (importado)',
       resend_sending: 'Enviando por el buzón de mensajes',
       cancelling_payment: 'Cancelando el pago',
 
@@ -4998,6 +5002,7 @@ const resources = {
       pay_parked_already_sent: 'Ce paiement a déjà été envoyé',
       token_cancel_already_sent: 'Ce paiement est déjà passé et ne peut pas être annulé.',
       tx_status_parked: 'Non remis',
+      tx_status_import_hold: 'Suspendu (importé)',
       resend_sending: 'Envoi via la boîte à messages',
       cancelling_payment: 'Annulation du paiement',
 
@@ -5957,6 +5962,7 @@ const resources = {
       pay_parked_already_sent: 'تم إرسال هذه الدفعة بالفعل',
       token_cancel_already_sent: 'تم تنفيذ هذه الدفعة بالفعل ولا يمكن إلغاؤها.',
       tx_status_parked: 'لم يُسلَّم',
+      tx_status_import_hold: 'موقوف (مستورد)',
       resend_sending: 'جارٍ الإرسال عبر صندوق الرسائل',
       cancelling_payment: 'جارٍ إلغاء الدفعة',
 
@@ -6964,6 +6970,7 @@ const resources = {
       pay_parked_already_sent: 'Este pagamento já foi enviado',
       token_cancel_already_sent: 'Este pagamento já foi concluído e não pode ser cancelado.',
       tx_status_parked: 'Não entregue',
+      tx_status_import_hold: 'Retido (importado)',
       resend_sending: 'Enviando pela caixa de mensagens',
       cancelling_payment: 'Cancelando o pagamento',
 
@@ -7958,6 +7965,7 @@ const resources = {
       pay_parked_already_sent: 'এই পেমেন্ট ইতিমধ্যে পাঠানো হয়েছে',
       token_cancel_already_sent: 'এই পেমেন্টটি ইতিমধ্যে সম্পন্ন হয়েছে এবং এটি বাতিল করা যাবে না।',
       tx_status_parked: 'হস্তান্তর হয়নি',
+      tx_status_import_hold: 'আমদানির পর স্থগিত',
       resend_sending: 'মেসেজ বক্সের মাধ্যমে পাঠানো হচ্ছে',
       cancelling_payment: 'পেমেন্ট বাতিল করা হচ্ছে',
 
@@ -8963,6 +8971,7 @@ const resources = {
       pay_parked_already_sent: 'Этот платёж уже отправлен',
       token_cancel_already_sent: 'Этот платёж уже прошёл, и его нельзя отменить.',
       tx_status_parked: 'Не передан',
+      tx_status_import_hold: 'Удержано (импортировано)',
       resend_sending: 'Отправка через почтовый ящик',
       cancelling_payment: 'Отмена платежа',
 
@@ -9968,6 +9977,7 @@ const resources = {
       pay_parked_already_sent: 'Pembayaran ini sudah terkirim',
       token_cancel_already_sent: 'Pembayaran ini sudah berhasil dan tidak dapat dibatalkan.',
       tx_status_parked: 'Belum diserahkan',
+      tx_status_import_hold: 'Ditahan (diimpor)',
       resend_sending: 'Mengirim lewat kotak pesan',
       cancelling_payment: 'Membatalkan pembayaran',
 
@@ -10979,6 +10989,7 @@ const resources = {
       pay_parked_already_sent: 'この支払いはすでに送信されました',
       token_cancel_already_sent: 'この支払いはすでに完了しており、キャンセルできません。',
       tx_status_parked: '未受け渡し',
+      tx_status_import_hold: 'インポートで保留中',
       resend_sending: 'メッセージボックス経由で送信中',
       cancelling_payment: '支払いをキャンセル中',
 
@@ -12006,6 +12017,7 @@ const resources = {
       pay_parked_already_sent: 'Ta płatność została już wysłana',
       token_cancel_already_sent: 'Ta płatność już przeszła i nie można jej anulować.',
       tx_status_parked: 'Nie przekazano',
+      tx_status_import_hold: 'Wstrzymane (zaimportowane)',
       resend_sending: 'Wysyłanie przez skrzynkę wiadomości',
       cancelling_payment: 'Anulowanie płatności',
 

@@ -72,6 +72,11 @@ export function txStatusView(
     // says the payment is waiting on a hand-over that may not have happened.
     case 'parked':
       return { key: 'tx_status_parked', tone: 'attention' }
+    // Written only by a raw database import (XR-085): a copied-in 'queued'/
+    // 'posting' row held back from the automatic drain pending the user's
+    // renewed review, not silently resumed or dropped.
+    case 'import_hold':
+      return { key: 'tx_status_import_hold', tone: 'attention' }
   }
 
   switch (status) {
