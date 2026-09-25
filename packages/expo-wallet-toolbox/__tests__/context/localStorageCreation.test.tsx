@@ -11,11 +11,12 @@ const mockMigrate = jest.fn()
 const mockPutSecret = jest.fn()
 const mockAutoUnlock = jest.fn()
 const mockHasAnySecret = jest.fn()
+const mockDeleteAllSecrets = jest.fn<Promise<boolean>, []>()
 
 jest.mock('../../core/i18n/translations', () => ({ t: (key: string) => key }))
 jest.mock('../../core/services/secrets', () => ({
   autoUnlockKek: (...args: unknown[]) => mockAutoUnlock(...args),
-  deleteAllSecrets: jest.fn(),
+  deleteAllSecrets: (...args: unknown[]) => mockDeleteAllSecrets(...args),
   deleteSecret: jest.fn(),
   getSecret: jest.fn(async () => null),
   getUnlockState: () => ({ status: 'locked' }),
@@ -62,6 +63,7 @@ beforeEach(() => {
   mockEncrypted.clear()
   mockLegacy.clear()
   mockMigrate.mockResolvedValue({ outcome: 'not-needed' })
+  mockDeleteAllSecrets.mockResolvedValue(true)
   mockHasAnySecret.mockImplementation(async () => mockEncrypted.size > 0)
   mockPutSecret.mockImplementation(async (name: string, value: string) => {
     mockEncrypted.set(name, value)
@@ -233,4 +235,23 @@ it('keeps explicit import replacement available through setMnemonic', async () =
 
   expect(await context.setMnemonic('imported test mnemonic')).toBe(true)
   expect(mockEncrypted.get('mnemonic')).toBe('imported test mnemonic')
+})
+
+it('XR-107: deleteAllWalletKeys propagates a verified-clean erasure', async () => {
+  mockDeleteAllSecrets.mockResolvedValue(true)
+  const { context } = await renderStorage()
+
+  expect(await context.deleteAllWalletKeys()).toBe(true)
+})
+
+it('XR-107: deleteAllWalletKeys propagates an UNVERIFIED erasure instead of swallowing it', async () => {
+  // Models a persistent SecureStore delete failure: the secrets layer's own
+  // sweepLegacyKeys() read-back-verified a legacy item survived, and
+  // deleteAllSecrets reports that honestly. The caller ("Delete Wallet")
+  // must see this `false`, not a swallowed void/undefined, so it can fail
+  // closed instead of reporting the wallet as fully erased.
+  mockDeleteAllSecrets.mockResolvedValue(false)
+  const { context } = await renderStorage()
+
+  expect(await context.deleteAllWalletKeys()).toBe(false)
 })

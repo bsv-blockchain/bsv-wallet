@@ -375,8 +375,13 @@ export interface WalletContextValue {
   // Settings
   settings: WalletSettings
   updateSettings: (newSettings: WalletSettings) => Promise<void>
-  // Logout
-  logout: () => void
+  /** "Delete Wallet". Resolves to whether the secrets layer verified every
+   * legacy plaintext item erased (XR-107) — false means a persistent
+   * SecureStore delete failure left something recoverable, and the caller
+   * must report that as a failure (offer retry) rather than treat the
+   * wallet as gone: this same false also means the attestation was left
+   * untouched and no navigation happened. */
+  logout: () => Promise<boolean>
   adminOriginator: string
   basketRequests: BasketAccessRequest[]
   certificateRequests: CertificateAccessRequest[]
@@ -485,7 +490,7 @@ export const WalletContext = createContext<WalletContextValue>({
   getManagers: () => ({}),
   settings: DEFAULT_SETTINGS,
   updateSettings: async () => {},
-  logout: () => {},
+  logout: async () => false,
   adminOriginator: ADMIN_ORIGINATOR,
   basketRequests: [],
   certificateRequests: [],
@@ -3020,7 +3025,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     }
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback((): Promise<boolean> => {
     logWithTimestamp(F, 'Logout')
     // Synchronous on purpose: invalidate transfer tokens and release any PIN /
     // hardware session before monitor or storage teardown yields.
@@ -3030,7 +3035,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // deletion — the peer would keep dispatching allowlisted BRC-100 methods
     // against a wallet the user believes they've logged out of.
     disconnectActivePairedSession()
-    ;(async () => {
+    // The IIFE's promise IS returned (unlike the old fire-and-forget version):
+    // XR-107 needs the caller to await the verified outcome of the secret
+    // erasure below, not just the synchronous kickoff. This does not
+    // reintroduce the yield-before-first-synchronous-step problem the old
+    // comment warned about — everything above this point already ran
+    // synchronously before any promise existed to await.
+    return (async () => {
       // Tear the wallet down the same way rebuildWallet does. Logout used to
       // skip this, which orphaned a running monitor AND left the SQLite
       // connection open: a re-import of the same phrase then opened a second
@@ -3094,7 +3105,19 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // Awaited, and it removes the KEK along with the ciphertexts: leaving the
       // key behind would make the next cold start prompt for a wallet that no
       // longer exists. Works while locked, since deleting needs no key.
-      await deleteAllWalletKeys()
+      //
+      // XR-107: its result is real, read-back-verified evidence of whether a
+      // legacy plaintext mnemonic/recoveredKey/password actually got erased —
+      // not a guess. A `false` here must fail closed: skip the attestation
+      // clear and the navigation below (both of which tell the rest of the
+      // app "this wallet is gone") and report the failure to the caller
+      // instead, so the UI can show an error and let the user retry rather
+      // than silently behaving as though "Delete Wallet" fully succeeded.
+      const erased = await deleteAllWalletKeys()
+      if (!erased) {
+        console.warn('[logout] legacy secret erasure could not be verified; not reporting Delete Wallet as complete')
+        return false
+      }
 
       // The attestation is per wallet. "Delete Wallet" routes here, so leaving
       // it behind would let the NEXT wallet on this device inherit a backup it
@@ -3110,6 +3133,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const { router } = loadExpoRouter()
       router.dismissAll()
       router.replace('/')
+      return true
     })()
   }, [deleteAllWalletKeys, storage])
 
