@@ -243,6 +243,55 @@ describe('pushOnce', () => {
     expect(client.append).toHaveBeenCalledTimes(1)
   })
 
+  it('XR-016: rotates to a fresh generation when the device clock has moved backward', async () => {
+    // A window closes at T (>= T+1ms from here on) exactly as the previous test does.
+    // The clock then jumps BACKWARD to T-1hour, and the app (using that now-wrong clock)
+    // writes a new record stamped T-30min — strictly BELOW the closed window's boundary, so
+    // the plain `updated_at >= since` scan can never select it again on its own.
+    jest.useFakeTimers()
+    try {
+      jest.setSystemTime(new Date('2026-08-01T00:00:00.000Z'))
+      const client = fakeClient()
+      const closedWindowStorage = inclusiveSinceStorage(['2026-08-01T00:00:00.000Z'])
+      // Pass one uploads, pass two finds the window exhausted and closes it — same as
+      // 'advances past the boundary' above.
+      for (let pass = 0; pass < 2; pass++) {
+        await pushOnce({
+          storage: closedWindowStorage as any,
+          primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+        })
+      }
+      expect(client.append).toHaveBeenCalledTimes(1)
+
+      jest.setSystemTime(new Date('2026-07-31T23:00:00.000Z')) // T - 1 hour: the rollback.
+      // Storage now holds BOTH the original record and the new, orphaned one — a real
+      // device's database is never emptied by a clock change.
+      const afterRollbackStorage = inclusiveSinceStorage([
+        '2026-08-01T00:00:00.000Z',
+        '2026-07-31T23:30:00.000Z' // T - 30 min: below the closed window's boundary.
+      ])
+
+      await pushOnce({
+        storage: afterRollbackStorage as any,
+        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      })
+
+      // A silent no-op (the pre-fix behaviour) would leave this at 1 forever. The fix
+      // detects the regression, rotates to a fresh generation (no `since` filter — a full
+      // snapshot sees every record regardless of its timestamp), and pushes again.
+      expect(client.append).toHaveBeenCalledTimes(2)
+      const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
+      expect(cursor.generation).toBe(2)
+      // Sequence one of the NEW generation, not a continuation of the old one — a rotation
+      // is a full resnapshot, so the previously-orphaned record travels in the same chunk
+      // as everything else rather than needing to be found some other way.
+      expect(client.append.mock.calls[1][1]).toBe(2)
+      expect(client.append.mock.calls[1][2]).toBe(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('still collects a record written in the same millisecond as the boundary', async () => {
     // The reason the advance is safe: a window only closes when nothing at or after
     // `since` is left beyond the offsets, so anything sharing the boundary
