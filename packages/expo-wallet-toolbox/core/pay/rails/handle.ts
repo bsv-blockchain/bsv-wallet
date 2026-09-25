@@ -562,10 +562,23 @@ export async function sendViaHandle(args: {
  * refuses to abort and returns `needsAbandon`.
  *
  * `abandon` (delivered or delivering): tell the recipient via
- * `payment_cancelled`, then abort if the action is still nosend, then remove.
- * A failed control send leaves the row — the recipient would otherwise keep
- * waiting. Legacy entries (no txid) were broadcast at creation; there is
- * nothing to abort for them.
+ * `payment_cancelled`, then stop tracking the entry locally. A failed control
+ * send leaves the row — the recipient would otherwise keep waiting for a
+ * cancellation notice that never arrived.
+ *
+ * SEC2-031: `abandon` never calls `abortAction`, even when it would genuinely
+ * succeed. Once a token may be sitting in the recipient's box, releasing the
+ * sender's own inputs — while the recipient's signed copy is still fully
+ * spendable — is the exact conflicting-spend this rail must not create; a
+ * *confirmed* abort is no safer than an unconfirmed one; either way the other
+ * side can still redeem. So this mode leaves the wallet's noSend action, and
+ * the inputs it reserves, exactly as they are: only this device's local
+ * retry/tracking row is dropped. That is safe to do unconditionally, because
+ * `isAbortSafe` (below) already refuses the generic Activity abort for any
+ * `peerpay` action whose outbox row is missing, not only one still marked
+ * delivered/delivering — so dropping the row here cannot open a path to
+ * release the same inputs some other way. Legacy entries (no txid) were
+ * broadcast at creation; there is nothing to notify or abort for them.
  */
 export async function cancelOutboxPayment(args: {
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>
@@ -576,18 +589,14 @@ export async function cancelOutboxPayment(args: {
   mode?: 'undelivered' | 'abandon'
 }): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
   const { wallet, adminOriginator, storage, entry, client, mode = 'undelivered' } = args
-  if (mode !== 'abandon') {
-    const stored = (await getOutboxEntries(storage)).find(e => e.id === entry.id)
-    if (!stored) return { aborted: false }
-    if (stored.delivered === true || stored.delivering === true) {
-      return { aborted: false, needsAbandon: true }
-    }
-  }
+
   if (mode === 'abandon') {
     if (!client) throw new Error('client required to abandon')
     if (entry.txid) {
       // Same box the token went to — an entry minted for a link-named host must
-      // be cancelled there, or the payee never hears.
+      // be cancelled there, or the payee never hears. Throwing here (network
+      // down, box unreachable) skips the removal below, so the row survives
+      // for a retry rather than going silently missing.
       await sendControlMessage(
         client,
         {
@@ -597,29 +606,27 @@ export async function cancelOutboxPayment(args: {
         entry.recipientHost
       )
     }
+    // Never abortAction here — see the doc comment above (SEC2-031).
+    await removeOutboxEntry(storage, entry.id)
+    return { aborted: false }
   }
+
+  const stored = (await getOutboxEntries(storage)).find(e => e.id === entry.id)
+  if (!stored) return { aborted: false }
+  if (stored.delivered === true || stored.delivering === true) {
+    return { aborted: false, needsAbandon: true }
+  }
+
   let aborted = false
-  let abortAttempted = false
   if (entry.txid) {
-    abortAttempted = true
     try {
       aborted = await abortPeerPayNosend(wallet, adminOriginator, entry.txid)
     } catch {
-      // Handled below: an abandon must not remove the row on an unconfirmed
-      // abort. For plain 'undelivered' cancels this is unreachable — no one
-      // else holds the token, so the nosend row stays visible in wallet
-      // activity with its own abort control either way.
+      // Unreachable-token case: no one else holds this payment, so the
+      // nosend row stays visible in wallet activity with its own abort
+      // control either way — removing our own tracking row below is safe
+      // regardless of whether the abort itself confirmed.
     }
-  }
-  if (mode === 'abandon' && abortAttempted && !aborted) {
-    // The recipient already holds this transaction. Abort did not confirm the
-    // action actually stopped, so the reservation may still be live on both
-    // sides — keep the row (and its reservation) rather than risk a
-    // conflicting spend, and surface it for a retry/manual reconciliation.
-    await updateOutboxEntry(storage, entry.id, {
-      lastError: 'Could not confirm the payment was stopped — it may still be delivered.'
-    })
-    return { aborted: false }
   }
   await removeOutboxEntry(storage, entry.id)
   return { aborted }
