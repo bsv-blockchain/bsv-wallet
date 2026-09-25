@@ -3099,6 +3099,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         const keys = await AsyncStorage.getAllKeys()
         const stale = keys.filter(k => k.startsWith('cached_wallet_balance_'))
+        // XR-058: the legacy (pre-network-scoping) `Balance` component wrote
+        // an exact, unscoped `cached_wallet_balance` key with no trailing
+        // underscore, which the prefix filter above never matches. Nothing
+        // reads that key any more, but an install that still carries one
+        // from before the fix should have it swept here too.
+        if (await AsyncStorage.getItem('cached_wallet_balance')) stale.push('cached_wallet_balance')
         if (stale.length > 0) await AsyncStorage.multiRemove(stale)
       } catch (err) {
         console.warn('[logout] failed to clear cached balance', err)
