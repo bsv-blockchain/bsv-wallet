@@ -338,6 +338,16 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     let firstMessageFired = false
     let inFlightRpc = 0
     let inFlightBytes = 0
+    // XR-021 review follow-up: MAX_IN_FLIGHT_RPC lets several messages
+    // decrypt concurrently, so the sequence check-then-durable-write-then-
+    // advance below is chained through this promise — each message's commit
+    // only runs once the previous one has fully resolved (write landed, ref
+    // advanced), and re-checks the watermark at that point. Without this,
+    // two concurrent messages can both pass the check against the same stale
+    // watermark and have their durable writes resolve out of order,
+    // regressing the watermark and letting an already-executed higher-
+    // sequence ciphertext be replayed immediately (no crash needed).
+    let seqCommitChain: Promise<boolean> = Promise.resolve(true)
 
     ws.onmessage = async event => {
       if (inFlightRpc >= MAX_IN_FLIGHT_RPC) {
@@ -394,13 +404,26 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         // reconnect re-executed the identical mutating call. Fail closed: if
         // the durable write itself fails, drop the message rather than
         // dispatching with no durable record of having accepted it.
-        try {
-          await SecureStore.setItemAsync(lastSeqKey(meta.topic), String(sequence))
-        } catch (err) {
-          console.warn('[WalletConnection] dropping message: failed to persist sequence', err)
+        //
+        // Chained through seqCommitChain (review follow-up): re-checks the
+        // watermark once it's this message's turn, so a concurrent message
+        // that already committed a higher sequence in the meantime causes
+        // this one to be dropped instead of regressing the watermark.
+        const accepted = await (seqCommitChain = seqCommitChain.then(async () => {
+          if (sequence <= lastSeqRef.current) return false
+          try {
+            await SecureStore.setItemAsync(lastSeqKey(meta.topic), String(sequence))
+          } catch (err) {
+            console.warn('[WalletConnection] dropping message: failed to persist sequence', err)
+            return false
+          }
+          lastSeqRef.current = sequence
+          return true
+        }))
+        if (!accepted) {
+          console.warn('[WalletConnection] dropping message: seq', sequence, 'superseded before durable commit')
           return
         }
-        lastSeqRef.current = sequence
 
         if (!firstMessageFired) {
           firstMessageFired = true

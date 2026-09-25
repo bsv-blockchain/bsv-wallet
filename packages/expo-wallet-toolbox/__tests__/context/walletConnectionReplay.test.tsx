@@ -165,3 +165,72 @@ test('XR-021: a same-sequence replay after the durable watermark is still reject
   })
   expect(wallet.createAction).toHaveBeenCalledTimes(1)
 })
+
+/** Lets any depth of already-queued microtasks (promise chains with no
+ * timers/IO in between) settle without needing to count hops by hand. */
+async function flushMicrotasks(n = 30) {
+  for (let i = 0; i < n; i++) await Promise.resolve()
+}
+
+test('XR-021: two concurrent messages whose durable writes resolve out of order do not regress the watermark or dispatch twice (review follow-up)', async () => {
+  const topic = 'xr021-topic-race'
+  const { ws, wallet, decryptedPlaintext } = await connectFixture(topic)
+
+  // Each call is held open until its resolver is invoked, so the test
+  // controls the ORDER the underlying SecureStore writes settle in,
+  // independent of which message's onmessage ran first — reproducing the
+  // out-of-order resolution MAX_IN_FLIGHT_RPC (>1) permits in production.
+  const pendingWrites: Record<string, () => void> = {}
+  mockSetItemAsync.mockImplementation(
+    (_key: string, value: string) =>
+      new Promise<void>(resolve => {
+        pendingWrites[value] = resolve
+      })
+  )
+
+  // Fire two messages "concurrently": neither's SecureStore write has
+  // resolved when the second one's sequence check runs, so both check
+  // against the same stale in-memory watermark (0).
+  decryptedPlaintext.current = JSON.stringify({ id: 'req-6', seq: 6, method: 'createAction', params: {} })
+  const p6 = ws.onmessage({ data: rpcEnvelope(topic) })
+  decryptedPlaintext.current = JSON.stringify({ id: 'req-5', seq: 5, method: 'createAction', params: {} })
+  const p5 = ws.onmessage({ data: rpcEnvelope(topic) })
+
+  await flushMicrotasks()
+  // Sanity: the higher-sequence message is actually parked on its durable
+  // write, and nothing has dispatched yet — otherwise this isn't exercising
+  // the race. (A correctly-serialized fix may not have even started seq=5's
+  // write yet at this point — that's fine, and checked below instead.)
+  expect(pendingWrites['6']).toBeDefined()
+  expect(wallet.createAction).not.toHaveBeenCalled()
+
+  // Let the HIGHER sequence's write win the race first...
+  await act(async () => {
+    pendingWrites['6']()
+    await flushMicrotasks()
+  })
+  // ...then let the LOWER sequence's write resolve after it, if it was ever
+  // started (a serialized fix may reject seq=5 before ever calling
+  // SecureStore for it, once seq=6 has already advanced the watermark).
+  await act(async () => {
+    pendingWrites['5']?.()
+    await flushMicrotasks()
+    await p6
+    await p5
+  })
+
+  // Only seq=6 may have dispatched a wallet call; seq=5 arrived after the
+  // watermark had already moved past it and must be dropped, not executed
+  // a second time.
+  expect(wallet.createAction).toHaveBeenCalledTimes(1)
+
+  // The watermark (in-memory AND durable) must reflect 6, not have
+  // regressed to 5 — so a captured ciphertext for the already-executed
+  // seq=6 request must NOT be accepted again.
+  mockSetItemAsync.mockImplementation(async () => {})
+  decryptedPlaintext.current = JSON.stringify({ id: 'req-6-replay', seq: 6, method: 'createAction', params: {} })
+  await act(async () => {
+    await ws.onmessage({ data: rpcEnvelope(topic) })
+  })
+  expect(wallet.createAction).toHaveBeenCalledTimes(1)
+})
