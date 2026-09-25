@@ -74,19 +74,41 @@ export function IdentifierScreen() {
     name?: string | string[]
     handle?: string | string[]
   }>()
-  const [identityKey, setIdentityKey] = useState(firstParam(params.identityKey) ?? '')
-  const name = firstParam(params.name) ?? ''
-  const handle = firstParam(params.handle) ?? ''
+  const routeIdentityKey = firstParam(params.identityKey) ?? ''
+  const routeName = firstParam(params.name) ?? ''
+  const routeHandle = firstParam(params.handle) ?? ''
 
-  // Profile passes the key along; a cold deep link into this screen fetches it.
+  /**
+   * The route's `identityKey` is untrusted input, not a value this screen can
+   * act on directly: this is "Your Identifier", reached from a deep link
+   * (`app/identifier.tsx`, via `resolveNativeIntent`) that carries no
+   * blocklist for it, and Profile's own push of its already-known key is only
+   * an optimization, not the source of truth. So the wallet's own key is
+   * always fetched, and it is the ONLY value ever used to build the QR/copy/
+   * share link — the route value is never rendered there, only compared
+   * against it (XR-070 / SEC2-061).
+   */
+  const [walletKey, setWalletKey] = useState<string | null>(null)
   useEffect(() => {
-    if (identityKey) return
     const wallet = managers?.permissionsManager
-    if (!wallet) return
+    if (!wallet || typeof wallet.getPublicKey !== 'function') return
+    let cancelled = false
     void wallet.getPublicKey({ identityKey: true }, adminOriginator).then(r => {
-      if (r?.publicKey) setIdentityKey(r.publicKey)
+      if (!cancelled && r?.publicKey) setWalletKey(r.publicKey)
     })
-  }, [identityKey, managers, adminOriginator])
+    return () => {
+      cancelled = true
+    }
+  }, [managers, adminOriginator])
+
+  const identityKey = walletKey ?? ''
+  // The route's name/handle are cosmetic labels, but they are shown only when
+  // the route's identityKey hint actually matches the wallet's own resolved
+  // key — otherwise they are exactly as untrustworthy as the key would have
+  // been, and abbreviateKey(identityKey) below already covers "no label yet".
+  const routeMatchesWallet = walletKey !== null && routeIdentityKey.toLowerCase() === walletKey.toLowerCase()
+  const name = routeMatchesWallet ? routeName : ''
+  const handle = routeMatchesWallet ? routeHandle : ''
 
   const link = identityKey ? contactAddLinkFor(identityKey) : ''
 

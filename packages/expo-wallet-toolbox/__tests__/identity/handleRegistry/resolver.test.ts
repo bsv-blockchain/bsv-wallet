@@ -449,4 +449,126 @@ describe('fetchWithTimeout', () => {
     expect(seen.init?.signal?.aborted).toBe(true)
     expect(jest.getTimerCount()).toBe(0)
   })
+
+  /**
+   * XR-077 (SEC2-027): the elapsed-time deadline alone lets an untrusted host
+   * pace an unbounded body just under the timeout and still exhaust memory
+   * before it ever fires. This is the streaming path the byte cap has to
+   * catch: a body with no declared Content-Length that keeps yielding chunks.
+   */
+  it('XR-077: rejects a streamed body once it crosses the byte cap, without buffering the rest of it', async () => {
+    const chunk = new Uint8Array(64 * 1024) // 64 KiB per chunk
+    let pulls = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        controller.enqueue(chunk)
+        // A safety valve so a bug in the cap cannot hang the test forever —
+        // the assertion below is that the cap fires LONG before this.
+        if (pulls > 200) controller.close()
+      }
+    })
+    const { fetchImpl } = recorder(async () => ({ ok: true, status: 200, body: stream }) as unknown as Response)
+    const response = await fetchWithTimeout(fetchImpl, 'https://host/x')
+    await expect(response.json()).rejects.toThrow(/byte limit/)
+    // REGISTRY_MAX_BODY_BYTES is 256 KiB; four 64 KiB chunks already crosses
+    // it, so the read must stop within a handful of chunks, not hundreds.
+    expect(pulls).toBeLessThan(10)
+  })
+
+  it('rejects a declared Content-Length over the cap before reading anything', async () => {
+    // A fake reader rather than a real ReadableStream: the Streams spec pulls
+    // eagerly to fill its own internal queue as soon as one is constructed,
+    // independent of whether a consumer ever reads — read() is the one call
+    // that must never happen once Content-Length alone is enough to refuse.
+    const read = jest.fn()
+    const body = { getReader: () => ({ read, cancel: jest.fn() }) }
+    const { fetchImpl } = recorder(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          headers: { get: (name: string) => (name.toLowerCase() === 'content-length' ? '99999999' : null) },
+          body
+        }) as unknown as Response
+    )
+    const response = await fetchWithTimeout(fetchImpl, 'https://host/x')
+    await expect(response.json()).rejects.toThrow(/byte limit/)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('still parses an ordinary small body read through the stream path', async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ hello: 'world' }))
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes)
+        controller.close()
+      }
+    })
+    const { fetchImpl } = recorder(async () => ({ ok: true, status: 200, body: stream }) as unknown as Response)
+    const response = await fetchWithTimeout(fetchImpl, 'https://host/x')
+    await expect(response.json()).resolves.toEqual({ hello: 'world' })
+  })
+})
+
+/**
+ * XR-073 (SEC2-057, SEC2-076): a foreign domain's `.well-known/bsvalias`
+ * document names where its OWN search/reverse routes live, and nothing binds
+ * that to the domain a request was made about — no DNSSEC spoofing against a
+ * third party is needed, only an attacker publishing this for their own
+ * domain. Without a host-class check, every later search/reverse request this
+ * feature makes for that domain would land wherever the template says.
+ */
+describe('a capability template rooted at a private address (XR-073)', () => {
+  it('is refused, so the domain resolves to no usable registry rather than one bound to loopback', async () => {
+    const { fetchImpl } = transport([
+      ['cloudflare-dns.com', async () => ok(srv('10 5 443 mb.other.example.'))],
+      [
+        '/.well-known/bsvalias',
+        async () =>
+          ok(
+            wellKnown({
+              '0ace65da5987': 'https://127.0.0.1:4873/api/handle/{query}',
+              '43dcf83ddc5f': 'https://127.0.0.1:4873/api/identityKey/{pubkey}'
+            })
+          )
+      ]
+    ])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints).toBeNull()
+  })
+
+  it('is refused for a loopback hostname too, not only a bare IP literal', async () => {
+    const { fetchImpl } = transport([
+      ['cloudflare-dns.com', async () => ok(srv('10 5 443 mb.other.example.'))],
+      [
+        '/.well-known/bsvalias',
+        async () =>
+          ok(
+            wellKnown({
+              '0ace65da5987': 'https://localhost/api/handle/{query}',
+              '43dcf83ddc5f': 'https://localhost/api/identityKey/{pubkey}'
+            })
+          )
+      ]
+    ])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints).toBeNull()
+  })
+
+  it('still resolves normally when the templates are rooted at the discovered host', async () => {
+    const { fetchImpl } = transport([
+      ['cloudflare-dns.com', async () => ok(srv('10 5 443 mb.other.example.'))],
+      ['/.well-known/bsvalias', async () => ok(wellKnown())]
+    ])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints?.search('dee')).toBe('https://mb.other.example/api/handle/dee')
+  })
+
+  it('refuses an SRV target that is itself a loopback literal, before ever asking it for capabilities', async () => {
+    const { fetchImpl, calls } = transport([['cloudflare-dns.com', async () => ok(srv('10 5 443 127.0.0.1.'))]])
+    const endpoints = await createRegistryResolver({ pinned: PIN, fetchImpl }).resolve(OTHER)
+    expect(endpoints).toBeNull()
+    expect(calls.some(c => c.includes('/.well-known/bsvalias'))).toBe(false)
+  })
 })

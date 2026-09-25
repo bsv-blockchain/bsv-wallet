@@ -14,6 +14,7 @@
  */
 import { IdentityClient, StorageDownloader } from '@bsv/sdk'
 import type { DisplayableIdentity, WalletInterface } from '@bsv/sdk'
+import { isPublicHttpsUrl } from '../core/net/publicDestination'
 
 /** Drops repeats by identityKey, keeping the first occurrence. */
 export const uniqueIdentities = (results: DisplayableIdentity[]) => {
@@ -23,22 +24,28 @@ export const uniqueIdentities = (results: DisplayableIdentity[]) => {
 }
 
 /**
- * Picks a usable avatar URL. An http(s) URL wins outright; anything else is
- * treated as a UHRP hash and resolved through storage, falling back to the raw
- * value so a downloader outage degrades to a broken image rather than a throw.
+ * Picks a usable avatar URL. An http(s) URL wins outright, but only when it is
+ * a public https destination: `avatarURL` comes from an untrusted BRC-100
+ * identity certificate, and HandleReceive/ContactSigil/RecipientField hand it
+ * straight to React Native's native Image loader with no other gate (XR-073 /
+ * SEC2-057, SEC2-076). Anything else is treated as a UHRP hash and resolved
+ * through storage; the SDK only requires a UHRP advertisement's hosted
+ * location to be a credential-free https URL, not a public one, so that
+ * resolved location is gated the same way before use.
  */
 export async function resolveAvatarURL(urls: (string | undefined)[]): Promise<string | undefined> {
   const defined = urls.filter((u): u is string => !!u)
-  const httpUrl = defined.find(u => u.startsWith('http'))
+  const httpUrl = defined.find(u => u.startsWith('http') && isPublicHttpsUrl(u))
   if (httpUrl) return httpUrl
-  const nonHttp = defined.find(u => !!u)
+  const nonHttp = defined.find(u => !u.startsWith('http'))
   if (!nonHttp) return undefined
   try {
     const downloader = new StorageDownloader()
     const resolved = await downloader.resolve(nonHttp)
-    return resolved[0] ?? nonHttp
+    const candidate = resolved[0] ?? nonHttp
+    return isPublicHttpsUrl(candidate) ? candidate : undefined
   } catch {
-    return nonHttp
+    return undefined
   }
 }
 
