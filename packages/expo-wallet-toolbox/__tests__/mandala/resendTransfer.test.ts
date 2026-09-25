@@ -147,7 +147,9 @@ describe('resendTokenTransfer', () => {
   it('is no_record when neither the journal nor the action names the recipient — and sends nothing', async () => {
     const d = deps({
       blindingRecord: async () => undefined,
-      listAction: async () => ({ outputs: [{ outputIndex: 0, customInstructions: JSON.stringify({ direction: 'change' }) }] })
+      listAction: async () => ({
+        outputs: [{ outputIndex: 0, customInstructions: JSON.stringify({ direction: 'change' }) }]
+      })
     })
 
     await expect(resendTokenTransfer(TXID, d)).resolves.toEqual({ ok: false, reason: 'no_record' })
@@ -175,7 +177,10 @@ describe('resendTokenTransfer', () => {
     const d = deps({
       sendMessage: async () => {
         // The box's own refusal for an unchanged body: HMAC collision, 400.
-        throw new Error('Message send failed: HTTP 400 — duplicate message')
+        // XR-046: isDuplicateMessageError trusts only this structured code
+        // (@bsv/message-box-client's own wording), never free prose — see
+        // core/peerpay/control.ts.
+        throw new Error('Message Box send failed with HTTP 400 (ERR_DUPLICATE_MESSAGE).')
       }
     })
 
