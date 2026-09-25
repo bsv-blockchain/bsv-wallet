@@ -41,9 +41,12 @@ function mockAdapt(db: DatabaseSync) {
     getAllAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...(params as never[])),
     getFirstAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...(params as never[])) ?? null,
     runAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).run(...(params as never[])),
-    closeAsync: async () => {
-      db.close()
-    },
+    // A real file-backed close() keeps the file's contents on disk; our
+    // in-memory node:sqlite stand-in would lose them outright, so this is
+    // deliberately a no-op — tests read a destination db's content after
+    // importWalletDatabase has already closed it, same as a real caller
+    // reopening the file later would.
+    closeAsync: async () => {},
     __raw: db
   }
 }
@@ -162,10 +165,13 @@ jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...a: unknown[]) 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   i18n: jest.requireActual('../../core/i18n/translations').default,
   ...jest.requireActual('../../core/walletDbRegistry'),
-  ...jest.requireActual('../../core/storage/dbImage')
+  ...jest.requireActual('../../core/storage/dbImage'),
+  PENDING_KEY: jest.requireActual('../../core/localpay/pending').PENDING_KEY,
+  PENDING_SUMMARY_KEY: jest.requireActual('../../core/localpay/pending').PENDING_SUMMARY_KEY
 }))
 
 import { importWalletDatabase } from '../../ui/importDatabases'
+import { PENDING_KEY, PENDING_SUMMARY_KEY } from '../../core/localpay/pending'
 
 // ── Test fixtures ────────────────────────────────────────────────────────────
 
@@ -287,5 +293,31 @@ describe('importWalletDatabase', () => {
     expect(result.imported).toBe(false)
     // Rejected before ever touching the registry.
     expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
+  it('XR-081: strips an imported localpay_pending / summary queue, never carrying it into the live database', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // A crafted or merely stale queue entry that never passed
+    // verifyFramePayment on this device.
+    raw.exec(
+      `INSERT INTO key_value_store (key, value, updated_at) VALUES
+         ('${PENDING_KEY}', '[{"id":"forged","frame":{}}]', '${NOW}'),
+         ('${PENDING_SUMMARY_KEY}', '{"waiting":1,"stuck":0}', '${NOW}'),
+         ('unrelated_key', 'keep-me', '${NOW}')`
+    )
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(true)
+    const destHandle = mockOpenDbs.get(result.filename as string)
+    expect(destHandle).toBeDefined()
+    const rows = (await destHandle!.getAllAsync('SELECT key FROM key_value_store')) as { key: string }[]
+    const keys = rows.map(r => r.key)
+    expect(keys).not.toContain(PENDING_KEY)
+    expect(keys).not.toContain(PENDING_SUMMARY_KEY)
+    // Only the two localpay keys are quarantined — everything else survives.
+    expect(keys).toContain('unrelated_key')
   })
 })

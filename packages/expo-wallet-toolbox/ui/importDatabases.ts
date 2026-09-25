@@ -8,7 +8,9 @@ import {
   registerDb,
   selectLatestDb,
   parseTimestampFromFilename,
-  prepareSqliteImageForDeserialize
+  prepareSqliteImageForDeserialize,
+  PENDING_KEY,
+  PENDING_SUMMARY_KEY
 } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from './components/ui/AlertCard'
 import { showToast } from './components/ui/Toast'
@@ -242,6 +244,14 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
         sourceDatabase: sourceDb,
         destDatabase: destDb
       })
+
+      // backupDatabaseAsync just copied key_value_store verbatim, including
+      // any localpay_pending queue the source had — a record placed there by
+      // whoever wrote that file, never re-verified by processPending before
+      // it is drained into internalizeAction/onTokenHeld. Quarantine at this
+      // boundary, before the copy is ever registered or read: an imported
+      // backup must never be able to seed the live queue (XR-081).
+      await destDb.runAsync('DELETE FROM key_value_store WHERE key IN (?, ?)', [PENDING_KEY, PENDING_SUMMARY_KEY])
     }
   } catch (e: any) {
     console.error('[importDatabases] Failed to place database:', e.message)
