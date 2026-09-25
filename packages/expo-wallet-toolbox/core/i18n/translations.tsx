@@ -337,7 +337,7 @@ const resources = {
         'This key has been used before. Resetting erases every certificate and key in its PIV application, not only the vault slot. Anything that relies on this key stops working.',
       vault_reset_ack: 'I understand this erases everything on this key',
       vault_reset_unknown_ack:
-        'This key already holds a vault key that no vault on this device claims. I understand erasing it destroys that key for good.',
+        "This device cannot confirm whether this key still secures a different profile's vault. I understand erasing it may destroy that key for good.",
       vault_reset_own_draft_ack:
         'This key holds the unfinished key from your own earlier attempt, and this device still has its record. I understand resetting erases it and that attempt cannot be resumed.',
       vault_reset_nothing_erased:
@@ -1358,7 +1358,7 @@ const resources = {
         '此密钥曾被使用过。重置会抹除其 PIV 应用中的所有证书和密钥，而不仅仅是保险库槽位。任何依赖此密钥的功能都将失效。',
       vault_reset_ack: '我明白这会抹除此密钥上的所有内容',
       vault_reset_unknown_ack:
-        '此密钥的保险库槽位已存有一把密钥，而本设备上的任何保险库都不认领它。我明白抹除它会永久销毁那把密钥。',
+        '本设备无法确认这把密钥是否仍在为另一个身份的保险库提供保护。我明白抹除它可能会永久销毁那把密钥。',
       vault_reset_own_draft_ack:
         '此密钥中存放的是您先前未完成的那次尝试留下的密钥，本设备仍保有它的记录。我明白重置会将其抹除，那次尝试将无法继续。',
       vault_reset_nothing_erased: '尚未抹除任何内容。此密钥的保险库槽位并非空的，因此还需再确认一项。',
@@ -2329,7 +2329,7 @@ const resources = {
         'यह कुंजी पहले इस्तेमाल हो चुकी है। रीसेट करने पर इसके PIV ऐप्लिकेशन का हर प्रमाणपत्र और कुंजी मिट जाएगी, सिर्फ़ वॉल्ट स्लॉट नहीं। इस कुंजी पर निर्भर सब कुछ काम करना बंद कर देगा।',
       vault_reset_ack: 'मैं समझता हूँ कि इससे इस कुंजी का सब कुछ मिट जाएगा',
       vault_reset_unknown_ack:
-        'इस कुंजी में पहले से एक वॉल्ट कुंजी है जिसे इस डिवाइस का कोई वॉल्ट अपना नहीं मानता। मैं समझता हूँ कि इसे मिटाने से वह कुंजी हमेशा के लिए नष्ट हो जाएगी।',
+        'यह डिवाइस पुष्टि नहीं कर सकता कि यह कुंजी किसी दूसरे प्रोफ़ाइल के वॉल्ट को अभी भी सुरक्षित कर रही है या नहीं। मैं समझता हूँ कि इसे मिटाने से वह कुंजी हमेशा के लिए नष्ट हो सकती है।',
       vault_reset_own_draft_ack:
         'इस कुंजी में आपके पिछले अधूरे प्रयास की कुंजी है, और इस डिवाइस के पास अब भी उसका रिकॉर्ड है। मैं समझता हूँ कि रीसेट करने पर वह मिट जाएगी और उस प्रयास को जारी नहीं रखा जा सकेगा।',
       vault_reset_nothing_erased:
@@ -3339,7 +3339,7 @@ const resources = {
         'Esta llave ya se ha usado antes. Restablecerla borra todos los certificados y claves de su aplicación PIV, no solo la ranura de la caja fuerte. Todo lo que dependa de ella dejará de funcionar.',
       vault_reset_ack: 'Entiendo que esto borra todo lo que hay en esta llave',
       vault_reset_unknown_ack:
-        'Esta llave ya contiene una clave de caja fuerte que ninguna caja fuerte de este dispositivo reclama. Entiendo que borrarla destruye esa clave para siempre.',
+        'Este dispositivo no puede confirmar si esta llave todavía protege la caja fuerte de otro perfil. Entiendo que borrarla puede destruir esa clave para siempre.',
       vault_reset_own_draft_ack:
         'Esta llave contiene la clave sin terminar de tu intento anterior, y este dispositivo aún guarda su registro. Entiendo que restablecerla la borra y que ese intento no podrá retomarse.',
       vault_reset_nothing_erased:
@@ -4373,7 +4373,7 @@ const resources = {
         'Cette clé a déjà servi. La réinitialiser efface tous les certificats et toutes les clés de son application PIV, pas seulement l’emplacement du coffre. Tout ce qui en dépend cessera de fonctionner.',
       vault_reset_ack: 'Je comprends que cela efface tout sur cette clé',
       vault_reset_unknown_ack:
-        'Cette clé contient déjà une clé de coffre qu’aucun coffre de cet appareil ne revendique. Je comprends que l’effacer détruit cette clé définitivement.',
+        "Cet appareil ne peut pas confirmer si cette clé protège encore le coffre d'un autre profil. Je comprends que l'effacer peut détruire cette clé définitivement.",
       vault_reset_own_draft_ack:
         'Cette clé contient la clé inachevée de votre tentative précédente, dont cet appareil conserve encore la trace. Je comprends que la réinitialiser l’efface et que cette tentative ne pourra plus être reprise.',
       vault_reset_nothing_erased:
@@ -5384,7 +5384,7 @@ const resources = {
         'استُخدم هذا المفتاح من قبل. إعادة الضبط تمحو كل شهادة ومفتاح في تطبيق PIV الخاص به، وليس خانة الخزنة وحدها. كل ما يعتمد على هذا المفتاح سيتوقف عن العمل.',
       vault_reset_ack: 'أفهم أن هذا يمحو كل شيء على هذا المفتاح',
       vault_reset_unknown_ack:
-        'يحتوي هذا المفتاح بالفعل على مفتاح خزنة لا تطالب به أي خزنة على هذا الجهاز. أفهم أن محوه يدمّر ذلك المفتاح نهائيًا.',
+        'لا يمكن لهذا الجهاز التأكد مما إذا كان هذا المفتاح لا يزال يؤمّن خزنة ملف شخصي آخر. أفهم أن محوه قد يدمّر ذلك المفتاح نهائيًا.',
       vault_reset_own_draft_ack:
         'يحمل هذا المفتاح المفتاح غير المكتمل من محاولتك السابقة، ولا يزال هذا الجهاز يحتفظ بسجله. أفهم أن إعادة الضبط تمحوه وأن تلك المحاولة لن يمكن استئنافها.',
       vault_reset_nothing_erased: 'لم يُمحَ شيء. خانة الخزنة في هذا المفتاح ليست فارغة، لذا بقي أمر آخر لتأكيده.',
@@ -6374,7 +6374,7 @@ const resources = {
         'Esta chave já foi usada. Repô-la apaga todos os certificados e chaves da sua aplicação PIV, não apenas a ranhura do cofre. Tudo o que depende desta chave deixa de funcionar.',
       vault_reset_ack: 'Compreendo que isto apaga tudo nesta chave',
       vault_reset_unknown_ack:
-        'Esta chave já contém uma chave de cofre que nenhum cofre deste dispositivo reclama. Compreendo que apagá-la destrói essa chave para sempre.',
+        'Este dispositivo não pode confirmar se esta chave ainda protege o cofre de outro perfil. Compreendo que apagá-la pode destruir essa chave para sempre.',
       vault_reset_own_draft_ack:
         'Esta chave contém a chave inacabada da sua tentativa anterior, e este dispositivo ainda guarda o respetivo registo. Compreendo que repô-la apaga-a e que essa tentativa não poderá ser retomada.',
       vault_reset_nothing_erased:
@@ -7398,7 +7398,7 @@ const resources = {
         'এই কী আগে ব্যবহার হয়েছে। রিসেট করলে এর PIV অ্যাপ্লিকেশনের প্রতিটি সার্টিফিকেট ও কী মুছে যাবে, শুধু ভল্ট স্লট নয়। এই কীর উপর নির্ভরশীল সবকিছু কাজ করা বন্ধ করবে।',
       vault_reset_ack: 'আমি বুঝেছি এতে এই কীর সবকিছু মুছে যাবে',
       vault_reset_unknown_ack:
-        'এই কীতে ইতিমধ্যে একটি ভল্ট কী রয়েছে, যা এই ডিভাইসের কোনো ভল্ট নিজের বলে দাবি করে না। আমি বুঝেছি এটি মুছে ফেললে ওই কী চিরতরে নষ্ট হবে।',
+        'এই ডিভাইসটি নিশ্চিত করতে পারে না যে এই কীটি অন্য কোনো প্রোফাইলের ভল্ট এখনও সুরক্ষিত করছে কিনা। আমি বুঝেছি এটি মুছে ফেললে ওই কী চিরতরে নষ্ট হতে পারে।',
       vault_reset_own_draft_ack:
         'এই কীতে আপনার আগের অসমাপ্ত চেষ্টার কী রয়েছে, এবং এই ডিভাইসে এখনও তার রেকর্ড আছে। আমি বুঝেছি রিসেট করলে তা মুছে যাবে এবং ওই চেষ্টা আর চালিয়ে নেওয়া যাবে না।',
       vault_reset_nothing_erased: 'কিছুই মোছা হয়নি। এই কীর ভল্ট স্লট খালি নয়, তাই আরও একটি বিষয় নিশ্চিত করতে হবে।',
@@ -8405,7 +8405,7 @@ const resources = {
         'Этот ключ уже использовался. Сброс стирает все сертификаты и ключи в его PIV-приложении, а не только слот хранилища. Всё, что на него опирается, перестанет работать.',
       vault_reset_ack: 'Я понимаю, что это сотрёт с ключа всё',
       vault_reset_unknown_ack:
-        'В этом ключе уже есть ключ хранилища, который не принадлежит ни одному хранилищу на этом устройстве. Я понимаю, что стирание уничтожит его безвозвратно.',
+        'Это устройство не может подтвердить, защищает ли этот ключ хранилище другого профиля. Я понимаю, что стирание может уничтожить его безвозвратно.',
       vault_reset_own_draft_ack:
         'В этом ключе лежит незавершённый ключ вашей прежней попытки, и запись о нём ещё есть на этом устройстве. Я понимаю, что сброс сотрёт его и продолжить ту попытку будет нельзя.',
       vault_reset_nothing_erased:
@@ -9421,7 +9421,7 @@ const resources = {
         'Kunci ini pernah dipakai. Menyetel ulang menghapus setiap sertifikat dan kunci di aplikasi PIV-nya, bukan hanya slot brankas. Semua yang bergantung padanya berhenti berfungsi.',
       vault_reset_ack: 'Saya paham ini menghapus semua isi kunci ini',
       vault_reset_unknown_ack:
-        'Kunci ini sudah berisi kunci brankas yang tidak diakui oleh brankas mana pun di perangkat ini. Saya paham menghapusnya memusnahkan kunci itu selamanya.',
+        'Perangkat ini tidak dapat memastikan apakah kunci ini masih mengamankan brankas profil lain. Saya paham menghapusnya berpotensi memusnahkan kunci itu selamanya.',
       vault_reset_own_draft_ack:
         'Kunci ini berisi kunci yang belum selesai dari percobaan Anda sebelumnya, dan perangkat ini masih menyimpan catatannya. Saya paham menyetel ulang akan menghapusnya dan percobaan itu tidak dapat dilanjutkan.',
       vault_reset_nothing_erased:
@@ -10441,7 +10441,7 @@ const resources = {
         'このキーは以前に使われています。リセットすると、保管庫スロットだけでなく PIV アプリケーション内のすべての証明書と鍵が消去されます。このキーに依存しているものは動作しなくなります。',
       vault_reset_ack: 'このキーの内容がすべて消えることを理解しました',
       vault_reset_unknown_ack:
-        'このキーには、この端末のどの保管庫にも属さない保管庫の鍵が既に入っています。消去するとその鍵が永久に失われることを理解しました。',
+        'このデバイスでは、このキーが別のプロファイルの保管庫を保護しているかどうかを確認できません。消去するとその鍵が永久に失われる可能性があることを理解しました。',
       vault_reset_own_draft_ack:
         'このキーには、以前の未完了の試行で作られた鍵が入っており、この端末にはその記録が残っています。リセットするとそれが消え、その試行は再開できなくなることを理解しました。',
       vault_reset_nothing_erased:
@@ -11470,7 +11470,7 @@ const resources = {
         'Ten klucz był już używany. Reset kasuje każdy certyfikat i klucz w jego aplikacji PIV, nie tylko gniazdo sejfu. Wszystko, co na nim polega, przestanie działać.',
       vault_reset_ack: 'Rozumiem, że to skasuje całą zawartość tego klucza',
       vault_reset_unknown_ack:
-        'Ten klucz zawiera już klucz sejfu, do którego nie przyznaje się żaden sejf na tym urządzeniu. Rozumiem, że skasowanie zniszczy ten klucz na zawsze.',
+        'To urządzenie nie może potwierdzić, czy ten klucz nadal zabezpiecza sejf innego profilu. Rozumiem, że skasowanie może zniszczyć ten klucz na zawsze.',
       vault_reset_own_draft_ack:
         'Ten klucz zawiera niedokończony klucz z Twojej wcześniejszej próby, a to urządzenie wciąż ma jej zapis. Rozumiem, że reset go skasuje i tamtej próby nie da się wznowić.',
       vault_reset_nothing_erased:
