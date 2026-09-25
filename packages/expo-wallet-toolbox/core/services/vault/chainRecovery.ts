@@ -377,18 +377,28 @@ export function wocChainLookup(chain: AppChain): VaultChainLookup {
     async transactionsForLockingScript(lockingScriptHex: string): Promise<string[]> {
       // The marker is always a P2PKH output; derive its address from the
       // script's hash160 rather than adding a second WoC endpoint shape.
+      //
+      // The VaultChainLookup contract (see this file's interface doc) treats
+      // an EMPTY result as a genuine "no marker at this index" miss — so a
+      // failure to even ask the question (an unrecognizable script), a
+      // non-2xx response (rate limiting, a transient 5xx, a maintenance
+      // window) or a thrown exception (DNS failure, timeout, offline) must
+      // never collapse into that same empty array: recoverVaultFromChain's
+      // OWN catch around this call (never a miss, and now bounded — see
+      // VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) is what has to handle these,
+      // not the miss-counting branch.
       const address = p2pkhAddressFromScript(lockingScriptHex, woc.network)
-      if (!address) return []
-      try {
-        const response = await fetch(`${base}/address/${address}/history`)
-        if (!response.ok) return []
-        const body = await response.json()
-        const rows = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : []
-        const txids = rows.map((r: any) => r?.tx_hash).filter((h: unknown) => typeof h === 'string')
-        return [...new Set<string>(txids)]
-      } catch {
-        return []
+      if (!address) {
+        throw new Error('wocChainLookup: marker script is not a recognizable P2PKH script')
       }
+      const response = await fetch(`${base}/address/${address}/history`)
+      if (!response.ok) {
+        throw new Error(`wocChainLookup: address history request failed (HTTP ${response.status})`)
+      }
+      const body = await response.json()
+      const rows = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : []
+      const txids = rows.map((r: any) => r?.tx_hash).filter((h: unknown) => typeof h === 'string')
+      return [...new Set<string>(txids)]
     },
 
     async transactionForTxid(txid: string): Promise<{ beef: number[]; confirmed: boolean } | null> {
