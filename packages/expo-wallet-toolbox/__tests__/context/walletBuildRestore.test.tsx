@@ -227,7 +227,7 @@ it('preserves a rebuild restore request when automatic build falls back to a rec
 })
 
 it.each(['mnemonic', 'recovered key'] as const)(
-  'allows explicit restore=false after a failed %s restore, without reusing the tainted database',
+  'XR-017: allows explicit restore=false after a failed %s restore, without reusing the tainted database',
   async kind => {
     await renderProvider()
     mockBuildMode = 'real'
