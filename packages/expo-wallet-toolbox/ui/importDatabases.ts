@@ -10,7 +10,8 @@ import {
   parseTimestampFromFilename,
   prepareSqliteImageForDeserialize,
   PENDING_KEY,
-  PENDING_SUMMARY_KEY
+  PENDING_SUMMARY_KEY,
+  createTables
 } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from './components/ui/AlertCard'
 import { showToast } from './components/ui/Toast'
@@ -79,6 +80,47 @@ async function readSourceIdentity(
     return { storageIdentityKey, chain }
   } catch {
     return null
+  }
+}
+
+/**
+ * Reject a picked image that carries any schema object this wallet did not
+ * itself create: a trigger, a view, a virtual table, or any table/index name
+ * outside its own real schema. `CREATE TABLE/INDEX IF NOT EXISTS` (the whole
+ * of createTables()'s migration) leaves any such pre-existing object in
+ * place forever, live for every later write this device makes — so this
+ * runs against the deserialized image BEFORE it is ever copied into the
+ * real, on-disk database directory (XR-082).
+ *
+ * The allow-list is built by running the wallet's own createTables() against
+ * a disposable reference database, rather than a hand-maintained list, so it
+ * can never drift out of sync with the real schema.
+ */
+async function isSchemaTrusted(sourceDb: SQLite.SQLiteDatabase): Promise<boolean> {
+  let refDb: SQLite.SQLiteDatabase | undefined
+  try {
+    refDb = await SQLite.openDatabaseAsync(':memory:')
+    await createTables(refDb)
+    const allowedRows = (await refDb.getAllAsync(
+      `SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
+    )) as Array<{ name: string }>
+    const allowed = new Set(allowedRows.map(r => r.name))
+
+    const objects = (await sourceDb.getAllAsync(
+      `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
+    )) as Array<{ type: string; name: string; sql: string | null }>
+    for (const obj of objects) {
+      if (obj.type === 'trigger' || obj.type === 'view') return false
+      if (obj.sql && /^\s*create\s+virtual\s+table/i.test(obj.sql)) return false
+      if (!allowed.has(obj.name)) return false
+    }
+    return true
+  } catch {
+    return false
+  } finally {
+    try {
+      await refDb?.closeAsync()
+    } catch {}
   }
 }
 
@@ -218,7 +260,9 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
     const sourceIdentity = await readSourceIdentity(sourceDb)
     const expectedIdentityKey = storage?.getSettings().storageIdentityKey
     const expectedChain = storage?.chain
+    const schemaTrusted = await isSchemaTrusted(sourceDb)
     if (
+      !schemaTrusted ||
       !sourceIdentity ||
       !expectedIdentityKey ||
       !expectedChain ||

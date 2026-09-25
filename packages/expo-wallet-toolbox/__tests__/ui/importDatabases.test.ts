@@ -167,7 +167,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('../../core/walletDbRegistry'),
   ...jest.requireActual('../../core/storage/dbImage'),
   PENDING_KEY: jest.requireActual('../../core/localpay/pending').PENDING_KEY,
-  PENDING_SUMMARY_KEY: jest.requireActual('../../core/localpay/pending').PENDING_SUMMARY_KEY
+  PENDING_SUMMARY_KEY: jest.requireActual('../../core/localpay/pending').PENDING_SUMMARY_KEY,
+  createTables: jest.requireActual('../../core/storage/schema/createTables').createTables
 }))
 
 import { importWalletDatabase } from '../../ui/importDatabases'
@@ -365,6 +366,36 @@ describe('importWalletDatabase', () => {
       status: string
     }[]
     expect(rows.map(r => r.status)).toEqual(['import_hold', 'import_hold', 'sent'])
+  })
+
+  it('XR-082: rejects an image whose schema carries an extra trigger not part of the wallet schema', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    // A trigger that rewrites settings on every insert into it — the kind of
+    // persistent schema object CREATE TABLE/INDEX IF NOT EXISTS would leave
+    // in place forever, live for every later write this device makes.
+    raw.exec(
+      `CREATE TRIGGER evil_trigger AFTER INSERT ON settings
+       BEGIN UPDATE settings SET storageName = 'pwned' WHERE storageIdentityKey = NEW.storageIdentityKey; END`
+    )
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+    expect(mockOpenDbs.has(currentStorage.dbName)).toBe(false)
+    expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
+  })
+
+  it('XR-082: rejects an image whose schema carries an unexpected extra table', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    raw.exec(`CREATE TABLE evil_extra_table (id INTEGER PRIMARY KEY, payload TEXT)`)
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
   })
 
   it('XR-080: a filename-suffix collision with a different full storageIdentityKey is rejected before it can be activated', async () => {
