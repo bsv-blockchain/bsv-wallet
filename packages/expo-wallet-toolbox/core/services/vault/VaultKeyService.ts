@@ -22,7 +22,7 @@
  * SECURITY: never log the PIN. Public keys and serials are public data.
  */
 import { getVaultDriver } from './driver'
-import { compressPubkey, type VaultInstructionsV6 } from './r1comb'
+import { compressPubkey, type VaultInstructions } from './r1comb'
 import { randomBytes } from './random'
 import { withKeySession } from './session'
 import { VaultError } from './types'
@@ -807,8 +807,10 @@ export async function adoptVaultKey(args: {
 }
 
 export interface VerifiedVaultRecoveryOutput {
-  /** Decoded only after baked-salt and exact-lock verification by transfers. */
-  instructions: VaultInstructionsV6
+  /** Decoded only after baked-salt and exact-lock verification by transfers.
+   * v6 or v7 — this function only reads fields common to both shapes
+   * (vaultId, revision, createdAt, keys), never `salt`. */
+  instructions: VaultInstructions
   /** Transaction containing this currently spendable output. */
   txid: string
 }
@@ -817,7 +819,10 @@ export interface VerifiedVaultRecoveryOutput {
  * Reconstruct one current enrollment from authoritative spendable R1C outputs.
  * The transfer layer owns pagination and lock verification; this function owns
  * conflict detection and version selection. It never accepts a mixture of
- * enrollment ids or two different key sets at the same revision.
+ * enrollment ids or two different key sets at the same revision. A mixed
+ * v6+v7 output set reduces to one VaultMeta the same way a same-version
+ * mixture does — version is not part of the conflict/version-selection
+ * identity here, only vaultId/createdAt/revision/keys are.
  */
 export function metaFromVerifiedOutputs(outputs: readonly VerifiedVaultRecoveryOutput[]): VaultMeta {
   if (outputs.length === 0) throw new VaultError('vault-empty', 'No verified vault outputs to recover')
