@@ -372,6 +372,33 @@ function referenceOf(result: unknown): { reference?: string } {
   return typeof reference === 'string' && reference.length > 0 ? { reference } : {}
 }
 
+/**
+ * XR-034/XR-035: the payee already holds the bytes by the time this runs, so a
+ * transient write fault here (a busy/locked SQLite, a brief disk hiccup) must
+ * not be the only thing standing between "journaled" and "no durable record
+ * exists at all" — the latter is what leaves `wrapAbortActionForSettlements`
+ * nothing to block on. Three attempts, a short fixed backoff: enough for an
+ * ordinary transient fault to clear, small enough not to make a payer wait on
+ * a send that has already gone out. `upsertSettlement` is a plain upsert keyed
+ * on `txid`, so retrying it after a failed attempt is safe — nothing partial
+ * can have been committed for the caller to retry over.
+ */
+async function upsertSettlementDurably(
+  store: Pick<SettlementStore, 'upsertSettlement'>,
+  row: Parameters<SettlementStore['upsertSettlement']>[0]
+): Promise<void> {
+  const attempts = 3
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await store.upsertSettlement(row)
+      return
+    } catch (e) {
+      if (attempt === attempts) throw e
+      await new Promise(resolve => setTimeout(resolve, attempt * 100))
+    }
+  }
+}
+
 /** A store for a runtime with no database: every read is empty, every write a no-op. */
 function nullStore(): SettlementStore {
   return {
@@ -2264,7 +2291,13 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           devLog(`[mandala] sent ${result.txid} but could not cache its evidence:`, e)
         }
         try {
-          await store.upsertSettlement({
+          // XR-034/XR-035: retried (see `upsertSettlementDurably`) because this
+          // row is the ONLY durable evidence of the hand-over — there is no
+          // queue row and no pre-hand-over marker (the reference below does not
+          // exist until `transferTokens` has already returned it), so losing
+          // this write to one transient fault leaves the abort guard nothing to
+          // block on for a payment the payee may already hold or have submitted.
+          await upsertSettlementDurably(store, {
             txid: result.txid,
             role: 'sent',
             assetId,
@@ -2290,9 +2323,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             ...referenceOf(result)
           })
         } catch (e) {
-          // The transfer is committed; a journal failure costs a later
-          // reconciliation pass, never the payment.
-          devLog(`[mandala] sent ${result.txid} but could not journal it:`, e)
+          // Every retry was exhausted: the transfer is still committed (the
+          // payee already has the bytes), and this is now genuinely a later
+          // reconciliation pass's problem, not the payment's.
+          devLog(`[mandala] sent ${result.txid} but could not journal it after retrying:`, e)
         }
         emit()
         // `notified === false` is "committed, but the payee has not been told
