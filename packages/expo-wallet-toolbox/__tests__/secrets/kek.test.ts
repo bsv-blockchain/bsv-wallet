@@ -254,6 +254,30 @@ describe('KEK lifecycle', () => {
     expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(false)
   })
 
+  it('XR-116: does not report a rewrap as biometric-only when the old plain KEK survives deletion', async () => {
+    ;(global as any).__DEV__ = true
+    localAuth.__setLevel(localAuth.SecurityLevel.NONE)
+    await provisionWithSecret()
+
+    __resetForTests()
+    ;(global as any).__DEV__ = false
+    localAuth.__setLevel(localAuth.SecurityLevel.BIOMETRIC_STRONG)
+    // iOS's documented silent-no-op delete: the call resolves without
+    // actually removing the entry.
+    const realDelete = secureStore.deleteItemAsync.getMockImplementation()!
+    secureStore.deleteItemAsync.mockImplementation(async (key: string, options: unknown) => {
+      if (key === KEK_PLAIN_KEY) return
+      return realDelete(key, options)
+    })
+
+    const state = await unlockKek()
+
+    expect(state).not.toEqual({ status: 'unlocked', kekId: expect.anything(), policy: 'biometric' })
+    // The unauthenticated copy is still readable with zero ceremony — exactly
+    // what the sentinel's now-committed 'biometric' policy claims is untrue.
+    expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(true)
+  })
+
   it('keeps a degraded install degraded on a device with no biometrics', async () => {
     localAuth.__setLevel(localAuth.SecurityLevel.SECRET)
     const state = await provisionWithSecret()

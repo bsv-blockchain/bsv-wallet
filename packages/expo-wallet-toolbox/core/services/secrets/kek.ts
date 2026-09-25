@@ -288,6 +288,17 @@ export async function upgradeToBiometric(
     await SecureStore.setItemAsync(KEK_AUTH_KEY, Utils.toHex(pending.kek), kekOptions(true))
     await writeSentinel({ ...sentinel, policy: 'biometric' })
     await SecureStore.deleteItemAsync(KEK_PLAIN_KEY, kekOptions(false)).catch(() => {})
+    // XR-116: iOS's delete discards every OSStatus and never throws, so "it
+    // resolved" is not evidence the item is gone (same rationale as
+    // migration.ts's sweepLegacyKeys). Read it back before claiming the
+    // install is biometric-only: reporting success while the unauthenticated
+    // copy still exists would be exactly the false "protected by Face ID"
+    // promise this transition exists to keep true. The sentinel/KEK_AUTH_KEY
+    // writes above already stand — the next launch reads the committed
+    // 'biometric' policy directly and prompts normally — this only refuses to
+    // claim THIS session's transition fully succeeded.
+    const stalePlain = await SecureStore.getItemAsync(KEK_PLAIN_KEY, kekOptions(false)).catch(() => null)
+    if (stalePlain !== null) return null
     return { status: 'unlocked', kekId: pending.kekId, policy: 'biometric' }
   } catch {
     // Leave the install exactly as it was; the caller does not cache
