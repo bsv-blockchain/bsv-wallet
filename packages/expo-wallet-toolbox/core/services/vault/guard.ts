@@ -416,10 +416,19 @@ function sanitizeAction(action: ExtendedWalletAction, requested: ListActionsArgs
     })
   }
   if (!requested.includeOutputs) delete safe.outputs
-  else if (!requested.includeOutputLockingScripts && safe.outputs) {
+  else if (safe.outputs) {
+    // XR-037 (defense-in-depth): customInstructions is wallet-private
+    // metadata (a BRC-42 keyID/counterparty derivation tuple, for a Mandala
+    // output) that only the app's own admin originator may ever see. The
+    // vendored Wallet.listActions patch already strips it beneath this
+    // layer, but this external-facing sanitizer must not rely solely on
+    // that patch surviving a future @bsv/wallet-toolbox-mobile bump — it
+    // never reaches a non-admin caller through THIS path either way.
+    const stripLockingScript = !requested.includeOutputLockingScripts
     safe.outputs = safe.outputs.map(output => {
       const copy = { ...output }
-      delete copy.lockingScript
+      if (stripLockingScript) delete copy.lockingScript
+      delete copy.customInstructions
       return copy
     })
   }

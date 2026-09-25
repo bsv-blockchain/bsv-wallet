@@ -16,6 +16,13 @@ import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
 import { FT_PROTOCOL_ID } from './verify'
 import type { Ack } from './types'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET, assembleBundle, type BundleStore } from '../mandala/bundle'
+// XR-037: bundle.ts's MANDALA_ACTION_LABEL ('mandala') is the home-screen
+// row-recognition label; permissionModule.ts exports a DIFFERENT constant
+// under the SAME name ('p mandala token-spend') — the only label that
+// P-routes a listActions query to MandalaTokenModule's consent gate (label
+// routing is listActions' only signal; the shared 'p mandala' BASKET does
+// not make listActions route here). A real token action must carry both.
+import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../mandala/permissionModule'
 import { getOnline } from '../net/online'
 
 /** The toolbox's per-txid verdict on a `sendWith` release. */
@@ -636,7 +643,7 @@ async function buildTokenPaymentFrame(
       // payee's key over "+0 sats" (2026-09-16). The payee key stays on as a
       // label for the resend path.
       description: note?.trim() || 'Sent token',
-      labels: [PEERPAY_LABEL, session.identityKey, MANDALA_ACTION_LABEL],
+      labels: [PEERPAY_LABEL, session.identityKey, MANDALA_ACTION_LABEL, MANDALA_TOKEN_SPEND_LABEL],
       inputBEEF: sourceBeef.toBinary(),
       inputs: selected.map(coin => ({
         outpoint: coin.outpoint,

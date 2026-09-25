@@ -115,6 +115,47 @@ function fakeWallet(storedActions: any[] = []) {
   }
 }
 
+// XR-037 (defense-in-depth): the customInstructions redaction the previous
+// test exercises lives in the VENDORED Wallet.listActions patch, beneath both
+// WalletPermissionsManager and this module. guard.ts's own sanitizeAction
+// must not depend solely on that patch surviving a future @bsv/wallet-toolbox
+// -mobile bump — it should redact customInstructions for a non-admin
+// originator on its own, using a plain fake wallet that applies no such
+// patch at all.
+test('guard.ts itself strips customInstructions from listActions outputs for a non-admin originator', async () => {
+  const stored = [
+    action({
+      outputs: [
+        {
+          satoshis: 1,
+          spendable: true,
+          tags: [],
+          outputIndex: 0,
+          outputDescription: 'Token output',
+          basket: 'p mandala',
+          lockingScript: '51',
+          customInstructions: JSON.stringify({ protocolID: [2, 'mandala'], keyID: 'k', counterparty: 'self' })
+        }
+      ]
+    })
+  ]
+  const { wallet } = fakeWallet(stored)
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  const external = await guarded.listActions(
+    { labels: [], includeOutputs: true, limit: 10, offset: 0 } as any,
+    'evil.com'
+  )
+  expect(external.actions[0].outputs[0].customInstructions).toBeUndefined()
+
+  // The app's own view is untouched by this guard.
+  const admin = await guarded.listActions(
+    { labels: [], includeOutputs: true, limit: 10, offset: 0 } as any,
+    ADMIN
+  )
+  expect(admin.actions[0].outputs[0].customInstructions).toBeDefined()
+})
+
 test('blocks non-admin privileged getPublicKey (deposit-key enumeration)', async () => {
   const { wallet } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)

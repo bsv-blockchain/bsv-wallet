@@ -1,6 +1,11 @@
 import { Beef } from '@bsv/sdk'
 import type { PaymentFrame, TokenPayment } from './codec'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../mandala/bundle'
+// XR-037: see build.ts's identical import for why these two same-named
+// exports are both needed — bundle.ts's is the home-screen row label,
+// permissionModule.ts's is the one that P-routes a listActions query to
+// MandalaTokenModule's consent gate.
+import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../mandala/permissionModule'
 import type { AdmissionEntryWire } from '../mandala/types'
 import { isRetriableInternalizeFailure } from '../mandala/drain'
 
@@ -600,7 +605,10 @@ export async function processPending(
             (p.frame.note?.trim() || (p.frame.kind === 'token' ? 'Received token' : 'Received BSV')).padEnd(5),
             MAX_INTERNALIZE_DESCRIPTION_BYTES
           ),
-          labels: p.frame.kind === 'token' ? [PEERPAY_LABEL, MANDALA_ACTION_LABEL] : [PEERPAY_LABEL]
+          labels:
+            p.frame.kind === 'token'
+              ? [PEERPAY_LABEL, MANDALA_ACTION_LABEL, MANDALA_TOKEN_SPEND_LABEL]
+              : [PEERPAY_LABEL]
         },
         originator
       )
