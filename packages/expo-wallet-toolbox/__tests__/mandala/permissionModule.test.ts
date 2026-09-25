@@ -691,7 +691,8 @@ describe('MandalaTokenModule', () => {
         adminOriginator: ADMIN_ORIGINATOR,
         requestTokenAccess: jest.fn().mockResolvedValue(true),
         resolveAssetMetadata: async () => null,
-        listTokenOutpoints: async () => new Set()
+        listTokenOutpoints: async () => new Set(),
+        resolveMandalaOutput: jest.fn().mockResolvedValue(null)
       })
       const underlying = { createAction: jest.fn().mockResolvedValue({}) }
       const permissionsManager = new WalletPermissionsManager(underlying as never, ADMIN_ORIGINATOR, {
@@ -715,7 +716,8 @@ describe('MandalaTokenModule', () => {
         adminOriginator: ADMIN_ORIGINATOR,
         requestTokenAccess,
         resolveAssetMetadata: async () => null,
-        listTokenOutpoints
+        listTokenOutpoints,
+        resolveMandalaOutput: jest.fn().mockResolvedValue(null)
       })
       const onRequestSpy = jest.spyOn(mandalaModule, 'onRequest')
       const underlying = { createAction: jest.fn().mockResolvedValue({}) }
@@ -815,7 +817,8 @@ describe('MandalaTokenModule', () => {
             adminOriginator: ADMIN_ORIGINATOR,
             requestTokenAccess: undefined as any,
             resolveAssetMetadata: async () => null,
-            listTokenOutpoints: jest.fn().mockResolvedValue(new Set<string>())
+            listTokenOutpoints: jest.fn().mockResolvedValue(new Set<string>()),
+            resolveMandalaOutput: jest.fn().mockResolvedValue(null)
           })
       ).toThrow('requestTokenAccess callback is required')
     })
@@ -827,7 +830,8 @@ describe('MandalaTokenModule', () => {
             adminOriginator: '' as any,
             requestTokenAccess: jest.fn(),
             resolveAssetMetadata: async () => null,
-            listTokenOutpoints: jest.fn().mockResolvedValue(new Set<string>())
+            listTokenOutpoints: jest.fn().mockResolvedValue(new Set<string>()),
+            resolveMandalaOutput: jest.fn().mockResolvedValue(null)
           })
       ).toThrow('adminOriginator is required')
     })
