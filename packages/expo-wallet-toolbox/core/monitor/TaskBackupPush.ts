@@ -50,6 +50,11 @@ export class TaskBackupPush extends WalletMonitorTask {
   static lastError: string | undefined
   /** Time of the last successful pass, for the backup-health display. */
   static lastSuccessAt: number | undefined
+  /** A push pass is in flight. Guards against MonitorSupervisor's watchdog
+   * restart overlapping an old generation's still-running runOnce() with a
+   * new generation's — without this, both could concurrently push the same
+   * backup log (XR-105; same pattern as TaskDrainOutbox.running). */
+  static running = false
 
   static noteConnectivity (online: boolean): void {
     TaskBackupPush.onlineNow = online
@@ -95,6 +100,7 @@ export class TaskBackupPush extends WalletMonitorTask {
     TaskBackupPush.backoffMs = TaskBackupPush.BASE_BACKOFF_MS
     TaskBackupPush.lastError = undefined
     TaskBackupPush.lastSuccessAt = undefined
+    TaskBackupPush.running = false
   }
 
   constructor (
@@ -115,6 +121,12 @@ export class TaskBackupPush extends WalletMonitorTask {
   }
 
   async runTask (): Promise<string> {
+    // A watchdog restart can spawn a new generation's runOnce() while an old
+    // generation's own runOnce() is still executing (it is not cancelled,
+    // only stopped from looping again). Without this guard both could
+    // concurrently push the same backup log (XR-105).
+    if (TaskBackupPush.running) return ''
+    TaskBackupPush.running = true
     TaskBackupPush.checkNow = false
     const startedAt = Date.now()
 
@@ -163,6 +175,8 @@ export class TaskBackupPush extends WalletMonitorTask {
       TaskBackupPush.lastError = message
       TaskBackupPush.noteFailure(startedAt)
       return `backup: push failed, retrying after ${TaskBackupPush.backoffMs}ms: ${message}`
+    } finally {
+      TaskBackupPush.running = false
     }
   }
 }
