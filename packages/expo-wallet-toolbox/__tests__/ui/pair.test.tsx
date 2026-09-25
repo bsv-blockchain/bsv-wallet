@@ -42,6 +42,7 @@ jest.mock('expo-secure-store', () => ({
 }))
 
 import React from 'react'
+import { Text } from 'react-native'
 import { render, fireEvent, waitFor } from '@testing-library/react-native'
 import { WalletClient } from '@bsv/sdk'
 import { PairScreen } from '../../ui/screens/PairScreen'
@@ -100,6 +101,10 @@ const draw = () =>
 beforeEach(() => {
   mockConnect.mockClear()
   mockPermissionsManager.getPublicKey.mockClear()
+})
+
+afterEach(() => {
+  mockParams.origin = 'https://evil.com'
 })
 
 test('Approve constructs the WalletClient from a GUARDED wallet, not the raw permissionsManager', async () => {
@@ -161,6 +166,30 @@ test('a deep-link-shaped param set renders the Approve/Reject card, and Reject n
   fireEvent.press(getByText('Reject'))
 
   expect(mockConnect).not.toHaveBeenCalled()
+})
+
+/**
+ * XR-023: the Origin row used to render the raw, uncanonicalized
+ * `params.origin` with RN's default (tail) `numberOfLines={1}` truncation —
+ * which keeps the FRONT of a long string and drops the end. An attacker-
+ * signed origin like `https://accounts-google-com.<filler>.evil-suffix.example`
+ * shows a trustworthy-looking prefix while the registrable-domain suffix is
+ * exactly what gets clipped.
+ */
+test('XR-023: a long attacker-shaped origin renders through a suffix-preserving ellipsis mode', async () => {
+  mockParams.origin = `https://accounts-google-com.${'a'.repeat(40)}.evil-suffix.example`
+  const { getByText, UNSAFE_getAllByType } = draw()
+
+  // Canonicalization must not itself reject a validly-formed (if
+  // suspicious-looking) HTTPS origin — the Approve/Reject card must render.
+  expect(getByText('Approve')).toBeTruthy()
+
+  const originText = UNSAFE_getAllByType(Text).find(
+    node => typeof node.props.children === 'string' && node.props.children.includes('evil-suffix.example')
+  )
+  expect(originText).toBeTruthy()
+  // Not RN's tail-truncating default — the suffix must survive truncation.
+  expect(originText!.props.ellipsizeMode).toBe('middle')
 })
 
 /**
