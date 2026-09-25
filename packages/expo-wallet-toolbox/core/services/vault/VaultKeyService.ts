@@ -321,12 +321,20 @@ export async function enrollKey(args: {
   }
 
   // The enrolled key list, read once from device-only secure storage before any user input or
-  // key contact. Refused alongside pendingSerials below — meta ∪ pending —
-  // so an enrolled card is refused even when the caller's own copy of meta
-  // has not loaded (the wizard's key list arrives asynchronously).
-  const meta = await vaultStore.getMeta(scopeToken)
+  // key contact. Refused alongside pendingSerials below — across every chain
+  // of this identity, plus a key mid-removal, plus pending — so an enrolled
+  // card is refused even when the caller's own copy of meta has not loaded
+  // (the wizard's key list arrives asynchronously), and even when it is
+  // enrolled under a different chain of the same wallet identity, or sits in
+  // meta.pendingRemoval in this chain (XR-008: `enrolledSerialsAcrossChains`
+  // already covers both — it folds pendingRemoval into every chain it scans —
+  // and is the exact non-overridable refusal set pivReset.ts already uses
+  // before its own destructive card mutation).
   const quarantines = await vaultStore.getEnrollmentQuarantines(scopeToken)
-  const refused = new Set<string>([...(meta?.keys.map(k => k.serial) ?? []), ...args.pendingSerials])
+  const refused = new Set<string>([
+    ...(await vaultStore.enrolledSerialsAcrossChains(scopeToken)),
+    ...args.pendingSerials
+  ])
   const k = args.pendingSerials.length + 1
   const nickname = enrollmentNickname(args.nickname, k)
   const enrolledAt = Date.now()
