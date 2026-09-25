@@ -375,6 +375,32 @@ describe('balances, assets and activity', () => {
     expect((await runtime.listAssets()).map(x => x.assetId).sort()).toEqual([ASSET_ID, OTHER_ASSET].sort())
   })
 
+  // XR-043: `meta.decimals` is an external, issuer-controlled registry value.
+  // An out-of-range figure used to flow straight through into
+  // TokenAssetInfo.decimals and from there into every ui/tokenFormat.ts
+  // formatter downstream — unbounded, exactly the shape that crashed the
+  // confirmation view for a session-QR-carried decimals value.
+  it('XR-043: clamps an out-of-range registry decimals value to 0 rather than passing it through', async () => {
+    const a = rootTx(100)
+    const runtime = build(
+      { resolveMetadata: async () => ({ label: 'Acme Dollar', ticker: 'USDX', decimals: Number.MAX_SAFE_INTEGER }) },
+      [{ tx: a, vout: 0 }]
+    )
+
+    const balances = await runtime.balances()
+    const mine = balances.find(x => x.asset.assetId === ASSET_ID)
+    expect(mine?.asset.decimals).toBe(0)
+  })
+
+  it('XR-043: 18 decimals passes through; 19 clamps to 0', async () => {
+    const a = rootTx(100)
+    const eighteen = build({ resolveMetadata: async () => ({ decimals: 18 }) }, [{ tx: a, vout: 0 }])
+    expect((await eighteen.balances()).find(x => x.asset.assetId === ASSET_ID)?.asset.decimals).toBe(18)
+
+    const nineteen = build({ resolveMetadata: async () => ({ decimals: 19 }) }, [{ tx: a, vout: 0 }])
+    expect((await nineteen.balances()).find(x => x.asset.assetId === ASSET_ID)?.asset.decimals).toBe(0)
+  })
+
   it('reads the WHOLE basket, page by page, so the balance never under-counts what the build can spend', async () => {
     // Five coins served two to a page, with the wallet's own total as the
     // authority: a short page must not end the walk, and each page's BEEF must
@@ -646,7 +672,6 @@ describe('sendToHandle', () => {
       source: 'bundle',
       obtainedAt: new Date().toISOString()
     })
-
     ;(transferTokens as jest.Mock).mockResolvedValue({ txid: '96'.repeat(32), notified: true, handedOver: true })
     await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 1 })
     const evidence = (transferTokens as jest.Mock).mock.calls[0][0].evidence
@@ -800,7 +825,14 @@ describe('receiveFromInbox', () => {
       decimals: 2,
       admissionVerified: admission !== undefined,
       ...(admission
-        ? { admission: { txid, outputsToAdmit: admission.outputsToAdmit, signature: admission.signature, signerKey: OVERLAY_KEY } }
+        ? {
+            admission: {
+              txid,
+              outputsToAdmit: admission.outputsToAdmit,
+              signature: admission.signature,
+              signerKey: OVERLAY_KEY
+            }
+          }
         : {})
     }
   }
@@ -832,7 +864,10 @@ describe('receiveFromInbox', () => {
   it('an unverified transfer is HELD — never declined — and caches no admission (FIX H)', async () => {
     const tx = txSpending([{ tx: rootTx(100), vout: 0 }])
     const txid = tx.id('hex')
-    ;(receiveTokens as jest.Mock).mockResolvedValue({ accepted: [credited(tx)], failed: [{ messageId: 'x', error: 1 }] })
+    ;(receiveTokens as jest.Mock).mockResolvedValue({
+      accepted: [credited(tx)],
+      failed: [{ messageId: 'x', error: 1 }]
+    })
 
     const runtime = build()
     expect(await runtime.receiveFromInbox()).toEqual({ credited: 1, failed: 1 })
@@ -997,7 +1032,11 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
       status: 200,
       body: JSON.stringify({ tm_mandala: { outputsToAdmit: [0] } })
     })
-    expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({ kind: 'unavailable', code: 'ERR_NO_ADMISSION', retryable: true })
+    expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
+      kind: 'unavailable',
+      code: 'ERR_NO_ADMISSION',
+      retryable: true
+    })
   })
 
   it('a σ_I by some other key, or over another admitted set, is ERR_BAD_ADMISSION', async () => {
@@ -1006,15 +1045,35 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     const byImpostor = runtimeWith({
       ok: true,
       status: 200,
-      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [0], admissionSignature: foreign, admissionIdentityKey: impostor.toPublicKey().toString() } })
+      body: JSON.stringify({
+        tm_mandala: {
+          outputsToAdmit: [0],
+          admissionSignature: foreign,
+          admissionIdentityKey: impostor.toPublicKey().toString()
+        }
+      })
     })
-    expect(await byImpostor.tokenDeps.submit(tipTxid)).toEqual({ kind: 'unavailable', code: 'ERR_BAD_ADMISSION', retryable: true })
+    expect(await byImpostor.tokenDeps.submit(tipTxid)).toEqual({
+      kind: 'unavailable',
+      code: 'ERR_BAD_ADMISSION',
+      retryable: true
+    })
     const wrongSet = runtimeWith({
       ok: true,
       status: 200,
-      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [0, 1], admissionSignature: signAdmission(tipTxid, [0]), admissionIdentityKey: OVERLAY_KEY } })
+      body: JSON.stringify({
+        tm_mandala: {
+          outputsToAdmit: [0, 1],
+          admissionSignature: signAdmission(tipTxid, [0]),
+          admissionIdentityKey: OVERLAY_KEY
+        }
+      })
     })
-    expect(await wrongSet.tokenDeps.submit(tipTxid)).toEqual({ kind: 'unavailable', code: 'ERR_BAD_ADMISSION', retryable: true })
+    expect(await wrongSet.tokenDeps.submit(tipTxid)).toEqual({
+      kind: 'unavailable',
+      code: 'ERR_BAD_ADMISSION',
+      retryable: true
+    })
   })
 
   it('a 400 with a manager verdict is a FINAL refusal', async () => {
@@ -1350,7 +1409,6 @@ describe('fetchAdmission — GET /admin/admission/:txid, mapped and FIX-H-verifi
     const runtime = build()
     ;(libFetchAdmission as jest.Mock).mockResolvedValueOnce({ kind: 'evicted' })
     expect(await runtime.fetchAdmission(ENDPOINTS.overlayUrl, TXID)).toEqual({ kind: 'evicted' })
-
     ;(libFetchAdmission as jest.Mock).mockResolvedValueOnce({
       kind: 'refused',
       code: 'ERR_SHAPE',
@@ -1361,7 +1419,6 @@ describe('fetchAdmission — GET /admin/admission/:txid, mapped and FIX-H-verifi
       code: 'ERR_SHAPE',
       spendTxid: 'aa'.repeat(32)
     })
-
     ;(libFetchAdmission as jest.Mock).mockResolvedValueOnce({
       kind: 'unavailable',
       code: 'ERR_UNAVAILABLE',
@@ -1575,7 +1632,6 @@ describe('sendToHandle — caches the handle rail’s own evidence', () => {
     const txid = tip.id('hex')
     const beef = new Beef()
     beef.mergeTransaction(tip)
-
     ;(transferTokens as jest.Mock).mockResolvedValue({
       txid,
       notified: true,
@@ -1665,11 +1721,7 @@ describe('hand-over-first, and the drain that finishes it', () => {
     expect((await sender.store.getSettlement(txid))?.state).toBe('handed_over')
 
     const posted: string[] = []
-    const runtime = build(
-      { fetchImpl: admittingFetch(posted) as never },
-      [],
-      [{ txid, rawTx: tip.toBinary() }]
-    )
+    const runtime = build({ fetchImpl: admittingFetch(posted) as never }, [], [{ txid, rawTx: tip.toBinary() }])
 
     const broadcasts: string[] = []
     const row = (await runtime.store.getSettlement(txid)) as TokenSettlementRow
@@ -1753,18 +1805,20 @@ describe('hand-over-first, and the drain that finishes it', () => {
       expect(await runtime.store.getLinkage(id)).toBeDefined()
     }
     expect(Array.from((await runtime.store.getLinkage(parentTxid))?.payloadBytes ?? [])).toEqual([2, 2])
-    expect(await runtime.store.parentsOf(tipTxid)).toEqual([
-      { childTxid: tipTxid, parentTxid, parentVout: 0 }
-    ])
+    expect(await runtime.store.parentsOf(tipTxid)).toEqual([{ childTxid: tipTxid, parentTxid, parentVout: 0 }])
 
     // …and the NEXT drain tick submits parents-first, tip last.
     const inputBeef = new Beef()
     inputBeef.mergeTransaction(parent)
     const posted: string[] = []
-    const draining = build({ fetchImpl: admittingFetch(posted) as never }, [], [
-      { txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBeef.toBinary() },
-      { txid: parentTxid, rawTx: parent.toBinary() }
-    ])
+    const draining = build(
+      { fetchImpl: admittingFetch(posted) as never },
+      [],
+      [
+        { txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBeef.toBinary() },
+        { txid: parentTxid, rawTx: parent.toBinary() }
+      ]
+    )
     const broadcasts: string[] = []
     const outcome = await postTokenStep(
       {
@@ -2372,9 +2426,10 @@ describe('repairAdmittedAborted — the wallet failed a transaction the chain ha
   const REPAIR_TXID = '6597db42' + 'ab'.repeat(28)
 
   /** `tx failed + req invalid + settlement admitted`, exactly as the incident left it. */
-  function damagedStorage(
-    over: { txStatus?: string; reqStatus?: string } = {}
-  ): { storage: StorageExpoSQLite; repair: jest.Mock } {
+  function damagedStorage(over: { txStatus?: string; reqStatus?: string } = {}): {
+    storage: StorageExpoSQLite
+    repair: jest.Mock
+  } {
     const repair = jest.fn(async (txid: string) => ({
       txid,
       transactionIds: [41],
@@ -2630,25 +2685,23 @@ describe('settleNow — one row, settled immediately, hand-over first', () => {
   }
 
   /** Every `/submit` answers admitted, with a real σ_I over the body's own txid. */
-  const admitting =
-    (posted: string[], order?: string[]) =>
-    async (_url: unknown, init: unknown) => {
-      order?.push('submit')
-      const txid = txidOfFramedBody(init)
-      posted.push(txid)
-      return {
-        ok: true,
-        status: 200,
-        text: async () =>
-          JSON.stringify({
-            tm_mandala: {
-              outputsToAdmit: [0],
-              admissionSignature: signAdmission(txid, [0]),
-              admissionIdentityKey: OVERLAY_KEY
-            }
-          })
-      }
+  const admitting = (posted: string[], order?: string[]) => async (_url: unknown, init: unknown) => {
+    order?.push('submit')
+    const txid = txidOfFramedBody(init)
+    posted.push(txid)
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          tm_mandala: {
+            outputsToAdmit: [0],
+            admissionSignature: signAdmission(txid, [0]),
+            admissionIdentityKey: OVERLAY_KEY
+          }
+        })
     }
+  }
 
   /**
    * A tip this wallet owns, and the `transferTokens` answer that hands it over.
@@ -2852,7 +2905,6 @@ function txidOfSubmitBody(init: unknown): string {
   return beef.atomicTxid ?? beef.txs[beef.txs.length - 1].txid
 }
 
-
 // ───────── 2026-09-15 incident: the fee input the walk could not see ─────────
 
 describe('cover completes the tip’s ancestry from the wallet before walking', () => {
@@ -2870,7 +2922,11 @@ describe('cover completes the tip’s ancestry from the wallet before walking', 
     const inputBEEF = new Beef()
     inputBEEF.mergeTransaction(tokenParent)
 
-    const storage = fakeStorage(db, [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }], [feeParent])
+    const storage = fakeStorage(
+      db,
+      [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }],
+      [feeParent]
+    )
     const runtime = build({ storage })
     await runtime.store.putAdmission({
       txid: tokenParent.id('hex'),
@@ -2892,7 +2948,9 @@ describe('cover completes the tip’s ancestry from the wallet before walking', 
     const tipTxid = tip.id('hex')
     const inputBEEF = new Beef()
     inputBEEF.mergeTransaction(tokenParent)
-    const runtime = build({ storage: fakeStorage(db, [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }]) })
+    const runtime = build({
+      storage: fakeStorage(db, [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }])
+    })
     expect(await runtime.cover(tipTxid)).toEqual({ ok: false, reason: 'uncovered_ancestor' })
   })
 })
@@ -2912,12 +2970,20 @@ describe('settlePendingSends — the handle rail’s rows are driven on every ti
       status: 200,
       text: async () =>
         JSON.stringify({
-          tm_mandala: { outputsToAdmit: [0], admissionSignature: signAdmission(txid, [0]), admissionIdentityKey: OVERLAY_KEY }
+          tm_mandala: {
+            outputsToAdmit: [0],
+            admissionSignature: signAdmission(txid, [0]),
+            admissionIdentityKey: OVERLAY_KEY
+          }
         })
     }
   }
 
-  async function handedOverRow(runtime: MandalaRuntime, txid: string, state: 'handed_over' | 'admitted' = 'handed_over') {
+  async function handedOverRow(
+    runtime: MandalaRuntime,
+    txid: string,
+    state: 'handed_over' | 'admitted' = 'handed_over'
+  ) {
     await runtime.store.upsertSettlement({
       txid,
       role: 'sent',
@@ -2935,12 +3001,25 @@ describe('settlePendingSends — the handle rail’s rows are driven on every ti
     const posted: string[] = []
     const broadcasts: string[] = []
     const runtime = build(
-      { fetchImpl: admitting(posted) as never, broadcast: async (id: string) => { broadcasts.push(id); return 'success' } },
+      {
+        fetchImpl: admitting(posted) as never,
+        broadcast: async (id: string) => {
+          broadcasts.push(id)
+          return 'success'
+        }
+      },
       [],
       [{ txid, rawTx: tip.toBinary(), status: 'nosend' }]
     )
     await handedOverRow(runtime, txid)
-    await runtime.store.putLinkage({ txid, payloadBytes: Uint8Array.from([1]), overlayUrl: ENDPOINTS.overlayUrl, overlayIdentityKey: OVERLAY_KEY, source: 'minted', createdAt: new Date().toISOString() })
+    await runtime.store.putLinkage({
+      txid,
+      payloadBytes: Uint8Array.from([1]),
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY,
+      source: 'minted',
+      createdAt: new Date().toISOString()
+    })
 
     expect(await runtime.settlePendingSends()).toBe(1)
     expect(posted).toEqual([txid])
@@ -2954,12 +3033,25 @@ describe('settlePendingSends — the handle rail’s rows are driven on every ti
     const posted: string[] = []
     const broadcasts: string[] = []
     const runtime = build(
-      { fetchImpl: admitting(posted) as never, broadcast: async (id: string) => { broadcasts.push(id); return 'success' } },
+      {
+        fetchImpl: admitting(posted) as never,
+        broadcast: async (id: string) => {
+          broadcasts.push(id)
+          return 'success'
+        }
+      },
       [],
       [{ txid, rawTx: tip.toBinary(), status: 'completed' }]
     )
     await handedOverRow(runtime, txid, 'admitted')
-    await runtime.store.putAdmission({ txid, outputsToAdmit: [0], signatureHex: signAdmission(txid, [0]), signerKey: OVERLAY_KEY, source: 'fetched', obtainedAt: new Date().toISOString() })
+    await runtime.store.putAdmission({
+      txid,
+      outputsToAdmit: [0],
+      signatureHex: signAdmission(txid, [0]),
+      signerKey: OVERLAY_KEY,
+      source: 'fetched',
+      obtainedAt: new Date().toISOString()
+    })
     expect(await runtime.settlePendingSends()).toBe(1)
     expect(posted).toEqual([])
     // The cached σ_I stands in for the submit; the broadcast step runs, and in
@@ -2973,8 +3065,19 @@ describe('settlePendingSends — the handle rail’s rows are driven on every ti
     const tip = rootTx(40)
     const txid = tip.id('hex')
     const posted: string[] = []
-    const runtime = build({ fetchImpl: admitting(posted) as never }, [], [{ txid, rawTx: tip.toBinary(), status: 'nosend' }])
-    await runtime.store.upsertSettlement({ txid, role: 'sent', assetId: ASSET_ID, state: 'parked', overlayUrl: ENDPOINTS.overlayUrl, overlayIdentityKey: OVERLAY_KEY })
+    const runtime = build(
+      { fetchImpl: admitting(posted) as never },
+      [],
+      [{ txid, rawTx: tip.toBinary(), status: 'nosend' }]
+    )
+    await runtime.store.upsertSettlement({
+      txid,
+      role: 'sent',
+      assetId: ASSET_ID,
+      state: 'parked',
+      overlayUrl: ENDPOINTS.overlayUrl,
+      overlayIdentityKey: OVERLAY_KEY
+    })
     expect(await runtime.settlePendingSends()).toBe(0)
     expect(posted).toEqual([])
     expect((await runtime.store.getSettlement(txid))?.state).toBe('parked')
@@ -3001,11 +3104,19 @@ describe('submit completes the tip’s ancestry from the wallet before posting',
         status: 200,
         text: async () =>
           JSON.stringify({
-            tm_mandala: { outputsToAdmit: [0], admissionSignature: signAdmission(tipTxid, [0]), admissionIdentityKey: OVERLAY_KEY }
+            tm_mandala: {
+              outputsToAdmit: [0],
+              admissionSignature: signAdmission(tipTxid, [0]),
+              admissionIdentityKey: OVERLAY_KEY
+            }
           })
       }
     }
-    const storage = fakeStorage(db, [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }], [feeParent])
+    const storage = fakeStorage(
+      db,
+      [{ txid: tipTxid, rawTx: tip.toBinary(), inputBEEF: inputBEEF.toBinary() }],
+      [feeParent]
+    )
     const runtime = build({ storage, fetchImpl: fetchImpl as never })
     const verdict = await runtime.tokenDeps.submit(tipTxid)
     expect(verdict.kind).toBe('admitted')
@@ -3022,7 +3133,14 @@ describe('ensureAdmissionsForHoldings — every held coin carries a verified σ_
       { tx: admittedTx, vout: 0 },
       { tx: bareTx, vout: 0 }
     ])
-    await runtime.store.putAdmission({ txid: admittedTx.id('hex'), outputsToAdmit: [0], signatureHex: signAdmission(admittedTx.id('hex'), [0]), signerKey: OVERLAY_KEY, source: 'submitted', obtainedAt: new Date().toISOString() })
+    await runtime.store.putAdmission({
+      txid: admittedTx.id('hex'),
+      outputsToAdmit: [0],
+      signatureHex: signAdmission(admittedTx.id('hex'), [0]),
+      signerKey: OVERLAY_KEY,
+      source: 'submitted',
+      obtainedAt: new Date().toISOString()
+    })
     ;(libFetchAdmission as jest.Mock).mockImplementation(async (_url: string, txid: string) => ({
       kind: 'admitted',
       txid,
@@ -3033,7 +3151,10 @@ describe('ensureAdmissionsForHoldings — every held coin carries a verified σ_
     }))
     expect(await runtime.ensureAdmissionsForHoldings()).toBe(1)
     expect((libFetchAdmission as jest.Mock).mock.calls.map(c => c[1])).toEqual([bareTx.id('hex')])
-    expect((await runtime.store.getAdmission(bareTx.id('hex')))).toMatchObject({ signerKey: OVERLAY_KEY, source: 'fetched' })
+    expect(await runtime.store.getAdmission(bareTx.id('hex'))).toMatchObject({
+      signerKey: OVERLAY_KEY,
+      source: 'fetched'
+    })
   })
 
   it('never caches an answer that does not verify under the configured key', async () => {
@@ -3052,7 +3173,6 @@ describe('ensureAdmissionsForHoldings — every held coin carries a verified σ_
     expect(await runtime.store.getAdmission(bareTx.id('hex'))).toBeUndefined()
   })
 })
-
 
 describe('reviewTokenHoldings — Check Wallet asks the overlay about every settling row and held coin', () => {
   const SENT_TXID = '77'.repeat(32)

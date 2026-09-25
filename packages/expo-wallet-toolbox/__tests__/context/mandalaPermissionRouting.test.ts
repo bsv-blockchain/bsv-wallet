@@ -23,7 +23,10 @@ function makeUnderlyingWallet() {
   }
 }
 
-function makePermissionsManager(underlying: ReturnType<typeof makeUnderlyingWallet>, mandalaModule: MandalaTokenModule) {
+function makePermissionsManager(
+  underlying: ReturnType<typeof makeUnderlyingWallet>,
+  mandalaModule: MandalaTokenModule
+) {
   return new WalletPermissionsManager(underlying as never, ADMIN_ORIGINATOR, {
     permissionModules: { mandala: mandalaModule }
   } as never)
@@ -36,7 +39,8 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
       adminOriginator: ADMIN_ORIGINATOR,
       requestTokenAccess,
       resolveAssetMetadata: async () => null,
-      listTokenOutpoints: async () => new Set()
+      listTokenOutpoints: async () => new Set(),
+      resolveMandalaOutput: jest.fn().mockResolvedValue(null)
     })
     const onRequestSpy = jest.spyOn(mandalaModule, 'onRequest')
     const underlying = makeUnderlyingWallet()
@@ -67,7 +71,8 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
       adminOriginator: ADMIN_ORIGINATOR,
       requestTokenAccess,
       resolveAssetMetadata: async () => null,
-      listTokenOutpoints: async () => new Set()
+      listTokenOutpoints: async () => new Set(),
+      resolveMandalaOutput: jest.fn().mockResolvedValue(null)
     })
     const underlying = {
       // Simulates a real wallet: it WOULD include customInstructions if
@@ -96,7 +101,9 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
       expect.objectContaining({ includeCustomInstructions: false }),
       FOREIGN_ORIGINATOR
     )
-    expect((result as { outputs: Array<{ customInstructions?: string }> }).outputs[0].customInstructions).toBeUndefined()
+    expect(
+      (result as { outputs: Array<{ customInstructions?: string }> }).outputs[0].customInstructions
+    ).toBeUndefined()
   })
 
   it('throws instead of silently denying when no mandala module is registered (the pre-fix gap, guarded)', async () => {
@@ -115,7 +122,8 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
       adminOriginator: ADMIN_ORIGINATOR,
       requestTokenAccess,
       resolveAssetMetadata: async () => null,
-      listTokenOutpoints: async () => new Set()
+      listTokenOutpoints: async () => new Set(),
+      resolveMandalaOutput: jest.fn().mockResolvedValue(null)
     })
     const underlying = makeUnderlyingWallet()
     const permissionsManager = makePermissionsManager(underlying, mandalaModule)
@@ -134,7 +142,8 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
       adminOriginator: ADMIN_ORIGINATOR,
       requestTokenAccess,
       resolveAssetMetadata: async () => null,
-      listTokenOutpoints: async () => new Set()
+      listTokenOutpoints: async () => new Set(),
+      resolveMandalaOutput: jest.fn().mockResolvedValue(null)
     })
     const underlying = makeUnderlyingWallet()
     const permissionsManager = makePermissionsManager(underlying, mandalaModule)

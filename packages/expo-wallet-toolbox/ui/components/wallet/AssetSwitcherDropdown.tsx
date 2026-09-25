@@ -22,7 +22,7 @@ import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-nativ
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { hitTargets, radii, spacing, typography, useTheme } from '@bsv/expo-wallet-toolbox'
 import type { TokenBalance } from '../../../core/mandala/runtime'
-import { tokenAmountParts } from '../../tokenFormat'
+import { shortAssetId, tokenAmountParts } from '../../tokenFormat'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set, one of which
@@ -147,6 +147,8 @@ export default function AssetSwitcherDropdown({
               key={b.asset.assetId}
               ticker={b.asset.ticker}
               fullName={b.asset.label}
+              issuerName={b.asset.issuerName}
+              fingerprint={shortAssetId(b.asset.assetId)}
               figure={tokenAmountParts(b.baseUnits, b.asset)}
               selected={selected === b.asset.assetId}
               onPress={() => choose(b.asset.assetId)}
@@ -161,12 +163,18 @@ export default function AssetSwitcherDropdown({
 function CoinRow({
   ticker,
   fullName,
+  issuerName,
+  fingerprint,
   figure,
   selected,
   onPress
 }: {
   ticker: string
   fullName?: string
+  /** XR-044: unverified, issuer-supplied — shown alongside the fingerprint, never in place of it. */
+  issuerName?: string
+  /** XR-044: `shortAssetId(assetId)` — the one thing a look-alike asset cannot share. Absent for BSV. */
+  fingerprint?: string
   figure: { value: string; unit: string } | null
   selected: boolean
   onPress: () => void
@@ -174,6 +182,10 @@ function CoinRow({
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   const figureText = figure ? `${figure.value} ${figure.unit}`.trim() : ''
+  // "Acme Bank · a1b2c3d4…ef01.0", or just the fingerprint when the issuer
+  // name could not be resolved — never the fingerprint alone dropped in favor
+  // of an unverified name.
+  const identityLine = [issuerName, fingerprint].filter(Boolean).join(' · ')
   return (
     <TouchableOpacity
       style={[styles.row, selected && { backgroundColor: colors.fill }]}
@@ -182,7 +194,7 @@ function CoinRow({
       accessibilityRole="button"
       // The checkmark is not the only signal: state travels with the element.
       accessibilityState={{ selected }}
-      accessibilityLabel={[ticker, fullName, figureText].filter(Boolean).join(', ')}
+      accessibilityLabel={[ticker, fullName, identityLine, figureText].filter(Boolean).join(', ')}
     >
       <View style={styles.body}>
         <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -191,6 +203,11 @@ function CoinRow({
         {!!fullName && (
           <Text style={[styles.detail, { color: colors.textSecondary }]} numberOfLines={1}>
             {fullName}
+          </Text>
+        )}
+        {!!identityLine && (
+          <Text style={[styles.identity, { color: colors.textTertiary }]} numberOfLines={1}>
+            {identityLine}
           </Text>
         )}
       </View>
@@ -255,6 +272,9 @@ const styles = StyleSheet.create({
   body: { flex: 1, minWidth: 0 },
   name: { ...typography.body, fontWeight: '600' },
   detail: { ...typography.footnote, marginTop: 2, fontVariant: ['tabular-nums'] },
+  // XR-044: smaller and dimmer than `detail` — an issuer/fingerprint line is
+  // provenance for the rare collision, not something every glance needs.
+  identity: { ...typography.caption2, marginTop: 1, fontVariant: ['tabular-nums'] },
   figure: { ...typography.body, fontWeight: '600', fontVariant: ['tabular-nums'] },
   unit: { ...typography.footnote },
   check: { width: 20, alignItems: 'center' }

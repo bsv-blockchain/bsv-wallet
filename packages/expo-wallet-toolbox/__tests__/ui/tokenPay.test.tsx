@@ -221,8 +221,10 @@ describe('AssetPicker', () => {
     // Pressed through the row's own content: the composed accessibility label
     // sits on a wrapper, and the touchable is the ListRow inside it.
     fireEvent.press(s.getByText('BSV'))
-    expect(s.getByLabelText('Acme Dollar, 1,240.00 USDX')).toBeTruthy()
-    fireEvent.press(s.getByLabelText('Euro Coin, 50.00 EURX'))
+    // XR-044: the label also carries the issuer + assetId fingerprint now, so
+    // a look-alike ticker/label pair is not accessibly indistinguishable.
+    expect(s.getByLabelText('Acme Dollar, Acme Bank · abababab…abab.0, 1,240.00 USDX')).toBeTruthy()
+    fireEvent.press(s.getByLabelText('Euro Coin, Beta Bank · cdcdcdcd…cdcd.1, 50.00 EURX'))
     expect(onSelect).toHaveBeenCalledWith(EURX.assetId)
   })
 
@@ -232,7 +234,7 @@ describe('AssetPicker', () => {
     // Two elements carry that label once expanded — the collapsed trigger
     // (which announces `expanded`) and the option (which announces `selected`).
     const option = s
-      .getAllByLabelText('Acme Dollar, 1,240.00 USDX')
+      .getAllByLabelText('Acme Dollar, Acme Bank · abababab…abab.0, 1,240.00 USDX')
       .find(e => 'selected' in (e.props.accessibilityState ?? {}))
     expect(option?.props.accessibilityState.selected).toBe(true)
     expect(s.getByLabelText('BSV').props.accessibilityState.selected).toBe(false)
@@ -610,6 +612,22 @@ describe('UniversalSend with stablecoins', () => {
         baseUnits: 2500
       })
     )
+  })
+
+  it('XR-044: the review step shows the asset issuer and assetId fingerprint before Send', async () => {
+    // The last on-screen chance to catch a look-alike ticker/label before
+    // money moves — not only in post-send copy (which already used issuerName).
+    const runtime = makeFakeMandala()
+    const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    expect(s.getByText(/Acme Bank/)).toBeTruthy()
+    expect(s.getByText(/abababab/)).toBeTruthy()
   })
 
   it('carries a typed note through to sendToHandle', async () => {

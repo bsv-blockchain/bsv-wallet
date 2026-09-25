@@ -35,6 +35,20 @@ export interface TokenSettlementRow {
   admissionOutputs?: number[]
   /** σ_I over THIS txid once known (DER hex). */
   admissionSignatureHex?: string
+  /**
+   * Which output of THIS txid the wallet's own stake in the payment is — the
+   * payee's output, for both a `received` row and a `sent` row (frame
+   * convention: output 0 is always the payee's, never the payer's own change
+   * — see `onTokenHandedOver`). Read as 0 when absent, mirroring
+   * `EvidenceFrame.outputIndex`'s own "absent reads as 0" convention.
+   *
+   * The one thing `admissionStandsIn` (drain.ts) requires present in a cached
+   * admission's `outputsToAdmit` before that admission may stand in for a real
+   * `/submit` of THIS txid (XR-038): a genuine σ_I for some OTHER output of
+   * the same txid — the payer's own change, say — must never be read as
+   * covering this one.
+   */
+  relevantVout?: number
   refusedCode?: string
   /**
    * `payloadHash` of the off-chain linkage bytes this device submitted when
@@ -99,9 +113,9 @@ export interface TokenLinkageRow {
 /** Wire-contract v2 §2: what the overlay answered for one /submit. */
 export type OverlayVerdict =
   | { kind: 'admitted'; outputsToAdmit: number[]; signatureHex: string; signerKey: string }
-  | { kind: 'refused'; code: string; spendTxid?: string }        // final (400) — terminal
-  | { kind: 'evicted' }                                           // 410 — terminal, inputs restored
-  | { kind: 'unavailable'; code: string; retryable: true }        // 409 liftable or 503 — retry
+  | { kind: 'refused'; code: string; spendTxid?: string } // final (400) — terminal
+  | { kind: 'evicted' } // 410 — terminal, inputs restored
+  | { kind: 'unavailable'; code: string; retryable: true } // 409 liftable or 503 — retry
 
 /** An AdmissionEntry as carried on the wire (frame v4 `admissions[]`). */
 export interface AdmissionEntryWire {
@@ -145,10 +159,18 @@ export interface SettlementStore {
    * releasing inputs a legacy row still has a claim on.
    */
   hasUnresolvedLegacyBlockedRows(): Promise<boolean>
-  listSettlements(filter?: { state?: TokenSettlementState[]; role?: TokenSettlementRole }): Promise<TokenSettlementRow[]>
+  listSettlements(filter?: {
+    state?: TokenSettlementState[]
+    role?: TokenSettlementRole
+  }): Promise<TokenSettlementRow[]>
   upsertSettlement(row: Omit<TokenSettlementRow, 'createdAt' | 'updatedAt'> & { createdAt?: string }): Promise<void>
   /** Single-statement state advance; returns false if the row was not in one of `from`. */
-  advanceSettlement(txid: string, from: TokenSettlementState[], to: TokenSettlementState, patch?: Partial<TokenSettlementRow>): Promise<boolean>
+  advanceSettlement(
+    txid: string,
+    from: TokenSettlementState[],
+    to: TokenSettlementState,
+    patch?: Partial<TokenSettlementRow>
+  ): Promise<boolean>
   // token_admissions
   getAdmission(txid: string): Promise<TokenAdmissionRow | undefined>
   putAdmission(row: TokenAdmissionRow): Promise<void>

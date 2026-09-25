@@ -26,7 +26,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { hitTargets, spacing, typography, useTheme } from '@bsv/expo-wallet-toolbox'
 import type { TokenBalance } from '../../../core/mandala/runtime'
 import { ListRow } from '../ui/ListRow'
-import { formatTokenAmountWithUnit } from '../../tokenFormat'
+import { formatTokenAmountWithUnit, shortAssetId } from '../../tokenFormat'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -78,9 +78,7 @@ export default function AssetPicker({
 
   const current = balances.find(b => b.asset.assetId === selected) ?? null
   const currentLabel = current ? current.asset.label || current.asset.ticker : BSV_LABEL
-  const currentFigure = current
-    ? formatTokenAmountWithUnit(current.baseUnits, current.asset)
-    : bsvBalanceText
+  const currentFigure = current ? formatTokenAmountWithUnit(current.baseUnits, current.asset) : bsvBalanceText
 
   const choose = (assetId: string | null) => {
     onSelect(assetId)
@@ -117,6 +115,8 @@ export default function AssetPicker({
             <AssetOption
               key={b.asset.assetId}
               label={b.asset.label || b.asset.ticker}
+              issuerName={b.asset.issuerName}
+              fingerprint={shortAssetId(b.asset.assetId)}
               figure={showFigures ? formatTokenAmountWithUnit(b.baseUnits, b.asset) : null}
               selected={selected === b.asset.assetId}
               onPress={() => choose(b.asset.assetId)}
@@ -130,17 +130,27 @@ export default function AssetPicker({
 
 function AssetOption({
   label,
+  issuerName,
+  fingerprint,
   figure,
   selected,
   onPress
 }: {
   label: string
+  /** XR-044: unverified, issuer-supplied — shown alongside the fingerprint, never in place of it. */
+  issuerName?: string
+  /** XR-044: `shortAssetId(assetId)` — the one thing a look-alike asset cannot share. Absent for BSV. */
+  fingerprint?: string
   figure?: string | null
   selected: boolean
   onPress: () => void
 }) {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
+  // "Acme Bank · a1b2c3d4…ef01.0", or just the fingerprint when the issuer
+  // name could not be resolved — never the fingerprint alone dropped in favor
+  // of an unverified name.
+  const identityLine = [issuerName, fingerprint].filter(Boolean).join(' · ')
   return (
     <TouchableOpacity
       style={styles.option}
@@ -149,11 +159,18 @@ function AssetOption({
       accessibilityRole="button"
       // The checkmark is not the only signal: state travels with the element.
       accessibilityState={{ selected }}
-      accessibilityLabel={[label, figure].filter(Boolean).join(', ')}
+      accessibilityLabel={[label, identityLine, figure].filter(Boolean).join(', ')}
     >
-      <Text style={[styles.optionLabel, { color: colors.textPrimary }]} numberOfLines={1}>
-        {label}
-      </Text>
+      <View style={styles.optionBody}>
+        <Text style={[styles.optionLabel, { color: colors.textPrimary }]} numberOfLines={1}>
+          {label}
+        </Text>
+        {!!identityLine && (
+          <Text style={[styles.optionIdentity, { color: colors.textTertiary }]} numberOfLines={1}>
+            {identityLine}
+          </Text>
+        )}
+      </View>
       {!!figure && (
         <Text style={[styles.optionFigure, { color: colors.textSecondary }]} numberOfLines={1}>
           {figure}
@@ -178,7 +195,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg
   },
-  optionLabel: { ...typography.body, flex: 1 },
+  optionBody: { flex: 1 },
+  optionLabel: { ...typography.body },
+  // XR-044: smaller and dimmer than the label — provenance for the rare
+  // collision, not something every glance needs.
+  optionIdentity: { ...typography.caption2, marginTop: 1, fontVariant: ['tabular-nums'] },
   optionFigure: { ...typography.footnote, fontVariant: ['tabular-nums'] },
   check: { marginLeft: spacing.xs }
 })

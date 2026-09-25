@@ -424,6 +424,7 @@ export async function createMandalaSettlementTables(
       overlayIdentityKey    TEXT NOT NULL,
       admissionOutputsJson  TEXT,
       admissionSignatureHex TEXT,
+      relevantVout          INTEGER,
       refusedCode           TEXT,
       refusedPayloadHash    TEXT,
       poisonedByTxid        TEXT,
@@ -523,7 +524,13 @@ export async function ensureOfflineActionsColumns(db: {
  * wallet action reference — so the backfill is simply the next hand-over.
  */
 const TOKEN_SETTLEMENT_COLUMNS: { name: string; ddl: string }[] = [
-  { name: 'reference', ddl: 'ALTER TABLE token_settlements ADD COLUMN reference TEXT' }
+  { name: 'reference', ddl: 'ALTER TABLE token_settlements ADD COLUMN reference TEXT' },
+  // XR-038: the wallet-relevant output index, so a cached admission for some
+  // OTHER output of the same txid can never stand in for this one. Nullable,
+  // no default — an existing row reads back `relevantVout === undefined`,
+  // which `postTokenStep` reads as 0 (the payee's-output convention), exactly
+  // as it always has for every row written before this column existed.
+  { name: 'relevantVout', ddl: 'ALTER TABLE token_settlements ADD COLUMN relevantVout INTEGER' }
 ]
 
 export async function ensureTokenSettlementColumns(db: {
