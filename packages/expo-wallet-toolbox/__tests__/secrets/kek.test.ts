@@ -15,6 +15,7 @@ import {
   __resetForTests,
   autoUnlockKek,
   destroyKek,
+  isUnlocked,
   provisionKek,
   readSentinel,
   recordSecretName,
@@ -231,6 +232,26 @@ describe('KEK lifecycle', () => {
     expect(secureStore.__has(KEK_PLAIN_KEY, { service: KEK_SERVICE, auth: false })).toBe(false)
     expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(true)
     expect((await readSentinel())?.policy).toBe('biometric')
+  })
+
+  it('XR-113: a failed mandatory rewrap never leaves the wallet reporting unlocked', async () => {
+    ;(global as any).__DEV__ = true
+    localAuth.__setLevel(localAuth.SecurityLevel.NONE)
+    await provisionWithSecret()
+
+    __resetForTests()
+    ;(global as any).__DEV__ = false
+    localAuth.__setLevel(localAuth.SecurityLevel.BIOMETRIC_STRONG)
+    // The authenticated write inside the upgrade fails (declined ceremony,
+    // keystore error, ...).
+    secureStore.setItemAsync.mockRejectedValueOnce(new Error('boom'))
+
+    const state = await unlockKek()
+
+    expect(state.status).not.toBe('unlocked')
+    expect(isUnlocked()).toBe(false)
+    // The pre-upgrade plain KEK must not still be usable via a cached value.
+    expect(secureStore.__has(KEK_AUTH_KEY, { service: KEK_SERVICE, auth: true })).toBe(false)
   })
 
   it('keeps a degraded install degraded on a device with no biometrics', async () => {
