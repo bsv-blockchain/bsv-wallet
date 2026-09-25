@@ -356,8 +356,18 @@ export interface HandleRailWallet {
   abortAction(args: unknown, originator?: string): Promise<unknown>
 }
 
-/** Broadcast a previously-minted noSend transaction. A createAction call whose
- * only job is `options.sendWith` — no new outputs are created. */
+/**
+ * Broadcast a previously-minted noSend transaction. A createAction call whose
+ * only job is `options.sendWith` — no new outputs are created.
+ *
+ * Requires positive confirmation, the same fail-closed check the Vault path
+ * uses (`requireReleasedHeldTransaction`): exactly one result whose txid
+ * matches (case-insensitively) with status `sending` or `unproven`. Anything
+ * else — missing/empty results, an unrelated or duplicate txid, an unknown
+ * status — is treated as unconfirmed and throws, so the caller's existing
+ * failure path leaves the outbox entry unsent and retryable rather than
+ * marking a possibly-still-reserved transaction as sent.
+ */
 async function broadcastNoSend(
   wallet: Pick<HandleRailWallet, 'createAction'>,
   adminOriginator: string,
@@ -367,8 +377,14 @@ async function broadcastNoSend(
     { description: 'PeerPay payment broadcast', options: { sendWith: [txid] } },
     adminOriginator
   )) as { sendWithResults?: { txid?: string; status?: string }[] }
-  const failed = result.sendWithResults?.find(o => o.txid === txid && o.status === 'failed')
-  if (failed) throw new Error('broadcast_failed')
+  const results = result.sendWithResults
+  const released =
+    Array.isArray(results) &&
+    results.length === 1 &&
+    typeof results[0]?.txid === 'string' &&
+    results[0].txid.toLowerCase() === txid.toLowerCase() &&
+    (results[0].status === 'sending' || results[0].status === 'unproven')
+  if (!released) throw new Error('broadcast_not_confirmed')
 }
 
 /** Abort a PeerPay noSend by recovering its reference from listActions. */

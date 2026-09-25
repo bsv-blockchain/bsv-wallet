@@ -13,7 +13,7 @@ import {
   sendViaHandle
 } from '../../core/pay/rails/handle'
 import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
-import { getOutboxEntries, saveOutboxEntry, updateOutboxEntry } from '../../core/peerpay/outbox'
+import { getOutboxEntries, saveOutboxEntry, unsentEntries, updateOutboxEntry } from '../../core/peerpay/outbox'
 import { validatePeerPayURI } from '../../core/parsePeerPayURI'
 import { abbreviateKey } from '../../core/pay/counterparty'
 
@@ -219,7 +219,12 @@ function fakeWallet(overrides: Record<string, unknown> = {}) {
   return {
     getPublicKey: jest.fn().mockResolvedValue({ publicKey: KEY }),
     createAction: jest.fn(async (args: any) => {
-      if (args?.options?.sendWith) return {}
+      // A real broadcast release reports the released txid back with a
+      // 'sending'/'unproven' status; that positive confirmation is what
+      // broadcastNoSend now requires (XR-050).
+      if (args?.options?.sendWith) {
+        return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'sending' }] }
+      }
       // The wallet rewrites a send-max sentinel to what the inputs can fund.
       const requested = args.outputs[0].satoshis
       const sats = requested === 2099999999999999 ? 4990 : requested
@@ -387,8 +392,6 @@ describe('sendViaHandle', () => {
     const s = fakeStorage()
     const w = fakeWallet()
     const inner = w.createAction.getMockImplementation()!
-    // Promise<any>: fakeWallet's sendWith branch returns {}, so the inferred
-    // return union has no room for the sendWithResults shape this test needs.
     w.createAction.mockImplementation(async (args: any): Promise<any> => {
       if (args?.options?.sendWith) {
         return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'failed' }] }
@@ -396,10 +399,62 @@ describe('sendViaHandle', () => {
       return await inner(args)
     })
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow(/broadcast_failed/)
+    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow(/broadcast_not_confirmed/)
     const entry = (await getOutboxEntries(s))[0]
     expect(entry.status).toBe('unsent')
     expect(entry.delivered).toBe(true)
+  })
+
+  it.each([
+    ['missing sendWithResults', undefined],
+    ['empty sendWithResults', []],
+    ['an unrelated txid', [{ txid: 'unrelated-txid', status: 'sending' }]],
+    [
+      'a duplicate result',
+      [
+        { txid: 'placeholder', status: 'sending' },
+        { txid: 'placeholder', status: 'sending' }
+      ]
+    ],
+    ['an unknown status', [{ txid: 'placeholder', status: 'queued' }]]
+  ])('XR-050: does not mark sent on an ambiguous broadcast response — %s', async (_label, shape) => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const inner = w.createAction.getMockImplementation()!
+    w.createAction.mockImplementation(async (args: any): Promise<any> => {
+      if (args?.options?.sendWith) {
+        const txid = args.options.sendWith[0]
+        const sendWithResults = shape?.map((r: { txid: string; status: string }) => ({
+          ...r,
+          txid: r.txid === 'placeholder' ? txid : r.txid
+        }))
+        return { sendWithResults }
+      }
+      return await inner(args)
+    })
+    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow(/broadcast_not_confirmed/)
+    const entry = (await getOutboxEntries(s))[0]
+    // Must stay retryable — an ambiguous release response must never be
+    // treated as a successful, terminal broadcast.
+    expect(entry.status).toBe('unsent')
+    expect(unsentEntries(await getOutboxEntries(s))).toHaveLength(1)
+  })
+
+  it('XR-050: retryDelivery also does not mark sent on an ambiguous broadcast response', async () => {
+    const s = fakeStorage()
+    const w = fakeWallet()
+    const entry = await (async () => {
+      const failing = { sendMessage: jest.fn().mockRejectedValueOnce(new Error('offline')) }
+      await expect(sendViaHandle(sendArgs(w, failing, s, 5))).rejects.toThrow()
+      return (await getOutboxEntries(s))[0]
+    })()
+    w.createAction.mockResolvedValue({ sendWithResults: [] })
+    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    await expect(
+      retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    ).rejects.toThrow(/broadcast_not_confirmed/)
+    expect(unsentEntries(await getOutboxEntries(s))).toHaveLength(1)
   })
 
   it('sends to the payment_inbox message box as JSON', async () => {
