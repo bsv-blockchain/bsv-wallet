@@ -16,6 +16,13 @@ import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
 import { FT_PROTOCOL_ID } from './verify'
 import type { Ack } from './types'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET, assembleBundle, type BundleStore } from '../mandala/bundle'
+// XR-037: bundle.ts's MANDALA_ACTION_LABEL ('mandala') is the home-screen
+// row-recognition label; permissionModule.ts exports a DIFFERENT constant
+// under the SAME name ('p mandala token-spend') — the only label that
+// P-routes a listActions query to MandalaTokenModule's consent gate (label
+// routing is listActions' only signal; the shared 'p mandala' BASKET does
+// not make listActions route here). A real token action must carry both.
+import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../mandala/permissionModule'
 import { getOnline } from '../net/online'
 
 /** The toolbox's per-txid verdict on a `sendWith` release. */
@@ -163,6 +170,17 @@ export interface TokenBuildDeps {
   basket?: string
   /** Opaque serialized VerifiableCertificates to carry, if the asset needs any. */
   certificates?: Uint8Array[]
+  /**
+   * This device's own configured overlay for the asset (XR-104), never the
+   * payee's. `buildTokenPaymentFrame` anchors `session.asset`'s
+   * overlayIdentityKey/overlayUrl — the payee's own claim, decoded off the
+   * wire — to these before selecting a coin or revealing any linkage, so a
+   * scanned request cannot direct `revealSpecificKeyLinkage`'s
+   * SpecificKeyLinkage disclosure to a verifier of its own choosing. Required
+   * so the check cannot be silently skipped by a caller that forgets to set it.
+   */
+  overlayIdentityKey: string
+  overlayUrl: string
 }
 
 /**
@@ -528,6 +546,16 @@ async function buildTokenPaymentFrame(
   if (!wallet.createSignature) throw new Error('this wallet cannot sign token inputs')
   if (!wallet.revealSpecificKeyLinkage) throw new Error('this wallet cannot reveal token linkage')
 
+  // XR-104: `asset` is `session.asset` — the PAYEE's own claim, decoded off
+  // the wire with no anchor of its own. Refuse before any coin is selected,
+  // any output built, or any linkage revealed: NearbyFlow's own comparison
+  // (its sole production caller) already refuses this case, but this
+  // exported, documented-single-import-site function must not depend on an
+  // upstream caller remembering to check first.
+  if (asset.overlayIdentityKey !== deps.overlayIdentityKey || asset.overlayUrl !== deps.overlayUrl) {
+    throw new Error('token asset overlay does not match this device’s configured overlay')
+  }
+
   const basket = deps.basket ?? MANDALA_BASKET
   const keyID = `${session.derivationPrefix} ${session.derivationSuffix}`
 
@@ -615,7 +643,7 @@ async function buildTokenPaymentFrame(
       // payee's key over "+0 sats" (2026-09-16). The payee key stays on as a
       // label for the resend path.
       description: note?.trim() || 'Sent token',
-      labels: [PEERPAY_LABEL, session.identityKey, MANDALA_ACTION_LABEL],
+      labels: [PEERPAY_LABEL, session.identityKey, MANDALA_ACTION_LABEL, MANDALA_TOKEN_SPEND_LABEL],
       inputBEEF: sourceBeef.toBinary(),
       inputs: selected.map(coin => ({
         outpoint: coin.outpoint,
@@ -673,7 +701,11 @@ async function buildTokenPaymentFrame(
     const bundle = await assembleBundle({
       tipTx,
       assetId: asset.id,
-      overlayIdentityKey: asset.overlayIdentityKey,
+      // deps.overlayIdentityKey, not asset.overlayIdentityKey (XR-104): the
+      // two are equal here by construction (checked above), but sourcing
+      // from deps means a future refactor that drops or reorders that check
+      // still cannot hand a session-controlled value to the bundle.
+      overlayIdentityKey: deps.overlayIdentityKey,
       store: deps.store
     })
     const tipLinkage = await mintTipLinkage(wallet, {
@@ -681,7 +713,10 @@ async function buildTokenPaymentFrame(
       payeeLinkage: payee.linkage,
       changeKeyID: change > 0 ? changeKeyID : undefined,
       changeCounterparty: identityKey,
-      overlayIdentityKey: asset.overlayIdentityKey,
+      // Same reasoning: this is `revealSpecificKeyLinkage`'s `verifier`, the
+      // exact disclosure target XR-104 is about — it must come from this
+      // device's configuration, never from the payee's request.
+      overlayIdentityKey: deps.overlayIdentityKey,
       originator
     })
 
@@ -697,8 +732,9 @@ async function buildTokenPaymentFrame(
         derivationSuffix: session.derivationSuffix,
         token: {
           assetId: asset.id,
-          overlayUrl: asset.overlayUrl,
-          overlayIdentityKey: asset.overlayIdentityKey,
+          // deps, not asset — see the anchor check and comments above.
+          overlayUrl: deps.overlayUrl,
+          overlayIdentityKey: deps.overlayIdentityKey,
           certificates: deps.certificates ?? [],
           // The tip goes first: it is the one entry every recipient of this frame
           // needs, whatever else the chain behind it looks like.

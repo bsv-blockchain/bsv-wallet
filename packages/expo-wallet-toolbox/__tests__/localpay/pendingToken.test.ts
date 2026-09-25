@@ -17,6 +17,7 @@ import { MandalaToken } from '@bsv/templates'
 import { processPending, savePending, PEERPAY_LABEL, type KVStorage } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../../core/mandala/bundle'
+import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../../core/mandala/permissionModule'
 import { SESSION_VERSION } from '../../core/localpay/session'
 
 const ASSET = 'ab'.repeat(32) + '.0'
@@ -104,6 +105,11 @@ describe('processPending: token credit', () => {
     // received stablecoin rendered as a BSV row — the sender's abbreviated key
     // over "+0 sats" (2026-09-16).
     expect(args.labels).toContain(MANDALA_ACTION_LABEL)
+    // XR-037: also carry the P-routed label (permissionModule.ts's own,
+    // differently-valued, same-named export) so a listActions history query
+    // for this action is gated by MandalaTokenModule's consent prompt instead
+    // of falling through the un-gated generic per-label path.
+    expect(args.labels).toContain(MANDALA_TOKEN_SPEND_LABEL)
   })
 
   it('uses the sender’s note as the description when the token frame carries one', async () => {

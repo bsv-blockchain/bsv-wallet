@@ -73,7 +73,7 @@ describe('settlement ack codec', () => {
 })
 
 describe('readSettlementAck: FIX H', () => {
-  const args = { overlayIdentityKey: OVERLAY_KEY, expectTxid: TXID, verify: yes }
+  const args = { overlayIdentityKey: OVERLAY_KEY, expectTxid: TXID, expectVout: 0, verify: yes }
 
   it('returns the admission when the ack carries one that verifies', async () => {
     const ack = { ok: true, error: encodeSettlementAck(payload()) }
@@ -83,6 +83,22 @@ describe('readSettlementAck: FIX H', () => {
       signature: expect.any(Uint8Array),
       signerKey: OVERLAY_KEY
     })
+  })
+
+  // XR-093: a genuinely-signed admission for the SAME txid that covers only a
+  // sibling output (e.g. the payer's own token change at index 1) must not be
+  // mistaken for admission of the payee's own output (index 0, per
+  // build.ts's hardcoded `outputIndex: 0`). Without a vout check, this signed,
+  // verifying payload is indistinguishable from a real admission of the
+  // payee's output, and the payer's screen would wrongly claim 'sent-settled'.
+  it('refuses a verifying admission that never names the payee’s own output', async () => {
+    const ack = { ok: true, error: encodeSettlementAck(payload({ outputsToAdmit: [1] })) }
+    await expect(readSettlementAck(ack, { ...args, expectVout: 0 })).resolves.toBeUndefined()
+  })
+
+  it('accepts a verifying admission that names the payee’s output among others', async () => {
+    const ack = { ok: true, error: encodeSettlementAck(payload({ outputsToAdmit: [1, 0] })) }
+    await expect(readSettlementAck(ack, { ...args, expectVout: 0 })).resolves.toBeDefined()
   })
 
   it('treats a signature that does not verify as ABSENT, not as a decline', async () => {
@@ -127,13 +143,13 @@ describe('readSettlementAck: FIX H', () => {
     expect(entry?.signerKey).toBe(OVERLAY_KEY)
   })
 
-  it('binds nothing when no txid is expected, but still verifies', async () => {
+  it('binds nothing when no txid is expected, but still verifies and still binds vout', async () => {
     const ack = { ok: true, error: encodeSettlementAck(payload()) }
     await expect(
-      readSettlementAck(ack, { overlayIdentityKey: OVERLAY_KEY, verify: yes })
+      readSettlementAck(ack, { overlayIdentityKey: OVERLAY_KEY, expectVout: 0, verify: yes })
     ).resolves.toBeDefined()
     await expect(
-      readSettlementAck(ack, { overlayIdentityKey: OVERLAY_KEY, verify: no })
+      readSettlementAck(ack, { overlayIdentityKey: OVERLAY_KEY, expectVout: 0, verify: no })
     ).resolves.toBeUndefined()
   })
 })

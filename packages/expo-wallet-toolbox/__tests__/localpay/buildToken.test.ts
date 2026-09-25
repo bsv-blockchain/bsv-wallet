@@ -21,6 +21,7 @@ import {
 import { FRAME_VERSION, decodeFrame, encodeFrame } from '../../core/localpay/codec'
 import { mintSession, type Session } from '../../core/localpay/session'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET, type BundleStore } from '../../core/mandala/bundle'
+import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../../core/mandala/permissionModule'
 import { FT_PROTOCOL_ID } from '../../core/localpay/verify'
 import type { TokenAdmissionRow } from '../../core/mandala/types'
 
@@ -158,8 +159,14 @@ function tokenWallet(coins: Transaction[], signable: { tx: Transaction; beef: nu
   }
 }
 
-function deps(store: BundleStore = emptyStore()): TokenBuildDeps {
-  return { store, lockToPayee: lockToPayee() }
+function deps(store: BundleStore = emptyStore(), over: Partial<TokenBuildDeps> = {}): TokenBuildDeps {
+  return {
+    store,
+    lockToPayee: lockToPayee(),
+    overlayIdentityKey: OVERLAY_KEY,
+    overlayUrl: OVERLAY_URL,
+    ...over
+  }
 }
 
 describe('selectTokenCoins', () => {
@@ -240,6 +247,20 @@ describe('buildPaymentFrame: token path', () => {
     expect(args.labels).toContain(MANDALA_ACTION_LABEL)
     expect(args.labels).toContain(s.identityKey)
     expect(args.description).toBe('Sent token')
+  })
+
+  // XR-037: `bundle.ts`'s MANDALA_ACTION_LABEL ('mandala', the home-screen
+  // row-recognition label) and `permissionModule.ts`'s own same-named export
+  // ('p mandala token-spend', the ONLY thing that P-routes a listActions
+  // query to MandalaTokenModule's consent gate) are two different constants.
+  // A real Mandala action carrying only the former means a paired caller's
+  // listActions history query for this action's metadata never reaches any
+  // consent prompt at all. Every real token createAction must carry BOTH.
+  it('also carries the P-routed label so a listActions query for this action’s history is gated', async () => {
+    const { wallet } = setup()
+    await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())
+    const args = wallet.createAction.mock.calls[0][0] as { labels: string[] }
+    expect(args.labels).toContain(MANDALA_TOKEN_SPEND_LABEL)
   })
 
   it('uses the payer’s note as the description when one is given', async () => {
@@ -375,6 +396,35 @@ describe('buildPaymentFrame: token path', () => {
     for (const call of wallet.revealSpecificKeyLinkage.mock.calls) {
       expect((call[0] as { verifier: string }).verifier).toBe(OVERLAY_KEY)
     }
+  })
+
+  // XR-104: `asset` (== `session.asset`) is the PAYEE's own claim, decoded off
+  // the wire with no anchor check of its own — the only thing that stopped
+  // this before was an ad hoc comparison in the sole UI caller (NearbyFlow),
+  // which this exported, documented-single-import-site function must not
+  // depend on. A payee naming a different overlay identity key must be
+  // refused before any coin is selected, any output built, or any linkage
+  // revealed — never silently handed to `revealSpecificKeyLinkage` as the
+  // verifier.
+  it('refuses a session asset whose overlay identity key does not match this device’s configured overlay', async () => {
+    const { wallet } = setup()
+    const mismatched = deps(undefined, { overlayIdentityKey: '03'.padEnd(66, 'c') })
+    await expect(
+      buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, mismatched)
+    ).rejects.toThrow(/overlay/i)
+    expect(wallet.listOutputs).not.toHaveBeenCalled()
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(wallet.revealSpecificKeyLinkage).not.toHaveBeenCalled()
+    expect(wallet.createSignature).not.toHaveBeenCalled()
+  })
+
+  it('refuses a session asset whose overlay URL does not match, even when the identity key does', async () => {
+    const { wallet } = setup()
+    const mismatched = deps(undefined, { overlayUrl: 'https://attacker.example' })
+    await expect(
+      buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, mismatched)
+    ).rejects.toThrow(/overlay/i)
+    expect(wallet.revealSpecificKeyLinkage).not.toHaveBeenCalled()
   })
 
   it('has no recipientLinkage: v4 removed it', async () => {
