@@ -23,7 +23,7 @@ import {
 } from '@bsv/sdk'
 import type { AppChain } from '../../config'
 import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABEL_PREFIX } from '../counterparty'
-import { isValidBsvAddress } from './index'
+import { addressNetwork, isValidBsvAddress } from './index'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
 
@@ -56,7 +56,9 @@ export function addressRailAvailability(args: {
   recipientRefusal?: (recipient: string) => string | null
 }): AddressRailAvailability {
   if (args.assetId === undefined || args.assetId === '') {
-    return isValidBsvAddress(args.address) ? { kind: 'available' } : { kind: 'unavailable', reason: 'Invalid BSV address' }
+    return isValidBsvAddress(args.address)
+      ? { kind: 'available' }
+      : { kind: 'unavailable', reason: 'Invalid BSV address' }
   }
   const reason = args.recipientRefusal?.(args.address)
   return {
@@ -391,6 +393,13 @@ export async function sendToAddress(args: {
   const sats = Math.round(Number(satoshis))
   if (!Number.isFinite(sats) || sats <= 0) throw new Error('Invalid amount')
   if (!isValidBsvAddress(address)) throw new Error('Invalid BSV address')
+  // XR-057 (SEC2-065): this rail only ever builds a P2PKH lock (see the D4
+  // comment above — P2SH is deliberately unsupported), so a well-formed
+  // base58check address whose version byte names neither mainnet nor a test
+  // chain (e.g. a P2SH `3...` address) must be refused here, as a repo-owned
+  // guarantee, rather than relying on @bsv/sdk's P2PKH.lock() to keep
+  // throwing for a non-P2PKH version byte.
+  if (addressNetwork(address) === undefined) throw new Error('Unsupported address type')
   const lockingScript = new P2PKH().lock(address).toHex()
   // A send-max request carries maxPossibleSatoshis and the wallet rewrites the
   // output to whatever the inputs can fund, so the real figure only exists on

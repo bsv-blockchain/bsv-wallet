@@ -66,7 +66,11 @@ async function p2pkhSpendBeef(payerKeyScalar: number, satoshis: number) {
   const source = new Transaction()
   source.addOutput({ lockingScript: new P2PKH().lock(payerAddress), satoshis: satoshis + 500 })
   const signing = new Transaction()
-  signing.addInput({ sourceTransaction: source, sourceOutputIndex: 0, unlockingScriptTemplate: new P2PKH().unlock(payerKey) })
+  signing.addInput({
+    sourceTransaction: source,
+    sourceOutputIndex: 0,
+    unlockingScriptTemplate: new P2PKH().unlock(payerKey)
+  })
   signing.addOutput({ lockingScript: new P2PKH().lock(ADDRESS), satoshis })
   await signing.sign()
   const tx = Transaction.fromHex(signing.toHex())
@@ -501,6 +505,21 @@ describe('sendToAddress', () => {
     const wallet = { createAction: jest.fn() }
     await expect(
       sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: 'nope', satoshis: 10 })
+    ).rejects.toThrow(/address/i)
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
+  // XR-057 (SEC2-065): the address rail only ever builds a P2PKH lock (see
+  // the D4 comment above — P2SH is deliberately unsupported), so a
+  // structurally valid P2SH address must never reach wallet.createAction.
+  // This used to hold only because @bsv/sdk's own P2PKH.lock() throws for a
+  // non-P2PKH version byte; the guard below makes it a repo-owned guarantee
+  // that does not depend on that upstream internal staying that way.
+  it('XR-057: rejects a well-formed P2SH address before touching the wallet, independent of the SDK', async () => {
+    const P2SH_ADDRESS = '3P14159f73E4gFr7JterCCQh9QjiTjiZrG'
+    const wallet = { createAction: jest.fn() }
+    await expect(
+      sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: P2SH_ADDRESS, satoshis: 10 })
     ).rejects.toThrow(/address/i)
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
