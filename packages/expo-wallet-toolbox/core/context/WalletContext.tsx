@@ -1722,10 +1722,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // admitted (and therefore broadcast) releases inputs that are spent on
         // chain. It reads the settlement store LATE, off `mandalaRef`, because
         // the runtime is built below this line and replaced on every rebuild.
+        //
+        // XR-034: `mandalaEndpoints` (above, static for this build) is the
+        // guard's ONLY "token settlement provably not in use" signal — never
+        // `mandalaRef.current`, whose `undefined` also covers a runtime that
+        // threw or is mid-rebuild, both of which can leave real settlement
+        // rows unreadable rather than absent.
         newManagers.permissionsManager = guardVaultAccess(
           wrapAbortActionForSettlements(
             wrapCreateActionForTokenInputs(permissionsManager, listMandalaTokenOutpoints, adminOriginator),
-            () => mandalaRef.current?.store
+            () => mandalaRef.current?.store,
+            () => mandalaEndpoints !== undefined
           ),
           adminOriginator
         )

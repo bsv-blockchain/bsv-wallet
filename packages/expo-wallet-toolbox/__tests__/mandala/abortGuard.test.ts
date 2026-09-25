@@ -131,7 +131,7 @@ describe('wrapAbortActionForSettlements', () => {
     it(`refuses an abort whose reference names a '${state}' settlement`, async () => {
       await rowInState(state)
       const { manager, abortAction } = managerWith()
-      const wrapped = wrapAbortActionForSettlements(manager, () => store)
+      const wrapped = wrapAbortActionForSettlements(manager, () => store, () => true)
 
       await expect(wrapped.abortAction({ reference: REFERENCE }, 'admin.example')).resolves.toEqual({ aborted: false })
       // The load-bearing assertion: the real abort never ran, so the inputs
@@ -146,7 +146,7 @@ describe('wrapAbortActionForSettlements', () => {
     it(`lets an abort through for a '${state}' settlement — those inputs SHOULD come back`, async () => {
       await rowInState(state)
       const { manager, abortAction } = managerWith()
-      const wrapped = wrapAbortActionForSettlements(manager, () => store)
+      const wrapped = wrapAbortActionForSettlements(manager, () => store, () => true)
 
       await expect(wrapped.abortAction({ reference: REFERENCE }, 'admin.example')).resolves.toEqual({ aborted: true })
       expect(abortAction).toHaveBeenCalledWith({ reference: REFERENCE }, 'admin.example')
@@ -156,44 +156,109 @@ describe('wrapAbortActionForSettlements', () => {
   it('lets an unknown reference through — every plain BSV abort in the wallet is one', async () => {
     await rowInState('admitted')
     const { manager, abortAction } = managerWith()
-    const wrapped = wrapAbortActionForSettlements(manager, () => store)
+    const wrapped = wrapAbortActionForSettlements(manager, () => store, () => true)
 
     await expect(wrapped.abortAction({ reference: 'a-bsv-payment' })).resolves.toEqual({ aborted: true })
     expect(abortAction).toHaveBeenCalledTimes(1)
   })
 
-  it('fails OPEN when the store is unavailable or throws — one bad read must not strand the wallet', async () => {
-    const { manager, abortAction } = managerWith()
+  // XR-034 (SEC1-024 / SEC2-038). The store lookup, the legacy-row check, and
+  // a missing runtime on a Mandala-capable chain all used to fail OPEN — a
+  // read fault or "no runtime right now" was treated as "safe to abort",
+  // which is backwards: none of these are evidence that no token payment is
+  // in flight, only that this call cannot currently tell. XR-034 replaces
+  // that with fail CLOSED, gated only on whether a blocking row could ever
+  // have existed at all (`tokenSettlementPossible`).
+  describe('XR-034: fails CLOSED whenever a blocking row could exist but cannot be read', () => {
+    it('XR-034: refuses when the settlement lookup throws', async () => {
+      const { manager, abortAction } = managerWith()
+      const throwing = wrapAbortActionForSettlements(
+        manager,
+        () => ({
+          getSettlementByReference: async () => {
+            throw new Error('database is not open')
+          },
+          hasUnresolvedLegacyBlockedRows: async () => false
+        }),
+        () => true
+      )
 
-    const noStore = wrapAbortActionForSettlements(manager, () => undefined)
-    await expect(noStore.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: true })
+      await expect(throwing.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: false })
+      // The load-bearing assertion: a lookup fault must never reach the real
+      // abort, or a handed-over/admitted/broadcast token's inputs could be
+      // released out from under it.
+      expect(abortAction).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalled()
+    })
 
-    const throwing = wrapAbortActionForSettlements(manager, () => ({
-      getSettlementByReference: async () => {
-        throw new Error('database is not open')
-      },
-      hasUnresolvedLegacyBlockedRows: async () => false
-    }))
-    await expect(throwing.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: true })
-    expect(abortAction).toHaveBeenCalledTimes(2)
+    it('XR-034: refuses when hasUnresolvedLegacyBlockedRows throws', async () => {
+      await rowInState('built') // getSettlementByReference resolves cleanly with a non-blocking row
+      const { manager, abortAction } = managerWith()
+      const throwingLegacyCheck = wrapAbortActionForSettlements(
+        manager,
+        () => ({
+          getSettlementByReference: store.getSettlementByReference.bind(store),
+          hasUnresolvedLegacyBlockedRows: async () => {
+            throw new Error('index corrupt')
+          }
+        }),
+        () => true
+      )
+
+      await expect(throwingLegacyCheck.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: false })
+      expect(abortAction).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalled()
+    })
+
+    it('XR-034: refuses when settlements() is undefined and this chain can carry token payments — the runtime may simply not be built yet, or be mid-rebuild', async () => {
+      const { manager, abortAction } = managerWith()
+      const noRuntimeYet = wrapAbortActionForSettlements(manager, () => undefined, () => true)
+
+      await expect(noRuntimeYet.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: false })
+      expect(abortAction).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalled()
+    })
+
+    it('XR-034: allows abort when settlements() is undefined but this chain never had Mandala configured — no row could ever have been written', async () => {
+      const { manager, abortAction } = managerWith()
+      const neverConfigured = wrapAbortActionForSettlements(manager, () => undefined, () => false)
+
+      await expect(neverConfigured.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: true })
+      expect(abortAction).toHaveBeenCalledWith({ reference: REFERENCE }, undefined)
+    })
+
+    it('XR-034: readable-no-row control — a plain BSV abort still succeeds when the store answers and has nothing blocking', async () => {
+      await rowInState('admitted') // a row exists, but for a DIFFERENT reference
+      const { manager, abortAction } = managerWith()
+      const wrapped = wrapAbortActionForSettlements(manager, () => store, () => true)
+
+      await expect(wrapped.abortAction({ reference: 'a-bsv-payment' })).resolves.toEqual({ aborted: true })
+      expect(abortAction).toHaveBeenCalledWith({ reference: 'a-bsv-payment' }, undefined)
+    })
   })
 
-  it('reads the store LATE, so a rebuilt wallet is guarded by its own tables', async () => {
+  it('reads the store LATE, so a rebuild is guarded throughout — before AND after its own tables exist', async () => {
     await rowInState('admitted')
     let current: SettlementStore | undefined
     const { manager, abortAction } = managerWith()
-    const wrapped = wrapAbortActionForSettlements(manager, () => current)
+    // XR-034: while the runtime has not been (re)built yet, this chain is
+    // still Mandala-capable, so `settlements() === undefined` must refuse —
+    // exactly the window a rebuild's stale ref passes through in production.
+    const wrapped = wrapAbortActionForSettlements(manager, () => current, () => true)
 
-    // Built before the runtime exists — exactly the order WalletContext wires.
-    await expect(wrapped.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: true })
+    await expect(wrapped.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: false })
+    expect(abortAction).not.toHaveBeenCalled()
+    // The runtime finishes rebuilding and the ref now resolves to a real
+    // store — late binding picks that up, and the row it finds (still
+    // 'admitted') keeps the abort refused, now for a fully evidenced reason.
     current = store
     await expect(wrapped.abortAction({ reference: REFERENCE })).resolves.toEqual({ aborted: false })
-    expect(abortAction).toHaveBeenCalledTimes(1)
+    expect(abortAction).not.toHaveBeenCalled()
   })
 
   it('passes every other method and property straight through', async () => {
     const { manager } = managerWith()
-    const wrapped = wrapAbortActionForSettlements(manager, () => store)
+    const wrapped = wrapAbortActionForSettlements(manager, () => store, () => true)
     await wrapped.createAction!({} as never)
     expect(manager.createAction).toHaveBeenCalledTimes(1)
     expect(wrapped.marker).toBe(7)
@@ -216,7 +281,7 @@ describe('wrapAbortActionForSettlements', () => {
       .run(TXID, 'sent', `${'ee'.repeat(32)}.0`, 'handed_over', 'https://overlay.issuer.example', OVERLAY_KEY, 'n', 'n')
 
     const { manager, abortAction } = managerWith()
-    const wrapped = wrapAbortActionForSettlements(manager, () => store)
+    const wrapped = wrapAbortActionForSettlements(manager, () => store, () => true)
 
     // A reference that names some OTHER, unrelated action — the legacy row
     // has none to match against, which is exactly the gap.
@@ -239,7 +304,7 @@ describe('wrapAbortActionForSettlements', () => {
     raw.prepare('UPDATE token_settlements SET reference = ? WHERE txid = ?').run(REFERENCE, TXID)
 
     const { manager, abortAction } = managerWith()
-    const wrapped = wrapAbortActionForSettlements(manager, () => store)
+    const wrapped = wrapAbortActionForSettlements(manager, () => store, () => true)
 
     await expect(wrapped.abortAction({ reference: 'some-unrelated-action-reference' })).resolves.toEqual({
       aborted: true

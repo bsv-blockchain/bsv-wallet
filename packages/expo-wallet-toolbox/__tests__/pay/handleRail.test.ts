@@ -994,6 +994,38 @@ describe('cancelOutboxPayment', () => {
     expect(await getOutboxEntries(s)).toHaveLength(1)
   })
 
+  it('XR-034: abandon keeps the entry when abortAction resolves { aborted: false } without throwing', async () => {
+    // The XR-034 guard (abortGuard.ts) refuses a token abort by RESOLVING
+    // `{ aborted: false }`, never by throwing — abortPeerPayNosend must read
+    // that field itself rather than assuming any non-throwing call released
+    // the reservation. Before the fix this test would have removed the
+    // outbox row (the only record protecting a later generic abort) even
+    // though the underlying wallet action was never actually aborted.
+    const s = fakeStorage()
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    const w = fakeWallet()
+    w.listActions = jest.fn().mockResolvedValue({ actions: [{ txid: 'aa', reference: 'r' }] })
+    w.abortAction = jest.fn().mockResolvedValue({ aborted: false })
+    const id = await saveOutboxEntry(s, {
+      recipient: KEY,
+      token: { customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, transaction: [1], amount: 1 },
+      messageBoxUrl: 'https://mb',
+      txid: 'aa'
+    })
+    await updateOutboxEntry(s, id, { delivered: true })
+    const entry = (await getOutboxEntries(s))[0]
+    const result = await cancelOutboxPayment({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      storage: s,
+      entry,
+      client: { sendMessage } as never,
+      mode: 'abandon'
+    })
+    expect(result.aborted).toBe(false)
+    expect(await getOutboxEntries(s)).toHaveLength(1)
+  })
+
   it('abandon does not remove the entry when payment_cancelled cannot be sent', async () => {
     const s = fakeStorage()
     const sendMessage = jest.fn().mockRejectedValue(new Error('offline'))

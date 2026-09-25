@@ -83,6 +83,33 @@ export type SettlementStoreLookup = () =>
   | undefined
 
 /**
+ * Whether a token payment could exist on THIS wallet build at all — read LATE,
+ * for the same reason `settlements` is, and answering ONLY the question of
+ * whether the current chain's configuration could ever have written a
+ * `token_settlements` row.
+ *
+ * XR-034 (SEC1-024 / SEC2-038). `settlements()` answering `undefined` is not
+ * one fact. WalletContext.tsx wires it to `() => mandalaRef.current?.store`,
+ * and `mandalaRef.current` reads `undefined` in situations that mean opposite
+ * things for safety:
+ *   1. This chain has no Mandala endpoints at all — `createRuntime.ts`'s
+ *      `available` (`endpoints !== undefined && db !== undefined`) is false by
+ *      construction, so no token action has ever existed here, or ever can.
+ *   2. `createMandalaRuntime` THREW while endpoints exist (WalletContext.tsx's
+ *      catch around the construction), or a network switch/rebuild has
+ *      cleared the ref ahead of the new build's runtime replacing it. Either
+ *      way the chain's own storage may still carry a `handed_over`/`held`/
+ *      `submitting`/`admitted`/`broadcast` row from a previous build; this
+ *      call simply cannot see it right now.
+ *
+ * Only case 1 licenses treating `undefined` as "no row, safe". WalletContext.tsx
+ * wires this to `() => mandalaEndpoints !== undefined` — a static fact of the
+ * chain's own configuration that does not fluctuate with runtime construction,
+ * build failures, or rebuild timing the way `mandalaRef.current` does.
+ */
+export type TokenSettlementPossible = () => boolean
+
+/**
  * Wrap `abortAction` so an action that built a token transaction the overlay
  * may already have cannot release its inputs.
  *
@@ -91,11 +118,18 @@ export type SettlementStoreLookup = () =>
  * so the published object is still the one the guard's own re-wrap dedup
  * recognises. Every other method and property passes through untouched.
  *
- * **Fails OPEN on a lookup fault.** A database that will not answer is not
- * evidence that a payment is in flight, and refusing every abort in the wallet
- * because one read threw would strand inputs across the whole app — including
- * for plain BSV payments this guard has no business touching. The read is
- * cheap, indexed, and asked only of `abortAction`.
+ * **XR-034: fails CLOSED on anything but a definitive "no".** A database that
+ * will not answer, a settlement runtime that has not been built yet, and one
+ * mid-rebuild are all indistinguishable from "a payment is in flight" — they
+ * are exactly the moments this device can least tell, which is the opposite of
+ * evidence that releasing inputs is safe. Refusing the abort in that window
+ * costs a retry (every caller already treats `{ aborted: false }` as "did not
+ * release, try again" — see `queueFailedAbort`); wrongly granting it costs a
+ * double spend. The one shape that still passes through when `settlements()`
+ * answers `undefined` is `tokenSettlementPossible()` reporting false: a chain
+ * with no Mandala configuration at all, where a blocking row could never have
+ * been written and refusing every plain BSV abort forever would be its own
+ * outage.
  *
  * **XR-033, a second and coarser check.** A row that predates the `reference`
  * column (or whose backfill at migration time could not resolve one — see
@@ -105,30 +139,51 @@ export type SettlementStoreLookup = () =>
  * invisible to it no matter which action is being aborted. `hasUnresolvedLegacyBlockedRows`
  * asks the coarser question instead: does ANY such row exist at all. It only
  * ever narrows an abort from allowed to refused, never the reverse, and (like
- * the lookup above) fails OPEN on its own read fault for the same reason.
+ * the lookup above) now fails CLOSED on its own read fault, for the same
+ * reason.
  */
 export function wrapAbortActionForSettlements<T extends AbortableManager>(
   manager: T,
-  settlements: SettlementStoreLookup
+  settlements: SettlementStoreLookup,
+  tokenSettlementPossible: TokenSettlementPossible
 ): T {
   return new Proxy(manager, {
     get(target, prop, receiver) {
       if (prop === 'abortAction') {
         return async (args: { reference: string }, originator?: string) => {
-          const row = await lookupSettlement(settlements, args?.reference)
-          if (abortIsBlockedBy(row)) {
-            console.warn(
-              `[mandala] refusing to abort ${row!.txid}: its settlement is '${row!.state}', ` +
-                'so releasing these inputs would double spend a transaction the overlay may already have'
-            )
-            return { aborted: false }
+          const store = settlements()
+          if (!store) {
+            if (tokenSettlementPossible()) {
+              console.warn(
+                '[mandala] refusing to abort: token settlement state is unavailable right now ' +
+                  '(the runtime is not built, is rebuilding, or its store could not be reached) and this ' +
+                  'chain can carry token payments — releasing inputs could double spend one the overlay already has'
+              )
+              return { aborted: false }
+            }
+            // No Mandala endpoints on this chain: a blocking row could never
+            // have been written, so this is a plain BSV abort like any other.
+            return await target.abortAction(args, originator)
           }
-          if (await hasUnresolvedLegacyBlockedRow(settlements)) {
-            console.warn(
-              '[mandala] refusing to abort: an unresolved legacy settlement row exists with no reference to ' +
-                'match against — releasing any inputs while it is unresolved risks double spending a token ' +
-                'payment that row already has a claim on'
-            )
+          try {
+            const row = await lookupSettlement(store, args?.reference)
+            if (abortIsBlockedBy(row)) {
+              console.warn(
+                `[mandala] refusing to abort ${row!.txid}: its settlement is '${row!.state}', ` +
+                  'so releasing these inputs would double spend a transaction the overlay may already have'
+              )
+              return { aborted: false }
+            }
+            if (await hasUnresolvedLegacyBlockedRow(store)) {
+              console.warn(
+                '[mandala] refusing to abort: an unresolved legacy settlement row exists with no reference to ' +
+                  'match against — releasing any inputs while it is unresolved risks double spending a token ' +
+                  'payment that row already has a claim on'
+              )
+              return { aborted: false }
+            }
+          } catch (e) {
+            console.warn('[mandala] refusing to abort: could not read this action\'s settlement state:', e)
             return { aborted: false }
           }
           return await target.abortAction(args, originator)
@@ -141,23 +196,15 @@ export function wrapAbortActionForSettlements<T extends AbortableManager>(
 }
 
 async function lookupSettlement(
-  settlements: SettlementStoreLookup,
+  store: Pick<SettlementStore, 'getSettlementByReference'>,
   reference: string | undefined
 ): Promise<TokenSettlementRow | undefined> {
   if (!reference) return undefined
-  try {
-    return await settlements()?.getSettlementByReference(reference)
-  } catch (e) {
-    console.warn('[mandala] could not check the settlement of an aborted action; allowing the abort:', e)
-    return undefined
-  }
+  return await store.getSettlementByReference(reference)
 }
 
-async function hasUnresolvedLegacyBlockedRow(settlements: SettlementStoreLookup): Promise<boolean> {
-  try {
-    return (await settlements()?.hasUnresolvedLegacyBlockedRows()) ?? false
-  } catch (e) {
-    console.warn('[mandala] could not check for unresolved legacy settlement rows; allowing the abort:', e)
-    return false
-  }
+async function hasUnresolvedLegacyBlockedRow(
+  store: Pick<SettlementStore, 'hasUnresolvedLegacyBlockedRows'>
+): Promise<boolean> {
+  return await store.hasUnresolvedLegacyBlockedRows()
 }

@@ -776,7 +776,8 @@ describe('sendToHandle', () => {
 
     const wrapped = wrapAbortActionForSettlements(
       { abortAction: async (_args: { reference: string }) => ({ aborted: true }) },
-      () => runtime.store
+      () => runtime.store,
+      () => true
     )
     expect(await wrapped.abortAction({ reference })).toEqual({ aborted: false })
   })
