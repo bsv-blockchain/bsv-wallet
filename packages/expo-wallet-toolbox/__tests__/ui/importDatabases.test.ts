@@ -167,7 +167,7 @@ jest.mock('expo-document-picker', () => ({
 // ── AlertCard / Toast ────────────────────────────────────────────────────────
 
 let mockAlertChoice = 'import'
-const mockShowAlert = jest.fn(async () => mockAlertChoice)
+const mockShowAlert = jest.fn(async (..._args: unknown[]) => mockAlertChoice)
 const mockShowToast = jest.fn()
 jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: (...a: unknown[]) => mockShowAlert(...a) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...a: unknown[]) => mockShowToast(...a) }))
