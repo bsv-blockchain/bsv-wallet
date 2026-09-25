@@ -12,10 +12,11 @@
  *
  * Plan 1's r1comb.ts must exist.
  */
-import { Beef, CompletedProtoWallet, Hash, KeyDeriver, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
+import { Beef, CompletedProtoWallet, Hash, KeyDeriver, LockingScript, OP, P2PKH, PrivateKey, PublicKey, Script, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { sdk as toolboxSdk } from '@bsv/wallet-toolbox-mobile'
 import {
+  MAX_DESCRIPTOR_CIPHERTEXT_BYTES,
   R1C_LOCK_LEN,
   R1C_UNLOCK_LEN,
   bakedCommitments,
@@ -206,15 +207,19 @@ beforeEach(async () => {
         return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'sending' }] }
       }
       if (args?.labels?.includes('vault-deposit')) {
-        const requested = args.outputs[0]
+        // v7 deposits build THREE explicit outputs (vault, marker, descriptor);
+        // fund and pass every one of them through in order, plus one implicit
+        // P2PKH change output, exactly as the real wallet-core layer would.
+        const explicit = args.outputs as { satoshis: number; lockingScript: string }[]
+        const explicitTotal = explicit.reduce((sum, o) => sum + o.satoshis, 0)
         const fund = new Transaction()
         fund.addOutput({
-          satoshis: requested.satoshis + 10_000,
+          satoshis: explicitTotal + 10_000,
           lockingScript: new P2PKH().lock(Utils.toArray('55'.repeat(20), 'hex'))
         })
         const tx = new Transaction(args.version ?? 1)
         tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
-        tx.addOutput({ satoshis: requested.satoshis, lockingScript: LockingScript.fromHex(requested.lockingScript) })
+        for (const o of explicit) tx.addOutput({ satoshis: o.satoshis, lockingScript: LockingScript.fromHex(o.lockingScript) })
         tx.addOutput({ satoshis: 9_500, lockingScript: new P2PKH().lock(Utils.toArray('66'.repeat(20), 'hex')) })
         lastSignable = tx
         return { signableTransaction: { tx: tx.toAtomicBEEF(), reference: 'deposit-ref' } }
@@ -547,13 +552,18 @@ describe('depositToVault', () => {
     // growth for 'vault-deposit', keeping the deposit shape minimal.
     expect(args.labels).toEqual(['vault', 'vault-deposit'])
     expect(args.options).toEqual({ randomizeOutputs: false, noSend: true, signAndProcess: false })
-    expect(args.outputs).toHaveLength(1)
+    // v7: vault output, then its marker and descriptor, in that order.
+    expect(args.outputs).toHaveLength(3)
     expect(args.outputs[0]).toMatchObject({
       satoshis: 250_000,
       basket: VAULT_BASKET,
       outputDescription: 'Vault deposit',
       tags: ['vault']
     })
+    expect(args.outputs[1].satoshis).toBe(1)
+    expect(args.outputs[1].basket).toBeUndefined()
+    expect(args.outputs[2].satoshis).toBe(0)
+    expect(args.outputs[2].basket).toBeUndefined()
 
     expect(wallet.signAction).toHaveBeenCalledWith(
       { reference: 'deposit-ref', spends: {}, options: { noSend: true } },
@@ -908,7 +918,7 @@ describe('depositToVault', () => {
     expect(clear).toHaveBeenCalled()
   })
 
-  it('bakes a wallet-derived HMAC salt and every enrolled key into a v6 recovery record', async () => {
+  it('bakes a wallet-derived HMAC salt and every enrolled key into a v7 recovery record with no salt at rest', async () => {
     await seedMeta()
     await depositToVault(wallet, ADMIN, 250_000)
     const out = depositArgs().outputs[0]
@@ -918,12 +928,12 @@ describe('depositToVault', () => {
 
     const ci = decodeVaultInstructions(out.customInstructions)!
     expect(ci).not.toBeNull()
-    expect(ci.v).toBe(6)
+    expect(ci.v).toBe(7)
     expect(ci.type).toBe('R1C')
-    expect(ci.salt).toMatch(/^[0-9a-f]{64}$/)
-    expect(ci.salt).toBe(fixtureSalt(1, ['A-1', 'B-1']).salt)
+    expect(ci).not.toHaveProperty('salt')
     expect(ci.chain).toBe('test')
     expect(ci.saltKeyId).toBe('1')
+    const expectedSalt = fixtureSalt(1, ['A-1', 'B-1']).salt
     expect(wallet.createHmac).toHaveBeenCalledWith({
       protocolID: [2, 'vault salt'],
       keyID: ci.saltKeyId,
@@ -935,12 +945,13 @@ describe('depositToVault', () => {
     expect(ci.keys).toEqual([KEY_A, KEY_B]) // commitment order = meta order
 
     // The lock really bakes both salted commitments, in that order, without
-    // revealing the salt carried by the recovery record.
+    // the salt (or any derivation of it) appearing anywhere in the record.
     expect(bakedCommitments(LockingScript.fromHex(out.lockingScript))).toEqual([
-      commitment(PUB_A, ci.salt),
-      commitment(PUB_B, ci.salt)
+      commitment(PUB_A, expectedSalt),
+      commitment(PUB_B, expectedSalt)
     ])
-    expect(out.lockingScript).not.toContain(ci.salt)
+    expect(out.lockingScript).not.toContain(expectedSalt)
+    expect(out.customInstructions).not.toContain(expectedSalt)
   })
 
   it('rolls the deterministic derivation index and produces a distinct salt and script', async () => {
@@ -964,13 +975,11 @@ describe('depositToVault', () => {
       .filter((a: any) => a.labels?.includes('vault-deposit'))
       .map((a: any) => a.outputs[0])
     const records = outs.map((o: any) => decodeVaultInstructions(o.customInstructions)!)
-    const salts = records.map(ci => ci.salt)
     expect(records.map(ci => Number(ci.saltKeyId))).toEqual([1, 2])
-    expect(salts[0]).not.toBe(salts[1])
     expect(outs[0].lockingScript).not.toBe(outs[1].lockingScript)
   })
 
-  it('allows the same mnemonic, numeric key ID, and YubiKey set to reuse a salt across networks', async () => {
+  it('allows the same mnemonic, numeric key ID, and YubiKey set to reuse a salt (and lock) across networks, but NOT the marker/descriptor address', async () => {
     await seedMeta()
     await depositToVault(wallet, ADMIN, 250_000)
 
@@ -978,17 +987,82 @@ describe('depositToVault', () => {
     await seedMeta()
     await depositToVault(wallet, ADMIN, 250_000)
 
-    const outputs = wallet.createAction.mock.calls
+    const deposits = wallet.createAction.mock.calls
       .map(([args]) => args)
       .filter(args => args.labels?.includes('vault-deposit'))
-      .map(args => args.outputs[0])
+    const outputs = deposits.map(args => args.outputs[0])
     const [testRecord, mainRecord] = outputs.map(output =>
       decodeVaultInstructions(output.customInstructions)!
     )
-    expect(testRecord).toMatchObject({ saltKeyId: '1', chain: 'test' })
-    expect(mainRecord).toMatchObject({ saltKeyId: '1', chain: 'main' })
-    expect(mainRecord.salt).toBe(testRecord.salt)
+    expect(testRecord).toMatchObject({ v: 7, saltKeyId: '1', chain: 'test' })
+    expect(mainRecord).toMatchObject({ v: 7, saltKeyId: '1', chain: 'main' })
+    // The 'vault salt' HMAC is chain-agnostic (unchanged, SALT-04's accepted
+    // residual) — same salt, so the same lock script on both networks.
     expect(outputs[1].lockingScript).toBe(outputs[0].lockingScript)
+    // The marker/descriptor keyID folds chain in — unlike the salt — so the
+    // two networks derive UNRELATED marker addresses despite the identical
+    // serial set and index, closing the address-reuse regression the design
+    // review flagged (design v7 §1.2 item 2).
+    const [testMarker, mainMarker] = deposits.map(args => args.outputs[1].lockingScript)
+    expect(mainMarker).not.toBe(testMarker)
+    const [testDescriptor, mainDescriptor] = deposits.map(args => args.outputs[2].lockingScript)
+    expect(mainDescriptor).not.toBe(testDescriptor)
+  })
+
+  // Commit 4 of the v7 plan: golden-byte shape for the marker and descriptor
+  // outputs a v7 deposit creates alongside the vault output.
+  // N=1 is a valid R1C lock size (see r1comb/proofBar tests) but not reachable
+  // here: the wallet's own business rule requires at least VAULT_MIN_KEYS (2)
+  // enrolled keys before a vault is usable at all.
+  it.each([2, 3])('creates [vault, marker, descriptor] in that order for N=%i, with a byte-exact deterministic marker and a decryptable descriptor', async n => {
+    const keys = [KEY_A, KEY_B, KEY_C].slice(0, n)
+    await seedMeta(keys)
+    await depositToVault(wallet, ADMIN, 250_000)
+    const outs = depositArgs().outputs
+    expect(outs).toHaveLength(3)
+
+    const vaultCi = decodeVaultInstructions(outs[0].customInstructions)!
+    expect(vaultCi.v).toBe(7)
+    expect(Utils.toArray(outs[0].lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(n))
+
+    // Marker: a deterministic function of (root, chain, saltKeyId) alone —
+    // independently re-derived here (not read off the deposit) and compared
+    // byte-exact, proving nothing but the wallet root + chain + index is
+    // needed to reproduce it (the literal claim chain recovery depends on).
+    const { publicKey: expectedMarkerPub } = await CRYPTO_WALLET.getPublicKey({
+      protocolID: [2, 'vault marker'],
+      keyID: `test:${vaultCi.saltKeyId}`,
+      counterparty: 'self'
+    })
+    const expectedMarkerScript = new P2PKH().lock(PublicKey.fromString(expectedMarkerPub).toAddress()).toHex()
+    expect(outs[1]).toMatchObject({ satoshis: 1, lockingScript: expectedMarkerScript })
+    expect(outs[1].basket).toBeUndefined()
+    expect(outs[1].customInstructions).toBeUndefined()
+
+    // Descriptor: OP_FALSE OP_RETURN <'r1c7'> <ciphertext>, basketless,
+    // 0-sat, and decrypts back to EXACTLY the vault output's own v7 record.
+    expect(outs[2].satoshis).toBe(0)
+    expect(outs[2].basket).toBeUndefined()
+    const descriptorScript = LockingScript.fromHex(outs[2].lockingScript)
+    // @bsv/sdk's chunk parser captures everything after OP_RETURN as one raw
+    // blob on that chunk (see buildVaultDescriptorScript); the tag and
+    // ciphertext are push-encoded within it.
+    expect(descriptorScript.chunks).toHaveLength(2)
+    expect(descriptorScript.chunks[0].op).toBe(OP.OP_FALSE)
+    expect(descriptorScript.chunks[1].op).toBe(OP.OP_RETURN)
+    const inner = Script.fromBinary(descriptorScript.chunks[1].data!).chunks
+    expect(inner).toHaveLength(2)
+    expect(Utils.toUTF8(inner[0].data!)).toBe('r1c7')
+    const ciphertext = inner[1].data!
+    expect(ciphertext.length).toBeGreaterThan(0)
+    expect(ciphertext.length).toBeLessThanOrEqual(MAX_DESCRIPTOR_CIPHERTEXT_BYTES)
+    const { plaintext } = await CRYPTO_WALLET.decrypt({
+      ciphertext,
+      protocolID: [2, 'vault descriptor'],
+      keyID: `test:${vaultCi.saltKeyId}`,
+      counterparty: 'self'
+    })
+    expect(JSON.parse(Utils.toUTF8(plaintext))).toEqual(JSON.parse(outs[0].customInstructions))
   })
 
   it('frames concatenated YubiKey serials so different lists cannot share HMAC data', () => {
@@ -1352,7 +1426,26 @@ describe('depositToVault', () => {
 
     it('rejects unreasonable fee burn', async () => {
       await seedMeta()
-      tamperNextSignable(tx => { tx.outputs[1].satoshis = 1 })
+      // outputs[3] is the implicit wallet change (0=vault, 1=marker, 2=descriptor).
+      tamperNextSignable(tx => { tx.outputs[3].satoshis = 1 })
+      await expectDepositRejected()
+    })
+
+    // Commit 5 of the v7 plan: the marker and descriptor are pinned byte-exact
+    // the same way the vault output always was — a wallet-core-level
+    // substitution of either is an availability regression (a future
+    // recovery couldn't find/decrypt the real one), not a spend-authority
+    // break (output 0 stays independently pinned either way), but it must
+    // not happen silently.
+    it('rejects a substituted marker script', async () => {
+      await seedMeta()
+      tamperNextSignable(tx => { tx.outputs[1].lockingScript = new P2PKH().lock(Utils.toArray('99'.repeat(20), 'hex')) })
+      await expectDepositRejected()
+    })
+
+    it('rejects a substituted descriptor script', async () => {
+      await seedMeta()
+      tamperNextSignable(tx => { tx.outputs[2].lockingScript = new P2PKH().lock(Utils.toArray('9a'.repeat(20), 'hex')) })
       await expectDepositRejected()
     })
 
@@ -1715,9 +1808,10 @@ describe('withdrawFromVault', () => {
 
     const r = await withdrawFromVault(wallet, ADMIN, 100_000, 'Withdraw', 'A-1')
     expect(r.txid).toBe(lastSignable!.id('hex'))
-    // One re-vault remainder plus the whole split, and the 4,815-satoshi fee
-    // the real attempt carried stays inside the ceiling.
-    expect(lastSignable!.outputs).toHaveLength(1 + split.length)
+    // The re-vault remainder's [vault, marker, descriptor] plus the whole
+    // split, and the 4,815-satoshi fee the real attempt carried stays inside
+    // the ceiling.
+    expect(lastSignable!.outputs).toHaveLength(3 + split.length)
     expect(lastSignable!.outputs[0].satoshis).toBe(400_000)
     expect(split.reduce((a, b) => a + b, 0)).toBe(95_185)
   }, 60_000)
@@ -1953,16 +2047,20 @@ describe('withdrawFromVault', () => {
     await withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')
 
     const [caArgs] = wallet.createAction.mock.calls[0]
-    expect(caArgs.outputs).toHaveLength(1)
+    // v7: the re-vaulted output, its marker, and its descriptor.
+    expect(caArgs.outputs).toHaveLength(3)
     const out = caArgs.outputs[0]
     expect(out).toMatchObject({ satoshis: 400_000, basket: VAULT_BASKET, outputDescription: 'Vault change', tags: ['vault'] })
     expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
     const ci = decodeVaultInstructions(out.customInstructions)!
     expect(ci.keys).toEqual([KEY_A, KEY_B, KEY_C])
-    expect(fx.map(f => f.salt)).not.toContain(ci.salt)
+    const expectedSalt = fixtureSalt(Number(ci.saltKeyId), ['A-1', 'B-1', 'C-1']).salt
+    expect(fx.map(f => f.salt)).not.toContain(expectedSalt)
     expect(bakedCommitments(LockingScript.fromHex(out.lockingScript))).toEqual(
-      [PUB_A, PUB_B, KEY_C.pubkey].map(pk => commitment(pk, ci.salt))
+      [PUB_A, PUB_B, KEY_C.pubkey].map(pk => commitment(pk, expectedSalt))
     )
+    expect(caArgs.outputs[1].satoshis).toBe(1)
+    expect(caArgs.outputs[2].satoshis).toBe(0)
     validateSpends(fx)
   }, 60_000)
 
@@ -2553,11 +2651,14 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
 // ── re-lock (spec §4.3) ───────────────────────────────────────────────────
 
 describe('estimateRelockFee', () => {
-  it('is ceil(size/1000)·satPerKb·1.1 over the declared unlock length and the new lock, computed without float drift', () => {
-    expect(estimateRelockFee(1, R1C_LOCK_LEN(2))).toBe(5280)
-    expect(estimateRelockFee(32, R1C_LOCK_LEN(3))).toBe(14190)
-    expect(estimateRelockFee(1, R1C_LOCK_LEN(2), 50)).toBe(2640)
-    expect(estimateRelockFee(0, R1C_LOCK_LEN(2))).toBe(5060)
+  it('is ceil(size/1000)·satPerKb·1.1 over the declared unlock length, the new lock, and the v7 marker+descriptor outputs, computed without float drift', () => {
+    // Figures include VAULT_MARKER_OUTPUT_BYTES (36 B) and
+    // VAULT_MAX_DESCRIPTOR_OUTPUT_BYTES (2,221 B, priced at the hard
+    // MAX_DESCRIPTOR_CIPHERTEXT_BYTES cap) that every v7 re-lock now carries.
+    expect(estimateRelockFee(1, R1C_LOCK_LEN(2))).toBe(5610)
+    expect(estimateRelockFee(32, R1C_LOCK_LEN(3))).toBe(14410)
+    expect(estimateRelockFee(1, R1C_LOCK_LEN(2), 50)).toBe(2805)
+    expect(estimateRelockFee(0, R1C_LOCK_LEN(2))).toBe(5280)
   })
 })
 
@@ -2584,21 +2685,24 @@ describe('relockVault', () => {
     }
     expect(caArgs.options).toEqual({ randomizeOutputs: false, acceptDelayedBroadcast: false, trustSelf: 'known' })
 
-    // ONE output: the whole accumulated value minus the fee reserve, back into
-    // the vault under the current three keys. No second output — the fake
-    // cannot observe the default-basket surplus, but it can observe that no
-    // withdrawal output was asked for.
-    expect(caArgs.outputs).toHaveLength(1)
+    // The re-locked vault output plus its marker and descriptor: the whole
+    // accumulated value minus the fee reserve, back into the vault under the
+    // current three keys. No withdrawal output — the fake cannot observe the
+    // default-basket surplus, but it can observe that none was asked for.
+    expect(caArgs.outputs).toHaveLength(3)
     const out = caArgs.outputs[0]
     const fee = estimateRelockFee(2, R1C_LOCK_LEN(3))
     expect(out).toMatchObject({ satoshis: 1_000_000 - fee, basket: VAULT_BASKET, outputDescription: 'Vault re-lock', tags: ['vault'] })
     expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
     const ci = decodeVaultInstructions(out.customInstructions)!
     expect(ci.keys).toEqual([KEY_A, KEY_B, KEY_C])
-    expect(fx.map(f => f.salt)).not.toContain(ci.salt) // fresh salt
+    const expectedSalt = fixtureSalt(Number(ci.saltKeyId), ['A-1', 'B-1', 'C-1']).salt
+    expect(fx.map(f => f.salt)).not.toContain(expectedSalt) // fresh salt
     expect(bakedCommitments(LockingScript.fromHex(out.lockingScript))).toEqual(
-      [PUB_A, PUB_B, KEY_C.pubkey].map(pk => commitment(pk, ci.salt))
+      [PUB_A, PUB_B, KEY_C.pubkey].map(pk => commitment(pk, expectedSalt))
     )
+    expect(caArgs.outputs[1].satoshis).toBe(1)
+    expect(caArgs.outputs[2].satoshis).toBe(0)
     validateSpends(fx)
     expect((await vaultStore.getMeta())!.lastUsedSerial).toBe('A-1')
   }, 60_000)

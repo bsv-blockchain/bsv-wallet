@@ -74,6 +74,121 @@ import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken } from './v
 export const VAULT_BASKET = 'admin vault'
 /** Wallet HMAC domain used only for Vault output salts. */
 export const VAULT_SALT_PROTOCOL = [2, 'vault salt'] as const
+/** Wallet key domain for the v7 chain-published marker address. */
+export const VAULT_MARKER_PROTOCOL = [2, 'vault marker'] as const
+/** Wallet encryption domain for the v7 chain-published encrypted descriptor. */
+export const VAULT_DESCRIPTOR_PROTOCOL = [2, 'vault descriptor'] as const
+/** OP_RETURN tag identifying a v7 vault descriptor output. */
+export const VAULT_DESCRIPTOR_TAG = 'r1c7'
+
+/**
+ * keyID shared by the marker and descriptor derivations for output index `k`
+ * on `chain` — folds the chain in (unlike the chain-agnostic 'vault salt'
+ * HMAC, which stays untouched) so an identical enrolled-serial-set reused
+ * across two networks derives unrelated addresses/ciphertext keys instead of
+ * reusing the same discoverable marker address.
+ */
+export function vaultChainKeyId(chain: VaultScopeToken['chain'], saltKeyId: string): string {
+  return `${chain}:${saltKeyId}`
+}
+
+/** The deterministic P2PKH marker script for output index `saltKeyId` on
+ * `chain` — reproducible from nothing but the wallet root, chain and index. */
+async function deriveVaultMarkerScript(
+  w: VaultWallet,
+  adminOriginator: string,
+  chain: VaultScopeToken['chain'],
+  saltKeyId: string
+): Promise<LockingScript> {
+  const { publicKey } = await w.getPublicKey({
+    protocolID: [...VAULT_MARKER_PROTOCOL],
+    keyID: vaultChainKeyId(chain, saltKeyId),
+    counterparty: 'self',
+    seekPermission: false
+  }, adminOriginator)
+  return new P2PKH().lock(PublicKey.fromString(publicKey).toAddress())
+}
+
+/**
+ * `OP_FALSE OP_RETURN <'r1c7'> <ciphertext>` — basketless, 0-sat,
+ * chain-published.
+ *
+ * @bsv/sdk's Script chunk parser treats OP_RETURN specially: everything after
+ * it is captured as ONE raw data blob on the OP_RETURN chunk itself (nothing
+ * past OP_RETURN ever executes, so no library tries to keep parsing it as
+ * further opcodes — matches ordinary OP_RETURN scripts industry-wide). The
+ * tag and ciphertext are still push-encoded (pushData) WITHIN that blob, so
+ * parseVaultDescriptorScript can split them back out with an ordinary
+ * (non-OP_RETURN) chunk parse of the blob alone.
+ */
+function buildVaultDescriptorScript(ciphertext: number[]): LockingScript {
+  const tagBytes = Utils.toArray(VAULT_DESCRIPTOR_TAG, 'utf8') as number[]
+  const payload = [...pushData(tagBytes), ...pushData(ciphertext)]
+  return new LockingScript([{ op: OP.OP_FALSE }, { op: OP.OP_RETURN, data: payload }])
+}
+
+/** Parse a script built by buildVaultDescriptorScript. Returns null for
+ * anything else — including an oversized ciphertext, which is never trusted,
+ * only reported as unusable by the caller. */
+function parseVaultDescriptorScript(lockingScript: LockingScript): { ciphertext: number[] } | null {
+  const chunks = lockingScript.chunks
+  if (chunks.length !== 2) return null
+  if (chunks[0].op !== OP.OP_0 && chunks[0].op !== OP.OP_FALSE) return null
+  if (chunks[1].op !== OP.OP_RETURN || !chunks[1].data) return null
+  let inner: { op: number; data?: number[] }[]
+  try {
+    inner = Script.fromBinary(chunks[1].data).chunks
+  } catch {
+    return null
+  }
+  if (inner.length !== 2) return null
+  const tag = inner[0].data
+  if (!tag || Utils.toUTF8(tag) !== VAULT_DESCRIPTOR_TAG) return null
+  const ciphertext = inner[1].data
+  if (!ciphertext || ciphertext.length === 0 || ciphertext.length > MAX_DESCRIPTOR_CIPHERTEXT_BYTES) return null
+  return { ciphertext }
+}
+
+/** Encrypt a v7 customInstructions JSON string for the descriptor output,
+ * enforcing the byte budget at creation time (fail closed, never truncate). */
+async function encryptVaultDescriptorPlaintext(
+  w: VaultWallet,
+  adminOriginator: string,
+  chain: VaultScopeToken['chain'],
+  saltKeyId: string,
+  plaintext: string
+): Promise<number[]> {
+  const { ciphertext } = await w.encrypt({
+    plaintext: Utils.toArray(plaintext, 'utf8') as number[],
+    protocolID: [...VAULT_DESCRIPTOR_PROTOCOL],
+    keyID: vaultChainKeyId(chain, saltKeyId),
+    counterparty: 'self',
+    seekPermission: false
+  }, adminOriginator)
+  if (!Array.isArray(ciphertext) || ciphertext.length === 0 || ciphertext.length > MAX_DESCRIPTOR_CIPHERTEXT_BYTES) {
+    throw new VaultError('template-invalid', 'Vault descriptor ciphertext exceeds its byte budget')
+  }
+  return ciphertext
+}
+
+/** Decrypt a descriptor's ciphertext back to its plaintext customInstructions
+ * JSON string. Throws (never silently returns garbage) on any wallet-level
+ * decrypt failure — the caller decides how an unusable record is reported. */
+async function decryptVaultDescriptorPlaintext(
+  w: VaultWallet,
+  adminOriginator: string,
+  chain: VaultScopeToken['chain'],
+  saltKeyId: string,
+  ciphertext: number[]
+): Promise<string> {
+  const { plaintext } = await w.decrypt({
+    ciphertext,
+    protocolID: [...VAULT_DESCRIPTOR_PROTOCOL],
+    keyID: vaultChainKeyId(chain, saltKeyId),
+    counterparty: 'self'
+  }, adminOriginator)
+  return Utils.toUTF8(plaintext)
+}
 
 /**
  * Storage-backed lookup of the transactions reserving a set of outpoints.
@@ -1616,26 +1731,40 @@ export async function disableVaultWhenSafe(
 // ── vault outputs ────────────────────────────────────────────────────────
 
 /**
- * One new vault output committed to `keys` (spec §4.1 step 3, §2.7).
+ * One new vault output committed to `keys` (spec §4.1 step 3, §2.7), plus its
+ * v7 marker and encrypted descriptor (design v7 §1.2 item 2). New creations
+ * are v7 only — existing v6 outputs are unaffected and keep working through
+ * the unchanged v6 read path.
  *
  * Each salt is the wallet's 32-byte createHmac result under the next positive
  * decimal key ID, with the ordered YubiKey serial list as canonically framed
- * input. A unique key ID normally makes commitments and script hashes distinct
- * when the enrolled key set is unchanged. Disconnected devices can reuse an
- * index, and identical scripts remain valid and independently spendable. The
- * key list is written into the output's
- * customInstructions in commitment order — informational (the lock is the
- * truth; the withdraw path re-checks it), but it is what lets balance,
- * selection and coverage work without parsing a 45 KB script. Used by the
- * deposit, the withdraw path's re-vaulted remainder, and the re-lock.
+ * input — UNCHANGED from v6, and never persisted for v7: it is derived here,
+ * used to build the lock, and then dropped. A unique key ID normally makes
+ * commitments and script hashes distinct when the enrolled key set is
+ * unchanged. Disconnected devices can reuse an index, and identical scripts
+ * remain valid and independently spendable.
+ *
+ * The marker (1-sat P2PKH to a wallet-derived address keyed by chain+index)
+ * and the descriptor (0-sat OP_RETURN carrying the same v7 JSON, BRC-2
+ * encrypted under a wallet-derived key keyed by chain+index) are chain-
+ * published, basketless, and are what let a clean device with only the
+ * mnemonic find and decrypt this output's recovery record (chainRecovery.ts)
+ * without the local DB or backup. The vault output's own customInstructions
+ * is still written too — informational, exactly as v6's was — but is no
+ * longer the only copy of anything.
+ *
+ * Used by the deposit, the withdraw path's re-vaulted remainder, and the
+ * re-lock. Every caller must push all three returned outputs into its
+ * transaction's outputs array, in this order, so validateDepositPlan /
+ * validateSignableVaultPlan can pin them byte-exact.
  */
 interface VaultOutputSpec {
   satoshis: number
   lockingScript: string
   outputDescription: string
-  basket: string
-  customInstructions: string
-  tags: string[]
+  basket?: string
+  customInstructions?: string
+  tags?: string[]
 }
 
 async function newVaultOutput(
@@ -1646,7 +1775,7 @@ async function newVaultOutput(
   outputDescription: string,
   inventory: VaultSaltInventory,
   chain: VaultScopeToken['chain']
-): Promise<VaultOutputSpec> {
+): Promise<[vault: VaultOutputSpec, marker: VaultOutputSpec, descriptor: VaultOutputSpec]> {
   const pubkeys = meta.keys.map(k => k.pubkey)
   const keyIndex = inventory.maxKeyIndex + 1
   if (!Number.isSafeInteger(keyIndex)) {
@@ -1655,28 +1784,44 @@ async function newVaultOutput(
   const saltKeyId = String(keyIndex)
   const salt = await deriveVaultSalt(w, adminOriginator, saltKeyId, meta.keys.map(key => key.serial))
   const lockingScript = buildLock({ commitments: pubkeys.map(pk => commitment(pk, salt)), saltHex64: salt })
-  const output: VaultOutputSpec = {
+  const v7: VaultInstructionsV7 = {
+    v: 7,
+    type: 'R1C',
+    saltKeyId,
+    chain,
+    vaultId: meta.vaultId,
+    revision: meta.revision,
+    createdAt: meta.createdAt,
+    keys: meta.keys.map(key => ({ ...key }))
+  }
+  const customInstructions = encodeVaultInstructionsV7(v7)
+  const vaultOutput: VaultOutputSpec = {
     satoshis,
     lockingScript: lockingScript.toHex(),
     outputDescription,
     basket: VAULT_BASKET,
-    customInstructions: encodeVaultInstructions({
-      v: 6,
-      type: 'R1C',
-      salt,
-      saltKeyId,
-      chain,
-      vaultId: meta.vaultId,
-      revision: meta.revision,
-      createdAt: meta.createdAt,
-      keys: meta.keys.map(key => ({ ...key }))
-    }),
+    customInstructions,
     tags: ['vault']
   }
-  const ci = decodeVaultInstructions(output.customInstructions)
+
+  const markerScript = await deriveVaultMarkerScript(w, adminOriginator, chain, saltKeyId)
+  const markerOutput: VaultOutputSpec = {
+    satoshis: 1,
+    lockingScript: markerScript.toHex(),
+    outputDescription: 'Vault marker'
+  }
+
+  const descriptorCiphertext = await encryptVaultDescriptorPlaintext(w, adminOriginator, chain, saltKeyId, customInstructions)
+  const descriptorOutput: VaultOutputSpec = {
+    satoshis: 0,
+    lockingScript: buildVaultDescriptorScript(descriptorCiphertext).toHex(),
+    outputDescription: 'Vault descriptor'
+  }
+
+  const ci = decodeVaultInstructionsV7(customInstructions)
   if (!ci) throw new VaultError('template-invalid', 'Derived Vault output metadata is invalid')
   rememberVaultSalt(inventory, ci, lockingScript, `pending:${saltKeyId}`, chain, salt)
-  return output
+  return [vaultOutput, markerOutput, descriptorOutput]
 }
 
 /**
@@ -1756,14 +1901,21 @@ function requireReleasedHeldTransaction(
   }
 }
 
-type VaultOutputPlan = VaultOutputSpec
+type VaultOutputPlan = readonly [vault: VaultOutputSpec, marker: VaultOutputSpec, descriptor: VaultOutputSpec]
 
 /**
  * Check the wallet-funded deposit transaction before it is released from
- * `noSend`. The requested R1C output is byte-exact and pinned at output zero;
- * the wallet may add only one standard P2PKH change output. BRC-100 does not
- * expose a derivation proof for wallet-selected inputs or change, so ownership
- * of those standard wallet coins remains the narrow wallet-core trust boundary.
+ * `noSend`. The three requested outputs (vault, marker, descriptor) are
+ * byte-exact and pinned at outputs 0..2, mirroring how the vault output alone
+ * used to be pinned at output zero; the wallet may add only one standard
+ * P2PKH change output after them. BRC-100 does not expose a derivation proof
+ * for wallet-selected inputs or change, so ownership of those standard wallet
+ * coins remains the narrow wallet-core trust boundary — pinning the marker
+ * and descriptor byte-exact the same way keeps a bug or compromise in that
+ * boundary from silently substituting a different marker/descriptor than
+ * admin code itself built (an availability regression future recovery would
+ * hit, not a spend-authority break: output 0, the actual spend authority,
+ * stays independently pinned either way).
  */
 function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
   if (tx.version !== 1) {
@@ -1793,18 +1945,23 @@ function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
     if (!Number.isSafeInteger(inputValue)) throw new VaultError('no-transaction', 'Vault deposit input value overflow')
   }
 
-  const vaultOutput = tx.outputs[0]
-  if (
-    !vaultOutput ||
-    !Number.isSafeInteger(vaultOutput.satoshis) ||
-    vaultOutput.satoshis !== expected.satoshis ||
-    vaultOutput.lockingScript.toHex() !== expected.lockingScript
-  ) {
-    throw new VaultError('no-transaction', 'Wallet changed the approved Vault deposit output')
+  let explicitValue = 0
+  for (let i = 0; i < expected.length; i++) {
+    const actual = tx.outputs[i]
+    const expectedOutput = expected[i]
+    if (
+      !actual ||
+      !Number.isSafeInteger(actual.satoshis) ||
+      actual.satoshis !== expectedOutput.satoshis ||
+      actual.lockingScript.toHex() !== expectedOutput.lockingScript
+    ) {
+      throw new VaultError('no-transaction', `Wallet changed the approved Vault deposit output ${i}`)
+    }
+    explicitValue += expectedOutput.satoshis
   }
-  const implicit = tx.outputs.slice(1)
+  const implicit = tx.outputs.slice(expected.length)
   if (implicit.length > 1) throw new VaultError('no-transaction', 'Wallet injected an unexpected Vault deposit output')
-  let outputValue = expected.satoshis
+  let outputValue = explicitValue
   if (implicit.length === 1) {
     const change = implicit[0]
     const changeSatoshis = change.satoshis
@@ -1828,7 +1985,7 @@ function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
   if (!Number.isSafeInteger(fee) || fee < 0 || fee > maxFee) {
     throw new VaultError('no-transaction', `Vault deposit fee ${fee} exceeds the safety ceiling ${maxFee}`)
   }
-  if (implicit.length === 0 && inputValue - expected.satoshis > maxFee) {
+  if (implicit.length === 0 && inputValue - explicitValue > maxFee) {
     throw new VaultError('no-transaction', 'Vault deposit omitted expected wallet change')
   }
 }
@@ -1905,7 +2062,7 @@ export async function depositToVault(
       {
         description: 'Vault deposit',
         version: 1,
-        outputs: [output],
+        outputs: [...output],
         labels: ['vault', 'vault-deposit'],
         options: { randomizeOutputs: false, noSend: true, signAndProcess: false }
       },
@@ -2714,7 +2871,7 @@ export async function withdrawFromVault(
     await requirePrivateBackup(opts, 'Re-vaulting a remainder')
     assertVaultScope(scopeToken)
     await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
-    outputs.push(await newVaultOutput(
+    outputs.push(...await newVaultOutput(
       w,
       adminOriginator,
       sel.meta,
@@ -2738,24 +2895,42 @@ export async function withdrawFromVault(
 
 // ── re-lock (spec §4.3) ──────────────────────────────────────────────────
 
+/** Fixed byte cost of the v7 marker output: 8-byte value + a 3-byte
+ * script-length prefix (the existing formula's own conservative convention)
+ * + the 25-byte P2PKH script. */
+const VAULT_MARKER_OUTPUT_BYTES = 8 + 3 + 25
+
+/** Worst-case byte cost of the v7 descriptor output: OP_FALSE OP_RETURN (2 B)
+ * + the tag push (1 + tag length) + the ciphertext push at its hard cap
+ * (MAX_DESCRIPTOR_CIPHERTEXT_BYTES, needing a 3-byte PUSHDATA2 header at that
+ * size), plus the same 8-byte value + 3-byte length-prefix convention. */
+const VAULT_MAX_DESCRIPTOR_OUTPUT_BYTES =
+  8 + 3 + 2 + (1 + Utils.toArray(VAULT_DESCRIPTOR_TAG, 'utf8').length) + (3 + MAX_DESCRIPTOR_CIPHERTEXT_BYTES)
+
 /**
  * Fee reserve for a re-lock, in the toolbox's own arithmetic (100 sat/kB,
  * rounded up per kB) plus 10 %.
  *
  *   size = 10 + inputCount·(41 + 3 + R1C_UNLOCK_LEN) + (3 + lockLen + 8)
+ *          + marker + descriptor
  *
  * — version/locktime/counts (10); per input the outpoint + sequence (41), a
- * 3-byte script-length prefix and the DECLARED unlock length; one output: an
- * 8-byte value, a 3-byte prefix and the new lock. The +10 % is computed in
- * integers (`ceil(kb·satPerKb·11 / 10)`): `11200 * 1.1` is
- * `12320.000000000002` in doubles, and a float ceil would over-charge by one.
+ * 3-byte script-length prefix and the DECLARED unlock length; the vault
+ * output itself: an 8-byte value, a 3-byte prefix and the new lock; plus the
+ * v7 marker and descriptor outputs that ride alongside every re-lock output
+ * (VAULT_MARKER_OUTPUT_BYTES, VAULT_MAX_DESCRIPTOR_OUTPUT_BYTES — the latter
+ * priced at its hard worst case, not the actual per-key-count size, so the
+ * estimate never under-reserves). The +10 % is computed in integers
+ * (`ceil(kb·satPerKb·11 / 10)`): `11200 * 1.1` is `12320.000000000002` in
+ * doubles, and a float ceil would over-charge by one.
  *
  * The re-lock output is `acc − this`; the toolbox's real fee is at most this
  * and the surplus becomes ordinary default-basket change (folded into the fee
- * when below dust). ≈ 2,900 sat per pass plus ≈ 260 sat per input.
+ * when below dust).
  */
 export function estimateRelockFee(inputCount: number, lockLen: number, satPerKb = 100): number {
-  const size = 10 + inputCount * (41 + 3 + R1C_UNLOCK_LEN) + (3 + lockLen + 8)
+  const size = 10 + inputCount * (41 + 3 + R1C_UNLOCK_LEN) + (3 + lockLen + 8) +
+    VAULT_MARKER_OUTPUT_BYTES + VAULT_MAX_DESCRIPTOR_OUTPUT_BYTES
   const kb = Math.ceil(size / 1000)
   return Math.ceil((kb * satPerKb * 11) / 10)
 }
@@ -2819,7 +2994,7 @@ export async function relockVault(
     sel,
     reason,
     {
-      outputs: [await newVaultOutput(
+      outputs: await newVaultOutput(
         w,
         adminOriginator,
         sel.meta,
@@ -2827,7 +3002,7 @@ export async function relockVault(
         'Vault re-lock',
         sel.saltInventory,
         scopeToken.chain
-      )],
+      ),
       labels: ['vault', 'vault-relock'],
       inputDescription: 'Vault re-lock',
       // Fixed, like the deposit and withdrawal descriptions (see
