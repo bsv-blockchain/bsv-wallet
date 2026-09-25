@@ -157,6 +157,15 @@ export async function createTables(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_transactions_txid ON transactions(txid);
   `)
 
+  // NEW-01: a device that created this table before this migration existed
+  // keeps it; CREATE TABLE IF NOT EXISTS cannot add the column, so the guarded
+  // ALTER does (ensureTransactionsColumns, defined below — hoisted). Called
+  // here, inside createTables, rather than only from StorageExpoSQLite.migrate,
+  // so every direct createTables() caller (this schema file's own tests
+  // included) gets these columns too, exactly like ensureTokenSettlementColumns
+  // below.
+  await ensureTransactionsColumns(db)
+
   // Commissions table
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS commissions (
@@ -509,6 +518,65 @@ export async function ensureOfflineActionsColumns(db: {
   const info = (await db.getAllAsync('PRAGMA table_info(offline_actions)', [])) as { name: string }[]
   const have = new Set(info.map(c => c.name))
   for (const col of OFFLINE_ACTIONS_COLUMNS) {
+    if (!have.has(col.name)) await db.execAsync(col.ddl)
+  }
+}
+
+/**
+ * NEW-01: `@bsv/wallet-toolbox-mobile`'s BRC-177 `noSendExpiry` lifecycle
+ * (early-reclaim actions, `armNoSendExpiry`, `abortAction`,
+ * `updateTransactionStatus`) reads and writes these `transactions` columns
+ * unconditionally — not only when a BRC-177 action is actually used.
+ * `protectNoSendExpiryReclaimInputOnFailure`, the guard every 'failed'
+ * transition runs through, filters on `noSendExpiryReclaimTxid`: without this
+ * column that WHERE clause throws "no such column", not "no match", so NO
+ * failed-transition of a transaction with a txid can complete — `abortAction`
+ * of any signed action, a failed broadcast, a proof-check timeout, and
+ * `reviewStatus`'s own `failInvalidReqTxs` sweep all reach it. This app never
+ * creates a BRC-177 protected action itself (`supportsNoSendExpiryPersistence`
+ * is not overridden and defaults to `false`, so `armNoSendExpiry` always
+ * throws `WERR_NOT_IMPLEMENTED`), but the vendor's generic failure path does
+ * not gate on that — every row still needs these columns to exist, forever
+ * NULL in practice here.
+ *
+ * Types and names taken from `TableTransaction` in
+ * `@bsv/wallet-toolbox-mobile`'s `out/index.mobile.d.cts`. All nullable, no
+ * defaults: an existing row reads back every one of these as `undefined`,
+ * which is exactly what "this transaction never touched BRC-177" already
+ * means to every caller.
+ */
+const TRANSACTIONS_COLUMNS: { name: string; ddl: string }[] = [
+  { name: 'noSendExpiryMode', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryMode TEXT' },
+  { name: 'noSendExpiryValue', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryValue INTEGER' },
+  { name: 'noSendExpiryDeadline', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryDeadline INTEGER' },
+  { name: 'noSendExpiryState', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryState TEXT' },
+  { name: 'noSendExpiryAnchorTxid', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryAnchorTxid TEXT' },
+  { name: 'noSendExpiryAnchorVout', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryAnchorVout INTEGER' },
+  { name: 'noSendExpiryReleasedAt', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryReleasedAt INTEGER' },
+  { name: 'noSendExpiryObservedAt', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryObservedAt INTEGER' },
+  { name: 'noSendExpiryReclaimTxid', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimTxid TEXT' },
+  { name: 'noSendExpiryReclaimRawTx', ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimRawTx BLOB' },
+  {
+    name: 'noSendExpiryReclaimDerivationPrefix',
+    ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimDerivationPrefix TEXT'
+  },
+  {
+    name: 'noSendExpiryReclaimDerivationSuffix',
+    ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimDerivationSuffix TEXT'
+  },
+  {
+    name: 'noSendExpiryReclaimSatoshis',
+    ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimSatoshis INTEGER'
+  }
+]
+
+export async function ensureTransactionsColumns(db: {
+  getAllAsync(sql: string, params: BindValue[]): Promise<unknown[]>
+  execAsync(sql: string): Promise<unknown>
+}): Promise<void> {
+  const info = (await db.getAllAsync('PRAGMA table_info(transactions)', [])) as { name: string }[]
+  const have = new Set(info.map(c => c.name))
+  for (const col of TRANSACTIONS_COLUMNS) {
     if (!have.has(col.name)) await db.execAsync(col.ddl)
   }
 }

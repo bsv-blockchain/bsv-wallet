@@ -265,7 +265,15 @@ describe('guard #2, result shape: a held token req never reports as sent', () =>
     superProcess.mockRestore()
   })
 
-  it('changes nothing when the settlement table cannot be read', async () => {
+  // XR-045/SEC2-070: this used to "change nothing" — i.e. report the original,
+  // possibly-held-and-therefore-not-actually-sent entries as delivered — which
+  // is exactly the false 'unproven' signal that let @bsv/mandala's
+  // broadcastAcceptedTx clear an 'accepted' journal entry for a transaction
+  // nothing had broadcast on 2026-09-15. An indeterminate classification here
+  // must fail closed the same way the broadcast guard (attemptToPostReqsToNetwork)
+  // already does on the identical read fault: every txid is treated as if held,
+  // so every entry is omitted rather than reported as sent.
+  it('XR-045/SEC2-070: omits every entry rather than reporting a possibly-held token as delivered when the settlement table cannot be read', async () => {
     storage.reqStatuses.set(1, 'nosend')
     raw.exec('DROP TABLE token_settlements')
     const swr = [{ txid: TOKEN_TXID, status: 'unproven' }]
@@ -275,7 +283,24 @@ describe('guard #2, result shape: a held token req never reports as sent', () =>
 
     const r = await storage.processAction({ userId: 7 } as never, { sendWith: [TOKEN_TXID] } as never)
 
-    expect(r.sendWithResults).toEqual(swr)
+    expect(r.sendWithResults).toEqual([])
+    superProcess.mockRestore()
+  })
+
+  it('XR-045/SEC2-070: a mixed batch is entirely withheld too — the fault means neither txid can be classified', async () => {
+    storage.reqStatuses.set(1, 'nosend')
+    raw.exec('DROP TABLE token_settlements')
+    const swr = [
+      { txid: TOKEN_TXID, status: 'unproven' },
+      { txid: BSV_TXID, status: 'unproven' }
+    ]
+    const superProcess = jest
+      .spyOn(StorageProvider.prototype, 'processAction')
+      .mockResolvedValue({ sendWithResults: swr } as never)
+
+    const r = await storage.processAction({ userId: 7 } as never, { sendWith: [] } as never)
+
+    expect(r.sendWithResults).toEqual([])
     superProcess.mockRestore()
   })
 })
