@@ -16,7 +16,8 @@ import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 import {
   MandalaTokenModule,
   wrapCreateActionForTokenInputs,
-  listAllOutpoints
+  listAllOutpoints,
+  resolveMandalaOutput
 } from '../../core/mandala/permissionModule'
 import { MANDALA_BASKET } from '../../core/mandala/types'
 import { guardVaultAccess } from '../../core/services/vault/guard'
@@ -53,17 +54,25 @@ function makeModule(overrides?: {
   requestTokenAccess?: jest.Mock
   resolveAssetMetadata?: jest.Mock
   listTokenOutpoints?: jest.Mock
+  resolveMandalaOutput?: jest.Mock
 }) {
   const requestTokenAccess = overrides?.requestTokenAccess ?? jest.fn().mockResolvedValue(true)
   const resolveAssetMetadata = overrides?.resolveAssetMetadata ?? jest.fn().mockResolvedValue(null)
   const listTokenOutpoints = overrides?.listTokenOutpoints ?? jest.fn().mockResolvedValue(new Set<string>())
+  // XR-041: a resolvable default so every existing relinquishOutput test —
+  // none of which care about the resolved identity — keeps passing; tests
+  // that DO care override it (including to `null`/a throw, to prove the
+  // fail-closed path).
+  const resolveMandalaOutput =
+    overrides?.resolveMandalaOutput ?? jest.fn().mockResolvedValue({ assetId: ASSET_ID, amount: 500 })
   const mod = new MandalaTokenModule({
     adminOriginator: ADMIN_ORIGINATOR,
     requestTokenAccess,
     resolveAssetMetadata,
-    listTokenOutpoints
+    listTokenOutpoints,
+    resolveMandalaOutput
   })
-  return { mod, requestTokenAccess, resolveAssetMetadata, listTokenOutpoints }
+  return { mod, requestTokenAccess, resolveAssetMetadata, listTokenOutpoints, resolveMandalaOutput }
 }
 
 describe('MandalaTokenModule', () => {
@@ -257,6 +266,75 @@ describe('MandalaTokenModule', () => {
           originator: FOREIGN_ORIGINATOR
         })
       ).rejects.toThrow('User denied permission to access Mandala tokens')
+    })
+
+    // XR-041: the finding's core defect — the prompt used to carry only
+    // `{type:'mandala_access', action:'relinquishOutput'}`, no matter which
+    // holding was being removed. It must now identify the target.
+    it('XR-041: resolves the target output and includes its assetId/amount/outpoint in the prompt message', async () => {
+      const outpoint = 'c'.repeat(64) + '.0'
+      const { mod, requestTokenAccess, resolveMandalaOutput } = makeModule({
+        resolveMandalaOutput: jest.fn().mockResolvedValue({ assetId: ASSET_ID, amount: 500 })
+      })
+      await mod.onRequest({
+        method: 'relinquishOutput',
+        args: { basket: MANDALA_BASKET, output: outpoint },
+        originator: FOREIGN_ORIGINATOR
+      })
+      expect(resolveMandalaOutput).toHaveBeenCalledWith(outpoint)
+      const promptData = JSON.parse(requestTokenAccess.mock.calls[0][1])
+      expect(promptData).toMatchObject({
+        type: 'mandala_access',
+        action: 'relinquishOutput',
+        assetId: ASSET_ID,
+        amount: 500,
+        outpoint
+      })
+      // Not just the bare 2-field object the finding describes.
+      expect(Object.keys(promptData).length).toBeGreaterThan(2)
+    })
+
+    // XR-041's fail-closed requirement: an unresolved target must never fall
+    // back to the old, generic, target-free copy.
+    it('XR-041: fails closed — an unresolvable output refuses the call rather than falling back to generic copy', async () => {
+      const { mod, requestTokenAccess } = makeModule({
+        resolveMandalaOutput: jest.fn().mockResolvedValue(null)
+      })
+      await expect(
+        mod.onRequest({
+          method: 'relinquishOutput',
+          args: { basket: MANDALA_BASKET, output: 'c'.repeat(64) + '.0' },
+          originator: FOREIGN_ORIGINATOR
+        })
+      ).rejects.toThrow('Could not identify the Mandala holding to be removed')
+      expect(requestTokenAccess).not.toHaveBeenCalled()
+    })
+
+    it('XR-041: fails closed when resolveMandalaOutput itself throws', async () => {
+      const { mod, requestTokenAccess } = makeModule({
+        resolveMandalaOutput: jest.fn().mockRejectedValue(new Error('storage unavailable'))
+      })
+      await expect(
+        mod.onRequest({
+          method: 'relinquishOutput',
+          args: { basket: MANDALA_BASKET, output: 'c'.repeat(64) + '.0' },
+          originator: FOREIGN_ORIGINATOR
+        })
+      ).rejects.toThrow('Could not identify the Mandala holding to be removed')
+      expect(requestTokenAccess).not.toHaveBeenCalled()
+    })
+
+    it('XR-041: fails closed when the call carries no output at all', async () => {
+      const { mod, requestTokenAccess, resolveMandalaOutput } = makeModule()
+      await expect(
+        mod.onRequest({
+          method: 'relinquishOutput',
+          args: { basket: MANDALA_BASKET },
+          originator: FOREIGN_ORIGINATOR
+        })
+      ).rejects.toThrow('Could not identify the Mandala holding to be removed')
+      expect(resolveMandalaOutput).not.toHaveBeenCalled()
+      expect(requestTokenAccess).not.toHaveBeenCalled()
     })
   })
 
@@ -812,5 +890,68 @@ describe('listAllOutpoints', () => {
     const list = jest.fn().mockRejectedValue(new Error('storage unavailable'))
 
     await expect(listAllOutpoints(list, 1000, 10)).rejects.toThrow('storage unavailable')
+  })
+})
+
+describe('resolveMandalaOutput', () => {
+  const TARGET = 'e'.repeat(64) + '.3'
+
+  it('finds the target past a short first page and decodes its Mandala script', async () => {
+    const list = jest.fn(async (limit: number, offset: number) => {
+      if (offset === 0) return { outputs: [{ outpoint: 'f'.repeat(64) + '.0' }], totalOutputs: 2 }
+      return { outputs: [{ outpoint: TARGET, lockingScript: mandalaScriptHex(750, ASSET_ID) }], totalOutputs: 2 }
+    })
+
+    const decoded = await resolveMandalaOutput(list, TARGET, 1, 10)
+
+    expect(decoded).toEqual({ assetId: ASSET_ID, amount: 750 })
+  })
+
+  it('canonicalizes both sides — an alternate spelling of the target still matches', async () => {
+    const list = jest.fn().mockResolvedValue({
+      outputs: [{ outpoint: TARGET, lockingScript: mandalaScriptHex(1, ASSET_ID) }],
+      totalOutputs: 1
+    })
+
+    // "03" for vout 3, same coercion `canonicalOutpoint` already applies.
+    const decoded = await resolveMandalaOutput(list, 'e'.repeat(64) + '.03', 1000, 10)
+
+    expect(decoded).toEqual({ assetId: ASSET_ID, amount: 1 })
+  })
+
+  it('returns null — never a guess — for an outpoint not in the listing', async () => {
+    const list = jest.fn().mockResolvedValue({ outputs: [{ outpoint: 'f'.repeat(64) + '.0' }], totalOutputs: 1 })
+
+    expect(await resolveMandalaOutput(list, TARGET, 1000, 10)).toBeNull()
+  })
+
+  it('returns null for a malformed target without ever calling list', async () => {
+    const list = jest.fn()
+
+    expect(await resolveMandalaOutput(list, 'not-an-outpoint', 1000, 10)).toBeNull()
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it('returns null when the matched entry does not decode as a Mandala output', async () => {
+    const list = jest.fn().mockResolvedValue({
+      outputs: [{ outpoint: TARGET, lockingScript: '006a026869' }], // OP_FALSE OP_RETURN 'hi'
+      totalOutputs: 1
+    })
+
+    expect(await resolveMandalaOutput(list, TARGET, 1000, 10)).toBeNull()
+  })
+
+  it('never loops past maxPages', async () => {
+    const list = jest.fn().mockResolvedValue({ outputs: [{ outpoint: 'f'.repeat(64) + '.0' }], totalOutputs: 999_999 })
+
+    await resolveMandalaOutput(list, TARGET, 1, 5)
+
+    expect(list).toHaveBeenCalledTimes(5)
+  })
+
+  it('propagates a listing fault rather than returning null silently', async () => {
+    const list = jest.fn().mockRejectedValue(new Error('storage unavailable'))
+
+    await expect(resolveMandalaOutput(list, TARGET, 1000, 10)).rejects.toThrow('storage unavailable')
   })
 })

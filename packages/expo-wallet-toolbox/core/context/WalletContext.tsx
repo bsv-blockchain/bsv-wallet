@@ -183,6 +183,7 @@ import {
   MandalaTokenModule,
   wrapCreateActionForTokenInputs,
   listAllOutpoints,
+  resolveMandalaOutput,
   type MandalaAssetMetadata
 } from '../mandala/permissionModule'
 import { wrapAbortActionForSettlements } from '../mandala/abortGuard'
@@ -1555,6 +1556,30 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             MANDALA_OUTPOINT_LIST_MAX_PAGES
           )
 
+        // XR-041: resolves ONE outpoint named on a `relinquishOutput` call to
+        // its decoded `{assetId, amount}`, from this device's OWN current
+        // MANDALA_BASKET listing — `include: 'locking scripts'` is the one
+        // difference from `listMandalaTokenOutpoints` above, since naming the
+        // holding needs the script, not just the outpoint. Same admin-
+        // originator, zero-prompt listing; same to-completion paging.
+        const resolveMandalaOutputForRelinquish = (outpoint: string) =>
+          resolveMandalaOutput(
+            async (limit, offset) =>
+              await wallet.listOutputs(
+                {
+                  basket: MANDALA_BASKET,
+                  include: 'locking scripts',
+                  includeCustomInstructions: false,
+                  limit,
+                  offset
+                } as never,
+                adminOriginator
+              ),
+            outpoint,
+            MANDALA_OUTPOINT_LIST_PAGE,
+            MANDALA_OUTPOINT_LIST_MAX_PAGES
+          )
+
         // Mandala's own P-module (schemeID 'mandala', basket MANDALA_BASKET =
         // 'p mandala') -- same routing mechanism as BTMS above
         // (WalletPermissionsManager delegates by basket prefix regardless of
@@ -1564,7 +1589,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           adminOriginator,
           requestTokenAccess: mandalaPromptHandler,
           resolveAssetMetadata: resolveMandalaAssetMetadata,
-          listTokenOutpoints: listMandalaTokenOutpoints
+          listTokenOutpoints: listMandalaTokenOutpoints,
+          resolveMandalaOutput: resolveMandalaOutputForRelinquish
         })
 
         // Setup permissions with provided callbacks and BTMS module.

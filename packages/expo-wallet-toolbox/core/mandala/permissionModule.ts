@@ -142,6 +142,16 @@ export interface MandalaTokenModuleDeps {
    * not toward "silently allow".
    */
   listTokenOutpoints: () => Promise<Set<string>>
+  /**
+   * XR-041: resolves ONE currently-held `MANDALA_BASKET` outpoint to its
+   * decoded `{assetId, amount}`, via the admin-originator wallet's own
+   * listing — never from anything a caller claims. `null` for an outpoint
+   * this device does not currently hold as a Mandala coin (already spent,
+   * never was one, or an unresolvable/malformed one) — `promptForRelinquish`
+   * fails CLOSED on `null` rather than falling back to unlabeled copy: an
+   * app must not be able to get an unnamed holding removed.
+   */
+  resolveMandalaOutput: (outpoint: string) => Promise<DecodedMandalaOutput | null>
 }
 
 /** The slice of `CreateActionOutput` this module reads. Structural, not the
@@ -149,6 +159,11 @@ export interface MandalaTokenModuleDeps {
 interface MandalaCreateActionOutputLike {
   lockingScript?: string
   basket?: string
+}
+/** The slice of `RelinquishOutputArgs` this module reads. */
+interface MandalaRelinquishOutputArgsLike {
+  basket?: string
+  output?: string
 }
 /** The slice of `CreateActionInput` this module reads. */
 interface MandalaCreateActionInputLike {
@@ -178,7 +193,7 @@ interface MandalaListOutputsArgsLike {
   [key: string]: unknown
 }
 
-interface DecodedMandalaOutput {
+export interface DecodedMandalaOutput {
   assetId: string
   amount: number
 }
@@ -210,7 +225,7 @@ export interface MandalaCreditLine {
  * shape, and every caller here treats "not a Mandala output" the same way
  * whether the script is empty, foreign, or simply malformed.
  */
-function tryDecodeMandalaOutput(lockingScriptHex: string | undefined): DecodedMandalaOutput | null {
+export function tryDecodeMandalaOutput(lockingScriptHex: string | undefined): DecodedMandalaOutput | null {
   if (!lockingScriptHex) return null
   try {
     const script = LockingScript.fromHex(lockingScriptHex)
@@ -219,6 +234,57 @@ function tryDecodeMandalaOutput(lockingScriptHex: string | undefined): DecodedMa
   } catch {
     return null
   }
+}
+
+/** One `listOutputs`-shaped page carrying locking scripts, as `resolveMandalaOutput` needs them. */
+export interface ScriptedOutputPage {
+  outputs: { outpoint: string; lockingScript?: string }[]
+  totalOutputs?: number
+}
+
+/**
+ * Finds ONE currently-held outpoint in a paged listing, to completion, and
+ * decodes its Mandala token script.
+ *
+ * XR-041: `promptForRelinquish` used to authorize removing a holding with no
+ * more than the bare action name — "wants to remove a Mandala token holding
+ * from your wallet" — never which one. This is what lets it name the target:
+ * `assetId`/`amount` resolved from the wallet's OWN current listing, never
+ * from anything the caller claims. `null` — not found (already spent, never
+ * held, or `target` malformed), or the page ceiling was hit without a match —
+ * is the caller's signal to fail closed rather than approve an unlabeled
+ * removal; same truncation discipline as `listAllOutpoints` (XR-039), because
+ * a holding on page two must be just as nameable as one on page one.
+ */
+export async function resolveMandalaOutput(
+  list: (limit: number, offset: number) => Promise<ScriptedOutputPage>,
+  target: string,
+  pageSize = 1000,
+  maxPages = 1000
+): Promise<DecodedMandalaOutput | null> {
+  const canonicalTarget = canonicalOutpoint(target)
+  if (canonicalTarget === undefined) return null
+  let offset = 0
+  for (let page = 0; page < maxPages; page++) {
+    const { outputs, totalOutputs } = await list(pageSize, offset)
+    for (const o of outputs) {
+      if (canonicalOutpoint(o.outpoint) === canonicalTarget) return tryDecodeMandalaOutput(o.lockingScript)
+    }
+    // An empty page always ends it — that, plus the page ceiling, is what
+    // keeps a wallet that ignores `offset` from looping forever.
+    if (outputs.length === 0) break
+    offset += outputs.length
+    if (typeof totalOutputs === 'number') {
+      // The wallet's own count is authoritative when it reports one. A SHORT
+      // page must not end the loop here: a wallet may cap `limit` below what
+      // was asked for, and treating that cap as "end of basket" would
+      // re-introduce the truncation this loop exists to remove.
+      if (offset >= totalOutputs) break
+    } else if (outputs.length < pageSize) {
+      break
+    }
+  }
+  return null
 }
 
 /** A short, human-scannable form of a long `'<64-hex>.<vout>'` assetId. */
@@ -355,7 +421,7 @@ export class MandalaTokenModule implements PermissionsModule {
         await this.promptOnceForAccess(originator, 'listActions')
         break
       case 'relinquishOutput':
-        await this.promptForRelinquish(originator)
+        await this.promptForRelinquish(args as MandalaRelinquishOutputArgsLike, originator)
         break
       case 'createAction':
         await this.promptForSpend(args as MandalaCreateActionArgsLike, originator)
@@ -402,9 +468,37 @@ export class MandalaTokenModule implements PermissionsModule {
    * a holding from the wallet is consequential enough that every call must
    * show its own prompt, and approving it must not silently unlock
    * listOutputs/listActions for the rest of the session window.
+   *
+   * XR-041: the prompt used to say only "wants to remove a Mandala token
+   * holding from your wallet" — never which one, or how much. `args.output`
+   * is resolved against this device's OWN current listing (never trusted
+   * from the caller) into `{assetId, amount}` before anything is shown, and
+   * an unresolved target fails the whole call closed — a consequential,
+   * irreversible-feeling removal must never be approved uninformed.
    */
-  private async promptForRelinquish(originator: string): Promise<void> {
-    const message = JSON.stringify({ type: 'mandala_access', action: 'relinquishOutput' })
+  private async promptForRelinquish(args: MandalaRelinquishOutputArgsLike, originator: string): Promise<void> {
+    const outpoint = typeof args?.output === 'string' ? args.output : undefined
+    let resolved: DecodedMandalaOutput | null = null
+    if (outpoint) {
+      try {
+        resolved = await this.deps.resolveMandalaOutput(outpoint)
+      } catch {
+        resolved = null
+      }
+    }
+    if (!resolved) {
+      throw new Error('Could not identify the Mandala holding to be removed')
+    }
+    const { tokenName, decimals } = await this.resolveAssetDisplay(resolved.assetId)
+    const message = JSON.stringify({
+      type: 'mandala_access',
+      action: 'relinquishOutput',
+      assetId: resolved.assetId,
+      tokenName,
+      amount: resolved.amount,
+      display: formatTokenAmount(resolved.amount, decimals, tokenName, resolved.assetId),
+      outpoint
+    })
     const approved = await this.deps.requestTokenAccess(originator, message)
     if (!approved) {
       throw new Error('User denied permission to access Mandala tokens')

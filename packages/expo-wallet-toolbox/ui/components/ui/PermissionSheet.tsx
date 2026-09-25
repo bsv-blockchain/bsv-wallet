@@ -319,6 +319,10 @@ export function deriveActive(
       changeAmount?: number
       creditAmount?: number
       lines?: unknown
+      // XR-041: relinquishOutput's own resolved-target fields.
+      amount?: number
+      display?: string
+      outpoint?: string
     } = {}
     try {
       promptData = JSON.parse(r.message)
@@ -326,12 +330,27 @@ export function deriveActive(
       // message not valid JSON — ignore, use defaults
     }
 
+    const isRelinquish = promptData.type === 'mandala_access' && promptData.action === 'relinquishOutput'
+    // XR-041: `display` is pre-formatted ("25.00 USDX"); fall back to the raw
+    // base-unit amount + token name when it is not a string, same convention
+    // as the spend/credit lines below.
+    const relinquishAmount =
+      typeof promptData.display === 'string'
+        ? promptData.display
+        : promptData.amount != null
+          ? `${promptData.amount} ${promptData.tokenName || 'Mandala tokens'}`
+          : undefined
+
     let description: string
     if (promptData.type === 'mandala_spend' && promptData.sendAmount != null) {
       description = `wants to spend ${promptData.sendAmount} ${promptData.tokenName || 'Mandala tokens'}`
     } else if (promptData.type === 'mandala_credit' && promptData.creditAmount != null) {
       description = `wants to credit ${promptData.creditAmount} ${promptData.tokenName || 'Mandala tokens'} to your wallet`
-    } else if (promptData.type === 'mandala_access' && promptData.action === 'relinquishOutput') {
+    } else if (isRelinquish && relinquishAmount) {
+      // Named, not generic (XR-041): which holding, not just that "a" holding
+      // is being removed.
+      description = `wants to remove ${relinquishAmount} from your wallet`
+    } else if (isRelinquish) {
       description = 'wants to remove a Mandala token holding from your wallet'
     } else if (promptData.type === 'mandala_access') {
       description = 'wants to see your Mandala token balance'
@@ -382,6 +401,13 @@ export function deriveActive(
           }
         })
       }
+    } else if (isRelinquish) {
+      // XR-041: identify the target the same way mandala_spend/mandala_credit
+      // already identify theirs — token, amount, and the exact outpoint.
+      if (promptData.tokenName) details.push({ label: 'Token', value: promptData.tokenName })
+      if (relinquishAmount) details.push({ label: 'Amount', value: relinquishAmount })
+      if (promptData.assetId) details.push({ label: 'Asset ID', value: truncate(promptData.assetId, 28) })
+      if (promptData.outpoint) details.push({ label: 'Outpoint', value: truncate(promptData.outpoint, 28) })
     } else {
       if (promptData.assetId) details.push({ label: 'Asset ID', value: truncate(promptData.assetId, 28) })
     }

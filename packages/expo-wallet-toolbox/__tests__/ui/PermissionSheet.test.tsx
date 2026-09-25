@@ -133,3 +133,35 @@ describe('deriveActive — mandala prompts (XR-040)', () => {
     expect(active!.description).toMatch(/could not be verified/i)
   })
 })
+
+describe('deriveActive — mandala relinquishOutput (XR-041)', () => {
+  it('names the target — token, amount and outpoint — instead of the bare action name', () => {
+    const OUTPOINT = 'c'.repeat(64) + '.0'
+    const message = JSON.stringify({
+      type: 'mandala_access',
+      action: 'relinquishOutput',
+      assetId: ASSET_A,
+      tokenName: 'USDX',
+      amount: 500,
+      display: '5.00 USDX',
+      outpoint: OUTPOINT
+    })
+    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
+
+    expect(active!.description).toBe('wants to remove 5.00 USDX from your wallet')
+    expect(active!.details).toEqual(
+      expect.arrayContaining([
+        { label: 'Token', value: 'USDX' },
+        { label: 'Amount', value: '5.00 USDX' }
+      ])
+    )
+    expect(active!.details.some(d => d.label === 'Outpoint')).toBe(true)
+  })
+
+  it('falls back to the old generic copy — never a crash — when the message carries no resolved target', () => {
+    const message = JSON.stringify({ type: 'mandala_access', action: 'relinquishOutput' })
+    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
+
+    expect(active!.description).toBe('wants to remove a Mandala token holding from your wallet')
+  })
+})
