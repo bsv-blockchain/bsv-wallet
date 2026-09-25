@@ -84,6 +84,16 @@ const mockVerifyFramePayment = jest.fn()
 const mockProcessPending = jest.fn()
 const mockSavePending = jest.fn()
 const mockMarkSessionSpent = jest.fn()
+// XR-098: NearbyFlow now claims a session atomically rather than calling
+// isSessionSpent/savePending/markSessionSpent separately. This suite still
+// cares that the persist-and-burn actually happened, so the mock calls the
+// same two spies the old separate mocks used, preserving every existing
+// assertion below.
+const mockClaimAndSavePending = jest.fn(async (...args: unknown[]) => {
+  mockSavePending(...args)
+  mockMarkSessionSpent()
+  return { claimed: true, entry: { id: 'entry-1', status: 'pending' as const } }
+})
 
 function mockWallet() {
   return {
@@ -139,11 +149,9 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
       derivationSuffix: FIXED_SUFFIX
     })),
     verifyFramePayment: (...args: unknown[]) => mockVerifyFramePayment(...args),
-    // The one-shot session latch: never spent in this suite, so every test
+    // The atomic session claim: never refused in this suite, so every test
     // reaches the durable write below it.
-    isSessionSpent: jest.fn(async () => false),
-    savePending: (...args: unknown[]) => mockSavePending(...args),
-    markSessionSpent: (...args: unknown[]) => mockMarkSessionSpent(...args),
+    claimAndSavePending: (...args: unknown[]) => mockClaimAndSavePending(...args),
     processPending: (...args: unknown[]) => mockProcessPending(...args)
   }
 })

@@ -5,6 +5,7 @@ import {
   PENDING_SUMMARY_KEY,
   PendingCorruptError,
   SPENT_KEY,
+  claimAndSavePending,
   getPending,
   getPendingCorruptNotice,
   getRetryable,
@@ -24,7 +25,7 @@ function fakeStorage() {
   return {
     map,
     getKeyValue: async (k: string) => map.get(k),
-    setKeyValue: async (k: string, v: string) => void map.set(k, v),
+    setKeyValue: async (k: string, v: string) => void map.set(k, v)
   }
 }
 
@@ -35,7 +36,7 @@ const frame = (): PaymentFrame => ({
   outputIndex: 0,
   derivationPrefix: 'cHJlZml4',
   derivationSuffix: 'c3VmZml4',
-  transaction: new Uint8Array([9, 9, 9]),
+  transaction: new Uint8Array([9, 9, 9])
 })
 
 // A real AtomicBEEF, distinct from `frame()`'s placeholder bytes: attribution
@@ -96,15 +97,23 @@ describe('localpay pending queue', () => {
 
     let initialReaders = 0
     let releaseInitial!: () => void
-    const initialBarrier = new Promise<void>(r => { releaseInitial = r })
+    const initialBarrier = new Promise<void>(r => {
+      releaseInitial = r
+    })
     let bothStarted!: () => void
-    const bothInitialReads = new Promise<void>(r => { bothStarted = r })
+    const bothInitialReads = new Promise<void>(r => {
+      bothStarted = r
+    })
 
     let casPasses = 0
     let releaseStaleCas!: () => void
-    const staleCasHold = new Promise<void>(r => { releaseStaleCas = r })
+    const staleCasHold = new Promise<void>(r => {
+      releaseStaleCas = r
+    })
     let staleCasPending!: () => void
-    const staleCasReached = new Promise<void>(r => { staleCasPending = r })
+    const staleCasReached = new Promise<void>(r => {
+      staleCasPending = r
+    })
 
     const storage = {
       map,
@@ -130,7 +139,7 @@ describe('localpay pending queue', () => {
       },
       setKeyValue: async (k: string, v: string) => {
         map.set(k, v)
-      },
+      }
     }
 
     const first = getPending(storage as never)
@@ -280,7 +289,7 @@ describe('localpay pending queue', () => {
   it('storage failures propagate from getPending', async () => {
     const s = {
       getKeyValue: jest.fn().mockRejectedValue(new Error('SQLite locked')),
-      setKeyValue: jest.fn(),
+      setKeyValue: jest.fn()
     }
     await expect(getPending(s as never)).rejects.toThrow('SQLite locked')
   })
@@ -289,7 +298,7 @@ describe('localpay pending queue', () => {
     const setKeyValue = jest.fn()
     const s = {
       getKeyValue: jest.fn().mockRejectedValue(new Error('SQLite locked')),
-      setKeyValue,
+      setKeyValue
     }
     await expect(savePending(s as never, frame())).rejects.toThrow('SQLite locked')
     expect(setKeyValue).not.toHaveBeenCalled()
@@ -377,12 +386,9 @@ describe('localpay pending queue', () => {
       setKeyValue: async (k: string, v: string) => {
         await new Promise(r => setImmediate(r))
         s.map.set(k, v)
-      },
+      }
     }
-    const [p1, p2] = await Promise.all([
-      savePending(s as never, frame()),
-      savePending(s as never, frame()),
-    ])
+    const [p1, p2] = await Promise.all([savePending(s as never, frame()), savePending(s as never, frame())])
     const all = await getPending(s as never)
     expect(all).toHaveLength(2)
     expect(all.map(x => x.id)).toContain(p1.id)
@@ -427,19 +433,90 @@ describe('spent session guard', () => {
   })
 })
 
+// XR-098: NearbyFlow's settleReceived used to run isSessionSpent, savePending
+// and markSessionSpent as three separate operations — the first under no lock
+// at all, the other two each under their own. Two concurrent deliveries for
+// the same session (radio racing a QR scan, or any other overlap) could each
+// pass the isSessionSpent check before either had written anything, so both
+// would durably queue a payment for a session meant to be spent exactly once.
+// claimAndSavePending folds all three into a single withQueueLock critical
+// section, so the check-then-act sequence cannot interleave.
+describe('XR-098: claimAndSavePending — one atomic claim per session', () => {
+  const sid = () => new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9])
+
+  // Same shape as the `concurrent saves both persist via serialization` fake
+  // above — an artificial delay on every storage op is what actually exposes
+  // an interleaving; a synchronous fake would serialize by accident.
+  function slowStorage() {
+    const map = new Map<string, string>()
+    return {
+      map,
+      getKeyValue: async (k: string) => {
+        await new Promise(r => setImmediate(r))
+        return map.get(k)
+      },
+      setKeyValue: async (k: string, v: string) => {
+        await new Promise(r => setImmediate(r))
+        map.set(k, v)
+      }
+    }
+  }
+
+  it('lets only one of two concurrent deliveries for the same session claim it', async () => {
+    const s = slowStorage()
+    const session = sid()
+
+    const [a, b] = await Promise.all([
+      claimAndSavePending(s as never, session, frame()),
+      claimAndSavePending(s as never, session, frame())
+    ])
+
+    const claimed = [a, b].filter(r => r.claimed)
+    expect(claimed).toHaveLength(1)
+    const declined = [a, b].filter(r => !r.claimed)
+    expect(declined).toHaveLength(1)
+
+    // Exactly one entry reached the durable queue, and the session is spent —
+    // never both entries, and never neither.
+    expect(await getPending(s as never)).toHaveLength(1)
+    await expect(isSessionSpent(s as never, session)).resolves.toBe(true)
+  })
+
+  it('still claims a session nobody else is racing for', async () => {
+    const s = fakeStorage()
+    const result = await claimAndSavePending(s, sid(), frame(), 'awdl')
+
+    expect(result.claimed).toBe(true)
+    if (result.claimed) {
+      expect(result.entry.receivedVia).toBe('awdl')
+      expect(await getPending(s)).toEqual([result.entry])
+    }
+    await expect(isSessionSpent(s, sid())).resolves.toBe(true)
+  })
+
+  it('refuses a session already spent by a previous delivery, without touching the queue', async () => {
+    const s = fakeStorage()
+    await markSessionSpent(s, sid())
+
+    const result = await claimAndSavePending(s, sid(), frame())
+
+    expect(result.claimed).toBe(false)
+    expect(await getPending(s)).toHaveLength(0)
+  })
+})
+
 // A queue that retries a hopeless frame forever re-validates a full BEEF on
 // every wallet build and every nearby settle, and keeps calling it "waiting".
 describe('pending queue attempt ceiling', () => {
-  const frame = (id = 'a') =>
-    ({
-      version: 1,
-      kind: 'bsv' as const,
-      senderIdentityKey: '02' + id.repeat(64).slice(0, 64),
-      outputIndex: 0,
-      derivationPrefix: 'p',
-      derivationSuffix: 's',
-      transaction: new Uint8Array([1, 2, 3])
-    })
+  const frame = (id = 'a') => ({
+    version: 1,
+    kind: 'bsv' as const,
+    senderIdentityKey: '02' + id.repeat(64).slice(0, 64),
+    outputIndex: 0,
+    derivationPrefix: 'p',
+    derivationSuffix: 's',
+    transaction: new Uint8Array([1, 2, 3])
+  })
 
   function store() {
     const kv = new Map<string, string>()

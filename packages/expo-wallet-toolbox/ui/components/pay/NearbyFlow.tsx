@@ -48,14 +48,20 @@
  *      derivation nonces do not match the live request — or whose amount
  *      contradicts an amount the payee actually asked for — is refused without
  *      burning the session, so the real payer can still pay.
- *   1. isSessionSpent() is consulted before anything is written.
- *   2. savePending() completes before markSessionSpent(). Never the reverse:
- *      a crash between the two would burn a one-shot session whose payment was
- *      never persisted, and that money is unrecoverable.
- *   3. processPending() runs only after savePending() has resolved, outside the
+ *   1. claimAndSavePending() checks the session, persists the frame, and burns
+ *      the session as ONE atomic operation (XR-098) — never three separate
+ *      ones. Three separate operations, even correctly ordered, are not
+ *      atomic: two concurrent deliveries for the same session (radio racing a
+ *      QR scan, or any other overlap) could each pass the check before either
+ *      had written anything, and both would durably queue a payment for a
+ *      session meant to be spent exactly once.
+ *   2. Persist-then-burn, never the reverse, is still the ordering INSIDE that
+ *      one operation: a crash between the two would burn a one-shot session
+ *      whose payment was never persisted, and that money is unrecoverable.
+ *   3. processPending() runs only after the claim has resolved, outside the
  *      try that can flip the screen to a failure. Once the frame is queued the
  *      payment cannot be lost, so reporting failure past that line would invite
- *      a duplicate payment — the same misreport refused for markSessionSpent.
+ *      a duplicate payment.
  *   4. The live Session is threaded in as an argument — neither PaymentFrame
  *      nor PendingPayment carries a sessionId, so it cannot be recovered later.
  *   5. Every decode sits in a bare `catch`, which catches non-Error throws from
@@ -135,6 +141,7 @@ import {
   buildPaymentFrame,
   capsFromProbe,
   chainAlreadyKnows,
+  claimAndSavePending,
   decodeSession,
   describeFloor,
   encodeSession,
@@ -143,11 +150,9 @@ import {
   parkSentPaymentOffline,
   isAirGapPart,
   isDeclineReason,
-  isSessionSpent,
   localSupportsAwdl,
   localSupportsBle,
   localSupportsNearby,
-  markSessionSpent,
   mintSession,
   rememberSessionPsk,
   nearbyTransport,
@@ -159,7 +164,6 @@ import {
   readBluetoothState,
   requestBlePermissions,
   requestNearbyPermissions,
-  savePending,
   sealedToQr,
   sealFrame,
   selectTransport,
@@ -931,6 +935,16 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         void confirm?.(false, 'save_failed')
         return
       }
+      // XR-098: latched HERE, synchronously, before the first await below —
+      // not after verification succeeds. Two calls that both start while this
+      // is still false (radio racing a QR scan) must not both pass the check
+      // above; setting it after `await verifyFramePayment(...)` left exactly
+      // that window open. Reset on every early-return branch below that
+      // intentionally leaves the request live for a genuine retry (a
+      // mismatch is not this device's fault) — `claimAndSavePending`'s own
+      // atomic claim (below) is still the backstop even if a caller reset
+      // this incorrectly.
+      settlingRef.current = true
 
       // (0a) What this frame actually pays this device. The figure below is the
       //      satoshis of the AtomicBEEF output at `frame.outputIndex`, and it is
@@ -965,6 +979,7 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           // scanning mistake.
           setNotice({ text: t('token_cover_failed', { issuer: issuerNameFor(session.asset?.id) }), tone: 'warning' })
         }
+        settlingRef.current = false
         scanLatchRef.current = false
         setSessionMismatch(true)
         setPhase('receive_wait')
@@ -981,6 +996,7 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           : session.asset !== undefined
       if (assetMismatch) {
         void confirm?.(false, 'session_mismatch')
+        settlingRef.current = false
         scanLatchRef.current = false
         setSessionMismatch(true)
         setPhase('receive_wait')
@@ -1025,6 +1041,7 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         amountDisagrees
       ) {
         void confirm?.(false, 'session_mismatch')
+        settlingRef.current = false
         scanLatchRef.current = false
         setSessionMismatch(true)
         // Back to the waiting screen with the pairing QR still up, and restart
@@ -1034,7 +1051,8 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         return
       }
 
-      settlingRef.current = true
+      // settlingRef was already latched at the top of this function (XR-098) —
+      // nothing more to set here.
       setSessionMismatch(false)
       // The frame crossed the encrypted link and decoded against this session:
       // the peer is provably present. Presentation only — this drives nothing
@@ -1057,9 +1075,25 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
       // Everything that can legitimately be reported as a payment failure lives
       // in here, and only in here. Past the closing brace the money is safe.
       try {
-        // (1) One-shot session guard, before anything is written. A re-scanned
-        //     or replayed session must never credit twice.
-        if (await isSessionSpent(storage, session.sessionId)) {
+        // (1)+(2)+(3), atomically (XR-098). The one-shot session guard, the
+        //     durable persist, and burning the session used to be three
+        //     separate operations — the guard under no lock at all, the other
+        //     two each under their own — so a concurrent delivery for the same
+        //     session (radio racing a QR scan, or any other overlap) could
+        //     pass the guard before either had written anything, and both
+        //     would durably queue a payment for a session meant to be spent
+        //     exactly once. `claimAndSavePending` runs all three inside one
+        //     lock, so the check-then-act sequence cannot interleave.
+        //
+        //     `confirm` is only ever supplied by a radio receive path (the
+        //     listener effect above; the QR/retry callers below omit it) — the
+        //     same signal `Unsettled` already keys off of, reused here to
+        //     attribute the queue row to a transport. `via` is the radio
+        //     raceReceivers reported as the winner; the 'awdl' fallback covers
+        //     only the (unreachable in practice) case of a confirm handle with
+        //     no winner attached.
+        const claim = await claimAndSavePending(storage, session.sessionId, frame, confirm ? (via ?? 'awdl') : 'qr')
+        if (!claim.claimed) {
           // Not a failure for the PAYEE: that session's payment is already
           // queued. It is a decline for the PAYER, though, and must be — this
           // delivery queued nothing, and each executeSend builds a fresh
@@ -1070,32 +1104,6 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           setUnsettled(null)
           setPhase('already_paid')
           return
-        }
-
-        // (2) Persist before anything else. Once this resolves the money cannot
-        //     be lost to a crash, a dead network or a closed app.
-        //
-        //     `confirm` is only ever supplied by a radio receive path (the
-        //     listener effect above; the QR/retry callers below omit it) — the
-        //     same signal `Unsettled` already keys off of, reused here to
-        //     attribute the queue row to a transport. `via` is the radio
-        //     raceReceivers reported as the winner; the 'awdl' fallback covers
-        //     only the (unreachable in practice) case of a confirm handle with
-        //     no winner attached.
-        await savePending(storage, frame, confirm ? (via ?? 'awdl') : 'qr')
-
-        // (3) Only now is it safe to burn the session. Doing this first would
-        //     mean a crash in between marks the session handled while nothing
-        //     was persisted — unrecoverable, because sessions are one-shot.
-        try {
-          await markSessionSpent(storage, session.sessionId)
-        } catch (e) {
-          // The frame is already queued, so this is not a payment failure and
-          // must not be reported as one. internalizeAction is idempotent on a
-          // repeat of the same output — the toolbox merges "wallet payment"
-          // internalizations by txid and skips the second credit — so a replay
-          // from here cannot double-credit.
-          console.warn('[localpay] markSessionSpent failed:', messageOf(e))
         }
       } catch (e) {
         // Reached only while the frame is still un-persisted, so this is a real
