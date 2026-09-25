@@ -19,9 +19,26 @@ function loadExpoSharing(): typeof import('expo-sharing') {
 
 const PAGE = 200
 
+/**
+ * A remote PeerPay/nearby-payment sender's note reaches this file's
+ * `description` column verbatim (trimmed, length-capped — see
+ * core/pay/rails/handle.ts and core/localpay/pending.ts), and this export is
+ * shared as text/csv straight to whatever the OS share sheet opens it in.
+ * Any cell whose text begins with `=`, `+`, `-`, `@`, a tab or a carriage
+ * return is a live formula/command to spreadsheet software that still
+ * evaluates leading-character formulas on open (OWASP CSV Injection). Prefix
+ * such a value with a single leading apostrophe first — spreadsheet
+ * applications that honor that convention render it as literal text, and the
+ * original content is still fully visible rather than dropped — before the
+ * existing delimiter/quote escaping below runs.
+ */
+function neutralizeFormula(s: string): string {
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+}
+
 function csvEscape(v: unknown): string {
   if (v == null) return ''
-  const s = String(v)
+  const s = neutralizeFormula(String(v))
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
   return s
 }
