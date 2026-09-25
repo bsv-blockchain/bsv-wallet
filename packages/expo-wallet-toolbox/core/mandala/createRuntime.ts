@@ -71,7 +71,11 @@ import { getPending, type KVStorage, type TokenCreditedHook } from '../localpay/
 import type { PaymentFrame } from '../localpay/codec'
 import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
-import { frameTokenAmount, tokenFrameSourcesFromOfflineActions, tokenFrameSourcesFromPending } from '../offline/tokenFrames'
+import {
+  frameTokenAmount,
+  tokenFrameSourcesFromOfflineActions,
+  tokenFrameSourcesFromPending
+} from '../offline/tokenFrames'
 import { resendTokenTransfer, type TokenResendAction, type TokenResendOutcome } from './resendTransfer'
 import { preHoldInboxSettlements } from './inboxPrehold'
 import type { CoverBundle, CoverVerifier } from './bundle'
@@ -422,7 +426,11 @@ interface ListedTokenOutput {
  * ux copy means by "settled with {{issuer}}". The broadcast that follows is
  * this device's bookkeeping, not the payment's fate.
  */
-export function activityStatusOf(row: TokenSettlementRow, nowMs: number, olderThanMs = STUCK_AFTER_MS): TokenActivityStatus {
+export function activityStatusOf(
+  row: TokenSettlementRow,
+  nowMs: number,
+  olderThanMs = STUCK_AFTER_MS
+): TokenActivityStatus {
   switch (row.state) {
     case 'broadcast':
     case 'admitted':
@@ -487,7 +495,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
 
   const metadataCache = new Map<string, { label?: string; ticker?: string; decimals?: number } | null>()
   const resolveMetadata = args.resolveMetadata ?? (async (assetId: string) => await resolveAssetMetadata(assetId))
-  const metadataOf = async (assetId: string): Promise<{ label?: string; ticker?: string; decimals?: number } | null> => {
+  const metadataOf = async (
+    assetId: string
+  ): Promise<{ label?: string; ticker?: string; decimals?: number } | null> => {
     const cached = metadataCache.get(assetId)
     if (cached !== undefined) return cached
     let resolved: { label?: string; ticker?: string; decimals?: number } | null = null
@@ -539,7 +549,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const isAdmittedIn = (rows: OverlayRegistryRow[], key: string): boolean =>
     rows.some(r => r.identityKey.toLowerCase() === key.toLowerCase() && r.status === 'admitted')
 
-  const loadAssetStatusSnapshot = async (assetId: string, opts: { force?: boolean } = {}): Promise<AssetStatusSnapshot> => {
+  const loadAssetStatusSnapshot = async (
+    assetId: string,
+    opts: { force?: boolean } = {}
+  ): Promise<AssetStatusSnapshot> => {
     const [state, registryRows, meta] = await Promise.all([
       (async () => {
         try {
@@ -998,7 +1011,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         signerKey
       })
       if (!trusted) {
-        devLog(`[mandala] /submit of ${txid}: admission signature does not verify under the configured key; not an admission`)
+        devLog(
+          `[mandala] /submit of ${txid}: admission signature does not verify under the configured key; not an admission`
+        )
         return { kind: 'unavailable', code: 'ERR_BAD_ADMISSION', retryable: true }
       }
       return { kind: 'admitted', outputsToAdmit: admitted.outputsToAdmit, signatureHex, signerKey }
@@ -1039,7 +1054,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const resolveEmptyAdmittedSet = async (txid: string): Promise<OverlayVerdict> => {
     const onRecord = await fetchAdmission(overlayUrl, txid)
     if (onRecord === undefined || onRecord.kind === 'unavailable') {
-      devLog(`[mandala] /submit of ${txid} admitted nothing and no admission is on record; the step is retried next pass`)
+      devLog(
+        `[mandala] /submit of ${txid} admitted nothing and no admission is on record; the step is retried next pass`
+      )
       return { kind: 'unavailable', code: 'ERR_EMPTY_ADMISSION', retryable: true }
     }
     devLog(`[mandala] /submit of ${txid} admitted nothing; the overlay's record says '${onRecord.kind}'`)
@@ -1082,7 +1099,17 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         devLog(`[mandala] could not read the cached admission of ${txid}:`, e)
         continue
       }
-      if (cached && cached.signatureHex !== '' && cached.signerKey === overlayIdentityKey) continue
+      // XR-038: a cached admission that does not cover every vout THIS device
+      // currently holds of `txid` is not "good enough, skip" — it would hand a
+      // future offline payee an entry that (rightly) never covers the coin
+      // being spent, so the fetch below still runs and the row is refreshed.
+      if (
+        cached &&
+        cached.signatureHex !== '' &&
+        cached.signerKey === overlayIdentityKey &&
+        vouts.every(v => cached.outputsToAdmit.includes(v))
+      )
+        continue
       const verdict = await fetchAdmission(overlayUrl, txid)
       if (verdict?.kind !== 'admitted') continue
       try {
@@ -1101,15 +1128,16 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       }
       const unadmitted = vouts.filter(v => !verdict.outputsToAdmit.includes(v))
       if (unadmitted.length > 0) {
-        console.warn(`[mandala] ${txid} is admitted but not for held output(s) ${unadmitted.join(',')}; those coins will not cover offline`)
+        console.warn(
+          `[mandala] ${txid} is admitted but not for held output(s) ${unadmitted.join(',')}; those coins will not cover offline`
+        )
       }
     }
     return fetched
   }
 
   /** DerSignature (string | number[] | Uint8Array), as the hex string OverlayVerdict wants. */
-  const derSignatureHex = (sig: DerSignature): string =>
-    typeof sig === 'string' ? sig : Utils.toHex(Array.from(sig))
+  const derSignatureHex = (sig: DerSignature): string => (typeof sig === 'string' ? sig : Utils.toHex(Array.from(sig)))
 
   /**
    * GET /admin/admission/:txid (wire contract v2 §3), mapped onto
@@ -1808,6 +1836,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       amountBaseUnits: frameTokenAmount(frame),
       overlayUrl,
       overlayIdentityKey,
+      // XR-038: the payee's own output — read as 0 when the frame carries none,
+      // same as `frameTokenAmount` already does — so a cached admission that
+      // covers some OTHER output of this txid can never stand in for a real
+      // `/submit` of the one THIS device is actually owed.
+      relevantVout: frame.outputIndex ?? 0,
       createdAt: existing?.createdAt
     })
     emit()
@@ -1852,6 +1885,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       amountBaseUnits: frameTokenAmount(frame),
       overlayUrl,
       overlayIdentityKey,
+      // XR-038: same convention as `onTokenHeld` — output 0 is the payee's
+      // unless the frame says otherwise, and that is the one output a cached
+      // admission has to cover before the drain may skip a real `/submit` of
+      // this tip.
+      relevantVout: frame.outputIndex ?? 0,
       // The nearby rail's half of the abort guard: the action that built this
       // tip is `noSend` and stays that way until the drain broadcasts it, so
       // the reference is recorded the same moment the row is. Absent for a
@@ -1941,9 +1979,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
             overlayUrl,
             overlayIdentityKey,
             linkage:
-              bytes.offChainValues.length > 0
-                ? [{ txid: id, payload: Uint8Array.from(bytes.offChainValues) }]
-                : []
+              bytes.offChainValues.length > 0 ? [{ txid: id, payload: Uint8Array.from(bytes.offChainValues) }] : []
           },
           transaction: Uint8Array.from(bytes.beef)
         },
@@ -1994,6 +2030,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       amountBaseUnits: Number(transfer.amount) || undefined,
       overlayUrl,
       overlayIdentityKey,
+      // XR-038: `outputIndex` is where the SENDER's (randomised) tx put our
+      // output — 0 for legacy messages — the one output a cached admission
+      // has to cover before the drain may skip a real `/submit` of this txid.
+      relevantVout: transfer.outputIndex ?? 0,
       ...(verified && admission
         ? { admissionOutputs: [...admission.outputsToAdmit], admissionSignatureHex: admission.signature }
         : {}),
@@ -2103,7 +2143,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       return await resendTokenTransfer(txid, {
         blindingRecord: async id => {
           const record = await blindingGet(id)
-          return record ? { recipient: record.recipient, senderBlinded: record.senderBlinded, keyID: record.keyID } : undefined
+          return record
+            ? { recipient: record.recipient, senderBlinded: record.senderBlinded, keyID: record.keyID }
+            : undefined
         },
         // The `mandala`-labelled action with its outputs: both rails write the
         // label (the nearby rail since 2026-09-16) and the payee output's marker.
@@ -2127,7 +2169,11 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           const cached = await store.getAdmission(id)
           // An unsigned entry (see `submit`) is bookkeeping, not evidence to forward.
           if (!cached || cached.signatureHex === '' || cached.signerKey === '') return undefined
-          return { outputsToAdmit: cached.outputsToAdmit, signatureHex: cached.signatureHex, signerKey: cached.signerKey }
+          return {
+            outputsToAdmit: cached.outputsToAdmit,
+            signatureHex: cached.signatureHex,
+            signerKey: cached.signerKey
+          }
         },
         journal: { put: notifyPut, remove: notifyRemove },
         sendMessage: args => box.sendMessage(args as never),
@@ -2405,7 +2451,10 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       // immediately after, so a transient failure here retries whole on the
       // next drain tick instead of being credited on a bare table.
       for (const id of excluded) processedMessages.add(id)
-      let result: { accepted: ReceivedTransfer[]; failed: { messageId: string; error: unknown; refusedCode?: string }[] }
+      let result: {
+        accepted: ReceivedTransfer[]
+        failed: { messageId: string; error: unknown; refusedCode?: string }[]
+      }
       try {
         result = await receiveTokens({
           wallet: bound,
@@ -2482,4 +2531,3 @@ function assetIdOfTx(tx: Transaction): string | undefined {
   }
   return undefined
 }
-
