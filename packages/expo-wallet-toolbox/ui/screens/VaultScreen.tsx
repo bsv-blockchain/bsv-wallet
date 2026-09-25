@@ -46,6 +46,8 @@ import {
   useLocalStorage,
   relockVault,
   recoverVaultMetaFromOutputs,
+  requireAuthenticatedMeta,
+  computeVaultMetaAuthorityTag,
   recoverVaultFromChain,
   wocChainLookup,
   resolveHeldVaultDeposit,
@@ -55,6 +57,7 @@ import {
   estimateRelockFee,
   R1C_LOCK_LEN,
   type VaultWallet,
+  type HmacCapableWallet,
   type VaultSpendResult,
   vaultStore,
   type VaultMeta,
@@ -607,7 +610,20 @@ export function VaultScreen() {
     const next = renameText.trim()
     if (next && next !== renaming.nickname) {
       try {
-        await vaultStore.renameKey(renaming.serial, next)
+        // XR-002: renameKey only changes a nickname, but its `next` meta
+        // still bumps revision — never trust the CURRENT record as the basis
+        // for a freshly tagged one without re-verifying it first (the same
+        // laundering caveat as vaultStore.addKey).
+        if (!pm) throw new VaultError('driver-unavailable', 'Wallet is not ready for a vault operation')
+        const currentMeta = metaRef.current
+        if (!currentMeta) throw new VaultError('not-enrolled', 'Vault is not set up')
+        const scopeToken = vaultStore.captureScopeToken()
+        await requireAuthenticatedMeta(pm as unknown as VaultWallet, adminOriginator, scopeToken, currentMeta)
+        const scope = vaultStore.getScope()
+        if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+        await vaultStore.renameKey(renaming.serial, next, scopeToken, nextMeta =>
+          computeVaultMetaAuthorityTag(pm as unknown as HmacCapableWallet, adminOriginator, nextMeta, scope)
+        )
         await reload()
       } catch (e) {
         haptics.error()
@@ -615,7 +631,7 @@ export function VaultScreen() {
       }
     }
     setRenaming(null)
-  }, [renaming, renameText, reload])
+  }, [renaming, renameText, reload, pm, adminOriginator])
 
   const removeKey = useCallback(
     async (rec: VaultKeyRecord) => {

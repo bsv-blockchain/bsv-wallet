@@ -13,6 +13,16 @@ import { VaultError } from './types'
 
 const META_KEY_PREFIX = 'vault_meta_v6'
 const ENROLLMENT_DRAFT_KEY_PREFIX = 'vault_enrollment_draft_v1'
+/** XR-002: the wallet-root-authenticated integrity tag for this scope's
+ * VaultMeta, kept BESIDE the record rather than inside its JSON — the tag
+ * covers a canonical encoding computed by metaAuthority.ts, and mixing it
+ * into VaultMeta's own strict, allowlisted schema (isVaultMeta) would be a
+ * needless coupling between storage-format and authentication concerns. */
+const META_TAG_KEY_PREFIX = 'vault_meta_authority_tag_v1'
+/** XR-001: one wallet-root-authenticated tag per `ready` enrollment-draft
+ * record, keyed by serial. Only `ready` drafts are ever tagged — see
+ * metaAuthority.ts's header for why lower assurance levels need none. */
+const DRAFT_TAG_KEY_PREFIX = 'vault_enrollment_draft_tag_v1'
 const SECURE_OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY
 }
@@ -174,6 +184,98 @@ function enrollmentDraftKey(token: VaultScopeToken): string {
   const match = SCOPE_KEY_PATTERN.exec(token.storageKey)
   if (!match) throw new VaultError('template-invalid', 'Invalid captured vault scope')
   return `${ENROLLMENT_DRAFT_KEY_PREFIX}_${match[1]}_${match[2]}`
+}
+
+function metaTagKey(token: VaultScopeToken): string {
+  const match = SCOPE_KEY_PATTERN.exec(token.storageKey)
+  if (!match) throw new VaultError('template-invalid', 'Invalid captured vault scope')
+  return `${META_TAG_KEY_PREFIX}_${match[1]}_${match[2]}`
+}
+
+function draftTagStoreKey(token: VaultScopeToken): string {
+  const match = SCOPE_KEY_PATTERN.exec(token.storageKey)
+  if (!match) throw new VaultError('template-invalid', 'Invalid captured vault scope')
+  return `${DRAFT_TAG_KEY_PREFIX}_${match[1]}_${match[2]}`
+}
+
+/**
+ * XR-002: computes and returns the integrity tag for the meta a write is
+ * about to persist, given the EXACT object about to be written (never a
+ * separately re-read copy — that would open a TOCTOU window between what was
+ * authenticated and what lands in storage). Every caller must derive this
+ * from `wallet.createHmac` under the admin-reserved 'vault meta' protocol
+ * (metaAuthority.ts / guard.ts's VAULT_PROTOCOL_NAMES); vaultStore itself
+ * has no wallet access and trusts the returned string as-is. A tagger that
+ * throws aborts the whole write: writeMeta only runs after the tag is in
+ * hand, so a wallet-side failure never leaves an updated-but-untagged
+ * record on disk.
+ *
+ * Deliberately OPTIONAL: a write made without one (every plain storage-level
+ * test, and any future maintenance path that has no wallet handy) simply
+ * leaves the on-file tag exactly as it was — which the next
+ * output-creating operation's verification (transfers.ts's
+ * requireAuthenticatedMeta) will then correctly treat as stale/absent and
+ * refuse to trust, never as though nothing had happened.
+ */
+export type VaultMetaTagger = (
+  next: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys' | 'pendingRemoval'>
+) => Promise<string>
+
+/** XR-001: same contract as VaultMetaTagger, for one `ready` draft record. */
+export type VaultDraftTagger = (record: VaultKeyRecord) => Promise<string>
+
+async function readMetaTag(token: VaultScopeToken): Promise<string | null> {
+  return (await SecureStore.getItemAsync(metaTagKey(token), SECURE_OPTIONS)) || null
+}
+
+async function writeMetaTag(token: VaultScopeToken, tag: string): Promise<void> {
+  if (typeof tag !== 'string' || tag.length === 0) {
+    throw new VaultError('template-invalid', 'Invalid vault meta authority tag')
+  }
+  await SecureStore.setItemAsync(metaTagKey(token), tag, SECURE_OPTIONS)
+}
+
+async function clearMetaTag(token: VaultScopeToken): Promise<void> {
+  await SecureStore.deleteItemAsync(metaTagKey(token), SECURE_OPTIONS)
+}
+
+/** Write `meta` and, when a tagger is supplied, its fresh authority tag —
+ * atomically within the caller's enqueueMutation critical section. The tag
+ * is computed BEFORE writeMeta so a tagger failure (a rejected wallet call)
+ * leaves storage completely untouched rather than updated-but-untagged. */
+async function writeMetaAndTag(
+  token: VaultScopeToken,
+  meta: VaultMeta,
+  tagger?: VaultMetaTagger
+): Promise<void> {
+  const tag = tagger ? await tagger(meta) : undefined
+  await writeMeta(token, meta)
+  if (tag !== undefined) await writeMetaTag(token, tag)
+}
+
+async function readDraftTags(token: VaultScopeToken): Promise<Record<string, string>> {
+  const raw = await SecureStore.getItemAsync(draftTagStoreKey(token), SECURE_OPTIONS)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out: Record<string, string> = {}
+    for (const [serial, tag] of Object.entries(parsed as Record<string, unknown>)) {
+      if (isVaultSerial(serial) && typeof tag === 'string' && tag.length > 0) out[serial] = tag
+    }
+    return out
+  } catch {
+    // Corrupt draft-tag bookkeeping is never fatal: it only ever narrows what
+    // gets trusted as 'ready' (see VaultKeyService's verifyVaultDraftAuthorityTag
+    // use), never widens it.
+    return {}
+  }
+}
+
+async function writeDraftTags(token: VaultScopeToken, tags: Record<string, string>): Promise<void> {
+  const entries = Object.entries(tags)
+  if (entries.length === 0) await SecureStore.deleteItemAsync(draftTagStoreKey(token), SECURE_OPTIONS)
+  else await SecureStore.setItemAsync(draftTagStoreKey(token), JSON.stringify(tags), SECURE_OPTIONS)
 }
 
 /** The wallet identity a captured scope belongs to, without its chain half. */
@@ -525,10 +627,21 @@ export const vaultStore = {
   /** Preserve a generated key under the wallet+chain captured before token
    * contact. Unlike authority writes, this may finish after the active scope
    * changes: it can write only the separate draft key encoded in `scopeToken`.
-   * Assurance is monotonic and same-serial/pubkey conflicts fail closed. */
+   * Assurance is monotonic and same-serial/pubkey conflicts fail closed.
+   *
+   * XR-001: when the SAVED entry (after the monotonic-rank comparison below)
+   * ends up `ready` and a `tagger` is supplied, this also computes and stores
+   * that record's wallet-root authority tag — atomically, before the draft
+   * write, for the same TOCTOU reason writeMetaAndTag documents. A `ready`
+   * write with no tagger (a caller that has no wallet handy, or every
+   * pre-existing storage-level test) simply leaves the record untagged; the
+   * only place that ever matters is requireReadyEnrollmentDrafts /
+   * resumeEnrollmentDraft's fast path, which then correctly refuses to trust
+   * it as sufficient authority on its own. */
   async preserveEnrollmentDraft(
     entry: VaultEnrollmentDraftEntry,
-    scopeToken: VaultScopeToken
+    scopeToken: VaultScopeToken,
+    tagger?: VaultDraftTagger
   ): Promise<VaultEnrollmentDraftEntry> {
     if (
       !isVaultKeyRecord(entry.record) ||
@@ -567,14 +680,30 @@ export const vaultStore = {
       const retainedQuarantines = quarantines.filter(item => item.serial !== entry.record.serial)
       const updatedAt = Date.now()
       if (!isSafeTime(updatedAt)) throw new VaultError('template-invalid', 'Invalid enrollment draft time')
+      const tag = tagger && saved.assurance === 'ready' ? await tagger(saved.record) : undefined
       await writeCapturedEnrollmentDraft(scopeToken, {
         v: 1,
         updatedAt,
         entries,
         quarantines: retainedQuarantines
       })
+      if (tag !== undefined) {
+        const tags = await readDraftTags(scopeToken)
+        tags[saved.record.serial] = tag
+        await writeDraftTags(scopeToken, tags)
+      }
       return { ...saved, record: { ...saved.record } }
     })
+  },
+
+  /** XR-001: the wallet-root authority tag for a `ready` draft's serial, or
+   * null if none is on file (never tagged, or tagged under an assurance the
+   * caller's write path did not supply a tagger for). */
+  async getEnrollmentDraftTag(serial: string, scopeToken?: VaultScopeToken): Promise<string | null> {
+    const token = scopeToken ?? captureScope(true)
+    if (!isVaultSerial(serial)) throw new VaultError('template-invalid', 'Invalid enrollment draft serial')
+    const tags = await readDraftTags(token)
+    return tags[serial] ?? null
   },
 
   /** Persist the no-secret intent marker BEFORE the first irreversible PIV
@@ -669,6 +798,20 @@ export const vaultStore = {
           quarantines: current.quarantines
         })
       }
+      // XR-001: a consumed/discarded serial's tag must not linger — a later,
+      // unrelated draft that happens to reuse the same serial (a different
+      // physical card whose ratcheted serial format collides, or the same
+      // card re-enrolled) must never inherit a stale authority tag it never
+      // earned.
+      const tags = await readDraftTags(token)
+      let tagsChanged = false
+      for (const serial of consumed) {
+        if (serial in tags) {
+          delete tags[serial]
+          tagsChanged = true
+        }
+      }
+      if (tagsChanged) await writeDraftTags(token, tags)
       assertScope(token)
     })
   },
@@ -704,6 +847,7 @@ export const vaultStore = {
     return enqueueMutation(async () => {
       assertScope(token)
       await writeCapturedEnrollmentDraft(token, null)
+      await writeDraftTags(token, {})
       assertScope(token)
     })
   },
@@ -755,13 +899,21 @@ export const vaultStore = {
     return [...serials]
   },
 
-  async setMeta(meta: VaultMeta, scopeToken?: VaultScopeToken): Promise<void> {
+  /** Raw meta write with no `current`-vs-`next` relationship at all (no
+   * production code path uses this — it exists for test fixtures). Since
+   * there is no `current` to launder, a tagger here is always safe to trust
+   * for whatever `meta` the caller supplies. */
+  async setMeta(meta: VaultMeta, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<void> {
     const token = scopeToken ?? captureScope(true)
-    return enqueueMutation(() => writeMeta(token, meta))
+    return enqueueMutation(() => writeMetaAndTag(token, meta, tagger))
   },
 
-  /** Create one enrollment without a read/write scope-switch window. */
-  async createEnrollment(meta: VaultMeta, scopeToken?: VaultScopeToken): Promise<void> {
+  /** Create one enrollment without a read/write scope-switch window.
+   *
+   * XR-002: a fresh enrollment has no prior authority to launder — this
+   * refuses outright whenever one already exists — so `tagger` is always
+   * safe to trust for whatever `meta` the caller (finalizeEnrollment) built. */
+  async createEnrollment(meta: VaultMeta, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<void> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const existing = await readMeta(token)
@@ -773,7 +925,7 @@ export const vaultStore = {
           { serial: existing.keys[0].serial }
         )
       }
-      await writeMeta(token, meta)
+      await writeMetaAndTag(token, meta, tagger)
     })
   },
 
@@ -782,8 +934,20 @@ export const vaultStore = {
    * spendable output's real R1C lock. The caller performs that lock check;
    * this boundary performs strict schema validation and refuses to replace a
    * different live enrollment.
-   */
-  async restoreVerifiedMeta(meta: VaultMeta, scopeToken?: VaultScopeToken): Promise<void> {
+   *
+   * XR-002: this is the "safer route" requireAuthenticatedMeta
+   * (transfers.ts) falls back to for meta whose wallet-root tag is missing
+   * or invalid — never a silent trust-on-first-use. It is safe to tag
+   * whatever `restored` ends up being here without first re-verifying
+   * `current`'s own tag: in the same-revision branch, `restored`'s
+   * authority fields (vaultId/createdAt/revision/keys) come from `current`
+   * ONLY after the equality check just above already proved them identical
+   * to `checked` — itself independently authenticated against a real,
+   * chain-verified R1C lock by the caller; in the higher-revision branch
+   * they are taken from `checked` directly, never from `current`. Either
+   * way `current`'s own (possibly forged, possibly absent) tag never
+   * "launders" into the fresh one. */
+  async restoreVerifiedMeta(meta: VaultMeta, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<void> {
     const token = scopeToken ?? captureScope(true)
     const checked = checkedMeta(meta)
     return enqueueMutation(async () => {
@@ -815,7 +979,7 @@ export const vaultStore = {
         const restored: VaultMeta = { ...current }
         if (pendingRemoval) restored.pendingRemoval = pendingRemoval
         else delete restored.pendingRemoval
-        await writeMeta(token, restored)
+        await writeMetaAndTag(token, restored, tagger)
         return
       }
 
@@ -839,7 +1003,7 @@ export const vaultStore = {
         restored.lastUsedAt = current.lastUsedAt
         restored.lastUsedSerial = current.lastUsedSerial
       }
-      await writeMeta(token, restored)
+      await writeMetaAndTag(token, restored, tagger)
     })
   },
 
@@ -868,7 +1032,17 @@ export const vaultStore = {
     }
   },
 
-  async addKey(k: VaultKeyRecord, scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+  /**
+   * XR-002: `next` here is built by APPENDING to `meta.keys` — never
+   * replacing it — so a forged `meta` (a substituted key set the caller
+   * never authenticated) would otherwise "launder" straight through into a
+   * freshly, validly tagged `next` merely because the user added one more,
+   * genuinely their own, key. Callers MUST verify `meta`'s own existing tag
+   * (or run it through the chain-authenticated recovery path) BEFORE calling
+   * this with a `tagger` — see VaultKeyService.addVaultKey's
+   * requireTaggedMeta call, which does exactly that.
+   */
+  async addKey(k: VaultKeyRecord, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     if (!isVaultKeyRecord(k)) throw new VaultError('template-invalid', 'Invalid vault key record')
     return enqueueMutation(async () => {
@@ -881,12 +1055,16 @@ export const vaultStore = {
         throw new VaultError('key-already-enrolled', k.serial, undefined, { serial: k.serial })
       }
       const next: VaultMeta = { ...meta, revision: meta.revision + 1, keys: [...meta.keys, k] }
-      await writeMeta(token, next)
+      await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
 
-  async beginKeyRemoval(serial: string, scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+  /** Same laundering caveat as addKey: `meta` must already be established as
+   * trustworthy by the caller (transfers.ts's beginVaultKeyRemoval gates its
+   * whole flow on requireAuthenticatedMeta before reaching here) before a
+   * `tagger` is supplied. */
+  async beginKeyRemoval(serial: string, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
@@ -915,12 +1093,12 @@ export const vaultStore = {
         delete next.lastUsedSerial
         delete next.lastUsedAt
       }
-      await writeMeta(token, next)
+      await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
 
-  async markKeyRemovalBroadcast(scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+  async markKeyRemovalBroadcast(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
@@ -931,7 +1109,7 @@ export const vaultStore = {
         ...meta,
         pendingRemoval: { ...pending, state: 'broadcast' }
       }
-      await writeMeta(token, next)
+      await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
@@ -939,7 +1117,7 @@ export const vaultStore = {
   /** Caller must establish from authenticated action history and two complete
    * output scans that no spendable lock still authorizes the removed key and
    * that no relevant action is pending before invoking. */
-  async finalizeProvenKeyRemoval(scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+  async finalizeProvenKeyRemoval(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
@@ -949,7 +1127,7 @@ export const vaultStore = {
       }
       const next: VaultMeta = { ...meta }
       delete next.pendingRemoval
-      await writeMeta(token, next)
+      await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
@@ -960,7 +1138,7 @@ export const vaultStore = {
    * those scans and serializes them with deposits; this method only permits
    * the corresponding untouched, unbroadcast state transition.
    */
-  async finalizeEmptyKeyRemoval(scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+  async finalizeEmptyKeyRemoval(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
@@ -970,7 +1148,7 @@ export const vaultStore = {
       }
       const next: VaultMeta = { ...meta }
       delete next.pendingRemoval
-      await writeMeta(token, next)
+      await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
@@ -979,7 +1157,7 @@ export const vaultStore = {
    * Restore a prepared key only after the caller has proved no transaction was
    * broadcast (for example, its reserved action was successfully aborted).
    */
-  async cancelUnbroadcastKeyRemoval(scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+  async cancelUnbroadcastKeyRemoval(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
@@ -991,12 +1169,20 @@ export const vaultStore = {
       keys.splice(pending.keyIndex, 0, pending.key)
       const next: VaultMeta = { ...meta, revision: meta.revision + 1, keys }
       delete next.pendingRemoval
-      await writeMeta(token, next)
+      await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
 
-  async renameKey(serial: string, nickname: string, scopeToken?: VaultScopeToken): Promise<VaultMeta> {
+  /** Same laundering caveat as addKey: the caller (VaultScreen's rename
+   * action) must establish `meta` is trustworthy via requireAuthenticatedMeta
+   * before supplying a `tagger`. */
+  async renameKey(
+    serial: string,
+    nickname: string,
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
@@ -1010,7 +1196,7 @@ export const vaultStore = {
         revision: meta.revision + 1,
         keys: meta.keys.map(x => (x.serial === serial ? { ...x, nickname: clean } : x))
       }
-      await writeMeta(token, next)
+      await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
@@ -1035,9 +1221,23 @@ export const vaultStore = {
       if (meta?.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
       assertScope(token)
       await SecureStore.deleteItemAsync(token.storageKey, SECURE_OPTIONS)
+      await clearMetaTag(token)
       assertScope(token)
       await writeCapturedEnrollmentDraft(token, null)
+      await writeDraftTags(token, {})
       assertScope(token)
     })
+  },
+
+  /** XR-002: the wallet-root authority tag on file for this scope's VaultMeta,
+   * or null if none exists (never tagged — every enrollment created before
+   * this fix shipped — or explicitly cleared). Read by
+   * transfers.ts's requireAuthenticatedMeta and by every meta-mutating
+   * caller that must verify `current` before trusting it as the basis for a
+   * freshly tagged `next` (see addKey/beginKeyRemoval/renameKey's laundering
+   * caveat above). */
+  async getMetaTag(scopeToken?: VaultScopeToken): Promise<string | null> {
+    const token = scopeToken ?? captureScope(true)
+    return readMetaTag(token)
   }
 }

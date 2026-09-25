@@ -7,6 +7,13 @@ const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
 const mockGetMeta = jest.fn()
 const mockRenameKey = jest.fn()
+// XR-002: saveRename now authenticates the current meta before renaming.
+// Real end-to-end coverage of requireAuthenticatedMeta/computeVaultMetaAuthorityTag
+// lives in transfers.test.ts / vaultKeyService.test.ts; this file only needs
+// to prove VaultScreen actually calls them with a sane admin wallet before
+// calling vaultStore.renameKey.
+const mockRequireAuthenticatedMeta = jest.fn(async (_w: unknown, _o: unknown, _scope: unknown, meta: unknown) => meta)
+const mockComputeVaultMetaAuthorityTag = jest.fn(async () => 'mock-meta-tag')
 const mockRelock = jest.fn()
 const mockRecover = jest.fn()
 const mockRecoverFromChain = jest.fn()
@@ -41,9 +48,12 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   VaultError: jest.requireActual('../../core/services/vault/types').VaultError,
   vaultStore: {
     captureScopeToken: () => ({ identityKey: 'scope', chain: 'test', generation: 1 }),
+    getScope: () => ({ identityKey: 'scope', chain: 'test' }),
     getMeta: (...a: unknown[]) => mockGetMeta(...a),
     renameKey: (...a: unknown[]) => mockRenameKey(...a)
   },
+  requireAuthenticatedMeta: (...a: unknown[]) => mockRequireAuthenticatedMeta(...a),
+  computeVaultMetaAuthorityTag: (...a: unknown[]) => mockComputeVaultMetaAuthorityTag(...a),
   getVaultDriver: () => ({ isSupported: () => mockSupported }),
   isVaultEnabled: () => mockVaultEnabled,
   isVaultAvailable: (chain: string) => mockVaultEnabled && chain === 'main',
@@ -587,7 +597,14 @@ describe('enrolled', () => {
     fireEvent.changeText(field, 'Office safe')
     await act(async () => fireEvent.press(screen.getByText('vault_rename_save')))
     await settle()
-    expect(mockRenameKey).toHaveBeenCalledWith('12340002', 'Office safe')
+    expect(mockRenameKey).toHaveBeenCalledWith(
+      '12340002',
+      'Office safe',
+      expect.anything(),
+      expect.any(Function)
+    )
+    // XR-002: the current meta was re-verified before renameKey ever ran.
+    expect(mockRequireAuthenticatedMeta).toHaveBeenCalled()
   })
 
   test('re-lock defaults to the last-used key, loops while capped, then reports the unreachable keys', async () => {

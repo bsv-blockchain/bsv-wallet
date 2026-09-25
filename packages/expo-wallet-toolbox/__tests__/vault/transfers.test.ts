@@ -92,6 +92,7 @@ import { isBackupPushEnabled } from '../../core/backup/preference'
 import { getBackupUrl, isVaultAvailable, isVaultEnabled } from '../../core/toolboxConfig'
 import { noteVaultProgress, requestVaultSigner } from '../../core/services/vault/ceremonyHost'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
+import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import type { VaultSigner } from '../../core/services/vault/ceremony'
 import { VaultError } from '../../core/services/vault/types'
 import {
@@ -158,8 +159,24 @@ const KEY_C: VaultKeyRecord = {
   enrolledAt: 3
 }
 
+/** XR-002: tags whatever `meta` is given with the SAME wallet-root HMAC a
+ * legitimate write would have produced, using this test file's own
+ * `wallet.createHmac` fixture and the currently configured scope. Every
+ * fixture in this suite goes through this (directly or via seedMeta) so
+ * requireAuthenticatedMeta's tag check passes for every LEGITIMATE scenario;
+ * a test that means to exercise a forged/untagged meta calls
+ * `vaultStore.setMeta` directly, with no tagger, instead. */
+async function tagFor(meta: Parameters<typeof computeVaultMetaAuthorityTag>[2]): Promise<string> {
+  const scope = vaultStore.getScope()!
+  return computeVaultMetaAuthorityTag(wallet, ADMIN, meta, scope)
+}
+
 async function seedMeta(keys: VaultKeyRecord[] = [KEY_A, KEY_B]): Promise<void> {
-  await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 2, createdAt: 1, keys })
+  await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 2, createdAt: 1, keys }, undefined, tagFor)
+  // The tag computation above is fixture setup, not something under test —
+  // clear it so a test's own createHmac call-count assertions still measure
+  // only what the deposit/withdraw/relock flow itself does.
+  wallet.createHmac.mockClear()
 }
 
 /** A BEEF carrying every fixture's raw source transaction, as listOutputs
@@ -177,6 +194,7 @@ const stitchBeef = (fx: { src: Transaction }[]): number[] => {
 
 let wallet: VaultWallet & {
   createHmac: jest.Mock
+  verifyHmac: jest.Mock
   createAction: jest.Mock
   signAction: jest.Mock
   listOutputs: jest.Mock
@@ -202,6 +220,16 @@ beforeEach(async () => {
         args.data
       )
     })),
+    // XR-002: real round-trippable verification against the SAME derivation
+    // createHmac above uses, so requireAuthenticatedMeta's tag check is
+    // genuinely exercised rather than stubbed to always answer true.
+    verifyHmac: jest.fn(async (args: any) => {
+      const expected = Hash.sha256hmac(
+        SALT_DERIVER.deriveSymmetricKey(args.protocolID, args.keyID, args.counterparty).toArray(),
+        args.data
+      )
+      return { valid: JSON.stringify(expected) === JSON.stringify(args.hmac) }
+    }),
     createAction: jest.fn(async (args: any) => {
       if (args?.options?.sendWith) {
         return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'sending' }] }
@@ -1559,25 +1587,33 @@ describe('depositToVault', () => {
   })
 
   it('requires possession proof for at least two recovered keys before accepting net-new funds', async () => {
-    await vaultStore.setMeta({
-      v: 6,
-      vaultId: VAULT_ID,
-      revision: 2,
-      createdAt: 1,
-      keys: [KEY_A, KEY_B],
-      recovery: { required: true, adoptedSerials: ['A-1'] }
-    })
+    await vaultStore.setMeta(
+      {
+        v: 6,
+        vaultId: VAULT_ID,
+        revision: 2,
+        createdAt: 1,
+        keys: [KEY_A, KEY_B],
+        recovery: { required: true, adoptedSerials: ['A-1'] }
+      },
+      undefined,
+      tagFor
+    )
     await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'key-not-adopted' })
     expect(wallet.createAction).not.toHaveBeenCalled()
 
-    await vaultStore.setMeta({
-      v: 6,
-      vaultId: VAULT_ID,
-      revision: 2,
-      createdAt: 1,
-      keys: [KEY_A, KEY_B],
-      recovery: { required: true, adoptedSerials: ['A-1', 'B-1'] }
-    })
+    await vaultStore.setMeta(
+      {
+        v: 6,
+        vaultId: VAULT_ID,
+        revision: 2,
+        createdAt: 1,
+        keys: [KEY_A, KEY_B],
+        recovery: { required: true, adoptedSerials: ['A-1', 'B-1'] }
+      },
+      undefined,
+      tagFor
+    )
     await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
   })
 
@@ -1824,6 +1860,118 @@ describe('depositToVault', () => {
 
     await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
     expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+})
+
+// XR-002 (SEC2-088): a local-storage-only attacker (no wallet, no YubiKey)
+// overwrites vaultStore's scoped SecureStore record directly — preserving
+// vaultId, inflating revision, substituting keys — exactly the shape
+// `vaultStore.setMeta` below produces with no tagger at all. The wallet-root
+// authority tag (metaAuthority.ts) is what a SecureStore-only write can never
+// reproduce, so requireAuthenticatedMeta refuses to build a new output from
+// it, regardless of how the local revision compares to any on-chain output.
+describe('XR-002: forged local vault metadata never redirects a new output', () => {
+  const attackerKey = (): VaultKeyRecord => ({
+    serial: 'ATTACKER-1',
+    slot: 0x82,
+    pubkey: Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), true))),
+    nickname: 'Attacker',
+    enrolledAt: 999
+  })
+
+  it('refuses a deposit when local meta claims a higher revision with substituted keys and no on-chain history exists yet', async () => {
+    // No seedMeta(): a genuinely first-ever deposit has no chain evidence to
+    // authenticate a forged, untagged local record against either — the
+    // "never silently trust-on-first-use" case.
+    await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 99, createdAt: 1, keys: [attackerKey(), KEY_B] })
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'template-invalid' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
+  it('refuses a deposit when local meta disagrees with real on-chain history for this vaultId', async () => {
+    await seedMeta() // legitimate revision 2, [KEY_A, KEY_B], validly tagged
+    await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
+    wallet.createAction.mockClear()
+
+    // The attacker overwrites the scoped record after the legitimate deposit:
+    // same vaultId (preserved, matching the reviewer's exact attack), a
+    // strictly higher revision, and a substituted key set. No tagger — this
+    // is exactly what a SecureStore-only write produces.
+    const forged = { v: 6 as const, vaultId: VAULT_ID, revision: 99, createdAt: 1, keys: [attackerKey(), KEY_B] }
+    await vaultStore.setMeta(forged)
+
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'template-invalid' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    // The forgery is never further committed or "laundered" into a new
+    // output — the local cache is left exactly as the attacker wrote it.
+    expect(await vaultStore.getMeta()).toEqual(forged)
+  })
+
+  it('refuses a re-lock built on forged local metadata', async () => {
+    await seedMeta()
+    await depositToVault(wallet, ADMIN, 250_000)
+    wallet.createAction.mockClear()
+
+    await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 99, createdAt: 1, keys: [attackerKey(), KEY_B] })
+
+    await expect(relockVault(wallet, ADMIN, 'Re-lock', KEY_B.serial)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+
+  it('refuses to re-vault a withdrawal remainder built on forged local metadata, while the withdrawal itself is unaffected by the forgery', async () => {
+    const fx = [vaultFixture(500_000, [PUB_A, PUB_B])]
+    await seedVault(fx)
+    wallet.createAction.mockClear()
+
+    // Keeps KEY_A (the withdrawing key) so selection can proceed at all —
+    // this isolates the check to the remainder OUTPUT specifically, not to
+    // whether the chosen key is still nominally "enrolled" locally.
+    await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 99, createdAt: 1, keys: [KEY_A, attackerKey()] })
+
+    await expect(withdrawFromVault(wallet, ADMIN, 300_000, 'Withdraw', KEY_A.serial)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    // Never even reaches building the withdrawal transaction once the
+    // remainder's authority check fails.
+    expect(wallet.createAction).not.toHaveBeenCalled()
+  })
+})
+
+// XR-002: the previous fix attempt's on-chain-ceiling approach broke this
+// exact flow (69/195 transfers.test.ts failures) — vaultStore.addKey legitimately
+// bumps meta.revision with NO accompanying on-chain output, so "local revision
+// ahead of every on-chain output" is the ordinary post-addKey state, not only
+// a forged one. The wallet-root tag (not a ceiling comparison) is what
+// correctly tells these apart: every legitimate local revision bump here is
+// freshly, validly re-tagged, so the eventual deposit still succeeds.
+describe('XR-002: legitimate local revision bumps with no intervening deposit still deposit successfully', () => {
+  it('enroll → add key → add key → deposit all succeed with no on-chain ceiling check firing', async () => {
+    const KEY_C_LOCAL: VaultKeyRecord = {
+      serial: 'C-LOCAL',
+      slot: 0x82,
+      pubkey: Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), true))),
+      nickname: 'Third',
+      enrolledAt: 3
+    }
+    await seedMeta([KEY_A, KEY_B]) // stands in for finalizeEnrollment's own tagged write
+    const withThird = { v: 6 as const, vaultId: VAULT_ID, revision: 3, createdAt: 1, keys: [KEY_A, KEY_B, KEY_C_LOCAL] }
+    // Two local-only revision bumps, exactly like two addVaultKey calls with
+    // no deposit in between — each freshly tagged, exactly as
+    // VaultKeyService.addVaultKey now does via its own tagger.
+    await vaultStore.setMeta(withThird, undefined, tagFor)
+    const bumpedAgain = { ...withThird, revision: 4, keys: [KEY_A, KEY_B, KEY_C_LOCAL, KEY_C] }
+    await vaultStore.setMeta(bumpedAgain, undefined, tagFor)
+
+    await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
+    const created = wallet.createAction.mock.calls[0][0] as { outputs: { customInstructions: string }[] }
+    expect(decodeVaultInstructions(created.outputs[0].customInstructions)!.keys.map(k => k.serial)).toEqual([
+      KEY_A.serial,
+      KEY_B.serial,
+      KEY_C_LOCAL.serial,
+      KEY_C.serial
+    ])
   })
 })
 

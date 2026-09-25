@@ -73,8 +73,16 @@ const PRIVILEGED_CAPABLE = new Set<keyof WalletInterface>([
 ])
 /** Protocol namespaces whose derived keys are internal Vault state. The
  * permissions manager deliberately exempts ordinary public-key revelation,
- * so this boundary must reserve them even when `privileged` is false. */
-const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt', 'vault marker', 'vault descriptor'])
+ * so this boundary must reserve them even when `privileged` is false.
+ *
+ * XR-001 / XR-002: `vault meta` is the namespace metaAuthority.ts computes
+ * every vault-meta and enrollment-draft integrity tag under (see its own
+ * header). Reserving it here means a connected/paired origin can never mint
+ * or verify one of those tags itself over the site-scoped WalletClient's
+ * forwarded createHmac/verifyHmac (WalletConnectionContext.tsx's
+ * IMPLEMENTED_METHODS) — only an admin-originator call from this package's
+ * own vault code ever reaches it. */
+const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt', 'vault marker', 'vault descriptor', 'vault meta'])
 
 /** Protocol namespaces this package's OWN internal, fund-controlling payment
  * rails derive under: the BRC-29 address rail / PeerPay (address.ts's

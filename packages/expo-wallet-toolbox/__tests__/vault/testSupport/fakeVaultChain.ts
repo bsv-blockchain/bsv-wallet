@@ -174,6 +174,11 @@ export class FakeVaultWallet implements VaultWallet {
     return await this.crypto.createHmac(args as never)
   }
 
+  // XR-002: requireAuthenticatedMeta verifies vault-meta authority tags.
+  async verifyHmac(args: unknown): Promise<{ valid: boolean }> {
+    return await this.crypto.verifyHmac(args as never)
+  }
+
   // ── action history (no held/failed actions in this harness) ───────────
   async listActions(): Promise<{ actions: VaultActionRow[]; totalActions?: number }> {
     return { actions: [], totalActions: 0 }
