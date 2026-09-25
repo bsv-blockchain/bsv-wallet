@@ -8,7 +8,7 @@
  * Mocking follows __tests__/ui/trustScreenIcons.test.tsx.
  */
 import React from 'react'
-import { render, fireEvent, waitFor } from '@testing-library/react-native'
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native'
 
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(() => Promise.resolve()),
@@ -174,4 +174,46 @@ it('still parses an ordinary small manifest body with no declared Content-Length
 
   await waitFor(() => expect(jsonSpy).toHaveBeenCalled())
   await waitFor(() => expect(screen.getByText(/name must be 5-30/i)).toBeTruthy())
+})
+
+/**
+ * XR-075 (SEC2-090): fetchWithTimeout's AbortController deadline is disarmed
+ * (`clearTimeout(id)`) as soon as `fetch()` resolves -- i.e. once headers
+ * arrive -- before the caller ever reads the body with `res.json()`. A
+ * provider that answers instantly and then stalls (or drips) its body used
+ * to hang this screen's loading state forever, with no deadline covering it.
+ */
+it('XR-075: surfaces an error and clears loading when the manifest body stalls past the deadline', async () => {
+  jest.useFakeTimers()
+  try {
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      // Never resolves -- simulates a provider that stalls after headers.
+      json: () => new Promise(() => {})
+    })
+    const screen = draw()
+    openAddProviderModal(screen)
+    fireEvent.changeText(screen.getByPlaceholderText('trustedentity.com'), 'trustedentity.com')
+    fireEvent.press(screen.getByText('get_provider_details'))
+
+    // Flush the microtasks up to the point where res.json() is invoked and
+    // hangs, before advancing the fake clock past the 15s deadline.
+    await act(async () => {
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(16000)
+    })
+
+    // While loading the button is replaced entirely by an ActivityIndicator
+    // (no text at all) -- its reappearance alone proves loading cleared
+    // rather than staying stuck on the hung body forever.
+    await waitFor(() => expect(screen.getByText('get_provider_details')).toBeTruthy())
+    expect(
+      screen.queryByText(/did not respond/i) ?? screen.queryByText('Failed to import trust relationship')
+    ).toBeTruthy()
+  } finally {
+    jest.useRealTimers()
+  }
 })

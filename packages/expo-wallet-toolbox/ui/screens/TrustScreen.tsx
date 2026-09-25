@@ -157,17 +157,41 @@ const orderChanged = (a: Certifier[], b: Certifier[]): boolean => {
 
 const fetchWithTimeout = async (url: string, ms: number) => {
   const controller = new AbortController()
+  const startedAt = Date.now()
   const id = setTimeout(() => controller.abort(), ms)
+  let res: Response
   try {
     // `redirect: 'error'` so an on-path attacker cannot substitute the origin
     // a trust-provider manifest is fetched from by redirecting the entered
     // HTTPS origin somewhere else (XR-076 / SEC2-011) — a legitimate provider
     // has no reason to redirect its own manifest.json.
-    const res = await fetch(url, { signal: controller.signal, redirect: 'error' })
-    return res
+    res = await fetch(url, { signal: controller.signal, redirect: 'error' })
   } finally {
     clearTimeout(id)
   }
+  // XR-075 (SEC2-090): `id` above bounds only the connection/headers --
+  // clearing it as soon as fetch() resolves left body consumption (the
+  // caller's later res.json()) completely unbounded: a provider that answers
+  // instantly and then stalls or drips its body could hang this screen's
+  // loading state forever. Mirrors core/identity/handleRegistry/resolver.ts's
+  // fetchWithTimeout: a second timer, scoped to the remaining time budget,
+  // keeps the same AbortController live through body consumption too, and
+  // the byte cap from readBoundedManifestJson (XR-074) applies here as well.
+  const originalJson = res.json.bind(res)
+  res.json = () =>
+    new Promise((resolve, reject) => {
+      const bodyTimer = setTimeout(
+        () => {
+          controller.abort()
+          reject(new Error(`The domain did not respond within ${Math.round(ms / 1000)} seconds`))
+        },
+        Math.max(0, ms - (Date.now() - startedAt))
+      )
+      void readBoundedManifestJson(res, originalJson)
+        .then(resolve, reject)
+        .finally(() => clearTimeout(bodyTimer))
+    })
+  return res
 }
 
 /**
@@ -545,7 +569,7 @@ function AddProviderModal({
         throw new Error('Could not fetch the trust data from that domain (it needs to follow the BRC-68 protocol)')
       }
       if (!res.ok) throw new Error('Failed to fetch trust manifest from that domain')
-      const json = (await readBoundedManifestJson(res, () => res.json())) as any
+      const json = (await res.json()) as any
       const trust = json?.babbage?.trust
       if (!json?.babbage || !trust || typeof trust !== 'object') {
         throw new Error('This domain does not support importing a trust relationship (it needs to follow the BRC-68 protocol)')
