@@ -9,10 +9,21 @@ const mockShowAlert = jest.fn(async () => 'reconnect')
 let mockSessionMeta: { topic: string } | null = null
 const mockClipboard = jest.fn()
 const mockToast = jest.fn()
-const mockPermissionsManager = {}
+// XR-027: handleReconnect/handleScan verify/compute the saved-pairing
+// authority tag with an admin-scoped wallet built from this same object
+// (guardVaultAccess/capWalletArgs are mocked to identity below), so it needs
+// createHmac/verifyHmac alongside the existing methods.
+const mockCreateHmac = jest.fn(async (..._args: unknown[]) => ({ hmac: [9, 9, 9] }))
+const mockVerifyHmac = jest.fn(async (..._args: unknown[]) => ({ valid: true }))
+const mockPermissionsManager = {
+  createHmac: (...args: unknown[]) => mockCreateHmac(...args),
+  verifyHmac: (...args: unknown[]) => mockVerifyHmac(...args)
+}
 let mockDeepLinkParams: Record<string, string> = {}
 const mockConnections: any[] = []
 const mockSetConnectionStatus = jest.fn((..._args: unknown[]) => {})
+const mockStageAuthorityTag = jest.fn((..._args: unknown[]) => {})
+const mockDiscardStagedAuthorityTag = jest.fn((..._args: unknown[]) => {})
 const mockGetStoredSequence = jest.fn(async (..._args: unknown[]) => null as string | null)
 const mockDeleteStoredSequence = jest.fn(async (..._args: unknown[]) => {})
 const mockGetIdentityKey = jest.fn(async (..._args: unknown[]) => ({ publicKey: '02' + 'aa'.repeat(32) }))
@@ -50,6 +61,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   connectionStore: {
     get connections() { return mockConnections },
     setStatus: (...args: unknown[]) => mockSetConnectionStatus(...args),
+    stageAuthorityTag: (...args: unknown[]) => mockStageAuthorityTag(...args),
+    discardStagedAuthorityTag: (...args: unknown[]) => mockDiscardStagedAuthorityTag(...args),
     remove: jest.fn()
   }
 }))
@@ -95,9 +108,15 @@ beforeEach(() => {
   mockSessionMeta = null
   mockGetStoredSequence.mockResolvedValue(null)
   mockGetIdentityKey.mockResolvedValue({ publicKey: '02' + 'aa'.repeat(32) })
+  mockCreateHmac.mockResolvedValue({ hmac: [9, 9, 9] })
+  mockVerifyHmac.mockResolvedValue({ valid: true })
   ;(global as any).WebSocket = mockWebSocketConstructor
 })
 
+// XR-027: defaults to a syntactically-canonical tag so every PRE-EXISTING
+// reconnect test below (which is about the confirmation dialog, not the
+// authority check) keeps exercising that path -- mockVerifyHmac resolving
+// `{ valid: true }` by default is what actually authenticates it.
 const storedConnection = (over: Record<string, unknown> = {}) => ({
   sessionId: 'stored-session',
   origin: 'https://app.example',
@@ -107,6 +126,7 @@ const storedConnection = (over: Record<string, unknown> = {}) => ({
   protocolID: JSON.stringify([0, 'mobile wallet session']),
   connectedAt: Date.now(),
   status: 'active',
+  authorityTag: 'A'.repeat(43),
   ...over
 })
 
@@ -260,4 +280,93 @@ it('XR-027: does not reconnect when the user declines the confirmation', async (
 
   await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
   expect(mockReconnect).not.toHaveBeenCalled()
+})
+
+/**
+ * XR-027: a stored connection with NO authority tag (never tagged, or a
+ * pre-fix legacy record) must never silently reconnect -- it needs one
+ * explicit fresh re-approval (a rescan/paste), not the disconnected list's
+ * one-tap Reconnect. The confirmation dialog must never even appear: showing
+ * it would suggest the record is trustworthy enough to ask about.
+ */
+it('XR-027: blocks reconnect for a record with no authority tag, without ever showing the confirmation', async () => {
+  const { authorityTag: _drop, ...untagged } = storedConnection({ status: 'disconnected' })
+  mockConnections.push(untagged)
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('reconnect'))
+
+  await waitFor(() => expect(mockToast).toHaveBeenCalledWith('reconnect_needs_reapproval', { type: 'error' }))
+  expect(mockShowAlert).not.toHaveBeenCalled()
+  expect(mockReconnect).not.toHaveBeenCalled()
+  expect(mockVerifyHmac).not.toHaveBeenCalled()
+})
+
+/**
+ * XR-027: the whole point of the tag -- a well-formed but SUBSTITUTED tuple
+ * (attacker-controlled origin/backend, still individually valid) must be
+ * rejected even though every structural check upstream of this would pass
+ * it. `verifyHmac` REJECTING (the real @bsv/sdk behavior for a mismatched
+ * HMAC) must be treated as "not authentic", not surfaced as a crash.
+ */
+it('XR-027: blocks reconnect when the stored tuple fails authority verification (substituted record)', async () => {
+  mockVerifyHmac.mockRejectedValueOnce(Object.assign(new Error('HMAC is not valid'), { code: 'ERR_INVALID_HMAC' }))
+  mockConnections.push(storedConnection({ status: 'disconnected', backendIdentityKey: '03' + GENERATOR_X }))
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('reconnect'))
+
+  await waitFor(() => expect(mockToast).toHaveBeenCalledWith('reconnect_needs_reapproval', { type: 'error' }))
+  expect(mockShowAlert).not.toHaveBeenCalled()
+  expect(mockReconnect).not.toHaveBeenCalled()
+})
+
+/** XR-027: verification runs against an ADMIN-scoped call, not the site-
+ * scoped wallet reconnect() itself receives -- the reserved namespace and
+ * 'self' counterparty are what guard.ts's reservation and the tag's own
+ * domain separation depend on. */
+it('XR-027: verifies the authority tag with the reserved namespace, keyed by the stored topic, before reconnecting', async () => {
+  mockConnections.push(storedConnection({ status: 'disconnected' }))
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('reconnect'))
+
+  await waitFor(() => expect(mockVerifyHmac).toHaveBeenCalledTimes(1))
+  expect(mockVerifyHmac).toHaveBeenCalledWith(
+    expect.objectContaining({
+      protocolID: [2, 'connection authority'],
+      keyID: 'stored-session',
+      counterparty: 'self'
+    }),
+    'admin.test'
+  )
+  await waitFor(() => expect(mockReconnect).toHaveBeenCalledTimes(1))
+})
+
+/**
+ * XR-027: a fresh pairing (scan/paste) must stage an admin-computed
+ * authority tag for connectionStore.add() to pick up, BEFORE connect() is
+ * ever called -- using the reserved namespace and the admin originator, not
+ * the site-scoped wallet handed to connect().
+ */
+it.each(['bsv-wallet', 'bsv-browser'])('XR-027: stages an authority tag before connecting a pasted %s URI', async scheme => {
+  const params = pairingParams()
+  mockClipboard.mockResolvedValue(`${scheme}://pair?${new URLSearchParams(params)}`)
+  const screen = render(<ConnectionsScreen />)
+
+  fireEvent.press(screen.getByText('paste_uri'))
+
+  await waitFor(() => expect(mockStageAuthorityTag).toHaveBeenCalledTimes(1))
+  expect(mockCreateHmac).toHaveBeenCalledWith(
+    expect.objectContaining({ protocolID: [2, 'connection authority'], keyID: params.topic, counterparty: 'self' }),
+    'admin.test'
+  )
+  expect(mockStageAuthorityTag).toHaveBeenCalledWith(
+    params.topic,
+    Buffer.from([9, 9, 9]).toString('base64url')
+  )
+  // Staged strictly BEFORE connect() is invoked, from the mock call order.
+  const stageOrder = mockStageAuthorityTag.mock.invocationCallOrder[0]
+  const connectOrder = mockConnect.mock.invocationCallOrder[0]
+  expect(stageOrder).toBeLessThan(connectOrder)
 })

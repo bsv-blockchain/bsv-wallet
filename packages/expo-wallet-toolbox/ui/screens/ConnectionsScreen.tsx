@@ -29,9 +29,11 @@ import {
   buildRelayWebSocketUrl,
   validateMobileIdentityKey,
   validateRelayUrl,
+  validateStoredConnectionAuthorityTag,
   validateStoredConnectionFields,
   validateStoredConnectionSequence
 } from '../../core/services/walletConnectionValidation'
+import { computeConnectionAuthorityTag, verifyConnectionAuthorityTag } from '../../core/services/connectionAuthority'
 
 /**
  * expo-clipboard ships an untransformed ESM build (its Clipboard.js imports
@@ -186,6 +188,25 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
         capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
         external.originator
       )
+      // XR-027: stage a saved-pairing authority tag for the EXACT tuple being
+      // approved, computed with an ADMIN-scoped wallet (never `wallet` above
+      // — see connectionAuthority.ts for why), before connect() runs. A
+      // failure here must not block a pairing the user just approved; it
+      // only leaves this record untagged, which reconnect later treats as
+      // "needs re-approval", same as a tampered record.
+      try {
+        const adminWallet = capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR))
+        const tag = await computeConnectionAuthorityTag(adminWallet, ADMIN_ORIGINATOR, {
+          origin: external.origin,
+          topic: result.params.topic,
+          protocolID: result.params.protocolID,
+          backendIdentityKey: result.params.backendIdentityKey,
+        })
+        connectionStore.stageAuthorityTag(result.params.topic, tag)
+      } catch (err) {
+        console.warn('[connections] failed to compute connection authority tag', err)
+        connectionStore.discardStagedAuthorityTag(result.params.topic)
+      }
       await connect({ ...result.params, origin: external.origin }, wallet)
     } catch (err) {
       showToast(`${t('connection_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
@@ -259,14 +280,38 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
       return
     }
-    // XR-027: reconnect authenticates only that the wallet's own PUBLIC
-    // identity key still matches — it never authenticates that the stored
-    // (origin, topic, protocolID, backendIdentityKey) tuple is the one the
-    // user actually approved, so a single silent tap was the only consent
-    // point in this whole path. Showing the canonicalized origin and
-    // requiring an explicit re-confirmation here does not detect a tampered
-    // record, but it does mean the user is never re-granted a paired RPC
-    // counterparty without seeing which origin it is for.
+    // XR-027: reconnect() itself authenticates only that the wallet's own
+    // PUBLIC identity key still matches — it never authenticates that the
+    // stored (origin, topic, protocolID, backendIdentityKey) tuple is the one
+    // the user actually approved, so a well-formed but SUBSTITUTED record
+    // (planted by anything that can write to AsyncStorage) would otherwise
+    // authenticate exactly like the real one. Verify the admin-computed
+    // authority tag over the CURRENT tuple first, with an ADMIN-scoped
+    // wallet (never the site-scoped `wallet` constructed below) — a missing
+    // tag (never tagged, or a pre-fix legacy record) or one that fails
+    // verification (any field substituted) is "needs re-approval", and this
+    // must never fall through to reconnect() either way.
+    const adminWallet = capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR))
+    let storedTag: string | undefined
+    try {
+      storedTag = validateStoredConnectionAuthorityTag((conn as { authorityTag?: unknown }).authorityTag)
+    } catch {
+      storedTag = undefined // malformed tag on disk — treat exactly like a missing one
+    }
+    const authentic = await verifyConnectionAuthorityTag(adminWallet, ADMIN_ORIGINATOR, {
+      origin: external.origin,
+      topic: conn.sessionId,
+      protocolID: conn.protocolID,
+      backendIdentityKey: conn.backendIdentityKey
+    }, storedTag)
+    if (!authentic) {
+      showToast(t('reconnect_needs_reapproval'), { type: 'error' })
+      return
+    }
+    // Showing the canonicalized origin and requiring an explicit
+    // re-confirmation here is a separate, additional consent step: it means
+    // the user is never re-granted a paired RPC counterparty without seeing
+    // which (now-authenticated) origin it is for.
     const choice = await showAlert({
       title: t('reconnect_confirm_title'),
       message: t('reconnect_confirm_message', { origin: external.originator }),

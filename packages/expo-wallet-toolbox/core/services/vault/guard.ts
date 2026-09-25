@@ -87,6 +87,20 @@ const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt'])
  * for Vault's own namespaces. */
 const RESERVED_RAIL_PROTOCOL_NAMES = new Set(['3241645161d8', 'mandala token'])
 
+/** XR-027: protocol namespace this package's own saved-pairing authority tag
+ * is derived under. A saved connection's approved (origin, topic, protocolID,
+ * backendIdentityKey) tuple is MAC'd with the admin-scoped wallet at approval
+ * time (core/services/connectionAuthority.ts) and re-verified before every
+ * reconnect. A connected/paired origin must never be able to mint or verify
+ * this tag itself: the site-scoped WalletClient handed to a paired peer
+ * forwards createHmac/verifyHmac for any NON-reserved namespace (see
+ * IMPLEMENTED_METHODS in WalletConnectionContext.tsx), so computing this tag
+ * there would make it trivially reproducible by that same peer over the
+ * already-allowlisted RPC method -- worse than no tag at all. Reserving the
+ * namespace here, exactly like Vault's own, is what makes the admin-only
+ * computation in connectionAuthority.ts actually mean something. */
+const CONNECTION_AUTHORITY_PROTOCOL_NAMES = new Set(['connection authority'])
+
 function matchesProtocolNamespace(args: unknown, names: Set<string>): boolean {
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
   const protocolID = (args as { protocolID?: unknown }).protocolID
@@ -103,6 +117,10 @@ function requestsVaultProtocol(args: unknown): boolean {
 
 function requestsReservedRailProtocol(args: unknown): boolean {
   return matchesProtocolNamespace(args, RESERVED_RAIL_PROTOCOL_NAMES)
+}
+
+function requestsConnectionAuthorityProtocol(args: unknown): boolean {
+  return matchesProtocolNamespace(args, CONNECTION_AUTHORITY_PROTOCOL_NAMES)
 }
 
 /** Operations that can name an existing output or unsigned action without
@@ -524,7 +542,7 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
         if (
           PRIVILEGED_CAPABLE.has(method) &&
           originator !== adminOriginator &&
-          (requestsVaultProtocol(args) || requestsReservedRailProtocol(args))
+          (requestsVaultProtocol(args) || requestsReservedRailProtocol(args) || requestsConnectionAuthorityProtocol(args))
         ) {
           return deny(String(method), originator)
         }

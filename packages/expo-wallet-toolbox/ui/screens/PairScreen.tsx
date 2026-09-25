@@ -20,10 +20,12 @@ import {
   capWalletArgs,
   ADMIN_ORIGINATOR,
   parseExternalOrigin,
+  connectionStore,
   DEFAULT_AUTO_APPROVE_THRESHOLD,
   AUTO_APPROVE_STORAGE_KEY,
   AUTO_APPROVE_DAILY_CAP_SATS
 } from '@bsv/expo-wallet-toolbox'
+import { computeConnectionAuthorityTag } from '../../core/services/connectionAuthority'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -142,6 +144,31 @@ export function PairScreen() {
         capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
         external.originator
       )
+      // XR-027: stage a saved-pairing authority tag for the EXACT tuple the
+      // user is approving on this screen, BEFORE connect() ever runs — with
+      // an ADMIN-scoped wallet, never `wallet` above (that one is scoped to
+      // the peer's own originator and would let the peer mint this tag
+      // itself; see connectionAuthority.ts). connectionStore.add() (deep
+      // inside connect()'s websocket-open callback, which never sees an
+      // admin wallet) consumes the staged tag the moment it creates the
+      // record. A failure here must never block a pairing the user just
+      // explicitly approved — it only means this record starts out
+      // untagged, which reconnect treats as "needs re-approval" later,
+      // exactly like a tampered record; it is never a silent downgrade of
+      // trust for the live session being approved right now.
+      try {
+        const adminWallet = capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR))
+        const tag = await computeConnectionAuthorityTag(adminWallet, ADMIN_ORIGINATOR, {
+          origin: external.origin,
+          topic: params.topic,
+          protocolID: params.protocolID,
+          backendIdentityKey: params.backendIdentityKey,
+        })
+        connectionStore.stageAuthorityTag(params.topic, tag)
+      } catch (err) {
+        console.warn('[PairScreen] failed to compute connection authority tag', err)
+        connectionStore.discardStagedAuthorityTag(params.topic)
+      }
       await connect({
         topic:              params.topic,
         backendIdentityKey: params.backendIdentityKey,

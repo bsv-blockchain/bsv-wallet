@@ -58,6 +58,39 @@ export interface ValidatedConnectParams {
 
 export const PAIRING_SIGNATURE_DOMAIN = 'bsv-wallet-pairing-v1'
 
+/** XR-027: the protocol namespace an admin-scoped wallet derives the saved-
+ * pairing authority tag under (reserved in core/services/vault/guard.ts so a
+ * paired peer's own, site-scoped WalletClient can never mint or verify it),
+ * and the versioned transcript that tag is computed over. Mirrors
+ * PAIRING_SIGNATURE_DOMAIN/buildPairingSignatureMessage's shape exactly, one
+ * field narrower: `expiry`/`sig` are the QR's own one-time proof and are not
+ * part of what a saved, reusable connection record needs to keep authentic. */
+export const CONNECTION_AUTHORITY_PROTOCOL_ID: WalletProtocol = [2, 'connection authority']
+export const CONNECTION_AUTHORITY_SIGNATURE_DOMAIN = 'bsv-wallet-connection-authority-v1'
+/** HMAC-SHA256 output, base64url-encoded without padding (32 bytes -> 43 chars). */
+export const CONNECTION_AUTHORITY_TAG_CHARS = 43
+
+export interface ConnectionAuthorityTuple {
+  origin: string
+  topic: string
+  protocolID: string
+  backendIdentityKey: string
+}
+
+/** Exact transcript MAC'd over the tuple a user approved. Every field that
+ * chooses the transport endpoint, its BRC-42 key namespace, or which backend
+ * it talks to is included -- an attacker who can flip any one of them without
+ * knowing the admin wallet's key can no longer produce a tag that verifies. */
+export function buildConnectionAuthorityMessage(tuple: ConnectionAuthorityTuple): string {
+  return [
+    CONNECTION_AUTHORITY_SIGNATURE_DOMAIN,
+    tuple.origin,
+    tuple.topic,
+    tuple.protocolID,
+    tuple.backendIdentityKey
+  ].join('|')
+}
+
 /** Exact transcript signed by the desktop pairing peer. Every field that
  * chooses the transport endpoint or its BRC-42 key namespace is included. */
 export function buildPairingSignatureMessage(
@@ -205,6 +238,24 @@ export function validateStoredConnectionFields(raw: {
   const protocol = parseWalletProtocol(raw.protocolID)
   const external = validateCanonicalExternalOrigin(raw.origin)
   return { topic, backendIdentityKey, mobileIdentityKey, protocolIDRaw: protocol.raw, protocolID: protocol.value, external }
+}
+
+/** XR-027: a stored connection's authority tag is untrusted AsyncStorage data
+ * like every other field above -- absent (undefined/null) means a legacy or
+ * never-tagged record, which callers must treat as "needs re-approval", the
+ * same outcome as a tag that fails verification. Anything present but not a
+ * canonical, correctly-sized base64url string is rejected outright rather
+ * than handed to verifyHmac. */
+export function validateStoredConnectionAuthorityTag(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (
+    typeof raw !== 'string' ||
+    raw.length !== CONNECTION_AUTHORITY_TAG_CHARS ||
+    !/^[A-Za-z0-9_-]+$/.test(raw)
+  ) {
+    throw new Error('Stored connection authority tag is invalid')
+  }
+  return raw
 }
 
 /** SecureStore data can be corrupted or restored independently of the
