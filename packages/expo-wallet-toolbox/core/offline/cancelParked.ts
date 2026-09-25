@@ -195,8 +195,12 @@ async function probeConnectivity(isOnlineProbe: () => Promise<boolean>): Promise
   }
 }
 
-/** Mirrors core/storage/methods/processOfflineActions.ts's `networkAlreadyHas`. */
-async function chainAlreadyKnows(storage: CancelParkedStorage, txid: string): Promise<boolean> {
+/**
+ * Mirrors core/storage/methods/processOfflineActions.ts's `networkAlreadyHas`.
+ * Exported (XR-095) so build.ts's `finalizeDelivery` can run the identical
+ * check before releasing inputs on a decline, instead of re-implementing it.
+ */
+export async function chainAlreadyKnows(storage: CancelParkedStorage, txid: string): Promise<boolean> {
   try {
     const services = storage.getServices?.()
     if (!services || typeof services.getStatusForTxids !== 'function') return false

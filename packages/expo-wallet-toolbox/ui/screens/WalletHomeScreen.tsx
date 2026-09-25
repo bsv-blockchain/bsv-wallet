@@ -88,6 +88,7 @@ import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
 import { ImportFromBackupPrompt } from '../components/wallet/ImportFromBackupPrompt'
 import { cancelParkedPayment, runCancelParkedFlow, type CancelParkedWallet } from '../../core/offline/cancelParked'
+import { detailActionKeysFor } from './detailActionKeys'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import { storageMatchesNetwork } from '../../core/net/chainMatch'
@@ -221,14 +222,6 @@ const PAGE_SIZE = 30
  * the whole thing stays one FlatList — a SectionList would re-measure every
  * section on each status poll. */
 type DayHeader = { kind: 'day'; id: string; label: string }
-/**
- * Statuses whose transaction is still local and therefore abortable — the same
- * set `ActivityRow` gates its own Cancel chip on. Duplicated as a constant
- * rather than imported so the row keeps owning its own copy while both
- * surfaces exist.
- */
-const ABORTABLE_DETAIL_STATUSES = new Set(['unsigned', 'nosend', 'nonfinal', 'failed'])
-
 type Row = DayHeader | (ActivityAction & { kind?: undefined })
 
 const DAY_MS = 86_400_000
@@ -1493,27 +1486,27 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // when a row is open) and memoizing them buys nothing, while calling a
   // memoized callback during render trips the compiler's purity rule.
   const detailParams = (action: ActivityAction): TransactionDetailParams => {
-      const key = action.txid || action.reference || ''
-      const token = action.labels?.includes('mandala') ? tokenProps.get(key) : undefined
-      return {
-        txid: action.txid,
-        satoshis: action.satoshis,
-        status: action.status,
-        description: action.description,
-        isOutgoing: action.isOutgoing,
-        createdAt: action.created_at ? new Date(action.created_at).toISOString() : undefined,
-        counterpartyKey: token?.counterpartyKey ?? action.senderIdentityKey,
-        ...(token
-          ? {
-              token: {
-                title: token.title,
-                amount: token.amount,
-                incoming: token.incoming,
-                statusText: token.statusText
-              }
+    const key = action.txid || action.reference || ''
+    const token = action.labels?.includes('mandala') ? tokenProps.get(key) : undefined
+    return {
+      txid: action.txid,
+      satoshis: action.satoshis,
+      status: action.status,
+      description: action.description,
+      isOutgoing: action.isOutgoing,
+      createdAt: action.created_at ? new Date(action.created_at).toISOString() : undefined,
+      counterpartyKey: token?.counterpartyKey ?? action.senderIdentityKey,
+      ...(token
+        ? {
+            token: {
+              title: token.title,
+              amount: token.amount,
+              incoming: token.incoming,
+              statusText: token.statusText
             }
-          : {})
-      }
+          }
+        : {})
+    }
   }
 
   /**
@@ -1521,47 +1514,50 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    * view's overflow menu. Same handlers, same guards — only the surface moved.
    */
   const detailActions = (action: ActivityAction): TransactionAction[] => {
-      const out: TransactionAction[] = []
-      const offline = action.txid ? offlineByTxid.get(action.txid) : undefined
-      const parked = offline?.status === 'parked'
-      if (action.txid && !parked && offline?.status !== 'queued' && offline?.status !== 'posting') {
-        out.push({
-          key: 'refresh',
-          label: t('tx_action_refresh'),
-          icon: 'refresh-outline',
-          onPress: () => void onRefreshTx(action.txid)
-        })
-      }
-      if (action.txid && !parked) {
-        out.push({
-          key: 'explorer',
-          label: t('tx_action_explorer'),
-          icon: 'link-outline',
-          onPress: () => onExplorer(action.txid)
-        })
-      }
-      if (action.reference && ABORTABLE_DETAIL_STATUSES.has(action.status)) {
-        out.push({
-          key: 'abort',
-          label: t('tx_action_abort'),
-          icon: 'close-circle-outline',
-          danger: true,
-          onPress: () => void onAbort(action.reference!)
-        })
-      }
-      if (parked && action.txid) {
-        out.push({
-          key: 'cancel-parked',
-          label: t('pay_parked_cancel'),
-          icon: 'close-circle-outline',
-          danger: true,
-          onPress: () => void onCancelParked(action.txid)
-        })
-      }
+    const out: TransactionAction[] = []
+    const offline = action.txid ? offlineByTxid.get(action.txid) : undefined
+    const keys = detailActionKeysFor({
+      txid: action.txid,
+      reference: action.reference,
+      status: action.status,
+      offlineStatus: offline?.status
+    })
+    if (keys.includes('refresh')) {
+      out.push({
+        key: 'refresh',
+        label: t('tx_action_refresh'),
+        icon: 'refresh-outline',
+        onPress: () => void onRefreshTx(action.txid)
+      })
+    }
+    if (keys.includes('explorer')) {
+      out.push({
+        key: 'explorer',
+        label: t('tx_action_explorer'),
+        icon: 'link-outline',
+        onPress: () => onExplorer(action.txid)
+      })
+    }
+    if (keys.includes('abort')) {
+      out.push({
+        key: 'abort',
+        label: t('tx_action_abort'),
+        icon: 'close-circle-outline',
+        danger: true,
+        onPress: () => void onAbort(action.reference!)
+      })
+    }
+    if (keys.includes('cancel-parked')) {
+      out.push({
+        key: 'cancel-parked',
+        label: t('pay_parked_cancel'),
+        icon: 'close-circle-outline',
+        danger: true,
+        onPress: () => void onCancelParked(action.txid)
+      })
+    }
     return out
   }
-
-
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item, index }) => {

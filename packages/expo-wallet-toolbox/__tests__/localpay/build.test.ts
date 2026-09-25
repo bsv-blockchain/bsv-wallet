@@ -486,6 +486,82 @@ describe('finalizeDelivery', () => {
       ).resolves.toEqual({ kind: 'declined', reason: 'save_failed' })
     })
   })
+
+  // XR-095: a decline is the payee's own unverifiable claim that nothing was
+  // queued, honest or not. Before releasing the inputs, ask the chain
+  // directly — the same BSV-rail check cancelParked.ts already runs — so a
+  // txid the network already knows about (the payee's copy is already out)
+  // is never raced against a release.
+  describe('XR-095: chain-status check before releasing a decline', () => {
+    it("does not release inputs when the chain already knows this decline's txid", async () => {
+      const w = payerStub()
+      const chainAlreadyKnows = jest.fn().mockResolvedValue(true)
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        chainAlreadyKnows
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(chainAlreadyKnows).toHaveBeenCalledWith('tx-1')
+      expect(w.abortAction).not.toHaveBeenCalled()
+    })
+
+    it('still releases inputs on an ordinary decline the chain has never heard of', async () => {
+      const w = payerStub()
+      const chainAlreadyKnows = jest.fn().mockResolvedValue(false)
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        ...online,
+        chainAlreadyKnows
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+    })
+
+    it('parks instead of releasing a decline it cannot verify while offline', async () => {
+      const w = payerStub()
+      const chainAlreadyKnows = jest.fn().mockResolvedValue(false)
+      const parkUnverifiable = jest.fn().mockResolvedValue(undefined)
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        online: async () => false,
+        hold: online.hold,
+        chainAlreadyKnows,
+        parkUnverifiable
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(chainAlreadyKnows).not.toHaveBeenCalled()
+      expect(parkUnverifiable).toHaveBeenCalledWith('tx-1')
+      expect(w.abortAction).not.toHaveBeenCalled()
+    })
+
+    it('falls back to releasing when offline and no parkUnverifiable dep is wired', async () => {
+      const w = payerStub()
+      const chainAlreadyKnows = jest.fn().mockResolvedValue(false)
+      const outcome = await finalizeDelivery(w as never, built, { ok: false, error: 'save_failed' }, 'admin.com', {
+        online: async () => false,
+        hold: online.hold,
+        chainAlreadyKnows
+      })
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+    })
+
+    it('is a no-op for every existing caller: omitting chainAlreadyKnows keeps releasing on any decline', async () => {
+      const w = payerStub()
+      const outcome = await finalizeDelivery(
+        w as never,
+        built,
+        { ok: false, error: 'save_failed' },
+        'admin.com',
+        online
+      )
+
+      expect(outcome).toEqual({ kind: 'declined', reason: 'save_failed' })
+      expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+    })
+  })
 })
 
 describe('finalizeDelivery when offline', () => {
