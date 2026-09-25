@@ -53,7 +53,13 @@ import {
   encryptVaultDescriptorPlaintext,
   vaultChainKeyId
 } from '../../core/services/vault/transfers'
-import { recoverVaultFromChain, VAULT_RECOVERY_GAP_DEFAULT } from '../../core/services/vault/chainRecovery'
+import {
+  recoverVaultFromChain,
+  VAULT_RECOVERY_GAP_DEFAULT,
+  VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS,
+  type VaultChainLookup
+} from '../../core/services/vault/chainRecovery'
+import type { VaultWallet } from '../../core/services/vault/transfers'
 import { vaultStore } from '../../core/services/vault/vaultStore'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 
@@ -246,5 +252,101 @@ describe('recoverVaultFromChain', () => {
     await expect(recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN, 0)).rejects.toMatchObject({
       code: 'template-invalid'
     })
+  })
+
+  // Availability review (INT-01/INT-06/XQ-012): confirmed by LIVE reproduction
+  // (a scratch worktree run against the pre-fix code hung indefinitely, one
+  // CPU core pinned near 100%, until manually killed). Neither catch branch
+  // in the scan loop touched `consecutiveMisses`, so a lookup or a wallet
+  // that keeps throwing spun the `while` loop forever. These tests prove the
+  // bound: both failure sources now fail LOUDLY, within a handful of
+  // iterations, instead of looping.
+  describe('bounded scan (INT-01/INT-06/XQ-012 — a persistently failing lookup/wallet must fail loudly, not loop forever)', () => {
+    it('throws a clear error instead of looping forever when the chain lookup keeps throwing', async () => {
+      const alwaysThrows: VaultChainLookup = {
+        async transactionsForLockingScript(): Promise<string[]> {
+          throw new Error('simulated persistent network outage')
+        },
+        async transactionForTxid() {
+          return null
+        },
+        async outputStatus() {
+          return 'unknown'
+        }
+      }
+
+      await expect(recoverVaultFromChain(wallet, ADMIN, alwaysThrows, CHAIN)).rejects.toThrow(
+        /recovery scan could not complete/i
+      )
+    })
+
+    it('throws a clear error instead of looping forever when the wallet cannot derive its own marker key', async () => {
+      const brokenWallet = {
+        async getPublicKey(): Promise<{ publicKey: string }> {
+          throw new Error('simulated wallet-layer derivation failure')
+        }
+      } as unknown as VaultWallet
+
+      await expect(recoverVaultFromChain(brokenWallet, ADMIN, fakeChainLookup(chain), CHAIN)).rejects.toThrow(
+        /recovery scan could not complete/i
+      )
+    })
+
+    it('tolerates an occasional transient failure without aborting — only a PERSISTENT run does', async () => {
+      // One glitch every VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS - 1 calls
+      // never accumulates to the abort threshold, because a successful call
+      // (even a miss) resets the streak.
+      let calls = 0
+      const occasionallyThrows: VaultChainLookup = {
+        async transactionsForLockingScript(): Promise<string[]> {
+          calls++
+          if (calls % (VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS - 1) === 0) {
+            throw new Error('simulated transient hiccup')
+          }
+          return []
+        },
+        async transactionForTxid() {
+          return null
+        },
+        async outputStatus() {
+          return 'unknown'
+        }
+      }
+
+      const result = await recoverVaultFromChain(wallet, ADMIN, occasionallyThrows, CHAIN)
+      expect(result.found).toBe(0)
+      expect(result.problems.length).toBeGreaterThan(0)
+    })
+  })
+
+  // Regression lens (griefing): once a marker address is on-chain, a stranger
+  // can pay it dust indefinitely. Without a cap, a single scan index could be
+  // forced to inspect an unbounded number of candidates.
+  it('caps how many candidates one scan index inspects', async () => {
+    let markerCalls = 0
+    let candidateCalls = 0
+    const manyCandidates: VaultChainLookup = {
+      async transactionsForLockingScript(): Promise<string[]> {
+        markerCalls++
+        // Only the FIRST index (the "real" one an attacker could target) has
+        // any history; every later index is a genuine, ordinary miss — a
+        // stranger cannot invent marker addresses for indices whose keys
+        // they never derived.
+        if (markerCalls > 1) return []
+        return Array.from({ length: 500 }, (_, i) => i.toString(16).padStart(64, '0'))
+      },
+      async transactionForTxid() {
+        candidateCalls++
+        return null // "no transaction bytes available" -> a reported problem
+      },
+      async outputStatus() {
+        return 'unknown'
+      }
+    }
+
+    const result = await recoverVaultFromChain(wallet, ADMIN, manyCandidates, CHAIN)
+    expect(candidateCalls).toBeGreaterThan(0)
+    expect(candidateCalls).toBeLessThan(500)
+    expect(result.found).toBe(0)
   })
 })

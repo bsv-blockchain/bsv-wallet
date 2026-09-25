@@ -55,6 +55,32 @@ import type { AppChain } from '../../config'
 export const VAULT_RECOVERY_GAP_DEFAULT = 20
 
 /**
+ * Hard ceiling on CONSECUTIVE marker-derivation/lookup failures within a
+ * single scan — distinct from `consecutiveMisses`, which only ever counts
+ * genuine no-history results. A wallet-layer failure (cannot derive our own
+ * marker key) or a lookup-layer failure (the injected VaultChainLookup
+ * threw) is not evidence of "no marker" — same reasoning as the
+ * found-but-unusable contract below — but it also cannot be scanned past
+ * indefinitely: without this bound, a lookup that keeps throwing (a
+ * persistent outage, or a bug) spins `recoverVaultFromChain`'s `while` loop
+ * forever, because neither failure ever touches `consecutiveMisses`. This is
+ * a real, empirically-reproduced livelock, not a theoretical one: a tight
+ * recursive async loop with no genuine timer/I/O yield drains the microtask
+ * queue ahead of any macrotask, which starves even a `setTimeout`-based
+ * test/command timeout. Not caller-tunable — this is a safety net, not a
+ * recovery parameter. */
+export const VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS = 20
+
+/** Defensive cap on how many candidate transactions a single scan index will
+ * inspect. A v7 marker is an ordinary P2PKH address that becomes publicly
+ * visible the moment its real deposit confirms; nothing stops a stranger
+ * from paying arbitrary dust to it afterward. A legitimate index has exactly
+ * one real deposit history, so recovery never needs more than a handful of
+ * candidates to find it — this only bounds how much free decrypt-and-discard
+ * work a targeted victim's recovery can be forced to do. */
+const VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX = 50
+
+/**
  * Injected chain lookup — the only network/indexer dependency this module
  * has. Unit-tested against an in-memory fake; core/services/vault/wocChainLookup.ts
  * (see below) is the production WhatsOnChain implementation.
@@ -252,6 +278,11 @@ export async function recoverVaultFromChain(
   let pendingConfirmation = 0
   const problems: VaultChainRecoveryProblem[] = []
   let consecutiveMisses = 0
+  // Bounds the loop independently of consecutiveMisses — see
+  // VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS's doc comment. Reset on any
+  // iteration that gets a real answer (a miss or a hit alike), so only a
+  // PERSISTENT run of failures aborts the scan, never an occasional hiccup.
+  let consecutiveProblems = 0
   let scanned = 0
   let k = 1
   while (consecutiveMisses < gap) {
@@ -262,8 +293,15 @@ export async function recoverVaultFromChain(
       markerScriptHex = (await deriveVaultMarkerScript(w, adminOriginator, chain, saltKeyId)).toHex()
     } catch {
       // Cannot even derive our own marker key — a wallet-layer problem, not
-      // evidence this index has no deposit. Reported, not counted as a miss.
+      // evidence this index has no deposit. Reported, not counted as a miss
+      // — but still bounded, so a persistent failure fails loudly instead of
+      // looping forever (INT-01/INT-06/XQ-012 availability review).
       problems.push({ index: k, reason: 'could not derive the marker key for this index' })
+      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
+        throw new Error(
+          `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
+        )
+      }
       k++
       continue
     }
@@ -272,9 +310,15 @@ export async function recoverVaultFromChain(
       txids = await lookup.transactionsForLockingScript(markerScriptHex)
     } catch {
       problems.push({ index: k, reason: 'chain lookup failed for this marker' })
+      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
+        throw new Error(
+          `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
+        )
+      }
       k++
       continue
     }
+    consecutiveProblems = 0
     if (txids.length === 0) {
       consecutiveMisses++
       k++
@@ -283,13 +327,23 @@ export async function recoverVaultFromChain(
     // Marker history exists at this index — never a "no marker" miss from
     // here on, no matter how every candidate below turns out.
     consecutiveMisses = 0
+    let inspected = 0
     for (const txid of txids) {
+      if (inspected >= VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX) {
+        problems.push({
+          index: k,
+          reason: `stopped after ${VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX} candidates at this index`
+        })
+        break
+      }
+      inspected++
       const outcome = await recoverOneCandidate(w, adminOriginator, lookup, chain, k, markerScriptHex, txid)
-      if (outcome.kind === 'found') found++
-      else if (outcome.kind === 'pending') pendingConfirmation++
+      if (outcome.kind === 'found') { found++; break }
+      else if (outcome.kind === 'pending') { pendingConfirmation++; break }
       else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
       // 'spent': a superseded output (already withdrawn or re-locked) —
-      // entirely normal, silently skipped.
+      // entirely normal, silently skipped; keep inspecting other candidates
+      // at this index.
     }
     k++
   }
