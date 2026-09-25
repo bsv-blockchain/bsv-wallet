@@ -84,5 +84,11 @@ export const MAX_BLOB_BYTES = 1 << 20
 export const DEVICE_ID_KEY = 'backupDeviceId'
 // The chain is redundant with the pseudonym (which already differs per chain) but explicit:
 // a cursor must never be consulted for the wrong network's database.
+//
+// Exported separately from cursorKey so a caller that wants EVERY device's cursor for one
+// identity — e.g. a Wallet Check that must not see a different (departed) wallet's leftover
+// cursor on the same install — can scan by prefix without needing this device's own id.
+export const cursorKeyPrefix = (chain: BackupChain, pseudonym: string): string =>
+  `backupCursor-${chain}-${pseudonym}-`
 export const cursorKey = (chain: BackupChain, pseudonym: string, deviceId: string): string =>
-  `backupCursor-${chain}-${pseudonym}-${deviceId}`
+  `${cursorKeyPrefix(chain, pseudonym)}${deviceId}`

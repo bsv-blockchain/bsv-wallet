@@ -214,6 +214,8 @@ import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
 import { restoreOnImport } from '../backup/restoreOnImport'
+import { backupPseudonym } from '../backup/derive'
+import type { BackupChain } from '../backup/constants'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
 import { shouldFailUnprovenTx } from '../pay/refreshProofGuard'
@@ -373,6 +375,13 @@ export interface WalletContextValue {
    */
   getBackupRestore: () => BackupRestoreState
   /**
+   * This wallet's own backup-server pseudonym for `chain`, or undefined when no wallet is
+   * built for that chain (or none at all). Not a secret — it is exactly what the backup
+   * server sees as this wallet's account — but deriving it needs the primary key, so it is
+   * exposed this way rather than the key itself. See XR-009 / getBackupUploadState.
+   */
+  getBackupPseudonym: (chain: BackupChain) => string | undefined
+  /**
    * The same value as `walletBuilt`, read fresh.
    *
    * Mirrors `getBackupRestore`'s rationale: a caller that awaits a build or rebuild
@@ -465,6 +474,7 @@ export const WalletContext = createContext<WalletContextValue>({
   buildWalletFromRecoveredKey: async () => {},
   backupRestore: { phase: 'idle', chunks: 0, total: 0 },
   getBackupRestore: () => ({ phase: 'idle', chunks: 0, total: 0 }),
+  getBackupPseudonym: () => undefined,
   getWalletBuilt: () => false,
   switchNetwork: async () => {},
   rebuildWallet: async () => {},
@@ -721,6 +731,21 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   }, [])
   const getBackupRestore = useCallback((): BackupRestoreState => backupRestoreRef.current, [])
   const getWalletBuilt = useCallback((): boolean => walletBuiltRef.current, [])
+  /**
+   * Set once buildWallet resolves this build's backup chain/pseudonym, so a screen (Wallet
+   * Check) can scope a backup-cursor lookup to the CURRENT identity (see XR-009) without
+   * ever seeing the primary key itself — the pseudonym is derived from it but is not a
+   * secret; it is exactly what the backup server sees as this wallet's account. Cleared on
+   * logout so a departed wallet's pseudonym is never read back before the next build sets
+   * its own; `getBackupPseudonym` also refuses to answer for any OTHER chain, so a stale
+   * entry from a network switch can never be misread as the current one's.
+   */
+  const backupIdentityRef = useRef<{ chain: BackupChain, pseudonym: string } | null>(null)
+  const getBackupPseudonym = useCallback(
+    (chain: BackupChain): string | undefined =>
+      backupIdentityRef.current?.chain === chain ? backupIdentityRef.current.pseudonym : undefined,
+    []
+  )
   /**
    * Set by an import flow immediately before it hands the primary key over, and consumed
    * (and cleared) by the buildWallet pass it triggers. A ref rather than state because
@@ -1146,6 +1171,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // the backup derivation is frozen on the app-level names.
         const backupChain =
           chain === 'main' ? ('main' as const) : chain === 'test' ? ('test' as const) : ('teratest' as const)
+        // See getBackupPseudonym's own docs: this is what lets Wallet Check scope its
+        // cursor lookup to THIS identity without the primary key itself leaving this scope.
+        backupIdentityRef.current = { chain: backupChain, pseudonym: backupPseudonym(primaryKey, backupChain) }
         const keyDeriver = new KeyDeriver(new PrivateKey(primaryKey))
         const storageManager = new WalletStorageManager(keyDeriver.identityKey)
         const signer = new WalletSigner(walletChain, keyDeriver, storageManager)
@@ -2863,6 +2891,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       }
       offlineChaintracksRef.current = undefined
       headerStoreRef.current = undefined
+      backupIdentityRef.current = null
       if (storage?.db) {
         try {
           await storage.destroy()
@@ -2892,6 +2921,19 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         if (stale.length > 0) await AsyncStorage.multiRemove(stale)
       } catch (err) {
         console.warn('[logout] failed to clear cached balance', err)
+      }
+
+      // A departed wallet's push cursor must not linger to be misread as THIS device
+      // already having backed up the next wallet built here — deviceId never changes
+      // across a logout/re-import on the same install (see deviceId.ts and XR-009), so an
+      // unscoped Wallet Check read would otherwise inherit it. Sweeps every identity's
+      // cursor, not just the one just logged out of, same as the balance-cache sweep above.
+      try {
+        const keys = await AsyncStorage.getAllKeys()
+        const stale = keys.filter(k => k.startsWith('backupCursor-'))
+        if (stale.length > 0) await AsyncStorage.multiRemove(stale)
+      } catch (err) {
+        console.warn('[logout] failed to clear backup cursor', err)
       }
 
       // Awaited, and it removes the KEK along with the ciphertexts: leaving the
@@ -3380,6 +3422,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildWalletFromRecoveredKey,
       backupRestore,
       getBackupRestore,
+      getBackupPseudonym,
       getWalletBuilt,
       switchNetwork,
       rebuildWallet,
@@ -3428,6 +3471,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildWalletFromRecoveredKey,
       backupRestore,
       getBackupRestore,
+      getBackupPseudonym,
       getWalletBuilt,
       switchNetwork,
       rebuildWallet,
