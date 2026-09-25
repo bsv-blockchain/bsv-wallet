@@ -189,20 +189,46 @@ export function VaultScreen() {
   const pm = managers?.permissionsManager
 
   const reload = useCallback(async (): Promise<VaultMeta | null> => {
+    if (!pm) {
+      metaRef.current = null
+      setMeta(null)
+      setRecoveryError(null)
+      return null
+    }
+    // INT-07 / XR-007: recoverVaultMetaFromOutputs used to run only when the
+    // local cache was EMPTY. A stale-but-PRESENT local record (an iOS
+    // reinstall Keychain survives, or a revision bump made elsewhere for the
+    // same enrollment) then skipped this reconciliation forever — every
+    // subsequent spend against the newer on-chain revision failed closed
+    // with 'template-invalid', with no in-app way to force it (disableVault
+    // refuses on any funded vault). recoverVaultMetaFromOutputs already keeps
+    // the cached record whenever the authenticated scan does not supersede it
+    // (recoveredSupersedesExisting), so calling it unconditionally only
+    // widens WHEN that existing ratchet runs, never what it decides.
+    let cached: VaultMeta | null = null
     try {
-      if (!pm) {
-        metaRef.current = null
-        setMeta(null)
-        setRecoveryError(null)
-        return null
-      }
-      let m = await vaultStore.getMeta()
-      if (!m) m = await recoverVaultMetaFromOutputs(pm as unknown as VaultWallet, adminOriginator)
+      cached = await vaultStore.getMeta()
+    } catch {
+      // Nothing to fall back to either; the scan below still gets a chance.
+    }
+    try {
+      const m = await recoverVaultMetaFromOutputs(pm as unknown as VaultWallet, adminOriginator)
       metaRef.current = m
       setMeta(m)
       setRecoveryError(null)
       return m
     } catch (error) {
+      // A scan that cannot complete (offline, a pending action another call
+      // site already surfaces its own notice for, etc.) must not regress an
+      // already-correct cached record's instant, offline-safe display into a
+      // hard recoveryError screen — only a device with NOTHING cached has
+      // nothing safe to fall back to.
+      if (cached) {
+        metaRef.current = cached
+        setMeta(cached)
+        setRecoveryError(null)
+        return cached
+      }
       metaRef.current = null
       setRecoveryError(vaultErrorCopy(error instanceof VaultError ? error.code : undefined))
       throw error

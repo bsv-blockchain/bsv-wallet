@@ -198,7 +198,14 @@ beforeEach(() => {
   mockGetMeta.mockReset().mockResolvedValue(META2)
   mockRenameKey.mockReset().mockResolvedValue(META2)
   mockRelock.mockReset()
-  mockRecover.mockReset().mockResolvedValue(null)
+  // INT-07/XR-007: reload() now calls this unconditionally, even when a
+  // cached record already exists. The real recoverVaultMetaFromOutputs keeps
+  // the existing record whenever the chain scan does not supersede it — the
+  // default here mirrors that "nothing new, keep the cache" behavior so every
+  // existing enrolled-vault test (seeded via mockGetMeta) keeps working
+  // without having to know this call now happens. Tests about the scan
+  // itself (found-on-chain, offline fallback) override it explicitly.
+  mockRecover.mockReset().mockImplementation(async () => mockGetMeta())
   mockRecoverFromChain.mockReset().mockResolvedValue({ found: 0, pendingConfirmation: 0, problems: [], scanned: 20 })
   mockWocChainLookup.mockClear()
   mockAdopt.mockReset().mockResolvedValue(undefined)
@@ -286,6 +293,10 @@ describe('not enrolled', () => {
 
     test('found: scans with the wallet, admin originator and current network, then reloads meta', async () => {
       mockGetMeta.mockResolvedValueOnce(null).mockResolvedValueOnce(META2)
+      // INT-07/XR-007: reload() now reconciles unconditionally. Keep the
+      // initial mount genuinely "nothing found yet" so the not-enrolled hero
+      // (and its restore-from-chain offer) is what the test presses.
+      mockRecover.mockResolvedValueOnce(null)
       mockRecoverFromChain.mockResolvedValueOnce({ found: 1, pendingConfirmation: 0, problems: [], scanned: 1 })
       const screen = await renderVault()
       await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
@@ -327,6 +338,35 @@ describe('not enrolled', () => {
       await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
       expect(screen.getByText('vault_restore_from_chain')).toBeTruthy() // still on the hero, not crashed
     })
+  })
+})
+
+// INT-07 / XR-007: recoverVaultMetaFromOutputs' authenticated reconciliation
+// must run on every reload, not only when vaultStore.getMeta() returns null
+// — otherwise a stale-but-present local record can never be corrected
+// against a newer verified on-chain revision, with no in-app escape hatch.
+describe('stale local metadata reconciliation (INT-07 / XR-007)', () => {
+  test('reload reconciles against chain evidence even when a non-null local record already exists', async () => {
+    // The suite's own default: mockGetMeta resolves META2 (non-null).
+    const screen = await renderVault()
+    expect(mockRecover).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test')
+    expect(screen.queryByText('vault_retry')).toBeNull()
+  })
+
+  test('a failed reconciliation scan (offline, etc.) still shows the cached record rather than a hard recovery error', async () => {
+    mockRecover
+      .mockReset()
+      .mockRejectedValue(
+        new (jest.requireActual('../../core/services/vault/types').VaultError)('no-transaction', 'offline')
+      )
+    const screen = await renderVault()
+    // The scan must actually have been attempted (proving this is a real
+    // fallback, not merely the old "never called it" behavior) and still
+    // fail over to the cached META2 record — its keys are on screen — rather
+    // than a hard recovery-error state.
+    expect(mockRecover).toHaveBeenCalled()
+    expect(screen.getByText('Desk · 12 340 001')).toBeTruthy()
+    expect(screen.queryByText('vault_retry')).toBeNull()
   })
 })
 
@@ -710,7 +750,10 @@ describe('enrolled', () => {
   test('a recovered key requires a live adoption challenge and keeps the opening scope token', async () => {
     const recovered = { ...META2, recovery: { required: true, adoptedSerials: [] } }
     const adopted = { ...META2, recovery: { required: true, adoptedSerials: ['12340001'] } }
-    mockGetMeta.mockResolvedValueOnce(recovered).mockResolvedValueOnce(adopted)
+    // INT-07/XR-007: reload() now always reconciles via recoverVaultMetaFromOutputs,
+    // so this sequence (not the local-cache read) is what the screen ends up
+    // showing on each of the two reloads exercised here.
+    mockRecover.mockReset().mockResolvedValueOnce(recovered).mockResolvedValueOnce(adopted)
     const screen = await renderVault()
     expect(screen.getAllByText('vault_err_key_not_adopted').length).toBeGreaterThan(0)
 
