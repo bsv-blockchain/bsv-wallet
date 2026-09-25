@@ -2030,16 +2030,14 @@ describe('resolveHeldVaultDeposit', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
 
-  it('re-broadcasts the exact signed bytes when the network does not yet know the held txid', async () => {
+  it('re-broadcasts the exact signed bytes when the release has not happened yet', async () => {
     await seedMeta()
     const held = heldDepositAction('nosend')
     wallet.listActions.mockResolvedValue({ actions: [held] })
-    wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'unknown' }] })
 
     const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
 
     expect(result).toEqual({ kind: 'broadcast' })
-    expect(wallet.getStatusForTxids).toHaveBeenCalledWith([held.txid])
     const sendWithCall = wallet.createAction.mock.calls.find(([args]) => args?.options?.sendWith)
     expect(sendWithCall?.[0]).toEqual({
       description: 'Broadcast Vault deposit',
@@ -2048,16 +2046,62 @@ describe('resolveHeldVaultDeposit', () => {
     expect(wallet.abortAction).not.toHaveBeenCalled()
   })
 
-  it('reports already-known without re-broadcasting when the network already has the held txid', async () => {
+  // NEW-07: vaultTxidAlreadyKnown used to trust a bare getStatusForTxids
+  // 'mined'/'known' answer and return 'already-known' WITHOUT ever releasing
+  // the held, already-signed bytes — a wrong or malicious status service
+  // could make the app report success while the signed transaction was never
+  // broadcast and stayed held forever. Mirrors XQ-009's fix to
+  // processOfflineActions.ts' networkAlreadyHas: an unauthenticated status
+  // claim is never license to skip this device's own release.
+  it('NEW-07: a forged already-mined status claim does not skip releasing the held transaction', async () => {
     await seedMeta()
     const held = heldDepositAction('nosend')
     wallet.listActions.mockResolvedValue({ actions: [held] })
+    // A malicious or simply wrong status service claims the txid is already
+    // mined. Nothing here ever confirms the release itself.
     wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'mined' }] })
+    const realCreate = wallet.createAction.getMockImplementation()!
+    wallet.createAction.mockImplementation(async (args: any, originator: string) => {
+      if (args?.options?.sendWith) return {}
+      return await realCreate(args, originator)
+    })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    // The forged claim must never substitute for an actual release: the
+    // held transaction is still held, so this must fail closed instead of
+    // reporting already-known/success.
+    expect(result).toMatchObject({ kind: 'failed' })
+    expect(wallet.createAction).toHaveBeenCalledWith(
+      { description: 'Broadcast Vault deposit', options: { sendWith: [held.txid] } },
+      ADMIN
+    )
+  })
+
+  // NEW-07: the flip side — a txid that is GENUINELY already known to the
+  // network must still resolve successfully, without ever consulting the
+  // unauthenticated status claim. The wallet's own createAction/sendWith
+  // release is the one source of truth (mirrors the toolbox's own
+  // classifyReqDetails 'alreadySent' → 'unproven' mapping for a resend of a
+  // request storage already recognizes).
+  it('NEW-07: a genuinely already-broadcast held transaction still resolves successfully through the same release call', async () => {
+    await seedMeta()
+    const held = heldDepositAction('nosend')
+    wallet.listActions.mockResolvedValue({ actions: [held] })
+    wallet.createAction.mockImplementation(async (args: any) => {
+      if (args?.options?.sendWith) {
+        return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'unproven' }] }
+      }
+      return { txid: 'deadbeef'.repeat(8) }
+    })
 
     const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
 
     expect(result).toEqual({ kind: 'already-known' })
-    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(wallet.createAction).toHaveBeenCalledWith(
+      { description: 'Broadcast Vault deposit', options: { sendWith: [held.txid] } },
+      ADMIN
+    )
     expect(wallet.abortAction).not.toHaveBeenCalled()
   })
 
@@ -2067,7 +2111,6 @@ describe('resolveHeldVaultDeposit', () => {
       await seedMeta()
       const held = heldSpendAction(label)
       wallet.listActions.mockResolvedValue({ actions: [held] })
-      wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'unknown' }] })
 
       const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
 
@@ -2075,7 +2118,6 @@ describe('resolveHeldVaultDeposit', () => {
       // recognized at all — so the caller (VaultScreen's resolve button)
       // reported success while nothing was actually resolved.
       expect(result).toEqual({ kind: 'broadcast' })
-      expect(wallet.getStatusForTxids).toHaveBeenCalledWith([held.txid])
       const sendWithCall = wallet.createAction.mock.calls.find(([args]) => args?.options?.sendWith)
       expect(sendWithCall?.[0]).toEqual({
         description: 'Broadcast Vault transfer',
@@ -2085,16 +2127,44 @@ describe('resolveHeldVaultDeposit', () => {
     }
   )
 
-  it('XR-006 / INT-03: reports already-known for a held signed vault-relock the network already has', async () => {
+  // NEW-07: same forged-claim requirement for the withdraw/re-lock spend
+  // shape — its own authority already comes from the hardware signature on
+  // these exact bytes, but a wrong status service still must not be able to
+  // report success while the signed spend stays held and unbroadcast.
+  it('NEW-07: a forged already-mined status claim does not skip releasing a held vault-relock', async () => {
     await seedMeta()
     const held = heldSpendAction('vault-relock')
     wallet.listActions.mockResolvedValue({ actions: [held] })
     wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'mined' }] })
+    const realCreate = wallet.createAction.getMockImplementation()!
+    wallet.createAction.mockImplementation(async (args: any, originator: string) => {
+      if (args?.options?.sendWith) return {}
+      return await realCreate(args, originator)
+    })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    expect(result).toMatchObject({ kind: 'failed' })
+    expect(wallet.createAction).toHaveBeenCalledWith(
+      { description: 'Broadcast Vault transfer', options: { sendWith: [held.txid] } },
+      ADMIN
+    )
+  })
+
+  it('XR-006 / INT-03: reports already-known for a held signed vault-relock the network already has', async () => {
+    await seedMeta()
+    const held = heldSpendAction('vault-relock')
+    wallet.listActions.mockResolvedValue({ actions: [held] })
+    wallet.createAction.mockImplementation(async (args: any) => {
+      if (args?.options?.sendWith) {
+        return { sendWithResults: [{ txid: args.options.sendWith[0], status: 'unproven' }] }
+      }
+      return { txid: 'deadbeef'.repeat(8) }
+    })
 
     const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
 
     expect(result).toEqual({ kind: 'already-known' })
-    expect(wallet.createAction).not.toHaveBeenCalled()
     expect(wallet.abortAction).not.toHaveBeenCalled()
   })
 
@@ -2113,7 +2183,6 @@ describe('resolveHeldVaultDeposit', () => {
     await seedMeta()
     const held = heldDepositAction('nosend')
     wallet.listActions.mockResolvedValue({ actions: [held] })
-    wallet.getStatusForTxids.mockResolvedValue({ results: [] })
     const realCreate = wallet.createAction.getMockImplementation()!
     wallet.createAction.mockImplementation(async (args: any, originator: string) => {
       if (!args?.options?.sendWith) return await realCreate(args, originator)

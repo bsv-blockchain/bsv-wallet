@@ -328,10 +328,12 @@ export interface VaultWallet {
   /** Insert a chain-recovered v7 output into the admin vault basket. */
   internalizeAction(args: unknown, originator: string): Promise<{ accepted: true }>
   /** Network status lookup (mirrors storage/methods/processOfflineActions.ts'
-   * networkAlreadyHas) used only by resolveHeldVaultDeposit to tell a held
-   * signed deposit that already escaped to the network from one that has
-   * not. Optional: a wallet that cannot answer is treated as "unknown", same
-   * as networkAlreadyHas' own every-failure-is-false rule. */
+   * networkAlreadyHas). NEW-07: no longer consulted by resolveHeldVaultDeposit
+   * — a bare 'mined'/'known' answer from this is an unauthenticated claim,
+   * exactly what networkAlreadyHas itself refuses to trust without a
+   * validated proof (EntityProvenTx.fromTxid). Kept on the interface only for
+   * structural compatibility with the real wallet surface this is cast from;
+   * not currently called anywhere in this module. */
   getStatusForTxids?(txids: string[]): Promise<{ results?: { txid: string; status: string }[] }>
 }
 
@@ -999,21 +1001,6 @@ async function reconcileHeldVaultDeposits(
   throw new VaultError('action-pending', 'A signed Vault deposit needs manual broadcast-state reconciliation')
 }
 
-/** Whether the network already has `txid` ('mined' or 'known'), mirroring
- * storage/methods/processOfflineActions.ts' networkAlreadyHas exactly: no
- * status call, a transport fault, or an unexpected shape are all `false` —
- * never a reason to block the caller from re-broadcasting. */
-async function vaultTxidAlreadyKnown(w: VaultWallet, txid: string): Promise<boolean> {
-  try {
-    if (typeof w.getStatusForTxids !== 'function') return false
-    const r = await w.getStatusForTxids([txid])
-    const status = r.results?.find(x => x.txid === txid)?.status
-    return status === 'mined' || status === 'known'
-  } catch {
-    return false
-  }
-}
-
 export type VaultDepositResolution =
   | { kind: 'broadcast' }
   | { kind: 'already-known' }
@@ -1057,14 +1044,23 @@ function isValidHeldVaultSpend(action: VaultActionRow): boolean {
  * re-lock had no reconciliation path and froze every subsequent Vault read
  * via inspectHiddenVaultReservations indefinitely.
  *
- * Ask the network first. If it does not have the txid yet, release it with
- * the EXACT already-signed bytes via the same sendWith call depositToVault's
- * own release uses (~line 1764) — never a second transaction. If the network
- * already has it, there is nothing left to send; this is reported back as
- * `already-known` without calling sendWith at all, so a broadcaster that
- * rejects a resend of an already-mined transaction can never turn a resolved
- * deposit into a spurious failure. `abortAction` is never called here — only
- * reconcileHeldVaultDeposits' unsigned/no-txid branch may free inputs.
+ * NEW-07: this never trusts a bare network-status claim ('mined'/'known' from
+ * getStatusForTxids) to decide the held transaction is already resolved — a
+ * wrong or malicious status service could otherwise make this report success
+ * while the signed bytes were never released, leaving the vault blocked with
+ * the user told everything is fine (exactly the unauthenticated-claim trap
+ * XQ-009 closed for processOfflineActions.ts' networkAlreadyHas). Instead,
+ * ALWAYS release the wallet's own already-signed bytes with the EXACT same
+ * sendWith call depositToVault's own release uses (~line 1764) — never a
+ * second transaction. Re-sending identical signed bytes is safe: a
+ * broadcaster/storage layer that already has them answers accordingly
+ * (classifyReqDetails maps its own trusted "already sent" knowledge to an
+ * `unproven` sendWithResults status), and requireReleasedHeldTransaction
+ * already accepts that alongside a fresh `sending` as a confirmed release —
+ * so this only needs to tell the two apart afterward, for a more precise
+ * resolution kind, never to decide up front whether to call sendWith at all.
+ * `abortAction` is never called here — only reconcileHeldVaultDeposits'
+ * unsigned/no-txid branch may free inputs.
  */
 export async function resolveHeldVaultDeposit(
   w: VaultWallet,
@@ -1097,7 +1093,6 @@ export async function resolveHeldVaultDeposit(
       assertVaultScope(captured)
       if (!held?.txid) return { kind: 'nothing-held' }
       const txid = held.txid
-      if (await vaultTxidAlreadyKnown(w, txid)) return { kind: 'already-known' }
       const labels = new Set(held.labels ?? [])
       const isSpend = labels.has('vault-withdraw') || labels.has('vault-relock')
       const description = isSpend ? 'Vault transfer' : 'Vault deposit'
@@ -1108,7 +1103,16 @@ export async function resolveHeldVaultDeposit(
       )
       assertVaultScope(captured)
       requireReleasedHeldTransaction(released, txid, description)
-      return { kind: 'broadcast' }
+      // requireReleasedHeldTransaction has already confirmed exactly one
+      // result for this txid in an accepted state ('sending' or 'unproven').
+      // 'unproven' is the toolbox's own trusted classification of a resend it
+      // recognizes as already delivered (classifyReqDetails' 'alreadySent') —
+      // report that distinction back, but only ever AFTER the release itself
+      // succeeded, never in place of it.
+      const releasedStatus = released.sendWithResults?.find(
+        result => result.txid?.toLowerCase() === txid.toLowerCase()
+      )?.status
+      return { kind: releasedStatus === 'unproven' ? 'already-known' : 'broadcast' }
     } catch (error) {
       return { kind: 'failed', error }
     }
