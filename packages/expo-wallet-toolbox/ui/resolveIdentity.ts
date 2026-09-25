@@ -87,7 +87,16 @@ export async function resolveIdentity(
   }
 }
 
-/** Attribute search. Unlike resolveIdentity this one DOES throw; callers catch. */
+/**
+ * Attribute search. Unlike resolveIdentity this one DOES throw; callers catch.
+ *
+ * Each hit's `avatarURL` is exactly as untrusted as any other BRC-100
+ * identity certificate field, but unlike `resolveIdentity`/`mergeIdentityRecords`
+ * it reaches ContactsScreen's network-search list and the Pay recipient
+ * search dropdown (both hand it straight to ContactSigil's native `<Image>`)
+ * without going through `resolveAvatarURL` first — gate it the same way here
+ * (XR-073 / SEC2-057, SEC2-076).
+ */
 export async function searchIdentities(
   idClient: IdentityClient,
   text: string
@@ -97,7 +106,13 @@ export async function searchIdentities(
     limit: 5,
     seekPermission: false
   })
-  return uniqueIdentities(results)
+  const unique = uniqueIdentities(results)
+  return Promise.all(
+    unique.map(async identity => ({
+      ...identity,
+      avatarURL: (await resolveAvatarURL([identity.avatarURL])) || ''
+    }))
+  )
 }
 
 /**

@@ -15,11 +15,27 @@ jest.mock('@bsv/sdk', () => ({
   }))
 }))
 
-import { resolveAvatarURL } from '../../ui/resolveIdentity'
+import type { DisplayableIdentity, IdentityClient } from '@bsv/sdk'
+import { resolveAvatarURL, searchIdentities } from '../../ui/resolveIdentity'
 
 beforeEach(() => {
   jest.clearAllMocks()
 })
+
+/** A minimal stand-in for IdentityClient.resolveByAttributes' return shape. */
+const identity = (overrides: Partial<DisplayableIdentity>): DisplayableIdentity => ({
+  name: 'Eve',
+  avatarURL: '',
+  abbreviatedKey: 'abc123',
+  identityKey: '02' + '11'.repeat(32),
+  badgeIconURL: '',
+  badgeLabel: '',
+  badgeClickURL: '',
+  ...overrides
+})
+
+const fakeClient = (results: DisplayableIdentity[]): IdentityClient =>
+  ({ resolveByAttributes: jest.fn().mockResolvedValue(results) }) as unknown as IdentityClient
 
 it('XR-073: refuses a loopback avatarURL from an identity certificate', async () => {
   expect(await resolveAvatarURL(['http://127.0.0.1:9999/avatar.png'])).toBeUndefined()
@@ -58,4 +74,31 @@ it('still resolves a UHRP hash to an ordinary public https location', async () =
 it('resolves to undefined (not a throw) when storage resolution fails', async () => {
   mockResolve.mockRejectedValue(new Error('network down'))
   expect(await resolveAvatarURL(['uhrp://deadbeef'])).toBeUndefined()
+})
+
+describe('searchIdentities', () => {
+  it('XR-073: strips a loopback avatarURL from an attribute-search hit before it reaches ContactSigil/RecipientField', async () => {
+    const client = fakeClient([identity({ avatarURL: 'http://127.0.0.1:9999/pwn.png' })])
+    const [hit] = await searchIdentities(client, 'eve')
+    expect(hit.avatarURL).toBe('')
+  })
+
+  it('XR-073: strips an RFC1918/link-local avatarURL from a search hit', async () => {
+    const client = fakeClient([identity({ avatarURL: 'https://192.168.1.5/pwn.png' })])
+    const [hit] = await searchIdentities(client, 'eve')
+    expect(hit.avatarURL).toBe('')
+  })
+
+  it('still surfaces an ordinary public https avatarURL from a search hit', async () => {
+    const client = fakeClient([identity({ avatarURL: 'https://example.com/avatar.png' })])
+    const [hit] = await searchIdentities(client, 'eve')
+    expect(hit.avatarURL).toBe('https://example.com/avatar.png')
+  })
+
+  it('leaves the rest of a search hit untouched', async () => {
+    const client = fakeClient([identity({ name: 'Eve', avatarURL: '', abbreviatedKey: 'eve123' })])
+    const [hit] = await searchIdentities(client, 'eve')
+    expect(hit.name).toBe('Eve')
+    expect(hit.abbreviatedKey).toBe('eve123')
+  })
 })
