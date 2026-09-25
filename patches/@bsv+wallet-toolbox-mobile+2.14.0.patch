@@ -1,5 +1,5 @@
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
-index 26e6377..1a7398c 100644
+index 26e6377..5c645aa 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
 @@ -9456,10 +9456,158 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
@@ -254,8 +254,17 @@ index 26e6377..1a7398c 100644
  		randomVals: vargs.randomVals
  	};
  }
+@@ -18149,7 +18325,7 @@ var StorageProvider = class StorageProvider extends StorageReaderWriter {
+ 				if (tx.noSendExpiryState === "cancelled") return { __abortAction: "brc177-cancelled" };
+ 				if (tx.noSendExpiryState === "broadcast" || tx.noSendExpiryState === "target-won" || tx.noSendExpiryState === "conflicted") return { __abortAction: "brc177-target-protected" };
+ 				if (tx.txid != null && tx.txid !== "" && tx.status === "nosend" && tx.noSendExpiryState == null) {
+-					if (chainObservation == null || chainObservation.transactionId !== tx.transactionId || chainObservation.txid !== tx.txid) return { __abortAction: "retry-chain-check" };
++					if (chainObservation == null || chainObservation.transactionId !== tx.transactionId || chainObservation.txid !== tx.txid || chainObservation.serviceUnreachable === true) return { __abortAction: "retry-chain-check" };
+ 					if (chainObservation.chainStatus === "mined" || chainObservation.chainStatus === "known") {
+ 						const req = await EntityProvenTxReq.fromStorageTxid(this, tx.txid, trx);
+ 						if (req != null) {
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
-index 81baa70..46e05d3 100644
+index 81baa70..94a7589 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
 @@ -9421,10 +9421,158 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
@@ -510,3 +519,12 @@ index 81baa70..46e05d3 100644
  		randomVals: vargs.randomVals
  	};
  }
+@@ -18114,7 +18290,7 @@ var StorageProvider = class StorageProvider extends StorageReaderWriter {
+ 				if (tx.noSendExpiryState === "cancelled") return { __abortAction: "brc177-cancelled" };
+ 				if (tx.noSendExpiryState === "broadcast" || tx.noSendExpiryState === "target-won" || tx.noSendExpiryState === "conflicted") return { __abortAction: "brc177-target-protected" };
+ 				if (tx.txid != null && tx.txid !== "" && tx.status === "nosend" && tx.noSendExpiryState == null) {
+-					if (chainObservation == null || chainObservation.transactionId !== tx.transactionId || chainObservation.txid !== tx.txid) return { __abortAction: "retry-chain-check" };
++					if (chainObservation == null || chainObservation.transactionId !== tx.transactionId || chainObservation.txid !== tx.txid || chainObservation.serviceUnreachable === true) return { __abortAction: "retry-chain-check" };
+ 					if (chainObservation.chainStatus === "mined" || chainObservation.chainStatus === "known") {
+ 						const req = await EntityProvenTxReq.fromStorageTxid(this, tx.txid, trx);
+ 						if (req != null) {
