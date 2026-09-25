@@ -630,23 +630,32 @@ describe('NearbyFlow — the token path', () => {
   })
   // ── Which side names the unit ──
 
-  it('a holding the wallet could not identify never overrides the unit the payee resolved', async () => {
-    // Offline cold start: the runtime fabricates ''/0 for a holding whose
-    // registry lookup failed. The session's own USDX/2 must still govern —
-    // a typed 25.00 is 2,500 base units, not 25.
+  it("XR-091: a real local holding the wallet could not identify never trusts the payee's own unit claim", async () => {
+    // A REAL holding exists (124000 base units, genuinely spendable) but this
+    // device's own registry lookup for its ticker/decimals failed — the
+    // runtime's `''`/`0` sentinel. The payee's QR names USDX/2, but that is
+    // unauthenticated: trusting it would let a malicious or stale payee
+    // dictate the scale a genuine transfer of the payer's own value is shown
+    // and typed at (XR-091). This must fail closed exactly like the "neither
+    // side can name it" case — never adopt the QR's ticker/decimals for a
+    // real, unresolved holding.
     const unidentified = { ...USDX, ticker: '', label: '', decimals: 0 }
     const s = wrap(
       <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
       makeFakeMandala({ balances: [balanceOf(unidentified, 124000)] })
     )
     await settle()
-    expect(s.getByText('USDX')).toBeTruthy()
-    fireEvent.changeText(s.getByPlaceholderText('0.00'), '25.00')
+    expect(s.queryByText('USDX')).toBeNull()
+    expect(s.getByText('pay_asset_unidentified')).toBeTruthy()
+    expect(s.getByLabelText('local_pay_send').props.accessibilityState.disabled).toBe(true)
+    fireEvent.changeText(s.getByPlaceholderText('0'), '25')
     await act(async () => {
       fireEvent.press(s.getByLabelText('local_pay_send'))
       await new Promise(resolve => setImmediate(resolve))
     })
-    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(2500)
+    // Never builds a payment scaled by the payee's unverified decimals against
+    // this real holding.
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
   })
 
   it('the wallet’s own resolved decimals win over what the payee’s QR claims', async () => {

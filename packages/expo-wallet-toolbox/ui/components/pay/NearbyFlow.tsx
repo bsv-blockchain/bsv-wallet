@@ -412,20 +412,35 @@ function satsFrom(text: string): number {
  * asset this wallet holds (executeSend refuses anything else), and a
  * `decimals` the registry answered is the figure the overlay stood behind —
  * a request claiming 4 decimals against an asset this wallet knows has 2
- * would otherwise show 2,500.00 USDX as "0.2500". The session's own block —
- * whatever the payee's wallet wrote into the QR — is the fallback when this
- * wallet's lookup has NOT resolved: the runtime fabricates `''`/`0` for a
- * holding it could not identify (an offline cold start, the normal case on
- * this rail), and a zero it cannot stand behind must never beat a figure the
- * payee's wallet did resolve. The pair is taken from ONE source: a resolved
- * decimals beside an unresolved ticker would be a figure with no name.
- * `ticker: ''` on the result means neither side knows the unit, and the
- * screen refuses to send rather than let the payer type into an unlabelled
- * field (design principle 4).
+ * would otherwise show 2,500.00 USDX as "0.2500".
+ *
+ * XR-091: the session's own block — whatever the payee's wallet wrote into
+ * the QR — is NEVER trusted as a substitute once a REAL local holding exists
+ * for this asset (`held` present) but this device's own metadata lookup for
+ * it failed or has not completed (`held.ticker === ''`, the runtime's
+ * sentinel for "could not identify"). That holding is genuine spendable
+ * value; a malicious or merely out-of-date payee QR is not an authenticated
+ * source for the scale it is displayed and typed at, and a payer who is
+ * about to move real funds must never have that scale handed to them by the
+ * other side of the payment. This fails closed into the same "neither side
+ * can name it" path below (`ticker: ''`), which already disables Send and
+ * says so — the smallest safe response, since a wrong denomination on a real
+ * balance is worse than asking the payer to try again once resolved.
+ *
+ * The session's own claim is used ONLY as a convenience default when this
+ * device holds no local record of the asset AT ALL (`held` absent) — a payer
+ * who holds none of an asset cannot spend it regardless of what is shown
+ * here (`executeSend`'s own known-holding check refuses the send before any
+ * signature is produced), so trusting the QR's naming in that narrower case
+ * costs nothing beyond a cosmetic label. The pair is taken from ONE source
+ * either way: a resolved decimals beside an unresolved ticker would be a
+ * figure with no name. `ticker: ''` on the result means the display refuses
+ * to guess, and the screen refuses to send rather than let the payer type
+ * into an unlabelled — or falsely labelled — field (design principle 4).
  */
 function assetUnits(asset: SessionAsset, held?: { ticker: string; decimals: number } | null): AmountInputAsset {
-  const resolved = held && held.ticker !== '' ? held : undefined
-  if (resolved) return { ticker: resolved.ticker, decimals: resolved.decimals }
+  if (held && held.ticker !== '') return { ticker: held.ticker, decimals: held.decimals }
+  if (held) return { ticker: '', decimals: 0 }
   // The session block counts only when it names BOTH halves: a ticker with no
   // decimals would be a named figure at a guessed scale.
   if (asset.ticker && asset.decimals !== undefined) return { ticker: asset.ticker, decimals: asset.decimals }
