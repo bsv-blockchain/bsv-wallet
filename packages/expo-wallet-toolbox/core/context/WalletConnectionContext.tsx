@@ -217,27 +217,64 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
   const navTimerRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
   const appStateTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intentionalCloseRef = useRef(false)
+  // XR-018: bumped every time an existing socket is torn down (disconnect(),
+  // or connect()/reconnect() superseding a prior live session). wireSocket
+  // captures the value at wiring time as "myGeneration" and every one of its
+  // callbacks re-checks it before doing anything — closing/detaching a
+  // socket's handlers cannot cancel an onmessage invocation that is already
+  // mid-flight (awaiting decrypt or the durable sequence write) when the
+  // teardown happens, so without this check that in-flight message could
+  // still reach handleRpc and dispatch privileged RPC after the app has
+  // already moved on to a different (or no) session.
+  const connectionGenerationRef = useRef(0)
   // Snapshot of sessionMeta for use inside async WS callbacks
   const sessionMetaRef   = useRef<SessionMeta | null>(null)
   useEffect(() => { sessionMetaRef.current = sessionMeta }, [sessionMeta])
 
   // ── Disconnect ─────────────────────────────────────────────────────────────
 
-  const disconnect = useCallback(() => {
+  /** Fully detach `ws`'s handlers and close it, so it can never fire
+   * onopen/onmessage/onerror/onclose for this provider again, and bump the
+   * connection generation so any invocation of those handlers already
+   * in-flight for it is dropped too (see connectionGenerationRef). No-op for
+   * a null socket. */
+  const closeAndDetachSocket = useCallback((ws: WebSocket | null) => {
+    connectionGenerationRef.current++
+    if (wsRef.current === ws) wsRef.current = null
+    if (!ws) return
+    ws.onopen    = null
+    ws.onmessage = null
+    ws.onerror   = null
+    ws.onclose   = null
+    try { ws.close() } catch { /* already closing/closed */ }
+  }, [])
+
+  /** XR-018: this provider models exactly one live paired session at a time
+   * (a single wsRef/sessionMeta) — connect() and reconnect() call this
+   * BEFORE wiring a new socket so a previously-live socket for a DIFFERENT
+   * session is fully torn down first, instead of being silently orphaned
+   * with full RPC authority intact while wsRef moves on to the new one.
+   * Deliberately leaves status/sessionMeta React state alone: the caller
+   * sets its own right after via setSessionMeta(meta), and flipping to
+   * 'idle' here first would flash the UI back out of "connecting" for no
+   * reason. */
+  const supersedeExistingSocket = useCallback(() => {
     const topic = sessionMetaRef.current?.topic
     if (topic) {
       void SecureStore.setItemAsync(lastSeqKey(topic), String(lastSeqRef.current))
       connectionStore.setStatus(topic, 'disconnected')
     }
-    intentionalCloseRef.current = true
-    const ws = wsRef.current
-    wsRef.current = null
-    ws?.close()
+    closeAndDetachSocket(wsRef.current)
     if (navTimerRef.current)      { clearTimeout(navTimerRef.current);      navTimerRef.current      = null }
     if (appStateTimerRef.current) { clearTimeout(appStateTimerRef.current); appStateTimerRef.current = null }
+  }, [closeAndDetachSocket])
+
+  const disconnect = useCallback(() => {
+    intentionalCloseRef.current = true
+    supersedeExistingSocket()
     setSessionMeta(null)
     setStatus('idle')
-  }, [])
+  }, [supersedeExistingSocket])
 
   // Keep the module-level handle current so logout (a react ancestor of this
   // provider) can reach the LATEST disconnect closure. Clearing it on
@@ -333,6 +370,10 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     initialSeq: number,
     onFirstMessage: () => void,
   ) {
+    // XR-018: this socket's own identity for the generation check below —
+    // captured once, at wiring time, so it stays fixed even though
+    // connectionGenerationRef.current keeps advancing for later sockets.
+    const myGeneration = ++connectionGenerationRef.current
     wsRef.current      = ws
     lastSeqRef.current = initialSeq
     let firstMessageFired = false
@@ -350,6 +391,12 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     let seqCommitChain: Promise<boolean> = Promise.resolve(true)
 
     ws.onmessage = async event => {
+      // XR-018: this socket may have already been superseded (a concurrent
+      // disconnect()/connect()/reconnect() closed and detached it) between
+      // the relay delivering this event and this handler running — closing
+      // a socket cannot cancel an event already queued for it. Drop it
+      // before touching any in-flight counters.
+      if (connectionGenerationRef.current !== myGeneration) return
       if (inFlightRpc >= MAX_IN_FLIGHT_RPC) {
         console.warn('[WalletConnection] dropping message: too many requests in flight')
         return
@@ -425,6 +472,17 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
           return
         }
 
+        // XR-018: re-check immediately before any dispatch/side-effect runs.
+        // The decrypt + durable sequence commit above can take long enough
+        // that a concurrent disconnect()/connect()/reconnect() supersedes
+        // this socket while this invocation was still awaiting them —
+        // detaching handlers at that point cannot cancel this already-
+        // running invocation, so the dispatch itself must also check.
+        if (connectionGenerationRef.current !== myGeneration) {
+          console.warn('[WalletConnection] dropping message: connection superseded before dispatch')
+          return
+        }
+
         if (!firstMessageFired) {
           firstMessageFired = true
           onFirstMessage()
@@ -444,11 +502,19 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     }
 
     ws.onerror = () => {
+      if (connectionGenerationRef.current !== myGeneration) return
       setErrorMsg('WebSocket connection failed')
       setStatus('error')
     }
 
     ws.onclose = () => {
+      // XR-018: a superseded socket's close event must never touch state for
+      // whatever session/socket has replaced it (or the idle state left by
+      // disconnect()) — closeAndDetachSocket already nulls this handler
+      // before calling close() for every controlled teardown path, so this
+      // is defense in depth for anything that still holds a reference to
+      // this closure directly.
+      if (connectionGenerationRef.current !== myGeneration) return
       const wasIntentional = intentionalCloseRef.current
       intentionalCloseRef.current = false
 
@@ -509,6 +575,10 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     const identityResult = await wallet.getPublicKey({ identityKey: true })
     const mobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
 
+    // XR-018: tear down any live socket for a DIFFERENT prior session before
+    // wiring this one — see supersedeExistingSocket for why.
+    supersedeExistingSocket()
+
     const meta: SessionMeta = {
       topic: validated.params.topic, origin: validated.external.origin, relay,
       backendIdentityKey: validated.params.backendIdentityKey, mobileIdentityKey,
@@ -548,7 +618,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       })
       setStatus('connected')
     })
-  }, [walletName]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [walletName, supersedeExistingSocket]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── reconnect (resume from stored session) ────────────────────────────────
 
@@ -569,6 +639,10 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     const protocolID = validated.protocolID
     const storedSeq  = await SecureStore.getItemAsync(lastSeqKey(validated.topic))
     const initialSeq = validateStoredConnectionSequence(storedSeq)
+
+    // XR-018: tear down any live socket for a DIFFERENT prior session before
+    // wiring this one — see supersedeExistingSocket for why.
+    supersedeExistingSocket()
 
     const meta: SessionMeta = {
       topic: validated.topic, origin: validated.external.origin, relay,
@@ -609,7 +683,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       connectionStore.setStatus(validated.topic, 'active')
       setStatus('connected')
     })
-  }, [walletName]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [walletName, supersedeExistingSocket]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Provider ──────────────────────────────────────────────────────────────
 
