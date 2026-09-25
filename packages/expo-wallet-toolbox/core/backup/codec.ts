@@ -99,6 +99,23 @@ export function estimateEncodedBytes (chunk: SyncChunk): number {
   return bytes
 }
 
+/**
+ * Cheap lower bound on how many extra bytes an appData snapshot adds to an encoded chunk.
+ *
+ * Mirrors estimateEncodedBytes' own "must run before encoding" purpose: pushOnce's oversize
+ * gate checks the CHUNK alone today, but appData rides in the same envelope (see
+ * encodeChunk), so a large pending/outbox queue must count too or a doomed payload could
+ * still slip past the gate it exists to short-circuit. appData's strings are already
+ * serialised JSON (see backup/appData.ts), so — unlike packBytes' byte-array packing — there
+ * is no cheaper encoding to model here: this is a plain length sum, which is exact for
+ * strings and an underestimate only in the same way estimateEncodedBytes' own walk is (JSON
+ * quoting/escaping is ignored).
+ */
+export function estimateAppDataBytes (appData: AppDataSnapshot | undefined): number {
+  if (appData == null) return 0
+  return (appData.localpayPending?.length ?? 0) + (appData.peerpayOutbox?.length ?? 0)
+}
+
 /** The table columns the toolbox types as Date. BinaryJson has no Date support:
  * encode writes them as ISO strings, so decode must revive them — the merge
  * entities call `.getTime()`/date arithmetic on them directly
@@ -136,12 +153,31 @@ export interface BackupSeal {
 }
 
 /**
- * What a decrypted log entry turns out to be: always an ordinary chunk, optionally carrying
- * a seal alongside it. There is no other entry shape any writer has ever appended — this
- * type exists mainly so RemoteSyncReader can read `seal` off the newest entry without
- * re-decoding it a second time.
+ * App-owned recovery-critical state carried alongside a chunk, additively, the same way
+ * `seal` is (see encodeChunk/decodeEntry below) — never a separate log entry, so an old
+ * reader that predates this field decodes the envelope exactly as it always has.
+ *
+ * This type is deliberately generic: it is just what the envelope carries. What populates
+ * and consumes it — reading/writing key_value_store, merging across devices — lives in
+ * backup/appData.ts, which is the only module that needs to know these rows exist (XR-011).
+ * Every field is a plain string — neither needs `packBytes`' treatment, because a
+ * payment/outbox queue's own (de)serialisers (localpay/pending.ts, peerpay/outbox.ts)
+ * already write plain-JSON, byte-array-as-number[] text.
  */
-export type DecodedEntry = { kind: 'chunk', chunk: SyncChunk, seal?: BackupSeal }
+export interface AppDataSnapshot {
+  /** Verbatim value of key_value_store['localpay_pending'] at push time. */
+  localpayPending?: string
+  /** Verbatim value of key_value_store['peerpay_outbox'] at push time. */
+  peerpayOutbox?: string
+}
+
+/**
+ * What a decrypted log entry turns out to be: always an ordinary chunk, optionally carrying
+ * a seal and/or an appData snapshot alongside it. There is no other entry shape any writer
+ * has ever appended — this type exists mainly so RemoteSyncReader can read `seal`/`appData`
+ * off an entry without re-decoding it a second time.
+ */
+export type DecodedEntry = { kind: 'chunk', chunk: SyncChunk, seal?: BackupSeal, appData?: AppDataSnapshot }
 
 /**
  * Serialise and encrypt a sync chunk, optionally sealing a generation in the same envelope.
@@ -156,20 +192,27 @@ export type DecodedEntry = { kind: 'chunk', chunk: SyncChunk, seal?: BackupSeal 
  * a `chain` label, which decodeChunk asserts — belt and braces so that even a future
  * derivation mistake that collapsed the keys back together could not cross-restore.
  *
- * `seal` is folded into the SAME `{chain, chunk}` envelope as an optional third field,
- * rather than appended as a separate log entry. A dedicated marker entry is unsafe for a
- * reader that predates it: an all-empty chunk trips the toolbox's own done sentinel, and any
- * OTHER shape crashes an old decodeChunk outright (see push.ts's own module docstring for
- * the incident this replaced). `JSON.stringify` drops an `undefined` property, so an
- * unsealed chunk serialises to the exact old-format envelope, byte for byte.
+ * `seal` (and, likewise, `appData` — XR-011) is folded into the SAME `{chain, chunk}`
+ * envelope as an optional extra field, rather than appended as a separate log entry. A
+ * dedicated marker entry is unsafe for a reader that predates it: an all-empty chunk trips
+ * the toolbox's own done sentinel, and any OTHER shape crashes an old decodeChunk outright
+ * (see push.ts's own module docstring for the incident this replaced). `JSON.stringify`
+ * drops an `undefined` property, so a chunk with nothing new to carry in either field
+ * serialises to the exact old-format envelope, byte for byte. `appData` deliberately never
+ * rides on its own, entity-less chunk either: pushOnce only calls this once it already has a
+ * genuinely non-empty chunk to send, because the toolbox's own `processSyncChunk` treats
+ * EVERY entity array being empty as its completion sentinel regardless of position in the
+ * log (see push.ts's own docs) — an intentionally-empty-of-entities appended entry would
+ * make a live restore stop early and silently drop whatever was appended after it.
  */
 export async function encodeChunk (
   wallet: CompletedProtoWallet,
   chunk: SyncChunk,
   chain: BackupChain,
-  seal?: BackupSeal
+  seal?: BackupSeal,
+  appData?: AppDataSnapshot
 ): Promise<number[]> {
-  const json = stringifyJsonRpc({ chain, chunk: packBytes(chunk), seal }, true)
+  const json = stringifyJsonRpc({ chain, chunk: packBytes(chunk), seal, appData }, true)
   const { ciphertext } = await wallet.encrypt({
     plaintext: Utils.toArray(json, 'utf8'),
     protocolID: BACKUP_PROTOCOL,
@@ -180,14 +223,14 @@ export async function encodeChunk (
 }
 
 /**
- * Decrypt a log entry, returning its chunk and — when present — the seal riding alongside
- * it. Throws if the ciphertext was not written by this key, if the decrypted payload's
- * chain label disagrees with the chain being restored, or if a present `seal` field is
- * malformed.
+ * Decrypt a log entry, returning its chunk and — when present — the seal and/or appData
+ * riding alongside it. Throws if the ciphertext was not written by this key, if the
+ * decrypted payload's chain label disagrees with the chain being restored, or if a present
+ * `seal`/`appData` field is malformed.
  *
- * Old-format ciphertext — written before sealing existed, with no `seal` field at all —
- * decodes unchanged: `envelope.seal` is `undefined`, so `seal` is omitted from the result
- * exactly as it always was.
+ * Old-format ciphertext — written before sealing/appData existed, with no such field at all
+ * — decodes unchanged: `envelope.seal`/`envelope.appData` is `undefined`, so each is omitted
+ * from the result exactly as it always was.
  */
 export async function decodeEntry (
   wallet: CompletedProtoWallet,
@@ -204,6 +247,7 @@ export async function decodeEntry (
     chain?: unknown
     chunk?: unknown
     seal?: unknown
+    appData?: unknown
   }
   if (envelope?.chain !== chain) {
     throw new Error(
@@ -218,7 +262,26 @@ export async function decodeEntry (
     }
     seal = { generation: s.generation, initialChunkCount: s.initialChunkCount }
   }
-  return { kind: 'chunk', chunk: unpackBytes(envelope.chunk) as SyncChunk, seal }
+  const appData = decodeAppData(envelope.appData)
+  return { kind: 'chunk', chunk: unpackBytes(envelope.chunk) as SyncChunk, seal, appData }
+}
+
+/** Validates a decrypted envelope's `appData` field. Throws rather than silently dropping a
+ * malformed field: an app-owned recovery row that failed to decode as claimed must stop the
+ * restore, not quietly disappear (same failure posture as a malformed seal, above). */
+function decodeAppData (raw: unknown): AppDataSnapshot | undefined {
+  if (raw == null) return undefined
+  const a = raw as { localpayPending?: unknown, peerpayOutbox?: unknown }
+  if (a.localpayPending !== undefined && typeof a.localpayPending !== 'string') {
+    throw new Error('backup appData.localpayPending is malformed')
+  }
+  if (a.peerpayOutbox !== undefined && typeof a.peerpayOutbox !== 'string') {
+    throw new Error('backup appData.peerpayOutbox is malformed')
+  }
+  return {
+    localpayPending: a.localpayPending as string | undefined,
+    peerpayOutbox: a.peerpayOutbox as string | undefined
+  }
 }
 
 /**

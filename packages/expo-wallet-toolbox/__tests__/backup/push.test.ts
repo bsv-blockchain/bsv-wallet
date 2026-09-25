@@ -41,8 +41,20 @@ function chunkWith (counts: { provenTxs?: number, outputs?: number }, updatedAt 
   return c as unknown as SyncChunk
 }
 
-function fakeStorage (chunk: SyncChunk): { getSyncChunk: jest.Mock } {
-  return { getSyncChunk: jest.fn().mockResolvedValue(chunk) }
+function fakeStorage (
+  chunk: SyncChunk,
+  kv: Record<string, string> = {}
+): { getSyncChunk: jest.Mock, getKeyValue: jest.Mock, setKeyValue: jest.Mock } {
+  const map = new Map<string, string>(Object.entries(kv))
+  return {
+    getSyncChunk: jest.fn().mockResolvedValue(chunk),
+    // Every non-empty-chunk push now also reads the app-owned KV rows to fold into the same
+    // envelope (XR-011) — a bare `{ getSyncChunk }` stub would throw "getKeyValue is not a
+    // function" on any test that reaches that far, so every caller of this helper gets a
+    // working (empty by default) KV store for free.
+    getKeyValue: jest.fn(async (k: string) => map.get(k)),
+    setKeyValue: jest.fn(async (k: string, v: string) => void map.set(k, v))
+  }
 }
 
 /**
@@ -54,7 +66,7 @@ function fakeStorage (chunk: SyncChunk): { getSyncChunk: jest.Mock } {
  * holds a fixed set of records and filters them, which is what makes the
  * boundary behaviour observable.
  */
-function inclusiveSinceStorage (updatedAt: string[]): { getSyncChunk: jest.Mock } {
+function inclusiveSinceStorage (updatedAt: string[]): { getSyncChunk: jest.Mock, getKeyValue: jest.Mock, setKeyValue: jest.Mock } {
   const rows = updatedAt.map((t, i) => ({ provenTxId: i, rawTx: [1, 2, 3], updated_at: t }))
   return {
     getSyncChunk: jest.fn(async (args: any) => {
@@ -65,7 +77,9 @@ function inclusiveSinceStorage (updatedAt: string[]): { getSyncChunk: jest.Mock 
       // `>=`, exactly as the column comparison does.
       c.provenTxs = rows.filter(r => since == null || r.updated_at >= since).slice(offset)
       return c as unknown as SyncChunk
-    })
+    }),
+    getKeyValue: jest.fn().mockResolvedValue(undefined),
+    setKeyValue: jest.fn()
   }
 }
 
@@ -439,6 +453,74 @@ describe('pushOnce', () => {
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
       primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, deviceId: DEVICE
     })).rejects.toThrow(/client or a baseUrl/)
+  })
+})
+
+describe('XR-011: pushOnce appData', () => {
+  async function decodedAppData (ciphertext: number[]): Promise<Record<string, unknown> | undefined> {
+    const wallet = deriveBackupWallet(PRIMARY, 'main')
+    const decoded = await decodeEntry(wallet, ciphertext, 'main')
+    return decoded.appData as Record<string, unknown> | undefined
+  }
+
+  it('folds the current localpay_pending/peerpay_outbox rows into the pushed envelope', async () => {
+    const client = fakeClient()
+    const storage = fakeStorage(chunkWith({ provenTxs: 1 }), {
+      localpay_pending: '[{"id":"p1"}]',
+      peerpay_outbox: '[{"id":"o1"}]'
+    })
+
+    await pushOnce({
+      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+
+    expect(client.append).toHaveBeenCalledTimes(1)
+    expect(await decodedAppData(client.append.mock.calls[0][4])).toEqual({
+      localpayPending: '[{"id":"p1"}]',
+      peerpayOutbox: '[{"id":"o1"}]'
+    })
+  })
+
+  it('omits appData entirely when nothing app-owned is queued, so the envelope is unchanged', async () => {
+    const client = fakeClient()
+    const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
+
+    await pushOnce({
+      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+
+    expect(await decodedAppData(client.append.mock.calls[0][4])).toBeUndefined()
+  })
+
+  it('never appends purely to carry appData: a window closing with nothing new sends nothing, even with a queued payment', async () => {
+    // The dangerous shape this must never produce: the toolbox's own processSyncChunk treats
+    // EVERY entity array being empty as its completion sentinel regardless of the entry's
+    // position in the log (see codec.ts's encodeChunk docs) — an appended, entity-empty
+    // "appData-only" entry would make a live restore stop early and drop whatever real
+    // chunks were appended after it.
+    const client = fakeClient()
+    const storage = fakeStorage(emptyChunk('a', 'b', IDENTITY), { localpay_pending: '[{"id":"p1"}]' })
+
+    const r = await pushOnce({
+      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+
+    expect(client.append).not.toHaveBeenCalled()
+    expect(r.pushed).toBe(0)
+    expect(r.windowClosed).toBe(true)
+  })
+
+  it('counts appData bytes toward the oversize gate, so a huge queue is never silently dropped from the check', async () => {
+    const client = fakeClient()
+    const hugePending = JSON.stringify([{ id: 'p1', blob: 'x'.repeat(2_000_000) }])
+    const storage = fakeStorage(chunkWith({ provenTxs: 1 }), { localpay_pending: hugePending })
+
+    const r = await pushOnce({
+      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+    })
+
+    expect(r.oversized).toBe(true)
+    expect(client.append).not.toHaveBeenCalled()
   })
 })
 

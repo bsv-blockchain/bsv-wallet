@@ -7,6 +7,7 @@
 import type { CompletedProtoWallet } from '@bsv/sdk'
 import type { TableSettings } from '@bsv/wallet-toolbox-mobile'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
+import type { AppDataSnapshot } from './codec'
 import { BackupClient, type DeviceSummary } from './client'
 import type { BackupChain } from './constants'
 import { deriveBackupWallet } from './derive'
@@ -50,6 +51,14 @@ export interface RestoreResult {
    * newest-only fallback was used instead. See P1-backup-incomplete-generation.
    */
   verified: boolean
+  /**
+   * This device's own most recent app-owned recovery-critical snapshot (XR-011), if its log
+   * carried one — see RemoteSyncReader.appData. Returned rather than applied here: with more
+   * than one device in the manifest (XR-015), restoreOnImport merges every device's own
+   * result before the SINGLE write that actually reaches key_value_store, so one device's
+   * snapshot can never silently clobber another's.
+   */
+  appData?: AppDataSnapshot
 }
 
 /** What the user can choose between when more than one device has a backup. */
@@ -136,7 +145,13 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
   }
 
   await reconcileRestoredProofs(deps.storage)
-  return { chunks, deviceId: chosen.deviceId, generation: chosen.generation, verified: chosen.verified }
+  return {
+    chunks,
+    deviceId: chosen.deviceId,
+    generation: chosen.generation,
+    verified: chosen.verified,
+    appData: reader.appData
+  }
 }
 
 /**

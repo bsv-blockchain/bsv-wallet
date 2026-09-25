@@ -9,7 +9,7 @@
 import { Hash, Utils, type CompletedProtoWallet } from '@bsv/sdk'
 import type { TableSettings } from '@bsv/wallet-toolbox-mobile'
 import type { BackupClient, LogEntry } from './client'
-import { decodeEntry, emptyChunk, type DecodedEntry } from './codec'
+import { decodeEntry, emptyChunk, type AppDataSnapshot, type DecodedEntry } from './codec'
 import { MAX_INDEX_ENTRIES, type BackupChain } from './constants'
 import type { RequestSyncChunkArgs, SyncChunk } from '../toolboxTypes'
 
@@ -37,6 +37,9 @@ export class RemoteSyncReader {
    * never re-fetches or re-decrypts it when replay later reaches that same entry. */
   private decodedCache: { seq: number, decoded: DecodedEntry } | null = null
   private verifiedCompletePromise: Promise<boolean> | null = null
+  /** The most recent (i.e. furthest along in replay order) appData snapshot seen on any
+   * entry so far — see the `appData` getter below. */
+  private lastAppData: AppDataSnapshot | undefined
 
   constructor (
     private readonly client: BackupClient,
@@ -140,6 +143,13 @@ export class RemoteSyncReader {
 
     const entry = entries[this.next]
     const decoded = await this.fetchAndDecode(entry)
+    // Every appData-carrying chunk is a full snapshot as of its own push (see
+    // backup/appData.ts's captureAppDataSnapshot), so the LAST one seen while replaying in
+    // order is authoritative — never merged with an earlier one within this same device's
+    // own log (unlike restoreOnImport's cross-device merge). An entry that predates this
+    // feature, or one written while there was genuinely nothing app-owned to add, carries no
+    // `appData` at all and must not erase a still-current snapshot from an earlier entry.
+    if (decoded.appData !== undefined) this.lastAppData = decoded.appData
     // Advance only after successful download AND decryption. Retrying this
     // reader after either fails must retry the same entry rather than lose it.
     this.next++
@@ -163,6 +173,16 @@ export class RemoteSyncReader {
   /** Number of chunks in this generation, once the index has been read. */
   get length (): number {
     return this.entries?.length ?? 0
+  }
+
+  /**
+   * The most recent appData snapshot seen across every entry replayed through getSyncChunk
+   * so far (XR-011). Read by restore.ts once this device's log is fully drained, so it
+   * reflects the newest chunk that carried the field — undefined for a log written entirely
+   * before this feature shipped, or one with genuinely nothing app-owned to carry.
+   */
+  get appData (): AppDataSnapshot | undefined {
+    return this.lastAppData
   }
 
   /**
