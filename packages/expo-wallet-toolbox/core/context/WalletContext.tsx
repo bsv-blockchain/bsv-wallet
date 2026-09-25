@@ -1347,6 +1347,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // ── Select the best database file from the registry ──
           let knownDbs = await getRegisteredDbs(keySuffix, chainStr)
 
+          // Whether THIS build attempt is the one that created selectedDb below, as
+          // opposed to reselecting a file that already existed before this attempt
+          // started (an already-onboarded identity's real database, or a legacy file
+          // discovered on disk). Only true in the "fresh user" branch — see its use at
+          // the restore-failure cleanup further down (XR-017 review follow-up).
+          let dbWasFreshlyCreatedThisAttempt = false
+
           if (knownDbs.length === 0) {
             // First launch after update or fresh user.
             // Probe for a legacy (no-timestamp) database file.
@@ -1362,6 +1369,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               const newName = `wallet-${keySuffix}-${chainStr}net-${ts}.db`
               await registerDb(keySuffix, chainStr, newName)
               knownDbs = [newName]
+              dbWasFreshlyCreatedThisAttempt = true
               console.log(`[WalletContext] Created new timestamped DB: ${newName}`)
             }
           }
@@ -1452,20 +1460,32 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               try {
                 await phoneStorage.destroy()
               } catch {}
-              // restoreOnImport's precondition is always a freshly migrated,
-              // still-empty-of-real-data database — so a failed replay can safely be
-              // discarded rather than reused. Without this, a later build that skips
-              // another replay (recoverWallet's "skip", or any future
-              // restoreFromBackup:false call) would reselect this SAME partially replayed
-              // file via selectLatestDb and publish it as a working wallet. Both steps are
-              // best-effort cleanup: the ORIGINAL restore failure above is what must reach
-              // the caller, not a failure to tidy up after it.
-              try {
-                await unregisterDb(keySuffix, chainStr, selectedDb)
-              } catch {}
-              try {
-                await SQLite.deleteDatabaseAsync(selectedDb)
-              } catch {}
+              // restoreOnImport's precondition is that the database is freshly migrated
+              // and still empty of real data — but that is only actually guaranteed when
+              // THIS attempt is the one that just created selectedDb (dbWasFreshlyCreated
+              // ThisAttempt). rebuildWallet({restoreFromBackup:true}) takes this same path
+              // to "recover over an already-onboarded wallet" (see restoreWallet.ts), and
+              // recoverWallet.ts's confirmReplace does not check whether the newly
+              // supplied secret differs from the one already active — so selectedDb can
+              // instead be a pre-existing, already-registered database (this identity's
+              // real, live wallet, or a legacy file just discovered on disk) that this
+              // attempt only SELECTED, never created. Deleting that on a restore failure
+              // would destroy locally-cached change-output/BRC-29 metadata the seed cannot
+              // reconstruct (see XR-017 review follow-up). Only ever discard a database
+              // this exact attempt created: a later build that skips another replay
+              // (recoverWallet's "skip", or any future restoreFromBackup:false call) would
+              // otherwise reselect this SAME partially replayed file via selectLatestDb and
+              // publish it as a working wallet. Both steps are best-effort cleanup: the
+              // ORIGINAL restore failure above is what must reach the caller, not a failure
+              // to tidy up after it.
+              if (dbWasFreshlyCreatedThisAttempt) {
+                try {
+                  await unregisterDb(keySuffix, chainStr, selectedDb)
+                } catch {}
+                try {
+                  await SQLite.deleteDatabaseAsync(selectedDb)
+                } catch {}
+              }
               throw e
             }
           }

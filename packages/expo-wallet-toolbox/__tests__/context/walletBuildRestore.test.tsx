@@ -231,6 +231,14 @@ it.each(['mnemonic', 'recovered key'] as const)(
   async kind => {
     await renderProvider()
     mockBuildMode = 'real'
+    // A genuinely fresh identity: knownDbs.length === 0, so this very attempt's db-selection
+    // block is what creates the database restoreOnImport then partially replays into and
+    // fails against. This is the only case the cleanup below may touch — see the review
+    // follow-up test below for the "database predates this attempt" case it must NOT touch.
+    mockRegisteredDbs = []
+    let clock = 1700000000000
+    jest.spyOn(Date, 'now').mockImplementation(() => clock)
+
     const build = (restoreFromBackup: boolean) =>
       kind === 'mnemonic'
         ? wallet.buildWalletFromMnemonic('synthetic test key', { restoreFromBackup })
@@ -240,23 +248,54 @@ it.each(['mnemonic', 'recovered key'] as const)(
     expect(mockRestore).toHaveBeenCalledTimes(1)
     expect(wallet.walletBuilt).toBe(false)
     expect(mockPostRestoreSetup).not.toHaveBeenCalled()
-    // XR-017: the freshly-migrated-but-partially-replayed database must not survive the
+    // The name this attempt's own db-selection block generated (not a hardcoded fixture) —
+    // it must have been registered exactly once, by the "fresh user" branch.
+    expect(mockRegisterDb).toHaveBeenCalledTimes(1)
+    const firstDb = mockRegisterDb.mock.calls[0][2]
+    // XR-017: the freshly-created-but-partially-replayed database must not survive the
     // failure, or a later build that skips another replay (recoverWallet's "skip", or this
     // very restore:false call) would reselect it via selectLatestDb and publish it as a
     // working wallet.
-    expect(mockUnregisterDb).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'restore-test.db')
-    expect(mockDeleteDatabaseAsync).toHaveBeenCalledWith('restore-test.db')
-    expect(mockRegisteredDbs).not.toContain('restore-test.db')
+    expect(mockUnregisterDb).toHaveBeenCalledWith(expect.any(String), expect.any(String), firstDb)
+    expect(mockDeleteDatabaseAsync).toHaveBeenCalledWith(firstDb)
+    expect(mockRegisteredDbs).not.toContain(firstDb)
 
+    clock += 1000 // distinct timestamp so the retry's fresh db can't collide with the first
     await act(async () => build(false))
     expect(mockRestore).toHaveBeenCalledTimes(1)
     // The build reaches setup after the restore branch, without another replay.
     expect(mockPostRestoreSetup).toHaveBeenCalledTimes(1)
     // A genuinely different (freshly created) database, not the failed one reselected.
-    expect(mockRegisteredDbs).not.toContain('restore-test.db')
+    expect(mockRegisteredDbs).not.toContain(firstDb)
     expect(mockRegisteredDbs).toHaveLength(1)
   }
 )
+
+it('XR-017: review follow-up — never deletes/unregisters a database that predates this restore attempt', async () => {
+  await renderProvider()
+  mockBuildMode = 'real'
+  // Simulates "recover over an already-onboarded wallet" — core/recovery/restoreWallet.ts's
+  // rebuildWallet({restoreFromBackup:true}) path, taken whenever isWalletBuilt() is already
+  // true (e.g. the user re-enters the SAME mnemonic that already built their working
+  // wallet; recoverWallet.ts's confirmReplace gate does not check whether the new secret
+  // differs from the one already active). The registry already names this identity's real,
+  // live database BEFORE this attempt starts: knownDbs.length is 1, so the db-selection
+  // block never takes the "create a fresh db" branch — this attempt did not create the
+  // file selectLatestDb hands it.
+  const preExisting = 'wallet-aaaaaaaa-mainnet-1700000000.db'
+  mockRegisteredDbs = [preExisting]
+
+  await act(async () => wallet.buildWalletFromMnemonic('synthetic test key', { restoreFromBackup: true }))
+
+  expect(mockRestore).toHaveBeenCalledTimes(1)
+  expect(wallet.walletBuilt).toBe(false)
+  // The database predates this attempt — it may be the user's real, already-transacting
+  // wallet with seed-unrecoverable change-output/BRC-29 metadata — so a failed restore's
+  // cleanup must leave it completely alone.
+  expect(mockUnregisterDb).not.toHaveBeenCalled()
+  expect(mockDeleteDatabaseAsync).not.toHaveBeenCalled()
+  expect(mockRegisteredDbs).toEqual([preExisting])
+})
 
 it('getWalletBuilt() is a ref-backed read that reflects walletBuilt after a build', async () => {
   await renderProvider()
