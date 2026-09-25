@@ -31,27 +31,39 @@ describe('handleArcResponse', () => {
     'SEEN_MULTIPLE_NODES',
     'MINED',
     'IMMUTABLE'
-  ] as const)('treats %s as success when response.ok', (txStatus) => {
-    const result = handleArcResponse(
-      'Arcade',
-      { ok: true, status: 200 },
-      { txid: txids[0], txStatus },
-      txids
-    )
+  ] as const)('treats %s as success when response.ok', txStatus => {
+    const result = handleArcResponse('Arcade', { ok: true, status: 200 }, { txid: txids[0], txStatus }, txids)
     expect(result.status).toBe('success')
   })
 
-  it('marks double-spend statuses without success', () => {
-    for (const txStatus of ['DOUBLE_SPEND_ATTEMPTED', 'SEEN_IN_ORPHAN_MEMPOOL'] as const) {
-      const result = handleArcResponse(
-        'Arcade',
-        { ok: true, status: 200 },
-        { txid: txids[0], txStatus },
-        txids
-      )
-      expect(result.status).toBe('error')
-      expect(result.doubleSpend).toBe(true)
-    }
+  it('marks a proven double-spend attempt as doubleSpend, not just error', () => {
+    const result = handleArcResponse(
+      'Arcade',
+      { ok: true, status: 200 },
+      { txid: txids[0], txStatus: 'DOUBLE_SPEND_ATTEMPTED' },
+      txids
+    )
+    expect(result.status).toBe('error')
+    expect(result.doubleSpend).toBe(true)
+  })
+
+  // XR-062: SEEN_IN_ORPHAN_MEMPOOL means the parent hasn't propagated yet — a
+  // missing/unpropagated-parent transport condition, not a proven conflict.
+  // It used to be lumped in with DOUBLE_SPEND_ATTEMPTED and fed the same
+  // terminal rejection cascade (offline/plan.ts applyOutcome), permanently
+  // rejecting a valid chained/offline payment and releasing its reservations
+  // purely from ordinary propagation timing. It must be retryable
+  // (serviceError), never doubleSpend.
+  it('XR-062: marks an orphan-mempool status as a retryable serviceError, not doubleSpend', () => {
+    const result = handleArcResponse(
+      'Arcade',
+      { ok: true, status: 200 },
+      { txid: txids[0], txStatus: 'SEEN_IN_ORPHAN_MEMPOOL' },
+      txids
+    )
+    expect(result.status).toBe('error')
+    expect(result.doubleSpend).not.toBe(true)
+    expect(result.serviceError).toBe(true)
   })
 
   it('marks REJECTED and non-ok HTTP as serviceError', () => {
@@ -75,12 +87,7 @@ describe('handleArcResponse', () => {
   })
 
   it('treats missing txStatus with ok response as success (built-in ARC parity)', () => {
-    const result = handleArcResponse(
-      'TaalArc',
-      { ok: true, status: 200 },
-      { txid: txids[0] },
-      txids
-    )
+    const result = handleArcResponse('TaalArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
     expect(result.status).toBe('success')
   })
 })
@@ -93,7 +100,7 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ txid: 'ignored', txStatus: 'SEEN_ON_NETWORK' }),
+      json: async () => ({ txid: 'ignored', txStatus: 'SEEN_ON_NETWORK' })
     })
     global.fetch = fetchMock as unknown as typeof fetch
     const tx = new Transaction()
@@ -147,7 +154,7 @@ describe('createWocBroadcastService classification', () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
       status,
-      text: async () => body,
+      text: async () => body
     }) as unknown as typeof fetch
     const tx = new Transaction()
     const beef = new Beef()

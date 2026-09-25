@@ -8,10 +8,18 @@ import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
  * non-double-spend 2xx as success — match that so we do not fail over to WoC
  * after Arcade already accepted the tx.
  */
-const ARC_DOUBLE_SPEND_STATUSES = new Set([
-  'DOUBLE_SPEND_ATTEMPTED',
-  'SEEN_IN_ORPHAN_MEMPOOL'
-])
+const ARC_DOUBLE_SPEND_STATUSES = new Set(['DOUBLE_SPEND_ATTEMPTED'])
+
+/**
+ * XR-062: SEEN_IN_ORPHAN_MEMPOOL means the parent hasn't propagated yet — a
+ * transport/timing condition, not a proven conflict. offline/plan.ts's
+ * applyOutcome routes any `doubleSpend` outcome into a terminal, irreversible
+ * rejection cascade (the tx and every descendant, with reservations
+ * released), so lumping this in with a real double spend permanently kills a
+ * valid chained/offline payment purely from ordinary propagation timing.
+ * Treat it as retryable instead, like any other service hiccup.
+ */
+const ARC_RETRYABLE_STATUSES = new Set(['SEEN_IN_ORPHAN_MEMPOOL'])
 
 /**
  * Shared response handling for ARC-compatible services (Arcade, Taal, GorillaPool).
@@ -28,15 +36,19 @@ export function handleArcResponse(
   const txResult: PostTxResultForTxid = {
     txid: data.txid || txids[0],
     status: 'error',
-    notes: [{
-      when: new Date().toISOString(),
-      what: `${serviceName}PostEF`,
-      txStatus: data.txStatus,
-      httpStatus: response.status
-    }]
+    notes: [
+      {
+        when: new Date().toISOString(),
+        what: `${serviceName}PostEF`,
+        txStatus: data.txStatus,
+        httpStatus: response.status
+      }
+    ]
   }
   if (data.txStatus && ARC_DOUBLE_SPEND_STATUSES.has(data.txStatus)) {
     txResult.doubleSpend = true
+  } else if (data.txStatus && ARC_RETRYABLE_STATUSES.has(data.txStatus)) {
+    txResult.serviceError = true
   } else if (response.ok && data.txStatus !== 'REJECTED') {
     // RECEIVED / STORED / SENT_TO_NETWORK / ACCEPTED_BY_NETWORK / SEEN_* / MINED
     // all mean the broadcaster accepted the tx. Page-load 402 must not wait for
@@ -164,7 +176,7 @@ export function createWocBroadcastService(chain: string, apiKey?: string) {
         try {
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
-            'Accept': 'text/plain'
+            Accept: 'text/plain'
           }
           if (apiKey) headers['woc-api-key'] = apiKey
           response = await fetch(`${baseUrl}/tx/raw`, {
