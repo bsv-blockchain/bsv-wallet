@@ -2113,17 +2113,19 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
    * The payer-side build's deps, carrying the same FIX H anchor.
    *
    * `assembleBundle` forwards this device's cached admissions onward as its own
-   * claim about the chain, and `buildTokenPaymentFrame` reads the asset's
-   * `overlayIdentityKey` off the SESSION — i.e. off the payee's request. Handing
-   * the build the configured key and verifier here is what lets it anchor on
-   * configuration instead (§9.10). Narrowed from a value for the same reason
-   * `tokenDeps` is.
+   * claim about the chain, and (until XR-104) `buildTokenPaymentFrame` read the
+   * asset's `overlayIdentityKey` off the SESSION — i.e. off the payee's
+   * request. Handing the build the configured key, URL and verifier here is
+   * what lets it anchor on configuration instead (§9.10): `buildTokenPaymentFrame`
+   * now refuses outright when `session.asset`'s overlay does not match these.
+   * Narrowed from a value for the same reason `tokenDeps` is.
    */
   const tokenBuildDepsValue = {
     store,
     lockToPayee,
     commitBlinding: blindingCommit,
     overlayIdentityKey,
+    overlayUrl,
     verifyAdmission
   }
   const tokenBuildDeps: TokenBuildDeps = tokenBuildDepsValue
