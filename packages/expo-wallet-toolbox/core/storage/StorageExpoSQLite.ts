@@ -2237,10 +2237,20 @@ export class StorageExpoSQLite extends StorageProvider {
     try {
       heldTokenTxids = await this.heldTokenTxidsIn(swr.map(s => s.txid))
     } catch (e) {
-      // A read fault here must not change what the wallet reports; the guard in
-      // front of the broadcast has already done the load-bearing work.
-      devLog('[StorageExpoSQLite] could not check held token reqs for sendWithResults:', e)
-      return r
+      // XR-045/SEC2-070: a read fault here means this call cannot tell which of
+      // these txids are held token requests — "could not determine" must not
+      // resolve to "report as delivered", which is exactly the false 'unproven'
+      // signal that let @bsv/mandala's broadcastAcceptedTx clear an 'accepted'
+      // journal entry for a transaction nothing had broadcast on 2026-09-15.
+      // Mirror the fail-closed policy already applied to the broadcast guard
+      // (attemptToPostReqsToNetwork holds the WHOLE batch on this identical
+      // fault): treat every txid here as if it were held, so every entry is
+      // omitted below rather than any of them being reported as sent.
+      devLog(
+        '[StorageExpoSQLite] could not check held token reqs for sendWithResults; omitting all rather than reporting a possibly-false delivery:',
+        e
+      )
+      heldTokenTxids = new Set(swr.map(s => s.txid))
     }
     if (heldTokenTxids.size === 0) return r
 
