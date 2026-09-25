@@ -755,6 +755,29 @@ describe('sendToHandle', () => {
     )
     expect(await wrapped.abortAction({ reference })).toEqual({ aborted: false })
   })
+
+  it('XR-035: the handle rail’s journal survives repeated transient faults, not only a single one', async () => {
+    // Same durability-ordering defect as XR-034 (transferTokens hands the
+    // bytes to the payee before the journal write that protects them), locked
+    // here against its own ledger id: two consecutive faults, still inside the
+    // retry's bound, must not lose the row either.
+    const txid = '92'.repeat(32)
+    ;(transferTokens as jest.Mock).mockResolvedValue({ txid, notified: true, handedOver: true })
+    const runtime = build()
+
+    const original = runtime.store.upsertSettlement.bind(runtime.store)
+    let calls = 0
+    jest.spyOn(runtime.store, 'upsertSettlement').mockImplementation(async row => {
+      calls++
+      if (calls <= 2) throw new Error('SQLITE_BUSY: database is locked')
+      return original(row)
+    })
+
+    const result = await runtime.sendToHandle({ assetId: ASSET_ID, recipientIdentityKey: PAYEE, baseUnits: 12 })
+    expect(result).toMatchObject({ kind: 'sent', txid })
+    expect(calls).toBe(3)
+    expect((await runtime.store.getSettlement(txid))?.state).toBe('handed_over')
+  })
 })
 
 // ──────────────────────────── receiveFromInbox ────────────────────────────
