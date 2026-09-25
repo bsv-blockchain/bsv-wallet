@@ -518,6 +518,11 @@ const resources = {
       vault_replace_key_warning:
         'Replacing it permanently destroys the existing P-256 private key. Any vault funds that require that key could become unspendable.',
       vault_replace_key_confirm: 'Replace existing key',
+      vault_resume_draft_confirm_title: 'Use this prepared key?',
+      vault_resume_draft_confirm_body:
+        'A previously prepared key — {{nickname}} · …{{tail}} — is ready to add, but this device did not just verify it on a card. Only continue if you recognize it.',
+      vault_resume_draft_confirm_use: 'Use this key',
+      vault_resume_draft_confirm_discard: 'Discard it',
       vault_err_enrollment_partial:
         'YubiKey setup stopped after changing the key. Follow the retry instructions; this key was not added to the Vault.',
       vault_err_key_not_adopted:
@@ -1507,6 +1512,11 @@ const resources = {
       vault_err_slot_occupied: '密钥槽已被占用。',
       vault_replace_key_warning: '替换它将永久销毁现有的 P-256 私钥。任何需要该密钥的保险库资金可能变得无法花费。',
       vault_replace_key_confirm: '替换现有密钥',
+      vault_resume_draft_confirm_title: '使用这个已准备好的密钥？',
+      vault_resume_draft_confirm_body:
+        '有一个先前准备好的密钥——{{nickname}} · …{{tail}}——已就绪待添加，但本设备刚才并未在卡片上验证它。只有在你确认这是你自己的密钥时才继续。',
+      vault_resume_draft_confirm_use: '使用此密钥',
+      vault_resume_draft_confirm_discard: '丢弃它',
       vault_err_enrollment_partial: '更改密钥后 YubiKey 设置中断。请按照重试说明操作；此密钥尚未添加到保险库。',
       vault_err_key_not_adopted: '在使用这把恢复的 YubiKey 提款前，请先在此设备上验证您持有它。',
       vault_err_too_many_inputs:
@@ -2482,6 +2492,11 @@ const resources = {
       vault_replace_key_warning:
         'इसे बदलने पर मौजूदा P-256 निजी कुंजी स्थायी रूप से नष्ट हो जाएगी। उस कुंजी पर निर्भर वॉल्ट राशि अख़र्च योग्य हो सकती है।',
       vault_replace_key_confirm: 'मौजूदा कुंजी बदलें',
+      vault_resume_draft_confirm_title: 'क्या इस तैयार कुंजी का उपयोग करें?',
+      vault_resume_draft_confirm_body:
+        'पहले से तैयार एक कुंजी — {{nickname}} · …{{tail}} — जोड़ने के लिए तैयार है, लेकिन इस डिवाइस ने अभी कार्ड पर इसे सत्यापित नहीं किया। केवल तभी आगे बढ़ें जब आप इसे पहचानते हों।',
+      vault_resume_draft_confirm_use: 'इस कुंजी का उपयोग करें',
+      vault_resume_draft_confirm_discard: 'इसे अस्वीकार करें',
       vault_err_enrollment_partial:
         'कुंजी बदलने के बाद YubiKey सेटअप रुक गया। पुनः प्रयास के निर्देश मानें; यह कुंजी वॉल्ट में नहीं जोड़ी गई।',
       vault_err_key_not_adopted:
@@ -3256,7 +3271,8 @@ const resources = {
       vault_restore_from_chain: 'Restaurar la caja fuerte desde la blockchain',
       vault_restore_scanning: 'Escaneando la blockchain…',
       vault_restore_found: 'Se encontraron {{count}} depósito(s) de la caja fuerte en la blockchain.',
-      vault_restore_pending: 'Se encontraron {{count}} depósito(s), a la espera de su primera confirmación — inténtalo de nuevo en breve.',
+      vault_restore_pending:
+        'Se encontraron {{count}} depósito(s), a la espera de su primera confirmación — inténtalo de nuevo en breve.',
       vault_restore_none_found: 'No se encontraron depósitos de la caja fuerte en la blockchain para esta billetera.',
       vault_balance_label: 'la caja fuerte tiene',
       vault_key_section: 'Llaves de seguridad ({{count}} de 5)',
@@ -3488,6 +3504,11 @@ const resources = {
       vault_replace_key_warning:
         'Sustituirla destruye de forma permanente la clave privada P-256 existente. Los fondos de la caja fuerte que necesiten esa clave podrían volverse inutilizables.',
       vault_replace_key_confirm: 'Sustituir la clave existente',
+      vault_resume_draft_confirm_title: '¿Usar esta clave preparada?',
+      vault_resume_draft_confirm_body:
+        'Hay una clave preparada previamente — {{nickname}} · …{{tail}} — lista para añadirse, pero este dispositivo no acaba de verificarla en una tarjeta. Continúa solo si la reconoces.',
+      vault_resume_draft_confirm_use: 'Usar esta clave',
+      vault_resume_draft_confirm_discard: 'Descartarla',
       vault_err_enrollment_partial:
         'La configuración de la YubiKey se detuvo después de modificarla. Sigue las instrucciones para reintentar; la llave no se añadió a la caja fuerte.',
       vault_err_key_not_adopted:
@@ -4278,8 +4299,9 @@ const resources = {
       vault_restore_from_chain: 'Restaurer le coffre depuis la blockchain',
       vault_restore_scanning: 'Analyse de la blockchain…',
       vault_restore_found: '{{count}} dépôt(s) du coffre trouvé(s) sur la blockchain.',
-      vault_restore_pending: '{{count}} dépôt(s) trouvé(s), en attente de leur première confirmation — réessayez bientôt.',
-      vault_restore_none_found: 'Aucun dépôt du coffre n\'a été trouvé sur la blockchain pour ce portefeuille.',
+      vault_restore_pending:
+        '{{count}} dépôt(s) trouvé(s), en attente de leur première confirmation — réessayez bientôt.',
+      vault_restore_none_found: "Aucun dépôt du coffre n'a été trouvé sur la blockchain pour ce portefeuille.",
       vault_balance_label: 'le coffre contient',
       vault_key_section: 'Clés de sécurité ({{count}} sur 5)',
       vault_manage_section: 'Gérer',
@@ -4508,6 +4530,11 @@ const resources = {
       vault_replace_key_warning:
         'La remplacer détruit définitivement la clé privée P-256 existante. Les fonds du coffre qui dépendent de cette clé pourraient devenir indépensables.',
       vault_replace_key_confirm: 'Remplacer la clé existante',
+      vault_resume_draft_confirm_title: 'Utiliser cette clé préparée ?',
+      vault_resume_draft_confirm_body:
+        'Une clé préparée précédemment — {{nickname}} · …{{tail}} — est prête à être ajoutée, mais cet appareil ne vient pas de la vérifier sur une carte. Continuez uniquement si vous la reconnaissez.',
+      vault_resume_draft_confirm_use: 'Utiliser cette clé',
+      vault_resume_draft_confirm_discard: 'La rejeter',
       vault_err_enrollment_partial:
         "La configuration de la YubiKey s'est arrêtée après sa modification. Suivez les instructions de nouvel essai ; cette clé n'a pas été ajoutée au coffre.",
       vault_err_key_not_adopted:
@@ -5496,6 +5523,11 @@ const resources = {
       vault_replace_key_warning:
         'استبدالها يدمّر نهائيًا مفتاح P-256 الخاص الحالي. قد تصبح أموال الخزنة التي تعتمد على ذلك المفتاح غير قابلة للإنفاق.',
       vault_replace_key_confirm: 'استبدال المفتاح الحالي',
+      vault_resume_draft_confirm_title: 'هل تريد استخدام هذا المفتاح المُجهَّز؟',
+      vault_resume_draft_confirm_body:
+        'هناك مفتاح تم تجهيزه مسبقًا — {{nickname}} · …{{tail}} — جاهز للإضافة، لكن هذا الجهاز لم يتحقق للتو منه على بطاقة. تابع فقط إذا كنت تتعرف عليه.',
+      vault_resume_draft_confirm_use: 'استخدام هذا المفتاح',
+      vault_resume_draft_confirm_discard: 'تجاهله',
       vault_err_enrollment_partial:
         'توقف إعداد YubiKey بعد تغيير المفتاح. اتبع تعليمات إعادة المحاولة؛ لم تتم إضافة هذا المفتاح إلى الخزنة.',
       vault_err_key_not_adopted: 'تحقق من حيازتك لمفتاح YubiKey المستعاد على هذا الجهاز قبل استخدامه للسحب.',
@@ -6256,7 +6288,8 @@ const resources = {
       vault_restore_from_chain: 'Restaurar o cofre a partir da blockchain',
       vault_restore_scanning: 'Analisando a blockchain…',
       vault_restore_found: 'Encontrado(s) {{count}} depósito(s) do cofre na blockchain.',
-      vault_restore_pending: '{{count}} depósito(s) encontrado(s), aguardando a primeira confirmação — tente novamente em breve.',
+      vault_restore_pending:
+        '{{count}} depósito(s) encontrado(s), aguardando a primeira confirmação — tente novamente em breve.',
       vault_restore_none_found: 'Nenhum depósito do cofre foi encontrado na blockchain para esta carteira.',
       vault_balance_label: 'o cofre tem',
       vault_key_section: 'Chaves de segurança ({{count}} de 5)',
@@ -6484,6 +6517,11 @@ const resources = {
       vault_replace_key_warning:
         'Substituí-la destrói permanentemente a chave privada P-256 existente. Os fundos do cofre que dependem dessa chave podem ficar impossíveis de gastar.',
       vault_replace_key_confirm: 'Substituir a chave existente',
+      vault_resume_draft_confirm_title: 'Usar esta chave preparada?',
+      vault_resume_draft_confirm_body:
+        'Uma chave preparada anteriormente — {{nickname}} · …{{tail}} — está pronta para ser adicionada, mas este dispositivo não acabou de verificá-la em um cartão. Continue apenas se você a reconhecer.',
+      vault_resume_draft_confirm_use: 'Usar esta chave',
+      vault_resume_draft_confirm_discard: 'Descartá-la',
       vault_err_enrollment_partial:
         'A configuração da YubiKey parou depois de alterá-la. Siga as instruções para tentar novamente; esta chave não foi adicionada ao cofre.',
       vault_err_key_not_adopted:
@@ -7488,6 +7526,11 @@ const resources = {
       vault_replace_key_warning:
         'এটি প্রতিস্থাপন করলে বিদ্যমান P-256 প্রাইভেট কী স্থায়ীভাবে ধ্বংস হবে। সেই কীর উপর নির্ভরশীল ভল্টের তহবিল খরচের অযোগ্য হয়ে যেতে পারে।',
       vault_replace_key_confirm: 'বিদ্যমান কী প্রতিস্থাপন করুন',
+      vault_resume_draft_confirm_title: 'এই প্রস্তুত কী ব্যবহার করবেন?',
+      vault_resume_draft_confirm_body:
+        'একটি পূর্বে প্রস্তুত করা কী — {{nickname}} · …{{tail}} — যোগ করার জন্য প্রস্তুত, তবে এই ডিভাইসটি এইমাত্র কার্ডে এটি যাচাই করেনি। শুধুমাত্র তখনই এগিয়ে যান যদি আপনি এটি চেনেন।',
+      vault_resume_draft_confirm_use: 'এই কী ব্যবহার করুন',
+      vault_resume_draft_confirm_discard: 'এটি বাতিল করুন',
       vault_err_enrollment_partial:
         'কী পরিবর্তনের পরে YubiKey সেটআপ থেমেছে। পুনরায় চেষ্টার নির্দেশ মানুন; এই কী ভল্টে যোগ হয়নি।',
       vault_err_key_not_adopted:
@@ -8264,7 +8307,8 @@ const resources = {
       vault_restore_from_chain: 'Восстановить хранилище из блокчейна',
       vault_restore_scanning: 'Сканирование блокчейна…',
       vault_restore_found: 'На блокчейне найдено {{count}} депозит(ов) хранилища.',
-      vault_restore_pending: 'Найдено {{count}} депозит(ов), ожидающих первого подтверждения — повторите попытку позже.',
+      vault_restore_pending:
+        'Найдено {{count}} депозит(ов), ожидающих первого подтверждения — повторите попытку позже.',
       vault_restore_none_found: 'Депозиты хранилища для этого кошелька на блокчейне не найдены.',
       vault_balance_label: 'в хранилище',
       vault_key_section: 'Ключи безопасности ({{count}} из 5)',
@@ -8489,6 +8533,11 @@ const resources = {
       vault_replace_key_warning:
         'Замена безвозвратно уничтожит существующий закрытый ключ P-256. Средства хранилища, которым нужен этот ключ, могут стать непотратимыми.',
       vault_replace_key_confirm: 'Заменить существующий ключ',
+      vault_resume_draft_confirm_title: 'Использовать этот подготовленный ключ?',
+      vault_resume_draft_confirm_body:
+        'Ранее подготовленный ключ — {{nickname}} · …{{tail}} — готов к добавлению, но это устройство только что не проверяло его на карте. Продолжайте, только если узнаёте его.',
+      vault_resume_draft_confirm_use: 'Использовать этот ключ',
+      vault_resume_draft_confirm_discard: 'Отклонить',
       vault_err_enrollment_partial:
         'Настройка YubiKey остановилась после изменения ключа. Следуйте указаниям для повтора; этот ключ не добавлен в хранилище.',
       vault_err_key_not_adopted:
@@ -9496,6 +9545,11 @@ const resources = {
       vault_replace_key_warning:
         'Menggantinya akan menghancurkan kunci privat P-256 yang ada secara permanen. Dana brankas yang memerlukan kunci itu bisa menjadi tidak dapat dibelanjakan.',
       vault_replace_key_confirm: 'Ganti kunci yang ada',
+      vault_resume_draft_confirm_title: 'Gunakan kunci yang sudah disiapkan ini?',
+      vault_resume_draft_confirm_body:
+        'Kunci yang disiapkan sebelumnya — {{nickname}} · …{{tail}} — siap ditambahkan, tetapi perangkat ini belum baru saja memverifikasinya pada kartu. Lanjutkan hanya jika Anda mengenalinya.',
+      vault_resume_draft_confirm_use: 'Gunakan kunci ini',
+      vault_resume_draft_confirm_discard: 'Buang kunci ini',
       vault_err_enrollment_partial:
         'Penyiapan YubiKey berhenti setelah kunci diubah. Ikuti petunjuk mencoba lagi; kunci ini belum ditambahkan ke brankas.',
       vault_err_key_not_adopted:
@@ -10277,7 +10331,8 @@ const resources = {
       vault_restore_from_chain: 'ブロックチェーンから保管庫を復元',
       vault_restore_scanning: 'ブロックチェーンをスキャン中…',
       vault_restore_found: 'ブロックチェーン上で {{count}} 件の保管庫の入金が見つかりました。',
-      vault_restore_pending: '{{count}} 件の入金が見つかりましたが、初回承認待ちです。しばらくしてから再試行してください。',
+      vault_restore_pending:
+        '{{count}} 件の入金が見つかりましたが、初回承認待ちです。しばらくしてから再試行してください。',
       vault_restore_none_found: 'このウォレットの保管庫の入金はブロックチェーン上に見つかりませんでした。',
       vault_balance_label: '保管庫の保有額',
       vault_key_section: 'セキュリティキー（{{count}}/5）',
@@ -10502,6 +10557,11 @@ const resources = {
       vault_replace_key_warning:
         '置き換えると既存の P-256 秘密鍵は完全に破棄されます。その鍵を必要とする保管庫の残高は使用できなくなる可能性があります。',
       vault_replace_key_confirm: '既存のキーを置き換える',
+      vault_resume_draft_confirm_title: 'この準備済みキーを使用しますか？',
+      vault_resume_draft_confirm_body:
+        '以前に準備されたキー — {{nickname}} · …{{tail}} — が追加可能な状態ですが、このデバイスは今カード上でそれを確認したわけではありません。心当たりがある場合のみ続行してください。',
+      vault_resume_draft_confirm_use: 'このキーを使用',
+      vault_resume_draft_confirm_discard: '破棄する',
       vault_err_enrollment_partial:
         '鍵の変更後に YubiKey の設定が停止しました。再試行の案内に従ってください。この鍵は保管庫に追加されていません。',
       vault_err_key_not_adopted: '復元したこの YubiKey を出金に使う前に、このデバイスで所持を確認してください。',
@@ -11294,7 +11354,8 @@ const resources = {
       vault_restore_from_chain: 'Przywróć sejf z blockchaina',
       vault_restore_scanning: 'Skanowanie blockchaina…',
       vault_restore_found: 'Znaleziono {{count}} depozyt(ów) sejfu w blockchainie.',
-      vault_restore_pending: 'Znaleziono {{count}} depozyt(ów), oczekujących na pierwsze potwierdzenie — spróbuj ponownie za chwilę.',
+      vault_restore_pending:
+        'Znaleziono {{count}} depozyt(ów), oczekujących na pierwsze potwierdzenie — spróbuj ponownie za chwilę.',
       vault_restore_none_found: 'Nie znaleziono żadnych depozytów sejfu w blockchainie dla tego portfela.',
       vault_balance_label: 'sejf zawiera',
       vault_key_section: 'Klucze bezpieczeństwa ({{count}} z 5)',
@@ -11520,6 +11581,11 @@ const resources = {
       vault_replace_key_warning:
         'Zastąpienie trwale niszczy istniejący klucz prywatny P-256. Środki w sejfie wymagające tego klucza mogą stać się niemożliwe do wydania.',
       vault_replace_key_confirm: 'Zastąp istniejący klucz',
+      vault_resume_draft_confirm_title: 'Użyć tego przygotowanego klucza?',
+      vault_resume_draft_confirm_body:
+        'Wcześniej przygotowany klucz — {{nickname}} · …{{tail}} — jest gotowy do dodania, ale to urządzenie właśnie go nie zweryfikowało na karcie. Kontynuuj tylko wtedy, gdy go rozpoznajesz.',
+      vault_resume_draft_confirm_use: 'Użyj tego klucza',
+      vault_resume_draft_confirm_discard: 'Odrzuć go',
       vault_err_enrollment_partial:
         'Konfiguracja YubiKey zatrzymała się po zmianie klucza. Postępuj zgodnie z instrukcją ponowienia; klucz nie został dodany do sejfu.',
       vault_err_key_not_adopted:

@@ -436,10 +436,31 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             return [...current, ...ready.map(entry => entry.record).filter(record => !serials.has(record.serial))]
           })
         } else if (ready[0]) {
-          // A ready draft's card already holds its key, and its name was
-          // settled when it was drafted: there is nothing left to ask, so
-          // restoring it means writing it.
-          void saveKeyRef.current(ready[0].record)
+          // A ready draft is a persisted claim, not proof: nothing here
+          // re-verifies it against the card, so a draft never tapped in this
+          // run (crash-resumed, or — XR-001 — written straight to storage by
+          // something other than a live enrollment challenge) must not gain
+          // vault spend authority in an already-funded vault with zero user
+          // action. Name it and require an explicit choice before writing it.
+          const entry = ready[0]
+          void showAlert({
+            title: t('vault_resume_draft_confirm_title'),
+            message: t('vault_resume_draft_confirm_body', {
+              nickname: entry.record.nickname,
+              tail: entry.record.serial.slice(-4)
+            }),
+            buttons: [
+              { text: t('vault_resume_draft_confirm_use'), key: 'use' },
+              { text: t('vault_resume_draft_confirm_discard'), key: 'discard', style: 'destructive' }
+            ]
+          }).then(choice => {
+            if (!alive) return
+            if (choice === 'use') {
+              void saveKeyRef.current(entry.record)
+            } else {
+              void vaultStore.discardEnrollmentDraft(entry.record.serial, scopeToken).catch(() => {})
+            }
+          })
         }
       })
       .catch(e => {
