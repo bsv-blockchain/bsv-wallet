@@ -5,6 +5,7 @@
  * stands; the reference is retried on the next wallet build.
  */
 import { ADMIN_ORIGINATOR, LEGACY_ADMIN_ORIGINATOR } from '../config'
+import { VAULT_ABORT_REPLAY_MARKER } from '../services/vault/guard'
 
 interface StorageLike {
   getKeyValue: (key: string) => Promise<string | undefined>
@@ -16,6 +17,20 @@ export const PENDING_ABORTS_KEY = 'pending_aborts'
 export interface PendingAbort {
   reference: string
   originator: string
+}
+
+// XR-088: every read-modify-write sequence on PENDING_ABORTS_KEY shares one
+// storage key, so they must not interleave — a concurrent write built from a
+// stale read silently drops (or resurrects) an entry. `queuePendingAbort` and
+// `replayPendingAborts` each used to be a bare load-then-setKeyValue with no
+// lock between them; both now run through this chain. Same pattern as
+// core/localpay/pending.ts's own withQueueLock, for the identical reason.
+let pendingAbortsLock: Promise<unknown> = Promise.resolve()
+
+function withPendingAbortsLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = pendingAbortsLock.then(fn, fn)
+  pendingAbortsLock = run.catch(() => undefined)
+  return run
 }
 
 export async function loadPendingAborts(storage: StorageLike): Promise<PendingAbort[]> {
@@ -43,31 +58,56 @@ export async function loadPendingAborts(storage: StorageLike): Promise<PendingAb
 
 export async function queuePendingAbort(storage: StorageLike, item: PendingAbort): Promise<void> {
   if (!item.reference) return
-  const all = await loadPendingAborts(storage)
-  if (all.some(a => a.reference === item.reference)) return
-  await storage.setKeyValue(PENDING_ABORTS_KEY, JSON.stringify([...all, item]))
+  return withPendingAbortsLock(async () => {
+    const all = await loadPendingAborts(storage)
+    if (all.some(a => a.reference === item.reference)) return
+    await storage.setKeyValue(PENDING_ABORTS_KEY, JSON.stringify([...all, item]))
+  })
 }
 
 export async function replayPendingAborts(args: {
   wallet: {
-    abortAction: (args: { reference: string }, originator?: string) => Promise<{ aborted?: boolean } | void>
+    abortAction: (
+      args: { reference: string; [VAULT_ABORT_REPLAY_MARKER]?: true },
+      originator?: string
+    ) => Promise<{ aborted?: boolean } | void>
   }
   storage: StorageLike
 }): Promise<void> {
-  const pending = await loadPendingAborts(args.storage)
-  if (pending.length === 0) return
-  const kept: PendingAbort[] = []
-  for (const item of pending) {
-    try {
-      const result = await args.wallet.abortAction({ reference: item.reference }, item.originator)
-      if (result && typeof result === 'object' && result.aborted === false) {
+  return withPendingAbortsLock(async () => {
+    const pending = await loadPendingAborts(args.storage)
+    if (pending.length === 0) return
+    const kept: PendingAbort[] = []
+    for (const item of pending) {
+      try {
+        // XR-102: the persisted `originator` is never trusted here — this is a
+        // raw KV record, writable by anything with local storage access, and a
+        // forged admin-originator string used to replay straight past
+        // guardVaultAccess's inventory check. The ONLY originator ever used to
+        // replay is the real, imported constant every legitimate queued abort
+        // was already created under (see queuePendingAbort's call sites — all
+        // pass `adminOriginator`), never the field read back off disk.
+        //
+        // That alone is not enough: `assertPendingActionOriginator` requires
+        // this exact originator for a legitimate replay to succeed at all, and
+        // guardVaultAccess treats every admin-originator call as trusted. The
+        // marker opts this specific call OUT of that trust and into the same
+        // vault-inventory reference check a non-admin caller gets — so a
+        // reference an attacker injected that happens to name a Vault action is
+        // refused, while an ordinary localpay/PeerPay reference still replays.
+        const result = await args.wallet.abortAction(
+          { reference: item.reference, [VAULT_ABORT_REPLAY_MARKER]: true },
+          ADMIN_ORIGINATOR
+        )
+        if (result && typeof result === 'object' && result.aborted === false) {
+          kept.push(item)
+        }
+      } catch {
         kept.push(item)
       }
-    } catch {
-      kept.push(item)
     }
-  }
-  await args.storage.setKeyValue(PENDING_ABORTS_KEY, JSON.stringify(kept))
+    await args.storage.setKeyValue(PENDING_ABORTS_KEY, JSON.stringify(kept))
+  })
 }
 
 /**

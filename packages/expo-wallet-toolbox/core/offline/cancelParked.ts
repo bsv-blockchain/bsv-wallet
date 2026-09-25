@@ -128,11 +128,25 @@ export async function cancelParkedPayment(args: {
   // landed (rule 3: the RECIPIENT settles the hop), in which case aborting
   // would release inputs the overlay has already marked spent and hand the
   // payer a double-spend against the person they just paid.
-  if (settlement && (await isOnline(settlement))) {
+  //
+  // XR-100: a settlement ROW is the signal that this txid was genuinely
+  // handed over — once one exists, "cannot ask the overlay" (offline, or a
+  // `fetchAdmission` that comes back `unavailable`) must not be read as "the
+  // overlay says no". Only a txid with NO row at all (never locally tracked
+  // as a token hand-over) is safe to fall through with no admission check.
+  if (settlement) {
     const row = await settlement.settlements.getSettlement(txid)
     if (row) {
-      const verdict = await fetchAdmissionSafely(settlement, row.overlayUrl, txid)
-      if (verdict?.kind === 'admitted') return 'already-sent'
+      if (await isOnline(settlement)) {
+        const verdict = await fetchAdmissionSafely(settlement, row.overlayUrl, txid)
+        if (verdict?.kind === 'admitted') return 'already-sent'
+        if (verdict?.kind === 'unavailable' && !acknowledgedUnverifiable) return 'unverifiable-offline'
+      } else if (!acknowledgedUnverifiable) {
+        // Cannot ask the overlay at all while offline. Same refusal as the
+        // BSV-rail check below, and the same escape hatch: the caller shows
+        // the destructive confirm and retries with `acknowledgedUnverifiable`.
+        return 'unverifiable-offline'
+      }
     }
   }
 
@@ -195,8 +209,12 @@ async function probeConnectivity(isOnlineProbe: () => Promise<boolean>): Promise
   }
 }
 
-/** Mirrors core/storage/methods/processOfflineActions.ts's `networkAlreadyHas`. */
-async function chainAlreadyKnows(storage: CancelParkedStorage, txid: string): Promise<boolean> {
+/**
+ * Mirrors core/storage/methods/processOfflineActions.ts's `networkAlreadyHas`.
+ * Exported (XR-095) so build.ts's `finalizeDelivery` can run the identical
+ * check before releasing inputs on a decline, instead of re-implementing it.
+ */
+export async function chainAlreadyKnows(storage: CancelParkedStorage, txid: string): Promise<boolean> {
   try {
     const services = storage.getServices?.()
     if (!services || typeof services.getStatusForTxids !== 'function') return false
@@ -211,8 +229,10 @@ async function chainAlreadyKnows(storage: CancelParkedStorage, txid: string): Pr
 
 /**
  * A probe that throws must not strand the user on a screen they cannot leave.
- * Treating the failure as offline falls back to the local `nosend` check, which
- * is the behaviour every build before this feature had.
+ * Treating the failure as offline routes it through the same
+ * `acknowledgedUnverifiable` gate as a genuinely offline device (XR-100) when
+ * a settlement row exists — it is not the "safe to fall through" case, only a
+ * different way of not being able to ask.
  */
 async function isOnline(deps: CancelParkedSettlementDeps): Promise<boolean> {
   try {
@@ -224,16 +244,27 @@ async function isOnline(deps: CancelParkedSettlementDeps): Promise<boolean> {
 }
 
 /**
- * Only a 200/admitted refuses the cancel. Anything else — a 404 for a txid the
- * overlay has never seen, a persisted refusal, an unreachable overlay — leaves
- * the decision to the local check: the payment was not admitted, so cancelling
- * it cannot double-spend anyone.
+ * Only a 200/admitted refuses the cancel outright, and only a definite
+ * non-admission — `undefined` (a 404 for a txid the overlay has never seen,
+ * or a mismatched/unverifiable answer, per FIX H) or a terminal `refused`/
+ * `evicted` — leaves the decision to the local check safely: the overlay
+ * affirmatively said this payment was never admitted, so cancelling it cannot
+ * double-spend anyone.
+ *
+ * XR-100: "the overlay could not be asked" is a THIRD answer, not a synonym
+ * for either of those. The real runtime's `fetchAdmission` already returns a
+ * distinct `{ kind: 'unavailable' }` verdict for an unreachable overlay
+ * rather than throwing (`createRuntime.ts`) — the try/catch here exists only
+ * for a caller/dependency that fails outright, and folds that failure into
+ * the SAME `unavailable` verdict rather than swallowing it into `undefined`,
+ * so `cancelParkedPayment` cannot mistake "could not ask" for "asked, and the
+ * answer was no".
  */
 async function fetchAdmissionSafely(deps: CancelParkedSettlementDeps, overlayUrl: string, txid: string) {
   try {
     return await deps.fetchAdmission(overlayUrl, txid)
   } catch (e) {
-    devLog(`[cancelParkedPayment] could not reach ${overlayUrl} for ${txid}, falling back to the local check:`, e)
-    return undefined
+    devLog(`[cancelParkedPayment] could not reach ${overlayUrl} for ${txid}:`, e)
+    return { kind: 'unavailable', code: 'ERR_LOCAL_FETCH_FAILED', retryable: true } as const
   }
 }

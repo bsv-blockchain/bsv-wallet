@@ -106,6 +106,7 @@ export * from './offline/payerHold'
 export * from './offline/tokenFrames'
 export {
   cancelParkedPayment,
+  chainAlreadyKnows,
   type CancelParkedOutcome,
   type CancelParkedStorage,
   type CancelParkedWallet,

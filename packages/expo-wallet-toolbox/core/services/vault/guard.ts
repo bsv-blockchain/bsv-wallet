@@ -115,6 +115,27 @@ const OUTPUT_NAMING = new Set<keyof WalletInterface>([
   'abortAction'
 ])
 
+/**
+ * XR-102: opts an `abortAction` call made WITH `adminOriginator` into the same
+ * vault-inventory reference check every non-admin caller already gets below,
+ * instead of the admin bypass.
+ *
+ * `core/localpay/pendingAborts.ts`'s `replayPendingAborts` runs unattended at
+ * every wallet build, over a `reference` it read back from a plain KV record —
+ * writable by anything with local storage access, and never independently
+ * verified. It MUST call the real wallet with `adminOriginator`: the
+ * toolbox's own `assertPendingActionOriginator` requires the exact originator
+ * an action was created under, and every first-party `createAction` in this
+ * app (every ordinary nearby payment included) uses `adminOriginator` — so a
+ * different originator here would fail every legitimate replay, not just a
+ * forged one. That leaves no way to tell a replay apart from a live
+ * interactive admin flow by originator alone; this marker is the side
+ * channel instead. It travels only as an in-process object property — never
+ * serialized, never sent anywhere — and guard.ts strips it before the real
+ * wallet ever sees an `args` object.
+ */
+export const VAULT_ABORT_REPLAY_MARKER = Symbol('vault-guard-replay-abort')
+
 interface ExtendedWalletAction extends WalletAction {
   reference?: string
 }
@@ -531,15 +552,27 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
         if (PRIVILEGED_CAPABLE.has(method) && args?.privileged && originator !== adminOriginator) {
           return deny(String(method), originator)
         }
+        // XR-102: an admin-originator `abortAction` marked as a replay (see
+        // `VAULT_ABORT_REPLAY_MARKER`) is never trusted with the bypass below —
+        // it did not come from a live interactive admin flow, only from a
+        // locally-stored reference nothing has independently verified. Strip
+        // the marker before either branch below ever sees `args`: it is a
+        // guard-internal signal, not part of the real abortAction shape.
+        const isReplayAbort =
+          method === 'abortAction' &&
+          args != null &&
+          typeof args === 'object' &&
+          (args as Record<PropertyKey, unknown>)[VAULT_ABORT_REPLAY_MARKER] === true
+        const callArgs = isReplayAbort ? { reference: (args as { reference?: unknown }).reference } : args
         // Admin output/action mutations use the same exclusive slot as the
         // external inventory scan + use. This closes the same-count/TOCTOU
         // race without caching an inventory snapshot. The raw underlying
         // wallet remains an internal trust boundary; every externally handed
         // proxy shares this runtime through the WeakMap above.
-        if (originator === adminOriginator && OUTPUT_NAMING.has(method)) {
-          return await withGuardSlot(runtime, () => bound(args, originator), true)
+        if (originator === adminOriginator && OUTPUT_NAMING.has(method) && !isReplayAbort) {
+          return await withGuardSlot(runtime, () => bound(callArgs, originator), true)
         }
-        if (originator !== adminOriginator && OUTPUT_NAMING.has(method)) {
+        if ((originator !== adminOriginator || isReplayAbort) && OUTPUT_NAMING.has(method)) {
           if (runtime.queued >= MAX_GUARDED_QUEUE) return deny(String(method), originator)
           return await withGuardSlot(runtime, async () => {
             let inventory: VaultInventory
@@ -551,25 +584,25 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
             } catch {
               return deny(String(method), originator)
             }
-            const outpoints = requestedOutpoints(method, args)
+            const outpoints = requestedOutpoints(method, callArgs)
             if (outpoints === undefined || outpoints.some(outpoint => inventory.outpoints.has(outpoint))) {
               return deny(String(method), originator)
             }
             if (
               (method === 'signAction' || method === 'abortAction') &&
-              inventory.references.has(String(args?.reference ?? ''))
+              inventory.references.has(String(callArgs?.reference ?? ''))
             ) {
               return deny(String(method), originator)
             }
-            const sendWith = requestedSendWithTxids(method, args)
+            const sendWith = requestedSendWithTxids(method, callArgs)
             if (sendWith === undefined || sendWith.some(txid => inventory.txids.has(txid))) {
               return deny(String(method), originator)
             }
-            if (carriesR1COutput(method, args)) return deny(String(method), originator)
-            return await bound(args, originator)
+            if (carriesR1COutput(method, callArgs)) return deny(String(method), originator)
+            return await bound(callArgs, originator)
           })
         }
-        return await bound(args, originator)
+        return await bound(callArgs, originator)
       }
     }
   })

@@ -90,6 +90,7 @@ import { BackupReminderSheet } from '../components/wallet/BackupReminderSheet'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
 import { ImportFromBackupPrompt } from '../components/wallet/ImportFromBackupPrompt'
 import { cancelParkedPayment, runCancelParkedFlow, type CancelParkedWallet } from '../../core/offline/cancelParked'
+import { detailActionKeysFor } from './detailActionKeys'
 import { releaseParkedPayment } from '../../core/offline/payerHold'
 import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import { storageMatchesNetwork } from '../../core/net/chainMatch'
@@ -223,14 +224,6 @@ const PAGE_SIZE = 30
  * the whole thing stays one FlatList — a SectionList would re-measure every
  * section on each status poll. */
 type DayHeader = { kind: 'day'; id: string; label: string }
-/**
- * Statuses whose transaction is still local and therefore abortable — the same
- * set `ActivityRow` gates its own Cancel chip on. Duplicated as a constant
- * rather than imported so the row keeps owning its own copy while both
- * surfaces exist.
- */
-const ABORTABLE_DETAIL_STATUSES = new Set(['unsigned', 'nosend', 'nonfinal', 'failed'])
-
 type Row = DayHeader | (ActivityAction & { kind?: undefined })
 
 const DAY_MS = 86_400_000
@@ -1550,8 +1543,13 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   const detailActions = (action: ActivityAction): TransactionAction[] => {
     const out: TransactionAction[] = []
     const offline = action.txid ? offlineByTxid.get(action.txid) : undefined
-    const parked = offline?.status === 'parked'
-    if (action.txid && !parked && offline?.status !== 'queued' && offline?.status !== 'posting') {
+    const keys = detailActionKeysFor({
+      txid: action.txid,
+      reference: action.reference,
+      status: action.status,
+      offlineStatus: offline?.status
+    })
+    if (keys.includes('refresh')) {
       out.push({
         key: 'refresh',
         label: t('tx_action_refresh'),
@@ -1559,7 +1557,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         onPress: () => void onRefreshTx(action.txid)
       })
     }
-    if (action.txid && !parked) {
+    if (keys.includes('explorer')) {
       out.push({
         key: 'explorer',
         label: t('tx_action_explorer'),
@@ -1567,16 +1565,19 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         onPress: () => onExplorer(action.txid)
       })
     }
-    if (action.reference && ABORTABLE_DETAIL_STATUSES.has(action.status)) {
+    if (keys.includes('abort')) {
       out.push({
         key: 'abort',
         label: t('tx_action_abort'),
         icon: 'close-circle-outline',
         danger: true,
+        // `action` is passed so a peerpay abort gets the same outbox
+        // delivered-check `onAbort` already runs for `ActivityRow`'s own
+        // Cancel chip — this detail-sheet surface must not be a way around it.
         onPress: () => void onAbort(action.reference!, action)
       })
     }
-    if (parked && action.txid) {
+    if (keys.includes('cancel-parked')) {
       out.push({
         key: 'cancel-parked',
         label: t('pay_parked_cancel'),

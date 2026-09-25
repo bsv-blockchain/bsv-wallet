@@ -7,6 +7,7 @@ import {
   EXTERNAL_ACTION_READ_TIMEOUT_MS,
   guardVaultAccess,
   isR1CLockingScript,
+  VAULT_ABORT_REPLAY_MARKER,
   VaultAccessDenied
 } from '../../core/services/vault/guard'
 import { buildLock } from '../../core/services/vault/r1comb'
@@ -730,6 +731,83 @@ test('blocks signAction for a pending Vault reference', async () => {
     VaultAccessDenied
   )
   expect(calls.some(c => c.method === 'signAction')).toBe(false)
+})
+
+// XR-102. `replayPendingAborts` must call the real wallet with the admin
+// originator — the toolbox's own `assertPendingActionOriginator` requires the
+// exact originator an action was created under, and every legitimate
+// first-party action (including an ordinary localpay abort) is created under
+// it — so it cannot be told apart from a live interactive admin flow by
+// originator alone. `VAULT_ABORT_REPLAY_MARKER` is that side channel: an
+// admin-originator abortAction call carrying it must get the SAME
+// vault-inventory reference check a non-admin caller already gets, not the
+// admin bypass.
+test('blocks a replay-marked admin-originator abortAction from releasing a Vault reference', async () => {
+  const stored = [
+    action({
+      txid: TXID,
+      reference: 'vault-ref',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [
+        {
+          sourceOutpoint: `${TXID}.0`,
+          sourceSatoshis: 50_000,
+          sourceLockingScript: vaultLock(),
+          inputDescription: 'Vault input',
+          sequenceNumber: 0xffffffff
+        }
+      ],
+      outputs: []
+    })
+  ]
+  const { wallet, calls } = fakeWallet(stored)
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await expect(
+    guarded.abortAction({ reference: 'vault-ref', [VAULT_ABORT_REPLAY_MARKER]: true } as any, ADMIN)
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(calls.some(c => c.method === 'abortAction')).toBe(false)
+})
+
+test('a replay-marked admin-originator abortAction still releases an ordinary, non-Vault reference', async () => {
+  const { wallet, calls } = fakeWallet([])
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await expect(
+    guarded.abortAction({ reference: 'localpay-ref-1', [VAULT_ABORT_REPLAY_MARKER]: true } as any, ADMIN)
+  ).resolves.toMatchObject({ ok: true })
+  const call = calls.find(c => c.method === 'abortAction')
+  expect(call?.args).toEqual({ reference: 'localpay-ref-1' })
+  expect(call?.originator).toBe(ADMIN)
+})
+
+// The bypass a LIVE interactive admin flow still needs: no marker, same
+// admin originator, same Vault reference — allowed straight through, exactly
+// as before this fix, so cancelling a Vault action from the admin UI itself
+// keeps working.
+test('an unmarked admin-originator abortAction still bypasses the inventory check', async () => {
+  const stored = [
+    action({
+      txid: TXID,
+      reference: 'vault-ref',
+      labels: ['vault', 'vault-withdraw'],
+      inputs: [
+        {
+          sourceOutpoint: `${TXID}.0`,
+          sourceSatoshis: 50_000,
+          sourceLockingScript: vaultLock(),
+          inputDescription: 'Vault input',
+          sequenceNumber: 0xffffffff
+        }
+      ],
+      outputs: []
+    })
+  ]
+  const { wallet, calls } = fakeWallet(stored)
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await expect(guarded.abortAction({ reference: 'vault-ref' } as any, ADMIN)).resolves.toMatchObject({ ok: true })
+  expect(calls.some(c => c.method === 'abortAction')).toBe(true)
 })
 
 test.each(['createAction', 'signAction'] as const)(

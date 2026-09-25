@@ -243,7 +243,17 @@ export async function buildPaymentFrame(
   /** The payer's note. Becomes the action's description in place of the fixed
    * fallback, and rides on the frame so the payee's own activity row can show
    * it too. */
-  note?: string
+  note?: string,
+  /**
+   * XR-088: persists a reference whose own release (inside
+   * `releasingOnFailure`, below) failed after a build error, so it can be
+   * retried on the next wallet build instead of only being logged. Optional
+   * so a caller that has not wired it keeps today's log-only behaviour
+   * exactly — this is additive hardening, not a new requirement. The real
+   * app wires it to the same `queuePendingAbort` its decline path
+   * (`finalizeDelivery`) already uses.
+   */
+  queueFailedAbort?: (reference: string) => Promise<void>
 ): Promise<BuiltPayment> {
   if (!isRequestableAmount(amount)) {
     throw new Error('amount must be a positive whole number of satoshis')
@@ -255,7 +265,7 @@ export async function buildPaymentFrame(
     if (session.amount !== undefined && session.amount !== amount) {
       throw new Error('amount does not match the payee’s request')
     }
-    return buildTokenPaymentFrame(wallet, session, session.asset, originator, amount, token, note)
+    return buildTokenPaymentFrame(wallet, session, session.asset, originator, amount, token, note, queueFailedAbort)
   }
   // A payee that named a figure is stating a binding term of the request, and
   // its settle path refuses anything else. Catching the disagreement here — on
@@ -324,7 +334,7 @@ export async function buildPaymentFrame(
 
   const reference = result.signableTransaction?.reference
 
-  return await releasingOnFailure(wallet, reference, originator, async () => {
+  return await releasingOnFailure(wallet, reference, originator, queueFailedAbort, async () => {
     // With signAndProcess disabled, createAction returns an unsigned
     // `signableTransaction` rather than a final `tx`. We have no caller-supplied
     // inputs — all inputs are wallet-funded — so finalize by signing with empty
@@ -383,6 +393,8 @@ async function releasingOnFailure<T>(
   wallet: PayingWallet,
   reference: string | undefined,
   originator: string,
+  /** XR-088: see `buildPaymentFrame`'s own doc for this same parameter. */
+  queueFailedAbort: ((reference: string) => Promise<void>) | undefined,
   steps: () => Promise<T>
 ): Promise<T> {
   try {
@@ -394,6 +406,12 @@ async function releasingOnFailure<T>(
         if (result?.aborted === false) throw new Error('abortAction returned aborted:false')
       } catch (abortError) {
         console.warn('[localpay] could not release the failed build:', messageOf(abortError))
+        // Best-effort, same as finalizeDelivery's decline path: a failure to
+        // queue must not mask the original build error this function is
+        // about to rethrow.
+        if (queueFailedAbort) {
+          await queueFailedAbort(reference).catch(() => undefined)
+        }
       }
     }
     throw e
@@ -502,7 +520,9 @@ async function buildTokenPaymentFrame(
   originator: string,
   amount: number,
   deps: TokenBuildDeps,
-  note?: string
+  note?: string,
+  /** XR-088: see `buildPaymentFrame`'s own doc for this same parameter. */
+  queueFailedAbort?: (reference: string) => Promise<void>
 ): Promise<BuiltPayment> {
   if (!wallet.listOutputs) throw new Error('this wallet cannot list token outputs')
   if (!wallet.createSignature) throw new Error('this wallet cannot sign token inputs')
@@ -612,7 +632,7 @@ async function buildTokenPaymentFrame(
   if (!signable?.tx) throw new Error('createAction returned no signable token transaction')
   const signableTx = signable.tx
 
-  return await releasingOnFailure(wallet, signable.reference, originator, async () => {
+  return await releasingOnFailure(wallet, signable.reference, originator, queueFailedAbort, async () => {
     const unsigned = Transaction.fromBEEF(signableTx)
 
     // Input order is caller order — `randomizeOutputs` shuffles outputs only, and
@@ -955,6 +975,33 @@ export async function finalizeDelivery(
      * watch.
      */
     checkChainStatus?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
+    /**
+     * XR-095: before releasing inputs on a decline, ask the chain directly
+     * whether it already knows this exact txid — mirrors
+     * core/offline/cancelParked.ts's `chainAlreadyKnows`, run only while
+     * online (a failed/offline probe means this cannot be asked). A `true`
+     * answer means the payee's copy is already out, so aborting would race a
+     * double-spend against them; the release is skipped instead. Optional so
+     * a caller that has not wired it keeps today's abort-on-every-decline
+     * behaviour exactly — this is additive hardening, not a new requirement.
+     * Checked after `checkChainStatus` above: that probe already covers the
+     * "already known" case up front, so this is the second, independent
+     * layer for a caller that wires both, or the only one for a caller that
+     * wires just this pair.
+     */
+    chainAlreadyKnows?: (txid: string) => Promise<boolean>
+    /**
+     * XR-095: durably keeps this decline's inputs reserved instead of
+     * releasing them, for the one case neither `chainAlreadyKnows` nor the
+     * existing `watchDeclinedAbort` can cover — genuinely offline, so this
+     * device cannot ask the chain anything either way. Fail closed: same
+     * "keep reserved, resolve later" shape as `parkSentPaymentOffline`, which
+     * the payer can safely unwind afterward through
+     * `cancelParkedPayment`'s own chain-status gate once back online. Only
+     * consulted when `chainAlreadyKnows` is also supplied — a caller opting
+     * into the online check gets the offline half too.
+     */
+    parkUnverifiable?: (txid: string) => Promise<void>
   }
 ): Promise<DeliveryOutcome> {
   if (!ack.ok) {
@@ -973,24 +1020,50 @@ export async function finalizeDelivery(
       }
     }
     if (built.reference) {
-      // A failed abort is a stuck UTXO, not a lost payment, and must not
-      // displace the decline reason the caller is about to show. `{ aborted:
-      // false }` is a failure too — queue it for replay on the next wallet build.
-      try {
-        const result = await wallet.abortAction({ reference: built.reference }, originator)
-        if (result?.aborted === false) throw new Error('abortAction returned aborted:false')
-      } catch (e: unknown) {
-        console.warn('[localpay] abortAction failed:', messageOf(e))
-        if (deps.queueFailedAbort) {
-          await deps.queueFailedAbort(built.reference).catch(() => undefined)
+      let skipRelease = false
+      if (built.txid && deps.chainAlreadyKnows) {
+        let onlineNow = true
+        try {
+          onlineNow = await (deps.online ?? getOnline)()
+        } catch (e) {
+          console.warn('[localpay] connectivity probe failed, assuming online:', messageOf(e))
+        }
+        if (onlineNow) {
+          try {
+            if (await deps.chainAlreadyKnows(built.txid)) skipRelease = true
+          } catch (e) {
+            console.warn('[localpay] chain-status check failed, proceeding as an ordinary decline:', messageOf(e))
+          }
+        } else if (deps.parkUnverifiable) {
+          try {
+            await deps.parkUnverifiable(built.txid)
+            skipRelease = true
+          } catch (e) {
+            console.warn('[localpay] could not park the unverifiable decline, releasing instead:', messageOf(e))
+          }
         }
       }
-      // Watched regardless of whether the abort above succeeded: either way
-      // these inputs are now free, and the only question left is whether the
-      // payee's decline was honest. A failure to record the watch must not
-      // turn an otherwise-normal decline into a reported failure.
-      if (built.txid && deps.watchDeclinedAbort) {
-        await deps.watchDeclinedAbort({ txid: built.txid, reference: built.reference }).catch(() => undefined)
+
+      if (!skipRelease) {
+        // A failed abort is a stuck UTXO, not a lost payment, and must not
+        // displace the decline reason the caller is about to show. `{ aborted:
+        // false }` is a failure too — queue it for replay on the next wallet build.
+        try {
+          const result = await wallet.abortAction({ reference: built.reference }, originator)
+          if (result?.aborted === false) throw new Error('abortAction returned aborted:false')
+        } catch (e: unknown) {
+          console.warn('[localpay] abortAction failed:', messageOf(e))
+          if (deps.queueFailedAbort) {
+            await deps.queueFailedAbort(built.reference).catch(() => undefined)
+          }
+        }
+        // Watched regardless of whether the abort above succeeded: either way
+        // these inputs are now free, and the only question left is whether the
+        // payee's decline was honest. A failure to record the watch must not
+        // turn an otherwise-normal decline into a reported failure.
+        if (built.txid && deps.watchDeclinedAbort) {
+          await deps.watchDeclinedAbort({ txid: built.txid, reference: built.reference }).catch(() => undefined)
+        }
       }
     }
     return { kind: 'declined', reason: ack.error }

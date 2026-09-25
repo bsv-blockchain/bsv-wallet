@@ -48,14 +48,20 @@
  *      derivation nonces do not match the live request — or whose amount
  *      contradicts an amount the payee actually asked for — is refused without
  *      burning the session, so the real payer can still pay.
- *   1. isSessionSpent() is consulted before anything is written.
- *   2. savePending() completes before markSessionSpent(). Never the reverse:
- *      a crash between the two would burn a one-shot session whose payment was
- *      never persisted, and that money is unrecoverable.
- *   3. processPending() runs only after savePending() has resolved, outside the
+ *   1. claimAndSavePending() checks the session, persists the frame, and burns
+ *      the session as ONE atomic operation (XR-098) — never three separate
+ *      ones. Three separate operations, even correctly ordered, are not
+ *      atomic: two concurrent deliveries for the same session (radio racing a
+ *      QR scan, or any other overlap) could each pass the check before either
+ *      had written anything, and both would durably queue a payment for a
+ *      session meant to be spent exactly once.
+ *   2. Persist-then-burn, never the reverse, is still the ordering INSIDE that
+ *      one operation: a crash between the two would burn a one-shot session
+ *      whose payment was never persisted, and that money is unrecoverable.
+ *   3. processPending() runs only after the claim has resolved, outside the
  *      try that can flip the screen to a failure. Once the frame is queued the
  *      payment cannot be lost, so reporting failure past that line would invite
- *      a duplicate payment — the same misreport refused for markSessionSpent.
+ *      a duplicate payment.
  *   4. The live Session is threaded in as an argument — neither PaymentFrame
  *      nor PendingPayment carries a sessionId, so it cannot be recovered later.
  *   5. Every decode sits in a bare `catch`, which catches non-Error throws from
@@ -88,7 +94,17 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
+} from 'react-native'
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
@@ -124,6 +140,8 @@ import {
   bleTransport,
   buildPaymentFrame,
   capsFromProbe,
+  chainAlreadyKnows,
+  claimAndSavePending,
   decodeSession,
   describeFloor,
   encodeSession,
@@ -132,11 +150,9 @@ import {
   parkSentPaymentOffline,
   isAirGapPart,
   isDeclineReason,
-  isSessionSpent,
   localSupportsAwdl,
   localSupportsBle,
   localSupportsNearby,
-  markSessionSpent,
   mintSession,
   rememberSessionPsk,
   nearbyTransport,
@@ -148,7 +164,6 @@ import {
   readBluetoothState,
   requestBlePermissions,
   requestNearbyPermissions,
-  savePending,
   sealedToQr,
   sealFrame,
   selectTransport,
@@ -397,20 +412,35 @@ function satsFrom(text: string): number {
  * asset this wallet holds (executeSend refuses anything else), and a
  * `decimals` the registry answered is the figure the overlay stood behind —
  * a request claiming 4 decimals against an asset this wallet knows has 2
- * would otherwise show 2,500.00 USDX as "0.2500". The session's own block —
- * whatever the payee's wallet wrote into the QR — is the fallback when this
- * wallet's lookup has NOT resolved: the runtime fabricates `''`/`0` for a
- * holding it could not identify (an offline cold start, the normal case on
- * this rail), and a zero it cannot stand behind must never beat a figure the
- * payee's wallet did resolve. The pair is taken from ONE source: a resolved
- * decimals beside an unresolved ticker would be a figure with no name.
- * `ticker: ''` on the result means neither side knows the unit, and the
- * screen refuses to send rather than let the payer type into an unlabelled
- * field (design principle 4).
+ * would otherwise show 2,500.00 USDX as "0.2500".
+ *
+ * XR-091: the session's own block — whatever the payee's wallet wrote into
+ * the QR — is NEVER trusted as a substitute once a REAL local holding exists
+ * for this asset (`held` present) but this device's own metadata lookup for
+ * it failed or has not completed (`held.ticker === ''`, the runtime's
+ * sentinel for "could not identify"). That holding is genuine spendable
+ * value; a malicious or merely out-of-date payee QR is not an authenticated
+ * source for the scale it is displayed and typed at, and a payer who is
+ * about to move real funds must never have that scale handed to them by the
+ * other side of the payment. This fails closed into the same "neither side
+ * can name it" path below (`ticker: ''`), which already disables Send and
+ * says so — the smallest safe response, since a wrong denomination on a real
+ * balance is worse than asking the payer to try again once resolved.
+ *
+ * The session's own claim is used ONLY as a convenience default when this
+ * device holds no local record of the asset AT ALL (`held` absent) — a payer
+ * who holds none of an asset cannot spend it regardless of what is shown
+ * here (`executeSend`'s own known-holding check refuses the send before any
+ * signature is produced), so trusting the QR's naming in that narrower case
+ * costs nothing beyond a cosmetic label. The pair is taken from ONE source
+ * either way: a resolved decimals beside an unresolved ticker would be a
+ * figure with no name. `ticker: ''` on the result means the display refuses
+ * to guess, and the screen refuses to send rather than let the payer type
+ * into an unlabelled — or falsely labelled — field (design principle 4).
  */
 function assetUnits(asset: SessionAsset, held?: { ticker: string; decimals: number } | null): AmountInputAsset {
-  const resolved = held && held.ticker !== '' ? held : undefined
-  if (resolved) return { ticker: resolved.ticker, decimals: resolved.decimals }
+  if (held && held.ticker !== '') return { ticker: held.ticker, decimals: held.decimals }
+  if (held) return { ticker: '', decimals: 0 }
   // The session block counts only when it names BOTH halves: a ticker with no
   // decimals would be a named figure at a guessed scale.
   if (asset.ticker && asset.decimals !== undefined) return { ticker: asset.ticker, decimals: asset.decimals }
@@ -439,13 +469,7 @@ export interface NearbyFlowProps {
   dismissTo?: DismissTarget
 }
 
-function NearbyFlow({
-  role: initialRole,
-  onExit,
-  initialSession,
-  initialRequest,
-  dismissTo = '/'
-}: NearbyFlowProps) {
+function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest, dismissTo = '/' }: NearbyFlowProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -698,6 +722,16 @@ function NearbyFlow({
   const abortsRef = useRef<Set<AbortController>>(new Set())
   /** One-shot latch: two concurrent settles would both clear the spent check. */
   const settlingRef = useRef(false)
+  /**
+   * XR-097: whole-lifetime re-entrancy guard for executeSend, mirroring
+   * VaultTransferScreen's own `runningRef`. `canSend`/`phase` alone cannot
+   * stop a double-tap: both onPress events dispatch, and read the same
+   * pre-render `phase`, before React ever re-renders with the disabled
+   * button — so a second call that lands before the first one's first
+   * `await` still passes every check and builds a second, independently
+   * reserved payment.
+   */
+  const sendInFlightRef = useRef(false)
   /** Ignores the repeat reads multiScan produces while a scan is being handled. */
   const scanLatchRef = useRef(false)
   /** Assembles animated fountain parts across the continuous scanner's reads. */
@@ -926,6 +960,16 @@ function NearbyFlow({
         void confirm?.(false, 'save_failed')
         return
       }
+      // XR-098: latched HERE, synchronously, before the first await below —
+      // not after verification succeeds. Two calls that both start while this
+      // is still false (radio racing a QR scan) must not both pass the check
+      // above; setting it after `await verifyFramePayment(...)` left exactly
+      // that window open. Reset on every early-return branch below that
+      // intentionally leaves the request live for a genuine retry (a
+      // mismatch is not this device's fault) — `claimAndSavePending`'s own
+      // atomic claim (below) is still the backstop even if a caller reset
+      // this incorrectly.
+      settlingRef.current = true
 
       // (0a) What this frame actually pays this device. The figure below is the
       //      satoshis of the AtomicBEEF output at `frame.outputIndex`, and it is
@@ -960,6 +1004,7 @@ function NearbyFlow({
           // scanning mistake.
           setNotice({ text: t('token_cover_failed', { issuer: issuerNameFor(session.asset?.id) }), tone: 'warning' })
         }
+        settlingRef.current = false
         scanLatchRef.current = false
         setSessionMismatch(true)
         setPhase('receive_wait')
@@ -976,6 +1021,7 @@ function NearbyFlow({
           : session.asset !== undefined
       if (assetMismatch) {
         void confirm?.(false, 'session_mismatch')
+        settlingRef.current = false
         scanLatchRef.current = false
         setSessionMismatch(true)
         setPhase('receive_wait')
@@ -1020,6 +1066,7 @@ function NearbyFlow({
         amountDisagrees
       ) {
         void confirm?.(false, 'session_mismatch')
+        settlingRef.current = false
         scanLatchRef.current = false
         setSessionMismatch(true)
         // Back to the waiting screen with the pairing QR still up, and restart
@@ -1029,7 +1076,8 @@ function NearbyFlow({
         return
       }
 
-      settlingRef.current = true
+      // settlingRef was already latched at the top of this function (XR-098) —
+      // nothing more to set here.
       setSessionMismatch(false)
       // The frame crossed the encrypted link and decoded against this session:
       // the peer is provably present. Presentation only — this drives nothing
@@ -1052,9 +1100,25 @@ function NearbyFlow({
       // Everything that can legitimately be reported as a payment failure lives
       // in here, and only in here. Past the closing brace the money is safe.
       try {
-        // (1) One-shot session guard, before anything is written. A re-scanned
-        //     or replayed session must never credit twice.
-        if (await isSessionSpent(storage, session.sessionId)) {
+        // (1)+(2)+(3), atomically (XR-098). The one-shot session guard, the
+        //     durable persist, and burning the session used to be three
+        //     separate operations — the guard under no lock at all, the other
+        //     two each under their own — so a concurrent delivery for the same
+        //     session (radio racing a QR scan, or any other overlap) could
+        //     pass the guard before either had written anything, and both
+        //     would durably queue a payment for a session meant to be spent
+        //     exactly once. `claimAndSavePending` runs all three inside one
+        //     lock, so the check-then-act sequence cannot interleave.
+        //
+        //     `confirm` is only ever supplied by a radio receive path (the
+        //     listener effect above; the QR/retry callers below omit it) — the
+        //     same signal `Unsettled` already keys off of, reused here to
+        //     attribute the queue row to a transport. `via` is the radio
+        //     raceReceivers reported as the winner; the 'awdl' fallback covers
+        //     only the (unreachable in practice) case of a confirm handle with
+        //     no winner attached.
+        const claim = await claimAndSavePending(storage, session.sessionId, frame, confirm ? (via ?? 'awdl') : 'qr')
+        if (!claim.claimed) {
           // Not a failure for the PAYEE: that session's payment is already
           // queued. It is a decline for the PAYER, though, and must be — this
           // delivery queued nothing, and each executeSend builds a fresh
@@ -1065,32 +1129,6 @@ function NearbyFlow({
           setUnsettled(null)
           setPhase('already_paid')
           return
-        }
-
-        // (2) Persist before anything else. Once this resolves the money cannot
-        //     be lost to a crash, a dead network or a closed app.
-        //
-        //     `confirm` is only ever supplied by a radio receive path (the
-        //     listener effect above; the QR/retry callers below omit it) — the
-        //     same signal `Unsettled` already keys off of, reused here to
-        //     attribute the queue row to a transport. `via` is the radio
-        //     raceReceivers reported as the winner; the 'awdl' fallback covers
-        //     only the (unreachable in practice) case of a confirm handle with
-        //     no winner attached.
-        await savePending(storage, frame, confirm ? (via ?? 'awdl') : 'qr')
-
-        // (3) Only now is it safe to burn the session. Doing this first would
-        //     mean a crash in between marks the session handled while nothing
-        //     was persisted — unrecoverable, because sessions are one-shot.
-        try {
-          await markSessionSpent(storage, session.sessionId)
-        } catch (e) {
-          // The frame is already queued, so this is not a payment failure and
-          // must not be reported as one. internalizeAction is idempotent on a
-          // repeat of the same output — the toolbox merges "wallet payment"
-          // internalizations by txid and skips the second credit — so a replay
-          // from here cannot double-credit.
-          console.warn('[localpay] markSessionSpent failed:', messageOf(e))
         }
       } catch (e) {
         // Reached only while the frame is still un-persisted, so this is a real
@@ -1294,84 +1332,88 @@ function NearbyFlow({
 
   // ── Receive: mint the request ──
 
-  const startRequest = useCallback(async (requested?: number, asset?: SessionAsset) => {
-    // Zero (or blank) is the user asking the payer to choose, so it becomes an
-    // open session rather than a rejected input. Undefined, never 0 — the codec
-    // refuses a non-positive amount precisely so a corrupt zero can never be
-    // read back as "any amount".
-    const sats = requested !== undefined && Number.isFinite(requested) && requested > 0 ? Math.round(requested) : undefined
-    // Gate on storage too, not just the wallet. Advertising with storage null
-    // means a payer can deliver a frame the payee then cannot persist, after the
-    // transport has already acked it as accepted.
-    if (!wallet || !storage) {
-      fail('generic', t('wallet_not_ready'))
-      return
-    }
-    setPhase('receive_minting')
-    setRadioErrors({})
-    setSessionQrBroken(false)
-    setSessionMismatch(false)
-    try {
-      // Prompt-free and re-read on every mint, unlike supportsAwdl (whose probe
-      // can raise the Local Network prompt): a radio switched on since the last
-      // request must be picked up without leaving the screen. `notDetermined`
-      // on iOS counts as supported so the prompt can follow inside prepareBle.
-      const bleHere = localSupportsBle()
-      // Everything the request needs, in parallel (spec §4): the identity key,
-      // the two wallet nonces, the prompt-free device probe and — only where
-      // this device has a BLE radio — the one call that may show the iOS
-      // Bluetooth prompt. It appears here, at the moment the user has asked to
-      // receive a nearby payment, the same moment the Local Network prompt
-      // already can. Minting is never slower than the slowest of these, and
-      // both probes are bounded (BLE_PREPARE_TIMEOUT_MS, DEFAULT_NET_BUDGET_MS).
-      const [{ publicKey: identityKey }, derivationPrefix, derivationSuffix, probe, bleNow] = await Promise.all([
-        wallet.getPublicKey({ identityKey: true }, adminOriginator),
-        createNonce(wallet, 'self', adminOriginator),
-        createNonce(wallet, 'self', adminOriginator),
-        probeDeviceCaps(),
-        bleHere ? prepareBle() : Promise.resolve<BluetoothState>('unsupported')
-      ])
-      setBleState(bleNow)
-      // Advertise BLE only where this device will actually listen on it: radio
-      // powered on AND (Android) the runtime grants landed. A CAP_BLE bit with
-      // no advertiser behind it would walk every cross-OS payer into a 6 s
-      // connect timeout before the fountain.
-      const bleLive = bleNow === 'poweredOn' && blePermitted
-      const session = mintSession({
-        identityKey,
-        // Satoshis, or base units of `asset` — `isRequestableAmount` is
-        // unit-agnostic and the asset travels with the figure, so the payer
-        // can never read one as the other.
-        amount: sats,
-        asset,
-        derivationPrefix,
-        derivationSuffix,
-        // Caps advertise what this payee can DO; the payer's ladder picks the
-        // highest rung both sides share, QR being the floor.
-        supportsAwdl,
-        supportsNearby: nearbyReady,
-        supportsBle: bleLive,
-        // Reversed role (spec 2026-09-03): an iOS payee also scans for a payer
-        // that advertises, so an Android payer never has to be the central.
-        // ble.ts starts that scan alongside the advertised listener.
-        supportsBleScan: bleLive && Platform.OS === 'ios',
-        // prepare() settles the Bluetooth answer the prompt-free probe may have
-        // read as 'unknown' a moment earlier, so where it ran it overrides the
-        // probe's field. The hint bits are copy for the payer, not dispatch.
-        hints: capsFromProbe({ ...probe, bluetooth: bleHere ? bleNow : probe.bluetooth }),
-        os: Platform.OS === 'ios' ? 'ios' : 'android'
-      })
-      // Same reason as the payer's side: the drain re-derives this device's own
-      // settlement rows from sealed frames, and the key that opens them lives
-      // only here, for this process.
-      if (session.asset) rememberSessionPsk(session.psk)
-      setRole('payee')
-      setHostedSession(session)
-      setPhase('receive_wait')
-    } catch (e) {
-      fail('generic', messageOf(e))
-    }
-  }, [wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t])
+  const startRequest = useCallback(
+    async (requested?: number, asset?: SessionAsset) => {
+      // Zero (or blank) is the user asking the payer to choose, so it becomes an
+      // open session rather than a rejected input. Undefined, never 0 — the codec
+      // refuses a non-positive amount precisely so a corrupt zero can never be
+      // read back as "any amount".
+      const sats =
+        requested !== undefined && Number.isFinite(requested) && requested > 0 ? Math.round(requested) : undefined
+      // Gate on storage too, not just the wallet. Advertising with storage null
+      // means a payer can deliver a frame the payee then cannot persist, after the
+      // transport has already acked it as accepted.
+      if (!wallet || !storage) {
+        fail('generic', t('wallet_not_ready'))
+        return
+      }
+      setPhase('receive_minting')
+      setRadioErrors({})
+      setSessionQrBroken(false)
+      setSessionMismatch(false)
+      try {
+        // Prompt-free and re-read on every mint, unlike supportsAwdl (whose probe
+        // can raise the Local Network prompt): a radio switched on since the last
+        // request must be picked up without leaving the screen. `notDetermined`
+        // on iOS counts as supported so the prompt can follow inside prepareBle.
+        const bleHere = localSupportsBle()
+        // Everything the request needs, in parallel (spec §4): the identity key,
+        // the two wallet nonces, the prompt-free device probe and — only where
+        // this device has a BLE radio — the one call that may show the iOS
+        // Bluetooth prompt. It appears here, at the moment the user has asked to
+        // receive a nearby payment, the same moment the Local Network prompt
+        // already can. Minting is never slower than the slowest of these, and
+        // both probes are bounded (BLE_PREPARE_TIMEOUT_MS, DEFAULT_NET_BUDGET_MS).
+        const [{ publicKey: identityKey }, derivationPrefix, derivationSuffix, probe, bleNow] = await Promise.all([
+          wallet.getPublicKey({ identityKey: true }, adminOriginator),
+          createNonce(wallet, 'self', adminOriginator),
+          createNonce(wallet, 'self', adminOriginator),
+          probeDeviceCaps(),
+          bleHere ? prepareBle() : Promise.resolve<BluetoothState>('unsupported')
+        ])
+        setBleState(bleNow)
+        // Advertise BLE only where this device will actually listen on it: radio
+        // powered on AND (Android) the runtime grants landed. A CAP_BLE bit with
+        // no advertiser behind it would walk every cross-OS payer into a 6 s
+        // connect timeout before the fountain.
+        const bleLive = bleNow === 'poweredOn' && blePermitted
+        const session = mintSession({
+          identityKey,
+          // Satoshis, or base units of `asset` — `isRequestableAmount` is
+          // unit-agnostic and the asset travels with the figure, so the payer
+          // can never read one as the other.
+          amount: sats,
+          asset,
+          derivationPrefix,
+          derivationSuffix,
+          // Caps advertise what this payee can DO; the payer's ladder picks the
+          // highest rung both sides share, QR being the floor.
+          supportsAwdl,
+          supportsNearby: nearbyReady,
+          supportsBle: bleLive,
+          // Reversed role (spec 2026-09-03): an iOS payee also scans for a payer
+          // that advertises, so an Android payer never has to be the central.
+          // ble.ts starts that scan alongside the advertised listener.
+          supportsBleScan: bleLive && Platform.OS === 'ios',
+          // prepare() settles the Bluetooth answer the prompt-free probe may have
+          // read as 'unknown' a moment earlier, so where it ran it overrides the
+          // probe's field. The hint bits are copy for the payer, not dispatch.
+          hints: capsFromProbe({ ...probe, bluetooth: bleHere ? bleNow : probe.bluetooth }),
+          os: Platform.OS === 'ios' ? 'ios' : 'android'
+        })
+        // Same reason as the payer's side: the drain re-derives this device's own
+        // settlement rows from sealed frames, and the key that opens them lives
+        // only here, for this process.
+        if (session.asset) rememberSessionPsk(session.psk)
+        setRole('payee')
+        setHostedSession(session)
+        setPhase('receive_wait')
+      } catch (e) {
+        fail('generic', messageOf(e))
+      }
+    },
+    [wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t]
+  )
 
   // ── Receive: scan the payer's frame ──
 
@@ -1513,8 +1555,9 @@ function NearbyFlow({
    * selectTransport() reaches through to localSupportsAwdl(), which is a native
    * call, and the confirm screen reads it twice on every render.
    *
-   * Declared above executeSend on purpose — a useCallback dependency array is
-   * evaluated at render time, so referencing it from below would hit the TDZ.
+   * Declared above executeSendLocked on purpose — a useCallback dependency
+   * array is evaluated at render time, so referencing it from below would
+   * hit the TDZ.
    */
   const sendKind = useMemo(() => (scannedSession ? selectTransport(scannedSession) : null), [scannedSession])
 
@@ -1676,7 +1719,7 @@ function NearbyFlow({
 
   // ── Send: build and deliver ──
 
-  const executeSend = useCallback(async () => {
+  const executeSendLocked = useCallback(async () => {
     const session = scannedSession
     if (!session || !sendKind) return
     // Guards the open-request path: with no figure there is nothing to build,
@@ -1691,6 +1734,37 @@ function NearbyFlow({
     const registry = abortsRef.current
     const controller = new AbortController()
     registry.add(controller)
+
+    // XR-096: keeps a built payment reserved instead of an untracked orphan
+    // for the two genuinely ambiguous radio outcomes below — a screen
+    // blur/unmount mid-send, and a radio failure with no representable QR
+    // fallback. Mirrors the QR screen's own "back out" park exactly (see
+    // completeQrDelivery's `!release` branch). Best-effort and never throws:
+    // a park failure must not turn an already uncertain delivery into a
+    // crash, and the built noSend action — not this bookkeeping row — is
+    // what actually matters.
+    const parkUncertainDelivery = async (
+      built: Awaited<ReturnType<typeof buildPaymentFrame>>,
+      framePayload: string
+    ) => {
+      if (!storage || !built.txid) return
+      try {
+        await parkSentPaymentOffline({
+          storage,
+          txid: built.txid,
+          framePayload,
+          ...(session.asset
+            ? {
+                frame: built.frame,
+                onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                reference: built.reference
+              }
+            : {})
+        })
+      } catch (e) {
+        console.warn('[localpay] could not park an uncertain delivery:', e instanceof Error ? e.message : e)
+      }
+    }
 
     // A token request this wallet is not set up for is refused before anything
     // is built: v1 resolves one overlay, and paying a token whose issuer this
@@ -1722,7 +1796,15 @@ function NearbyFlow({
           // hand-over comes first, unconditionally, so a face-to-face payment
           // never waits on a network.
           session.asset ? mandala.runtime?.tokenBuildDeps : undefined,
-          note
+          note,
+          // XR-088: a build failure whose own release also fails used to be
+          // logged only — no durable retry record at all — unlike the
+          // decline path's `queueFailedAbort` a few lines below. Same queue,
+          // same replay on the next wallet build.
+          async reference => {
+            if (!storage) return
+            await queuePendingAbort(storage, { reference, originator: adminOriginator })
+          }
         )
       } catch (e) {
         // Build errors are wallet errors and must keep their own message. A
@@ -1778,7 +1860,17 @@ function NearbyFlow({
         }
         ack = await radio.send(session, built.frame, controller.signal)
       } catch (e) {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) {
+          // XR-096: the screen blurred or unmounted while this native send
+          // was in flight. The OS may already have finished handing the
+          // bytes to the peer even though the AbortController fired — a lost
+          // ack does not prove non-delivery on the happy path just above, and
+          // an abort proves even less — so this must not be treated as "never
+          // delivered". Park instead of leaving the signed noSend action with
+          // no durable trace beyond the raw wallet transaction row.
+          await parkUncertainDelivery(built, sealedToQr(sealFrame(built.frame, session.psk)))
+          return
+        }
         // The radio path failed: connect timeout (radios off, peer gone),
         // Local Network denial, or a lost ack. The frame is signed and noSend,
         // so the QR still completes this payment — fall straight through to
@@ -1792,7 +1884,12 @@ function NearbyFlow({
         // the QR string below share these bytes.
         const sealed = sealFrame(built.frame, session.psk)
         if (sealed.length > MAX_MESSAGE_BYTES) {
-          // No radio and no representable code: the one genuinely dead end.
+          // No radio and no representable code: the frame cannot be shown,
+          // but it can still be parked (XR-096) — that row also unlocks a
+          // message-box resend later, which has no QR size limit — rather
+          // than left as an untracked orphan reachable only by the
+          // unrestricted generic Abort action.
+          await parkUncertainDelivery(built, sealedToQr(sealed))
           fail(looksLikeLocalNetworkDenial(message) ? 'network' : 'generic', t('local_pay_too_large'))
           return
         }
@@ -1878,6 +1975,33 @@ function NearbyFlow({
           }
           if (typeof services.getStatusForTxids !== 'function') return {}
           return services.getStatusForTxids(txids)
+        },
+        // XR-095: ask the chain before releasing a decline's inputs — the
+        // same BSV-rail check `cancelParkedPayment` runs — so a payee that
+        // already broadcast their copy (whatever the ack claimed) is never
+        // raced against a release. Runs after `checkChainStatus` above; that
+        // probe already handles the same "already known" question up front,
+        // so this is the second, independent layer this rail wires in
+        // addition.
+        chainAlreadyKnows: storage ? (txid: string) => chainAlreadyKnows(storage, txid) : undefined,
+        // Genuinely offline, so the chain cannot be asked either way: keep the
+        // inputs reserved instead of guessing, the same way backing out of the
+        // QR screen already does. The frame is re-sealed so the payer can
+        // still show it as a code later, from this parked row.
+        parkUnverifiable: async (txid: string) => {
+          if (!storage) return
+          await parkSentPaymentOffline({
+            storage,
+            txid,
+            framePayload: sealedToQr(sealFrame(built.frame, session.psk)),
+            ...(session.asset
+              ? {
+                  frame: built.frame,
+                  onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                  reference: built.reference
+                }
+              : {})
+          })
         }
       })
       if (controller.signal.aborted) return
@@ -1954,6 +2078,25 @@ function NearbyFlow({
     t
   ])
 
+  // XR-097: the actual onPress target. A synchronous, whole-lifetime
+  // re-entrancy guard around executeSendLocked's entire body — set as the
+  // very first statement, before any `await` — so a second call dispatched
+  // before the first one's first `await` (a double-tap, or any two
+  // overlapping invocations) sees the latch already held instead of passing
+  // every check `executeSendLocked` itself makes and building a second,
+  // independently reserved payment. Every early `return` inside
+  // `executeSendLocked` still releases it via this `finally`, since none of
+  // those paths build anything.
+  const executeSend = useCallback(async () => {
+    if (sendInFlightRef.current) return
+    sendInFlightRef.current = true
+    try {
+      await executeSendLocked()
+    } finally {
+      sendInFlightRef.current = false
+    }
+  }, [executeSendLocked])
+
   // ── Send: the payer asserts QR delivery ──
   //
   // The QR path has no ack channel, so "the payee has it" is the user's claim,
@@ -1967,106 +2110,115 @@ function NearbyFlow({
   // and once that session is gone, the action's payee label and derivation
   // customInstructions still let the payment be re-sent through the message box
   // from its own row in the activity list.
-  const completeQrDelivery = useCallback(async (opts?: { celebrate?: boolean; release?: boolean }) => {
-    const celebrate = opts?.celebrate !== false
-    // Done means "they have it" — the payment is released and the drain posts
-    // it. Backing out means nothing of the kind, so the frame is kept and the
-    // transaction stays cancellable instead. Releasing on the way out is what
-    // made Back send the payment outright.
-    const release = opts?.release !== false
-    const built = builtRef.current
-    const session = scannedSession
-    // `paymentQr` is this exact frame already sealed for display — the Done
-    // button that calls this only renders while it is set (see the send_qr
-    // stage below) — so it is reused as the queue row's framePayload rather
-    // than sealing the frame a third time.
-    const framePayload = paymentQr
-    if (!built || !wallet || !session || !framePayload) {
-      // No handle (e.g. re-entry after reset, which clears builtRef and
-      // scannedSession together): nothing to decide, just close.
+  const completeQrDelivery = useCallback(
+    async (opts?: { celebrate?: boolean; release?: boolean }) => {
+      const celebrate = opts?.celebrate !== false
+      // Done means "they have it" — the payment is released and the drain posts
+      // it. Backing out means nothing of the kind, so the frame is kept and the
+      // transaction stays cancellable instead. Releasing on the way out is what
+      // made Back send the payment outright.
+      const release = opts?.release !== false
+      const built = builtRef.current
+      const session = scannedSession
+      // `paymentQr` is this exact frame already sealed for display — the Done
+      // button that calls this only renders while it is set (see the send_qr
+      // stage below) — so it is reused as the queue row's framePayload rather
+      // than sealing the frame a third time.
+      const framePayload = paymentQr
+      if (!built || !wallet || !session || !framePayload) {
+        // No handle (e.g. re-entry after reset, which clears builtRef and
+        // scannedSession together): nothing to decide, just close.
+        if (celebrate) {
+          setSettledAmount(payAmount)
+          setRole('payer')
+          setNotice(null)
+          setPhase('done')
+        }
+        return
+      }
+      builtRef.current = null
       if (celebrate) {
-        setSettledAmount(payAmount)
-        setRole('payer')
+        setPhase('send_working')
         setNotice(null)
+      }
+
+      // Backing out never goes through finalizeDelivery: that path broadcasts
+      // after the hold whenever the device is online, so parking inside it would
+      // still have sent the payment. Park and stop.
+      if (!release) {
+        try {
+          if (storage && built.txid) {
+            await parkSentPaymentOffline({
+              storage,
+              txid: built.txid,
+              framePayload,
+              // Token sessions only — see the hold callback below for why.
+              ...(session.asset
+                ? {
+                    frame: built.frame,
+                    onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                    // The noSend action's own reference, onto the settlement row:
+                    // it is what lets the abort guard tell a handed-over token
+                    // payment from an abandoned one (core/mandala/abortGuard.ts).
+                    reference: built.reference
+                  }
+                : {})
+            })
+          }
+        } catch (e) {
+          console.warn('[localpay] could not park the payment:', e instanceof Error ? e.message : e)
+        }
+        return
+      }
+
+      const outcome = await finalizeDelivery(
+        wallet as unknown as PayingWalletArg,
+        built,
+        { ok: true },
+        adminOriginator,
+        {
+          hold: async txid => {
+            if (!storage) throw new Error('no local storage to queue this payment in')
+            await holdSentPaymentOffline({
+              storage,
+              txid,
+              framePayload,
+              // Token sessions only: same reasoning as the executeSend hold call —
+              // the plaintext frame and the journal hook, so a restart does not
+              // strand this payer's settlement row.
+              ...(session.asset
+                ? {
+                    frame: built.frame,
+                    onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
+                    // The noSend action's own reference, onto the settlement row:
+                    // it is what lets the abort guard tell a handed-over token
+                    // payment from an abandoned one (core/mandala/abortGuard.ts).
+                    reference: built.reference
+                  }
+                : {})
+            })
+          },
+          queueFailedAbort: async reference => {
+            if (!storage) return
+            await queuePendingAbort(storage, { reference, originator: adminOriginator })
+          }
+        }
+      )
+      if (outcome.kind === 'sent' && outcome.broadcast === 'pending') {
+        console.warn('[localpay] QR delivery queued or broadcast pending:', outcome.detail ?? '')
+        if (celebrate) setNotice({ text: t('local_pay_broadcast_pending'), tone: 'warning' })
+      }
+      if (celebrate) {
+        setSettledAmount(built.satoshis)
+        // This rail has no ack payload to read σ_I from, so the receipt opens as
+        // "settling" and the writer's own submit is what may settle it.
+        if (session.asset) writeTokenReceipt(session.asset, built, false)
+        setRole('payer')
         setPhase('done')
       }
-      return
-    }
-    builtRef.current = null
-    if (celebrate) {
-      setPhase('send_working')
-      setNotice(null)
-    }
-
-    // Backing out never goes through finalizeDelivery: that path broadcasts
-    // after the hold whenever the device is online, so parking inside it would
-    // still have sent the payment. Park and stop.
-    if (!release) {
-      try {
-        if (storage && built.txid) {
-          await parkSentPaymentOffline({
-            storage,
-            txid: built.txid,
-            framePayload,
-            // Token sessions only — see the hold callback below for why.
-            ...(session.asset
-              ? {
-                  frame: built.frame,
-                  onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
-                  // The noSend action's own reference, onto the settlement row:
-                  // it is what lets the abort guard tell a handed-over token
-                  // payment from an abandoned one (core/mandala/abortGuard.ts).
-                  reference: built.reference
-                }
-              : {})
-          })
-        }
-      } catch (e) {
-        console.warn('[localpay] could not park the payment:', e instanceof Error ? e.message : e)
-      }
-      return
-    }
-
-    const outcome = await finalizeDelivery(wallet as unknown as PayingWalletArg, built, { ok: true }, adminOriginator, {
-      hold: async txid => {
-        if (!storage) throw new Error('no local storage to queue this payment in')
-        await holdSentPaymentOffline({
-          storage,
-          txid,
-          framePayload,
-          // Token sessions only: same reasoning as the executeSend hold call —
-          // the plaintext frame and the journal hook, so a restart does not
-          // strand this payer's settlement row.
-          ...(session.asset
-            ? {
-                frame: built.frame,
-                onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
-                // The noSend action's own reference, onto the settlement row:
-                // it is what lets the abort guard tell a handed-over token
-                // payment from an abandoned one (core/mandala/abortGuard.ts).
-                reference: built.reference
-              }
-            : {})
-        })
-      },
-      queueFailedAbort: async reference => {
-        if (!storage) return
-        await queuePendingAbort(storage, { reference, originator: adminOriginator })
-      }
-    })
-    if (outcome.kind === 'sent' && outcome.broadcast === 'pending') {
-      console.warn('[localpay] QR delivery queued or broadcast pending:', outcome.detail ?? '')
-      if (celebrate) setNotice({ text: t('local_pay_broadcast_pending'), tone: 'warning' })
-    }
-    if (celebrate) {
-      setSettledAmount(built.satoshis)
-      // This rail has no ack payload to read σ_I from, so the receipt opens as
-      // "settling" and the writer's own submit is what may settle it.
-      if (session.asset) writeTokenReceipt(session.asset, built, false)
-      setRole('payer')
-      setPhase('done')
-    }
-  }, [wallet, storage, adminOriginator, payAmount, scannedSession, paymentQr, mandala.runtime, writeTokenReceipt, t])
+    },
+    [wallet, storage, adminOriginator, payAmount, scannedSession, paymentQr, mandala.runtime, writeTokenReceipt, t]
+  )
 
   // ── Send: leave send_qr without Done ──
   //
@@ -2650,7 +2802,11 @@ function NearbyFlow({
                 maxLength={280}
                 style={[
                   styles.noteInput,
-                  { backgroundColor: colors.backgroundSecondary, borderColor: colors.separator, color: colors.textPrimary }
+                  {
+                    backgroundColor: colors.backgroundSecondary,
+                    borderColor: colors.separator,
+                    color: colors.textPrimary
+                  }
                 ]}
               />
             </PayField>

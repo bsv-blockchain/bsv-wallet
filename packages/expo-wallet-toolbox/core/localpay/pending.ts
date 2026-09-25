@@ -213,8 +213,17 @@ async function readAll(storage: KVStorage): Promise<PendingPayment[]> {
   }
   try {
     const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      // XR-092: a syntactically valid non-array (an object, string, number,
+      // or null) is just as wrong-shaped as invalid JSON. Silently reading it
+      // as an empty queue cleared the corruption notice and left `writeAll`'s
+      // very next save free to destructively overwrite whatever this value
+      // actually held. Thrown here so it takes the exact same quarantine path
+      // as a JSON.parse failure, below — never treated as "nothing pending".
+      throw new Error('localpay_pending is not an array')
+    }
     pendingCorruptNotice = false
-    return Array.isArray(parsed) ? (parsed as Serialised[]).map(fromWire) : []
+    return (parsed as Serialised[]).map(fromWire)
   } catch {
     pendingCorruptNotice = true
     try {
@@ -281,6 +290,59 @@ export async function savePending(
     }
     await writeAll(storage, [...existing, entry])
     return entry
+  })
+}
+
+/**
+ * XR-098: atomically claims a session for exactly one delivery.
+ *
+ * `isSessionSpent`, `savePending` and `markSessionSpent` used to be three
+ * separate operations — the first unlocked, the other two each under their
+ * own `withQueueLock` — so a caller's own "check, then persist, then burn"
+ * sequence was not atomic: two concurrent deliveries for the same session
+ * (radio racing a QR scan of the same static code, or any other overlap)
+ * could each observe `isSessionSpent` false before either had written
+ * anything, and both would durably queue a payment for a session meant to be
+ * spent exactly once. Folding the check, the persist and the burn into ONE
+ * `withQueueLock` critical section makes the claim indivisible: whichever
+ * call actually runs first inside the lock is the only one that can ever see
+ * this session unspent again. Calls the un-locked primitives directly
+ * (`readSpent`, `readAll`, `writeAll`) rather than `isSessionSpent` /
+ * `savePending` / `markSessionSpent` themselves — nesting `withQueueLock`
+ * inside itself would deadlock.
+ */
+export async function claimAndSavePending(
+  storage: KVStorage,
+  sessionId: Uint8Array,
+  frame: PaymentFrame,
+  receivedVia?: string
+): Promise<{ claimed: true; entry: PendingPayment } | { claimed: false }> {
+  return withQueueLock(async () => {
+    const key = sessionKey(sessionId)
+    const spent = await readSpent(storage)
+    if (spent.includes(key)) return { claimed: false }
+
+    const entry: PendingPayment = {
+      id: `${Date.now()}_${frame.senderIdentityKey.slice(0, 8)}`,
+      receivedAt: new Date().toISOString(),
+      frame,
+      status: 'pending',
+      receivedVia
+    }
+    const existing = await readAll(storage)
+    await writeAll(storage, [...existing, entry])
+    // Only after the entry is durably written — same ordering the caller
+    // relied on before this was atomic. Best-effort, same as
+    // `markSessionSpent`'s own callers already treated it: the frame is
+    // already queued, so a failure here is not a payment failure and must
+    // not be reported as one — internalizeAction is idempotent on a repeat
+    // of the same output, so a replay from here cannot double-credit.
+    try {
+      await storage.setKeyValue(SPENT_KEY, JSON.stringify([...spent, key]))
+    } catch (e) {
+      console.warn('[localpay] claimAndSavePending could not mark the session spent:', messageOf(e))
+    }
+    return { claimed: true, entry }
   })
 }
 
@@ -380,9 +442,7 @@ export async function updateStatus(
             // being retried. A structurally bad BEEF is deliberately NOT
             // matched by `isRetriableInternalizeFailure` and still counts.
             attempts:
-              status === 'failed' && !isRetriableInternalizeFailure(failureReason)
-                ? (p.attempts ?? 0) + 1
-                : p.attempts
+              status === 'failed' && !isRetriableInternalizeFailure(failureReason) ? (p.attempts ?? 0) + 1 : p.attempts
           }
         : p
     )
@@ -563,7 +623,10 @@ export async function processPending(
           // The drain owns the `token_settlements` row independently and
           // re-reads its own tables on every online tick, so a lost write here
           // costs a later reconciliation pass, not the payment.
-          console.warn('[localpay] token credited but settlement write failed:', e instanceof Error ? e.message : String(e))
+          console.warn(
+            '[localpay] token credited but settlement write failed:',
+            e instanceof Error ? e.message : String(e)
+          )
         }
       }
 
