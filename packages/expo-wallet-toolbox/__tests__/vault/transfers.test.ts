@@ -606,6 +606,34 @@ const heldDepositActionV7 = async (
   }
 }
 
+/** A held, signed (noSend) vault-withdraw or vault-relock action as
+ * listActions reports it: it SPENDS a real R1C source (unlike a deposit,
+ * which creates one) and carries no vault-basket output of its own. The
+ * shape isValidHeldVaultSpend (XR-006/INT-03) must recognize instead of
+ * leaving a crashed signed withdraw/re-lock with no reconciliation path at
+ * all — before that fix, resolveHeldVaultDeposit reported 'nothing-held' for
+ * this exact shape and inspectHiddenVaultReservations kept refusing every
+ * subsequent Vault read with 'action-pending' forever. */
+const heldSpendAction = (label: 'vault-withdraw' | 'vault-relock', status: 'unsigned' | 'nosend' = 'nosend') => {
+  const { salt } = fixtureSalt(901)
+  const lockingScript = buildLock({
+    commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+    saltHex64: salt
+  }).toHex()
+  return {
+    ...(status === 'unsigned' ? {} : { txid: 'e5'.repeat(32) }),
+    reference: 'held-spend-ref',
+    status,
+    labels: ['vault', label],
+    inputs: [{
+      sourceOutpoint: `${'e6'.repeat(32)}.0`,
+      sourceSatoshis: 250_000,
+      sourceLockingScript: lockingScript
+    }],
+    outputs: []
+  }
+}
+
 /** Minimal standalone push encoder matching r1comb's pushData, for building
  * a test-only OP_RETURN payload without importing a private helper. */
 function encPush(data: number[]): number[] {
@@ -1851,6 +1879,54 @@ describe('resolveHeldVaultDeposit', () => {
     expect(result).toEqual({ kind: 'already-known' })
     expect(wallet.createAction).not.toHaveBeenCalled()
     expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  it.each(['vault-withdraw', 'vault-relock'] as const)(
+    'XR-006 / INT-03: re-broadcasts a held signed %s the same safe way as a held deposit',
+    async label => {
+      await seedMeta()
+      const held = heldSpendAction(label)
+      wallet.listActions.mockResolvedValue({ actions: [held] })
+      wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'unknown' }] })
+
+      const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+      // Before the fix this returned 'nothing-held' — the shape was never
+      // recognized at all — so the caller (VaultScreen's resolve button)
+      // reported success while nothing was actually resolved.
+      expect(result).toEqual({ kind: 'broadcast' })
+      expect(wallet.getStatusForTxids).toHaveBeenCalledWith([held.txid])
+      const sendWithCall = wallet.createAction.mock.calls.find(([args]) => args?.options?.sendWith)
+      expect(sendWithCall?.[0]).toEqual({
+        description: 'Broadcast Vault transfer',
+        options: { sendWith: [held.txid] }
+      })
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+    }
+  )
+
+  it('XR-006 / INT-03: reports already-known for a held signed vault-relock the network already has', async () => {
+    await seedMeta()
+    const held = heldSpendAction('vault-relock')
+    wallet.listActions.mockResolvedValue({ actions: [held] })
+    wallet.getStatusForTxids.mockResolvedValue({ results: [{ txid: held.txid!, status: 'mined' }] })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    expect(result).toEqual({ kind: 'already-known' })
+    expect(wallet.createAction).not.toHaveBeenCalled()
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  it('XR-006 / INT-03: never touches an unsigned held vault-relock — only reconcileHeldVaultDeposits-style abort logic may', async () => {
+    await seedMeta()
+    wallet.listActions.mockResolvedValue({ actions: [heldSpendAction('vault-relock', 'unsigned')] })
+
+    const result = await resolveHeldVaultDeposit(wallet, ADMIN, (await vaultStore.getMeta())!)
+
+    expect(result).toEqual({ kind: 'nothing-held' })
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+    expect(wallet.createAction).not.toHaveBeenCalled()
   })
 
   it('reports failed instead of throwing when the release is not confirmed', async () => {

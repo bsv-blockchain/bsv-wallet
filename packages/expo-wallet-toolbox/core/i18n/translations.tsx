@@ -448,6 +448,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'Finish the interrupted deposit',
       vault_resolve_held_deposit_done: 'Deposit resolved',
       vault_resolve_held_deposit_failed: 'Could not resolve the deposit. Try again.',
+      vault_resolve_held_deposit_none:
+        'Nothing to resolve here — check the Activity tab for a pending transaction to retry or cancel.',
       vault_err_key_not_committed:
         "{{nickname}} can't open any of the deposits in this vault. Use another of your vault keys.",
       vault_err_key_cannot_cover:
@@ -1459,6 +1461,7 @@ const resources = {
       vault_resolve_held_deposit_action: '完成中断的存款',
       vault_resolve_held_deposit_done: '存款问题已解决',
       vault_resolve_held_deposit_failed: '无法解决存款问题，请重试。',
+      vault_resolve_held_deposit_none: '这里没有可解决的问题——请在"动态"标签页查看待处理的交易以重试或取消。',
       vault_err_key_not_committed: '{{nickname}} 无法打开此保险库中的任何存入。请使用您的另一把保险库密钥。',
       vault_err_key_cannot_cover:
         '{{nickname}} 可以打开保险库中 {{total}} 里的 {{reachable}}。请最多取出 {{reachable}}，或改用 {{otherNames}}。',
@@ -2438,6 +2441,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'बाधित जमा पूरा करें',
       vault_resolve_held_deposit_done: 'जमा की समस्या हल हो गई',
       vault_resolve_held_deposit_failed: 'जमा की समस्या हल नहीं हो सकी। फिर कोशिश करें।',
+      vault_resolve_held_deposit_none:
+        'यहाँ हल करने के लिए कुछ नहीं है — लंबित लेनदेन को फिर से आज़माने या रद्द करने के लिए गतिविधि टैब देखें।',
       vault_err_key_not_committed:
         '{{nickname}} इस वॉल्ट की कोई भी जमा नहीं खोल सकती। अपनी दूसरी वॉल्ट कुंजी उपयोग करें।',
       vault_err_key_cannot_cover:
@@ -3451,6 +3456,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'Terminar el depósito interrumpido',
       vault_resolve_held_deposit_done: 'Depósito resuelto',
       vault_resolve_held_deposit_failed: 'No se pudo resolver el depósito. Inténtalo de nuevo.',
+      vault_resolve_held_deposit_none:
+        'No hay nada que resolver aquí: revisa la pestaña Actividad para reintentar o cancelar una transacción pendiente.',
       vault_err_key_not_committed:
         '{{nickname}} no puede abrir ninguno de los depósitos de esta caja fuerte. Usa otra de tus llaves.',
       vault_err_key_cannot_cover:
@@ -4482,6 +4489,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'Terminer le dépôt interrompu',
       vault_resolve_held_deposit_done: 'Dépôt résolu',
       vault_resolve_held_deposit_failed: 'Impossible de résoudre le dépôt. Réessayez.',
+      vault_resolve_held_deposit_none:
+        "Il n'y a rien à résoudre ici : consultez l'onglet Activité pour relancer ou annuler une transaction en attente.",
       vault_err_key_not_committed:
         '{{nickname}} ne peut ouvrir aucun des dépôts de ce coffre. Utilisez une autre de vos clés.',
       vault_err_key_cannot_cover:
@@ -5482,6 +5491,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'إتمام الإيداع المتوقف',
       vault_resolve_held_deposit_done: 'تم حل مشكلة الإيداع',
       vault_resolve_held_deposit_failed: 'تعذّر حل مشكلة الإيداع. حاول مرة أخرى.',
+      vault_resolve_held_deposit_none:
+        'لا يوجد هنا ما يمكن حله - تحقق من علامة التبويب النشاط بحثًا عن معاملة معلقة لإعادة المحاولة أو الإلغاء.',
       vault_err_key_not_committed:
         'لا يمكن لـ {{nickname}} فتح أي من إيداعات هذه الخزنة. استخدم مفتاحًا آخر من مفاتيح خزنتك.',
       vault_err_key_cannot_cover:
@@ -6478,6 +6489,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'Concluir o depósito interrompido',
       vault_resolve_held_deposit_done: 'Depósito resolvido',
       vault_resolve_held_deposit_failed: 'Não foi possível resolver o depósito. Tente novamente.',
+      vault_resolve_held_deposit_none:
+        'Não há nada a resolver aqui — verifique a aba Atividade para repetir ou cancelar uma transação pendente.',
       vault_err_key_not_committed:
         '{{nickname}} não consegue abrir nenhum dos depósitos deste cofre. Use outra das suas chaves.',
       vault_err_key_cannot_cover:
@@ -7492,6 +7505,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'বাধাগ্রস্ত জমা সম্পন্ন করুন',
       vault_resolve_held_deposit_done: 'জমার সমস্যা সমাধান হয়েছে',
       vault_resolve_held_deposit_failed: 'জমার সমস্যা সমাধান করা যায়নি। আবার চেষ্টা করুন।',
+      vault_resolve_held_deposit_none:
+        'এখানে সমাধান করার মতো কিছু নেই — একটি মুলতুবি লেনদেন পুনরায় চেষ্টা করতে বা বাতিল করতে অ্যাক্টিভিটি ট্যাব দেখুন।',
       vault_err_key_not_committed:
         '{{nickname}} এই ভল্টের কোনো জমাই খুলতে পারে না। আপনার অন্য একটি ভল্ট কী ব্যবহার করুন।',
       vault_err_key_cannot_cover:
@@ -8502,6 +8517,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'Завершить прерванный депозит',
       vault_resolve_held_deposit_done: 'Проблема с депозитом решена',
       vault_resolve_held_deposit_failed: 'Не удалось решить проблему с депозитом. Повторите попытку.',
+      vault_resolve_held_deposit_none:
+        'Здесь нечего решать — проверьте вкладку «Активность» на наличие ожидающей транзакции, чтобы повторить или отменить её.',
       vault_err_key_not_committed:
         '{{nickname}} не может открыть ни одно пополнение в этом хранилище. Используйте другой ключ хранилища.',
       vault_err_key_cannot_cover:
@@ -9519,6 +9536,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'Selesaikan deposit yang tertunda',
       vault_resolve_held_deposit_done: 'Masalah deposit teratasi',
       vault_resolve_held_deposit_failed: 'Tidak dapat mengatasi masalah deposit. Coba lagi.',
+      vault_resolve_held_deposit_none:
+        'Tidak ada yang bisa diselesaikan di sini — periksa tab Aktivitas untuk transaksi tertunda yang bisa dicoba lagi atau dibatalkan.',
       vault_err_key_not_committed:
         '{{nickname}} tidak bisa membuka satu pun setoran di brankas ini. Gunakan kunci brankas Anda yang lain.',
       vault_err_key_cannot_cover:
@@ -10534,6 +10553,8 @@ const resources = {
       vault_resolve_held_deposit_action: '中断された預け入れを完了する',
       vault_resolve_held_deposit_done: '預け入れの問題を解決しました',
       vault_resolve_held_deposit_failed: '預け入れの問題を解決できませんでした。もう一度お試しください。',
+      vault_resolve_held_deposit_none:
+        'ここで解決できるものはありません。保留中の取引を再試行またはキャンセルするには、アクティビティタブを確認してください。',
       vault_err_key_not_committed:
         '{{nickname}} ではこの保管庫の入金をどれも開けられません。別の保管庫の鍵を使ってください。',
       vault_err_key_cannot_cover:
@@ -11562,6 +11583,8 @@ const resources = {
       vault_resolve_held_deposit_action: 'Zakończ przerwany depozyt',
       vault_resolve_held_deposit_done: 'Problem z depozytem rozwiązany',
       vault_resolve_held_deposit_failed: 'Nie udało się rozwiązać problemu z depozytem. Spróbuj ponownie.',
+      vault_resolve_held_deposit_none:
+        'Nie ma tu nic do rozwiązania — sprawdź zakładkę Aktywność, aby ponowić lub anulować oczekującą transakcję.',
       vault_err_key_not_committed:
         '{{nickname}} nie może otworzyć żadnej wpłaty w tym sejfie. Użyj innego klucza sejfu.',
       vault_err_key_cannot_cover:

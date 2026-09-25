@@ -683,6 +683,33 @@ describe('enrolled', () => {
     expect(screen.queryByText('vault_resolve_held_deposit_action')).toBeNull()
   })
 
+  test('XR-006 / INT-03: "nothing-held" is never reported as success — the notice and offer both stay', async () => {
+    mockBalance = 50_000
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    const { VaultError } = jest.requireActual('../../core/services/vault/types')
+    mockRelock.mockRejectedValueOnce(new VaultError('action-pending'))
+    // The real function's shape when a held signed action exists that this
+    // resolve path does not (yet, or ever) know how to authenticate — e.g. a
+    // held vault-withdraw/vault-relock before XR-006/INT-03, or any future
+    // shape it still cannot recognize. This must never be read as "resolved".
+    mockResolveHeldDeposit.mockReset().mockResolvedValueOnce({ kind: 'nothing-held' })
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
+    await act(async () => fireEvent.press(screen.getByText('vault_relock_now')))
+    await settle()
+    expect(screen.getByText('vault_resolve_held_deposit_action')).toBeTruthy()
+
+    await act(async () => fireEvent.press(screen.getByText('vault_resolve_held_deposit_action')))
+    await settle()
+    expect(mockResolveHeldDeposit).toHaveBeenCalledWith(expect.anything(), 'admin.test', META2)
+    // No false success: the done toast never fires, and the offer/notice —
+    // the underlying block is still there — both survive.
+    expect(mockShowToast).not.toHaveBeenCalledWith('vault_resolve_held_deposit_done', { type: 'success' })
+    expect(mockShowToast).toHaveBeenCalledWith('vault_resolve_held_deposit_none', { type: 'error' })
+    expect(screen.getByText('vault_resolve_held_deposit_action')).toBeTruthy()
+    expect(screen.getAllByText('vault_err_action_pending').length).toBeGreaterThan(0)
+  })
+
   test('backup-off during re-lock opens backup settings and leaves the sheet available to retry', async () => {
     mockBalance = 300_000
     mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }

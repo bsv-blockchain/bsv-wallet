@@ -293,6 +293,16 @@ export function VaultScreen() {
         showToast(vaultErrorCopy('action-pending'), { type: 'error' })
         return
       }
+      if (result.kind === 'nothing-held') {
+        // XR-006 / INT-03: 'nothing-held' means no held deposit OR
+        // withdraw/relock this function knows how to authenticate was
+        // found — it does NOT mean the underlying action-pending block is
+        // gone. Reporting success here previously cleared the notice while
+        // the freeze remained, silently reappearing on the very next vault
+        // operation.
+        showToast(t('vault_resolve_held_deposit_none'), { type: 'error' })
+        return
+      }
       setActionPendingNotice(false)
       haptics.success()
       showToast(t('vault_resolve_held_deposit_done'), { type: 'success' })

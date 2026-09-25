@@ -1008,10 +1008,41 @@ export type VaultDepositResolution =
   | { kind: 'failed'; error: unknown }
 
 /**
- * Resolve the ONE held, signed (noSend) Vault deposit reconcileHeldVaultDeposits
+ * XR-006 / INT-03: the identical crash window exists for a withdrawal or
+ * re-lock (spends existing R1C outputs) as for a deposit (creates one) — the
+ * gap is between signAction and the sendWith that releases it. Unlike a
+ * deposit's shape (one new vault output plus its marker/descriptor), a
+ * withdraw/relock's OWN authority already comes from the hardware signature
+ * already on these exact bytes; this only needs to correctly identify the
+ * one held candidate to resend, not re-validate the full output plan. Every
+ * input must be an authentic current R1C source (never an ordinary P2PKH
+ * input, which would make this a deposit, not a spend) so a decoy action
+ * cannot be resent as though it were the held vault spend.
+ */
+function isValidHeldVaultSpend(action: VaultActionRow): boolean {
+  const labels = new Set(action.labels ?? [])
+  if (!labels.has('vault-withdraw') && !labels.has('vault-relock')) return false
+  if (!action.reference) return false
+  if (action.status !== 'nosend' || !action.txid || !/^[0-9a-fA-F]{64}$/.test(action.txid)) return false
+  const inputs = action.inputs ?? []
+  if (inputs.length === 0 || inputs.length > VAULT_HARD_MAX_INPUTS) return false
+  for (const input of inputs) {
+    if (!input.sourceOutpoint || !/^[0-9a-fA-F]{64}[.:]\d+$/.test(input.sourceOutpoint)) return false
+    if (!isR1CSourceScript(input.sourceLockingScript)) return false
+  }
+  return true
+}
+
+/**
+ * Resolve the ONE held, signed (noSend) Vault action reconcileHeldVaultDeposits
  * refuses to touch automatically (F-04) — the crash window is between
  * signAction and the sendWith that releases it, so the transaction may or may
- * not have already escaped to the network.
+ * not have already escaped to the network. Covers both a held DEPOSIT
+ * (creates a new R1C output) and a held WITHDRAWAL or RE-LOCK (spends
+ * existing ones) — see isValidHeldVaultSpend: before XR-006/INT-03, only the
+ * deposit shape was ever recognized here, so a crashed signed withdraw/
+ * re-lock had no reconciliation path and froze every subsequent Vault read
+ * via inspectHiddenVaultReservations indefinitely.
  *
  * Ask the network first. If it does not have the txid yet, release it with
  * the EXACT already-signed bytes via the same sendWith call depositToVault's
@@ -1044,20 +1075,26 @@ export async function resolveHeldVaultDeposit(
       }, async action => {
         if (action.status === 'unsigned') return
         if (!PENDING_ACTION_STATUSES.has(action.status) || BROADCAST_ACTION_STATUSES.has(action.status)) return
-        if (!(await isValidHeldVaultDeposit(w, adminOriginator, action, meta, expectedChain))) return
-        held = action
+        if (await isValidHeldVaultDeposit(w, adminOriginator, action, meta, expectedChain)) {
+          held = action
+        } else if (isValidHeldVaultSpend(action)) {
+          held = action
+        }
       }, captured)
       assertVaultScope(captured)
       if (!held?.txid) return { kind: 'nothing-held' }
       const txid = held.txid
       if (await vaultTxidAlreadyKnown(w, txid)) return { kind: 'already-known' }
+      const labels = new Set(held.labels ?? [])
+      const isSpend = labels.has('vault-withdraw') || labels.has('vault-relock')
+      const description = isSpend ? 'Vault transfer' : 'Vault deposit'
       assertVaultScope(captured)
       const released = await w.createAction(
-        { description: 'Broadcast Vault deposit', options: { sendWith: [txid] } },
+        { description: `Broadcast ${description}`, options: { sendWith: [txid] } },
         adminOriginator
       )
       assertVaultScope(captured)
-      requireReleasedHeldTransaction(released, txid, 'Vault deposit')
+      requireReleasedHeldTransaction(released, txid, description)
       return { kind: 'broadcast' }
     } catch (error) {
       return { kind: 'failed', error }
