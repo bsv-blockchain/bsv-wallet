@@ -15,6 +15,7 @@ import {
   spacing,
   typography,
   radii,
+  isAllowedServiceOrigin,
   DEFAULT_MESSAGE_BOX_URL,
   LEGACY_MESSAGE_BOX_URL,
   MESSAGE_BOX_URL_KEY,
@@ -64,6 +65,21 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
     async (input: string) => {
       const trimmed = input.trim().replace(/\/+$/, '')
       if (!trimmed) {
+        showToast(t('enter_valid_url'), { type: 'error' })
+        return
+      }
+      // XR-065 (SEC2-074): this host carries every handle-rail MessageBox
+      // request -- a plain http: origin or one carrying embedded credentials
+      // had no policy at all before this, unlike the ARC endpoint's own
+      // https-except-local-dev check (validateArcUrl, XR-064).
+      let parsedUrl: URL
+      try {
+        parsedUrl = new URL(trimmed)
+      } catch {
+        showToast(t('enter_valid_url'), { type: 'error' })
+        return
+      }
+      if (!isAllowedServiceOrigin(parsedUrl)) {
         showToast(t('enter_valid_url'), { type: 'error' })
         return
       }

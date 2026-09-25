@@ -35,6 +35,7 @@ export {
   getServiceConfig,
   getMandalaEndpoints,
   getHandleRegistryConfig,
+  isAllowedServiceOrigin,
   isMandalaAvailable,
   isVaultEnabled,
   isVaultAvailable,

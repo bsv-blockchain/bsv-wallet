@@ -125,6 +125,33 @@ const NOT_CONFIGURED =
   'from the host app entry point, before rendering WalletContextProvider. ' +
   'Pass backupUrl: null to disable backup deliberately.'
 
+/**
+ * Hosts a development build may reach over plain http: the simulator's own
+ * machine, the Android emulator's alias for it, and RFC 1918 space. Everything
+ * else must be https — which key owns a handle (or holds a backup, or admits
+ * a Mandala settlement) is precisely what a reader on the path would want to
+ * change.
+ */
+const PRIVATE_HOST =
+  /^(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/
+
+/**
+ * XR-065 (SEC2-074): the https-except-private-network policy
+ * `getHandleRegistryConfig` already applied to the paymail registry origin,
+ * shared here so `normalizeBackupUrl` and `getMandalaEndpoints` stop
+ * accepting a plain http: or credential-bearing origin with no policy at
+ * all. A host's own backup service, Mandala overlay, and Mandala MessageBox
+ * are each configuration-time, host-trusted values, not remote/runtime
+ * input — but a misconfigured or copy-pasted http: URL, or one carrying a
+ * bearer credential, still exposes every request this package makes over
+ * that origin to an on-path attacker.
+ */
+export function isAllowedServiceOrigin(parsed: URL): boolean {
+  if (parsed.username || parsed.password) return false
+  if (parsed.protocol === 'https:') return true
+  return parsed.protocol === 'http:' && PRIVATE_HOST.test(parsed.hostname)
+}
+
 function normalizeBackupUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, '')
   if (trimmed === '') return ''
@@ -142,6 +169,11 @@ function normalizeBackupUrl(raw: string): string {
   }
   if (parsed.search !== '' || parsed.hash !== '') {
     throw new Error(`configureToolbox: backupUrl must be a bare origin, with no query or fragment: ${raw}`)
+  }
+  if (!isAllowedServiceOrigin(parsed)) {
+    throw new Error(
+      `configureToolbox: backupUrl must be https (plain http is allowed only for a local-dev host): ${raw}`
+    )
   }
   return trimmed
 }
@@ -208,6 +240,18 @@ export function getMandalaEndpoints(chain: AppChain): MandalaEndpointConfig | un
   const messageBoxUrl = entry.messageBoxUrl?.trim().replace(/\/+$/, '') ?? ''
   if (overlayUrl === '' || messageBoxUrl === '') return undefined
   if (!COMPRESSED_KEY.test(overlayIdentityKey)) return undefined
+  // XR-065 (SEC2-074): neither URL had a scheme policy at all before this --
+  // a plain http: overlay or MessageBox origin (or one carrying embedded
+  // credentials) resolved to a fully populated, "working" config.
+  for (const url of [overlayUrl, messageBoxUrl]) {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return undefined
+    }
+    if (!isAllowedServiceOrigin(parsed)) return undefined
+  }
   return { overlayUrl, overlayIdentityKey, messageBoxUrl }
 }
 
@@ -219,14 +263,6 @@ export function getMandalaEndpoints(chain: AppChain): MandalaEndpointConfig | un
  * this accepts and that one rejects is a configured registry nothing resolves.
  */
 const REGISTRY_DOMAIN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/
-/**
- * Hosts a development build may reach over plain http: the simulator's own
- * machine, the Android emulator's alias for it, and RFC 1918 space. Everything
- * else must be https — which key owns a handle is precisely what a reader on
- * the path would want to change.
- */
-const PRIVATE_HOST =
-  /^(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/
 
 /**
  * The handle registry for a chain, or undefined when this build has none.
@@ -255,9 +291,7 @@ export function getHandleRegistryConfig(chain: AppChain): HandleRegistryConfig |
   }
   if (parsed.search !== '' || parsed.hash !== '') return undefined
   if (parsed.pathname !== '' && parsed.pathname !== '/') return undefined
-  if (parsed.protocol === 'https:') return { domain, url }
-  if (parsed.protocol === 'http:' && PRIVATE_HOST.test(parsed.hostname)) return { domain, url }
-  return undefined
+  return isAllowedServiceOrigin(parsed) ? { domain, url } : undefined
 }
 
 /**
