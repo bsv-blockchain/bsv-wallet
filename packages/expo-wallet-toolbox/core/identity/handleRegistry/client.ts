@@ -22,6 +22,7 @@ import {
 } from './rules'
 import { verifyProfileCertificate, type ProfileCertJson, type RegistryProfile } from './profileCert'
 import { createRegistryResolver, fetchWithTimeout, type RegistryPin, type RegistryResolver } from './resolver'
+import { createKeyPinStore, type KeyPinStore } from './keyPinStore'
 
 /** Why a handle is not free. The server's `stale` arrives as `cooldown`. */
 export type AvailabilityReason = 'taken' | 'too_similar' | 'reserved' | 'invalid' | 'cooldown'
@@ -84,13 +85,34 @@ export function createHandleRegistryClient(args: {
   fetchImpl?: typeof fetch
   now?: () => number
   resolver?: RegistryResolver
+  pinStore?: KeyPinStore
 }): HandleRegistryClient {
   const fetchImpl = args.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
   const now = args.now ?? (() => Date.now())
   const domain = args.pinned.domain.trim().toLowerCase()
   const origin = args.pinned.url.trim().replace(/\/+$/, '')
   const resolver = args.resolver ?? createRegistryResolver({ pinned: args.pinned, fetchImpl, now })
+  const pinStore = args.pinStore ?? createKeyPinStore()
   let skewMs = 0
+
+  /**
+   * XR-071: the registry a certificate came from — pinned or foreign — is not
+   * a naming authority, so a structurally valid, self-signed certificate is
+   * only as trustworthy as "nobody has shown us a different key for this
+   * paymail before". The first key ever seen for a paymail is remembered;
+   * a later certificate for the same paymail under a DIFFERENT key is refused
+   * rather than treated as an update, because from a static check alone that
+   * is indistinguishable from a compromised or malicious registry redirecting
+   * the paymail to an attacker.
+   */
+  async function pinnedOrNull(profile: RegistryProfile): Promise<RegistryProfile | null> {
+    const known = await pinStore.get(profile.paymail)
+    if (known === null) {
+      await pinStore.set(profile.paymail, profile.identityKey)
+      return profile
+    }
+    return known.toLowerCase() === profile.identityKey.toLowerCase() ? profile : null
+  }
 
   /** Only ever from the registry we write to: a foreign host's clock is not
    * the one our `issuedAt` has to beat. */
@@ -187,7 +209,8 @@ export function createHandleRegistryClient(args: {
       if (res.status === 404) return { kind: 'none' }
       if (!res.ok) return { kind: 'failed' }
       const profile = await verifyProfileCertificate(await res.json(), { domain: target, identityKey: key })
-      return profile ? { kind: 'found', profile } : { kind: 'none' }
+      const pinned = profile ? await pinnedOrNull(profile) : null
+      return pinned ? { kind: 'found', profile: pinned } : { kind: 'none' }
     } catch {
       return { kind: 'failed' }
     }
@@ -268,7 +291,13 @@ export function createHandleRegistryClient(args: {
           })
         )
       )
-      return verified.filter((profile): profile is RegistryProfile => profile !== null)
+      const certified = verified.filter((profile): profile is RegistryProfile => profile !== null)
+      // Each row is checked against this device's own key-pin history
+      // (XR-071) — a row whose certificate verifies but whose key contradicts
+      // one already accepted for that paymail is dropped like any other row
+      // that failed verification.
+      const pinned = await Promise.all(certified.map(profile => pinnedOrNull(profile)))
+      return pinned.filter((profile): profile is RegistryProfile => profile !== null)
     },
 
     lookupProfile,
