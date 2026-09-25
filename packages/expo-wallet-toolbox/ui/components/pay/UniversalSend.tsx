@@ -1297,6 +1297,15 @@ function UniversalSendInner(
       ? { icon: 'shield-checkmark-outline', color: colors.textSecondary, text: t('pay_trust_handle_attested') }
       : { icon: 'alert-circle-outline', color: colors.warning, text: t('pay_trust_unverified') }
   const showNoteRow = isHandle || (isAddress && !asset)
+  // XR-053: a `peerpay:` link's `url` extension silently overrides normal
+  // recipient-host resolution (the overlay/advertisement lookup) with no
+  // binding to the recipient's identity. Surfacing the resolved host on the
+  // last screen before Send is the local, backwards-compatible hardening —
+  // the payer can catch a substituted/unexpected host before committing;
+  // full closure (a recipient-signed delivery receipt) is a wire-protocol
+  // change out of scope here.
+  const linkHost = target?.kind === 'handle' ? target.messageBoxUrl : undefined
+  const showHostRow = !!linkHost
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -1459,7 +1468,11 @@ function UniversalSendInner(
             </View>
 
             <View
-              style={[styles.reviewRow, !showNoteRow && styles.reviewRowLast, { borderBottomColor: colors.separator }]}
+              style={[
+                styles.reviewRow,
+                !showNoteRow && !showHostRow && styles.reviewRowLast,
+                { borderBottomColor: colors.separator }
+              ]}
             >
               <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>{t('pay_review_amount')}</Text>
               {/* No adjustsFontSizeToFit / numberOfLines: iOS's shrink floor is a fixed 4pt and in this
@@ -1473,6 +1486,24 @@ function UniversalSendInner(
                 <Text style={[styles.reviewUnit, { color: colors.textSecondary }]}>{reviewAmount.unit}</Text>
               </Text>
             </View>
+
+            {/* A link-named host is never silent (XR-053): the review screen is the
+                last stop before Send, and Send is the only confirmation this
+                narrow fix adds — no separate dialog to build or maintain. */}
+            {showHostRow && (
+              <View
+                style={[
+                  styles.reviewRow,
+                  !showNoteRow && styles.reviewRowLast,
+                  { borderBottomColor: colors.separator }
+                ]}
+              >
+                <Ionicons name="alert-circle-outline" size={16} color={colors.warning} />
+                <Text style={[styles.reviewHostText, { color: colors.warning }]} numberOfLines={2}>
+                  {t('pay_review_delivery_host')} <Text style={{ fontWeight: '600' }}>{linkHost}</Text>
+                </Text>
+              </View>
+            )}
 
             {showNoteRow && (
               <View style={[styles.reviewRow, styles.reviewRowLast]}>
@@ -1642,6 +1673,7 @@ const styles = StyleSheet.create({
   reviewAmount: { ...typography.title2, fontWeight: '700', fontVariant: ['tabular-nums'], flex: 1 },
   reviewUnit: { ...typography.headline, fontWeight: '600' },
   reviewNoteInput: { ...typography.body, flex: 1, minWidth: 0, paddingVertical: 0 },
+  reviewHostText: { ...typography.footnote, flex: 1 },
 
   // Consequence line + call to action
   consequence: {
