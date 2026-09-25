@@ -24,7 +24,7 @@
 import { getVaultDriver } from './driver'
 import { compressPubkey, type VaultInstructions } from './r1comb'
 import { randomBytes } from './random'
-import { withKeySession } from './session'
+import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
 import {
   isVaultKeyRecord,
@@ -122,6 +122,20 @@ function requirePivCode(value: string, label: 'PIN' | 'PUK'): void {
   if (!PIV_CODE.test(value)) {
     throw new VaultError('template-invalid', `PIV ${label} must be 6 to 8 ASCII digits`)
   }
+}
+
+/**
+ * XR-004: the same checkpoint enrollKey's session already runs before every
+ * mutation (assertScopeToken — wallet/chain unchanged), plus session.assertCurrent
+ * — no NEWER Vault hardware session has been acquired since this one started.
+ * A timed-out/detached session's continuation can still be running (the native
+ * calls it wraps cannot be cancelled) after the lease has already been freed
+ * for a retry; this refuses that continuation's next write instead of letting
+ * it race the retry's.
+ */
+function assertSessionCurrent(session: VaultSessionGuard, scopeToken: VaultScopeToken): void {
+  session.assertCurrent()
+  vaultStore.assertScopeToken(scopeToken)
 }
 
 /**
@@ -374,8 +388,8 @@ export async function enrollKey(args: {
   let tappedSerial: string | undefined
   const record = await withKeySession(
     driver,
-    async () => {
-      vaultStore.assertScopeToken(scopeToken)
+    async session => {
+      assertSessionCurrent(session, scopeToken)
       const info = await driver.getKeyInfo()
       if (!isVaultSerial(info.serial)) {
         throw new VaultError('template-invalid', 'YubiKey returned an invalid serial number')
@@ -447,14 +461,14 @@ export async function enrollKey(args: {
       await requireEmptyVaultSlot(info.serial, args.replaceOccupiedVaultSlot === true)
       // Everything above is read-only. This is the last guard before the
       // first irreversible token mutation.
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
       args.onPhase('personalizing')
       if (pinChange) {
         // Write intent before the irreversible APDU. If the process dies while
         // changePin is executing, the next launch must quarantine this serial
         // instead of guessing which PIN is current and spending retries.
         await vaultStore.preserveEnrollmentQuarantine(info.serial, 'pin-change-uncertain', scopeToken)
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
         try {
           await driver.changePin(info.serial, pinChange.oldPin, pinChange.newPin)
         } catch (e) {
@@ -484,7 +498,7 @@ export async function enrollKey(args: {
         try {
           const changed = await driver.verifyPin(info.serial, pin)
           requireVerifiedPin(changed, 'New PIN was not accepted')
-          vaultStore.assertScopeToken(scopeToken)
+          assertSessionCurrent(session, scopeToken)
         } catch (e) {
           throw new VaultEnrollmentPartialError('pin-changed', e, undefined, true)
         }
@@ -504,7 +518,7 @@ export async function enrollKey(args: {
         if (pinChange) throw new VaultEnrollmentPartialError('pin-changed', e, undefined, true)
         throw e
       }
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
       try {
         await driver.changePuk(info.serial, pukChange.oldPuk, pukChange.newPuk)
       } catch (e) {
@@ -541,7 +555,7 @@ export async function enrollKey(args: {
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
       }
       try {
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
       } catch (e) {
         // PIN/PUK personalization is confirmed, but no slot key exists yet.
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
@@ -555,7 +569,7 @@ export async function enrollKey(args: {
       } catch (e) {
         throw new VaultEnrollmentPartialError('puk-changed', e, undefined, true)
       }
-      vaultStore.assertScopeToken(scopeToken)
+      assertSessionCurrent(session, scopeToken)
       // Generation is authorized by the still-default management key. The key
       // is not returned as enrolled until that credential has been replaced by
       // native CSPRNG material that never crosses the JS bridge.
@@ -601,7 +615,7 @@ export async function enrollKey(args: {
         throw new VaultEnrollmentPartialError('key-generated', e, generated)
       }
       try {
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('key-generated', e, generated, true)
       }
@@ -625,13 +639,13 @@ export async function enrollKey(args: {
       args.onPhase('challenging')
       const challenge = Uint8Array.from(randomBytes(32))
       try {
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
         const { signature } = await driver.signEcdsa(info.serial, pin, Utils.toHex(challenge))
         if (!signatureProvesKey(pubkey, challenge, signature)) {
           throw new VaultError('wrong-key', 'Generated YubiKey did not prove possession of its private key')
         }
         await vaultStore.preserveEnrollmentDraft({ record: generated, assurance: 'ready' }, scopeToken)
-        vaultStore.assertScopeToken(scopeToken)
+        assertSessionCurrent(session, scopeToken)
       } catch (e) {
         throw new VaultEnrollmentPartialError('key-protected', e, generated, true)
       }
