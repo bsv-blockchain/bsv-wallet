@@ -1852,6 +1852,18 @@ function NearbyFlow({
             peerIdentityKey: session.identityKey,
             at: Date.now()
           })
+        },
+        // XR-103: the same call WalletContext already makes for the identical
+        // question (`verifyDeclinedAborts`) — asked here too so a decline
+        // that lies about a transaction already on the network is caught
+        // before the abort runs, not just surfaced afterwards.
+        checkChainStatus: async txids => {
+          if (!storage) return {}
+          const services = storage.getServices() as {
+            getStatusForTxids?: (txids: string[]) => Promise<{ results?: { txid: string; status: string }[] }>
+          }
+          if (typeof services.getStatusForTxids !== 'function') return {}
+          return services.getStatusForTxids(txids)
         }
       })
       if (controller.signal.aborted) return
