@@ -57,6 +57,10 @@ export function showAlert(options: AlertOptions): Promise<string> {
 
 const DEFAULT_BUTTONS: AlertButton[] = [{ text: 'OK', key: 'ok' }]
 
+/** Upper bound on waiting for the native modal's dismissal (iOS `onDismiss`),
+ * so an alert whose modal never presented cannot hold the queue forever. */
+const DISMISS_FALLBACK_MS = 1_000
+
 export function AlertHost() {
   const { colors } = useTheme()
   const reducedMotion = useReducedMotion()
@@ -66,6 +70,13 @@ export function AlertHost() {
   const progress = useSharedValue(0)
   const exiting = useRef(false)
   const lastHapticAlert = useRef<ActiveAlert | null>(null)
+  // The pressed key, held until the modal is gone. The caller's promise must
+  // not settle while the alert's native modal is still presented: a caller
+  // that presents native UI next (the export's share sheet) would present it
+  // ON this modal, and dismissing the modal takes it down before it can
+  // report back.
+  const pending = useRef<{ alert: ActiveAlert; key: string; fallback: ReturnType<typeof setTimeout> } | null>(null)
+  const [hiding, setHiding] = useState(false)
 
   useEffect(() => {
     enqueue = (a: ActiveAlert) => setQueue(q => [...q, a])
@@ -97,14 +108,35 @@ export function AlertHost() {
     }
   }, [current, progress, reducedMotion])
 
+  /** Resolve the dismissed alert and show the next one. Runs once per alert. */
+  const finish = useCallback(() => {
+    const done = pending.current
+    if (!done) return
+    pending.current = null
+    clearTimeout(done.fallback)
+    exiting.current = false
+    setHiding(false)
+    setQueue(q => (q[0] === done.alert ? q.slice(1) : q))
+    done.alert.resolve(done.key)
+  }, [])
+
   const dismiss = useCallback((key: string) => {
     if (!current || exiting.current) return
     exiting.current = true
-    current.resolve(key)
+    pending.current = { alert: current, key, fallback: setTimeout(finish, durations.instant + DISMISS_FALLBACK_MS) }
     progress.value = withTiming(0, { duration: durations.instant })
-    // Unmount after the exit fade completes.
-    setTimeout(() => { exiting.current = false; setQueue(q => q.slice(1)) }, durations.instant)
-  }, [current, progress])
+    // After the exit fade, hide the modal. iOS reports the native dismissal
+    // through onDismiss; Android has no such event and nothing presented over
+    // it to protect, so it finishes here.
+    setTimeout(() => {
+      if (Platform.OS === 'ios') setHiding(true)
+      else finish()
+    }, durations.instant)
+  }, [current, progress, finish])
+
+  useEffect(() => () => {
+    if (pending.current) clearTimeout(pending.current.fallback)
+  }, [])
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }))
   const cardStyle = useAnimatedStyle(() => ({
@@ -124,8 +156,9 @@ export function AlertHost() {
   return (
     <Modal
       transparent
-      visible
+      visible={!hiding}
       animationType="none"
+      onDismiss={finish}
       onRequestClose={() => dismiss('cancel')}
       statusBarTranslucent={Platform.OS === 'android'}
       navigationBarTranslucent={Platform.OS === 'android'}
