@@ -94,6 +94,48 @@ committed key and its PIN, could spend without the mnemonic.
   treats as unrun for the Vault generally; it is proven here only with
   `MockYubiKey`'s real P-256 math.
 
+### Payments and export: device report fixes (2026-09-25)
+
+- **Nearby payments failed with "generateChangeSdk error: required fee
+  error 23 !== 33"** (vendored toolbox patch). In 2.14.0,
+  `shapeSurplusChangeOutputs` split the change into outputs of exactly
+  `changeInitialSatoshis` — the basket's `minimumDesiredUTXOValue`, still the
+  legacy 32 in every wallet created before the bump — below the 40-sat dust
+  floor at 100 sat/kB. `removeDustOutputs` then stripped them without
+  returning the fee paid for their bytes, and the final check rejected the
+  plan. Split outputs are now floored at the dust floor. Hit most payments
+  funded from one coin with a small surplus, on every wallet-funded rail.
+  Regression: `__tests__/localpay/nearbyOneCoinChangeShaping.test.ts` (real
+  Wallet + StorageExpoSQLite; reproduces the exact error without the patch).
+- **"Cancel payment" refused with "The action reference was not issued by
+  this permissions manager"** (vendored toolbox patch, owner-approved).
+  `WalletPermissionsManager.abortAction` accepted only a reference still in
+  its in-memory map, which `signAction` and every restart empty, so a signed
+  noSend payment could never be cancelled, and `replayPendingAborts` could
+  never release one either. The wallet's own admin originator may now abort
+  any of its actions; every other originator keeps the issued-reference and
+  same-originator checks. The app's token-settlement and Vault abort guards
+  still run first. Regression:
+  `__tests__/context/permissionsManagerAdminAbort.test.ts`.
+- **Cancel only while a payment never left the device**
+  (`detailActionKeys.ts`, `ActivityRow`): plain Cancel is offered only when
+  there is no offline record for the payment; a parked one keeps its
+  chain-checked cancel, and any recorded hand-over (queued, posting, sent,
+  acknowledged, rejected, import_hold) offers none, since the payee may hold
+  it.
+- **"Request confirmation from recipient"** (`tx_action_request_confirmation`,
+  12 languages): the transaction details menu re-delivers an outgoing
+  message-box, Nearby or token payment over the message box (the existing
+  `onSendPaymentDetails`, which also releases a parked payment on success).
+- **Export Wallet Data hung on iOS** (`AlertCard`, `useExportWalletData`).
+  Since the unencrypted-export warning (XR-086), `showAlert` resolved on the
+  tap while the alert's native modal was still presented, so the share sheet
+  was presented on that modal and dismissed with it, and `shareAsync` never
+  settled. `showAlert` now resolves once the modal is dismissed (iOS
+  `onDismiss`; after the fade on Android; a fallback timer so a modal that
+  never presented cannot hold the queue), and the export spinner starts only
+  after the warning is confirmed.
+
 ### Vault: replace a key by adding first; locks hold 2 to 5 keys (owner rule, 2026-09-25)
 
 - **Remove needs three keys.** VaultScreen's key menu offers Remove only when
