@@ -562,6 +562,15 @@ are required — both hard-won during this package's extraction:
 
 ## Breaking changes
 
+**0.9.0:** `useWallet().logout` now returns `Promise<boolean>` (it was
+`() => void`). It resolves once teardown has finished, and resolves to
+`false` when the secrets layer could not confirm erasure. Await it before
+treating sign-out or Delete Wallet as complete. The
+`@bsv/wallet-toolbox-mobile` peer range moves to ^2.14.3, and hosts must copy
+`patches/@bsv+wallet-toolbox-mobile+2.14.3.patch` in place of the 2.14.0
+patch. 0.8.0 was never published, so hosts upgrading from 0.7.0 get its
+breaking changes below as well.
+
 **0.8.0:** three API points break. `DerivingWallet` (the interface
 `core/localpay/verify.ts`'s `verifyFramePayment` accepts) gains a required
 `getServices(): { getChainTracker(): Promise<ChainTracker> | ChainTracker }`

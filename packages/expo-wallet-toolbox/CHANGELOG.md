@@ -1,6 +1,28 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
+
+0.8.0 has release notes below but was never published to npm. Hosts upgrading
+from 0.7.0 should read both sections.
+
+### Upgrading from 0.7.0
+
+- **Peer range `@bsv/wallet-toolbox-mobile` ^2.14.3** (was ^2.14.0). Replace
+  `patches/@bsv+wallet-toolbox-mobile+2.14.0.patch` with this repo's
+  `patches/@bsv+wallet-toolbox-mobile+2.14.3.patch`; the old file does not
+  apply to 2.14.3. `patches/@bsv+sdk+2.8.2.patch` is unchanged.
+- **`useWallet().logout` returns `Promise<boolean>`** (was `() => void`). It
+  resolves once teardown finishes (monitor stop, database purge, secret
+  erasure, cache sweeps), and to `false` if the secrets layer could not
+  confirm erasure (XR-107). Await it before treating Delete Wallet or sign-out
+  as complete, and before navigating or rebuilding.
+- **Already breaking in 0.8.0** (see that section): `LocalStorageAdapter` and
+  its exports are removed; `configureToolbox` rejects a non-https,
+  non-local backup, Mandala or MessageBox origin (XR-064/XR-065); a host's own
+  `RestorePrompts` must implement `confirmReplace()`.
+- **SQLite:** new nullable `transactions.noSendExpiry*` columns and
+  `token_settlements.relevantVout` are added in place on open. No host action,
+  unless external tooling reads the database file.
 
 ### Vault v7: chain-published recovery, no salt at rest (INT-01/02/03/04/06/10, XQ-012, XR-005/006)
 
@@ -1081,6 +1103,63 @@ surfaced above, collected here for visibility:
 - Android's KEK delete-then-add cycle still does not rotate the underlying
   hardware key (a vendored `expo-secure-store` limitation, not exploitable on
   its own).
+
+### Also in this release
+
+- **TAAL and GorillaPool fallback broadcasts failed on every attempt.**
+  `createTaalBroadcastService`/`createGorillaPoolBroadcastService`
+  (`arcadeBroadcastProvider.ts`) posted to `${arcUrl}/tx`; both are standard
+  ARC and serve `POST /v1/tx`, so every call 404'd and neither ever worked as
+  a fallback when Arcade was down or rejected a transaction. Arcade (which
+  serves `/tx` at its root) is unchanged. The dead teratest TAAL host
+  (`arc-teratest.taal.com`) is dropped; `WalletContext` adds TAAL only on
+  `main` and `test`.
+- **Pairing QR signatures verify in the `@bsv/wallet-relay` 0.5.x format.**
+  `buildPairingSignatureMessage` (`walletConnectionValidation.ts`) had drifted
+  to a domained `bsv-wallet-pairing-v1|topic|backendIdentityKey|protocolID|
+  origin|expiry` transcript, while wallet-relay backends sign
+  `topic|backendIdentityKey|origin|expiry`, so every real pairing QR failed
+  with "Signature is not valid". Any future transcript change must be
+  coordinated with wallet-relay and its backends.
+- **Recovery shares print as separate jobs (XR-110, partial).**
+  `printRecoveryShares()` sent every share in one `Print.printAsync` job, so
+  one retained job (spooler, print service, printer memory) could hold enough
+  shares to rebuild the wallet. `generatePrintHTML()` takes an optional
+  `only` index, and each share is now its own one-page job. Still open (a
+  product decision): no paced, confirmed per-share flow or "1 of N"
+  disclosure, so someone watching the whole print session still sees every
+  share.
+- **A failed restore no longer leaves a reusable, partly replayed database
+  (XR-017).** The restore picked and registered its SQLite file before replay,
+  and on failure only closed it, so a later build that skipped replay could
+  reselect it and publish it as a working wallet with missing history, proofs
+  or BRC-29 receipts. `walletDbRegistry` gains `unregisterDb`; the failure
+  path unregisters and deletes the file, but only when this build created
+  it, never an existing identity's live database.
+- **A failed build-time release is retried durably, and pending-abort writes
+  no longer race (XR-088).** When `releasingOnFailure()`'s own `abortAction`
+  failed after a post-sign build error it only logged. `buildPaymentFrame`/
+  `buildTokenPaymentFrame` take an optional `queueFailedAbort`, which
+  `NearbyFlow` wires to `queuePendingAbort` as the decline path already did.
+  `queuePendingAbort` and `replayPendingAborts` now share one
+  `withPendingAbortsLock` chain, so a queue write during a replay can no
+  longer drop a new reference or resurrect one that just aborted.
+- **Vault withdrawal retry no longer treats a refused input release as
+  freed.** `abortActions`/`abortReservingOutpoints` counted an orphan as freed
+  as soon as `abortAction` was called, so `createSignableVaultTx` retried
+  against an input that was never released instead of surfacing the original
+  error. An orphan now counts only once its abort resolves.
+- **Imported held rows no longer count as queued payments (XR-085
+  follow-up).** `WalletHomeScreen`'s queued count excluded only `rejected`
+  and `parked`, so an `import_hold` row reached `<OfflineNotice>` with "Send
+  now" and "Show code". It is now excluded; Activity still shows it as "Held
+  (imported)".
+- **The legacy `Balance` component no longer shows another context's cached
+  balance (XR-058).** It cached under one global AsyncStorage key
+  (`cached_wallet_balance`) and painted it on mount before checking for an
+  active wallet. The cache is now per network
+  (`cached_wallet_balance_${selectedNetwork}`), nothing paints until a wallet
+  on that network is active, and logout also removes the old unscoped key.
 
 ## 0.8.0
 
