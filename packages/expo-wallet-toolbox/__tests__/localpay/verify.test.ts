@@ -357,7 +357,7 @@ describe('verifyFramePayment: SPV/script verification (P0-1)', () => {
 
     await expect(verifyFramePayment(wallet, frame, 'admin.com')).rejects.toMatchObject({
       name: 'FrameVerifyError',
-      kind: 'unparseable'
+      kind: 'root_unverified'
     })
   })
 })
@@ -608,6 +608,7 @@ describe('declineReasonFor', () => {
     expect(declineReasonFor('unparseable')).toBe('decode_failed')
     expect(declineReasonFor('not_mine')).toBe('session_mismatch')
     expect(declineReasonFor('not_covered')).toBe('not_covered')
+    expect(declineReasonFor('root_unverified')).toBe('root_unverified')
   })
 
   it('falls back to decode_failed for anything it does not recognise', () => {

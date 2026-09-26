@@ -29,14 +29,17 @@ export type VerifiedPayment =
 /**
  * Why a frame could not be shown to pay this device.
  *
- * Three kinds, because the payee's decline reason differs: bytes that are not a
+ * Four kinds, because the payee's decline reason differs: bytes that are not a
  * transaction are a decode problem the payer can retry from; a transaction that
- * pays someone else is a frame that was never for us; and a token frame whose
+ * pays someone else is a frame that was never for us; a token frame whose
  * evidence does not COVER its own ancestry is a frame that pays us with a coin
- * the issuer's overlay has never vouched for — retrying it will not help, and
- * the payer needs to hear which of the three it was.
+ * the issuer's overlay has never vouched for — retrying it will not help; and
+ * a transaction whose ancestry ends at a block root this device could not
+ * confirm, which is what an offline payee with no header for that block sees.
+ * That last one is fixed by the PAYEE getting online briefly, so the payer
+ * needs to hear which of the four it was.
  */
-export type FrameVerifyKind = 'unparseable' | 'not_mine' | 'not_covered'
+export type FrameVerifyKind = 'unparseable' | 'not_mine' | 'not_covered' | 'root_unverified'
 
 /**
  * The decline code the payer is told, for each way verification can fail.
@@ -50,6 +53,7 @@ export type FrameVerifyKind = 'unparseable' | 'not_mine' | 'not_covered'
 export function declineReasonFor(kind: FrameVerifyKind): DeclineReason {
   if (kind === 'not_mine') return 'session_mismatch'
   if (kind === 'not_covered') return 'not_covered'
+  if (kind === 'root_unverified') return 'root_unverified'
   return 'decode_failed'
 }
 
@@ -67,8 +71,9 @@ export class FrameVerifyError extends Error {
  *
  * `getServices` mirrors the toolbox's own `Wallet`/`WalletStorageManager`
  * shape exactly (`wallet.getServices().getChainTracker()`, not a promise of
- * an object) — the real object NearbyFlow passes in already implements this,
- * so widening the interface needs no new wiring.
+ * an object). The permissions manager does NOT implement `getServices()`, so a
+ * caller holding one must compose this from it and the storage manager, as
+ * NearbyFlow's `settleReceived` does.
  */
 export interface DerivingWallet {
   getPublicKey(args: unknown, originator?: string): Promise<{ publicKey: string }>
@@ -187,14 +192,36 @@ export async function verifyFramePayment(
     // input, which is the desired refusal for an ancestor this device cannot
     // actually verify. No feeModel is passed, so a legitimate low-fee frame
     // is never refused on fee grounds — only on SPV/script/value grounds.
+    //
+    // The tracker is wrapped only to notice a refused merkle root, so that
+    // refusal can be told apart from a bad script or value: `tx.verify`
+    // returns false for both. A refused root is what an offline payee sees
+    // for a block its header window does not reach yet (and what anyone sees
+    // for a forged proof), and the remedy — the payee going online — is
+    // different from a malformed transaction's.
     const chainTracker = await wallet.getServices().getChainTracker()
+    let rootRefused = false
+    const observed: ChainTracker = {
+      isValidRootForHeight: async (root, height) => {
+        const ok = await chainTracker.isValidRootForHeight(root, height)
+        if (!ok) rootRefused = true
+        return ok
+      },
+      currentHeight: async () => await chainTracker.currentHeight()
+    }
+    // A refused root surfaces as a throw ("Invalid merkle path"), so both exits
+    // check the flag.
+    const rootUnverified = () =>
+      new FrameVerifyError('root_unverified', 'a merkle root in the frame could not be confirmed on this device')
     let verified: boolean
     try {
-      verified = await tx.verify(chainTracker)
+      verified = await tx.verify(observed)
     } catch (e) {
+      if (rootRefused) throw rootUnverified()
       throw new FrameVerifyError('unparseable', `transaction failed SPV/script verification: ${messageOf(e)}`)
     }
     if (!verified) {
+      if (rootRefused) throw rootUnverified()
       throw new FrameVerifyError('unparseable', 'transaction failed SPV/script verification')
     }
 

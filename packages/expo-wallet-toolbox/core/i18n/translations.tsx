@@ -1028,6 +1028,10 @@ const resources = {
       local_pay_declined_decode: 'The recipient couldn’t read the payment. Nothing was sent — try again.',
       local_pay_declined_not_covered:
         'The recipient couldn’t verify this payment against the issuer’s records. Nothing was sent.',
+      local_pay_declined_root_unverified:
+        'The recipient’s device couldn’t check this payment against the blockchain. Nothing was sent. If they’re offline, they need to connect briefly, then try again.',
+      local_pay_root_unverified:
+        'This device couldn’t check the payment against the blockchain, so it wasn’t accepted. Connect to the internet briefly, then ask the payer to try again.',
       local_pay_broadcast_pending: 'Sent. This device couldn’t get it processed yet — the recipient will.',
       local_pay_any_amount: 'Any amount',
       local_pay_choose_amount: 'Choose an amount',
@@ -2011,6 +2015,10 @@ const resources = {
       local_pay_declined_save: '收款方无法保存这笔付款。本次未发送任何款项 — 请重试。',
       local_pay_declined_decode: '收款方无法读取这笔付款。本次未发送任何款项 — 请重试。',
       local_pay_declined_not_covered: '收款方无法根据发行方的记录核验这笔付款。本次未发送任何款项。',
+      local_pay_declined_root_unverified:
+        '收款方的设备无法在区块链上核验这笔付款。本次未发送任何款项。如果对方处于离线状态，请让其短暂联网后再试一次。',
+      local_pay_root_unverified:
+        '本设备无法在区块链上核验这笔付款，因此未接受。请短暂连接互联网，然后让付款方重试。',
       local_pay_broadcast_pending: '已发送。本设备暂时无法完成处理 — 收款方会完成。',
       local_pay_any_amount: '任意金额',
       local_pay_choose_amount: '选择金额',
@@ -3047,6 +3055,10 @@ const resources = {
       local_pay_declined_decode: 'प्राप्तकर्ता भुगतान पढ़ नहीं सका। कुछ भी नहीं भेजा गया — फिर से कोशिश करें।',
       local_pay_declined_not_covered:
         'प्राप्तकर्ता इस भुगतान को जारीकर्ता के रिकॉर्ड से सत्यापित नहीं कर सका। कुछ भी नहीं भेजा गया।',
+      local_pay_declined_root_unverified:
+        'प्राप्तकर्ता का डिवाइस ब्लॉकचेन से इस भुगतान की जाँच नहीं कर सका। कुछ भी नहीं भेजा गया। अगर वे ऑफ़लाइन हैं, तो उन्हें थोड़ी देर के लिए कनेक्ट होना होगा, फिर दोबारा कोशिश करें।',
+      local_pay_root_unverified:
+        'यह डिवाइस ब्लॉकचेन से भुगतान की जाँच नहीं कर सका, इसलिए इसे स्वीकार नहीं किया गया। थोड़ी देर के लिए इंटरनेट से कनेक्ट करें, फिर भुगतानकर्ता से दोबारा कोशिश करने को कहें।',
       local_pay_broadcast_pending: 'भेज दिया गया। यह डिवाइस इसे अभी प्रोसेस नहीं करा सका — प्राप्तकर्ता करा देगा।',
       local_pay_any_amount: 'कोई भी राशि',
       local_pay_choose_amount: 'राशि चुनें',
@@ -4101,6 +4113,10 @@ const resources = {
       local_pay_declined_decode: 'Quien recibe no pudo leer el pago. No se envió nada; inténtalo de nuevo.',
       local_pay_declined_not_covered:
         'Quien recibe no pudo verificar este pago con los registros del emisor. No se envió nada.',
+      local_pay_declined_root_unverified:
+        'El dispositivo del destinatario no pudo comprobar este pago en la blockchain. No se envió nada. Si no tiene conexión, debe conectarse un momento y volver a intentarlo.',
+      local_pay_root_unverified:
+        'Este dispositivo no pudo comprobar el pago en la blockchain, así que no se aceptó. Conéctate a internet un momento y pide al pagador que lo intente de nuevo.',
       local_pay_broadcast_pending: 'Enviado. Este dispositivo aún no pudo procesarlo; quien recibe lo hará.',
       local_pay_any_amount: 'Cualquier importe',
       local_pay_choose_amount: 'Elige un importe',
@@ -5168,6 +5184,10 @@ const resources = {
       local_pay_declined_decode: 'Le bénéficiaire n’a pas pu lire le paiement. Rien n’a été envoyé — réessayez.',
       local_pay_declined_not_covered:
         'Le bénéficiaire n’a pas pu vérifier ce paiement auprès des registres de l’émetteur. Rien n’a été envoyé.',
+      local_pay_declined_root_unverified:
+        'L’appareil du destinataire n’a pas pu vérifier ce paiement sur la blockchain. Rien n’a été envoyé. S’il est hors ligne, il doit se connecter un instant, puis réessayer.',
+      local_pay_root_unverified:
+        'Cet appareil n’a pas pu vérifier le paiement sur la blockchain, il n’a donc pas été accepté. Connectez-vous brièvement à Internet, puis demandez au payeur de réessayer.',
       local_pay_broadcast_pending:
         'Envoyé. Cet appareil n’a pas encore pu le faire traiter — le bénéficiaire s’en chargera.',
       local_pay_any_amount: 'Montant libre',
@@ -6176,6 +6196,10 @@ const resources = {
       local_pay_declined_decode: 'تعذّر على المستلم قراءة الدفعة. لم يُرسل أي شيء — حاول مرة أخرى.',
       local_pay_declined_not_covered:
         'تعذّر على المستلم التحقق من هذه الدفعة مقابل سجلات جهة الإصدار. لم يُرسل أي شيء.',
+      local_pay_declined_root_unverified:
+        'لم يتمكن جهاز المستلم من التحقق من هذه الدفعة على البلوكشين. لم يتم إرسال أي شيء. إذا كان غير متصل، فعليه الاتصال بالإنترنت لفترة قصيرة ثم المحاولة مرة أخرى.',
+      local_pay_root_unverified:
+        'لم يتمكن هذا الجهاز من التحقق من الدفعة على البلوكشين، لذا لم يتم قبولها. اتصل بالإنترنت لفترة قصيرة، ثم اطلب من الدافع المحاولة مرة أخرى.',
       local_pay_broadcast_pending: 'تم الإرسال. لم يتمكن هذا الجهاز من معالجتها بعد — سيقوم المستلم بذلك.',
       local_pay_any_amount: 'أي مبلغ',
       local_pay_choose_amount: 'اختر المبلغ',
@@ -7225,6 +7249,10 @@ const resources = {
       local_pay_declined_decode: 'Quem recebe não conseguiu ler o pagamento. Nada foi enviado — tente de novo.',
       local_pay_declined_not_covered:
         'Quem recebe não conseguiu verificar este pagamento nos registros do emissor. Nada foi enviado.',
+      local_pay_declined_root_unverified:
+        'O dispositivo do destinatário não conseguiu verificar este pagamento na blockchain. Nada foi enviado. Se estiver offline, tem de se ligar à internet por instantes e tentar novamente.',
+      local_pay_root_unverified:
+        'Este dispositivo não conseguiu verificar o pagamento na blockchain, por isso não foi aceite. Ligue-se à internet por instantes e peça ao pagador para tentar novamente.',
       local_pay_broadcast_pending:
         'Enviado. Este aparelho ainda não conseguiu processá-lo — quem recebe vai fazer isso.',
       local_pay_any_amount: 'Qualquer valor',
@@ -8263,6 +8291,10 @@ const resources = {
       local_pay_declined_decode: 'প্রাপক পেমেন্টটি পড়তে পারেননি। কিছুই পাঠানো হয়নি — আবার চেষ্টা করুন।',
       local_pay_declined_not_covered:
         'প্রাপক ইস্যুকারীর রেকর্ডের সঙ্গে এই পেমেন্টটি যাচাই করতে পারেননি। কিছুই পাঠানো হয়নি।',
+      local_pay_declined_root_unverified:
+        'প্রাপকের ডিভাইস ব্লকচেইনে এই পেমেন্ট যাচাই করতে পারেনি। কিছুই পাঠানো হয়নি। তারা অফলাইনে থাকলে কিছুক্ষণের জন্য সংযোগ করে আবার চেষ্টা করতে হবে।',
+      local_pay_root_unverified:
+        'এই ডিভাইস ব্লকচেইনে পেমেন্টটি যাচাই করতে পারেনি, তাই এটি গ্রহণ করা হয়নি। কিছুক্ষণের জন্য ইন্টারনেটে সংযোগ করুন, তারপর প্রেরককে আবার চেষ্টা করতে বলুন।',
       local_pay_broadcast_pending: 'পাঠানো হয়েছে। এই ডিভাইসটি এখনও প্রসেস করাতে পারেনি — প্রাপক সেটি করবেন।',
       local_pay_any_amount: 'যেকোনো পরিমাণ',
       local_pay_choose_amount: 'পরিমাণ বেছে নিন',
@@ -9312,6 +9344,10 @@ const resources = {
       local_pay_declined_decode: 'Получатель не смог прочитать платёж. Ничего не отправлено — попробуйте ещё раз.',
       local_pay_declined_not_covered:
         'Получатель не смог сверить этот платёж с записями эмитента. Ничего не отправлено.',
+      local_pay_declined_root_unverified:
+        'Устройство получателя не смогло проверить этот платёж по блокчейну. Ничего не отправлено. Если получатель офлайн, ему нужно ненадолго подключиться к интернету и повторить попытку.',
+      local_pay_root_unverified:
+        'Это устройство не смогло проверить платёж по блокчейну, поэтому он не принят. Ненадолго подключитесь к интернету и попросите плательщика повторить попытку.',
       local_pay_broadcast_pending:
         'Отправлено. Это устройство пока не смогло провести обработку — это сделает получатель.',
       local_pay_any_amount: 'Любая сумма',
@@ -10361,6 +10397,10 @@ const resources = {
       local_pay_declined_decode: 'Penerima tidak dapat membaca pembayaran. Tidak ada yang dikirim — coba lagi.',
       local_pay_declined_not_covered:
         'Penerima tidak dapat memverifikasi pembayaran ini dengan catatan penerbit. Tidak ada yang dikirim.',
+      local_pay_declined_root_unverified:
+        'Perangkat penerima tidak dapat memeriksa pembayaran ini di blockchain. Tidak ada yang dikirim. Jika penerima sedang offline, mereka perlu tersambung sebentar, lalu coba lagi.',
+      local_pay_root_unverified:
+        'Perangkat ini tidak dapat memeriksa pembayaran di blockchain, jadi pembayaran tidak diterima. Sambungkan ke internet sebentar, lalu minta pembayar mencoba lagi.',
       local_pay_broadcast_pending: 'Terkirim. Perangkat ini belum bisa memprosesnya — penerima yang akan melakukannya.',
       local_pay_any_amount: 'Jumlah bebas',
       local_pay_choose_amount: 'Pilih jumlah',
@@ -11420,6 +11460,10 @@ const resources = {
         '受取人が支払いを読み取れませんでした。何も送金されていません — もう一度お試しください。',
       local_pay_declined_not_covered:
         '受取人がこの支払いを発行者の記録と照合できませんでした。何も送金されていません。',
+      local_pay_declined_root_unverified:
+        '受取人の端末がブロックチェーンでこの支払いを確認できませんでした。何も送信されていません。受取人がオフラインの場合は、少しの間インターネットに接続してから、もう一度お試しください。',
+      local_pay_root_unverified:
+        'この端末はブロックチェーンで支払いを確認できなかったため、受け付けませんでした。少しの間インターネットに接続してから、支払者にもう一度試してもらってください。',
       local_pay_broadcast_pending: '送金しました。この端末ではまだ処理できていません — 受取人が処理します。',
       local_pay_any_amount: '金額は任意',
       local_pay_choose_amount: '金額を選択',
@@ -12489,6 +12533,10 @@ const resources = {
       local_pay_declined_decode: 'Odbiorca nie mógł odczytać płatności. Nic nie wysłano — spróbuj ponownie.',
       local_pay_declined_not_covered:
         'Odbiorca nie mógł zweryfikować tej płatności w rejestrach emitenta. Nic nie wysłano.',
+      local_pay_declined_root_unverified:
+        'Urządzenie odbiorcy nie mogło sprawdzić tej płatności w blockchainie. Nic nie zostało wysłane. Jeśli odbiorca jest offline, musi na chwilę połączyć się z internetem, a potem spróbować ponownie.',
+      local_pay_root_unverified:
+        'To urządzenie nie mogło sprawdzić płatności w blockchainie, więc jej nie przyjęło. Połącz się na chwilę z internetem, a potem poproś płacącego o ponowną próbę.',
       local_pay_broadcast_pending: 'Wysłano. To urządzenie nie zdołało jeszcze tego przetworzyć — zrobi to odbiorca.',
       local_pay_any_amount: 'Dowolna kwota',
       local_pay_choose_amount: 'Wybierz kwotę',

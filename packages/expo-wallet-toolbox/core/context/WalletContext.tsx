@@ -282,6 +282,7 @@ import { OfflineFirstChaintracks } from '../headers/OfflineFirstChaintracks'
 import { prewarmOwnRoots } from '../headers/prewarm'
 import { syncHeaders } from '../headers/syncHeaders'
 import type { HeaderSource } from '../headers/syncHeaders'
+import { startHeaderSyncTriggers } from '../headers/headerSyncTriggers'
 
 // Auto-approve accounting (misc-p2-04). Previously a single global cooldown
 // timer let multiple paired origins accidentally throttle each other while
@@ -2913,21 +2914,29 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   // both refs fresh on every reconnect, independent of that init's own
   // guarding, so it re-validates the pairing itself before syncing rather than
   // trusting it was never broken.
+  //
+  // Reconnects alone left the window hours behind on a phone that stayed on
+  // one network, which an offline payee then pays for by refusing any coin
+  // mined since. So the same pass also runs on returning to the foreground and
+  // every HEADER_SYNC_INTERVAL_MS while online (see headerSyncTriggers.ts).
   useEffect(() => {
     if (!walletBuilt) return
-    return subscribeOnline(online => {
-      if (!online) return
-      const ct = offlineChaintracksRef.current
-      const store = headerStoreRef.current
-      if (!ct || !store) return
-      if (store.chain !== toWalletChain(selectedNetwork)) return
-      void (async () => {
-        try {
-          await runHeaderSync(store, ct)
-        } catch {
-          // Best-effort. The next reconnect retries.
-        }
-      })()
+    return startHeaderSyncTriggers({
+      sync: async () => {
+        const ct = offlineChaintracksRef.current
+        const store = headerStoreRef.current
+        if (!ct || !store) return
+        if (store.chain !== toWalletChain(selectedNetwork)) return
+        await runHeaderSync(store, ct)
+      },
+      isOnline: getOnline,
+      subscribeOnline,
+      subscribeForeground: cb => {
+        const sub = AppState.addEventListener('change', next => {
+          if (next === 'active') cb()
+        })
+        return () => sub.remove()
+      }
     })
   }, [walletBuilt, selectedNetwork, runHeaderSync])
 

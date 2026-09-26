@@ -179,6 +179,7 @@ import {
   type RadioKind,
   type Session,
   FrameVerifyError,
+  declineReasonFor,
   verifyFramePayment,
   type DerivingWallet,
   type VerifiedPayment,
@@ -343,7 +344,8 @@ const DECLINE_KEYS: Record<DeclineReason, string> = {
   already_paid: 'local_pay_declined_already_paid',
   save_failed: 'local_pay_declined_save',
   decode_failed: 'local_pay_declined_decode',
-  not_covered: 'local_pay_declined_not_covered'
+  not_covered: 'local_pay_declined_not_covered',
+  root_unverified: 'local_pay_declined_root_unverified'
 }
 
 /**
@@ -978,9 +980,26 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
       //      device derives — so it is both the real number and a proof the
       //      payment is ours to spend. Nothing has latched and nothing has been
       //      written, so every failure here is a provable "queued nothing".
+      //
+      //      The permissions manager derives keys but has no `getServices()`,
+      //      and the BSV branch's SPV check needs the chain tracker from it.
+      //      Handing it over bare made every BSV frame throw a TypeError that
+      //      was declined as `decode_failed`, so the chain tracker is taken from
+      //      `storage`, the same services every other chain query here uses.
+      if (!wallet || !storage) {
+        void confirm?.(false, 'save_failed')
+        settlingRef.current = false
+        scanLatchRef.current = false
+        return
+      }
+      const derivingWallet: DerivingWallet = {
+        getPublicKey: (args, originator) =>
+          wallet.getPublicKey(args as Parameters<typeof wallet.getPublicKey>[0], originator),
+        getServices: () => storage.getServices()
+      }
       let verified: VerifiedPayment
       try {
-        verified = await verifyFramePayment(wallet as unknown as DerivingWallet, frame, adminOriginator, {
+        verified = await verifyFramePayment(derivingWallet, frame, adminOriginator, {
           // A token frame with no verifier is REFUSED, not credited: no
           // verifier is no evidence, and verify.ts enforces that. Absent on a
           // BSV request, where it is never read.
@@ -994,11 +1013,16 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
       } catch (e) {
         // `not_mine` is a frame that was never for this request; `unparseable`
         // is bytes that are not a transaction; `not_covered` is a token frame
-        // whose evidence does not cover its own ancestry. All three leave the
-        // request LIVE and unspent, exactly as a nonce mismatch does, so the
-        // genuine payer can still complete.
+        // whose evidence does not cover its own ancestry; `root_unverified` is
+        // a block this device could not confirm (offline, headers behind). All
+        // four leave the request LIVE and unspent, exactly as a nonce mismatch
+        // does, so the genuine payer can still complete.
         const kind = e instanceof FrameVerifyError ? e.kind : 'unparseable'
-        void confirm?.(false, kind === 'not_mine' ? 'session_mismatch' : 'decode_failed')
+        void confirm?.(false, declineReasonFor(kind))
+        if (kind === 'root_unverified') {
+          // Not a scanning mistake either: the remedy is on THIS device.
+          setNotice({ text: t('local_pay_root_unverified'), tone: 'warning' })
+        }
         if (kind === 'not_covered') {
           // The one refusal that is about the ISSUER's records rather than
           // about this pair of devices, so it says so instead of reading as a

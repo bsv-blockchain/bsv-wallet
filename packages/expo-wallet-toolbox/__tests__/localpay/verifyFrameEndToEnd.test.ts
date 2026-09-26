@@ -265,6 +265,6 @@ describe('verifyFramePayment: end to end against the real payer-side toolbox (P0
 
     await expect(
       verifyFramePayment(payeeWallet(payeeKeyDeriver, trackerRejectingEverything()), frame, ORIGINATOR)
-    ).rejects.toMatchObject({ name: 'FrameVerifyError', kind: 'unparseable' })
+    ).rejects.toMatchObject({ name: 'FrameVerifyError', kind: 'root_unverified' })
   })
 })
