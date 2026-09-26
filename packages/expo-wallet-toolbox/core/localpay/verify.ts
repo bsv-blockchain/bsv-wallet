@@ -67,8 +67,9 @@ export class FrameVerifyError extends Error {
  *
  * `getServices` mirrors the toolbox's own `Wallet`/`WalletStorageManager`
  * shape exactly (`wallet.getServices().getChainTracker()`, not a promise of
- * an object) — the real object NearbyFlow passes in already implements this,
- * so widening the interface needs no new wiring.
+ * an object). The permissions manager does NOT implement `getServices()`, so a
+ * caller holding one must compose this from it and the storage manager, as
+ * NearbyFlow's `settleReceived` does.
  */
 export interface DerivingWallet {
   getPublicKey(args: unknown, originator?: string): Promise<{ publicKey: string }>

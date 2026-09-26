@@ -978,9 +978,26 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
       //      device derives — so it is both the real number and a proof the
       //      payment is ours to spend. Nothing has latched and nothing has been
       //      written, so every failure here is a provable "queued nothing".
+      //
+      //      The permissions manager derives keys but has no `getServices()`,
+      //      and the BSV branch's SPV check needs the chain tracker from it.
+      //      Handing it over bare made every BSV frame throw a TypeError that
+      //      was declined as `decode_failed`, so the chain tracker is taken from
+      //      `storage`, the same services every other chain query here uses.
+      if (!wallet || !storage) {
+        void confirm?.(false, 'save_failed')
+        settlingRef.current = false
+        scanLatchRef.current = false
+        return
+      }
+      const derivingWallet: DerivingWallet = {
+        getPublicKey: (args, originator) =>
+          wallet.getPublicKey(args as Parameters<typeof wallet.getPublicKey>[0], originator),
+        getServices: () => storage.getServices()
+      }
       let verified: VerifiedPayment
       try {
-        verified = await verifyFramePayment(wallet as unknown as DerivingWallet, frame, adminOriginator, {
+        verified = await verifyFramePayment(derivingWallet, frame, adminOriginator, {
           // A token frame with no verifier is REFUSED, not credited: no
           // verifier is no evidence, and verify.ts enforces that. Absent on a
           // BSV request, where it is never read.

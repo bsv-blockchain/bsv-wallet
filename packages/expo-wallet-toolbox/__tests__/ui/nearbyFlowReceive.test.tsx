@@ -81,6 +81,8 @@ jest.mock('../../ui/components/QRScanner', () => ({
 }))
 
 const mockVerifyFramePayment = jest.fn()
+const mockChainTracker = { isValidRootForHeight: jest.fn(), currentHeight: jest.fn() }
+const mockStorageServices = { getChainTracker: jest.fn(async () => mockChainTracker) }
 const mockProcessPending = jest.fn()
 const mockSavePending = jest.fn()
 const mockMarkSessionSpent = jest.fn()
@@ -109,7 +111,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     useWalletManagers: () => ({
       managers: { permissionsManager: mockWallet() },
       adminOriginator: 'admin.test',
-      storage: { sqliteDb: {} }
+      storage: { sqliteDb: {}, getServices: () => mockStorageServices }
     }),
     localSupportsAwdl: jest.fn(() => false),
     localSupportsBle: jest.fn(() => false),
@@ -264,5 +266,24 @@ describe('NearbyFlow — payee receive verification (P1-1)', () => {
 
     expect(mockSavePending).toHaveBeenCalled()
     expect(mockMarkSessionSpent).toHaveBeenCalled()
+  })
+
+  it('hands verifyFramePayment a wallet whose getServices() reaches the chain tracker', async () => {
+    // The permissions manager has no getServices(). Passing it bare made the
+    // BSV SPV check throw a TypeError, and every nearby payment was declined
+    // as decode_failed ("the recipient couldn't read the payment").
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await scanPayerFrame(s)
+    await settle()
+
+    expect(mockVerifyFramePayment).toHaveBeenCalled()
+    const derivingWallet = mockVerifyFramePayment.mock.calls[0][0] as {
+      getPublicKey: (args: unknown, originator?: string) => Promise<{ publicKey: string }>
+      getServices: () => { getChainTracker: () => Promise<unknown> }
+    }
+    await expect(derivingWallet.getServices().getChainTracker()).resolves.toBe(mockChainTracker)
+    await expect(derivingWallet.getPublicKey({ identityKey: true }, 'admin.test')).resolves.toEqual({
+      publicKey: PAYEE_IDENTITY
+    })
   })
 })
