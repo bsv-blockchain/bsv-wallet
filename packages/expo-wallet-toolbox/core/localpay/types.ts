@@ -40,13 +40,21 @@ export type DeclineReason =
    * their own chain admitted before this payment can be accepted by anyone.
    */
   | 'not_covered'
+  /**
+   * The transaction's ancestry ends at a block whose merkle root this device
+   * could not confirm — usually an offline payee whose header window does not
+   * reach that block yet. Retryable once the PAYEE has been online long enough
+   * to sync headers. A payer on an older build shows this code verbatim.
+   */
+  | 'root_unverified'
 
 const DECLINE_REASONS: readonly string[] = [
   'session_mismatch',
   'already_paid',
   'save_failed',
   'decode_failed',
-  'not_covered'
+  'not_covered',
+  'root_unverified'
 ]
 
 export function isDeclineReason(value: string): value is DeclineReason {

@@ -286,4 +286,17 @@ describe('NearbyFlow — payee receive verification (P1-1)', () => {
       publicKey: PAYEE_IDENTITY
     })
   })
+
+  it('tells the payee to get online when a block root could not be confirmed, not that the code was wrong', async () => {
+    const { FrameVerifyError } = jest.requireActual('../../core/localpay/verify')
+    mockVerifyFramePayment.mockRejectedValue(new FrameVerifyError('root_unverified', 'no header for that block'))
+
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await scanPayerFrame(s)
+    await settle()
+
+    await waitFor(() => expect(s.getByText('local_pay_root_unverified')).toBeTruthy())
+    expect(s.queryByText('local_pay_wrong_session')).toBeNull()
+    expect(mockSavePending).not.toHaveBeenCalled()
+  })
 })

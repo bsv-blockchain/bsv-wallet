@@ -7,7 +7,8 @@
  * `OfflineFirstChaintracks`. These tests wire exactly that — a real header
  * store, a real offline-first tracker with `online()` false, and a remote that
  * fails the test if it is ever consulted — so they pin what an offline payee
- * can and cannot accept.
+ * can and cannot accept, and that a refusal for a missing header is reported
+ * as `root_unverified` ("go online briefly") rather than as a bad frame.
  */
 import { Beef, Hash, LockingScript, MerklePath, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import type { Services } from '@bsv/wallet-toolbox-mobile'
@@ -124,7 +125,7 @@ describe('verifyFramePayment — payee offline', () => {
     })
   })
 
-  it('refuses (decode_failed) when the ancestor height is not in the local header store', async () => {
+  it('refuses as root_unverified when the ancestor height is not in the local header store', async () => {
     const ancestor = minedAncestor(10_000)
     const tx = await spend(ancestor, [{ satoshis: 9_000, script: toPayee() }])
     const { wallet, tracker, remote } = await offlinePayee([])
@@ -134,7 +135,7 @@ describe('verifyFramePayment — payee offline', () => {
     warn.mockRestore()
 
     expect(err).toBeInstanceOf(FrameVerifyError)
-    expect((err as FrameVerifyError).kind).toBe('unparseable')
+    expect((err as FrameVerifyError).kind).toBe('root_unverified')
     expect(tracker.peekLastMissHeight()).toBe(ANCESTOR_HEIGHT)
     expect(remote.findHeaderForHeight).not.toHaveBeenCalled()
   })
@@ -149,6 +150,6 @@ describe('verifyFramePayment — payee offline', () => {
     const err = await verifyFramePayment(wallet, frameOf(tx), 'admin.test').catch(e => e)
     warn.mockRestore()
 
-    expect((err as FrameVerifyError).kind).toBe('unparseable')
+    expect((err as FrameVerifyError).kind).toBe('root_unverified')
   })
 })
