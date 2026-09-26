@@ -7,8 +7,9 @@
  * changeInitialSatoshis (the basket's minimumDesiredUTXOValue, 32) — below
  * the dust floor (40 at 100 sat/kB). removeDustOutputs then stripped them,
  * shrinking the transaction without returning the fee paid for their bytes,
- * and validateGenerateChangeSdkResult rejected the overpaid plan. Fixed by a
- * patch-package hunk flooring every split output at the dust floor.
+ * and validateGenerateChangeSdkResult rejected the overpaid plan. Fixed
+ * upstream in 2.14.3 (bsv-blockchain/ts-stack#638) by flooring every split
+ * output at the dust floor. Kept as a regression test.
  *
  * The case: the payer holds ONE coin worth the payment plus a small surplus
  * (about 180 sats), in a wallet whose default change basket still carries

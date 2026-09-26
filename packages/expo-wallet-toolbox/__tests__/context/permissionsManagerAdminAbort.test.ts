@@ -6,9 +6,10 @@
  * Vendored @bsv/wallet-toolbox-mobile 2.14.0's WalletPermissionsManager
  * accepted an abortAction only for a reference still in its in-memory map,
  * which signAction and every app restart empty — so the wallet could never
- * cancel (or release, via replayPendingAborts) a signed noSend payment. The
- * patch-package hunk lets the wallet's own admin originator abort any of its
- * actions; every other originator keeps the issued-reference check (I3).
+ * cancel (or release, via replayPendingAborts) a signed noSend payment.
+ * Fixed upstream in 2.14.3 (bsv-blockchain/ts-stack#638): the wallet's own
+ * admin originator may abort any of its actions; every other originator
+ * keeps the issued-reference check (I3). Kept as a regression test.
  */
 import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 

@@ -37,7 +37,7 @@
     "@bsv/react-native-localpay-transport": "*",
     "@bsv/sdk": "^2.8.2",
     "@bsv/templates": "^1.10.3",
-    "@bsv/wallet-toolbox-mobile": "^2.14.0",
+    "@bsv/wallet-toolbox-mobile": "^2.14.3",
     "@expo/vector-icons": "^15.0.3",
     "@noble/curves": "^2.3.0",
     "@react-native-async-storage/async-storage": "^2.2.0",

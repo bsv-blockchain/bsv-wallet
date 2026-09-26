@@ -96,8 +96,19 @@ committed key and its PIN, could spend without the mnemonic.
 
 ### Payments and export: device report fixes (2026-09-25)
 
+- **@bsv/wallet-toolbox-mobile 2.14.0 → 2.14.3.** 2.14.3 ships both toolbox
+  fixes below upstream (bsv-blockchain/ts-stack#638), so their patch-package
+  hunks are gone; the patch file is now
+  `patches/@bsv+wallet-toolbox-mobile+2.14.3.patch` and carries the earlier
+  hunks unchanged. Also in 2.14.1–2.14.3: `discoverByAttributes` re-filters
+  overlay results the way the overlay searched them. In 2.14.0 an `any`
+  search compared a certificate field literally named `any`, so ContactsScreen
+  network search and the Pay recipient search never showed a network result;
+  they now match whole words (stopwords ignored, no stemming), `userName`
+  exactly. The exact-spend amount moved from a symbol on the createAction
+  result to a shared WeakMap (no app code reads it).
 - **Nearby payments failed with "generateChangeSdk error: required fee
-  error 23 !== 33"** (vendored toolbox patch). In 2.14.0,
+  error 23 !== 33"** (toolbox, fixed in 2.14.3). In 2.14.0,
   `shapeSurplusChangeOutputs` split the change into outputs of exactly
   `changeInitialSatoshis` — the basket's `minimumDesiredUTXOValue`, still the
   legacy 32 in every wallet created before the bump — below the 40-sat dust
@@ -106,9 +117,9 @@ committed key and its PIN, could spend without the mnemonic.
   plan. Split outputs are now floored at the dust floor. Hit most payments
   funded from one coin with a small surplus, on every wallet-funded rail.
   Regression: `__tests__/localpay/nearbyOneCoinChangeShaping.test.ts` (real
-  Wallet + StorageExpoSQLite; reproduces the exact error without the patch).
+  Wallet + StorageExpoSQLite; reproduces the exact error on 2.14.0).
 - **"Cancel payment" refused with "The action reference was not issued by
-  this permissions manager"** (vendored toolbox patch, owner-approved).
+  this permissions manager"** (toolbox, owner-approved; fixed in 2.14.3).
   `WalletPermissionsManager.abortAction` accepted only a reference still in
   its in-memory map, which `signAction` and every restart empty, so a signed
   noSend payment could never be cancelled, and `replayPendingAborts` could
