@@ -319,7 +319,9 @@ function ActivityRowBase({
   // they are not, the remote rail is the only one that can still reach them.
   const parked = offlineStatus === 'parked'
   const canCancelParked = parked && !!action.txid && !!onCancelParked
-  const canAbort = !parked && ABORTABLE_STATUSES.has(action.status) && !!action.reference
+  // Same rule as the detail sheet (detailActionKeysFor): no plain Cancel once
+  // this device recorded handing the payment over — the payee may hold it.
+  const canAbort = offlineStatus === undefined && ABORTABLE_STATUSES.has(action.status) && !!action.reference
   // Any outgoing payment this wallet can re-deliver over the message box: both
   // rails write the payee's identity key as a label and the derivation data as
   // customInstructions, so the details can be sent again whether the payment

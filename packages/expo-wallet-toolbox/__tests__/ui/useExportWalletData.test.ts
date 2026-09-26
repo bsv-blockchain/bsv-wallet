@@ -100,13 +100,21 @@ describe('useExportWalletData', () => {
     const { result } = renderHook(() => useExportWalletData())
     expect(result.current.exporting).toBe(false)
 
+    const answer = deferred<string>()
+    mockShowAlert.mockImplementationOnce(() => answer.promise)
     let run!: Promise<void>
     act(() => {
       run = result.current.exportData()
     })
-    expect(result.current.exporting).toBe(true)
-
+    // No spinner while the warning is still waiting for an answer.
     await flush()
+    expect(result.current.exporting).toBe(false)
+
+    await act(async () => {
+      answer.resolve('export')
+    })
+    await flush()
+    expect(result.current.exporting).toBe(true)
     expect(mockExport).toHaveBeenCalledTimes(1)
     expect(mockExport).toHaveBeenCalledWith(mockStorage)
 

@@ -1571,7 +1571,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       txid: action.txid,
       reference: action.reference,
       status: action.status,
-      offlineStatus: offline?.status
+      offlineStatus: offline?.status,
+      isOutgoing: action.isOutgoing ?? action.satoshis < 0,
+      labels: action.labels
     })
     if (keys.includes('refresh')) {
       out.push({
@@ -1608,6 +1610,14 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         icon: 'close-circle-outline',
         danger: true,
         onPress: () => void onCancelParked(action.txid)
+      })
+    }
+    if (keys.includes('request-confirmation')) {
+      out.push({
+        key: 'request-confirmation',
+        label: t('tx_action_request_confirmation'),
+        icon: 'send-outline',
+        onPress: () => void onSendPaymentDetails(action.txid)
       })
     }
     return out

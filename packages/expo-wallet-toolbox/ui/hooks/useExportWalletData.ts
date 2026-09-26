@@ -37,7 +37,6 @@ export function useExportWalletData(): { exportData: () => Promise<void>; export
   const exportData = useCallback(async () => {
     if (inFlightRef.current) return
     inFlightRef.current = true
-    setExporting(true)
     try {
       const choice = await showAlert({
         title: i18n.t('export_unencrypted_title'),
@@ -48,6 +47,8 @@ export function useExportWalletData(): { exportData: () => Promise<void>; export
         ]
       })
       if (choice !== 'export') return
+      // The spinner means "exporting", not "waiting for you to answer".
+      setExporting(true)
       await exportAllWalletDatabases(storage)
     } catch (e) {
       console.warn('[exportWalletData] Export failed:', e)
