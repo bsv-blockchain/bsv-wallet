@@ -3,37 +3,24 @@
  * export at a time, a spinner flag while it runs, failures swallowed (the OS
  * share sheet being dismissed is not an error worth a red line).
  *
- * XR-086: exportAllWalletDatabases() hands a raw, unencrypted SQLite image
- * (identity keys, certificate fields, transaction/derivation metadata,
- * contacts — see core/storage/schema/createTables.ts; no mnemonic/seed lives
- * in this schema) straight to the OS share sheet. Full at-rest encryption
- * needs a product decision this row cannot make unilaterally (how would the
- * *importing* device get the passphrase/key back?) — recorded as a design
- * delta on XR-086. What this file locks is the half that needs no such
- * decision: the export's contents and risk must be made explicit, and the
- * user must be able to back out, before any bytes are written or shared.
+ * XR-086: the export is a raw, unencrypted SQLite image. The confirmation
+ * alert that used to precede it was removed by product decision, so a tap
+ * goes straight to the share sheet.
  */
 let mockStorage: unknown = { dbName: 'wallet-0f7ae53f-mainnet-1788405945.db' }
 const mockExport = jest.fn()
-let mockAlertChoice = 'export'
-const mockShowAlert = jest.fn(async (..._args: unknown[]) => mockAlertChoice)
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
-  useWallet: () => ({ storage: mockStorage }),
-  i18n: { t: (key: string) => key }
+  useWallet: () => ({ storage: mockStorage })
 }))
 jest.mock('../../ui/exportDatabases', () => ({
   exportAllWalletDatabases: (...args: unknown[]) => mockExport(...args)
 }))
-jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: (...a: unknown[]) => mockShowAlert(...a) }))
 
 import { act, renderHook } from '@testing-library/react-native'
 import { useExportWalletData } from '../../ui/hooks/useExportWalletData'
 
-/** Flushes a real macrotask, not just one microtask — `await showAlert(...)`
- * needs more than a single `Promise.resolve()` tick to actually settle and
- * run its continuation (the mock alert is itself an async function, so
- * resolving it and then firing exportData's `.then` each cost a tick). */
+/** Flushes a real macrotask so the export call and state updates settle. */
 async function flush(): Promise<void> {
   await act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -52,66 +39,19 @@ function deferred<T>() {
 
 beforeEach(() => {
   mockExport.mockReset()
-  mockShowAlert.mockClear()
-  mockAlertChoice = 'export'
   mockStorage = { dbName: 'wallet-0f7ae53f-mainnet-1788405945.db' }
 })
 
 describe('useExportWalletData', () => {
-  test('shows the unencrypted-export warning, in order, before exporting — and proceeds once confirmed', async () => {
-    const first = deferred<number>()
-    mockExport.mockReturnValueOnce(first.promise)
-    const { result } = renderHook(() => useExportWalletData())
-
-    let run!: Promise<void>
-    act(() => {
-      run = result.current.exportData()
-    })
-    await flush()
-
-    expect(mockShowAlert).toHaveBeenCalledTimes(1)
-    expect(mockExport).toHaveBeenCalledTimes(1)
-    // The warning is resolved (confirmed) strictly before the export call.
-    expect(mockShowAlert.mock.invocationCallOrder[0]).toBeLessThan(mockExport.mock.invocationCallOrder[0])
-
-    await act(async () => {
-      first.resolve(1)
-      await run
-    })
-    expect(mockExport).toHaveBeenCalledWith(mockStorage)
-  })
-
-  test('never exports, and never sets the in-flight flag, when the warning is dismissed', async () => {
-    mockAlertChoice = 'cancel'
-    const { result } = renderHook(() => useExportWalletData())
-
-    await act(async () => {
-      await result.current.exportData()
-    })
-
-    expect(mockShowAlert).toHaveBeenCalledTimes(1)
-    expect(mockExport).not.toHaveBeenCalled()
-    expect(result.current.exporting).toBe(false)
-  })
-
-  test('exports the current storage and exposes the in-flight state', async () => {
+  test('exports the current storage straight away, with no confirmation step, and exposes the in-flight state', async () => {
     const first = deferred<number>()
     mockExport.mockReturnValueOnce(first.promise)
     const { result } = renderHook(() => useExportWalletData())
     expect(result.current.exporting).toBe(false)
 
-    const answer = deferred<string>()
-    mockShowAlert.mockImplementationOnce(() => answer.promise)
     let run!: Promise<void>
     act(() => {
       run = result.current.exportData()
-    })
-    // No spinner while the warning is still waiting for an answer.
-    await flush()
-    expect(result.current.exporting).toBe(false)
-
-    await act(async () => {
-      answer.resolve('export')
     })
     await flush()
     expect(result.current.exporting).toBe(true)
@@ -122,6 +62,19 @@ describe('useExportWalletData', () => {
       first.resolve(1)
       await run
     })
+    expect(result.current.exporting).toBe(false)
+  })
+
+  test('can export again once the previous export has finished', async () => {
+    mockExport.mockResolvedValue(1)
+    const { result } = renderHook(() => useExportWalletData())
+    await act(async () => {
+      await result.current.exportData()
+    })
+    await act(async () => {
+      await result.current.exportData()
+    })
+    expect(mockExport).toHaveBeenCalledTimes(2)
     expect(result.current.exporting).toBe(false)
   })
 
@@ -136,9 +89,6 @@ describe('useExportWalletData', () => {
       a = result.current.exportData()
       b = result.current.exportData()
     })
-    // The second call must never even reach the confirmation dialog.
-    expect(mockShowAlert).toHaveBeenCalledTimes(1)
-
     await flush()
     expect(mockExport).toHaveBeenCalledTimes(1)
 
