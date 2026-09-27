@@ -20,6 +20,7 @@ import { AgentationGate } from '@/utils/AgentationGate'
 import React, { useEffect } from 'react'
 import { View, useColorScheme } from 'react-native'
 import { Stack } from 'expo-router'
+import * as SystemUI from 'expo-system-ui'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import packageJson from '../package.json'
 import {
@@ -157,6 +158,12 @@ export default function RootLayout() {
   // Root canvas — the colour every screen's own background sits on during
   // transitions, so it has to be the theme's canvas, not pure black/white.
   const backgroundColor = isDark ? '#0C0E12' : '#FFFFFF'
+  // The native root view sits behind every screen and shows during an
+  // edge-swipe back (e.g. leaving the payment-success overlay). It defaults to
+  // white, so keep it on the theme canvas too.
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(backgroundColor).catch(() => {})
+  }, [backgroundColor])
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
