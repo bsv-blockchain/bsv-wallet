@@ -55,6 +55,7 @@ import {
 } from '../../core/services/vault/transfers'
 import {
   recoverVaultFromChain,
+  recoverVaultWithKey,
   VAULT_RECOVERY_GAP_DEFAULT,
   VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS,
   type VaultChainLookup
@@ -62,6 +63,10 @@ import {
 import type { VaultWallet } from '../../core/services/vault/transfers'
 import { vaultStore } from '../../core/services/vault/vaultStore'
 import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
+import { setMockDriver } from '../../core/services/vault/driver'
+import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
+import { compressPubkey } from '../../core/services/vault/r1comb'
+import { proveHeldVaultKey } from '../../core/services/vault/VaultKeyService'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 
 jest.setTimeout(60_000)
@@ -129,6 +134,8 @@ describe('recoverVaultFromChain', () => {
   beforeEach(() => {
     chain = new FakeChain()
     wallet = new FakeVaultWallet(primaryKey, chain)
+    // Key lists live in SecureStore; one test's must not leak into the next.
+    ;(jest.requireMock('expo-secure-store') as { __clear: () => void }).__clear()
     vaultStore.clearScope()
     vaultStore.configureScope({ identityKey: SCOPE_IDENTITY, chain: CHAIN })
   })
@@ -291,6 +298,68 @@ describe('recoverVaultFromChain', () => {
 
       const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
       expect(result).toMatchObject({ found: 0, pendingConfirmation: 0, unreachable: 1 })
+    })
+  })
+
+  // A reset writes a new key to the same serial, so neither the serial nor the
+  // newest setup says which deposits the card in hand can open. The card's
+  // signature over a fresh challenge does, and proves possession at once.
+  describe('recoverVaultWithKey (tap one YubiKey)', () => {
+    const OLD_VAULT = 'cd'.repeat(32)
+    let mock: MockYubiKey
+
+    async function heldKey(serial: string, nickname: string, enrolledAt: number): Promise<VaultInstructionKey> {
+      mock.insertKey(serial)
+      const { publicKey } = await mock.generateVaultKey(serial)
+      return { serial, slot: 0x82, pubkey: compressPubkey(publicKey), nickname, enrolledAt }
+    }
+
+    const prove = (records: Parameters<typeof proveHeldVaultKey>[0]['records']) =>
+      proveHeldVaultKey({ records, getPin: async () => '123456', onPhase: () => {} })
+
+    beforeEach(() => {
+      mock = new MockYubiKey()
+      setMockDriver(mock)
+    })
+    afterEach(() => setMockDriver(null))
+
+    it('restores the deposits the tapped key opens, even when a newer setup exists, and marks it proven', async () => {
+      const held = await heldKey('YK-1', 'Primary', 1)
+      const oldSetup = [held, newMember('Backup', 2)]
+      const newerSetup = [{ ...newMember('Primary', 3), serial: 'YK-1' }, newMember('Backup', 4)]
+      const mine = await publishVaultTx(wallet, chain, 1, oldSetup, 300_000, { vaultId: OLD_VAULT, createdAt: 1 })
+      await publishVaultTx(wallet, chain, 2, newerSetup, 400_000, { createdAt: 5 })
+      mock.insertKey('YK-1')
+
+      const result = await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, prove)
+      expect(result).toMatchObject({ found: 1, unreachable: 1, problems: [], key: { serial: 'YK-1', pubkey: held.pubkey } })
+      expect(wallet.localVaultOutpoints()).toEqual([`${mine.txid}.0`])
+      const meta = await vaultStore.getMeta()
+      expect(meta?.vaultId).toBe(OLD_VAULT)
+      expect(meta?.recovery?.adoptedSerials).toEqual(['YK-1'])
+    })
+
+    it('reports key-opens-nothing when the card holds a key no deposit names, and restores nothing', async () => {
+      const replaced = await heldKey('YK-1', 'Primary', 1)
+      await publishVaultTx(wallet, chain, 1, [replaced, newMember('Backup', 2)], 300_000)
+      await mock.resetPivApplication('YK-1')
+      await heldKey('YK-1', 'Primary', 3) // the reset wrote a fresh key to the same serial
+
+      await expect(recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, prove)).rejects.toMatchObject({
+        code: 'key-opens-nothing'
+      })
+      expect(wallet.hasLocalVaultOutputs()).toBe(false)
+      expect(await vaultStore.getMeta()).toBeNull()
+    })
+
+    it('reports key-opens-nothing for a card whose serial no deposit names', async () => {
+      await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
+      await heldKey('YK-OTHER', 'Stranger', 1)
+
+      await expect(recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, prove)).rejects.toMatchObject({
+        code: 'key-opens-nothing'
+      })
+      expect(wallet.hasLocalVaultOutputs()).toBe(false)
     })
   })
 

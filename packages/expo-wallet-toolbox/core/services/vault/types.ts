@@ -79,6 +79,9 @@ export type VaultErrorCode =
   /** Restored metadata exists, but this serial has not yet passed the fresh
    * possession challenge on this device. */
   | 'key-not-adopted'
+  /** Restore-with-a-YubiKey: the tapped card holds no key that any vault
+   * deposit found on the blockchain is locked to. */
+  | 'key-opens-nothing'
   /** VAULT_MAX_ACTIVE_KEYS keys already enrolled (one more than a lock holds). */
   | 'too-many-keys'
   /** The key list holds more keys than a lock can commit (VAULT_MAX_KEYS): a

@@ -30,7 +30,7 @@ import {
   verifyVaultMetaAuthorityTag,
   type HmacCapableWallet
 } from './metaAuthority'
-import { compressPubkey, type VaultInstructions } from './r1comb'
+import { compressPubkey, type VaultInstructionKey, type VaultInstructions } from './r1comb'
 import { randomBytes } from './random'
 import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
@@ -917,6 +917,63 @@ export async function adoptVaultKey(args: {
   await vaultStore.markKeyAdopted(args.record, scopeToken)
   args.onPhase('done')
   return { ...args.record }
+}
+
+/**
+ * Find which of `records`' keys the tapped YubiKey actually holds, proving it
+ * in the same step: the card signs a fresh random challenge (PIN + touch) and
+ * the signature is checked against every key the records list for the
+ * card's serial. A reset writes a new key to the same serial, so the serial
+ * alone cannot tell setups apart; the signature can.
+ *
+ * Throws 'key-opens-nothing' when no record names this serial, or none of
+ * its keys verifies (the card's key was replaced after those deposits).
+ * PIN checks match adoptVaultKey.
+ */
+export async function proveHeldVaultKey(args: {
+  records: readonly Pick<VaultInstructions, 'keys'>[]
+  onPhase: (p: AdoptPhase) => void
+  getPin: () => Promise<string>
+  nfcMessage?: string
+}): Promise<VaultInstructionKey> {
+  const driver = getVaultDriver()
+  if (!driver) throw new VaultError('driver-unavailable')
+
+  args.onPhase('pin-check')
+  const pin = await args.getPin()
+  requirePivCode(pin, 'PIN')
+  const challenge = randomBytes(32)
+  const digest = Utils.toHex(challenge)
+
+  const held = await withKeySession(
+    driver,
+    async () => {
+      const info = await driver.getKeyInfo()
+      const named = new Map<string, VaultInstructionKey>()
+      for (const record of args.records) {
+        for (const key of record.keys) {
+          if (key.serial === info.serial && !named.has(key.pubkey)) named.set(key.pubkey, { ...key })
+        }
+      }
+      if (named.size === 0) {
+        throw new VaultError('key-opens-nothing', 'No vault deposit on the blockchain names this YubiKey')
+      }
+      if (info.pinRetries === 0) throw new VaultError('pin-locked', 'PIN is blocked')
+      const verified = await driver.verifyPin(info.serial, pin)
+      requireVerifiedPin(verified)
+
+      args.onPhase('challenging')
+      const { signature } = await driver.signEcdsa(info.serial, pin, digest)
+      for (const key of named.values()) {
+        if (signatureProvesKey(key.pubkey, Uint8Array.from(challenge), signature)) return key
+      }
+      throw new VaultError('key-opens-nothing', 'This YubiKey holds none of the keys its deposits are locked to')
+    },
+    () => args.onPhase('connecting'),
+    { nfcMessage: args.nfcMessage }
+  )
+  args.onPhase('done')
+  return held
 }
 
 export interface VerifiedVaultRecoveryOutput {

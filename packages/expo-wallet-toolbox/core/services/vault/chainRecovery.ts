@@ -41,6 +41,7 @@ import {
   commitment,
   decodeVaultInstructionsV7,
   encodeVaultInstructionsV7,
+  type VaultInstructionKey,
   type VaultInstructionsV7,
   type VaultSaltChain
 } from './r1comb'
@@ -153,7 +154,7 @@ export interface VaultChainRecoveryResult {
 
 /** An authenticated, unspent candidate, held until the scan ends so the key
  * filter can see every setup before anything is inserted. */
-interface RecoverableCandidate {
+export interface RecoverableCandidate {
   index: number
   ci: VaultInstructionsV7
   beef: number[]
@@ -331,12 +332,58 @@ export async function recoverVaultFromChain(
   chain: VaultSaltChain,
   gap: number = VAULT_RECOVERY_GAP_DEFAULT
 ): Promise<VaultChainRecoveryResult> {
+  const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
+  const live = await recoveryLiveKeys(w, adminOriginator, [...scan.ready.map(c => c.ci), ...scan.pending])
+  return await restoreScannedDeposits(w, adminOriginator, scan, live)
+}
+
+/**
+ * Restore with one tapped YubiKey (no local key list needed, and no guessing
+ * between setups): scan the chain, let `prove` pick and prove the key the
+ * card holds (proveHeldVaultKey), then restore every deposit of the setups
+ * that key belongs to. The proven key is marked adopted, so it can withdraw
+ * without a second challenge.
+ */
+export async function recoverVaultWithKey(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  prove: (records: readonly VaultInstructionsV7[]) => Promise<VaultInstructionKey>,
+  gap: number = VAULT_RECOVERY_GAP_DEFAULT
+): Promise<VaultChainRecoveryResult & { key: VaultInstructionKey }> {
+  const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
+  const records = [...scan.ready.map(c => c.ci), ...scan.pending]
+  const key = await prove(records)
+  // Every key of a setup the proven key is part of, so that setup's deposits
+  // come back whole and rebuild one consistent key list.
+  const live = new Set(
+    records.filter(r => r.keys.some(k => k.pubkey === key.pubkey)).flatMap(r => r.keys.map(k => k.pubkey))
+  )
+  const result = await restoreScannedDeposits(w, adminOriginator, scan, live)
+  if (result.found > 0) await vaultStore.markKeyAdopted(key)
+  return { ...result, key }
+}
+
+interface VaultChainScan {
+  ready: RecoverableCandidate[]
+  pending: VaultInstructionsV7[]
+  problems: VaultChainRecoveryProblem[]
+  scanned: number
+}
+
+/** The scan half of recovery: find and authenticate every candidate without
+ * inserting any. */
+async function scanVaultChain(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  gap: number
+): Promise<VaultChainScan> {
   if (!Number.isSafeInteger(gap) || gap < 1) {
     throw new VaultError('template-invalid', 'Vault recovery gap must be a positive integer')
   }
-  let found = 0
-  let pendingConfirmation = 0
-  let unreachable = 0
   const ready: RecoverableCandidate[] = []
   const pending: VaultInstructionsV7[] = []
   const problems: VaultChainRecoveryProblem[] = []
@@ -416,7 +463,22 @@ export async function recoverVaultFromChain(
     }
     k++
   }
-  const live = await recoveryLiveKeys(w, adminOriginator, [...ready.map(c => c.ci), ...pending])
+  return { ready, pending, problems, scanned }
+}
+
+/** The insert half: internalize the scanned deposits `live` can open, count
+ * the rest as unreachable, then rebuild local vault metadata. */
+async function restoreScannedDeposits(
+  w: VaultWallet,
+  adminOriginator: string,
+  scan: VaultChainScan,
+  live: ReadonlySet<string>
+): Promise<VaultChainRecoveryResult> {
+  const { ready, pending, scanned } = scan
+  const problems = [...scan.problems]
+  let found = 0
+  let pendingConfirmation = 0
+  let unreachable = 0
   for (const candidate of ready) {
     if (!opensWithAny(candidate.ci, live)) { unreachable++; continue }
     const failure = await internalizeCandidate(w, adminOriginator, candidate)

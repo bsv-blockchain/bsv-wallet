@@ -83,6 +83,7 @@ const KEY: Record<VaultErrorCode, string> = {
   'not-enough-keys': 'vault_err_not_enough_keys',
   'key-already-enrolled': 'vault_err_key_already_enrolled',
   'key-not-adopted': 'vault_err_key_not_adopted',
+  'key-opens-nothing': 'vault_err_key_opens_nothing',
   'too-many-keys': 'vault_err_too_many_keys',
   'too-many-active-keys': 'vault_err_too_many_active_keys',
   'last-keys': 'vault_err_last_keys',

@@ -28,6 +28,8 @@ const mockResolveHeldDeposit = jest.fn()
 const mockDisable = jest.fn()
 const mockDisableWhenSafe = jest.fn()
 const mockForgetUnreachable = jest.fn()
+const mockRecoverWithKey = jest.fn()
+const mockProveHeldKey = jest.fn()
 const mockRefreshCoverage = jest.fn()
 const mockExportData = jest.fn()
 let mockVaultEnabled = true
@@ -75,6 +77,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   relockVault: (...a: unknown[]) => mockRelock(...a),
   recoverVaultMetaFromOutputs: (...a: unknown[]) => mockRecover(...a),
   recoverVaultFromChain: (...a: unknown[]) => mockRecoverFromChain(...a),
+  recoverVaultWithKey: (...a: unknown[]) => mockRecoverWithKey(...a),
+  proveHeldVaultKey: (...a: unknown[]) => mockProveHeldKey(...a),
   wocChainLookup: (...a: unknown[]) => mockWocChainLookup(...a),
   adoptVaultKey: (...a: unknown[]) => mockAdopt(...a),
   beginVaultKeyRemoval: (...a: unknown[]) => mockBeginRemoval(...a),
@@ -238,6 +242,8 @@ beforeEach(() => {
   mockDisable.mockReset().mockResolvedValue(undefined)
   mockDisableWhenSafe.mockReset().mockResolvedValue(true)
   mockForgetUnreachable.mockReset().mockResolvedValue({ forgotten: 2 })
+  mockRecoverWithKey.mockReset()
+  mockProveHeldKey.mockReset()
   mockShowAlert.mockReset()
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockReadBackupAttestation.mockReset().mockResolvedValue({ v: 1, medium: 'phrase', at: 1 })
@@ -285,6 +291,77 @@ describe('not enrolled', () => {
     await act(async () => fireEvent.press(screen.getByText('vault_enroll_begin')))
     expect(screen.queryByText('WIZARD:enroll')).toBeNull()
     expect(mockRouter.push).toHaveBeenCalledWith('/auth/mnemonic?flow=backup')
+  })
+
+  describe('restore with a YubiKey', () => {
+    const openAndSubmit = async (screen: Awaited<ReturnType<typeof renderVault>>, pin = '123456') => {
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_with_key')))
+      fireEvent.changeText(screen.getByLabelText('vault_enter_pin'), pin)
+      await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+    }
+
+    test('is offered next to the plain restore, and needs NFC hardware', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      expect((await renderVault()).getByText('vault_restore_with_key')).toBeTruthy()
+    })
+
+    test('is not offered when the driver is unsupported', async () => {
+      mockSupported = false
+      mockGetMeta.mockResolvedValue(null)
+      expect((await renderVault()).queryByText('vault_restore_with_key')).toBeNull()
+    })
+
+    test('scans, proves the tapped key with the entered PIN, then reloads into the restored vault', async () => {
+      mockGetMeta.mockResolvedValueOnce(null).mockResolvedValueOnce(META2)
+      mockRecover.mockResolvedValueOnce(null)
+      const records = [{ keys: [] }]
+      mockRecoverWithKey.mockImplementationOnce(async (_w, _o, _lookup, _chain, prove) => {
+        await prove(records)
+        return { found: 1, pendingConfirmation: 0, unreachable: 0, problems: [], scanned: 3, key: { serial: 'YK-1' } }
+      })
+      mockProveHeldKey.mockResolvedValueOnce({ serial: 'YK-1' })
+      const screen = await renderVault()
+      await openAndSubmit(screen)
+
+      expect(mockRecoverWithKey).toHaveBeenCalledWith(
+        mockWallet.managers.permissionsManager,
+        'admin.test',
+        { marker: true },
+        'main',
+        expect.any(Function)
+      )
+      const proveArgs = mockProveHeldKey.mock.calls[0][0]
+      expect(proveArgs.records).toBe(records)
+      expect(await proveArgs.getPin()).toBe('123456')
+      expect(mockShowToast).toHaveBeenCalledWith('vault_restore_found:{"count":1}', { type: 'success' })
+      expect(screen.getByText('vault_balance_label')).toBeTruthy()
+    })
+
+    test('a card that opens nothing keeps the sheet open with that copy', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverWithKey.mockRejectedValueOnce(
+        new (jest.requireActual('../../core/services/vault/types').VaultError)('key-opens-nothing', 'none')
+      )
+      const screen = await renderVault()
+      await openAndSubmit(screen)
+      expect(screen.getByText('vault_err_key_opens_nothing')).toBeTruthy()
+      expect(screen.getByLabelText('vault_enter_pin')).toBeTruthy()
+    })
+
+    test('only pending deposits: says so and stays unrestored', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverWithKey.mockResolvedValueOnce({
+        found: 0,
+        pendingConfirmation: 1,
+        unreachable: 0,
+        problems: [],
+        scanned: 3,
+        key: { serial: 'YK-1' }
+      })
+      const screen = await renderVault()
+      await openAndSubmit(screen)
+      expect(screen.getByText('vault_restore_pending:{"count":1}')).toBeTruthy()
+    })
   })
 
   describe('restore from the blockchain (v7 chain recovery)', () => {

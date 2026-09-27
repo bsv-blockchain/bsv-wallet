@@ -49,6 +49,8 @@ import {
   requireAuthenticatedMeta,
   computeVaultMetaAuthorityTag,
   recoverVaultFromChain,
+  recoverVaultWithKey,
+  proveHeldVaultKey,
   wocChainLookup,
   resolveHeldVaultDeposit,
   adoptVaultKey,
@@ -295,6 +297,67 @@ export function VaultScreen() {
       setRestoringFromChain(false)
     }
   }, [pm, restoringFromChain, adminOriginator, selectedNetwork, reload])
+
+  // Restore with one tapped YubiKey: its signature picks (and proves) the
+  // setup whose deposits it can open, so nothing is guessed from setup dates.
+  const [keyRestoreOpen, setKeyRestoreOpen] = useState(false)
+  const [keyRestorePin, setKeyRestorePin] = useState('')
+  const [keyRestoreBusy, setKeyRestoreBusy] = useState(false)
+  const [keyRestorePhase, setKeyRestorePhase] = useState<'scanning' | AdoptPhase | null>(null)
+  const [keyRestoreError, setKeyRestoreError] = useState<string | null>(null)
+
+  const closeKeyRestore = useCallback(() => {
+    if (keyRestoreBusy) return
+    setKeyRestoreOpen(false)
+    setKeyRestorePin('')
+    setKeyRestorePhase(null)
+    setKeyRestoreError(null)
+  }, [keyRestoreBusy])
+
+  const runKeyRestore = useCallback(async () => {
+    if (!pm || keyRestoreBusy || !/^[0-9]{6,8}$/.test(keyRestorePin)) return
+    setKeyRestoreBusy(true)
+    setKeyRestoreError(null)
+    setKeyRestorePhase('scanning')
+    setRestoreNotice(null)
+    try {
+      const result = await recoverVaultWithKey(
+        pm as unknown as VaultWallet,
+        adminOriginator,
+        wocChainLookup(selectedNetwork),
+        selectedNetwork,
+        records =>
+          proveHeldVaultKey({
+            records,
+            getPin: async () => keyRestorePin,
+            onPhase: setKeyRestorePhase,
+            nfcMessage: t('vault_nfc_adopt_message')
+          })
+      )
+      if (result.found === 0 && result.pendingConfirmation === 0) {
+        haptics.error()
+        setKeyRestoreError(t('vault_restore_none_found'))
+        return
+      }
+      setKeyRestoreOpen(false)
+      setKeyRestorePin('')
+      if (result.found > 0) {
+        haptics.success()
+        showToast(t('vault_restore_found', { count: result.found }), { type: 'success' })
+        await reload()
+      } else {
+        setRestoreNotice(t('vault_restore_pending', { count: result.pendingConfirmation }))
+      }
+    } catch (error) {
+      haptics.error()
+      const vaultError = error instanceof VaultError ? error : undefined
+      if (vaultError?.code === 'pin-invalid') setKeyRestorePin('')
+      setKeyRestoreError(vaultErrorCopy(vaultError?.code, { count: vaultError?.retriesLeft }))
+    } finally {
+      setKeyRestoreBusy(false)
+      setKeyRestorePhase(null)
+    }
+  }, [pm, keyRestoreBusy, keyRestorePin, adminOriginator, selectedNetwork, reload])
 
   /** F-04: surface the one recovery action for a signed deposit crash left
    * behind — every other vault call keeps refusing with 'action-pending'
@@ -1120,6 +1183,18 @@ export function VaultScreen() {
                   YubiKey — that is only needed afterward, to spend. */}
               {enabled && !!pm && (
                 <View style={styles.heroNotice}>
+                  {supported && (
+                    <PressableScale
+                      haptic="tap"
+                      onPress={restoringFromChain ? undefined : () => setKeyRestoreOpen(true)}
+                      accessibilityState={{ disabled: restoringFromChain }}
+                      style={styles.secondary}
+                    >
+                      <Text style={[styles.secondaryLabel, { color: colors.accent }]}>
+                        {t('vault_restore_with_key')}
+                      </Text>
+                    </PressableScale>
+                  )}
                   <PressableScale
                     haptic="tap"
                     onPress={restoringFromChain ? undefined : () => void onRestoreFromChain()}
@@ -1143,6 +1218,64 @@ export function VaultScreen() {
             <View style={styles.heroSpacerBottom} />
           </ScrollView>
         </View>
+        <Sheet
+          visible={keyRestoreOpen}
+          onClose={keyRestoreBusy ? noop : closeKeyRestore}
+          title={t('vault_restore_with_key')}
+          fitContent
+        >
+          <View style={styles.sheetBody}>
+            <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_restore_with_key_body')}</Text>
+            <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_enter_pin')}</Text>
+            <TextInput
+              accessibilityLabel={t('vault_enter_pin')}
+              style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+              value={keyRestorePin}
+              onChangeText={text => {
+                setKeyRestoreError(null)
+                setKeyRestorePin(text)
+              }}
+              placeholder="••••••"
+              placeholderTextColor={colors.textTertiary}
+              keyboardType="number-pad"
+              secureTextEntry={keyRestorePin.length > 0}
+              maxLength={8}
+              editable={!keyRestoreBusy}
+              autoFocus
+            />
+            {keyRestoreBusy && (
+              <View style={styles.adoptionProgress}>
+                <ActivityIndicator color={colors.accent} />
+                <Text style={[styles.p, { color: colors.textSecondary }]}>
+                  {keyRestorePhase === 'scanning'
+                    ? t('vault_restore_scanning')
+                    : keyRestorePhase === 'challenging'
+                      ? t('vault_touch_when_blinks')
+                      : t('vault_reading_key')}
+                </Text>
+              </View>
+            )}
+            {keyRestoreError && <Text style={[styles.err, { color: colors.error }]}>{keyRestoreError}</Text>}
+            <PressableScale
+              haptic="confirm"
+              onPress={!keyRestoreBusy && /^[0-9]{6,8}$/.test(keyRestorePin) ? () => void runKeyRestore() : undefined}
+              accessibilityState={{ disabled: keyRestoreBusy || !/^[0-9]{6,8}$/.test(keyRestorePin) }}
+              style={[
+                styles.primary,
+                { backgroundColor: colors.accent, opacity: !keyRestoreBusy && /^[0-9]{6,8}$/.test(keyRestorePin) ? 1 : 0.5 }
+              ]}
+            >
+              {keyRestoreBusy ? (
+                <ActivityIndicator color={colors.textOnAccent} />
+              ) : (
+                <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_continue')}</Text>
+              )}
+            </PressableScale>
+            <PressableScale onPress={keyRestoreBusy ? undefined : closeKeyRestore} style={styles.secondary}>
+              <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_cancel')}</Text>
+            </PressableScale>
+          </View>
+        </Sheet>
         <BiometricAdvisoryModal
           visible={showBiometricAdvisory}
           loading={creatingWallet}

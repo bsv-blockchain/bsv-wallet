@@ -545,6 +545,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'Discard it',
       vault_err_enrollment_partial:
         'YubiKey setup stopped after changing the key. Follow the retry instructions; this key was not added to the Vault.',
+      vault_restore_with_key: 'Restore with a YubiKey',
+      vault_restore_with_key_body: 'Enter this YubiKey\'s PIN, then tap it when asked. The wallet finds your vault deposits on the blockchain and restores the ones this key can open.',
+      vault_err_key_opens_nothing: 'This YubiKey can\'t open any vault deposit on the blockchain. Its key was probably replaced by a later setup.',
       vault_err_key_not_adopted:
         'Verify possession of this recovered YubiKey on this device before using it to withdraw.',
       vault_err_too_many_inputs:
@@ -1580,6 +1583,9 @@ const resources = {
       vault_resume_draft_confirm_use: '使用此密钥',
       vault_resume_draft_confirm_discard: '丢弃它',
       vault_err_enrollment_partial: '更改密钥后 YubiKey 设置中断。请按照重试说明操作；此密钥尚未添加到保险库。',
+      vault_restore_with_key: '用 YubiKey 恢复',
+      vault_restore_with_key_body: '输入这把 YubiKey 的 PIN，然后在提示时轻触它。钱包会在区块链上查找你的保险库存入，并恢复这把密钥能打开的那些。',
+      vault_err_key_opens_nothing: '这把 YubiKey 无法打开区块链上的任何保险库存入。它的密钥很可能已被之后的一次设置替换。',
       vault_err_key_not_adopted: '在使用这把恢复的 YubiKey 提款前，请先在此设备上验证您持有它。',
       vault_err_too_many_inputs:
         '一次要移动的保险库存入过多。请先提取较小金额 — 每次提取也会整合保险库，下次即可移动更多。',
@@ -2601,6 +2607,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'इसे अस्वीकार करें',
       vault_err_enrollment_partial:
         'कुंजी बदलने के बाद YubiKey सेटअप रुक गया। पुनः प्रयास के निर्देश मानें; यह कुंजी वॉल्ट में नहीं जोड़ी गई।',
+      vault_restore_with_key: 'YubiKey से पुनर्स्थापित करें',
+      vault_restore_with_key_body: 'इस YubiKey का PIN दर्ज करें, फिर कहे जाने पर इसे टैप करें। वॉलेट ब्लॉकचेन पर आपकी वॉल्ट जमा ढूँढता है और वे जमा पुनर्स्थापित करता है जिन्हें यह कुंजी खोल सकती है।',
+      vault_err_key_opens_nothing: 'यह YubiKey ब्लॉकचेन पर किसी भी वॉल्ट जमा को नहीं खोल सकती। इसकी कुंजी शायद बाद के किसी सेटअप ने बदल दी है।',
       vault_err_key_not_adopted:
         'इस पुनर्प्राप्त YubiKey से निकासी करने से पहले इस डिवाइस पर इसका कब्ज़ा सत्यापित करें।',
       vault_err_too_many_inputs:
@@ -3657,6 +3666,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'Descartarla',
       vault_err_enrollment_partial:
         'La configuración de la YubiKey se detuvo después de modificarla. Sigue las instrucciones para reintentar; la llave no se añadió a la caja fuerte.',
+      vault_restore_with_key: 'Restaurar con una YubiKey',
+      vault_restore_with_key_body: 'Introduce el PIN de esta YubiKey y acércala cuando se te pida. La billetera busca tus depósitos de la caja fuerte en la blockchain y restaura los que esta llave puede abrir.',
+      vault_err_key_opens_nothing: 'Esta YubiKey no puede abrir ningún depósito de la caja fuerte en la blockchain. Probablemente su llave fue reemplazada por una configuración posterior.',
       vault_err_key_not_adopted:
         'Verifica que tienes esta YubiKey recuperada en este dispositivo antes de usarla para retirar.',
       vault_err_too_many_inputs:
@@ -4727,6 +4739,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'La rejeter',
       vault_err_enrollment_partial:
         "La configuration de la YubiKey s'est arrêtée après sa modification. Suivez les instructions de nouvel essai ; cette clé n'a pas été ajoutée au coffre.",
+      vault_restore_with_key: 'Restaurer avec une YubiKey',
+      vault_restore_with_key_body: 'Saisissez le code PIN de cette YubiKey, puis approchez-la lorsque cela vous est demandé. Le portefeuille retrouve vos dépôts du coffre sur la blockchain et restaure ceux que cette clé peut ouvrir.',
+      vault_err_key_opens_nothing: 'Cette YubiKey ne peut ouvrir aucun dépôt du coffre sur la blockchain. Sa clé a probablement été remplacée lors d’une configuration ultérieure.',
       vault_err_key_not_adopted:
         'Vérifiez que vous possédez cette YubiKey récupérée sur cet appareil avant de l’utiliser pour retirer.',
       vault_err_too_many_inputs:
@@ -5763,6 +5778,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'تجاهله',
       vault_err_enrollment_partial:
         'توقف إعداد YubiKey بعد تغيير المفتاح. اتبع تعليمات إعادة المحاولة؛ لم تتم إضافة هذا المفتاح إلى الخزنة.',
+      vault_restore_with_key: 'الاستعادة باستخدام YubiKey',
+      vault_restore_with_key_body: 'أدخل رمز PIN لمفتاح YubiKey هذا، ثم المسه عند الطلب. تبحث المحفظة عن إيداعات الخزنة على البلوكتشين وتستعيد تلك التي يستطيع هذا المفتاح فتحها.',
+      vault_err_key_opens_nothing: 'لا يستطيع مفتاح YubiKey هذا فتح أي إيداع للخزنة على البلوكتشين. على الأرجح استُبدل مفتاحه في إعداد لاحق.',
       vault_err_key_not_adopted: 'تحقق من حيازتك لمفتاح YubiKey المستعاد على هذا الجهاز قبل استخدامه للسحب.',
       vault_err_too_many_inputs:
         'عدد إيداعات الخزنة كبير جداً للنقل مرة واحدة. اسحب مبلغاً أصغر أولاً — كل عملية سحب تدمج الخزنة أيضاً، فيصبح بالإمكان نقل مبلغ أكبر لاحقاً.',
@@ -6801,6 +6819,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'Descartá-la',
       vault_err_enrollment_partial:
         'A configuração da YubiKey parou depois de alterá-la. Siga as instruções para tentar novamente; esta chave não foi adicionada ao cofre.',
+      vault_restore_with_key: 'Restaurar com uma YubiKey',
+      vault_restore_with_key_body: 'Introduza o PIN desta YubiKey e aproxime-a quando lhe for pedido. A carteira procura os seus depósitos do cofre na blockchain e restaura os que esta chave consegue abrir.',
+      vault_err_key_opens_nothing: 'Esta YubiKey não consegue abrir nenhum depósito do cofre na blockchain. A chave dela foi provavelmente substituída por uma configuração posterior.',
       vault_err_key_not_adopted:
         'Verifique que possui esta YubiKey recuperada neste dispositivo antes de usá-la para retirar.',
       vault_err_too_many_inputs:
@@ -7854,6 +7875,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'এটি বাতিল করুন',
       vault_err_enrollment_partial:
         'কী পরিবর্তনের পরে YubiKey সেটআপ থেমেছে। পুনরায় চেষ্টার নির্দেশ মানুন; এই কী ভল্টে যোগ হয়নি।',
+      vault_restore_with_key: 'YubiKey দিয়ে পুনরুদ্ধার করুন',
+      vault_restore_with_key_body: 'এই YubiKey-এর PIN লিখুন, তারপর বলা হলে এটি ট্যাপ করুন। ওয়ালেট ব্লকচেইনে আপনার ভল্টের জমাগুলো খুঁজে পায় এবং এই কী যেগুলো খুলতে পারে সেগুলো পুনরুদ্ধার করে।',
+      vault_err_key_opens_nothing: 'এই YubiKey ব্লকচেইনে ভল্টের কোনো জমাই খুলতে পারে না। সম্ভবত পরের কোনো সেটআপে এর কী বদলে গেছে।',
       vault_err_key_not_adopted:
         'উত্তোলনে ব্যবহার করার আগে এই ডিভাইসে উদ্ধার করা YubiKey আপনার কাছে আছে তা যাচাই করুন।',
       vault_err_too_many_inputs:
@@ -8905,6 +8929,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'Отклонить',
       vault_err_enrollment_partial:
         'Настройка YubiKey остановилась после изменения ключа. Следуйте указаниям для повтора; этот ключ не добавлен в хранилище.',
+      vault_restore_with_key: 'Восстановить с помощью YubiKey',
+      vault_restore_with_key_body: 'Введите PIN этого YubiKey, затем приложите его, когда появится запрос. Кошелёк найдёт пополнения хранилища в блокчейне и восстановит те, которые открывает этот ключ.',
+      vault_err_key_opens_nothing: 'Этот YubiKey не открывает ни одного пополнения хранилища в блокчейне. Вероятно, его ключ заменила более поздняя настройка.',
       vault_err_key_not_adopted:
         'Подтвердите владение восстановленным YubiKey на этом устройстве перед выводом средств с его помощью.',
       vault_err_too_many_inputs:
@@ -9961,6 +9988,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'Buang kunci ini',
       vault_err_enrollment_partial:
         'Penyiapan YubiKey berhenti setelah kunci diubah. Ikuti petunjuk mencoba lagi; kunci ini belum ditambahkan ke brankas.',
+      vault_restore_with_key: 'Pulihkan dengan YubiKey',
+      vault_restore_with_key_body: 'Masukkan PIN YubiKey ini, lalu tempelkan saat diminta. Dompet mencari setoran brankas Anda di blockchain dan memulihkan setoran yang dapat dibuka oleh kunci ini.',
+      vault_err_key_opens_nothing: 'YubiKey ini tidak dapat membuka setoran brankas mana pun di blockchain. Kuncinya kemungkinan telah diganti oleh penyiapan berikutnya.',
       vault_err_key_not_adopted:
         'Verifikasi kepemilikan YubiKey yang dipulihkan ini di perangkat sebelum menggunakannya untuk penarikan.',
       vault_err_too_many_inputs:
@@ -11017,6 +11047,9 @@ const resources = {
       vault_resume_draft_confirm_discard: '破棄する',
       vault_err_enrollment_partial:
         '鍵の変更後に YubiKey の設定が停止しました。再試行の案内に従ってください。この鍵は保管庫に追加されていません。',
+      vault_restore_with_key: 'YubiKey で復元',
+      vault_restore_with_key_body: 'この YubiKey の PIN を入力し、求められたらタップしてください。ウォレットがブロックチェーン上の保管庫の入金を探し、この鍵で開けられるものを復元します。',
+      vault_err_key_opens_nothing: 'この YubiKey では、ブロックチェーン上のどの保管庫の入金も開けられません。その後のセットアップで鍵が置き換えられた可能性があります。',
       vault_err_key_not_adopted: '復元したこの YubiKey を出金に使う前に、このデバイスで所持を確認してください。',
       vault_err_too_many_inputs:
         '一度に移動する保管庫の預入が多すぎます。まず少額を引き出してください — 引き出しごとに保管庫が統合されるため、次はより多く移動できます。',
@@ -12085,6 +12118,9 @@ const resources = {
       vault_resume_draft_confirm_discard: 'Odrzuć go',
       vault_err_enrollment_partial:
         'Konfiguracja YubiKey zatrzymała się po zmianie klucza. Postępuj zgodnie z instrukcją ponowienia; klucz nie został dodany do sejfu.',
+      vault_restore_with_key: 'Przywróć za pomocą YubiKey',
+      vault_restore_with_key_body: 'Wpisz PIN tego klucza YubiKey, a potem przyłóż go, gdy pojawi się prośba. Portfel znajdzie wpłaty sejfu w blockchainie i przywróci te, które ten klucz może otworzyć.',
+      vault_err_key_opens_nothing: 'Ten klucz YubiKey nie otwiera żadnej wpłaty sejfu w blockchainie. Jego klucz prawdopodobnie zastąpiła późniejsza konfiguracja.',
       vault_err_key_not_adopted:
         'Zweryfikuj posiadanie odzyskanego klucza YubiKey na tym urządzeniu przed użyciem go do wypłaty.',
       vault_err_too_many_inputs:
