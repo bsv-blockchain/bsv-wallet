@@ -16,10 +16,9 @@
  * never the miss-counting path.
  *
  * Also exercises outputStatus's "'unknown' is never trusted as unspent"
- * invariant: any response shape other than an explicit "spentTxId is null"
- * must fall through to 'unknown', not 'unspent' — a missing or renamed field
- * must never fail open into treating an already-spent output as
- * internalizable.
+ * invariant: any response shape other than an explicit unspent row must fall
+ * through to 'unknown', not 'unspent' — a missing or renamed field must never
+ * fail open into treating an already-spent output as internalizable.
  *
  * And proves (exclusion-crypto review, low severity): address derivation
  * goes through @bsv/sdk's own public Utils.toBase58Check, not a hand-rolled
@@ -59,9 +58,11 @@ jest.mock('expo-secure-store', () => ({
 import { P2PKH, Utils } from '@bsv/sdk'
 import { wocChainLookup } from '../../core/services/vault/chainRecovery'
 
-function mockFetchOnce(handler: (url: string) => { json?: unknown; text?: string; ok?: boolean; status?: number }) {
-  global.fetch = jest.fn(async (url: string) => {
-    const r = handler(String(url))
+function mockFetchOnce(
+  handler: (url: string, init?: RequestInit) => { json?: unknown; text?: string; ok?: boolean; status?: number }
+) {
+  global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+    const r = handler(String(url), init)
     return {
       ok: r.ok ?? true,
       status: r.status ?? (r.ok === false ? 503 : 200),
@@ -86,6 +87,16 @@ describe('wocChainLookup.transactionsForLockingScript', () => {
     expect(result.sort()).toEqual(['aa'.repeat(32), 'bb'.repeat(32)].sort())
   })
 
+  // Live WhatsOnChain (checked 2026-09-27): an address with no history answers
+  // 404 "Not Found", never an empty 200 array. Throwing here made every scan
+  // index past the last deposit a "problem", so each mainnet restore died with
+  // chain-scan-failed after 20 of them.
+  it('returns [] for a 404, which is how WhatsOnChain answers an address with no history', async () => {
+    mockFetchOnce(() => ({ ok: false, status: 404, text: 'Not Found' }))
+    const result = await wocChainLookup('main').transactionsForLockingScript(MARKER_SCRIPT_HEX)
+    expect(result).toEqual([])
+  })
+
   it('THROWS — never silently returns [] — on a non-2xx response (rate limit / 5xx / maintenance)', async () => {
     mockFetchOnce(() => ({ ok: false, status: 503 }))
     await expect(wocChainLookup('test').transactionsForLockingScript(MARKER_SCRIPT_HEX)).rejects.toThrow()
@@ -101,31 +112,57 @@ describe('wocChainLookup.transactionsForLockingScript', () => {
   })
 })
 
+// Live WhatsOnChain (checked 2026-09-27): GET /tx/{txid}/out/{vout} answers
+// 502 for every output, so the old check could never report 'unspent' and no
+// deposit was ever restorable. POST /utxos/spent answers each outpoint
+// explicitly: no spentIn when unspent, spentIn with the spender when spent,
+// and spentIn.status "Unknown UTXO" for an output that does not exist.
 describe('wocChainLookup.outputStatus — "unknown" is never trusted as unspent', () => {
   const OUTPOINT = { txid: 'a'.repeat(64), vout: 0 }
+  const row = (extra: Record<string, unknown>) => [{ utxo: { txid: OUTPOINT.txid, vout: OUTPOINT.vout }, error: '', ...extra }]
 
-  it("'unspent' only for an explicit null spentTxId", async () => {
-    mockFetchOnce(() => ({ ok: true, json: { spentTxId: null } }))
+  it('asks the bulk spent-status endpoint for exactly this outpoint', async () => {
+    let seen: { url: string; init?: RequestInit } | undefined
+    mockFetchOnce((url, init) => {
+      seen = { url, init }
+      return { ok: true, json: row({}) }
+    })
+    await wocChainLookup('main').outputStatus(OUTPOINT)
+    expect(seen?.url).toBe('https://api.whatsonchain.com/v1/bsv/main/utxos/spent')
+    expect(seen?.init?.method).toBe('POST')
+    expect(JSON.parse(String(seen?.init?.body))).toEqual({ utxos: [OUTPOINT] })
+  })
+
+  it("'unspent' only for a row with no spentIn and no error", async () => {
+    mockFetchOnce(() => ({ ok: true, json: row({}) }))
     expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unspent')
   })
 
-  it("'spent' for a real spentTxId", async () => {
-    mockFetchOnce(() => ({ ok: true, json: { spentTxId: 'b'.repeat(64) } }))
+  it("'spent' when spentIn names the spending transaction", async () => {
+    mockFetchOnce(() => ({ ok: true, json: row({ spentIn: { txid: 'b'.repeat(64), vin: 0, status: 'confirmed' } }) }))
     expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('spent')
   })
 
-  it("falls to 'unknown' — NOT 'unspent' — when the field is simply absent (an unrecognized response shape)", async () => {
-    mockFetchOnce(() => ({ ok: true, json: { someOtherField: true } }))
+  it("'unknown' — NOT 'spent' or 'unspent' — for an output WhatsOnChain does not know", async () => {
+    mockFetchOnce(() => ({
+      ok: true,
+      json: row({ spentIn: { txid: OUTPOINT.txid, vin: 0, status: 'Unknown UTXO' } })
+    }))
     expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
   })
 
-  it("falls to 'unknown' — NOT 'unspent' — for a non-object body", async () => {
-    mockFetchOnce(() => ({ ok: true, json: null }))
+  it("'unknown' for a row carrying an error", async () => {
+    mockFetchOnce(() => ({ ok: true, json: row({ error: 'something went wrong' }) }))
     expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
   })
 
-  it("falls to 'unknown' — NOT 'unspent' — for an empty-string spentTxId", async () => {
-    mockFetchOnce(() => ({ ok: true, json: { spentTxId: '' } }))
+  it("'unknown' when the answer is not about this outpoint", async () => {
+    mockFetchOnce(() => ({ ok: true, json: [{ utxo: { txid: 'c'.repeat(64), vout: 0 }, error: '' }] }))
+    expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
+  })
+
+  it("'unknown' for an unrecognized body", async () => {
+    mockFetchOnce(() => ({ ok: true, json: { spentTxId: null } }))
     expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
   })
 

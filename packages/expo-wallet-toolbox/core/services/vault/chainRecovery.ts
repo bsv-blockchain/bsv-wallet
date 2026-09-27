@@ -438,16 +438,11 @@ export async function recoverVaultFromChain(
  * patterns already used by core/pay/rails/address.ts (getUtxosForAddress,
  * the `/tx/{txid}/beef` fetch, parseWocBeefBody's response-shape checks).
  *
- * NEEDS-NETWORK / UNPROVEN (see the security-review residuals this module
- * closes): the exact WhatsOnChain response shapes assumed here —
- * `/address/{address}/history` returning `[{tx_hash, ...}]`, and
- * `/tx/{hash}/out/{index}` carrying a `spentTxId`/`spent` field for the
- * unspent-vs-spent check — were not exercised against the live API as part
- * of this change (no network access in this environment). This must be
- * smoke-tested against real WhatsOnChain responses (mainnet and testnet)
- * before being relied on in production; recoverVaultFromChain's own logic
- * is unit-tested against an in-memory VaultChainLookup fake and does not
- * depend on these HTTP details being exactly right.
+ * Response shapes checked against live mainnet WhatsOnChain on 2026-09-27:
+ * `/address/{address}/history` answers `[{tx_hash, height}]`, or 404 "Not
+ * Found" for an address with no history; `/tx/{txid}/out/{index}` answers
+ * 502 for every output, so spent status comes from `POST /utxos/spent`,
+ * which returns one row per outpoint (see outputStatus).
  */
 export function wocChainLookup(chain: AppChain): VaultChainLookup {
   const woc: WocConfig = wocConfigFor(chain)
@@ -472,6 +467,9 @@ export function wocChainLookup(chain: AppChain): VaultChainLookup {
         throw new Error('wocChainLookup: marker script is not a recognizable P2PKH script')
       }
       const response = await fetch(`${base}/address/${address}/history`)
+      // WhatsOnChain's answer for an address that has never been used: a
+      // genuine miss, not a failure.
+      if (response.status === 404) return []
       if (!response.ok) {
         throw new Error(`wocChainLookup: address history request failed (HTTP ${response.status})`)
       }
@@ -502,18 +500,35 @@ export function wocChainLookup(chain: AppChain): VaultChainLookup {
 
     async outputStatus(outpoint: { txid: string; vout: number }): Promise<'unspent' | 'spent' | 'unknown'> {
       // Fail-safe default is 'unknown' (never trusted as unspent — see this
-      // file's VaultChainLookup interface doc). ONLY a well-formed response
-      // that explicitly carries `spentTxId: null` counts as confirmed
-      // unspent; any other shape — including the field simply being ABSENT,
-      // which `=== undefined` would previously conflate with an explicit
-      // null — falls through to 'unknown' rather than failing open.
+      // file's VaultChainLookup interface doc). The row must be about this
+      // exact outpoint. Unspent is a clean row with no `spentIn`; spent is a
+      // `spentIn` naming another transaction; an unknown output comes back as
+      // `spentIn.status: "Unknown UTXO"` echoing its own txid, which is
+      // neither.
       try {
-        const response = await fetch(`${base}/tx/${outpoint.txid}/out/${outpoint.vout}`)
+        const response = await fetch(`${base}/utxos/spent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ utxos: [{ txid: outpoint.txid, vout: outpoint.vout }] })
+        })
         if (!response.ok) return 'unknown'
-        const info = await response.json()
-        if (info === null || typeof info !== 'object' || !('spentTxId' in info)) return 'unknown'
-        if (info.spentTxId === null) return 'unspent'
-        if (typeof info.spentTxId === 'string' && info.spentTxId.length > 0) return 'spent'
+        const body = await response.json()
+        const row = Array.isArray(body) && body.length === 1 ? body[0] : undefined
+        if (row === null || typeof row !== 'object') return 'unknown'
+        if (row.utxo?.txid !== outpoint.txid || row.utxo?.vout !== outpoint.vout) return 'unknown'
+        if (row.error !== '') return 'unknown'
+        const spentIn = row.spentIn
+        if (spentIn === undefined) return 'unspent'
+        if (
+          spentIn !== null &&
+          typeof spentIn === 'object' &&
+          typeof spentIn.txid === 'string' &&
+          /^[0-9a-fA-F]{64}$/.test(spentIn.txid) &&
+          spentIn.txid.toLowerCase() !== outpoint.txid.toLowerCase() &&
+          spentIn.status !== 'Unknown UTXO'
+        ) {
+          return 'spent'
+        }
         return 'unknown'
       } catch {
         return 'unknown'
