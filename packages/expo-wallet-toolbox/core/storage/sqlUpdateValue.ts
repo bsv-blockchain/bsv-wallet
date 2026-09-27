@@ -27,7 +27,10 @@ export function bytesForColumn(column: string, value: unknown): Uint8Array | und
 /** Map an update field to a SQL bind, or omit it from the SET clause. */
 export function sqlBindValue(table: string, column: string, value: unknown): SqlBindResult {
   if (value === undefined) {
-    if (table === 'outputs' && column === 'spentBy') {
+    // Both mean "cleared" to their writers: spentBy on a released reservation,
+    // basketId on relinquishOutput and on a synced relinquish arriving through
+    // EntityOutput.mergeExisting. Skipping either left the old value in place.
+    if (table === 'outputs' && (column === 'spentBy' || column === 'basketId')) {
       return { omit: false, value: null }
     }
     return { omit: true }
