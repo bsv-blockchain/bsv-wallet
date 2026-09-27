@@ -425,3 +425,22 @@ describe('XR-011: restoreOnImport replays appData', () => {
     expect(storage.setKeyValue).toHaveBeenCalledWith('pay_receive_issued_dates', JSON.stringify(['2026-08-01']))
   })
 })
+
+describe('restoreOnImport: coin validation is best-effort', () => {
+  it('keeps a completed restore when validateRestoredCoins throws', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const validateRestoredCoins = jest.fn(async () => {
+      throw Object.assign(new Error('UTXO review was inconclusive for 7 of 7 candidates; no outputs were changed.'), {
+        code: 'WERR_UTXO_REVIEW_INCONCLUSIVE'
+      })
+    })
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const client = fakeClient([summary({ deviceId: NEW_DEVICE, generation: 1 })], {
+      [`${NEW_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('only'), 'main')]
+    })
+    const result = await restoreOnImport(deps({ storage: fakeStorage(), client, validateRestoredCoins }))
+    expect(validateRestoredCoins).toHaveBeenCalled()
+    expect(result.restored).toBe(true)
+    warn.mockRestore()
+  })
+})

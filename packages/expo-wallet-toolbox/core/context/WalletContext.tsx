@@ -1484,7 +1484,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 // call below) so the post-restore pass actually sees the replayed coins.
                 validateRestoredCoins: async () => {
                   await addLocalStorage()
-                  await wallet.reviewSpendableOutputs(false, true)
+                  try {
+                    await wallet.reviewSpendableOutputs(false, true)
+                  } catch (error) {
+                    // The replay above is complete. This review is a best-effort
+                    // spendability pass: when it cannot finish (an inconclusive
+                    // provider, a lookup outage, anything) the toolbox has changed
+                    // nothing, and the monitor and Check Wallet in Settings rerun it.
+                    // A restore must never be lost to it, so give the user everything
+                    // that was recovered and only log.
+                    console.warn('[WalletContext] Post-restore coin review did not finish; kept restore:', error)
+                  }
                 }
               })
               console.log(

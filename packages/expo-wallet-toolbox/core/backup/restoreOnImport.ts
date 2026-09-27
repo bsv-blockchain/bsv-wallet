@@ -62,8 +62,9 @@ export interface RestoreOnImportDeps {
   onProgress?: (chunks: number, total: number) => void
   /**
    * After a successful replay, check that restored coins are still spendable.
-   * Awaited before this function resolves. Absent on a no-backup / unconfigured
-   * import, which has nothing to validate.
+   * Awaited before this function resolves, but best-effort: a failure is logged and
+   * never fails the restore (the monitor and Check Wallet rerun it). Absent on a
+   * no-backup / unconfigured import, which has nothing to validate.
    */
   validateRestoredCoins?: () => Promise<void>
 }
@@ -169,7 +170,13 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
   }
 
   if (deps.validateRestoredCoins) {
-    await deps.validateRestoredCoins()
+    try {
+      await deps.validateRestoredCoins()
+    } catch (error) {
+      // Everything above is already replayed; uncertainty about some coins must not
+      // take the recovered history away from the user.
+      console.warn('[backup] post-restore coin validation did not finish; restore kept:', error)
+    }
   }
 
   return {
