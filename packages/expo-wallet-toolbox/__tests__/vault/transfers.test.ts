@@ -109,6 +109,7 @@ import {
   disableVaultWhenSafe,
   estimateRelockFee,
   finalizeVaultKeyRemoval,
+  forgetUnreachableVaultOutputs,
   getVaultBalance,
   getVaultKeyCoverage,
   orphanedIfRemoved,
@@ -207,6 +208,7 @@ let wallet: VaultWallet & {
   encrypt: jest.Mock
   decrypt: jest.Mock
   internalizeAction: jest.Mock
+  relinquishOutput: jest.Mock
 }
 
 beforeEach(async () => {
@@ -280,7 +282,8 @@ beforeEach(async () => {
     getPublicKey: jest.fn(async (args: any) => await CRYPTO_WALLET.getPublicKey(args)),
     encrypt: jest.fn(async (args: any) => await CRYPTO_WALLET.encrypt(args)),
     decrypt: jest.fn(async (args: any) => await CRYPTO_WALLET.decrypt(args)),
-    internalizeAction: jest.fn(async () => ({ accepted: true as const }))
+    internalizeAction: jest.fn(async () => ({ accepted: true as const })),
+    relinquishOutput: jest.fn(async () => ({ relinquished: true as const }))
   }
   ;(isVaultEnabled as jest.Mock).mockReturnValue(true)
   ;(isVaultAvailable as jest.Mock).mockReset().mockReturnValue(true)
@@ -4035,7 +4038,8 @@ describe('authenticated vault scans', () => {
       outputs: 3,
       stale: 2,
       missingKeys: [PUB_B],
-      removedKeyOutputs: 1
+      removedKeyOutputs: 1,
+      unreachableOutputs: 0
     })
     expect(wallet.listOutputs.mock.calls[0][0]).toMatchObject({
       basket: VAULT_BASKET,
@@ -4057,7 +4061,68 @@ describe('authenticated vault scans', () => {
       outputs: 3,
       stale: 3,
       missingKeys: [PUB_A, PUB_B, KEY_C.pubkey],
-      removedKeyOutputs: 0
+      removedKeyOutputs: 0,
+      unreachableOutputs: 0
+    })
+  })
+
+  // An earlier setup of the same YubiKeys writes fresh PIV keys, so its
+  // deposits carry pubkeys the current list has never held: nothing opens them.
+  it('counts outputs no current key can open', async () => {
+    const fixtures = [
+      vaultFixture(100_000, [PUB_A, PUB_B]),
+      vaultFixture(100_000, [removedPubkey]),
+      vaultFixture(100_000, [PUB_A, removedPubkey])
+    ]
+    await seedVault(fixtures, [KEY_A, KEY_B])
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toMatchObject({ outputs: 3, unreachableOutputs: 1 })
+  })
+
+  describe('forgetUnreachableVaultOutputs', () => {
+    it('relinquishes only the outputs no current key can open', async () => {
+      const live = vaultFixture(100_000, [PUB_A, PUB_B])
+      const dead = vaultFixture(200_000, [removedPubkey])
+      const partly = vaultFixture(300_000, [PUB_A, removedPubkey])
+      await seedVault([live, dead, partly], [KEY_A, KEY_B])
+
+      expect(await forgetUnreachableVaultOutputs(wallet, ADMIN)).toEqual({ forgotten: 1 })
+      expect(wallet.relinquishOutput).toHaveBeenCalledTimes(1)
+      expect(wallet.relinquishOutput).toHaveBeenCalledWith({ basket: VAULT_BASKET, output: dead.outpoint }, ADMIN)
+    })
+
+    it('keeps an output only the key mid-removal can open', async () => {
+      const removing = vaultFixture(100_000, [removedPubkey])
+      await seedVault([removing], [KEY_A, KEY_B])
+      const pendingKey = { serial: 'YK-removing', slot: 0x82, pubkey: removedPubkey, nickname: 'Removing', enrolledAt: 3 }
+      await vaultStore.setMeta(
+        {
+          v: 6,
+          vaultId: VAULT_ID,
+          revision: 2,
+          createdAt: 1,
+          keys: [KEY_A, KEY_B],
+          pendingRemoval: { key: pendingKey, keyIndex: 2, startedAt: 1, revision: 2, state: 'prepared' }
+        },
+        undefined,
+        tagFor
+      )
+
+      expect(await forgetUnreachableVaultOutputs(wallet, ADMIN)).toEqual({ forgotten: 0 })
+      expect(wallet.relinquishOutput).not.toHaveBeenCalled()
+    })
+
+    it('refuses without a vault set up on this device', async () => {
+      serveVaultOutputs([vaultFixture(100_000, [removedPubkey])])
+      await expect(forgetUnreachableVaultOutputs(wallet, ADMIN)).rejects.toMatchObject({ code: 'not-enrolled' })
+      expect(wallet.relinquishOutput).not.toHaveBeenCalled()
+    })
+
+    // A forged key list would make every real deposit look unreachable.
+    it('refuses when the local key list does not authenticate', async () => {
+      serveVaultOutputs([vaultFixture(100_000, [removedPubkey])])
+      await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 2, createdAt: 1, keys: [KEY_A, KEY_B] })
+      await expect(forgetUnreachableVaultOutputs(wallet, ADMIN)).rejects.toMatchObject({ code: 'template-invalid' })
+      expect(wallet.relinquishOutput).not.toHaveBeenCalled()
     })
   })
 

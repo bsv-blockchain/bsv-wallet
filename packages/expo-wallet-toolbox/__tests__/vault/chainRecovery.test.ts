@@ -61,6 +61,7 @@ import {
 } from '../../core/services/vault/chainRecovery'
 import type { VaultWallet } from '../../core/services/vault/transfers'
 import { vaultStore } from '../../core/services/vault/vaultStore'
+import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 
 jest.setTimeout(60_000)
@@ -94,13 +95,13 @@ async function publishVaultTx(
   k: number,
   keys: VaultInstructionKey[],
   satoshis: number,
-  opts: { confirmed?: boolean } = {}
+  opts: { confirmed?: boolean; vaultId?: string; createdAt?: number } = {}
 ): Promise<{ txid: string; vaultOutputIndex: number }> {
   const saltKeyId = String(k)
   const salt = await deriveVaultSalt(wallet, ADMIN, saltKeyId, keys.map(key => key.serial))
   const lockingScript = buildLock({ commitments: keys.map(key => commitment(key.pubkey, salt)), saltHex64: salt })
   const v7: VaultInstructionsV7 = {
-    v: 7, type: 'R1C', saltKeyId, chain: CHAIN, vaultId: VAULT_ID, revision: 1, createdAt: 1, keys
+    v: 7, type: 'R1C', saltKeyId, chain: CHAIN, vaultId: opts.vaultId ?? VAULT_ID, revision: 1, createdAt: opts.createdAt ?? 1, keys
   }
   const customInstructions = encodeVaultInstructionsV7(v7)
   const markerScript = await deriveVaultMarkerScript(wallet, ADMIN, CHAIN, saltKeyId)
@@ -246,6 +247,51 @@ describe('recoverVaultFromChain', () => {
     expect(result.found).toBe(0)
     expect(result.problems).toEqual([])
     expect(result.pendingConfirmation).toBe(0)
+  })
+
+  // Each setup of the same YubiKeys writes fresh PIV keys and a new vaultId,
+  // so a deposit from an earlier setup authenticates (same wallet root) but
+  // no key the owner still holds can open it.
+  describe('deposits from an earlier setup', () => {
+    const OLD_KEYS = [newMember('Primary', 1), newMember('Backup', 2)]
+    const OLD_VAULT = 'cd'.repeat(32)
+
+    async function seedCurrentMeta(): Promise<void> {
+      const scope = vaultStore.getScope()!
+      await vaultStore.setMeta(
+        { v: 6, vaultId: VAULT_ID, revision: 1, createdAt: 5, keys: KEYS },
+        undefined,
+        next => computeVaultMetaAuthorityTag(wallet, ADMIN, next, scope)
+      )
+    }
+
+    it('restores only the deposits a key on this device can open', async () => {
+      await publishVaultTx(wallet, chain, 1, OLD_KEYS, 300_000, { vaultId: OLD_VAULT, createdAt: 1 })
+      const current = await publishVaultTx(wallet, chain, 2, KEYS, 400_000, { createdAt: 5 })
+      await seedCurrentMeta()
+
+      const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+      expect(result).toMatchObject({ found: 1, unreachable: 1, problems: [] })
+      expect(wallet.localVaultOutpoints()).toEqual([`${current.txid}.0`])
+    })
+
+    it('with no key list on this device, restores the newest setup and skips older ones', async () => {
+      await publishVaultTx(wallet, chain, 1, OLD_KEYS, 300_000, { vaultId: OLD_VAULT, createdAt: 1 })
+      const current = await publishVaultTx(wallet, chain, 2, KEYS, 400_000, { createdAt: 5 })
+
+      const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+      expect(result).toMatchObject({ found: 1, unreachable: 1, problems: [] })
+      expect(wallet.localVaultOutpoints()).toEqual([`${current.txid}.0`])
+      expect((await vaultStore.getMeta())?.vaultId).toBe(VAULT_ID)
+    })
+
+    it('never reports an earlier setup\'s unconfirmed deposit as pending', async () => {
+      await publishVaultTx(wallet, chain, 1, OLD_KEYS, 300_000, { vaultId: OLD_VAULT, createdAt: 1, confirmed: false })
+      await seedCurrentMeta()
+
+      const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+      expect(result).toMatchObject({ found: 0, pendingConfirmation: 0, unreachable: 1 })
+    })
   })
 
   it('rejects a non-positive-integer gap', async () => {

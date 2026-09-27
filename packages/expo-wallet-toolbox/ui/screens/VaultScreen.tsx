@@ -74,6 +74,7 @@ import {
   getBackupUrl,
   disableVault,
   disableVaultWhenSafe,
+  forgetUnreachableVaultOutputs,
   getOnline,
   generateMnemonicWallet,
   backupAttestation,
@@ -275,14 +276,17 @@ export function VaultScreen() {
         wocChainLookup(selectedNetwork),
         selectedNetwork
       )
+      // An earlier setup's deposits authenticate but no key held now opens
+      // them; say so, or they read as "nothing found" and look lost.
+      const skipped = result.unreachable > 0 ? ` ${t('vault_restore_unreachable', { count: result.unreachable })}` : ''
       if (result.found > 0) {
         haptics.success()
-        setRestoreNotice(t('vault_restore_found', { count: result.found }))
+        setRestoreNotice(t('vault_restore_found', { count: result.found }) + skipped)
         await reload()
       } else if (result.pendingConfirmation > 0) {
-        setRestoreNotice(t('vault_restore_pending', { count: result.pendingConfirmation }))
+        setRestoreNotice(t('vault_restore_pending', { count: result.pendingConfirmation }) + skipped)
       } else {
-        setRestoreNotice(t('vault_restore_none_found'))
+        setRestoreNotice((skipped ? '' : t('vault_restore_none_found')) + skipped.trim())
       }
     } catch (error) {
       haptics.error()
@@ -773,6 +777,41 @@ export function VaultScreen() {
   )
 
   // ── disable ─────────────────────────────────────────────────────────
+  const [forgetting, setForgetting] = useState(false)
+  const confirmForgetUnreachable = useCallback(async () => {
+    const count = coverage?.unreachableOutputs ?? 0
+    if (!pm || forgetting || count === 0) return
+    const choice = await showAlert({
+      title: t('vault_forget_unreachable_title'),
+      message: t('vault_forget_unreachable_message', { count }),
+      buttons: [
+        { text: t('vault_forget_unreachable_confirm'), key: 'confirm', style: 'destructive' },
+        { text: t('vault_cancel'), key: 'cancel', style: 'cancel' }
+      ]
+    })
+    if (choice !== 'confirm') return
+    setForgetting(true)
+    try {
+      const { forgotten } = await forgetUnreachableVaultOutputs(pm as unknown as VaultWallet, adminOriginator)
+      haptics.success()
+      showToast(t('vault_forget_unreachable_done', { count: forgotten }), { type: 'success' })
+    } catch (e) {
+      console.error('[vault] could not forget unreachable deposits:', e instanceof Error ? e.message : e)
+      haptics.error()
+      const code = e instanceof VaultError ? e.code : undefined
+      if (code === 'action-pending') setActionPendingNotice(true)
+      await showAlert({
+        title: t('vault_forget_unreachable_title'),
+        message: vaultErrorCopy(code),
+        buttons: [{ text: t('vault_ok'), key: 'ok' }]
+      })
+    } finally {
+      setForgetting(false)
+      refresh()
+      refreshCoverage()
+    }
+  }, [coverage, pm, forgetting, adminOriginator, refresh, refreshCoverage])
+
   const confirmDisable = useCallback(async () => {
     // Refuse while funds remain: disabling forgets the key list, and with it
     // the only in-app way to sign for those outputs.
@@ -1240,18 +1279,31 @@ export function VaultScreen() {
           header={keySectionHeader}
           footer={t('vault_footnote')}
         >
-          {coverage && coverage.missingKeys.length > 0 && (
+          {/* Deposits no key on the list can open (an earlier setup's) are
+              counted once, here: a re-lock cannot reach them, so they are kept
+              out of the two re-lock badges below. */}
+          {coverage && coverage.unreachableOutputs > 0 && (
             <ListRow
-              label={t('vault_badge_missing', { count: coverage.stale, nickname: missingNames })}
+              label={t('vault_badge_unreachable', { count: coverage.unreachableOutputs })}
+              icon="close-circle-outline"
+              iconColor={colors.error}
+              showChevron={false}
+              onPress={forgetting ? undefined : () => void confirmForgetUnreachable()}
+              trailing={forgetting ? <ActivityIndicator size="small" /> : undefined}
+            />
+          )}
+          {coverage && coverage.missingKeys.length > 0 && coverage.stale > coverage.unreachableOutputs && (
+            <ListRow
+              label={t('vault_badge_missing', { count: coverage.stale - coverage.unreachableOutputs, nickname: missingNames })}
               icon="alert-circle-outline"
               iconColor={colors.warning}
               showChevron={false}
               onPress={openGenericRelock}
             />
           )}
-          {coverage && coverage.removedKeyOutputs > 0 && (
+          {coverage && coverage.removedKeyOutputs > coverage.unreachableOutputs && (
             <ListRow
-              label={t('vault_badge_removed', { count: coverage.removedKeyOutputs })}
+              label={t('vault_badge_removed', { count: coverage.removedKeyOutputs - coverage.unreachableOutputs })}
               icon="alert-circle-outline"
               iconColor={colors.warning}
               showChevron={false}

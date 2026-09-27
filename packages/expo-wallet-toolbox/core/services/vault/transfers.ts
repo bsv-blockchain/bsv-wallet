@@ -267,6 +267,9 @@ export interface VaultKeyCoverage {
   missingKeys: string[]
   /** Outputs committed to a pubkey no longer in meta — "still open to a removed key". */
   removedKeyOutputs: number
+  /** Outputs no current key (nor one mid-removal) can open — typically a
+   * deposit from an earlier setup, whose PIV keys the reset replaced. */
+  unreachableOutputs: number
 }
 
 /**
@@ -327,6 +330,8 @@ export interface VaultWallet {
   decrypt(args: unknown, originator: string): Promise<{ plaintext: number[] }>
   /** Insert a chain-recovered v7 output into the admin vault basket. */
   internalizeAction(args: unknown, originator: string): Promise<{ accepted: true }>
+  /** Drop an output no current key can open from the admin vault basket. */
+  relinquishOutput(args: unknown, originator: string): Promise<{ relinquished: true }>
   /** Network status lookup (mirrors storage/methods/processOfflineActions.ts'
    * networkAlreadyHas). NEW-07: no longer consulted by resolveHeldVaultDeposit
    * — a bare 'mined'/'known' answer from this is an unauthenticated claim,
@@ -3293,16 +3298,18 @@ export async function getVaultKeyCoverage(w: VaultWallet, adminOriginator: strin
   const meta = await vaultStore.getMeta(scopeToken)
   const current = meta?.keys.map(k => k.pubkey) ?? []
   const currentSet = new Set(current)
+  const live = meta ? liveVaultPubkeys(meta) : undefined
   const scan = await reduceVerifiedVaultOutputs(
     w,
     adminOriginator,
-    () => ({ stale: 0, removedKeyOutputs: 0, missing: new Set<string>() }),
+    () => ({ stale: 0, removedKeyOutputs: 0, unreachableOutputs: 0, missing: new Set<string>() }),
     (coverage, output) => {
       const set = new Set(output.ci.keys.map(key => key.pubkey))
       const same = set.size === currentSet.size && current.every(pk => set.has(pk))
       if (!same) coverage.stale++
       for (const pk of current) if (!set.has(pk)) coverage.missing.add(pk)
       if (output.ci.keys.some(key => !currentSet.has(key.pubkey))) coverage.removedKeyOutputs++
+      if (live && !opensWithAny(output.ci, live)) coverage.unreachableOutputs++
     },
     scopeToken
   )
@@ -3311,8 +3318,63 @@ export async function getVaultKeyCoverage(w: VaultWallet, adminOriginator: strin
     outputs: scan.outputs,
     stale: scan.state.stale,
     missingKeys: current.filter(pk => scan.state.missing.has(pk)), // meta order, each once
-    removedKeyOutputs: scan.state.removedKeyOutputs
+    removedKeyOutputs: scan.state.removedKeyOutputs,
+    unreachableOutputs: scan.state.unreachableOutputs
   }
+}
+
+/** Pubkeys this vault may still hold: every active key, plus one whose
+ * removal has not finished (it can still open the outputs awaiting re-lock). */
+export function liveVaultPubkeys(meta: Pick<VaultMeta, 'keys' | 'pendingRemoval'>): Set<string> {
+  const live = new Set(meta.keys.map(k => k.pubkey))
+  if (meta.pendingRemoval) live.add(meta.pendingRemoval.key.pubkey)
+  return live
+}
+
+/** Whether any of `live` is among the keys an output's record commits to. */
+export function opensWithAny(ci: Pick<VaultInstructions, 'keys'>, live: ReadonlySet<string>): boolean {
+  return ci.keys.some(key => live.has(key.pubkey))
+}
+
+/**
+ * Relinquish every vault output no live key can open (liveVaultPubkeys) —
+ * the deposits an earlier setup of the same YubiKeys left behind, since each
+ * setup writes fresh PIV keys. Deleting the rows locally is not enough: the
+ * encrypted backup replays them on the next restore. relinquishOutput bumps
+ * the row's updated_at, so the next backup push carries the cleared basket
+ * and a later replay merges it in over the older copy.
+ *
+ * The key list must authenticate first (requireAuthenticatedMeta): a forged
+ * list would make every real deposit look unreachable. Relinquishing only
+ * hides an output from the basket; the coins stay on-chain, and
+ * recoverVaultFromChain skips them for the same reason.
+ */
+export async function forgetUnreachableVaultOutputs(
+  w: VaultWallet,
+  adminOriginator: string
+): Promise<{ forgotten: number }> {
+  const scopeToken = vaultStore.captureScopeToken()
+  return await withVaultMutation(async () => {
+    assertVaultScope(scopeToken)
+    const stored = await vaultStore.getMeta(scopeToken)
+    if (!stored) throw new VaultError('not-enrolled', 'Vault is not set up')
+    const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, stored)
+    const live = liveVaultPubkeys(meta)
+    const { state: unreachable } = await reduceVerifiedVaultOutputs(
+      w,
+      adminOriginator,
+      () => [] as string[],
+      (outpoints, output) => {
+        if (!opensWithAny(output.ci, live)) outpoints.push(output.outpoint)
+      },
+      scopeToken
+    )
+    for (const outpoint of unreachable) {
+      assertVaultScope(scopeToken)
+      await w.relinquishOutput({ basket: VAULT_BASKET, output: outpoint }, adminOriginator)
+    }
+    return { forgotten: unreachable.length }
+  })
 }
 
 /**

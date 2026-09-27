@@ -25,6 +25,15 @@
  * whose transaction the injected lookup reports as not-yet-confirmed is
  * reported back as `pendingConfirmation`, never thrown and never silently
  * dropped, and does not consume a gap-scan slot.
+ *
+ * KEY FILTER: every setup of the same YubiKeys writes fresh PIV keys (and a
+ * new vaultId), yet its deposits still authenticate here — the marker and
+ * descriptor derive from the wallet root, not the keys. So a scan also finds
+ * deposits from earlier setups that nothing the owner still holds can open.
+ * Only candidates sharing a key with the live set are internalized: this
+ * device's authenticated key list when it has one, otherwise every key of the
+ * newest setup the scan found (latest createdAt). The rest are counted as
+ * `unreachable`, never inserted.
  */
 import { Transaction, Utils } from '@bsv/sdk'
 import {
@@ -36,8 +45,12 @@ import {
   type VaultSaltChain
 } from './r1comb'
 import { VaultError } from './types'
+import { vaultStore } from './vaultStore'
+import { verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
 import {
   VAULT_BASKET,
+  liveVaultPubkeys,
+  opensWithAny,
   deriveVaultMarkerScript,
   deriveVaultSalt,
   decryptVaultDescriptorPlaintext,
@@ -117,6 +130,9 @@ export interface VaultChainRecoveryProblem {
 export interface VaultChainRecoveryResult {
   /** Indices newly inserted into 'admin vault' by this run. */
   found: number
+  /** Authenticated, unspent deposits no live key can open (an earlier setup's)
+   * — skipped rather than inserted. See this file's KEY FILTER note. */
+  unreachable: number
   /** Marker history existed and decrypted to a valid, unspent v7 record, but
    * the lookup could not yet show it as confirmed — the honest zero-conf
    * scope cut (this file's docstring). Not a miss: does not consume a
@@ -135,17 +151,25 @@ export interface VaultChainRecoveryResult {
   scanned: number
 }
 
+/** An authenticated, unspent candidate, held until the scan ends so the key
+ * filter can see every setup before anything is inserted. */
+interface RecoverableCandidate {
+  index: number
+  ci: VaultInstructionsV7
+  beef: number[]
+  vaultOutputIndex: number
+}
+
 type CandidateOutcome =
-  | { kind: 'found' }
-  | { kind: 'pending' }
+  | ({ kind: 'ready' } & RecoverableCandidate)
+  | { kind: 'pending'; ci: VaultInstructionsV7 }
   | { kind: 'spent' }
   | { kind: 'problem'; reason: string }
 
 /**
- * Locate, authenticate and (if usable) internalize ONE candidate marker
- * transaction for scan index `k`. Never throws — every failure mode is a
- * distinct, reported outcome, per this module's "found-but-unusable is not
- * a miss" contract.
+ * Locate and authenticate ONE candidate marker transaction for scan index
+ * `k`. Never throws — every failure mode is a distinct, reported outcome, per
+ * this module's "found-but-unusable is not a miss" contract.
  */
 async function recoverOneCandidate(
   w: VaultWallet,
@@ -228,17 +252,24 @@ async function recoverOneCandidate(
   if (status === 'spent') return { kind: 'spent' }
   if (status === 'unknown') return { kind: 'problem', reason: 'could not confirm the vault output is unspent' }
 
-  if (!entry.confirmed) return { kind: 'pending' }
+  if (!entry.confirmed) return { kind: 'pending', ci }
+  return { kind: 'ready', index: k, ci, beef: entry.beef, vaultOutputIndex }
+}
 
+async function internalizeCandidate(
+  w: VaultWallet,
+  adminOriginator: string,
+  candidate: RecoverableCandidate
+): Promise<string | undefined> {
   try {
     await w.internalizeAction({
-      tx: entry.beef,
+      tx: candidate.beef,
       outputs: [{
-        outputIndex: vaultOutputIndex,
+        outputIndex: candidate.vaultOutputIndex,
         protocol: 'basket insertion',
         insertionRemittance: {
           basket: VAULT_BASKET,
-          customInstructions: encodeVaultInstructionsV7(ci),
+          customInstructions: encodeVaultInstructionsV7(candidate.ci),
           tags: ['vault']
         }
       }],
@@ -246,9 +277,38 @@ async function recoverOneCandidate(
       seekPermission: false
     }, adminOriginator)
   } catch (e) {
-    return { kind: 'problem', reason: `could not internalize the recovered output: ${(e as Error)?.message ?? 'unknown error'}` }
+    return `could not internalize the recovered output: ${(e as Error)?.message ?? 'unknown error'}`
   }
-  return { kind: 'found' }
+  return undefined
+}
+
+/**
+ * The keys a recovered deposit must share one of (KEY FILTER). A local key
+ * list counts only when its authority tag verifies: a forged list would
+ * otherwise hide every real deposit. Without one, the newest setup found
+ * wins — an older setup's PIV keys were replaced by the reset that made it.
+ */
+async function recoveryLiveKeys(
+  w: VaultWallet,
+  adminOriginator: string,
+  records: readonly VaultInstructionsV7[]
+): Promise<ReadonlySet<string>> {
+  const scopeToken = vaultStore.captureScopeToken()
+  const scope = vaultStore.getScope()
+  const meta = await vaultStore.getMeta(scopeToken)
+  if (meta && scope) {
+    const tag = await vaultStore.getMetaTag(scopeToken)
+    if (await verifyVaultMetaAuthorityTag(w as unknown as HmacCapableWallet, adminOriginator, meta, scope, tag)) {
+      return liveVaultPubkeys(meta)
+    }
+  }
+  if (records.length === 0) return new Set()
+  const newest = records.reduce((a, b) => (b.createdAt > a.createdAt ? b : a))
+  return new Set(
+    records
+      .filter(r => r.vaultId === newest.vaultId && r.createdAt === newest.createdAt)
+      .flatMap(r => r.keys.map(key => key.pubkey))
+  )
 }
 
 /**
@@ -276,6 +336,9 @@ export async function recoverVaultFromChain(
   }
   let found = 0
   let pendingConfirmation = 0
+  let unreachable = 0
+  const ready: RecoverableCandidate[] = []
+  const pending: VaultInstructionsV7[] = []
   const problems: VaultChainRecoveryProblem[] = []
   let consecutiveMisses = 0
   // Bounds the loop independently of consecutiveMisses — see
@@ -344,8 +407,8 @@ export async function recoverVaultFromChain(
       }
       inspected++
       const outcome = await recoverOneCandidate(w, adminOriginator, lookup, chain, k, markerScriptHex, txid)
-      if (outcome.kind === 'found') { found++; break }
-      else if (outcome.kind === 'pending') { pendingConfirmation++; break }
+      if (outcome.kind === 'ready') { ready.push(outcome); break }
+      else if (outcome.kind === 'pending') { pending.push(outcome.ci); break }
       else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
       // 'spent': a superseded output (already withdrawn or re-locked) —
       // entirely normal, silently skipped; keep inspecting other candidates
@@ -353,8 +416,19 @@ export async function recoverVaultFromChain(
     }
     k++
   }
+  const live = await recoveryLiveKeys(w, adminOriginator, [...ready.map(c => c.ci), ...pending])
+  for (const candidate of ready) {
+    if (!opensWithAny(candidate.ci, live)) { unreachable++; continue }
+    const failure = await internalizeCandidate(w, adminOriginator, candidate)
+    if (failure) problems.push({ index: candidate.index, reason: failure })
+    else found++
+  }
+  for (const ci of pending) {
+    if (opensWithAny(ci, live)) pendingConfirmation++
+    else unreachable++
+  }
   await recoverVaultMetaFromOutputs(w, adminOriginator)
-  return { found, pendingConfirmation, problems, scanned }
+  return { found, pendingConfirmation, unreachable, problems, scanned }
 }
 
 // ───────────────────────── default WhatsOnChain implementation ─────────────

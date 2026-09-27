@@ -27,6 +27,7 @@ const mockFinalizeRemoval = jest.fn()
 const mockResolveHeldDeposit = jest.fn()
 const mockDisable = jest.fn()
 const mockDisableWhenSafe = jest.fn()
+const mockForgetUnreachable = jest.fn()
 const mockRefreshCoverage = jest.fn()
 const mockExportData = jest.fn()
 let mockVaultEnabled = true
@@ -70,6 +71,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   getBackupUrl: () => mockBackupUrl,
   disableVault: (...a: unknown[]) => mockDisable(...a),
   disableVaultWhenSafe: (...a: unknown[]) => mockDisableWhenSafe(...a),
+  forgetUnreachableVaultOutputs: (...a: unknown[]) => mockForgetUnreachable(...a),
   relockVault: (...a: unknown[]) => mockRelock(...a),
   recoverVaultMetaFromOutputs: (...a: unknown[]) => mockRecover(...a),
   recoverVaultFromChain: (...a: unknown[]) => mockRecoverFromChain(...a),
@@ -187,7 +189,7 @@ const META2 = {
 const META3 = { ...META2, keys: [...META2.keys, key(3, 'Car', 'c')] }
 const META5 = { ...META2, keys: [...META3.keys, key(4, 'Bank', 'd'), key(5, 'Parents', 'e')] }
 const META6 = { ...META2, keys: [...META5.keys, key(6, 'Spare', 'f')] }
-const CLEAN = { outputs: 4, stale: 0, missingKeys: [], removedKeyOutputs: 0 }
+const CLEAN = { outputs: 4, stale: 0, missingKeys: [], removedKeyOutputs: 0, unreachableOutputs: 0 }
 const NO_UNREACHABLE = { count: 0, satoshis: 0, keys: [] }
 
 const settle = async () => {
@@ -235,6 +237,7 @@ beforeEach(() => {
   mockResolveHeldDeposit.mockReset().mockResolvedValue({ kind: 'broadcast' })
   mockDisable.mockReset().mockResolvedValue(undefined)
   mockDisableWhenSafe.mockReset().mockResolvedValue(true)
+  mockForgetUnreachable.mockReset().mockResolvedValue({ forgotten: 2 })
   mockShowAlert.mockReset()
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockReadBackupAttestation.mockReset().mockResolvedValue({ v: 1, medium: 'phrase', at: 1 })
@@ -342,6 +345,15 @@ describe('not enrolled', () => {
       expect(screen.queryByText('vault_balance_label')).toBeNull()
     })
 
+    test('an earlier setup\'s skipped deposits are named, not reported as none found', async () => {
+      mockGetMeta.mockResolvedValue(null)
+      mockRecoverFromChain.mockResolvedValueOnce({ found: 0, pendingConfirmation: 0, unreachable: 2, problems: [], scanned: 20 })
+      const screen = await renderVault()
+      await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
+      expect(screen.getByText('vault_restore_unreachable:{"count":2}')).toBeTruthy()
+      expect(screen.queryByText(/vault_restore_none_found/)).toBeNull()
+    })
+
     test('none found: reports the none-found copy', async () => {
       mockGetMeta.mockResolvedValue(null)
       mockRecoverFromChain.mockResolvedValueOnce({ found: 0, pendingConfirmation: 0, problems: [], scanned: 20 })
@@ -412,7 +424,7 @@ describe('enrolled', () => {
   })
 
   test('shows the not-yet-open badge when outputs are stale and it opens re-lock', async () => {
-    mockCoverage = { outputs: 4, stale: 3, missingKeys: [PUB('b')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 3, missingKeys: [PUB('b')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     mockBalance = 300_000
     const screen = await renderVault()
     const badge = screen.getByText('vault_badge_missing:{"count":3,"nickname":"Safe"}')
@@ -423,9 +435,36 @@ describe('enrolled', () => {
   })
 
   test('shows the removed-key badge', async () => {
-    mockCoverage = { outputs: 4, stale: 2, missingKeys: [], removedKeyOutputs: 2 }
+    mockCoverage = { outputs: 4, stale: 2, missingKeys: [], removedKeyOutputs: 2, unreachableOutputs: 0 }
     const screen = await renderVault()
     expect(screen.getByText('vault_badge_removed:{"count":2}')).toBeTruthy()
+  })
+
+  test('deposits no listed key opens get their own row and leave the re-lock badges', async () => {
+    mockCoverage = { outputs: 4, stale: 3, missingKeys: [PUB('b')], removedKeyOutputs: 2, unreachableOutputs: 2 }
+    const screen = await renderVault()
+    expect(screen.getByText('vault_badge_unreachable:{"count":2}')).toBeTruthy()
+    expect(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Safe"}')).toBeTruthy()
+    expect(screen.queryByText(/vault_badge_removed/)).toBeNull()
+  })
+
+  test('forgetting unopenable deposits asks first, then calls the service and refreshes', async () => {
+    mockCoverage = { outputs: 4, stale: 2, missingKeys: [], removedKeyOutputs: 2, unreachableOutputs: 2 }
+    mockShowAlert.mockResolvedValueOnce('confirm')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_unreachable:{"count":2}')))
+    expect(mockShowAlert.mock.calls[0][0].message).toBe('vault_forget_unreachable_message:{"count":2}')
+    expect(mockForgetUnreachable).toHaveBeenCalledWith(mockWallet.managers.permissionsManager, 'admin.test')
+    expect(mockShowToast).toHaveBeenCalledWith('vault_forget_unreachable_done:{"count":2}', { type: 'success' })
+    expect(mockRefreshCoverage).toHaveBeenCalled()
+  })
+
+  test('cancelling the forget prompt leaves every deposit in place', async () => {
+    mockCoverage = { outputs: 4, stale: 2, missingKeys: [], removedKeyOutputs: 2, unreachableOutputs: 2 }
+    mockShowAlert.mockResolvedValueOnce('cancel')
+    const screen = await renderVault()
+    await act(async () => fireEvent.press(screen.getByText('vault_badge_unreachable:{"count":2}')))
+    expect(mockForgetUnreachable).not.toHaveBeenCalled()
   })
 
   test('no badges when every output carries the current key set', async () => {
@@ -453,7 +492,7 @@ describe('enrolled', () => {
   test('six keys: no Add, no deposit, no re-lock offer, a remove-one notice, and a header that never reads "6 of 5"', async () => {
     mockGetMeta.mockResolvedValue(META6)
     mockBalance = 300_000
-    mockCoverage = { outputs: 4, stale: 4, missingKeys: [PUB('f')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 4, missingKeys: [PUB('f')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     const screen = await renderVault()
     expect(screen.queryByText('vault_add_key_row')).toBeNull()
     expect(screen.getByText('vault_key_section_over_limit:{"count":6}')).toBeTruthy()
@@ -700,7 +739,7 @@ describe('enrolled', () => {
     mockBalance = 300_000
     // No standalone "re-lock now" row (spec revision): reach the same sheet
     // through a coverage badge, same as a real missing-key situation would.
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     mockRelock
       .mockResolvedValueOnce({ txid: 'a', cappedInputs: 2, unreachable: NO_UNREACHABLE })
       .mockResolvedValueOnce({
@@ -729,7 +768,7 @@ describe('enrolled', () => {
 
   test('a clean re-lock toasts done', async () => {
     mockBalance = 300_000
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     mockRelock.mockResolvedValueOnce({ txid: 'a', cappedInputs: 0, unreachable: NO_UNREACHABLE })
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
@@ -741,7 +780,7 @@ describe('enrolled', () => {
 
   test('a re-lock that makes no progress stops after the second authenticated pass', async () => {
     mockBalance = 300_000
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     mockRelock.mockResolvedValue({ txid: 'a', cappedInputs: 1, unreachable: NO_UNREACHABLE })
     const screen = await renderVault()
     await act(async () => fireEvent.press(screen.getByText('vault_badge_missing:{"count":1,"nickname":"Desk"}')))
@@ -757,7 +796,7 @@ describe('enrolled', () => {
 
   test('a re-lock error stays in the sheet with its copy', async () => {
     mockBalance = 50_000
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     const { VaultError } = jest.requireActual('../../core/services/vault/types')
     mockRelock.mockRejectedValueOnce(new VaultError('too-small-to-relock'))
     const screen = await renderVault()
@@ -772,7 +811,7 @@ describe('enrolled', () => {
   // no in-app resolution anywhere; this offers resolveHeldVaultDeposit.
   test('an action-pending re-lock error offers to resolve the held deposit, and resolving clears the notice', async () => {
     mockBalance = 50_000
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     const { VaultError } = jest.requireActual('../../core/services/vault/types')
     mockRelock.mockRejectedValueOnce(new VaultError('action-pending'))
     const screen = await renderVault()
@@ -791,7 +830,7 @@ describe('enrolled', () => {
 
   test('XR-006 / INT-03: "nothing-held" is never reported as success — the notice and offer both stay', async () => {
     mockBalance = 50_000
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     const { VaultError } = jest.requireActual('../../core/services/vault/types')
     mockRelock.mockRejectedValueOnce(new VaultError('action-pending'))
     // The real function's shape when a held signed action exists that this
@@ -818,7 +857,7 @@ describe('enrolled', () => {
 
   test('backup-off during re-lock opens backup settings and leaves the sheet available to retry', async () => {
     mockBalance = 300_000
-    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0 }
+    mockCoverage = { outputs: 4, stale: 1, missingKeys: [PUB('a')], removedKeyOutputs: 0, unreachableOutputs: 0 }
     const { VaultError } = jest.requireActual('../../core/services/vault/types')
     mockRelock.mockRejectedValueOnce(new VaultError('backup-off'))
     mockShowAlert.mockResolvedValueOnce('settings')

@@ -157,6 +157,11 @@ export class FakeVaultWallet implements VaultWallet {
     return this.basket.size > 0
   }
 
+  /** Outpoints ("txid.vout") currently in the 'admin vault' basket. */
+  localVaultOutpoints(): string[] {
+    return [...this.basket.keys()].sort()
+  }
+
   // ── crypto passthroughs (real) ─────────────────────────────────────────
   async getPublicKey(args: unknown): Promise<{ publicKey: string }> {
     return await this.crypto.getPublicKey(args as never)
@@ -339,6 +344,11 @@ export class FakeVaultWallet implements VaultWallet {
         spendable: true
       })
     })
+  }
+
+  async relinquishOutput(args: any): Promise<{ relinquished: true }> {
+    this.basket.delete(args.output)
+    return { relinquished: true }
   }
 
   // ── internalizeAction: chain recovery's insertion point ────────────────
