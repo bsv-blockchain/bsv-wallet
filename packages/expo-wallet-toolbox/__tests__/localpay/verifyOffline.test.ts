@@ -1,10 +1,9 @@
 /**
  * The payee's SPV check on a nearby frame, with the payee OFFLINE.
  *
- * `verifyFramePayment` reaches the chain tracker through
- * `getServices().getChainTracker()`; in the app that is the storage manager's
- * services, whose tracker `installOfflineChainTracker` points at an
- * `OfflineFirstChaintracks`. These tests wire exactly that — a real header
+ * `verifyFramePayment` is handed its chain tracker; in the app that is
+ * `storage.getServices().getChainTracker()`, which `installOfflineChainTracker`
+ * points at an `OfflineFirstChaintracks`. These tests wire exactly that — a real header
  * store, a real offline-first tracker with `online()` false, and a remote that
  * fails the test if it is ever consulted — so they pin what an offline payee
  * can and cannot accept, and that a refusal for a missing header is reported
@@ -12,7 +11,7 @@
  */
 import { Beef, Hash, LockingScript, MerklePath, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import type { Services } from '@bsv/wallet-toolbox-mobile'
-import { FrameVerifyError, verifyFramePayment, type DerivingWallet } from '../../core/localpay/verify'
+import { FrameVerifyError, verifyFramePayment, type FrameVerifyDeps } from '../../core/localpay/verify'
 import type { PaymentFrame } from '../../core/localpay/codec'
 import { OfflineFirstChaintracks } from '../../core/headers/OfflineFirstChaintracks'
 import { HeaderStore } from '../../core/headers/headerStore'
@@ -93,20 +92,20 @@ async function offlinePayee(cachedRoots: { height: number; root: string }[]) {
   tracker.setStore(store)
   const services = {} as Services
   installOfflineChainTracker(services, tracker)
-  const wallet: DerivingWallet = {
-    getPublicKey: async () => ({ publicKey: payeeKey.toString() }),
-    getServices: () => services
+  const deps: FrameVerifyDeps = {
+    wallet: { getPublicKey: async () => ({ publicKey: payeeKey.toString() }) },
+    chainTracker: await services.getChainTracker()
   }
-  return { wallet, tracker, remote }
+  return { deps, tracker, remote }
 }
 
 describe('verifyFramePayment — payee offline', () => {
   it('accepts a payment whose mined ancestor root is already in the local header store', async () => {
     const ancestor = minedAncestor(10_000)
     const tx = await spend(ancestor, [{ satoshis: 9_000, script: toPayee() }])
-    const { wallet, remote } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: rootOf(ancestor) }])
+    const { deps, remote } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: rootOf(ancestor) }])
 
-    await expect(verifyFramePayment(wallet, frameOf(tx), 'admin.test')).resolves.toEqual({
+    await expect(verifyFramePayment(deps, frameOf(tx), 'admin.test')).resolves.toEqual({
       kind: 'bsv',
       satoshis: 9_000
     })
@@ -117,9 +116,9 @@ describe('verifyFramePayment — payee offline', () => {
     const ancestor = minedAncestor(10_000)
     const parent = await spend(ancestor, [{ satoshis: 9_500, script: new P2PKH().lock(payerKey.toAddress()) }])
     const tx = await spend(parent, [{ satoshis: 9_000, script: toPayee() }])
-    const { wallet } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: rootOf(ancestor) }])
+    const { deps } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: rootOf(ancestor) }])
 
-    await expect(verifyFramePayment(wallet, frameOf(tx), 'admin.test')).resolves.toEqual({
+    await expect(verifyFramePayment(deps, frameOf(tx), 'admin.test')).resolves.toEqual({
       kind: 'bsv',
       satoshis: 9_000
     })
@@ -128,10 +127,10 @@ describe('verifyFramePayment — payee offline', () => {
   it('refuses as root_unverified when the ancestor height is not in the local header store', async () => {
     const ancestor = minedAncestor(10_000)
     const tx = await spend(ancestor, [{ satoshis: 9_000, script: toPayee() }])
-    const { wallet, tracker, remote } = await offlinePayee([])
+    const { deps, tracker, remote } = await offlinePayee([])
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const err = await verifyFramePayment(wallet, frameOf(tx), 'admin.test').catch(e => e)
+    const err = await verifyFramePayment(deps, frameOf(tx), 'admin.test').catch(e => e)
     warn.mockRestore()
 
     expect(err).toBeInstanceOf(FrameVerifyError)
@@ -144,10 +143,10 @@ describe('verifyFramePayment — payee offline', () => {
     const ancestor = minedAncestor(10_000)
     const tx = await spend(ancestor, [{ satoshis: 9_000, script: toPayee() }])
     const wrongRoot = Utils.toHex(Hash.sha256(Utils.toArray('not the block', 'utf8')))
-    const { wallet } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: wrongRoot }])
+    const { deps } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: wrongRoot }])
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const err = await verifyFramePayment(wallet, frameOf(tx), 'admin.test').catch(e => e)
+    const err = await verifyFramePayment(deps, frameOf(tx), 'admin.test').catch(e => e)
     warn.mockRestore()
 
     expect((err as FrameVerifyError).kind).toBe('root_unverified')

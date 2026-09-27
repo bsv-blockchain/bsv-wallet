@@ -121,7 +121,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     useWalletManagers: () => ({
       managers: { permissionsManager: mockWallet() },
       adminOriginator: 'admin.test',
-      storage: { sqliteDb: {} }
+      storage: { sqliteDb: {}, getServices: () => ({ getChainTracker: async () => ({}) }) }
     }),
     // Forces the QR-only, no-probe rung: no radio ever spins up, so nothing
     // here needs a real Bluetooth/Wi-Fi/Nearby native module underneath it.

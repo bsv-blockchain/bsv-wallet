@@ -268,23 +268,31 @@ describe('NearbyFlow — payee receive verification (P1-1)', () => {
     expect(mockMarkSessionSpent).toHaveBeenCalled()
   })
 
-  it('hands verifyFramePayment a wallet whose getServices() reaches the chain tracker', async () => {
-    // The permissions manager has no getServices(). Passing it bare made the
-    // BSV SPV check throw a TypeError, and every nearby payment was declined
-    // as decode_failed ("the recipient couldn't read the payment").
+  it('hands verifyFramePayment the permissions manager as is, and the chain tracker from storage', async () => {
+    // The permissions manager has no getServices(). Passing it as a wallet the
+    // SPV check expected services on made every BSV frame throw a TypeError,
+    // declined as decode_failed ("the recipient couldn't read the payment").
+    // The two dependencies are now separate, and nothing is wrapped.
     const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
     await scanPayerFrame(s)
     await settle()
 
     expect(mockVerifyFramePayment).toHaveBeenCalled()
-    const derivingWallet = mockVerifyFramePayment.mock.calls[0][0] as {
-      getPublicKey: (args: unknown, originator?: string) => Promise<{ publicKey: string }>
-      getServices: () => { getChainTracker: () => Promise<unknown> }
-    }
-    await expect(derivingWallet.getServices().getChainTracker()).resolves.toBe(mockChainTracker)
-    await expect(derivingWallet.getPublicKey({ identityKey: true }, 'admin.test')).resolves.toEqual({
-      publicKey: PAYEE_IDENTITY
-    })
+    const deps = mockVerifyFramePayment.mock.calls[0][0] as { wallet: unknown; chainTracker: unknown }
+    expect(deps.chainTracker).toBe(mockChainTracker)
+    // The permissions manager itself (it alone carries createHmac), not an adapter.
+    expect(deps.wallet).toEqual(expect.objectContaining({ getPublicKey: expect.any(Function), createHmac: expect.any(Function) }))
+  })
+
+  it('declines having queued nothing when storage cannot supply a chain tracker', async () => {
+    mockStorageServices.getChainTracker.mockRejectedValueOnce(new Error('Must setServices first.'))
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await scanPayerFrame(s)
+    await settle()
+
+    expect(mockVerifyFramePayment).not.toHaveBeenCalled()
+    expect(mockSavePending).not.toHaveBeenCalled()
+    expect(mockMarkSessionSpent).not.toHaveBeenCalled()
   })
 
   it('tells the payee to get online when a block root could not be confirmed, not that the code was wrong', async () => {

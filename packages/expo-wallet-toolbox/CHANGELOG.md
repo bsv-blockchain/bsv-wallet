@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.10.0
+
+### `verifyFramePayment` takes its chain tracker separately (breaking)
+
+`verifyFramePayment(wallet, frame, originator, opts)` becomes
+`verifyFramePayment({ wallet, chainTracker }, frame, originator, opts)`
+(new `FrameVerifyDeps`), and `DerivingWallet` is back to `getPublicKey` only.
+The 0.8.0 shape asked one "wallet" object for both key derivation and
+`getServices().getChainTracker()`; the permissions manager has only the first,
+and that mismatch is the bug below. A host calling `verifyFramePayment`
+itself passes its permissions manager as `wallet` unchanged and
+`await storage.getServices().getChainTracker()` as `chainTracker`. The
+tracker is used only for BSV frames.
+
+### Nearby receive: BSV frames verify again; the header window keeps up (#25)
+
+- **Every Nearby BSV payment was declined on receive** (`NearbyFlow`).
+  `settleReceived` handed the permissions manager to `verifyFramePayment` as
+  the `DerivingWallet`, but the permissions manager has no `getServices()`,
+  so the SPV check threw a `TypeError` that went out as `decode_failed`.
+  NearbyFlow now passes the permissions manager unchanged, with the chain
+  tracker from `storage.getServices()`; if storage cannot supply one it
+  declines `save_failed` having queued nothing.
+- **New decline kind `root_unverified`** (`core/localpay/verify.ts`,
+  `types.ts`). `tx.verify` returns false for a bad script or value and for a
+  merkle root the device cannot confirm alike, so an offline payee whose
+  header window did not reach the payment's block looked like a malformed
+  payment. The chain tracker is now observed during verification; a refused
+  root raises `FrameVerifyError('root_unverified')`, the payer is told
+  `root_unverified` (new `DeclineReason`), the request stays live, and the
+  payee sees `local_pay_root_unverified` (go online briefly, then retry).
+  Payers on older builds show the code verbatim. `FrameVerifyKind` and
+  `DeclineReason` gain the member, so a host switching exhaustively on either
+  needs a case for it.
+- **The local header window is topped up while online, not only on
+  reconnect** (`core/headers/headerSyncTriggers.ts`,
+  `startHeaderSyncTriggers`). A phone that stayed on one network, or whose
+  NetInfo was silent while suspended, never saw a reconnect, so its window
+  trailed the chain by hours and it refused any coin mined since. The sync
+  now also runs on returning to the foreground and every
+  `HEADER_SYNC_INTERVAL_MS` (10 minutes) while online; each pass fetches only
+  the headers above the local tip.
+- Copy: `local_pay_declined_root_unverified` and `local_pay_root_unverified`,
+  12 languages.
+
 ## 0.9.0
 
 0.8.0 has release notes below but was never published to npm. Hosts upgrading

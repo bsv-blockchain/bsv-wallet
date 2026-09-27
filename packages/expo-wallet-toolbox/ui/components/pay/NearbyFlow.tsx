@@ -108,7 +108,7 @@ import {
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-import { Beef, createNonce, type WalletInterface } from '@bsv/sdk'
+import { Beef, createNonce, type ChainTracker, type WalletInterface } from '@bsv/sdk'
 import { finalizeDelivery } from '../../../core/localpay/build'
 import { queuePendingAbort, queueDeclinedAbortWatch } from '../../../core/localpay/pendingAborts'
 import type { PendingAbortTagWallet } from '../../../core/localpay/pendingAbortAuthority'
@@ -181,7 +181,6 @@ import {
   FrameVerifyError,
   declineReasonFor,
   verifyFramePayment,
-  type DerivingWallet,
   type VerifiedPayment,
   type CoverVerifier,
   type SessionAsset
@@ -981,25 +980,25 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
       //      payment is ours to spend. Nothing has latched and nothing has been
       //      written, so every failure here is a provable "queued nothing".
       //
-      //      The permissions manager derives keys but has no `getServices()`,
-      //      and the BSV branch's SPV check needs the chain tracker from it.
-      //      Handing it over bare made every BSV frame throw a TypeError that
-      //      was declined as `decode_failed`, so the chain tracker is taken from
-      //      `storage`, the same services every other chain query here uses.
-      if (!wallet || !storage) {
+      //      Keys come from the permissions manager; the BSV branch's SPV check
+      //      takes its chain tracker from `storage`, the same services every
+      //      other chain query here uses. Without either nothing can be shown
+      //      to be ours, so the frame is declined having queued nothing.
+      let chainTracker: ChainTracker | null = null
+      try {
+        chainTracker = storage ? await storage.getServices().getChainTracker() : null
+      } catch {
+        chainTracker = null
+      }
+      if (!wallet || !chainTracker) {
         void confirm?.(false, 'save_failed')
         settlingRef.current = false
         scanLatchRef.current = false
         return
       }
-      const derivingWallet: DerivingWallet = {
-        getPublicKey: (args, originator) =>
-          wallet.getPublicKey(args as Parameters<typeof wallet.getPublicKey>[0], originator),
-        getServices: () => storage.getServices()
-      }
       let verified: VerifiedPayment
       try {
-        verified = await verifyFramePayment(derivingWallet, frame, adminOriginator, {
+        verified = await verifyFramePayment({ wallet, chainTracker }, frame, adminOriginator, {
           // A token frame with no verifier is REFUSED, not credited: no
           // verifier is no evidence, and verify.ts enforces that. Absent on a
           // BSV request, where it is never read.

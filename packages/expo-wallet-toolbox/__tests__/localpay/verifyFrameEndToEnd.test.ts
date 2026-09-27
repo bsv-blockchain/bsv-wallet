@@ -75,7 +75,7 @@ import {
 import { Wallet, WalletSigner, WalletStorageManager } from '@bsv/wallet-toolbox-mobile'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { buildPaymentFrame } from '../../core/localpay/build'
-import { verifyFramePayment, type DerivingWallet } from '../../core/localpay/verify'
+import { verifyFramePayment, type FrameVerifyDeps } from '../../core/localpay/verify'
 import { mintSession } from '../../core/localpay/session'
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
 import type { PaymentFrame } from '../../core/localpay/codec'
@@ -223,16 +223,18 @@ async function buildHonestFrame(): Promise<{
   return { frame: built.frame, payeeKeyDeriver, fundingTx }
 }
 
-/** A payee wallet doing the SAME real BRC-42 derivation `verifyFramePayment` requires, against `tracker`. */
-function payeeWallet(payeeKeyDeriver: KeyDeriver, tracker: ChainTracker): DerivingWallet {
+/** A payee doing the SAME real BRC-42 derivation `verifyFramePayment` requires, against `tracker`. */
+function payeeDeps(payeeKeyDeriver: KeyDeriver, tracker: ChainTracker): FrameVerifyDeps {
   return {
-    getPublicKey: async (args: unknown) => {
-      const a = args as { protocolID: [0 | 1 | 2, string]; keyID: string; counterparty: string; forSelf?: boolean }
-      return {
-        publicKey: payeeKeyDeriver.derivePublicKey(a.protocolID, a.keyID, a.counterparty, a.forSelf).toString()
+    wallet: {
+      getPublicKey: async (args: unknown) => {
+        const a = args as { protocolID: [0 | 1 | 2, string]; keyID: string; counterparty: string; forSelf?: boolean }
+        return {
+          publicKey: payeeKeyDeriver.derivePublicKey(a.protocolID, a.keyID, a.counterparty, a.forSelf).toString()
+        }
       }
     },
-    getServices: () => ({ getChainTracker: async () => tracker })
+    chainTracker: tracker
   }
 }
 
@@ -249,7 +251,7 @@ describe('verifyFramePayment: end to end against the real payer-side toolbox (P0
     expect(ancestorEntry?.isTxidOnly).toBe(false)
 
     await expect(
-      verifyFramePayment(payeeWallet(payeeKeyDeriver, trackerAccepting(fundingTx)), frame, ORIGINATOR)
+      verifyFramePayment(payeeDeps(payeeKeyDeriver, trackerAccepting(fundingTx)), frame, ORIGINATOR)
     ).resolves.toEqual({
       kind: 'bsv',
       satoshis: PAY_AMOUNT
@@ -264,7 +266,7 @@ describe('verifyFramePayment: end to end against the real payer-side toolbox (P0
     const { frame, payeeKeyDeriver } = await buildHonestFrame()
 
     await expect(
-      verifyFramePayment(payeeWallet(payeeKeyDeriver, trackerRejectingEverything()), frame, ORIGINATOR)
+      verifyFramePayment(payeeDeps(payeeKeyDeriver, trackerRejectingEverything()), frame, ORIGINATOR)
     ).rejects.toMatchObject({ name: 'FrameVerifyError', kind: 'root_unverified' })
   })
 })

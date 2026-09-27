@@ -79,6 +79,7 @@ export {
   declineReasonFor,
   verifyFramePayment,
   type DerivingWallet,
+  type FrameVerifyDeps,
   type FrameVerifyKind,
   type VerifiedPayment
 } from '../../localpay/verify'

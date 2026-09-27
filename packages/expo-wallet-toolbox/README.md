@@ -562,6 +562,13 @@ are required — both hard-won during this package's extraction:
 
 ## Breaking changes
 
+**0.10.0:** `verifyFramePayment` takes `{ wallet, chainTracker }`
+(`FrameVerifyDeps`) as its first argument instead of a single wallet, and
+`DerivingWallet` no longer includes `getServices()`. Pass the permissions
+manager as `wallet` and `await storage.getServices().getChainTracker()` as
+`chainTracker`. The 0.8.0 note below about `DerivingWallet` gaining
+`getServices()` no longer applies.
+
 **0.9.0:** `useWallet().logout` now returns `Promise<boolean>` (it was
 `() => void`). It resolves once teardown has finished, and resolves to
 `false` when the secrets layer could not confirm erasure. Await it before

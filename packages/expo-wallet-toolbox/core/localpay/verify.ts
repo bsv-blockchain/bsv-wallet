@@ -66,18 +66,29 @@ export class FrameVerifyError extends Error {
   }
 }
 
-/** The wallet capabilities this module needs: BRC-42 derivation, plus (for the
- * BSV branch) the same chain tracker `internalizeAction` itself consults.
- *
- * `getServices` mirrors the toolbox's own `Wallet`/`WalletStorageManager`
- * shape exactly (`wallet.getServices().getChainTracker()`, not a promise of
- * an object). The permissions manager does NOT implement `getServices()`, so a
- * caller holding one must compose this from it and the storage manager, as
- * NearbyFlow's `settleReceived` does.
- */
+/** The one wallet capability this module needs: BRC-42 derivation. The
+ * permissions manager satisfies it as is. */
 export interface DerivingWallet {
   getPublicKey(args: unknown, originator?: string): Promise<{ publicKey: string }>
-  getServices(): { getChainTracker(): Promise<ChainTracker> | ChainTracker }
+}
+
+/**
+ * What `verifyFramePayment` needs from this device, as two separate
+ * dependencies rather than one object that must happen to provide both: the
+ * permissions manager derives keys but holds no chain services, and a single
+ * "wallet" parameter asking for both is how a missing `getServices()` once
+ * reached production as a TypeError on every Nearby BSV payment.
+ */
+export interface FrameVerifyDeps {
+  wallet: DerivingWallet
+  /**
+   * The chain tracker the BSV branch's SPV check walks merkle paths against —
+   * the same one `internalizeAction` consults, i.e.
+   * `storage.getServices().getChainTracker()`. In the app that is the
+   * offline-first tracker over the local header window, so an offline payee
+   * can still verify. Not read for a token frame.
+   */
+  chainTracker: ChainTracker
 }
 
 /**
@@ -96,7 +107,7 @@ export interface DerivingWallet {
  * this module enforces on itself — a "queued nothing" decline, by construction.
  */
 export async function verifyFramePayment(
-  wallet: DerivingWallet,
+  { wallet, chainTracker }: FrameVerifyDeps,
   frame: PaymentFrame,
   originator: string,
   /**
@@ -199,7 +210,6 @@ export async function verifyFramePayment(
     // for a block its header window does not reach yet (and what anyone sees
     // for a forged proof), and the remedy — the payee going online — is
     // different from a malformed transaction's.
-    const chainTracker = await wallet.getServices().getChainTracker()
     let rootRefused = false
     const observed: ChainTracker = {
       isValidRootForHeight: async (root, height) => {
