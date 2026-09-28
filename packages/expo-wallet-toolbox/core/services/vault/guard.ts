@@ -49,15 +49,16 @@ const MAX_EXTERNAL_ACTION_OFFSET = MAX_ACTION_SCAN
  * hard ceiling (limit <= 10000) — a normal-sized *request* from an
  * authenticated paired peer can still force a normal-sized *response* to
  * balloon, because each row can carry a full aggregate BEEF
- * (includeTransactions) or a locking script. These are deliberately far
- * below the SDK's 10000 cap: they bound what a legitimate basket check
- * (a handful to a few hundred rows) ever needs, the same relationship
- * MAX_EXTERNAL_ACTION_RESULTS has to listActions' own 10000 SDK ceiling.
- * The transactions variant is tighter because each row then also carries a
- * full BEEF, not just an outpoint + locking script.
+ * (includeTransactions) or a locking script. These stay well below the SDK's
+ * 10000 cap but must admit the largest page the SDK's own clients request:
+ * ContactsManager.getContacts asks for 1000 rows with locking scripts
+ * (MAX_CONTACTS), and its save/remove lookups 100 with entire transactions.
+ * Anything tighter refuses IdentityClient.resolveByAttributes and friends in
+ * every dApp. The transactions variant is tighter because the response then
+ * also carries those rows' BEEF, not just an outpoint + locking script.
  */
-const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS = 200
-const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS_WITH_TRANSACTIONS = 25
+const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS = 1000
+const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS_WITH_TRANSACTIONS = 100
 /** Permission-backed reads must never retain the exclusive listActions slot
  * indefinitely while a connected origin leaves a prompt unanswered. */
 export const EXTERNAL_ACTION_READ_TIMEOUT_MS = 30_000
@@ -629,13 +630,15 @@ export function guardVaultAccess<T extends WalletInterface>(
           // admin-vault listOutputs one layer further out (see this test's
           // own file: proofBar.railIsolation.test.ts's I3 listOutputs case)
           // throws its own specific error, and this bound must never mask it.
-          let requested: ValidatedListOutputsArgs
           try {
-            requested = validateExternalListOutputsArgs(args)
+            validateExternalListOutputsArgs(args)
           } catch {
             return deny(String(method), originator)
           }
-          return await bound(requested, originator)
+          // Forward the caller's own args, not the validated form: that swaps
+          // `include` for includeTransactions/includeLockingScripts, and the
+          // wallet validates again, so passing it on would drop both.
+          return await bound(args, originator)
         }
       }
 
