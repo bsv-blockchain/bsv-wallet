@@ -7,8 +7,8 @@ import {
   EXTERNAL_ACTION_READ_TIMEOUT_MS,
   guardVaultAccess,
   isR1CLockingScript,
-  VAULT_ABORT_REPLAY_MARKER,
-  VaultAccessDenied
+  VaultAccessDenied,
+  type VaultGuardLookup
 } from '../../core/services/vault/guard'
 import { buildLock } from '../../core/services/vault/r1comb'
 import { capWalletArgs } from '../../core/services/capWalletArgs'
@@ -114,6 +114,18 @@ function fakeWallet(storedActions: any[] = []) {
       relinquishOutput: rec('relinquishOutput')
     } as any
   }
+}
+
+/** Storage stand-in for the guard's point lookups: `adminOutpoints` are admin
+ * state, `adminTxids` are Vault/admin transactions. */
+function fakeLookup(opts: { adminOutpoints?: string[]; adminTxids?: string[] } = {}) {
+  const lookup = {
+    anyAdminOutpoint: jest.fn(async (outpoints: string[]) =>
+      outpoints.some(outpoint => (opts.adminOutpoints ?? []).includes(outpoint))
+    ),
+    anyAdminTransaction: jest.fn(async (txids: string[]) => txids.some(txid => (opts.adminTxids ?? []).includes(txid)))
+  }
+  return lookup satisfies VaultGuardLookup
 }
 
 // XR-037 (defense-in-depth): the customInstructions redaction the previous
@@ -475,9 +487,10 @@ test('coalesces concurrent identical external action listings into one enriched 
   expect(list).toHaveBeenCalledTimes(1)
 })
 
-test('re-wrapping an existing guard is idempotent and cannot nest its queue', async () => {
+test('re-wrapping an existing guard is idempotent and keeps its lookup', async () => {
   const { wallet, calls } = fakeWallet([action()])
-  const guarded = guardVaultAccess(wallet, ADMIN)
+  const lookup = fakeLookup({ adminOutpoints: [`${TXID}.0`] })
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
   const wrappedAgain = guardVaultAccess(guarded, ADMIN)
   expect(wrappedAgain).toBe(guarded)
 
@@ -485,7 +498,11 @@ test('re-wrapping an existing guard is idempotent and cannot nest its queue', as
     ok: true,
     method: 'createAction'
   })
-  expect(calls.filter(call => call.method === 'listActions')).toHaveLength(1)
+  await expect(
+    wrappedAgain.relinquishOutput({ basket: 'x', output: `${TXID}.0` } as any, 'evil.com')
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(lookup.anyAdminOutpoint).toHaveBeenCalledTimes(1)
+  expect(calls.filter(call => call.method === 'listActions')).toHaveLength(0)
   expect(calls.filter(call => call.method === 'createAction')).toHaveLength(1)
 })
 
@@ -509,96 +526,6 @@ test('fails closed instead of growing an unbounded queue of distinct enriched sc
   )
   release()
   await expect(Promise.all(accepted)).resolves.toHaveLength(16)
-})
-
-test('serializes external output-naming calls and rescans after each allowed mutation', async () => {
-  const stored: any[] = []
-  const { wallet, calls } = fakeWallet(stored)
-  wallet.createAction = jest.fn(async (args: any, originator?: string) => {
-    calls.push({ method: 'createAction', args, originator })
-    if (args.description === 'first') {
-      stored.push(
-        action({
-          txid: TXID,
-          reference: 'vault-ref',
-          labels: ['vault'],
-          outputs: [
-            {
-              satoshis: 50_000,
-              spendable: true,
-              tags: ['vault'],
-              outputIndex: 0,
-              outputDescription: 'Vault deposit',
-              basket: 'admin vault',
-              lockingScript: vaultLock()
-            }
-          ]
-        })
-      )
-    }
-    return { ok: true }
-  })
-  const guarded = guardVaultAccess(wallet, ADMIN)
-  const first = guarded.createAction({ description: 'first', inputs: [] } as any, 'evil.com')
-  const second = guarded.createAction(
-    {
-      description: 'second',
-      inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'input', unlockingScriptLength: 1 }]
-    } as any,
-    'evil.com'
-  )
-  await expect(first).resolves.toEqual({ ok: true })
-  await expect(second).rejects.toBeInstanceOf(VaultAccessDenied)
-  expect(wallet.createAction).toHaveBeenCalledTimes(1)
-  expect(calls.filter(call => call.method === 'listActions')).toHaveLength(2)
-})
-
-test('an admin mutation cannot race an external inventory scan on the same wallet', async () => {
-  const stored: any[] = []
-  const { wallet } = fakeWallet(stored)
-  let releaseAdmin!: () => void
-  const adminGate = new Promise<void>(resolve => {
-    releaseAdmin = resolve
-  })
-  wallet.createAction = jest.fn(async (args: any) => {
-    if (args.description === 'admin vault change') {
-      await adminGate
-      stored.push(
-        action({
-          txid: TXID,
-          reference: 'vault-ref',
-          labels: ['vault'],
-          outputs: [
-            {
-              satoshis: 50_000,
-              spendable: true,
-              tags: ['vault'],
-              outputIndex: 0,
-              outputDescription: 'Vault deposit',
-              basket: 'admin vault',
-              lockingScript: vaultLock()
-            }
-          ]
-        })
-      )
-    }
-    return { ok: true }
-  })
-  const guarded = guardVaultAccess(wallet, ADMIN)
-  const admin = guarded.createAction({ description: 'admin vault change' } as any, ADMIN)
-  const external = guarded.createAction(
-    {
-      description: 'race the admin',
-      inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'input', unlockingScriptLength: 1 }]
-    } as any,
-    'evil.com'
-  )
-  await Promise.resolve()
-  expect(wallet.createAction).toHaveBeenCalledTimes(1)
-  releaseAdmin()
-  await expect(admin).resolves.toEqual({ ok: true })
-  await expect(external).rejects.toBeInstanceOf(VaultAccessDenied)
-  expect(wallet.createAction).toHaveBeenCalledTimes(1)
 })
 
 test.each([{ limit: '10000' }, { limit: 10001 }, { offset: -1 }, { includeInputs: 'true' }])(
@@ -686,27 +613,10 @@ test('a stalled external action read times out and releases the shared critical 
   }
 })
 
-test('blocks external createAction from reserving a Vault output by outpoint', async () => {
-  const stored = [
-    action({
-      txid: TXID,
-      reference: 'vault-ref',
-      labels: ['vault', 'vault-deposit'],
-      outputs: [
-        {
-          satoshis: 50_000,
-          spendable: true,
-          tags: ['vault'],
-          outputIndex: 0,
-          outputDescription: 'Vault deposit',
-          basket: 'admin vault',
-          lockingScript: vaultLock()
-        }
-      ]
-    })
-  ]
-  const { wallet, calls } = fakeWallet(stored)
-  const guarded = guardVaultAccess(wallet, ADMIN)
+test('blocks external createAction from reserving an admin-basket output by outpoint', async () => {
+  const { wallet, calls } = fakeWallet()
+  const lookup = fakeLookup({ adminOutpoints: [`${TXID}.0`] })
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
   await expect(
     guarded.createAction(
       {
@@ -717,150 +627,88 @@ test('blocks external createAction from reserving a Vault output by outpoint', a
     )
   ).rejects.toBeInstanceOf(VaultAccessDenied)
   expect(calls.some(c => c.method === 'createAction')).toBe(false)
+  // Only the named outpoint is looked up; history is never read.
+  expect(lookup.anyAdminOutpoint).toHaveBeenCalledWith([`${TXID}.0`])
+  expect(calls.some(c => c.method === 'listActions')).toBe(false)
+})
+
+test('passes an external createAction whose named inputs are not in an admin basket', async () => {
+  const { wallet, calls } = fakeWallet()
+  const lookup = fakeLookup({ adminOutpoints: [`${TXID}.0`] })
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
+  await expect(
+    guarded.createAction(
+      {
+        description: 'Spend my own output',
+        inputs: [{ outpoint: `${NORMAL_TXID}.1`, inputDescription: 'Input', unlockingScriptLength: 100 }]
+      } as any,
+      'evil.com'
+    )
+  ).resolves.toEqual({ ok: true, method: 'createAction' })
+  expect(calls.some(c => c.method === 'createAction')).toBe(true)
 })
 
 test.each(['00', '0e0', '-0', ''])(
-  'canonicalizes SDK-accepted vout spelling %p before protecting a Vault outpoint',
+  'canonicalizes SDK-accepted vout spelling %p before looking up an outpoint',
   async spelling => {
-    const stored = [
-      action({
-        txid: TXID,
-        reference: 'vault-ref',
-        labels: ['vault'],
-        outputs: [
-          {
-            satoshis: 50_000,
-            spendable: true,
-            tags: ['vault'],
-            outputIndex: 0,
-            outputDescription: 'Vault deposit',
-            basket: 'admin vault',
-            lockingScript: vaultLock()
-          }
-        ]
-      })
-    ]
-    const { wallet, calls } = fakeWallet(stored)
-    const guarded = guardVaultAccess(wallet, ADMIN)
+    const { wallet, calls } = fakeWallet()
+    const lookup = fakeLookup({ adminOutpoints: [`${TXID}.0`] })
+    const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
     await expect(
       guarded.createAction(
         {
           description: 'Alternate outpoint spelling',
-          inputs: [{ outpoint: `${TXID}.${spelling}`, inputDescription: 'Vault input', unlockingScriptLength: 100 }]
+          inputs: [
+            {
+              outpoint: `${TXID.toUpperCase()}.${spelling}`,
+              inputDescription: 'Vault input',
+              unlockingScriptLength: 100
+            }
+          ]
         } as any,
         'evil.com'
       )
     ).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(lookup.anyAdminOutpoint).toHaveBeenCalledWith([`${TXID}.0`])
     expect(calls.some(c => c.method === 'createAction')).toBe(false)
   }
 )
 
-test('blocks external internalizeAction from reclassifying an existing Vault output', async () => {
+test('fails closed on an unparseable external input outpoint', async () => {
+  const { wallet, calls } = fakeWallet()
+  const lookup = fakeLookup()
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
+  await expect(
+    guarded.createAction(
+      {
+        description: 'Bad outpoint',
+        inputs: [{ outpoint: 'nope', inputDescription: 'Input', unlockingScriptLength: 1 }]
+      } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(lookup.anyAdminOutpoint).not.toHaveBeenCalled()
+  expect(calls.some(c => c.method === 'createAction')).toBe(false)
+})
+
+function vaultTxBeef() {
   const tx = new Transaction()
   tx.addOutput({ satoshis: 50_000, lockingScript: LockingScript.fromHex(vaultLock()) })
   const beef = new Beef()
   beef.mergeTransaction(tx)
-  const stored = [
-    action({
-      txid: tx.id('hex'),
-      reference: 'vault-ref',
-      labels: ['vault', 'vault-deposit'],
-      outputs: [
-        {
-          satoshis: 50_000,
-          spendable: true,
-          tags: ['vault'],
-          outputIndex: 0,
-          outputDescription: 'Vault deposit',
-          basket: 'admin vault',
-          lockingScript: vaultLock()
-        }
-      ]
-    })
-  ]
-  const { wallet, calls } = fakeWallet(stored)
-  const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(
-    guarded.internalizeAction(
-      {
-        tx: beef.toBinaryAtomic(tx.id('hex')),
-        description: 'Move Vault output',
-        labels: [],
-        outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
-      } as any,
-      'evil.com'
-    )
-  ).rejects.toBeInstanceOf(VaultAccessDenied)
-  expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
-})
+  return { txid: tx.id('hex'), atomic: beef.toBinaryAtomic(tx.id('hex')) }
+}
 
-// Toolbox 2.14's own reclassification check skips an output that has no basket
-// (relinquished; listActions reports it as '') or sits in `default`, so the
-// refusal must not depend on the stored basket.
-test.each(['', 'default'])(
-  'blocks external internalizeAction from reclassifying a Vault output whose stored basket is %j',
-  async basket => {
-    const tx = new Transaction()
-    tx.addOutput({ satoshis: 50_000, lockingScript: LockingScript.fromHex(vaultLock()) })
-    const beef = new Beef()
-    beef.mergeTransaction(tx)
-    const stored = [
-      action({
-        txid: tx.id('hex'),
-        reference: 'relinquished-ref',
-        labels: [],
-        outputs: [
-          {
-            satoshis: 50_000,
-            spendable: true,
-            tags: [],
-            outputIndex: 0,
-            outputDescription: 'Relinquished output',
-            basket,
-            lockingScript: vaultLock()
-          }
-        ]
-      })
-    ]
-    const { wallet, calls } = fakeWallet(stored)
-    const guarded = guardVaultAccess(wallet, ADMIN)
-    await expect(
-      guarded.internalizeAction(
-        {
-          tx: beef.toBinaryAtomic(tx.id('hex')),
-          description: 'Move Vault output',
-          labels: [],
-          outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
-        } as any,
-        'evil.com'
-      )
-    ).rejects.toBeInstanceOf(VaultAccessDenied)
-    expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
-  }
-)
-
-test('blocks external construction or internalization of a new R1C output', async () => {
+test('blocks external internalizeAction from reclassifying an admin-basket output', async () => {
+  const { txid, atomic } = vaultTxBeef()
   const { wallet, calls } = fakeWallet()
-  const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(
-    guarded.createAction(
-      {
-        description: 'Hidden Vault output',
-        outputs: [{ satoshis: 1, lockingScript: vaultLock(), outputDescription: 'Hidden lock', basket: 'normal' }]
-      } as any,
-      'evil.com'
-    )
-  ).rejects.toBeInstanceOf(VaultAccessDenied)
-
-  const tx = new Transaction()
-  tx.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(vaultLock()) })
-  const beef = new Beef()
-  beef.mergeTransaction(tx)
+  const lookup = fakeLookup({ adminOutpoints: [`${txid}.0`] })
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
   await expect(
     guarded.internalizeAction(
       {
-        tx: beef.toBinaryAtomic(tx.id('hex')),
-        description: 'Hidden Vault internalization',
+        tx: atomic,
+        description: 'Move Vault output',
         labels: [],
         // The SDK accepts numeric spellings; the guard must normalize them too.
         outputs: [{ outputIndex: '00', protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
@@ -868,196 +716,116 @@ test('blocks external construction or internalization of a new R1C output', asyn
       'evil.com'
     )
   ).rejects.toBeInstanceOf(VaultAccessDenied)
-  expect(calls.some(c => c.method === 'createAction')).toBe(false)
+  expect(lookup.anyAdminOutpoint).toHaveBeenCalledWith([`${txid}.0`])
   expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
 })
 
-test('blocks SDK-trimmed R1C script strings and protects an R1C action even without a Vault label', async () => {
-  const stored = [
-    action({
-      txid: TXID,
-      reference: 'mislabeled-r1c-ref',
-      labels: ['ordinary'],
-      outputs: [
-        {
-          satoshis: 50_000,
-          spendable: true,
-          tags: [],
-          outputIndex: 0,
-          outputDescription: 'Mislabeled lock',
-          basket: 'normal',
-          lockingScript: vaultLock()
-        }
-      ]
-    })
-  ]
-  const { wallet, calls } = fakeWallet(stored)
-  const guarded = guardVaultAccess(wallet, ADMIN)
+test('fails closed on an external internalizeAction whose BEEF does not parse', async () => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup: fakeLookup() })
+  await expect(
+    guarded.internalizeAction(
+      { tx: [1, 2, 3], description: 'Garbage', outputs: [{ outputIndex: 0, protocol: 'wallet payment' }] } as any,
+      'evil.com'
+    )
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(calls.some(c => c.method === 'internalizeAction')).toBe(false)
+})
+
+test('blocks external relinquishOutput of an admin-basket output and passes an ordinary one', async () => {
+  const { wallet, calls } = fakeWallet()
+  const lookup = fakeLookup({ adminOutpoints: [`${TXID}.0`] })
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
+  await expect(
+    guarded.relinquishOutput({ basket: 'normal', output: `${TXID}.0` } as any, 'evil.com')
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    guarded.relinquishOutput({ basket: 'normal', output: `${NORMAL_TXID}.0` } as any, 'evil.com')
+  ).resolves.toEqual({ ok: true, method: 'relinquishOutput' })
+  expect(calls.filter(c => c.method === 'relinquishOutput')).toHaveLength(1)
+})
+
+// An app may hold R1C outputs of its own: the locking script is not what
+// makes an output the wallet's Vault, the admin basket is.
+test('lets an external app create, internalize and spend R1C outputs outside admin baskets', async () => {
+  const { txid, atomic } = vaultTxBeef()
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup: fakeLookup() })
 
   await expect(
     guarded.createAction(
       {
-        description: 'Whitespace-normalized R1C output',
-        outputs: [
-          { satoshis: 1, lockingScript: ` ${vaultLock()}\n`, outputDescription: 'Hidden lock', basket: 'normal' }
-        ]
+        description: 'App R1C output',
+        outputs: [{ satoshis: 1, lockingScript: ` ${vaultLock()}\n`, outputDescription: 'Lock', basket: 'normal' }]
       } as any,
-      'evil.com'
+      'app.example'
     )
-  ).rejects.toBeInstanceOf(VaultAccessDenied)
-  await expect(
-    guarded.createAction(
-      {
-        description: 'Spend mislabeled R1C output',
-        inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'Input', unlockingScriptLength: 100 }]
-      } as any,
-      'evil.com'
-    )
-  ).rejects.toBeInstanceOf(VaultAccessDenied)
-  expect(calls.some(c => c.method === 'createAction')).toBe(false)
-})
-
-test('blocks signAction for a pending Vault reference', async () => {
-  const stored = [
-    action({
-      txid: TXID,
-      reference: 'vault-ref',
-      labels: ['vault', 'vault-withdraw'],
-      inputs: [
-        {
-          sourceOutpoint: `${TXID}.0`,
-          sourceSatoshis: 50_000,
-          sourceLockingScript: vaultLock(),
-          inputDescription: 'Vault input',
-          sequenceNumber: 0xffffffff
-        }
-      ],
-      outputs: []
-    })
-  ]
-  const { wallet, calls } = fakeWallet(stored)
-  const guarded = guardVaultAccess(wallet, ADMIN)
-  await expect(guarded.signAction({ reference: 'vault-ref', spends: {} } as any, 'evil.com')).rejects.toBeInstanceOf(
-    VaultAccessDenied
-  )
-  expect(calls.some(c => c.method === 'signAction')).toBe(false)
-})
-
-// XR-102. `replayPendingAborts` must call the real wallet with the admin
-// originator — the toolbox's own `assertPendingActionOriginator` requires the
-// exact originator an action was created under, and every legitimate
-// first-party action (including an ordinary localpay abort) is created under
-// it — so it cannot be told apart from a live interactive admin flow by
-// originator alone. `VAULT_ABORT_REPLAY_MARKER` is that side channel: an
-// admin-originator abortAction call carrying it must get the SAME
-// vault-inventory reference check a non-admin caller already gets, not the
-// admin bypass.
-test('blocks a replay-marked admin-originator abortAction from releasing a Vault reference', async () => {
-  const stored = [
-    action({
-      txid: TXID,
-      reference: 'vault-ref',
-      labels: ['vault', 'vault-withdraw'],
-      inputs: [
-        {
-          sourceOutpoint: `${TXID}.0`,
-          sourceSatoshis: 50_000,
-          sourceLockingScript: vaultLock(),
-          inputDescription: 'Vault input',
-          sequenceNumber: 0xffffffff
-        }
-      ],
-      outputs: []
-    })
-  ]
-  const { wallet, calls } = fakeWallet(stored)
-  const guarded = guardVaultAccess(wallet, ADMIN)
-
-  await expect(
-    guarded.abortAction({ reference: 'vault-ref', [VAULT_ABORT_REPLAY_MARKER]: true } as any, ADMIN)
-  ).rejects.toBeInstanceOf(VaultAccessDenied)
-  expect(calls.some(c => c.method === 'abortAction')).toBe(false)
-})
-
-// This guard-layer check alone only ever protects Vault outpoints/references/
-// txids — it was never meant to authenticate that a replay is legitimate.
-// That is a separate, higher layer: core/localpay/pendingAbortAuthority.ts's
-// HMAC tag, verified by pendingAborts.ts's replayPendingAborts BEFORE it ever
-// calls abortAction (so a forged, untagged non-Vault reference never reaches
-// this guard at all — see __tests__/localpay/pendingAborts.test.ts's
-// "XR-102: drops an UNTAGGED, forged non-Vault reference" for that layer).
-test('a replay-marked admin-originator abortAction still releases an ordinary, non-Vault reference', async () => {
-  const { wallet, calls } = fakeWallet([])
-  const guarded = guardVaultAccess(wallet, ADMIN)
-
-  await expect(
-    guarded.abortAction({ reference: 'localpay-ref-1', [VAULT_ABORT_REPLAY_MARKER]: true } as any, ADMIN)
   ).resolves.toMatchObject({ ok: true })
-  const call = calls.find(c => c.method === 'abortAction')
-  expect(call?.args).toEqual({ reference: 'localpay-ref-1' })
-  expect(call?.originator).toBe(ADMIN)
+  await expect(
+    guarded.internalizeAction(
+      {
+        tx: atomic,
+        description: 'App R1C internalization',
+        labels: [],
+        outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'normal' } }]
+      } as any,
+      'app.example'
+    )
+  ).resolves.toMatchObject({ ok: true })
+  await expect(
+    guarded.createAction(
+      {
+        description: 'Spend app R1C output',
+        inputs: [{ outpoint: `${txid}.0`, inputDescription: 'Input', unlockingScriptLength: 100 }]
+      } as any,
+      'app.example'
+    )
+  ).resolves.toMatchObject({ ok: true })
+  expect(calls.filter(c => c.method === 'createAction')).toHaveLength(2)
+  expect(calls.filter(c => c.method === 'internalizeAction')).toHaveLength(1)
 })
 
-// The bypass a LIVE interactive admin flow still needs: no marker, same
-// admin originator, same Vault reference — allowed straight through, exactly
-// as before this fix, so cancelling a Vault action from the admin UI itself
-// keeps working.
-test('an unmarked admin-originator abortAction still bypasses the inventory check', async () => {
-  const stored = [
-    action({
-      txid: TXID,
-      reference: 'vault-ref',
-      labels: ['vault', 'vault-withdraw'],
-      inputs: [
-        {
-          sourceOutpoint: `${TXID}.0`,
-          sourceSatoshis: 50_000,
-          sourceLockingScript: vaultLock(),
-          inputDescription: 'Vault input',
-          sequenceNumber: 0xffffffff
-        }
-      ],
-      outputs: []
-    })
-  ]
-  const { wallet, calls } = fakeWallet(stored)
-  const guarded = guardVaultAccess(wallet, ADMIN)
-
-  await expect(guarded.abortAction({ reference: 'vault-ref' } as any, ADMIN)).resolves.toMatchObject({ ok: true })
-  expect(calls.some(c => c.method === 'abortAction')).toBe(true)
+test('does not inspect signAction or abortAction references', async () => {
+  const { wallet, calls } = fakeWallet()
+  const lookup = fakeLookup({ adminTxids: [TXID] })
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
+  await expect(guarded.signAction({ reference: 'vault-ref', spends: {} } as any, 'evil.com')).resolves.toMatchObject({
+    ok: true
+  })
+  await expect(guarded.abortAction({ reference: 'vault-ref' } as any, 'evil.com')).resolves.toMatchObject({ ok: true })
+  expect(lookup.anyAdminOutpoint).not.toHaveBeenCalled()
+  expect(lookup.anyAdminTransaction).not.toHaveBeenCalled()
+  expect(calls.some(c => c.method === 'listActions')).toBe(false)
 })
 
 test.each(['createAction', 'signAction'] as const)(
   'blocks external %s from releasing a held Vault transaction through sendWith',
   async method => {
-    const stored = [
-      action({
-        txid: TXID,
-        reference: 'vault-ref',
-        status: 'nosend',
-        labels: ['vault', 'vault-deposit'],
-        outputs: [
-          {
-            satoshis: 50_000,
-            spendable: false,
-            tags: ['vault'],
-            outputIndex: 0,
-            outputDescription: 'Vault deposit',
-            basket: 'admin vault',
-            lockingScript: vaultLock()
-          }
-        ]
-      })
-    ]
-    const { wallet, calls } = fakeWallet(stored)
-    const guarded = guardVaultAccess(wallet, ADMIN)
+    const { wallet, calls } = fakeWallet()
+    const lookup = fakeLookup({ adminTxids: [TXID] })
+    const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
     const args =
       method === 'createAction'
-        ? { description: 'Release held transaction', options: { sendWith: [TXID.toUpperCase()] } }
+        ? { description: 'Release held transaction', options: { sendWith: [NORMAL_TXID, TXID.toUpperCase()] } }
         : { reference: 'ordinary-ref', spends: {}, options: { sendWith: [TXID.toUpperCase()] } }
 
     await expect((guarded as any)[method](args, 'evil.com')).rejects.toBeInstanceOf(VaultAccessDenied)
+    expect(lookup.anyAdminTransaction).toHaveBeenCalledWith(method === 'createAction' ? [NORMAL_TXID, TXID] : [TXID])
     expect(calls.some(c => c.method === method)).toBe(false)
+  }
+)
+
+test.each(['createAction', 'signAction'] as const)(
+  'passes external %s sendWith of ordinary transactions',
+  async method => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN, { lookup: fakeLookup({ adminTxids: [TXID] }) })
+    const args =
+      method === 'createAction'
+        ? { description: 'Batch', options: { sendWith: [NORMAL_TXID] } }
+        : { reference: 'ordinary-ref', spends: {}, options: { sendWith: [NORMAL_TXID] } }
+    await expect((guarded as any)[method](args, 'app.example')).resolves.toMatchObject({ ok: true })
+    expect(calls.some(c => c.method === method)).toBe(true)
   }
 )
 
@@ -1065,7 +833,7 @@ test.each(['createAction', 'signAction'] as const)(
   'fails closed on malformed external %s sendWith capabilities',
   async method => {
     const { wallet, calls } = fakeWallet([action()])
-    const guarded = guardVaultAccess(wallet, ADMIN)
+    const guarded = guardVaultAccess(wallet, ADMIN, { lookup: fakeLookup() })
     const args =
       method === 'createAction'
         ? { description: 'Malformed sendWith', options: { sendWith: 'ab'.repeat(32) } }
@@ -1075,6 +843,69 @@ test.each(['createAction', 'signAction'] as const)(
     expect(calls.some(c => c.method === method)).toBe(false)
   }
 )
+
+test('refuses an external call that needs a lookup when none is configured, or when it fails', async () => {
+  const unconfigured = fakeWallet()
+  const bare = guardVaultAccess(unconfigured.wallet, ADMIN)
+  await expect(
+    bare.relinquishOutput({ basket: 'normal', output: `${NORMAL_TXID}.0` } as any, 'evil.com')
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  await expect(
+    bare.createAction({ description: 'Batch', options: { sendWith: [NORMAL_TXID] } } as any, 'evil.com')
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  // Nothing named: no lookup needed.
+  await expect(bare.createAction({ description: 'Plain', inputs: [] } as any, 'evil.com')).resolves.toMatchObject({
+    ok: true
+  })
+
+  const failing = fakeWallet()
+  const broken = guardVaultAccess(failing.wallet, ADMIN, {
+    lookup: {
+      anyAdminOutpoint: async () => {
+        throw new Error('database is locked')
+      },
+      anyAdminTransaction: async () => false
+    }
+  })
+  await expect(
+    broken.relinquishOutput({ basket: 'normal', output: `${NORMAL_TXID}.0` } as any, 'evil.com')
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(failing.calls.some(c => c.method === 'relinquishOutput')).toBe(false)
+})
+
+test('admin output-naming calls pass straight through without a lookup or a shared queue', async () => {
+  const { wallet, calls } = fakeWallet()
+  const lookup = fakeLookup({ adminOutpoints: [`${TXID}.0`], adminTxids: [TXID] })
+  let release!: () => void
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  wallet.createAction = jest.fn(async (args: any, originator?: string) => {
+    calls.push({ method: 'createAction', args, originator })
+    if (args.description === 'slow admin') await gate
+    return { ok: true }
+  })
+  const guarded = guardVaultAccess(wallet, ADMIN, { lookup })
+
+  const slow = guarded.createAction(
+    {
+      description: 'slow admin',
+      inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'Vault input', unlockingScriptLength: 100 }]
+    } as any,
+    ADMIN
+  )
+  // A second call, external, is not held behind the admin one.
+  await expect(guarded.createAction({ description: 'external', inputs: [] } as any, 'app.example')).resolves.toEqual({
+    ok: true
+  })
+  release()
+  await expect(slow).resolves.toEqual({ ok: true })
+  await expect(
+    guarded.createAction({ description: 'admin send', options: { sendWith: [TXID] } } as any, ADMIN)
+  ).resolves.toEqual({ ok: true })
+  expect(lookup.anyAdminOutpoint).not.toHaveBeenCalled()
+  expect(lookup.anyAdminTransaction).not.toHaveBeenCalled()
+})
 
 test('preserves this for class methods so getPublicKey can call ensureCanCall', async () => {
   // SimpleWalletManager.getPublicKey is a prototype method that does

@@ -5,7 +5,6 @@
  * stands; the reference is retried on the next wallet build.
  */
 import { ADMIN_ORIGINATOR, LEGACY_ADMIN_ORIGINATOR } from '../config'
-import { VAULT_ABORT_REPLAY_MARKER } from '../services/vault/guard'
 import {
   computePendingAbortAuthorityTag,
   verifyPendingAbortAuthorityTag,
@@ -150,10 +149,7 @@ export interface ReplayPendingAbortsResult {
 
 export async function replayPendingAborts(args: {
   wallet: {
-    abortAction: (
-      args: { reference: string; [VAULT_ABORT_REPLAY_MARKER]?: true },
-      originator?: string
-    ) => Promise<{ aborted?: boolean } | void>
+    abortAction: (args: { reference: string }, originator?: string) => Promise<{ aborted?: boolean } | void>
   } & PendingAbortVerifyWallet
   storage: StorageLike
 }): Promise<ReplayPendingAbortsResult> {
@@ -163,12 +159,9 @@ export async function replayPendingAborts(args: {
     const kept: PendingAbort[] = []
     let droppedUntrusted = 0
     for (const item of pending) {
-      // XR-102 (non-Vault residual): the vault-inventory replay marker below
-      // only protects a Vault reference — an ordinary localpay/PeerPay
-      // reference has no settlement row and no vault-inventory entry, so
-      // nothing else stops a forged `pending_aborts` entry naming one from
-      // being replayed. Authenticate first: an entry this wallet did not
-      // itself tag at queue time (queuePendingAbort) is dropped, never
+      // XR-102: a forged `pending_aborts` entry would otherwise be replayed
+      // with the admin originator. Authenticate first: an entry this wallet
+      // did not itself tag at queue time (queuePendingAbort) is dropped, never
       // replayed — fail closed, since the only thing a replay ever does is
       // free a reservation, and a dropped reference stays recoverable through
       // WalletHomeScreen's manual per-row abort.
@@ -179,25 +172,13 @@ export async function replayPendingAborts(args: {
       }
       try {
         // XR-102: the persisted `originator` is never trusted here — this is a
-        // raw KV record, writable by anything with local storage access, and a
-        // forged admin-originator string used to replay straight past
-        // guardVaultAccess's inventory check. The ONLY originator ever used to
-        // replay is the real, imported constant every legitimate queued abort
-        // was already created under (see queuePendingAbort's call sites — all
-        // pass `adminOriginator`), never the field read back off disk.
-        //
-        // That alone is not enough: `assertPendingActionOriginator` requires
-        // this exact originator for a legitimate replay to succeed at all, and
-        // guardVaultAccess treats every admin-originator call as trusted. The
-        // marker opts this specific call OUT of that trust and into the same
-        // vault-inventory reference check a non-admin caller gets — so a
-        // reference an attacker injected that happens to name a Vault action is
-        // refused, while an ordinary (and authentically-tagged) localpay/
-        // PeerPay reference still replays.
-        const result = await args.wallet.abortAction(
-          { reference: item.reference, [VAULT_ABORT_REPLAY_MARKER]: true },
-          ADMIN_ORIGINATOR
-        )
+        // raw KV record, writable by anything with local storage access. The
+        // ONLY originator ever used to replay is the real, imported constant
+        // every legitimate queued abort was already created under (see
+        // queuePendingAbort's call sites — all pass `adminOriginator`), never
+        // the field read back off disk; the authority tag above is what makes
+        // replaying under it safe.
+        const result = await args.wallet.abortAction({ reference: item.reference }, ADMIN_ORIGINATOR)
         if (result && typeof result === 'object' && result.aborted === false) {
           kept.push(item)
         }

@@ -754,14 +754,16 @@ export class MandalaTokenModule implements PermissionsModule {
  * (`GUARD_TARGETS`/`GUARDED_PROXIES` in `services/vault/guard.ts`), which
  * several screens rely on (`guardVaultAccess(managers.permissionsManager,
  * ADMIN_ORIGINATOR)` again in e.g. `PairScreen.tsx`/`ConnectionsScreen.tsx`)
- * to avoid creating a second, unsynchronized guard runtime around the same
- * wallet. That dedup only recognizes an object IT previously wrapped —
- * putting this wrapper's Proxy on the OUTSIDE (wrapping an already-guarded
- * manager) would make every such re-application invisible to the dedup and
- * silently double-guard the wallet, splitting its single-flight queue in
- * two. Wrapping the raw manager first, then guarding the result, keeps the
- * publicly published value exactly what `guardVaultAccess` itself produced
- * and expects to see again — in this app that is `WalletContext.tsx`'s
+ * to avoid creating a second guard runtime around the same wallet. That
+ * dedup only recognizes an object IT previously wrapped — putting this
+ * wrapper's Proxy on the OUTSIDE (wrapping an already-guarded manager) would
+ * make every such re-application invisible to the dedup and silently
+ * double-guard the wallet with a second runtime that has no storage lookup
+ * (so it refuses every external call naming an outpoint) and its own
+ * listActions queue. Wrapping the raw manager first, then guarding the
+ * result, keeps the publicly published value exactly what `guardVaultAccess`
+ * itself produced and expects to see again — in this app that is
+ * `WalletContext.tsx`'s
  * `newManagers.permissionsManager = guardVaultAccess(
  * wrapCreateActionForTokenInputs(permissionsManager, listMandalaTokenOutpoints,
  * adminOriginator), adminOriginator)`. A manager constructed anywhere else

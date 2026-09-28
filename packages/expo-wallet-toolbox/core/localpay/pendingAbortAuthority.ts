@@ -1,13 +1,11 @@
 /**
- * XR-102 (non-Vault residual): pending-abort entry authenticity.
+ * XR-102: pending-abort entry authenticity.
  *
- * `pending_aborts` is a plain KV record. `guard.ts`'s `VAULT_ABORT_REPLAY_MARKER`
- * (also XR-102) already stops a replayed entry from bypassing the
- * vault-inventory check for a Vault reference -- but that check only exists
- * for Vault outpoints/references/txids. An ordinary localpay/PeerPay noSend
- * reference has no such inventory entry and no mandala settlement row either,
- * so a raw KV edit naming one was still replayed and aborted with zero proof
- * this wallet ever recorded a real decline for it.
+ * `pending_aborts` is a plain KV record, and replayPendingAborts calls
+ * abortAction under the admin originator. Without an authenticity check a raw
+ * KV edit naming any pending reference (a localpay/PeerPay noSend payment, or
+ * a Vault action) was replayed and aborted with zero proof this wallet ever
+ * recorded a real decline for it.
  *
  * The fix: every entry `queuePendingAbort` writes is tagged with an HMAC over
  * its reference, computed with the ADMIN-scoped wallet under the

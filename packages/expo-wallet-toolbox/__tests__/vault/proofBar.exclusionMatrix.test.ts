@@ -506,23 +506,6 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
   const vaultLockHex = () =>
     (cachedVaultLock ??= buildLock({ commitments: ['11'.repeat(20), '22'.repeat(20)], saltHex64: '33'.repeat(32) }).toHex())
 
-  function action(over: Record<string, unknown> = {}) {
-    return {
-      txid: TXID,
-      satoshis: 1,
-      status: 'completed',
-      isOutgoing: false,
-      description: 'Normal action',
-      version: 1,
-      lockTime: 0,
-      reference: 'normal-ref',
-      labels: ['normal'],
-      inputs: [],
-      outputs: [],
-      ...over
-    }
-  }
-
   function fakeWallet(storedActions: any[] = []) {
     const calls: { method: string; args: any; originator?: string }[] = []
     const rec = (method: string) => (args: any, originator?: string) => {
@@ -553,16 +536,21 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
     }
   }
 
-  it('I2: createAction/internalizeAction refuse a FRESH R1C-shaped output for a non-admin originator (positive control: an ordinary output is accepted)', async () => {
+  // The Vault is the `admin vault` basket, not the R1C script shape: an
+  // external app may create or receive R1C outputs of its own. Exclusion still
+  // holds, because spending any R1C output needs the committed keys.
+  it('I2: createAction/internalizeAction accept a FRESH R1C-shaped output from a non-admin originator (the Vault is its admin basket, not the script)', async () => {
     const { wallet, calls } = fakeWallet()
-    const guarded = guardVaultAccess(wallet, ADMIN)
+    const guarded = guardVaultAccess(wallet, ADMIN, {
+      lookup: { anyAdminOutpoint: async () => false, anyAdminTransaction: async () => false }
+    })
 
     await expect(
       guarded.createAction(
-        { description: 'hide a vault output', outputs: [{ satoshis: 1, lockingScript: vaultLockHex(), outputDescription: 'x', basket: 'normal' }] } as any,
-        'evil.com'
+        { description: 'app r1c output', outputs: [{ satoshis: 1, lockingScript: vaultLockHex(), outputDescription: 'x', basket: 'normal' }] } as any,
+        'app.example'
       )
-    ).rejects.toBeInstanceOf(VaultAccessDenied)
+    ).resolves.toBeTruthy()
 
     const freshTx = new Transaction()
     freshTx.addOutput({ satoshis: 1000, lockingScript: LockingScript.fromHex(vaultLockHex()) })
@@ -571,27 +559,21 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
     const beefBytes = new Uint8Array(freshBeef.toBinaryAtomic(freshTx.id('hex')))
     await expect(
       guarded.internalizeAction(
-        { tx: beefBytes, outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }], description: 'attempt' } as any,
-        'evil.com'
+        { tx: beefBytes, outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }], description: 'app r1c receive' } as any,
+        'app.example'
       )
-    ).rejects.toBeInstanceOf(VaultAccessDenied)
-
-    const ok = await guarded.createAction(
-      { description: 'ordinary', outputs: [{ satoshis: 1, lockingScript: '51', outputDescription: 'x', basket: 'normal' }] } as any,
-      'evil.com'
-    )
-    expect(ok).toBeTruthy()
-    expect(calls.some(c => c.method === 'createAction' && c.originator === 'evil.com')).toBe(true)
+    ).resolves.toBeTruthy()
+    expect(calls.filter(c => c.originator === 'app.example').map(c => c.method)).toEqual(['createAction', 'internalizeAction'])
   })
 
-  it('I2: createAction refuses to NAME an existing Vault outpoint as an input, and signAction refuses a pending Vault reference (positive controls: an ordinary outpoint/reference is accepted)', async () => {
-    const historyWithVault = [
-      action({
-        inputs: [{ sourceOutpoint: `${TXID}.0`, sourceSatoshis: 50_000, sourceLockingScript: vaultLockHex(), inputDescription: 'Vault input', sequenceNumber: 0xffffffff }]
-      })
-    ]
-    const { wallet } = fakeWallet(historyWithVault)
-    const guarded = guardVaultAccess(wallet, ADMIN)
+  it('I2: createAction refuses to NAME an admin-basket outpoint as an input (positive control: an ordinary outpoint is accepted)', async () => {
+    const { wallet } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN, {
+      lookup: {
+        anyAdminOutpoint: async (outpoints: string[]) => outpoints.includes(`${TXID}.0`),
+        anyAdminTransaction: async () => false
+      }
+    })
 
     await expect(
       guarded.createAction(
@@ -604,20 +586,6 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
       'evil.com'
     )
     expect(okInput).toBeTruthy()
-
-    const historyWithReference = [
-      action({
-        reference: 'vault-ref', labels: ['vault', 'vault-withdraw'],
-        inputs: [{ sourceOutpoint: `${TXID}.0`, sourceSatoshis: 50_000, sourceLockingScript: vaultLockHex(), inputDescription: 'Vault input', sequenceNumber: 0xffffffff }]
-      })
-    ]
-    const { wallet: wallet2 } = fakeWallet(historyWithReference)
-    const guarded2 = guardVaultAccess(wallet2, ADMIN)
-    await expect(
-      guarded2.signAction({ reference: 'vault-ref', spends: {} } as any, 'evil.com')
-    ).rejects.toBeInstanceOf(VaultAccessDenied)
-    const okSign = await guarded2.signAction({ reference: 'ordinary-ref', spends: {} } as any, 'evil.com')
-    expect(okSign).toBeTruthy()
   })
 
   it('I2: createHmac/decrypt/getPublicKey under the reserved Vault protocol namespaces are denied for a non-admin originator (positive controls: the admin originator is allowed, and a non-reserved namespace is allowed for anyone)', async () => {
