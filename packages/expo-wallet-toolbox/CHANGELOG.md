@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
+
+### Upgrading from 0.10.0
+
+- `guardVaultAccess` takes a third argument, `{ lookup }`. Pass your
+  `StorageExpoSQLite` where you build the wallet; without it, external calls
+  that name an outpoint or a `sendWith` txid are refused. See below.
+- `VAULT_ABORT_REPLAY_MARKER` is no longer exported.
+- `VaultErrorCode` gains `'key-opens-nothing'`, so an exhaustive switch over it
+  needs a case.
+- The `export_unencrypted_*` translation keys are gone (see Export below).
 
 ### External-wallet guard: point lookups instead of a history scan (breaking)
 
@@ -34,6 +44,72 @@ changed during the scan, and queued the app's own admin calls behind it.
   the pending-abort authority tag alone.
 
 External `listActions` is unchanged: it still scans to hide Vault actions.
+
+### Vault: forget deposits no current key can open
+
+Each Vault setup on the same YubiKeys writes fresh PIV keys, yet an earlier
+setup's deposits still authenticate, and the encrypted backup and the chain
+restore both brought them back after they were deleted.
+
+- **New `forgetUnreachableVaultOutputs`** relinquishes every Vault output that
+  shares no key with the authenticated key list, so the cleared basket reaches
+  the backup on the next push.
+- **`getVaultKeyCoverage` reports `unreachableOutputs`.** The Vault screen shows
+  them in their own row with a confirm-to-forget, and leaves them out of the
+  re-lock badges.
+- **`recoverVaultFromChain` internalizes only deposits that share a key with
+  the live set** (the verified local key list, otherwise the newest setup
+  found). The rest are counted in the result's new `unreachable` field, and
+  the restore notice names them.
+- **Storage fix:** `relinquishOutput` now actually clears the basket.
+  `sqlBindValue` had dropped `basketId: undefined` from the `SET` clause, so a
+  relinquish, or a synced one arriving through `EntityOutput.mergeExisting`,
+  left the output in its basket. `outputs.basketId` undefined now binds as
+  `NULL`.
+
+### Vault: restore with one tapped YubiKey
+
+- **New `recoverVaultWithKey`** scans the chain, then has the tapped card sign
+  a fresh challenge (`proveHeldVaultKey`, PIN + touch) and checks it against
+  every key the found deposits list for that serial. The matching key picks
+  its setup and proves possession in one step; only that setup's deposits are
+  restored. A card that opens nothing raises the new `key-opens-nothing`
+  error.
+- The Vault screen's not-set-up view gains **Restore with a YubiKey** when NFC
+  hardware is supported.
+- `recoverVaultFromChain` behaves as before; the scan is now split internally
+  so the YubiKey step can run between scanning and inserting.
+
+### Vault: chain restore works against the live WhatsOnChain API
+
+Restore from the blockchain could never finish on mainnet:
+
+- WhatsOnChain answers 404 for an address with no history. That is now a
+  genuine miss, not a scan failure, so the scan no longer gives up with
+  `chain-scan-failed` after 20 empty indexes.
+- `GET /tx/{txid}/out/{vout}` answers 502 for every output, so no found
+  deposit was ever reported unspent. The lookup now uses `POST /utxos/spent`,
+  which reports each outpoint as unspent, spent (naming the spender), or
+  unknown.
+
+Both were checked against live mainnet responses.
+
+### Export: straight to the share sheet
+
+Export Wallet Data no longer shows a "This File Is Not Encrypted" confirmation
+before the OS share sheet (the alert-then-share handoff was unreliable on
+device); the tap opens the native save prompt directly, from Settings and the
+Vault screen. The export itself is unchanged: a raw SQLite image. The unused
+`export_unencrypted_*` strings are dropped from all locales.
+
+### Backup: a restore no longer fails on an inconclusive coin review
+
+Restoring from a recovery phrase failed with "Could not restore your history"
+whenever the post-restore `reviewSpendableOutputs` came back
+`WERR_UTXO_REVIEW_INCONCLUSIVE` (for example, when the UTXO provider could not
+answer), even though the replay was complete. The review is best-effort:
+`WalletContext` and `restoreOnImport` now log its failure and keep the restored
+wallet; the monitor and Check Wallet rerun it.
 
 ## 0.10.0
 
