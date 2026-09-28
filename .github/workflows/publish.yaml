@@ -1,0 +1,212 @@
+name: Publish @bsv/expo-wallet-toolbox
+
+# Releases @bsv/expo-wallet-toolbox to npm from CI.
+#
+# To release: bump `version` in packages/expo-wallet-toolbox/package.json, add
+# a `## X.Y.Z` entry to its CHANGELOG.md, merge to master, then push the tag
+#
+#   git tag expo-wallet-toolbox-vX.Y.Z <merged commit> && git push origin expo-wallet-toolbox-vX.Y.Z
+#
+# The package ships raw TypeScript (main/types are core/index.ts), so there is
+# no build step: `verify` typechecks and tests the source, and `publish`
+# publishes that same commit.
+#
+# npm authenticates `publish` by OIDC (trusted publishing). The trusted
+# publisher on npmjs.com names this repository and this file, `publish.yaml`,
+# with no environment, so do not rename the file or add `environment:` without
+# updating it there. No npm token is stored in the repository.
+#
+# The trusted publisher does not restrict which ref may publish, so any job
+# holding `id-token: write` can mint a publish credential. Only `publish` holds
+# it, it runs only for a release tag, and it installs and runs nothing but npm
+# itself: dependency install scripts, the typecheck and the tests all run in
+# `verify`, which has no id-token.
+#
+# Pull requests that touch the package, and manual runs, run `verify` only and
+# end in `npm publish --dry-run`: nothing is published.
+
+on:
+  push:
+    tags:
+      - 'expo-wallet-toolbox-v*'
+  pull_request:
+    paths:
+      - 'packages/expo-wallet-toolbox/**'
+      - '.github/workflows/publish.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-expo-wallet-toolbox-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_DIR: packages/expo-wallet-toolbox
+  PACKAGE_NAME: '@bsv/expo-wallet-toolbox'
+  IS_RELEASE: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/expo-wallet-toolbox-v') }}
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      dist_tag: ${{ steps.version.outputs.dist_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history, to check that a release tag points at master.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # node:sqlite, used by the storage tests, needs Node 22.13+.
+          node-version: '24'
+          cache: 'npm'
+
+      # npm 12 refuses git dependencies by default (react-native-agentation is
+      # one), so install with npm 11.
+      - name: Use npm 11
+        run: |
+          npm install -g npm@11
+          npm --version
+
+      - name: Read package version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./${PACKAGE_DIR}/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # A prerelease (1.2.0-beta.1) goes to the `next` dist-tag, so it never
+          # becomes what `npm install` picks by default.
+          if [[ "$VERSION" == *-* ]]; then
+            echo "dist_tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Package version: $VERSION"
+
+      - name: Check the release tag matches the package
+        if: env.IS_RELEASE == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          EXPECTED="expo-wallet-toolbox-v${VERSION}"
+          if [ "$GITHUB_REF_NAME" != "$EXPECTED" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION (expected $EXPECTED)."
+            exit 1
+          fi
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Tag $GITHUB_REF_NAME points at $GITHUB_SHA, which is not on master. Merge the release first, then tag the merged commit."
+            exit 1
+          fi
+
+      - name: Check the changelog has an entry for this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! grep -qxF "## ${VERSION}" "${PACKAGE_DIR}/CHANGELOG.md"; then
+            MESSAGE="${PACKAGE_DIR}/CHANGELOG.md has no '## ${VERSION}' heading."
+            if [ "$IS_RELEASE" = "true" ]; then echo "::error::$MESSAGE"; exit 1; fi
+            echo "::warning::$MESSAGE Required before tagging a release."
+          fi
+
+      - name: Check this version is not already on npm
+        id: registry
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Compare what `npm view` prints rather than trust its exit code: for a
+          # version that does not exist, npm versions differ between failing
+          # with E404 and printing nothing.
+          if [ "$(npm view "${PACKAGE_NAME}@${VERSION}" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            MESSAGE="${PACKAGE_NAME}@${VERSION} is already published."
+            if [ "$IS_RELEASE" = "true" ]; then echo "::error::$MESSAGE Bump the version."; exit 1; fi
+            echo "::notice::$MESSAGE Bump the version before tagging a release."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
+
+      - name: Test the package
+        run: npx jest --ci "${PACKAGE_DIR}/"
+
+      - name: Show the package contents
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm pack --dry-run
+
+      # npm refuses even a dry-run publish of a version it already has, so this
+      # only runs once the version has been bumped.
+      - name: Publish (dry run)
+        if: steps.registry.outputs.published == 'false'
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm publish --dry-run --access public --tag "${{ steps.version.outputs.dist_tag }}"
+
+  publish:
+    name: Publish to npm
+    needs: verify
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/expo-wallet-toolbox-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm trusted publishing
+
+    steps:
+      # The tag's own commit, which `verify` checked. Nothing is installed:
+      # the package has no dependencies to bundle and no npm scripts.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # No package-manager cache in the job that publishes, per npm's
+      # trusted-publishing guidance.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Use npm 11
+        run: |
+          npm install -g npm@11
+          npm --version
+
+      # Trusted publishing also attaches a provenance attestation linking the
+      # tarball to this run.
+      - name: Publish
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm publish --access public --tag "${{ needs.verify.outputs.dist_tag }}"
+
+      # npm accepts a publish (HTTP 202) before the version is installable, so
+      # wait for the registry to serve it before calling the release done.
+      - name: Wait for the registry to serve the new version
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if [ "$(npm view "${PACKAGE_NAME}@${VERSION}" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "${PACKAGE_NAME}@${VERSION} is live."
+              exit 0
+            fi
+            echo "Not visible yet (attempt $attempt/30)."
+            sleep 20
+          done
+          echo "::error::${PACKAGE_NAME}@${VERSION} was published but is not visible on the registry after 10 minutes. Check https://www.npmjs.com/package/${PACKAGE_NAME}."
+          exit 1
