@@ -1,35 +1,9 @@
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
-import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
-import { buildLock, commitment } from '../../core/services/vault/r1comb'
 
 const TXID = 'ab'.repeat(32)
 
 describe('stored output ownership invariants', () => {
-  it('rejects an authenticated R1C source at the storage boundary without host admin authorization', async () => {
-    const pubkey = '036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296'
-    const salt = '11'.repeat(32)
-    const lock = buildLock({ commitments: [commitment(pubkey, salt)], saltHex64: salt })
-    const storage = Object.create(StorageExpoSQLite.prototype) as StorageExpoSQLite
-
-    await expect(storage.validateResolvedActionInput(
-      { __bsvVaultAdminAuthorized: false },
-      { lockingScript: lock }
-    )).rejects.toThrow(/internal wallet authorization/i)
-    await expect(storage.validateResolvedActionInput(
-      { __bsvVaultAdminAuthorized: true },
-      { lockingScript: lock }
-    )).resolves.toBeUndefined()
-  })
-
-  it('does not apply the Vault policy to a non-R1C source script', async () => {
-    const storage = Object.create(StorageExpoSQLite.prototype) as StorageExpoSQLite
-    await expect(storage.validateResolvedActionInput(
-      { __bsvVaultAdminAuthorized: false },
-      { lockingScript: LockingScript.fromHex('51') }
-    )).resolves.toBeUndefined()
-  })
-
   it('relinquishOutput verifies the output actual basket inside one transaction', async () => {
     const updateOutput = jest.fn()
     const trx = { id: 'trx' }

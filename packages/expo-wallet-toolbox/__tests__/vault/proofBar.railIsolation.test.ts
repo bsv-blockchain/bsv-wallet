@@ -252,7 +252,7 @@ async function fundVault(
   wallet: Wallet,
   satoshis: number,
   nonce: number
-): Promise<{ outpoint: string; txid: string; lockHex: string }> {
+): Promise<{ outpoint: string; txid: string; lockHex: string; atomicBeef: Uint8Array }> {
   const salt = saltHex(nonce)
   const lock = buildLock({ commitments: [commitment(P256_PUBKEY, salt)], saltHex64: salt })
   const tx = new Transaction()
@@ -270,7 +270,9 @@ async function fundVault(
           protocol: 'basket insertion',
           insertionRemittance: {
             basket: VAULT_BASKET,
-            customInstructions: JSON.stringify({ note: 'I3 proof fixture' })
+            customInstructions: JSON.stringify({ note: 'I3 proof fixture' }),
+            // Every live deposit, re-lock and chain recovery tags its output.
+            tags: ['vault']
           }
         }
       ],
@@ -279,7 +281,7 @@ async function fundVault(
     ADMIN
   )
   if ((result as { accepted?: boolean }).accepted !== true) throw new Error('vault funding did not internalize')
-  return { outpoint: `${txid}.0`, txid, lockHex: lock.toHex() }
+  return { outpoint: `${txid}.0`, txid, lockHex: lock.toHex(), atomicBeef: new Uint8Array(beef.toBinaryAtomic(txid)) }
 }
 
 /** Seeds an ordinary, non-admin, non-default, non-`p `-prefixed basket output
@@ -585,7 +587,7 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
   })
 
   it('I3: createAction refuses a non-admin originator naming the Vault outpoint as an input (positive control: an ordinary outpoint is accepted)', async () => {
-    const { wallet } = await makeWallet(111)
+    const { wallet, storage } = await makeWallet(111)
     const vault = await fundVault(wallet, VAULT_SATS, 11)
     // An ordinary CUSTOM (unmanaged) output, not the wallet-managed BRC-29
     // change `fundDefault` produces — the toolbox refuses to let managed
@@ -594,7 +596,7 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
     // a positive control here.
     const ordinary = await fundGeneralBasket(wallet, 'general', DEFAULT_SATS)
 
-    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN)
+    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN, { lookup: storage })
     await expect(
       guarded.createAction(
         {
@@ -620,14 +622,24 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
     expect(ok).toBeTruthy()
   })
 
-  it('I3: internalizeAction refuses a non-admin originator carrying a fresh R1C output (positive control: an ordinary output is accepted)', async () => {
-    const { wallet } = await makeWallet(112)
-    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN)
+  it('I3: internalizeAction refuses a non-admin originator re-internalizing the stored Vault output into its own basket (positive control: a fresh R1C output is accepted into an app basket)', async () => {
+    const { wallet, storage } = await makeWallet(112)
+    const vault = await fundVault(wallet, VAULT_SATS, 12)
+    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN, { lookup: storage })
 
-    // A FRESH R1C-locked transaction — deliberately not one already resident
-    // in this wallet's history — since `carriesR1COutput` inspects the
-    // incoming transaction's own outputs and does not depend on any prior
-    // Vault inventory.
+    await expect(
+      guarded.internalizeAction(
+        {
+          tx: vault.atomicBeef,
+          outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }],
+          description: 'attempt'
+        } as never,
+        'evil.com'
+      )
+    ).rejects.toThrow(VaultAccessDenied)
+
+    // The Vault is the admin basket, not the script shape: an app may receive
+    // an R1C output of its own. Spending it still needs the committed keys.
     const freshSalt = saltHex(50)
     const freshLock = buildLock({
       commitments: [commitment(P256_PUBKEY, freshSalt)],
@@ -638,32 +650,76 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
     asMined(freshTx)
     const freshBeef = new Beef()
     freshBeef.mergeTransaction(freshTx)
-
-    await expect(
-      guarded.internalizeAction(
-        {
-          tx: new Uint8Array(freshBeef.toBinaryAtomic(freshTx.id('hex'))),
-          outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }],
-          description: 'attempt'
-        } as never,
-        'evil.com'
-      )
-    ).rejects.toThrow(VaultAccessDenied)
-
-    const ordinaryTx = new Transaction()
-    ordinaryTx.addOutput({ satoshis: 1000, lockingScript: new P2PKH().lock(PrivateKey.fromRandom().toAddress()) })
-    asMined(ordinaryTx)
-    const ordinaryBeef = new Beef()
-    ordinaryBeef.mergeTransaction(ordinaryTx)
     const ok = await guarded.internalizeAction(
       {
-        tx: new Uint8Array(ordinaryBeef.toBinaryAtomic(ordinaryTx.id('hex'))),
+        tx: new Uint8Array(freshBeef.toBinaryAtomic(freshTx.id('hex'))),
         outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }],
-        description: 'ordinary'
+        description: 'app r1c receive'
       } as never,
       'evil.com'
     )
     expect((ok as { accepted?: boolean }).accepted).toBe(true)
+  })
+
+  // "Forget unreachable deposits" (transfers.ts forgetUnreachableVaultOutputs)
+  // relinquishes a Vault output: its basketId goes NULL while the coins stay
+  // on chain. It must stay out of reach of a connected app even so.
+  it('I3: a relinquished ("forgotten") Vault output still cannot be reserved or reclassified by a non-admin originator', async () => {
+    const { wallet, storage } = await makeWallet(116)
+    const vault = await fundVault(wallet, VAULT_SATS, 16)
+    await wallet.relinquishOutput({ basket: VAULT_BASKET, output: vault.outpoint }, ADMIN)
+    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN, { lookup: storage })
+
+    await expect(
+      guarded.createAction(
+        {
+          description: 'attempt',
+          inputs: [
+            { outpoint: vault.outpoint, inputDescription: 'vault input', unlockingScriptLength: R1C_UNLOCK_LEN }
+          ],
+          outputs: [],
+          options: { noSend: true, signAndProcess: false }
+        } as never,
+        'evil.com'
+      )
+    ).rejects.toThrow(VaultAccessDenied)
+    await expect(
+      guarded.internalizeAction(
+        {
+          tx: vault.atomicBeef,
+          outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }],
+          description: 'claim the forgotten output'
+        } as never,
+        'evil.com'
+      )
+    ).rejects.toThrow(VaultAccessDenied)
+    // The storage backstop refuses it too, with the guard bypassed.
+    await expect(
+      wallet.createAction(
+        {
+          description: 'attempt',
+          inputs: [
+            { outpoint: vault.outpoint, inputDescription: 'vault input', unlockingScriptLength: R1C_UNLOCK_LEN }
+          ],
+          outputs: [],
+          options: { noSend: true, signAndProcess: false }
+        } as never,
+        'evil.com'
+      )
+    ).rejects.toThrow(/internal wallet authorization/i)
+  })
+
+  it('I3: sendWith naming the Vault transaction is refused for a non-admin originator (positive control: an ordinary transaction is not Vault state)', async () => {
+    const { wallet, keyDeriver, storage } = await makeWallet(115)
+    const vault = await fundVault(wallet, VAULT_SATS, 15)
+    const funding = await fundDefault(wallet, keyDeriver, DEFAULT_SATS)
+    const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN, { lookup: storage })
+
+    await expect(
+      guarded.createAction({ description: 'release', options: { sendWith: [vault.txid] } } as never, 'evil.com')
+    ).rejects.toThrow(VaultAccessDenied)
+    await expect(storage.anyAdminTransaction([funding.txid])).resolves.toBe(false)
+    await expect(storage.anyAdminOutpoint([funding.outpoint])).resolves.toBe(false)
   })
 
   // `guardVaultAccess` (core/services/vault/guard.ts) never wraps `listOutputs`

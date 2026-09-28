@@ -1,12 +1,26 @@
 /**
  * External-wallet boundary for the Vault.
  *
- * Vault ownership is determined from authenticated wallet history and the exact
- * current R1C locking script. It is never inferred from a basket name supplied
- * by an external caller. This matters because BRC-100 operations can name an
- * existing output by outpoint: without this guard an application that learned a
- * Vault outpoint could reserve it with createAction or reclassify it with
- * internalizeAction without first obtaining access to the `admin vault` basket.
+ * BRC-100 reserves `admin`-prefixed baskets for the wallet itself, and
+ * WalletPermissionsManager already refuses a connected app that names one.
+ * Some operations name an existing output by outpoint or a held transaction by
+ * txid instead, which the permissions manager does not check against baskets.
+ * For those, this guard asks storage about the named rows only
+ * (`VaultGuardLookup`), never the wallet's whole history:
+ *
+ *  - createAction inputs, relinquishOutput and internalizeAction outputs are
+ *    refused when a named outpoint sits in an admin-prefixed basket, or has
+ *    no basket but is still tagged or labelled as Vault/admin state (a Vault
+ *    output relinquished by "forget unreachable deposits").
+ *    StorageExpoSQLite.validateResolvedActionInput repeats the input check
+ *    inside createAction itself.
+ *  - createAction/signAction `options.sendWith` is refused when a named txid
+ *    is a Vault or admin transaction, so a held Vault transaction cannot be
+ *    broadcast by someone else.
+ *
+ * The admin originator (this app's own code) passes straight through. R1C
+ * locking scripts are not special here: an app may create and spend R1C
+ * outputs in its own baskets.
  */
 import {
   LockingScript,
@@ -20,7 +34,6 @@ import {
 } from '@bsv/sdk'
 import { bakedCommitments, R1C_LOCK_LEN, R1C_MAX_KEYS } from './r1comb'
 
-const VAULT_BASKET = 'admin vault'
 const VAULT_LABEL = 'vault'
 // An R1C locking script is about 45 KB before JS string/object overhead. Keep
 // only a small enriched page live at once; the scanners below stream rows and
@@ -45,7 +58,7 @@ const MAX_EXTERNAL_ACTION_OFFSET = MAX_ACTION_SCAN
  */
 const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS = 200
 const MAX_EXTERNAL_LIST_OUTPUTS_RESULTS_WITH_TRANSACTIONS = 25
-/** Permission-backed reads must never retain the exclusive inventory slot
+/** Permission-backed reads must never retain the exclusive listActions slot
  * indefinitely while a connected origin leaves a prompt unanswered. */
 export const EXTERNAL_ACTION_READ_TIMEOUT_MS = 30_000
 /** Bound queued scans as well as active scans. A connected origin can issue
@@ -162,48 +175,40 @@ function requestsPendingAbortAuthorityProtocol(args: unknown): boolean {
   return matchesProtocolNamespace(args, PENDING_ABORT_AUTHORITY_PROTOCOL_NAMES)
 }
 
-/** Operations that can name an existing output or unsigned action without
- * going through basket-listing permission checks. */
+/** Operations whose arguments can name an existing output by outpoint, or a
+ * held transaction by txid (`options.sendWith`), without going through the
+ * permissions manager's basket checks. */
 const OUTPUT_NAMING = new Set<keyof WalletInterface>([
   'createAction',
   'internalizeAction',
   'relinquishOutput',
-  'signAction',
-  'abortAction'
+  'signAction'
 ])
 
 /**
- * XR-102: opts an `abortAction` call made WITH `adminOriginator` into the same
- * vault-inventory reference check every non-admin caller already gets below,
- * instead of the admin bypass.
- *
- * `core/localpay/pendingAborts.ts`'s `replayPendingAborts` runs unattended at
- * every wallet build, over a `reference` it read back from a plain KV record —
- * writable by anything with local storage access, and never independently
- * verified. It MUST call the real wallet with `adminOriginator`: the
- * toolbox's own `assertPendingActionOriginator` requires the exact originator
- * an action was created under, and every first-party `createAction` in this
- * app (every ordinary nearby payment included) uses `adminOriginator` — so a
- * different originator here would fail every legitimate replay, not just a
- * forged one. That leaves no way to tell a replay apart from a live
- * interactive admin flow by originator alone; this marker is the side
- * channel instead. It travels only as an in-process object property — never
- * serialized, never sent anywhere — and guard.ts strips it before the real
- * wallet ever sees an `args` object.
+ * Point lookups against the wallet's own storage. StorageExpoSQLite implements
+ * both (see core/storage/methods/vaultGuardSql.ts); each reads only the rows
+ * named and never a locking script.
  */
-export const VAULT_ABORT_REPLAY_MARKER = Symbol('vault-guard-replay-abort')
+export interface VaultGuardLookup {
+  /** True when any canonical `txid.vout` is held in an `admin`-prefixed
+   * basket, or has no basket but is tagged `vault` or was created by a
+   * `vault`/`admin*`-labelled transaction (a relinquished Vault output). */
+  anyAdminOutpoint(outpoints: string[]): Promise<boolean>
+  /** True when any lowercase txid is labelled `vault` or `admin*`, or creates
+   * or spends an output in an `admin`-prefixed basket. */
+  anyAdminTransaction(txids: string[]): Promise<boolean>
+}
+
+export interface GuardVaultAccessOptions {
+  /** Required for an external call that names an outpoint or a sendWith txid;
+   * without it such a call is refused. Supplied once, where the wallet is
+   * built; re-wrapping the same wallet later keeps it. */
+  lookup?: VaultGuardLookup
+}
 
 interface ExtendedWalletAction extends WalletAction {
   reference?: string
-}
-
-interface VaultInventory {
-  outpoints: Set<string>
-  references: Set<string>
-  /** Signed noSend Vault actions can be released by options.sendWith, so their
-   * transaction ids are capabilities too, even when no protected outpoint is
-   * named in the outer request. */
-  txids: Set<string>
 }
 
 interface GuardRuntime {
@@ -212,6 +217,7 @@ interface GuardRuntime {
   /** Concurrent byte-identical external listActions reads share one scan.
    * Entries exist only while the scan is in flight; there is no stale cache. */
   reads: Map<string, Promise<ListActionsResult>>
+  lookup?: VaultGuardLookup
 }
 
 /** One runtime per underlying wallet even if it is wrapped more than once. */
@@ -236,15 +242,11 @@ function runtimeFor(wallet: object): GuardRuntime {
   return runtime
 }
 
-/** Run one enriched-history operation at a time. The slot covers both the
- * inventory scan and the guarded mutation, so a second external request can
- * never act on a snapshot made stale by the first one. */
-async function withGuardSlot<T>(runtime: GuardRuntime, work: () => Promise<T>, trusted = false): Promise<T> {
-  // Trusted admin calls may enter behind a full external queue. Once queued,
-  // continuous attacker traffic is rejected at the bound and cannot jump in
-  // front of it; this keeps admin repair available without unbounding the
-  // untrusted queue.
-  if (!trusted && runtime.queued >= MAX_GUARDED_QUEUE) throw new Error('Too many guarded wallet operations')
+/** Run one external enriched listActions scan at a time, with a bounded queue,
+ * so concurrent reads from a connected app cannot pile up history pages in
+ * memory. */
+async function withGuardSlot<T>(runtime: GuardRuntime, work: () => Promise<T>): Promise<T> {
+  if (runtime.queued >= MAX_GUARDED_QUEUE) throw new Error('Too many guarded wallet operations')
   runtime.queued++
   const predecessor = runtime.tail
   let release!: () => void
@@ -498,32 +500,9 @@ async function listActionsForExternal(
   }
 }
 
-/** Authenticated all-action history is also a durable output inventory. The
- * exact script check protects a mislabeled R1C output as defense in depth. */
-async function loadVaultInventory(
-  call: (args: ListActionsArgs, originator?: string) => Promise<ListActionsResult>,
-  adminOriginator: string
-): Promise<VaultInventory> {
-  const inventory: VaultInventory = { outpoints: new Set(), references: new Set(), txids: new Set() }
-  await scanAllActions(call, { labels: [] }, adminOriginator, action => {
-    const sensitive = isSensitiveAction(action)
-    if (action.reference && sensitive) inventory.references.add(action.reference)
-    if (action.txid && sensitive) inventory.txids.add(action.txid.toLowerCase())
-    for (const output of action.outputs ?? []) {
-      if (action.txid && (output.basket === VAULT_BASKET || isR1CLockingScript(output.lockingScript))) {
-        inventory.outpoints.add(`${action.txid.toLowerCase()}.${output.outputIndex}`)
-      }
-    }
-    for (const input of action.inputs ?? []) {
-      if (isR1CLockingScript(input.sourceLockingScript)) inventory.outpoints.add(input.sourceOutpoint.toLowerCase())
-    }
-  })
-  return inventory
-}
-
 /** `sendWith` is a broadcast capability for a previously signed noSend action.
  * Both createAction and signAction accept it, including when the surrounding
- * request does not otherwise touch a Vault input/output/reference. */
+ * request names no input or output at all. */
 function requestedSendWithTxids(method: keyof WalletInterface, args: any): string[] | undefined {
   if (method !== 'createAction' && method !== 'signAction') return []
   const value = args?.options?.sendWith
@@ -566,26 +545,32 @@ function requestedOutpoints(method: keyof WalletInterface, args: any): string[] 
   return canonical.some(value => value === undefined) ? undefined : (canonical as string[])
 }
 
-function carriesR1COutput(method: keyof WalletInterface, args: any): boolean {
-  if (method === 'createAction')
-    return !!args?.outputs?.some((output: any) => isR1CLockingScript(output?.lockingScript))
-  if (method !== 'internalizeAction') return false
+/** Whether an external output-naming call names an admin-state outpoint or a
+ * Vault/admin transaction. Unparseable arguments, a missing lookup
+ * and a failed lookup all count as yes. */
+async function namesAdminState(runtime: GuardRuntime, method: keyof WalletInterface, args: any): Promise<boolean> {
+  const outpoints = requestedOutpoints(method, args)
+  const sendWith = requestedSendWithTxids(method, args)
+  if (outpoints === undefined || sendWith === undefined) return true
+  if (outpoints.length === 0 && sendWith.length === 0) return false
+  const lookup = runtime.lookup
+  if (!lookup) return true
   try {
-    const tx = Transaction.fromAtomicBEEF(args?.tx)
-    return !!args?.outputs?.some((output: any) => {
-      // Match the SDK's numeric coercion. Alternate spellings such as "00"
-      // must identify the same output here as they do during internalization.
-      const index = Number(output?.outputIndex ?? '')
-      return Number.isSafeInteger(index) && index >= 0 && isR1CLockingScript(tx.outputs[index]?.lockingScript?.toHex())
-    })
+    if (outpoints.length > 0 && (await lookup.anyAdminOutpoint(outpoints))) return true
+    return sendWith.length > 0 && (await lookup.anyAdminTransaction(sendWith))
   } catch {
-    return false
+    return true
   }
 }
 
 /** Wrap every wallet handed to an external caller. */
-export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOriginator: string): T {
+export function guardVaultAccess<T extends WalletInterface>(
+  wallet: T,
+  adminOriginator: string,
+  options: GuardVaultAccessOptions = {}
+): T {
   const targetWallet = underlyingWallet(wallet as object) as T
+  if (options.lookup) runtimeFor(targetWallet as object).lookup = options.lookup
   let byAuthority = GUARDED_PROXIES.get(targetWallet as object)
   const existing = byAuthority?.get(adminOriginator)
   if (existing) return existing as T
@@ -657,70 +642,21 @@ export function guardVaultAccess<T extends WalletInterface>(wallet: T, adminOrig
       if (!PRIVILEGED_CAPABLE.has(method) && !OUTPUT_NAMING.has(method)) return value.bind(target)
 
       return async (args: any, originator?: string) => {
+        if (originator === adminOriginator) return await bound(args, originator)
         if (
           PRIVILEGED_CAPABLE.has(method) &&
-          originator !== adminOriginator &&
-          (requestsVaultProtocol(args) ||
+          (args?.privileged ||
+            requestsVaultProtocol(args) ||
             requestsReservedRailProtocol(args) ||
             requestsConnectionAuthorityProtocol(args) ||
             requestsPendingAbortAuthorityProtocol(args))
         ) {
           return deny(String(method), originator)
         }
-        if (PRIVILEGED_CAPABLE.has(method) && args?.privileged && originator !== adminOriginator) {
+        if (OUTPUT_NAMING.has(method) && (await namesAdminState(runtime, method, args))) {
           return deny(String(method), originator)
         }
-        // XR-102: an admin-originator `abortAction` marked as a replay (see
-        // `VAULT_ABORT_REPLAY_MARKER`) is never trusted with the bypass below —
-        // it did not come from a live interactive admin flow, only from a
-        // locally-stored reference nothing has independently verified. Strip
-        // the marker before either branch below ever sees `args`: it is a
-        // guard-internal signal, not part of the real abortAction shape.
-        const isReplayAbort =
-          method === 'abortAction' &&
-          args != null &&
-          typeof args === 'object' &&
-          (args as Record<PropertyKey, unknown>)[VAULT_ABORT_REPLAY_MARKER] === true
-        const callArgs = isReplayAbort ? { reference: (args as { reference?: unknown }).reference } : args
-        // Admin output/action mutations use the same exclusive slot as the
-        // external inventory scan + use. This closes the same-count/TOCTOU
-        // race without caching an inventory snapshot. The raw underlying
-        // wallet remains an internal trust boundary; every externally handed
-        // proxy shares this runtime through the WeakMap above.
-        if (originator === adminOriginator && OUTPUT_NAMING.has(method) && !isReplayAbort) {
-          return await withGuardSlot(runtime, () => bound(callArgs, originator), true)
-        }
-        if ((originator !== adminOriginator || isReplayAbort) && OUTPUT_NAMING.has(method)) {
-          if (runtime.queued >= MAX_GUARDED_QUEUE) return deny(String(method), originator)
-          return await withGuardSlot(runtime, async () => {
-            let inventory: VaultInventory
-            try {
-              inventory = await loadVaultInventory(
-                target.listActions.bind(target) as (a: ListActionsArgs, o?: string) => Promise<ListActionsResult>,
-                adminOriginator
-              )
-            } catch {
-              return deny(String(method), originator)
-            }
-            const outpoints = requestedOutpoints(method, callArgs)
-            if (outpoints === undefined || outpoints.some(outpoint => inventory.outpoints.has(outpoint))) {
-              return deny(String(method), originator)
-            }
-            if (
-              (method === 'signAction' || method === 'abortAction') &&
-              inventory.references.has(String(callArgs?.reference ?? ''))
-            ) {
-              return deny(String(method), originator)
-            }
-            const sendWith = requestedSendWithTxids(method, callArgs)
-            if (sendWith === undefined || sendWith.some(txid => inventory.txids.has(txid))) {
-              return deny(String(method), originator)
-            }
-            if (carriesR1COutput(method, callArgs)) return deny(String(method), originator)
-            return await bound(callArgs, originator)
-          })
-        }
-        return await bound(callArgs, originator)
+        return await bound(args, originator)
       }
     }
   })

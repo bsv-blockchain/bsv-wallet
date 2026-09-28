@@ -66,7 +66,7 @@ import {
 import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
 import { getOnline } from '../net/online'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
-import { isR1CLockingScript } from '../services/vault/guard'
+import { anyAdminOutpoint, anyAdminTransaction, isAdminOutput } from './methods/vaultGuardSql'
 import type {
   AuthId,
   FindCertificateFieldsArgs,
@@ -154,22 +154,44 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   /**
-   * Final Vault authorization check for explicit transaction inputs.
+   * Admin-state check for explicit transaction inputs.
    *
-   * The toolbox invokes this only after it has resolved the immutable source
-   * locking script from authenticated local storage or verified BEEF. This is
-   * the database-side backstop for history-scan races: even if an R1C output
-   * appears between an external guard scan and createAction, the reservation
-   * cannot proceed without the host-derived internal-admin marker.
+   * The toolbox calls this after it has resolved each input's source from
+   * authenticated local storage (`input.output`) or verified BEEF. A stored
+   * output that is admin state — held in an `admin`-prefixed basket (the
+   * Vault's `admin vault`), or created by a `vault`/`admin*`-labelled
+   * transaction, which still covers a Vault output relinquished by "forget
+   * unreachable deposits" — can be named as an input only by the app's own
+   * admin originator, which the patched Wallet.createAction records as
+   * `__bsvVaultAdminAuthorized`. Running inside createAction, this also covers
+   * a caller that reaches the wallet without going through guardVaultAccess.
+   *
+   * The locking script does not decide: an app may hold and spend R1C outputs
+   * of its own.
    */
   async validateResolvedActionInput(
     vargs: { __bsvVaultAdminAuthorized?: boolean },
-    input: { lockingScript?: { toHex(): string } }
+    input: { output?: { outputId?: number } }
   ): Promise<void> {
-    const lockingScript = input.lockingScript?.toHex()
-    if (lockingScript && isR1CLockingScript(lockingScript) && vargs.__bsvVaultAdminAuthorized !== true) {
-      throw new Error('Vault R1C inputs require internal wallet authorization')
+    if (vargs.__bsvVaultAdminAuthorized === true) return
+    const outputId = input.output?.outputId
+    if (outputId == null) return
+    if (await isAdminOutput(this.getDB(), outputId)) {
+      throw new Error('Inputs holding admin or Vault state require internal wallet authorization')
     }
+  }
+
+  /** guardVaultAccess lookup: is any `txid.vout` admin state (admin-prefixed
+   * basket, or a Vault/admin transaction's output)? Reads basket names and
+   * labels only (see methods/vaultGuardSql.ts). */
+  async anyAdminOutpoint(outpoints: string[]): Promise<boolean> {
+    return await anyAdminOutpoint(this.getDB(), outpoints)
+  }
+
+  /** guardVaultAccess lookup: is any txid a Vault or admin transaction? Reads
+   * labels and basket names only (see methods/vaultGuardSql.ts). */
+  async anyAdminTransaction(txids: string[]): Promise<boolean> {
+    return await anyAdminTransaction(this.getDB(), txids)
   }
 
   // ============================================================================

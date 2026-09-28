@@ -1760,9 +1760,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
 
         // Publish one idempotently guarded manager for both trusted in-app
-        // Vault calls and external WalletClient calls. Admin output mutations
-        // therefore share the guard's FIFO with external inventory scan+use;
-        // external call sites may safely apply guardVaultAccess again.
+        // Vault calls and external WalletClient calls; external call sites may
+        // safely apply guardVaultAccess again. The guard's admin-basket and
+        // held-transaction checks are point lookups against this device's
+        // SQLite storage; with no local storage those external calls are
+        // refused rather than let through.
         //
         // wrapCreateActionForTokenInputs wraps the RAW permissionsManager
         // FIRST, and guardVaultAccess is applied to ITS result (never the
@@ -1798,7 +1800,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             () => mandalaRef.current?.store,
             () => mandalaEndpoints !== undefined
           ),
-          adminOriginator
+          adminOriginator,
+          { lookup: phoneStorage }
         )
 
         // THE MANDALA RUNTIME'S ONE CONSTRUCTION SITE.

@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### External-wallet guard: point lookups instead of a history scan (breaking)
+
+`guardVaultAccess` used to page the wallet's entire action history, with
+locking scripts, before every external `createAction`, `signAction`,
+`abortAction`, `internalizeAction` and `relinquishOutput`. It refused every
+such call once history passed 10,000 actions, refused a call when history
+changed during the scan, and queued the app's own admin calls behind it.
+
+- **New third argument `guardVaultAccess(wallet, adminOriginator, { lookup })`**
+  (`GuardVaultAccessOptions`, `VaultGuardLookup`). `StorageExpoSQLite`
+  implements the lookup: pass it where you build the wallet. Re-wrapping the
+  same wallet later keeps it. Without a lookup, an external call that names an
+  outpoint or a `sendWith` txid is refused.
+- **What an external caller is refused now:** naming an outpoint that is
+  admin state (createAction inputs, `relinquishOutput`, `internalizeAction`
+  outputs), and a `sendWith` txid that is labelled `vault` or `admin*` or
+  creates or spends an admin-basket output. An outpoint is admin state when
+  it sits in an `admin`-prefixed basket, or when it has no basket but is
+  tagged `vault` or was created by a `vault`/`admin*`-labelled transaction:
+  a Vault output relinquished by "forget unreachable deposits" stays out of
+  reach. Each check reads only the named rows and never a locking script
+  (`core/storage/methods/vaultGuardSql.ts`).
+- **What is now allowed:** creating, receiving and spending R1C outputs outside
+  admin baskets, and `signAction`/`abortAction` by reference. The admin
+  originator passes straight through without queueing.
+- **Storage backstop:** `StorageExpoSQLite.validateResolvedActionInput`
+  refuses a non-admin input whose stored output is admin state, by the same
+  rule (previously: any R1C script).
+- **Removed:** `VAULT_ABORT_REPLAY_MARKER`. `replayPendingAborts` relies on
+  the pending-abort authority tag alone.
+
+External `listActions` is unchanged: it still scans to hide Vault actions.
+
 ## 0.10.0
 
 ### `verifyFramePayment` takes its chain tracker separately (breaking)
