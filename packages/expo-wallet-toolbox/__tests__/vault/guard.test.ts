@@ -2,7 +2,7 @@
  * Vault access guard — external origins must not reach privileged (vault) key
  * material. The load-bearing defense against the privilege-escalation finding.
  */
-import { Beef, LockingScript, Transaction } from '@bsv/sdk'
+import { Beef, LockingScript, Transaction, Validation } from '@bsv/sdk'
 import {
   EXTERNAL_ACTION_READ_TIMEOUT_MS,
   guardVaultAccess,
@@ -561,9 +561,9 @@ test.each([
 // enough to plausibly OOM a mobile app. This must be refused before it
 // reaches the underlying wallet, exactly like the listActions bounds above.
 test.each([
-  { limit: 201 },
+  { limit: 1001 },
   { limit: 10000 },
-  { limit: 26, include: 'entire transactions' },
+  { limit: 101, include: 'entire transactions' },
   { offset: 10_001 }
 ])('bounds external listOutputs request before it reaches the underlying wallet: %p', async invalid => {
   const { wallet, calls } = fakeWallet()
@@ -578,7 +578,7 @@ test('allows an external listOutputs call within the bound, and an admin call ab
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)
 
-  await guarded.listOutputs({ basket: 'x', limit: 200 } as any, 'evil.com')
+  await guarded.listOutputs({ basket: 'x', limit: 1000 } as any, 'evil.com')
   expect(calls.some(c => c.method === 'listOutputs' && c.originator === 'evil.com')).toBe(true)
 
   // The admin (this app's own code) originator is never bound by this — it
@@ -586,6 +586,53 @@ test('allows an external listOutputs call within the bound, and an admin call ab
   await guarded.listOutputs({ basket: 'x', limit: 10000 } as any, ADMIN)
   expect(calls.some(c => c.method === 'listOutputs' && c.originator === ADMIN)).toBe(true)
 })
+
+// The bound validates the request, but must forward the caller's own args.
+// The SDK's validated form swaps `include` for includeTransactions /
+// includeLockingScripts, and the wallet validates again downstream: forwarding
+// the validated object silently dropped `include`, so an external caller got
+// no BEEF and no locking scripts, and a later createAction spending those
+// outputs failed with "Every signableTransaction input must have a
+// sourceTransaction".
+// The bound must admit the SDK's own clients. @bsv/sdk's ContactsManager
+// (behind IdentityClient.resolveByAttributes / resolveByIdentityKey and
+// saveContact / removeContact) asks for these exact pages; refusing them broke
+// identity lookups in every in-tab dApp with 'Wallet operation "listOutputs"
+// is not permitted'.
+test.each([
+  { basket: 'contacts', include: 'locking scripts', includeCustomInstructions: true, tags: [], limit: 1000 },
+  {
+    basket: 'contacts',
+    include: 'entire transactions',
+    includeCustomInstructions: true,
+    tags: [`identityKey ${'ab'.repeat(32)}`],
+    limit: 100
+  }
+])('admits the SDK ContactsManager listOutputs page from an external origin: %p', async args => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+
+  await guarded.listOutputs(args as any, 'fast.brc.dev')
+
+  expect(calls.find(c => c.method === 'listOutputs')?.args).toEqual(args)
+})
+
+test.each(['entire transactions', 'locking scripts'] as const)(
+  'forwards an external listOutputs `include: %p` to the underlying wallet',
+  async include => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    const args = { basket: 'x', include, includeTags: true, limit: 5 }
+
+    await guarded.listOutputs(args as any, 'evil.com')
+
+    const forwarded = calls.find(c => c.method === 'listOutputs')?.args
+    expect(forwarded).toEqual(args)
+    const revalidated = Validation.validateListOutputsArgs(forwarded)
+    expect(revalidated.includeTransactions).toBe(include === 'entire transactions')
+    expect(revalidated.includeLockingScripts).toBe(include === 'locking scripts')
+  }
+)
 
 test('a stalled external action read times out and releases the shared critical queue', async () => {
   jest.useFakeTimers()

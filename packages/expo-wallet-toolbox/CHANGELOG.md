@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.11.1
+
+### External-wallet guard: `listOutputs` keeps `include`
+
+The size bound on an external `listOutputs` (XR-019, added in 0.9.0) forwarded
+the SDK's validated form of the request instead of the caller's own args. That
+form replaces `include` with `includeTransactions`/`includeLockingScripts`, and
+the wallet validates again downstream, so `include` was lost: every non-admin
+caller (in-tab dApps, paired peers) got no `BEEF` for
+`include: 'entire transactions'` and no locking scripts for
+`include: 'locking scripts'`. A dApp that then spent those outputs with
+`createAction` failed with "Every signableTransaction input must have a
+sourceTransaction". The bound still refuses the same requests; an allowed one
+now reaches the wallet unchanged.
+
+### External-wallet guard: `listOutputs` caps admit the SDK's contacts calls
+
+The same bound refused any external `listOutputs` above 200 rows, or above 25
+with `include: 'entire transactions'`. `@bsv/sdk`'s own `ContactsManager` asks
+for 1000 rows with locking scripts (`getContacts`) and 100 with entire
+transactions (`saveContact`, `removeContact`), so
+`IdentityClient.resolveByAttributes`, `resolveByIdentityKey` and saving a
+contact failed in every dApp with 'Wallet operation "listOutputs" is not
+permitted for origin "…"'. The caps are now 1000 and 100. Larger pages are still
+refused.
+
 ## 0.11.0
 
 ### Upgrading from 0.10.0
