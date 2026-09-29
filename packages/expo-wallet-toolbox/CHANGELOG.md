@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.3
+
+### Identity lookups: default certifier descriptions fit BRC-100
+
+`IdentityClient.resolveByAttributes` and `resolveByIdentityKey` failed in dApps
+using `@bsv/sdk` 2.8.8 or later with `Invalid discoverByAttributes result
+certificates[n].certifierInfo.description: expected 5–50 UTF-8 bytes`. The
+wallet copies each trusted certifier's description into `certifierInfo`, and
+the library's default SocialCert and Metanet Trust Services descriptions are 56
+and 55 bytes. `DEFAULT_SETTINGS` now carries shorter descriptions for those two
+(same wording as bsv-blockchain/ts-stack#665, which fixes the library), so
+their certificates pass the SDK's result validation. Nothing else about either
+certifier changes. `DEFAULT_SETTINGS` moves to `core/context/defaultWalletSettings.ts`.
+
 ## 0.11.2
 
 0.11.1 was tagged but never reached npm: its publish run failed on a test-only

@@ -10,11 +10,11 @@ import {
   PermissionRequest,
   SimpleWalletManager,
   Monitor,
-  DEFAULT_SETTINGS as LIB_DEFAULT_SETTINGS,
   WalletSettings,
   WalletSettingsManager
 } from '@bsv/wallet-toolbox-mobile'
 import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk'
+import { DEFAULT_SETTINGS } from './defaultWalletSettings'
 import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
 import { getVaultDriver } from '../services/vault/driver'
 import { backupAttestation } from '../services/vault/backupAttestation'
@@ -133,34 +133,6 @@ async function resolveMandalaAssetMetadata(assetId: string): Promise<MandalaAsse
 const MANDALA_OUTPOINT_LIST_PAGE = 1000
 const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
-const DEFAULT_SETTINGS: WalletSettings = {
-  ...LIB_DEFAULT_SETTINGS,
-  trustSettings: {
-    ...LIB_DEFAULT_SETTINGS.trustSettings,
-    trustedCertifiers: [
-      ...LIB_DEFAULT_SETTINGS.trustSettings.trustedCertifiers,
-      {
-        name: 'Who I Am',
-        description: 'Certifies email, phone, and X account ownership',
-        iconUrl: 'https://whoiam.bsvblockchain.tech/whoiam.png',
-        identityKey: '02e7eeb3986273db6843b790a1595ed0ff1b2ae8f43ae2e7f1a0c9db4dd3fb9441',
-        trust: 5
-      },
-      // Values as published in https://auth.sigmaidentity.com/manifest.json
-      // (babbage.trust). Lowest trust of the shipped set: it is the newest
-      // certifier here and the list is ordered by trust on the Trust screen.
-      // The icon is an SVG; the Trust screen draws those with react-native-svg
-      // rather than the platform decoder, which mispositions its <text> glyph.
-      {
-        name: 'Sigma Identity',
-        description: 'Certifies verified identity claims',
-        iconUrl: 'https://auth.sigmaidentity.com/sigma-mark.svg',
-        identityKey: '02250905f0383085b53409876aefbf01fc8e7fd841922dc4ce55ae035b31341e6d',
-        trust: 2
-      }
-    ]
-  }
-}
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
 import { getBackupUrl, getMandalaEndpoints } from '../toolboxConfig'
