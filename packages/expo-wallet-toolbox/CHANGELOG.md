@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.8
+
+### Grouped permission prompt
+
+A site whose `manifest.json` declares `metanet.groupPermissions` is now asked
+for them in one drawer when it connects (`waitForAuthentication`), the same
+sheet and buttons as a spending prompt, listing the spending allowance and each
+protocol, basket and certificate the site says it needs.
+
+- Authorize grants exactly that set (`grantGroupedPermission`), minting its
+  permission tokens, and the site carries on without further prompts for them.
+- Reject, or swiping the drawer away, grants nothing and lets the site carry
+  on; each permission is then prompted for on its own when used. A hard deny
+  would make the site's `waitForAuthentication` throw.
+- The request holds the origin's permission lock until answered, which is why
+  0.11.7 turned grouped seeking off; it is back on now that it is answered.
+- A spending prompt already open is shown first.
+
 ## 0.11.7
 
 ### Sites with a grouped-permission manifest no longer hang

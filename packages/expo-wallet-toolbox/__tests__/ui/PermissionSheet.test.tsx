@@ -165,3 +165,30 @@ describe('deriveActive — mandala relinquishOutput (XR-041)', () => {
     expect(active!.description).toBe('wants to remove a Mandala token holding from your wallet')
   })
 })
+
+describe('grouped permission requests', () => {
+  const permissions = {
+    spendingAuthorization: { amount: 100, description: 'Monthly test allowance' },
+    protocolPermissions: [{ protocolID: [1, 'fast grouped alpha'] as [number, string], description: 'Alpha' }]
+  }
+  const group = { requestID: 'group:fast.brc.dev', originator: 'fast.brc.dev', permissions }
+
+  it('shows the whole set a site asks for', () => {
+    const active = deriveActive({ ...baseCtx([]), groupRequests: [group] }, formatSats)
+    expect(active).toMatchObject({
+      kind: 'group',
+      requestID: 'group:fast.brc.dev',
+      originator: 'fast.brc.dev',
+      groupPermissions: permissions
+    })
+  })
+
+  it('waits behind an open spending prompt, which is more time-sensitive', () => {
+    const spending = { requestID: 'spend:1', originator: 'a.example', authorizationAmount: 5, lineItems: [] }
+    const active = deriveActive(
+      { ...baseCtx([]), spendingRequests: [spending], spendingAuthorizationModalOpen: true, groupRequests: [group] },
+      formatSats
+    )
+    expect(active?.kind).toBe('spending')
+  })
+})

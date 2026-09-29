@@ -1,5 +1,6 @@
 import React, { useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
+import type { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 import Sheet from './Sheet'
 import PressableScale from './PressableScale'
 import { useTranslation } from 'react-i18next'
@@ -69,6 +70,8 @@ interface GroupPermissions {
   certificateAccess?: GroupCertificate[]
   spendingAuthorization?: GroupSpending
 }
+
+type GrantedGroupPermissions = Parameters<WalletPermissionsManager['grantGroupedPermission']>[0]['granted']
 
 /** Common shape derived from the four existing modals. */
 export interface ActivePermission {
@@ -152,6 +155,7 @@ export function deriveActive(
     basketRequests: any[]
     certificateRequests: any[]
     spendingRequests: any[]
+    groupRequests?: any[]
     btmsRequests: any[]
     mandalaRequests: any[]
     protocolAccessModalOpen: boolean
@@ -204,6 +208,21 @@ export function deriveActive(
       amount: r.authorizationAmount,
       renewal: r.renewal,
       details: lineItemDetails
+    }
+  }
+
+  // A site's grouped request (its manifest's metanet.groupPermissions) is the
+  // whole set it will use, asked once when it connects.
+  if (ctx.groupRequests && ctx.groupRequests.length > 0) {
+    const r = ctx.groupRequests[0]
+    return {
+      kind: 'group',
+      requestID: r.requestID,
+      originator: r.originator,
+      title: 'Permissions',
+      description: 'wants these permissions',
+      details: [],
+      groupPermissions: r.permissions
     }
   }
 
@@ -456,12 +475,14 @@ const PermissionSheet: React.FC = () => {
     basketRequests,
     certificateRequests,
     spendingRequests,
+    groupRequests,
     btmsRequests,
     mandalaRequests,
     advanceProtocolQueue,
     advanceBasketQueue,
     advanceCertificateQueue,
     advanceSpendingQueue,
+    advanceGroupQueue,
     advanceBtmsQueue,
     advanceMandalaQueue,
     managers,
@@ -516,6 +537,7 @@ const PermissionSheet: React.FC = () => {
           basketRequests,
           certificateRequests,
           spendingRequests,
+          groupRequests,
           btmsRequests,
           mandalaRequests,
           protocolAccessModalOpen,
@@ -530,6 +552,7 @@ const PermissionSheet: React.FC = () => {
       basketRequests,
       certificateRequests,
       spendingRequests,
+      groupRequests,
       btmsRequests,
       mandalaRequests,
       protocolAccessModalOpen,
@@ -580,6 +603,16 @@ const PermissionSheet: React.FC = () => {
     } else if (active.kind === 'mandala') {
       // Mandala uses its own promise-based resolution too — no permissionsManager.denyPermission
       advanceMandalaQueue(false)
+    } else if (active.kind === 'group') {
+      // Grant none of the set, but let the site carry on: each permission is
+      // then asked for on its own when used. A hard deny would make the
+      // site's waitForAuthentication throw.
+      try {
+        await managers.permissionsManager?.dismissGroupedPermission(active.requestID)
+      } catch {
+        // Already settled (e.g. the site went away) -- nothing left to answer.
+      }
+      advanceGroupQueue()
     } else {
       try {
         await managers.permissionsManager?.denyPermission(active.requestID)
@@ -614,6 +647,7 @@ const PermissionSheet: React.FC = () => {
     advanceBasketQueue,
     advanceCertificateQueue,
     advanceSpendingQueue,
+    advanceGroupQueue,
     advanceBtmsQueue,
     advanceMandalaQueue,
     setProtocolAccessModalOpen,
@@ -636,6 +670,18 @@ const PermissionSheet: React.FC = () => {
         advanceBtmsQueue(true)
       } else if (request.kind === 'mandala') {
         advanceMandalaQueue(true)
+      } else if (request.kind === 'group') {
+        // Grants exactly the set shown. The manager mints the permission
+        // tokens, then resolves the site's waitForAuthentication; if minting
+        // fails it rejects that call itself.
+        managers.permissionsManager
+          ?.grantGroupedPermission({
+            requestID: request.requestID,
+            // The manager's own request object, passed back unchanged.
+            granted: (request.groupPermissions ?? {}) as GrantedGroupPermissions
+          })
+          .catch((error: unknown) => console.warn('[permissions] grouped grant failed', error))
+        advanceGroupQueue()
       } else if (request.kind === 'spending') {
         managers.permissionsManager?.grantPermission({
           requestID: request.requestID,
@@ -674,6 +720,7 @@ const PermissionSheet: React.FC = () => {
       advanceBasketQueue,
       advanceCertificateQueue,
       advanceSpendingQueue,
+      advanceGroupQueue,
       advanceBtmsQueue,
       advanceMandalaQueue,
       setProtocolAccessModalOpen,
@@ -704,10 +751,10 @@ const PermissionSheet: React.FC = () => {
   }, [active, granted, executeGrant])
 
   return (
-    <Sheet visible={visible} onClose={handleDeny} heightPercent={0.92} fitContent={active?.kind !== 'group'}>
+    <Sheet visible={visible} onClose={handleDeny} heightPercent={0.92} fitContent>
       {active && (
-        <View style={active.kind === 'group' ? styles.sheetInnerGroup : undefined}>
-          <View style={[styles.content, active.kind === 'group' && { flex: 1 }]}>
+        <View>
+          <View style={styles.content}>
             {/* -------- Originator / domain -------- */}
             <View style={styles.originatorRow}>
               <View
@@ -916,10 +963,6 @@ const PermissionSheet: React.FC = () => {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  sheetInnerGroup: {
-    flex: 1,
-    justifyContent: 'flex-end'
-  },
   content: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
@@ -1042,8 +1085,10 @@ const styles = StyleSheet.create({
   },
 
   // Group permissions
+  // Sized to its rows like every other prompt; a long set scrolls instead
+  // of pushing the buttons off screen.
   groupScroll: {
-    flex: 1
+    maxHeight: 420
   },
   groupSection: {
     borderTopWidth: StyleSheet.hairlineWidth,

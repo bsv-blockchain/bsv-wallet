@@ -368,12 +368,14 @@ export interface WalletContextValue {
   certificateRequests: CertificateAccessRequest[]
   protocolRequests: ProtocolAccessRequest[]
   spendingRequests: SpendingRequest[]
+  groupRequests: GroupPermissionRequest[]
   btmsRequests: BtmsRequest[]
   mandalaRequests: MandalaRequest[]
   advanceBasketQueue: () => void
   advanceCertificateQueue: () => void
   advanceProtocolQueue: () => void
   advanceSpendingQueue: () => void
+  advanceGroupQueue: () => void
   advanceBtmsQueue: (approved: boolean) => void
   advanceMandalaQueue: (approved: boolean) => void
   finalizeConfig: (wabConfig: WABConfig) => boolean
@@ -477,12 +479,14 @@ export const WalletContext = createContext<WalletContextValue>({
   certificateRequests: [],
   protocolRequests: [],
   spendingRequests: [],
+  groupRequests: [],
   btmsRequests: [],
   mandalaRequests: [],
   advanceBasketQueue: () => {},
   advanceCertificateQueue: () => {},
   advanceProtocolQueue: () => {},
   advanceSpendingQueue: () => {},
+  advanceGroupQueue: () => {},
   advanceBtmsQueue: () => {},
   advanceMandalaQueue: () => {},
   finalizeConfig: () => false,
@@ -583,6 +587,19 @@ type SpendingRequest = {
   authorizationAmount: number
   renewal?: boolean
   lineItems: any[]
+}
+
+/** A site's grouped permission request, from its manifest's
+ * `metanet.groupPermissions` (WalletPermissionsManager.waitForAuthentication). */
+export type GroupPermissionRequest = {
+  requestID: string
+  originator: string
+  permissions: {
+    spendingAuthorization?: { amount: number; description?: string }
+    protocolPermissions?: Array<{ protocolID: [number, string]; counterparty?: string; description?: string }>
+    basketAccess?: Array<{ basket: string; description?: string }>
+    certificateAccess?: Array<{ type: string; verifierPublicKey?: string; fields?: string[]; description?: string }>
+  }
 }
 
 type BtmsRequest = {
@@ -918,6 +935,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     ...focusOpts,
     openModal: setSpendingAuthorizationModalOpen
   })
+  // Shown by the permission sheet whenever it has a head, like BTMS/Mandala.
+  const groupQueue = usePermissionQueue<GroupPermissionRequest>(focusOpts)
   const btmsQueue = usePermissionQueue<BtmsRequest>(focusOpts)
 
   const advanceBtmsQueue = useCallback(
@@ -1099,6 +1118,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       })
     },
     [spendingQueue.enqueue]
+  )
+
+  const groupedPermissionCallback = useCallback(
+    async (args: GroupPermissionRequest): Promise<void> => {
+      const { requestID, originator, permissions } = args ?? ({} as GroupPermissionRequest)
+      if (!requestID || !permissions) return
+      groupQueue.enqueue({ requestID, originator, permissions })
+    },
+    [groupQueue.enqueue]
   )
 
   // ---- WAB + network + storage configuration ----
@@ -1708,14 +1736,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           seekCertificateDisclosurePermissions: false,
           seekCertificateRelinquishmentPermissions: false,
           seekCertificateListingPermissions: false,
-          // No grouped-permission UI is wired (nothing handles
-          // onGroupedPermissionRequested), so the manager would wait forever
-          // on a site whose manifest declares metanet.groupPermissions:
-          // waitForAuthentication never resolved, and it held the origin's
-          // permission lock, so that site's createAction spending prompt never
-          // appeared either (fast.brc.dev). Every request still gets its own
-          // prompt. Turn this back on together with a grouped prompt.
-          seekGroupedPermission: false,
+          // A site whose manifest declares metanet.groupPermissions is asked
+          // for them all in one sheet during waitForAuthentication. The request
+          // holds that origin's permission lock until answered, so it MUST be
+          // handled (onGroupedPermissionRequested, below) or the site hangs.
+          seekGroupedPermission: true,
           seekPermissionsForIdentityKeyRevelation: false,
           seekPermissionsForIdentityResolution: false,
           seekPermissionsForKeyLinkageRevelation: false,
@@ -1738,6 +1763,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         if (spendingAuthorizationCallback) {
           permissionsManager.bindCallback('onSpendingAuthorizationRequested', spendingAuthorizationCallback)
         }
+        permissionsManager.bindCallback('onGroupedPermissionRequested', groupedPermissionCallback as any)
         if (certificateAccessCallback) {
           permissionsManager.bindCallback('onCertificateAccessRequested', certificateAccessCallback)
         }
@@ -2364,6 +2390,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       basketAccessCallback,
       spendingAuthorizationCallback,
       certificateAccessCallback,
+      groupedPermissionCallback,
       btmsPromptHandler,
       mandalaPromptHandler,
       runHeaderSync,
@@ -3678,12 +3705,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       certificateRequests: certificateQueue.requests,
       protocolRequests: protocolQueue.requests,
       spendingRequests: spendingQueue.requests,
+      groupRequests: groupQueue.requests,
       btmsRequests: btmsQueue.requests,
       mandalaRequests: mandalaQueue.requests,
       advanceBasketQueue: basketQueue.advance,
       advanceCertificateQueue: certificateQueue.advance,
       advanceProtocolQueue: protocolQueue.advance,
       advanceSpendingQueue: spendingQueue.advance,
+      advanceGroupQueue: groupQueue.advance,
       advanceBtmsQueue,
       advanceMandalaQueue,
       finalizeConfig,
@@ -3727,12 +3756,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       certificateQueue.requests,
       protocolQueue.requests,
       spendingQueue.requests,
+      groupQueue.requests,
       btmsQueue.requests,
       mandalaQueue.requests,
       basketQueue.advance,
       certificateQueue.advance,
       protocolQueue.advance,
       spendingQueue.advance,
+      groupQueue.advance,
       advanceBtmsQueue,
       advanceMandalaQueue,
       finalizeConfig,
@@ -3828,12 +3859,14 @@ export interface WalletQueuesSlice {
   certificateRequests: CertificateAccessRequest[]
   protocolRequests: ProtocolAccessRequest[]
   spendingRequests: SpendingRequest[]
+  groupRequests: GroupPermissionRequest[]
   btmsRequests: BtmsRequest[]
   mandalaRequests: MandalaRequest[]
   advanceBasketQueue: () => void
   advanceCertificateQueue: () => void
   advanceProtocolQueue: () => void
   advanceSpendingQueue: () => void
+  advanceGroupQueue: () => void
   advanceBtmsQueue: (approved: boolean) => void
   advanceMandalaQueue: (approved: boolean) => void
 }
@@ -3845,12 +3878,14 @@ export const useWalletQueues = (): WalletQueuesSlice => {
       certificateRequests: ctx.certificateRequests,
       protocolRequests: ctx.protocolRequests,
       spendingRequests: ctx.spendingRequests,
+      groupRequests: ctx.groupRequests,
       btmsRequests: ctx.btmsRequests,
       mandalaRequests: ctx.mandalaRequests,
       advanceBasketQueue: ctx.advanceBasketQueue,
       advanceCertificateQueue: ctx.advanceCertificateQueue,
       advanceProtocolQueue: ctx.advanceProtocolQueue,
       advanceSpendingQueue: ctx.advanceSpendingQueue,
+      advanceGroupQueue: ctx.advanceGroupQueue,
       advanceBtmsQueue: ctx.advanceBtmsQueue,
       advanceMandalaQueue: ctx.advanceMandalaQueue
     }),
@@ -3859,12 +3894,14 @@ export const useWalletQueues = (): WalletQueuesSlice => {
       ctx.certificateRequests,
       ctx.protocolRequests,
       ctx.spendingRequests,
+      ctx.groupRequests,
       ctx.btmsRequests,
       ctx.mandalaRequests,
       ctx.advanceBasketQueue,
       ctx.advanceCertificateQueue,
       ctx.advanceProtocolQueue,
       ctx.advanceSpendingQueue,
+      ctx.advanceGroupQueue,
       ctx.advanceBtmsQueue,
       ctx.advanceMandalaQueue
     ]
