@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.7
+
+### Sites with a grouped-permission manifest no longer hang
+
+A site whose `manifest.json` declares `metanet.groupPermissions` (fast.brc.dev
+does) never got past `waitForAuthentication`: the wallet asked the permissions
+manager to seek grouped permission, but nothing handled the resulting
+`onGroupedPermissionRequested` request, so the call waited forever while
+holding that origin's permission lock. The same site's `createAction` then
+never showed its spending prompt, and the transaction it had built stayed
+unsigned until the monitor abandoned it.
+
+Grouped permission seeking is off until a grouped prompt is wired up. Every
+request still gets its own prompt, as before.
+
 ## 0.11.6
 
 ### External wallet guard: a site's own actions

@@ -1708,7 +1708,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           seekCertificateDisclosurePermissions: false,
           seekCertificateRelinquishmentPermissions: false,
           seekCertificateListingPermissions: false,
-          seekGroupedPermission: true,
+          // No grouped-permission UI is wired (nothing handles
+          // onGroupedPermissionRequested), so the manager would wait forever
+          // on a site whose manifest declares metanet.groupPermissions:
+          // waitForAuthentication never resolved, and it held the origin's
+          // permission lock, so that site's createAction spending prompt never
+          // appeared either (fast.brc.dev). Every request still gets its own
+          // prompt. Turn this back on together with a grouped prompt.
+          seekGroupedPermission: false,
           seekPermissionsForIdentityKeyRevelation: false,
           seekPermissionsForIdentityResolution: false,
           seekPermissionsForKeyLinkageRevelation: false,
