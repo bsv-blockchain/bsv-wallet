@@ -1,4 +1,8 @@
-jest.mock('expo-image', () => ({ Image: { prefetch: jest.fn() } }), { virtual: true })
+// Not `{ virtual: true }`: expo-image is installed, and a virtual mock gives it
+// a different module ID from the plain mock in ui/isImageUrl.test.ts. Jest
+// caches that ID per worker, so whichever file ran second loaded the real,
+// untransformed expo-image and isImageUrl swallowed the parse error.
+jest.mock('expo-image', () => ({ Image: { prefetch: jest.fn() } }))
 
 import { Image } from 'expo-image'
 import isImageUrl from '../ui/isImageUrl'
