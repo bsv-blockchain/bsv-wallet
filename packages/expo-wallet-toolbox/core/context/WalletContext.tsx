@@ -15,6 +15,7 @@ import {
 } from '@bsv/wallet-toolbox-mobile'
 import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk'
 import { DEFAULT_SETTINGS } from './defaultWalletSettings'
+import { conformWalletResults } from '../services/conformWalletResults'
 import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
 import { getVaultDriver } from '../services/vault/driver'
 import { backupAttestation } from '../services/vault/backupAttestation'
@@ -1768,7 +1769,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // rows unreadable rather than absent.
         newManagers.permissionsManager = guardVaultAccess(
           wrapAbortActionForSettlements(
-            wrapCreateActionForTokenInputs(permissionsManager, listMandalaTokenOutpoints, adminOriginator),
+            wrapCreateActionForTokenInputs(
+              conformWalletResults(adminOriginator, permissionsManager),
+              listMandalaTokenOutpoints,
+              adminOriginator
+            ),
             () => mandalaRef.current?.store,
             () => mandalaEndpoints !== undefined
           ),

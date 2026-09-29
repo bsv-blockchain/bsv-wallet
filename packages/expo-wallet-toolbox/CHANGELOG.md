@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.11.4
+
+### dApp results the SDK rejected: noSend actions and identity discovery
+
+Three wallet responses from `@bsv/wallet-toolbox-mobile` 2.14.3 fail
+`@bsv/sdk` 2.8.8+ result validation in every dApp. `conformWalletResults`
+(`core/services/conformWalletResults.ts`) wraps the permissions manager and
+corrects them until the library ships the same fixes (bsv-blockchain/ts-stack#673):
+
+- A `createAction` with `noSend` returned `noSendChange` outpoints on the
+  unsigned txid next to the signed `txid` (`noSendChange[0]: expected an
+  outpoint of the returned transaction`). They now name the signed transaction.
+- That no-send action could not be released: the caller only has its `txid`,
+  and the permissions manager refused `abortAction` by txid from any non-admin
+  origin, so its inputs stayed locked until no-send expiry. The origin that
+  created it in this session may now abort it; another origin still cannot, and
+  a broadcast action is never abortable this way.
+- `discoverByIdentityKey` and `discoverByAttributes` ignored `limit`/`offset`
+  (`certificates: expected at most the requested limit`). They now return the
+  requested page (10 when no limit is given); `totalCertificates` still counts
+  every match.
+
 ## 0.11.3
 
 ### Identity lookups: default certifier descriptions fit BRC-100
