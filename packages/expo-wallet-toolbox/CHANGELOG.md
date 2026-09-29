@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.2
+
+0.11.1 was tagged but never reached npm: its publish run failed on a test-only
+leak (the `expo-image` virtual mock bleeding between test files, fixed in #28).
+0.11.2 is the first published release carrying the 0.11.1 changes below, and
+changes nothing else in the package. Upgrade from 0.11.0 straight to 0.11.2.
+
 ## 0.11.1
 
 ### External-wallet guard: `listOutputs` keeps `include`
