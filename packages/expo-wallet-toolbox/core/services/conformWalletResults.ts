@@ -45,6 +45,10 @@ function noSendChangeOnTxid<R>(result: R): R {
 function discoveryPage<R>(result: R, args: { limit?: number; offset?: number } | undefined): R {
   const r = result as DiscoveryResultLike | undefined
   if (!r || !Array.isArray(r.certificates)) return result
+  // A toolbox that pages itself (2.14.4+) returns fewer certificates than it
+  // counts whenever paging changed anything; slicing that page again would
+  // drop results at any offset past 0.
+  if (r.certificates.length !== r.totalCertificates) return result
   const offset = args?.offset ?? 0
   const limit = args?.limit ?? DEFAULT_DISCOVERY_LIMIT
   return { ...r, certificates: r.certificates.slice(offset, offset + limit) } as R

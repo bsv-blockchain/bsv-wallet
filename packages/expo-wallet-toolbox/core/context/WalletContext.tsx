@@ -1420,6 +1420,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             databaseName: selectedDb
           })
           phoneStorage.setServices(services)
+          // Lets the createAction input backstop tell a site's own earlier
+          // actions from the admin's (see validateResolvedActionInput).
+          phoneStorage.setVaultAdminOriginator(adminOriginator)
           await phoneStorage.migrate('bsv-wallet', identityKey)
 
           console.log('[WalletContext] Local SQLite storage initialized successfully')

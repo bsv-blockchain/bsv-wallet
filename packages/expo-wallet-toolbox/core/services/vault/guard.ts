@@ -18,6 +18,11 @@
  *    is a Vault or admin transaction, so a held Vault transaction cannot be
  *    broadcast by someone else.
  *
+ * WalletPermissionsManager labels every action with its originator and month
+ * (`admin originator <o>`, `admin month YYYY-MM`) for spend tracking. Those
+ * labels make another originator's action admin state, but not the caller's
+ * own, so a site can internalize, spend and sendWith what it created itself.
+ *
  * The admin originator (this app's own code) passes straight through. R1C
  * locking scripts are not special here: an app may create and spend R1C
  * outputs in its own baskets.
@@ -34,6 +39,7 @@ import {
   type WalletAction,
   type WalletInterface
 } from '@bsv/sdk'
+import { ownOriginatorLabel } from '../../storage/methods/vaultGuardSql'
 import { bakedCommitments, R1C_LOCK_LEN, R1C_MAX_KEYS } from './r1comb'
 
 const VAULT_LABEL = 'vault'
@@ -237,11 +243,14 @@ const OUTPUT_NAMING = new Set<keyof WalletInterface>([
 export interface VaultGuardLookup {
   /** True when any canonical `txid.vout` is held in an `admin`-prefixed
    * basket, or has no basket but is tagged `vault` or was created by a
-   * `vault`/`admin*`-labelled transaction (a relinquished Vault output). */
-  anyAdminOutpoint(outpoints: string[]): Promise<boolean>
-  /** True when any lowercase txid is labelled `vault` or `admin*`, or creates
-   * or spends an output in an `admin`-prefixed basket. */
-  anyAdminTransaction(txids: string[]): Promise<boolean>
+   * transaction labelled `vault` or with an admin label other than a month
+   * label or `ownLabel` (a relinquished Vault output, or another originator's
+   * action). `ownLabel` is the caller's own originator label, or null. */
+  anyAdminOutpoint(outpoints: string[], ownLabel: string | null): Promise<boolean>
+  /** True when any lowercase txid is labelled `vault` or with an admin label
+   * other than a month label or `ownLabel`, or creates or spends an output in
+   * an `admin`-prefixed basket. */
+  anyAdminTransaction(txids: string[], ownLabel: string | null): Promise<boolean>
 }
 
 export interface GuardVaultAccessOptions {
@@ -590,18 +599,27 @@ function requestedOutpoints(method: keyof WalletInterface, args: any): string[] 
 }
 
 /** Whether an external output-naming call names an admin-state outpoint or a
- * Vault/admin transaction. Unparseable arguments, a missing lookup
- * and a failed lookup all count as yes. */
-async function namesAdminState(runtime: GuardRuntime, method: keyof WalletInterface, args: any): Promise<boolean> {
+ * Vault/admin transaction. The caller's own actions do not count merely for
+ * the originator and month labels WalletPermissionsManager gave them (see
+ * ownOriginatorLabel). Unparseable arguments, a missing lookup and a failed
+ * lookup all count as yes. */
+async function namesAdminState(
+  runtime: GuardRuntime,
+  method: keyof WalletInterface,
+  args: any,
+  originator: string | undefined,
+  adminOriginator: string
+): Promise<boolean> {
   const outpoints = requestedOutpoints(method, args)
   const sendWith = requestedSendWithTxids(method, args)
   if (outpoints === undefined || sendWith === undefined) return true
   if (outpoints.length === 0 && sendWith.length === 0) return false
   const lookup = runtime.lookup
   if (!lookup) return true
+  const ownLabel = ownOriginatorLabel(originator, adminOriginator)
   try {
-    if (outpoints.length > 0 && (await lookup.anyAdminOutpoint(outpoints))) return true
-    return sendWith.length > 0 && (await lookup.anyAdminTransaction(sendWith))
+    if (outpoints.length > 0 && (await lookup.anyAdminOutpoint(outpoints, ownLabel))) return true
+    return sendWith.length > 0 && (await lookup.anyAdminTransaction(sendWith, ownLabel))
   } catch {
     return true
   }
@@ -712,7 +730,7 @@ export function guardVaultAccess<T extends WalletInterface>(
         ) {
           return deny(String(method), originator)
         }
-        if (OUTPUT_NAMING.has(method) && (await namesAdminState(runtime, method, args))) {
+        if (OUTPUT_NAMING.has(method) && (await namesAdminState(runtime, method, args, originator, adminOriginator))) {
           return deny(String(method), originator)
         }
         return await bound(args, originator)

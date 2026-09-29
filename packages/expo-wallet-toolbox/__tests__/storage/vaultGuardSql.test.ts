@@ -5,6 +5,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { createTables } from '../../core/storage/schema/createTables'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
+import { ownOriginatorLabel } from '../../core/storage/methods/vaultGuardSql'
 
 function adapt(db: DatabaseSync, seen: string[] = []) {
   return {
@@ -231,6 +232,97 @@ describe('anyAdminTransaction', () => {
   })
 })
 
+// WalletPermissionsManager labels every action it creates, the admin's too,
+// `admin originator <o>` and `admin month YYYY-MM` for spend tracking.
+const APP = 'admin originator app.example'
+const OTHER = 'admin originator other.example'
+const ADMIN_LABEL = 'admin originator admin.example'
+const MONTH = 'admin month 2026-09'
+
+describe('originator and month labels', () => {
+  it('make an unbasketed output admin state to every caller but the one that created it', async () => {
+    const tx = await seedTransaction(txidOf(1), ['payment', APP, MONTH])
+    await seedOutput({ transactionId: tx, txid: txidOf(1), vout: 0, basketId: null })
+    const outpoint = [`${txidOf(1)}.0`]
+
+    await expect(storage.anyAdminOutpoint(outpoint, APP)).resolves.toBe(false)
+    await expect(storage.anyAdminOutpoint(outpoint, OTHER)).resolves.toBe(true)
+    await expect(storage.anyAdminOutpoint(outpoint, null)).resolves.toBe(true)
+    await expect(storage.anyAdminOutpoint(outpoint)).resolves.toBe(true)
+  })
+
+  it("keep the admin's actions admin state to every other caller", async () => {
+    const tx = await seedTransaction(txidOf(1), [ADMIN_LABEL, MONTH])
+    await seedOutput({ transactionId: tx, txid: txidOf(1), vout: 0, basketId: null })
+    await expect(storage.anyAdminOutpoint([`${txidOf(1)}.0`], APP)).resolves.toBe(true)
+    await expect(storage.anyAdminTransaction([txidOf(1)], APP)).resolves.toBe(true)
+  })
+
+  it('do not excuse a vault tag, a vault label or any other admin label on the caller own action', async () => {
+    const tagged = await seedTransaction(txidOf(1), [APP, MONTH])
+    await seedOutput({ transactionId: tagged, txid: txidOf(1), vout: 0, basketId: null, tags: ['vault'] })
+    const labelled = await seedTransaction(txidOf(2), ['vault', APP, MONTH])
+    await seedOutput({ transactionId: labelled, txid: txidOf(2), vout: 0, basketId: null })
+    const exported = await seedTransaction(txidOf(3), ['admin export', APP, MONTH])
+    await seedOutput({ transactionId: exported, txid: txidOf(3), vout: 0, basketId: null })
+
+    for (const n of [1, 2, 3]) await expect(storage.anyAdminOutpoint([`${txidOf(n)}.0`], APP)).resolves.toBe(true)
+    for (const n of [2, 3]) await expect(storage.anyAdminTransaction([txidOf(n)], APP)).resolves.toBe(true)
+  })
+
+  it('ignore a month label alone', async () => {
+    const tx = await seedTransaction(txidOf(1), [MONTH])
+    await seedOutput({ transactionId: tx, txid: txidOf(1), vout: 0, basketId: null })
+    await expect(storage.anyAdminOutpoint([`${txidOf(1)}.0`])).resolves.toBe(false)
+    await expect(storage.anyAdminTransaction([txidOf(1)])).resolves.toBe(false)
+  })
+
+  it('let the caller sendWith its own no-send action, unless it touches an admin basket', async () => {
+    const vault = await seedBasket('admin vault')
+    const dflt = await seedBasket('default')
+    const own = await seedTransaction(txidOf(1), [APP, MONTH])
+    await seedOutput({ transactionId: own, txid: txidOf(1), vout: 0, basketId: dflt })
+    const creates = await seedTransaction(txidOf(2), [APP, MONTH])
+    await seedOutput({ transactionId: creates, txid: txidOf(2), vout: 0, basketId: vault })
+    const spends = await seedTransaction(txidOf(3), [APP, MONTH])
+    const funding = await seedTransaction(txidOf(4))
+    await seedOutput({ transactionId: funding, txid: txidOf(4), vout: 0, basketId: vault, spentBy: spends })
+
+    await expect(storage.anyAdminTransaction([txidOf(1)], APP)).resolves.toBe(false)
+    await expect(storage.anyAdminTransaction([txidOf(1)], OTHER)).resolves.toBe(true)
+    await expect(storage.anyAdminTransaction([txidOf(2)], APP)).resolves.toBe(true)
+    await expect(storage.anyAdminTransaction([txidOf(3)], APP)).resolves.toBe(true)
+  })
+
+  it('bind the label as a value, never as SQL', async () => {
+    const tx = await seedTransaction(txidOf(1), [APP, MONTH])
+    await seedOutput({ transactionId: tx, txid: txidOf(1), vout: 0, basketId: null })
+    await expect(storage.anyAdminOutpoint([`${txidOf(1)}.0`], "x' OR 1=1 --")).resolves.toBe(true)
+    for (const sql of statements) expect(sql).not.toContain('app.example')
+  })
+})
+
+describe('ownOriginatorLabel', () => {
+  it('returns the label as storage keeps it', () => {
+    expect(ownOriginatorLabel('Fast.BRC.dev', 'admin.example')).toBe('admin originator fast.brc.dev')
+    expect(ownOriginatorLabel('app.example ', 'admin.example')).toBe(APP)
+    // A leading space survives inside the label, so it is not the admin's.
+    expect(ownOriginatorLabel(' admin.example', 'admin.example')).toBe('admin originator  admin.example')
+  })
+
+  it.each([undefined, '', '  ', 42, 'admin.example', 'ADMIN.example', 'admin.example '])(
+    'returns null for caller %p',
+    originator => {
+      expect(ownOriginatorLabel(originator, 'admin.example')).toBeNull()
+    }
+  )
+
+  it('returns null while the admin originator is unknown', () => {
+    expect(ownOriginatorLabel('app.example', undefined)).toBeNull()
+    expect(ownOriginatorLabel('app.example', ' ')).toBeNull()
+  })
+})
+
 describe('validateResolvedActionInput (the createAction input backstop)', () => {
   it('refuses a non-admin input that is admin state, and lets the admin originator through', async () => {
     const vault = await seedBasket('admin vault')
@@ -254,6 +346,50 @@ describe('validateResolvedActionInput (the createAction input backstop)', () => 
       await expect(
         storage.validateResolvedActionInput({ __bsvVaultAdminAuthorized: true }, { output: { outputId } })
       ).resolves.toBeUndefined()
+    }
+  })
+
+  it("lets a site spend an unbasketed output of its own earlier action, not another originator's", async () => {
+    const own = await seedTransaction(txidOf(1), [APP, MONTH])
+    const ownOutput = await seedOutput({ transactionId: own, txid: txidOf(1), vout: 0, basketId: null })
+    const other = await seedTransaction(txidOf(2), [OTHER, MONTH])
+    const otherOutput = await seedOutput({ transactionId: other, txid: txidOf(2), vout: 0, basketId: null })
+    const admins = await seedTransaction(txidOf(3), [ADMIN_LABEL, MONTH])
+    const adminOutput = await seedOutput({ transactionId: admins, txid: txidOf(3), vout: 0, basketId: null })
+    const vargs = { __bsvVaultAdminAuthorized: false, labels: ['spend', APP, MONTH] }
+
+    // Until the host names the admin originator, every originator label counts.
+    await expect(storage.validateResolvedActionInput(vargs, { output: { outputId: ownOutput } })).rejects.toThrow(
+      /internal wallet authorization/i
+    )
+    storage.setVaultAdminOriginator('admin.example')
+    expect(() => storage.setVaultAdminOriginator('other.example')).toThrow(/already set/)
+
+    await expect(
+      storage.validateResolvedActionInput(vargs, { output: { outputId: ownOutput } })
+    ).resolves.toBeUndefined()
+    for (const outputId of [otherOutput, adminOutput]) {
+      await expect(storage.validateResolvedActionInput(vargs, { output: { outputId } })).rejects.toThrow(
+        /internal wallet authorization/i
+      )
+    }
+  })
+
+  it.each([
+    ['no originator label', ['spend', MONTH]],
+    ['two originator labels', [APP, OTHER, MONTH]],
+    ["the admin's originator label", [ADMIN_LABEL, MONTH]],
+    ['labels that are not an array', 'admin originator app.example']
+  ])('treats every originator label as admin state for an action with %s', async (_case, labels) => {
+    storage.setVaultAdminOriginator('admin.example')
+    const own = await seedTransaction(txidOf(1), [APP, MONTH])
+    const ownOutput = await seedOutput({ transactionId: own, txid: txidOf(1), vout: 0, basketId: null })
+    const admins = await seedTransaction(txidOf(2), [ADMIN_LABEL, MONTH])
+    const adminOutput = await seedOutput({ transactionId: admins, txid: txidOf(2), vout: 0, basketId: null })
+    for (const outputId of [ownOutput, adminOutput]) {
+      await expect(storage.validateResolvedActionInput({ labels }, { output: { outputId } })).rejects.toThrow(
+        /internal wallet authorization/i
+      )
     }
   })
 

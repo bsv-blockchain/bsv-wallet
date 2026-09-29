@@ -112,6 +112,7 @@ jest.mock('../../core/storage', () => ({
     db = {}
     sqliteDb = {}
     setServices() {}
+    setVaultAdminOriginator() {}
     async migrate() {}
     destroy = mockDestroy
     findTransactions = mockFindTransactions

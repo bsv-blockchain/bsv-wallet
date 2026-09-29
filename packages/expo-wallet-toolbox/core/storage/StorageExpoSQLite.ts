@@ -66,7 +66,13 @@ import {
 import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
 import { getOnline } from '../net/online'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
-import { anyAdminOutpoint, anyAdminTransaction, isAdminOutput } from './methods/vaultGuardSql'
+import {
+  anyAdminOutpoint,
+  anyAdminTransaction,
+  isAdminOutput,
+  ORIGINATOR_LABEL_PREFIX,
+  ownOriginatorLabel
+} from './methods/vaultGuardSql'
 import type {
   AuthId,
   FindCertificateFieldsArgs,
@@ -159,39 +165,70 @@ export class StorageExpoSQLite extends StorageProvider {
    * The toolbox calls this after it has resolved each input's source from
    * authenticated local storage (`input.output`) or verified BEEF. A stored
    * output that is admin state — held in an `admin`-prefixed basket (the
-   * Vault's `admin vault`), or created by a `vault`/`admin*`-labelled
-   * transaction, which still covers a Vault output relinquished by "forget
-   * unreachable deposits" — can be named as an input only by the app's own
-   * admin originator, which the patched Wallet.createAction records as
-   * `__bsvVaultAdminAuthorized`. Running inside createAction, this also covers
-   * a caller that reaches the wallet without going through guardVaultAccess.
+   * Vault's `admin vault`), or unbasketed and created by a transaction labelled
+   * `vault` or with another originator's admin labels, which still covers a
+   * Vault output relinquished by "forget unreachable deposits" — can be named
+   * as an input only by the app's own admin originator, which the patched
+   * Wallet.createAction records as `__bsvVaultAdminAuthorized`. A site may
+   * name an unbasketed output of its own earlier action (see
+   * actionOriginatorLabel). Running inside createAction, this also covers a
+   * caller that reaches the wallet without going through guardVaultAccess.
    *
    * The locking script does not decide: an app may hold and spend R1C outputs
    * of its own.
    */
   async validateResolvedActionInput(
-    vargs: { __bsvVaultAdminAuthorized?: boolean },
+    vargs: { __bsvVaultAdminAuthorized?: boolean; labels?: unknown },
     input: { output?: { outputId?: number } }
   ): Promise<void> {
     if (vargs.__bsvVaultAdminAuthorized === true) return
     const outputId = input.output?.outputId
     if (outputId == null) return
-    if (await isAdminOutput(this.getDB(), outputId)) {
+    if (await isAdminOutput(this.getDB(), outputId, this.actionOriginatorLabel(vargs.labels))) {
       throw new Error('Inputs holding admin or Vault state require internal wallet authorization')
     }
   }
 
-  /** guardVaultAccess lookup: is any `txid.vout` admin state (admin-prefixed
-   * basket, or a Vault/admin transaction's output)? Reads basket names and
-   * labels only (see methods/vaultGuardSql.ts). */
-  async anyAdminOutpoint(outpoints: string[]): Promise<boolean> {
-    return await anyAdminOutpoint(this.getDB(), outpoints)
+  /**
+   * The admin originator, set once by the host where the wallet is built.
+   * Until it is set, validateResolvedActionInput counts every originator label
+   * as admin state.
+   */
+  private vaultAdminOriginator?: string
+
+  setVaultAdminOriginator(adminOriginator: string): void {
+    if (this.vaultAdminOriginator !== undefined) throw new Error('The Vault admin originator is already set')
+    this.vaultAdminOriginator = adminOriginator
   }
 
-  /** guardVaultAccess lookup: is any txid a Vault or admin transaction? Reads
-   * labels and basket names only (see methods/vaultGuardSql.ts). */
-  async anyAdminTransaction(txids: string[]): Promise<boolean> {
-    return await anyAdminTransaction(this.getDB(), txids)
+  /**
+   * The creating originator's label on the action being built, for
+   * validateResolvedActionInput to ignore. WalletPermissionsManager appends it,
+   * and a site cannot set an admin label itself, so it is taken only when
+   * there is exactly one and it is not the admin's.
+   */
+  private actionOriginatorLabel(labels: unknown): string | null {
+    if (!Array.isArray(labels)) return null
+    const found = labels.filter(
+      (label): label is string => typeof label === 'string' && label.startsWith(ORIGINATOR_LABEL_PREFIX)
+    )
+    if (found.length !== 1) return null
+    return ownOriginatorLabel(found[0].slice(ORIGINATOR_LABEL_PREFIX.length), this.vaultAdminOriginator)
+  }
+
+  /** guardVaultAccess lookup: is any `txid.vout` admin state (admin-prefixed
+   * basket, or a Vault/admin transaction's output) to the caller whose own
+   * originator label is `ownLabel`? Reads basket names and labels only (see
+   * methods/vaultGuardSql.ts). */
+  async anyAdminOutpoint(outpoints: string[], ownLabel: string | null = null): Promise<boolean> {
+    return await anyAdminOutpoint(this.getDB(), outpoints, ownLabel)
+  }
+
+  /** guardVaultAccess lookup: is any txid a Vault or admin transaction to the
+   * caller whose own originator label is `ownLabel`? Reads labels and basket
+   * names only (see methods/vaultGuardSql.ts). */
+  async anyAdminTransaction(txids: string[], ownLabel: string | null = null): Promise<boolean> {
+    return await anyAdminTransaction(this.getDB(), txids, ownLabel)
   }
 
   // ============================================================================

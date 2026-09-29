@@ -114,6 +114,7 @@ jest.mock('../../core/storage', () => ({
   StorageExpoSQLite: class {
     db = {}
     setServices() {}
+    setVaultAdminOriginator() {}
     async migrate() {}
     destroy = mockDestroy
   }

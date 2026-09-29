@@ -90,6 +90,21 @@ describe('conformWalletResults', () => {
     expect(result.totalCertificates).toBe(12)
   })
 
+  // wallet-toolbox 2.14.4 pages discovery itself.
+  test('leaves a page the toolbox already cut alone', async () => {
+    const all = [1, 2, 3, 4].map(certificate)
+    const manager = conformWalletResults(ADMIN, {
+      discoverByAttributes: async (_args: unknown, _originator?: string) => ({
+        totalCertificates: 4,
+        certificates: all.slice(2, 4)
+      })
+    })
+    const args = { attributes: { userName: 'deggen' }, limit: 2, offset: 2 }
+    const result = await manager.discoverByAttributes(args as any, 'app.example')
+    expect(result).toEqual({ totalCertificates: 4, certificates: all.slice(2, 4) })
+    expect(() => validateWalletResult('discoverByAttributes', result, args)).not.toThrow()
+  })
+
   test('passes every other method through bound to the manager', async () => {
     const manager = conformWalletResults(ADMIN, {
       secret: 42,

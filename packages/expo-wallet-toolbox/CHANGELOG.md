@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.11.6
+
+### External wallet guard: a site's own actions
+
+`WalletPermissionsManager` labels every action it creates
+`admin originator <origin>` and `admin month YYYY-MM`, to total each site's
+spending against its monthly allowance. The guard's point lookups (0.11.0)
+counted any `admin*` label as Vault/admin state, so every unbasketed output of
+a site's own action, and the action itself, was admin state to that same site:
+
+- `internalizeAction` of a payment the site had just funded from this wallet was
+  refused ('Wallet operation "internalizeAction" is not permitted for origin
+  "…"'; fast.brc.dev conformance card 21).
+- `sendWith` of the site's own no-send actions was refused, which broke the
+  no-send batch pattern.
+- Spending an unbasketed output of the site's own earlier action as a
+  `createAction` input was refused, by the guard and by the storage backstop.
+
+Month labels and the caller's own originator label no longer count. Everything
+else still does: a `vault` tag or label, an admin-prefixed basket (created or
+spent), any other admin label, and another originator's label, the admin's
+included. A caller whose label storage would keep as the admin's (`ADMIN.COM`
+when the admin is `admin.com`) gets no exemption. The storage backstop takes the
+caller from the action's own `admin originator` label, only when there is
+exactly one, and needs the host to call `setVaultAdminOriginator` (the wallet
+builder does); until then it counts every originator label.
+
+### Discovery shim with a toolbox that pages
+
+`conformWalletResults` no longer re-slices a discovery result that is already
+a page (fewer certificates than `totalCertificates`), which dropped results at
+any offset past 0 once `@bsv/wallet-toolbox-mobile` 2.14.4 pages discovery
+itself.
+
 ## 0.11.5
 
 ### External wallet guard: BRC-29 and FT payments to another party
