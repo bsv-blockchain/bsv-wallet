@@ -24,6 +24,8 @@
  */
 import {
   LockingScript,
+  PrivateKey,
+  PublicKey,
   Transaction,
   Validation,
   type ListActionsArgs,
@@ -121,8 +123,49 @@ const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt', 'vault marker', 'va
  * core/localpay/build.ts proves createSignature+getPublicKey over them is
  * sufficient to construct a valid spend -- so a connected origin must not be
  * able to mint either primitive under these namespaces itself, exactly as
- * for Vault's own namespaces. */
+ * for Vault's own namespaces. The one exception is getPublicKey toward
+ * another party's identity key (see derivesTowardAnotherParty). */
 const RESERVED_RAIL_PROTOCOL_NAMES = new Set(['3241645161d8', 'mandala token'])
+
+/** The BRC-42 'anyone' counterparty (1·G), in canonical form. */
+const ANYONE_PUBLIC_KEY = new PrivateKey(1).toPublicKey().toString()
+
+/** Canonical (compressed) hex of a counterparty given as a public key;
+ * undefined for 'self', 'anyone', a non-string, or anything that is not a
+ * point on the curve. Parsing and re-encoding means another encoding of the
+ * same point cannot pass a comparison its canonical form would fail. */
+function counterpartyPublicKey(counterparty: unknown): string | undefined {
+  if (typeof counterparty !== 'string') return undefined
+  try {
+    return PublicKey.fromString(counterparty).toString()
+  } catch {
+    return undefined
+  }
+}
+
+/** getPublicKey under a reserved rail namespace toward another party's
+ * identity key is the ordinary BRC-29 / FT payer (forSelf false) and payee
+ * (forSelf true) step every payment dApp takes. ECDH is symmetric, so that
+ * party can compute the same public key itself: revealing it neither signs
+ * nor tells anyone anything new. createSignature and the other private-key
+ * methods stay reserved, as do the two counterparties this wallet's own funds
+ * are locked to where a site could guess the keyID: 'anyone' (the address
+ * rail's date keyIDs) and the wallet's own identity key (FT change). Any
+ * failure to read the identity key counts as a match, so the call is refused. */
+async function derivesTowardAnotherParty(
+  getPublicKey: (args: any, originator?: string) => Promise<{ publicKey: string }>,
+  args: any,
+  adminOriginator: string
+): Promise<boolean> {
+  const counterparty = counterpartyPublicKey(args?.counterparty)
+  if (counterparty === undefined || counterparty === ANYONE_PUBLIC_KEY) return false
+  try {
+    const own = counterpartyPublicKey((await getPublicKey({ identityKey: true }, adminOriginator))?.publicKey)
+    return own !== undefined && counterparty !== own
+  } catch {
+    return false
+  }
+}
 
 /** XR-027: protocol namespace this package's own saved-pairing authority tag
  * is derived under. A saved connection's approved (origin, topic, protocolID,
@@ -644,15 +687,28 @@ export function guardVaultAccess<T extends WalletInterface>(
 
       if (!PRIVILEGED_CAPABLE.has(method) && !OUTPUT_NAMING.has(method)) return value.bind(target)
 
-      return async (args: any, originator?: string) => {
-        if (originator === adminOriginator) return await bound(args, originator)
+      return async (rawArgs: any, originator?: string) => {
+        if (originator === adminOriginator) return await bound(rawArgs, originator)
+        // The reserved-rail getPublicKey check awaits before deriving. Decide
+        // on, and derive from, one plain copy so an accessor on the caller's
+        // object cannot answer the check with one counterparty and the
+        // derivation with another.
+        let args = rawArgs
+        if (method === 'getPublicKey' && rawArgs !== null && typeof rawArgs === 'object') {
+          try {
+            args = JSON.parse(JSON.stringify(rawArgs))
+          } catch {
+            return deny(String(method), originator)
+          }
+        }
         if (
           PRIVILEGED_CAPABLE.has(method) &&
           (args?.privileged ||
             requestsVaultProtocol(args) ||
-            requestsReservedRailProtocol(args) ||
             requestsConnectionAuthorityProtocol(args) ||
-            requestsPendingAbortAuthorityProtocol(args))
+            requestsPendingAbortAuthorityProtocol(args) ||
+            (requestsReservedRailProtocol(args) &&
+              !(method === 'getPublicKey' && (await derivesTowardAnotherParty(bound, args, adminOriginator)))))
         ) {
           return deny(String(method), originator)
         }

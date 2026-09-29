@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.5
+
+### External wallet guard: BRC-29 and FT payments to another party
+
+The guard refused every external call under the wallet's own payment-rail
+namespaces (`[2,'3241645161d8']` for BRC-29/PeerPay and `[2,'mandala token']`
+for the FT rail), including `getPublicKey`. That blocked the first step of
+every BRC-29 payment a dApp makes (fast.brc.dev "Pay to Identity",
+`@bsv/sdk` `BasicBRC29` / PeerPay settlements) with 'Wallet operation
+"getPublicKey" is not permitted for origin "…"'.
+
+- `getPublicKey` under those namespaces is now allowed when `counterparty` is
+  another party's identity key, with `forSelf` either way: the payer and payee
+  steps of a BRC-29 or FT payment. ECDH is symmetric, so that party can compute
+  the same public key itself.
+- Still refused: `counterparty` `'anyone'` (the address rail, whose keyIDs are
+  guessable dates) or the wallet's own identity key (FT change), in any valid
+  encoding; `privileged` calls; any call if the wallet's identity key cannot be
+  read; and `createSignature`, `encrypt`, `decrypt`, `createHmac`,
+  `verifyHmac`, `verifySignature` and the key-linkage methods under these
+  namespaces, which are what could spend or expose the wallet's own funds.
+- External `getPublicKey` arguments are now checked and used as one plain
+  copy, so a caller's object cannot present different values to the check and
+  to the derivation.
+
 ## 0.11.4
 
 ### dApp results the SDK rejected: noSend actions and identity discovery
