@@ -587,7 +587,7 @@ export async function cancelOutboxPayment(args: {
   entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient' | 'recipientHost'>
   client?: Pick<PeerPayClient, 'sendMessage'>
   mode?: 'undelivered' | 'abandon'
-}): Promise<{ aborted: boolean, needsAbandon?: boolean }> {
+}): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
   const { wallet, adminOriginator, storage, entry, client, mode = 'undelivered' } = args
 
   if (mode === 'abandon') {
