@@ -541,6 +541,8 @@ describe('PayScreen notification advisory', () => {
     await pushAdvisory.set()
     const { UNSAFE_getByType, queryByText } = draw()
     await waitFor(() => expect(adapter.getPermission).toHaveBeenCalled())
+    // Let the state the read resolved to reach the screen before asserting absence.
+    await act(async () => {})
     expect(queryByText(TITLE)).toBeNull()
     expect(UNSAFE_getByType('HandleReceive' as never)).toBeTruthy()
   })
@@ -549,6 +551,8 @@ describe('PayScreen notification advisory', () => {
     const adapter = pushAdapter(permission)
     const { queryByText } = draw()
     await waitFor(() => expect(adapter.getPermission).toHaveBeenCalled())
+    // Let the state the read resolved to reach the screen before asserting absence.
+    await act(async () => {})
     expect(queryByText(TITLE)).toBeNull()
     expect(adapter.requestPermission).not.toHaveBeenCalled()
   })
