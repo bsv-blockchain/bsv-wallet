@@ -58,6 +58,7 @@
         "credentialsSource": "remote"
       },
       "env": {
+        "EXPO_PUBLIC_PUSH_ENABLED": "true",
         "EXPO_PUBLIC_DEFAULT_WAB_URL": "https://wab-us-1.bsvb.tech",
         "EXPO_PUBLIC_DEFAULT_STORAGE_URL": "https://store-us-1.bsvb.tech",
         "EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL": "https://messagebox.bsvblockchain.tech",
