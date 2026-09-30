@@ -86,7 +86,7 @@ configureToolbox({
       messageBoxUrl:
         process.env.EXPO_PUBLIC_MANDALA_MESSAGEBOX_URL ??
         process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
-        'https://gmb.bsvblockchain.tech'
+        'https://messagebox.bsvblockchain.tech'
     },
     test: {
       overlayUrl: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_URL ?? '',
@@ -94,7 +94,7 @@ configureToolbox({
       messageBoxUrl:
         process.env.EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL ??
         process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
-        'https://gmb.bsvblockchain.tech'
+        'https://messagebox.bsvblockchain.tech'
     }
   },
   // The paymail handle registry, per chain: the domain this build's handles

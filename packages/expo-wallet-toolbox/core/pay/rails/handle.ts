@@ -26,7 +26,7 @@ import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 import type { MandalaRuntime, TokenSendResult } from '../../mandala/runtime'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
-export const DEFAULT_MESSAGE_BOX_URL = 'https://gmb.bsvblockchain.tech'
+export const DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.bsvblockchain.tech'
 /** The previous default. A saved preference equal to it is treated as "use the
  * default", so existing installs follow the default forward. */
 export const LEGACY_MESSAGE_BOX_URL = 'https://messagebox.babbage.systems'
@@ -587,7 +587,7 @@ export async function cancelOutboxPayment(args: {
   entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient' | 'recipientHost'>
   client?: Pick<PeerPayClient, 'sendMessage'>
   mode?: 'undelivered' | 'abandon'
-}): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
+}): Promise<{ aborted: boolean, needsAbandon?: boolean }> {
   const { wallet, adminOriginator, storage, entry, client, mode = 'undelivered' } = args
 
   if (mode === 'abandon') {

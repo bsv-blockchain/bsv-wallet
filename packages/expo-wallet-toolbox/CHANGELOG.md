@@ -83,6 +83,11 @@ finds it by looking.
 New strings in all 12 locales: the advisory title, body and buttons, and the
 Settings row and its On and Off values.
 
+### Default MessageBox host
+
+- The default MessageBox host is now https://messagebox.bsvblockchain.tech
+  (was gmb.bsvblockchain.tech). A saved custom host is unchanged.
+
 ## 0.11.8
 
 ### Grouped permission prompt
