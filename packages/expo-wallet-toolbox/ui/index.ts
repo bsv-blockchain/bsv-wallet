@@ -59,6 +59,7 @@ export { default as HandleReceive } from './components/pay/HandleReceive'
 export { useMessageBoxConfig, ConfigPanel } from './components/pay/MessageBoxConfig'
 export { default as NearbyFlow, type NearbyFlowProps } from './components/pay/NearbyFlow'
 export { NearbyAdvisoryModal } from './components/pay/NearbyAdvisoryModal'
+export { NotificationAdvisoryModal, shouldShowNotificationAdvisory } from './components/pay/NotificationAdvisoryModal'
 export { default as OfflineNotice, offlineActionDetails, type OfflineNoticeProps } from './components/pay/OfflineNotice'
 export { default as PayCellRow, type PayCellRowProps } from './components/pay/PayCellRow'
 export {

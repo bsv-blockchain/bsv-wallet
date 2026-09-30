@@ -955,6 +955,11 @@ const resources = {
       pay_address_earlier_day: 'Reach an earlier day',
       pay_address_sweep_now: 'Check this BSV address now',
       pay_address_swept: 'Received {{amount}}',
+      push_advisory_title: "Get notified when you're paid",
+      push_advisory_body:
+        'Next, your phone will ask to allow notifications. This lets BSV Wallet tell you when a payment arrives, even while the app is in the background.',
+      push_advisory_continue: 'Continue',
+      push_advisory_not_now: 'Not now',
 
       check_wallet: 'Troubleshooting',
       settings_version: 'v{{version}}',
@@ -1956,6 +1961,11 @@ const resources = {
       pay_address_earlier_day: '回到更早的日期',
       pay_address_sweep_now: '立即检查此 BSV 地址',
       pay_address_swept: '已收到 {{amount}}',
+      push_advisory_title: '收款时收到通知',
+      push_advisory_body:
+        '接下来，您的手机会请求允许发送通知。这样即使应用在后台运行，BSV Wallet 也能在款项到账时通知您。',
+      push_advisory_continue: '继续',
+      push_advisory_not_now: '暂不',
 
       check_wallet: '疑难解答',
       settings_version: 'v{{version}}',
@@ -2994,6 +3004,11 @@ const resources = {
       pay_address_earlier_day: 'किसी पिछले दिन तक जाएं',
       pay_address_sweep_now: 'यह BSV पता अभी जांचें',
       pay_address_swept: '{{amount}} प्राप्त हुआ',
+      push_advisory_title: 'भुगतान मिलने पर सूचना पाएं',
+      push_advisory_body:
+        'आगे, आपका फ़ोन सूचनाओं की अनुमति माँगेगा। इससे ऐप बैकग्राउंड में होने पर भी BSV Wallet आपको बता सकेगा कि भुगतान आ गया है।',
+      push_advisory_continue: 'जारी रखें',
+      push_advisory_not_now: 'अभी नहीं',
 
       check_wallet: 'समस्या निवारण',
       settings_version: 'v{{version}}',
@@ -4056,6 +4071,11 @@ const resources = {
       pay_address_earlier_day: 'Ir a un día anterior',
       pay_address_sweep_now: 'Comprobar esta dirección BSV ahora',
       pay_address_swept: 'Recibido {{amount}}',
+      push_advisory_title: 'Recibe un aviso cuando te paguen',
+      push_advisory_body:
+        'A continuación, tu teléfono te pedirá permiso para enviar notificaciones. Así BSV Wallet podrá avisarte cuando llegue un pago, incluso con la app en segundo plano.',
+      push_advisory_continue: 'Continuar',
+      push_advisory_not_now: 'Ahora no',
 
       check_wallet: 'Solución de problemas',
       settings_version: 'v{{version}}',
@@ -5131,6 +5151,11 @@ const resources = {
       pay_address_earlier_day: 'Revenir à un jour précédent',
       pay_address_sweep_now: 'Vérifier cette adresse BSV maintenant',
       pay_address_swept: '{{amount}} reçu',
+      push_advisory_title: 'Soyez prévenu quand vous êtes payé',
+      push_advisory_body:
+        'Votre téléphone va maintenant demander l’autorisation d’envoyer des notifications. Ainsi, BSV Wallet pourra vous prévenir dès qu’un paiement arrive, même lorsque l’application est en arrière-plan.',
+      push_advisory_continue: 'Continuer',
+      push_advisory_not_now: 'Plus tard',
 
       check_wallet: 'Dépannage',
       settings_version: 'v{{version}}',
@@ -6158,6 +6183,11 @@ const resources = {
       pay_address_earlier_day: 'الانتقال إلى يوم أسبق',
       pay_address_sweep_now: 'تحقق من عنوان BSV هذا الآن',
       pay_address_swept: 'تم استلام {{amount}}',
+      push_advisory_title: 'اعرف فورًا عندما تتلقى دفعة',
+      push_advisory_body:
+        'بعد ذلك، سيطلب هاتفك السماح بالإشعارات. يتيح ذلك لـ BSV Wallet إخبارك عند وصول دفعة، حتى عندما يكون التطبيق في الخلفية.',
+      push_advisory_continue: 'استمرار',
+      push_advisory_not_now: 'ليس الآن',
 
       check_wallet: 'استكشاف الأخطاء',
       settings_version: 'v{{version}}',
@@ -7209,6 +7239,11 @@ const resources = {
       pay_address_earlier_day: 'Voltar para um dia anterior',
       pay_address_sweep_now: 'Verificar este endereço BSV agora',
       pay_address_swept: '{{amount}} recebido',
+      push_advisory_title: 'Receba um aviso quando você for pago',
+      push_advisory_body:
+        'Em seguida, seu celular vai pedir permissão para enviar notificações. Assim, a BSV Wallet pode avisar você quando um pagamento chegar, mesmo com o app em segundo plano.',
+      push_advisory_continue: 'Continuar',
+      push_advisory_not_now: 'Agora não',
 
       check_wallet: 'Solução de problemas',
       settings_version: 'v{{version}}',
@@ -8259,6 +8294,11 @@ const resources = {
       pay_address_earlier_day: 'আগের কোনো দিনে যান',
       pay_address_sweep_now: 'এই BSV ঠিকানাটি এখনই যাচাই করুন',
       pay_address_swept: '{{amount}} পাওয়া গেছে',
+      push_advisory_title: 'পেমেন্ট পেলে নোটিফিকেশন পান',
+      push_advisory_body:
+        'এরপর আপনার ফোন নোটিফিকেশনের অনুমতি চাইবে। এতে অ্যাপ ব্যাকগ্রাউন্ডে থাকলেও পেমেন্ট এলে BSV Wallet আপনাকে জানাতে পারবে।',
+      push_advisory_continue: 'চালিয়ে যান',
+      push_advisory_not_now: 'এখন নয়',
 
       check_wallet: 'সমস্যা সমাধান',
       settings_version: 'v{{version}}',
@@ -9316,6 +9356,11 @@ const resources = {
       pay_address_earlier_day: 'Перейти к более раннему дню',
       pay_address_sweep_now: 'Проверить этот BSV-адрес сейчас',
       pay_address_swept: 'Получено {{amount}}',
+      push_advisory_title: 'Узнавайте о поступлении платежа',
+      push_advisory_body:
+        'Далее телефон запросит разрешение на уведомления. Благодаря этому BSV Wallet сообщит вам о поступлении платежа, даже если приложение работает в фоновом режиме.',
+      push_advisory_continue: 'Продолжить',
+      push_advisory_not_now: 'Не сейчас',
 
       check_wallet: 'Диагностика',
       settings_version: 'v{{version}}',
@@ -10373,6 +10418,11 @@ const resources = {
       pay_address_earlier_day: 'Buka hari sebelumnya',
       pay_address_sweep_now: 'Periksa alamat BSV ini sekarang',
       pay_address_swept: 'Diterima {{amount}}',
+      push_advisory_title: 'Dapatkan pemberitahuan saat Anda dibayar',
+      push_advisory_body:
+        'Selanjutnya, ponsel Anda akan meminta izin untuk mengirim notifikasi. Dengan begitu, BSV Wallet dapat memberi tahu Anda saat pembayaran masuk, bahkan ketika aplikasi berjalan di latar belakang.',
+      push_advisory_continue: 'Lanjutkan',
+      push_advisory_not_now: 'Nanti saja',
 
       check_wallet: 'Pemecahan masalah',
       settings_version: 'v{{version}}',
@@ -11444,6 +11494,11 @@ const resources = {
       pay_address_earlier_day: 'それ以前の日にさかのぼる',
       pay_address_sweep_now: 'このBSVアドレスを今すぐ確認',
       pay_address_swept: '{{amount}} を受け取りました',
+      push_advisory_title: '支払いを受け取ったら通知でお知らせ',
+      push_advisory_body:
+        '次に、スマートフォンが通知の許可を求めます。許可すると、アプリがバックグラウンドにあるときでも、支払いが届いたことを BSV Wallet がお知らせします。',
+      push_advisory_continue: '続行',
+      push_advisory_not_now: 'あとで',
 
       check_wallet: 'トラブルシューティング',
       settings_version: 'v{{version}}',
@@ -12521,6 +12576,11 @@ const resources = {
       pay_address_earlier_day: 'Wróć do wcześniejszego dnia',
       pay_address_sweep_now: 'Sprawdź teraz ten adres BSV',
       pay_address_swept: 'Otrzymano {{amount}}',
+      push_advisory_title: 'Powiadomimy Cię, gdy dostaniesz zapłatę',
+      push_advisory_body:
+        'Za chwilę telefon poprosi o zgodę na powiadomienia. Dzięki temu BSV Wallet poinformuje Cię o nadejściu płatności, nawet gdy aplikacja działa w tle.',
+      push_advisory_continue: 'Kontynuuj',
+      push_advisory_not_now: 'Nie teraz',
 
       check_wallet: 'Rozwiązywanie problemów',
       settings_version: 'v{{version}}',
