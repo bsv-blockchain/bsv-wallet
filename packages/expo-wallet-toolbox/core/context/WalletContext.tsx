@@ -136,7 +136,7 @@ const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
-import { getBackupUrl, getMandalaEndpoints } from '../toolboxConfig'
+import { getBackupUrl, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
   AUTO_APPROVE_COOLDOWN_MS,
@@ -211,6 +211,8 @@ import { replayPendingAborts, verifyDeclinedAborts } from '../localpay/pendingAb
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import { MONITOR_STALL_MS, MonitorSupervisor } from '../monitor/MonitorSupervisor'
 import { TaskCreditInbox } from '../monitor/TaskCreditInbox'
+import { attachPushHandlers, coalesceRuns } from '../push/events'
+import { syncPushRegistration } from '../push/registration'
 import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
@@ -706,6 +708,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const monitorSupervisorRef = useRef<MonitorSupervisor | null>(null)
   const monitorRef = useRef<Monitor | null>(null)
+  // Push notifications. `pushDetachRef` removes the adapter listeners the
+  // current build attached; `pushSyncRef` is that build's registration sync,
+  // which the foreground handler calls so a permission granted from OS Settings
+  // registers on return. Both are cleared wherever the monitor is torn down.
+  const pushDetachRef = useRef<(() => void) | undefined>(undefined)
+  const pushSyncRef = useRef<(() => Promise<void>) | undefined>(undefined)
   // The offline-first chain tracker and the header store it wraps. Populated
   // in buildWallet (tracker synchronously, store once the background open
   // finishes); the reconnect top-up effect below reuses both rather than
@@ -1899,6 +1907,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             monitorOptions.saveLastSSEEventId = (id: string) => phoneStorage!.setKeyValue(SSE_KEY, id)
           }
           const monitor = await createWalletMonitor(monitorOptions)
+          // This build's push registration sync, once it has one (phone
+          // storage only). Lets the superseded-build exit below clear the push
+          // wiring only if a newer build has not already taken it over.
+          let pushSyncOfThisBuild: (() => Promise<void>) | undefined
 
           // Release held offline transactions when signal returns — registered
           // BEFORE the defaults, and the order matters. Monitor.runOnce collects
@@ -2046,6 +2058,60 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               )
             )
             TaskCreditInbox.noteEnqueued()
+
+            // Push: a payment for this identity wakes the phone (the MessageBox
+            // host sends the FCM message), and a push only ever means "look at
+            // the inbox now" — the credit, sound and toast come from the
+            // CreditInbox pass above, so nothing is shown or credited twice.
+            //
+            // Registration reads the same host as that task and derives the
+            // identity key and the client's wallet from the SAME
+            // permissionsManager, so the token is bound to the identity the
+            // inbox is actually reading. Startup, token refresh and foreground
+            // can all fire it at once; coalesceRuns never runs two at a time
+            // and folds an overlapping burst into one rerun. Push is an
+            // enhancement: nothing here may throw into the build.
+            const syncPush = coalesceRuns(async () => {
+              const adapter = getPushAdapter()
+              if (!adapter) return
+              const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+              const host =
+                saved === NO_MESSAGE_BOX
+                  ? undefined
+                  : !saved || saved === LEGACY_MESSAGE_BOX_URL
+                    ? DEFAULT_MESSAGE_BOX_URL
+                    : saved
+              let identityKey: string
+              try {
+                identityKey = (await permissionsManager.getPublicKey({ identityKey: true }, adminOriginator)).publicKey
+              } catch {
+                return
+              }
+              await syncPushRegistration({
+                adapter,
+                host,
+                identityKey,
+                makeClient: h =>
+                  new MessageBoxClient({
+                    host: h,
+                    walletClient: permissionsManager as never,
+                    originator: adminOriginator
+                  })
+              })
+            })
+            pushSyncOfThisBuild = syncPush
+            pushSyncRef.current = syncPush
+            void syncPush()
+            const pushAdapter = getPushAdapter()
+            pushDetachRef.current?.()
+            pushDetachRef.current = pushAdapter
+              ? attachPushHandlers({
+                  adapter: pushAdapter,
+                  requestInboxPass: () => TaskCreditInbox.requestNow(),
+                  openActivity: () => loadExpoRouter().router.push('/transactions'),
+                  onTokenRefresh: () => void syncPush()
+                })
+              : undefined
 
             monitor.addTask(
               new TaskDrainOutbox(
@@ -2293,6 +2359,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             try {
               await stopMonitorAndDrain(monitor)
             } catch {}
+            // A newer build may already have replaced these with its own, so
+            // only clear them if they are still this build's.
+            if (pushSyncOfThisBuild && pushSyncRef.current === pushSyncOfThisBuild) {
+              pushDetachRef.current?.()
+              pushDetachRef.current = undefined
+              pushSyncRef.current = undefined
+            }
             return null
           }
           monitorRef.current = monitor
@@ -2584,6 +2657,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       vaultStore.clearScope()
       vaultCeremony.cancel()
 
+      // Push listeners and the registration sync belong to the wallet being
+      // torn down; nothing may fire them against it from here on.
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
+
       // Stop any running monitor and let its current pass drain before the
       // storage teardown below closes the connection under it.
       {
@@ -2649,6 +2728,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildGenRef.current.bump()
       vaultStore.clearScope()
       vaultCeremony.cancel()
+
+      // Push listeners and the registration sync belong to the wallet being
+      // torn down; nothing may fire them against it from here on.
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
 
       // Stop any running monitor and let its current pass drain before the
       // storage teardown below closes the connection under it.
@@ -3032,6 +3117,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         if (TaskSendOffline.hasPending) TaskSendOffline.requestNow()
         TaskCreditInbox.requestNow()
         if (TaskDrainOutbox.hasPending) TaskDrainOutbox.requestNow()
+        // A notification permission granted from OS Settings, or a token the OS
+        // rotated while away, registers on return. No-ops when already current.
+        void pushSyncRef.current?.()
       }
 
       appStateRef.current = nextAppState
@@ -3075,6 +3163,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         monitorRef.current?.stopTasks()
       } catch {}
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
       if (ledgerBumpTimerRef.current) {
         clearTimeout(ledgerBumpTimerRef.current)
         ledgerBumpTimerRef.current = null
@@ -3104,6 +3195,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // comment warned about — everything above this point already ran
     // synchronously before any promise existed to await.
     return (async () => {
+      // Push listeners and the registration sync belong to the wallet being
+      // torn down; nothing may fire them against it from here on.
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
+
       // Tear the wallet down the same way rebuildWallet does. Logout used to
       // skip this, which orphaned a running monitor AND left the SQLite
       // connection open: a re-import of the same phrase then opened a second
