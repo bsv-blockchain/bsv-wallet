@@ -14,6 +14,17 @@ function fakeAdapter(initial: PushOpenedEvent | null) {
 }
 const flush = () => new Promise(r => setImmediate(r))
 
+// Push failures are logged (never thrown). Keep test output pristine and let
+// the tests that exercise failures assert on what was logged.
+let warn: jest.SpyInstance
+beforeEach(() => {
+  warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+})
+afterEach(() => {
+  warn.mockRestore()
+})
+const warned = () => warn.mock.calls.map(c => c.join(' ')).join('\n')
+
 describe('attachPushHandlers', () => {
   beforeEach(() => __resetInitialNotificationForTests())
   it('consumes initial notification once', async () => {
@@ -74,6 +85,9 @@ describe('attachPushHandlers', () => {
     expect(onTokenRefresh).toHaveBeenCalledTimes(1)
     expect(() => detach()).not.toThrow()
     expect(Object.keys(handlers)).toEqual([])
+    expect(warned()).toContain('[push]')
+    expect(warned()).toContain('onForegroundMessage')
+    expect(warned()).toContain('native Firebase app missing')
   })
   it('an initial-notification read that throws synchronously does not break attach', () => {
     const { adapter, handlers } = fakeAdapter(null)
@@ -84,6 +98,15 @@ describe('attachPushHandlers', () => {
       attachPushHandlers({ adapter, requestInboxPass: jest.fn(), openActivity: jest.fn(), onTokenRefresh: jest.fn() })
     ).not.toThrow()
     expect(Object.keys(handlers).sort()).toEqual(['fg', 'opened', 'tok'])
+    expect(warned()).toContain('[push] getInitialNotification')
+  })
+  it('an initial-notification read that rejects is logged, not thrown', async () => {
+    const { adapter } = fakeAdapter(null)
+    ;(adapter.getInitialNotification as jest.Mock).mockRejectedValue(new Error('read failed'))
+    attachPushHandlers({ adapter, requestInboxPass: jest.fn(), openActivity: jest.fn(), onTokenRefresh: jest.fn() })
+    await flush()
+    expect(warned()).toContain('[push] getInitialNotification')
+    expect(warned()).toContain('read failed')
   })
   it('an unsubscribe that throws does not stop the others being removed', () => {
     const { adapter, handlers } = fakeAdapter(null)
@@ -98,6 +121,31 @@ describe('attachPushHandlers', () => {
     })
     expect(() => detach()).not.toThrow()
     expect(Object.keys(handlers)).toEqual([])
+    expect(warned()).toContain('[push] unsubscribe')
+    expect(warned()).toContain('already gone')
+  })
+  it('a callback that throws is logged and does not skip the rest of the tap handling', () => {
+    const { adapter, handlers } = fakeAdapter(null)
+    const requestInboxPass = jest.fn(() => {
+      throw new Error('pass failed')
+    })
+    const openActivity = jest.fn()
+    attachPushHandlers({ adapter, requestInboxPass, openActivity, onTokenRefresh: jest.fn() })
+    expect(() => handlers.opened({ data: {} })).not.toThrow()
+    expect(openActivity).toHaveBeenCalledTimes(1)
+    expect(warned()).toContain('[push] requestInboxPass')
+    expect(warned()).toContain('pass failed')
+  })
+  it('never logs the push payload or token', () => {
+    const { adapter, handlers } = fakeAdapter(null)
+    const requestInboxPass = jest.fn(() => {
+      throw new Error('boom')
+    })
+    attachPushHandlers({ adapter, requestInboxPass, openActivity: jest.fn(), onTokenRefresh: jest.fn() })
+    handlers.fg({ data: { messageId: 'SECRET-MESSAGE-ID' } })
+    handlers.tok('SECRET-FCM-TOKEN')
+    expect(warned()).not.toContain('SECRET-MESSAGE-ID')
+    expect(warned()).not.toContain('SECRET-FCM-TOKEN')
   })
 })
 
@@ -166,5 +214,7 @@ describe('coalesceRuns', () => {
     await expect(sync()).resolves.toBeUndefined()
     await expect(sync()).resolves.toBeUndefined()
     expect(n).toBe(2)
+    expect(warned()).toContain('[push] registration sync')
+    expect(warned()).toContain('boom')
   })
 })

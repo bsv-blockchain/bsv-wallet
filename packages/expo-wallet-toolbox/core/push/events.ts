@@ -6,11 +6,23 @@ export function __resetInitialNotificationForTests(): void {
   initialConsumed = false
 }
 
-/** Run `fn`, swallowing a throw: push is an enhancement and must never break its caller. */
-function guarded(fn: () => void): void {
+/**
+ * Push failures are contained, never thrown, but they are not silent: a
+ * swallowed failure with no trace is how "push never works on this build"
+ * becomes impossible to diagnose. Only the error message is logged — never the
+ * push payload, the FCM token or an identity key.
+ */
+function warn(what: string, e: unknown): void {
+  console.warn(`[push] ${what} failed: ${e instanceof Error ? e.message : String(e)}`)
+}
+
+/** Run `fn`, containing a throw: push is an enhancement and must never break its caller. */
+function guarded(what: string, fn: () => void): void {
   try {
     fn()
-  } catch {}
+  } catch (e) {
+    warn(what, e)
+  }
 }
 
 /**
@@ -18,11 +30,12 @@ function guarded(fn: () => void): void {
  * subscribing (the native Firebase app missing on an old dev-client binary);
  * that listener is then simply absent, and the others still attach.
  */
-function subscribe(attach: () => () => void): () => void {
+function subscribe(what: string, attach: () => () => void): () => void {
   try {
     const off = attach()
     return typeof off === 'function' ? off : () => {}
-  } catch {
+  } catch (e) {
+    warn(`${what} subscribe`, e)
     return () => {}
   }
 }
@@ -43,8 +56,8 @@ export function attachPushHandlers(args: {
 }): () => void {
   const { adapter, requestInboxPass, openActivity, onTokenRefresh } = args
   const opened = () => {
-    guarded(requestInboxPass)
-    guarded(openActivity)
+    guarded('requestInboxPass', requestInboxPass)
+    guarded('openActivity', openActivity)
   }
   if (!initialConsumed) {
     initialConsumed = true
@@ -54,15 +67,19 @@ export function attachPushHandlers(args: {
         .then(e => {
           if (e) opened()
         })
-        .catch(() => {})
-    } catch {}
+        .catch(e => warn('getInitialNotification', e))
+    } catch (e) {
+      warn('getInitialNotification', e)
+    }
   }
   const offs = [
-    subscribe(() => adapter.onNotificationOpened(opened)),
-    subscribe(() => adapter.onForegroundMessage(() => guarded(requestInboxPass))),
-    subscribe(() => adapter.onTokenRefresh(() => guarded(onTokenRefresh)))
+    subscribe('onNotificationOpened', () => adapter.onNotificationOpened(opened)),
+    subscribe('onForegroundMessage', () =>
+      adapter.onForegroundMessage(() => guarded('requestInboxPass', requestInboxPass))
+    ),
+    subscribe('onTokenRefresh', () => adapter.onTokenRefresh(() => guarded('onTokenRefresh', onTokenRefresh)))
   ]
-  return () => offs.forEach(off => guarded(off))
+  return () => offs.forEach(off => guarded('unsubscribe', off))
 }
 
 /**
@@ -86,7 +103,9 @@ export function coalesceRuns(run: () => Promise<void>): () => Promise<void> {
           rerun = false
           try {
             await run()
-          } catch {}
+          } catch (e) {
+            warn('registration sync', e)
+          }
         } while (rerun)
       } finally {
         inFlight = undefined

@@ -1907,10 +1907,18 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             monitorOptions.saveLastSSEEventId = (id: string) => phoneStorage!.setKeyValue(SSE_KEY, id)
           }
           const monitor = await createWalletMonitor(monitorOptions)
-          // This build's push registration sync, once it has one (phone
-          // storage only). Lets the superseded-build exit below clear the push
-          // wiring only if a newer build has not already taken it over.
-          let pushSyncOfThisBuild: (() => Promise<void>) | undefined
+          // The MessageBox host this wallet talks to, or undefined when the
+          // user turned MessageBox off. One definition for the CreditInbox task
+          // and the push registration below, so a device token is always
+          // registered on exactly the host the inbox reads.
+          const readMessageBoxHost = async (): Promise<string | undefined> => {
+            const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+            return saved === NO_MESSAGE_BOX
+              ? undefined
+              : !saved || saved === LEGACY_MESSAGE_BOX_URL
+                ? DEFAULT_MESSAGE_BOX_URL
+                : saved
+          }
 
           // Release held offline transactions when signal returns — registered
           // BEFORE the defaults, and the order matters. Monitor.runOnce collects
@@ -2002,13 +2010,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               new TaskCreditInbox(
                 monitor,
                 async () => {
-                  const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
-                  const messageBoxUrl =
-                    saved === NO_MESSAGE_BOX
-                      ? undefined
-                      : !saved || saved === LEGACY_MESSAGE_BOX_URL
-                        ? DEFAULT_MESSAGE_BOX_URL
-                        : saved
+                  const messageBoxUrl = await readMessageBoxHost()
                   if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
                   let client: PeerPayClient
                   try {
@@ -2058,60 +2060,6 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               )
             )
             TaskCreditInbox.noteEnqueued()
-
-            // Push: a payment for this identity wakes the phone (the MessageBox
-            // host sends the FCM message), and a push only ever means "look at
-            // the inbox now" — the credit, sound and toast come from the
-            // CreditInbox pass above, so nothing is shown or credited twice.
-            //
-            // Registration reads the same host as that task and derives the
-            // identity key and the client's wallet from the SAME
-            // permissionsManager, so the token is bound to the identity the
-            // inbox is actually reading. Startup, token refresh and foreground
-            // can all fire it at once; coalesceRuns never runs two at a time
-            // and folds an overlapping burst into one rerun. Push is an
-            // enhancement: nothing here may throw into the build.
-            const syncPush = coalesceRuns(async () => {
-              const adapter = getPushAdapter()
-              if (!adapter) return
-              const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
-              const host =
-                saved === NO_MESSAGE_BOX
-                  ? undefined
-                  : !saved || saved === LEGACY_MESSAGE_BOX_URL
-                    ? DEFAULT_MESSAGE_BOX_URL
-                    : saved
-              let identityKey: string
-              try {
-                identityKey = (await permissionsManager.getPublicKey({ identityKey: true }, adminOriginator)).publicKey
-              } catch {
-                return
-              }
-              await syncPushRegistration({
-                adapter,
-                host,
-                identityKey,
-                makeClient: h =>
-                  new MessageBoxClient({
-                    host: h,
-                    walletClient: permissionsManager as never,
-                    originator: adminOriginator
-                  })
-              })
-            })
-            pushSyncOfThisBuild = syncPush
-            pushSyncRef.current = syncPush
-            void syncPush()
-            const pushAdapter = getPushAdapter()
-            pushDetachRef.current?.()
-            pushDetachRef.current = pushAdapter
-              ? attachPushHandlers({
-                  adapter: pushAdapter,
-                  requestInboxPass: () => TaskCreditInbox.requestNow(),
-                  openActivity: () => loadExpoRouter().router.push('/transactions'),
-                  onTokenRefresh: () => void syncPush()
-                })
-              : undefined
 
             monitor.addTask(
               new TaskDrainOutbox(
@@ -2359,16 +2307,70 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             try {
               await stopMonitorAndDrain(monitor)
             } catch {}
-            // A newer build may already have replaced these with its own, so
-            // only clear them if they are still this build's.
-            if (pushSyncOfThisBuild && pushSyncRef.current === pushSyncOfThisBuild) {
-              pushDetachRef.current?.()
-              pushDetachRef.current = undefined
-              pushSyncRef.current = undefined
-            }
             return null
           }
           monitorRef.current = monitor
+
+          // Push: a payment for this identity wakes the phone (the MessageBox
+          // host sends the FCM message), and a push only ever means "look at
+          // the inbox now" — the credit, sound and toast come from the
+          // CreditInbox pass registered above, so nothing is shown or credited
+          // twice.
+          //
+          // Wired HERE, after the supersession check and with no await between
+          // the two, on purpose. A build that was replaced mid-flight never
+          // reaches this line, so it can neither register a token against a
+          // wallet being torn down nor detach the listeners a newer build wired.
+          // Every teardown clears the refs before it yields, so a build that is
+          // superseded after this line is cleaned up by whoever superseded it.
+          //
+          // Registration reads the same host as the CreditInbox task and derives
+          // the identity key and the client's wallet from the SAME
+          // permissionsManager, so the token is bound to the identity the inbox
+          // is actually reading. Startup, token refresh and foreground can all
+          // fire it at once; coalesceRuns never runs two at a time and folds an
+          // overlapping burst into one rerun. Push is an enhancement: nothing
+          // here may throw into the build.
+          if (phoneStorage) {
+            const syncPush = coalesceRuns(async () => {
+              const adapter = getPushAdapter()
+              if (!adapter) return
+              const host = await readMessageBoxHost()
+              let identityKey: string
+              try {
+                identityKey = (await permissionsManager.getPublicKey({ identityKey: true }, adminOriginator)).publicKey
+              } catch (e) {
+                console.warn(
+                  `[push] could not read the identity key; skipping registration: ${e instanceof Error ? e.message : String(e)}`
+                )
+                return
+              }
+              const result = await syncPushRegistration({
+                adapter,
+                host,
+                identityKey,
+                makeClient: h =>
+                  new MessageBoxClient({
+                    host: h,
+                    walletClient: permissionsManager as never,
+                    originator: adminOriginator
+                  })
+              })
+              if (result === 'failed') console.warn('[push] device registration with the MessageBox host failed')
+            })
+            pushSyncRef.current = syncPush
+            void syncPush()
+            const pushAdapter = getPushAdapter()
+            pushDetachRef.current?.()
+            pushDetachRef.current = pushAdapter
+              ? attachPushHandlers({
+                  adapter: pushAdapter,
+                  requestInboxPass: () => TaskCreditInbox.requestNow(),
+                  openActivity: () => loadExpoRouter().router.push('/transactions'),
+                  onTokenRefresh: () => void syncPush()
+                })
+              : undefined
+          }
           InteractionManager.runAfterInteractions(() => {
             // Re-check identity: stopTasks() before startTasks() is a no-op
             // (it only clears a flag the loop hasn't set yet), so a rebuild/
