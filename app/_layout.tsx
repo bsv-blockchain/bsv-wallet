@@ -63,6 +63,12 @@ import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
  * (docs/security/external-review-closure.md, "Owner decision"). With it off,
  * no Vault output is created (deposit, re-lock, withdrawal remainder), while
  * an existing vault stays reachable for a full withdrawal.
+ *
+ * push: payment push notifications stay OFF until the MessageBox server can
+ * deliver them (nothing is registered, and the "Share remote link" advisory and
+ * the Settings row never appear). Only the literal string "true" in
+ * EXPO_PUBLIC_PUSH_ENABLED wires the Firebase adapter in. EAS development and
+ * dev-physical enable it; production, production-apk and preview-apk do not.
  */
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
@@ -132,8 +138,9 @@ configureToolbox({
   },
   // Payment push notifications (MessageBox device registration). The adapter
   // wraps React Native Firebase Messaging; the toolbox package never imports a
-  // push SDK itself.
-  push: firebasePushAdapter
+  // push SDK itself. Gated by EXPO_PUBLIC_PUSH_ENABLED (see above): without an
+  // adapter the toolbox registers nothing and shows no push UI.
+  push: process.env.EXPO_PUBLIC_PUSH_ENABLED === 'true' ? firebasePushAdapter : undefined
 })
 
 const nativeHandlers: NativeHandlers = {
