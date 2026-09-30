@@ -158,6 +158,13 @@ function loadQRCode(): QRCodeComponent {
  */
 const INBOX_POLL_MS = 5000
 
+/**
+ * While the live socket is up the satoshi inbox is only re-read on every Nth
+ * poll tick: the socket tells us the moment something lands, so the poll is the
+ * safety net for a missed event, not the delivery path.
+ */
+const LIVE_SATOSHI_POLL_EVERY = 3
+
 // ── Needs attention ──────────────────────────────────────────────────────────
 //
 // Replaces the old accept list. An arriving payment is credited automatically
@@ -444,6 +451,8 @@ export default function HandleReceive({
 
   /** One inbox read at a time — see fetchPayments. */
   const fetchingRef = useRef(false)
+  /** A live payment arrived mid-read: read once more when that read finishes. */
+  const rereadRef = useRef(false)
   /** The live attempt map, for discard copy that must not close over stale state. */
   const attemptsRef = useRef<Record<string, InboxAttempt>>({})
   useEffect(() => {
@@ -588,13 +597,19 @@ export default function HandleReceive({
   )
 
   const fetchPayments = useCallback(
-    async (options: { silent?: boolean } = {}) => {
+    async (options: { silent?: boolean; queueIfBusy?: boolean } = {}) => {
       const client = peerPayClient
       if (!client || !messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return
       // One read at a time. The poll, the refresh button and every accept all
       // reach this, and two overlapping reads can land out of order — the older
       // response winning would resurrect a row that was just internalized.
-      if (fetchingRef.current) return
+      if (fetchingRef.current) {
+        // A live payment must not be dropped here: the read in flight may have
+        // listed the inbox before it landed, and the poll is slow while the
+        // socket is up. Run one more read when this one finishes.
+        if (options.queueIfBusy) rereadRef.current = true
+        return
+      }
       fetchingRef.current = true
       try {
         const outcome = await runCredit()
@@ -614,6 +629,10 @@ export default function HandleReceive({
         }
       } finally {
         fetchingRef.current = false
+        if (rereadRef.current) {
+          rereadRef.current = false
+          void fetchRef.current({ silent: true })
+        }
       }
     },
     [peerPayClient, messageBoxUrl, wallet, adminOriginator, t, runCredit]
@@ -668,22 +687,90 @@ export default function HandleReceive({
     tokenTickRef.current = tokenTick
   }, [tokenTick])
 
-  // ── Poll the inbox ──
+  // ── Watch the inbox ──
   //
-  // A payment arrives whenever the sender's wallet delivers it and MessageBox has
-  // no push channel here, so "it appears on its own" means polling — but only
-  // while someone is actually looking at this screen. Unmount and blur stop it
-  // because a poll nobody can see spends battery; a backgrounded app stops it
-  // for the same reason and because iOS will suspend the timer anyway. The
-  // shared creditInboxOnce mutex serializes with TaskCreditInbox.
+  // While someone is actually looking at this screen, a MessageBox WebSocket
+  // tells us the moment a payment lands, and a poll backs it up. The socket is
+  // the fast path; the poll covers a listener that could not start, a socket
+  // that dropped without telling us, and everything the socket does not carry
+  // (the Mandala token inbox has no live channel). Only the satoshi read
+  // slows while the socket is up — the token drain stays on the 5s tick.
+  //
+  // Both run only while the screen is focused and the app active. Blur and
+  // background disconnect the socket (a backgrounded app cannot hold one, and
+  // one that looked alive on return would quietly slow the poll for nothing),
+  // and coming back to the foreground re-listens and reads at once. The
+  // callback never credits anything itself: it only triggers the same read the
+  // poll does, so there is one crediting path and the shared creditInboxOnce
+  // mutex still serializes with TaskCreditInbox.
+  //
+  // Blur is a ref, not state, so the interval notices it (within one tick)
+  // rather than this effect re-running; the effect itself restarts only with
+  // the client.
   useEffect(() => {
     if (!peerPayClient) return
+    const client = peerPayClient
     let cancelled = false
+    /** A listener is starting, up, or has failed and is not to be retried yet. */
+    let listening = false
+    /** The socket is confirmed up — the only state in which the poll slows. */
+    let live = false
+    /** Bumped on every stop so a late start result cannot revive a dead listener. */
+    let generation = 0
+    /** Poll ticks since the socket came up, for the slow satoshi cadence. */
+    let liveTicks = 0
+
+    const visible = () => !cancelled && focusedRef.current && AppState.currentState === 'active'
+
+    const readSatoshiInbox = (queueIfBusy = false) => {
+      void fetchRef.current({ silent: true, queueIfBusy })
+    }
+
+    const startListener = () => {
+      if (listening) return
+      listening = true
+      const mine = ++generation
+      void (async () => {
+        try {
+          // The client was built with this same MessageBox host, so no
+          // overrideHost: the socket goes where the inbox reads go.
+          await client.listenForLivePayments({
+            onPayment: () => {
+              if (mine === generation && visible()) readSatoshiInbox(true)
+            }
+          })
+          if (mine === generation) {
+            live = true
+            liveTicks = 0
+          }
+        } catch (error: any) {
+          if (mine !== generation) return
+          live = false
+          // Kept `listening` so a failed start is not retried every tick; the
+          // next blur or background resets it. Full 5s polling carries on.
+          console.warn(`[pay] live inbox listener unavailable: ${error?.message || 'unknown error'}`)
+        }
+      })()
+    }
+
+    const stopListener = () => {
+      if (!listening) return
+      listening = false
+      live = false
+      generation++
+      void client.disconnectWebSocket().catch(() => {})
+    }
+
+    /** Listen exactly while the screen can be seen. */
+    const syncListener = () => {
+      if (visible()) startListener()
+      else stopListener()
+    }
 
     const tick = () => {
-      if (cancelled || !focusedRef.current) return
-      if (AppState.currentState !== 'active') return
-      void fetchRef.current({ silent: true })
+      syncListener()
+      if (!visible()) return
+      if (!live || ++liveTicks % LIVE_SATOSHI_POLL_EVERY === 0) readSatoshiInbox()
       // The token inbox is a SIBLING drain, not a widened one: Mandala delivers
       // to its own message box and the two never meet. Same 5s focused tick,
       // because a payee standing in front of this screen expects both kinds of
@@ -691,17 +778,23 @@ export default function HandleReceive({
       void tokenTickRef.current()
     }
 
+    syncListener()
     const interval = setInterval(tick, INBOX_POLL_MS)
     // Returning to the app should show what arrived while it was away, rather
-    // than waiting out the rest of an interval.
+    // than waiting out the rest of an interval — both inboxes, whatever point
+    // the slow cadence had reached.
     const appSubscription = AppState.addEventListener('change', next => {
-      if (next === 'active') tick()
+      syncListener()
+      if (next !== 'active' || !visible()) return
+      readSatoshiInbox()
+      void tokenTickRef.current()
     })
 
     return () => {
       cancelled = true
       clearInterval(interval)
       appSubscription.remove()
+      stopListener()
     }
   }, [peerPayClient])
 
