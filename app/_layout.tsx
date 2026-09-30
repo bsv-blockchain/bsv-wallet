@@ -16,6 +16,7 @@ void loadUserAvatarIcon()
 import '../wdyr' // dev-only re-render tracking; must run before any component renders
 import '@/utils/devMenu' // dev-only profiling controls in the expo-dev-client menu
 import { AgentationGate } from '@/utils/AgentationGate'
+import { firebasePushAdapter } from '@/utils/push/firebasePushAdapter'
 
 import React, { useEffect } from 'react'
 import { View, useColorScheme } from 'react-native'
@@ -128,7 +129,11 @@ configureToolbox({
       whatsOnChainApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY,
       taalApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY
     }
-  }
+  },
+  // Payment push notifications (MessageBox device registration). The adapter
+  // wraps React Native Firebase Messaging; the toolbox package never imports a
+  // push SDK itself.
+  push: firebasePushAdapter
 })
 
 const nativeHandlers: NativeHandlers = {

@@ -49,7 +49,11 @@
           "ios": {
             "deploymentTarget": "16.4",
             "useFrameworks": "static",
-            "useModularHeaders": true
+            "useModularHeaders": true,
+            "forceStaticLinking": [
+              "RNFBApp",
+              "RNFBMessaging"
+            ]
           }
         }
       ],
@@ -67,7 +71,9 @@
           "enableBackgroundPlayback": false
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
     ],
     "experiments": {
       "typedRoutes": true
@@ -99,7 +105,8 @@
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.NEARBY_WIFI_DEVICES",
         "android.permission.ACCESS_WIFI_STATE",
-        "android.permission.CHANGE_WIFI_STATE"
+        "android.permission.CHANGE_WIFI_STATE",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "intentFilters": [
         {
@@ -120,7 +127,13 @@
       "supportsTablet": true,
       "googleServicesFile": "./GoogleService-Info.plist",
       "bundleIdentifier": "org.bsvblockchain.wallet",
+      "entitlements": {
+        "aps-environment": "development"
+      },
       "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
         "NSCameraUsageDescription": "This app needs camera access to scan QR codes.",
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save images to your photo library.",
         "NSMicrophoneUsageDescription": "This app needs microphone access for video recording features.",
