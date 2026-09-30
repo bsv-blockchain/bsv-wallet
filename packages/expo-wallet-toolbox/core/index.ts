@@ -35,6 +35,7 @@ export {
   getServiceConfig,
   getMandalaEndpoints,
   getHandleRegistryConfig,
+  getPushAdapter,
   isAllowedServiceOrigin,
   isMandalaAvailable,
   isVaultEnabled,
@@ -42,6 +43,7 @@ export {
   resetToolboxConfig
 } from './toolboxConfig'
 export type { ToolboxConfig, ToolboxServiceConfig, MandalaEndpointConfig, HandleRegistryConfig } from './toolboxConfig'
+export type { PushAdapter, PushPermission, PushOpenedEvent } from './push/types'
 
 // Theme tokens and providers
 export { ThemeProvider, useTheme } from './theme/ThemeContext'

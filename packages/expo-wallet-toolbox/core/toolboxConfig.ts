@@ -1,4 +1,5 @@
 import type { AppChain } from './config'
+import type { PushAdapter } from './push/types'
 
 /**
  * Service endpoints and API keys for one chain.
@@ -108,6 +109,14 @@ export interface ToolboxConfig {
    * never read from process.env here.
    */
   vaultEnabled?: boolean
+  /**
+   * The host's push implementation. Optional: a host that ships no push SDK
+   * omits it and every push feature stays off. The package never imports a
+   * push SDK itself — the SDK's native module would have to be linked by every
+   * host that merely installs this package — so the host wraps its own and
+   * states it here, like the URLs above.
+   */
+  push?: PushAdapter
 }
 
 interface ResolvedConfig {
@@ -116,6 +125,7 @@ interface ResolvedConfig {
   mandala: Partial<Record<AppChain, MandalaEndpointConfig>>
   handleRegistry: Partial<Record<AppChain, HandleRegistryConfig>>
   vaultEnabled: boolean
+  push: PushAdapter | undefined
 }
 
 let current: ResolvedConfig | null = null
@@ -193,7 +203,8 @@ export function configureToolbox(config: ToolboxConfig): void {
     services: config.services ?? {},
     mandala: config.mandala ?? {},
     handleRegistry: config.handleRegistry ?? {},
-    vaultEnabled: config.vaultEnabled === true
+    vaultEnabled: config.vaultEnabled === true,
+    push: config.push
   }
 }
 
@@ -316,6 +327,18 @@ export function isMandalaAvailable(chain: AppChain): boolean {
  */
 export function isVaultEnabled(): boolean {
   return current?.vaultEnabled ?? false
+}
+
+/**
+ * The host's push implementation, if it wired one. The package never imports a
+ * push SDK itself.
+ *
+ * Deliberately NOT throwing when unconfigured, like `isVaultEnabled`: push
+ * listeners are set up while rendering, and "unconfigured" must look like
+ * "no push" rather than crash a wallet that never wanted notifications.
+ */
+export function getPushAdapter(): PushAdapter | undefined {
+  return current?.push
 }
 
 /**

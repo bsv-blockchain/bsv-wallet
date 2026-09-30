@@ -3,12 +3,14 @@ import {
   getBackupUrl,
   getHandleRegistryConfig,
   getMandalaEndpoints,
+  getPushAdapter,
   getServiceConfig,
   isToolboxConfigured,
   isVaultAvailable,
   isVaultEnabled,
   resetToolboxConfig
 } from '../core/toolboxConfig'
+import type { PushAdapter } from '../core/push/types'
 
 const VALID_OVERLAY_KEY = '02' + '11'.repeat(32)
 
@@ -260,5 +262,33 @@ describe('isVaultAvailable', () => {
 
   it('is false before configureToolbox runs, without throwing', () => {
     expect(isVaultAvailable('main')).toBe(false)
+  })
+})
+
+// The host owns the push SDK (Firebase/Notifications); the package only ever
+// sees this adapter. Like the vault flag, reading it must never throw, because
+// the listener is wired while rendering and an unconfigured host is just a host
+// with no push.
+describe('push adapter seam', () => {
+  it('is undefined when the host supplies none', () => {
+    configureToolbox({ backupUrl: null })
+    expect(getPushAdapter()).toBeUndefined()
+  })
+
+  it('is undefined before configureToolbox runs, without throwing', () => {
+    expect(getPushAdapter()).toBeUndefined()
+  })
+
+  it('returns the adapter the host supplied', () => {
+    const adapter = { platform: 'ios' } as unknown as PushAdapter
+    configureToolbox({ backupUrl: null, push: adapter })
+    expect(getPushAdapter()).toBe(adapter)
+  })
+
+  it('is replaced wholesale with the rest of the configuration', () => {
+    const adapter = { platform: 'android' } as unknown as PushAdapter
+    configureToolbox({ backupUrl: null, push: adapter })
+    configureToolbox({ backupUrl: null })
+    expect(getPushAdapter()).toBeUndefined()
   })
 })
