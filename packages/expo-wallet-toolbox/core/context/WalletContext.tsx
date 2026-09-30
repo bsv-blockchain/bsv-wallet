@@ -247,7 +247,14 @@ import {
 import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
 import { MAX_HEX_RESPONSE_CHARS, wocConfigFor } from '../pay/rails/address'
 import { PeerPayClient } from '@bsv/message-box-client'
-import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../pay/sweeper'
+import {
+  SWEEP_INTERVAL_MS,
+  backoffAfterSweepError,
+  consumeBackoff,
+  runSweep,
+  shouldSweepNow,
+  sweptTotal
+} from '../pay/sweeper'
 import { formatAmount } from '../amountFormatHelpers'
 import { useTranslation } from 'react-i18next'
 import { HEADER_CHECKPOINTS } from '../headers/checkpoints'
@@ -2948,9 +2955,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // the first NetInfo event would delay the common case.
     let online = true
     const woc = wocConfigFor(selectedNetwork)
+    // Ticks still to sit out after a WhatsOnChain 429. Every tick spends one,
+    // including the app-active and back-online ones, so none of them can reach
+    // WhatsOnChain while the backoff is pending.
+    let backoffTicks = 0
 
     const tick = async () => {
       if (cancelled) return
+      const backoff = consumeBackoff(backoffTicks)
+      backoffTicks = backoff.remaining
+      if (backoff.skip) return
       if (
         !shouldSweepNow({
           walletBuilt: true,
@@ -2982,8 +2996,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             type: 'success'
           })
         }
-      } catch {
-        // Best-effort. Every address stays watched and the next tick retries.
+      } catch (error) {
+        // Best-effort. Every address stays watched and the next tick retries —
+        // except after a rate limit, which sits out SWEEP_BACKOFF_TICKS first.
+        backoffTicks = backoffAfterSweepError(error, backoffTicks)
       } finally {
         addressSweepingRef.current = false
       }

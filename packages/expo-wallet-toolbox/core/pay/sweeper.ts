@@ -10,11 +10,41 @@
  * Every bound is deliberate and tested: see shouldSweepNow for when a pass may
  * run at all, and pay/watchlist.ts for which addresses it may touch.
  */
-import { sweepAddress, type AddressRailWallet, type WocConfig } from './rails/address'
+import { sweepAddress, WocRateLimited, type AddressRailWallet, type WocConfig } from './rails/address'
 import { getWatchlist, touchWatched, type KVStorage } from './watchlist'
 
-/** One poll every 30s — an order of magnitude cheaper than the 3s screen poll it replaces. */
-export const SWEEP_INTERVAL_MS = 30_000
+/**
+ * One poll every 5s, foreground only (shouldSweepNow refuses in the background).
+ *
+ * An address payment announces itself to no one: unlike the handle and nearby
+ * rails there is no MessageBox message to push, so the only way this wallet
+ * learns of one is to look. 5s is what makes "show the address, money appears"
+ * feel immediate to a user watching the screen. The cost is up to ~1.6 WhatsOnChain
+ * requests/s on a device with the full 8 watched addresses, which is why the
+ * requests carry the host's API key and a 429 backs the sweep off
+ * (SWEEP_BACKOFF_TICKS) rather than being retried on the next tick.
+ */
+export const SWEEP_INTERVAL_MS = 5_000
+
+/** Ticks to sit out after a WhatsOnChain 429: 30s at SWEEP_INTERVAL_MS. */
+export const SWEEP_BACKOFF_TICKS = 6
+
+/**
+ * Spend one tick of a pending backoff. Pure so the caller's counter (a plain
+ * variable in the sweep effect's closure) is tested here rather than through a
+ * provider.
+ */
+export function consumeBackoff(remaining: number): { skip: boolean; remaining: number } {
+  return remaining > 0 ? { skip: true, remaining: remaining - 1 } : { skip: false, remaining: 0 }
+}
+
+/**
+ * The backoff after a failed pass: a full SWEEP_BACKOFF_TICKS for a rate limit,
+ * unchanged for anything else (those stay best-effort — the next tick retries).
+ */
+export function backoffAfterSweepError(error: unknown, remaining: number): number {
+  return error instanceof WocRateLimited ? SWEEP_BACKOFF_TICKS : remaining
+}
 
 export interface SweepOutcome {
   address: string
@@ -61,7 +91,10 @@ export async function runSweep(args: {
       // rather than retiring it the moment it pays out. A funded address whose
       // import failed must stay watched too, or a bad BEEF fetch TTL-drops it.
       if (importedSatoshis > 0 || foundOnChain) await touchWatched(storage, watched.address)
-    } catch {
+    } catch (error) {
+      // A rate limit is the one failure that does stop the pass: the other
+      // addresses would be refused the same way and only deepen the limit.
+      if (error instanceof WocRateLimited) throw error
       // A dead WoC host or a locked wallet must not stop the rest of the pass.
       // The entry stays watched and the next pass retries it.
     }

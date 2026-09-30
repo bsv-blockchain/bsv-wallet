@@ -23,10 +23,13 @@
  * and `makeBeefRepair` declines rather than burning an attempt on it.
  */
 import { Beef, Utils } from '@bsv/sdk'
-import { MAX_HEX_RESPONSE_CHARS, type WocConfig } from './rails/address'
+import { MAX_HEX_RESPONSE_CHARS, wocRequestInit, type WocConfig } from './rails/address'
 
 /** Injectable for tests; production uses global fetch. */
-export type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>
+export type FetchLike = (
+  url: string,
+  init?: { headers?: Record<string, string> }
+) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>
 
 /**
  * The current AtomicBEEF for `txid`, or undefined if the network cannot supply
@@ -46,7 +49,9 @@ export async function refetchAtomicBeef(args: {
 
   let bytes: number[]
   try {
-    const resp = await doFetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/beef`)
+    const url = `${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/beef`
+    const init = wocRequestInit(woc)
+    const resp = init ? await doFetch(url, init) : await doFetch(url)
     // Checked, because the body of a 404 is prose. `Utils.toArray(prose, 'hex')`
     // throws "Invalid hex string", and an empty body parses to a Beef whose
     // magic check fails — both of which would surface as a confusing error from

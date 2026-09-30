@@ -24,6 +24,7 @@ import {
 import type { AppChain } from '../../config'
 import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABEL_PREFIX } from '../counterparty'
 import { addressNetwork, isValidBsvAddress } from './index'
+import { getServiceConfig, isToolboxConfigured } from '../../toolboxConfig'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
 
@@ -137,14 +138,54 @@ export interface WocConfig {
   apiBase: string
   segment: string
   network: 'mainnet' | 'testnet'
+  /**
+   * The host's WhatsOnChain key for this chain, when it configured one. Sent
+   * only as the `woc-api-key` header (see `wocRequestInit`); never logged.
+   */
+  apiKey?: string
 }
 
 export function wocConfigFor(network: AppChain): WocConfig {
-  return {
+  const base = {
     main: { apiBase: 'https://api.whatsonchain.com', segment: 'main', network: 'mainnet' as const },
     test: { apiBase: 'https://api.whatsonchain.com', segment: 'test', network: 'testnet' as const },
     teratest: { apiBase: 'https://api.woc-ttn.bsvblockchain.tech', segment: 'test', network: 'testnet' as const }
   }[network]
+  // The key lives in the host's config seam, never in process.env (this package
+  // reads none). Unconfigured is "no key", not an error: this is called while
+  // building the wallet, before a host that never configured the toolbox could
+  // have a use for one.
+  const apiKey = isToolboxConfigured() ? getServiceConfig(network).whatsOnChainApiKey : undefined
+  return apiKey ? { ...base, apiKey } : base
+}
+
+/**
+ * HTTP 429 from WhatsOnChain. A type of its own because it is the one failure
+ * of these fetches the caller must not treat like the rest: the sweep polls
+ * every 5 s, so "try again next tick" is exactly the behaviour that keeps a
+ * rate limit alive. It lets the sweep stop the pass and back off instead.
+ */
+export class WocRateLimited extends Error {
+  constructor() {
+    super('WhatsOnChain rate limit reached')
+    this.name = 'WocRateLimited'
+  }
+}
+
+/**
+ * The request options carrying the WhatsOnChain key, or undefined when the
+ * config has none — so that an unconfigured build sends the same bare request
+ * it always did.
+ */
+export function wocRequestInit(woc: WocConfig): { headers: Record<string, string> } | undefined {
+  return woc.apiKey ? { headers: { 'woc-api-key': woc.apiKey } } : undefined
+}
+
+async function wocFetch(woc: WocConfig, url: string): Promise<Response> {
+  const init = wocRequestInit(woc)
+  const response = init ? await fetch(url, init) : await fetch(url)
+  if (response.status === 429) throw new WocRateLimited()
+  return response
 }
 
 export interface AddressDerivingWallet {
@@ -201,7 +242,7 @@ export const MAX_UTXO_LISTING_ROWS = 2000
 export const MAX_HEX_RESPONSE_CHARS = 8_000_000
 
 export async function getUtxosForAddress(woc: WocConfig, address: string): Promise<Utxo[]> {
-  const response = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/address/${address}/unspent/all`)
+  const response = await wocFetch(woc, `${woc.apiBase}/v1/bsv/${woc.segment}/address/${address}/unspent/all`)
   const rp = await response.json()
   // A live receive address never legitimately carries anywhere near this many
   // UTXOs; sweepAddress fetches one BEEF per distinct txid in the result, so
@@ -396,7 +437,7 @@ export async function sweepAddress(args: {
   for (const txid of txids) {
     const relevant = byTxid.get(txid) as Utxo[]
     try {
-      const resp = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/beef`)
+      const resp = await wocFetch(woc, `${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/beef`)
       const bytes = parseWocBeefBody({ ok: resp.ok, text: await resp.text() })
       if (!bytes) {
         failureCount++
@@ -450,7 +491,10 @@ export async function sweepAddress(args: {
       if (response?.accepted) {
         importedSatoshis += verified.reduce((sum, o) => sum + (tx.outputs[o.vout]?.satoshis ?? 0), 0)
       } else failureCount++
-    } catch {
+    } catch (error) {
+      // A rate limit is not this payment's failure: the rest of the pass would
+      // only be refused the same way, so let it stop the sweep (see runSweep).
+      if (error instanceof WocRateLimited) throw error
       failureCount++
     }
   }
