@@ -11,10 +11,15 @@
  *  - only the satoshi read slows while the socket is live — the Mandala token
  *    inbox has no live channel, so its drain keeps the 5 s tick;
  *  - a listener that cannot start leaves full 5 s polling and one quiet warning;
- *  - blur, background and unmount disconnect the socket.
+ *  - blur, background and unmount disconnect the socket;
+ *  - every listening session uses its own short-lived client, never the one the
+ *    reads use (a MessageBoxClient will not re-join a room it has already
+ *    joined, so re-listening on one instance would yield a silent socket).
  *
  * The real HandleReceive renders; the wallet, the MessageBox client and the
  * crediting pass are mocked so a "fetch" is just a call to creditInboxOnce.
+ * handleReceiveLiveRealClient.test.tsx drives the same screen against the real
+ * MessageBoxClient to pin the room re-join itself.
  */
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(() => Promise.resolve()),
@@ -48,13 +53,16 @@ jest.mock('expo-router', () => ({
   }
 }))
 
-const mockClient = {
-  listenForLivePayments: jest.fn(),
-  disconnectWebSocket: jest.fn()
+// Every `new PeerPayClient(...)` is recorded: the first is the screen's own
+// (reads, accepts), each later one is a listening session's.
+interface MockClient {
+  listenForLivePayments: jest.Mock
+  disconnectWebSocket: jest.Mock
 }
-jest.mock('@bsv/message-box-client', () => ({
-  PeerPayClient: jest.fn().mockImplementation(() => mockClient)
-}))
+const mockInstances: MockClient[] = []
+let mockListenImpl: (options: unknown) => Promise<void> = async () => {}
+let mockDisconnectImpl: () => Promise<void> = async () => {}
+jest.mock('@bsv/message-box-client', () => ({ PeerPayClient: jest.fn() }))
 
 const mockWallet = {
   getPublicKey: jest.fn(async () => ({ publicKey: '02'.padEnd(66, 'a') }))
@@ -98,6 +106,7 @@ import React from 'react'
 import { AppState } from 'react-native'
 import { act, render } from '@testing-library/react-native'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
+import { PeerPayClient } from '@bsv/message-box-client'
 import HandleReceive from '../../ui/components/pay/HandleReceive'
 
 const POLL_MS = 5000
@@ -137,8 +146,20 @@ async function tick(times = 1) {
   }
 }
 
-/** The onPayment callback the screen handed the client. */
-const onPayment = () => mockClient.listenForLivePayments.mock.calls[0][0].onPayment as (p: unknown) => void
+/** The client the screen reads the inbox through. It never listens. */
+const readClient = () => mockInstances[0]
+/** The short-lived clients the screen opened to listen, oldest first. */
+const sessions = () => mockInstances.slice(1)
+/** The onPayment callback the screen handed a session. */
+const onPayment = (session = 0) =>
+  sessions()[session].listenForLivePayments.mock.calls[0][0].onPayment as (p: unknown) => void
+
+const fireAppState = async (state: 'active' | 'background') => {
+  currentAppState = state
+  await act(async () => {
+    appStateHandlers.forEach(h => h(state))
+  })
+}
 
 beforeEach(() => {
   jest.useFakeTimers()
@@ -150,8 +171,17 @@ beforeEach(() => {
     appStateHandlers.push(handler)
     return { remove: jest.fn() }
   }) as never)
-  mockClient.listenForLivePayments.mockReset().mockResolvedValue(undefined)
-  mockClient.disconnectWebSocket.mockReset().mockResolvedValue(undefined)
+  mockInstances.length = 0
+  mockListenImpl = async () => {}
+  mockDisconnectImpl = async () => {}
+  ;(PeerPayClient as unknown as jest.Mock).mockReset().mockImplementation(() => {
+    const client: MockClient = {
+      listenForLivePayments: jest.fn((options: unknown) => mockListenImpl(options)),
+      disconnectWebSocket: jest.fn(() => mockDisconnectImpl())
+    }
+    mockInstances.push(client)
+    return client
+  })
   mockCreditInboxOnce.mockReset().mockResolvedValue(EMPTY_OUTCOME)
   mockReceiveFromInbox.mockClear()
 })
@@ -162,10 +192,20 @@ afterEach(() => {
 })
 
 describe('HandleReceive live inbox listener', () => {
-  it('starts one listener on the screen and hands it a payment callback', async () => {
+  it('starts one listener from its own client and hands it a payment callback', async () => {
     await mount()
-    expect(mockClient.listenForLivePayments).toHaveBeenCalledTimes(1)
+    expect(sessions()).toHaveLength(1)
+    expect(sessions()[0].listenForLivePayments).toHaveBeenCalledTimes(1)
     expect(typeof onPayment()).toBe('function')
+    // Same host, wallet and originator as the reads, so the socket goes where
+    // the inbox reads go and no overrideHost is needed.
+    const constructed = (PeerPayClient as unknown as jest.Mock).mock.calls
+    expect(constructed).toHaveLength(2)
+    expect(constructed[1]).toEqual(constructed[0])
+    expect(constructed[1][0]).toMatchObject({ messageBoxHost: 'https://mb.example.test', originator: 'admin.test' })
+    expect(sessions()[0].listenForLivePayments.mock.calls[0][0]).not.toHaveProperty('overrideHost')
+    // The client the reads use never opens a socket.
+    expect(readClient().listenForLivePayments).not.toHaveBeenCalled()
   })
 
   it('reads the inbox when a live payment arrives, without waiting for a tick', async () => {
@@ -232,7 +272,7 @@ describe('HandleReceive live inbox listener', () => {
 
   it('keeps reading the satoshi inbox every tick until the socket is up', async () => {
     let connect!: () => void
-    mockClient.listenForLivePayments.mockImplementation(() => new Promise<void>(resolve => (connect = resolve)))
+    mockListenImpl = () => new Promise<void>(resolve => (connect = resolve))
     await mount()
 
     await tick(2)
@@ -249,7 +289,9 @@ describe('HandleReceive live inbox listener', () => {
 
   it('polls the satoshi inbox every tick and warns once when the listener cannot start', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    mockClient.listenForLivePayments.mockRejectedValue(new Error('socket refused'))
+    mockListenImpl = async () => {
+      throw new Error('socket refused')
+    }
     await mount()
 
     await tick(3)
@@ -258,15 +300,18 @@ describe('HandleReceive live inbox listener', () => {
     expect(mockReceiveFromInbox).toHaveBeenCalledTimes(3)
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith('[pay] live inbox listener unavailable: socket refused')
-    // A failed start is not retried on every tick.
-    expect(mockClient.listenForLivePayments).toHaveBeenCalledTimes(1)
+    // A failed start is not retried on every tick, and its half-open socket is
+    // closed rather than left retrying in the background.
+    expect(sessions()).toHaveLength(1)
+    expect(sessions()[0].listenForLivePayments).toHaveBeenCalledTimes(1)
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(1)
   })
 
   it('treats a listener that throws synchronously like one that rejects', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    mockClient.listenForLivePayments.mockImplementation(() => {
+    mockListenImpl = () => {
       throw new Error('no socket support')
-    })
+    }
     await mount()
 
     await tick(2)
@@ -275,21 +320,24 @@ describe('HandleReceive live inbox listener', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('disconnects the socket on unmount', async () => {
+  it('disconnects the listening session on unmount, and only that one', async () => {
     const view = await mount()
-    expect(mockClient.disconnectWebSocket).not.toHaveBeenCalled()
+    expect(sessions()[0].disconnectWebSocket).not.toHaveBeenCalled()
 
     view.unmount()
 
-    expect(mockClient.disconnectWebSocket).toHaveBeenCalledTimes(1)
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(1)
+    expect(readClient().disconnectWebSocket).not.toHaveBeenCalled()
   })
 
   it('swallows a failing disconnect', async () => {
-    mockClient.disconnectWebSocket.mockRejectedValue(new Error('already closed'))
+    mockDisconnectImpl = async () => {
+      throw new Error('already closed')
+    }
     const view = await mount()
     expect(() => view.unmount()).not.toThrow()
     await act(async () => {})
-    expect(mockClient.disconnectWebSocket).toHaveBeenCalledTimes(1)
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(1)
   })
 
   it('stops the poll on unmount', async () => {
@@ -300,32 +348,33 @@ describe('HandleReceive live inbox listener', () => {
     expect(mockReceiveFromInbox).not.toHaveBeenCalled()
   })
 
-  it('disconnects when the app is backgrounded and listens again when it returns', async () => {
+  it('disconnects when the app is backgrounded and listens again, on a new client, when it returns', async () => {
     await mount()
-    expect(mockClient.listenForLivePayments).toHaveBeenCalledTimes(1)
+    expect(sessions()).toHaveLength(1)
 
-    currentAppState = 'background'
-    await act(async () => {
-      appStateHandlers.forEach(h => h('background'))
-    })
-    expect(mockClient.disconnectWebSocket).toHaveBeenCalledTimes(1)
+    await fireAppState('background')
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(1)
     await tick(2)
     expect(mockCreditInboxOnce).not.toHaveBeenCalled()
 
-    currentAppState = 'active'
-    await act(async () => {
-      appStateHandlers.forEach(h => h('active'))
-    })
-    expect(mockClient.listenForLivePayments).toHaveBeenCalledTimes(2)
+    await fireAppState('active')
+    // A new instance, not the old one re-listened: it would never re-join.
+    expect(sessions()).toHaveLength(2)
+    expect(sessions()[1]).not.toBe(sessions()[0])
+    expect(sessions()[1].listenForLivePayments).toHaveBeenCalledTimes(1)
+    expect(sessions()[0].listenForLivePayments).toHaveBeenCalledTimes(1)
     // Coming back shows what arrived while away: both inboxes at once, however
     // far into the slow cadence the poll was.
     expect(mockCreditInboxOnce).toHaveBeenCalledTimes(1)
     expect(mockReceiveFromInbox).toHaveBeenCalledTimes(1)
+    // The client the reads use was not touched by any of it.
+    expect(readClient().listenForLivePayments).not.toHaveBeenCalled()
+    expect(readClient().disconnectWebSocket).not.toHaveBeenCalled()
   })
 
-  it('disconnects when the screen loses focus and listens again when it regains it', async () => {
+  it('disconnects when the screen loses focus and listens again, on a new client, when it regains it', async () => {
     const view = await mount()
-    expect(mockClient.listenForLivePayments).toHaveBeenCalledTimes(1)
+    expect(sessions()).toHaveLength(1)
 
     mockFocus.value = false
     view.rerender(
@@ -334,7 +383,7 @@ describe('HandleReceive live inbox listener', () => {
       </ThemeProvider>
     )
     await tick(1)
-    expect(mockClient.disconnectWebSocket).toHaveBeenCalledTimes(1)
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(1)
     expect(mockCreditInboxOnce).not.toHaveBeenCalled()
 
     mockFocus.value = true
@@ -344,6 +393,48 @@ describe('HandleReceive live inbox listener', () => {
       </ThemeProvider>
     )
     await tick(1)
-    expect(mockClient.listenForLivePayments).toHaveBeenCalledTimes(2)
+    expect(sessions()).toHaveLength(2)
+    expect(sessions()[1].listenForLivePayments).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes a session that finishes connecting after it was stopped, and does not count it as live', async () => {
+    let connectFirst!: () => void
+    mockListenImpl = () => new Promise<void>(resolve => (connectFirst = resolve))
+    await mount()
+
+    // Stopped while still connecting: the stop cannot close a socket that does
+    // not exist yet.
+    await fireAppState('background')
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(1)
+
+    // It connects anyway. Closed again now there is something to close.
+    await act(async () => {
+      connectFirst()
+    })
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(2)
+
+    // Back in front, with a new session still connecting. The stale one must
+    // not have marked the screen live, or the poll would be slowed for nothing.
+    await fireAppState('active')
+    expect(sessions()).toHaveLength(2)
+    mockCreditInboxOnce.mockClear()
+    await tick(2)
+    expect(mockCreditInboxOnce).toHaveBeenCalledTimes(2)
+  })
+
+  it('closes a session that fails after it was stopped, without a warning', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    let failFirst!: () => void
+    mockListenImpl = () => new Promise<void>((_resolve, reject) => (failFirst = () => reject(new Error('timed out'))))
+    await mount()
+
+    await fireAppState('background')
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      failFirst()
+    })
+
+    expect(sessions()[0].disconnectWebSocket).toHaveBeenCalledTimes(2)
+    expect(warn).not.toHaveBeenCalled()
   })
 })

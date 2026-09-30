@@ -491,7 +491,7 @@ export default function HandleReceive({
     }, [identityKey, loadIdentityKey])
   )
 
-  const peerPayClient = useMemo<PeerPayClient | null>(() => {
+  const newPeerPayClient = useCallback((): PeerPayClient | null => {
     if (!isConfigured || !messageBoxUrl || !wallet) return null
     try {
       return new PeerPayClient({
@@ -503,6 +503,8 @@ export default function HandleReceive({
       return null
     }
   }, [isConfigured, messageBoxUrl, wallet, adminOriginator])
+  /** The client every inbox read, accept and discard goes through. */
+  const peerPayClient = useMemo(() => newPeerPayClient(), [newPeerPayClient])
 
   // BRC-125 with this app's url extension: the payer learns where to deliver
   // without an overlay lookup. Omitted when no server is configured, since
@@ -704,18 +706,27 @@ export default function HandleReceive({
   // poll does, so there is one crediting path and the shared creditInboxOnce
   // mutex still serializes with TaskCreditInbox.
   //
+  // Each listening session gets its OWN short-lived client, never the one the
+  // reads use. A MessageBoxClient remembers the rooms it joined across a
+  // disconnect, so a second listen on the same instance authenticates a fresh
+  // socket but never re-joins the room: listenForLivePayments would resolve,
+  // the poll would slow, and no push would ever arrive. A new instance starts
+  // with no rooms, no half-finished connection attempt and no socket, and
+  // throwing it away on stop discards all three.
+  //
   // Blur is a ref, not state, so the interval notices it (within one tick)
   // rather than this effect re-running; the effect itself restarts only with
   // the client.
   useEffect(() => {
     if (!peerPayClient) return
-    const client = peerPayClient
     let cancelled = false
-    /** A listener is starting, up, or has failed and is not to be retried yet. */
+    /** A session is starting, up, or has failed and is not to be retried yet. */
     let listening = false
+    /** The current session's client, while one is open. */
+    let sessionClient: PeerPayClient | null = null
     /** The socket is confirmed up — the only state in which the poll slows. */
     let live = false
-    /** Bumped on every stop so a late start result cannot revive a dead listener. */
+    /** Bumped on every stop so a late start result cannot revive a dead session. */
     let generation = 0
     /** Poll ticks since the socket came up, for the slow satoshi cadence. */
     let liveTicks = 0
@@ -726,15 +737,26 @@ export default function HandleReceive({
       void fetchRef.current({ silent: true, queueIfBusy })
     }
 
+    /** Close a session's socket. Safe to repeat and on a session that never connected. */
+    const closeSession = (session: PeerPayClient) => {
+      void session.disconnectWebSocket().catch(() => {})
+    }
+
     const startListener = () => {
       if (listening) return
       listening = true
       const mine = ++generation
+      const session = newPeerPayClient()
+      if (!session) {
+        console.warn('[pay] live inbox listener unavailable: client not created')
+        return
+      }
+      sessionClient = session
       void (async () => {
         try {
-          // The client was built with this same MessageBox host, so no
+          // The session client is built with this same MessageBox host, so no
           // overrideHost: the socket goes where the inbox reads go.
-          await client.listenForLivePayments({
+          await session.listenForLivePayments({
             onPayment: () => {
               if (mine === generation && visible()) readSatoshiInbox(true)
             }
@@ -742,12 +764,20 @@ export default function HandleReceive({
           if (mine === generation) {
             live = true
             liveTicks = 0
+          } else {
+            // Stopped while it was still connecting. The stop could not close a
+            // socket that did not exist yet, so close it now it does.
+            closeSession(session)
           }
         } catch (error: any) {
+          // Whatever half-open socket the failed attempt left would otherwise
+          // keep retrying in the background.
+          closeSession(session)
           if (mine !== generation) return
           live = false
-          // Kept `listening` so a failed start is not retried every tick; the
-          // next blur or background resets it. Full 5s polling carries on.
+          sessionClient = null
+          // `listening` stays set so a failed start is not retried every tick;
+          // the next blur or background resets it. Full 5s polling carries on.
           console.warn(`[pay] live inbox listener unavailable: ${error?.message || 'unknown error'}`)
         }
       })()
@@ -758,7 +788,9 @@ export default function HandleReceive({
       listening = false
       live = false
       generation++
-      void client.disconnectWebSocket().catch(() => {})
+      const session = sessionClient
+      sessionClient = null
+      if (session) closeSession(session)
     }
 
     /** Listen exactly while the screen can be seen. */
@@ -796,7 +828,7 @@ export default function HandleReceive({
       appSubscription.remove()
       stopListener()
     }
-  }, [peerPayClient])
+  }, [peerPayClient, newPeerPayClient])
 
   /** Retry one row that had given up. Runs the whole pass, forcing this id. */
   const handleRetry = useCallback(
