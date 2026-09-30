@@ -7,8 +7,11 @@ export interface PushOpenedEvent {
 
 /**
  * The host's push implementation. This package never imports a push SDK: the
- * host wraps whichever one it ships (Firebase Messaging, expo-notifications)
- * in this shape and hands it over through `configureToolbox({ push })`.
+ * host wraps whichever one it ships (e.g. React Native Firebase Messaging) in
+ * this shape and hands it over through `configureToolbox({ push })`.
+ *
+ * New members will be added as optional, so an adapter written against this
+ * shape keeps compiling and working when the package is updated.
  */
 export interface PushAdapter {
   readonly platform: 'ios' | 'android'

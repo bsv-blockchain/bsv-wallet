@@ -15,14 +15,19 @@ configureToolbox({ push: myPushAdapter })
 
 - New exports: `getPushAdapter` and the types `PushAdapter`, `PushPermission`
   and `PushOpenedEvent`. A host that passes no adapter keeps every push
-  feature off, and `getPushAdapter()` returns `undefined` rather than throwing
-  when the toolbox is unconfigured.
+  feature off (no registration, no advisory, no Settings row), and
+  `getPushAdapter()` returns `undefined` rather than throwing when the toolbox
+  is unconfigured.
+- Members added to `PushAdapter` later will be optional, so an adapter written
+  against this version keeps compiling and working.
 - Device registration: once the wallet is up, and again on foreground and on
   token refresh, the FCM token is registered (`registerDevice`) with the
   MessageBox host the inbox reads, bound to the identity the inbox reads for.
   A cached marker of the last registered host, identity and token makes the
   common case no network call at all. Nothing happens without an adapter or
-  without notification permission, and a failure is logged and contained.
+  without notification permission, and a failure is logged (the error message
+  only, never the token or identity key) and contained. A sync that hangs is
+  given up on after 30 s so it cannot block the ones after it.
 - A tap on a payment notification opens Activity and runs an inbox pass. A push
   that arrives while the app is in the foreground only triggers an inbox pass,
   so the existing credit toast shows and no system banner does. A push never
@@ -38,7 +43,7 @@ configureToolbox({ push: myPushAdapter })
 - Settings has a Payment notifications row, On or Off. Pressing it turns
   notifications on (the OS prompt) or, once the OS has been asked, opens the OS
   settings. A denial is not forgotten when the screen re-reads the permission.
-  The row is absent when the host passed no adapter.
+  The advisory and the row appear only when the host passed a push adapter.
 
 ### Receive screen: live payments
 
@@ -60,8 +65,13 @@ finds it by looking.
 
 - The address sweep now runs every 5 s instead of every 30 s (foreground
   only, as before).
-- WhatsOnChain requests send the host's API key (`woc-api-key`) when one is
-  configured for the chain. The key is never logged.
+- `WocConfig` gains an optional `apiKey`, and the new `wocRequestInit(woc)`
+  export turns it into the `woc-api-key` request header. The header is sent
+  only when a caller sets `apiKey`; the key is never logged. `wocConfigFor`
+  does not set it, so the address sweep, BEEF repair, recovery and the other
+  address-rail calls stay on WhatsOnChain's unauthenticated limit: the host's
+  app-wide key is shared with broadcast, and a 5 s poll across every install
+  would drain it.
 - HTTP 429 from WhatsOnChain throws the new `WocRateLimited` error (exported
   from the address rail), which stops the pass and makes the sweep sit out the
   next 30 s instead of retrying on every tick.
