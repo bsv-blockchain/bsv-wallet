@@ -1,4 +1,9 @@
-import { attachPushHandlers, coalesceRuns, __resetInitialNotificationForTests } from '../../core/push/events'
+import {
+  attachPushHandlers,
+  coalesceRuns,
+  PUSH_SYNC_TIMEOUT_MS,
+  __resetInitialNotificationForTests
+} from '../../core/push/events'
 import type { PushAdapter, PushOpenedEvent } from '../../core/push/types'
 
 function fakeAdapter(initial: PushOpenedEvent | null) {
@@ -216,5 +221,110 @@ describe('coalesceRuns', () => {
     expect(n).toBe(2)
     expect(warned()).toContain('[push] registration sync')
     expect(warned()).toContain('boom')
+  })
+
+  describe('timeout', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+    })
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    // A run whose promise is only settled by the test, like a fetch that never returns.
+    function hanging() {
+      const settle: Array<{ resolve: () => void; reject: (e: Error) => void }> = []
+      const run = jest.fn(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            settle.push({ resolve, reject })
+          })
+      )
+      return { run, settle }
+    }
+
+    it('is 30 seconds', () => {
+      expect(PUSH_SYNC_TIMEOUT_MS).toBe(30_000)
+    })
+
+    it('gives up on a hung run after the timeout, logs it, and settles the caller', async () => {
+      const h = hanging()
+      const sync = coalesceRuns(h.run)
+      let done = false
+      const p = sync().then(() => {
+        done = true
+      })
+      await jest.advanceTimersByTimeAsync(PUSH_SYNC_TIMEOUT_MS - 1)
+      expect(done).toBe(false)
+      expect(warn).not.toHaveBeenCalled()
+      await jest.advanceTimersByTimeAsync(1)
+      await p
+      expect(done).toBe(true)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warned()).toContain('[push] registration sync failed: timed out')
+    })
+
+    it('releases the lock so a later call runs instead of waiting on the hung one', async () => {
+      const h = hanging()
+      const sync = coalesceRuns(h.run)
+      const first = sync()
+      await jest.advanceTimersByTimeAsync(PUSH_SYNC_TIMEOUT_MS)
+      await first
+      expect(h.run).toHaveBeenCalledTimes(1)
+
+      const second = sync()
+      await jest.advanceTimersByTimeAsync(0)
+      expect(h.run).toHaveBeenCalledTimes(2)
+      h.settle[1].resolve()
+      await second
+    })
+
+    it('still folds calls that landed during the hang into one rerun after the timeout', async () => {
+      const h = hanging()
+      const sync = coalesceRuns(h.run)
+      const first = sync()
+      await jest.advanceTimersByTimeAsync(10)
+      const p2 = sync()
+      const p3 = sync()
+      expect(h.run).toHaveBeenCalledTimes(1)
+      await jest.advanceTimersByTimeAsync(PUSH_SYNC_TIMEOUT_MS)
+      expect(h.run).toHaveBeenCalledTimes(2)
+      h.settle[1].resolve()
+      await Promise.all([first, p2, p3])
+      expect(h.run).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores a timed-out run that settles later, resolved or rejected', async () => {
+      const h = hanging()
+      const sync = coalesceRuns(h.run)
+      const first = sync()
+      await jest.advanceTimersByTimeAsync(PUSH_SYNC_TIMEOUT_MS)
+      await first
+      const logged = warn.mock.calls.length
+
+      h.settle[0].reject(new Error('late failure'))
+      await jest.advanceTimersByTimeAsync(0)
+      expect(warn.mock.calls.length).toBe(logged)
+      expect(warned()).not.toContain('late failure')
+
+      const second = sync()
+      await jest.advanceTimersByTimeAsync(0)
+      h.settle[1].resolve()
+      await second
+      expect(h.run).toHaveBeenCalledTimes(2)
+    })
+
+    it('leaves no timer behind after a run that finishes in time or fails fast', async () => {
+      const ok = coalesceRuns(async () => {})
+      await ok()
+      expect(jest.getTimerCount()).toBe(0)
+      const bad = coalesceRuns(async () => {
+        throw new Error('boom')
+      })
+      await bad()
+      expect(jest.getTimerCount()).toBe(0)
+      expect(warned()).toContain('boom')
+      expect(warned()).not.toContain('timed out')
+    })
   })
 })

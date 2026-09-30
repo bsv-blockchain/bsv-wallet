@@ -83,11 +83,37 @@ export function attachPushHandlers(args: {
 }
 
 /**
+ * How long one registration sync may run before it is given up on. React
+ * Native's Android fetch has no default timeout, so a stalled connection would
+ * otherwise hold the lock below until the next wallet build.
+ */
+export const PUSH_SYNC_TIMEOUT_MS = 30_000
+
+/**
+ * Race one run against PUSH_SYNC_TIMEOUT_MS. The run itself cannot be cancelled,
+ * so on a timeout it is simply abandoned: whatever it settles with later (its
+ * rejection included) is handled by the race and ignored.
+ */
+async function runWithTimeout(run: () => Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), PUSH_SYNC_TIMEOUT_MS)
+  })
+  try {
+    await Promise.race([run(), timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * Serialize an async job that several triggers can fire at once (startup,
  * token refresh, return to foreground). Never two runs at the same time; calls
  * that land while one is in flight are folded into a single rerun after it
- * finishes, not one rerun each. The returned promise settles once the work it
- * asked for has run, and never rejects.
+ * finishes, not one rerun each. A run that does not finish within
+ * PUSH_SYNC_TIMEOUT_MS is logged and let go, so a hung request cannot block
+ * every later sync. The returned promise settles once the work it asked for
+ * has run, and never rejects.
  */
 export function coalesceRuns(run: () => Promise<void>): () => Promise<void> {
   let inFlight: Promise<void> | undefined
@@ -102,7 +128,7 @@ export function coalesceRuns(run: () => Promise<void>): () => Promise<void> {
         do {
           rerun = false
           try {
-            await run()
+            await runWithTimeout(run)
           } catch (e) {
             warn('registration sync', e)
           }
