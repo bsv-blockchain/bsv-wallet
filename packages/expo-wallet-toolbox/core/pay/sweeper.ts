@@ -20,9 +20,11 @@ import { getWatchlist, touchWatched, type KVStorage } from './watchlist'
  * rails there is no MessageBox message to push, so the only way this wallet
  * learns of one is to look. 5s is what makes "show the address, money appears"
  * feel immediate to a user watching the screen. The cost is up to ~1.6 WhatsOnChain
- * requests/s on a device with the full 8 watched addresses, which is why the
- * requests carry the host's API key and a 429 backs the sweep off
- * (SWEEP_BACKOFF_TICKS) rather than being retried on the next tick.
+ * requests/s on a device with the full 8 watched addresses. The requests carry
+ * no API key on purpose: the host's app-wide key is shared with broadcast, and
+ * a fleet polling at 5s would drain its quota. So the sweep runs on WhatsOnChain's
+ * anonymous limit, and a 429 backs it off (SWEEP_BACKOFF_TICKS) rather than
+ * being retried on the next tick.
  */
 export const SWEEP_INTERVAL_MS = 5_000
 

@@ -647,29 +647,31 @@ describe('XR-055: MAX_MANUAL_RECOVERY_DAYS', () => {
   })
 })
 
-// The address sweep now polls every 5 s, and these requests carried no key at
-// all. The key comes from the host's toolbox config (this package reads no
-// env), and only ever travels in the woc-api-key header.
+// The address sweep now polls every 5 s. wocConfigFor deliberately carries no
+// key (the host's app-wide key is shared with broadcast, and a fleet polling at
+// 5 s would drain it), so these tests build the config with an explicit key to
+// prove the header path a caller can still opt into.
 describe('WhatsOnChain API key', () => {
   afterEach(() => {
     resetToolboxConfig()
   })
 
   describe('wocConfigFor', () => {
-    it('carries the configured key for that chain', () => {
+    it('never fills in the host key, even when the toolbox is configured with one', () => {
       configureToolbox({
         backupUrl: null,
-        services: { main: { whatsOnChainApiKey: 'main-key' }, test: { whatsOnChainApiKey: 'test-key' } }
+        services: {
+          main: { whatsOnChainApiKey: 'main-key' },
+          test: { whatsOnChainApiKey: 'test-key' },
+          teratest: { whatsOnChainApiKey: 'teratest-key' }
+        }
       })
-      expect(wocConfigFor('main').apiKey).toBe('main-key')
-      expect(wocConfigFor('test').apiKey).toBe('test-key')
-      expect(wocConfigFor('teratest').apiKey).toBeUndefined()
-    })
-
-    it('has no key when the chain configures none, or configures an empty one', () => {
-      configureToolbox({ backupUrl: null, services: { test: { whatsOnChainApiKey: '' } } })
-      expect(wocConfigFor('main').apiKey).toBeUndefined()
-      expect(wocConfigFor('test').apiKey).toBeUndefined()
+      for (const chain of ['main', 'test', 'teratest'] as const) {
+        const config = wocConfigFor(chain)
+        expect(config.apiKey).toBeUndefined()
+        expect('apiKey' in config).toBe(false)
+        expect(JSON.stringify(config)).not.toContain('-key')
+      }
     })
 
     it('does not throw before the toolbox is configured', () => {

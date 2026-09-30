@@ -24,7 +24,6 @@ import {
 import type { AppChain } from '../../config'
 import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABEL_PREFIX } from '../counterparty'
 import { addressNetwork, isValidBsvAddress } from './index'
-import { getServiceConfig, isToolboxConfigured } from '../../toolboxConfig'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
 
@@ -139,24 +138,21 @@ export interface WocConfig {
   segment: string
   network: 'mainnet' | 'testnet'
   /**
-   * The host's WhatsOnChain key for this chain, when it configured one. Sent
-   * only as the `woc-api-key` header (see `wocRequestInit`); never logged.
+   * A WhatsOnChain key, sent only as the `woc-api-key` header (see
+   * `wocRequestInit`); never logged. `wocConfigFor` does not set it: the
+   * host's app-wide key is shared with broadcast, and a 5 s sweep across the
+   * whole fleet would drain that quota. A caller with a key of its own may set
+   * it explicitly.
    */
   apiKey?: string
 }
 
 export function wocConfigFor(network: AppChain): WocConfig {
-  const base = {
+  return {
     main: { apiBase: 'https://api.whatsonchain.com', segment: 'main', network: 'mainnet' as const },
     test: { apiBase: 'https://api.whatsonchain.com', segment: 'test', network: 'testnet' as const },
     teratest: { apiBase: 'https://api.woc-ttn.bsvblockchain.tech', segment: 'test', network: 'testnet' as const }
   }[network]
-  // The key lives in the host's config seam, never in process.env (this package
-  // reads none). Unconfigured is "no key", not an error: this is called while
-  // building the wallet, before a host that never configured the toolbox could
-  // have a use for one.
-  const apiKey = isToolboxConfigured() ? getServiceConfig(network).whatsOnChainApiKey : undefined
-  return apiKey ? { ...base, apiKey } : base
 }
 
 /**
@@ -174,7 +170,7 @@ export class WocRateLimited extends Error {
 
 /**
  * The request options carrying the WhatsOnChain key, or undefined when the
- * config has none — so that an unconfigured build sends the same bare request
+ * config has none — so that a config without a key sends the same bare request
  * it always did.
  */
 export function wocRequestInit(woc: WocConfig): { headers: Record<string, string> } | undefined {
