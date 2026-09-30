@@ -1,12 +1,14 @@
 /**
  * Has this device already seen the push notification advisory?
  *
- * Sharing a remote link to receive payments (via "Share remote link" on
- * "Get paid") triggers the one-time MessageBox push notification advisory,
- * which explains that push notifications will be sent only while the app is
- * open. This flag is a device-level UX preference, not a security record, so
- * unlike backupAttestation it is not scoped per wallet identity — there is no
- * per-identity harm in a shared device remembering "already explained this."
+ * This flag gates the one-time NotificationAdvisoryModal shown the first time
+ * the user picks "Share remote link" on "Get paid". The modal explains that
+ * the phone will next ask to allow notifications so BSV Wallet can tell the
+ * user when a MessageBox payment arrives, even while the app is in the
+ * background. This flag is a device-level UX preference, not a security
+ * record, so unlike backupAttestation it is not scoped per wallet identity —
+ * there is no per-identity harm in a shared device remembering "already
+ * explained this."
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
