@@ -28,16 +28,26 @@ export async function syncPushRegistration(args: {
   const { adapter, host, identityKey, makeClient } = args
   const storage = args.storage ?? AsyncStorage
   if (!adapter || !host || !identityKey) return 'skipped'
+  let token: string | null | undefined
   try {
     if ((await adapter.getPermission()) !== 'granted') return 'skipped'
-    const token = await adapter.getToken()
+    token = await adapter.getToken()
     if (!token) return 'skipped'
     const marker = `${host}|${identityKey}|${token}`
     if ((await storage.getItem(PUSH_REGISTRATION_KEY)) === marker) return 'unchanged'
     await makeClient(host).registerDevice({ fcmToken: token, platform: adapter.platform }, host)
     await storage.setItem(PUSH_REGISTRATION_KEY, marker)
     return 'registered'
-  } catch {
+  } catch (e) {
+    // Only the error's message is logged, so a failure is diagnosable without
+    // the log ever carrying the token or the identity key. A message that
+    // happens to quote the token, the identity key or the host has them cut out.
+    const raw = e instanceof Error ? e.message : String(e)
+    const message = [token, identityKey, host].reduce<string>(
+      (text, secret) => (secret ? text.split(secret).join('[redacted]') : text),
+      raw
+    )
+    console.warn('[push] registerDevice failed: ' + message)
     return 'failed'
   }
 }

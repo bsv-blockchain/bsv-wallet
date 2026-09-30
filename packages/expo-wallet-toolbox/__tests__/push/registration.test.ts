@@ -102,16 +102,69 @@ describe('syncPushRegistration', () => {
     ).toBe('skipped')
     expect(makeClient).not.toHaveBeenCalled()
   })
-  it('does not cache on failure', async () => {
-    const storage = mem()
-    const r = await syncPushRegistration({
-      adapter: adapter(),
-      host: HOST,
-      identityKey: ID,
-      makeClient: () => ({ registerDevice: jest.fn().mockRejectedValue(new Error('503')) }),
-      storage
+  describe('on failure', () => {
+    let warn: jest.SpyInstance
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     })
-    expect(r).toBe('failed')
-    expect(storage.m.has(PUSH_REGISTRATION_KEY)).toBe(false)
+    afterEach(() => {
+      warn.mockRestore()
+    })
+
+    it('does not cache, and says why without the token', async () => {
+      const storage = mem()
+      const r = await syncPushRegistration({
+        adapter: adapter(),
+        host: HOST,
+        identityKey: ID,
+        makeClient: () => ({ registerDevice: jest.fn().mockRejectedValue(new Error('503')) }),
+        storage
+      })
+      expect(r).toBe('failed')
+      expect(storage.m.has(PUSH_REGISTRATION_KEY)).toBe(false)
+      expect(warn).toHaveBeenCalledTimes(1)
+      const line = String(warn.mock.calls[0][0])
+      expect(line).toBe('[push] registerDevice failed: 503')
+      expect(line).not.toContain('tok1')
+      expect(line).not.toContain(ID)
+      expect(line).not.toContain(HOST)
+    })
+
+    it('cuts the token, identity key and host out of a message that quotes them', async () => {
+      const r = await syncPushRegistration({
+        adapter: adapter(),
+        host: HOST,
+        identityKey: ID,
+        makeClient: () => ({
+          registerDevice: jest
+            .fn()
+            .mockRejectedValue(new Error(`POST ${HOST}/registerDevice for ${ID} with tok1 -> 502`))
+        }),
+        storage: mem()
+      })
+      expect(r).toBe('failed')
+      const line = String(warn.mock.calls[0][0])
+      expect(line).toContain('[push] registerDevice failed: ')
+      expect(line).toContain('502')
+      expect(line).not.toContain('tok1')
+      expect(line).not.toContain(ID)
+      expect(line).not.toContain(HOST)
+    })
+
+    it('still never throws when the adapter itself fails', async () => {
+      const r = await syncPushRegistration({
+        adapter: adapter({
+          getToken: async () => {
+            throw new Error('fcm unavailable')
+          }
+        }),
+        host: HOST,
+        identityKey: ID,
+        makeClient: () => ({ registerDevice: jest.fn() }),
+        storage: mem()
+      })
+      expect(r).toBe('failed')
+      expect(warn).toHaveBeenCalledWith('[push] registerDevice failed: fcm unavailable')
+    })
   })
 })
