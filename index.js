@@ -122,6 +122,20 @@ if (process.env.EXPO_PUBLIC_CR_DEVICE === '1') {
   }, 6000)
 }
 
+// FCM background/quit-state message handler. It must be registered at the
+// entry, before the router loads, so a headless wake-up finds it. The server
+// sends notification+data messages and the OS displays them itself; a
+// registered handler stops RN Firebase warning about a missing one and keeps
+// the headless wake-up cheap. Crediting happens when the user opens the app.
+// Guarded like the other optional native modules: a push setup problem must
+// never stop the wallet from starting.
+try {
+  const { getMessaging, setBackgroundMessageHandler } = require('@react-native-firebase/messaging')
+  setBackgroundMessageHandler(getMessaging(), async () => {})
+} catch (e) {
+  if (__DEV__) console.warn('[Push] background handler registration failed — push disabled', e)
+}
+
 // Require after installation: static imports execute before this module body
 // and would let SDK primitives cache the pure-JS fallback before the seam exists.
 require('expo-router/entry')

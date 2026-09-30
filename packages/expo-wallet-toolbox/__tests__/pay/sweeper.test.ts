@@ -1,5 +1,13 @@
-import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../../core/pay/sweeper'
-import { wocConfigFor } from '../../core/pay/rails/address'
+import {
+  SWEEP_BACKOFF_TICKS,
+  SWEEP_INTERVAL_MS,
+  backoffAfterSweepError,
+  consumeBackoff,
+  runSweep,
+  shouldSweepNow,
+  sweptTotal
+} from '../../core/pay/sweeper'
+import { WocRateLimited, wocConfigFor } from '../../core/pay/rails/address'
 import { getWatchlist, watchAddress } from '../../core/pay/watchlist'
 
 jest.mock('../../core/pay/rails/address', () => {
@@ -56,8 +64,8 @@ describe('shouldSweepNow', () => {
     expect(shouldSweepNow({ ...ok, inFlight: true })).toBe(false)
   })
 
-  it('pins the interval', () => {
-    expect(SWEEP_INTERVAL_MS).toBe(30_000)
+  it('pins the interval: 5 s, foreground only, because address payments get no push', () => {
+    expect(SWEEP_INTERVAL_MS).toBe(5_000)
   })
 })
 
@@ -137,6 +145,69 @@ describe('runSweep', () => {
     const outcomes = await runSweep({ wallet, storage: s, adminOriginator: 'admin.com', woc })
     expect(outcomes).toHaveLength(1)
     expect(outcomes[0].importedSatoshis).toBe(20)
+  })
+})
+
+describe('runSweep on a WhatsOnChain rate limit', () => {
+  it('rethrows WocRateLimited and stops the pass, so the other addresses are not fetched', async () => {
+    const s = fakeStorage()
+    await watchAddress(s, { address: 'addr-a', date: TODAY, derivationPrefix: 'p' })
+    await watchAddress(s, { address: 'addr-b', date: TODAY, derivationPrefix: 'q' })
+    sweepAddress.mockRejectedValue(new WocRateLimited())
+
+    await expect(runSweep({ wallet, storage: s, adminOriginator: 'admin.com', woc })).rejects.toBeInstanceOf(
+      WocRateLimited
+    )
+    expect(sweepAddress).toHaveBeenCalledTimes(1)
+  })
+
+  it('still swallows every other error, including one after an address that paid out', async () => {
+    const s = fakeStorage()
+    await watchAddress(s, { address: 'addr-a', date: TODAY, derivationPrefix: 'p' })
+    await watchAddress(s, { address: 'addr-b', date: TODAY, derivationPrefix: 'q' })
+    // Keyed on the address, not call order: the watchlist does not promise to
+    // be walked in the order it was written.
+    sweepAddress.mockImplementation(async ({ address }: { address: string }) => {
+      if (address === 'addr-b') throw new Error('HTTP 500')
+      return { importedSatoshis: 5, failureCount: 0 }
+    })
+
+    const outcomes = await runSweep({ wallet, storage: s, adminOriginator: 'admin.com', woc })
+    expect(outcomes).toEqual([{ address: 'addr-a', importedSatoshis: 5, failureCount: 0 }])
+    expect(sweepAddress).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('rate-limit backoff', () => {
+  it('is six ticks: 30 s at the 5 s interval', () => {
+    expect(SWEEP_BACKOFF_TICKS).toBe(6)
+    expect(SWEEP_BACKOFF_TICKS * SWEEP_INTERVAL_MS).toBe(30_000)
+  })
+
+  it('runs the tick when nothing is pending', () => {
+    expect(consumeBackoff(0)).toEqual({ skip: false, remaining: 0 })
+  })
+
+  it('skips exactly the pending ticks, then runs again', () => {
+    let remaining = SWEEP_BACKOFF_TICKS
+    let skipped = 0
+    for (;;) {
+      const step = consumeBackoff(remaining)
+      remaining = step.remaining
+      if (!step.skip) break
+      skipped++
+    }
+    expect(skipped).toBe(6)
+    expect(remaining).toBe(0)
+  })
+
+  it('starts a full backoff on a rate limit', () => {
+    expect(backoffAfterSweepError(new WocRateLimited(), 0)).toBe(SWEEP_BACKOFF_TICKS)
+  })
+
+  it('leaves the backoff alone for any other error, so those stay best-effort', () => {
+    expect(backoffAfterSweepError(new Error('woc down'), 0)).toBe(0)
+    expect(backoffAfterSweepError('boom', 2)).toBe(2)
   })
 })
 

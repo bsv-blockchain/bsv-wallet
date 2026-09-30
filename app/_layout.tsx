@@ -16,6 +16,7 @@ void loadUserAvatarIcon()
 import '../wdyr' // dev-only re-render tracking; must run before any component renders
 import '@/utils/devMenu' // dev-only profiling controls in the expo-dev-client menu
 import { AgentationGate } from '@/utils/AgentationGate'
+import { firebasePushAdapter } from '@/utils/push/firebasePushAdapter'
 
 import React, { useEffect } from 'react'
 import { View, useColorScheme } from 'react-native'
@@ -62,6 +63,12 @@ import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
  * (docs/security/external-review-closure.md, "Owner decision"). With it off,
  * no Vault output is created (deposit, re-lock, withdrawal remainder), while
  * an existing vault stays reachable for a full withdrawal.
+ *
+ * push: payment push notifications stay OFF until the MessageBox server can
+ * deliver them (nothing is registered, and the "Share remote link" advisory and
+ * the Settings row never appear). Only the literal string "true" in
+ * EXPO_PUBLIC_PUSH_ENABLED wires the Firebase adapter in. EAS development and
+ * dev-physical enable it; production, production-apk and preview-apk do not.
  */
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
@@ -79,7 +86,7 @@ configureToolbox({
       messageBoxUrl:
         process.env.EXPO_PUBLIC_MANDALA_MESSAGEBOX_URL ??
         process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
-        'https://gmb.bsvblockchain.tech'
+        'https://messagebox.bsvblockchain.tech'
     },
     test: {
       overlayUrl: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_URL ?? '',
@@ -87,7 +94,7 @@ configureToolbox({
       messageBoxUrl:
         process.env.EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL ??
         process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
-        'https://gmb.bsvblockchain.tech'
+        'https://messagebox.bsvblockchain.tech'
     }
   },
   // The paymail handle registry, per chain: the domain this build's handles
@@ -128,7 +135,12 @@ configureToolbox({
       whatsOnChainApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY,
       taalApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY
     }
-  }
+  },
+  // Payment push notifications (MessageBox device registration). The adapter
+  // wraps React Native Firebase Messaging; the toolbox package never imports a
+  // push SDK itself. Gated by EXPO_PUBLIC_PUSH_ENABLED (see above): without an
+  // adapter the toolbox registers nothing and shows no push UI.
+  push: process.env.EXPO_PUBLIC_PUSH_ENABLED === 'true' ? firebasePushAdapter : undefined
 })
 
 const nativeHandlers: NativeHandlers = {

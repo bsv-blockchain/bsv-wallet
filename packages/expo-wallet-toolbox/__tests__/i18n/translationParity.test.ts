@@ -18,6 +18,7 @@ const allowedUntranslated: Record<string, string[]> = {
   browser: ['id'],
   configuration: ['fr'],
   transactions: ['fr'],
+  notifications: ['fr'],
   note: ['fr'],
   tx_action_refresh_short: ['id', 'pl'],
   contacts: ['fr'],

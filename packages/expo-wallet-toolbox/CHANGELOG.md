@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.12.0
+
+### Payment push notifications
+
+A payment to the user's MessageBox handle can now wake the phone, through a
+push adapter the host supplies. The package never imports a push SDK (its
+native module would have to be linked by every host that merely installs the
+package); the host wraps whichever one it ships and passes it in:
+
+```ts
+configureToolbox({ push: myPushAdapter })
+```
+
+- New exports: `getPushAdapter` and the types `PushAdapter`, `PushPermission`
+  and `PushOpenedEvent`. A host that passes no adapter keeps every push
+  feature off (no registration, no advisory, no Settings row), and
+  `getPushAdapter()` returns `undefined` rather than throwing when the toolbox
+  is unconfigured.
+- Members added to `PushAdapter` later will be optional, so an adapter written
+  against this version keeps compiling and working.
+- Device registration: once the wallet is up, and again on foreground and on
+  token refresh, the FCM token is registered (`registerDevice`) with the
+  MessageBox host the inbox reads, bound to the identity the inbox reads for.
+  A cached marker of the last registered host, identity and token makes the
+  common case no network call at all. Nothing happens without an adapter or
+  without notification permission, and a failure is logged (the error message
+  only, never the token or identity key) and contained. A sync that hangs is
+  given up on after 30 s so it cannot block the ones after it.
+- A tap on a payment notification opens Activity and runs an inbox pass. A push
+  that arrives while the app is in the foreground only triggers an inbox pass,
+  so the existing credit toast shows and no system banner does. A push never
+  credits anything itself.
+
+### Notification advisory and Settings row
+
+- The first time the user picks Share remote link on Get paid, an in-app modal
+  (`NotificationAdvisoryModal`, new export) explains the OS prompt that
+  follows: it lets BSV Wallet tell them about a payment while the app is in the
+  background. Continue asks the OS; Not now does not. It is shown once, and
+  only while the permission is still undetermined.
+- Settings has a Payment notifications row, On or Off. Pressing it turns
+  notifications on (the OS prompt) or, once the OS has been asked, opens the OS
+  settings. A denial is not forgotten when the screen re-reads the permission.
+  The advisory and the row appear only when the host passed a push adapter.
+
+### Receive screen: live payments
+
+The Receive (handle) screen now listens for payments on a live MessageBox
+connection and keeps polling as a fallback.
+
+- While the connection is up, the satoshi inbox is re-read every 15 s and
+  immediately when a live payment arrives; the token inbox stays on its 5 s
+  tick. Without a live connection both poll every 5 s as before.
+- Each listening session uses a fresh client. A `MessageBoxClient` remembers
+  the rooms it joined across a disconnect, so reusing one would reconnect the
+  socket without re-joining the room and slow the poll for nothing.
+- The listener runs only while the screen is focused and the app is active.
+
+### Address payments: faster sweep
+
+An address payment reaches no one, so there is nothing to push; the wallet
+finds it by looking.
+
+- The address sweep now runs every 5 s instead of every 30 s (foreground
+  only, as before).
+- `WocConfig` gains an optional `apiKey`, and the new `wocRequestInit(woc)`
+  export turns it into the `woc-api-key` request header. The header is sent
+  only when a caller sets `apiKey`; the key is never logged. `wocConfigFor`
+  does not set it, so the address sweep, BEEF repair, recovery and the other
+  address-rail calls stay on WhatsOnChain's unauthenticated limit: the host's
+  app-wide key is shared with broadcast, and a 5 s poll across every install
+  would drain it.
+- HTTP 429 from WhatsOnChain throws the new `WocRateLimited` error (exported
+  from the address rail), which stops the pass and makes the sweep sit out the
+  next 30 s instead of retrying on every tick.
+- New sweeper exports: `SWEEP_BACKOFF_TICKS`, `consumeBackoff` and
+  `backoffAfterSweepError`.
+
+### Translations
+
+New strings in all 12 locales: the advisory title, body and buttons, and the
+Settings row and its On and Off values.
+
+### Default MessageBox host
+
+- The default MessageBox host is now https://messagebox.bsvblockchain.tech
+  (was gmb.bsvblockchain.tech). A saved custom host is unchanged.
+
 ## 0.11.8
 
 ### Grouped permission prompt

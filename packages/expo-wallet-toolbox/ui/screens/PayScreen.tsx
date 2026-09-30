@@ -46,6 +46,9 @@ import { useAssetStatus, useMandala } from '../hooks/useMandala'
 import { formatTokenAmountWithUnit } from '../tokenFormat'
 import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
 import { NearbyAdvisoryModal } from '../components/pay/NearbyAdvisoryModal'
+import { pushAdvisory } from '../../core/push/pushAdvisory'
+import { getPushAdapter } from '../../core/toolboxConfig'
+import { NotificationAdvisoryModal, shouldShowNotificationAdvisory } from '../components/pay/NotificationAdvisoryModal'
 import type { DismissTarget } from '../dismissTarget'
 
 /**
@@ -297,6 +300,35 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
     }
   }, [])
   const isNearbyCell = (direction === 'pay' && nearbySession !== null) || method === 'get-nearby'
+
+  // ── notification advisory ───────────────────────────────────────────
+  /**
+   * The first time the user picks "Share remote link", the OS will be asked to
+   * allow notifications (so a payment can reach them while the app is in the
+   * background). The advisory goes first, over the link flow — which keeps
+   * mounting underneath and never waits on the answer. null = not loaded yet
+   * (show nothing rather than flash it at a returning user); both stay null
+   * until the user first lands on the remote-link method.
+   */
+  const [pushAdvisorySeen, setPushAdvisorySeen] = useState<boolean | null>(null)
+  const [pushPermission, setPushPermission] = useState<'granted' | 'denied' | 'undetermined' | null>(null)
+  useEffect(() => {
+    if (method !== 'get-handle' || pushAdvisorySeen !== null) return
+    let cancelled = false
+    const adapter = getPushAdapter()
+    void Promise.all([pushAdvisory.get(), adapter ? adapter.getPermission() : Promise.resolve(null)])
+      .then(([seen, perm]) => {
+        if (cancelled) return
+        setPushAdvisorySeen(seen)
+        setPushPermission(perm)
+      })
+      .catch(() => {
+        // Advisory only: a host adapter that cannot report its permission just means no modal.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [method, pushAdvisorySeen])
 
   // Refreshed whenever the wallet finishes building, connectivity changes, or
   // the user enters/leaves a method or a nearby session: the queue only moves
@@ -593,6 +625,27 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
         onContinue={() => {
           void nearbyAdvisory.set()
           setNearbyAdvisorySeen(true)
+        }}
+      />
+      <NotificationAdvisoryModal
+        visible={shouldShowNotificationAdvisory({
+          method,
+          advisorySeen: pushAdvisorySeen,
+          permission: pushPermission
+        })}
+        onNotNow={() => {
+          void pushAdvisory.set()
+          setPushAdvisorySeen(true)
+        }}
+        onContinue={() => {
+          void pushAdvisory.set()
+          setPushAdvisorySeen(true)
+          void getPushAdapter()
+            ?.requestPermission()
+            .then(setPushPermission)
+            .catch(() => {
+              // The link flow does not depend on the answer; Task 7's sync reads the permission itself.
+            })
         }}
       />
     </View>

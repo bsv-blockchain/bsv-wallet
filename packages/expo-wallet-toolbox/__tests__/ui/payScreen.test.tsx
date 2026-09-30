@@ -123,6 +123,9 @@ import { render, act, waitFor, fireEvent } from '@testing-library/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PayScreen } from '../../ui/screens/PayScreen'
 import { nearbyAdvisory } from '../../core/localpay/nearbyAdvisory'
+import { pushAdvisory } from '../../core/push/pushAdvisory'
+import type { PushAdapter, PushPermission } from '../../core/push/types'
+import { configureToolbox, resetToolboxConfig } from '../../core/toolboxConfig'
 import { ThemeProvider, resetProofNudgeForTests, mintSession, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
 
 // Lowercase hex: validatePeerPayURI's compressed-key regex is case-sensitive,
@@ -472,5 +475,111 @@ describe('PayScreen', () => {
     }
     const { UNSAFE_getByType } = draw()
     await waitFor(() => expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy())
+  })
+})
+
+describe('PayScreen notification advisory', () => {
+  const TITLE = "Get notified when you're paid"
+
+  const pushAdapter = (permission: PushPermission) => {
+    const adapter = {
+      platform: 'ios',
+      getPermission: jest.fn(async () => permission),
+      requestPermission: jest.fn(async () => 'granted' as PushPermission)
+    }
+    configureToolbox({ backupUrl: null, push: adapter as unknown as PushAdapter })
+    return adapter
+  }
+
+  beforeEach(async () => {
+    for (const k of Object.keys(mockParams)) delete mockParams[k]
+    mockOnline = true
+    mockWalletBuilt = true
+    mockStorage = undefined
+    resetProofNudgeForTests()
+    await AsyncStorage.clear()
+    mockParams.cell = 'get-handle'
+  })
+
+  afterEach(() => {
+    resetToolboxConfig()
+  })
+
+  it('Continue records the advisory, asks the OS once, and leaves the link flow mounted', async () => {
+    const adapter = pushAdapter('undetermined')
+    const { UNSAFE_getByType, findByText, getByText, queryByText } = draw()
+    await findByText(TITLE)
+    // The link flow does not wait on the advisory.
+    expect(UNSAFE_getByType('HandleReceive' as never)).toBeTruthy()
+    expect(adapter.requestPermission).not.toHaveBeenCalled()
+
+    await act(async () => {
+      fireEvent.press(getByText('Continue'))
+    })
+    expect(queryByText(TITLE)).toBeNull()
+    expect(adapter.requestPermission).toHaveBeenCalledTimes(1)
+    expect(await pushAdvisory.get()).toBe(true)
+    expect(UNSAFE_getByType('HandleReceive' as never)).toBeTruthy()
+  })
+
+  it('Not now records the advisory without ever asking the OS, link flow still mounted', async () => {
+    const adapter = pushAdapter('undetermined')
+    const { UNSAFE_getByType, findByText, getByText, queryByText } = draw()
+    await findByText(TITLE)
+
+    await act(async () => {
+      fireEvent.press(getByText('Not now'))
+    })
+    expect(queryByText(TITLE)).toBeNull()
+    expect(adapter.requestPermission).not.toHaveBeenCalled()
+    expect(await pushAdvisory.get()).toBe(true)
+    expect(UNSAFE_getByType('HandleReceive' as never)).toBeTruthy()
+  })
+
+  it('does not show again once it has been shown', async () => {
+    const adapter = pushAdapter('undetermined')
+    await pushAdvisory.set()
+    const { UNSAFE_getByType, queryByText } = draw()
+    await waitFor(() => expect(adapter.getPermission).toHaveBeenCalled())
+    // Let the state the read resolved to reach the screen before asserting absence.
+    await act(async () => {})
+    expect(queryByText(TITLE)).toBeNull()
+    expect(UNSAFE_getByType('HandleReceive' as never)).toBeTruthy()
+  })
+
+  it.each(['granted', 'denied'] as const)('never shows when the OS already answered (%s)', async permission => {
+    const adapter = pushAdapter(permission)
+    const { queryByText } = draw()
+    await waitFor(() => expect(adapter.getPermission).toHaveBeenCalled())
+    // Let the state the read resolved to reach the screen before asserting absence.
+    await act(async () => {})
+    expect(queryByText(TITLE)).toBeNull()
+    expect(adapter.requestPermission).not.toHaveBeenCalled()
+  })
+
+  it('never shows on a host that wired no push adapter', async () => {
+    const { UNSAFE_getByType, queryByText } = draw()
+    await act(async () => {})
+    expect(queryByText(TITLE)).toBeNull()
+    expect(UNSAFE_getByType('HandleReceive' as never)).toBeTruthy()
+  })
+
+  it('never shows for the other Get paid methods', async () => {
+    mockParams.cell = 'get-address'
+    const adapter = pushAdapter('undetermined')
+    const { queryByText } = draw()
+    await act(async () => {})
+    expect(adapter.getPermission).not.toHaveBeenCalled()
+    expect(queryByText(TITLE)).toBeNull()
+  })
+
+  it('still lets the link flow run when the adapter cannot report its permission', async () => {
+    const adapter = pushAdapter('undetermined')
+    adapter.getPermission.mockRejectedValueOnce(new Error('native module missing'))
+    const { UNSAFE_getByType, queryByText } = draw()
+    await waitFor(() => expect(adapter.getPermission).toHaveBeenCalled())
+    await act(async () => {})
+    expect(queryByText(TITLE)).toBeNull()
+    expect(UNSAFE_getByType('HandleReceive' as never)).toBeTruthy()
   })
 })

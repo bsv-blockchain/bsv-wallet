@@ -136,7 +136,7 @@ const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
-import { getBackupUrl, getMandalaEndpoints } from '../toolboxConfig'
+import { getBackupUrl, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
   AUTO_APPROVE_COOLDOWN_MS,
@@ -211,6 +211,8 @@ import { replayPendingAborts, verifyDeclinedAborts } from '../localpay/pendingAb
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import { MONITOR_STALL_MS, MonitorSupervisor } from '../monitor/MonitorSupervisor'
 import { TaskCreditInbox } from '../monitor/TaskCreditInbox'
+import { attachPushHandlers, coalesceRuns } from '../push/events'
+import { syncPushRegistration } from '../push/registration'
 import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
@@ -245,7 +247,14 @@ import {
 import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
 import { MAX_HEX_RESPONSE_CHARS, wocConfigFor } from '../pay/rails/address'
 import { PeerPayClient } from '@bsv/message-box-client'
-import { SWEEP_INTERVAL_MS, runSweep, shouldSweepNow, sweptTotal } from '../pay/sweeper'
+import {
+  SWEEP_INTERVAL_MS,
+  backoffAfterSweepError,
+  consumeBackoff,
+  runSweep,
+  shouldSweepNow,
+  sweptTotal
+} from '../pay/sweeper'
 import { formatAmount } from '../amountFormatHelpers'
 import { useTranslation } from 'react-i18next'
 import { HEADER_CHECKPOINTS } from '../headers/checkpoints'
@@ -706,6 +715,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const monitorSupervisorRef = useRef<MonitorSupervisor | null>(null)
   const monitorRef = useRef<Monitor | null>(null)
+  // Push notifications. `pushDetachRef` removes the adapter listeners the
+  // current build attached; `pushSyncRef` is that build's registration sync,
+  // which the foreground handler calls so a permission granted from OS Settings
+  // registers on return. Both are cleared wherever the monitor is torn down.
+  const pushDetachRef = useRef<(() => void) | undefined>(undefined)
+  const pushSyncRef = useRef<(() => Promise<void>) | undefined>(undefined)
   // The offline-first chain tracker and the header store it wraps. Populated
   // in buildWallet (tracker synchronously, store once the background open
   // finishes); the reconnect top-up effect below reuses both rather than
@@ -1899,6 +1914,18 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             monitorOptions.saveLastSSEEventId = (id: string) => phoneStorage!.setKeyValue(SSE_KEY, id)
           }
           const monitor = await createWalletMonitor(monitorOptions)
+          // The MessageBox host this wallet talks to, or undefined when the
+          // user turned MessageBox off. One definition for the CreditInbox task
+          // and the push registration below, so a device token is always
+          // registered on exactly the host the inbox reads.
+          const readMessageBoxHost = async (): Promise<string | undefined> => {
+            const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+            return saved === NO_MESSAGE_BOX
+              ? undefined
+              : !saved || saved === LEGACY_MESSAGE_BOX_URL
+                ? DEFAULT_MESSAGE_BOX_URL
+                : saved
+          }
 
           // Release held offline transactions when signal returns — registered
           // BEFORE the defaults, and the order matters. Monitor.runOnce collects
@@ -1990,13 +2017,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               new TaskCreditInbox(
                 monitor,
                 async () => {
-                  const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
-                  const messageBoxUrl =
-                    saved === NO_MESSAGE_BOX
-                      ? undefined
-                      : !saved || saved === LEGACY_MESSAGE_BOX_URL
-                        ? DEFAULT_MESSAGE_BOX_URL
-                        : saved
+                  const messageBoxUrl = await readMessageBoxHost()
                   if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
                   let client: PeerPayClient
                   try {
@@ -2296,6 +2317,67 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             return null
           }
           monitorRef.current = monitor
+
+          // Push: a payment for this identity wakes the phone (the MessageBox
+          // host sends the FCM message), and a push only ever means "look at
+          // the inbox now" — the credit, sound and toast come from the
+          // CreditInbox pass registered above, so nothing is shown or credited
+          // twice.
+          //
+          // Wired HERE, after the supersession check and with no await between
+          // the two, on purpose. A build that was replaced mid-flight never
+          // reaches this line, so it can neither register a token against a
+          // wallet being torn down nor detach the listeners a newer build wired.
+          // Every teardown clears the refs before it yields, so a build that is
+          // superseded after this line is cleaned up by whoever superseded it.
+          //
+          // Registration reads the same host as the CreditInbox task and derives
+          // the identity key and the client's wallet from the SAME
+          // permissionsManager, so the token is bound to the identity the inbox
+          // is actually reading. Startup, token refresh and foreground can all
+          // fire it at once; coalesceRuns never runs two at a time and folds an
+          // overlapping burst into one rerun. Push is an enhancement: nothing
+          // here may throw into the build.
+          if (phoneStorage) {
+            const syncPush = coalesceRuns(async () => {
+              const adapter = getPushAdapter()
+              if (!adapter) return
+              const host = await readMessageBoxHost()
+              let identityKey: string
+              try {
+                identityKey = (await permissionsManager.getPublicKey({ identityKey: true }, adminOriginator)).publicKey
+              } catch (e) {
+                console.warn(
+                  `[push] could not read the identity key; skipping registration: ${e instanceof Error ? e.message : String(e)}`
+                )
+                return
+              }
+              const result = await syncPushRegistration({
+                adapter,
+                host,
+                identityKey,
+                makeClient: h =>
+                  new MessageBoxClient({
+                    host: h,
+                    walletClient: permissionsManager as never,
+                    originator: adminOriginator
+                  })
+              })
+              if (result === 'failed') console.warn('[push] device registration with the MessageBox host failed')
+            })
+            pushSyncRef.current = syncPush
+            void syncPush()
+            const pushAdapter = getPushAdapter()
+            pushDetachRef.current?.()
+            pushDetachRef.current = pushAdapter
+              ? attachPushHandlers({
+                  adapter: pushAdapter,
+                  requestInboxPass: () => TaskCreditInbox.requestNow(),
+                  openActivity: () => loadExpoRouter().router.push('/transactions'),
+                  onTokenRefresh: () => void syncPush()
+                })
+              : undefined
+          }
           InteractionManager.runAfterInteractions(() => {
             // Re-check identity: stopTasks() before startTasks() is a no-op
             // (it only clears a flag the loop hasn't set yet), so a rebuild/
@@ -2584,6 +2666,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       vaultStore.clearScope()
       vaultCeremony.cancel()
 
+      // Push listeners and the registration sync belong to the wallet being
+      // torn down; nothing may fire them against it from here on.
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
+
       // Stop any running monitor and let its current pass drain before the
       // storage teardown below closes the connection under it.
       {
@@ -2649,6 +2737,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       buildGenRef.current.bump()
       vaultStore.clearScope()
       vaultCeremony.cancel()
+
+      // Push listeners and the registration sync belong to the wallet being
+      // torn down; nothing may fire them against it from here on.
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
 
       // Stop any running monitor and let its current pass drain before the
       // storage teardown below closes the connection under it.
@@ -2861,9 +2955,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // the first NetInfo event would delay the common case.
     let online = true
     const woc = wocConfigFor(selectedNetwork)
+    // Ticks still to sit out after a WhatsOnChain 429. Every tick spends one,
+    // including the app-active and back-online ones, so none of them can reach
+    // WhatsOnChain while the backoff is pending.
+    let backoffTicks = 0
 
     const tick = async () => {
       if (cancelled) return
+      const backoff = consumeBackoff(backoffTicks)
+      backoffTicks = backoff.remaining
+      if (backoff.skip) return
       if (
         !shouldSweepNow({
           walletBuilt: true,
@@ -2895,8 +2996,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             type: 'success'
           })
         }
-      } catch {
-        // Best-effort. Every address stays watched and the next tick retries.
+      } catch (error) {
+        // Best-effort. Every address stays watched and the next tick retries —
+        // except after a rate limit, which sits out SWEEP_BACKOFF_TICKS first.
+        backoffTicks = backoffAfterSweepError(error, backoffTicks)
       } finally {
         addressSweepingRef.current = false
       }
@@ -3032,6 +3135,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         if (TaskSendOffline.hasPending) TaskSendOffline.requestNow()
         TaskCreditInbox.requestNow()
         if (TaskDrainOutbox.hasPending) TaskDrainOutbox.requestNow()
+        // A notification permission granted from OS Settings, or a token the OS
+        // rotated while away, registers on return. No-ops when already current.
+        void pushSyncRef.current?.()
       }
 
       appStateRef.current = nextAppState
@@ -3075,6 +3181,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         monitorRef.current?.stopTasks()
       } catch {}
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
       if (ledgerBumpTimerRef.current) {
         clearTimeout(ledgerBumpTimerRef.current)
         ledgerBumpTimerRef.current = null
@@ -3104,6 +3213,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // comment warned about — everything above this point already ran
     // synchronously before any promise existed to await.
     return (async () => {
+      // Push listeners and the registration sync belong to the wallet being
+      // torn down; nothing may fire them against it from here on.
+      pushDetachRef.current?.()
+      pushDetachRef.current = undefined
+      pushSyncRef.current = undefined
+
       // Tear the wallet down the same way rebuildWallet does. Logout used to
       // skip this, which orphaned a running monitor AND left the SQLite
       // connection open: a re-import of the same phrase then opened a second

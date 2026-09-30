@@ -57,6 +57,21 @@ describe('refetchAtomicBeef', () => {
     expect(Beef.fromBinary(repaired!).verifyValid(false).valid).toBe(true)
   })
 
+  it('sends the WhatsOnChain key as woc-api-key when the config carries one', async () => {
+    const fetchImpl = jest.fn(responds(beefHex))
+    await refetchAtomicBeef({ woc: { ...woc, apiKey: 'secret' }, txid, fetchImpl })
+    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining(`/tx/${txid}/beef`), {
+      headers: { 'woc-api-key': 'secret' }
+    })
+  })
+
+  it('sends no key header when the config has none', async () => {
+    const fetchImpl = jest.fn(responds(beefHex))
+    await refetchAtomicBeef({ woc: { ...woc, apiKey: undefined }, txid, fetchImpl })
+    const init = fetchImpl.mock.calls[0][1] as { headers?: Record<string, string> } | undefined
+    expect(init?.headers?.['woc-api-key']).toBeUndefined()
+  })
+
   // Every one of these must leave the caller's original failure intact rather
   // than throwing something new out of a path the user never asked for.
   it.each([

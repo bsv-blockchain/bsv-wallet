@@ -137,6 +137,14 @@ export interface WocConfig {
   apiBase: string
   segment: string
   network: 'mainnet' | 'testnet'
+  /**
+   * A WhatsOnChain key, sent only as the `woc-api-key` header (see
+   * `wocRequestInit`); never logged. `wocConfigFor` does not set it: the
+   * host's app-wide key is shared with broadcast, and a 5 s sweep across the
+   * whole fleet would drain that quota. A caller with a key of its own may set
+   * it explicitly.
+   */
+  apiKey?: string
 }
 
 export function wocConfigFor(network: AppChain): WocConfig {
@@ -145,6 +153,35 @@ export function wocConfigFor(network: AppChain): WocConfig {
     test: { apiBase: 'https://api.whatsonchain.com', segment: 'test', network: 'testnet' as const },
     teratest: { apiBase: 'https://api.woc-ttn.bsvblockchain.tech', segment: 'test', network: 'testnet' as const }
   }[network]
+}
+
+/**
+ * HTTP 429 from WhatsOnChain. A type of its own because it is the one failure
+ * of these fetches the caller must not treat like the rest: the sweep polls
+ * every 5 s, so "try again next tick" is exactly the behaviour that keeps a
+ * rate limit alive. It lets the sweep stop the pass and back off instead.
+ */
+export class WocRateLimited extends Error {
+  constructor() {
+    super('WhatsOnChain rate limit reached')
+    this.name = 'WocRateLimited'
+  }
+}
+
+/**
+ * The request options carrying the WhatsOnChain key, or undefined when the
+ * config has none — so that a config without a key sends the same bare request
+ * it always did.
+ */
+export function wocRequestInit(woc: WocConfig): { headers: Record<string, string> } | undefined {
+  return woc.apiKey ? { headers: { 'woc-api-key': woc.apiKey } } : undefined
+}
+
+async function wocFetch(woc: WocConfig, url: string): Promise<Response> {
+  const init = wocRequestInit(woc)
+  const response = init ? await fetch(url, init) : await fetch(url)
+  if (response.status === 429) throw new WocRateLimited()
+  return response
 }
 
 export interface AddressDerivingWallet {
@@ -201,7 +238,7 @@ export const MAX_UTXO_LISTING_ROWS = 2000
 export const MAX_HEX_RESPONSE_CHARS = 8_000_000
 
 export async function getUtxosForAddress(woc: WocConfig, address: string): Promise<Utxo[]> {
-  const response = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/address/${address}/unspent/all`)
+  const response = await wocFetch(woc, `${woc.apiBase}/v1/bsv/${woc.segment}/address/${address}/unspent/all`)
   const rp = await response.json()
   // A live receive address never legitimately carries anywhere near this many
   // UTXOs; sweepAddress fetches one BEEF per distinct txid in the result, so
@@ -396,7 +433,7 @@ export async function sweepAddress(args: {
   for (const txid of txids) {
     const relevant = byTxid.get(txid) as Utxo[]
     try {
-      const resp = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/beef`)
+      const resp = await wocFetch(woc, `${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/beef`)
       const bytes = parseWocBeefBody({ ok: resp.ok, text: await resp.text() })
       if (!bytes) {
         failureCount++
@@ -450,7 +487,10 @@ export async function sweepAddress(args: {
       if (response?.accepted) {
         importedSatoshis += verified.reduce((sum, o) => sum + (tx.outputs[o.vout]?.satoshis ?? 0), 0)
       } else failureCount++
-    } catch {
+    } catch (error) {
+      // A rate limit is not this payment's failure: the rest of the pass would
+      // only be refused the same way, so let it stop the sweep (see runSweep).
+      if (error instanceof WocRateLimited) throw error
       failureCount++
     }
   }

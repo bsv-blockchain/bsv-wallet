@@ -20,6 +20,9 @@ ENV['RCT_USE_PREBUILT_RNCORE'] ||= '1' if podfile_properties['ios.buildReactNati
 ENV['RCT_HERMES_V1_ENABLED'] ||= '1' if podfile_properties['expo.useHermesV1'] == 'true'
 platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
 
+# react-native-firebase: opt out of SPM; SPM + use_frameworks static collides.
+$RNFirebaseDisableSPM = true
+
 prepare_react_native_project!
 
 target 'BSVWallet' do

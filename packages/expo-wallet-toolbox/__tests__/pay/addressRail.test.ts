@@ -14,8 +14,10 @@ import {
   recoveryDatesToScan,
   sendToAddress,
   sweepAddress,
+  WocRateLimited,
   wocConfigFor
 } from '../../core/pay/rails/address'
+import { configureToolbox, resetToolboxConfig } from '../../core/toolboxConfig'
 import {
   abbreviateKey,
   addressLabel,
@@ -642,5 +644,170 @@ describe('XR-055: recoveryDatesToScan', () => {
 describe('XR-055: MAX_MANUAL_RECOVERY_DAYS', () => {
   it('is comfortably larger than the automatic-scan bound, for the manual stepper last-resort case', () => {
     expect(MAX_MANUAL_RECOVERY_DAYS).toBeGreaterThan(MAX_RECOVERY_DAYS)
+  })
+})
+
+// The address sweep now polls every 5 s. wocConfigFor deliberately carries no
+// key (the host's app-wide key is shared with broadcast, and a fleet polling at
+// 5 s would drain it), so these tests build the config with an explicit key to
+// prove the header path a caller can still opt into.
+describe('WhatsOnChain API key', () => {
+  afterEach(() => {
+    resetToolboxConfig()
+  })
+
+  describe('wocConfigFor', () => {
+    it('never fills in the host key, even when the toolbox is configured with one', () => {
+      configureToolbox({
+        backupUrl: null,
+        services: {
+          main: { whatsOnChainApiKey: 'main-key' },
+          test: { whatsOnChainApiKey: 'test-key' },
+          teratest: { whatsOnChainApiKey: 'teratest-key' }
+        }
+      })
+      for (const chain of ['main', 'test', 'teratest'] as const) {
+        const config = wocConfigFor(chain)
+        expect(config.apiKey).toBeUndefined()
+        expect('apiKey' in config).toBe(false)
+        expect(JSON.stringify(config)).not.toContain('-key')
+      }
+    })
+
+    it('does not throw before the toolbox is configured', () => {
+      expect(() => wocConfigFor('main')).not.toThrow()
+      expect(wocConfigFor('main').apiKey).toBeUndefined()
+    })
+  })
+
+  describe('getUtxosForAddress', () => {
+    it('sends the key as woc-api-key when the config carries one', async () => {
+      mockFetchOnce(() => ({ json: { result: [] } }))
+      await getUtxosForAddress({ ...woc, apiKey: 'secret' }, ADDRESS)
+      expect(global.fetch).toHaveBeenCalledWith(
+        `https://api.whatsonchain.com/v1/bsv/main/address/${ADDRESS}/unspent/all`,
+        { headers: { 'woc-api-key': 'secret' } }
+      )
+    })
+
+    it('sends no key header when the config has none', async () => {
+      mockFetchOnce(() => ({ json: { result: [] } }))
+      await getUtxosForAddress({ ...woc, apiKey: undefined }, ADDRESS)
+      const init = (global.fetch as jest.Mock).mock.calls[0][1]
+      expect(init?.headers?.['woc-api-key']).toBeUndefined()
+    })
+
+    it('throws WocRateLimited on HTTP 429, without trying to read a listing out of the body', async () => {
+      const json = jest.fn()
+      global.fetch = jest.fn(async () => ({ ok: false, status: 429, json })) as unknown as typeof fetch
+      await expect(getUtxosForAddress(woc, ADDRESS)).rejects.toBeInstanceOf(WocRateLimited)
+      expect(json).not.toHaveBeenCalled()
+    })
+
+    it('keeps a WocRateLimited distinguishable from any other failure', async () => {
+      global.fetch = jest.fn(async () => ({ ok: false, status: 429 })) as unknown as typeof fetch
+      const err = await getUtxosForAddress(woc, ADDRESS).catch(e => e)
+      expect(err).toBeInstanceOf(Error)
+      expect(err.name).toBe('WocRateLimited')
+    })
+
+    it('does not mistake an ordinary server error for a rate limit', async () => {
+      global.fetch = jest.fn(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error('not json')
+        }
+      })) as unknown as typeof fetch
+      const err = await getUtxosForAddress(woc, ADDRESS).catch(e => e)
+      expect(err).not.toBeInstanceOf(WocRateLimited)
+    })
+  })
+
+  describe('sweepAddress BEEF fetch', () => {
+    const prefix = derivationPrefixFor('2026-07-28')
+    const wallet = () => ({
+      listActions: jest.fn().mockResolvedValue({ actions: [] }),
+      internalizeAction: jest.fn().mockResolvedValue({ accepted: true })
+    })
+
+    it('sends the key on the BEEF request too', async () => {
+      const payment = paymentBeef(1000)
+      const seen: [string, unknown][] = []
+      global.fetch = jest.fn(async (url: string, init?: unknown) => {
+        seen.push([String(url), init])
+        return url.includes('/unspent/all')
+          ? ({
+              ok: true,
+              json: async () => ({
+                result: [{ tx_hash: payment.txid, tx_pos: 0, value: 1000, isSpentInMempoolTx: false }]
+              })
+            } as unknown as Response)
+          : ({ ok: true, text: async () => payment.hex } as unknown as Response)
+      }) as unknown as typeof fetch
+
+      await sweepAddress({
+        wallet: wallet() as never,
+        adminOriginator: 'admin.com',
+        woc: { ...woc, apiKey: 'secret' },
+        address: ADDRESS,
+        derivationPrefix: prefix
+      })
+
+      const beefCall = seen.find(([url]) => url.endsWith(`/tx/${payment.txid}/beef`))
+      expect(beefCall?.[1]).toEqual({ headers: { 'woc-api-key': 'secret' } })
+    })
+
+    it('sends no key header on the BEEF request when the config has none', async () => {
+      const payment = paymentBeef(1000)
+      const seen: [string, any][] = []
+      global.fetch = jest.fn(async (url: string, init?: unknown) => {
+        seen.push([String(url), init])
+        return url.includes('/unspent/all')
+          ? ({
+              ok: true,
+              json: async () => ({
+                result: [{ tx_hash: payment.txid, tx_pos: 0, value: 1000, isSpentInMempoolTx: false }]
+              })
+            } as unknown as Response)
+          : ({ ok: true, text: async () => payment.hex } as unknown as Response)
+      }) as unknown as typeof fetch
+
+      await sweepAddress({
+        wallet: wallet() as never,
+        adminOriginator: 'admin.com',
+        woc,
+        address: ADDRESS,
+        derivationPrefix: prefix
+      })
+
+      const beefCall = seen.find(([url]) => url.endsWith(`/tx/${payment.txid}/beef`))
+      expect(beefCall?.[1]?.headers?.['woc-api-key']).toBeUndefined()
+    })
+
+    it('lets a 429 on a BEEF fetch escape instead of counting it as one failed payment', async () => {
+      const payment = paymentBeef(1000)
+      global.fetch = jest.fn(async (url: string) =>
+        url.includes('/unspent/all')
+          ? ({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                result: [{ tx_hash: payment.txid, tx_pos: 0, value: 1000, isSpentInMempoolTx: false }]
+              })
+            } as unknown as Response)
+          : ({ ok: false, status: 429, text: async () => 'Too Many Requests' } as unknown as Response)
+      ) as unknown as typeof fetch
+
+      await expect(
+        sweepAddress({
+          wallet: wallet() as never,
+          adminOriginator: 'admin.com',
+          woc,
+          address: ADDRESS,
+          derivationPrefix: prefix
+        })
+      ).rejects.toBeInstanceOf(WocRateLimited)
+    })
   })
 })

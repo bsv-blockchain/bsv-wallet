@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { View, Text, ScrollView, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, AppState } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { useTheme, spacing, typography, useWallet, isVaultAvailable, useVault } from '@bsv/expo-wallet-toolbox'
 import { GroupedSection } from '../components/ui/GroupedList'
@@ -7,6 +7,9 @@ import { ListRow } from '../components/ui/ListRow'
 import AmountDisplay from '../components/wallet/AmountDisplay'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { pushAdvisory } from '../../core/push/pushAdvisory'
+import type { PushPermission } from '../../core/push/types'
+import { getPushAdapter } from '../../core/toolboxConfig'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -31,7 +34,9 @@ const CACHE_DURATION = 30000
 export function SettingsScreen() {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const { router } = loadExpoRouter()
+  // `useFocusEffect` is a hook, but calling it through the lazy loader is
+  // equivalent to a direct import (same as WalletHomeScreen/PayScreen).
+  const { router, useFocusEffect } = loadExpoRouter()
   const { managers, adminOriginator, selectedNetwork, txStatusVersion } = useWallet()
 
   // Read during render, from the reactive network, so the row disappears on a
@@ -110,6 +115,57 @@ export function SettingsScreen() {
     refreshBalance()
   }, [txStatusVersion, refreshBalance])
 
+  // Payment notifications. The row exists only when the host wired a push
+  // adapter, and it is the one place besides the "Share remote link" advisory
+  // that can trigger the OS permission prompt.
+  const pushAdapter = getPushAdapter()
+  const [pushPermission, setPushPermission] = useState<PushPermission | null>(null)
+  const refreshPushPermission = useCallback(async () => {
+    if (!pushAdapter) return
+    try {
+      const next = await pushAdapter.getPermission()
+      // A re-read never walks 'denied' back to 'undetermined'. Android reports
+      // every not-granted state as 'undetermined', and the OS dialog's own
+      // dismissal brings the app back to 'active' right after a denial, so an
+      // unguarded read would erase the denial and leave the next press
+      // re-requesting (a silent no-op once the OS stops prompting) instead of
+      // opening the OS settings. A later 'granted' still replaces 'denied'.
+      setPushPermission(prev => (prev === 'denied' && next === 'undetermined' ? prev : next))
+    } catch {
+      // Leave the last known state; the row stays usable.
+    }
+  }, [pushAdapter])
+  useFocusEffect(
+    useCallback(() => {
+      void refreshPushPermission()
+    }, [refreshPushPermission])
+  )
+  // Coming back from the OS notification settings does not refocus this
+  // screen, so re-read when the app returns to the foreground.
+  useEffect(() => {
+    if (!pushAdapter) return
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void refreshPushPermission()
+    })
+    return () => subscription.remove()
+  }, [pushAdapter, refreshPushPermission])
+
+  const onPushPress = useCallback(async () => {
+    if (!pushAdapter) return
+    try {
+      if (pushPermission === 'undetermined') {
+        await pushAdvisory.set()
+        // Take the answer as given rather than re-reading it (see the guard
+        // in refreshPushPermission for why a denial must stick).
+        setPushPermission(await pushAdapter.requestPermission())
+      } else {
+        await pushAdapter.openSettings()
+      }
+    } catch {
+      // The adapter is host code; a failed call leaves the row as it was.
+    }
+  }, [pushAdapter, pushPermission])
+
   return (
     <View style={{ backgroundColor: colors.backgroundSecondary }}>
       <ScrollView contentContainerStyle={{ paddingBottom: spacing.xxxl }}>
@@ -157,6 +213,20 @@ export function SettingsScreen() {
             />
           )}
         </GroupedSection>
+
+        {/* ── Notifications ── */}
+        {pushAdapter && (
+          <GroupedSection header={t('notifications')}>
+            <ListRow
+              label={t('push_settings_row')}
+              icon="notifications-outline"
+              iconColor={colors.accent}
+              value={pushPermission === 'granted' ? t('push_settings_on') : t('push_settings_off')}
+              onPress={onPushPress}
+              isLast
+            />
+          </GroupedSection>
+        )}
 
         {/* ── Settings drill-down ── */}
         <GroupedSection>
