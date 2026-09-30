@@ -165,8 +165,8 @@ describe('Settings payment notifications row', () => {
 
   it('opens the OS settings once the OS has denied, without asking again', async () => {
     // Android reads a denial back as undetermined; the answer the request just
-    // gave must stand until the next focus, so the second press gets out to
-    // the OS settings instead of re-requesting forever.
+    // gave must stand, so the second press gets out to the OS settings instead
+    // of re-requesting forever.
     const adapter = pushAdapter('undetermined', 'denied')
     const { getByText } = render(<SettingsScreen />)
     await flush()
@@ -182,6 +182,87 @@ describe('Settings payment notifications row', () => {
     })
     expect(adapter.requestPermission).toHaveBeenCalledTimes(1)
     expect(adapter.openSettings).toHaveBeenCalledTimes(1)
+  })
+
+  describe('after a denial (Android reads every not-granted state as undetermined)', () => {
+    const fireActive = async () => {
+      await act(async () => {
+        appStateHandlers.forEach(handler => handler('active'))
+      })
+    }
+    const fireFocus = async () => {
+      await act(async () => {
+        mockFocusCallbacks[mockFocusCallbacks.length - 1]()
+      })
+    }
+
+    // The OS dialog is its own activity: dismissing it brings the app back to
+    // 'active' right after requestPermission resolves 'denied'.
+    it.each([
+      ['the app returning to the foreground', fireActive],
+      ['the screen being focused again', fireFocus]
+    ] as const)('keeps the denial through %s, so the next press opens the OS settings', async (_name, reread) => {
+      const adapter = pushAdapter('undetermined', 'denied')
+      const { getByText } = render(<SettingsScreen />)
+      await flush()
+
+      await act(async () => {
+        fireEvent.press(getByText('Payment notifications'))
+      })
+      expect(adapter.requestPermission).toHaveBeenCalledTimes(1)
+
+      const reads = adapter.getPermission.mock.calls.length
+      await reread()
+      // The re-read really happened and really said undetermined.
+      expect(adapter.getPermission.mock.calls.length).toBe(reads + 1)
+      expect(getByText('Off')).toBeTruthy()
+
+      await act(async () => {
+        fireEvent.press(getByText('Payment notifications'))
+      })
+      expect(adapter.openSettings).toHaveBeenCalledTimes(1)
+      expect(adapter.requestPermission).toHaveBeenCalledTimes(1)
+    })
+
+    it('still shows On when the user grants it in the OS settings and comes back', async () => {
+      const adapter = pushAdapter('undetermined', 'denied')
+      const { getByText, queryByText } = render(<SettingsScreen />)
+      await flush()
+
+      await act(async () => {
+        fireEvent.press(getByText('Payment notifications'))
+      })
+      await fireActive()
+      expect(getByText('Off')).toBeTruthy()
+
+      await act(async () => {
+        fireEvent.press(getByText('Payment notifications'))
+      })
+      expect(adapter.openSettings).toHaveBeenCalledTimes(1)
+
+      // The user flips the switch in the OS settings and returns.
+      adapter.getPermission.mockResolvedValue('granted')
+      await fireActive()
+      expect(getByText('On')).toBeTruthy()
+      expect(queryByText('Off')).toBeNull()
+    })
+
+    it('does not wedge a denial on iOS, where denied reads back as denied', async () => {
+      const adapter = pushAdapter('undetermined', 'denied')
+      const { getByText } = render(<SettingsScreen />)
+      await flush()
+      await act(async () => {
+        fireEvent.press(getByText('Payment notifications'))
+      })
+
+      adapter.getPermission.mockResolvedValue('denied')
+      await fireActive()
+      await act(async () => {
+        fireEvent.press(getByText('Payment notifications'))
+      })
+      expect(adapter.openSettings).toHaveBeenCalledTimes(1)
+      expect(adapter.requestPermission).toHaveBeenCalledTimes(1)
+    })
   })
 
   it.each(['granted', 'denied'] as const)('opens the OS settings when the permission is %s', async permission => {

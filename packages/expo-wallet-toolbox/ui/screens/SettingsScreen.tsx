@@ -123,7 +123,14 @@ export function SettingsScreen() {
   const refreshPushPermission = useCallback(async () => {
     if (!pushAdapter) return
     try {
-      setPushPermission(await pushAdapter.getPermission())
+      const next = await pushAdapter.getPermission()
+      // A re-read never walks 'denied' back to 'undetermined'. Android reports
+      // every not-granted state as 'undetermined', and the OS dialog's own
+      // dismissal brings the app back to 'active' right after a denial, so an
+      // unguarded read would erase the denial and leave the next press
+      // re-requesting (a silent no-op once the OS stops prompting) instead of
+      // opening the OS settings. A later 'granted' still replaces 'denied'.
+      setPushPermission(prev => (prev === 'denied' && next === 'undetermined' ? prev : next))
     } catch {
       // Leave the last known state; the row stays usable.
     }
@@ -148,10 +155,8 @@ export function SettingsScreen() {
     try {
       if (pushPermission === 'undetermined') {
         await pushAdvisory.set()
-        // Take the answer as given rather than re-reading it: on Android a
-        // denial reads back as 'undetermined', and overwriting 'denied' with
-        // that would keep the next press re-requesting (a no-op once the OS
-        // stops prompting) instead of opening the OS settings.
+        // Take the answer as given rather than re-reading it (see the guard
+        // in refreshPushPermission for why a denial must stick).
         setPushPermission(await pushAdapter.requestPermission())
       } else {
         await pushAdapter.openSettings()
