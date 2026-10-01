@@ -10,57 +10,62 @@ export interface MnemonicWalletConfig {
   mnemonic?: string // Optional: provide existing mnemonic
   passphrase?: string // Optional BIP39 passphrase
   language?: 'en' | 'es' | 'fr' | 'it' | 'ja' | 'ko' | 'zh_CN' | 'zh_TW' // Default: 'en'
+  /** Which wallet profile to derive. Default 0. See profilePaths. */
+  profileIndex?: number
 }
 
-export interface MnemonicWalletResult {
+export interface ProfileKeys {
+  privilegedKey: PrivateKey // Derived key at m/1'/n' for the privileged key manager
+  primaryKey: number[] // Derived key at m/0'/n' for wallet
+  identityKey: string // Public key hex of the primary key
+}
+
+export interface MnemonicWalletResult extends ProfileKeys {
   mnemonic: string
-  rootKey: PrivateKey
-  primaryKey: number[] // Derived key at m/0'/0' for wallet
-  identityKey: string // Public key hex
+}
+
+/**
+ * The two hardened paths profile `n` derives from the shared seed. Every profile
+ * is a separate wallet (its own identity, storage, backup account) yet one
+ * mnemonic backs them all up. The privileged key sits on its own branch so no
+ * profile ever shares key material with another, and none uses the BIP32 master.
+ */
+export function profilePaths(n: number): { primary: string; privileged: string } {
+  if (!Number.isInteger(n) || n < 0 || n >= 2 ** 31) {
+    throw new Error(`Invalid profile index: ${n}`)
+  }
+  return { primary: `m/0'/${n}'`, privileged: `m/1'/${n}'` }
+}
+
+/** BIP39 seed → BIP32 root. The expensive step (PBKDF2): build once, derive many profiles. */
+export function hdFromMnemonic(mnemonic: string, passphrase: string = ''): HD {
+  return HD.fromSeed(Mnemonic.fromString(mnemonic).toSeed(passphrase))
+}
+
+/** Profile `n`'s keys from an already-built root. */
+export function deriveProfileKeys(hdKey: HD, n: number): ProfileKeys {
+  const paths = profilePaths(n)
+  const primary = hdKey.derive(paths.primary).privKey
+  return {
+    privilegedKey: hdKey.derive(paths.privileged).privKey,
+    primaryKey: primary.toArray(),
+    identityKey: primary.toPublicKey().toString()
+  }
 }
 
 /**
  * Generate a new mnemonic-based wallet
  */
 export function generateMnemonicWallet(config: MnemonicWalletConfig = {}): MnemonicWalletResult {
-  const { passphrase = '' } = config
+  const { passphrase = '', profileIndex = 0 } = config
 
-  // Generate new mnemonic or use provided one
-  let mnemonicInstance: Mnemonic
-  if (config.mnemonic) {
-    // Validate and use existing mnemonic
-    mnemonicInstance = Mnemonic.fromString(config.mnemonic)
-  } else {
-    // Generate new random mnemonic (128 bits = 12 words by default)
-    mnemonicInstance = Mnemonic.fromRandom()
-  }
-
-  // Get mnemonic as string
+  // Validate and use the provided mnemonic, or generate a new random one
+  // (128 bits = 12 words by default)
+  const mnemonicInstance = config.mnemonic ? Mnemonic.fromString(config.mnemonic) : Mnemonic.fromRandom()
   const mnemonicString = mnemonicInstance.toString()
+  const hdKey = HD.fromSeed(mnemonicInstance.toSeed(passphrase))
 
-  // Derive seed from mnemonic
-  const seed = mnemonicInstance.toSeed(passphrase)
-
-  // Create HD key from seed
-  const hdKey = HD.fromSeed(seed)
-
-  // Get root key
-  const rootKey = hdKey.privKey
-
-  // Derive primary key at path m/0'/0' (hardened derivation)
-  // This is the key used as the wallet's primary key
-  const derivedHdKey = hdKey.derive("m/0'/0'")
-  const primaryKey = derivedHdKey.privKey.toArray()
-
-  // Get identity key (public key) for the derived key
-  const identityKey = derivedHdKey.privKey.toPublicKey().toString()
-
-  return {
-    mnemonic: mnemonicString,
-    rootKey,
-    primaryKey,
-    identityKey
-  }
+  return { mnemonic: mnemonicString, ...deriveProfileKeys(hdKey, profileIndex) }
 }
 
 /**
@@ -68,9 +73,10 @@ export function generateMnemonicWallet(config: MnemonicWalletConfig = {}): Mnemo
  */
 export function recoverMnemonicWallet(
   mnemonic: string,
-  passphrase: string = ''
+  passphrase: string = '',
+  profileIndex: number = 0
 ): MnemonicWalletResult {
-  return generateMnemonicWallet({ mnemonic, passphrase })
+  return generateMnemonicWallet({ mnemonic, passphrase, profileIndex })
 }
 
 /**

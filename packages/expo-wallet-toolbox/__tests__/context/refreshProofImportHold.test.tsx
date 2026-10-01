@@ -74,7 +74,7 @@ jest.mock('../../core/mnemonicWallet', () => ({
   recoverMnemonicWallet: () => {
     const { PrivateKey: RealPrivateKey } = jest.requireActual('@bsv/sdk')
     const key = new RealPrivateKey(21)
-    return { rootKey: key, primaryKey: key.toArray('be', 32) }
+    return { privilegedKey: key, primaryKey: key.toArray('be', 32) }
   }
 }))
 jest.mock('../../core/services/exchangeRate', () => ({ getExchangeRate: async () => 50 }))

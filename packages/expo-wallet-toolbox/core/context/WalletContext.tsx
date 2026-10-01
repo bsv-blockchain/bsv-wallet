@@ -191,6 +191,20 @@ import {
 import { getExchangeRate } from '../services/exchangeRate'
 import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
+import {
+  appendProfile,
+  getActiveProfile,
+  getActiveProfileIndex,
+  getProfilesState,
+  loadProfiles,
+  profileScopedKey,
+  PROFILE_KEY_SUFFIX_RE,
+  resetProfiles,
+  setActiveProfile,
+  updateProfile,
+  useProfiles,
+  type ProfileRecord
+} from '../profiles/profileStore'
 import { vaultStore } from '../services/vault/vaultStore'
 import { guardVaultAccess } from '../services/vault/guard'
 import { StorageProvider, ChaintracksServiceClient } from '@bsv/wallet-toolbox-mobile'
@@ -2525,8 +2539,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           return
         }
 
+        const profileIndex = getActiveProfileIndex()
         const __tRecoverStart = performance.now()
-        const { rootKey, primaryKey } = recoverMnemonicWallet(mnemonic)
+        const { privilegedKey, primaryKey } = recoverMnemonicWallet(mnemonic, '', profileIndex)
         if (__DEV__)
           console.warn(
             `[perf] recoverMnemonicWallet (PBKDF2+BIP32): ${(performance.now() - __tRecoverStart).toFixed(0)}ms`
@@ -2534,9 +2549,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // The vault no longer routes through the PKM — the YubiKey signs vault
         // inputs directly. The toolbox still requires a privileged key manager,
-        // so this returns the plain root key. guardVaultAccess is what keeps
-        // non-admin originators away from it.
-        const privilegedKeyManager = new PrivilegedKeyManager(async () => rootKey, VAULT_RETENTION_MS)
+        // so this returns the profile's own m/1'/n' key (never the BIP32 master,
+        // which every profile would otherwise share). guardVaultAccess is what
+        // keeps non-admin originators away from it.
+        const privilegedKeyManager = new PrivilegedKeyManager(async () => privilegedKey, VAULT_RETENTION_MS)
 
         // Create SimpleWalletManager and provide keys for authentication
         const swm = new SimpleWalletManager(ADMIN_ORIGINATOR, buildWallet)
