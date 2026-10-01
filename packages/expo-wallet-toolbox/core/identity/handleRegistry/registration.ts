@@ -36,7 +36,7 @@ export interface RegistrationStorage {
   setKeyValue(key: string, value: string): Promise<void>
 }
 
-export type RegistrationIntent = 'register' | 'update' | 'change'
+export type RegistrationIntent = 'register' | 'update' | 'change' | 'release'
 
 export interface PendingStep {
   kind: 'release' | 'claim'
@@ -46,8 +46,8 @@ export interface PendingStep {
 
 /**
  * `intent` is not in the design's journal shape. `resumePending` runs a journal
- * it did not start and still has to say which of registered/updated/changed
- * happened, and no combination of the other fields tells those apart.
+ * it did not start and still has to say which of registered/updated/changed/
+ * released happened, and no combination of the other fields tells those apart.
  * `attemptedPaymail` is there for the same reason: a rollback resumed on a
  * later mount has to name the handle that was lost, and its one step is the
  * reclaim. Nothing has shipped, so the version stays 1.
@@ -72,6 +72,8 @@ export type RegistrationResult =
   | { kind: 'registered'; paymail: string }
   | { kind: 'updated'; paymail: string }
   | { kind: 'changed'; paymail: string }
+  /** The handle was tombstoned and nothing was claimed in its place. */
+  | { kind: 'released'; paymail: string }
   /** `attempted` is the handle that was lost; `paymail` is the one kept. */
   | { kind: 'rolled_back'; paymail: string; attempted?: string }
   | { kind: 'pending' }
@@ -313,6 +315,7 @@ async function runJournal(
   }
   if (journal.intent === 'update') return { kind: 'updated', paymail }
   if (journal.intent === 'change') return { kind: 'changed', paymail }
+  if (journal.intent === 'release') return { kind: 'released', paymail }
   return { kind: 'registered', paymail }
 }
 
@@ -536,6 +539,57 @@ export function changeHandle(
         ],
         previousPaymail,
         startedAt: releaseAt.toISOString()
+      }
+      await writeJournal(deps.storage, journal)
+      return await runJournal(deps, client, journal)
+    } catch (e) {
+      return { kind: 'failed', message: messageOf(e) }
+    }
+  })
+}
+
+/**
+ * Tombstone a handle and claim nothing in its place — what removing a profile
+ * does to the name that points at it.
+ *
+ * The same journal discipline as every other write, and the same shape as the
+ * first step of `changeHandle`: a `released: true` certificate, signed by the
+ * live wallet and dated after everything this device has minted, written down
+ * before the request so a lost answer is replayed rather than re-minted. The
+ * registry holds the name for its cooldown afterwards; only the same key may
+ * reclaim it until then.
+ *
+ * Whether the registry shows a handle for this identity at all is the caller's
+ * question, asked before this: this releases the paymail it is handed.
+ *
+ * Anything but `released` means the handle may still be held, and that includes
+ * `registered`, `updated` and `changed`: an unfinished journal of any kind is
+ * finished first and its answer is what comes back, so a caller must read only
+ * `released` as done.
+ */
+export function releaseHandle(deps: RegistrationDeps, args: { paymail: string }): Promise<RegistrationResult> {
+  return share(`release:${args.paymail.trim().toLowerCase()}`, async () => {
+    const client = deps.client
+    if (!client) return { kind: 'unavailable' }
+    try {
+      const outstanding = await finishOutstanding(deps, client)
+      if (outstanding) return outstanding
+      const parsed = parsePaymail(args.paymail)
+      if (!parsed || parsed.domain !== client.domain) {
+        return {
+          kind: 'failed',
+          code: 'wrong_domain',
+          message: `handleRegistry: not this registry's paymail: ${args.paymail}`
+        }
+      }
+      const paymail = `${parsed.handle}@${parsed.domain}`
+      const issuedAt = await nextIssuedAt(deps, client)
+      const cert = await buildProfileCertificate({ signer: deps.signer, paymail, issuedAt, released: true })
+      const journal: PendingJournal = {
+        v: 1,
+        intent: 'release',
+        steps: [{ kind: 'release', paymail, cert }],
+        startedAt: issuedAt.toISOString()
       }
       await writeJournal(deps.storage, journal)
       return await runJournal(deps, client, journal)

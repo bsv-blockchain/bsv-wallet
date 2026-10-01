@@ -108,7 +108,7 @@ function withOutboxLock<T>(storage: StorageLike, fn: () => Promise<T>): Promise<
   return run
 }
 
-async function readEntries(storage: StorageLike): Promise<OutboxEntry[]> {
+async function readEntries(storage: Pick<StorageLike, 'getKeyValue'>): Promise<OutboxEntry[]> {
   // Mutations must fail closed: treating an unreadable queue as empty would
   // erase persisted tokens when the subsequent write succeeds.
   const raw = await storage.getKeyValue(OUTBOX_KEY)
@@ -134,6 +134,16 @@ export async function getOutboxEntries(storage: StorageLike): Promise<OutboxEntr
     // Preserve the best-effort read API; mutations use the strict reader above.
     return []
   }
+}
+
+/**
+ * Every outbox entry, or a throw when the queue cannot be read.
+ *
+ * For a caller that must not mistake "could not read" for "nothing owed" —
+ * removing a profile deletes the database this queue lives in.
+ */
+export async function getOutboxEntriesStrict(storage: Pick<StorageLike, 'getKeyValue'>): Promise<OutboxEntry[]> {
+  return readEntries(storage)
 }
 
 /**

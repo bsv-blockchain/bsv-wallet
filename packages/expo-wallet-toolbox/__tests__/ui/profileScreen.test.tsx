@@ -418,6 +418,26 @@ describe('on mount', () => {
     expect(s.queryByText('profile_handle_pending')).toBeNull()
   })
 
+  /**
+   * A removal that wrote its release journal and was killed before the answer
+   * leaves one for the next visit here. Finishing it means the handle is gone,
+   * so the screen must stop offering it — from the cache too, which the lookup
+   * that follows cannot be relied on to clear (it may be offline) — and must
+   * not tell the user a refusal happened.
+   */
+  it('drops the handle, without calling it a refusal, when the resumed journal was a release', async () => {
+    withRegistry()
+    kv.set('profile_registered_handle', 'dee@deggen.com')
+    mockResumePending.mockResolvedValue({ kind: 'released', paymail: 'dee@deggen.com' })
+    mockLookupProfile.mockResolvedValue({ kind: 'failed' })
+    const s = draw()
+    await waitFor(() => expect(kv.get('profile_registered_handle')).toBe(''))
+    await settle()
+    expect(showToast).not.toHaveBeenCalled()
+    expect(s.queryByText('dee@deggen.com')).toBeNull()
+    expect(s.getByPlaceholderText('profile_handle_placeholder')).toBeTruthy()
+  })
+
   it('reports a resumed journal the registry refused', async () => {
     withRegistry()
     mockResumePending.mockResolvedValue({ kind: 'rejected', code: 'ERR_HANDLE_TAKEN', description: 'taken' })

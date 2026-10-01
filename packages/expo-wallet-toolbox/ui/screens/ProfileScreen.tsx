@@ -222,6 +222,19 @@ export function ProfileScreen() {
       } else if (result.kind === 'pending' || result.kind === 'idle') {
         // The callout says the first. The second is the ordinary mount, with
         // nothing journalled and so nothing to report.
+      } else if (result.kind === 'released') {
+        // Only a resumed journal gets here: this screen never starts a release
+        // itself, profile removal does. Finishing one means the handle is gone,
+        // and the lookup that follows the resume cannot be left to say so — it
+        // may be offline, and then the cache would keep offering a handle the
+        // registry no longer holds. Nothing to announce: the user asked for the
+        // removal that wrote the journal.
+        handleEpoch.current += 1
+        setRegisteredPaymail(null)
+        void storage?.setKeyValue(HANDLE_KV_KEY, '')
+        setChangingHandle(false)
+        setHandleInput('')
+        setAvailability('idle')
       } else if (result.kind === 'unavailable') {
         showToast(t('profile_handle_unavailable'), { type: 'error' })
       } else if (result.kind === 'rejected') {
