@@ -51,6 +51,13 @@ export interface PushDeps {
   baseUrl?: string
   client?: BackupClient
   deviceId?: string
+  /**
+   * The profile this pass belongs to; its opt-out is the one consulted. Pass the index the
+   * wallet was built for, so a pass that outlives a profile switch still reads the
+   * departing profile's flag rather than whichever is active by then. Defaults to the
+   * active profile.
+   */
+  profileIndex?: number
 }
 
 export interface PushResult {
@@ -80,7 +87,7 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   // data leaves this device, and the cheapest way to guarantee that is to do nothing at
   // all. The cursor is left untouched, so opting back in resumes from where the log
   // stopped instead of skipping everything written while it was off.
-  if (!(await isBackupPushEnabled())) {
+  if (!(await isBackupPushEnabled(deps.profileIndex))) {
     return { pushed: 0, bytes: 0, windowClosed: false, rotated: false, optedOut: true }
   }
 

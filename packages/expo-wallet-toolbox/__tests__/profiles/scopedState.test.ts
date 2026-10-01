@@ -9,6 +9,7 @@ import { clearArcApiTokensForProfile, getArcApiToken, setArcApiToken } from '../
 import { getUserAvatarIcon, loadUserAvatarIcon, setUserAvatarIcon } from '../../core/userAvatar'
 import connectionStore from '../../core/stores/ConnectionStore'
 import { markSeen, readSeen, SEEN_ASSETS_KEY } from '../../ui/tokenSeen'
+import { isBackupPushEnabled, setBackupPushEnabled } from '../../core/backup/preference'
 import { __resetProfilesForTests, appendProfile, setActiveProfile } from '../../core/profiles/profileStore'
 
 jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
@@ -69,4 +70,19 @@ test('seen-token markers are per profile', async () => {
   await markSeen(SEEN_ASSETS_KEY, 'asset-b')
   expect(await AsyncStorage.getItem(`${SEEN_ASSETS_KEY}__p1`)).toBe(JSON.stringify(['asset-b']))
   expect(await readSeen(SEEN_ASSETS_KEY, 0)).toEqual(['asset-a'])
+})
+
+test('backup push preference is per profile', async () => {
+  await setBackupPushEnabled(false)
+  expect(await isBackupPushEnabled()).toBe(false)
+  await setActiveProfile(1)
+  // An opt-out on profile 0 does not silence profile 1.
+  expect(await isBackupPushEnabled()).toBe(true)
+  await setBackupPushEnabled(false)
+  expect(await AsyncStorage.getItem('backupPushEnabled__p1')).toBe('false')
+  await setActiveProfile(0)
+  expect(await isBackupPushEnabled()).toBe(false)
+  await setBackupPushEnabled(true)
+  // ...and turning profile 0 back on leaves profile 1 opted out.
+  expect(await isBackupPushEnabled(1)).toBe(false)
 })

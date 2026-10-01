@@ -16,8 +16,8 @@
 - Primary key `m/0'/n'`. Privileged key `m/1'/n'` for every profile, including 0. The BIP32 master is never handed to the `PrivilegedKeyManager`.
 - Labels `profile{n+1}`, the same literal in every locale.
 - Vault and YubiKey only when the active profile index is 0 AND the chain is `main`.
-- Shared across profiles: `walletSettings`, one-time advisories, `backupDeviceId`, `backupPushEnabled`, handle key pins, `vault_enrolled_serial_registry_v1`, and the secrets.
-- Per profile: network, ARC URL + token, MessageBox URL, auto-approve threshold + ledger, balance cache, avatar, connections, seen-token markers, and the wallet DB.
+- Shared across profiles: `walletSettings`, one-time advisories, `backupDeviceId`, handle key pins, `vault_enrolled_serial_registry_v1`, and the secrets.
+- Per profile: network, ARC URL + token, MessageBox URL, auto-approve threshold + ledger, balance cache, avatar, connections, seen-token markers, the remote-backup preference (`backupPushEnabled`, superseded by the follow-ups spec §1), and the wallet DB.
 - Every new user-facing string goes into all 12 locales in `core/i18n/translations.tsx`, because `translationParity.test.ts` enforces parity.
 - Run jest from the repo root (`/Users/personal/git/bsv-wallet`) with `npx jest <path>`. Typecheck with `npx tsc --noEmit -p .` from the root.
 - Prettier only on the files you touched. Never `npm run fix`.

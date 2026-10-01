@@ -252,6 +252,9 @@ describe('Delete Wallet with several profiles', () => {
     await AsyncStorage.setItem('wallet_user_avatar_icon__p1', 'ionicons/leaf')
     await AsyncStorage.setItem('connections__p2', '[]')
     await AsyncStorage.setItem('walletSettings', '{"currency":"USD"}')
+    // Backup opt-outs: profile 0 on the bare key, profile 1 on its scoped one.
+    await AsyncStorage.setItem('backupPushEnabled', 'false')
+    await AsyncStorage.setItem('backupPushEnabled__p1', 'false')
     await renderProvider()
     await act(async () => wallet.buildWalletFromMnemonic('synthetic test key'))
 
@@ -265,6 +268,10 @@ describe('Delete Wallet with several profiles', () => {
     expect(purged).toEqual([KEY_P0.slice(-8), KEY_P1.slice(-8)].sort())
     expect(await AsyncStorage.getItem('wallet_user_avatar_icon__p1')).toBeNull()
     expect(await AsyncStorage.getItem('connections__p2')).toBeNull()
+    // The next wallet starts with backup ON on every profile: no opt-out outlives the wallet
+    // it was made for (profile 0's bare key included).
+    expect(await AsyncStorage.getItem('backupPushEnabled__p1')).toBeNull()
+    expect(await AsyncStorage.getItem('backupPushEnabled')).toBeNull()
     // Shared app settings are not per profile and survive as before.
     expect(await AsyncStorage.getItem('walletSettings')).toBe('{"currency":"USD"}')
     expect(await AsyncStorage.getItem(PROFILES_STORAGE_KEY)).toBeNull()

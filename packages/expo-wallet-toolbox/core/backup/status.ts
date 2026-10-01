@@ -26,8 +26,12 @@ export type BackupUploadState = {
   uploaded: boolean
 }
 
-export async function getBackupUploadState(chain: BackupChain, pseudonym: string): Promise<BackupUploadState> {
-  const enabled = await isBackupPushEnabled()
+export async function getBackupUploadState(
+  chain: BackupChain,
+  pseudonym: string,
+  profileIndex?: number
+): Promise<BackupUploadState> {
+  const enabled = await isBackupPushEnabled(profileIndex)
   let uploaded = false
   try {
     const prefix = cursorKeyPrefix(chain, pseudonym)

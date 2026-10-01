@@ -23,6 +23,7 @@ import { loadCursor, saveCursor, freshCursor, zeroOffsets } from '../../core/bac
 import { backupPseudonym, deriveBackupWallet } from '../../core/backup/derive'
 import { setBackupPushEnabled } from '../../core/backup/preference'
 import { pushOnce } from '../../core/backup/push'
+import { __resetProfilesForTests, appendProfile, setActiveProfile } from '../../core/profiles/profileStore'
 import type { SyncChunk } from '../../core/toolboxTypes'
 
 const PRIMARY = new PrivateKey(11).toArray('be', 32)
@@ -99,7 +100,10 @@ function fakeClient (over: Partial<Record<'append' | 'manifest' | 'limits', jest
   }
 }
 
-beforeEach(async () => { await AsyncStorage.clear() })
+beforeEach(async () => {
+  __resetProfilesForTests()
+  await AsyncStorage.clear()
+})
 
 describe('pushOnce', () => {
   it('appends nothing when the chunk is empty', async () => {
@@ -744,5 +748,59 @@ describe('pushOnce opt-out', () => {
 
     expect(r.pushed).toBe(1)
     expect(client.append).toHaveBeenCalledTimes(1)
+  })
+
+  describe('per profile', () => {
+    beforeEach(async () => {
+      await appendProfile()
+    })
+
+    it('an opt-out on profile 1 stops profile 1 only', async () => {
+      await setBackupPushEnabled(false, 1)
+
+      const optedOutStorage = fakeStorage(chunkWith({ provenTxs: 1 }))
+      const off = await pushOnce({
+        storage: optedOutStorage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
+        client: fakeClient(), deviceId: DEVICE, profileIndex: 1
+      })
+      expect(off.optedOut).toBe(true)
+      expect(optedOutStorage.getSyncChunk).not.toHaveBeenCalled()
+
+      const client = fakeClient()
+      const on = await pushOnce({
+        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any, primaryKey: PRIMARY, chain: 'main',
+        identityKey: IDENTITY, client, deviceId: DEVICE, profileIndex: 0
+      })
+      expect(on.pushed).toBe(1)
+      expect(client.append).toHaveBeenCalledTimes(1)
+    })
+
+    it('reads the build-scoped profile, not whichever profile is active when the pass runs', async () => {
+      // A drain that outlives a switch must not read the arriving profile's flag against
+      // the departing profile's storage and key.
+      await setBackupPushEnabled(false, 0)
+      await setActiveProfile(1)
+
+      const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
+      const r = await pushOnce({
+        storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
+        client: fakeClient(), deviceId: DEVICE, profileIndex: 0
+      })
+
+      expect(r.optedOut).toBe(true)
+      expect(storage.getSyncChunk).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the active profile when no index is given', async () => {
+      await setBackupPushEnabled(false, 1)
+      await setActiveProfile(1)
+
+      const r = await pushOnce({
+        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any, primaryKey: PRIMARY, chain: 'main',
+        identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      })
+
+      expect(r.optedOut).toBe(true)
+    })
   })
 })

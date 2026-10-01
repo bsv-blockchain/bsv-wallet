@@ -82,8 +82,11 @@ wallet SQLite DB (contacts, handle cache, display name, local-pay / PeerPay queu
 | Paired connections | `connections` | `connections_<identityKey>` |
 | Seen-token markers | `mandala_seen_assets`, `mandala_seen_evictions` | suffixed `_<identityKey>` |
 | Push registration marker | `push_registration_v1` (single slot) | unchanged single slot; re-registers on switch (see Push) |
+| Remote-backup preference | `backupPushEnabled` | `profileScopedKey`: profile 0 keeps the bare key, profile n uses `backupPushEnabled__p<n>`. Absence still means ON. |
 
-**Shared across profiles:** `walletSettings` (display currency, theme, etc.), one-time advisories (`nearby_advisory_shown_v1`, `push_advisory_shown_v1`), `backupDeviceId`, `backupPushEnabled`, handle key pins (`handleRegistry.keyPins.v1`), mnemonic and recovery secrets.
+**Shared across profiles:** `walletSettings` (display currency, theme, etc.), one-time advisories (`nearby_advisory_shown_v1`, `push_advisory_shown_v1`), `backupDeviceId`, handle key pins (`handleRegistry.keyPins.v1`), mnemonic and recovery secrets.
+
+`backupPushEnabled` is per profile, not shared: each profile pushes to its own server account, so one profile's opt-out (or erasing its server copy) must not stop another profile's backup. See `2026-10-01-multi-profile-followups-design.md` §1.
 
 **Profile 0 only:** YubiKey / Vault, including `vault_enrolled_serial_registry_v1`.
 

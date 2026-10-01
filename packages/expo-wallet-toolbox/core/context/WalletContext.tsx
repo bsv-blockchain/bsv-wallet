@@ -238,6 +238,7 @@ import { syncPushRegistration } from '../push/registration'
 import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
+import { BACKUP_PUSH_ENABLED_KEY } from '../backup/preference'
 import { restoreOnImport } from '../backup/restoreOnImport'
 import { backupPseudonym } from '../backup/derive'
 import type { BackupChain } from '../backup/constants'
@@ -2198,7 +2199,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                     primaryKey,
                     chain: backupChain,
                     identityKey: keyDeriver.identityKey,
-                    baseUrl: getBackupUrl()
+                    baseUrl: getBackupUrl(),
+                    // This build's profile, not whichever is active when the pass runs: a
+                    // drain that outlives a switch must read the departing profile's opt-out.
+                    profileIndex
                   })
                 })
               )
@@ -3565,9 +3569,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // cursor, not just the one just logged out of, same as the balance-cache sweep above.
       // Every non-default profile's device state (avatar, connections, ARC and
       // MessageBox overrides, auto-approve, caches) lives under a `__p<n>` key.
+      //
+      // The backup opt-out is per profile, so profile 0's bare key goes too: the next
+      // wallet built here starts with backup ON instead of inheriting this one's opt-out.
       try {
         const keys = await AsyncStorage.getAllKeys()
-        const stale = keys.filter(k => PROFILE_KEY_SUFFIX_RE.test(k))
+        const stale = keys.filter(k => PROFILE_KEY_SUFFIX_RE.test(k) || k === BACKUP_PUSH_ENABLED_KEY)
         if (stale.length > 0) await AsyncStorage.multiRemove(stale)
       } catch (err) {
         console.warn('[logout] failed to clear profile state', err)

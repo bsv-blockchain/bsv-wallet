@@ -214,11 +214,23 @@ export function WalletConfigScreen() {
     })
   }, [])
 
-  // Load the backup-push opt-out. Defaults to on, so a slow read shows the true default
-  // rather than flashing "Off".
+  // The profile the screen is showing right now, for handlers that await something (a
+  // confirm, a server delete) before they touch `backupPushOn`.
+  const activeProfileRef = useRef(activeProfile)
+  activeProfileRef.current = activeProfile
+
+  // Load the backup-push opt-out of the profile on screen. Defaults to on, so a slow read
+  // shows the true default rather than flashing "Off". Re-read when the profile changes:
+  // the opt-out is per profile and this screen can outlive a switch.
   useEffect(() => {
-    isBackupPushEnabled().then(setBackupPushOn)
-  }, [])
+    let current = true
+    isBackupPushEnabled(activeProfile).then(on => {
+      if (current) setBackupPushOn(on)
+    })
+    return () => {
+      current = false
+    }
+  }, [activeProfile])
 
   /**
    * Toggle pushing to the backup server.
@@ -230,6 +242,8 @@ export function WalletConfigScreen() {
    */
   const handleToggleBackupPush = useCallback(async () => {
     const next = !backupPushOn
+    // Pinned before the confirm: the write belongs to the profile whose toggle was pressed.
+    const profile = activeProfile
     if (!next) {
       const choice = await showAlert({
         title: t('backup_push_off_title'),
@@ -242,11 +256,11 @@ export function WalletConfigScreen() {
       if (choice !== 'confirm') return
     }
 
-    await setBackupPushEnabled(next)
-    setBackupPushOn(next)
+    await setBackupPushEnabled(next, profile)
+    if (profile === activeProfileRef.current) setBackupPushOn(next)
     if (next) TaskBackupPush.requestNow()
     showToast(next ? t('backup_push_on_toast') : t('backup_push_off_toast'), { type: 'info' })
-  }, [backupPushOn, t])
+  }, [backupPushOn, activeProfile, t])
 
   /**
    * Erase the server's copy of this wallet's backup, on request (GDPR Article 17).
@@ -262,6 +276,8 @@ export function WalletConfigScreen() {
   const handleEraseBackup = useCallback(async () => {
     if (erasingBackup) return
 
+    // Pinned before the confirm: every step below is for the profile whose erase this is.
+    const profile = activeProfile
     const choice = await showAlert({
       title: t('backup_erase_title'),
       message: t('backup_erase_message'),
@@ -277,7 +293,7 @@ export function WalletConfigScreen() {
       const mnemonic = await getMnemonic()
       const wif = mnemonic ? null : await getRecoveredKey()
       const primaryKey = mnemonic
-        ? recoverMnemonicWallet(mnemonic, '', activeProfile).primaryKey
+        ? recoverMnemonicWallet(mnemonic, '', profile).primaryKey
         : wif
           ? PrivateKey.fromWif(wif).toArray()
           : null
@@ -291,9 +307,9 @@ export function WalletConfigScreen() {
       // chain propagates — a partial erasure must never be reported as done.
       let deleted = 0
       for (const chain of BACKUP_CHAINS) {
-        deleted += (await eraseRemoteBackup({ primaryKey, chain, baseUrl: getBackupUrl() })).deleted
+        deleted += (await eraseRemoteBackup({ primaryKey, chain, baseUrl: getBackupUrl(), profileIndex: profile })).deleted
       }
-      setBackupPushOn(false)
+      if (profile === activeProfileRef.current) setBackupPushOn(false)
       showToast(t('backup_erase_done', { count: deleted }), { type: 'success' })
     } catch (e) {
       // Never report an erasure that did not happen. The server's copy is still there and
@@ -302,7 +318,7 @@ export function WalletConfigScreen() {
       showToast(t('backup_erase_failed'), { type: 'error' })
       // Pushing is off either way — eraseRemoteBackup wrote that before it tried the
       // delete, and a failed erasure is no reason to start uploading again.
-      setBackupPushOn(false)
+      if (profile === activeProfileRef.current) setBackupPushOn(false)
     } finally {
       setErasingBackup(false)
     }
