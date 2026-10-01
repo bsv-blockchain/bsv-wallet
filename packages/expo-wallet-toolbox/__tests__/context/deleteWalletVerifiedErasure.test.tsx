@@ -255,6 +255,9 @@ describe('Delete Wallet with several profiles', () => {
     // Backup opt-outs: profile 0 on the bare key, profile 1 on its scoped one.
     await AsyncStorage.setItem('backupPushEnabled', 'false')
     await AsyncStorage.setItem('backupPushEnabled__p1', 'false')
+    // What this device registered for push, per identity: not profile-scoped, so only an explicit sweep takes it.
+    await AsyncStorage.setItem('push_registration_v1', JSON.stringify({ [KEY_P0]: 'https://mb.example.org|tok1' }))
+    await AsyncStorage.setItem('push_registration_owner_v1', KEY_P0)
     await renderProvider()
     await act(async () => wallet.buildWalletFromMnemonic('synthetic test key'))
 
@@ -272,6 +275,9 @@ describe('Delete Wallet with several profiles', () => {
     // it was made for (profile 0's bare key included).
     expect(await AsyncStorage.getItem('backupPushEnabled__p1')).toBeNull()
     expect(await AsyncStorage.getItem('backupPushEnabled')).toBeNull()
+    // The next wallet registers from nothing: no identity key or token of this one is left behind.
+    expect(await AsyncStorage.getItem('push_registration_v1')).toBeNull()
+    expect(await AsyncStorage.getItem('push_registration_owner_v1')).toBeNull()
     // Shared app settings are not per profile and survive as before.
     expect(await AsyncStorage.getItem('walletSettings')).toBe('{"currency":"USD"}')
     expect(await AsyncStorage.getItem(PROFILES_STORAGE_KEY)).toBeNull()

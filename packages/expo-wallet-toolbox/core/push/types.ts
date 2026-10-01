@@ -1,7 +1,11 @@
 export type PushPermission = 'granted' | 'denied' | 'undetermined'
 
 export interface PushOpenedEvent {
-  /** Data payload from the push (messageId, originator). */
+  /**
+   * Data payload from the push: messageId, originator, and — from a server that
+   * registers one device per identity — recipient (the identity key the message
+   * is for) and messageBox. Every value is a string.
+   */
   data: Record<string, string>
 }
 

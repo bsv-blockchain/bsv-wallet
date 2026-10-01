@@ -154,6 +154,156 @@ describe('attachPushHandlers', () => {
   })
 })
 
+describe('attachPushHandlers: which profile a push is for', () => {
+  beforeEach(() => __resetInitialNotificationForTests())
+  const OTHER = '03'.padEnd(66, 'b')
+
+  /** A resolver that knows one inactive profile (index 2) by its identity key. */
+  const resolve = jest.fn((recipient: string): number | undefined => (recipient === OTHER ? 2 : undefined))
+  beforeEach(() => resolve.mockClear())
+
+  function attach(initial: PushOpenedEvent | null = null, switchProfile?: (i: number) => Promise<boolean>) {
+    const { adapter, handlers } = fakeAdapter(initial)
+    const calls: string[] = []
+    const requestInboxPass = jest.fn(() => void calls.push('pass'))
+    const openActivity = jest.fn(() => void calls.push('open'))
+    const sw = switchProfile ?? jest.fn(async (_i: number) => (calls.push('switched'), true))
+    attachPushHandlers({
+      adapter,
+      requestInboxPass,
+      openActivity,
+      onTokenRefresh: jest.fn(),
+      resolveInactiveProfile: resolve,
+      switchProfile: sw
+    })
+    return { handlers, calls, requestInboxPass, openActivity, switchProfile: sw as jest.Mock }
+  }
+
+  it('a tap for an inactive profile switches to it first, then opens Activity', async () => {
+    const a = attach()
+    a.handlers.opened({ data: { recipient: OTHER, messageBox: 'payment_inbox' } })
+    expect(a.switchProfile).toHaveBeenCalledWith(2)
+    // Nothing opens on the profile being left while the switch is under way.
+    expect(a.openActivity).not.toHaveBeenCalled()
+    await flush()
+    expect(a.calls).toEqual(['switched', 'pass', 'open'])
+  })
+
+  it('a cold-start tap for an inactive profile routes the same way', async () => {
+    const a = attach({ data: { recipient: OTHER } })
+    await flush()
+    expect(a.switchProfile).toHaveBeenCalledWith(2)
+    expect(a.calls).toEqual(['switched', 'pass', 'open'])
+  })
+
+  it('a tap for the open profile (or any recipient that is not an inactive one) behaves as before', async () => {
+    const a = attach()
+    a.handlers.opened({ data: { recipient: '02'.padEnd(66, 'a') } })
+    await flush()
+    expect(resolve).toHaveBeenCalledWith('02'.padEnd(66, 'a'))
+    expect(a.switchProfile).not.toHaveBeenCalled()
+    expect(a.calls).toEqual(['pass', 'open'])
+  })
+
+  it('a tap with no recipient (a server from before it was added) behaves as before, without asking', async () => {
+    const a = attach()
+    a.handlers.opened({ data: { messageId: 'm1' } })
+    a.handlers.opened({ data: { recipient: '' } })
+    await flush()
+    expect(resolve).not.toHaveBeenCalled()
+    expect(a.switchProfile).not.toHaveBeenCalled()
+    expect(a.calls).toEqual(['pass', 'open', 'pass', 'open'])
+  })
+
+  it('a switch that does not land leaves the user where they were: no Activity, no pass', async () => {
+    const a = attach(
+      null,
+      jest.fn(async () => false)
+    )
+    a.handlers.opened({ data: { recipient: OTHER } })
+    await flush()
+    expect(a.calls).toEqual([])
+  })
+
+  it('a switch that throws is logged, contained, and opens nothing', async () => {
+    const a = attach(
+      null,
+      jest.fn(async () => {
+        throw new Error('build failed')
+      })
+    )
+    expect(() => a.handlers.opened({ data: { recipient: OTHER } })).not.toThrow()
+    await flush()
+    expect(a.calls).toEqual([])
+    expect(warned()).toContain('[push] switchProfile failed: build failed')
+  })
+
+  it('a resolver that throws is logged and the tap behaves as before', async () => {
+    const { adapter, handlers } = fakeAdapter(null)
+    const requestInboxPass = jest.fn(),
+      openActivity = jest.fn()
+    attachPushHandlers({
+      adapter,
+      requestInboxPass,
+      openActivity,
+      onTokenRefresh: jest.fn(),
+      resolveInactiveProfile: () => {
+        throw new Error('store unreadable')
+      },
+      switchProfile: jest.fn()
+    })
+    handlers.opened({ data: { recipient: OTHER } })
+    await flush()
+    expect(openActivity).toHaveBeenCalledTimes(1)
+    expect(warned()).toContain('[push] resolveInactiveProfile failed: store unreadable')
+  })
+
+  it('without a switch (or a resolver) a tap behaves as before', async () => {
+    const { adapter, handlers } = fakeAdapter(null)
+    const openActivity = jest.fn()
+    attachPushHandlers({
+      adapter,
+      requestInboxPass: jest.fn(),
+      openActivity,
+      onTokenRefresh: jest.fn(),
+      resolveInactiveProfile: resolve
+    })
+    handlers.opened({ data: { recipient: OTHER } })
+    await flush()
+    expect(openActivity).toHaveBeenCalledTimes(1)
+  })
+
+  it("a foreground message for an inactive profile does not run the open profile's inbox pass", () => {
+    const a = attach()
+    a.handlers.fg({ data: { recipient: OTHER } })
+    expect(a.requestInboxPass).not.toHaveBeenCalled()
+    expect(a.switchProfile).not.toHaveBeenCalled()
+    expect(a.openActivity).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['for the open profile', { recipient: '02'.padEnd(66, 'a') }],
+    ['for an identity this device does not know', { recipient: '03'.padEnd(66, 'f') }],
+    ['with no recipient', { messageId: 'm1' }]
+  ])('a foreground message %s still requests the inbox pass', (_name, data) => {
+    const a = attach()
+    a.handlers.fg({ data })
+    expect(a.requestInboxPass).toHaveBeenCalledTimes(1)
+  })
+
+  it('never logs the recipient', async () => {
+    const a = attach(
+      null,
+      jest.fn(async () => {
+        throw new Error('boom')
+      })
+    )
+    a.handlers.opened({ data: { recipient: OTHER } })
+    await flush()
+    expect(warned()).not.toContain(OTHER)
+  })
+})
+
 describe('coalesceRuns', () => {
   function gated() {
     const gates: Array<() => void> = []

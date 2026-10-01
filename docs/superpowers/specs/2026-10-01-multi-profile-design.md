@@ -12,7 +12,7 @@ Secondary goal (user-requested): profiles double as a fast way to swap networks 
 ## Non-goals
 
 - No migration or backward compatibility. The app has no users yet; existing derivations may change.
-- No push delivery for inactive profiles (follow-up).
+- No push delivery for inactive profiles in this iteration (added by `2026-10-01-multi-profile-followups-design.md` §4).
 - No new UI for build-time service endpoints (WhatsOnChain, overlay, handle registry, backup server). Those stay per-chain from `configureToolbox` and follow the profile's network automatically.
 - No profile rename, reorder or delete in this iteration. Labels are fixed `profile1`, `profile2`, …
 - WIF-recovered wallets (no mnemonic) do not get profiles.
@@ -81,7 +81,7 @@ wallet SQLite DB (contacts, handle cache, display name, local-pay / PeerPay queu
 | Avatar | `wallet_user_avatar_icon` | `wallet_user_avatar_icon_<identityKey>` |
 | Paired connections | `connections` | `connections_<identityKey>` |
 | Seen-token markers | `mandala_seen_assets`, `mandala_seen_evictions` | suffixed `_<identityKey>` |
-| Push registration marker | `push_registration_v1` (single slot) | unchanged single slot; re-registers on switch (see Push) |
+| Push registration marker | `push_registration_v1` (single slot) | not profile-scoped: a map from identity key to the host and token registered, one entry per profile (see Push and `2026-10-01-multi-profile-followups-design.md` §4) |
 | Remote-backup preference | `backupPushEnabled` | `profileScopedKey`: profile 0 keeps the bare key, profile n uses `backupPushEnabled__p<n>`. Absence still means ON. |
 
 **Shared across profiles:** `walletSettings` (display currency, theme, etc.), one-time advisories (`nearby_advisory_shown_v1`, `push_advisory_shown_v1`), `backupDeviceId`, handle key pins (`handleRegistry.keyPins.v1`), mnemonic and recovery secrets.
@@ -152,7 +152,7 @@ Applied at:
 
 ## Push
 
-Only the active profile is registered. `switchProfile` detaches push (step 2), and the new build's `syncPushRegistration` registers the new identity. The single-slot marker dedupes against the current identity, so every switch causes a re-register. While a profile is inactive, notifications for it are ignored. Multi-profile push is a follow-up.
+Superseded by `2026-10-01-multi-profile-followups-design.md` §4: every live profile registers the device's token under its own identity, and a push for a profile that is not open switches to it when tapped. As first built, only the active profile was registered: `switchProfile` detached push (step 2), and the new build registered the new identity under a single-slot marker.
 
 ## Delete Wallet (logout)
 
@@ -196,7 +196,7 @@ Manual (simulator):
 
 ## Open follow-ups
 
-- Push delivery for inactive profiles.
+- ~~Push delivery for inactive profiles.~~ Done: followups spec §4.
 - Initial marker backup on `addProfile`, to close the discovery gap.
 - Profile rename and delete.
 - Storing profile settings (URLs, threshold) in the remote backup so a restore brings back more than the network.

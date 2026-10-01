@@ -589,15 +589,40 @@ describe('removeProfile', () => {
       expect(await deps.checkEmpty()).toEqual({ ok: false, reasons: ['check-failed'] })
     })
 
-    it('leave the push hook a no-op for now: it resolves and changes nothing', async () => {
-      await stored(1)
-      await renderBuilt()
-      const before = JSON.stringify(getProfilesState())
-      await run(async deps => {
-        await expect(deps.unregisterPush({ index: 1, identityKey: IDENTITY_1 })).resolves.toBeUndefined()
-        return removed
+    describe('the push hook', () => {
+      const MARKER_KEY = 'push_registration_v1'
+      const OWNER_KEY = 'push_registration_owner_v1'
+
+      it("forgets the removed identity's registration marker when no build holds its signing key", async () => {
+        await stored(1)
+        await renderBuilt()
+        await AsyncStorage.setItem(
+          MARKER_KEY,
+          JSON.stringify({ [IDENTITY_1]: 'https://mb.example.org|tok1', [IDENTITY_2]: 'https://mb.example.org|tok1' })
+        )
+        await AsyncStorage.setItem(OWNER_KEY, IDENTITY_1)
+        await run(async deps => {
+          await expect(deps.unregisterPush({ index: 1, identityKey: IDENTITY_1 })).resolves.toBeUndefined()
+          return removed
+        })
+        // Only the removed profile's entry goes; another profile's stays.
+        expect(JSON.parse((await AsyncStorage.getItem(MARKER_KEY))!)).toEqual({
+          [IDENTITY_2]: 'https://mb.example.org|tok1'
+        })
+        expect(await AsyncStorage.getItem(OWNER_KEY)).toBeNull()
       })
-      expect(JSON.stringify(getProfilesState())).toBe(before)
+
+      it('changes nothing else, and does not fail for a device that never registered', async () => {
+        await stored(1)
+        await renderBuilt()
+        const before = JSON.stringify(getProfilesState())
+        await run(async deps => {
+          await expect(deps.unregisterPush({ index: 1, identityKey: IDENTITY_1 })).resolves.toBeUndefined()
+          return removed
+        })
+        expect(JSON.stringify(getProfilesState())).toBe(before)
+        expect(await AsyncStorage.getItem(MARKER_KEY)).toBeNull()
+      })
     })
   })
 })

@@ -118,6 +118,14 @@ Tests cover:
 - Foreground pushes for an inactive profile do not trigger the active profile's inbox pass.
 - Removing a profile calls `/unregisterDevice` for it, best-effort, because it only works once the server change is live. Delete Wallet does the same for every profile.
 
+### App: what the implementation settled
+
+- **Old servers.** The app must not depend on the server change being live. A server that keeps one identity per token hands the token to whichever identity registered last, so besides the per-identity marker the device records which identity registered last (`push_registration_owner_v1`) and the active profile registers again whenever it is not that identity. After a switch the new profile's own marker is intact, so without this it would never register and the token would stay with the profile just left. Against a server with per-(identity, token) rows that re-registration is an idempotent upsert, one request per switch, as before.
+- **Unregister works from the marker.** `unregisterPushIdentity` reads the host and token the device recorded for that identity, not the current host setting or the current token, so a removed profile (whose settings the purge has just swept), a host changed since, or a rotated token still get the right request. An identity with no marker was never registered from this device and is skipped. `404`, `405` and `501` (a server without the endpoint) are reported as unsupported and are not failures. The marker entry is dropped whatever the outcome. Each request is bounded to 8 seconds.
+- **Recipient routing acts only on a positive match.** `data.recipient` that names a live profile other than the open one switches to it on a tap and skips the open profile's inbox pass on a foreground message. A missing recipient, the open profile's own, or an identity this device does not know leaves today's behaviour unchanged, so a formatting mismatch can never silence the open profile.
+- **Delete Wallet** starts unregistering every profile first, before teardown, and waits for it (bounded) before sweeping the markers it works from. The markers are not profile-scoped and are swept explicitly.
+- **Key material.** The keys of the profiles that are not open are derived from one HD root at build time, only when push is wired and more than one profile is live, and are held (as ProtoWallets) by that build's push handle until it is torn down. The privileged key is never derived for this, and the mnemonic is not retained.
+
 ## Testing
 
 - Unit tests for:
