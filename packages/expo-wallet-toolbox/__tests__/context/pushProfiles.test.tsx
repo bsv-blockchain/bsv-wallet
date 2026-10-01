@@ -488,6 +488,28 @@ describe('withdrawing registrations', () => {
     expect(mockPosts).toEqual([])
   })
 
+  it('Delete Wallet also withdraws a removed profile whose registration is still on record: the last chance to sign as it', async () => {
+    await storeProfiles(0, { 2: { deleted: true } })
+    await AsyncStorage.setItem(
+      PUSH_REGISTRATION_KEY,
+      JSON.stringify({ [ID[2]]: 'https://messagebox.bsvblockchain.tech|fcm-token-1' })
+    )
+    mockPostStatus = 503
+    await renderBuilt()
+    // The build's own retry did not get through.
+    expect(mockPosts.map(p => p.identityKey)).toEqual([ID[2]])
+    expect(Object.keys(await markers())).toContain(ID[2])
+
+    mockPosts.length = 0
+    mockPostStatus = 200
+    mockGetMnemonic.mockResolvedValue(null)
+    await act(async () => {
+      await wallet.logout()
+    })
+    expect(mockPosts.map(p => p.identityKey)).toContain(ID[2])
+    expect(await AsyncStorage.getItem(PUSH_REGISTRATION_KEY)).toBeNull()
+  })
+
   it('Delete Wallet unregisters every profile, signed as each, and sweeps the markers', async () => {
     await storeProfiles(1)
     await renderBuilt()

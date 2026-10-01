@@ -248,6 +248,20 @@ describe('createProfilePush', () => {
       expect(Object.keys(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).sort()).toEqual([ID[0], ID[1]].sort())
     })
 
+    it('Delete Wallet withdraws a retired profile’s registration too: it is the last time anything can sign as it', async () => {
+      const h = harness(retiredDeps())
+      h.storage.m.set(
+        PUSH_REGISTRATION_KEY,
+        JSON.stringify({ [ID[2]]: `${HOST}|oldtok`, [ID[1]]: 'https://one.example.org|oldtok' })
+      )
+      await h.push.unregister()
+      expect(h.posted.map(p => [(p.wallet as { wallet: number }).wallet, p.url, p.token]).sort()).toEqual([
+        [1, 'https://one.example.org/unregisterDevice', 'oldtok'],
+        [2, `${HOST}/unregisterDevice`, 'oldtok']
+      ])
+      expect(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).toEqual({})
+    })
+
     it('never registers one, and never routes a tap to one', async () => {
       const h = harness(retiredDeps())
       await h.push.sync()

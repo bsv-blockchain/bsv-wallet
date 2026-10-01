@@ -51,10 +51,10 @@ export interface ProfilePush {
   /** Register every profile that needs it. Serialised and coalesced; never rejects. */
   sync(): Promise<void>
   /**
-   * Withdraw the registrations of `identityKeys` (every profile of this build when
-   * omitted), all at once. Best effort and bounded in time: never rejects. A
-   * registration whose withdrawal did not get through stays on record, and a
-   * later build asks again (see `retired`).
+   * Withdraw the registrations of `identityKeys` (every profile of this build, the
+   * retired ones included, when omitted), all at once. Best effort and bounded in
+   * time: never rejects. A registration whose withdrawal did not get through stays
+   * on record, and a later build asks again (see `retired`).
    */
   unregister(identityKeys?: readonly string[]): Promise<void>
   /** The index of the live profile, other than the open one, whose identity key is `recipient`. */
@@ -111,11 +111,14 @@ export function createProfilePush(deps: ProfilePushDeps): ProfilePush {
   }
 
   const unregister = async (identityKeys?: readonly string[]): Promise<void> => {
-    const wanted = identityKeys ?? profiles.map(p => p.identityKey)
+    // A retired profile's key is held for exactly this: Delete Wallet is the last
+    // time anything can sign as it, since the seed goes with the wallet.
+    const held = [...profiles, ...retired]
+    const wanted = identityKeys ?? held.map(p => p.identityKey)
     await Promise.all(
       wanted.map(async identityKey => {
         try {
-          const profile = profiles.find(p => sameKey(p.identityKey, identityKey))
+          const profile = held.find(p => sameKey(p.identityKey, identityKey))
           // A key this build holds no wallet for cannot sign a request. Its marker
           // stays: it is what a build that does hold the key withdraws from.
           if (!profile) return
