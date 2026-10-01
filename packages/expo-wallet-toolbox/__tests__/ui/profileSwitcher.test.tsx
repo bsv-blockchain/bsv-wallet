@@ -16,7 +16,8 @@ const mockWallet = {
   activeProfile: 0,
   switchProfile: jest.fn(async () => {}),
   addProfile: jest.fn(async () => {}),
-  walletBuilding: false
+  walletBuilding: false,
+  switchingProfile: false
 }
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
@@ -59,6 +60,7 @@ function renderPopover(overrides: Partial<React.ComponentProps<typeof ProfileSwi
 beforeEach(() => {
   jest.clearAllMocks()
   mockWallet.profilesSupported = true
+  mockWallet.switchingProfile = false
 })
 
 describe('ProfileSwitcherPopover', () => {
@@ -88,6 +90,24 @@ describe('ProfileSwitcherPopover', () => {
     fireEvent.press(getByTestId('profile-add'))
     expect(props.onSelect).not.toHaveBeenCalled()
     expect(props.onAdd).not.toHaveBeenCalled()
+  })
+})
+
+describe('switch cover', () => {
+  it('covers the screen with the target profile while a switch runs, and the card is gone', () => {
+    const { getByTestId, getByText, queryByTestId } = renderPopover({ switchingTo: 1 })
+    expect(getByTestId('profile-switch-cover')).toBeTruthy()
+    expect(getByText('profile_switching')).toBeTruthy()
+    expect(queryByTestId('profile-switcher')).toBeNull()
+  })
+
+  it('ProfileButton shows the cover for as long as the wallet reports a switch', () => {
+    mockWallet.switchingProfile = true
+    const { getByTestId, rerender, queryByTestId } = render(<ProfileButton />)
+    expect(getByTestId('profile-switch-cover')).toBeTruthy()
+    mockWallet.switchingProfile = false
+    rerender(<ProfileButton />)
+    expect(queryByTestId('profile-switch-cover')).toBeNull()
   })
 })
 

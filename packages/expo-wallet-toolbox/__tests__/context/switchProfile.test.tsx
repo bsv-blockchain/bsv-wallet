@@ -194,6 +194,9 @@ beforeEach(async () => {
   mockRecover.mockClear()
 })
 
+/** Profile indices derived since the last clear. A build of profile n also
+ * derives profile 0 to check the store belongs to this seed. */
+const derivedIndices = () => mockRecover.mock.calls.map(c => c[2] ?? 0)
 const lastProfileIndexBuilt = () => mockRecover.mock.calls.at(-1)?.[2]
 
 async function renderBuilt() {
@@ -214,21 +217,34 @@ it('builds profile 0 by default and marks profiles supported', async () => {
 
 it('addProfile appends profile 1, switches to it and builds its keys; switching back rebuilds profile 0', async () => {
   await renderBuilt()
+  mockRecover.mockClear()
   await act(async () => {
     await wallet.addProfile()
   })
   expect(wallet.activeProfile).toBe(1)
   expect(getActiveProfileIndex()).toBe(1)
   expect(wallet.profiles.map(p => p.index)).toEqual([0, 1])
-  expect(lastProfileIndexBuilt()).toBe(1)
+  expect(derivedIndices()).toContain(1)
+  expect(wallet.switchingProfile).toBe(false)
   expect(wallet.walletBuilt).toBe(true)
   expect(JSON.parse((await AsyncStorage.getItem(PROFILES_STORAGE_KEY))!).active).toBe(1)
 
+  mockRecover.mockClear()
   await act(async () => {
     await wallet.switchProfile(0)
   })
   expect(wallet.activeProfile).toBe(0)
-  expect(lastProfileIndexBuilt()).toBe(0)
+  expect(derivedIndices()).toEqual([0])
+  expect(wallet.walletBuilt).toBe(true)
+})
+
+it('a second switch while one is running is ignored', async () => {
+  await renderBuilt()
+  await act(async () => {
+    await Promise.all([wallet.addProfile(), wallet.addProfile()])
+  })
+  expect(wallet.profiles).toHaveLength(2)
+  expect(wallet.activeProfile).toBe(1)
   expect(wallet.walletBuilt).toBe(true)
 })
 
@@ -271,26 +287,53 @@ it('replays the backup only on the build that activates a profile awaiting resto
   await renderBuilt()
   mockBuildMode = 'real'
   // Rejecting ends the real build right at the restore, which is all this needs.
-  mockRestore.mockRejectedValue(new Error('backup unavailable'))
+  // Every later build (the fallback to profile 0) runs in bypass mode.
+  mockRestore.mockImplementation(async () => {
+    mockBuildMode = 'bypass'
+    throw new Error('backup unavailable')
+  })
   mockRegisteredDbs = []
   await act(async () => {
     await wallet.addProfile()
   })
   expect(mockRestore).toHaveBeenCalledTimes(1)
   expect(mockRestore.mock.calls[0][0]).toMatchObject({ primaryKey: new PrivateKey(22).toArray('be', 32) })
-  // A failed restore leaves the profile waiting, so its next activation retries.
+  // A failed restore leaves the profile waiting, so its next activation retries,
+  // and the switch falls back to the profile the user came from — whose own
+  // build replays nothing.
   expect(getProfilesState().profiles[1].needsRestore).toBe(true)
+  expect(wallet.activeProfile).toBe(0)
+  expect(lastProfileIndexBuilt()).toBe(0)
+  expect(wallet.switchingProfile).toBe(false)
+  expect(wallet.walletBuilt).toBe(true)
+  expect(mockRestore).toHaveBeenCalledTimes(1)
+})
+
+it('a rebuild after a failed build still runs instead of waiting out its timeout', async () => {
+  await renderBuilt()
+  mockBuildMode = 'real'
+  mockRestore.mockRejectedValue(new Error('backup unavailable'))
+  mockRegisteredDbs = []
+  // Two acts, as in walletBuildRestore.test: rebuildWallet waits for the
+  // auto-build effect, which act only flushes between them.
+  let rebuilding!: Promise<void>
+  await act(async () => {
+    rebuilding = wallet.rebuildWallet({ restoreFromBackup: true })
+  })
+  await act(async () => {
+    await rebuilding
+  })
+  expect(mockRestore).toHaveBeenCalledTimes(1)
   expect(wallet.walletBuilt).toBe(false)
 
-  // Switching away from the failed build must still build the other profile,
-  // and must not replay anything for it.
-  mockRestore.mockClear()
+  // Nothing the auto-build effect watches changes on this rebuild.
   mockBuildMode = 'bypass'
   await act(async () => {
-    await wallet.switchProfile(0)
+    rebuilding = wallet.rebuildWallet()
   })
-  expect(mockRestore).not.toHaveBeenCalled()
-  expect(lastProfileIndexBuilt()).toBe(0)
+  await act(async () => {
+    await rebuilding
+  })
   expect(wallet.walletBuilt).toBe(true)
 })
 

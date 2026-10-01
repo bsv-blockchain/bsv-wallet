@@ -464,7 +464,7 @@ export function WalletConfigScreen() {
       // stored) is an intentional, explicit entry and is still honored.
       const stalePriorToken = originChanged && token === previousToken
       if (url && url !== defaultUrl) {
-        await AsyncStorage.setItem(arcUrlStorageKey(selectedNetwork), url)
+        await AsyncStorage.setItem(profileScopedKey(arcUrlStorageKey(selectedNetwork)), url)
       } else {
         await AsyncStorage.removeItem(profileScopedKey(arcUrlStorageKey(selectedNetwork)))
       }

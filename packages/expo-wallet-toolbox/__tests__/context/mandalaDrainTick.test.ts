@@ -93,7 +93,7 @@ describe('tearing a wallet down stops its tick', () => {
     // logout has its own. A further teardown that forgot this line would leave
     // a runtime holding a destroyed database's settlement store.
     expect(teardowns.length).toBeGreaterThanOrEqual(2)
-    for (const name of ['rebuildWallet', 'switchNetwork', 'switchProfile']) {
+    for (const name of ['rebuildWallet', 'switchNetwork', 'switchProfileImpl']) {
       const start = source.indexOf(`const ${name} = useCallback(`)
       expect(start).toBeGreaterThan(0)
       expect(source.slice(start, source.indexOf('\n  )\n', start))).toContain('await teardownBuiltWallet()')
@@ -112,7 +112,7 @@ describe('tearing a wallet down stops its tick', () => {
       // The monitor owns the tick; stopping it first is what guarantees no pass
       // is midway through `processOfflineActions` when the storage is closed.
       const before = source.slice(Math.max(0, at - 6000), at)
-      expect(before).toContain('stopMonitorAndDrain(monitor)')
+      expect(before).toContain('stopMonitorAndDrain(monitor, monitorSupervisorRef.current)')
     }
   })
 })

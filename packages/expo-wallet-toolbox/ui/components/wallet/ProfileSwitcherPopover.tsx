@@ -9,9 +9,23 @@
  * A small card hanging under the avatar, styled like the coin switcher
  * (AssetSwitcherDropdown). It sits in a transparent Modal rather than in-tree
  * because the avatar lives inside the header slot, whose box would clip it.
+ *
+ * While a switch runs, the same Modal turns into a full-screen cover: tearing
+ * one wallet down and building the next takes a moment, and the old wallet must
+ * not sit there looking live meanwhile. One Modal for both, because iOS will
+ * not present a second one while the first is still dismissing.
  */
 import React from 'react'
-import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native'
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions
+} from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { hitTargets, radii, spacing, typography, useTheme } from '@bsv/expo-wallet-toolbox'
 import type { ProfileRecord } from '../../../core/profiles/profileStore'
@@ -46,6 +60,8 @@ export interface ProfileSwitcherPopoverProps {
   onSelect: (index: number) => void
   onOpenProfile: () => void
   onAdd: () => void
+  /** A switch is running: show the full-screen cover instead of the card. */
+  switchingTo?: number | null
 }
 
 export default function ProfileSwitcherPopover({
@@ -58,7 +74,8 @@ export default function ProfileSwitcherPopover({
   busy,
   onSelect,
   onOpenProfile,
-  onAdd
+  onAdd,
+  switchingTo = null
 }: ProfileSwitcherPopoverProps) {
   const { colors } = useTheme()
   const { t } = useTranslation()
@@ -66,6 +83,24 @@ export default function ProfileSwitcherPopover({
   const Ionicons = loadIonicons()
   const cardWidth = Math.min(280, width - spacing.lg * 2)
   const left = Math.max(spacing.lg, Math.min(anchor.x, width - spacing.lg - cardWidth))
+
+  if (switchingTo !== null) {
+    return (
+      <Modal visible transparent animationType="fade" onRequestClose={() => {}} statusBarTranslucent>
+        <View
+          testID="profile-switch-cover"
+          style={[styles.cover, { backgroundColor: colors.background }]}
+          accessibilityViewIsModal
+          accessibilityLiveRegion="polite"
+        >
+          <ActivityIndicator size="large" color={colors.textSecondary} />
+          <Text style={[styles.coverLabel, { color: colors.textSecondary }]}>
+            {t('profile_switching', { profile: t('profile_label', { number: switchingTo + 1 }) })}
+          </Text>
+        </View>
+      </Modal>
+    )
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
@@ -189,5 +224,16 @@ const styles = StyleSheet.create({
   name: { ...typography.body, fontWeight: '600' },
   detail: { ...typography.footnote, marginTop: 1 },
   check: { width: 20, alignItems: 'center' },
-  separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 10, marginVertical: 4 }
+  separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 10, marginVertical: 4 },
+  cover: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.lg
+  },
+  coverLabel: { ...typography.body }
 })

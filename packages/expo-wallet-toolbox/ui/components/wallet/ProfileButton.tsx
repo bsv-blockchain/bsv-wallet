@@ -36,9 +36,12 @@ export default function ProfileButton() {
   const { t } = useTranslation()
   const { router } = loadExpoRouter()
   const avatar = useUserAvatarIcon()
-  const { profilesSupported, profiles, activeProfile, switchProfile, addProfile, walletBuilding } = useWallet()
+  const { profilesSupported, profiles, activeProfile, switchProfile, addProfile, walletBuilding, switchingProfile } =
+    useWallet()
   const discRef = useRef<View>(null)
   const [open, setOpen] = useState(false)
+  /** Which profile the running switch is headed to, for the cover's label. */
+  const [target, setTarget] = useState<number | null>(null)
   // Until the first layout measure lands: roughly where Home's top bar puts the disc.
   const [anchor, setAnchor] = useState({ x: 16, y: 54, height: 34 })
 
@@ -60,9 +63,12 @@ export default function ProfileButton() {
     setOpen(true)
   }
 
-  const run = (action: () => Promise<void>) => {
+  const run = (to: number, action: () => Promise<void>) => {
+    setTarget(to)
     setOpen(false)
-    action().catch(err => console.warn('[ProfileButton] profile action failed:', err))
+    action()
+      .catch(err => console.warn('[ProfileButton] profile action failed:', err))
+      .finally(() => setTarget(null))
   }
 
   return (
@@ -86,19 +92,20 @@ export default function ProfileButton() {
       </View>
       {profilesSupported && (
         <ProfileSwitcherPopover
-          visible={open}
+          visible={open || switchingProfile}
           onClose={() => setOpen(false)}
           anchor={anchor}
           profiles={profiles}
           active={activeProfile}
           avatar={avatar}
-          busy={walletBuilding}
-          onSelect={n => run(() => switchProfile(n))}
+          busy={walletBuilding || switchingProfile}
+          switchingTo={switchingProfile ? (target ?? activeProfile) : null}
+          onSelect={n => run(n, () => switchProfile(n))}
           onOpenProfile={() => {
             setOpen(false)
             openProfile()
           }}
-          onAdd={() => run(addProfile)}
+          onAdd={() => run(profiles.length, addProfile)}
         />
       )}
     </>
