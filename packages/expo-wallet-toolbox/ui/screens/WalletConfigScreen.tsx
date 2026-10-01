@@ -149,7 +149,9 @@ export function WalletConfigScreen() {
     rebuildWallet,
     storage,
     settings,
-    updateSettings
+    updateSettings,
+    activeProfile,
+    profilesSupported
   } = useWallet()
   const { getMnemonic, getRecoveredKey } = useLocalStorage()
   const insets = useSafeAreaInsets()
@@ -275,7 +277,7 @@ export function WalletConfigScreen() {
       const mnemonic = await getMnemonic()
       const wif = mnemonic ? null : await getRecoveredKey()
       const primaryKey = mnemonic
-        ? recoverMnemonicWallet(mnemonic).primaryKey
+        ? recoverMnemonicWallet(mnemonic, '', activeProfile).primaryKey
         : wif
           ? PrivateKey.fromWif(wif).toArray()
           : null
@@ -304,7 +306,7 @@ export function WalletConfigScreen() {
     } finally {
       setErasingBackup(false)
     }
-  }, [erasingBackup, t, getMnemonic, getRecoveredKey])
+  }, [erasingBackup, t, getMnemonic, getRecoveredKey, activeProfile])
 
   /**
    * Show what the wallet database is using, and offer the one safe reclaim.
@@ -600,7 +602,14 @@ export function WalletConfigScreen() {
         {advancedExpanded && (
           <>
           {/* ── Configuration ── */}
-          <GroupedSection header={t('configuration')}>
+          <GroupedSection
+            header={t('configuration')}
+            footer={
+              profilesSupported
+                ? t('profile_settings_scope_note', { profile: t('profile_label', { number: activeProfile + 1 }) })
+                : undefined
+            }
+          >
             <ListRow
               label={t('bsv_network')}
               value={

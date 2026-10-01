@@ -88,10 +88,16 @@ describe('tearing a wallet down stops its tick', () => {
    */
   const teardowns = clears.filter(at => source.slice(at, at + 300).includes('forgetSessionPsks()'))
 
-  it('every teardown path clears the runtime — rebuild, network switch and logout', () => {
-    // A fourth teardown that forgot this line would leave a runtime holding a
-    // destroyed database's settlement store.
-    expect(teardowns.length).toBeGreaterThanOrEqual(3)
+  it('every teardown path clears the runtime — rebuild, network/profile switch and logout', () => {
+    // Rebuild, network switch and profile switch share teardownBuiltWallet;
+    // logout has its own. A further teardown that forgot this line would leave
+    // a runtime holding a destroyed database's settlement store.
+    expect(teardowns.length).toBeGreaterThanOrEqual(2)
+    for (const name of ['rebuildWallet', 'switchNetwork', 'switchProfile']) {
+      const start = source.indexOf(`const ${name} = useCallback(`)
+      expect(start).toBeGreaterThan(0)
+      expect(source.slice(start, source.indexOf('\n  )\n', start))).toContain('await teardownBuiltWallet()')
+    }
   })
 
   it('drops the published runtime with the ref, so no screen keeps a stale one', () => {

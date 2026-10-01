@@ -158,6 +158,7 @@ beforeEach(() => {
   mockReadBackupAttestation.mockReset().mockResolvedValue({ v: 1, medium: 'phrase', at: 1 })
   mockShowAlert.mockReset()
   mockWallet = {
+    activeProfile: 0,
     managers: { permissionsManager: { createAction: jest.fn() } },
     adminOriginator: 'admin.test',
     selectedNetwork: 'main',

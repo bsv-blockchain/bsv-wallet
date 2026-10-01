@@ -81,9 +81,10 @@ export function parseProfilesState(raw: string | null): ProfilesState {
   for (let i = 0; byIndex.has(i); i++) profiles.push(byIndex.get(i)!)
   if (profiles.length === 0) return defaultProfilesState()
 
-  const active = Number.isInteger(obj.active) && (obj.active as number) < profiles.length && (obj.active as number) >= 0
-    ? (obj.active as number)
-    : 0
+  const active =
+    Number.isInteger(obj.active) && (obj.active as number) < profiles.length && (obj.active as number) >= 0
+      ? (obj.active as number)
+      : 0
   return { active, profiles }
 }
 

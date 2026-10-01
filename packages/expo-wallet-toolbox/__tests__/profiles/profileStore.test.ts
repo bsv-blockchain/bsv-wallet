@@ -32,7 +32,13 @@ describe('parseProfilesState', () => {
   })
 
   test('out-of-range active clamps to 0', () => {
-    const raw = JSON.stringify({ active: 5, profiles: [{ index: 0, network: 'main' }, { index: 1, network: 'test' }] })
+    const raw = JSON.stringify({
+      active: 5,
+      profiles: [
+        { index: 0, network: 'main' },
+        { index: 1, network: 'test' }
+      ]
+    })
     expect(parseProfilesState(raw).active).toBe(0)
   })
 

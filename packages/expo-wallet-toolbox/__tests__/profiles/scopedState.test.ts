@@ -5,11 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { fake as secureStoreFake } from '../__mocks__/secureStoreFake'
 import { arcApiTokenStorageKey } from '../../core/constants'
-import {
-  clearArcApiTokensForProfile,
-  getArcApiToken,
-  setArcApiToken
-} from '../../core/services/arcTokenStorage'
+import { clearArcApiTokensForProfile, getArcApiToken, setArcApiToken } from '../../core/services/arcTokenStorage'
 import { getUserAvatarIcon, loadUserAvatarIcon, setUserAvatarIcon } from '../../core/userAvatar'
 import connectionStore from '../../core/stores/ConnectionStore'
 import { markSeen, readSeen, SEEN_ASSETS_KEY } from '../../ui/tokenSeen'

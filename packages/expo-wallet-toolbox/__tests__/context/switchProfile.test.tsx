@@ -188,7 +188,6 @@ afterEach(async () => {
   jest.restoreAllMocks()
 })
 
-
 beforeEach(async () => {
   __resetProfilesForTests()
   await AsyncStorage.clear()
@@ -236,7 +235,13 @@ it('addProfile appends profile 1, switches to it and builds its keys; switching 
 it('a cold start on a stored profile builds that profile on its own network', async () => {
   await AsyncStorage.setItem(
     PROFILES_STORAGE_KEY,
-    JSON.stringify({ active: 1, profiles: [{ index: 0, network: 'main' }, { index: 1, network: 'test' }] })
+    JSON.stringify({
+      active: 1,
+      profiles: [
+        { index: 0, network: 'main' },
+        { index: 1, network: 'test' }
+      ]
+    })
   )
   await AsyncStorage.setItem('wallet_user_avatar_icon__p1', 'ionicons/leaf')
   await renderBuilt()
@@ -246,7 +251,7 @@ it('a cold start on a stored profile builds that profile on its own network', as
   expect(getUserAvatarIcon()).toEqual({ family: 'ionicons', name: 'leaf' })
 })
 
-it('switchNetwork changes only the active profile\'s network', async () => {
+it("switchNetwork changes only the active profile's network", async () => {
   await renderBuilt()
   await act(async () => {
     await wallet.addProfile()
