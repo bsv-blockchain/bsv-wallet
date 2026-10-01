@@ -352,13 +352,17 @@ export function getPushAdapter(): PushAdapter | undefined {
  * across all of them, so a testnet wizard could offer to factory-reset a live
  * mainnet signer.
  *
- * Chain is a parameter, not a module read: screens must re-render when the user
+ * Only the default wallet profile (index 0) has a vault: a YubiKey is enrolled
+ * against one identity, and showing an empty vault on another profile would read
+ * as the user's vault being gone.
+ *
+ * Chain and profile are parameters, not module reads: screens must re-render when the user
  * switches network, and `selectedNetwork` from the wallet context is what makes
  * that reactive. Keeping it a parameter also keeps this module a leaf — it must
  * never import `vaultStore`.
  */
-export function isVaultAvailable(chain: AppChain): boolean {
-  return isVaultEnabled() && chain === 'main'
+export function isVaultAvailable(chain: AppChain, profileIndex: number): boolean {
+  return isVaultEnabled() && chain === 'main' && profileIndex === 0
 }
 
 /** Test-only: drop the installed configuration. */

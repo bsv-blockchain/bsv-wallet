@@ -150,7 +150,8 @@ export function VaultScreen() {
   const { balance, loading, refresh } = useVaultBalance()
   const { coverage, refresh: refreshCoverage } = useVaultCoverage()
   const { exportData, exporting } = useExportWalletData()
-  const { managers, adminOriginator, selectedNetwork, storage, walletBuilding, buildWalletFromMnemonic } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, walletBuilding, buildWalletFromMnemonic, activeProfile } =
+    useWallet()
   const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
 
   /** undefined = loading; null = not enrolled. */
@@ -193,7 +194,7 @@ export function VaultScreen() {
   // so everything this gates collapses on a network switch without a remount —
   // in particular the two doors into EnrollWizard, whose factory-reset offer is
   // the fund-loss path a testnet vault reopens.
-  const enabled = isVaultAvailable(selectedNetwork)
+  const enabled = isVaultAvailable(selectedNetwork, activeProfile)
   // Which refusal to print when it is off. A build with the flag off says so
   // first (spec §5.5); a released build that is simply on the wrong network owes
   // the user that reason instead — "not available yet" would describe an
@@ -1078,6 +1079,21 @@ export function VaultScreen() {
       <View style={styles.iconBtn} />
     </View>
   )
+
+  // Only the default profile has a vault. Reachable here only through a deep
+  // link or a back stack that outlived a profile switch: no door, not even
+  // withdraw or chain restore, opens on another profile's identity.
+  if (activeProfile !== 0) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
+        {Header}
+        <View style={styles.centered}>
+          <Ionicons name="lock-closed-outline" size={44} color={colors.textSecondary} />
+          <Text style={[styles.p, { color: colors.textPrimary }]}>{t('vault_profile_only_default')}</Text>
+        </View>
+      </View>
+    )
+  }
 
   if (recoveryError) {
     return (

@@ -1118,6 +1118,11 @@ const resources = {
 
       // Profile
       profile: 'Profile',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Add profile',
+      profile_switcher_a11y: 'Switch profile',
+      profile_settings_scope_note: 'Network and connection settings apply to {{profile}} only.',
+      vault_profile_only_default: 'The vault is only available on {{profile}}.',
       profile_display_name: 'Display name',
       profile_display_name_hint: 'Shown publicly next to your handle. Anyone who looks you up can see it.',
       profile_handle: 'Handle',
@@ -2115,6 +2120,11 @@ const resources = {
       contact_add_from_payment: '添加到联系人',
 
       profile: '个人资料',
+      profile_label: 'profile{{number}}',
+      profile_add: '添加个人资料',
+      profile_switcher_a11y: '切换个人资料',
+      profile_settings_scope_note: '网络和连接设置仅适用于 {{profile}}。',
+      vault_profile_only_default: '保险库仅在 {{profile}} 上可用。',
       profile_display_name: '显示名称',
       profile_display_name_hint: '会公开显示在你的用户名旁边。任何查找你的人都能看到。',
       profile_handle: '用户名',
@@ -3174,6 +3184,11 @@ const resources = {
       contact_add_from_payment: 'संपर्कों में जोड़ें',
 
       profile: 'प्रोफ़ाइल',
+      profile_label: 'profile{{number}}',
+      profile_add: 'प्रोफ़ाइल जोड़ें',
+      profile_switcher_a11y: 'प्रोफ़ाइल बदलें',
+      profile_settings_scope_note: 'नेटवर्क और कनेक्शन सेटिंग्स केवल {{profile}} पर लागू होती हैं।',
+      vault_profile_only_default: 'वॉल्ट केवल {{profile}} पर उपलब्ध है।',
       profile_display_name: 'प्रदर्शन नाम',
       profile_display_name_hint:
         'आपके हैंडल के बगल में सार्वजनिक रूप से दिखता है। आपको खोजने वाला कोई भी इसे देख सकता है।',
@@ -4248,6 +4263,11 @@ const resources = {
       contact_add_from_payment: 'Añadir a contactos',
 
       profile: 'Perfil',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Añadir perfil',
+      profile_switcher_a11y: 'Cambiar de perfil',
+      profile_settings_scope_note: 'La configuración de red y conexión solo se aplica a {{profile}}.',
+      vault_profile_only_default: 'La caja fuerte solo está disponible en {{profile}}.',
       profile_display_name: 'Nombre visible',
       profile_display_name_hint: 'Se muestra públicamente junto a tu alias. Cualquiera que te busque puede verlo.',
       profile_handle: 'Alias',
@@ -5336,6 +5356,11 @@ const resources = {
       contact_add_from_payment: 'Ajouter aux contacts',
 
       profile: 'Profil',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Ajouter un profil',
+      profile_switcher_a11y: 'Changer de profil',
+      profile_settings_scope_note: 'Les réglages de réseau et de connexion s’appliquent uniquement à {{profile}}.',
+      vault_profile_only_default: 'Le coffre n’est disponible que sur {{profile}}.',
       profile_display_name: 'Nom affiché',
       profile_display_name_hint:
         'Affiché publiquement à côté de votre pseudo. Toute personne qui vous recherche peut le voir.',
@@ -6357,6 +6382,11 @@ const resources = {
       contact_add_from_payment: 'إضافة إلى جهات الاتصال',
 
       profile: 'الملف الشخصي',
+      profile_label: 'profile{{number}}',
+      profile_add: 'إضافة ملف شخصي',
+      profile_switcher_a11y: 'تبديل الملف الشخصي',
+      profile_settings_scope_note: 'تنطبق إعدادات الشبكة والاتصال على {{profile}} فقط.',
+      vault_profile_only_default: 'الخزنة متاحة فقط على {{profile}}.',
       profile_display_name: 'الاسم المعروض',
       profile_display_name_hint: 'يظهر علنًا بجوار اسم المستخدم الخاص بك. يمكن لأي شخص يبحث عنك رؤيته.',
       profile_handle: 'اسم المستخدم',
@@ -7428,6 +7458,11 @@ const resources = {
       contact_add_from_payment: 'Adicionar aos contatos',
 
       profile: 'Perfil',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Adicionar perfil',
+      profile_switcher_a11y: 'Trocar de perfil',
+      profile_settings_scope_note: 'As configurações de rede e conexão se aplicam apenas a {{profile}}.',
+      vault_profile_only_default: 'O cofre só está disponível em {{profile}}.',
       profile_display_name: 'Nome de exibição',
       profile_display_name_hint:
         'Mostrado publicamente ao lado do seu apelido. Qualquer pessoa que procurar por você pode ver.',
@@ -8485,6 +8520,11 @@ const resources = {
       contact_add_from_payment: 'পরিচিতিতে যোগ করুন',
 
       profile: 'প্রোফাইল',
+      profile_label: 'profile{{number}}',
+      profile_add: 'প্রোফাইল যোগ করুন',
+      profile_switcher_a11y: 'প্রোফাইল পরিবর্তন করুন',
+      profile_settings_scope_note: 'নেটওয়ার্ক ও সংযোগ সেটিংস শুধু {{profile}}-এ প্রযোজ্য।',
+      vault_profile_only_default: 'ভল্ট শুধু {{profile}}-এ উপলব্ধ।',
       profile_display_name: 'প্রদর্শন নাম',
       profile_display_name_hint: 'আপনার হ্যান্ডেলের পাশে প্রকাশ্যে দেখানো হয়। যে কেউ আপনাকে খুঁজলে এটি দেখতে পাবে।',
       profile_handle: 'হ্যান্ডেল',
@@ -9554,6 +9594,11 @@ const resources = {
       contact_add_from_payment: 'Добавить в контакты',
 
       profile: 'Профиль',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Добавить профиль',
+      profile_switcher_a11y: 'Сменить профиль',
+      profile_settings_scope_note: 'Настройки сети и подключения действуют только для {{profile}}.',
+      vault_profile_only_default: 'Хранилище доступно только в {{profile}}.',
       profile_display_name: 'Отображаемое имя',
       profile_display_name_hint: 'Показывается публично рядом с вашим юзернеймом. Его увидит любой, кто вас найдёт.',
       profile_handle: 'Юзернейм',
@@ -10622,6 +10667,11 @@ const resources = {
       contact_add_from_payment: 'Tambahkan ke kontak',
 
       profile: 'Profil',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Tambah profil',
+      profile_switcher_a11y: 'Ganti profil',
+      profile_settings_scope_note: 'Pengaturan jaringan dan koneksi hanya berlaku untuk {{profile}}.',
+      vault_profile_only_default: 'Brankas hanya tersedia di {{profile}}.',
       profile_display_name: 'Nama tampilan',
       profile_display_name_hint:
         'Ditampilkan secara publik di samping handle Anda. Siapa pun yang mencari Anda bisa melihatnya.',
@@ -11697,6 +11747,11 @@ const resources = {
       contact_add_from_payment: '連絡先に追加',
 
       profile: 'プロフィール',
+      profile_label: 'profile{{number}}',
+      profile_add: 'プロフィールを追加',
+      profile_switcher_a11y: 'プロフィールを切り替え',
+      profile_settings_scope_note: 'ネットワークと接続の設定は {{profile}} にのみ適用されます。',
+      vault_profile_only_default: '保管庫は {{profile}} でのみ利用できます。',
       profile_display_name: '表示名',
       profile_display_name_hint: 'ハンドルの横に公開表示されます。あなたを検索した人は誰でも見られます。',
       profile_handle: 'ハンドル',
@@ -12789,6 +12844,11 @@ const resources = {
       contact_add_from_payment: 'Dodaj do kontaktów',
 
       profile: 'Profil',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Dodaj profil',
+      profile_switcher_a11y: 'Przełącz profil',
+      profile_settings_scope_note: 'Ustawienia sieci i połączeń dotyczą tylko {{profile}}.',
+      vault_profile_only_default: 'Sejf jest dostępny tylko w {{profile}}.',
       profile_display_name: 'Nazwa wyświetlana',
       profile_display_name_hint: 'Widoczna publicznie obok Twojego pseudonimu. Zobaczy ją każdy, kto Cię wyszuka.',
       profile_handle: 'Pseudonim',

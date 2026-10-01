@@ -2085,8 +2085,13 @@ async function newVaultOutput(
 function requireReleased(opts: VaultTransferOptions | undefined, scopeToken: VaultScopeToken, what: string): void {
   const enabled = opts?.vaultEnabled ?? isVaultEnabled
   if (!enabled()) throw new VaultError('not-released', `${what} is switched off in this build`)
-  if (!isVaultAvailable(scopeToken.chain)) {
+  if (!isVaultAvailable(scopeToken.chain, 0)) {
     throw new VaultError('not-on-mainnet', `${what} is only available on mainnet`)
+  }
+  // Captured with the scope, like the chain: a profile switch mid-flight clears
+  // the scope and aborts at assertVaultScope rather than carrying on here.
+  if ((scopeToken.profileIndex ?? 0) !== 0) {
+    throw new VaultError('not-released', `${what} is only available on the default profile`)
   }
 }
 

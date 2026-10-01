@@ -129,7 +129,7 @@ export function VaultTransferScreen() {
   const { router, useLocalSearchParams } = loadExpoRouter()
   const Ionicons = loadIonicons()
   const { direction } = useLocalSearchParams<{ direction?: string }>()
-  const { managers, adminOriginator, selectedNetwork, storage, settings } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, settings, activeProfile } = useWallet()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const { balance, refresh } = useVaultBalance()
   const [meta, setMeta] = useState<VaultMeta | null>(null)
@@ -147,7 +147,7 @@ export function VaultTransferScreen() {
   // Release flag AND mainnet (task 11): deposits create a vault output, and one
   // must never land off mainnet. Withdrawal of pre-existing outputs is never
   // gated — that is how a testnet tester gets their coins back out.
-  const released = isVaultAvailable(selectedNetwork)
+  const released = isVaultAvailable(selectedNetwork, activeProfile)
   // See VaultScreen: "not available yet" describes an unreleased build, not a
   // released build on the wrong network.
   const unavailableCopy = isVaultEnabled() ? 'vault_not_on_mainnet_body' : 'vault_not_released_body'
@@ -473,6 +473,26 @@ export function VaultTransferScreen() {
     refresh,
     router
   ])
+
+  // Only the default profile has a vault — see VaultScreen.
+  if (activeProfile !== 0) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
+        <View style={[styles.header, { borderBottomColor: colors.separator }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+            <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>{t('vault_title')}</Text>
+          <View style={styles.iconBtn} />
+        </View>
+        <View style={styles.body}>
+          <Text style={{ ...typography.body, color: colors.textSecondary, textAlign: 'center' }}>
+            {t('vault_profile_only_default')}
+          </Text>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>

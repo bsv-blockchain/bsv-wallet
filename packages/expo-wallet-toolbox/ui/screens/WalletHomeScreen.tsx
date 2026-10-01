@@ -1796,7 +1796,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
               destinationPress — enrolment needs no wallet, and the Vault
               screen's own Deposit button runs the lazy wallet-creation path
               when it comes to that. */}
-          {(isVaultAvailable(selectedNetwork) || hasVaultMeta) && (
+          {activeProfile === 0 && (isVaultAvailable(selectedNetwork, activeProfile) || hasVaultMeta) && (
             <PressableScale
               haptic="confirm"
               onPress={() => router.push('/vault')}
@@ -1816,6 +1816,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       t,
       router,
       selectedNetwork,
+      activeProfile,
       hasVaultMeta,
       hasTokens,
       heldAsset,

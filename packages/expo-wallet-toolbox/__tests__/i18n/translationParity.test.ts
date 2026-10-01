@@ -25,7 +25,9 @@ const allowedUntranslated: Record<string, string[]> = {
   pay_step_contacts: ['fr'],
   pay_review_note: ['fr'],
   contact_identifier: ['id'],
-  profile_handle: ['id']
+  profile_handle: ['id'],
+  // The profile names are fixed labels (profile1, profile2, …) in every locale.
+  profile_label: ['*']
 }
 
 const placeholders = (value: string): string[] => [...value.matchAll(/{{(\w+)}}/g)].map(match => match[1]).sort()

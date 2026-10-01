@@ -174,6 +174,8 @@ import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offli
 import { drainMandalaInbox } from '../pay/rails/handle'
 import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
 import { disconnectActivePairedSession } from './WalletConnectionContext'
+import connectionStore from '../stores/ConnectionStore'
+import { loadUserAvatarIcon } from '../userAvatar'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
 import { getArcApiToken } from '../services/arcTokenStorage'
 import {
@@ -192,12 +194,14 @@ import {
 import { getExchangeRate } from '../services/exchangeRate'
 import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
+import { backupProbe, discoverProfiles } from '../profiles/discovery'
 import {
   appendProfile,
   getActiveProfile,
   getActiveProfileIndex,
   getProfilesState,
   loadProfiles,
+  PROFILES_STORAGE_KEY,
   profileScopedKey,
   PROFILE_KEY_SUFFIX_RE,
   resetProfiles,
@@ -442,6 +446,16 @@ export interface WalletContextValue {
    * through to a post-storage-attach reconciliation pass (no remote replay) for a raw
    * database import that already carries a complete local database (XR-079). */
   rebuildWallet: (opts?: { restoreFromBackup?: boolean; reviewImportedCoins?: boolean }) => Promise<void>
+  /** Index of the active wallet profile (0 = default). See core/profiles/profileStore. */
+  activeProfile: number
+  /** Every profile on this device, dense by index. */
+  profiles: ProfileRecord[]
+  /** True once the active wallet was built from a mnemonic. A recovered-key wallet has no profiles. */
+  profilesSupported: boolean
+  /** Tear down the current profile's wallet and build profile `n` (its own keys, DB and network). */
+  switchProfile: (n: number) => Promise<void>
+  /** Append the next profile and switch to it, restoring its remote backup if one exists. */
+  addProfile: () => Promise<void>
   storage: StorageExpoSQLite | null
   /**
    * Mandala stablecoins, or undefined.
@@ -525,6 +539,11 @@ export const WalletContext = createContext<WalletContextValue>({
   getWalletBuilt: () => false,
   switchNetwork: async () => {},
   rebuildWallet: async () => {},
+  activeProfile: 0,
+  profiles: [{ index: 0, network: 'main' }],
+  profilesSupported: false,
+  switchProfile: async () => {},
+  addProfile: async () => {},
   storage: null,
   mandala: undefined,
   mandalaSettlement: undefined,
@@ -1173,6 +1192,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const selectedNetworkRef = useRef<AppChain>(DEFAULT_CHAIN)
   selectedNetworkRef.current = selectedNetwork
   const [selectedStorageUrl, setSelectedStorageUrl] = useState<string>(DEFAULT_STORAGE_URL)
+  // Wallet profiles (one mnemonic, many wallets). The store is module state so
+  // key builders can read it synchronously; this subscribes the provider to it.
+  const profilesState = useProfiles()
+  const [profilesSupported, setProfilesSupported] = useState(false)
+  /** Bumped to make the auto-build effect run again when nothing it otherwise
+   * watches changes — a profile switch away from a failed build on the same
+   * network leaves configStatus, walletBuilt and the network all as they were. */
+  const [autoBuildRequest, setAutoBuildRequest] = useState(0)
 
   // Flag that indicates configuration is complete. For returning users,
   // if a snapshot exists we auto-mark configComplete.
@@ -1195,13 +1222,33 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   useEffect(() => {
     ;(async () => {
       if (configStatus !== 'initial') return
+      // The active profile picks the network, keys and database, so it must be in
+      // memory before anything builds. Per-profile caches that were read at import
+      // or mount time (before this resolved) are re-read for the profile it names.
+      const hadProfiles = (await AsyncStorage.getItem(PROFILES_STORAGE_KEY).catch(() => null)) != null
+      await loadProfiles()
+      await Promise.all([
+        reloadAutoApproveLedger(),
+        loadUserAvatarIcon(),
+        connectionStore.reload(),
+        AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY))
+          .then(v => {
+            autoApproveThresholdRef.current = v !== null ? Number(v) || 0 : DEFAULT_AUTO_APPROVE_THRESHOLD
+          })
+          .catch(() => {})
+      ])
       const storedConfig = await getItem('finalConfig')
       if (storedConfig) {
         try {
           const config = JSON.parse(storedConfig)
-          finalizeConfig(config)
+          // The network lives on the profile. A device that predates profiles
+          // seeds profile 0 from the network it was last on.
+          if (!hadProfiles && ['main', 'test', 'teratest'].includes(config.network)) {
+            await updateProfile(0, { network: config.network })
+          }
+          finalizeConfig({ ...config, network: getActiveProfile().network })
         } catch {
-          finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
+          finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: getActiveProfile().network, storageUrl: 'local' })
           await setItem(
             'finalConfig',
             JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
@@ -1209,7 +1256,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
       } else {
         // First launch: auto-configure with defaults
-        finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
+        finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: getActiveProfile().network, storageUrl: 'local' })
         await setItem(
           'finalConfig',
           JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
@@ -1244,6 +1291,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // conditional on the app still wanting THIS build by the time it gets there.
       const buildToken = buildGenRef.current.current()
       const stillWanted = () => buildGenRef.current.isCurrent(buildToken)
+      // The profile this build belongs to. A switch bumps the build generation,
+      // so a build that outlives its profile never reaches the record below.
+      const profileIndex = getActiveProfileIndex()
       try {
         logWithTimestamp(F, 'Building wallet')
         const newManagers = {} as any
@@ -2463,7 +2513,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           logWithTimestamp(F, 'Discarding a build the network switch overtook')
           return null
         }
-        vaultStore.configureScope({ identityKey: keyDeriver.identityKey, chain: backupChain })
+        vaultStore.configureScope({ identityKey: keyDeriver.identityKey, chain: backupChain, profileIndex })
+        // The identity is public; Delete Wallet needs it to find this profile's
+        // databases. Any restore this profile was waiting for has now run.
+        void updateProfile(profileIndex, { identityKey: keyDeriver.identityKey, needsRestore: false })
         updateManagers(m => ({ ...m, ...newManagers }))
         logWithTimestamp(F, 'Wallet build completed successfully')
 
@@ -2505,6 +2558,26 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   /** Lets a build that finished on a stale configuration re-enter this same
    * callback, which cannot name itself inside its own definition. */
   const buildFromMnemonicRef = useRef<((m?: string, o?: WalletBuildOptions) => Promise<void>) | null>(null)
+
+  /** After a seed import, find the other profiles it backed up (see core/profiles/discovery).
+   * Fire-and-forget: only the probe runs now; each profile restores on first switch. */
+  const discoverProfilesRef = useRef<((mnemonic: string) => void) | null>(null)
+  discoverProfilesRef.current = (mnemonic: string) => {
+    const baseUrl = getBackupUrl()
+    if (!baseUrl) return
+    void discoverProfiles({
+      mnemonic,
+      probe: backupProbe(baseUrl),
+      register: async (index, network) => {
+        // Idempotent: a second import of the same seed must not duplicate profiles.
+        if (index === getProfilesState().profiles.length) await appendProfile(network, { needsRestore: true })
+      }
+    })
+      .then(n => {
+        if (n > 0) logWithTimestamp(F, `Profile discovery registered ${n} profile(s)`)
+      })
+      .catch(err => console.warn('[WalletContext] profile discovery failed:', err))
+  }
 
   const buildWalletFromMnemonic = useCallback(
     async (providedMnemonic?: string, opts?: WalletBuildOptions) => {
@@ -2564,6 +2637,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // allows the import screen to continue without restoring on retry.
         if (opts !== undefined) restoreIntentRef.current = opts.restoreFromBackup === true
         if (opts !== undefined) reviewImportedCoinsRef.current = opts.reviewImportedCoins === true
+        // A profile found by restore discovery, or just added, replays its own
+        // remote backup on its first build — on whichever launch that happens.
+        if (getProfilesState().profiles[profileIndex]?.needsRestore) restoreIntentRef.current = true
+        // Captured before buildWallet consumes it: an import of profile 0 is what
+        // triggers discovery of the other profiles this seed has backed up.
+        const wantedRestore = restoreIntentRef.current
 
         // Provide the primary key and privileged key manager to authenticate the wallet
         await swm.providePrimaryKey(primaryKey)
@@ -2592,6 +2671,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         walletBuiltRef.current = true
         setWalletBuilt(true)
         setWalletBuilding(false)
+        setProfilesSupported(true)
+        if (wantedRestore && profileIndex === 0) discoverProfilesRef.current?.(mnemonic)
 
         logWithTimestamp(F, 'Mnemonic wallet build completed')
       } catch (error: any) {
@@ -2624,9 +2705,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         const recoveredKey = PrivateKey.fromWif(wif)
         const primaryKey = recoveredKey.toArray()
+        // A recovered key is a single wallet: no seed, so no other profiles.
+        if (getActiveProfileIndex() !== 0) await setActiveProfile(0)
 
-        // Same plain-root-key manager as the mnemonic path — see the comment
-        // there. guardVaultAccess is what keeps non-admin originators away from it.
+        // The recovered key doubles as the privileged key — there is no seed to
+        // derive a separate one from. guardVaultAccess is what keeps non-admin
+        // originators away from it.
         const privilegedKeyManager = new PrivilegedKeyManager(async () => recoveredKey, VAULT_RETENTION_MS)
 
         const swm = new SimpleWalletManager(ADMIN_ORIGINATOR, buildWallet)
@@ -2650,6 +2734,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         setWalletBuilt(true)
         walletBuildingRef.current = false
         setWalletBuilding(false)
+        setProfilesSupported(false)
 
         logWithTimestamp(F, 'Recovered key wallet build completed')
       } catch (error: any) {
@@ -2664,6 +2749,67 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     [configStatus, buildWallet]
   )
 
+  /**
+   * Tear the built wallet down but keep the secrets and config: what
+   * rebuildWallet, switchNetwork and switchProfile all share. The caller bumps
+   * the build generation first. Everything up to the first await runs
+   * synchronously, so in-flight Vault operations are invalidated before
+   * anything can resume against the departing wallet.
+   */
+  const teardownBuiltWallet = useCallback(async () => {
+    // Invalidate Vault operations before the first teardown await. Otherwise a
+    // signer/listing already in flight can resume against the departing wallet.
+    vaultStore.clearScope()
+    vaultCeremony.cancel()
+
+    // Push listeners and the registration sync belong to the wallet being
+    // torn down; nothing may fire them against it from here on.
+    pushDetachRef.current?.()
+    pushDetachRef.current = undefined
+    pushSyncRef.current = undefined
+
+    // Stop any running monitor and let its current pass drain before the
+    // storage teardown below closes the connection under it.
+    {
+      const monitor = monitorRef.current
+      if (monitor) {
+        monitorRef.current = null
+        await stopMonitorAndDrain(monitor)
+      }
+    }
+    // Same convention as monitorRef above: clear so a stale deferred header
+    // init or reconnect handler from the old build can't pair a leftover
+    // store/tracker across the rebuild.
+    offlineChaintracksRef.current = undefined
+    headerStoreRef.current = undefined
+
+    // Close the current storage connection so the new build can open
+    // whichever DB file the registry selects.
+    if (storage?.db) {
+      try {
+        await storage.destroy()
+      } catch {}
+    }
+    // And drop the handle with it. Leaving a destroyed storage in state kept
+    // the screens reading the OLD chain's database until the new build
+    // replaced it — which is how a testnet wallet displayed mainnet money.
+    setStorage(null)
+    // The runtime holds this build's settlement store, which is a handle on
+    // the database just destroyed. Dropping it here is what stops a monitor
+    // task or a screen draining the departed wallet's tables.
+    mandalaRef.current = undefined
+    setMandala(undefined)
+    forgetSessionPsks()
+
+    // Tear down current wallet state (but keep mnemonic / config)
+    vaultStore.clearScope()
+    updateManagers({})
+    walletBuiltRef.current = false
+    setWalletBuilt(false)
+    walletBuildingRef.current = false
+    setWalletBuilding(false)
+  }, [storage])
+
   // Tear down the current wallet and re-trigger auto-build.
   // Used after DB import and internally by switchNetwork.
   const rebuildWallet = useCallback(
@@ -2677,57 +2823,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       reviewImportedCoinsRef.current = opts?.reviewImportedCoins === true
       // Any build already in flight belongs to the configuration being replaced.
       const token = buildGenRef.current.bump()
-      // Invalidate Vault operations before the first teardown await. Otherwise a
-      // signer/listing already in flight can resume against the departing wallet.
-      vaultStore.clearScope()
-      vaultCeremony.cancel()
-
-      // Push listeners and the registration sync belong to the wallet being
-      // torn down; nothing may fire them against it from here on.
-      pushDetachRef.current?.()
-      pushDetachRef.current = undefined
-      pushSyncRef.current = undefined
-
-      // Stop any running monitor and let its current pass drain before the
-      // storage teardown below closes the connection under it.
-      {
-        const monitor = monitorRef.current
-        if (monitor) {
-          monitorRef.current = null
-          await stopMonitorAndDrain(monitor)
-        }
-      }
-      // Same convention as monitorRef above: clear so a stale deferred header
-      // init or reconnect handler from the old build can't pair a leftover
-      // store/tracker across the rebuild.
-      offlineChaintracksRef.current = undefined
-      headerStoreRef.current = undefined
-
-      // Close the current storage connection so the new build can open
-      // whichever DB file the registry selects.
-      if (storage?.db) {
-        try {
-          await storage.destroy()
-        } catch {}
-      }
-      // And drop the handle with it. Leaving a destroyed storage in state kept
-      // the screens reading the OLD chain's database until the new build
-      // replaced it — which is how a testnet wallet displayed mainnet money.
-      setStorage(null)
-      // The runtime holds this build's settlement store, which is a handle on
-      // the database just destroyed. Dropping it here is what stops a monitor
-      // task or a screen draining the departed wallet's tables.
-      mandalaRef.current = undefined
-      setMandala(undefined)
-      forgetSessionPsks()
-
-      // Tear down current wallet state (but keep mnemonic / config)
-      vaultStore.clearScope()
-      updateManagers({})
-      walletBuiltRef.current = false
-      setWalletBuilt(false)
-      walletBuildingRef.current = false
-      setWalletBuilding(false)
+      await teardownBuiltWallet()
 
       // Re-finalize with current config — triggers auto-build effect
       const config = { wabUrl: 'noWAB', method: 'mnemonic', network: selectedNetwork, storageUrl: 'local' }
@@ -2742,58 +2838,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // wallet actually existing, such as recording a backup attestation.
       await waitForRebuild(token)
     },
-    [selectedNetwork, storage, finalizeConfig, waitForRebuild]
+    [selectedNetwork, teardownBuiltWallet, finalizeConfig, waitForRebuild]
   )
 
-  // Switch network: tear down wallet, update config, and rebuild on new chain
+  // Switch network: tear down wallet, update config, and rebuild on new chain.
+  // The network belongs to the active profile, so this changes that profile's.
   const switchNetwork = useCallback(
     async (network: AppChain) => {
       if (network === selectedNetwork) return
       logWithTimestamp(F, `Switching network from ${selectedNetwork} to ${network}`)
       buildGenRef.current.bump()
-      vaultStore.clearScope()
-      vaultCeremony.cancel()
-
-      // Push listeners and the registration sync belong to the wallet being
-      // torn down; nothing may fire them against it from here on.
-      pushDetachRef.current?.()
-      pushDetachRef.current = undefined
-      pushSyncRef.current = undefined
-
-      // Stop any running monitor and let its current pass drain before the
-      // storage teardown below closes the connection under it.
-      {
-        const monitor = monitorRef.current
-        if (monitor) {
-          monitorRef.current = null
-          await stopMonitorAndDrain(monitor)
-        }
-      }
-      // Same convention as monitorRef above: clear so the old chain's
-      // tracker/store can't linger and get paired against the new chain.
-      offlineChaintracksRef.current = undefined
-      headerStoreRef.current = undefined
-
-      // Close the current storage connection
-      if (storage?.db) {
-        try {
-          await storage.destroy()
-        } catch {}
-      }
-      setStorage(null)
-      mandalaRef.current = undefined
-      setMandala(undefined)
-      forgetSessionPsks()
-
-      // Tear down current wallet state (but keep mnemonic)
-      vaultStore.clearScope()
-      updateManagers({})
-      walletBuiltRef.current = false
-      setWalletBuilt(false)
-      walletBuildingRef.current = false
-      setWalletBuilding(false)
+      await teardownBuiltWallet()
 
       // Persist new config
+      await updateProfile(getActiveProfileIndex(), { network })
       const newConfig = { wabUrl: 'noWAB', method: 'mnemonic', network, storageUrl: 'local' }
       await setItem('finalConfig', JSON.stringify(newConfig))
 
@@ -2801,8 +2859,54 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       finalizeConfig(newConfig)
       logWithTimestamp(F, `Network switched to ${network}`)
     },
-    [selectedNetwork, setItem, storage, finalizeConfig]
+    [selectedNetwork, setItem, teardownBuiltWallet, finalizeConfig]
   )
+
+  /**
+   * Switch to wallet profile `n`: its own keys (m/0'/n', m/1'/n'), database,
+   * network and per-profile settings. A profile awaiting restore replays its
+   * remote backup during this build (see buildWalletFromMnemonic).
+   *
+   * Ordering matters: the generation bump comes before any await, so a build
+   * already in flight for the old profile can never publish; the store only
+   * flips AFTER teardown, so the departing wallet never reads the new
+   * profile's settings (the auto-approve hot path reads its key per request).
+   */
+  const switchProfile = useCallback(
+    async (n: number) => {
+      if (n === getActiveProfileIndex()) return
+      const record = getProfilesState().profiles[n]
+      if (!record) throw new Error(`Unknown profile index: ${n}`)
+      logWithTimestamp(F, `Switching profile ${getActiveProfileIndex()} → ${n}`)
+      const token = buildGenRef.current.bump()
+      restoreIntentRef.current = false
+      reviewImportedCoinsRef.current = false
+      // Pairings belong to the departing identity.
+      disconnectActivePairedSession()
+      await teardownBuiltWallet()
+
+      await setActiveProfile(n)
+      await Promise.all([reloadAutoApproveLedger(), loadUserAvatarIcon(), connectionStore.reload()])
+      await setItem(
+        'finalConfig',
+        JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: record.network, storageUrl: 'local' })
+      )
+
+      pendingAutoBuildRef.current = true
+      finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: record.network, storageUrl: 'local' })
+      setAutoBuildRequest(r => r + 1)
+      await waitForRebuild(token)
+    },
+    [teardownBuiltWallet, setItem, finalizeConfig, waitForRebuild]
+  )
+
+  /** Append the next profile on mainnet and switch to it. If this seed already
+   * backed that profile up (a profile discovery missed), its history comes back. */
+  const addProfile = useCallback(async () => {
+    if (!profilesSupported) return
+    const record = await appendProfile('main', { needsRestore: true })
+    await switchProfile(record.index)
+  }, [profilesSupported, switchProfile])
 
   // Auto-build wallet for returning users (mnemonic first, then recovered key).
   // Sets walletBuilding=true eagerly so other parts of the app (index.tsx
@@ -2838,7 +2942,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
       }
     })()
-  }, [configStatus, walletBuilt, secretsReady, buildWalletFromMnemonic, buildWalletFromRecoveredKey, getRecoveredKey])
+  }, [
+    configStatus,
+    walletBuilt,
+    secretsReady,
+    buildWalletFromMnemonic,
+    buildWalletFromRecoveredKey,
+    getRecoveredKey,
+    autoBuildRequest
+  ])
 
   // Settings are AsyncStorage-only — no on-chain sync needed
 
@@ -3860,6 +3972,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       getWalletBuilt,
       switchNetwork,
       rebuildWallet,
+      activeProfile: profilesState.active,
+      profiles: profilesState.profiles,
+      profilesSupported,
+      switchProfile,
+      addProfile,
       storage,
       mandala,
       mandalaSettlement: mandalaSettlementDeps(mandala),
@@ -3911,6 +4028,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       getWalletBuilt,
       switchNetwork,
       rebuildWallet,
+      profilesState,
+      profilesSupported,
+      switchProfile,
+      addProfile,
       storage,
       mandala,
       refreshProof,

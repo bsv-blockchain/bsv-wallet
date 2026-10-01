@@ -216,6 +216,13 @@ describe('getHandleRegistryConfig', () => {
 // screen reads it while rendering and an unconfigured dev host must simply
 // see "no vault", not a crash.
 describe('isVaultEnabled', () => {
+  it('is false on every profile but the default, even on main with the flag on', () => {
+    configureToolbox({ backupUrl: null, vaultEnabled: true })
+    expect(isVaultAvailable('main', 1)).toBe(false)
+    expect(isVaultAvailable('main', 7)).toBe(false)
+    expect(isVaultAvailable('test', 1)).toBe(false)
+  })
+
   it('is false before configureToolbox runs, without throwing', () => {
     expect(isVaultEnabled()).toBe(false)
   })
@@ -244,24 +251,31 @@ describe('isVaultEnabled', () => {
 describe('isVaultAvailable', () => {
   it('is true only on main with the flag on', () => {
     configureToolbox({ backupUrl: null, vaultEnabled: true })
-    expect(isVaultAvailable('main')).toBe(true)
+    expect(isVaultAvailable('main', 0)).toBe(true)
   })
 
   it('is false on every test chain even with the flag on', () => {
     configureToolbox({ backupUrl: null, vaultEnabled: true })
-    expect(isVaultAvailable('test')).toBe(false)
-    expect(isVaultAvailable('teratest')).toBe(false)
+    expect(isVaultAvailable('test', 0)).toBe(false)
+    expect(isVaultAvailable('teratest', 0)).toBe(false)
   })
 
   it('is false on every chain with the flag off', () => {
     configureToolbox({ backupUrl: null })
-    expect(isVaultAvailable('main')).toBe(false)
-    expect(isVaultAvailable('test')).toBe(false)
-    expect(isVaultAvailable('teratest')).toBe(false)
+    expect(isVaultAvailable('main', 0)).toBe(false)
+    expect(isVaultAvailable('test', 0)).toBe(false)
+    expect(isVaultAvailable('teratest', 0)).toBe(false)
+  })
+
+  it('is false on every profile but the default, even on main with the flag on', () => {
+    configureToolbox({ backupUrl: null, vaultEnabled: true })
+    expect(isVaultAvailable('main', 1)).toBe(false)
+    expect(isVaultAvailable('main', 7)).toBe(false)
+    expect(isVaultAvailable('test', 1)).toBe(false)
   })
 
   it('is false before configureToolbox runs, without throwing', () => {
-    expect(isVaultAvailable('main')).toBe(false)
+    expect(isVaultAvailable('main', 0)).toBe(false)
   })
 })
 

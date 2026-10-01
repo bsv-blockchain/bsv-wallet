@@ -45,6 +45,9 @@ export interface VaultStoreScope {
   /** Compressed secp256k1 wallet identity key, lowercase hex. */
   identityKey: string
   chain: VaultScopeChain
+  /** The wallet profile this identity belongs to (default 0). The vault is only
+   * ever available on profile 0; transfers check the captured value. */
+  profileIndex?: number
 }
 
 /** Opaque capability binding an async operation to one configured scope. */
@@ -52,6 +55,7 @@ export interface VaultScopeToken {
   readonly generation: number
   readonly storageKey: string
   readonly chain: VaultScopeChain
+  readonly profileIndex?: number
 }
 
 export interface VaultKeyRecord {
@@ -173,7 +177,11 @@ function normalizeScope(scope: VaultStoreScope): VaultStoreScope {
   if (scope.chain !== 'main' && scope.chain !== 'test' && scope.chain !== 'teratest') {
     throw new VaultError('template-invalid', 'Vault scope requires a supported chain')
   }
-  return { identityKey: scope.identityKey, chain: scope.chain }
+  const profileIndex = scope.profileIndex ?? 0
+  if (!Number.isInteger(profileIndex) || profileIndex < 0) {
+    throw new VaultError('template-invalid', 'Vault scope requires a valid profile index')
+  }
+  return { identityKey: scope.identityKey, chain: scope.chain, profileIndex }
 }
 
 function scopedKey(scope = activeScope): string | null {
@@ -297,11 +305,16 @@ function captureScope(required: boolean): VaultScopeToken | null {
     if (required) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
     return null
   }
-  return { generation: scopeGeneration, storageKey, chain: activeScope!.chain }
+  return { generation: scopeGeneration, storageKey, chain: activeScope!.chain, profileIndex: activeScope!.profileIndex ?? 0 }
 }
 
 function assertScope(token: VaultScopeToken): void {
-  if (token.generation !== scopeGeneration || token.storageKey !== scopedKey() || token.chain !== activeScope?.chain) {
+  if (
+    token.generation !== scopeGeneration ||
+    token.storageKey !== scopedKey() ||
+    token.chain !== activeScope?.chain ||
+    (token.profileIndex ?? 0) !== (activeScope?.profileIndex ?? 0)
+  ) {
     throw new VaultError('scope-changed', 'Wallet or network changed during the vault operation')
   }
 }

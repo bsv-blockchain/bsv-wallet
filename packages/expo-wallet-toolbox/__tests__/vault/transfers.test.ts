@@ -1774,7 +1774,7 @@ describe('depositToVault', () => {
       await expect(depositToVault(wallet, ADMIN, 250_000, { isOnline })).rejects.toMatchObject({
         code: 'not-on-mainnet'
       })
-      expect(isVaultAvailable).toHaveBeenCalledWith('test')
+      expect(isVaultAvailable).toHaveBeenCalledWith('test', 0)
       expect(isOnline).not.toHaveBeenCalled()
       expect(wallet.createAction).not.toHaveBeenCalled()
     })
@@ -1793,7 +1793,7 @@ describe('depositToVault', () => {
       await seedMeta()
       ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
       await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
-      expect(isVaultAvailable).toHaveBeenCalledWith('main')
+      expect(isVaultAvailable).toHaveBeenCalledWith('main', 0)
     })
 
     it('below-dust under VAULT_DEPOSIT_MIN, and for a non-integer or unsafe amount', async () => {
@@ -3255,7 +3255,7 @@ describe('relockVault', () => {
     await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
     ;(isVaultAvailable as jest.Mock).mockImplementation((chain: string) => chain === 'main')
     await expect(relock()).rejects.toMatchObject({ code: 'not-on-mainnet' })
-    expect(isVaultAvailable).toHaveBeenCalledWith('test')
+    expect(isVaultAvailable).toHaveBeenCalledWith('test', 0)
     expect(wallet.listOutputs).not.toHaveBeenCalled()
     expect(requestVaultSigner).not.toHaveBeenCalled()
   })
