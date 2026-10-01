@@ -47,6 +47,12 @@ export type RemovalBlocker =
   | 'handle-journal'
   /** A payment in the MessageBox inbox that the credit pass could not finish. */
   | 'inbox-pending'
+  /**
+   * Money or unfinished business in this profile's database for ANOTHER network
+   * (or an older file of it). Removal deletes every network's database, and only
+   * the open one was looked into by name.
+   */
+  | 'other-network'
   /** Something could not be read, so nothing can be said. */
   | 'check-failed'
 
@@ -172,4 +178,110 @@ export async function assertProfileEmpty(
   await check('handle-journal', async () => !!(await storage.getKeyValue(PENDING_JOURNAL_KEY)))
 
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons }
+}
+
+/** Every blocker found by any of `results`, once each, in the order they were found. `ok` only when all are. */
+export function combineEmpty(...results: ProfileEmptyResult[]): ProfileEmptyResult {
+  const reasons: RemovalBlocker[] = []
+  for (const result of results) {
+    if (result.ok) continue
+    for (const reason of result.reasons) if (!reasons.includes(reason)) reasons.push(reason)
+  }
+  return reasons.length === 0 ? { ok: true } : { ok: false, reasons }
+}
+
+/** A wallet database opened only to be read. The slice of `SQLiteDatabase` the checks use. */
+export interface ClosedProfileDb extends ProfileEmptyDb {
+  closeAsync(): Promise<void>
+}
+
+export interface DatabasesEmptyDeps {
+  /** Every database file to look into: all those registered for the identity, minus any already checked. Rejects when the registry cannot be read. */
+  list(): Promise<readonly string[]>
+  /** Open one of them. Opening a file that is gone creates it empty, which reads as a database with nothing in it. */
+  open(filename: string): Promise<ClosedProfileDb>
+}
+
+const HAS_USERS_TABLE = "SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'users' LIMIT 1"
+const USER_BY_IDENTITY = 'SELECT userId FROM users WHERE identityKey = ? LIMIT 1'
+
+/** One file: every check but the inbox (which belongs to a wallet that is open, and none of these is). */
+async function databaseEmpty(db: ClosedProfileDb, identityKey: string): Promise<ProfileEmptyResult> {
+  // No `users` table: a file that was never migrated, such as a registry entry
+  // whose file was gone and has just been created empty by opening it. Read from
+  // sqlite_master, so a database that could not be read at all still throws.
+  if (!(await exists(db, HAS_USERS_TABLE, []))) return { ok: true }
+  const row = (await db.getFirstAsync(USER_BY_IDENTITY, [identityKey])) as { userId?: unknown } | null
+  // Nothing in this file was ever written for this identity.
+  if (!row) return { ok: true }
+  const userId = Number(row.userId)
+  return assertProfileEmpty(
+    {
+      sqliteDb: db,
+      getKeyValue: async key =>
+        (
+          (await db.getFirstAsync('SELECT value FROM key_value_store WHERE key = ?', [key])) as {
+            value?: string
+          } | null
+        )?.value
+    },
+    userId,
+    // The MessageBox inbox is read through an open wallet, and none of these is one.
+    // What is waiting there stays on the server until a wallet for the identity reads it.
+    { creditInbox: async () => ({ attention: 0, pending: false }) }
+  )
+}
+
+/**
+ * Look into every database file `deps.list()` names for the same things
+ * `assertProfileEmpty` checks in the open one, each file on its own connection,
+ * closed again afterwards. Fails closed: a registry that cannot be read, a file
+ * that cannot be opened and any read that throws are all `check-failed`.
+ *
+ * Removal deletes a profile's databases on EVERY network, while the open
+ * storage proves one of them empty; this is what covers the rest, before the
+ * delete and again once the profile's own wallet is down.
+ */
+export async function assertDatabasesEmpty(identityKey: string, deps: DatabasesEmptyDeps): Promise<ProfileEmptyResult> {
+  let files: readonly string[]
+  try {
+    files = await deps.list()
+  } catch {
+    return { ok: false, reasons: ['check-failed'] }
+  }
+  const results: ProfileEmptyResult[] = []
+  for (const filename of files) {
+    let db: ClosedProfileDb | undefined
+    try {
+      db = await deps.open(filename)
+      results.push(await databaseEmpty(db, identityKey))
+    } catch {
+      results.push({ ok: false, reasons: ['check-failed'] })
+    } finally {
+      try {
+        await db?.closeAsync()
+      } catch {
+        // A handle that will not close says nothing about what was in it.
+      }
+    }
+  }
+  return combineEmpty(...results)
+}
+
+/**
+ * `assertDatabasesEmpty` for the files of the networks that are NOT open. What it
+ * finds there is reported as `other-network`, since the person looking at an empty
+ * balance on the network they are on needs to be told where the rest is — every
+ * reason but `check-failed`, which stays what it is.
+ */
+export async function assertOtherNetworksEmpty(
+  identityKey: string,
+  deps: DatabasesEmptyDeps
+): Promise<ProfileEmptyResult> {
+  const result = await assertDatabasesEmpty(identityKey, deps)
+  if (result.ok) return result
+  return combineEmpty({
+    ok: false,
+    reasons: result.reasons.map<RemovalBlocker>(reason => (reason === 'check-failed' ? reason : 'other-network'))
+  })
 }

@@ -198,7 +198,13 @@ import { getExchangeRate } from '../services/exchangeRate'
 import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
 import { backupProbe, discoverProfiles, registerDiscoveredProfile } from '../profiles/discovery'
-import { assertProfileEmpty } from '../profiles/assertProfileEmpty'
+import {
+  assertDatabasesEmpty,
+  assertOtherNetworksEmpty,
+  assertProfileEmpty,
+  combineEmpty,
+  type DatabasesEmptyDeps
+} from '../profiles/assertProfileEmpty'
 import { purgeProfile, purgeRemovedProfiles, type PurgeProfileIo } from '../profiles/purgeProfile'
 import {
   checkProfileRemoval as runProfileRemovalCheck,
@@ -234,6 +240,7 @@ import { StorageExpoSQLite } from '../storage'
 import { makeBuildGeneration } from './buildGeneration'
 import * as SQLite from 'expo-sqlite'
 import {
+  getAllRegisteredDbs,
   getRegisteredDbs,
   purgeRegisteredDbFiles,
   purgeIdentityDbFiles,
@@ -247,7 +254,7 @@ import { canInternalizePending, processPending } from '../localpay/pending'
 import { replayPendingAborts, verifyDeclinedAborts } from '../localpay/pendingAborts'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import { MONITOR_STALL_MS, MonitorSupervisor } from '../monitor/MonitorSupervisor'
-import { TaskCreditInbox, type CreditInboxTaskResult } from '../monitor/TaskCreditInbox'
+import { mergeInboxResults, TaskCreditInbox, type CreditInboxTaskResult } from '../monitor/TaskCreditInbox'
 import { attachPushHandlers } from '../push/events'
 import {
   authPostFor,
@@ -347,9 +354,26 @@ function persistAutoApproveLedger(): void {
   AsyncStorage.setItem(profileScopedKey(AUTO_APPROVE_LEDGER_STORAGE_KEY), JSON.stringify(autoApprovePolicy.getLedger())).catch(() => {})
 }
 
+/**
+ * An identity's wallet databases on every network, as the removal checks read
+ * them: the registry's list (less `except`, the one already checked through the
+ * open wallet) and a connection of their own per file.
+ */
+const walletDatabasesOf = (identityKey: string, except?: string): DatabasesEmptyDeps => ({
+  list: async () => (await getAllRegisteredDbs(identityKey.slice(-8))).filter(file => file !== except),
+  open: filename => SQLite.openDatabaseAsync(filename)
+})
+
 /** The real stores behind a profile purge (core/profiles/purgeProfile), for a removal and for the startup retry. */
 const profilePurgeIo: PurgeProfileIo = {
-  purgeDbFiles: keySuffix => purgeIdentityDbFiles(keySuffix, SQLite.deleteDatabaseAsync),
+  purgeDbFiles: async keySuffix => {
+    // A file that could not be deleted keeps its registry entry, because the
+    // startup retry finds the removed profile's files through it (see
+    // purgeIdentityDbFiles). `=== false`: only a purge that says so is unclean.
+    if ((await purgeIdentityDbFiles(keySuffix, SQLite.deleteDatabaseAsync, { keepFailed: true })) === false) {
+      throw new Error('a database file of the removed profile could not be deleted')
+    }
+  },
   clearArcTokens: clearArcApiTokensForProfile,
   getAllKeys: () => AsyncStorage.getAllKeys(),
   removeKeys: keys => AsyncStorage.multiRemove(keys)
@@ -2208,13 +2232,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               // leave real money sitting in the other one. Never throws
               // (see drainMandalaInbox) — a MessageBox fault on the token
               // side must not take the satoshi inbox down with it.
-              const tokens = await drainMandalaInbox(mandalaRef.current)
-              if (tokens.credited > 0) setTxStatusVersion(v => v + 1)
-              return {
-                accepted: r.accepted + tokens.credited,
-                attention: r.attentionCount,
-                pending: r.pending
-              }
+              const drained = await drainMandalaInbox(mandalaRef.current)
+              if (drained.credited > 0) setTxStatusVersion(v => v + 1)
+              // A network with tokens whose runtime could not be built has a token
+              // box nobody can read: that is no more an empty one than a box that
+              // would not answer (see mergeInboxResults).
+              const tokens = mandalaEndpoints && !mandalaRef.current ? { ...drained, incomplete: true } : drained
+              return mergeInboxResults(r, tokens)
             }
             // The same function the removal flow runs as its inbox pass.
             creditInboxPassRef.current = creditInboxPass
@@ -3210,16 +3234,23 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // A release that timed out leaves a journal behind, which the emptiness
       // check would then refuse: finish it first. Only "no answer" leaves it open.
       settleHandleJournal: async () => (registration ? (await resumePending(registration)).kind !== 'pending' : true),
-      checkEmpty: async () => {
+      checkEmpty: async identityKey => {
         if (!openStorage || userId === null || !creditInbox) return { ok: false, reasons: ['check-failed'] }
-        return assertProfileEmpty(openStorage, userId, {
+        const open = await assertProfileEmpty(openStorage, userId, {
           creditInbox: async () => {
             const pass = await creditInbox()
+            // A token box that could not be read is an inbox nobody has looked
+            // into, which is not an empty one: the check cannot be made.
+            if (pass.incomplete) throw new Error('the token inbox could not be read')
             // Not told means not known: a missing flag blocks, as a pending one does.
             return { attention: pass.attention, pending: pass.pending !== false }
           },
           mandalaBalances: runtime ? () => runtime.balances() : undefined
         })
+        // The open storage is one network's database, and the removal deletes the
+        // profile's databases on every network: look into the rest.
+        const rest = await assertOtherNetworksEmpty(identityKey, walletDatabasesOf(identityKey, openStorage.dbName))
+        return combineEmpty(open, rest)
       },
       // No registry for this network: no handle can exist, so there is nothing to release.
       lookupHandle: async identityKey => {
@@ -3232,6 +3263,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // The normal switch: it also disconnects the paired session before anything
       // is torn down. Built and on profile 0 is what "landed" means.
       switchToDefault: async () => (await switchProfileImpl(0)) && walletBuiltRef.current,
+      // The profile's wallet is down now: every one of its databases, from the files.
+      checkClosed: identityKey => assertDatabasesEmpty(identityKey, walletDatabasesOf(identityKey)),
       tombstone: identityKey => updateProfile(index, { deleted: true, identityKey }),
       purge: async target => {
         await purgeProfile(target, profilePurgeIo)

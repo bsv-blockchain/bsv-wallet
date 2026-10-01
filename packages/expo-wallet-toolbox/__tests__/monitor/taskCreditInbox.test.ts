@@ -1,4 +1,4 @@
-import { TaskCreditInbox } from '../../core/monitor/TaskCreditInbox'
+import { mergeInboxResults, TaskCreditInbox } from '../../core/monitor/TaskCreditInbox'
 import { creditInboxOnce, isCreditInboxBusy, resetCreditInboxForTests } from '../../core/pay/creditInbox'
 import { loadInboxAttempts, saveInboxAttempts } from '../../core/peerpay/inboxAttempts'
 import type { IncomingPayment } from '@bsv/message-box-client'
@@ -283,5 +283,42 @@ describe('creditInboxOnce', () => {
       a: { attempts: expectedAttempts, error: 'credit failed' }
     })
     expect(isCreditInboxBusy()).toBe(false)
+  })
+})
+
+describe('mergeInboxResults (the satoshi box and the token box as one pass)', () => {
+  const clean = { accepted: 0, attentionCount: 0, pending: false }
+
+  it('adds what both boxes credited, and takes the attention count from the satoshi box', () => {
+    expect(mergeInboxResults({ accepted: 2, attentionCount: 1, pending: false }, { credited: 3, failed: 0 })).toEqual({
+      accepted: 5,
+      attention: 1,
+      pending: false
+    })
+  })
+
+  it('is pending while the satoshi box still has work, whatever the token box says', () => {
+    expect(mergeInboxResults({ ...clean, pending: true }, { credited: 0, failed: 0 })).toMatchObject({ pending: true })
+  })
+
+  it('is pending when a token message failed to credit: it is still in the box, and a pass that read none of it as done must retry', () => {
+    expect(mergeInboxResults(clean, { credited: 0, failed: 2 })).toEqual({ accepted: 0, attention: 0, pending: true })
+    // What did credit is still counted.
+    expect(mergeInboxResults(clean, { credited: 1, failed: 1 })).toMatchObject({ accepted: 1, pending: true })
+  })
+
+  it('is pending and incomplete when the token box could not be read at all, which is not an empty one', () => {
+    expect(mergeInboxResults(clean, { credited: 0, failed: 0, incomplete: true })).toEqual({
+      accepted: 0,
+      attention: 0,
+      pending: true,
+      incomplete: true
+    })
+  })
+
+  it('is idle when both boxes are clean, with no incomplete flag to misread', () => {
+    const merged = mergeInboxResults(clean, { credited: 0, failed: 0 })
+    expect(merged).toEqual({ accepted: 0, attention: 0, pending: false })
+    expect(merged).not.toHaveProperty('incomplete')
   })
 })

@@ -110,6 +110,17 @@ const PENDING_BLOCKERS: RemovalBlocker[] = [
 
 type RemovalProblem = Exclude<ProfileRemovalCheck, { kind: 'ok' }> | Exclude<RemoveProfileResult, { kind: 'removed' }>
 
+/**
+ * How long the switch cover takes to leave. A removal runs under it (a Modal on
+ * the Home screen underneath this one), and it is dismissed in the same tick the
+ * removal's answer arrives. iOS will not present a second Modal while the first
+ * is still dismissing, and an alert that is dropped never settles, so an
+ * explanation of a failure that followed the cover waits this long: the fade and
+ * a margin.
+ */
+export const PROFILE_COVER_FADE_MS = 500
+const untilCoverGone = () => new Promise<void>(resolve => setTimeout(resolve, PROFILE_COVER_FADE_MS))
+
 /** The i18n keys that explain a refusal or failure, one paragraph per kind of reason. */
 function removalProblemKeys(problem: RemovalProblem): string[] {
   if (problem.kind === 'refused')
@@ -120,6 +131,8 @@ function removalProblemKeys(problem: RemovalProblem): string[] {
     const has = (group: RemovalBlocker[]) => problem.reasons.some(r => group.includes(r))
     if (has(FUNDS_BLOCKERS)) keys.push('profile_remove_blocked_funds')
     if (has(PENDING_BLOCKERS)) keys.push('profile_remove_blocked_pending')
+    // Funds or pending activity in the databases of its other networks, which the open one never shows.
+    if (problem.reasons.includes('other-network')) keys.push('profile_remove_blocked_network')
     // An unfinished handle write is the same thing to the user as a handle that would not release.
     if (problem.reasons.includes('handle-journal')) keys.push('profile_remove_failed_handle')
     if (problem.reasons.includes('check-failed')) keys.push('profile_remove_blocked_check')
@@ -492,14 +505,18 @@ export function ProfileScreen() {
     // Named now: by the time anything is shown the active profile may be another one.
     const label = profileLabel(profiles[activeProfile] ?? { index: activeProfile }, t)
     let removed = false
-    const explain = (problem: RemovalProblem) =>
-      showAlert({
+    /** The switch cover has been up since the removal started, so what follows it waits for it to go. */
+    let covered = false
+    const explain = async (problem: RemovalProblem) => {
+      if (covered) await untilCoverGone()
+      return showAlert({
         title: t('profile_remove_problem_title', { profile: label }),
         message: removalProblemKeys(problem)
           .map(key => t(key))
           .join('\n\n'),
         buttons: [{ text: t('vault_ok'), key: 'ok' }]
       })
+    }
     try {
       const check = await checkProfileRemoval()
       if (check.kind !== 'ok') {
@@ -520,6 +537,7 @@ export function ProfileScreen() {
         ]
       })
       if (choice !== 'remove') return
+      covered = true
       const result = await removeProfile()
       if (result.kind !== 'removed') {
         await explain(result)

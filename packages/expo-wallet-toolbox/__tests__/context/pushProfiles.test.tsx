@@ -35,6 +35,11 @@ const mockRegistrations: Array<{ identityKey: string; host: string; token: strin
 const mockPosts: Array<{ identityKey: string; url: string; token: string }> = []
 let mockPostStatus = 200
 let mockRegisteredDbs: string[] = []
+/** Opens a database file the way expo-sqlite would: by name. Throws unless a test says what is in the file. */
+let mockOpenDatabase: (name: string) => Promise<unknown> = async () => {
+  throw new Error('expo-sqlite is native')
+}
+let mockInbox = { accepted: 0, attentionCount: 0, pending: false }
 
 jest.mock('../../core/context/LocalStorageProvider', () => ({
   useLocalStorage: () => ({
@@ -75,8 +80,13 @@ jest.mock('../../core/services/walletServiceConfig', () => ({
     serviceOptions: {}
   })
 }))
+jest.mock('../../core/pay/creditInbox', () => ({
+  ...jest.requireActual('../../core/pay/creditInbox'),
+  creditInboxOnce: async () => mockInbox
+}))
 jest.mock('../../core/walletDbRegistry', () => ({
   getRegisteredDbs: async () => mockRegisteredDbs,
+  getAllRegisteredDbs: async () => mockRegisteredDbs,
   registerDb: async (_s: string, _c: string, filename: string) => void mockRegisteredDbs.push(filename),
   unregisterDb: async () => {},
   purgeIdentityDbFiles: async () => {},
@@ -84,15 +94,18 @@ jest.mock('../../core/walletDbRegistry', () => ({
   selectLatestDb: (names: string[]) => jest.requireActual('../../core/walletDbRegistry').selectLatestDb(names)
 }))
 jest.mock('expo-sqlite', () => ({
-  openDatabaseAsync: async () => {
-    throw new Error('expo-sqlite is native')
-  },
+  openDatabaseAsync: (name: string) => mockOpenDatabase(name),
   deleteDatabaseAsync: async () => {}
 }))
 jest.mock('../../core/storage', () => ({
   StorageExpoSQLite: class {
     db = {}
-    dbName = 'test.db'
+    dbName: string
+    // Every query answers "no rows": an empty wallet.
+    sqliteDb = { getFirstAsync: async () => null }
+    constructor(options?: { databaseName?: string }) {
+      this.dbName = options?.databaseName ?? 'test.db'
+    }
     setServices() {}
     setVaultAdminOriginator() {}
     async migrate() {}
@@ -252,6 +265,10 @@ beforeEach(async () => {
   mockRegistrations.length = 0
   mockPosts.length = 0
   mockPostStatus = 200
+  mockInbox = { accepted: 0, attentionCount: 0, pending: false }
+  mockOpenDatabase = async () => {
+    throw new Error('expo-sqlite is native')
+  }
   handlers = {}
   currentToken = 'fcm-token-1'
   mockRegisteredDbs = []
@@ -489,5 +506,103 @@ describe('withdrawing registrations', () => {
     expect(mockPosts.every(p => p.url.endsWith('/unregisterDevice') && p.token === 'fcm-token-1')).toBe(true)
     expect(await AsyncStorage.getItem(PUSH_REGISTRATION_KEY)).toBeNull()
     expect(await AsyncStorage.getItem(PUSH_REGISTRATION_OWNER_KEY)).toBeNull()
+  })
+})
+
+describe("the removal's proof that nothing is left, through a real build", () => {
+  /** The dependencies the provider hands the removal flow for the open profile (profile 1). */
+  async function removalDeps(): Promise<RemoveProfileDeps> {
+    await storeProfiles(1)
+    await renderBuilt()
+    let deps!: RemoveProfileDeps
+    mockFlow.mockImplementation(async d => {
+      deps = d
+      return { kind: 'removed', index: 1 }
+    })
+    await act(async () => {
+      await wallet.removeProfile()
+    })
+    return deps
+  }
+
+  /** A database file with this identity's user in it; `funded` gives it a spendable output. */
+  function fileWith(opened: string[], closed: string[], name: string, funded: boolean) {
+    return {
+      getFirstAsync: async (sql: string) => {
+        if (sql.includes('sqlite_master')) return { found: 1 }
+        if (sql.includes('FROM users')) return { userId: 7 }
+        if (sql.includes('FROM outputs')) return funded ? { found: 1 } : null
+        return null
+      },
+      closeAsync: async () => void closed.push(name)
+    }
+  }
+  function files(spec: Record<string, boolean>) {
+    const opened: string[] = []
+    const closed: string[] = []
+    mockOpenDatabase = async name => {
+      opened.push(name)
+      return fileWith(opened, closed, name, spec[name])
+    }
+    return { opened, closed }
+  }
+  const MAIN = 'wallet-aaaaaaaa-mainnet-1.db'
+  const TEST = 'wallet-aaaaaaaa-testnet-2.db'
+
+  it('looks into the profile’s databases for every other network, and not again into the open one', async () => {
+    const deps = await removalDeps()
+    // The open wallet's own file is whatever the build selected; the registry lists the others too.
+    mockRegisteredDbs = [
+      'wallet-aaaaaaaa-mainnet-1.db',
+      'wallet-aaaaaaaa-testnet-2.db',
+      'wallet-aaaaaaaa-teratestnet-3.db'
+    ]
+    const openFile = (wallet as unknown as { storage: { dbName: string } }).storage.dbName
+    mockRegisteredDbs.push(openFile)
+    const f = files({ [MAIN]: false, [TEST]: false, 'wallet-aaaaaaaa-teratestnet-3.db': false })
+    expect(await deps.checkEmpty(ID[1])).toEqual({ ok: true })
+    expect(f.opened).not.toContain(openFile)
+    expect(f.opened.sort()).toEqual([MAIN, 'wallet-aaaaaaaa-teratestnet-3.db', TEST].sort())
+    expect(f.closed.sort()).toEqual(f.opened.sort())
+  })
+
+  it('refuses while another network’s database holds coins, though the open wallet is empty', async () => {
+    const deps = await removalDeps()
+    mockRegisteredDbs = [MAIN, TEST]
+    files({ [MAIN]: false, [TEST]: true })
+    expect(await deps.checkEmpty(ID[1])).toEqual({ ok: false, reasons: ['other-network'] })
+  })
+
+  it('refuses when a file cannot be opened: unread is not empty', async () => {
+    const deps = await removalDeps()
+    mockRegisteredDbs = [MAIN]
+    mockOpenDatabase = async () => {
+      throw new Error('database is locked')
+    }
+    expect(await deps.checkEmpty(ID[1])).toEqual({ ok: false, reasons: ['check-failed'] })
+  })
+
+  it('refuses while the token inbox could not be read: an inbox nobody looked into is not an empty one', async () => {
+    // A network with tokens, whose runtime cannot be built here (the storage has no database to put it on).
+    configureToolbox({
+      backupUrl: 'https://backup.example.com',
+      push: adapter,
+      mandala: {
+        main: { overlayUrl: 'https://overlay.example', overlayIdentityKey: ID[0], messageBoxUrl: 'https://mb.example' }
+      }
+    })
+    const deps = await removalDeps()
+    expect(await deps.checkEmpty(ID[1])).toEqual({ ok: false, reasons: ['check-failed'] })
+  })
+
+  it('reads every file registered for the profile once its wallet is down, the formerly open one included', async () => {
+    const deps = await removalDeps()
+    mockRegisteredDbs = [MAIN, TEST]
+    const f = files({ [MAIN]: true, [TEST]: false })
+    expect(await deps.checkClosed(ID[1])).toEqual({ ok: false, reasons: ['spendable-outputs'] })
+    expect(f.opened.sort()).toEqual([MAIN, TEST].sort())
+    expect(f.closed.sort()).toEqual([MAIN, TEST].sort())
+    files({ [MAIN]: false, [TEST]: false })
+    expect(await deps.checkClosed(ID[1])).toEqual({ ok: true })
   })
 })

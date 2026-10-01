@@ -586,30 +586,27 @@ describe('removeProfile', () => {
 
     it('prove nothing without an open database and an inbox pass: the check fails closed', async () => {
       const deps = await depsOnProfileOne()
-      expect(await deps.checkEmpty()).toEqual({ ok: false, reasons: ['check-failed'] })
+      expect(await deps.checkEmpty(IDENTITY_1)).toEqual({ ok: false, reasons: ['check-failed'] })
     })
 
     describe('the push hook', () => {
       const MARKER_KEY = 'push_registration_v1'
       const OWNER_KEY = 'push_registration_owner_v1'
 
-      it("forgets the removed identity's registration marker when no build holds its signing key", async () => {
+      it("leaves the removed identity's registration marker when no build holds its signing key, for a later build to withdraw", async () => {
         await stored(1)
         await renderBuilt()
-        await AsyncStorage.setItem(
-          MARKER_KEY,
-          JSON.stringify({ [IDENTITY_1]: 'https://mb.example.org|tok1', [IDENTITY_2]: 'https://mb.example.org|tok1' })
-        )
+        const markers = { [IDENTITY_1]: 'https://mb.example.org|tok1', [IDENTITY_2]: 'https://mb.example.org|tok1' }
+        await AsyncStorage.setItem(MARKER_KEY, JSON.stringify(markers))
         await AsyncStorage.setItem(OWNER_KEY, IDENTITY_1)
         await run(async deps => {
           await expect(deps.unregisterPush({ index: 1, identityKey: IDENTITY_1 })).resolves.toBeUndefined()
           return removed
         })
-        // Only the removed profile's entry goes; another profile's stays.
-        expect(JSON.parse((await AsyncStorage.getItem(MARKER_KEY))!)).toEqual({
-          [IDENTITY_2]: 'https://mb.example.org|tok1'
-        })
-        expect(await AsyncStorage.getItem(OWNER_KEY)).toBeNull()
+        // Nothing here could ask the server, so nothing is forgotten: the marker is
+        // what the next build withdraws the registration from.
+        expect(JSON.parse((await AsyncStorage.getItem(MARKER_KEY))!)).toEqual(markers)
+        expect(await AsyncStorage.getItem(OWNER_KEY)).toBe(IDENTITY_1)
       })
 
       it('changes nothing else, and does not fail for a device that never registered', async () => {

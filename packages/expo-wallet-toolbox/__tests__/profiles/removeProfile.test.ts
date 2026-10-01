@@ -21,6 +21,7 @@ import {
 } from '../../core/profiles/profileStore'
 import {
   checkProfileRemoval,
+  HANDLE_RELEASE_TIMEOUT_MS,
   removeProfileFlow,
   type HandleLookup,
   type RemoveProfileDeps
@@ -37,7 +38,10 @@ interface Script {
   online: boolean
   liveIdentityKey: string | undefined
   settled: boolean
-  empty: ProfileEmptyResult
+  /** What each successive emptiness check answers; the last one repeats. */
+  empty: ProfileEmptyResult[]
+  /** The databases once the profile's own wallet is down. */
+  closed: ProfileEmptyResult
   lookup: HandleLookup
   release: RegistrationResult
   switchLands: boolean
@@ -46,6 +50,8 @@ interface Script {
 }
 
 let calls: string[]
+/** The identity each emptiness check was asked about. */
+let checked: string[]
 let script: Script
 
 function makeDeps(index: number): RemoveProfileDeps {
@@ -67,9 +73,14 @@ function makeDeps(index: number): RemoveProfileDeps {
       calls.push('settleHandleJournal')
       return script.settled
     },
-    checkEmpty: async () => {
+    checkEmpty: async identityKey => {
       calls.push('checkEmpty')
-      return script.empty
+      checked.push(identityKey)
+      return script.empty[Math.min(checked.length - 1, script.empty.length - 1)]
+    },
+    checkClosed: async identityKey => {
+      calls.push(`checkClosed:${identityKey}`)
+      return script.closed
     },
     lookupHandle: async identityKey => {
       calls.push(`lookupHandle:${identityKey}`)
@@ -110,13 +121,15 @@ const snapshot = () => JSON.stringify(getProfilesState())
 
 beforeEach(async () => {
   calls = []
+  checked = []
   script = {
     supported: true,
     ready: true,
     online: true,
     liveIdentityKey: undefined,
     settled: true,
-    empty: { ok: true },
+    empty: [{ ok: true }],
+    closed: { ok: true },
     lookup: { kind: 'none' },
     release: { kind: 'released', paymail: PAYMAIL },
     switchLands: true,
@@ -136,10 +149,12 @@ describe('a profile that holds nothing and has no handle', () => {
       'checkEmpty',
       `lookupHandle:${IDENTITY}`,
       'switchToDefault',
+      `checkClosed:${IDENTITY}`,
       `tombstone:${IDENTITY}`,
       `purge:1:${IDENTITY}`,
       `unregisterPush:1:${IDENTITY}`
     ])
+    expect(checked).toEqual([IDENTITY])
     expect(getActiveProfileIndex()).toBe(0)
     expect(getProfilesState().profiles[1]).toMatchObject({ index: 1, identityKey: IDENTITY, deleted: true })
   })
@@ -157,16 +172,77 @@ describe('a profile with a handle', () => {
     script.lookup = { kind: 'found', paymail: PAYMAIL }
   })
 
-  it('releases the handle after the checks and before the switch', async () => {
+  it('releases the handle after the checks and before the switch, and proves the profile empty again in between', async () => {
     expect(await removeProfileFlow(makeDeps(1))).toEqual({ kind: 'removed', index: 1 })
-    expect(calls.slice(0, 6)).toEqual([
+    expect(calls.slice(0, 8)).toEqual([
       'online',
       'settleHandleJournal',
       'checkEmpty',
       `lookupHandle:${IDENTITY}`,
       `releaseHandle:${PAYMAIL}`,
-      'switchToDefault'
+      'checkEmpty',
+      'switchToDefault',
+      `checkClosed:${IDENTITY}`
     ])
+    expect(checked).toEqual([IDENTITY, IDENTITY])
+  })
+
+  it('stops before the switch when something was credited while the release was under way', async () => {
+    script.empty = [{ ok: true }, { ok: false, reasons: ['spendable-outputs'] }]
+    const before = snapshot()
+    expect(await removeProfileFlow(makeDeps(1))).toEqual({ kind: 'blocked', reasons: ['spendable-outputs'] })
+    expect(calls).toEqual([
+      'online',
+      'settleHandleJournal',
+      'checkEmpty',
+      `lookupHandle:${IDENTITY}`,
+      `releaseHandle:${PAYMAIL}`,
+      'checkEmpty'
+    ])
+    expect(snapshot()).toBe(before)
+  })
+
+  it('stops before the switch when the second proof cannot be taken', async () => {
+    const deps = makeDeps(1)
+    let n = 0
+    deps.checkEmpty = async () => {
+      if (++n === 2) throw new Error('db closed')
+      return { ok: true }
+    }
+    const before = snapshot()
+    expect(await removeProfileFlow(deps)).toMatchObject({ kind: 'failed', message: 'db closed' })
+    expect(calls).not.toContain('switchToDefault')
+    expect(snapshot()).toBe(before)
+  })
+
+  describe('a registry that does not answer', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+    })
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('is given up on after the timeout: the removal aborts as a handle that may still be held, with nothing changed', async () => {
+      const deps = makeDeps(1)
+      deps.releaseHandle = () => new Promise(() => {})
+      const before = snapshot()
+      const run = removeProfileFlow(deps)
+      await jest.advanceTimersByTimeAsync(HANDLE_RELEASE_TIMEOUT_MS)
+      expect(await run).toEqual({ kind: 'handle-failed' })
+      expect(calls).not.toContain('switchToDefault')
+      expect(snapshot()).toBe(before)
+      expect(jest.getTimerCount()).toBe(0)
+    })
+
+    it('does not cut off a release that answers in time', async () => {
+      const deps = makeDeps(1)
+      deps.releaseHandle = () =>
+        new Promise(resolve => setTimeout(() => resolve({ kind: 'released', paymail: PAYMAIL }), 5_000))
+      const run = removeProfileFlow(deps)
+      await jest.advanceTimersByTimeAsync(5_000)
+      expect(await run).toEqual({ kind: 'removed', index: 1 })
+    })
   })
 
   it.each<[string, RegistrationResult]>([
@@ -219,7 +295,7 @@ describe('aborts that leave the store untouched', () => {
   })
 
   it('a profile that is not empty: every reason is reported and nothing is looked up', async () => {
-    script.empty = { ok: false, reasons: ['spendable-outputs', 'pending-transactions'] }
+    script.empty = [{ ok: false, reasons: ['spendable-outputs', 'pending-transactions'] }]
     const before = snapshot()
     expect(await removeProfileFlow(makeDeps(1))).toEqual({
       kind: 'blocked',
@@ -230,7 +306,7 @@ describe('aborts that leave the store untouched', () => {
   })
 
   it('an emptiness check that could not run is a refusal, never a pass', async () => {
-    script.empty = { ok: false, reasons: ['check-failed'] }
+    script.empty = [{ ok: false, reasons: ['check-failed'] }]
     expect(await removeProfileFlow(makeDeps(1))).toEqual({ kind: 'blocked', reasons: ['check-failed'] })
     expect(calls).not.toContain('switchToDefault')
   })
@@ -311,6 +387,50 @@ describe('a switch that does not land', () => {
     const before = snapshot()
     expect(await removeProfileFlow(deps)).toEqual({ kind: 'switch-failed' })
     expect(snapshot()).toBe(before)
+  })
+})
+
+describe('the databases once the profile is closed', () => {
+  it('are checked after the switch has landed and before anything is tombstoned or purged', async () => {
+    await removeProfileFlow(makeDeps(1))
+    const at = (name: string) => calls.findIndex(c => c.startsWith(name))
+    expect(at('switchToDefault')).toBeLessThan(at('checkClosed'))
+    expect(at('checkClosed')).toBeLessThan(at('tombstone'))
+  })
+
+  it('stop the removal when something was credited while the profile was shutting down: nothing is removed', async () => {
+    script.closed = { ok: false, reasons: ['spendable-outputs'] }
+    const result = await removeProfileFlow(makeDeps(1))
+    expect(result).toEqual({ kind: 'blocked', reasons: ['spendable-outputs'] })
+    expect(calls.some(c => c.startsWith('tombstone') || c.startsWith('purge') || c.startsWith('unregister'))).toBe(
+      false
+    )
+    // The profile is still there, and the switch to profile 0 stands.
+    expect(getProfilesState().profiles[1].deleted).toBeUndefined()
+    expect(getActiveProfileIndex()).toBe(0)
+  })
+
+  it('stop it too when they cannot be read, which is not the same as empty', async () => {
+    script.closed = { ok: false, reasons: ['check-failed'] }
+    expect(await removeProfileFlow(makeDeps(1))).toEqual({ kind: 'blocked', reasons: ['check-failed'] })
+    expect(getProfilesState().profiles[1].deleted).toBeUndefined()
+  })
+
+  it('stop it when the check throws', async () => {
+    const deps = makeDeps(1)
+    deps.checkClosed = async () => {
+      throw new Error('cannot open')
+    }
+    expect(await removeProfileFlow(deps)).toMatchObject({ kind: 'failed', message: 'cannot open' })
+    expect(getProfilesState().profiles[1].deleted).toBeUndefined()
+    expect(calls.some(c => c.startsWith('purge'))).toBe(false)
+  })
+
+  it('are not looked at when the switch did not land: the profile is still open', async () => {
+    script.switchLands = false
+    script.switchMovesStore = false
+    await removeProfileFlow(makeDeps(1))
+    expect(calls.some(c => c.startsWith('checkClosed'))).toBe(false)
   })
 })
 
@@ -401,9 +521,9 @@ describe('checkProfileRemoval (the dry run behind the Remove row)', () => {
   })
 
   it('reports blockers, an unreadable registry and offline the same way the removal would', async () => {
-    script.empty = { ok: false, reasons: ['inbox-pending'] }
+    script.empty = [{ ok: false, reasons: ['inbox-pending'] }]
     expect(await checkProfileRemoval(makeDeps(1))).toEqual({ kind: 'blocked', reasons: ['inbox-pending'] })
-    script.empty = { ok: true }
+    script.empty = [{ ok: true }]
     script.lookup = { kind: 'failed' }
     expect(await checkProfileRemoval(makeDeps(1))).toEqual({ kind: 'handle-failed' })
     script.online = false

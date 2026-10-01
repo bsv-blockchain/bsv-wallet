@@ -169,8 +169,13 @@ export interface MandalaRuntime {
      * place of the lib's fixed "Receive N of assetId" wording. */
     note?: string
   }): Promise<TokenSendResult>
-  /** Handle rail: drain the MessageBox inbox (lib receiveTokens), credit, journal. */
-  receiveFromInbox(): Promise<{ credited: number; failed: number }>
+  /**
+   * Handle rail: drain the MessageBox inbox (lib receiveTokens), credit, journal.
+   * `incomplete` is set when the drain could not run at all (the MessageBox could
+   * not be opened or read), which is not the same as an inbox with nothing in it:
+   * what was waiting there is still waiting.
+   */
+  receiveFromInbox(): Promise<{ credited: number; failed: number; incomplete?: true }>
   /** Nearby rail: the blinded payee lock the localpay token build needs (lib prepareBlindedPayment). */
   lockToPayee: LockToPayee
   /** Pure COVER verifier over local evidence (lib cover), for verify.ts at hand-over. */

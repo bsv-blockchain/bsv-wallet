@@ -711,13 +711,15 @@ export async function sendTokenViaHandle(args: {
  */
 export async function drainMandalaInbox(
   runtime: HandleTokenRuntime | undefined
-): Promise<{ credited: number; failed: number }> {
+): Promise<{ credited: number; failed: number; incomplete?: true }> {
   if (!runtime?.available) return { credited: 0, failed: 0 }
   try {
     return await runtime.receiveFromInbox()
   } catch (e) {
     console.warn('[mandala] the token inbox drain failed:', e instanceof Error ? e.message : String(e))
-    return { credited: 0, failed: 0 }
+    // Not `{ 0, 0 }` alone: that reads as an inbox with nothing in it, and a
+    // caller that must know (the profile removal) has to be able to tell.
+    return { credited: 0, failed: 0, incomplete: true }
   }
 }
 

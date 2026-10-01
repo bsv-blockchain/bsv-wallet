@@ -1144,6 +1144,8 @@ const resources = {
       profile_remove_blocked_pending:
         'A payment is still going through, or waiting to be sent or credited. Try again once it has settled.',
       profile_remove_blocked_check: 'This profile could not be checked, so nothing was removed. Try again.',
+      profile_remove_blocked_network:
+        'It also holds money or unfinished payments on another network. Switch this profile to that network, clear it out there, then try again.',
       profile_remove_offline: 'Connect to the internet to remove a profile.',
       profile_remove_failed_handle:
         'Your handle could not be released, or a change to it is still finishing. Check your connection and try again. Nothing was removed.',
@@ -2168,6 +2170,7 @@ const resources = {
       profile_remove_blocked_funds: '它仍持有资金或代币。请先将它们转到另一个个人资料。',
       profile_remove_blocked_pending: '有一笔付款仍在处理中，或正在等待发送或入账。请在全部完成后再试。',
       profile_remove_blocked_check: '无法检查此个人资料，因此未移除任何内容。请重试。',
+      profile_remove_blocked_network: '它在另一个网络上还有资金或未完成的付款。请将此个人资料切换到该网络，在那里处理完毕后再试。',
       profile_remove_offline: '请连接互联网后再移除个人资料。',
       profile_remove_failed_handle: '无法释放您的用户名，或对它的更改仍在完成中。请检查网络连接后重试。未移除任何内容。',
       profile_remove_failed: '无法移除此个人资料。请重试。',
@@ -3256,6 +3259,8 @@ const resources = {
       profile_remove_blocked_pending:
         'कोई भुगतान अभी प्रक्रिया में है, या भेजे जाने या जमा होने की प्रतीक्षा में है। सब कुछ पूरा होने पर दोबारा कोशिश करें।',
       profile_remove_blocked_check: 'इस प्रोफ़ाइल की जाँच नहीं हो सकी, इसलिए कुछ नहीं हटाया गया। फिर कोशिश करें।',
+      profile_remove_blocked_network:
+        'इसमें किसी दूसरे नेटवर्क पर भी पैसे या अधूरे भुगतान हैं। इस प्रोफ़ाइल को उस नेटवर्क पर स्विच करें, वहाँ उन्हें निपटाएँ, फिर दोबारा कोशिश करें।',
       profile_remove_offline: 'प्रोफ़ाइल हटाने के लिए इंटरनेट से जुड़ें।',
       profile_remove_failed_handle:
         'आपका हैंडल छोड़ा नहीं जा सका, या उसमें किया गया बदलाव अभी पूरा हो रहा है। अपना कनेक्शन जाँचें और फिर कोशिश करें। कुछ नहीं हटाया गया।',
@@ -4360,6 +4365,8 @@ const resources = {
       profile_remove_blocked_pending:
         'Un pago sigue en curso o esperando a enviarse o acreditarse. Inténtalo de nuevo cuando todo se haya resuelto.',
       profile_remove_blocked_check: 'No se pudo comprobar este perfil, así que no se quitó nada. Inténtalo de nuevo.',
+      profile_remove_blocked_network:
+        'También contiene dinero o pagos sin terminar en otra red. Cambia este perfil a esa red, déjalo vacío allí y vuelve a intentarlo.',
       profile_remove_offline: 'Conéctate a internet para quitar un perfil.',
       profile_remove_failed_handle:
         'No se pudo liberar tu alias, o un cambio en él aún se está completando. Revisa tu conexión e inténtalo de nuevo. No se quitó nada.',
@@ -5479,6 +5486,8 @@ const resources = {
       profile_remove_blocked_pending:
         'Un paiement est encore en cours, ou en attente d’envoi ou de crédit. Réessayez une fois que tout est réglé.',
       profile_remove_blocked_check: 'Ce profil n’a pas pu être vérifié, donc rien n’a été retiré. Réessayez.',
+      profile_remove_blocked_network:
+        'Il contient aussi de l’argent ou des paiements en cours sur un autre réseau. Passez ce profil sur ce réseau, videz-le là-bas, puis réessayez.',
       profile_remove_offline: 'Connectez-vous à Internet pour retirer un profil.',
       profile_remove_failed_handle:
         'Votre pseudo n’a pas pu être libéré, ou une modification est encore en cours. Vérifiez votre connexion et réessayez. Rien n’a été retiré.',
@@ -6530,6 +6539,8 @@ const resources = {
       profile_remove_blocked_pending:
         'هناك دفعة ما زالت قيد المعالجة أو بانتظار الإرسال أو الإضافة. حاول مرة أخرى بعد اكتمال كل شيء.',
       profile_remove_blocked_check: 'تعذّر فحص هذا الملف الشخصي، لذلك لم تتم إزالة أي شيء. حاول مرة أخرى.',
+      profile_remove_blocked_network:
+        'يحتوي أيضًا على أموال أو مدفوعات غير مكتملة على شبكة أخرى. بدّل هذا الملف الشخصي إلى تلك الشبكة، وأفرغه هناك، ثم حاول مرة أخرى.',
       profile_remove_offline: 'اتصل بالإنترنت لإزالة ملف شخصي.',
       profile_remove_failed_handle:
         'تعذّر تحرير اسم المستخدم الخاص بك، أو أن تغييرًا عليه ما زال قيد الإكمال. تحقق من اتصالك وحاول مرة أخرى. لم تتم إزالة أي شيء.',
@@ -7631,6 +7642,8 @@ const resources = {
       profile_remove_blocked_pending:
         'Um pagamento ainda está em andamento ou esperando para ser enviado ou creditado. Tente de novo quando tudo estiver concluído.',
       profile_remove_blocked_check: 'Não foi possível verificar este perfil, então nada foi removido. Tente de novo.',
+      profile_remove_blocked_network:
+        'Ele também guarda dinheiro ou pagamentos inacabados em outra rede. Mude este perfil para essa rede, esvazie-o lá e tente de novo.',
       profile_remove_offline: 'Conecte-se à internet para remover um perfil.',
       profile_remove_failed_handle:
         'Não foi possível liberar seu apelido, ou uma alteração nele ainda está sendo concluída. Verifique sua conexão e tente de novo. Nada foi removido.',
@@ -8718,6 +8731,8 @@ const resources = {
       profile_remove_blocked_pending:
         'কোনো পেমেন্ট এখনও চলছে, বা পাঠানো বা জমা হওয়ার অপেক্ষায় আছে। সব শেষ হলে আবার চেষ্টা করুন।',
       profile_remove_blocked_check: 'এই প্রোফাইল যাচাই করা যায়নি, তাই কিছুই সরানো হয়নি। আবার চেষ্টা করুন।',
+      profile_remove_blocked_network:
+        'এতে অন্য একটি নেটওয়ার্কেও টাকা বা অসম্পূর্ণ পেমেন্ট আছে। এই প্রোফাইলটি সেই নেটওয়ার্কে পরিবর্তন করুন, সেখানে সব খালি করুন, তারপর আবার চেষ্টা করুন।',
       profile_remove_offline: 'প্রোফাইল সরাতে ইন্টারনেটে সংযুক্ত হোন।',
       profile_remove_failed_handle:
         'আপনার হ্যান্ডেল ছাড়া যায়নি, বা এতে করা কোনো পরিবর্তন এখনও সম্পন্ন হচ্ছে। সংযোগ দেখে আবার চেষ্টা করুন। কিছুই সরানো হয়নি।',
@@ -9818,6 +9833,8 @@ const resources = {
       profile_remove_blocked_pending:
         'Платёж ещё выполняется либо ждёт отправки или зачисления. Повторите, когда всё завершится.',
       profile_remove_blocked_check: 'Не удалось проверить этот профиль, поэтому ничего не удалено. Повторите попытку.',
+      profile_remove_blocked_network:
+        'В нём также есть деньги или незавершённые платежи в другой сети. Переключите этот профиль на ту сеть, освободите его там и повторите попытку.',
       profile_remove_offline: 'Подключитесь к интернету, чтобы удалить профиль.',
       profile_remove_failed_handle:
         'Не удалось освободить ваш юзернейм, или его изменение ещё завершается. Проверьте подключение и повторите. Ничего не удалено.',
@@ -10916,6 +10933,8 @@ const resources = {
       profile_remove_blocked_pending:
         'Ada pembayaran yang masih diproses, atau menunggu dikirim atau dikreditkan. Coba lagi setelah semuanya selesai.',
       profile_remove_blocked_check: 'Profil ini tidak bisa diperiksa, jadi tidak ada yang dihapus. Coba lagi.',
+      profile_remove_blocked_network:
+        'Profil ini juga menyimpan uang atau pembayaran yang belum selesai di jaringan lain. Alihkan profil ini ke jaringan itu, kosongkan di sana, lalu coba lagi.',
       profile_remove_offline: 'Hubungkan ke internet untuk menghapus profil.',
       profile_remove_failed_handle:
         'Handle Anda tidak bisa dilepas, atau perubahan padanya masih diselesaikan. Periksa koneksi lalu coba lagi. Tidak ada yang dihapus.',
@@ -12018,6 +12037,7 @@ const resources = {
       profile_remove_blocked_funds: 'まだ資金またはトークンが残っています。先に別のプロフィールへ送ってください。',
       profile_remove_blocked_pending: '支払いが処理中、または送信や入金の待機中です。すべて完了してからもう一度お試しください。',
       profile_remove_blocked_check: 'このプロフィールを確認できなかったため、何も削除されていません。もう一度お試しください。',
+      profile_remove_blocked_network: '別のネットワークにも資金または未完了の支払いが残っています。このプロフィールをそのネットワークに切り替え、そこで空にしてから、もう一度お試しください。',
       profile_remove_offline: 'プロフィールを削除するにはインターネットに接続してください。',
       profile_remove_failed_handle: 'ハンドルを解放できなかったか、その変更がまだ完了していません。接続を確認してもう一度お試しください。何も削除されていません。',
       profile_remove_failed: 'このプロフィールを削除できませんでした。もう一度お試しください。',
@@ -13139,6 +13159,8 @@ const resources = {
       profile_remove_blocked_pending:
         'Płatność jest jeszcze w toku albo czeka na wysłanie lub zaksięgowanie. Spróbuj ponownie, gdy wszystko się zakończy.',
       profile_remove_blocked_check: 'Nie udało się sprawdzić tego profilu, więc nic nie usunięto. Spróbuj ponownie.',
+      profile_remove_blocked_network:
+        'Ma też pieniądze lub niedokończone płatności w innej sieci. Przełącz ten profil na tę sieć, opróżnij go tam i spróbuj ponownie.',
       profile_remove_offline: 'Połącz się z internetem, aby usunąć profil.',
       profile_remove_failed_handle:
         'Nie udało się zwolnić Twojego pseudonimu albo jego zmiana wciąż się kończy. Sprawdź połączenie i spróbuj ponownie. Nic nie usunięto.',

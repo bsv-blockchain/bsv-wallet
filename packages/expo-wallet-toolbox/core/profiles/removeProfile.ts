@@ -7,19 +7,29 @@
  * makes it recoverable is the order: everything that can fail is done before
  * anything is changed here.
  *
- *   1. Guards, then the proof that the profile is empty (`checkEmpty`).
- *   2. Release the handle, if the registry shows one for this identity.
+ *   1. Guards, then the proof that the profile is empty (`checkEmpty`): the open
+ *      database and the profile's databases for every other network.
+ *   2. Release the handle, if the registry shows one for this identity — bounded
+ *      in time, and followed by the proof again, since the release is a network
+ *      round trip during which the profile's inbox tasks keep running.
  *   3. (The remote backup is kept: a removed profile can reappear after a
  *      reinstall and seed import, empty, and be removed again.)
  *   4. Disconnect the paired session — `switchToDefault` does this first thing.
- *   5. Switch to profile 0 through the normal switch.
- *   6. Only once that has landed: tombstone the record, purge its databases and
- *      keys, and withdraw its push registration.
+ *   5. Switch to profile 0 through the normal switch. Its teardown lets the
+ *      profile's monitor finish its pass, which can still credit something, so
+ *      once the profile is closed...
+ *   5b. ...its databases are checked a last time from their files (`checkClosed`):
+ *      nothing writes to them any more, so what they hold now is final.
+ *   6. Only once that has landed and found nothing: tombstone the record, purge
+ *      its databases and keys, and withdraw its push registration.
  *
  * Everything before 5 aborts with the store exactly as it was, and a switch that
  * does not land aborts too, so a failure never strands a profile half-removed.
- * The handle is the one thing step 5 cannot take back: it was released first
- * because releasing needs the live wallet's signer, which the switch tears down.
+ * A last check that finds something aborts as well: the profile stays exactly
+ * as it was, databases included, and profile 0 is the one that is open. The
+ * handle is the one thing that cannot be taken back after step 2: it was
+ * released first because releasing needs the live wallet's signer, which the
+ * switch tears down.
  *
  * The flow touches nothing itself. The open database, the registry, the switch
  * and the stores arrive as `RemoveProfileDeps`, so the ordering is testable
@@ -57,6 +67,13 @@ export type ProfileRemovalCheck =
 
 export type RemoveProfileResult =
   | { kind: 'removed'; index: number }
+  /**
+   * Excludes nothing from the check's own answers, so `blocked` also covers a
+   * profile that was empty when the removal began and was not by the time it
+   * had to be (money credited during the handle release or the switch). In that
+   * case the handle, if there was one, is already released, and after the
+   * switch profile 0 is the open profile; nothing else was changed.
+   */
   | Exclude<ProfileRemovalCheck, { kind: 'ok' }>
   /** The switch to profile 0 did not land. Nothing was removed; the handle, if there was one, is already released. */
   | { kind: 'switch-failed' }
@@ -79,19 +96,53 @@ export interface RemoveProfileDeps {
    * left outstanding.
    */
   settleHandleJournal(): Promise<boolean>
-  checkEmpty(): Promise<ProfileEmptyResult>
+  /**
+   * The proof that the profile holds nothing, for this identity: the open
+   * database AND its databases for every other network, since removal deletes all
+   * of them. Asked once before the handle is released and, when a handle was
+   * released, again after.
+   */
+  checkEmpty(identityKey: string): Promise<ProfileEmptyResult>
   /** Asked of the registry by the identity, which is what the registry keys a handle on. */
   lookupHandle(identityKey: string): Promise<HandleLookup>
   releaseHandle(paymail: string): Promise<RegistrationResult>
   /** The normal switch, with its cover. True when profile 0 is open and built. */
   switchToDefault(): Promise<boolean>
+  /**
+   * What the profile's databases hold now that its wallet is down — every file
+   * registered for the identity, read from the files themselves. Asked after the
+   * switch has landed, so whatever the profile's monitor credited while it shut
+   * down is in them.
+   */
+  checkClosed(identityKey: string): Promise<ProfileEmptyResult>
   tombstone(identityKey: string): Promise<void>
   purge(target: { index: number; identityKey: string }): Promise<void>
   /** The push hook: withdraw this identity's device registration. Best effort, never a reason to fail. */
   unregisterPush(target: { index: number; identityKey: string }): Promise<void>
 }
 
+/**
+ * How long the registry gets to answer a release. The wallet is untouched until
+ * it has, so waiting costs only the cover; a registry that never answers must
+ * not hold the cover up for good. A release that lands after this has no effect
+ * here but a handle released: its journal is finished by the next attempt.
+ */
+export const HANDLE_RELEASE_TIMEOUT_MS = 20_000
+
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
+/** `work`'s result, or `undefined` once `ms` have passed. Leaves no timer behind. */
+async function within<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>(resolve => {
+    timer = setTimeout(() => resolve(undefined), ms)
+  })
+  try {
+    return await Promise.race([work, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 /**
  * The guards that need no network and no wallet call: whether this profile may
@@ -123,7 +174,7 @@ async function prepare(
     if (!(await deps.online())) return { kind: 'refused', reason: 'offline' }
 
     if (!(await deps.settleHandleJournal())) return { kind: 'handle-failed' }
-    const empty = await deps.checkEmpty()
+    const empty = await deps.checkEmpty(identityKey)
     if (!empty.ok) return { kind: 'blocked', reasons: empty.reasons }
 
     const lookup = await deps.lookupHandle(identityKey)
@@ -147,10 +198,16 @@ export async function removeProfileFlow(deps: RemoveProfileDeps): Promise<Remove
   const target = { index: deps.index, identityKey }
 
   // Step 2. Only a `released` answer means the handle is gone: any other kind
-  // (including an unrelated journal finished in its place) leaves it held.
+  // (including an unrelated journal finished in its place), and no answer in
+  // time, leave it held.
   if (handle !== null) {
     try {
-      if ((await deps.releaseHandle(handle)).kind !== 'released') return { kind: 'handle-failed' }
+      const released = await within(deps.releaseHandle(handle), HANDLE_RELEASE_TIMEOUT_MS)
+      if (released?.kind !== 'released') return { kind: 'handle-failed' }
+      // The release was a network round trip, and the profile's inbox tasks kept
+      // running throughout: what they credited since the proof above is not in it.
+      const again = await deps.checkEmpty(identityKey)
+      if (!again.ok) return { kind: 'blocked', reasons: again.reasons }
     } catch (e) {
       return { kind: 'failed', message: messageOf(e) }
     }
@@ -167,6 +224,17 @@ export async function removeProfileFlow(deps: RemoveProfileDeps): Promise<Remove
     landed = false
   }
   if (!landed || deps.activeIndex() !== 0) return { kind: 'switch-failed' }
+
+  // Step 5b. The switch let the profile's monitor finish its pass before its
+  // storage was closed, and that pass can credit a payment after every proof so
+  // far. Nothing writes to the databases now, so this is the last word: anything
+  // in them, or any failure to look, keeps them.
+  try {
+    const left = await deps.checkClosed(identityKey)
+    if (!left.ok) return { kind: 'blocked', reasons: left.reasons }
+  } catch (e) {
+    return { kind: 'failed', message: messageOf(e) }
+  }
 
   // Step 6. The tombstone is the removal; what follows is cleanup that the
   // startup retry repeats, so it can fail without undoing anything.

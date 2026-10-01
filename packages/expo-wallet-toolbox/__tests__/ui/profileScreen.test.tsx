@@ -117,7 +117,7 @@ import {
   updateProfile as updateProfileRecord
 } from '../../core/profiles/profileStore'
 import { buildProfileCertificate, type ProfileSigner } from '../../core/identity/handleRegistry/profileCert'
-import { ProfileScreen } from '../../ui/screens/ProfileScreen'
+import { PROFILE_COVER_FADE_MS, ProfileScreen } from '../../ui/screens/ProfileScreen'
 
 const OWN_KEY = '02' + 'ab'.repeat(32)
 /** The screen's `HANDLE_CHECK_DEBOUNCE_MS`, which it does not export. */
@@ -868,6 +868,11 @@ describe('removing the profile', () => {
     ['tokens', { kind: 'blocked', reasons: ['token-balance'] }, 'profile_remove_blocked_funds'],
     ['an unfinished handle write', { kind: 'blocked', reasons: ['handle-journal'] }, 'profile_remove_failed_handle'],
     ['a check that could not run', { kind: 'blocked', reasons: ['check-failed'] }, 'profile_remove_blocked_check'],
+    [
+      'money on another network',
+      { kind: 'blocked', reasons: ['other-network'] },
+      'profile_remove_blocked_network'
+    ],
     ['a registry that did not answer', { kind: 'handle-failed' }, 'profile_remove_failed_handle'],
     ['being offline', { kind: 'refused', reason: 'offline' }, 'profile_remove_offline'],
     ['a refusal of another kind', { kind: 'refused', reason: 'busy' }, 'profile_remove_failed'],
@@ -887,15 +892,25 @@ describe('removing the profile', () => {
     await onProfileOne()
     mockCheckProfileRemoval.mockResolvedValue({
       kind: 'blocked',
-      reasons: ['spendable-outputs', 'offline-queue', 'check-failed']
+      reasons: ['spendable-outputs', 'offline-queue', 'other-network', 'check-failed']
     })
     mockShowAlert.mockResolvedValue('ok')
     const s = draw()
     tapRemove(s)
     await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
     expect(alerts()[0].message).toBe(
-      'profile_remove_blocked_funds\n\nprofile_remove_blocked_pending\n\nprofile_remove_blocked_check'
+      'profile_remove_blocked_funds\n\nprofile_remove_blocked_pending\n\nprofile_remove_blocked_network\n\nprofile_remove_blocked_check'
     )
+  })
+
+  it('explains what the check found at once: nothing was covering the screen yet', async () => {
+    await onProfileOne()
+    mockCheckProfileRemoval.mockResolvedValue({ kind: 'blocked', reasons: ['spendable-outputs'] })
+    mockShowAlert.mockResolvedValue('ok')
+    const s = draw()
+    tapRemove(s)
+    await settle()
+    expect(mockShowAlert).toHaveBeenCalledTimes(1)
   })
 
   it('confirms before anything is removed, naming the profile and leaving the handle out when there is none', async () => {
@@ -952,6 +967,55 @@ describe('removing the profile', () => {
     expect(alerts()[1]).toMatchObject({ title: TITLE, message: 'profile_remove_blocked_funds' })
     expect(router.dismissAll).not.toHaveBeenCalled()
     expect(showToast).not.toHaveBeenCalledWith(expect.stringContaining('profile_removed'), expect.anything())
+  })
+
+  describe('a failure after the confirm, which comes while the switch cover is still dismissing', () => {
+    // iOS will not present a second Modal while the first is dismissing, and an
+    // alert that is dropped never settles: the row would spin for good.
+    it.each<[string, object]>([
+      ['a flow that came back refused', { kind: 'switch-failed' }],
+      ['money that arrived meanwhile', { kind: 'blocked', reasons: ['spendable-outputs'] }]
+    ])('waits for the cover to fade before explaining %s', async (_name, result) => {
+      await onProfileOne()
+      mockRemoveProfile.mockResolvedValue(result)
+      mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValue('ok')
+      const s = draw()
+      tapRemove(s)
+      await waitFor(() => expect(mockRemoveProfile).toHaveBeenCalledTimes(1))
+      await settle()
+      // Only the confirm so far.
+      expect(mockShowAlert).toHaveBeenCalledTimes(1)
+      await act(async () => await new Promise(r => setTimeout(r, PROFILE_COVER_FADE_MS + 100)))
+      expect(mockShowAlert).toHaveBeenCalledTimes(2)
+    })
+
+    it('waits when the plumbing around the flow throws, too: the cover came down all the same', async () => {
+      await onProfileOne()
+      jest.spyOn(console, 'warn').mockImplementation(() => {})
+      mockRemoveProfile.mockRejectedValue(new Error('boom'))
+      mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValue('ok')
+      const s = draw()
+      tapRemove(s)
+      await waitFor(() => expect(mockRemoveProfile).toHaveBeenCalledTimes(1))
+      await settle()
+      expect(mockShowAlert).toHaveBeenCalledTimes(1)
+      await act(async () => await new Promise(r => setTimeout(r, PROFILE_COVER_FADE_MS + 100)))
+      expect(mockShowAlert).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the Remove row busy until the explanation has been dismissed, and ignores taps meanwhile', async () => {
+      await onProfileOne()
+      mockRemoveProfile.mockResolvedValue({ kind: 'switch-failed' })
+      mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValue('ok')
+      const s = draw()
+      tapRemove(s)
+      await waitFor(() => expect(mockRemoveProfile).toHaveBeenCalledTimes(1))
+      await settle()
+      tapRemove(s)
+      await settle()
+      expect(mockCheckProfileRemoval).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(2))
+    })
   })
 
   it.each<[string, object, string]>([

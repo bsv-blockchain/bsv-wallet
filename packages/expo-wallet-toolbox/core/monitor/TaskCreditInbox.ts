@@ -18,6 +18,30 @@ export interface CreditInboxTaskResult {
   accepted: number
   attention: number
   pending?: boolean
+  /**
+   * Part of the pass could not run at all (the token box could not be read). What
+   * is waiting there is unknown rather than absent: the monitor retries it as
+   * `pending`, and the profile removal refuses to read it as an empty inbox.
+   */
+  incomplete?: boolean
+}
+
+/**
+ * The satoshi inbox's pass and the token inbox's drain as one result. A token
+ * message that failed to credit, or a token box that could not be read, is work
+ * left in the inbox: `pending`, so the monitor tries again and the removal check
+ * does not take the inbox for empty.
+ */
+export function mergeInboxResults(
+  satoshis: { accepted: number; attentionCount: number; pending: boolean },
+  tokens: { credited: number; failed: number; incomplete?: boolean }
+): CreditInboxTaskResult {
+  return {
+    accepted: satoshis.accepted + tokens.credited,
+    attention: satoshis.attentionCount,
+    pending: satoshis.pending || tokens.failed > 0 || tokens.incomplete === true,
+    ...(tokens.incomplete ? { incomplete: true } : {})
+  }
 }
 
 export class TaskCreditInbox extends WalletMonitorTask {

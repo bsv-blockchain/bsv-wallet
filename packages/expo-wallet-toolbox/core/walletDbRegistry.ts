@@ -113,6 +113,19 @@ export async function getRegisteredDbs(keySuffix: string, chain: string): Promis
   }
 }
 
+/** The networks a wallet database can belong to. */
+const WALLET_DB_CHAINS = ['main', 'test', 'teratest'] as const
+
+/**
+ * Every registered wallet DB filename for an identity, on every network. Unlike
+ * the purge below, a registry that cannot be read rejects: this answers "what
+ * exists", and a guess of "nothing" would be wrong in the dangerous direction.
+ */
+export async function getAllRegisteredDbs(keySuffix: string): Promise<string[]> {
+  const perChain = await Promise.all(WALLET_DB_CHAINS.map(chain => getRegisteredDbs(keySuffix, chain)))
+  return [...new Set(perChain.flat())]
+}
+
 /**
  * Append a filename to the registry (no-op if already present).
  */
@@ -187,29 +200,55 @@ export async function purgeRegisteredDbFiles(
 }
 
 /**
+ * What a failed delete means: the file is already gone (expo-sqlite throws
+ * "Database ... not found" for it, on Android and iOS alike) or it is still there.
+ */
+function alreadyGone(error: unknown): boolean {
+  return /not found/i.test(error instanceof Error ? error.message : String(error))
+}
+
+/**
  * Delete Wallet with profiles: every wallet profile has its own identity and so
  * its own registry, one per network. Purges every file this identity's registry
  * knows on every network — the other profiles are not open at logout, so there
  * is no current `dbName` to anchor on as `purgeRegisteredDbFiles` does.
  * Best-effort per file, for the same reasons as that function.
+ *
+ * Resolves true when every file is gone. By default a file that could not be
+ * deleted is unregistered anyway: after Delete Wallet the registry must not point
+ * a rebuilt wallet back at it (XQ-008).
+ *
+ * `keepFailed` is for removing one profile, which has a retry at every startup
+ * (core/profiles/purgeProfile) and that retry finds the files only through this
+ * registry: an entry dropped with its file still on disk would leave the removed
+ * profile's plaintext history there for good. So an entry stays when its file
+ * could not be deleted, and goes when the file is gone, whether this call or an
+ * earlier one deleted it.
  */
 export async function purgeIdentityDbFiles(
   keySuffix: string,
-  deleteFile: (filename: string) => Promise<void>
-): Promise<void> {
-  for (const chain of ['main', 'test', 'teratest']) {
+  deleteFile: (filename: string) => Promise<void>,
+  options: { keepFailed?: boolean } = {}
+): Promise<boolean> {
+  let clean = true
+  for (const chain of WALLET_DB_CHAINS) {
     let filenames: string[] = []
     try {
       filenames = await getRegisteredDbs(keySuffix, chain)
     } catch {
+      clean = false
       continue
     }
     for (const filename of filenames) {
+      let deleted = true
       try {
         await deleteFile(filename)
-      } catch {
+      } catch (error) {
         // Best-effort — see purgeRegisteredDbFiles.
+        deleted = alreadyGone(error)
+        if (!deleted) clean = false
       }
+      if (options.keepFailed && !deleted) continue
       try {
         await unregisterDb(keySuffix, chain, filename)
       } catch {
@@ -217,4 +256,5 @@ export async function purgeIdentityDbFiles(
       }
     }
   }
+  return clean
 }

@@ -2477,14 +2477,14 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       }
     },
 
-    async receiveFromInbox(): Promise<{ credited: number; failed: number }> {
+    async receiveFromInbox(): Promise<{ credited: number; failed: number; incomplete?: true }> {
       if (!available) return { credited: 0, failed: 0 }
       let box: MandalaMessageBox
       try {
         box = await messageBox()
       } catch (e) {
         devLog('[mandala] no MessageBox client for the inbox drain:', e)
-        return { credited: 0, failed: 0 }
+        return { credited: 0, failed: 0, incomplete: true }
       }
 
       // P1-4: for every hand-over message this pass can decode, write its
@@ -2520,7 +2520,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         // filter with — skip the whole receive rather than let a hand-over
         // credit run against receiveTokens with no guard in front of it.
         devLog('[mandala] inbox pre-hold pass failed; skipping this receive pass:', e)
-        return { credited: 0, failed: 0 }
+        return { credited: 0, failed: 0, incomplete: true }
       }
       // A message whose pre-hold write failed is kept out of THIS
       // receiveTokens call only (`processed` is the library's own message
