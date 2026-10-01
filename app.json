@@ -73,7 +73,16 @@
       ],
       "expo-asset",
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging"
+      [
+        "@react-native-firebase/messaging",
+        {
+          "android": {
+            "notificationIcon": "./assets/images/notification-icon/notification_icon-xxxhdpi.png",
+            "notificationColor": "#E5AF35"
+          }
+        }
+      ],
+      "./plugins/withAndroidNotificationIcon"
     ],
     "experiments": {
       "typedRoutes": true
