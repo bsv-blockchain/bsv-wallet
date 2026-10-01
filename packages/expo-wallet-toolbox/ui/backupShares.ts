@@ -40,9 +40,8 @@ async function generateQRCodeSVG(data: string, size: number = 180): Promise<stri
  *
  * `only`, when given, renders a single page (share index `only` of `shares`,
  * still labelled "Share <only+1> of <shares.length>") as a standalone
- * one-page document instead of every share in one multi-page document. See
- * printRecoveryShares.ts (XR-110): the default flow calls this once per
- * share so no single print job carries more than one of the threshold.
+ * one-page document instead of every share in one multi-page document.
+ * printRecoveryShares.ts no longer uses it (XR-110 reverted, see there).
  */
 export async function generatePrintHTML(
   shares: string[],
