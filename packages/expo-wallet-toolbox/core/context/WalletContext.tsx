@@ -177,7 +177,7 @@ import { disconnectActivePairedSession } from './WalletConnectionContext'
 import connectionStore from '../stores/ConnectionStore'
 import { loadUserAvatarIcon } from '../userAvatar'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
-import { getArcApiToken } from '../services/arcTokenStorage'
+import { clearArcApiTokensForProfile, getArcApiToken } from '../services/arcTokenStorage'
 import {
   boundReviewProvenTxs,
   configureNewHeaderPolling,
@@ -219,6 +219,7 @@ import * as SQLite from 'expo-sqlite'
 import {
   getRegisteredDbs,
   purgeRegisteredDbFiles,
+  purgeIdentityDbFiles,
   registerDb,
   selectLatestDb,
   unregisterDb
@@ -3383,6 +3384,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           console.warn('[logout] failed to purge wallet db file(s)/registry', err)
         }
       }
+      // Every wallet profile is part of this wallet: purge each one's databases
+      // on every network (and its ARC token), not just the one that was open.
+      // A profile discovered but never built here has no identity recorded and
+      // so no database on this device.
+      for (const profile of getProfilesState().profiles) {
+        if (profile.identityKey) {
+          try {
+            await purgeIdentityDbFiles(profile.identityKey.slice(-8), SQLite.deleteDatabaseAsync)
+          } catch (err) {
+            console.warn(`[logout] failed to purge profile ${profile.index} db file(s)`, err)
+          }
+        }
+        await clearArcApiTokensForProfile(profile.index)
+      }
       setStorage(null)
       mandalaRef.current = undefined
       setMandala(undefined)
@@ -3420,6 +3435,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // across a logout/re-import on the same install (see deviceId.ts and XR-009), so an
       // unscoped Wallet Check read would otherwise inherit it. Sweeps every identity's
       // cursor, not just the one just logged out of, same as the balance-cache sweep above.
+      // Every non-default profile's device state (avatar, connections, ARC and
+      // MessageBox overrides, auto-approve, caches) lives under a `__p<n>` key.
+      try {
+        const keys = await AsyncStorage.getAllKeys()
+        const stale = keys.filter(k => PROFILE_KEY_SUFFIX_RE.test(k))
+        if (stale.length > 0) await AsyncStorage.multiRemove(stale)
+      } catch (err) {
+        console.warn('[logout] failed to clear profile state', err)
+      }
+
       try {
         const keys = await AsyncStorage.getAllKeys()
         const stale = keys.filter(k => k.startsWith('backupCursor-'))
@@ -3452,6 +3477,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       backupAttestation.clearAll().catch(err => {
         console.warn('[backupAttestation.clearAll]', err)
       })
+      // Back to a single default profile for whatever wallet comes next.
+      await resetProfiles()
+      setProfilesSupported(false)
 
       // dismissAll() leaves exactly one screen on the stack, so this has to
       // REPLACE it: push() would add a second /index on top of the one already

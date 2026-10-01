@@ -93,7 +93,10 @@ jest.mock('../../core/services/walletServiceConfig', () => ({
     serviceOptions: {}
   })
 }))
+const mockPurgeIdentityDbFiles = jest.fn(async (_keySuffix: string, _deleteFile: unknown) => {})
 jest.mock('../../core/walletDbRegistry', () => ({
+  purgeRegisteredDbFiles: jest.fn(async () => {}),
+  purgeIdentityDbFiles: (...args: [string, unknown]) => mockPurgeIdentityDbFiles(...args),
   getRegisteredDbs: async () => ['delete-wallet-test.db'],
   registerDb: jest.fn(async () => {}),
   unregisterDb: jest.fn(async () => {}),
@@ -219,5 +222,52 @@ describe('XR-107: Delete Wallet only reports success after verified secret erasu
     expect(retryOutcome).toBe(true)
     expect(mockRouter.replace).toHaveBeenCalledWith('/')
     expect(await AsyncStorage.getItem(`${ATTEST_KEY_PREFIX}deadbeef`)).toBeNull()
+  })
+})
+
+describe('Delete Wallet with several profiles', () => {
+  const { PROFILES_STORAGE_KEY, __resetProfilesForTests, getProfilesState } =
+    jest.requireActual('../../core/profiles/profileStore')
+  const KEY_P0 = '02' + '11'.repeat(32)
+  const KEY_P1 = '03' + 'ab'.repeat(31) + 'cdef0123'
+
+  beforeEach(async () => {
+    __resetProfilesForTests()
+    await AsyncStorage.clear()
+  })
+
+  it('purges every built profile, sweeps per-profile keys and resets to one profile', async () => {
+    await AsyncStorage.setItem(
+      PROFILES_STORAGE_KEY,
+      JSON.stringify({
+        active: 0,
+        profiles: [
+          { index: 0, network: 'main', identityKey: KEY_P0 },
+          { index: 1, network: 'test', identityKey: KEY_P1 },
+          // Discovered, never built on this device: nothing to purge, must not throw.
+          { index: 2, network: 'main', needsRestore: true }
+        ]
+      })
+    )
+    await AsyncStorage.setItem('wallet_user_avatar_icon__p1', 'ionicons/leaf')
+    await AsyncStorage.setItem('connections__p2', '[]')
+    await AsyncStorage.setItem('walletSettings', '{"currency":"USD"}')
+    await renderProvider()
+    await act(async () => wallet.buildWalletFromMnemonic('synthetic test key'))
+
+    let outcome: boolean | undefined
+    await act(async () => {
+      outcome = await wallet.logout()
+    })
+
+    expect(outcome).toBe(true)
+    const purged = mockPurgeIdentityDbFiles.mock.calls.map(c => c[0]).sort()
+    expect(purged).toEqual([KEY_P0.slice(-8), KEY_P1.slice(-8)].sort())
+    expect(await AsyncStorage.getItem('wallet_user_avatar_icon__p1')).toBeNull()
+    expect(await AsyncStorage.getItem('connections__p2')).toBeNull()
+    // Shared app settings are not per profile and survive as before.
+    expect(await AsyncStorage.getItem('walletSettings')).toBe('{"currency":"USD"}')
+    expect(await AsyncStorage.getItem(PROFILES_STORAGE_KEY)).toBeNull()
+    expect(getProfilesState().profiles).toHaveLength(1)
   })
 })

@@ -185,3 +185,36 @@ export async function purgeRegisteredDbFiles(
     }
   }
 }
+
+/**
+ * Delete Wallet with profiles: every wallet profile has its own identity and so
+ * its own registry, one per network. Purges every file this identity's registry
+ * knows on every network — the other profiles are not open at logout, so there
+ * is no current `dbName` to anchor on as `purgeRegisteredDbFiles` does.
+ * Best-effort per file, for the same reasons as that function.
+ */
+export async function purgeIdentityDbFiles(
+  keySuffix: string,
+  deleteFile: (filename: string) => Promise<void>
+): Promise<void> {
+  for (const chain of ['main', 'test', 'teratest']) {
+    let filenames: string[] = []
+    try {
+      filenames = await getRegisteredDbs(keySuffix, chain)
+    } catch {
+      continue
+    }
+    for (const filename of filenames) {
+      try {
+        await deleteFile(filename)
+      } catch {
+        // Best-effort — see purgeRegisteredDbFiles.
+      }
+      try {
+        await unregisterDb(keySuffix, chain, filename)
+      } catch {
+        // Best-effort — see purgeRegisteredDbFiles.
+      }
+    }
+  }
+}
