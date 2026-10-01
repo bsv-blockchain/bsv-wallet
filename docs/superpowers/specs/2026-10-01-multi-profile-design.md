@@ -14,7 +14,7 @@ Secondary goal (user-requested): profiles double as a fast way to swap networks 
 - No migration or backward compatibility. The app has no users yet; existing derivations may change.
 - No push delivery for inactive profiles in this iteration (added by `2026-10-01-multi-profile-followups-design.md` §4).
 - No new UI for build-time service endpoints (WhatsOnChain, overlay, handle registry, backup server). Those stay per-chain from `configureToolbox` and follow the profile's network automatically.
-- No profile rename, reorder or delete in this iteration. Labels are fixed `profile1`, `profile2`, …
+- No profile reorder in this iteration. Rename and remove were added afterwards by `2026-10-01-multi-profile-followups-design.md` (§2, §3): a profile can carry a private name (without one the label is `profile1`, `profile2`, …), and an empty profile can be removed, which leaves a tombstone in the store.
 - WIF-recovered wallets (no mnemonic) do not get profiles.
 
 ## Key derivation
@@ -55,6 +55,8 @@ interface ProfileRecord {
   needsRestore?: boolean       // set by restore discovery; cleared after first build's restore runs
 }
 ```
+
+`ProfileRecord` has since gained `name?: string` (a private label, device-only, at most 24 characters) and `deleted?: true` (a tombstone: the record stays, with its `identityKey`, so its index is never reused and the startup purge can find its files; `active` never points at one). See `2026-10-01-multi-profile-followups-design.md` §2 and §3.
 
 Defaults: missing or corrupt key → `{ active: 0, profiles: [{ index: 0, network: DEFAULT_CHAIN }] }`. New profiles default to `network: 'main'`.
 
@@ -131,7 +133,7 @@ for n = 1, 2, 3, …:
 
 **ProfileSwitcherPopover** (new, `ui/components/wallet/ProfileSwitcherPopover.tsx`):
 
-- One row per profile: avatar, label `profile{n+1}`, a network badge when the profile isn't on mainnet, and a check on the active row.
+- One row per live profile: avatar, label (the profile's private name, or `profile{n+1}`; removed profiles are not listed), a network badge when the profile isn't on mainnet, and a check on the active row.
 - Tapping the active row closes the popover and opens `/profile`.
 - Tapping another row closes the popover and calls `switchProfile(n)`. Home shows its normal building state until the switch finishes.
 - Below the list, an "Add profile" button calls `addProfile()`.
@@ -164,6 +166,8 @@ Superseded by `2026-10-01-multi-profile-followups-design.md` §4: every live pro
 - clear its ARC token
 
 Then delete the profile store, mnemonic and secrets as today. Afterwards the app is in a first-run state equivalent to `{ active: 0, profiles: [index 0] }`.
+
+Removed profiles (tombstones) are part of the store and are purged the same way. Each profile's push registration is withdrawn first (followups spec §4), and the push registration markers, which are not profile-scoped, are swept explicitly.
 
 ## Error handling
 
@@ -198,5 +202,5 @@ Manual (simulator):
 
 - ~~Push delivery for inactive profiles.~~ Done: followups spec §4.
 - Initial marker backup on `addProfile`, to close the discovery gap.
-- Profile rename and delete.
+- ~~Profile rename and delete.~~ Done: followups spec §2 and §3.
 - Storing profile settings (URLs, threshold) in the remote backup so a restore brings back more than the network.

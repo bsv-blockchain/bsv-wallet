@@ -51,23 +51,23 @@ The zero-balance proof is `assertProfileEmpty`. It runs on the open storage, fai
 - any `localpay_pending` entry, including stuck or corrupt ones;
 - any `peerpay_outbox` entry not `sent`;
 - an outstanding handle journal (`profile_handle_pending`);
-- a pending inbox, where one forced CreditInbox pass before the check must succeed.
+- a pending inbox, where one forced CreditInbox pass before the check must succeed. The pass covers both boxes: a token message that failed to credit counts as pending, and a token box that could not be read at all (or a network with tokens whose runtime could not be built) makes the check fail rather than read as empty.
 
-The rule is strict on every network.
+The rule is strict on every network, and it covers every network's database. The open storage is one network's file, but removal deletes the profile's databases on all of them (a profile whose network was switched keeps its earlier networks' files). So the same checks, minus the inbox pass (which needs an open wallet), also run on every other file the registry lists for the identity, each on its own connection. A file with no user for the identity, or never migrated, counts as empty; a file that cannot be opened or read blocks. What they find is reported as `other-network`, and the UI tells the user to switch the profile to that network and clear it there.
 
 Steps, in order. Everything before step 5 aborts cleanly:
 1. Guards and `assertProfileEmpty`.
-2. Release the handle, if the registry for the profile's network reports one for this identity. A new `releaseHandle` journals and PUTs a `released: true` certificate signed by the live wallet. If the lookup or release fails, the whole removal aborts. The confirm copy warns about the 30-day cooldown.
+2. Release the handle, if the registry for the profile's network reports one for this identity. A new `releaseHandle` journals and PUTs a `released: true` certificate signed by the live wallet. If the lookup or release fails, or the registry has not answered within 20 seconds, the whole removal aborts. The confirm copy warns about the 30-day cooldown. The release is a network round trip while the profile's inbox tasks keep running, so the emptiness proof is taken again straight after it.
 3. Keep the remote backup. A removed profile can reappear after a reinstall and seed import; it is empty and can be removed again.
 4. Disconnect the paired session.
-5. Switch to profile 0 using the normal switch, with its cover. If that switch fails, abort; nothing has been purged.
-6. After the switch succeeds:
+5. Switch to profile 0 using the normal switch, with its cover. If that switch fails, abort; nothing has been purged. The switch lets the profile's monitor finish its pass, which can still credit a payment after every proof so far, so once the profile is closed all of its databases are checked once more from their files. Anything found there, or any failure to look, aborts the removal: the profile and its files stay as they were and profile 0 is open.
+6. After the switch succeeds and that check is clear:
    - mark the profile removed (`deleted: true`, keeping `identityKey`);
    - purge its databases on every network (`purgeIdentityDbFiles`);
    - clear its ARC token;
    - remove the AsyncStorage keys ending exactly in `__p<n>`;
    - unregister its push registration (section 4).
-7. On every startup, purge again for each tombstoned record. This is idempotent and covers a crash between the tombstone and the purge.
+7. On every startup, purge again for each tombstoned record. This is idempotent and covers a crash between the tombstone and the purge. It finds the files through the database registry, so a file that could not be deleted keeps its registry entry (Delete Wallet drops it regardless, so that a rebuilt wallet is never pointed back at the file); an entry goes once its file is gone.
 
 Store semantics:
 - The array stays dense, and tombstones keep their index.
@@ -77,8 +77,9 @@ Store semantics:
 - Discovery leaves tombstoned indices as they are. On a fresh device there are no tombstones, which is decision (b): keep backups.
 
 UI: the Profile screen gets a "Remove profile" destructive row for the active profile when it isn't profile 0.
-- The row first runs the check. If it fails, it explains why (funds, pending activity, offline).
+- The row first runs the check. If it fails, it explains why (funds, pending activity, money on another network, offline).
 - If it passes, a confirm dialog says what happens and mentions the handle cooldown when relevant.
+- A failure after the confirm happens under the switch cover, which is dismissed in the same tick the answer arrives. iOS drops a second Modal presented while the first is still dismissing, and an alert that is dropped never settles, so the explanation waits for the cover to fade (500 ms) before it is shown.
 
 ## 4. Push for every profile
 
