@@ -36,8 +36,16 @@ export default function ProfileButton() {
   const { t } = useTranslation()
   const { router } = loadExpoRouter()
   const avatar = useUserAvatarIcon()
-  const { profilesSupported, profiles, activeProfile, switchProfile, addProfile, walletBuilding, switchingProfile } =
-    useWallet()
+  const {
+    profilesSupported,
+    profiles,
+    activeProfile,
+    switchProfile,
+    addProfile,
+    walletBuilding,
+    switchingProfile,
+    removingProfile
+  } = useWallet()
   const discRef = useRef<View>(null)
   const [open, setOpen] = useState(false)
   /** Which profile the running switch is headed to, for the cover's label. */
@@ -99,7 +107,10 @@ export default function ProfileButton() {
           active={activeProfile}
           avatar={avatar}
           busy={walletBuilding || switchingProfile}
-          switchingTo={switchingProfile ? (target ?? activeProfile) : null}
+          // A removal is started from the Profile screen, not from here, so `target` is
+          // empty for it: the cover names the profile being removed instead.
+          switchingTo={switchingProfile ? (target ?? removingProfile ?? activeProfile) : null}
+          removing={typeof removingProfile === 'number'}
           onSelect={n => run(n, () => switchProfile(n))}
           onOpenProfile={() => {
             setOpen(false)

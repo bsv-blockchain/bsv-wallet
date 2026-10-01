@@ -139,7 +139,7 @@ const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
-import { getBackupUrl, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
+import { getBackupUrl, getHandleRegistryConfig, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
   AUTO_APPROVE_COOLDOWN_MS,
@@ -198,7 +198,20 @@ import { getExchangeRate } from '../services/exchangeRate'
 import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
 import { backupProbe, discoverProfiles, registerDiscoveredProfile } from '../profiles/discovery'
+import { assertProfileEmpty } from '../profiles/assertProfileEmpty'
+import { purgeProfile, purgeRemovedProfiles, type PurgeProfileIo } from '../profiles/purgeProfile'
+import {
+  checkProfileRemoval as runProfileRemovalCheck,
+  removalRefusal,
+  removeProfileFlow,
+  type ProfileRemovalCheck,
+  type RemoveProfileDeps,
+  type RemoveProfileResult
+} from '../profiles/removeProfile'
 import { profileLabel } from '../profiles/profileLabel'
+import { createHandleRegistryClient } from '../identity/handleRegistry/client'
+import type { ProfileSigner } from '../identity/handleRegistry/profileCert'
+import { releaseHandle, resumePending } from '../identity/handleRegistry/registration'
 import {
   appendProfile,
   getActiveProfile,
@@ -228,12 +241,12 @@ import {
   unregisterDb
 } from '../walletDbRegistry'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
-import { getOnline, subscribeOnline } from '../net/online'
+import { getOnline, probeOnline, subscribeOnline } from '../net/online'
 import { canInternalizePending, processPending } from '../localpay/pending'
 import { replayPendingAborts, verifyDeclinedAborts } from '../localpay/pendingAborts'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
 import { MONITOR_STALL_MS, MonitorSupervisor } from '../monitor/MonitorSupervisor'
-import { TaskCreditInbox } from '../monitor/TaskCreditInbox'
+import { TaskCreditInbox, type CreditInboxTaskResult } from '../monitor/TaskCreditInbox'
 import { attachPushHandlers, coalesceRuns } from '../push/events'
 import { syncPushRegistration } from '../push/registration'
 import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
@@ -323,6 +336,14 @@ async function reloadAutoApproveLedger(): Promise<void> {
 }
 function persistAutoApproveLedger(): void {
   AsyncStorage.setItem(profileScopedKey(AUTO_APPROVE_LEDGER_STORAGE_KEY), JSON.stringify(autoApprovePolicy.getLedger())).catch(() => {})
+}
+
+/** The real stores behind a profile purge (core/profiles/purgeProfile), for a removal and for the startup retry. */
+const profilePurgeIo: PurgeProfileIo = {
+  purgeDbFiles: keySuffix => purgeIdentityDbFiles(keySuffix, SQLite.deleteDatabaseAsync),
+  clearArcTokens: clearArcApiTokensForProfile,
+  getAllKeys: () => AsyncStorage.getAllKeys(),
+  removeKeys: keys => AsyncStorage.multiRemove(keys)
 }
 
 // -----
@@ -463,6 +484,22 @@ export interface WalletContextValue {
   addProfile: () => Promise<void>
   /** A profile switch is in flight, from the tap until the new profile's wallet is built. */
   switchingProfile: boolean
+  /** The profile being removed while a removal runs (its cover reads "Removing …"), else null. */
+  removingProfile: number | null
+  /**
+   * Whether the active profile could be removed right now: the guards, the proof
+   * that it holds nothing, and the handle that removal would release. Changes
+   * nothing, so the Profile screen can explain a refusal before it asks anyone
+   * to confirm. See core/profiles/removeProfile.
+   */
+  checkProfileRemoval: () => Promise<ProfileRemovalCheck>
+  /**
+   * Remove the active profile from this device and release its handle, then open
+   * profile 0. Re-runs every check itself: what was true when the user was asked
+   * to confirm may not be true now. Runs as a profile transition, so the cover
+   * shows. Never profile 0.
+   */
+  removeProfile: () => Promise<RemoveProfileResult>
   storage: StorageExpoSQLite | null
   /**
    * Mandala stablecoins, or undefined.
@@ -552,6 +589,9 @@ export const WalletContext = createContext<WalletContextValue>({
   switchProfile: async () => {},
   addProfile: async () => {},
   switchingProfile: false,
+  removingProfile: null,
+  checkProfileRemoval: async () => ({ kind: 'refused', reason: 'unsupported' }),
+  removeProfile: async () => ({ kind: 'refused', reason: 'unsupported' }),
   storage: null,
   mandala: undefined,
   mandalaSettlement: undefined,
@@ -761,6 +801,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   // registers on return. Both are cleared wherever the monitor is torn down.
   const pushDetachRef = useRef<(() => void) | undefined>(undefined)
   const pushSyncRef = useRef<(() => Promise<void>) | undefined>(undefined)
+  // This build's MessageBox credit pass: the very function the CreditInbox
+  // monitor task runs, held here so removing a profile can run one pass and see
+  // what it left. Set by the build, cleared wherever the monitor is torn down.
+  const creditInboxPassRef = useRef<(() => Promise<CreditInboxTaskResult>) | undefined>(undefined)
   // The offline-first chain tracker and the header store it wraps. Populated
   // in buildWallet (tracker synchronously, store once the background open
   // finishes); the reconnect top-up effect below reuses both rather than
@@ -1216,6 +1260,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   /** A whole switch or add, from the tap until its build lands (see runProfileTransition). */
   const switchInFlightRef = useRef(false)
   const [switchingProfile, setSwitchingProfile] = useState(false)
+  /** The profile a removal is working on, for the cover's label; null the rest of the time. */
+  const [removingProfile, setRemovingProfile] = useState<number | null>(null)
 
   // Flag that indicates configuration is complete. For returning users,
   // if a snapshot exists we auto-mark configComplete.
@@ -1261,6 +1307,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // memory before anything builds. Per-profile caches that were read at import
       // or mount time (before this resolved) are re-read for the profile it names.
       await loadProfiles()
+      // A removal that stopped between its tombstone and its purge (a crash, a
+      // locked store) still has its history on disk: purge it again. Idempotent,
+      // best effort, and never in the way of startup.
+      void purgeRemovedProfiles(getProfilesState().profiles, profilePurgeIo).catch(() => {})
       await reloadProfileCaches()
       const storedConfig = await getItem('finalConfig')
       if (storedConfig) {
@@ -2098,58 +2148,56 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             // Pessimistic: one idle drain clears it the first time we are online.
             TaskSendOffline.noteEnqueued()
 
+            const creditInboxPass = async (): Promise<CreditInboxTaskResult> => {
+              const messageBoxUrl = await readMessageBoxHost()
+              if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
+              let client: PeerPayClient
+              try {
+                client = new PeerPayClient({
+                  messageBoxHost: messageBoxUrl,
+                  walletClient: permissionsManager as never,
+                  originator: adminOriginator
+                })
+              } catch {
+                return { accepted: 0, attention: 0, pending: false }
+              }
+              const repairBeef = makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
+              const classify = await makeCreditClassifier({
+                getOnline,
+                peekLastMissHeight: () => offlineChaintracks.peekLastMissHeight()
+              })
+              const r = await creditInboxOnce({
+                client,
+                messageBoxUrl,
+                storage: phoneStorage!,
+                classify,
+                accept: payment =>
+                  acceptWithRetry(client, messageBoxUrl, payment, p =>
+                    internalizeIncoming(permissionsManager as never, client, adminOriginator, p, repairBeef)
+                  )
+              })
+              // The SAME rail, a second box. A handle-rail token payment
+              // is delivered into 'mandala-payments', not 'payment_inbox',
+              // so a receive drain that read only the satoshi box would
+              // leave real money sitting in the other one. Never throws
+              // (see drainMandalaInbox) — a MessageBox fault on the token
+              // side must not take the satoshi inbox down with it.
+              const tokens = await drainMandalaInbox(mandalaRef.current)
+              if (tokens.credited > 0) setTxStatusVersion(v => v + 1)
+              return {
+                accepted: r.accepted + tokens.credited,
+                attention: r.attentionCount,
+                pending: r.pending
+              }
+            }
+            // The same function the removal flow runs as its inbox pass.
+            creditInboxPassRef.current = creditInboxPass
             monitor.addTask(
-              new TaskCreditInbox(
-                monitor,
-                async () => {
-                  const messageBoxUrl = await readMessageBoxHost()
-                  if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
-                  let client: PeerPayClient
-                  try {
-                    client = new PeerPayClient({
-                      messageBoxHost: messageBoxUrl,
-                      walletClient: permissionsManager as never,
-                      originator: adminOriginator
-                    })
-                  } catch {
-                    return { accepted: 0, attention: 0, pending: false }
-                  }
-                  const repairBeef = makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
-                  const classify = await makeCreditClassifier({
-                    getOnline,
-                    peekLastMissHeight: () => offlineChaintracks.peekLastMissHeight()
-                  })
-                  const r = await creditInboxOnce({
-                    client,
-                    messageBoxUrl,
-                    storage: phoneStorage!,
-                    classify,
-                    accept: payment =>
-                      acceptWithRetry(client, messageBoxUrl, payment, p =>
-                        internalizeIncoming(permissionsManager as never, client, adminOriginator, p, repairBeef)
-                      )
-                  })
-                  // The SAME rail, a second box. A handle-rail token payment
-                  // is delivered into 'mandala-payments', not 'payment_inbox',
-                  // so a receive drain that read only the satoshi box would
-                  // leave real money sitting in the other one. Never throws
-                  // (see drainMandalaInbox) — a MessageBox fault on the token
-                  // side must not take the satoshi inbox down with it.
-                  const tokens = await drainMandalaInbox(mandalaRef.current)
-                  if (tokens.credited > 0) setTxStatusVersion(v => v + 1)
-                  return {
-                    accepted: r.accepted + tokens.credited,
-                    attention: r.attentionCount,
-                    pending: r.pending
-                  }
-                },
-                Date.now,
-                () => {
-                  if (isReceiveInboxFocused()) return
-                  sounds.paymentReceive()
-                  onToast?.(i18n.t('payment_arrived'), { type: 'success' })
-                }
-              )
+              new TaskCreditInbox(monitor, creditInboxPass, Date.now, () => {
+                if (isReceiveInboxFocused()) return
+                sounds.paymentReceive()
+                onToast?.(i18n.t('payment_arrived'), { type: 'success' })
+              })
             )
             TaskCreditInbox.noteEnqueued()
 
@@ -2821,6 +2869,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     pushDetachRef.current?.()
     pushDetachRef.current = undefined
     pushSyncRef.current = undefined
+    creditInboxPassRef.current = undefined
 
     // Stop any running monitor and let its current pass drain before the
     // storage teardown below closes the connection under it.
@@ -3032,6 +3081,120 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       await switchProfileImpl(record.index)
     })
   }, [profilesSupported, runProfileTransition, switchProfileImpl])
+
+  /**
+   * Hook point for the push follow-up: withdraw a removed profile's device
+   * registration so the phone stops being woken for an identity it no longer
+   * shows. Called once the profile is tombstoned and purged, best effort — the
+   * removal never waits on it and never fails for it — and it is allowed to do
+   * nothing, which is all it does until push registers every profile.
+   */
+  const unregisterRemovedProfilePush = useCallback(
+    async (_target: { index: number; identityKey: string }): Promise<void> => {},
+    []
+  )
+
+  /**
+   * Everything the removal flow needs, captured NOW. The open storage, the user
+   * id, the signer and the inbox pass all change under a switch, and a flow that
+   * read them late would be asking the next profile's wallet. The flow itself
+   * (core/profiles/removeProfile) decides nothing about this device: it only
+   * calls what is handed to it here.
+   */
+  const makeRemovalDeps = useCallback((): RemoveProfileDeps => {
+    const index = getActiveProfileIndex()
+    const network = getProfilesState().profiles[index]?.network ?? selectedNetwork
+    const openStorage = storage
+    const userId = walletUserId
+    const permissionsManager = getManagers().permissionsManager
+    const creditInbox = creditInboxPassRef.current
+    const runtime = mandalaRef.current
+    const registry = getHandleRegistryConfig(network)
+    const client = registry
+      ? createHandleRegistryClient({ pinned: { domain: registry.domain, url: registry.url } })
+      : null
+    // Bound to the admin originator, like the Profile screen's: signing our own
+    // certificate must never raise a permission prompt.
+    const signer = permissionsManager
+      ? (bindOriginator(permissionsManager, adminOriginator) as unknown as ProfileSigner)
+      : null
+    const registration = client && signer && openStorage ? { client, signer, storage: openStorage } : null
+
+    return {
+      index,
+      supported: profilesSupported,
+      activeIndex: getActiveProfileIndex,
+      record: () => getProfilesState().profiles[index],
+      ready: () => walletBuiltRef.current && !!openStorage && userId !== null && !!creditInbox && !!permissionsManager,
+      // NetInfo's "offline" is a cached snapshot on iOS; believe it only if a live request agrees.
+      online: async () => (await getOnline()) || (await probeOnline()),
+      liveIdentityKey: async () =>
+        (await permissionsManager?.getPublicKey({ identityKey: true }, adminOriginator))?.publicKey,
+      // A release that timed out leaves a journal behind, which the emptiness
+      // check would then refuse: finish it first. Only "no answer" leaves it open.
+      settleHandleJournal: async () => (registration ? (await resumePending(registration)).kind !== 'pending' : true),
+      checkEmpty: async () => {
+        if (!openStorage || userId === null || !creditInbox) return { ok: false, reasons: ['check-failed'] }
+        return assertProfileEmpty(openStorage, userId, {
+          creditInbox: async () => {
+            const pass = await creditInbox()
+            // Not told means not known: a missing flag blocks, as a pending one does.
+            return { attention: pass.attention, pending: pass.pending !== false }
+          },
+          mandalaBalances: runtime ? () => runtime.balances() : undefined
+        })
+      },
+      // No registry for this network: no handle can exist, so there is nothing to release.
+      lookupHandle: async identityKey => {
+        if (!client) return { kind: 'none' }
+        const seen = await client.lookupProfile(identityKey)
+        return seen.kind === 'found' ? { kind: 'found', paymail: seen.profile.paymail } : { kind: seen.kind }
+      },
+      releaseHandle: async paymail =>
+        registration ? releaseHandle(registration, { paymail }) : { kind: 'unavailable' as const },
+      // The normal switch: it also disconnects the paired session before anything
+      // is torn down. Built and on profile 0 is what "landed" means.
+      switchToDefault: async () => (await switchProfileImpl(0)) && walletBuiltRef.current,
+      tombstone: identityKey => updateProfile(index, { deleted: true, identityKey }),
+      purge: async target => {
+        await purgeProfile(target, profilePurgeIo)
+      },
+      unregisterPush: unregisterRemovedProfilePush
+    }
+  }, [
+    selectedNetwork,
+    storage,
+    walletUserId,
+    getManagers,
+    adminOriginator,
+    profilesSupported,
+    switchProfileImpl,
+    unregisterRemovedProfilePush
+  ])
+
+  const checkProfileRemoval = useCallback(async (): Promise<ProfileRemovalCheck> => {
+    if (switchInFlightRef.current) return { kind: 'refused', reason: 'busy' }
+    return runProfileRemovalCheck(makeRemovalDeps())
+  }, [makeRemovalDeps])
+
+  const removeProfile = useCallback(async (): Promise<RemoveProfileResult> => {
+    // Before the transition, which would otherwise answer a second tap with
+    // nothing at all (it ignores a call made while one is running).
+    if (switchInFlightRef.current) return { kind: 'refused', reason: 'busy' }
+    const deps = makeRemovalDeps()
+    const refusal = removalRefusal(deps)
+    if (refusal) return { kind: 'refused', reason: refusal }
+    let result: RemoveProfileResult = { kind: 'refused', reason: 'busy' }
+    await runProfileTransition(async () => {
+      setRemovingProfile(deps.index)
+      try {
+        result = await removeProfileFlow(deps)
+      } finally {
+        setRemovingProfile(null)
+      }
+    })
+    return result
+  }, [makeRemovalDeps, runProfileTransition])
 
   // Auto-build wallet for returning users (mnemonic first, then recovered key).
   // Sets walletBuilding=true eagerly so other parts of the app (index.tsx
@@ -3439,6 +3602,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       pushDetachRef.current?.()
       pushDetachRef.current = undefined
       pushSyncRef.current = undefined
+      creditInboxPassRef.current = undefined
       if (ledgerBumpTimerRef.current) {
         clearTimeout(ledgerBumpTimerRef.current)
         ledgerBumpTimerRef.current = null
@@ -3476,6 +3640,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       pushDetachRef.current?.()
       pushDetachRef.current = undefined
       pushSyncRef.current = undefined
+      creditInboxPassRef.current = undefined
 
       // Tear the wallet down the same way rebuildWallet does. Logout used to
       // skip this, which orphaned a running monitor AND left the SQLite
@@ -4141,6 +4306,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       switchProfile,
       addProfile,
       switchingProfile,
+      removingProfile,
+      checkProfileRemoval,
+      removeProfile,
       storage,
       mandala,
       mandalaSettlement: mandalaSettlementDeps(mandala),
@@ -4197,6 +4365,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       switchProfile,
       addProfile,
       switchingProfile,
+      removingProfile,
+      checkProfileRemoval,
+      removeProfile,
       storage,
       mandala,
       refreshProof,

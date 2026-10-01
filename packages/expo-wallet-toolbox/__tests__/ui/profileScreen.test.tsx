@@ -26,10 +26,12 @@ jest.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} }
 }))
 jest.mock('expo-router', () => ({
-  router: { push: jest.fn(), back: jest.fn(), replace: jest.fn() },
+  router: { push: jest.fn(), back: jest.fn(), replace: jest.fn(), dismissAll: jest.fn() },
   useLocalSearchParams: () => ({})
 }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
+const mockShowAlert = jest.fn()
+jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: (...a: unknown[]) => mockShowAlert(...a) }))
 jest.mock('../../ui/resolveIdentity', () => ({
   makeIdentityClient: () => null,
   resolveIdentity: jest.fn()
@@ -58,6 +60,8 @@ jest.mock('../../core/identity/handleRegistry/registration', () => ({
 
 let mockNetwork: 'main' | 'test' = 'test'
 let mockProfilesSupported = false
+const mockCheckProfileRemoval = jest.fn()
+const mockRemoveProfile = jest.fn()
 const kv = new Map<string, string>()
 /** The one key whose write rejects, the way a locked or full store would. */
 let writeFailsFor: string | null = null
@@ -93,13 +97,16 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     adminOriginator: 'admin.com',
     storage: mockStorage,
     selectedNetwork: mockNetwork,
-    profilesSupported: mockProfilesSupported
+    profilesSupported: mockProfilesSupported,
+    checkProfileRemoval: (...a: unknown[]) => mockCheckProfileRemoval(...a),
+    removeProfile: (...a: unknown[]) => mockRemoveProfile(...a)
   })
 }))
 
 import React from 'react'
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { ThemeProvider, configureToolbox, resetToolboxConfig } from '@bsv/expo-wallet-toolbox'
+import { router } from 'expo-router'
 import { showToast } from '../../ui/components/ui/Toast'
 import {
   MAX_PROFILE_NAME_LENGTH,
@@ -802,5 +809,214 @@ describe('the profile name', () => {
     mockProfilesSupported = true
     const s = draw()
     expect(s.getByPlaceholderText('profile_label:1')).toBeTruthy()
+  })
+})
+
+describe('removing the profile', () => {
+  const onProfileOne = async () => {
+    mockProfilesSupported = true
+    await appendProfile('main')
+    await setActiveProfile(1)
+  }
+  /** What the Remove row's dialogs said, in order. */
+  const alerts = () =>
+    mockShowAlert.mock.calls.map(c => c[0] as { title: string; message: string; buttons: { key: string }[] })
+  const tapRemove = (s: ReturnType<typeof draw>) => fireEvent.press(s.getByText('profile_remove'))
+  const TITLE = 'profile_remove_problem_title:profile_label:2'
+
+  beforeEach(() => {
+    mockCheckProfileRemoval.mockResolvedValue({ kind: 'ok', handle: null })
+    mockRemoveProfile.mockResolvedValue({ kind: 'removed', index: 1 })
+    mockShowAlert.mockResolvedValue('remove')
+  })
+
+  it('is not offered on profile 0, nor on a wallet without profiles', async () => {
+    mockProfilesSupported = true
+    expect(draw().queryByText('profile_remove')).toBeNull()
+    mockProfilesSupported = false
+    __resetProfilesForTests()
+    await appendProfile('main')
+    await setActiveProfile(1)
+    expect(draw().queryByText('profile_remove')).toBeNull()
+  })
+
+  it('is a destructive row on any other profile, saying it has to be empty first', async () => {
+    await onProfileOne()
+    const s = draw()
+    expect(s.getByText('profile_remove')).toBeTruthy()
+    expect(s.getByText('profile_remove_hint')).toBeTruthy()
+    expect(mockCheckProfileRemoval).not.toHaveBeenCalled()
+  })
+
+  it('checks first and, when the profile holds money, says so and asks for nothing', async () => {
+    await onProfileOne()
+    mockCheckProfileRemoval.mockResolvedValue({ kind: 'blocked', reasons: ['spendable-outputs'] })
+    mockShowAlert.mockResolvedValue('ok')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+    expect(alerts()[0]).toMatchObject({ title: TITLE, message: 'profile_remove_blocked_funds' })
+    expect(mockRemoveProfile).not.toHaveBeenCalled()
+  })
+
+  it.each<[string, object, string]>([
+    [
+      'pending activity',
+      { kind: 'blocked', reasons: ['pending-transactions', 'inbox-pending'] },
+      'profile_remove_blocked_pending'
+    ],
+    ['tokens', { kind: 'blocked', reasons: ['token-balance'] }, 'profile_remove_blocked_funds'],
+    ['an unfinished handle write', { kind: 'blocked', reasons: ['handle-journal'] }, 'profile_remove_failed_handle'],
+    ['a check that could not run', { kind: 'blocked', reasons: ['check-failed'] }, 'profile_remove_blocked_check'],
+    ['a registry that did not answer', { kind: 'handle-failed' }, 'profile_remove_failed_handle'],
+    ['being offline', { kind: 'refused', reason: 'offline' }, 'profile_remove_offline'],
+    ['a refusal of another kind', { kind: 'refused', reason: 'busy' }, 'profile_remove_failed'],
+    ['a failure', { kind: 'failed', message: 'x' }, 'profile_remove_failed']
+  ])('explains %s', async (_name, check, expected) => {
+    await onProfileOne()
+    mockCheckProfileRemoval.mockResolvedValue(check)
+    mockShowAlert.mockResolvedValue('ok')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+    expect(alerts()[0].message).toBe(expected)
+    expect(mockRemoveProfile).not.toHaveBeenCalled()
+  })
+
+  it('tells the user about every kind of reason it found, one paragraph each', async () => {
+    await onProfileOne()
+    mockCheckProfileRemoval.mockResolvedValue({
+      kind: 'blocked',
+      reasons: ['spendable-outputs', 'offline-queue', 'check-failed']
+    })
+    mockShowAlert.mockResolvedValue('ok')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+    expect(alerts()[0].message).toBe(
+      'profile_remove_blocked_funds\n\nprofile_remove_blocked_pending\n\nprofile_remove_blocked_check'
+    )
+  })
+
+  it('confirms before anything is removed, naming the profile and leaving the handle out when there is none', async () => {
+    await onProfileOne()
+    mockShowAlert.mockResolvedValue('cancel')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+    const confirm = alerts()[0]
+    expect(confirm.title).toBe('profile_remove_confirm_title:profile_label:2')
+    expect(confirm.message).toBe('profile_remove_confirm_body:profile_label:2')
+    expect(confirm.buttons.map(b => b.key)).toEqual(['cancel', 'remove'])
+    await settle()
+    // Cancelling is the whole of it.
+    expect(mockRemoveProfile).not.toHaveBeenCalled()
+    expect(router.dismissAll).not.toHaveBeenCalled()
+  })
+
+  it('uses the private name, and warns about the cooldown when a handle will be released', async () => {
+    await onProfileOne()
+    await updateProfileRecord(1, { name: 'Savings' })
+    mockCheckProfileRemoval.mockResolvedValue({ kind: 'ok', handle: 'dee@deggen.com' })
+    mockShowAlert.mockResolvedValue('cancel')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+    const confirm = alerts()[0]
+    expect(confirm.title).toBe('profile_remove_confirm_title:Savings')
+    expect(confirm.message).toBe('profile_remove_confirm_body:Savings\n\nprofile_remove_confirm_handle:dee@deggen.com')
+  })
+
+  it('removes on confirm, says so, and leaves for Home the way Delete Wallet does', async () => {
+    await onProfileOne()
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockRemoveProfile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/'))
+    expect(router.dismissAll).toHaveBeenCalledTimes(1)
+    expect(showToast).toHaveBeenCalledWith('profile_removed:profile_label:2', { type: 'success' })
+    // The check ran first.
+    expect(mockCheckProfileRemoval.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRemoveProfile.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('stays put and explains when the removal itself is refused after the confirm', async () => {
+    await onProfileOne()
+    // Money arrived while the dialog was open.
+    mockRemoveProfile.mockResolvedValue({ kind: 'blocked', reasons: ['spendable-outputs'] })
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValue('ok')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(2))
+    expect(alerts()[1]).toMatchObject({ title: TITLE, message: 'profile_remove_blocked_funds' })
+    expect(router.dismissAll).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalledWith(expect.stringContaining('profile_removed'), expect.anything())
+  })
+
+  it.each<[string, object, string]>([
+    ['a handle that would not release', { kind: 'handle-failed' }, 'profile_remove_failed_handle'],
+    ['a switch that did not land', { kind: 'switch-failed' }, 'profile_remove_failed']
+  ])('explains %s', async (_name, result, expected) => {
+    await onProfileOne()
+    mockRemoveProfile.mockResolvedValue(result)
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValue('ok')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(2))
+    expect(alerts()[1].message).toBe(expected)
+    expect(router.dismissAll).not.toHaveBeenCalled()
+  })
+
+  it('explains, rather than leaving an unhandled rejection, when the plumbing around the flow throws', async () => {
+    await onProfileOne()
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockRemoveProfile.mockRejectedValue(new Error('boom'))
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValue('ok')
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(2))
+    expect(alerts()[1].message).toBe('profile_remove_failed')
+    expect(router.dismissAll).not.toHaveBeenCalled()
+  })
+
+  it('asks the registry again after an attempt that did not go through, since it may have released the handle', async () => {
+    withRegistry()
+    await onProfileOne()
+    mockRemoveProfile.mockResolvedValue({ kind: 'switch-failed' })
+    mockShowAlert.mockResolvedValueOnce('remove').mockResolvedValue('ok')
+    const s = draw()
+    await waitFor(() => expect(mockResumePending).toHaveBeenCalledTimes(1))
+    tapRemove(s)
+    await waitFor(() => expect(mockResumePending).toHaveBeenCalledTimes(2))
+  })
+
+  it('ignores a second tap while the first is still working', async () => {
+    await onProfileOne()
+    let finish: (v: object) => void = () => {}
+    mockCheckProfileRemoval.mockImplementation(() => new Promise(resolve => (finish = resolve)))
+    mockShowAlert.mockResolvedValue('cancel')
+    const s = draw()
+    tapRemove(s)
+    tapRemove(s)
+    await act(async () => {})
+    expect(mockCheckProfileRemoval).toHaveBeenCalledTimes(1)
+    await act(async () => finish({ kind: 'ok', handle: null }))
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalledTimes(1))
+  })
+
+  it('keeps the row on screen when the active profile flips to 0 mid-removal, which is the removal working', async () => {
+    await onProfileOne()
+    let finish: (v: object) => void = () => {}
+    mockRemoveProfile.mockImplementation(() => new Promise(resolve => (finish = resolve)))
+    const s = draw()
+    tapRemove(s)
+    await waitFor(() => expect(mockRemoveProfile).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await setActiveProfile(0)
+    })
+    expect(s.getByText('profile_remove')).toBeTruthy()
+    await act(async () => finish({ kind: 'removed', index: 1 }))
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/'))
   })
 })

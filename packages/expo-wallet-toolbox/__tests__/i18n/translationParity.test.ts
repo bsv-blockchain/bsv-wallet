@@ -51,6 +51,8 @@ const handleNounKeys = [
   'profile_handle_rejected',
   'profile_handle_replace_warning',
   'profile_display_name_hint',
+  'profile_remove_confirm_handle',
+  'profile_remove_failed_handle',
   'contact_handle_caption'
 ]
 
@@ -69,7 +71,9 @@ const identifierFreeKeys = [
   'profile_handle_rolled_back',
   'profile_handle_changed',
   'profile_handle_rejected',
-  'profile_display_name_hint'
+  'profile_display_name_hint',
+  'profile_remove_confirm_handle',
+  'profile_remove_failed_handle'
 ]
 
 const languages = Object.keys(resources)

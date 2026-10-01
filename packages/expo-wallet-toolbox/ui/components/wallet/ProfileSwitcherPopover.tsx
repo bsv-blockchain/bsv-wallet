@@ -64,6 +64,8 @@ export interface ProfileSwitcherPopoverProps {
   onAdd: () => void
   /** A switch is running: show the full-screen cover instead of the card. */
   switchingTo?: number | null
+  /** The running transition is the removal of `switchingTo`, not a switch to it. */
+  removing?: boolean
 }
 
 export default function ProfileSwitcherPopover({
@@ -77,7 +79,8 @@ export default function ProfileSwitcherPopover({
   onSelect,
   onOpenProfile,
   onAdd,
-  switchingTo = null
+  switchingTo = null,
+  removing = false
 }: ProfileSwitcherPopoverProps) {
   const { colors } = useTheme()
   const { t } = useTranslation()
@@ -100,7 +103,7 @@ export default function ProfileSwitcherPopover({
         >
           <ActivityIndicator size="large" color={colors.textSecondary} />
           <Text style={[styles.coverLabel, { color: colors.textSecondary }]}>
-            {t('profile_switching', { profile: profileLabel(target, t) })}
+            {t(removing ? 'profile_removing' : 'profile_switching', { profile: profileLabel(target, t) })}
           </Text>
         </View>
       </Modal>

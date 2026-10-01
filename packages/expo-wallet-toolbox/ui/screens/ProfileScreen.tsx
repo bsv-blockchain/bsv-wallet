@@ -14,6 +14,11 @@
  * anything. A build with no registry configured for the selected chain says so
  * (`profile_handle_unavailable`) rather than pretending a check can succeed.
  *
+ * A profile other than the first can be removed from here ("Remove profile"):
+ * the check runs first and explains a refusal, the confirm says what happens
+ * (and, with a handle, the cooldown it starts), and only then does it go. See
+ * core/profiles/removeProfile for what removal does and in what order.
+ *
  * The hero disc wears whatever icon the user picked ("Edit picture" →
  * "Pick icon"), and the same choice is what every other "you" in the app
  * draws — see `core/userAvatar.ts`. Photo sources are not offered yet: they
@@ -29,6 +34,7 @@ import PressableScale from '../components/ui/PressableScale'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
 import { PencilEditField } from '../components/ui/PencilEditField'
+import { showAlert } from '../components/ui/AlertCard'
 import { showToast } from '../components/ui/Toast'
 import IdentifierRow from '../components/wallet/IdentifierRow'
 import { AvatarGlyph } from '../components/wallet/UserAvatar'
@@ -38,6 +44,8 @@ import { makeIdentityClient, resolveIdentity } from '../resolveIdentity'
 import { getHandleRegistryConfig } from '../../core/toolboxConfig'
 import { bindOriginator } from '../../core/mandala/createRuntime'
 import { profileLabel } from '../../core/profiles/profileLabel'
+import type { RemovalBlocker } from '../../core/profiles/assertProfileEmpty'
+import type { ProfileRemovalCheck, RemoveProfileResult } from '../../core/profiles/removeProfile'
 import {
   MAX_PROFILE_NAME_LENGTH,
   updateProfile as updateProfileRecord,
@@ -89,13 +97,45 @@ const HANDLE_KV_KEY = 'profile_registered_handle'
 const DISPLAY_NAME_KV_KEY = 'profile_display_name'
 const HANDLE_CHECK_DEBOUNCE_MS = 400
 
+/** What can stand in the way of removing a profile, grouped the way the user is told about it. */
+const FUNDS_BLOCKERS: RemovalBlocker[] = ['spendable-outputs', 'token-balance']
+const PENDING_BLOCKERS: RemovalBlocker[] = [
+  'pending-transactions',
+  'offline-queue',
+  'token-settlements',
+  'localpay-pending',
+  'peerpay-outbox',
+  'inbox-pending'
+]
+
+type RemovalProblem = Exclude<ProfileRemovalCheck, { kind: 'ok' }> | Exclude<RemoveProfileResult, { kind: 'removed' }>
+
+/** The i18n keys that explain a refusal or failure, one paragraph per kind of reason. */
+function removalProblemKeys(problem: RemovalProblem): string[] {
+  if (problem.kind === 'refused')
+    return [problem.reason === 'offline' ? 'profile_remove_offline' : 'profile_remove_failed']
+  if (problem.kind === 'handle-failed') return ['profile_remove_failed_handle']
+  if (problem.kind === 'blocked') {
+    const keys: string[] = []
+    const has = (group: RemovalBlocker[]) => problem.reasons.some(r => group.includes(r))
+    if (has(FUNDS_BLOCKERS)) keys.push('profile_remove_blocked_funds')
+    if (has(PENDING_BLOCKERS)) keys.push('profile_remove_blocked_pending')
+    // An unfinished handle write is the same thing to the user as a handle that would not release.
+    if (problem.reasons.includes('handle-journal')) keys.push('profile_remove_failed_handle')
+    if (problem.reasons.includes('check-failed')) keys.push('profile_remove_blocked_check')
+    if (keys.length > 0) return keys
+  }
+  return ['profile_remove_failed']
+}
+
 export function ProfileScreen() {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const Ionicons = loadIonicons()
   const { router } = loadExpoRouter()
-  const { managers, adminOriginator, selectedNetwork, storage, profilesSupported } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, profilesSupported, checkProfileRemoval, removeProfile } =
+    useWallet()
   const wallet = managers?.permissionsManager || null
   const { active: activeProfile, profiles } = useProfiles()
 
@@ -112,6 +152,14 @@ export function ProfileScreen() {
   const [registering, setRegistering] = useState(false)
   /** A journalled write that has not landed yet. Non-blocking, with a retry. */
   const [finishing, setFinishing] = useState(false)
+  /**
+   * Remove profile is running. Its own flag rather than a read of the active
+   * profile, which flips to 0 partway through — that is the removal working —
+   * and the row must not vanish from under its own spinner.
+   */
+  const [removing, setRemoving] = useState(false)
+  /** The same flag, readable before the next render: two taps in one frame must not start two removals. */
+  const removingRef = useRef(false)
 
   /**
    * Two strings, not the config object: `getHandleRegistryConfig` builds a
@@ -432,6 +480,71 @@ export function ProfileScreen() {
     [activeProfile]
   )
 
+  /**
+   * Ask, confirm, remove. The check comes first and changes nothing, so a
+   * refusal is explained before anyone is asked to confirm; the removal then
+   * checks again for itself, since the dialog may have sat open a while.
+   */
+  const onRemoveProfile = useCallback(async () => {
+    if (removingRef.current) return
+    removingRef.current = true
+    setRemoving(true)
+    // Named now: by the time anything is shown the active profile may be another one.
+    const label = profileLabel(profiles[activeProfile] ?? { index: activeProfile }, t)
+    let removed = false
+    const explain = (problem: RemovalProblem) =>
+      showAlert({
+        title: t('profile_remove_problem_title', { profile: label }),
+        message: removalProblemKeys(problem)
+          .map(key => t(key))
+          .join('\n\n'),
+        buttons: [{ text: t('vault_ok'), key: 'ok' }]
+      })
+    try {
+      const check = await checkProfileRemoval()
+      if (check.kind !== 'ok') {
+        await explain(check)
+        return
+      }
+      const choice = await showAlert({
+        title: t('profile_remove_confirm_title', { profile: label }),
+        message: [
+          t('profile_remove_confirm_body', { profile: label }),
+          check.handle ? t('profile_remove_confirm_handle', { handle: check.handle }) : null
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        buttons: [
+          { text: t('cancel'), style: 'cancel', key: 'cancel' },
+          { text: t('profile_remove_confirm_action'), style: 'destructive', key: 'remove' }
+        ]
+      })
+      if (choice !== 'remove') return
+      const result = await removeProfile()
+      if (result.kind !== 'removed') {
+        await explain(result)
+        return
+      }
+      removed = true
+      showToast(t('profile_removed', { profile: label }), { type: 'success' })
+      // Profile 0 is open now and this screen was about this profile: leave it,
+      // the same way Delete Wallet does (dismissAll leaves one screen, so replace it).
+      router.dismissAll()
+      router.replace('/')
+    } catch (err) {
+      // The flow answers rather than throws, so this is a fault in the plumbing
+      // around it: still tell the user, and leave nothing unhandled in a press.
+      console.warn('[ProfileScreen] removing the profile failed', err)
+      await explain({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      removingRef.current = false
+      setRemoving(false)
+      // An attempt may have released the handle or finished a journalled write
+      // without going through: have the screen ask the registry again.
+      if (!removed) setResumeNonce(n => n + 1)
+    }
+  }, [profiles, activeProfile, t, checkProfileRemoval, removeProfile, router])
+
   const handle = handleInput.trim().toLowerCase()
   const paymailPreview = registryDomain ? `${handle}@${registryDomain}` : handle
   const editingHandle = !!registryDomain && (!registeredPaymail || changingHandle)
@@ -689,6 +802,22 @@ export function ProfileScreen() {
           />
           {!!identityKey && <IdentifierRow identityKey={identityKey} />}
         </GroupedSection>
+
+        {profilesSupported && (activeProfile !== 0 || removing) && (
+          <GroupedSection>
+            <ListRow
+              label={t('profile_remove')}
+              subtitle={t('profile_remove_hint')}
+              icon="trash-outline"
+              iconColor={colors.error}
+              destructive
+              showChevron={false}
+              onPress={onRemoveProfile}
+              trailing={removing ? <ActivityIndicator size="small" color={colors.error} /> : undefined}
+              isLast
+            />
+          </GroupedSection>
+        )}
       </ScrollView>
 
       {/* Where a picture comes from. One source today; Take Photo and Photo

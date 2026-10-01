@@ -22,6 +22,8 @@ export {
   type ProfilesState
 } from './profiles/profileStore'
 export { profileLabel } from './profiles/profileLabel'
+export type { RemovalBlocker } from './profiles/assertProfileEmpty'
+export type { ProfileRemovalCheck, RemoveProfileResult, RemoveRefusal } from './profiles/removeProfile'
 export {
   getRegisteredDbs,
   registerDb,

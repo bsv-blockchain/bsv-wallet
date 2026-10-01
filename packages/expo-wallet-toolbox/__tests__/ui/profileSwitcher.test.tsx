@@ -17,7 +17,8 @@ const mockWallet = {
   switchProfile: jest.fn(async () => {}),
   addProfile: jest.fn(async () => {}),
   walletBuilding: false,
-  switchingProfile: false
+  switchingProfile: false,
+  removingProfile: null as number | null
 }
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
@@ -37,7 +38,9 @@ jest.mock('react-i18next', () => ({
         ? `profile${String(params?.number)}`
         : key === 'profile_switching'
           ? `switching:${String(params?.profile)}`
-          : key
+          : key === 'profile_removing'
+            ? `removing:${String(params?.profile)}`
+            : key
   })
 }))
 
@@ -146,6 +149,25 @@ describe('switch cover', () => {
   it('falls back to the default label for a profile that is not in the list yet', () => {
     const { getByText } = renderPopover({ switchingTo: 2 })
     expect(getByText('switching:profile3')).toBeTruthy()
+  })
+
+  it('says the profile is being removed, not switched to, when a removal is what runs', () => {
+    const { getByText, queryByText } = renderPopover({ switchingTo: 1, removing: true })
+    expect(getByText('removing:profile2')).toBeTruthy()
+    expect(queryByText('switching:profile2')).toBeNull()
+  })
+
+  it('ProfileButton names the profile being removed on the cover, though no row was tapped', () => {
+    // A removal starts on the Profile screen: the button never recorded a target,
+    // and the active profile is the one being removed until the switch away lands.
+    mockWallet.switchingProfile = true
+    mockWallet.removingProfile = 1
+    mockWallet.activeProfile = 1
+    const { getByText } = render(<ProfileButton />)
+    expect(getByText('removing:profile2')).toBeTruthy()
+    mockWallet.switchingProfile = false
+    mockWallet.removingProfile = null
+    mockWallet.activeProfile = 0
   })
 
   it('ProfileButton shows the cover for as long as the wallet reports a switch', () => {
