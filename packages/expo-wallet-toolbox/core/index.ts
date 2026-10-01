@@ -13,6 +13,7 @@ export {
   getActiveProfile,
   getActiveProfileIndex,
   getProfilesState,
+  liveProfiles,
   profileScopedKey,
   subscribeProfiles,
   useActiveProfileIndex,
@@ -20,6 +21,7 @@ export {
   type ProfileRecord,
   type ProfilesState
 } from './profiles/profileStore'
+export { profileLabel } from './profiles/profileLabel'
 export {
   getRegisteredDbs,
   registerDb,

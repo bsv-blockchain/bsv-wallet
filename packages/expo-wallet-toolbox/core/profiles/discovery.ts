@@ -8,6 +8,10 @@
  * the search. Found profiles are only registered here — each replays its backup
  * the first time the user switches to it, so an import never stalls on them.
  *
+ * A profile removed on this device keeps its slot as a tombstone. Discovery
+ * leaves it exactly as it is: no probe, no registration, and it does not end the
+ * search, so the profiles after it are still found.
+ *
  * Known gap: a profile that never backed anything up (unused, or backup turned
  * off) stops the search, hiding any profile after it. Adding a profile again
  * restores whatever exists at the next index.
@@ -16,6 +20,7 @@ import type { AppChain } from '../config'
 import { BACKUP_CHAINS, type BackupChain } from '../backup/constants'
 import { listBackups } from '../backup/restore'
 import { deriveProfileKeys, hdFromMnemonic } from '../mnemonicWallet'
+import { appendProfile, getProfilesState } from './profileStore'
 
 /** Whether `primaryKey` has a remote backup on `chain`. May throw on a network error. */
 export type ProfileProbe = (primaryKey: number[], chain: BackupChain) => Promise<boolean>
@@ -25,6 +30,8 @@ export interface DiscoverProfilesDeps {
   probe: ProfileProbe
   /** Record profile `index` as existing on `network`. Called in index order. */
   register: (index: number, network: AppChain) => Promise<void>
+  /** Indices to pass over (profiles removed on this device): not probed, not registered, not a stop. */
+  skip?: (index: number) => boolean
   /** First index to probe. Default 1 — profile 0 is the wallet being imported. */
   startIndex?: number
   /** Hard stop on the number of profiles probed. Default 50. */
@@ -39,6 +46,7 @@ export async function discoverProfiles(deps: DiscoverProfilesDeps): Promise<numb
   const hd = hdFromMnemonic(deps.mnemonic)
   let registered = 0
   for (let n = start; n < start + max; n++) {
+    if (deps.skip?.(n)) continue
     const { primaryKey } = deriveProfileKeys(hd, n)
     const found: BackupChain[] = []
     try {
@@ -56,6 +64,18 @@ export async function discoverProfiles(deps: DiscoverProfilesDeps): Promise<numb
     registered++
   }
   return registered
+}
+
+/**
+ * Add a discovered profile to the store, awaiting its first restore. Idempotent:
+ * only the next free slot is appended, so an index the store already holds (live
+ * or removed) is left untouched and a second import of the same seed adds
+ * nothing. Slots are counted with tombstones, never without them.
+ */
+export async function registerDiscoveredProfile(index: number, network: AppChain): Promise<void> {
+  if (index === getProfilesState().profiles.length) {
+    await appendProfile(network, { needsRestore: true })
+  }
 }
 
 /** The production probe: a non-empty backup manifest on the backup server. */

@@ -267,6 +267,71 @@ it('a cold start on a stored profile builds that profile on its own network', as
   expect(getUserAvatarIcon()).toEqual({ family: 'ionicons', name: 'leaf' })
 })
 
+describe('a removed profile (tombstone)', () => {
+  const stored = async (active: number) =>
+    AsyncStorage.setItem(
+      PROFILES_STORAGE_KEY,
+      JSON.stringify({
+        active,
+        profiles: [
+          { index: 0, network: 'main' },
+          { index: 1, network: 'main', identityKey: '02ab', deleted: true },
+          { index: 2, network: 'test' }
+        ]
+      })
+    )
+
+  it('switchProfile refuses it: nothing is torn down, the active profile stays', async () => {
+    await stored(2)
+    await renderBuilt()
+    expect(lastProfileIndexBuilt()).toBe(2)
+    mockRecover.mockClear()
+    await act(async () => {
+      await wallet.switchProfile(1)
+    })
+    expect(wallet.activeProfile).toBe(2)
+    expect(getActiveProfileIndex()).toBe(2)
+    expect(mockRecover).not.toHaveBeenCalled()
+    expect(wallet.walletBuilt).toBe(true)
+    expect(wallet.switchingProfile).toBe(false)
+    expect(JSON.parse((await AsyncStorage.getItem(PROFILES_STORAGE_KEY))!).active).toBe(2)
+    expect(mockDestroy).not.toHaveBeenCalled()
+  })
+
+  it('a live profile past the tombstone is still reachable', async () => {
+    await stored(0)
+    await renderBuilt()
+    mockRecover.mockClear()
+    await act(async () => {
+      await wallet.switchProfile(2)
+    })
+    expect(wallet.activeProfile).toBe(2)
+    expect(derivedIndices()).toContain(2)
+    expect(wallet.selectedNetwork).toBe('test')
+  })
+
+  it('a stored active pointer on a tombstone starts on the nearest live profile', async () => {
+    await stored(1)
+    await renderBuilt()
+    expect(lastProfileIndexBuilt()).toBe(0)
+    expect(wallet.activeProfile).toBe(0)
+  })
+
+  it('addProfile takes the next slot after the tombstone, never the removed index', async () => {
+    await stored(0)
+    await renderBuilt()
+    // [0, 1x, 2] is already three long, so the next profile is 3.
+    mockRecover.mockClear()
+    await act(async () => {
+      await wallet.addProfile()
+    })
+    expect(wallet.profiles.map(p => p.index)).toEqual([0, 1, 2, 3])
+    expect(wallet.profiles[1].deleted).toBe(true)
+    expect(wallet.activeProfile).toBe(3)
+    expect(derivedIndices()).toContain(3)
+  })
+})
+
 it("switchNetwork changes only the active profile's network", async () => {
   await renderBuilt()
   await act(async () => {

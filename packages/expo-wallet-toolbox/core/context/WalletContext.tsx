@@ -197,7 +197,7 @@ import {
 import { getExchangeRate } from '../services/exchangeRate'
 import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
-import { backupProbe, discoverProfiles } from '../profiles/discovery'
+import { backupProbe, discoverProfiles, registerDiscoveredProfile } from '../profiles/discovery'
 import {
   appendProfile,
   getActiveProfile,
@@ -2596,11 +2596,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     void discoverProfiles({
       mnemonic,
       probe: async (primaryKey, chain) => stillOwned() && (await backupProbe(baseUrl)(primaryKey, chain)),
+      // A profile removed on this device stays removed (and does not end the search).
+      skip: index => !!getProfilesState().profiles[index]?.deleted,
       register: async (index, network) => {
         // Idempotent: a second import of the same seed must not duplicate profiles.
-        if (stillOwned() && index === getProfilesState().profiles.length) {
-          await appendProfile(network, { needsRestore: true })
-        }
+        if (stillOwned()) await registerDiscoveredProfile(index, network)
       }
     })
       .then(n => {
@@ -2948,6 +2948,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const from = getActiveProfileIndex()
       const record = getProfilesState().profiles[n]
       if (!record) throw new Error(`Unknown profile index: ${n}`)
+      if (record.deleted) throw new Error(`Profile ${n} was removed`)
       logWithTimestamp(F, `Switching profile ${from} → ${n}`)
       const __t0 = performance.now()
       const token = buildGenRef.current.bump()
@@ -3014,7 +3015,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   const switchProfile = useCallback(
     async (n: number) => {
-      if (n === getActiveProfileIndex() || !getProfilesState().profiles[n]) return
+      const record = getProfilesState().profiles[n]
+      if (n === getActiveProfileIndex() || !record || record.deleted) return
       await runProfileTransition(() => switchProfileImpl(n))
     },
     [runProfileTransition, switchProfileImpl]
