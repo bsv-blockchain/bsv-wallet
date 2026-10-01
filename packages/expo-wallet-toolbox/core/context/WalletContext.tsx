@@ -2830,6 +2830,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const config = { wabUrl: 'noWAB', method: 'mnemonic', network: selectedNetwork, storageUrl: 'local' }
       pendingAutoBuildRef.current = true
       finalizeConfig(config)
+      // Rebuilding after a failed build changes nothing the auto-build effect
+      // watches; see autoBuildRequest.
+      setAutoBuildRequest(r => r + 1)
       logWithTimestamp(F, 'Wallet rebuild triggered')
       // finalizeConfig above only requests the rebuild; without this,
       // rebuildWallet's promise resolved before the auto-build effect had even
@@ -3398,6 +3401,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
         await clearArcApiTokensForProfile(profile.index)
       }
+      // Back to a single default profile BEFORE configStatus resets below: that
+      // re-runs the startup config effect, which must not reload the departed
+      // wallet's profile (and its network) from storage. Reset even if the
+      // secret erasure further down fails — those databases are already gone.
+      await resetProfiles()
+      setProfilesSupported(false)
       setStorage(null)
       mandalaRef.current = undefined
       setMandala(undefined)
@@ -3477,9 +3486,6 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       backupAttestation.clearAll().catch(err => {
         console.warn('[backupAttestation.clearAll]', err)
       })
-      // Back to a single default profile for whatever wallet comes next.
-      await resetProfiles()
-      setProfilesSupported(false)
 
       // dismissAll() leaves exactly one screen on the stack, so this has to
       // REPLACE it: push() would add a second /index on top of the one already

@@ -226,7 +226,7 @@ describe('XR-107: Delete Wallet only reports success after verified secret erasu
 })
 
 describe('Delete Wallet with several profiles', () => {
-  const { PROFILES_STORAGE_KEY, __resetProfilesForTests, getProfilesState } =
+  const { PROFILES_STORAGE_KEY, __resetProfilesForTests, getProfilesState, getActiveProfile } =
     jest.requireActual('../../core/profiles/profileStore')
   const KEY_P0 = '02' + '11'.repeat(32)
   const KEY_P1 = '03' + 'ab'.repeat(31) + 'cdef0123'
@@ -240,7 +240,7 @@ describe('Delete Wallet with several profiles', () => {
     await AsyncStorage.setItem(
       PROFILES_STORAGE_KEY,
       JSON.stringify({
-        active: 0,
+        active: 1,
         profiles: [
           { index: 0, network: 'main', identityKey: KEY_P0 },
           { index: 1, network: 'test', identityKey: KEY_P1 },
@@ -269,5 +269,9 @@ describe('Delete Wallet with several profiles', () => {
     expect(await AsyncStorage.getItem('walletSettings')).toBe('{"currency":"USD"}')
     expect(await AsyncStorage.getItem(PROFILES_STORAGE_KEY)).toBeNull()
     expect(getProfilesState().profiles).toHaveLength(1)
+    // The departed profile's network must not outlive it: whatever wallet comes
+    // next builds on the network its (fresh) profile 0 records.
+    await act(async () => {})
+    expect(wallet.selectedNetwork).toBe(getActiveProfile().network)
   })
 })
