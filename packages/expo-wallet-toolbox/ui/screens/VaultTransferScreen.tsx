@@ -33,6 +33,7 @@ import { showAlert } from '../components/ui/AlertCard'
 import { KeyChooser, vaultKeyLabel } from '../components/vault/KeyChooser'
 import { vaultErrorCopy, type VaultErrorParams } from '../components/vault/vaultErrorCopy'
 import { expectVaultBalance, useVaultBalance } from '../hooks/useVaultBalance'
+import { profileLabel } from '../../core/profiles/profileLabel'
 import {
   useTheme,
   spacing,
@@ -129,7 +130,7 @@ export function VaultTransferScreen() {
   const { router, useLocalSearchParams } = loadExpoRouter()
   const Ionicons = loadIonicons()
   const { direction } = useLocalSearchParams<{ direction?: string }>()
-  const { managers, adminOriginator, selectedNetwork, storage, settings, activeProfile } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, settings, activeProfile, profiles } = useWallet()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const { balance, refresh } = useVaultBalance()
   const [meta, setMeta] = useState<VaultMeta | null>(null)
@@ -487,7 +488,9 @@ export function VaultTransferScreen() {
         </View>
         <View style={styles.body}>
           <Text style={{ ...typography.body, color: colors.textSecondary, textAlign: 'center' }}>
-            {t('vault_profile_only_default')}
+            {t('vault_profile_only_default', {
+              profile: profileLabel(profiles.find(p => p.index === 0) ?? { index: 0 }, t)
+            })}
           </Text>
         </View>
       </View>

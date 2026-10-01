@@ -33,6 +33,15 @@ afterEach(() => {
   resetToolboxConfig()
 })
 
+// The bare `t` of an uninitialised i18next returns the key, which hides the label
+// a toast carries. Stable across renders: the provider lists `t` as a dependency.
+const mockT = (key: string, opts?: Record<string, unknown>) =>
+  key === 'profile_label' ? `profile${opts?.number}` : opts?.profile ? `${key}:${opts.profile}` : key
+jest.mock('react-i18next', () => ({
+  ...jest.requireActual('react-i18next'),
+  useTranslation: () => ({ t: mockT, i18n: {} })
+}))
+
 const mockGetMnemonic = jest.fn<Promise<string | null>, []>()
 const mockGetRecoveredKey = jest.fn<Promise<string | null>, []>()
 const mockGetItem = jest.fn(async () => null)
@@ -158,9 +167,9 @@ function ObserveWallet() {
 }
 let renderer: ReturnType<typeof render>
 
-async function renderProvider() {
+async function renderProvider(onToast?: React.ComponentProps<typeof WalletContextProvider>['onToast']) {
   renderer = render(
-    <WalletContextProvider>
+    <WalletContextProvider onToast={onToast}>
       <ObserveWallet />
     </WalletContextProvider>
   )
@@ -199,10 +208,10 @@ beforeEach(async () => {
 const derivedIndices = () => mockRecover.mock.calls.map(c => c[2] ?? 0)
 const lastProfileIndexBuilt = () => mockRecover.mock.calls.at(-1)?.[2]
 
-async function renderBuilt() {
+async function renderBuilt(onToast?: Parameters<typeof renderProvider>[0]) {
   mockSecretsReady = true
   mockGetMnemonic.mockResolvedValue('synthetic test key')
-  await renderProvider()
+  await renderProvider(onToast)
   await act(async () => {})
   expect(wallet.walletBuilt).toBe(true)
 }
@@ -372,6 +381,46 @@ it('replays the backup only on the build that activates a profile awaiting resto
   expect(wallet.switchingProfile).toBe(false)
   expect(wallet.walletBuilt).toBe(true)
   expect(mockRestore).toHaveBeenCalledTimes(1)
+})
+
+describe('the failed-switch toast', () => {
+  // Profile 1 awaits a restore, so a real build of it reaches the backup and
+  // fails there; the switch then falls back to profile 0 and says so.
+  const failToOpen = async (name?: string) => {
+    await AsyncStorage.setItem(
+      PROFILES_STORAGE_KEY,
+      JSON.stringify({
+        active: 0,
+        profiles: [
+          { index: 0, network: 'main' },
+          { index: 1, network: 'main', needsRestore: true, ...(name ? { name } : {}) }
+        ]
+      })
+    )
+    const onToast = jest.fn()
+    await renderBuilt(onToast)
+    mockBuildMode = 'real'
+    mockRestore.mockImplementation(async () => {
+      mockBuildMode = 'bypass'
+      throw new Error('backup unavailable')
+    })
+    mockRegisteredDbs = []
+    await act(async () => {
+      await wallet.switchProfile(1)
+    })
+    return onToast
+  }
+
+  it('names the profile by its private name', async () => {
+    const onToast = await failToOpen('Savings')
+    expect(onToast).toHaveBeenCalledWith('profile_switch_failed:Savings', { type: 'error' })
+    expect(wallet.activeProfile).toBe(0)
+  })
+
+  it('names an unnamed profile by its number', async () => {
+    const onToast = await failToOpen()
+    expect(onToast).toHaveBeenCalledWith('profile_switch_failed:profile2', { type: 'error' })
+  })
 })
 
 it('a rebuild after a failed build still runs instead of waiting out its timeout', async () => {

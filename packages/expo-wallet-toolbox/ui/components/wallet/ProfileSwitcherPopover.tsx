@@ -29,6 +29,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { hitTargets, radii, spacing, typography, useTheme } from '@bsv/expo-wallet-toolbox'
 import type { ProfileRecord } from '../../../core/profiles/profileStore'
+import { profileLabel } from '../../../core/profiles/profileLabel'
 import type { AppChain } from '../../../core/config'
 import type { AvatarIcon } from '../../../core/userAvatar'
 import { AvatarGlyph } from './UserAvatar'
@@ -51,6 +52,7 @@ export interface ProfileSwitcherPopoverProps {
   onClose: () => void
   /** Window coordinates of the avatar the card hangs from. */
   anchor: { x: number; y: number; height: number }
+  /** Every record, removed ones included (their indices stay the other profiles' numbers); the card lists the live ones. */
   profiles: ProfileRecord[]
   active: number
   /** The active profile's avatar; other profiles show the default glyph. */
@@ -83,8 +85,11 @@ export default function ProfileSwitcherPopover({
   const Ionicons = loadIonicons()
   const cardWidth = Math.min(280, width - spacing.lg * 2)
   const left = Math.max(spacing.lg, Math.min(anchor.x, width - spacing.lg - cardWidth))
+  const live = profiles.filter(p => !p.deleted)
 
   if (switchingTo !== null) {
+    // Add heads for an index with no record yet, so fall back to the default label.
+    const target = profiles.find(p => p.index === switchingTo) ?? { index: switchingTo }
     return (
       <Modal visible transparent animationType="fade" onRequestClose={() => {}} statusBarTranslucent>
         <View
@@ -95,7 +100,7 @@ export default function ProfileSwitcherPopover({
         >
           <ActivityIndicator size="large" color={colors.textSecondary} />
           <Text style={[styles.coverLabel, { color: colors.textSecondary }]}>
-            {t('profile_switching', { profile: t('profile_label', { number: switchingTo + 1 }) })}
+            {t('profile_switching', { profile: profileLabel(target, t) })}
           </Text>
         </View>
       </Modal>
@@ -125,9 +130,9 @@ export default function ProfileSwitcherPopover({
         ]}
       >
         <View style={styles.list}>
-          {profiles.map(p => {
+          {live.map(p => {
             const selected = p.index === active
-            const label = t('profile_label', { number: p.index + 1 })
+            const label = profileLabel(p, t)
             const network = p.network !== 'main' ? t(NETWORK_LABEL_KEY[p.network]) : undefined
             return (
               <TouchableOpacity

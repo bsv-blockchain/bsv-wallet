@@ -198,6 +198,7 @@ import { getExchangeRate } from '../services/exchangeRate'
 import { logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
 import { backupProbe, discoverProfiles, registerDiscoveredProfile } from '../profiles/discovery'
+import { profileLabel } from '../profiles/profileLabel'
 import {
   appendProfile,
   getActiveProfile,
@@ -2990,7 +2991,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
       if (opts.fallback !== false && from !== n) {
         logWithTimestamp(F, `Profile ${n} failed to build; returning to profile ${from}`)
-        onToast?.(t('profile_switch_failed', { profile: t('profile_label', { number: n + 1 }) }), { type: 'error' })
+        onToast?.(t('profile_switch_failed', { profile: profileLabel(record, t) }), { type: 'error' })
         await switchProfileImplRef.current?.(from, { fallback: false })
       }
       return false

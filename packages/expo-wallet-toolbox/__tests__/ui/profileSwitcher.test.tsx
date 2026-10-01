@@ -33,7 +33,11 @@ jest.mock('expo-router', () => ({ router: { push: (...a: unknown[]) => mockPush(
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, unknown>) =>
-      key === 'profile_label' ? `profile${String(params?.number)}` : key
+      key === 'profile_label'
+        ? `profile${String(params?.number)}`
+        : key === 'profile_switching'
+          ? `switching:${String(params?.profile)}`
+          : key
   })
 }))
 
@@ -73,6 +77,33 @@ describe('ProfileSwitcherPopover', () => {
     expect(getByTestId('profile-row-1').props.accessibilityState).toMatchObject({ selected: false })
   })
 
+  it('shows a private name where there is one, in the row and in its accessibility label', () => {
+    const profiles = [
+      { index: 0, network: 'main' },
+      { index: 1, network: 'test', name: 'Savings' }
+    ] as never
+    const { getByTestId, getByText, queryByText } = renderPopover({ profiles })
+    expect(getByText('profile1')).toBeTruthy()
+    expect(getByText('Savings')).toBeTruthy()
+    // The name replaces the default; it is not shown beside it.
+    expect(queryByText('profile2')).toBeNull()
+    expect(getByTestId('profile-row-1').props.accessibilityLabel).toBe('Savings, testnet')
+    expect(getByTestId('profile-row-0').props.accessibilityLabel).toBe('profile1')
+  })
+
+  it('hides a removed profile, leaving the others on their own numbers', () => {
+    const profiles = [
+      { index: 0, network: 'main' },
+      { index: 1, network: 'main', deleted: true },
+      { index: 2, network: 'main' }
+    ] as never
+    const { getByText, queryByTestId, queryByText } = renderPopover({ profiles, active: 2 })
+    expect(queryByTestId('profile-row-1')).toBeNull()
+    expect(queryByText('profile2')).toBeNull()
+    expect(getByText('profile1')).toBeTruthy()
+    expect(getByText('profile3')).toBeTruthy()
+  })
+
   it('the active row opens Profile; another row switches; Add adds', () => {
     const { getByTestId, props } = renderPopover()
     fireEvent.press(getByTestId('profile-row-0'))
@@ -97,8 +128,24 @@ describe('switch cover', () => {
   it('covers the screen with the target profile while a switch runs, and the card is gone', () => {
     const { getByTestId, getByText, queryByTestId } = renderPopover({ switchingTo: 1 })
     expect(getByTestId('profile-switch-cover')).toBeTruthy()
-    expect(getByText('profile_switching')).toBeTruthy()
+    expect(getByText('switching:profile2')).toBeTruthy()
     expect(queryByTestId('profile-switcher')).toBeNull()
+  })
+
+  it('names the target by its private name', () => {
+    const profiles = [
+      { index: 0, network: 'main' },
+      { index: 1, network: 'test', name: 'Savings' }
+    ] as never
+    const { getByText } = renderPopover({ profiles, switchingTo: 1 })
+    expect(getByText('switching:Savings')).toBeTruthy()
+  })
+
+  // Add runs a transition toward the index the new profile WILL get, before the
+  // store has a record for it.
+  it('falls back to the default label for a profile that is not in the list yet', () => {
+    const { getByText } = renderPopover({ switchingTo: 2 })
+    expect(getByText('switching:profile3')).toBeTruthy()
   })
 
   it('ProfileButton shows the cover for as long as the wallet reports a switch', () => {

@@ -34,6 +34,7 @@ import { EnrollWizard } from '../components/vault/EnrollWizard'
 import { KeyChooser, vaultKeyLabel, formatVaultSerial } from '../components/vault/KeyChooser'
 import { VaultBackdrop } from '../components/vault/VaultBackdrop'
 import { vaultErrorCopy } from '../components/vault/vaultErrorCopy'
+import { profileLabel } from '../../core/profiles/profileLabel'
 import { useVaultBalance } from '../hooks/useVaultBalance'
 import { useVaultCoverage } from '../hooks/useVaultCoverage'
 import { useExportWalletData } from '../hooks/useExportWalletData'
@@ -150,8 +151,16 @@ export function VaultScreen() {
   const { balance, loading, refresh } = useVaultBalance()
   const { coverage, refresh: refreshCoverage } = useVaultCoverage()
   const { exportData, exporting } = useExportWalletData()
-  const { managers, adminOriginator, selectedNetwork, storage, walletBuilding, buildWalletFromMnemonic, activeProfile } =
-    useWallet()
+  const {
+    managers,
+    adminOriginator,
+    selectedNetwork,
+    storage,
+    walletBuilding,
+    buildWalletFromMnemonic,
+    activeProfile,
+    profiles
+  } = useWallet()
   const { createMnemonic, hasStoredIdentity, secretsReady } = useLocalStorage()
 
   /** undefined = loading; null = not enrolled. */
@@ -1089,7 +1098,11 @@ export function VaultScreen() {
         {Header}
         <View style={styles.centered}>
           <Ionicons name="lock-closed-outline" size={44} color={colors.textSecondary} />
-          <Text style={[styles.p, { color: colors.textPrimary }]}>{t('vault_profile_only_default')}</Text>
+          <Text style={[styles.p, { color: colors.textPrimary }]}>
+            {t('vault_profile_only_default', {
+              profile: profileLabel(profiles.find(p => p.index === 0) ?? { index: 0 }, t)
+            })}
+          </Text>
         </View>
       </View>
     )

@@ -30,6 +30,8 @@ export interface PencilEditFieldProps {
   saveAccessibilityLabel: string
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'
   maxLength?: number
+  /** Let the text be emptied and saved as '' (a name that can go back to its default). */
+  allowEmpty?: boolean
 }
 
 export function PencilEditField({
@@ -40,7 +42,8 @@ export function PencilEditField({
   editAccessibilityLabel,
   saveAccessibilityLabel,
   autoCapitalize = 'words',
-  maxLength
+  maxLength,
+  allowEmpty = false
 }: PencilEditFieldProps) {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -50,7 +53,7 @@ export function PencilEditField({
   // re-seeds the field; an in-progress edit is never clobbered, because the
   // parent's value only changes once our own save has gone through.
   useEffect(() => setText(value), [value])
-  const changed = text.trim() !== '' && text.trim() !== value.trim()
+  const changed = (allowEmpty || text.trim() !== '') && text.trim() !== value.trim()
 
   const save = async () => {
     if (!changed) return

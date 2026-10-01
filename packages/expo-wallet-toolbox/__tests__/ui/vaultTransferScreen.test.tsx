@@ -159,6 +159,10 @@ beforeEach(() => {
   mockShowAlert.mockReset()
   mockWallet = {
     activeProfile: 0,
+    profiles: [
+      { index: 0, network: 'main', name: 'Main' },
+      { index: 1, network: 'main' }
+    ],
     managers: { permissionsManager: { createAction: jest.fn() } },
     adminOriginator: 'admin.test',
     selectedNetwork: 'main',
@@ -178,6 +182,15 @@ describe('balance header', () => {
       expect(screen.queryByText('0 sats')).toBeNull()
     }
   )
+})
+
+describe('wallet profiles', () => {
+  test('off the default profile: only the notice, naming the profile that has the vault', async () => {
+    mockWallet.activeProfile = 1
+    const screen = await renderTransfer('deposit')
+    expect(screen.getByText('vault_profile_only_default:{"profile":"Main"}')).toBeTruthy()
+    expect(screen.queryByText('vault_deposit_sub')).toBeNull()
+  })
 })
 
 describe('deposit', () => {

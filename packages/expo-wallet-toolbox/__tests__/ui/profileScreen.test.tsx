@@ -57,6 +57,7 @@ jest.mock('../../core/identity/handleRegistry/registration', () => ({
 }))
 
 let mockNetwork: 'main' | 'test' = 'test'
+let mockProfilesSupported = false
 const kv = new Map<string, string>()
 /** The one key whose write rejects, the way a locked or full store would. */
 let writeFailsFor: string | null = null
@@ -91,7 +92,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     managers: { permissionsManager: mockPermissionsManager },
     adminOriginator: 'admin.com',
     storage: mockStorage,
-    selectedNetwork: mockNetwork
+    selectedNetwork: mockNetwork,
+    profilesSupported: mockProfilesSupported
   })
 }))
 
@@ -99,6 +101,14 @@ import React from 'react'
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { ThemeProvider, configureToolbox, resetToolboxConfig } from '@bsv/expo-wallet-toolbox'
 import { showToast } from '../../ui/components/ui/Toast'
+import {
+  MAX_PROFILE_NAME_LENGTH,
+  __resetProfilesForTests,
+  appendProfile,
+  getProfilesState,
+  setActiveProfile,
+  updateProfile as updateProfileRecord
+} from '../../core/profiles/profileStore'
 import { buildProfileCertificate, type ProfileSigner } from '../../core/identity/handleRegistry/profileCert'
 import { ProfileScreen } from '../../ui/screens/ProfileScreen'
 
@@ -140,6 +150,8 @@ beforeEach(() => {
   writeFailsFor = null
   resetToolboxConfig()
   mockNetwork = 'test'
+  mockProfilesSupported = false
+  __resetProfilesForTests()
   mockResumePending.mockResolvedValue({ kind: 'idle' })
   mockLookupProfile.mockResolvedValue({ kind: 'none' })
   mockCheckAvailability.mockResolvedValue({ kind: 'available' })
@@ -694,5 +706,81 @@ describe('the display name', () => {
     withRegistry()
     const s = draw()
     await waitFor(() => expect(s.getByText('profile_display_name_hint')).toBeTruthy())
+  })
+})
+
+describe('the profile name', () => {
+  /** Profiles 0 and 1, the second one active — the profile this screen is about. */
+  const onProfileOne = async () => {
+    mockProfilesSupported = true
+    await appendProfile('main')
+    await setActiveProfile(1)
+  }
+
+  it('is not offered on a wallet without profiles', async () => {
+    const s = draw()
+    await waitFor(() => expect(s.getByText('profile_display_name_hint')).toBeTruthy())
+    // Section headers are drawn in capitals.
+    expect(s.queryByText('PROFILE_NAME')).toBeNull()
+    expect(s.queryByLabelText('profile_name_edit')).toBeNull()
+  })
+
+  it('says it is private to this device, apart from the public display name', async () => {
+    await onProfileOne()
+    const s = draw()
+    expect(s.getByText('PROFILE_NAME')).toBeTruthy()
+    expect(s.getByText('profile_name_hint')).toBeTruthy()
+    expect(s.getByText('profile_display_name_hint')).toBeTruthy()
+  })
+
+  it('is saved to the active profile, trimmed, and to no other', async () => {
+    await onProfileOne()
+    const s = draw()
+    fireEvent.press(s.getByLabelText('profile_name_edit'))
+    // The default label stands in until a name is given.
+    fireEvent.changeText(s.getByPlaceholderText('profile_label:2'), '  Savings  ')
+    fireEvent.press(s.getByLabelText('profile_name_save'))
+    await waitFor(() => expect(getProfilesState().profiles[1].name).toBe('Savings'))
+    expect(getProfilesState().profiles[0].name).toBeUndefined()
+  })
+
+  it('stays on this device: nothing is asked of the registry or the database', async () => {
+    withRegistry()
+    mockLookupProfile.mockResolvedValue({
+      kind: 'found',
+      profile: { paymail: 'dee@deggen.com', handle: 'dee', domain: 'deggen.com' }
+    })
+    await onProfileOne()
+    const s = draw()
+    await waitFor(() => expect(s.getByText('dee@deggen.com')).toBeTruthy())
+    fireEvent.press(s.getByLabelText('profile_name_edit'))
+    fireEvent.changeText(s.getByPlaceholderText('profile_label:2'), 'Savings')
+    fireEvent.press(s.getByLabelText('profile_name_save'))
+    await waitFor(() => expect(getProfilesState().profiles[1].name).toBe('Savings'))
+    expect(mockUpdateProfile).not.toHaveBeenCalled()
+    expect(kv.get('profile_display_name')).toBeUndefined()
+  })
+
+  it('shows the name the profile already has, and clearing it goes back to the default', async () => {
+    await onProfileOne()
+    await updateProfileRecord(1, { name: 'Savings' })
+    const s = draw()
+    const field = s.getByDisplayValue('Savings')
+    fireEvent.changeText(field, '')
+    fireEvent.press(s.getByLabelText('profile_name_save'))
+    await waitFor(() => expect(getProfilesState().profiles[1].name).toBeUndefined())
+    expect(s.getByPlaceholderText('profile_label:2')).toBeTruthy()
+  })
+
+  it('stops at the length the store keeps', async () => {
+    await onProfileOne()
+    const s = draw()
+    expect(s.getByPlaceholderText('profile_label:2').props.maxLength).toBe(MAX_PROFILE_NAME_LENGTH)
+  })
+
+  it('names the active profile, not profile 0', async () => {
+    mockProfilesSupported = true
+    const s = draw()
+    expect(s.getByPlaceholderText('profile_label:1')).toBeTruthy()
   })
 })

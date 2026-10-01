@@ -1,7 +1,11 @@
 /**
- * Profile — your display name (pencil → confirm), your handle (registered
- * state, or the claim flow), and your Identifier with a way to show it as a
- * QR (its own screen) or copy it.
+ * Profile — this profile's private name and your display name (pencil →
+ * confirm), your handle (registered state, or the claim flow), and your
+ * Identifier with a way to show it as a QR (its own screen) or copy it.
+ *
+ * The profile name is a label for the switcher, kept on this device only (the
+ * profile store, not the wallet database): unlike the display name it is never
+ * published. A recovered-key wallet has no profiles, so no such field.
  *
  * The registry, not this device, is the source of truth for which handle this
  * key holds: `profile_registered_handle` is only an offline cache, shown at
@@ -33,6 +37,12 @@ import IconPickerSheet from '../components/wallet/IconPickerSheet'
 import { makeIdentityClient, resolveIdentity } from '../resolveIdentity'
 import { getHandleRegistryConfig } from '../../core/toolboxConfig'
 import { bindOriginator } from '../../core/mandala/createRuntime'
+import { profileLabel } from '../../core/profiles/profileLabel'
+import {
+  MAX_PROFILE_NAME_LENGTH,
+  updateProfile as updateProfileRecord,
+  useProfiles
+} from '../../core/profiles/profileStore'
 import { isValidHandleFormat, parsePaymail } from '../../core/identity/handleRegistry/rules'
 import type { ProfileSigner } from '../../core/identity/handleRegistry/profileCert'
 import { createHandleRegistryClient, type AvailabilityReason } from '../../core/identity/handleRegistry/client'
@@ -85,8 +95,9 @@ export function ProfileScreen() {
   const insets = useSafeAreaInsets()
   const Ionicons = loadIonicons()
   const { router } = loadExpoRouter()
-  const { managers, adminOriginator, selectedNetwork, storage } = useWallet()
+  const { managers, adminOriginator, selectedNetwork, storage, profilesSupported } = useWallet()
   const wallet = managers?.permissionsManager || null
+  const { active: activeProfile, profiles } = useProfiles()
 
   const [identityKey, setIdentityKey] = useState('')
   const avatarIcon = useUserAvatarIcon()
@@ -402,6 +413,12 @@ export function ProfileScreen() {
     [storage, client, signer, registeredPaymail, finishing, applyResult, t]
   )
 
+  /** Only this device's store: the name is never published, so there is nothing to wait on. */
+  const onSaveProfileName = useCallback(
+    (next: string) => updateProfileRecord(activeProfile, { name: next }),
+    [activeProfile]
+  )
+
   const handle = handleInput.trim().toLowerCase()
   const paymailPreview = registryDomain ? `${handle}@${registryDomain}` : handle
   const editingHandle = !!registryDomain && (!registeredPaymail || changingHandle)
@@ -486,6 +503,20 @@ export function ProfileScreen() {
             </Text>
           </PressableScale>
         </View>
+
+        {profilesSupported && (
+          <GroupedSection header={t('profile_name')} footer={t('profile_name_hint')}>
+            <PencilEditField
+              value={profiles[activeProfile]?.name ?? ''}
+              placeholder={profileLabel({ index: activeProfile }, t)}
+              onSave={onSaveProfileName}
+              editAccessibilityLabel={t('profile_name_edit')}
+              saveAccessibilityLabel={t('profile_name_save')}
+              maxLength={MAX_PROFILE_NAME_LENGTH}
+              allowEmpty
+            />
+          </GroupedSection>
+        )}
 
         <GroupedSection header={t('profile_display_name')} footer={t('profile_display_name_hint')}>
           <PencilEditField

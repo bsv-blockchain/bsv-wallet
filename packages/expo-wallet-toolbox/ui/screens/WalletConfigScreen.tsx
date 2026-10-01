@@ -72,6 +72,7 @@ import { useExportWalletData } from '../hooks/useExportWalletData'
 import { importWalletDatabase } from '../importDatabases'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { profileScopedKey } from '../../core/profiles/profileStore'
+import { profileLabel } from '../../core/profiles/profileLabel'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -151,6 +152,7 @@ export function WalletConfigScreen() {
     settings,
     updateSettings,
     activeProfile,
+    profiles,
     profilesSupported
   } = useWallet()
   const { getMnemonic, getRecoveredKey } = useLocalStorage()
@@ -622,7 +624,9 @@ export function WalletConfigScreen() {
             header={t('configuration')}
             footer={
               profilesSupported
-                ? t('profile_settings_scope_note', { profile: t('profile_label', { number: activeProfile + 1 }) })
+                ? t('profile_settings_scope_note', {
+                    profile: profileLabel(profiles.find(p => p.index === activeProfile) ?? { index: activeProfile }, t)
+                  })
                 : undefined
             }
           >

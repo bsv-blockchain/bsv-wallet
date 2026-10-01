@@ -105,6 +105,7 @@ export default function ProfileButton() {
             setOpen(false)
             openProfile()
           }}
+          // The full list, removed profiles included: that count is the index the new profile gets.
           onAdd={() => run(profiles.length, addProfile)}
         />
       )}
