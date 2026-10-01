@@ -257,7 +257,7 @@ import {
   type PushProfileKey
 } from '../push/identities'
 import { createProfilePush, type ProfilePush } from '../push/profilePush'
-import { forgetPushMarker, PUSH_REGISTRATION_KEY, PUSH_REGISTRATION_OWNER_KEY } from '../push/registration'
+import { PUSH_REGISTRATION_KEY, PUSH_REGISTRATION_OWNER_KEY, readPushMarkerIdentities } from '../push/registration'
 import { drainUnsentEntries, TaskDrainOutbox } from '../monitor/TaskDrainOutbox'
 import { TaskBackupPush } from '../monitor/TaskBackupPush'
 import { pushOnce } from '../backup/push'
@@ -2505,20 +2505,26 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           pushDetachRef.current?.()
           pushDetachRef.current = undefined
           if (phoneStorage && pushAdapter) {
+            const isRemoved = (index: number) => !!getProfilesState().profiles[index]?.deleted
+            const others = pushOtherProfileKeys.filter(k => k.index !== profileIndex)
             const profiles: PushProfile[] = [
-              ...pushOtherProfileKeys
-                .filter(k => k.index !== profileIndex)
-                .map(k => makePushProfile(k.index, k.primaryKey)),
+              ...others.filter(k => !isRemoved(k.index)).map(k => makePushProfile(k.index, k.primaryKey)),
               makePushProfile(profileIndex, primaryKey)
             ]
+            // Removed earlier, registration still on record: only asked to withdraw it.
+            const retired: PushProfile[] = others
+              .filter(k => isRemoved(k.index))
+              .map(k => makePushProfile(k.index, k.primaryKey))
             const profilePush = createProfilePush({
               adapter: pushAdapter,
               profiles,
+              retired,
               activeIndex: profileIndex,
               readHost: readMessageBoxHost,
               // Still this build's, and not removed: a removal tombstones its profile
               // right after the switch to profile 0, whose build holds the key.
-              isCurrent: index => stillWanted() && !getProfilesState().profiles[index]?.deleted,
+              isCurrent: index => stillWanted() && !isRemoved(index),
+              isRemoved,
               makeClient: (wallet, host) => new MessageBoxClient({ host, walletClient: wallet as never }),
               makePost: authPostFor
             })
@@ -2778,12 +2784,23 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // buildWallet, which takes them. Skipped when there is nothing to register
         // with or only one profile, and push is an enhancement: a derivation that
         // fails leaves the open profile as the only one registered.
+        //
+        // A removed profile whose registration could not be withdrawn at the time
+        // (it still has a marker) is derived too, to ask again: only its signature
+        // is needed, never a wallet.
         pushOtherProfileKeysRef.current = []
         if (getPushAdapter()) {
           try {
-            const others = liveProfiles()
+            const withMarker = new Set((await readPushMarkerIdentities()).map(k => k.toLowerCase()))
+            const retired = getProfilesState()
+              .profiles.filter(p => p.deleted && p.identityKey && withMarker.has(p.identityKey.toLowerCase()))
               .map(p => p.index)
-              .filter(index => index !== profileIndex)
+            const others = [
+              ...liveProfiles()
+                .map(p => p.index)
+                .filter(index => index !== profileIndex),
+              ...retired
+            ]
             pushOtherProfileKeysRef.current = derivePushProfileKeys(mnemonic, others)
           } catch (e) {
             console.warn(
@@ -3142,14 +3159,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * the device recorded when it registered, so the purge having swept the
    * profile's own settings does not matter. The registration is withdrawn
    * through the build that holds the profile's signing identity (the switch to
-   * profile 0 built it while the profile was still live); with no such build
-   * only the marker can go.
+   * profile 0 built it while the profile was still live). A withdrawal that does
+   * not get through leaves the profile's marker on record, and the next build
+   * derives the profile's key again to ask once more (see buildWalletFromMnemonic):
+   * with no such build now, the marker simply waits for that.
    */
   const unregisterRemovedProfilePush = useCallback(
     async (target: { index: number; identityKey: string }): Promise<void> => {
-      const profilePush = profilePushRef.current
-      if (profilePush) await profilePush.unregister([target.identityKey])
-      else await forgetPushMarker(target.identityKey)
+      await profilePushRef.current?.unregister([target.identityKey])
     },
     []
   )

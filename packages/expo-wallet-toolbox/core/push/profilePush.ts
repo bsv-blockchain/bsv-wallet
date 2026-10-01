@@ -11,7 +11,6 @@
 import { coalesceRuns } from './events'
 import type { PushProfile } from './identities'
 import {
-  forgetPushMarker,
   syncPushRegistrations,
   unregisterPushIdentity,
   type PushMarkerStorage,
@@ -31,6 +30,18 @@ export interface ProfilePushDeps {
   readHost(index: number): Promise<string | undefined>
   /** False once the profile was removed or this build was replaced. Asked at every step. */
   isCurrent(index: number): boolean
+  /**
+   * True once the profile was removed (as opposed to this build being replaced).
+   * A registration that lands for a removed profile is withdrawn at once.
+   */
+  isRemoved?(index: number): boolean
+  /**
+   * Profiles that were removed earlier and whose registration is still on record
+   * (their withdrawal did not get through). Never registered and never routed to:
+   * each sync just asks once more to withdraw whatever this device still has
+   * recorded for them, signing in as them.
+   */
+  retired?: readonly PushProfile[]
   makeClient(wallet: unknown, host: string): RegisterDeviceClient
   makePost(wallet: unknown): PushPost
   storage?: PushMarkerStorage
@@ -41,7 +52,9 @@ export interface ProfilePush {
   sync(): Promise<void>
   /**
    * Withdraw the registrations of `identityKeys` (every profile of this build when
-   * omitted), all at once. Best effort and bounded in time: never rejects.
+   * omitted), all at once. Best effort and bounded in time: never rejects. A
+   * registration whose withdrawal did not get through stays on record, and a
+   * later build asks again (see `retired`).
    */
   unregister(identityKeys?: readonly string[]): Promise<void>
   /** The index of the live profile, other than the open one, whose identity key is `recipient`. */
@@ -52,6 +65,7 @@ const sameKey = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 export function createProfilePush(deps: ProfilePushDeps): ProfilePush {
   const { adapter, profiles, activeIndex, storage } = deps
+  const retired = deps.retired ?? []
 
   const sync = coalesceRuns(async () => {
     if (!adapter) return
@@ -70,14 +84,31 @@ export function createProfilePush(deps: ProfilePushDeps): ProfilePush {
           host,
           active: p.index === activeIndex,
           makeClient: (h: string) => deps.makeClient(p.wallet, h),
-          isCurrent: () => deps.isCurrent(p.index)
+          isCurrent: () => deps.isCurrent(p.index),
+          isRemoved: () => deps.isRemoved?.(p.index) ?? false,
+          // Built when it is needed, not now: only a late registration uses it.
+          post: (url, body) => deps.makePost(p.wallet)(url, body)
         }
       })
     )
     const results = await syncPushRegistrations({ adapter, targets, storage })
     if (results.some(r => r.result === 'failed'))
       console.warn('[push] device registration with the MessageBox host failed')
+    await withdrawRetired()
   })
+
+  /** Ask once more for every removed profile whose withdrawal did not get through. Nothing to ask means no request. */
+  const withdrawRetired = async (): Promise<void> => {
+    await Promise.all(
+      retired.map(async p => {
+        try {
+          await unregisterPushIdentity({ identityKey: p.identityKey, post: deps.makePost(p.wallet), storage })
+        } catch (e) {
+          console.warn(`[push] unregister failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      })
+    )
+  }
 
   const unregister = async (identityKeys?: readonly string[]): Promise<void> => {
     const wanted = identityKeys ?? profiles.map(p => p.identityKey)
@@ -85,9 +116,9 @@ export function createProfilePush(deps: ProfilePushDeps): ProfilePush {
       wanted.map(async identityKey => {
         try {
           const profile = profiles.find(p => sameKey(p.identityKey, identityKey))
-          // A key this build holds no wallet for cannot sign a request, but its
-          // marker still has no business staying behind.
-          if (!profile) return await forgetPushMarker(identityKey, storage)
+          // A key this build holds no wallet for cannot sign a request. Its marker
+          // stays: it is what a build that does hold the key withdraws from.
+          if (!profile) return
           await unregisterPushIdentity({
             identityKey: profile.identityKey,
             post: deps.makePost(profile.wallet),

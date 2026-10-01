@@ -33,6 +33,7 @@ const mockGetMnemonic = jest.fn<Promise<string | null>, []>()
 const mockGetRecoveredKey = jest.fn<Promise<string | null>, []>()
 const mockRegistrations: Array<{ identityKey: string; host: string; token: string }> = []
 const mockPosts: Array<{ identityKey: string; url: string; token: string }> = []
+let mockPostStatus = 200
 let mockRegisteredDbs: string[] = []
 
 jest.mock('../../core/context/LocalStorageProvider', () => ({
@@ -158,7 +159,7 @@ jest.mock('../../core/push/identities', () => {
     authPostFor: (wallet: any) => async (url: string, body: { fcmToken: string }) => {
       const { publicKey } = await wallet.getPublicKey({ identityKey: true })
       mockPosts.push({ identityKey: publicKey, url, token: body.fcmToken })
-      return { status: 200 }
+      return { status: mockPostStatus }
     }
   }
 })
@@ -250,6 +251,7 @@ beforeEach(async () => {
   jest.clearAllMocks()
   mockRegistrations.length = 0
   mockPosts.length = 0
+  mockPostStatus = 200
   handlers = {}
   currentToken = 'fcm-token-1'
   mockRegisteredDbs = []
@@ -429,6 +431,44 @@ describe('withdrawing registrations', () => {
     await settle()
     expect(registered()).toEqual([ID[2], ID[0]])
     expect(Object.keys(await markers())).not.toContain(ID[1])
+  })
+
+  it('a removal the server did not answer leaves the registration on record, and the next build withdraws it', async () => {
+    await storeProfiles(1)
+    await renderBuilt()
+    mockFlow.mockImplementation(async deps => {
+      expect(await deps.switchToDefault()).toBe(true)
+      await deps.tombstone(ID[1])
+      await deps.purge({ index: 1, identityKey: ID[1] })
+      await deps.unregisterPush({ index: 1, identityKey: ID[1] })
+      return { kind: 'removed', index: 1 }
+    })
+    mockPostStatus = 503
+    await act(async () => {
+      await wallet.removeProfile()
+    })
+    await settle()
+    expect(mockPosts).toHaveLength(1)
+    expect(Object.keys(await markers())).toContain(ID[1])
+
+    // The next launch: the removed profile is not registered, but its key is derived once more to withdraw it.
+    await act(async () => renderer.unmount())
+    mockPosts.length = 0
+    mockRegistrations.length = 0
+    mockPostStatus = 200
+    await renderBuilt()
+    expect(mockPosts).toEqual([
+      { identityKey: ID[1], url: 'https://messagebox.bsvblockchain.tech/unregisterDevice', token: 'fcm-token-1' }
+    ])
+    expect(registered()).not.toContain(ID[1])
+    expect(Object.keys(await markers())).not.toContain(ID[1])
+    expect(wallet.activeProfile).toBe(0)
+  })
+
+  it('asks nothing for a removed profile that has no registration left on record', async () => {
+    await storeProfiles(0, { 2: { deleted: true } })
+    await renderBuilt()
+    expect(mockPosts).toEqual([])
   })
 
   it('Delete Wallet unregisters every profile, signed as each, and sweeps the markers', async () => {

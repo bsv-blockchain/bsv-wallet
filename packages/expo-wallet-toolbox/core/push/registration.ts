@@ -48,11 +48,22 @@ export interface PushTarget {
   active?: boolean
   makeClient: (host: string) => RegisterDeviceClient
   /**
-   * Asked again right before this target's network call. False drops the target:
-   * the profile was removed, or the build that owns this run was replaced, while
-   * the run was under way.
+   * Asked again right before this target's network call, and once more when the
+   * answer comes back, inside the same step that would record it. False drops the
+   * target: the profile was removed, or the build that owns this run was
+   * replaced, while the run was under way. A registration that lands after that
+   * is not remembered (see syncOne).
    */
   isCurrent?: () => boolean
+  /**
+   * The profile is gone for good, as opposed to its build merely being replaced
+   * by another's. A registration that lands for a removed profile is withdrawn
+   * again: the removal's own unregister ran before there was anything to
+   * withdraw, and nothing would ever ask again.
+   */
+  isRemoved?: () => boolean
+  /** Signs in as this identity to withdraw a registration that landed late (see `isRemoved`). */
+  post?: PushPost
 }
 
 export interface TargetResult {
@@ -107,6 +118,22 @@ function updateMarkers(
   })
   markerQueue = run.catch(() => {})
   return run
+}
+
+/** The markers, read in line with the updates above so a read never sees half of one. */
+function readMarkers(storage: PushMarkerStorage): Promise<Markers> {
+  const run = markerQueue.then(async () => parseMarkers(await storage.getItem(PUSH_REGISTRATION_KEY)))
+  markerQueue = run.catch(() => {})
+  return run
+}
+
+/** Every identity this device holds a registration marker for. Never throws: an unreadable store reads as none. */
+export async function readPushMarkerIdentities(storage: PushMarkerStorage = AsyncStorage): Promise<string[]> {
+  try {
+    return Object.keys(await readMarkers(storage))
+  } catch {
+    return []
+  }
 }
 
 /** Only the error's message is logged, with the token, identity key and host cut out of it. */
@@ -177,7 +204,24 @@ async function syncOne(
     if (markers[identityKey] === marker && !(target.active && owner !== identityKey)) return 'unchanged'
     if (target.isCurrent && !target.isCurrent()) return 'skipped'
     await target.makeClient(host).registerDevice({ fcmToken: token, platform: adapter.platform }, host)
-    await updateMarkers(storage, markers => ({ markers: { ...markers, [identityKey]: marker }, owner: identityKey }))
+    // The answer took time, and the profile may have been removed or the wallet
+    // deleted meanwhile. Asked again INSIDE the marker update, which a removal's
+    // unregister also reads through: either this write lands first and the
+    // unregister then sees it, or the unregister ran first and this finds the
+    // profile gone. Writing regardless would bring back a marker (and, after
+    // Delete Wallet, the token and identity in clear text) that nothing withdraws.
+    let late = false
+    await updateMarkers(storage, markers => {
+      if (target.isCurrent && !target.isCurrent()) {
+        late = true
+        return null
+      }
+      return { markers: { ...markers, [identityKey]: marker }, owner: identityKey }
+    })
+    if (late) {
+      await settleLateRegistration(target, host, token, storage)
+      return 'skipped'
+    }
     return 'registered'
   } catch (e) {
     // Only the error's message is logged, so a failure is diagnosable without
@@ -220,6 +264,75 @@ function unregisterUrl(host: string): string {
 }
 
 /**
+ * One withdrawal request. `refused` is a host this client will not talk to: no
+ * later attempt could do any better, unlike `failed`, where the server did not
+ * answer or answered with an error.
+ */
+type Withdrawal = Exclude<UnregisterResult, 'skipped'> | 'refused'
+
+async function withdraw(
+  registered: { host: string; token: string },
+  identityKey: string,
+  post: PushPost
+): Promise<Withdrawal> {
+  const secrets = [registered.token, identityKey, registered.host]
+  let url: string
+  try {
+    url = unregisterUrl(registered.host)
+  } catch (e) {
+    console.warn('[push] unregisterDevice failed: ' + redactedMessage(e, secrets))
+    return 'refused'
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), PUSH_UNREGISTER_TIMEOUT_MS)
+  })
+  try {
+    const { status } = await Promise.race([post(url, { fcmToken: registered.token }), timeout])
+    if (status >= 200 && status < 300) return 'unregistered'
+    if (UNSUPPORTED_STATUSES.includes(status)) return 'unsupported'
+    console.warn(`[push] unregisterDevice failed: HTTP ${status}`)
+    return 'failed'
+  } catch (e) {
+    console.warn('[push] unregisterDevice failed: ' + redactedMessage(e, secrets))
+    return 'failed'
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * A registration answered after its profile was removed (`isRemoved`), so the
+ * removal's unregister found nothing to withdraw. Withdraw it now, from the host
+ * and token it was just registered under. If that cannot be done, the marker is
+ * written after all so the retry has something to work from.
+ *
+ * A build that was merely replaced, or a wallet being deleted, is not a removal:
+ * the profile is still wanted (the next build registers it again, which is
+ * idempotent) or nothing may be left behind at all, so nothing is written and
+ * nothing is sent.
+ */
+async function settleLateRegistration(
+  target: PushTarget,
+  host: string,
+  token: string,
+  storage: PushMarkerStorage
+): Promise<void> {
+  if (!target.isRemoved?.()) return
+  const { identityKey } = target
+  const outcome = target.post ? await withdraw({ host, token }, identityKey, target.post) : 'failed'
+  if (outcome !== 'failed') return
+  try {
+    await updateMarkers(storage, (markers, owner) => ({
+      markers: { ...markers, [identityKey]: `${host}|${token}` },
+      owner
+    }))
+  } catch (e) {
+    console.warn('[push] could not keep a registration for a retry: ' + redactedMessage(e, [token, identityKey, host]))
+  }
+}
+
+/**
  * Withdraw one identity's device registration, for a removed profile or a wallet
  * being deleted. Best effort: it never throws, and it works from the marker, so
  * it asks exactly the host and token this device registered under — a host
@@ -230,9 +343,14 @@ function unregisterUrl(host: string): string {
  * `unsupported` and is not a failure: its single row for the token belongs to
  * whichever identity registered last and is not this identity's to remove.
  *
- * The identity's marker is dropped whatever happened. The profile is gone from
- * this device, so nothing here would ever register it again, and a marker left
- * behind would only keep a stale token and identity key in storage.
+ * The marker is the record of what is still registered, so it is dropped only
+ * once nothing is: on `unregistered` and `unsupported`, and when there was no
+ * usable marker to begin with (`skipped`). On `failed` (offline, a timeout, an
+ * error answer) it stays, and whoever can sign as the identity again asks once
+ * more — the next build for a removed profile (see createProfilePush's
+ * `retired`). Delete Wallet sweeps the markers afterwards whatever happened,
+ * since after it there is no seed left to retry with. A host this client would
+ * refuse is dropped too: no retry could ever use it.
  */
 export async function unregisterPushIdentity(args: {
   identityKey: string
@@ -241,35 +359,22 @@ export async function unregisterPushIdentity(args: {
 }): Promise<UnregisterResult> {
   const { identityKey, post } = args
   const storage = args.storage ?? AsyncStorage
-  let secrets: string[] = [identityKey]
+  let entry: string | undefined
   try {
-    const entry = parseMarkers(await storage.getItem(PUSH_REGISTRATION_KEY))[identityKey]
-    const registered = entry === undefined ? undefined : splitMarker(entry)
-    if (!registered) return 'skipped'
-    secrets = [registered.token, identityKey, registered.host]
-
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('timed out')), PUSH_UNREGISTER_TIMEOUT_MS)
-    })
-    try {
-      const { status } = await Promise.race([
-        post(unregisterUrl(registered.host), { fcmToken: registered.token }),
-        timeout
-      ])
-      if (status >= 200 && status < 300) return 'unregistered'
-      if (UNSUPPORTED_STATUSES.includes(status)) return 'unsupported'
-      console.warn(`[push] unregisterDevice failed: HTTP ${status}`)
-      return 'failed'
-    } finally {
-      clearTimeout(timer)
-    }
+    entry = (await readMarkers(storage))[identityKey]
   } catch (e) {
-    console.warn('[push] unregisterDevice failed: ' + redactedMessage(e, secrets))
+    console.warn('[push] unregisterDevice failed: ' + redactedMessage(e, [identityKey]))
     return 'failed'
-  } finally {
-    await forgetPushMarker(identityKey, storage)
   }
+  const registered = entry === undefined ? undefined : splitMarker(entry)
+  if (!registered) {
+    // Never registered from here, or a marker nothing can read: either way nothing to ask.
+    await forgetPushMarker(identityKey, storage)
+    return 'skipped'
+  }
+  const outcome = await withdraw(registered, identityKey, post)
+  if (outcome !== 'failed') await forgetPushMarker(identityKey, storage)
+  return outcome === 'refused' ? 'failed' : outcome
 }
 
 /** Drop one identity's marker (and the owner record, if it points at that identity). Never throws. */

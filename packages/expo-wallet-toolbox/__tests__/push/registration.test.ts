@@ -3,6 +3,7 @@ import {
   PUSH_REGISTRATION_KEY,
   PUSH_REGISTRATION_OWNER_KEY,
   PUSH_UNREGISTER_TIMEOUT_MS,
+  readPushMarkerIdentities,
   syncPushRegistrations,
   unregisterPushIdentity,
   type PushPost,
@@ -257,6 +258,123 @@ describe('syncPushRegistrations', () => {
     expect(markers(storage)).not.toHaveProperty(ID_B)
   })
 
+  describe('a registration still in flight when its profile goes away', () => {
+    let warn: jest.SpyInstance
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+    afterEach(() => {
+      warn.mockRestore()
+    })
+
+    /** One profile whose registerDevice answers only when `answer()` is called. */
+    function inFlight(state: { removed: boolean; replaced: boolean }, over: Partial<PushTarget> = {}) {
+      let answer!: () => void
+      const registerDevice = jest.fn(() => new Promise<unknown>(resolve => (answer = () => resolve({}))))
+      const storage = mem()
+      const post = jest.fn(async (_url: string, _body: { fcmToken: string }) => ({ status: 200 }))
+      const run = syncPushRegistrations({
+        adapter: adapter(),
+        targets: [
+          {
+            index: 1,
+            identityKey: ID_B,
+            host: HOST,
+            makeClient: () => ({ registerDevice }),
+            isCurrent: () => !state.removed && !state.replaced,
+            isRemoved: () => state.removed,
+            post,
+            ...over
+          }
+        ],
+        storage
+      })
+      const started = async () => {
+        for (let i = 0; i < 50 && registerDevice.mock.calls.length === 0; i++) await new Promise(r => setImmediate(r))
+        expect(registerDevice).toHaveBeenCalledTimes(1)
+      }
+      return { run, storage, post, answer: () => answer(), started }
+    }
+
+    it('withdraws what it registered after the profile was removed, and remembers nothing', async () => {
+      const state = { removed: false, replaced: false }
+      const f = inFlight(state)
+      await f.started()
+      // The removal tombstones the profile and asks to unregister it, but nothing is registered yet.
+      state.removed = true
+      const late = jest.fn(async () => ({ status: 200 }))
+      expect(await unregisterPushIdentity({ identityKey: ID_B, post: late, storage: f.storage })).toBe('skipped')
+      expect(late).not.toHaveBeenCalled()
+
+      f.answer()
+      expect(await f.run).toEqual([{ index: 1, result: 'skipped' }])
+      expect(f.post).toHaveBeenCalledTimes(1)
+      expect(f.post).toHaveBeenCalledWith(`${HOST}/unregisterDevice`, { fcmToken: 'tok1' })
+      expect(markers(f.storage)).not.toHaveProperty(ID_B)
+      expect(f.storage.m.has(PUSH_REGISTRATION_OWNER_KEY)).toBe(false)
+    })
+
+    it('keeps the registration for a retry when that withdrawal fails too', async () => {
+      const state = { removed: false, replaced: false }
+      const f = inFlight(state)
+      f.post.mockResolvedValue({ status: 503 })
+      await f.started()
+      state.removed = true
+      f.answer()
+      await f.run
+      expect(markers(f.storage)).toEqual({ [ID_B]: `${HOST}|tok1` })
+      // ...which is what the next unregister works from.
+      const retry = jest.fn(async () => ({ status: 200 }))
+      expect(await unregisterPushIdentity({ identityKey: ID_B, post: retry, storage: f.storage })).toBe('unregistered')
+      expect(markers(f.storage)).not.toHaveProperty(ID_B)
+    })
+
+    it('keeps it for a retry when it has no way to sign the withdrawal', async () => {
+      const state = { removed: false, replaced: false }
+      const f = inFlight(state, { post: undefined })
+      await f.started()
+      state.removed = true
+      f.answer()
+      await f.run
+      expect(markers(f.storage)).toEqual({ [ID_B]: `${HOST}|tok1` })
+    })
+
+    it('writes nothing after Delete Wallet swept the markers, and asks nothing of the server', async () => {
+      const state = { removed: false, replaced: false }
+      const f = inFlight(state)
+      await f.started()
+      // The wallet is deleted: its build is replaced, nothing is unregistered for this
+      // identity yet, and the markers are swept.
+      state.replaced = true
+      f.storage.m.clear()
+      f.answer()
+      expect(await f.run).toEqual([{ index: 1, result: 'skipped' }])
+      expect(f.storage.m.size).toBe(0)
+      expect(f.post).not.toHaveBeenCalled()
+    })
+
+    it('a registration that finishes while the profile is still wanted is remembered as before', async () => {
+      const f = inFlight({ removed: false, replaced: false })
+      await f.started()
+      f.answer()
+      expect(await f.run).toEqual([{ index: 1, result: 'registered' }])
+      expect(markers(f.storage)).toEqual({ [ID_B]: `${HOST}|tok1` })
+      expect(f.post).not.toHaveBeenCalled()
+    })
+
+    it('a removal that comes after the registration finished withdraws it through the marker', async () => {
+      const state = { removed: false, replaced: false }
+      const f = inFlight(state)
+      await f.started()
+      f.answer()
+      await f.run
+      state.removed = true
+      const send = jest.fn(async () => ({ status: 200 }))
+      expect(await unregisterPushIdentity({ identityKey: ID_B, post: send, storage: f.storage })).toBe('unregistered')
+      expect(send).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('treats a marker in the old single-slot format as nothing registered', async () => {
     const storage = mem()
     storage.m.set(PUSH_REGISTRATION_KEY, `${HOST}|${ID}|tok1`)
@@ -441,11 +559,41 @@ describe('unregisterPushIdentity', () => {
     }
   )
 
-  it('a server error is a failure that is logged, and still forgets the marker', async () => {
+  it('a server error is a failure that is logged, and keeps the marker so a later run can ask again', async () => {
     const storage = await registered()
     expect(await unregisterPushIdentity({ identityKey: ID_B, post: post(500), storage })).toBe('failed')
     expect(warn).toHaveBeenCalledWith('[push] unregisterDevice failed: HTTP 500')
+    expect(markers(storage)[ID_B]).toBe(`${HOST}|tok1`)
+  })
+
+  it('a failed unregister is withdrawn by the next one, which then forgets the marker', async () => {
+    const storage = await registered()
+    expect(await unregisterPushIdentity({ identityKey: ID_B, post: post(503), storage })).toBe('failed')
+    const send = post()
+    expect(await unregisterPushIdentity({ identityKey: ID_B, post: send, storage })).toBe('unregistered')
+    expect(send).toHaveBeenCalledWith(`${HOST}/unregisterDevice`, { fcmToken: 'tok1' })
     expect(markers(storage)).not.toHaveProperty(ID_B)
+  })
+
+  it('keeps the owner record while the marker it points at is kept', async () => {
+    const storage = await registered()
+    expect(await unregisterPushIdentity({ identityKey: ID, post: post(500), storage })).toBe('failed')
+    expect(storage.m.get(PUSH_REGISTRATION_OWNER_KEY)).toBe(ID)
+  })
+
+  it('a marker that cannot be read as host and token is dropped, not kept for a retry that could never work', async () => {
+    const storage = await registered()
+    storage.m.set(PUSH_REGISTRATION_KEY, JSON.stringify({ [ID_B]: 'not-a-marker' }))
+    const send = post()
+    expect(await unregisterPushIdentity({ identityKey: ID_B, post: send, storage })).toBe('skipped')
+    expect(send).not.toHaveBeenCalled()
+    expect(markers(storage)).not.toHaveProperty(ID_B)
+  })
+
+  it('reports the identities this device holds a registration for', async () => {
+    const storage = await registered()
+    expect((await readPushMarkerIdentities(storage)).sort()).toEqual([ID, ID_B].sort())
+    expect(await readPushMarkerIdentities(mem())).toEqual([])
   })
 
   it('a request that throws is contained and logged without the token, identity key or host', async () => {
@@ -456,15 +604,16 @@ describe('unregisterPushIdentity', () => {
     expect(line).toContain('[push] unregisterDevice failed: ')
     expect(line).toContain('refused')
     for (const secret of ['tok1', ID_B, HOST]) expect(line).not.toContain(secret)
-    expect(markers(storage)).not.toHaveProperty(ID_B)
+    expect(markers(storage)).toHaveProperty(ID_B)
   })
 
-  it('refuses a host it would not talk to, without sending anything', async () => {
+  it('refuses a host it would not talk to, without sending anything, and drops the marker no retry could use', async () => {
     const storage = await registered()
     storage.m.set(PUSH_REGISTRATION_KEY, JSON.stringify({ [ID_B]: 'http://mb.example.org|tok1' }))
     const send = post()
     expect(await unregisterPushIdentity({ identityKey: ID_B, post: send, storage })).toBe('failed')
     expect(send).not.toHaveBeenCalled()
+    expect(markers(storage)).not.toHaveProperty(ID_B)
   })
 
   it('allows plain HTTP on loopback, for a local server', async () => {
@@ -490,7 +639,7 @@ describe('unregisterPushIdentity', () => {
       await jest.advanceTimersByTimeAsync(PUSH_UNREGISTER_TIMEOUT_MS)
       expect(await p).toBe('failed')
       expect(warn).toHaveBeenCalledWith('[push] unregisterDevice failed: timed out')
-      expect(markers(storage)).not.toHaveProperty(ID_B)
+      expect(markers(storage)).toHaveProperty(ID_B)
       expect(jest.getTimerCount()).toBe(0)
     })
   })

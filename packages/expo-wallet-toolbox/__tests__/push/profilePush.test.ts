@@ -25,6 +25,8 @@ interface Harness {
   registered: Array<{ wallet: unknown; host: string }>
   posted: Array<{ wallet: unknown; url: string; token: string }>
   current: Set<number>
+  /** Profiles that were removed, as opposed to merely not wanted by this build. */
+  removed: Set<number>
   hosts: Record<number, string | undefined>
 }
 
@@ -33,6 +35,7 @@ function harness(over: Partial<ProfilePushDeps> = {}, activeIndex = 0): Harness 
   const registered: Harness['registered'] = []
   const posted: Harness['posted'] = []
   const current = new Set([0, 1, 2])
+  const removed = new Set<number>()
   const hosts: Harness['hosts'] = { 0: HOST, 1: 'https://one.example.org', 2: HOST }
   const push = createProfilePush({
     adapter: adapter(),
@@ -40,6 +43,7 @@ function harness(over: Partial<ProfilePushDeps> = {}, activeIndex = 0): Harness 
     activeIndex,
     readHost: async index => hosts[index],
     isCurrent: index => current.has(index),
+    isRemoved: index => removed.has(index),
     makeClient: (wallet, host) => ({
       registerDevice: async () => {
         registered.push({ wallet, host })
@@ -53,7 +57,7 @@ function harness(over: Partial<ProfilePushDeps> = {}, activeIndex = 0): Harness 
     storage,
     ...over
   })
-  return { push, storage, registered, posted, current, hosts }
+  return { push, storage, registered, posted, current, removed, hosts }
 }
 const walletsOf = (h: Harness) => h.registered.map(r => (r.wallet as { wallet: number }).wallet)
 
@@ -155,13 +159,25 @@ describe('createProfilePush', () => {
       expect(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).toEqual({})
     })
 
-    it('forgets the marker of an identity this build holds no wallet for, without a request', async () => {
+    it('leaves the marker of an identity this build holds no wallet for, so a build that has its key can withdraw it', async () => {
       const h = harness()
       const stranger = '03'.padEnd(66, 'e')
       h.storage.m.set(PUSH_REGISTRATION_KEY, JSON.stringify({ [stranger]: `${HOST}|tok1` }))
       await h.push.unregister([stranger])
       expect(h.posted).toEqual([])
-      expect(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).toEqual({})
+      expect(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).toEqual({ [stranger]: `${HOST}|tok1` })
+    })
+
+    it('keeps the marker of a profile whose withdrawal failed', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const h = harness({ makePost: () => async () => ({ status: 503 }) })
+        await h.push.sync()
+        await h.push.unregister([ID[1]])
+        expect(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)[ID[1]]).toBe('https://one.example.org|tok1')
+      } finally {
+        warn.mockRestore()
+      }
     })
 
     it('does nothing for a profile that never registered', async () => {
@@ -180,6 +196,109 @@ describe('createProfilePush', () => {
         })
         await h.push.sync()
         await expect(h.push.unregister()).resolves.toBeUndefined()
+      } finally {
+        warn.mockRestore()
+      }
+    })
+  })
+
+  describe('a registration in flight when its profile is removed', () => {
+    it('withdraws it as that profile, instead of remembering it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        let answer!: () => void
+        let h!: Harness
+        h = harness({
+          makeClient: (wallet, host) => ({
+            registerDevice: async () => {
+              h.registered.push({ wallet, host })
+              if ((wallet as { wallet: number }).wallet !== 1) return {}
+              await new Promise<void>(resolve => (answer = resolve))
+              return {}
+            }
+          })
+        })
+        const run = h.push.sync()
+        for (let i = 0; i < 50 && !answer; i++) await new Promise(r => setImmediate(r))
+        // The removal tombstones the profile and withdraws what it has registered, which is nothing yet.
+        h.current.delete(1)
+        h.removed.add(1)
+        await h.push.unregister([ID[1]])
+        expect(h.posted).toEqual([])
+        answer()
+        await run
+        expect(h.posted).toEqual([
+          { wallet: { wallet: 1 }, url: 'https://one.example.org/unregisterDevice', token: 'tok1' }
+        ])
+        expect(Object.keys(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).sort()).toEqual([ID[0], ID[2]].sort())
+      } finally {
+        warn.mockRestore()
+      }
+    })
+  })
+
+  describe('retired profiles', () => {
+    const retiredDeps = (): Partial<ProfilePushDeps> => ({ retired: [profile(2)], profiles: [profile(0), profile(1)] })
+
+    it('withdraws the registration a removed profile still has, signed as it, and forgets the marker', async () => {
+      const h = harness(retiredDeps())
+      h.storage.m.set(PUSH_REGISTRATION_KEY, JSON.stringify({ [ID[2]]: `${HOST}|oldtok` }))
+      await h.push.sync()
+      expect(h.posted).toEqual([{ wallet: { wallet: 2 }, url: `${HOST}/unregisterDevice`, token: 'oldtok' }])
+      expect(Object.keys(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).sort()).toEqual([ID[0], ID[1]].sort())
+    })
+
+    it('never registers one, and never routes a tap to one', async () => {
+      const h = harness(retiredDeps())
+      await h.push.sync()
+      expect(walletsOf(h)).toEqual([1, 0])
+      expect(h.push.inactiveProfileFor(ID[2])).toBeUndefined()
+    })
+
+    it('asks nothing for a retired profile with no registration left', async () => {
+      const h = harness(retiredDeps())
+      await h.push.sync()
+      expect(h.posted).toEqual([])
+    })
+
+    it('tries again at the next sync when the server did not answer', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        let status = 503
+        const h = harness({
+          ...retiredDeps(),
+          makePost: wallet => async (url, body) => {
+            h.posted.push({ wallet, url, token: body.fcmToken })
+            return { status }
+          }
+        })
+        h.storage.m.set(PUSH_REGISTRATION_KEY, JSON.stringify({ [ID[2]]: `${HOST}|oldtok` }))
+        await h.push.sync()
+        expect(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)[ID[2]]).toBe(`${HOST}|oldtok`)
+        status = 200
+        await h.push.sync()
+        expect(h.posted).toHaveLength(2)
+        expect(JSON.parse(h.storage.m.get(PUSH_REGISTRATION_KEY)!)).not.toHaveProperty(ID[2])
+        await h.push.sync()
+        expect(h.posted).toHaveLength(2)
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    it('still registers the live profiles when withdrawing a retired one throws', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const h = harness({
+          ...retiredDeps(),
+          makePost: wallet => {
+            if ((wallet as { wallet: number }).wallet === 2) throw new Error('no wallet')
+            return async () => ({ status: 200 })
+          }
+        })
+        h.storage.m.set(PUSH_REGISTRATION_KEY, JSON.stringify({ [ID[2]]: `${HOST}|oldtok` }))
+        await expect(h.push.sync()).resolves.toBeUndefined()
+        expect(walletsOf(h)).toEqual([1, 0])
       } finally {
         warn.mockRestore()
       }
