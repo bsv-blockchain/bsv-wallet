@@ -46,6 +46,11 @@
       [
         "expo-build-properties",
         {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "-keep class com.margelo.** { *; }\n-keep class com.yubico.yubikit.** { *; }\n-dontwarn com.yubico.yubikit.**"
+          },
           "ios": {
             "deploymentTarget": "16.4",
             "useFrameworks": "static",
