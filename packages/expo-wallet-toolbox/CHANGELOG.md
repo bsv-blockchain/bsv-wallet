@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Recovery shares print as one three-page job again (XR-110 reverted).**
+  `printRecoveryShares()` had sent each share as its own `Print.printAsync`
+  job. Users saw one dialog with one page and did not know two more would
+  follow (on Android the three dialogs stacked at once), so they kept only one
+  share. Every share is now a page of a single job, so the user gets one
+  dialog and, when saving, one PDF. The owner accepts the risk that a
+  retained print job holds the full 2-of-3 threshold: these sheets are
+  printed on home hardware the user controls. `generatePrintHTML()` keeps its
+  optional `only` parameter; the package no longer calls it.
+
 ### Wallet profiles
 
 One mnemonic now backs any number of independent wallet profiles, each with its

@@ -81,12 +81,11 @@ export async function printRecoveryShares(sources: PrintSharesSources): Promise<
     return { ok: false, reason: 'no-material' }
   }
 
-  // XR-110: one native print job per share, never all of them in a single
-  // document. The 2-of-3 threshold means any single job — spooled, retained
-  // or logged anywhere along the OS print pipeline — must not by itself carry
-  // enough shares to reconstruct the wallet.
-  for (let i = 0; i < shares.length; i++) {
-    await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format, sources.appName, i) })
-  }
+  // All shares go in one print job as a multi-page document, so the user gets
+  // one dialog (and one PDF, if they save rather than print) with every page.
+  // XR-110 split this into one job per share so no single spooled job held the
+  // 2-of-3 threshold; the owner reverted that (2026-10-01) as accepted risk —
+  // the follow-on dialogs were invisible, and users kept only the first share.
+  await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format, sources.appName) })
   return { ok: true, format }
 }
