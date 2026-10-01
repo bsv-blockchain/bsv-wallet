@@ -71,6 +71,7 @@ import { PrivateKey } from '@bsv/sdk'
 import { useExportWalletData } from '../hooks/useExportWalletData'
 import { importWalletDatabase } from '../importDatabases'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { profileScopedKey } from '../../core/profiles/profileStore'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -197,7 +198,7 @@ export function WalletConfigScreen() {
 
   // Load persisted auto-approve threshold
   useEffect(() => {
-    AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY).then(v => {
+    AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY)).then(v => {
       if (v !== null) setThresholdSats(Number(v) || 0)
     })
   }, [])
@@ -371,7 +372,7 @@ export function WalletConfigScreen() {
   // Load persisted ARC URL + token for current network. The token is read
   // via getArcApiToken (XR-106: SecureStore-backed, not plaintext AsyncStorage).
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork)), getArcApiToken(selectedNetwork)]).then(
+    Promise.all([AsyncStorage.getItem(profileScopedKey(arcUrlStorageKey(selectedNetwork))), getArcApiToken(selectedNetwork)]).then(
       ([url, token]) => {
         setArcUrlInput(url ?? DEFAULT_ARC_URLS[selectedNetwork] ?? '')
         setArcTokenInput(token ?? '')
@@ -387,7 +388,7 @@ export function WalletConfigScreen() {
       const sats = parseDisplayToSatoshis(text, currentCurrency, satoshisPerUSD, usdToFiat)
       const clamped = Math.max(0, Math.round(sats))
       setThresholdSats(clamped)
-      AsyncStorage.setItem(AUTO_APPROVE_STORAGE_KEY, String(clamped))
+      AsyncStorage.setItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY), String(clamped))
     }, 600)
   }, [currentCurrency, satoshisPerUSD, usdToFiat])
 
@@ -450,7 +451,7 @@ export function WalletConfigScreen() {
     setArcSaving(true)
     try {
       const token = arcTokenInput.trim()
-      const previousUrl = (await AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork))) ?? defaultUrl
+      const previousUrl = (await AsyncStorage.getItem(profileScopedKey(arcUrlStorageKey(selectedNetwork)))) ?? defaultUrl
       const previousToken = (await getArcApiToken(selectedNetwork)) ?? ''
       const nextUrl = url || defaultUrl
       const originChanged = previousUrl !== nextUrl
@@ -463,7 +464,7 @@ export function WalletConfigScreen() {
       if (url && url !== defaultUrl) {
         await AsyncStorage.setItem(arcUrlStorageKey(selectedNetwork), url)
       } else {
-        await AsyncStorage.removeItem(arcUrlStorageKey(selectedNetwork))
+        await AsyncStorage.removeItem(profileScopedKey(arcUrlStorageKey(selectedNetwork)))
       }
       if (token && !stalePriorToken) {
         await setArcApiToken(selectedNetwork, token)
@@ -482,7 +483,7 @@ export function WalletConfigScreen() {
 
   const handleResetArc = async () => {
     await Promise.all([
-      AsyncStorage.removeItem(arcUrlStorageKey(selectedNetwork)),
+      AsyncStorage.removeItem(profileScopedKey(arcUrlStorageKey(selectedNetwork))),
       setArcApiToken(selectedNetwork, null)
     ])
     setArcUrlInput(DEFAULT_ARC_URLS[selectedNetwork] ?? '')

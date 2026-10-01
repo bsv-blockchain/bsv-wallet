@@ -142,7 +142,8 @@ import {
   AUTO_APPROVE_COOLDOWN_MS,
   AUTO_APPROVE_STORAGE_KEY,
   AUTO_APPROVE_DAILY_CAP_SATS,
-  AUTO_APPROVE_LEDGER_STORAGE_KEY
+  AUTO_APPROVE_LEDGER_STORAGE_KEY,
+  arcUrlStorageKey
 } from '../constants'
 import { createAutoApprovePolicy } from '../services/autoApprovePolicy'
 import { deriveCallbackToken } from '../services/callbackToken'
@@ -297,24 +298,22 @@ const autoApprovePolicy = createAutoApprovePolicy({
 })
 
 // Best-effort persistence of the rolling ledger so an app restart does not
-// reset the daily cap. Loaded once per process; a read/write failure never
-// blocks a spend decision — the in-memory ledger stays authoritative either way.
-let autoApproveLedgerLoadedOnce = false
-async function loadAutoApproveLedgerOnce(): Promise<void> {
-  if (autoApproveLedgerLoadedOnce) return
-  autoApproveLedgerLoadedOnce = true
+// reset the daily cap. The ledger belongs to one wallet profile: it is reloaded
+// at startup and after every profile switch, replacing whatever the previous
+// profile left in memory. A read/write failure never blocks a spend decision —
+// the in-memory ledger stays authoritative either way.
+async function reloadAutoApproveLedger(): Promise<void> {
+  let entries: unknown = []
   try {
-    const stored = await AsyncStorage.getItem(AUTO_APPROVE_LEDGER_STORAGE_KEY)
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      if (Array.isArray(parsed)) autoApprovePolicy.loadLedger(parsed)
-    }
+    const stored = await AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_LEDGER_STORAGE_KEY))
+    if (stored) entries = JSON.parse(stored)
   } catch {
-    // No persisted ledger to restore — start with an empty one, same as today.
+    // No persisted ledger to restore — start with an empty one.
   }
+  autoApprovePolicy.loadLedger(Array.isArray(entries) ? entries : [])
 }
 function persistAutoApproveLedger(): void {
-  AsyncStorage.setItem(AUTO_APPROVE_LEDGER_STORAGE_KEY, JSON.stringify(autoApprovePolicy.getLedger())).catch(() => {})
+  AsyncStorage.setItem(profileScopedKey(AUTO_APPROVE_LEDGER_STORAGE_KEY), JSON.stringify(autoApprovePolicy.getLedger())).catch(() => {})
 }
 
 // -----
@@ -923,12 +922,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     g.__jsStallWatchdogTimer = setTimeout(tick, TICK)
   }, [])
   useEffect(() => {
-    AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY).then(v => {
+    AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY)).then(v => {
       if (v !== null) autoApproveThresholdRef.current = Number(v) || 0
     })
     // Restores the rolling auto-approve ledger so an app restart does not
-    // reset the daily cap (misc-p2-04). Best-effort — see loadAutoApproveLedgerOnce.
-    loadAutoApproveLedgerOnce()
+    // reset the daily cap (misc-p2-04). Best-effort — see reloadAutoApproveLedger.
+    // Re-run (with the threshold) once the profile store loads; see the config effect.
+    reloadAutoApproveLedger()
     AsyncStorage.getItem('walletSettings').then(v => {
       if (v) setSettings(prev => ({ ...prev, ...JSON.parse(v) }))
     })
@@ -1105,7 +1105,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // immediately (the mount-time ref read alone left the old value live
       // until app restart — felt like auto-approve was "stuck on").
       try {
-        const stored = await AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY)
+        const stored = await AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY))
         if (stored !== null) autoApproveThresholdRef.current = Number(stored) || 0
       } catch {}
       const threshold = autoApproveThresholdRef.current
@@ -1278,7 +1278,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // AsyncStorage under this same key) — only the URL, which is not a
         // credential, still lives in plain AsyncStorage.
         const [arcUrlOverride, arcApiTokenOverride] = await Promise.all([
-          AsyncStorage.getItem(`arc_custom_url_${chain}`),
+          AsyncStorage.getItem(profileScopedKey(arcUrlStorageKey(chain))),
           getArcApiToken(chain)
         ])
 
@@ -1933,7 +1933,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // and the push registration below, so a device token is always
           // registered on exactly the host the inbox reads.
           const readMessageBoxHost = async (): Promise<string | undefined> => {
-            const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+            const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
             return saved === NO_MESSAGE_BOX
               ? undefined
               : !saved || saved === LEGACY_MESSAGE_BOX_URL

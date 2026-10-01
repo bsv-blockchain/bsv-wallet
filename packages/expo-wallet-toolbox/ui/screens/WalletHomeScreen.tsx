@@ -101,6 +101,7 @@ import { tokenRowTitle } from './tokenRowTitle'
 import { useMandala, useMandalaRuntime, useTokenActivity, tokenActivityByTxid } from '../hooks/useMandala'
 import { announceEviction, evictionsFrom } from '../components/wallet/tokenEviction'
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
+import { profileScopedKey, useActiveProfileIndex } from '../../core/profiles/profileStore'
 import { tokenRowStatusView } from '../tokenStatus'
 import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
 import AssetSwitcherDropdown, { BSV_LABEL } from '../components/wallet/AssetSwitcherDropdown'
@@ -128,7 +129,7 @@ import { useOnline } from '../hooks/useOnline'
 import { useOfflineNoticeActions } from '../hooks/useOfflineNoticeActions'
 
 async function readMessageBoxUrl(): Promise<string | undefined> {
-  const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+  const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
   if (saved === NO_MESSAGE_BOX) return undefined
   if (!saved || saved === LEGACY_MESSAGE_BOX_URL) return DEFAULT_MESSAGE_BOX_URL
   return saved
@@ -451,7 +452,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     }, [walletBuilt, managers.permissionsManager, adminOriginator])
   )
 
-  const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
+  const activeProfile = useActiveProfileIndex()
+  const balanceCacheKey = profileScopedKey(`cached_wallet_balance_${selectedNetwork}`, activeProfile)
   /**
    * Whether what is mounted is this network's wallet.
    *

@@ -12,10 +12,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
 import { useWallet, readWalletBalance } from '@bsv/expo-wallet-toolbox'
 import { storageMatchesNetwork } from '../../core/net/chainMatch'
+import { profileScopedKey, useActiveProfileIndex } from '../../core/profiles/profileStore'
 
 export function useSpendableBalance(): number | null {
   const { managers, adminOriginator, selectedNetwork, storage, txStatusVersion, walletUserId } = useWallet()
-  const cacheKey = `cached_wallet_balance_${selectedNetwork}`
+  const activeProfile = useActiveProfileIndex()
+  const cacheKey = profileScopedKey(`cached_wallet_balance_${selectedNetwork}`, activeProfile)
   const [balance, setBalance] = useState<{ key: string; value: number } | null>(null)
   // Serialize reads, retaining the latest invalidation while one is in flight.
   // A plain busy flag loses it: the old effect is cancelled, while the new one

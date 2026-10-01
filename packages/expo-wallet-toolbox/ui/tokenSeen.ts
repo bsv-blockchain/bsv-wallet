@@ -16,13 +16,15 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { profileScopedKey, useActiveProfileIndex } from '../core/profiles/profileStore'
 
 export const SEEN_ASSETS_KEY = 'mandala_seen_assets'
 export const SEEN_EVICTIONS_KEY = 'mandala_seen_evictions'
 
-export async function readSeen(key: string): Promise<string[]> {
+/** `key` is the base key; what was seen is remembered per wallet profile. */
+export async function readSeen(key: string, profileIndex?: number): Promise<string[]> {
   try {
-    const raw = await AsyncStorage.getItem(key)
+    const raw = await AsyncStorage.getItem(profileScopedKey(key, profileIndex))
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []
@@ -31,11 +33,11 @@ export async function readSeen(key: string): Promise<string[]> {
   }
 }
 
-export async function markSeen(key: string, id: string): Promise<void> {
+export async function markSeen(key: string, id: string, profileIndex?: number): Promise<void> {
   try {
-    const current = await readSeen(key)
+    const current = await readSeen(key, profileIndex)
     if (current.includes(id)) return
-    await AsyncStorage.setItem(key, JSON.stringify([...current, id]))
+    await AsyncStorage.setItem(profileScopedKey(key, profileIndex), JSON.stringify([...current, id]))
   } catch {
     // Cosmetic state. A write failure means one repeated subtitle or one
     // repeated alert, never a wrong balance.
@@ -50,23 +52,25 @@ export interface SeenSet {
 
 export function useSeenSet(key: string): SeenSet {
   const [seen, setSeen] = useState<string[]>([])
+  const profileIndex = useActiveProfileIndex()
 
   useEffect(() => {
     let live = true
-    void readSeen(key).then(ids => {
+    setSeen([])
+    void readSeen(key, profileIndex).then(ids => {
       if (live) setSeen(ids)
     })
     return () => {
       live = false
     }
-  }, [key])
+  }, [key, profileIndex])
 
   const see = useCallback(
     (id: string) => {
       setSeen(prev => (prev.includes(id) ? prev : [...prev, id]))
-      void markSeen(key, id)
+      void markSeen(key, id, profileIndex)
     },
-    [key]
+    [key, profileIndex]
   )
 
   const isSeen = useCallback((id: string) => seen.includes(id), [seen])

@@ -46,6 +46,7 @@ import { userFacingPayError } from '../../core/pay/userError'
 import { backupAttestation } from '../../core/services/vault/backupAttestation'
 import { getBackupUploadState } from '../../core/backup/status'
 import { getOnline, haptics, spacing, typography, useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
+import { profileScopedKey } from '../../core/profiles/profileStore'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -188,7 +189,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
       },
       creditInbox: async () => {
         if (!wallet) return { accepted: 0 }
-        const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+        const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
         const messageBoxUrl = !saved || saved === LEGACY_MESSAGE_BOX_URL ? DEFAULT_MESSAGE_BOX_URL : saved
         if (!messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return { accepted: 0 }
         const client = new PeerPayClient({

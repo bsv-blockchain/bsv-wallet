@@ -14,6 +14,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { profileScopedKey } from './profiles/profileStore'
 
 export type AvatarIconFamily = 'ionicons' | 'material-community'
 
@@ -38,8 +39,10 @@ export function setUserAvatarIcon(next: AvatarIcon | null): void {
   listeners.forEach(l => l())
   // Fire-and-forget: the choice is already live in memory, and a failed write
   // costs the next launch's avatar, never the one on screen now.
-  if (next) void AsyncStorage.setItem(STORAGE_KEY, `${next.family}/${next.name}`).catch(() => {})
-  else void AsyncStorage.removeItem(STORAGE_KEY).catch(() => {})
+  // Per wallet profile: the avatar is how the user tells profiles apart.
+  const key = profileScopedKey(STORAGE_KEY)
+  if (next) void AsyncStorage.setItem(key, `${next.family}/${next.name}`).catch(() => {})
+  else void AsyncStorage.removeItem(key).catch(() => {})
 }
 
 export function subscribeUserAvatar(listener: () => void): () => void {
@@ -60,11 +63,15 @@ function parse(stored: string | null): AvatarIcon | null {
   return { family, name }
 }
 
-/** Restore the stored choice. Call once at startup; safe to call twice. */
+/**
+ * Restore the active profile's stored choice. Call at startup and after every
+ * profile switch; safe to call twice. A profile with no choice gets the default
+ * disc, never the previous profile's icon.
+ */
 export async function loadUserAvatarIcon(): Promise<void> {
   try {
-    const next = parse(await AsyncStorage.getItem(STORAGE_KEY))
-    if (next && (next.family !== icon?.family || next.name !== icon?.name)) {
+    const next = parse(await AsyncStorage.getItem(profileScopedKey(STORAGE_KEY)))
+    if (next?.family !== icon?.family || next?.name !== icon?.name) {
       icon = next
       listeners.forEach(l => l())
     }
