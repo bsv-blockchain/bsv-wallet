@@ -1,6 +1,30 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
+
+### Breaking
+
+- **The privileged key is no longer the BIP32 master.** A mnemonic wallet's
+  `PrivilegedKeyManager` now gets profile *n*'s own key at `m/1'/n'` (`m/1'/0'`
+  for the default profile) instead of the master key `m`, so no two profiles
+  share key material. Anything a host derived with `privileged: true` under an
+  existing wallet derives differently after upgrading. A recovered-key (WIF)
+  wallet is unchanged.
+- `generateMnemonicWallet()` / `recoverMnemonicWallet()` no longer return
+  `rootKey`; they return `privilegedKey` (the `m/1'/n'` key) next to
+  `primaryKey` and `identityKey`, and `recoverMnemonicWallet` takes an optional
+  third argument, `profileIndex` (default 0).
+- `isVaultAvailable(chain, profileIndex)` takes the active profile index; the
+  vault exists only on profile 0. Pass `useActiveProfileIndex()` (or
+  `useWallet().activeProfile`).
+- Per-profile device state: for profile 1 and above, the AsyncStorage keys for
+  the balance cache, avatar, paired connections, ARC and MessageBox overrides,
+  auto-approve threshold and ledger, seen-token markers and the remote-backup
+  preference gain a `__p<n>` suffix (`profileScopedKey`). Profile 0 keeps the
+  existing keys, so a single-profile host sees no change.
+- The push registration marker (`push_registration_v1`) now holds one entry per
+  registered identity, so an existing install registers once more after
+  upgrading.
 
 - **Recovery shares print as one three-page job again (XR-110 reverted).**
   `printRecoveryShares()` had sent each share as its own `Print.printAsync`
