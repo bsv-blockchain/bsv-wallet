@@ -280,6 +280,10 @@ beforeEach(async () => {
   configureToolbox({ backupUrl: 'https://backup.example.com', push: adapter })
   jest.spyOn(console, 'log').mockImplementation(() => {})
   jest.spyOn(console, 'warn').mockImplementation(() => {})
+  // The global developer watchdog is unrelated to these build tests, and its
+  // self-rescheduling timer would keep jest from exiting (CI runs without
+  // --forceExit and hit its 30-minute timeout).
+  ;(globalThis as any).__jsStallWatchdog = true
 })
 afterEach(async () => {
   await act(async () => renderer?.unmount())
