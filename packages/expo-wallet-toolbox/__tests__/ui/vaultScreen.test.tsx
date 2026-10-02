@@ -248,6 +248,11 @@ beforeEach(() => {
   mockIsBackupPushEnabled.mockReset().mockImplementation(async () => mockBackupOn)
   mockReadBackupAttestation.mockReset().mockResolvedValue({ v: 1, medium: 'phrase', at: 1 })
   mockWallet = {
+    activeProfile: 0,
+    profiles: [
+      { index: 0, network: 'main', name: 'Main' },
+      { index: 1, network: 'main' }
+    ],
     managers: { permissionsManager: { listOutputs: jest.fn() } },
     adminOriginator: 'admin.test',
     selectedNetwork: 'main',
@@ -255,6 +260,19 @@ beforeEach(() => {
     walletBuilding: false,
     buildWalletFromMnemonic: jest.fn()
   }
+})
+
+describe('wallet profiles', () => {
+  test('off the default profile: only the notice — no enroll, restore or deposit door', async () => {
+    mockWallet.activeProfile = 1
+    mockGetMeta.mockResolvedValue(META2)
+    const screen = await renderVault()
+    // The notice names the profile that does have the vault, by its own name.
+    expect(screen.getByText('vault_profile_only_default:{"profile":"Main"}')).toBeTruthy()
+    expect(screen.queryByText('vault_enroll_begin')).toBeNull()
+    expect(screen.queryByText('vault_restore_with_key')).toBeNull()
+    expect(screen.queryByText('vault_deposit')).toBeNull()
+  })
 })
 
 describe('not enrolled', () => {

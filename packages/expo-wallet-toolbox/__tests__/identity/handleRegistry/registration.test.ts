@@ -7,6 +7,7 @@ import {
   PENDING_JOURNAL_KEY,
   changeHandle,
   registerHandle,
+  releaseHandle,
   resetRegistrationState,
   resumePending,
   updateProfile,
@@ -416,6 +417,217 @@ describe('changeHandle', () => {
  * succeeded and sends a tombstone that cannot, leaving the user holding
  * neither handle with nothing left to retry.
  */
+describe('releaseHandle', () => {
+  const PAYMAIL = `dee@${DOMAIN}`
+  const identityKey = KEY.toPublicKey().toString()
+
+  it('journals a signed tombstone before the request, then clears the journal', async () => {
+    const storage = memoryStorage()
+    const seen: (PendingJournal | null)[] = []
+    const { client, puts } = scriptedClient({
+      put: () => {
+        seen.push(journalOf(storage))
+        return { kind: 'ok' }
+      }
+    })
+    const result = await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })
+    expect(result).toEqual({ kind: 'released', paymail: PAYMAIL })
+    expect(seen[0]).toMatchObject({ v: 1, intent: 'release', steps: [{ kind: 'release', paymail: PAYMAIL }] })
+    expect(seen[0]?.steps).toHaveLength(1)
+    expect(puts).toHaveLength(1)
+    expect(puts[0].subject).toBe(identityKey)
+    expect(puts[0].fields).toMatchObject({ paymail: PAYMAIL, released: 'true' })
+    // A tombstone says nothing about who the profile was.
+    expect(puts[0].fields.displayName).toBeUndefined()
+    // The bytes journalled are the bytes sent: that is what makes a replay a no-op.
+    expect(puts[0]).toEqual(seen[0]?.steps[0].cert)
+    expect(journalOf(storage)).toBeNull()
+  })
+
+  it('counts a first-time tombstone, a 201, as released too', async () => {
+    const { client } = scriptedClient({ put: () => ({ kind: 'created' }) })
+    expect(await releaseHandle({ client, signer: SIGNER, storage: memoryStorage() }, { paymail: PAYMAIL })).toEqual({
+      kind: 'released',
+      paymail: PAYMAIL
+    })
+  })
+
+  it('releases the handle as the registry stores it, whatever case it was typed in', async () => {
+    const { client, puts } = scriptedClient({})
+    const result = await releaseHandle(
+      { client, signer: SIGNER, storage: memoryStorage() },
+      { paymail: ` Dee@${DOMAIN.toUpperCase()} ` }
+    )
+    expect(result).toEqual({ kind: 'released', paymail: PAYMAIL })
+    expect(puts[0].fields.paymail).toBe(PAYMAIL)
+  })
+
+  it('reports unavailable with no journal when this chain has no registry', async () => {
+    const storage = memoryStorage()
+    expect(await releaseHandle({ client: null, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+      kind: 'unavailable'
+    })
+    expect(storage.map.size).toBe(0)
+  })
+
+  it.each([`dee@other.example`, 'dee', 'x@' + DOMAIN])(
+    'refuses %s, which is not a handle on this registry',
+    async paymail => {
+      const { client, puts } = scriptedClient({})
+      const storage = memoryStorage()
+      const result = await releaseHandle({ client, signer: SIGNER, storage }, { paymail })
+      expect(result).toMatchObject({ kind: 'failed', code: 'wrong_domain' })
+      expect(puts).toHaveLength(0)
+      expect(journalOf(storage)).toBeNull()
+    }
+  )
+
+  it('dates the tombstone after everything this device has already minted', async () => {
+    const { client, puts } = scriptedClient({ serverNow: new Date('2026-09-18T10:00:00.000Z') })
+    const storage = memoryStorage({ [ISSUED_AT_KV_KEY]: '2026-09-18T10:02:00.000Z' })
+    await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })
+    expect(puts[0].fields.issuedAt).toBe('2026-09-18T10:02:00.001Z')
+    expect(storage.map.get(ISSUED_AT_KV_KEY)).toBe('2026-09-18T10:02:00.001Z')
+  })
+
+  it('keeps the journal and reports pending when the request never lands', async () => {
+    const { client } = scriptedClient({ put: () => ({ kind: 'failed', message: 'offline' }) })
+    const storage = memoryStorage()
+    expect(await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({ kind: 'pending' })
+    expect(journalOf(storage)).toMatchObject({ intent: 'release', steps: [{ kind: 'release', paymail: PAYMAIL }] })
+  })
+
+  it('clears the journal and reports the code the registry gave', async () => {
+    const { client, puts } = scriptedClient({
+      put: () => ({ kind: 'rejected', code: 'ERR_HANDLE_NOT_FOUND', description: 'no such handle' })
+    })
+    const storage = memoryStorage()
+    expect(await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+      kind: 'rejected',
+      code: 'ERR_HANDLE_NOT_FOUND',
+      description: 'no such handle'
+    })
+    // One request: a lone release has nothing to reclaim.
+    expect(puts).toHaveLength(1)
+    expect(journalOf(storage)).toBeNull()
+  })
+
+  describe('when the registry calls the tombstone stale', () => {
+    const stale = (): PutResult => ({ kind: 'rejected', code: 'ERR_STALE_CERTIFICATE', description: 'stale' })
+
+    it('treats it as done when the registry no longer shows the handle as ours', async () => {
+      const { client, puts, reverseLookups } = scriptedClient({ put: stale, reverse: () => null })
+      const storage = memoryStorage()
+      expect(await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+        kind: 'released',
+        paymail: PAYMAIL
+      })
+      expect(puts).toHaveLength(1)
+      // The question is asked of OUR key, not of the paymail.
+      expect(reverseLookups[0][0]).toBe(identityKey)
+      expect(journalOf(storage)).toBeNull()
+    })
+
+    it('fails, and sends no reclaim, when the registry still shows the handle as ours', async () => {
+      const { client, puts } = scriptedClient({ put: stale, reverse: () => profileFor('dee') })
+      const storage = memoryStorage()
+      expect(await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+        kind: 'failed',
+        message: 'stale'
+      })
+      expect(puts).toHaveLength(1)
+      expect(journalOf(storage)).toBeNull()
+    })
+
+    it('keeps the journal when the registry will not say which', async () => {
+      const { client } = scriptedClient({ put: stale, reverseFailed: true })
+      const storage = memoryStorage()
+      expect(await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+        kind: 'pending'
+      })
+      expect(journalOf(storage)?.intent).toBe('release')
+    })
+  })
+
+  describe('an unfinished release', () => {
+    const timedOut = async () => {
+      const storage = memoryStorage()
+      const first = scriptedClient({ put: () => ({ kind: 'failed', message: 'timeout' }) })
+      expect(await releaseHandle({ client: first.client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+        kind: 'pending'
+      })
+      // The first run has settled, so what follows starts its own run.
+      resetRegistrationState()
+      return { storage, kept: journalOf(storage) }
+    }
+
+    /**
+     * What a resumed Profile screen does after a removal that crashed between
+     * the journal and the answer. The registry has no way to say "that one was
+     * a release" — only the journal does — so it must come back `released`, not
+     * the `registered` the fall-through for an unknown intent used to give.
+     */
+    it('is finished by resumePending with the identical bytes, and reports released', async () => {
+      const { storage, kept } = await timedOut()
+      const replay = scriptedClient({ put: () => ({ kind: 'ok' }) })
+      expect(await resumePending({ client: replay.client, signer: SIGNER, storage })).toEqual({
+        kind: 'released',
+        paymail: PAYMAIL
+      })
+      expect(replay.puts).toEqual([kept?.steps[0].cert])
+      expect(journalOf(storage)).toBeNull()
+    })
+
+    it('is finished by a second press rather than replaced by a fresh tombstone', async () => {
+      const { storage, kept } = await timedOut()
+      const replay = scriptedClient({ put: () => ({ kind: 'ok' }) })
+      expect(await releaseHandle({ client: replay.client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+        kind: 'released',
+        paymail: PAYMAIL
+      })
+      // A freshly minted tombstone for a handle the first one already released
+      // is a 404, and the journal that could have finished the first is gone.
+      expect(replay.puts).toEqual([kept?.steps[0].cert])
+    })
+
+    it('is still there after a second press that could not finish it either', async () => {
+      const { storage, kept } = await timedOut()
+      const { client, puts } = scriptedClient({ put: () => ({ kind: 'failed', message: 'still offline' }) })
+      expect(await releaseHandle({ client, signer: SIGNER, storage }, { paymail: PAYMAIL })).toEqual({
+        kind: 'pending'
+      })
+      expect(puts).toEqual([kept?.steps[0].cert])
+      expect(journalOf(storage)).toEqual(kept)
+    })
+  })
+
+  /**
+   * Whatever journal is outstanding outranks the release, and the answer is
+   * that journal's: the caller reads anything but `released` as "not released".
+   * Minting a tombstone over a half-finished change would release the handle
+   * the change was about to claim.
+   */
+  it('finishes a half-done change instead of minting a release over it', async () => {
+    const storage = memoryStorage()
+    const first = scriptedClient({
+      put: (_cert, call) => (call === 1 ? { kind: 'ok' } : { kind: 'failed', message: 'timeout' })
+    })
+    await changeHandle(
+      { client: first.client, signer: SIGNER, storage },
+      { previousPaymail: `alice@${DOMAIN}`, handle: 'bob' }
+    )
+    const kept = journalOf(storage)
+    resetRegistrationState()
+
+    const replay = scriptedClient({ put: () => ({ kind: 'ok' }) })
+    expect(
+      await releaseHandle({ client: replay.client, signer: SIGNER, storage }, { paymail: `bob@${DOMAIN}` })
+    ).toEqual({ kind: 'changed', paymail: `bob@${DOMAIN}` })
+    expect(replay.puts).toEqual(kept?.steps.map(s => s.cert))
+    expect(journalOf(storage)).toBeNull()
+  })
+})
+
 describe('an outstanding journal', () => {
   /** A change whose release landed and whose claim's answer was lost. */
   const halfDoneChange = async () => {
@@ -918,5 +1130,19 @@ describe('concurrency', () => {
     // found the journal the change had already cleared.
     expect(puts).toHaveLength(2)
     expect(results[1]).toEqual({ kind: 'idle' })
+  })
+
+  it('shares one run between two taps on Remove', async () => {
+    const { client, puts, release } = gatedClient()
+    const deps = { client, signer: SIGNER, storage: memoryStorage() }
+
+    const first = releaseHandle(deps, { paymail: `dee@${DOMAIN}` })
+    const second = releaseHandle(deps, { paymail: `dee@${DOMAIN}` })
+    release({ kind: 'ok' })
+
+    const results = await Promise.all([first, second])
+    expect(results[0]).toEqual({ kind: 'released', paymail: `dee@${DOMAIN}` })
+    expect(results[1]).toBe(results[0])
+    expect(puts).toHaveLength(1)
   })
 })

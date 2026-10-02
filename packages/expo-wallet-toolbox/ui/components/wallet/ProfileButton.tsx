@@ -8,13 +8,18 @@
  * host app's `app/index.tsx`, so this needed no package API change. Same disc
  * as the settings button on the right (surfaceRaised + hairline), so the two
  * bookend the header as a matched pair.
+ *
+ * With wallet profiles (a mnemonic wallet), pressing opens the profile
+ * switcher; the active profile's row is the way into Profile. A recovered-key
+ * wallet has no profiles, so it keeps going straight to Profile.
  */
-import React from 'react'
-import { StyleSheet } from 'react-native'
-import { useTheme, useUserAvatarIcon } from '@bsv/expo-wallet-toolbox'
+import React, { useRef, useState } from 'react'
+import { StyleSheet, View } from 'react-native'
+import { useTheme, useUserAvatarIcon, useWallet } from '@bsv/expo-wallet-toolbox'
 import { useTranslation } from 'react-i18next'
 import PressableScale from '../ui/PressableScale'
 import { AvatarGlyph } from './UserAvatar'
+import ProfileSwitcherPopover from './ProfileSwitcherPopover'
 
 type ExpoRouterModule = typeof import('expo-router')
 let expoRouterMod: ExpoRouterModule | undefined
@@ -31,22 +36,91 @@ export default function ProfileButton() {
   const { t } = useTranslation()
   const { router } = loadExpoRouter()
   const avatar = useUserAvatarIcon()
+  const {
+    profilesSupported,
+    profiles,
+    activeProfile,
+    switchProfile,
+    addProfile,
+    walletBuilding,
+    switchingProfile,
+    removingProfile
+  } = useWallet()
+  const discRef = useRef<View>(null)
+  const [open, setOpen] = useState(false)
+  /** Which profile the running switch is headed to, for the cover's label. */
+  const [target, setTarget] = useState<number | null>(null)
+  // Until the first layout measure lands: roughly where Home's top bar puts the disc.
+  const [anchor, setAnchor] = useState({ x: 16, y: 54, height: 34 })
+
+  const openProfile = () => router.push('/profile' as never)
+
+  // Where the card hangs from, kept current from layout so a press opens at once.
+  const measure = () => {
+    discRef.current?.measureInWindow?.((x, y, _w, height) => {
+      if (Number.isFinite(x) && Number.isFinite(y)) setAnchor({ x, y, height: height || 34 })
+    })
+  }
+
+  const onPress = () => {
+    if (!profilesSupported) {
+      openProfile()
+      return
+    }
+    measure()
+    setOpen(true)
+  }
+
+  const run = (to: number, action: () => Promise<void>) => {
+    setTarget(to)
+    setOpen(false)
+    action()
+      .catch(err => console.warn('[ProfileButton] profile action failed:', err))
+      .finally(() => setTarget(null))
+  }
+
   return (
-    <PressableScale
-      onPress={() => router.push('/profile' as never)}
-      haptic="tap"
-      hitSlop={5}
-      style={[styles.disc, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
-      accessibilityRole="button"
-      accessibilityLabel={t('profile')}
-    >
-      <AvatarGlyph
-        family={avatar?.family ?? 'ionicons'}
-        name={avatar?.name ?? 'person-outline'}
-        size={17}
-        color={colors.textSecondary}
-      />
-    </PressableScale>
+    <>
+      <View ref={discRef} collapsable={false} onLayout={measure}>
+        <PressableScale
+          onPress={onPress}
+          haptic="tap"
+          hitSlop={5}
+          style={[styles.disc, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
+          accessibilityRole="button"
+          accessibilityLabel={profilesSupported ? t('profile_switcher_a11y') : t('profile')}
+        >
+          <AvatarGlyph
+            family={avatar?.family ?? 'ionicons'}
+            name={avatar?.name ?? 'person-outline'}
+            size={17}
+            color={colors.textSecondary}
+          />
+        </PressableScale>
+      </View>
+      {profilesSupported && (
+        <ProfileSwitcherPopover
+          visible={open || switchingProfile}
+          onClose={() => setOpen(false)}
+          anchor={anchor}
+          profiles={profiles}
+          active={activeProfile}
+          avatar={avatar}
+          busy={walletBuilding || switchingProfile}
+          // A removal is started from the Profile screen, not from here, so `target` is
+          // empty for it: the cover names the profile being removed instead.
+          switchingTo={switchingProfile ? (target ?? removingProfile ?? activeProfile) : null}
+          removing={typeof removingProfile === 'number'}
+          onSelect={n => run(n, () => switchProfile(n))}
+          onOpenProfile={() => {
+            setOpen(false)
+            openProfile()
+          }}
+          // The full list, removed profiles included: that count is the index the new profile gets.
+          onAdd={() => run(profiles.length, addProfile)}
+        />
+      )}
+    </>
   )
 }
 

@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { profileScopedKey } from '../profiles/profileStore'
 
 export interface Connection {
   sessionId: string
@@ -81,20 +82,23 @@ class ConnectionStore {
 
   private async save() {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(this.connections))
+      await AsyncStorage.setItem(profileScopedKey(STORAGE_KEY), JSON.stringify(this.connections))
     } catch (e) {
       console.warn('[ConnectionStore] save failed', e)
     }
   }
 
+  /** Pairings belong to one wallet profile: re-read after every profile switch. */
+  async reload() {
+    await this.load()
+  }
+
   private async load() {
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        runInAction(() => {
-          this.connections = JSON.parse(raw) as Connection[]
-        })
-      }
+      const raw = await AsyncStorage.getItem(profileScopedKey(STORAGE_KEY))
+      runInAction(() => {
+        this.connections = raw ? (JSON.parse(raw) as Connection[]) : []
+      })
     } catch (e) {
       console.warn('[ConnectionStore] load failed', e)
     }

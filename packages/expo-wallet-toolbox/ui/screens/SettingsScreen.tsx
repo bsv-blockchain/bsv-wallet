@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { pushAdvisory } from '../../core/push/pushAdvisory'
 import type { PushPermission } from '../../core/push/types'
 import { getPushAdapter } from '../../core/toolboxConfig'
+import { profileScopedKey, useActiveProfileIndex } from '../../core/profiles/profileStore'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -38,18 +39,21 @@ export function SettingsScreen() {
   // equivalent to a direct import (same as WalletHomeScreen/PayScreen).
   const { router, useFocusEffect } = loadExpoRouter()
   const { managers, adminOriginator, selectedNetwork, txStatusVersion } = useWallet()
+  const activeProfile = useActiveProfileIndex()
 
   // Read during render, from the reactive network, so the row disappears on a
   // switch to testnet without a remount.
-  const vaultAvailable = isVaultAvailable(selectedNetwork)
+  const vaultAvailable = isVaultAvailable(selectedNetwork, activeProfile)
   // F-07: an existing, already-funded vault stays reachable even when the
   // flag is off or the network switched — see showVaultRow below. VaultScreen
   // itself is never gated on that flag for withdraw.
   const { hasVaultMeta } = useVault()
-  const showVaultRow = vaultAvailable || hasVaultMeta
+  // Only the default profile has a vault — on any other an empty vault would
+  // read as the user's vault being gone.
+  const showVaultRow = activeProfile === 0 && (vaultAvailable || hasVaultMeta)
 
-  const balanceCacheKey = `cached_wallet_balance_${selectedNetwork}`
-  const balanceCacheTimestampKey = `cached_wallet_balance_ts_${selectedNetwork}`
+  const balanceCacheKey = profileScopedKey(`cached_wallet_balance_${selectedNetwork}`, activeProfile)
+  const balanceCacheTimestampKey = profileScopedKey(`cached_wallet_balance_ts_${selectedNetwork}`, activeProfile)
   const [accountBalance, setAccountBalance] = useState<number | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
 

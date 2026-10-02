@@ -24,6 +24,7 @@ import { freshCursor, loadCursor, saveCursor } from '../../core/backup/cursor'
 import { backupPseudonym } from '../../core/backup/derive'
 import { eraseRemoteBackup } from '../../core/backup/erase'
 import { isBackupPushEnabled, setBackupPushEnabled } from '../../core/backup/preference'
+import { __resetProfilesForTests, appendProfile } from '../../core/profiles/profileStore'
 
 const PRIMARY = new PrivateKey(31).toArray('be', 32)
 const OTHER = new PrivateKey(32).toArray('be', 32)
@@ -49,6 +50,7 @@ const deps = (over: Record<string, unknown> = {}): any => ({
 })
 
 beforeEach(async () => {
+  __resetProfilesForTests()
   await AsyncStorage.clear()
 })
 
@@ -134,5 +136,40 @@ describe('eraseRemoteBackup', () => {
 
   it('requires either a client or a baseUrl', async () => {
     await expect(eraseRemoteBackup({ primaryKey: PRIMARY } as any)).rejects.toThrow(/baseUrl/)
+  })
+
+  it('opts out only the profile being erased', async () => {
+    // Backup is per profile: erasing profile 1's server copy must not silently stop
+    // profile 0 from backing up.
+    await appendProfile()
+
+    await eraseRemoteBackup(deps({ profileIndex: 1 }))
+
+    expect(await isBackupPushEnabled(1)).toBe(false)
+    expect(await AsyncStorage.getItem('backupPushEnabled__p1')).toBe('false')
+    expect(await isBackupPushEnabled(0)).toBe(true)
+  })
+
+  it('opts out profile 1 even while profile 0 is the active one', async () => {
+    await appendProfile()
+
+    await eraseRemoteBackup(deps({ profileIndex: 1 }))
+
+    expect(await isBackupPushEnabled()).toBe(true)
+  })
+
+  it('still stops pushing BEFORE it deletes, for the profile being erased', async () => {
+    await appendProfile()
+    const seen: boolean[] = []
+    const client = fakeClient({
+      deleteAccount: jest.fn(async () => {
+        seen.push(await isBackupPushEnabled(1))
+        return { deleted: 1 }
+      })
+    })
+
+    await eraseRemoteBackup(deps({ client, profileIndex: 1 }))
+
+    expect(seen).toEqual([false])
   })
 })

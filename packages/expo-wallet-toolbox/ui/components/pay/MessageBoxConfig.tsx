@@ -21,6 +21,7 @@ import {
   MESSAGE_BOX_URL_KEY,
   NO_MESSAGE_BOX
 } from '@bsv/expo-wallet-toolbox'
+import { profileScopedKey } from '../../../core/profiles/profileStore'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -46,11 +47,11 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
   const [showConfig, setShowConfig] = useState(false)
 
   useEffect(() => {
-    AsyncStorage.getItem(MESSAGE_BOX_URL_KEY).then(saved => {
+    AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY)).then(saved => {
       // A preference equal to the retired default means "default", not a
       // deliberate choice of that server — follow the new default instead.
       if (saved === LEGACY_MESSAGE_BOX_URL) {
-        void AsyncStorage.removeItem(MESSAGE_BOX_URL_KEY)
+        void AsyncStorage.removeItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
         return
       }
       if (saved) {
@@ -85,7 +86,7 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
       }
       setIsSaving(true)
       try {
-        await AsyncStorage.setItem(MESSAGE_BOX_URL_KEY, trimmed)
+        await AsyncStorage.setItem(profileScopedKey(MESSAGE_BOX_URL_KEY), trimmed)
         setMessageBoxUrl(trimmed)
         setShowConfig(false)
         showToast(t('message_box_saved'), { type: 'success' })
@@ -99,7 +100,7 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
   )
 
   const handleReset = useCallback(async () => {
-    await AsyncStorage.removeItem(MESSAGE_BOX_URL_KEY)
+    await AsyncStorage.removeItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
     setMessageBoxUrl(DEFAULT_MESSAGE_BOX_URL)
     setUrlInput(DEFAULT_MESSAGE_BOX_URL)
     setShowConfig(false)
@@ -110,7 +111,7 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
     const noneValue = NO_MESSAGE_BOX
     setIsSaving(true)
     try {
-      await AsyncStorage.setItem(MESSAGE_BOX_URL_KEY, noneValue)
+      await AsyncStorage.setItem(profileScopedKey(MESSAGE_BOX_URL_KEY), noneValue)
       setMessageBoxUrl(noneValue)
       setUrlInput(noneValue)
       setShowConfig(true)

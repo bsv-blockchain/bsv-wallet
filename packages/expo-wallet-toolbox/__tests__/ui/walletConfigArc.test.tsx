@@ -81,7 +81,12 @@ jest.mock('expo-router', () => ({
 }))
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null, MaterialCommunityIcons: () => null }))
 jest.mock('@bsv/message-box-client', () => ({ PeerPayClient: jest.fn() }))
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, o?: { number?: number; profile?: string }) =>
+      key === 'profile_label' ? `profile${o?.number}` : o?.profile ? `${key}:${o.profile}` : key
+  })
+}))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
 jest.mock('../../ui/components/wallet/BackupReminderSheet', () => ({ BackupReminderSheet: () => null }))
 jest.mock('../../ui/components/wallet/BiometricAdvisoryModal', () => ({ BiometricAdvisoryModal: () => null }))
@@ -115,7 +120,14 @@ jest.mock('../../ui/components/ui/ListRow', () => {
       React.createElement(Pressable, { onPress }, React.createElement(Text, {}, label))
   }
 })
-jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ children }: any) => children }))
+jest.mock('../../ui/components/ui/GroupedList', () => {
+  const React = require('react')
+  const { Text } = require('react-native')
+  return {
+    GroupedSection: ({ children, footer }: any) =>
+      React.createElement(React.Fragment, {}, children, footer ? React.createElement(Text, {}, footer) : null)
+  }
+})
 jest.mock('../../ui/components/pay/MessageBoxConfig', () => ({
   ConfigPanel: () => null,
   useMessageBoxConfig: () => ({ messageBoxUrl: 'https://test.invalid' })
@@ -269,5 +281,40 @@ describe('XR-064: custom ARC endpoint validation and token scoping', () => {
     await act(async () => fireEvent.press(screen.getByText('arc_apply')))
 
     expect(await AsyncStorage.getItem('arc_url')).toBe('http://localhost:9090')
+  })
+})
+
+describe('the profile scope note', () => {
+  const openAdvanced = async (screen: ReturnType<typeof render>) =>
+    act(async () => fireEvent.press(screen.getByText('advanced')))
+
+  it('names the active profile by its private name', async () => {
+    mockWallet.profilesSupported = true
+    mockWallet.activeProfile = 1
+    mockWallet.profiles = [
+      { index: 0, network: 'main' },
+      { index: 1, network: 'main', name: 'Savings' }
+    ]
+    const screen = await renderConfig()
+    await openAdvanced(screen)
+    expect(screen.getByText('profile_settings_scope_note:Savings')).toBeTruthy()
+  })
+
+  it('falls back to the numbered label for an unnamed profile', async () => {
+    mockWallet.profilesSupported = true
+    mockWallet.activeProfile = 1
+    mockWallet.profiles = [
+      { index: 0, network: 'main' },
+      { index: 1, network: 'main' }
+    ]
+    const screen = await renderConfig()
+    await openAdvanced(screen)
+    expect(screen.getByText('profile_settings_scope_note:profile2')).toBeTruthy()
+  })
+
+  it('says nothing on a recovered-key wallet, which has no profiles', async () => {
+    const screen = await renderConfig()
+    await openAdvanced(screen)
+    expect(screen.queryByText(/profile_settings_scope_note/)).toBeNull()
   })
 })

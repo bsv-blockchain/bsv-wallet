@@ -1,4 +1,4 @@
-import type { PushAdapter } from './types'
+import type { PushAdapter, PushOpenedEvent } from './types'
 
 let initialConsumed = false
 /** Test-only. */
@@ -45,6 +45,17 @@ function subscribe(what: string, attach: () => () => void): () => void {
  * "look at the inbox now": the credit, sound and toast come from the normal
  * TaskCreditInbox pass, so nothing is shown or credited twice.
  *
+ * Every profile of the wallet registers this device, so a push can be for a
+ * profile that is not the open one. The server says which in `data.recipient`
+ * (the recipient's identity key) and `resolveInactiveProfile` maps it to a live
+ * profile that is not open. Only that positive match changes anything:
+ *   - a tap switches to that profile first, then does what a tap always did;
+ *   - a foreground message does not run the open profile's inbox pass, which
+ *     would read a different MessageBox and credit nothing.
+ * A push with no recipient (a server from before it was sent), for the open
+ * profile, or for an identity this device does not know behaves exactly as it
+ * did before profiles had their own pushes.
+ *
  * Never throws — a broken adapter leaves the wallet exactly as it was without
  * push.
  */
@@ -53,19 +64,52 @@ export function attachPushHandlers(args: {
   requestInboxPass: () => void
   openActivity: () => void
   onTokenRefresh: () => void
+  /** The index of the live, non-open profile whose identity key is `recipient`; undefined for anything else. */
+  resolveInactiveProfile?: (recipient: string) => number | undefined
+  /** Make profile `index` the open one. Resolves true once it is; false (or a throw) when it could not be. */
+  switchProfile?: (index: number) => Promise<boolean>
 }): () => void {
-  const { adapter, requestInboxPass, openActivity, onTokenRefresh } = args
-  const opened = () => {
+  const { adapter, requestInboxPass, openActivity, onTokenRefresh, resolveInactiveProfile, switchProfile } = args
+
+  const inactiveProfileOf = (e: PushOpenedEvent | undefined | null): number | undefined => {
+    const recipient = e?.data?.recipient
+    if (!resolveInactiveProfile || typeof recipient !== 'string' || recipient === '') return undefined
+    try {
+      return resolveInactiveProfile(recipient)
+    } catch (err) {
+      warn('resolveInactiveProfile', err)
+      return undefined
+    }
+  }
+
+  const openOpenProfile = () => {
     guarded('requestInboxPass', requestInboxPass)
     guarded('openActivity', openActivity)
   }
+  const switchThenOpen = async (index: number) => {
+    let landed = false
+    try {
+      landed = (await switchProfile?.(index)) === true
+    } catch (err) {
+      warn('switchProfile', err)
+    }
+    // A switch that did not land leaves the user on the profile they were on,
+    // whose Activity has nothing to do with this push.
+    if (landed) openOpenProfile()
+  }
+  const opened = (e?: PushOpenedEvent | null) => {
+    const index = inactiveProfileOf(e)
+    if (index === undefined || !switchProfile) return openOpenProfile()
+    void switchThenOpen(index)
+  }
+
   if (!initialConsumed) {
     initialConsumed = true
     try {
       void adapter
         .getInitialNotification()
         .then(e => {
-          if (e) opened()
+          if (e) opened(e)
         })
         .catch(e => warn('getInitialNotification', e))
     } catch (e) {
@@ -75,7 +119,10 @@ export function attachPushHandlers(args: {
   const offs = [
     subscribe('onNotificationOpened', () => adapter.onNotificationOpened(opened)),
     subscribe('onForegroundMessage', () =>
-      adapter.onForegroundMessage(() => guarded('requestInboxPass', requestInboxPass))
+      adapter.onForegroundMessage(e => {
+        if (inactiveProfileOf(e) !== undefined) return
+        guarded('requestInboxPass', requestInboxPass)
+      })
     ),
     subscribe('onTokenRefresh', () => adapter.onTokenRefresh(() => guarded('onTokenRefresh', onTokenRefresh)))
   ]

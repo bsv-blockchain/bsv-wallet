@@ -26,6 +26,7 @@ import {
   AUTO_APPROVE_DAILY_CAP_SATS
 } from '@bsv/expo-wallet-toolbox'
 import { computeConnectionAuthorityTag } from '../../core/services/connectionAuthority'
+import { profileScopedKey } from '../../core/profiles/profileStore'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -78,7 +79,7 @@ export function PairScreen() {
   // reads for spendingAuthorizationCallback — 0/unset means auto-approve is off.
   const [autoApproveThreshold, setAutoApproveThreshold] = useState(DEFAULT_AUTO_APPROVE_THRESHOLD)
   useEffect(() => {
-    AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY)
+    AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY))
       .then(v => { if (v !== null) setAutoApproveThreshold(Number(v) || 0) })
       .catch(() => {})
   }, [])

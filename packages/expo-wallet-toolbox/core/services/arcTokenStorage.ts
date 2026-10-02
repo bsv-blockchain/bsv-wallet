@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
 import { arcApiTokenStorageKey } from '../constants'
+import { profileScopedKey } from '../profiles/profileStore'
 
 /**
  * XR-106: the custom ARC API token a holder can configure in
@@ -25,7 +26,8 @@ import { arcApiTokenStorageKey } from '../constants'
  * indefinitely.
  */
 export async function getArcApiToken(network: string): Promise<string | null> {
-  const key = arcApiTokenStorageKey(network)
+  // Per wallet profile: each profile carries its own ARC endpoint and token.
+  const key = profileScopedKey(arcApiTokenStorageKey(network))
   const legacy = await AsyncStorage.getItem(key)
   const secure = await SecureStore.getItemAsync(key)
   if (legacy === null) return secure
@@ -40,7 +42,7 @@ export async function getArcApiToken(network: string): Promise<string | null> {
 }
 
 export async function setArcApiToken(network: string, token: string | null): Promise<void> {
-  const key = arcApiTokenStorageKey(network)
+  const key = profileScopedKey(arcApiTokenStorageKey(network))
   // Always clear any plaintext copy, whether or not one exists, so this
   // function alone is enough to close out a legacy value.
   await AsyncStorage.removeItem(key)
@@ -48,5 +50,18 @@ export async function setArcApiToken(network: string, token: string | null): Pro
     await SecureStore.setItemAsync(key, token)
   } else {
     await SecureStore.deleteItemAsync(key)
+  }
+}
+
+/** Delete Wallet: drop one profile's token on every network, whichever profile is active. */
+export async function clearArcApiTokensForProfile(index: number): Promise<void> {
+  for (const network of ['main', 'test', 'teratest']) {
+    const key = profileScopedKey(arcApiTokenStorageKey(network), index)
+    try {
+      await AsyncStorage.removeItem(key)
+      await SecureStore.deleteItemAsync(key)
+    } catch {
+      // Best-effort: a token that survives is a service-config value, not a wallet secret.
+    }
   }
 }

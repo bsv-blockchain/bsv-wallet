@@ -25,7 +25,9 @@ const allowedUntranslated: Record<string, string[]> = {
   pay_step_contacts: ['fr'],
   pay_review_note: ['fr'],
   contact_identifier: ['id'],
-  profile_handle: ['id']
+  profile_handle: ['id'],
+  // The profile names are fixed labels (profile1, profile2, …) in every locale.
+  profile_label: ['*']
 }
 
 const placeholders = (value: string): string[] => [...value.matchAll(/{{(\w+)}}/g)].map(match => match[1]).sort()
@@ -49,6 +51,8 @@ const handleNounKeys = [
   'profile_handle_rejected',
   'profile_handle_replace_warning',
   'profile_display_name_hint',
+  'profile_remove_confirm_handle',
+  'profile_remove_failed_handle',
   'contact_handle_caption'
 ]
 
@@ -67,7 +71,9 @@ const identifierFreeKeys = [
   'profile_handle_rolled_back',
   'profile_handle_changed',
   'profile_handle_rejected',
-  'profile_display_name_hint'
+  'profile_display_name_hint',
+  'profile_remove_confirm_handle',
+  'profile_remove_failed_handle'
 ]
 
 const languages = Object.keys(resources)

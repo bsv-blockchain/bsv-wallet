@@ -71,6 +71,8 @@ import { PrivateKey } from '@bsv/sdk'
 import { useExportWalletData } from '../hooks/useExportWalletData'
 import { importWalletDatabase } from '../importDatabases'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { profileScopedKey } from '../../core/profiles/profileStore'
+import { profileLabel } from '../../core/profiles/profileLabel'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -148,7 +150,10 @@ export function WalletConfigScreen() {
     rebuildWallet,
     storage,
     settings,
-    updateSettings
+    updateSettings,
+    activeProfile,
+    profiles,
+    profilesSupported
   } = useWallet()
   const { getMnemonic, getRecoveredKey } = useLocalStorage()
   const insets = useSafeAreaInsets()
@@ -197,7 +202,7 @@ export function WalletConfigScreen() {
 
   // Load persisted auto-approve threshold
   useEffect(() => {
-    AsyncStorage.getItem(AUTO_APPROVE_STORAGE_KEY).then(v => {
+    AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY)).then(v => {
       if (v !== null) setThresholdSats(Number(v) || 0)
     })
   }, [])
@@ -211,11 +216,23 @@ export function WalletConfigScreen() {
     })
   }, [])
 
-  // Load the backup-push opt-out. Defaults to on, so a slow read shows the true default
-  // rather than flashing "Off".
+  // The profile the screen is showing right now, for handlers that await something (a
+  // confirm, a server delete) before they touch `backupPushOn`.
+  const activeProfileRef = useRef(activeProfile)
+  activeProfileRef.current = activeProfile
+
+  // Load the backup-push opt-out of the profile on screen. Defaults to on, so a slow read
+  // shows the true default rather than flashing "Off". Re-read when the profile changes:
+  // the opt-out is per profile and this screen can outlive a switch.
   useEffect(() => {
-    isBackupPushEnabled().then(setBackupPushOn)
-  }, [])
+    let current = true
+    isBackupPushEnabled(activeProfile).then(on => {
+      if (current) setBackupPushOn(on)
+    })
+    return () => {
+      current = false
+    }
+  }, [activeProfile])
 
   /**
    * Toggle pushing to the backup server.
@@ -227,6 +244,8 @@ export function WalletConfigScreen() {
    */
   const handleToggleBackupPush = useCallback(async () => {
     const next = !backupPushOn
+    // Pinned before the confirm: the write belongs to the profile whose toggle was pressed.
+    const profile = activeProfile
     if (!next) {
       const choice = await showAlert({
         title: t('backup_push_off_title'),
@@ -239,11 +258,11 @@ export function WalletConfigScreen() {
       if (choice !== 'confirm') return
     }
 
-    await setBackupPushEnabled(next)
-    setBackupPushOn(next)
+    await setBackupPushEnabled(next, profile)
+    if (profile === activeProfileRef.current) setBackupPushOn(next)
     if (next) TaskBackupPush.requestNow()
     showToast(next ? t('backup_push_on_toast') : t('backup_push_off_toast'), { type: 'info' })
-  }, [backupPushOn, t])
+  }, [backupPushOn, activeProfile, t])
 
   /**
    * Erase the server's copy of this wallet's backup, on request (GDPR Article 17).
@@ -259,6 +278,8 @@ export function WalletConfigScreen() {
   const handleEraseBackup = useCallback(async () => {
     if (erasingBackup) return
 
+    // Pinned before the confirm: every step below is for the profile whose erase this is.
+    const profile = activeProfile
     const choice = await showAlert({
       title: t('backup_erase_title'),
       message: t('backup_erase_message'),
@@ -274,7 +295,7 @@ export function WalletConfigScreen() {
       const mnemonic = await getMnemonic()
       const wif = mnemonic ? null : await getRecoveredKey()
       const primaryKey = mnemonic
-        ? recoverMnemonicWallet(mnemonic).primaryKey
+        ? recoverMnemonicWallet(mnemonic, '', profile).primaryKey
         : wif
           ? PrivateKey.fromWif(wif).toArray()
           : null
@@ -288,9 +309,9 @@ export function WalletConfigScreen() {
       // chain propagates — a partial erasure must never be reported as done.
       let deleted = 0
       for (const chain of BACKUP_CHAINS) {
-        deleted += (await eraseRemoteBackup({ primaryKey, chain, baseUrl: getBackupUrl() })).deleted
+        deleted += (await eraseRemoteBackup({ primaryKey, chain, baseUrl: getBackupUrl(), profileIndex: profile })).deleted
       }
-      setBackupPushOn(false)
+      if (profile === activeProfileRef.current) setBackupPushOn(false)
       showToast(t('backup_erase_done', { count: deleted }), { type: 'success' })
     } catch (e) {
       // Never report an erasure that did not happen. The server's copy is still there and
@@ -299,11 +320,11 @@ export function WalletConfigScreen() {
       showToast(t('backup_erase_failed'), { type: 'error' })
       // Pushing is off either way — eraseRemoteBackup wrote that before it tried the
       // delete, and a failed erasure is no reason to start uploading again.
-      setBackupPushOn(false)
+      if (profile === activeProfileRef.current) setBackupPushOn(false)
     } finally {
       setErasingBackup(false)
     }
-  }, [erasingBackup, t, getMnemonic, getRecoveredKey])
+  }, [erasingBackup, t, getMnemonic, getRecoveredKey, activeProfile])
 
   /**
    * Show what the wallet database is using, and offer the one safe reclaim.
@@ -371,7 +392,7 @@ export function WalletConfigScreen() {
   // Load persisted ARC URL + token for current network. The token is read
   // via getArcApiToken (XR-106: SecureStore-backed, not plaintext AsyncStorage).
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork)), getArcApiToken(selectedNetwork)]).then(
+    Promise.all([AsyncStorage.getItem(profileScopedKey(arcUrlStorageKey(selectedNetwork))), getArcApiToken(selectedNetwork)]).then(
       ([url, token]) => {
         setArcUrlInput(url ?? DEFAULT_ARC_URLS[selectedNetwork] ?? '')
         setArcTokenInput(token ?? '')
@@ -387,7 +408,7 @@ export function WalletConfigScreen() {
       const sats = parseDisplayToSatoshis(text, currentCurrency, satoshisPerUSD, usdToFiat)
       const clamped = Math.max(0, Math.round(sats))
       setThresholdSats(clamped)
-      AsyncStorage.setItem(AUTO_APPROVE_STORAGE_KEY, String(clamped))
+      AsyncStorage.setItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY), String(clamped))
     }, 600)
   }, [currentCurrency, satoshisPerUSD, usdToFiat])
 
@@ -450,7 +471,7 @@ export function WalletConfigScreen() {
     setArcSaving(true)
     try {
       const token = arcTokenInput.trim()
-      const previousUrl = (await AsyncStorage.getItem(arcUrlStorageKey(selectedNetwork))) ?? defaultUrl
+      const previousUrl = (await AsyncStorage.getItem(profileScopedKey(arcUrlStorageKey(selectedNetwork)))) ?? defaultUrl
       const previousToken = (await getArcApiToken(selectedNetwork)) ?? ''
       const nextUrl = url || defaultUrl
       const originChanged = previousUrl !== nextUrl
@@ -461,9 +482,9 @@ export function WalletConfigScreen() {
       // stored) is an intentional, explicit entry and is still honored.
       const stalePriorToken = originChanged && token === previousToken
       if (url && url !== defaultUrl) {
-        await AsyncStorage.setItem(arcUrlStorageKey(selectedNetwork), url)
+        await AsyncStorage.setItem(profileScopedKey(arcUrlStorageKey(selectedNetwork)), url)
       } else {
-        await AsyncStorage.removeItem(arcUrlStorageKey(selectedNetwork))
+        await AsyncStorage.removeItem(profileScopedKey(arcUrlStorageKey(selectedNetwork)))
       }
       if (token && !stalePriorToken) {
         await setArcApiToken(selectedNetwork, token)
@@ -482,7 +503,7 @@ export function WalletConfigScreen() {
 
   const handleResetArc = async () => {
     await Promise.all([
-      AsyncStorage.removeItem(arcUrlStorageKey(selectedNetwork)),
+      AsyncStorage.removeItem(profileScopedKey(arcUrlStorageKey(selectedNetwork))),
       setArcApiToken(selectedNetwork, null)
     ])
     setArcUrlInput(DEFAULT_ARC_URLS[selectedNetwork] ?? '')
@@ -599,7 +620,16 @@ export function WalletConfigScreen() {
         {advancedExpanded && (
           <>
           {/* ── Configuration ── */}
-          <GroupedSection header={t('configuration')}>
+          <GroupedSection
+            header={t('configuration')}
+            footer={
+              profilesSupported
+                ? t('profile_settings_scope_note', {
+                    profile: profileLabel(profiles.find(p => p.index === activeProfile) ?? { index: activeProfile }, t)
+                  })
+                : undefined
+            }
+          >
             <ListRow
               label={t('bsv_network')}
               value={

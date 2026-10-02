@@ -880,6 +880,29 @@ describe('receiveFromInbox', () => {
     expect(await build({ chain: 'test', endpoints: undefined }).receiveFromInbox()).toEqual({ credited: 0, failed: 0 })
     expect(receiveTokens).not.toHaveBeenCalled()
   })
+
+  it('says it could not run, rather than answering as if the inbox were empty, when the MessageBox cannot be opened', async () => {
+    const runtime = build({
+      messageBox: async () => {
+        throw new Error('Network request failed')
+      }
+    })
+    expect(await runtime.receiveFromInbox()).toEqual({ credited: 0, failed: 0, incomplete: true })
+    expect(receiveTokens).not.toHaveBeenCalled()
+  })
+
+  it('says so too when the pass could not read the inbox at all', async () => {
+    const box = {
+      listMessages: jest.fn(async () => {
+        throw new Error('503')
+      }),
+      acknowledgeMessage: jest.fn(async () => ({})),
+      sendMessage: jest.fn(async () => ({}))
+    }
+    const runtime = build({ messageBox: async () => box as never })
+    expect(await runtime.receiveFromInbox()).toEqual({ credited: 0, failed: 0, incomplete: true })
+    expect(receiveTokens).not.toHaveBeenCalled()
+  })
 })
 
 // ───────────────────────────── cover and submit ─────────────────────────────

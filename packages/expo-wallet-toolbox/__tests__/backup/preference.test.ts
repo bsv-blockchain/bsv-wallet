@@ -29,8 +29,10 @@ import {
   isBackupPushEnabled,
   setBackupPushEnabled
 } from '../../core/backup/preference'
+import { __resetProfilesForTests, appendProfile, setActiveProfile } from '../../core/profiles/profileStore'
 
 beforeEach(async () => {
+  __resetProfilesForTests()
   await AsyncStorage.clear()
 })
 
@@ -68,5 +70,59 @@ describe('backup push preference', () => {
   it('treats an unrecognised stored value as on', async () => {
     await AsyncStorage.setItem(BACKUP_PUSH_ENABLED_KEY, 'maybe')
     expect(await isBackupPushEnabled()).toBe(true)
+  })
+
+  describe('per profile', () => {
+    beforeEach(async () => {
+      await appendProfile()
+    })
+
+    it('is on for a profile that has never touched the setting', async () => {
+      expect(await isBackupPushEnabled(1)).toBe(true)
+    })
+
+    it('writes a profile other than 0 under its own key and leaves profile 0 on', async () => {
+      await setBackupPushEnabled(false, 1)
+
+      expect(await AsyncStorage.getItem(`${BACKUP_PUSH_ENABLED_KEY}__p1`)).toBe('false')
+      expect(await AsyncStorage.getItem(BACKUP_PUSH_ENABLED_KEY)).toBeNull()
+      expect(await isBackupPushEnabled(0)).toBe(true)
+      expect(await isBackupPushEnabled(1)).toBe(false)
+    })
+
+    it('keeps profile 0 on the bare key', async () => {
+      await setBackupPushEnabled(false, 0)
+
+      expect(await AsyncStorage.getItem(BACKUP_PUSH_ENABLED_KEY)).toBe('false')
+      expect(await isBackupPushEnabled(1)).toBe(true)
+    })
+
+    it('follows the active profile when no index is given', async () => {
+      await setActiveProfile(1)
+      await setBackupPushEnabled(false)
+
+      expect(await AsyncStorage.getItem(`${BACKUP_PUSH_ENABLED_KEY}__p1`)).toBe('false')
+      expect(await isBackupPushEnabled()).toBe(false)
+
+      await setActiveProfile(0)
+      expect(await isBackupPushEnabled()).toBe(true)
+    })
+
+    it('lets an explicit index win over the active profile', async () => {
+      await setActiveProfile(1)
+      await setBackupPushEnabled(false, 0)
+
+      expect(await isBackupPushEnabled()).toBe(true)
+      expect(await isBackupPushEnabled(0)).toBe(false)
+    })
+
+    it('still resolves an unrecognised or unreadable value for a profile to on', async () => {
+      await AsyncStorage.setItem(`${BACKUP_PUSH_ENABLED_KEY}__p1`, 'maybe')
+      expect(await isBackupPushEnabled(1)).toBe(true)
+
+      const spy = jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('boom'))
+      expect(await isBackupPushEnabled(1)).toBe(true)
+      spy.mockRestore()
+    })
   })
 })

@@ -5,6 +5,7 @@ import AmountDisplay from './AmountDisplay'
 import AppLogo from '../ui/AppLogo'
 import { sdk } from '@bsv/wallet-toolbox-mobile'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { profileScopedKey, useActiveProfileIndex } from '../../../core/profiles/profileStore'
 
 // XR-058: scoped by network (matching useSpendableBalance's pattern) rather
 // than a single global key, so one wallet/network context can never read
@@ -16,7 +17,8 @@ const CACHE_DURATION = 30000 // 30 seconds
 export default function Balance() {
   const { colors } = useTheme()
   const { managers, adminOriginator, txStatusVersion, selectedNetwork } = useWallet()
-  const cacheKey = `${BALANCE_CACHE_PREFIX}${selectedNetwork}`
+  const activeProfile = useActiveProfileIndex()
+  const cacheKey = profileScopedKey(`${BALANCE_CACHE_PREFIX}${selectedNetwork}`, activeProfile)
   const timestampKey = `${cacheKey}_timestamp`
   // { key, value } rather than a bare number: `key` is compared against the
   // live `cacheKey` everywhere below, so a figure read for a since-departed

@@ -154,4 +154,46 @@ describe('MonitorSupervisor', () => {
     expect(h.supervisor.isStalled()).toBe(false)
     expect(h.supervisor.restart()).toBe(false)
   })
+
+  it('stop() drains at once while the loop sleeps between passes — no waiting out the interval', async () => {
+    const h = harness()
+    const runOnce = jest.fn().mockResolvedValue(undefined)
+    const m = fakeMonitor(runOnce)
+    h.supervisor.start(m as never)
+    await flush() // first pass done, now sleeping on a wait nobody releases
+    let drained = false
+    void m._tasksRunningPromise!.then(() => {
+      drained = true
+    })
+    h.supervisor.stop()
+    await flush()
+    expect(drained).toBe(true)
+    expect(m._tasksRunning).toBe(false)
+    expect(runOnce).toHaveBeenCalledTimes(1)
+  })
+
+  it('stop() during a pass lets that pass finish, then drains without sleeping', async () => {
+    const h = harness()
+    let finishPass!: () => void
+    const runOnce = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishPass = resolve
+        })
+    )
+    const m = fakeMonitor(runOnce)
+    h.supervisor.start(m as never)
+    await flush()
+    let drained = false
+    void m._tasksRunningPromise!.then(() => {
+      drained = true
+    })
+    h.supervisor.stop()
+    await flush()
+    expect(drained).toBe(false)
+    finishPass()
+    await flush()
+    expect(drained).toBe(true)
+    expect(runOnce).toHaveBeenCalledTimes(1)
+  })
 })

@@ -26,12 +26,14 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { cursorKey } from '../../core/backup/constants'
 import { getBackupUploadState } from '../../core/backup/status'
+import { __resetProfilesForTests, appendProfile, setActiveProfile } from '../../core/profiles/profileStore'
 
 const PSEUDONYM_A = 'a'.repeat(66)
 const PSEUDONYM_B = 'b'.repeat(66)
 const DEVICE = 'd'.repeat(32)
 
 beforeEach(async () => {
+  __resetProfilesForTests()
   await AsyncStorage.clear()
 })
 
@@ -64,6 +66,19 @@ describe('getBackupUploadState', () => {
 
   it('reports enabled from the ordinary opt-out preference', async () => {
     expect((await getBackupUploadState('main', PSEUDONYM_A)).enabled).toBe(true)
+  })
+
+  it('reports enabled for the active profile, and for an explicit one', async () => {
+    await appendProfile()
+    await AsyncStorage.setItem('backupPushEnabled__p1', 'false')
+
+    // Profile 0 is active and never opted out.
+    expect((await getBackupUploadState('main', PSEUDONYM_A)).enabled).toBe(true)
+    expect((await getBackupUploadState('main', PSEUDONYM_A, 1)).enabled).toBe(false)
+
+    await setActiveProfile(1)
+    expect((await getBackupUploadState('main', PSEUDONYM_A)).enabled).toBe(false)
+    expect((await getBackupUploadState('main', PSEUDONYM_A, 0)).enabled).toBe(true)
   })
 
   it('treats an unreadable store as not uploaded rather than throwing', async () => {

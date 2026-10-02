@@ -12,6 +12,41 @@
   printed on home hardware the user controls. `generatePrintHTML()` keeps its
   optional `only` parameter; the package no longer calls it.
 
+### Wallet profiles
+
+One mnemonic now backs any number of independent wallet profiles, each with its
+own identity key, balance, history, contacts, handle and network (the primary
+key is `m/0'/n'` and the privileged key `m/1'/n'`). A recovered-key wallet has
+no profiles. Switching profiles is a full wallet teardown and rebuild under a
+full-screen cover.
+
+- `useWallet()` gains `profiles`, `activeProfile`, `profilesSupported`,
+  `switchProfile(n)`, `addProfile()`, `switchingProfile`, `removingProfile`,
+  `checkProfileRemoval()` and `removeProfile()`.
+- New exports: `getActiveProfile`, `getActiveProfileIndex`, `getProfilesState`,
+  `liveProfiles`, `profileScopedKey`, `subscribeProfiles`, `useActiveProfileIndex`,
+  `useProfiles`, `PROFILES_STORAGE_KEY`, `profileLabel`, `deriveProfileKeys`,
+  `hdFromMnemonic`, `profilePaths`, and the types `ProfileRecord`,
+  `ProfilesState`, `RemovalBlocker`, `ProfileRemovalCheck`, `RemoveProfileResult`
+  and `RemoveRefusal`.
+- A profile can be given a private name (at most 24 characters, kept only on the
+  device); `profileLabel(record, t)` is the label to show, the name or
+  `profile<N>`. The remote-backup preference is now per profile.
+- A profile can be removed once it is provably empty: no spendable output in any
+  basket, no unfinished transaction, queued payment or token settlement, nothing
+  waiting to be credited from either MessageBox box, and nothing in its databases
+  for any other network. Removing releases the profile's handle, switches to
+  profile 0, then tombstones the record (its index is never reused) and purges
+  its databases and keys; a purge that did not finish is repeated at every
+  startup. Profile 0 can never be removed.
+- Push: every live profile registers the install's FCM token under its own
+  identity and at its own MessageBox host, and a tap on a push for another profile
+  switches to it. Removing a profile and Delete Wallet withdraw the registration
+  (`POST /unregisterDevice`, which needs a server with the multi-identity change;
+  an older server answers 404 and is tolerated). A withdrawal that did not get
+  through is retried at the next build.
+- Delete Wallet erases every profile, tombstoned ones included.
+
 ## 0.12.0
 
 ### Payment push notifications

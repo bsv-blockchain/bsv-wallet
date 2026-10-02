@@ -125,7 +125,14 @@ describe('the handle rail’s receive drain includes the Mandala inbox', () => {
       })
     })
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    expect(await drainMandalaInbox(runtime)).toEqual({ credited: 0, failed: 0 })
+    expect(await drainMandalaInbox(runtime)).toEqual({ credited: 0, failed: 0, incomplete: true })
     warn.mockRestore()
+  })
+
+  it('says a drain did not run, so it is never read as an inbox with nothing in it', async () => {
+    const runtime = fakeRuntime({
+      receiveFromInbox: jest.fn(async () => ({ credited: 0, failed: 0, incomplete: true as const }))
+    })
+    expect(await drainMandalaInbox(runtime)).toEqual({ credited: 0, failed: 0, incomplete: true })
   })
 })

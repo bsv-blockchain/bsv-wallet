@@ -47,6 +47,8 @@ export class MonitorSupervisor {
   restarts = 0
   private generation = 0
   private monitor: Monitor | undefined
+  /** Resolvers for inter-pass sleeps in progress, so `stop` can cut them short. */
+  private readonly sleeping = new Set<() => void>()
 
   constructor(
     private readonly now: () => number = () => Date.now(),
@@ -78,6 +80,25 @@ export class MonitorSupervisor {
     this.lastPassAt = this.now()
   }
 
+  /**
+   * Stop the loop and wake it if it is sleeping between passes, so a drain
+   * (stopMonitorAndDrain) waits only for a pass actually in flight — not the
+   * rest of the inter-pass interval. The toolbox's own `stopTasks()` only clears
+   * the flag the loop checks AFTER its sleep, which left every teardown (rebuild,
+   * network or profile switch, logout) waiting up to `taskRunWaitMsecs` for
+   * nothing.
+   */
+  stop(): void {
+    this.monitor?.stopTasks()
+    this.wake()
+  }
+
+  /** Cut short any inter-pass sleep. A loop whose monitor is still running just
+   * starts its next pass early; a stopped one exits and resolves its drain. */
+  wake(): void {
+    for (const wake of [...this.sleeping]) wake()
+  }
+
   isStalled(stallMs: number = MONITOR_STALL_MS): boolean {
     const state = this.monitor as unknown as LoopState | undefined
     if (!state?._tasksRunning) return false
@@ -98,6 +119,18 @@ export class MonitorSupervisor {
     return true
   }
 
+  /** `wait`, but `stop` can end it early. */
+  private sleep(ms: number): Promise<void> {
+    return new Promise<void>(resolve => {
+      const wake = () => {
+        this.sleeping.delete(wake)
+        resolve()
+      }
+      this.sleeping.add(wake)
+      void this.wait(ms).then(wake, wake)
+    })
+  }
+
   private async loop(state: LoopState, generation: number): Promise<void> {
     while (state._tasksRunning && generation === this.generation) {
       try {
@@ -109,7 +142,8 @@ export class MonitorSupervisor {
       }
       if (generation !== this.generation) return
       this.lastPassAt = this.now()
-      await this.wait(state.options.taskRunWaitMsecs)
+      if (!state._tasksRunning) break
+      await this.sleep(state.options.taskRunWaitMsecs)
     }
     // Only the live generation may report completion: an abandoned one waking
     // up late must not resolve a drain that belongs to its successor.

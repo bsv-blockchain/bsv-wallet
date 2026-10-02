@@ -12,9 +12,10 @@ import { updateOfflineAction, type OfflineActionRow } from '../../core/storage/m
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { showToast } from '../components/ui/Toast'
 import { offlineActionDetails } from '../components/pay/OfflineNotice'
+import { profileScopedKey } from '../../core/profiles/profileStore'
 
 async function readMessageBoxUrl(): Promise<string | undefined> {
-  const saved = await AsyncStorage.getItem(MESSAGE_BOX_URL_KEY)
+  const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
   if (saved === NO_MESSAGE_BOX) return undefined
   if (!saved || saved === LEGACY_MESSAGE_BOX_URL) return DEFAULT_MESSAGE_BOX_URL
   return saved

@@ -1,6 +1,29 @@
 export const CANARY = 'core'
 
-export { recoverMnemonicWallet, generateMnemonicWallet, validateMnemonic } from './mnemonicWallet'
+export {
+  recoverMnemonicWallet,
+  generateMnemonicWallet,
+  validateMnemonic,
+  deriveProfileKeys,
+  hdFromMnemonic,
+  profilePaths
+} from './mnemonicWallet'
+export {
+  PROFILES_STORAGE_KEY,
+  getActiveProfile,
+  getActiveProfileIndex,
+  getProfilesState,
+  liveProfiles,
+  profileScopedKey,
+  subscribeProfiles,
+  useActiveProfileIndex,
+  useProfiles,
+  type ProfileRecord,
+  type ProfilesState
+} from './profiles/profileStore'
+export { profileLabel } from './profiles/profileLabel'
+export type { RemovalBlocker } from './profiles/assertProfileEmpty'
+export type { ProfileRemovalCheck, RemoveProfileResult, RemoveRefusal } from './profiles/removeProfile'
 export {
   getRegisteredDbs,
   registerDb,

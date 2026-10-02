@@ -36,6 +36,12 @@ export interface EraseDeps {
   /** Supply exactly one of these. */
   baseUrl?: string
   client?: BackupClient
+  /**
+   * The profile whose backup is erased: only ITS opt-out is written, so erasing one
+   * profile's server copy never turns off another profile's backup. Defaults to the
+   * active profile.
+   */
+  profileIndex?: number
 }
 
 export interface EraseResult {
@@ -47,7 +53,7 @@ export async function eraseRemoteBackup (deps: EraseDeps): Promise<EraseResult> 
   const client = resolveClient(deps)
 
   // Step 1 — before anything is deleted. See the module doc.
-  await setBackupPushEnabled(false)
+  await setBackupPushEnabled(false, deps.profileIndex)
 
   // Step 2 — throws on any server refusal, leaving the local cursors intact.
   const { deleted } = await client.deleteAccount()
