@@ -16,6 +16,7 @@ import {
 import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk'
 import { DEFAULT_SETTINGS } from './defaultWalletSettings'
 import { conformWalletResults } from '../services/conformWalletResults'
+import { AuthSigningPermissionsManager } from '../services/signingPermissionExemptions'
 import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
 import { getVaultDriver } from '../services/vault/driver'
 import { backupAttestation } from '../services/vault/backupAttestation'
@@ -1925,7 +1926,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         })
 
         // Setup permissions with provided callbacks and BTMS module.
-        const permissionsManager = new WalletPermissionsManager(wallet, adminOriginator, {
+        const permissionsManager = new AuthSigningPermissionsManager(wallet, adminOriginator, {
           differentiatePrivilegedOperations: true,
           seekBasketInsertionPermissions: false,
           seekBasketListingPermissions: false,
@@ -1947,7 +1948,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           seekPermissionWhenListingActionsByLabel: false,
           seekProtocolPermissionsForEncrypting: false,
           seekProtocolPermissionsForHMAC: false,
-          seekProtocolPermissionsForSigning: false,
+          // On, unlike Metanet Desktop: the vault guard no longer refuses
+          // external BRC-29 ([2,'3241645161d8']) signing outright, and that
+          // namespace also derives this wallet's own address-rail keys
+          // (counterparty 'anyone'), so a site signing under it must be
+          // asked first. BRC-103/104 auth signing is exempt
+          // (AuthSigningPermissionsManager).
+          seekProtocolPermissionsForSigning: true,
           seekSpendingPermissions: true,
           permissionModules: { btms: btmsModule, mandala: mandalaModule }
         } as any)

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **External apps can sign under BRC-29 again.** The vault guard refused every
+  external `createSignature`, `encrypt`, `decrypt`, `createHmac`,
+  `verifyHmac`, `verifySignature` and key-linkage call under
+  `[2, '3241645161d8']` (XR-020), so payment apps that sign BRC-29 outputs
+  did not work. The namespace is no longer reserved. Because it also derives
+  this wallet's own address-rail keys, `seekProtocolPermissionsForSigning` is
+  now `true`: a connected app is asked before it first signs under a
+  security level 1 or 2 protocol (level 2 per counterparty), BRC-29
+  included. This differs from Metanet Desktop, which does not ask.
+  `[2, 'mandala token']` stays reserved, and privileged calls are still
+  refused.
+- Signing under `[2, 'auth message signature']` (BRC-103 mutual auth and its
+  BRC-104 HTTP transport) is exempt from that prompt, so authenticated
+  requests never ask (`AuthSigningPermissionsManager`).
+- `getPublicKey`, `encrypt`, `decrypt`, HMAC and key-linkage calls under
+  BRC-29 are not prompted (their `seek*` flags stay off), so a connected app
+  can now derive this wallet's address-rail public keys (counterparty
+  `'anyone'`, date keyIDs) without asking.
+
 ## 0.13.0
 
 ### Breaking

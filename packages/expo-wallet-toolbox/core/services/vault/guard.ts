@@ -121,17 +121,21 @@ const PRIVILEGED_CAPABLE = new Set<keyof WalletInterface>([
  * own vault code ever reaches it. */
 const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt', 'vault marker', 'vault descriptor', 'vault meta'])
 
-/** Protocol namespaces this package's OWN internal, fund-controlling payment
- * rails derive under: the BRC-29 address rail / PeerPay (address.ts's
- * BRC29_PROTOCOL_ID and localpay/pending.ts's identical PEERPAY_PROTOCOL_ID,
- * both `[2, '3241645161d8']`) and the FT/mandala-token rail (localpay/verify.ts's
- * FT_PROTOCOL_ID, `[2, 'mandala token']`). These are not Vault state, but
- * core/localpay/build.ts proves createSignature+getPublicKey over them is
- * sufficient to construct a valid spend -- so a connected origin must not be
- * able to mint either primitive under these namespaces itself, exactly as
- * for Vault's own namespaces. The one exception is getPublicKey toward
- * another party's identity key (see derivesTowardAnotherParty). */
-const RESERVED_RAIL_PROTOCOL_NAMES = new Set(['3241645161d8', 'mandala token'])
+/** Protocol namespace this package's OWN internal, fund-controlling FT/
+ * mandala-token rail derives under (localpay/verify.ts's FT_PROTOCOL_ID,
+ * `[2, 'mandala token']`). It is not Vault state, but core/localpay/build.ts
+ * proves createSignature+getPublicKey over it is sufficient to construct a
+ * valid spend -- so a connected origin must not be able to mint either
+ * primitive under it itself, exactly as for Vault's own namespaces. The one
+ * exception is getPublicKey toward another party's identity key (see
+ * derivesTowardAnotherParty).
+ *
+ * BRC-29 (`[2, '3241645161d8']`) was reserved here too (XR-020) and is not any
+ * more: it is the standard BRC-100 payment protocol, and refusing it broke
+ * every external payment app that signs under it. External signing under it
+ * goes through the permissions manager's protocol prompt instead
+ * (seekProtocolPermissionsForSigning in WalletContext.tsx). */
+const RESERVED_RAIL_PROTOCOL_NAMES = new Set(['mandala token'])
 
 /** The BRC-42 'anyone' counterparty (1·G), in canonical form. */
 const ANYONE_PUBLIC_KEY = new PrivateKey(1).toPublicKey().toString()
@@ -150,13 +154,13 @@ function counterpartyPublicKey(counterparty: unknown): string | undefined {
 }
 
 /** getPublicKey under a reserved rail namespace toward another party's
- * identity key is the ordinary BRC-29 / FT payer (forSelf false) and payee
+ * identity key is the ordinary FT payer (forSelf false) and payee
  * (forSelf true) step every payment dApp takes. ECDH is symmetric, so that
  * party can compute the same public key itself: revealing it neither signs
  * nor tells anyone anything new. createSignature and the other private-key
  * methods stay reserved, as do the two counterparties this wallet's own funds
- * are locked to where a site could guess the keyID: 'anyone' (the address
- * rail's date keyIDs) and the wallet's own identity key (FT change). Any
+ * are locked to where a site could guess the keyID: 'anyone' and the
+ * wallet's own identity key (FT change). Any
  * failure to read the identity key counts as a match, so the call is refused. */
 async function derivesTowardAnotherParty(
   getPublicKey: (args: any, originator?: string) => Promise<{ publicKey: string }>,
