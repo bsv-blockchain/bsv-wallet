@@ -53,6 +53,39 @@ interface ManagerInternals {
   activeRequests: Map<string, { request: { type?: string; protocolID?: unknown } }>
   findProtocolToken(originator: string, privileged: boolean, protocolID: unknown, ...rest: unknown[]): Promise<unknown>
   markRecentGrant(request: { type?: string; protocolID?: unknown }): void
+  fetchManifestPermissions(originator: string): Promise<ManifestPermissions>
+}
+
+/** The parts of a site's manifest.json permissions the manager reads. */
+interface ManifestPermissions {
+  groupPermissions: { protocolPermissions?: Array<{ protocolID?: unknown }> } | null
+  counterpartyPermissions: { protocols?: Array<{ protocolName?: unknown }> } | null
+}
+
+/** The manifest's permissions without ASK_EVERY_TIME_PROTOCOLS. A site's
+ * manifest may list them in its grouped (bulk) request, but such a grant is
+ * never kept, so the manager would find it missing on every call and raise
+ * the bulk sheet again before each signature prompt. */
+function withoutAskEveryTime(manifest: ManifestPermissions): ManifestPermissions {
+  const { groupPermissions, counterpartyPermissions } = manifest
+  return {
+    groupPermissions:
+      groupPermissions?.protocolPermissions == null
+        ? groupPermissions
+        : {
+            ...groupPermissions,
+            protocolPermissions: groupPermissions.protocolPermissions.filter(
+              p => !isAskEveryTimeProtocol(p?.protocolID)
+            )
+          },
+    counterpartyPermissions:
+      counterpartyPermissions?.protocols == null
+        ? counterpartyPermissions
+        : {
+            ...counterpartyPermissions,
+            protocols: counterpartyPermissions.protocols.filter(p => !isAskEveryTimeProtocol([2, p?.protocolName]))
+          }
+  }
 }
 
 /**
@@ -60,8 +93,9 @@ interface ManagerInternals {
  * - PROMPT_FREE_SIGNING_PROTOCOLS sign with no prompt;
  * - ASK_EVERY_TIME_PROTOCOLS never keep an approval. A grant is always
  *   one-time, any stored token or recent-grant cover is ignored, a grouped
- *   grant leaves them out, and one origin's signing calls under them are
- *   asked one at a time, so a burst of calls cannot ride on one approval.
+ *   grant leaves them out, a site's manifest never puts them in a grouped
+ *   request, and one origin's signing calls under them are asked one at a
+ *   time, so a burst of calls cannot ride on one approval.
  * Every other check runs unchanged.
  */
 export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
@@ -80,6 +114,9 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
       if (request?.type === 'protocol' && isAskEveryTimeProtocol(request.protocolID)) return
       markRecentGrant(request)
     }
+    const fetchManifestPermissions = internals.fetchManifestPermissions.bind(this)
+    internals.fetchManifestPermissions = async originator =>
+      withoutAskEveryTime(await fetchManifestPermissions(originator))
   }
 
   private get internals(): ManagerInternals {

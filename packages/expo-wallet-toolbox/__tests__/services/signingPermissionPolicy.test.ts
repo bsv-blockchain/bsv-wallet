@@ -133,6 +133,35 @@ describe('BRC-29 asks every time', () => {
     expect(listOutputs).toHaveBeenCalled()
   })
 
+  test('a manifest that lists BRC-29 raises no grouped sheet, only the signature prompt', async () => {
+    const { pm, calls, prompts } = answering('grant')
+    ;(pm as any).config.seekGroupedPermission = true
+    const grouped: any[] = []
+    const pacts: any[] = []
+    pm.bindCallback('onGroupedPermissionRequested', (r: any) => {
+      grouped.push(r)
+    })
+    pm.bindCallback('onCounterpartyPermissionRequested', (r: any) => {
+      pacts.push(r)
+    })
+    const ONE_G = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
+    ;(pm as any).manifestCache.set('app.example', {
+      groupPermissions: {
+        protocolPermissions: [
+          { protocolID: [2, '3241645161d8'], counterparty: ONE_G, description: 'sign name tokens' },
+          { protocolID: [2, '3241645161d8'], description: 'pay to host a picture' }
+        ]
+      },
+      counterpartyPermissions: { description: 'x', protocols: [{ protocolName: '3241645161d8', description: 'x' }] },
+      fetchedAt: Date.now()
+    })
+    await pm.createSignature({ ...BRC29, counterparty: ONE_G, data: [1] }, 'app.example')
+    expect(grouped).toEqual([])
+    expect(pacts).toEqual([])
+    expect(prompts).toHaveLength(1)
+    expect(calls).toHaveLength(1)
+  })
+
   test('a grouped grant leaves BRC-29 out', async () => {
     const { pm } = manager()
     const parent = jest

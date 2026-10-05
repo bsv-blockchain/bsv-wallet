@@ -18,7 +18,10 @@
 - **BRC-29 signing asks every time.** An approval under `3241645161d8` is
   never stored: each signature gets its own prompt, a stored or grouped
   BRC-29 grant is ignored, and one app's concurrent calls are asked one at a
-  time so a single tap cannot approve a batch. A grant is keyed by origin,
+  time so a single tap cannot approve a batch. BRC-29 entries in a site's
+  manifest `groupPermissions`/`counterpartyPermissions` are ignored, so the
+  grouped sheet never offers them and is not raised again before each
+  signature. A grant is keyed by origin,
   protocol and counterparty, never key ID, so a stored one would cover the
   wallet's BSV address receipts and change too.
 - Signing under `[2, 'auth message signature']` (BRC-103 mutual auth and its
