@@ -16,6 +16,7 @@ import {
 import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk'
 import { DEFAULT_SETTINGS } from './defaultWalletSettings'
 import { conformWalletResults } from '../services/conformWalletResults'
+import { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
 import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
 import { getVaultDriver } from '../services/vault/driver'
 import { backupAttestation } from '../services/vault/backupAttestation'
@@ -693,6 +694,9 @@ type ProtocolAccessRequest = {
   protocolSecurityLevel: number
   protocolID: string
   counterparty?: string
+  /** The key ID a BRC-29 signature asks for (SigningPolicyPermissionsManager
+   * attaches it; the stock manager's requests carry none). */
+  keyID?: string
   originator?: string
   description?: string
   renewal?: boolean
@@ -1184,6 +1188,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const protocolPermissionCallback = useCallback(
     (args: PermissionRequest & { requestID: string }): Promise<void> => {
       const { requestID, counterparty, originator, reason, renewal, protocolID } = args
+      const keyID = (args as { keyID?: unknown }).keyID
       if (!requestID || !protocolID) return Promise.resolve()
 
       const [protocolSecurityLevel, protocolNameString] = protocolID
@@ -1198,6 +1203,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         protocolSecurityLevel,
         protocolID: protocolNameString,
         counterparty,
+        keyID: typeof keyID === 'string' ? keyID : undefined,
         originator,
         description: reason,
         renewal,
@@ -1925,7 +1931,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         })
 
         // Setup permissions with provided callbacks and BTMS module.
-        const permissionsManager = new WalletPermissionsManager(wallet, adminOriginator, {
+        const permissionsManager = new SigningPolicyPermissionsManager(wallet, adminOriginator, {
           differentiatePrivilegedOperations: true,
           seekBasketInsertionPermissions: false,
           seekBasketListingPermissions: false,
@@ -1947,7 +1953,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           seekPermissionWhenListingActionsByLabel: false,
           seekProtocolPermissionsForEncrypting: false,
           seekProtocolPermissionsForHMAC: false,
-          seekProtocolPermissionsForSigning: false,
+          // On, unlike Metanet Desktop: the vault guard no longer refuses
+          // external BRC-29 ([2,'3241645161d8']) signing outright, and that
+          // namespace also derives this wallet's own address-rail keys
+          // (counterparty 'anyone'), so a site signing under it must be
+          // asked first -- for BRC-29, on every signature. BRC-103/104 auth
+          // signing is exempt (SigningPolicyPermissionsManager).
+          seekProtocolPermissionsForSigning: true,
           seekSpendingPermissions: true,
           permissionModules: { btms: btmsModule, mandala: mandalaModule }
         } as any)
