@@ -216,7 +216,7 @@ describe('protocol prompts', () => {
     expect(active.title).toBe('Payment Key Signature')
     expect(active.description).toMatch(warning)
     expect(active.details).toEqual([
-      { label: 'Protocol', value: 'Payments (BRC-29, 3241645161d8)' },
+      { label: 'Protocol', value: 'Payments (BRC-29)' },
       { label: 'Security level', value: '2' },
       { label: 'Shared with', value: shared },
       { label: 'Approval', value: 'This signature only' }

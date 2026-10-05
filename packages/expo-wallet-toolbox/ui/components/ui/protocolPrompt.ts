@@ -57,7 +57,7 @@ export function describeProtocolPrompt(protocolName: string, counterparty?: unkn
     return { title: 'Protocol Access', protocolLabel: protocolName }
   }
   const party = classifyCounterparty(counterparty)
-  const protocolLabel = `Payments (BRC-29, ${BRC29_PROTOCOL_NAME})`
+  const protocolLabel = 'Payments (BRC-29)'
   switch (party.kind) {
     case 'anyone':
       return {
