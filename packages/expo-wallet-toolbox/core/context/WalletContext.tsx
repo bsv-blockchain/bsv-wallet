@@ -694,6 +694,9 @@ type ProtocolAccessRequest = {
   protocolSecurityLevel: number
   protocolID: string
   counterparty?: string
+  /** The key ID a BRC-29 signature asks for (SigningPolicyPermissionsManager
+   * attaches it; the stock manager's requests carry none). */
+  keyID?: string
   originator?: string
   description?: string
   renewal?: boolean
@@ -1185,6 +1188,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const protocolPermissionCallback = useCallback(
     (args: PermissionRequest & { requestID: string }): Promise<void> => {
       const { requestID, counterparty, originator, reason, renewal, protocolID } = args
+      const keyID = (args as { keyID?: unknown }).keyID
       if (!requestID || !protocolID) return Promise.resolve()
 
       const [protocolSecurityLevel, protocolNameString] = protocolID
@@ -1199,6 +1203,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         protocolSecurityLevel,
         protocolID: protocolNameString,
         counterparty,
+        keyID: typeof keyID === 'string' ? keyID : undefined,
         originator,
         description: reason,
         renewal,

@@ -204,10 +204,10 @@ describe('protocol prompts', () => {
   const ONE_G = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
   test.each([
-    ['anyone', 'Anyone', /BSV address/],
-    [ONE_G, 'Anyone', /BSV address/],
-    ['self', 'Only you', /change/],
-    ['02' + 'ab'.repeat(32), '02ababab\u2026abab', /another party/]
+    ['anyone', 'Anyone', /Coins paid to this key could be spent/],
+    [ONE_G, 'Anyone', /Coins paid to this key could be spent/],
+    ['self', 'Only you', /change could be spent/],
+    ['02' + 'ab'.repeat(32), '02ababab\u2026abab', /another party\. Coins paid to this key/]
   ])('names BRC-29 in plain words (counterparty %s)', (counterparty, shared, warning) => {
     const active = deriveActive(
       protocolCtx({ protocolID: '3241645161d8', protocolSecurityLevel: 2, counterparty }),
@@ -222,6 +222,20 @@ describe('protocol prompts', () => {
       { label: 'Approval', value: 'This signature only' }
     ])
     expect(JSON.stringify(active)).not.toMatch(/"value":"3241645161d8"/)
+    expect(active.description).not.toMatch(/BSV address/)
+  })
+
+  test.each([
+    ['eGFuYS1lYXJuaW5ncw== MQ==', 'xana-earnings 1'],
+    ['not base64! MQ==', 'not base64! 1'],
+    ['AAEC MQ==', 'AAEC 1']
+  ])('shows key ID %p as %p', (keyID, shown) => {
+    const active = deriveActive(
+      protocolCtx({ protocolID: '3241645161d8', protocolSecurityLevel: 2, counterparty: 'anyone', keyID }),
+      formatSats
+    )!
+    expect(active.details).toContainEqual({ label: 'Key ID', value: shown })
+    expect(active.details.map(d => d.label)).toEqual(['Protocol', 'Security level', 'Shared with', 'Key ID', 'Approval'])
   })
 
   test('leaves other protocols as the app named them', () => {

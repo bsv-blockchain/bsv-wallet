@@ -2,15 +2,17 @@
  * Vault access guard — external origins must not reach privileged (vault) key
  * material. The load-bearing defense against the privilege-escalation finding.
  */
-import { Beef, LockingScript, PrivateKey, Transaction, Validation } from '@bsv/sdk'
+import { Beef, LockingScript, PrivateKey, Transaction, Utils, Validation } from '@bsv/sdk'
 import {
   EXTERNAL_ACTION_READ_TIMEOUT_MS,
   guardVaultAccess,
+  isAddressRailKeyID,
   isR1CLockingScript,
   VaultAccessDenied,
   type VaultGuardLookup
 } from '../../core/services/vault/guard'
 import { buildLock } from '../../core/services/vault/r1comb'
+import { derivationPrefixFor, legacyKeyId } from '../../core/pay/rails/address'
 import { capWalletArgs } from '../../core/services/capWalletArgs'
 import { limitsForTier } from '../../core/services/walletArgLimits'
 import { Wallet } from '@bsv/wallet-toolbox-mobile'
@@ -350,6 +352,69 @@ test.each([
     expect(calls.filter(c => c.method === method)).toHaveLength(3)
   }
 )
+
+describe("the address rail's own key IDs", () => {
+  const RAIL_KEY = legacyKeyId(derivationPrefixFor('2026-10-04'))
+  const ONE_G = new PrivateKey(1).toPublicKey().toString()
+  const OTHER = new PrivateKey(12).toPublicKey().toString()
+  const METHODS = [
+    'getPublicKey',
+    'createSignature',
+    'verifySignature',
+    'encrypt',
+    'decrypt',
+    'createHmac',
+    'verifyHmac',
+    'revealCounterpartyKeyLinkage',
+    'revealSpecificKeyLinkage'
+  ] as const
+
+  test('the rail key ID has the shape the guard matches', () => {
+    expect(isAddressRailKeyID(RAIL_KEY)).toBe(true)
+    expect(RAIL_KEY).toBe('MjAyNi0xMC0wNA== bGVnYWN5')
+  })
+
+  test.each(METHODS.flatMap(method => ['anyone', ONE_G, 'self', OTHER, undefined].map(cp => [method, cp] as const)))(
+    'refuses external %s under BRC-29 with a rail key ID (counterparty %p)',
+    async (method, counterparty) => {
+      const { wallet, calls } = fakeWallet()
+      const guarded = guardVaultAccess(wallet, ADMIN)
+      await expect(
+        (guarded as any)[method](
+          { protocolID: [2, '3241645161d8'], keyID: RAIL_KEY, counterparty, data: [1] },
+          'evil.com'
+        )
+      ).rejects.toBeInstanceOf(VaultAccessDenied)
+      expect(calls.find(c => c.method === method)).toBeUndefined()
+    }
+  )
+
+  test.each([
+    ['an app key ID', 'eGFuYS1lYXJuaW5ncw== MQ=='],
+    ['a date with another suffix', `${derivationPrefixFor('2026-10-04')} MQ==`],
+    ['legacy suffix but not a date', `${Utils.toBase64(Utils.toArray('xana-earnings', 'utf8'))} bGVnYWN5`],
+    ['a non-canonical base64 date', 'MjAyNi0xMC0wNA bGVnYWN5'],
+    ['a different separator', `${derivationPrefixFor('2026-10-04')}  bGVnYWN5`]
+  ])('still passes %s through', async (_label, keyID) => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await guarded.createSignature(
+      { protocolID: [2, '3241645161d8'], keyID, counterparty: 'anyone', data: [1] } as any,
+      'app.example'
+    )
+    expect(calls.filter(c => c.method === 'createSignature')).toHaveLength(1)
+  })
+
+  test('lets the admin originator use the rail key', async () => {
+    const { wallet, calls } = fakeWallet()
+    const guarded = guardVaultAccess(wallet, ADMIN)
+    await guarded.createSignature(
+      { protocolID: [2, '3241645161d8'], keyID: RAIL_KEY, counterparty: 'anyone', data: [1] } as any,
+      ADMIN
+    )
+    expect(calls.filter(c => c.method === 'createSignature')).toHaveLength(1)
+  })
+})
 
 test('still refuses a privileged external BRC-29 call', async () => {
   const { wallet, calls } = fakeWallet()

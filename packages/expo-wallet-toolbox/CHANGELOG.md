@@ -14,7 +14,10 @@
   security level 1 or 2 protocol (level 2 per counterparty), BRC-29
   included. This differs from Metanet Desktop, which does not ask.
   `[2, 'mandala token']` stays reserved, and privileged calls are still
-  refused.
+  refused. So are the address rail's own key IDs: a BRC-29 call from a
+  connected origin whose key ID is `base64(YYYY-MM-DD) + ' ' +
+  base64('legacy')` is refused for every key-using method and counterparty
+  (`isAddressRailKeyID`, exported from the vault guard).
 - **BRC-29 signing asks every time.** An approval under `3241645161d8` is
   never reused: each signature gets its own prompt, and one app's concurrent
   calls are asked one at a time so a single tap cannot approve a batch. Each
@@ -32,14 +35,17 @@
   BRC-104 HTTP transport) is exempt from the prompt, so authenticated
   requests never ask. Both rules live in `SigningPolicyPermissionsManager`
   (`core/services/signingPermissionPolicy.ts`).
+- A non-privileged `verifySignature` is never prompted: it reveals nothing
+  and spends nothing.
 - The permission sheet no longer shows BRC-29 as `3241645161d8`. Its prompt
-  is titled "Payment Key Signature", says which money the signature could
-  spend (BSV address payments, change, or payments with another party), and
-  names the protocol "Payments (BRC-29)". Other protocols are unchanged.
+  is titled "Payment Key Signature", says coins paid to the key (or the
+  wallet's change, for counterparty self) could be spent with the signature,
+  and its details name the protocol "Payments (BRC-29)" and show the key ID,
+  decoded from base64 when it is readable text. Other protocols are
+  unchanged.
 - `getPublicKey`, `encrypt`, `decrypt`, HMAC and key-linkage calls under
-  BRC-29 are not prompted (their `seek*` flags stay off), so a connected app
-  can now derive this wallet's address-rail public keys (counterparty
-  `'anyone'`, date keyIDs) without asking.
+  BRC-29 with an app's key ID are not prompted (their `seek*` flags stay
+  off).
 
 ## 0.13.0
 

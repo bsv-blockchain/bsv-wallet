@@ -114,6 +114,26 @@ describe('BRC-29 asks every time', () => {
     expect(calls.map(c => c.args.data)).toEqual([[1], [2]])
   })
 
+  test('puts the key ID on the prompt', async () => {
+    const { pm, prompts } = answering('grant')
+    await pm.createSignature({ ...BRC29, data: [1] }, 'app.example')
+    expect(prompts[0].keyID).toBe(BRC29.keyID)
+  })
+
+  test('verifySignature is answered without a prompt', async () => {
+    const { pm, calls, prompts } = answering('grant')
+    await expect(pm.verifySignature({ ...BRC29, data: [1], signature: [1] } as any, 'app.example')).resolves.toEqual({
+      valid: true
+    })
+    await pm.verifySignature(
+      { protocolID: [2, 'some app protocol'], keyID: 'x', counterparty: SERVER, data: [1], signature: [1] } as any,
+      'app.example'
+    )
+    expect(prompts).toEqual([])
+    expect(calls.map(c => c.method)).toEqual(['verifySignature', 'verifySignature'])
+    await expect(pm.verifySignature({ ...BRC29, data: [1], signature: [1] } as any, '')).rejects.toThrow(/Originator/)
+  })
+
   test('records each approval as a token tagged with its key ID', async () => {
     const { pm, minted } = answering('grant')
     await pm.createSignature({ ...BRC29, data: [1] }, 'app.example')

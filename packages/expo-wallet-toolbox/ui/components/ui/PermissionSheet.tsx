@@ -251,12 +251,13 @@ export function deriveActive(
 
   if (ctx.protocolAccessModalOpen && ctx.protocolRequests.length > 0) {
     const r = ctx.protocolRequests[0]
-    const prompt = describeProtocolPrompt(r.protocolID ?? '', r.counterparty)
+    const prompt = describeProtocolPrompt(r.protocolID ?? '', r.counterparty, r.keyID)
     const details: { label: string; value: string }[] = [
       { label: 'Protocol', value: truncate(prompt.protocolLabel, 40) },
       { label: 'Security level', value: String(r.protocolSecurityLevel) }
     ]
     if (prompt.counterpartyLabel) details.push({ label: 'Shared with', value: prompt.counterpartyLabel })
+    if (prompt.keyIDLabel) details.push({ label: 'Key ID', value: truncate(prompt.keyIDLabel, 40) })
     if (prompt.askEveryTime) details.push({ label: 'Approval', value: 'This signature only' })
     return {
       kind: 'protocol',

@@ -32,6 +32,7 @@ import {
   PrivateKey,
   PublicKey,
   Transaction,
+  Utils,
   Validation,
   type ListActionsArgs,
   type ListActionsResult,
@@ -134,8 +135,43 @@ const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt', 'vault marker', 'va
  * more: it is the standard BRC-100 payment protocol, and refusing it broke
  * every external payment app that signs under it. External signing under it
  * goes through the permissions manager's protocol prompt instead
- * (seekProtocolPermissionsForSigning in WalletContext.tsx). */
+ * (seekProtocolPermissionsForSigning in WalletContext.tsx), except for the
+ * address rail's own key IDs, which stay refused (isAddressRailKeyID). */
 const RESERVED_RAIL_PROTOCOL_NAMES = new Set(['mandala token'])
+
+/** base64('legacy'), the suffix every address-rail key ID ends in
+ * (pay/rails/address.ts's LEGACY_DERIVATION_SUFFIX). */
+const ADDRESS_RAIL_KEY_SUFFIX = Utils.toBase64(Utils.toArray('legacy', 'utf8'))
+
+/** True for a key ID shaped like the BRC-29 address rail's own:
+ * `base64(YYYY-MM-DD) + ' ' + base64('legacy')` (pay/rails/address.ts's
+ * legacyKeyId). Those keys hold this wallet's BSV-address receipts, and anyone
+ * who knows a date can name one, so no connected origin has a reason to ask
+ * for them: refused outright, for every method and counterparty, whatever
+ * permission the user has given. KeyDeriver uses the key ID verbatim, so the
+ * comparison is exact. */
+export function isAddressRailKeyID(keyID: unknown): boolean {
+  if (typeof keyID !== 'string') return false
+  const parts = keyID.split(' ')
+  if (parts.length !== 2 || parts[1] !== ADDRESS_RAIL_KEY_SUFFIX) return false
+  try {
+    const bytes = Utils.toArray(parts[0], 'base64')
+    if (Utils.toBase64(bytes) !== parts[0]) return false
+    return /^\d{4}-\d{2}-\d{2}$/.test(Utils.toUTF8(bytes))
+  } catch {
+    return false
+  }
+}
+
+/** BRC-29's protocol name, under which the address rail derives. */
+const BRC29_PROTOCOL_NAME = '3241645161d8'
+
+function requestsAddressRailKey(args: unknown): boolean {
+  return (
+    matchesProtocolNamespace(args, new Set([BRC29_PROTOCOL_NAME])) &&
+    isAddressRailKeyID((args as { keyID?: unknown }).keyID)
+  )
+}
 
 /** The BRC-42 'anyone' counterparty (1·G), in canonical form. */
 const ANYONE_PUBLIC_KEY = new PrivateKey(1).toPublicKey().toString()
@@ -729,6 +765,7 @@ export function guardVaultAccess<T extends WalletInterface>(
             requestsVaultProtocol(args) ||
             requestsConnectionAuthorityProtocol(args) ||
             requestsPendingAbortAuthorityProtocol(args) ||
+            requestsAddressRailKey(args) ||
             (requestsReservedRailProtocol(args) &&
               !(method === 'getPublicKey' && (await derivesTowardAnotherParty(bound, args, adminOriginator)))))
         ) {
