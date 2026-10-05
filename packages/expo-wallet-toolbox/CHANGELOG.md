@@ -16,14 +16,18 @@
   `[2, 'mandala token']` stays reserved, and privileged calls are still
   refused.
 - **BRC-29 signing asks every time.** An approval under `3241645161d8` is
-  never stored: each signature gets its own prompt, a stored or grouped
-  BRC-29 grant is ignored, and one app's concurrent calls are asked one at a
-  time so a single tap cannot approve a batch. BRC-29 entries in a site's
+  never reused: each signature gets its own prompt, and one app's concurrent
+  calls are asked one at a time so a single tap cannot approve a batch. Each
+  approval is still recorded as a permission token, tagged
+  `keyid <hex of the key ID>` (or `keyidhash <sha256>` when too long), as a
+  history of what was approved; BRC-29 tokens, cache entries and the
+  recent-grant cover are never read back. BRC-29 entries in a site's
   manifest `groupPermissions`/`counterpartyPermissions` are ignored, so the
   grouped sheet never offers them and is not raised again before each
-  signature. A grant is keyed by origin,
-  protocol and counterparty, never key ID, so a stored one would cover the
-  wallet's BSV address receipts and change too.
+  signature. A grant is keyed by origin, protocol and counterparty, never key
+  ID, so a reused one would cover the wallet's BSV address receipts and
+  change too. Each recorded approval is a 1-satoshi token output plus its
+  transaction fee.
 - Signing under `[2, 'auth message signature']` (BRC-103 mutual auth and its
   BRC-104 HTTP transport) is exempt from the prompt, so authenticated
   requests never ask. Both rules live in `SigningPolicyPermissionsManager`

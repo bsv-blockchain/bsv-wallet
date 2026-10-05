@@ -1,3 +1,4 @@
+import { Hash, Utils } from '@bsv/sdk'
 import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 
 /**
@@ -15,13 +16,15 @@ import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 export const PROMPT_FREE_SIGNING_PROTOCOLS = new Set(['auth message signature'])
 
 /**
- * Protocols whose approval is never stored: every protocol permission under
- * them is asked for again, one call at a time.
+ * Protocols whose approval is never reused: every signature under them is
+ * asked for again, one call at a time. Each approval is still recorded as a
+ * permission token, tagged with the key ID it was given for, as a history of
+ * what the user approved; the manager just never looks those tokens up.
  *
  * BRC-29 (`3241645161d8`) is where this wallet keeps money: BSV address
  * receipts (counterparty 'anyone', date key IDs), change (counterparty self)
  * and payments from other parties. A grant is keyed by origin, protocol and
- * counterparty, never key ID, so a stored approval for one app key would also
+ * counterparty, never key ID, so a reused approval for one app key would also
  * cover every one of those. Asking per call keeps each signature the user's
  * decision.
  */
@@ -29,7 +32,8 @@ export const ASK_EVERY_TIME_PROTOCOLS = new Set(['3241645161d8'])
 
 type EnsureProtocolPermissionArgs = Parameters<WalletPermissionsManager['ensureProtocolPermission']>[0]
 type GrantPermissionArgs = Parameters<WalletPermissionsManager['grantPermission']>[0]
-type GrantGroupedPermissionArgs = Parameters<WalletPermissionsManager['grantGroupedPermission']>[0]
+type CreateSignatureArgs = Parameters<WalletPermissionsManager['createSignature']>
+type VerifySignatureArgs = Parameters<WalletPermissionsManager['verifySignature']>
 
 function protocolName(protocolID: unknown): string | undefined {
   return Array.isArray(protocolID) && typeof protocolID[1] === 'string' ? protocolID[1].toLowerCase().trim() : undefined
@@ -45,14 +49,47 @@ export function isAskEveryTimeProtocol(protocolID: unknown): boolean {
   return name !== undefined && ASK_EVERY_TIME_PROTOCOLS.has(name)
 }
 
+/** Matches the manager's protocol cache key,
+ * `proto:<origin>:<privileged>:<level>,<name>:<counterparty>`, capturing the
+ * name. Origins may carry a port, so the match anchors on the privileged flag. */
+const PROTOCOL_CACHE_KEY = /^proto:.*:(?:true|false):\d+,([^:]*):/
+
+function isAskEveryTimeCacheKey(key: unknown): boolean {
+  const match = typeof key === 'string' ? PROTOCOL_CACHE_KEY.exec(key) : null
+  return match !== null && isAskEveryTimeProtocol([2, match[1]])
+}
+
+/** Largest tag the wallet stores (validateTag: 1..300 bytes). */
+const MAX_TAG_BYTES = 300
+
+/** The token tag recording which key ID an approval was given for. Tags are
+ * lowercased by the wallet and key IDs are case-sensitive (often base64), so
+ * the key ID is stored as hex of its UTF-8 bytes, or as its SHA-256 when that
+ * would not fit in a tag. */
+export function keyIDTag(keyID: string): string {
+  const bytes = Utils.toArray(keyID, 'utf8')
+  const tag = `keyid ${Utils.toHex(bytes)}`
+  return tag.length <= MAX_TAG_BYTES ? tag : `keyidhash ${Utils.toHex(Hash.sha256(bytes))}`
+}
+
+/** A protocol permission request with the key ID this class attaches to it. */
+interface ProtocolRequest {
+  type?: string
+  originator?: string
+  protocolID?: unknown
+  keyID?: string
+}
+
 /** The manager's internals this class reaches. They are private in the
  * typings only; __tests__/services/signingPermissionPolicy.test.ts runs
  * against the real manager, so an upgrade that renames one fails there. */
 interface ManagerInternals {
-  prepareOriginator(originator: string): unknown
-  activeRequests: Map<string, { request: { type?: string; protocolID?: unknown } }>
+  prepareOriginator(originator: string): { normalized: string }
+  activeRequests: Map<string, { request: ProtocolRequest }>
   findProtocolToken(originator: string, privileged: boolean, protocolID: unknown, ...rest: unknown[]): Promise<unknown>
-  markRecentGrant(request: { type?: string; protocolID?: unknown }): void
+  markRecentGrant(request: ProtocolRequest): void
+  cachePermission(key: string, expiry: number): void
+  buildTagsForRequest(request: ProtocolRequest): string[]
   fetchManifestPermissions(originator: string): Promise<ManifestPermissions>
 }
 
@@ -91,15 +128,18 @@ function withoutAskEveryTime(manifest: ManifestPermissions): ManifestPermissions
 /**
  * WalletPermissionsManager with this wallet's signing policy:
  * - PROMPT_FREE_SIGNING_PROTOCOLS sign with no prompt;
- * - ASK_EVERY_TIME_PROTOCOLS never keep an approval. A grant is always
- *   one-time, any stored token or recent-grant cover is ignored, a grouped
- *   grant leaves them out, a site's manifest never puts them in a grouped
- *   request, and one origin's signing calls under them are asked one at a
- *   time, so a burst of calls cannot ride on one approval.
+ * - ASK_EVERY_TIME_PROTOCOLS never reuse an approval. Each one is minted as
+ *   a token tagged with its key ID, but no token, cache entry or recent-grant
+ *   cover is ever read back for them; a site's manifest never puts them in a
+ *   grouped request; and one origin's signature calls under them run one at
+ *   a time, so a burst of calls cannot ride on one approval.
  * Every other check runs unchanged.
  */
 export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
   private readonly askEveryTimeQueues = new Map<string, Promise<unknown>>()
+  /** Key ID of the ask-every-time signature call each (normalized) origin
+   * has in flight. The per-origin queue keeps it to one at a time. */
+  private readonly keyIDInFlight = new Map<string, string>()
 
   constructor(...args: ConstructorParameters<typeof WalletPermissionsManager>) {
     super(...args)
@@ -113,6 +153,16 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
     internals.markRecentGrant = request => {
       if (request?.type === 'protocol' && isAskEveryTimeProtocol(request.protocolID)) return
       markRecentGrant(request)
+    }
+    const cachePermission = internals.cachePermission.bind(this)
+    internals.cachePermission = (key, expiry) => {
+      if (isAskEveryTimeCacheKey(key)) return
+      cachePermission(key, expiry)
+    }
+    const buildTagsForRequest = internals.buildTagsForRequest.bind(this)
+    internals.buildTagsForRequest = request => {
+      const tags = buildTagsForRequest(request)
+      return typeof request?.keyID === 'string' ? [...tags, keyIDTag(request.keyID)] : tags
     }
     const fetchManifestPermissions = internals.fetchManifestPermissions.bind(this)
     internals.fetchManifestPermissions = async originator =>
@@ -130,40 +180,64 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
       this.internals.prepareOriginator(args.originator)
       return true
     }
-    if (args.usageType !== 'signing' || !isAskEveryTimeProtocol(args.protocolID)) {
-      return await super.ensureProtocolPermission(args)
+    return await super.ensureProtocolPermission(args)
+  }
+
+  override async createSignature(
+    ...args: CreateSignatureArgs
+  ): ReturnType<WalletPermissionsManager['createSignature']> {
+    return await this.oneAtATime(args[0], args[1], async () => await super.createSignature(...args))
+  }
+
+  override async verifySignature(
+    ...args: VerifySignatureArgs
+  ): ReturnType<WalletPermissionsManager['verifySignature']> {
+    return await this.oneAtATime(args[0], args[1], async () => await super.verifySignature(...args))
+  }
+
+  /**
+   * Runs an ask-every-time signature call after the same origin's previous
+   * one. The manager hands every call already waiting on a request the same
+   * answer, so concurrent calls would otherwise share a single approval.
+   * While it runs, its key ID is what a grant of its request records.
+   */
+  private async oneAtATime<T>(
+    args: { protocolID?: unknown; keyID?: string },
+    originator: string | undefined,
+    call: () => Promise<T>
+  ): Promise<T> {
+    if (!isAskEveryTimeProtocol(args?.protocolID)) return await call()
+    let origin: string
+    try {
+      origin = this.internals.prepareOriginator(String(originator)).normalized
+    } catch {
+      return await call() // the manager refuses it with its own error
     }
-    // One origin's signing calls wait for each other: the manager hands every
-    // call already waiting on a request the same answer, so concurrent calls
-    // would otherwise share a single approval. Only signing is queued; the
-    // other usages under this protocol are not prompted (WalletContext.tsx).
-    const queueKey = String(args.originator)
-    const previous = this.askEveryTimeQueues.get(queueKey) ?? Promise.resolve()
-    const current = previous.catch(() => {}).then(async () => await super.ensureProtocolPermission(args))
-    this.askEveryTimeQueues.set(queueKey, current)
+    const previous = this.askEveryTimeQueues.get(origin) ?? Promise.resolve()
+    const current = previous
+      .catch(() => {})
+      .then(async () => {
+        this.keyIDInFlight.set(origin, String(args.keyID))
+        try {
+          return await call()
+        } finally {
+          this.keyIDInFlight.delete(origin)
+        }
+      })
+    this.askEveryTimeQueues.set(origin, current)
     try {
       return await current
     } finally {
-      if (this.askEveryTimeQueues.get(queueKey) === current) this.askEveryTimeQueues.delete(queueKey)
+      if (this.askEveryTimeQueues.get(origin) === current) this.askEveryTimeQueues.delete(origin)
     }
   }
 
   override async grantPermission(params: GrantPermissionArgs): Promise<void> {
     const request = this.internals.activeRequests.get(params.requestID)?.request
-    if (request?.type === 'protocol' && isAskEveryTimeProtocol(request.protocolID)) {
-      return await super.grantPermission({ ...params, ephemeral: true })
+    if (request?.type === 'protocol' && isAskEveryTimeProtocol(request.protocolID) && request.originator) {
+      const keyID = this.keyIDInFlight.get(request.originator)
+      if (keyID !== undefined) request.keyID = keyID
     }
     return await super.grantPermission(params)
-  }
-
-  override async grantGroupedPermission(params: GrantGroupedPermissionArgs): Promise<void> {
-    const protocols = params.granted?.protocolPermissions
-    if (!protocols?.some(p => isAskEveryTimeProtocol(p.protocolID))) {
-      return await super.grantGroupedPermission(params)
-    }
-    return await super.grantGroupedPermission({
-      ...params,
-      granted: { ...params.granted, protocolPermissions: protocols.filter(p => !isAskEveryTimeProtocol(p.protocolID)) }
-    })
   }
 }

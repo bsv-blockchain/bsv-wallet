@@ -41,7 +41,7 @@ export interface ProtocolPrompt {
   protocolLabel: string
   /** Who the keys are shared with, when that is worth naming. */
   counterpartyLabel?: string
-  /** The approval covers this one call and is not stored
+  /** The approval covers this one call and is never reused
    * (core/services/signingPermissionPolicy.ts's ASK_EVERY_TIME_PROTOCOLS). */
   askEveryTime?: boolean
 }

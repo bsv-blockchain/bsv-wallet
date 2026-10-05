@@ -1,5 +1,5 @@
 import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
-import { SigningPolicyPermissionsManager } from '../../core/services/signingPermissionPolicy'
+import { SigningPolicyPermissionsManager, keyIDTag } from '../../core/services/signingPermissionPolicy'
 
 const ADMIN = 'admin.wallet'
 
@@ -20,7 +20,13 @@ function manager() {
   pm.bindCallback('onProtocolPermissionRequested', (request: any) => {
     prompts.push(request)
   })
-  return { pm, calls, prompts }
+  // Stand-in for the on-chain mint (the fake wallet cannot build a PushDrop):
+  // records each permission token the manager would create, with its tags.
+  const minted: { request: any; tags: string[] }[] = []
+  ;(pm as any).createPermissionOnChain = async (request: any) => {
+    minted.push({ request, tags: (pm as any).buildTagsForRequest(request) })
+  }
+  return { pm, calls, prompts, minted }
 }
 
 const SERVER = '02' + 'ab'.repeat(32)
@@ -84,7 +90,7 @@ describe('BRC-29 asks every time', () => {
    * request. The underlying wallet has no listOutputs/createAction, so any
    * attempt to look up or mint a permission token throws. */
   function answering(answer: 'grant' | 'deny') {
-    const { pm, calls, prompts } = manager()
+    const { pm, calls, prompts, minted } = manager()
     pm.bindCallback('onProtocolPermissionRequested', (request: any) => {
       // Answer after the current tick, like a user tapping the sheet.
       setTimeout(() => {
@@ -92,16 +98,43 @@ describe('BRC-29 asks every time', () => {
         else void pm.denyPermission(request.requestID)
       }, 0)
     })
-    return { pm, calls, prompts }
+    return { pm, calls, prompts, minted }
   }
+
+  /** Lets the grant's mint, which runs after the signature resolves, finish. */
+  const settle = async () => await new Promise(resolve => setTimeout(resolve, 10))
 
   test('prompts for each signature, even after an approval', async () => {
     const { pm, calls, prompts } = answering('grant')
     await pm.createSignature({ ...BRC29, data: [1] }, 'app.example')
+    await settle()
     await pm.createSignature({ ...BRC29, data: [2] }, 'app.example')
     expect(prompts).toHaveLength(2)
     expect(prompts[0].protocolID).toEqual([2, '3241645161d8'])
     expect(calls.map(c => c.args.data)).toEqual([[1], [2]])
+  })
+
+  test('records each approval as a token tagged with its key ID', async () => {
+    const { pm, minted } = answering('grant')
+    await pm.createSignature({ ...BRC29, data: [1] }, 'app.example')
+    await settle()
+    await pm.createSignature({ ...BRC29, keyID: 'MjAyNi0xMC0wNQ== bGVnYWN5', data: [2] }, 'app.example')
+    await settle()
+    expect(minted).toHaveLength(2)
+    expect(minted[0].tags).toEqual(
+      expect.arrayContaining(['originator app.example', 'protocolName 3241645161d8', 'counterparty anyone'])
+    )
+    expect(minted[0].tags).toContain(keyIDTag(BRC29.keyID))
+    expect(minted[1].tags).toContain(keyIDTag('MjAyNi0xMC0wNQ== bGVnYWN5'))
+    // Recorded, never reused: no cache entry or recent-grant cover either.
+    expect((pm as any).permissionCache.size).toBe(0)
+    expect((pm as any).recentGrants.size).toBe(0)
+  })
+
+  test('a key ID tag survives lowercasing and fits a tag', () => {
+    expect(keyIDTag('aB')).toBe('keyid 6142')
+    const long = keyIDTag('x'.repeat(400))
+    expect(long).toMatch(/^keyidhash [0-9a-f]{64}$/)
   })
 
   test('concurrent signatures each get their own prompt', async () => {
@@ -160,22 +193,5 @@ describe('BRC-29 asks every time', () => {
     expect(pacts).toEqual([])
     expect(prompts).toHaveLength(1)
     expect(calls).toHaveLength(1)
-  })
-
-  test('a grouped grant leaves BRC-29 out', async () => {
-    const { pm } = manager()
-    const parent = jest
-      .spyOn(Object.getPrototypeOf(SigningPolicyPermissionsManager.prototype), 'grantGroupedPermission')
-      .mockResolvedValue(undefined)
-    try {
-      const other = { protocolID: [2, 'some app protocol'] as [2, string], counterparty: 'anyone', description: 'x' }
-      await pm.grantGroupedPermission({
-        requestID: 'r',
-        granted: { protocolPermissions: [other, { ...BRC29, description: 'pay' }] }
-      } as any)
-      expect(parent).toHaveBeenCalledWith({ requestID: 'r', granted: { protocolPermissions: [other] } })
-    } finally {
-      parent.mockRestore()
-    }
   })
 })
