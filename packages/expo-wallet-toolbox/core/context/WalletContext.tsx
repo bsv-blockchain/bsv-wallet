@@ -16,7 +16,7 @@ import {
 import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk'
 import { DEFAULT_SETTINGS } from './defaultWalletSettings'
 import { conformWalletResults } from '../services/conformWalletResults'
-import { AuthSigningPermissionsManager } from '../services/signingPermissionExemptions'
+import { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
 import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
 import { getVaultDriver } from '../services/vault/driver'
 import { backupAttestation } from '../services/vault/backupAttestation'
@@ -1926,7 +1926,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         })
 
         // Setup permissions with provided callbacks and BTMS module.
-        const permissionsManager = new AuthSigningPermissionsManager(wallet, adminOriginator, {
+        const permissionsManager = new SigningPolicyPermissionsManager(wallet, adminOriginator, {
           differentiatePrivilegedOperations: true,
           seekBasketInsertionPermissions: false,
           seekBasketListingPermissions: false,
@@ -1952,8 +1952,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // external BRC-29 ([2,'3241645161d8']) signing outright, and that
           // namespace also derives this wallet's own address-rail keys
           // (counterparty 'anyone'), so a site signing under it must be
-          // asked first. BRC-103/104 auth signing is exempt
-          // (AuthSigningPermissionsManager).
+          // asked first -- for BRC-29, on every signature. BRC-103/104 auth
+          // signing is exempt (SigningPolicyPermissionsManager).
           seekProtocolPermissionsForSigning: true,
           seekSpendingPermissions: true,
           permissionModules: { btms: btmsModule, mandala: mandalaModule }

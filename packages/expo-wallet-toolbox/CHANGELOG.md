@@ -15,9 +15,20 @@
   included. This differs from Metanet Desktop, which does not ask.
   `[2, 'mandala token']` stays reserved, and privileged calls are still
   refused.
+- **BRC-29 signing asks every time.** An approval under `3241645161d8` is
+  never stored: each signature gets its own prompt, a stored or grouped
+  BRC-29 grant is ignored, and one app's concurrent calls are asked one at a
+  time so a single tap cannot approve a batch. A grant is keyed by origin,
+  protocol and counterparty, never key ID, so a stored one would cover the
+  wallet's BSV address receipts and change too.
 - Signing under `[2, 'auth message signature']` (BRC-103 mutual auth and its
-  BRC-104 HTTP transport) is exempt from that prompt, so authenticated
-  requests never ask (`AuthSigningPermissionsManager`).
+  BRC-104 HTTP transport) is exempt from the prompt, so authenticated
+  requests never ask. Both rules live in `SigningPolicyPermissionsManager`
+  (`core/services/signingPermissionPolicy.ts`).
+- The permission sheet no longer shows BRC-29 as `3241645161d8`. Its prompt
+  is titled "Payment Key Signature", says which money the signature could
+  spend (BSV address payments, change, or payments with another party), and
+  names the protocol "Payments (BRC-29)". Other protocols are unchanged.
 - `getPublicKey`, `encrypt`, `decrypt`, HMAC and key-linkage calls under
   BRC-29 are not prompted (their `seek*` flags stay off), so a connected app
   can now derive this wallet's address-rail public keys (counterparty

@@ -192,3 +192,48 @@ describe('grouped permission requests', () => {
     expect(active?.kind).toBe('spending')
   })
 })
+
+describe('protocol prompts', () => {
+  function protocolCtx(request: Record<string, unknown>) {
+    return {
+      ...baseCtx([]),
+      protocolRequests: [{ requestID: 'r', originator: 'app.example', ...request }],
+      protocolAccessModalOpen: true
+    }
+  }
+  const ONE_G = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
+
+  test.each([
+    ['anyone', 'Anyone', /BSV address/],
+    [ONE_G, 'Anyone', /BSV address/],
+    ['self', 'Only you', /change/],
+    ['02' + 'ab'.repeat(32), '02ababab\u2026abab', /another party/]
+  ])('names BRC-29 in plain words (counterparty %s)', (counterparty, shared, warning) => {
+    const active = deriveActive(
+      protocolCtx({ protocolID: '3241645161d8', protocolSecurityLevel: 2, counterparty }),
+      formatSats
+    )!
+    expect(active.title).toBe('Payment Key Signature')
+    expect(active.description).toMatch(warning)
+    expect(active.details).toEqual([
+      { label: 'Protocol', value: 'Payments (BRC-29, 3241645161d8)' },
+      { label: 'Security level', value: '2' },
+      { label: 'Shared with', value: shared },
+      { label: 'Approval', value: 'This signature only' }
+    ])
+    expect(JSON.stringify(active)).not.toMatch(/"value":"3241645161d8"/)
+  })
+
+  test('leaves other protocols as the app named them', () => {
+    const active = deriveActive(
+      protocolCtx({ protocolID: 'todo list', protocolSecurityLevel: 1, description: 'wants to sign todos' }),
+      formatSats
+    )!
+    expect(active.title).toBe('Protocol Access')
+    expect(active.description).toBe('wants to sign todos')
+    expect(active.details).toEqual([
+      { label: 'Protocol', value: 'todo list' },
+      { label: 'Security level', value: '1' }
+    ])
+  })
+})

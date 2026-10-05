@@ -5,6 +5,7 @@ import Sheet from './Sheet'
 import PressableScale from './PressableScale'
 import { useTranslation } from 'react-i18next'
 import AmountDisplay from '../wallet/AmountDisplay'
+import { describeProtocolPrompt } from './protocolPrompt'
 import {
   spacing,
   radii,
@@ -250,17 +251,21 @@ export function deriveActive(
 
   if (ctx.protocolAccessModalOpen && ctx.protocolRequests.length > 0) {
     const r = ctx.protocolRequests[0]
+    const prompt = describeProtocolPrompt(r.protocolID ?? '', r.counterparty)
+    const details: { label: string; value: string }[] = [
+      { label: 'Protocol', value: truncate(prompt.protocolLabel, 40) },
+      { label: 'Security level', value: String(r.protocolSecurityLevel) }
+    ]
+    if (prompt.counterpartyLabel) details.push({ label: 'Shared with', value: prompt.counterpartyLabel })
+    if (prompt.askEveryTime) details.push({ label: 'Approval', value: 'This signature only' })
     return {
       kind: 'protocol',
       requestID: r.requestID,
       originator: r.originator || 'Unknown app',
-      title: r.renewal ? 'Protocol Access Renewal' : 'Protocol Access',
-      description: r.description || 'wants to use a cryptographic protocol',
+      title: r.renewal ? `${prompt.title} Renewal` : prompt.title,
+      description: prompt.description ?? (r.description || 'wants to use a cryptographic protocol'),
       renewal: r.renewal,
-      details: [
-        { label: 'Protocol ID', value: truncate(r.protocolID, 28) },
-        { label: 'Security level', value: String(r.protocolSecurityLevel) }
-      ]
+      details
     }
   }
 
@@ -807,7 +812,9 @@ const PermissionSheet: React.FC = () => {
                       </Text>
                       {active.groupPermissions.protocolPermissions.map((p, i) => (
                         <View key={i} style={styles.groupRow}>
-                          <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>{p.protocolID[1]}</Text>
+                          <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>
+                            {describeProtocolPrompt(p.protocolID[1], p.counterparty).protocolLabel}
+                          </Text>
                           {p.description && (
                             <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>{p.description}</Text>
                           )}
