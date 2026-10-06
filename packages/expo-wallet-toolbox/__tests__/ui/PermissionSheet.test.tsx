@@ -44,8 +44,8 @@ function baseCtx(mandalaRequests: { originator: string; message: string }[]) {
   }
 }
 
-const ASSET_A = 'a'.repeat(64) + '.0'
-const ASSET_B = 'b'.repeat(64) + '.0'
+const ASSET_A = 'a'.repeat(64) + '_0'
+const ASSET_B = 'b'.repeat(64) + '_0'
 
 describe('deriveActive — mandala prompts (XR-040)', () => {
   it('renders BOTH assets of a two-line mandala_spend, not only the primary', () => {

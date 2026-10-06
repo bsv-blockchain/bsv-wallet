@@ -9,7 +9,7 @@
  * inbox needs nothing new to credit it.
  */
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import {
   MANDALA_MESSAGE_BOX,
   resendTokenTransfer,
@@ -17,7 +17,7 @@ import {
   type TokenResendDeps
 } from '../../core/mandala/resendTransfer'
 
-const ASSET_ID = 'ab'.repeat(32) + '.0'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
 const RECIPIENT = '02' + '11'.repeat(32)
 const SENDER_BLINDED = '03' + '22'.repeat(32)
 const KEY_ID = 'cHJlZml4 c3VmZml4'

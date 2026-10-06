@@ -48,9 +48,10 @@ import {
   Utils,
   type ListOutputsArgs
 } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import {
-  admissionMessageV2,
+  admissionMessageV3,
+  tokenTopic,
   blindingGet,
   blindingListReserved,
   configureMandala,
@@ -89,8 +90,8 @@ const ENDPOINTS: MandalaEndpointConfig = {
   overlayIdentityKey: OVERLAY_KEY,
   messageBoxUrl: 'https://box.example'
 }
-const ASSET_ID = 'ab'.repeat(32) + '.0'
-const OTHER_ASSET = 'cd'.repeat(32) + '.1'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
+const OTHER_ASSET = 'cd'.repeat(32) + '_0'
 const PAYER = new PrivateKey(7).toPublicKey().toString()
 const PAYEE = new PrivateKey(9).toPublicKey().toString()
 
@@ -126,7 +127,7 @@ function txSpending(parents: { tx: Transaction; vout: number }[], amount = 60, a
 
 /** A real σ_I: the same bytes the overlay signs, by the overlay's own key. */
 function signAdmission(txid: string, outputsToAdmit: number[]): string {
-  return OVERLAY_PRIV.sign(Utils.toArray(admissionMessageV2(txid, outputsToAdmit), 'utf8')).toDER('hex') as string
+  return OVERLAY_PRIV.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), txid, outputsToAdmit), 'utf8')).toDER('hex') as string
 }
 
 interface FakeReq {
@@ -1039,7 +1040,7 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
       ok: true,
       status: 200,
       body: JSON.stringify({
-        tm_mandala: { outputsToAdmit: [0], admissionSignature: signature, admissionIdentityKey: OVERLAY_KEY }
+        [tokenTopic(ASSET_ID)]: { outputsToAdmit: [0], admissionSignature: signature, admissionIdentityKey: OVERLAY_KEY }
       })
     })
     expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
@@ -1054,7 +1055,7 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     const runtime = runtimeWith({
       ok: true,
       status: 200,
-      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [0] } })
+      body: JSON.stringify({ [tokenTopic(ASSET_ID)]: { outputsToAdmit: [0] } })
     })
     expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
       kind: 'unavailable',
@@ -1065,12 +1066,12 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
 
   it('a σ_I by some other key, or over another admitted set, is ERR_BAD_ADMISSION', async () => {
     const impostor = PrivateKey.fromRandom()
-    const foreign = impostor.sign(Utils.toArray(admissionMessageV2(tipTxid, [0]), 'utf8')).toDER('hex') as string
+    const foreign = impostor.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), tipTxid, [0]), 'utf8')).toDER('hex') as string
     const byImpostor = runtimeWith({
       ok: true,
       status: 200,
       body: JSON.stringify({
-        tm_mandala: {
+        [tokenTopic(ASSET_ID)]: {
           outputsToAdmit: [0],
           admissionSignature: foreign,
           admissionIdentityKey: impostor.toPublicKey().toString()
@@ -1086,7 +1087,7 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
       ok: true,
       status: 200,
       body: JSON.stringify({
-        tm_mandala: {
+        [tokenTopic(ASSET_ID)]: {
           outputsToAdmit: [0, 1],
           admissionSignature: signAdmission(tipTxid, [0]),
           admissionIdentityKey: OVERLAY_KEY
@@ -1154,6 +1155,7 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     const signature = signAdmission(tipTxid, [0])
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid: tipTxid,
       outputsToAdmit: [0],
       signature,
@@ -1163,7 +1165,7 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     const runtime = runtimeWith({
       ok: true,
       status: 200,
-      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [], coinsToRetain: [] } })
+      body: JSON.stringify({ [tokenTopic(ASSET_ID)]: { outputsToAdmit: [], coinsToRetain: [] } })
     })
     expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
       kind: 'admitted',
@@ -1179,7 +1181,7 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     const runtime = runtimeWith({
       ok: true,
       status: 200,
-      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [] } })
+      body: JSON.stringify({ [tokenTopic(ASSET_ID)]: { outputsToAdmit: [] } })
     })
     expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
       kind: 'unavailable',
@@ -1197,7 +1199,7 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
     const runtime = runtimeWith({
       ok: true,
       status: 200,
-      body: JSON.stringify({ tm_mandala: { outputsToAdmit: [] } })
+      body: JSON.stringify({ [tokenTopic(ASSET_ID)]: { outputsToAdmit: [] } })
     })
     expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
       kind: 'refused',
@@ -1263,7 +1265,7 @@ describe('the drain step, driven by the runtime’s cover and submit', () => {
             status: 200,
             text: async () =>
               JSON.stringify({
-                tm_mandala: {
+                [tokenTopic(ASSET_ID)]: {
                   outputsToAdmit: [0],
                   admissionSignature: signAdmission(txid, [0]),
                   admissionIdentityKey: OVERLAY_KEY
@@ -1459,6 +1461,7 @@ describe('fetchAdmission — GET /admin/admission/:txid, mapped and FIX-H-verifi
     const signature = signAdmission(TXID, [0])
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid: TXID,
       outputsToAdmit: [0],
       signature,
@@ -1478,6 +1481,7 @@ describe('fetchAdmission — GET /admin/admission/:txid, mapped and FIX-H-verifi
     const otherKey = new PrivateKey(321).toPublicKey().toString()
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid: TXID,
       outputsToAdmit: [0],
       signature: signAdmission(TXID, [0]), // signed by OVERLAY_PRIV, claimed as otherKey
@@ -1519,6 +1523,7 @@ describe('recoverStaleAdmissions — FIX C recovery', () => {
     const signature = signAdmission(OLD_TXID, [0])
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid: OLD_TXID,
       outputsToAdmit: [0],
       signature,
@@ -1713,7 +1718,7 @@ describe('hand-over-first, and the drain that finishes it', () => {
       status: 200,
       text: async () =>
         JSON.stringify({
-          tm_mandala: {
+          [tokenTopic(ASSET_ID)]: {
             outputsToAdmit: [0],
             admissionSignature: signAdmission(txid, [0]),
             admissionIdentityKey: OVERLAY_KEY
@@ -1887,8 +1892,8 @@ describe('assetStatus — regulatory/registry facts for the UI', () => {
       blockedIdentities: [],
       allowedIdentities: [],
       frozenOutpoints: [
-        { outpoint: 'aa'.repeat(32) + '.0', amount: 30, owner: PAYEE, reason: 'kyc' },
-        { outpoint: 'bb'.repeat(32) + '.1', amount: 12, owner: PAYEE, reason: 'kyc' }
+        { outpoint: 'aa'.repeat(32) + '_0', amount: 30, owner: PAYEE, reason: 'kyc' },
+        { outpoint: 'bb'.repeat(32) + '_0', amount: 12, owner: PAYEE, reason: 'kyc' }
       ],
       evictedOutpoints: []
     })
@@ -1980,6 +1985,7 @@ describe('fetchAdmission is pinned to this deployment (§9.10)', () => {
     const somebodyElse = '42'.repeat(32)
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid: somebodyElse,
       outputsToAdmit: [0],
       // A REAL admission, signed by the real overlay — for another transaction.
@@ -2044,7 +2050,7 @@ function tokenFrame(args: {
 
 /** σ_I bytes as a frame carries them, by the overlay or by an impostor. */
 function admissionBytes(txid: string, outputsToAdmit: number[], priv = OVERLAY_PRIV): Uint8Array {
-  const der = priv.sign(Utils.toArray(admissionMessageV2(txid, outputsToAdmit), 'utf8')).toDER('hex') as string
+  const der = priv.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), txid, outputsToAdmit), 'utf8')).toDER('hex') as string
   return Uint8Array.from(Utils.toArray(der, 'hex'))
 }
 
@@ -2228,6 +2234,7 @@ describe('verifyAdmission — the FIX H anchor the runtime hands its machinery',
     expect(
       await runtime.verifyAdmission({
         txid,
+        topic: tokenTopic(ASSET_ID),
         outputsToAdmit: [0],
         signature: admissionBytes(txid, [0]),
         signerKey: OVERLAY_KEY
@@ -2238,6 +2245,7 @@ describe('verifyAdmission — the FIX H anchor the runtime hands its machinery',
     expect(
       await runtime.verifyAdmission({
         txid,
+        topic: tokenTopic(ASSET_ID),
         outputsToAdmit: [0],
         signature: admissionBytes(txid, [0], impostor),
         signerKey: impostor.toPublicKey().toString()
@@ -2295,7 +2303,7 @@ describe('submit finds the bytes of a hop this wallet never built', () => {
             status: 200,
             text: async () =>
               JSON.stringify({
-                tm_mandala: {
+                [tokenTopic(ASSET_ID)]: {
                   outputsToAdmit: [0],
                   admissionSignature: signAdmission(txid, [0]),
                   admissionIdentityKey: OVERLAY_KEY
@@ -2491,6 +2499,7 @@ describe('repairAdmittedAborted — the wallet failed a transaction the chain ha
   function overlayStillHoldsIt(): void {
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid: REPAIR_TXID,
       outputsToAdmit: [0],
       signature: signAdmission(REPAIR_TXID, [0]),
@@ -2555,6 +2564,7 @@ describe('repairAdmittedAborted — the wallet failed a transaction the chain ha
     const { storage, repair } = damagedStorage()
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid: REPAIR_TXID,
       outputsToAdmit: [0],
       signature: signAdmission(REPAIR_TXID, [0]),
@@ -2718,7 +2728,7 @@ describe('settleNow — one row, settled immediately, hand-over first', () => {
       status: 200,
       text: async () =>
         JSON.stringify({
-          tm_mandala: {
+          [tokenTopic(ASSET_ID)]: {
             outputsToAdmit: [0],
             admissionSignature: signAdmission(txid, [0]),
             admissionIdentityKey: OVERLAY_KEY
@@ -2994,7 +3004,7 @@ describe('settlePendingSends — the handle rail’s rows are driven on every ti
       status: 200,
       text: async () =>
         JSON.stringify({
-          tm_mandala: {
+          [tokenTopic(ASSET_ID)]: {
             outputsToAdmit: [0],
             admissionSignature: signAdmission(txid, [0]),
             admissionIdentityKey: OVERLAY_KEY
@@ -3128,7 +3138,7 @@ describe('submit completes the tip’s ancestry from the wallet before posting',
         status: 200,
         text: async () =>
           JSON.stringify({
-            tm_mandala: {
+            [tokenTopic(ASSET_ID)]: {
               outputsToAdmit: [0],
               admissionSignature: signAdmission(tipTxid, [0]),
               admissionIdentityKey: OVERLAY_KEY
@@ -3167,6 +3177,7 @@ describe('ensureAdmissionsForHoldings — every held coin carries a verified σ_
     })
     ;(libFetchAdmission as jest.Mock).mockImplementation(async (_url: string, txid: string) => ({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid,
       outputsToAdmit: [0],
       signature: signAdmission(txid, [0]),
@@ -3187,9 +3198,10 @@ describe('ensureAdmissionsForHoldings — every held coin carries a verified σ_
     const impostor = PrivateKey.fromRandom()
     ;(libFetchAdmission as jest.Mock).mockImplementation(async (_url: string, txid: string) => ({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid,
       outputsToAdmit: [0],
-      signature: impostor.sign(Utils.toArray(admissionMessageV2(txid, [0]), 'utf8')).toDER('hex'),
+      signature: impostor.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), txid, [0]), 'utf8')).toDER('hex'),
       signerKey: impostor.toPublicKey().toString(),
       at: Date.now()
     }))
@@ -3352,6 +3364,7 @@ describe('reviewTokenHoldings — Check Wallet asks the overlay about every sett
     const runtime = build({ storage }, [{ tx: coin, vout: 0 }])
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid,
       outputsToAdmit: [1],
       signature: signAdmission(txid, [1]),
@@ -3412,6 +3425,7 @@ describe('reviewTokenHoldings — Check Wallet asks the overlay about every sett
     const runtime = build({ storage }, [{ tx: coin, vout: 0 }])
     ;(libFetchAdmission as jest.Mock).mockResolvedValue({
       kind: 'admitted',
+      topic: tokenTopic(ASSET_ID),
       txid,
       outputsToAdmit: [0],
       signature: signAdmission(txid, [0]),

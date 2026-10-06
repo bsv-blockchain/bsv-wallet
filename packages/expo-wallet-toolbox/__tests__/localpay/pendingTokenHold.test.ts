@@ -23,7 +23,7 @@ jest.mock('../../core/net/online', () => ({ getOnline: () => mockGetOnline() }))
 
 import { DatabaseSync } from 'node:sqlite'
 import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { createTables } from '../../core/storage/schema/createTables'
@@ -32,7 +32,7 @@ import { getPending, processPending, savePending, type KVStorage } from '../../c
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import type { EvidenceFrame, SettlementStore } from '../../core/mandala/types'
 
-const ASSET = 'ab'.repeat(32) + '.0'
+const ASSET = 'ab'.repeat(32) + '_0'
 const OVERLAY = 'https://overlay.issuer.example'
 const OVERLAY_KEY = '03'.padEnd(66, 'b')
 const PKH = new Array(20).fill(9)

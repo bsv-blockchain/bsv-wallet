@@ -11,7 +11,7 @@
  * chain, which the overlay can then only refuse.
  */
 import { Beef, LockingScript, P2PKH, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import {
   buildPaymentFrame,
   finalizeDelivery,
@@ -25,7 +25,7 @@ import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../../core/ma
 import { FT_PROTOCOL_ID } from '../../core/localpay/verify'
 import type { TokenAdmissionRow } from '../../core/mandala/types'
 
-const ASSET = 'ab'.repeat(32) + '.0'
+const ASSET = 'ab'.repeat(32) + '_0'
 const OVERLAY_KEY = '03'.padEnd(66, 'b')
 const OVERLAY_URL = 'https://overlay.issuer.example'
 const PAYEE = '02'.padEnd(66, 'e')
@@ -471,7 +471,7 @@ describe('buildPaymentFrame: token path', () => {
     const other = new Transaction()
     other.addOutput({
       satoshis: 1,
-      lockingScript: new MandalaToken().lock('cd'.repeat(32) + '.1', 9999, PKH)
+      lockingScript: new MandalaToken().lock('cd'.repeat(32) + '_0', 9999, PKH)
     })
     const coins = [mine, other]
     const signable = signableFrom([{ tx: mine, vout: 0 }], [

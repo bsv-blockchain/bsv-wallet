@@ -74,6 +74,7 @@ interface RawInboxMessage {
 /** What one decoded hand-over needs from `settle` — the exact shape `SettleArgs` wants. */
 interface DecodedHandover {
   tip: Transaction
+  assetId: string
   mustSubmit: string[]
   bytesFor: (txid: string) => { beef: number[]; offChainValues: number[] } | undefined
 }
@@ -128,6 +129,7 @@ function decodeHandover(body: RawHandoverBody, cover: PreHoldCoverFn): DecodedHa
 
   return {
     tip,
+    assetId: body.assetId,
     mustSubmit: result.mustSubmit,
     bytesFor: (id: string) => {
       const found = beef.findAtomicTransaction(id)
@@ -172,7 +174,12 @@ export async function preHoldInboxSettlements(deps: PreHoldInboxDeps): Promise<S
     if (!decoded) continue // COVER refused it — acceptOne will reach the same refusal before internalizing
 
     try {
-      await deps.settle({ txid: decoded.tip.id('hex'), mustSubmit: decoded.mustSubmit, bytesFor: decoded.bytesFor })
+      await deps.settle({
+        txid: decoded.tip.id('hex'),
+        mustSubmit: decoded.mustSubmit,
+        assetId: decoded.assetId,
+        bytesFor: decoded.bytesFor
+      })
     } catch (e) {
       devLog(
         `[mandala] inbox pre-hold could not write the settlement row for message ${raw.messageId}; holding it back this pass:`,

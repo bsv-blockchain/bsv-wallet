@@ -22,7 +22,7 @@ import AssetSwitcherDropdown from '../../ui/components/wallet/AssetSwitcherDropd
 // Two assets from DIFFERENT issuers, sharing the identical ticker AND label a
 // malicious issuer would pick to impersonate a real one.
 const REAL: TokenAssetInfo = {
-  assetId: 'aa'.repeat(32) + '.0',
+  assetId: 'aa'.repeat(32) + '_0',
   label: 'Acme Dollar',
   ticker: 'USDX',
   decimals: 2,
@@ -32,7 +32,7 @@ const REAL: TokenAssetInfo = {
 }
 const LOOKALIKE: TokenAssetInfo = {
   ...REAL,
-  assetId: 'bb'.repeat(32) + '.0',
+  assetId: 'bb'.repeat(32) + '_0',
   issuerName: 'Not Acme At All'
 }
 

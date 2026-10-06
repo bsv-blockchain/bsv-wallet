@@ -394,7 +394,7 @@ const b64urlToBytes = (s: string) => {
 }
 
 const asset = (): SessionAsset => ({
-  id: 'ab'.repeat(32) + '.0',
+  id: 'ab'.repeat(32) + '_0',
   label: 'Example Dollar',
   ticker: 'EXD',
   decimals: 2,

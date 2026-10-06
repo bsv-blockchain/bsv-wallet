@@ -1056,7 +1056,7 @@ describe('isAbortSafe', () => {
 })
 
 describe('peerPayLinkFor — token requests', () => {
-  const ASSET = 'ab'.repeat(32) + '.0'
+  const ASSET = 'ab'.repeat(32) + '_0'
 
   it('names the asset and its base units, and never a sats figure', () => {
     expect(peerPayLinkFor(KEY, undefined, undefined, { assetId: ASSET, baseUnits: 2500 })).toBe(

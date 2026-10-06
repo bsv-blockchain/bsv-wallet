@@ -9,7 +9,7 @@ import {
   UnlockingScript,
   Utils
 } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../mandala/token'
 import { FRAME_VERSION, type PaymentFrame } from './codec'
 import { isRequestableAmount, type Session } from './session'
 import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'

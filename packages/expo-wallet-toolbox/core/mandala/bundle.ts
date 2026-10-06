@@ -29,7 +29,7 @@
  * becomes a one-line import and nothing else here changes.
  */
 import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from './token'
 import type { PaymentFrame } from '../localpay/codec'
 import type { AdmissionEntryWire, CoverResult, SettlementStore } from './types'
 

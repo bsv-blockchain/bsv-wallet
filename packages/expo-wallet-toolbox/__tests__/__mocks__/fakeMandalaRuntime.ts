@@ -19,7 +19,7 @@ import type { TokenSettlementRow } from '../../core/mandala/types'
 
 export const USDX: TokenAssetInfo = {
   // A genesis outpoint, `txid.vout` — the one form every assetId in the lib takes.
-  assetId: 'ab'.repeat(32) + '.0',
+  assetId: 'ab'.repeat(32) + '_0',
   label: 'Acme Dollar',
   ticker: 'USDX',
   decimals: 2,
@@ -30,7 +30,7 @@ export const USDX: TokenAssetInfo = {
 
 export const EURX: TokenAssetInfo = {
   ...USDX,
-  assetId: 'cd'.repeat(32) + '.1',
+  assetId: 'cd'.repeat(32) + '_0',
   label: 'Euro Coin',
   ticker: 'EURX',
   issuerName: 'Beta Bank'

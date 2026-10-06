@@ -221,7 +221,7 @@ describe('PayScreen', () => {
     // No runtime yet is UNKNOWN, not "holds nothing": the link is adopted and
     // the not-held question waits for the wallet to finish building.
     mockWalletBuilt = false
-    const ASSET = 'ab'.repeat(32) + '.0'
+    const ASSET = 'ab'.repeat(32) + '_0'
     mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=2500`
     const form = draw().UNSAFE_getByType('UniversalSend' as never)
     expect(form.props.initialTarget).toEqual({ kind: 'handle', identityKey: KEY })
@@ -234,7 +234,7 @@ describe('PayScreen', () => {
   it('a token link on a built wallet with no token runtime says so and pays in BSV', async () => {
     // This test file mounts no MandalaProvider, so a built wallet here is
     // exactly "a wallet that can never hold a token on this chain".
-    const ASSET = 'ab'.repeat(32) + '.0'
+    const ASSET = 'ab'.repeat(32) + '_0'
     mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=2500`
     const s = draw()
     await waitFor(() => expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBeNull())
@@ -245,7 +245,7 @@ describe('PayScreen', () => {
 
   it('a second deep link while mounted moves the money, not only the figure', () => {
     mockWalletBuilt = false
-    const ASSET = 'ab'.repeat(32) + '.0'
+    const ASSET = 'ab'.repeat(32) + '_0'
     mockParams.peerpay = `peerpay:${KEY}?sats=1000`
     const s = draw()
     expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBeNull()
@@ -259,7 +259,7 @@ describe('PayScreen', () => {
     expect(form.props.selectedAssetId).toBe(ASSET)
     expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 2500 })
     // The user overrides the link's money in the picker: that choice stands…
-    const OTHER = 'cd'.repeat(32) + '.1'
+    const OTHER = 'cd'.repeat(32) + '_0'
     act(() => s.UNSAFE_getByType('UniversalSend' as never).props.onSelectAsset(OTHER))
     expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBe(OTHER)
     // …through a bare link that names no money…
@@ -283,8 +283,8 @@ describe('PayScreen', () => {
 
   it('a second link for the same asset but a new figure is a new request and takes the money back', () => {
     mockWalletBuilt = false
-    const ASSET = 'ab'.repeat(32) + '.0'
-    const OTHER = 'cd'.repeat(32) + '.1'
+    const ASSET = 'ab'.repeat(32) + '_0'
+    const OTHER = 'cd'.repeat(32) + '_0'
     mockParams.peerpay = `peerpay:${KEY}?asset=${ASSET}&amount=2500`
     const s = draw()
     expect(s.UNSAFE_getByType('UniversalSend' as never).props.selectedAssetId).toBe(ASSET)
@@ -302,7 +302,7 @@ describe('PayScreen', () => {
   })
 
   it('adopts neither money from a link that mixes sats with a token request', () => {
-    const ASSET = 'ab'.repeat(32) + '.0'
+    const ASSET = 'ab'.repeat(32) + '_0'
     mockParams.peerpay = `peerpay:${KEY}?sats=10&asset=${ASSET}`
     const form = draw().UNSAFE_getByType('UniversalSend' as never)
     expect(form.props.initialSats).toBeUndefined()

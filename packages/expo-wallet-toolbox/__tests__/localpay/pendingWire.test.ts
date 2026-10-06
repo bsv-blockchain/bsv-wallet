@@ -9,7 +9,7 @@
  * as bytes` (2026-09-16). Every byte field must survive the queue.
  */
 import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import { encodeFrame, FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import {
   getPending,
@@ -20,7 +20,7 @@ import {
   type KVStorage
 } from '../../core/localpay/pending'
 
-const ASSET = 'ab'.repeat(32) + '.0'
+const ASSET = 'ab'.repeat(32) + '_0'
 
 function memoryStorage(): KVStorage & { raw: Map<string, string> } {
   const raw = new Map<string, string>()

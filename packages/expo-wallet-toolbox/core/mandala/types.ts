@@ -120,6 +120,11 @@ export type OverlayVerdict =
 /** An AdmissionEntry as carried on the wire (frame v4 `admissions[]`). */
 export interface AdmissionEntryWire {
   txid: string
+  /**
+   * BRC-162 σI v3 topic (`tokenTopic(assetId)`). Optional: when absent the
+   * verifier derives it from the transaction's own token outputs.
+   */
+  topic?: string
   outputsToAdmit: number[]
   signature: Uint8Array
   signerKey: string

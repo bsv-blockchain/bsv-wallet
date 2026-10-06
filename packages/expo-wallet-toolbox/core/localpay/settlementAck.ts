@@ -37,7 +37,7 @@ export interface SettlementAck {
   txid: string
   /** Sorted ascending, exactly as the overlay signed them. */
   outputsToAdmit: number[]
-  /** σ_I over `admissionDigestV2(txid, outputsToAdmit)`, DER hex. */
+  /** σ_I over `admissionDigestV3(topic, txid, outputsToAdmit)`, DER hex. */
   admissionSignature: string
 }
 

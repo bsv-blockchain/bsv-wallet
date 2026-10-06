@@ -41,7 +41,7 @@ function adapt(db: DatabaseSync) {
 
 const OVERLAY = 'https://overlay.issuer.example'
 const OVERLAY_KEY = '02' + 'cd'.repeat(32)
-const ASSET_ID = 'ab'.repeat(32) + '.0'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
 
 function txSpending(sourceTXID: string): Transaction {
   const tx = new Transaction()

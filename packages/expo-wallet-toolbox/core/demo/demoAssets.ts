@@ -17,7 +17,7 @@ const DEMO_OVERLAY_KEY = '02' + 'de'.repeat(32)
 const DEMO_OVERLAY_URL = 'https://overlay.demo.invalid'
 
 export const DEMO_USD: TokenAssetInfo = {
-  assetId: 'd0'.repeat(32) + '.0',
+  assetId: 'd0'.repeat(32) + '_0',
   label: 'Acme Dollar',
   ticker: 'USDX',
   decimals: 2,
@@ -27,7 +27,7 @@ export const DEMO_USD: TokenAssetInfo = {
 }
 
 export const DEMO_CHF: TokenAssetInfo = {
-  assetId: 'cf'.repeat(32) + '.0',
+  assetId: 'cf'.repeat(32) + '_0',
   label: 'Helvetia Franc',
   ticker: 'CHFX',
   decimals: 2,

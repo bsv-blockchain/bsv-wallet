@@ -13,7 +13,7 @@
  * and a stub would let FIX K (fee parents are not holes) pass by construction.
  */
 import { Beef, LockingScript, P2PKH, Transaction, UnlockingScript } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import {
   MANDALA_BASKET,
   assembleBundle,
@@ -25,8 +25,8 @@ import {
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import type { CoverResult, TokenAdmissionRow, TokenLinkageRow } from '../../core/mandala/types'
 
-const ASSET = 'ab'.repeat(32) + '.0'
-const OTHER_ASSET = 'cd'.repeat(32) + '.1'
+const ASSET = 'ab'.repeat(32) + '_0'
+const OTHER_ASSET = 'cd'.repeat(32) + '_0'
 const OVERLAY_KEY = '03'.padEnd(66, 'b')
 const OTHER_KEY = '02'.padEnd(66, 'c')
 const PKH = new Array(20).fill(9)

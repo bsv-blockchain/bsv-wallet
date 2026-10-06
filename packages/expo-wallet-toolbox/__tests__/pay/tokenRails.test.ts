@@ -22,7 +22,7 @@ import type { TokenSendResult } from '../../core/mandala/runtime'
 
 const IDENTITY = new PrivateKey(13).toPublicKey().toString()
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
-const ASSET_ID = 'ab'.repeat(32) + '.0'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
 
 /** The lib's own refusal text, as the runtime would supply it. */
 const LIB_REFUSAL =

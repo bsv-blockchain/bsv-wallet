@@ -22,13 +22,15 @@
  * with the bytes and the evidence the local tables hold.
  */
 import { Beef, Transaction, Utils, type WalletInterface } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from './token'
 import {
   blindingCommit,
   blindingGet,
   blindingPruneReserved,
   blindingReserve,
   cover as coverWalk,
+  decodeToken,
+  decodeValue,
   createOverlayFacilitator,
   fetchAdmission as libFetchAdmission,
   fetchRegistry,
@@ -45,6 +47,7 @@ import {
   registryIsLive,
   resolveAssetMetadata,
   submitToOverlay,
+  tokenTopic,
   transferTokens,
   verifyAdmission as libVerifyAdmission,
   verifyFetchedAdmission,
@@ -718,19 +721,18 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       const vout = Number(voutText)
       const script = beef.findTxid(txid)?.tx?.outputs[vout]?.lockingScript
       if (!script) continue
-      try {
-        const decoded = MandalaToken.decode(script)
-        out.push({
-          outpoint: output.outpoint,
-          txid,
-          vout,
-          assetId: decoded.assetId,
-          amount: decoded.amount,
-          spendable: output.spendable !== false
-        })
-      } catch {
-        // A stray non-token output in the basket is not this asset's coin.
-      }
+      // BRC-162: only value-role outputs are coins; a stray non-token (or
+      // deploy/authority) output in the basket is not this asset's coin.
+      const decoded = decodeValue(script)
+      if (decoded == null) continue
+      out.push({
+        outpoint: output.outpoint,
+        txid,
+        vout,
+        assetId: decoded.tokenId,
+        amount: decoded.amount,
+        spendable: output.spendable !== false
+      })
     }
     return out
   }
@@ -847,12 +849,48 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       )
     )
 
+  /**
+   * BRC-162: the σI topic of a token transaction is `tokenTopic(tokenId)` of its
+   * token outputs (value or authority). Undefined when no token output decodes.
+   */
+  const topicOfTx = (tx: Transaction | undefined): string | undefined => {
+    for (const o of tx?.outputs ?? []) {
+      const d = o.lockingScript != null ? decodeToken(o.lockingScript) : null
+      if (d?.tokenId != null) {
+        try {
+          return tokenTopic(d.tokenId)
+        } catch {
+          continue
+        }
+      }
+    }
+    return undefined
+  }
+  const topicCache = new Map<string, string>()
+  const topicOfTxid = async (txid: string): Promise<string | undefined> => {
+    const hit = topicCache.get(txid)
+    if (hit !== undefined) return hit
+    let topic: string | undefined
+    try {
+      topic = topicOfTx((await loadBeefContaining(txid))?.findTxid(txid)?.tx)
+    } catch (e) {
+      devLog(`[mandala] could not derive the token topic of ${txid}:`, e)
+    }
+    if (topic !== undefined) topicCache.set(txid, topic)
+    return topic
+  }
+
   /** FIX H, in one function: an entry proves nothing unless THIS overlay signed it. */
-  const verifyAdmissionEntry: VerifyAdmissionFn = (entry, key) => {
+  const verifyAdmissionEntry: VerifyAdmissionFn = async (entry, key) => {
     if (entry.signerKey.toLowerCase() !== key.toLowerCase()) return false
+    // σI v3 binds the token topic. An entry that does not name it (a cached
+    // row, an older frame) gets it from the transaction's own token outputs.
+    const topic = entry.topic ?? (await topicOfTxid(entry.txid))
+    if (topic === undefined) return false
     try {
       return libVerifyAdmission({
         txid: entry.txid,
+        topic,
         outputsToAdmit: entry.outputsToAdmit,
         signature: Array.from(entry.signature),
         signerKey: entry.signerKey
@@ -1030,11 +1068,18 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     } catch (e) {
       devLog(`[mandala] could not read the linkage payload of ${txid}:`, e)
     }
+    const topic = topicOfTx(own)
+    if (topic === undefined) {
+      devLog(`[mandala] ${txid} carries no BRC-162 token output; nothing to submit`)
+      return { kind: 'unavailable', code: 'ERR_LOCAL_BYTES', retryable: true }
+    }
+    topicCache.set(txid, topic)
     try {
       const admitted = await submitToOverlay(
         bytes,
         linkage && linkage.payloadBytes.length > 0 ? Array.from(linkage.payloadBytes) : undefined,
-        facilitator()
+        facilitator(),
+        [topic]
       )
       // The lib already refuses an unsigned or unverifiable answer
       // (ERR_NO_ADMISSION / ERR_BAD_ADMISSION); this is the wallet's own
@@ -1050,6 +1095,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       }
       const trusted = await verifyAdmission({
         txid,
+        topic: admitted.topic ?? topic,
         outputsToAdmit: admitted.outputsToAdmit,
         signature: hexToBytes(signatureHex),
         signerKey

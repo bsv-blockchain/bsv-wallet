@@ -1,6 +1,6 @@
 import { Hash, P2PKH, PublicKey, Transaction, Utils } from '@bsv/sdk'
 import type { ChainTracker } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../mandala/token'
 import type { PaymentFrame } from './codec'
 import { coverFromFrame, type CoverVerifier } from '../mandala/bundle'
 import { PEERPAY_PROTOCOL_ID } from './pending'

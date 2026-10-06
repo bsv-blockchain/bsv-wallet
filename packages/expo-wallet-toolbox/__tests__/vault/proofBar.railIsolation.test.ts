@@ -98,7 +98,7 @@ import {
   type WalletInterface
 } from '@bsv/sdk'
 import { Wallet, WalletPermissionsManager, WalletSigner, WalletStorageManager } from '@bsv/wallet-toolbox-mobile'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { buildPaymentFrame } from '../../core/localpay/build'
 import { mintSession } from '../../core/localpay/session'
@@ -484,7 +484,7 @@ describe("I3: the Mandala/token spend path's input-selection never touches the V
   it('I3: listOutputs scoped to the Mandala basket returns the real coin and never the Vault outpoint', async () => {
     const { wallet } = await makeWallet(107)
     const vault = await fundVault(wallet, VAULT_SATS, 7)
-    const assetId = `${'ab'.repeat(32)}.0`
+    const assetId = `${'ab'.repeat(32)}_0`
     const tokenOutpoint = await fundMandalaToken(wallet, assetId, 250)
 
     // Exactly the query `listTokenBasket` (core/localpay/build.ts, used by
@@ -505,7 +505,7 @@ describe("I3: the Mandala/token spend path's input-selection never touches the V
 
     // Positive control: decode succeeds for a real Mandala token script —
     // proves the assertion below is a real rejection, not a broken decoder.
-    const realTokenScript = new MandalaToken().lock(`${'cd'.repeat(32)}.0`, 99, new Array(20).fill(3))
+    const realTokenScript = new MandalaToken().lock(`${'cd'.repeat(32)}_0`, 99, new Array(20).fill(3))
     expect(() => MandalaToken.decode(realTokenScript)).not.toThrow()
 
     // Negative: the coin-selection loop in `buildTokenPaymentFrame`
@@ -521,7 +521,7 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
     const { wallet } = await makeWallet(109)
     const vault = await fundVault(wallet, VAULT_SATS, 9)
 
-    const assetId = `${'ef'.repeat(32)}.0`
+    const assetId = `${'ef'.repeat(32)}_0`
     const tx = new Transaction()
     tx.addOutput({ satoshis: 1, lockingScript: new MandalaToken().lock(assetId, 500, new Array(20).fill(5)) })
     asMined(tx)

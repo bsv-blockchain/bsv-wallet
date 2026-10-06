@@ -79,7 +79,7 @@ beforeEach(async () => {
   await store.upsertSettlement({
     txid: TOKEN_TXID,
     role: 'received',
-    assetId: 'ab'.repeat(32) + '.0',
+    assetId: 'ab'.repeat(32) + '_0',
     state: 'held',
     overlayUrl: 'https://overlay.example',
     overlayIdentityKey: OVERLAY_KEY

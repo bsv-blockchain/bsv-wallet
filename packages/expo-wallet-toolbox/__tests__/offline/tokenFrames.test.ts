@@ -12,7 +12,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { Beef, Transaction, LockingScript } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import { createTables } from '../../core/storage/schema/createTables'
 import { createSettlementStore, type SettlementDb } from '../../core/mandala/settlementStore'
 import {
@@ -41,7 +41,7 @@ function adapt(db: DatabaseSync) {
   }
 }
 
-const ASSET_ID = 'ab'.repeat(32) + '.0'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
 const OVERLAY = 'https://overlay.issuer.example'
 const OVERLAY_KEY = '02' + 'cd'.repeat(32)
 

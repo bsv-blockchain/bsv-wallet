@@ -13,12 +13,12 @@
  * this file pins is the ordering and exclusion contract between them.
  */
 import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import type { SettleArgs } from '@bsv/mandala'
 import { preHoldInboxSettlements } from '../../core/mandala/inboxPrehold'
 import type { PreHoldCoverBundle, PreHoldCoverFn } from '../../core/mandala/inboxPrehold'
 
-const ASSET_ID = 'ab'.repeat(32) + '.0'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
 const PKH = new Array(20).fill(3)
 
 function tokenTx(amount = 100): Transaction {

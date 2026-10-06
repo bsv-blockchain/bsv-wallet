@@ -227,7 +227,7 @@ describe('holdSentPaymentOffline', () => {
   describe('XR-036: a token-bearing hold is not drainable before its settlement journals', () => {
     const TOKEN_FRAME: EvidenceFrame = {
       token: {
-        assetId: 'ab'.repeat(32) + '.0',
+        assetId: 'ab'.repeat(32) + '_0',
         overlayUrl: 'https://overlay.example',
         overlayIdentityKey: '02' + 'cd'.repeat(32),
         linkage: []
@@ -360,7 +360,7 @@ describe('parkSentPaymentOffline', () => {
   describe('XR-036 review follow-up: reports whether the settlement journal landed', () => {
     const TOKEN_FRAME: EvidenceFrame = {
       token: {
-        assetId: 'ab'.repeat(32) + '.0',
+        assetId: 'ab'.repeat(32) + '_0',
         overlayUrl: 'https://overlay.example',
         overlayIdentityKey: '02' + 'cd'.repeat(32),
         linkage: []

@@ -27,7 +27,7 @@
  * an explicit `refused`/`orphaned` verdict from the overlay.
  */
 import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../mandala/token'
 import type { EvidenceFrame, TokenFrameSource } from '../mandala/drain'
 import type { OfflineActionRow } from '../storage/methods/offlineActions'
 import { frameBytesFromQr, unsealFrame } from '../localpay/codec'

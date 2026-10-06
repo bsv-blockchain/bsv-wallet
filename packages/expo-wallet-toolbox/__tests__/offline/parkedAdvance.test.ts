@@ -13,7 +13,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import { createTables } from '../../core/storage/schema/createTables'
 import { findOfflineActions, type OfflineActionRow } from '../../core/storage/methods/offlineActions'
 import {
@@ -32,7 +32,7 @@ import type { EvidenceFrame, TokenHandedOverHook } from '../../core/mandala/type
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 
 const TXID = 'aa'.repeat(32)
-const ASSET = 'ab'.repeat(32) + '.0'
+const ASSET = 'ab'.repeat(32) + '_0'
 const OVERLAY = 'https://overlay.issuer.example'
 const OVERLAY_KEY = '03'.padEnd(66, 'b')
 

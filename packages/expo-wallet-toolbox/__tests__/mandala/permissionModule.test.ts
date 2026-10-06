@@ -11,7 +11,7 @@
  *    fails to decode is skipped rather than thrown on.
  */
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 import {
   MandalaTokenModule,
@@ -24,8 +24,8 @@ import { guardVaultAccess } from '../../core/services/vault/guard'
 
 const ADMIN_ORIGINATOR = 'admin.example.com'
 const FOREIGN_ORIGINATOR = 'foreign-app.example.com'
-const ASSET_ID = 'a'.repeat(64) + '.0'
-const ASSET_ID_2 = 'b'.repeat(64) + '.0'
+const ASSET_ID = 'a'.repeat(64) + '_0'
+const ASSET_ID_2 = 'b'.repeat(64) + '_0'
 const PKH = new Array(20).fill(7)
 const TOKEN_OUTPOINT = 'c'.repeat(64) + '.0'
 

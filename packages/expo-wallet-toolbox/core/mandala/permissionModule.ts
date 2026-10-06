@@ -30,7 +30,7 @@
  */
 import { LockingScript, Transaction } from '@bsv/sdk'
 import type { PermissionsModule } from '@bsv/wallet-toolbox-mobile'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from './token'
 import { MANDALA_BASKET } from './types'
 
 const SESSION_TIMEOUT_MS = 60_000

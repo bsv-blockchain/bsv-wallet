@@ -27,7 +27,7 @@
  * transaction's own status: a resend is a delivery, not a payment.
  */
 import { Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from './token'
 import { isDuplicateMessageError } from '../peerpay/control'
 
 /** The recipient-side inbox `receiveTokens` drains (`@bsv/mandala` `MESSAGEBOX`). */

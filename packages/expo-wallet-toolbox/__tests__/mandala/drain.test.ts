@@ -15,8 +15,8 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { BigNumber, Beef, ECDSA, Hash, LockingScript, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
-import { admissionDigestV2, payloadHash, verifyAdmission } from '@bsv/mandala'
+import { MandalaToken } from '../../core/mandala/token'
+import { admissionDigestV3, payloadHash, tokenTopic, verifyAdmission } from '@bsv/mandala'
 import { createTables } from '../../core/storage/schema/createTables'
 import { createSettlementStore, type SettlementDb } from '../../core/mandala/settlementStore'
 import {
@@ -60,9 +60,9 @@ const OVERLAY = 'https://overlay.issuer.example'
 const OVERLAY_PRIV = PrivateKey.fromHex('11'.repeat(32))
 const OVERLAY_KEY = OVERLAY_PRIV.toPublicKey().toString()
 
-/** σ_I exactly as an overlay mints it: DER ECDSA over admissionDigestV2. */
+/** σ_I exactly as an overlay mints it: DER ECDSA over admissionDigestV3. */
 function signAdmission(txid: string, outputsToAdmit: number[], priv = OVERLAY_PRIV): Uint8Array {
-  const digest = admissionDigestV2(txid, outputsToAdmit)
+  const digest = admissionDigestV3(tokenTopic(ASSET_ID), txid, outputsToAdmit)
   return new Uint8Array(ECDSA.sign(new BigNumber(digest, 16), priv).toDER() as number[])
 }
 
@@ -70,6 +70,7 @@ function signAdmission(txid: string, outputsToAdmit: number[], priv = OVERLAY_PR
 const verifier: AdmissionVerifier = (entry: AdmissionEntryWire) =>
   verifyAdmission({
     txid: entry.txid,
+    topic: tokenTopic(ASSET_ID),
     outputsToAdmit: entry.outputsToAdmit,
     signature: Array.from(entry.signature),
     signerKey: entry.signerKey
@@ -78,8 +79,8 @@ const verifier: AdmissionVerifier = (entry: AdmissionEntryWire) =>
 /** What every trusting caller passes: the configured key plus the verifier. */
 const anchor = { overlayIdentityKey: OVERLAY_KEY, verifyAdmission: verifier }
 
-const ASSET_ID = 'ab'.repeat(32) + '.0'
-const OTHER_ASSET = 'cc'.repeat(32) + '.1'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
+const OTHER_ASSET = 'cc'.repeat(32) + '_0'
 const pkh = () => Hash.hash160(Utils.toArray(PrivateKey.fromRandom().toPublicKey().toString(), 'hex'))
 
 const tokenScript = (amount: number, assetId = ASSET_ID) => new MandalaToken().lock(assetId, amount, pkh())

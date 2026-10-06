@@ -26,8 +26,8 @@
  * dependency and is unit-testable against an in-memory SQLite.
  */
 import { Beef, Utils } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
-import { payloadHash } from '@bsv/mandala'
+import { MandalaToken } from './token'
+import { payloadHash, tokenTopicOrEmpty } from '@bsv/mandala'
 import type { PostOutcome } from '../offline/plan'
 import { devLog } from '../logging'
 import {
@@ -196,7 +196,8 @@ export async function populateEvidenceFromFrame(
   const at = (opts.now?.() ?? new Date()).toISOString()
 
   for (const entry of token.admissions ?? []) {
-    if (!(await entryIsTrustworthy(entry, opts))) {
+    // BRC-162: σI v3 binds the token topic; the frame's asset names it.
+    if (!(await entryIsTrustworthy({ ...entry, topic: entry.topic ?? tokenTopicOrEmpty(token.assetId) }, opts))) {
       result.admissionsDropped++
       continue
     }
@@ -390,7 +391,8 @@ export interface TokenStepDeps extends EvidenceTrustAnchor {
 async function admissionStandsIn(
   row: TokenAdmissionRow | undefined,
   anchor: EvidenceTrustAnchor,
-  requiredVouts: readonly number[]
+  requiredVouts: readonly number[],
+  assetId?: string
 ): Promise<boolean> {
   if (row === undefined) return false
   if (row.signatureHex.length === 0 || row.outputsToAdmit.length === 0) return false
@@ -398,6 +400,7 @@ async function admissionStandsIn(
   return await entryIsTrustworthy(
     {
       txid: row.txid,
+      ...(assetId !== undefined ? { topic: tokenTopicOrEmpty(assetId) } : {}),
       outputsToAdmit: row.outputsToAdmit,
       signature: hexToBytes(row.signatureHex),
       signerKey: row.signerKey
@@ -496,7 +499,7 @@ export async function postTokenStep(
   // bytes this device does not hold) left an already-admitted tip at
   // `admitted` on every tick, never broadcast (2026-09-16).
   const tipAdmission = await store.getAdmission(tip)
-  if (await admissionStandsIn(tipAdmission, deps, tipRequiredVouts)) {
+  if (await admissionStandsIn(tipAdmission, deps, tipRequiredVouts, settlement.assetId)) {
     await store.advanceSettlement(tip, PRE_ADMIT_STATES, 'admitted', {
       admissionOutputs: tipAdmission?.outputsToAdmit,
       admissionSignatureHex: tipAdmission?.signatureHex
@@ -544,7 +547,7 @@ export async function postTokenStep(
     // vout(s) of it something still in this walk actually spends.
     const requiredVouts =
       ancestorTxid === tip ? tipRequiredVouts : await requiredVoutsOfAncestor(store, ancestorTxid, cover.mustSubmit)
-    if (await admissionStandsIn(cached, deps, requiredVouts)) {
+    if (await admissionStandsIn(cached, deps, requiredVouts, settlement.assetId)) {
       await store.advanceSettlement(ancestorTxid, PRE_ADMIT_STATES, 'admitted', {
         admissionOutputs: cached?.outputsToAdmit,
         admissionSignatureHex: cached?.signatureHex

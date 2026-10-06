@@ -117,7 +117,7 @@ describe('peerPayValidationMessage', () => {
 // Maintainer decision (2026-09-15): `sats=` is the BSV selector and `amount=`
 // de facto names a token, so it needs `asset=` beside it; both are optional,
 // and `asset=` alone is an open token request (the payer chooses the figure).
-const ASSET = 'ab'.repeat(32) + '.0'
+const ASSET = 'ab'.repeat(32) + '_0'
 
 describe('validatePeerPayURI — asset and amount', () => {
   it('reads asset and amount together, base units untouched', () => {

@@ -223,8 +223,8 @@ describe('AssetPicker', () => {
     fireEvent.press(s.getByText('BSV'))
     // XR-044: the label also carries the issuer + assetId fingerprint now, so
     // a look-alike ticker/label pair is not accessibly indistinguishable.
-    expect(s.getByLabelText('Acme Dollar, Acme Bank · abababab…abab.0, 1,240.00 USDX')).toBeTruthy()
-    fireEvent.press(s.getByLabelText('Euro Coin, Beta Bank · cdcdcdcd…cdcd.1, 50.00 EURX'))
+    expect(s.getByLabelText('Acme Dollar, Acme Bank · abababab…abab_0, 1,240.00 USDX')).toBeTruthy()
+    fireEvent.press(s.getByLabelText('Euro Coin, Beta Bank · cdcdcdcd…cdcd_0, 50.00 EURX'))
     expect(onSelect).toHaveBeenCalledWith(EURX.assetId)
   })
 
@@ -234,7 +234,7 @@ describe('AssetPicker', () => {
     // Two elements carry that label once expanded — the collapsed trigger
     // (which announces `expanded`) and the option (which announces `selected`).
     const option = s
-      .getAllByLabelText('Acme Dollar, Acme Bank · abababab…abab.0, 1,240.00 USDX')
+      .getAllByLabelText('Acme Dollar, Acme Bank · abababab…abab_0, 1,240.00 USDX')
       .find(e => 'selected' in (e.props.accessibilityState ?? {}))
     expect(option?.props.accessibilityState.selected).toBe(true)
     expect(s.getByLabelText('BSV').props.accessibilityState.selected).toBe(false)

@@ -35,7 +35,7 @@ import { FRAME_VERSION, frameToQr, type PaymentFrame } from '../../core/localpay
 import type { OfflineActionRow } from '../../core/storage/methods/offlineActions'
 
 const SENDER = new PrivateKey(11).toPublicKey().toString()
-const ASSET_ID = 'ab'.repeat(32) + '.0'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
 
 function memoryKv(): KVStorage {
   const map = new Map<string, string>()

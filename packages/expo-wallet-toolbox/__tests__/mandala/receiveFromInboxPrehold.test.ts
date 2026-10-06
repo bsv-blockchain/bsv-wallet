@@ -23,7 +23,7 @@ jest.mock('../../core/net/online', () => ({ getOnline: () => mockGetOnline() }))
 
 import { DatabaseSync } from 'node:sqlite'
 import { Beef, PrivateKey, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '@bsv/templates'
+import { MandalaToken } from '../../core/mandala/token'
 import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
 import { configureMandala } from '@bsv/mandala'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
@@ -39,7 +39,7 @@ const ENDPOINTS: MandalaEndpointConfig = {
   overlayIdentityKey: OVERLAY_KEY,
   messageBoxUrl: 'https://box.example'
 }
-const ASSET_ID = 'ab'.repeat(32) + '.0'
+const ASSET_ID = 'ab'.repeat(32) + '_0'
 const PAYER = new PrivateKey(7).toPublicKey().toString()
 const PKH = new Array(20).fill(9)
 

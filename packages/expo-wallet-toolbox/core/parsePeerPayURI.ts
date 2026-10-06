@@ -54,8 +54,8 @@ export function peerPayHasErrors(result: PeerPayValidationResult): boolean {
 
 const PEERPAY_SCHEME = 'peerpay:'
 const COMPRESSED_PUBLIC_KEY_REGEX = /^0[23][0-9a-fA-F]{64}$/
-/** A genesis outpoint: 32-byte txid in hex, a dot, a decimal output index. */
-const ASSET_OUTPOINT_REGEX = /^[0-9a-fA-F]{64}\.(0|[1-9][0-9]*)$/
+/** A BRC-162 token id: the 32-byte deploy txid in hex, then `_0`. */
+const ASSET_OUTPOINT_REGEX = /^[0-9a-fA-F]{64}_0$/
 /** A whole non-negative figure with no sign, point or leading zero. */
 const WHOLE_FIGURE_REGEX = /^(0|[1-9][0-9]*)$/
 /**
