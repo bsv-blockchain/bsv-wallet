@@ -21,7 +21,10 @@ import {
   signedDigestHex
 } from '../../core/mandala/permissionModule'
 import { MANDALA_BASKET } from '../../core/mandala/types'
+import { walletMandalaUnlock } from '@bsv/mandala/unlock'
+import { FT_PROTOCOL } from '@bsv/mandala/constants'
 import { guardVaultAccess } from '../../core/services/vault/guard'
+import { SigningPolicyPermissionsManager } from '../../core/services/signingPermissionPolicy'
 
 const ADMIN_ORIGINATOR = 'admin.example.com'
 const FOREIGN_ORIGINATOR = 'foreign-app.example.com'
@@ -900,6 +903,26 @@ describe('MandalaTokenModule token-protocol key methods', () => {
     expect(requestTokenAccess).not.toHaveBeenCalled()
   })
 
+  it('matches the digest the Mandala lib itself signs when spending a token input', async () => {
+    const { mod, requestTokenAccess } = makeModule()
+    const { tx } = signableSpend()
+    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    // A wallet that sends every createSignature through the module, as the
+    // permissions manager does for a connected app.
+    const key = new PrivateKey(7)
+    const wallet = {
+      createSignature: async (args: any) => {
+        await mod.onRequest({ method: 'createSignature', args, originator: FOREIGN_ORIGINATOR })
+        return { signature: key.sign(args.hashToDirectlySign).toDER() }
+      },
+      getPublicKey: async () => ({ publicKey: key.toPublicKey().toString() })
+    }
+    const spend = Transaction.fromAtomicBEEF(tx)
+    await walletMandalaUnlock(wallet as never, 'k', 'self').sign(spend, 0)
+    expect(FT_PROTOCOL).toEqual([2, 'p mandala token'])
+    expect(requestTokenAccess).not.toHaveBeenCalled()
+  })
+
   it('accepts the same sighash given as data (SHA-256 of the single-hashed preimage)', async () => {
     const { mod, requestTokenAccess } = makeModule()
     const { tx } = signableSpend()
@@ -969,14 +992,14 @@ describe('MandalaTokenModule token-protocol key methods', () => {
     expect(requestTokenAccess).not.toHaveBeenCalled()
   })
 
-  it('is reached by the real WalletPermissionsManager for the token protocol', async () => {
+  it("is reached through the wallet's own permissions manager for the token protocol", async () => {
     const requestTokenAccess = jest.fn().mockResolvedValue(false)
     const { mod } = makeModule({ requestTokenAccess })
     const underlying = {
       getPublicKey: jest.fn().mockResolvedValue({ publicKey: 'pk' }),
       createSignature: jest.fn().mockResolvedValue({ signature: [1] })
     }
-    const manager = new WalletPermissionsManager(underlying as never, ADMIN_ORIGINATOR, {
+    const manager = new SigningPolicyPermissionsManager(underlying as never, ADMIN_ORIGINATOR, {
       seekPermissionsForPublicKeyRevelation: true,
       seekProtocolPermissionsForSigning: true,
       permissionModules: { mandala: mod }
