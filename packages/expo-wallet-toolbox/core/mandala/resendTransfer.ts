@@ -34,7 +34,7 @@ import { isDuplicateMessageError } from '../peerpay/control'
 export const MANDALA_MESSAGE_BOX = 'mandala-payments'
 
 /** The FT derivation protocol, as the lib's `FT_PROTOCOL`. */
-const FT_PROTOCOL: [number, string] = [2, 'mandala token']
+const FT_PROTOCOL: [number, string] = [2, 'p mandala token']
 
 export type TokenResendFailure = 'no_record' | 'no_transaction'
 export type TokenResendOutcome = { ok: true } | { ok: false; reason: TokenResendFailure }

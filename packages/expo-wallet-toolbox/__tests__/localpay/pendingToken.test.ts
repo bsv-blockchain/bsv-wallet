@@ -139,7 +139,7 @@ describe('processPending: token credit', () => {
     const ci = JSON.parse(args.outputs[0].insertionRemittance?.customInstructions as string) as Record<string, unknown>
     expect(ci.keyID).toBe(`${frame.derivationPrefix} ${frame.derivationSuffix}`)
     expect(ci.counterparty).toBe(frame.senderIdentityKey)
-    expect(ci.protocolID).toEqual([2, 'mandala token'])
+    expect(ci.protocolID).toEqual([2, 'p mandala token'])
     expect(args.outputs[0].insertionRemittance?.tags).toContain(ASSET)
   })
 

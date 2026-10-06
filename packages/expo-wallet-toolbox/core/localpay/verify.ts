@@ -9,7 +9,7 @@ import type { DeclineReason } from './types'
 
 // mandala's FT derivation protocol — the payer locks token outputs under it
 // with OUR payee-minted nonces as keyID, preserving the frame-to-session binding
-export const FT_PROTOCOL_ID: [2, string] = [2, 'mandala token']
+export const FT_PROTOCOL_ID: [2, string] = [2, 'p mandala token']
 
 export type VerifiedPayment =
   | { kind: 'bsv'; satoshis: number }

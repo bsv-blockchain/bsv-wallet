@@ -10,14 +10,15 @@
  *    change by whether the output carries the basket, and a script that
  *    fails to decode is skipped rather than thrown on.
  */
-import { Beef, LockingScript, Transaction } from '@bsv/sdk'
+import { Beef, Hash, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { MandalaToken } from '../../core/mandala/token'
 import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 import {
   MandalaTokenModule,
   wrapCreateActionForTokenInputs,
   listAllOutpoints,
-  resolveMandalaOutput
+  resolveMandalaOutput,
+  signedDigestHex
 } from '../../core/mandala/permissionModule'
 import { MANDALA_BASKET } from '../../core/mandala/types'
 import { guardVaultAccess } from '../../core/services/vault/guard'
@@ -835,6 +836,171 @@ describe('MandalaTokenModule', () => {
           })
       ).toThrow('adminOriginator is required')
     })
+  })
+})
+
+/** A signable transaction spending one input, as createAction returns it,
+ * plus the sighash walletMandalaUnlock would ask the wallet to sign. */
+function signableSpend(): { tx: number[]; sighash: number[] } {
+  const source = new Transaction()
+  source.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(mandalaScriptHex(1000)) })
+  const spend = new Transaction()
+  spend.addInput({ sourceTransaction: source, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript() })
+  spend.addOutput({
+    satoshis: 1,
+    lockingScript: new P2PKH().lock(new PrivateKey(5).toPublicKey().toAddress())
+  })
+  const beef = new Beef()
+  beef.mergeTransaction(source)
+  beef.mergeTransaction(spend)
+  return { tx: beef.toBinaryAtomic(spend.id('hex')), sighash: Hash.hash256(spend.preimage(0)) }
+}
+
+describe('MandalaTokenModule token-protocol key methods', () => {
+  const protocolID = [2, 'p mandala token']
+
+  it('lets a connected app read public keys toward self and anyone without a prompt', async () => {
+    const { mod, requestTokenAccess } = makeModule()
+    for (const counterparty of ['self', 'anyone']) {
+      const args = { protocolID, keyID: 'k', counterparty }
+      await expect(mod.onRequest({ method: 'getPublicKey', args, originator: FOREIGN_ORIGINATOR })).resolves.toEqual({
+        args
+      })
+    }
+    expect(requestTokenAccess).not.toHaveBeenCalled()
+  })
+
+  it.each(['encrypt', 'decrypt', 'createHmac', 'verifyHmac'])('refuses %s from a connected app', async method => {
+    const { mod, requestTokenAccess } = makeModule()
+    await expect(
+      mod.onRequest({ method, args: { protocolID, keyID: 'k', counterparty: 'self' }, originator: FOREIGN_ORIGINATOR })
+    ).rejects.toThrow(/cannot be used for/)
+    expect(requestTokenAccess).not.toHaveBeenCalled()
+  })
+
+  it('signs for the admin originator without a prompt', async () => {
+    const { mod, requestTokenAccess } = makeModule()
+    const args = { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: new Array(32).fill(1) }
+    await mod.onRequest({ method: 'createSignature', args, originator: ADMIN_ORIGINATOR })
+    expect(requestTokenAccess).not.toHaveBeenCalled()
+  })
+
+  it('signs an input of an approved transaction without a second prompt', async () => {
+    const { mod, requestTokenAccess } = makeModule()
+    const { tx, sighash } = signableSpend()
+    await mod.onResponse(
+      { signableTransaction: { tx, reference: 'ref' } },
+      { method: 'createAction', originator: FOREIGN_ORIGINATOR }
+    )
+    await mod.onRequest({
+      method: 'createSignature',
+      args: { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: sighash },
+      originator: FOREIGN_ORIGINATOR
+    })
+    expect(requestTokenAccess).not.toHaveBeenCalled()
+  })
+
+  it('accepts the same sighash given as data (SHA-256 of the single-hashed preimage)', async () => {
+    const { mod, requestTokenAccess } = makeModule()
+    const { tx } = signableSpend()
+    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    const spend = Transaction.fromAtomicBEEF(tx)
+    await mod.onRequest({
+      method: 'createSignature',
+      args: { protocolID, keyID: 'k', counterparty: 'self', data: Hash.sha256(spend.preimage(0)) },
+      originator: FOREIGN_ORIGINATOR
+    })
+    expect(requestTokenAccess).not.toHaveBeenCalled()
+  })
+
+  it('prompts for a signature over anything else, once per signature, and throws on denial', async () => {
+    const requestTokenAccess = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const { mod } = makeModule({ requestTokenAccess })
+    const { tx } = signableSpend()
+    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    const args = { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: new Array(32).fill(9) }
+    await mod.onRequest({ method: 'createSignature', args, originator: FOREIGN_ORIGINATOR })
+    await expect(mod.onRequest({ method: 'createSignature', args, originator: FOREIGN_ORIGINATOR })).rejects.toThrow(
+      'User denied permission to sign with a Mandala token key'
+    )
+    expect(requestTokenAccess).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(requestTokenAccess.mock.calls[0][1])).toEqual({ type: 'mandala_signature' })
+  })
+
+  it("does not let one app sign another app's approved transaction", async () => {
+    const { mod, requestTokenAccess } = makeModule()
+    const { tx, sighash } = signableSpend()
+    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    await mod.onRequest({
+      method: 'createSignature',
+      args: { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: sighash },
+      originator: 'other-app.example.com'
+    })
+    expect(requestTokenAccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('forgets an approved transaction after the session window', async () => {
+    jest.useFakeTimers()
+    try {
+      const { mod, requestTokenAccess } = makeModule()
+      const { tx, sighash } = signableSpend()
+      await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+      jest.advanceTimersByTime(61_000)
+      await mod.onRequest({
+        method: 'createSignature',
+        args: { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: sighash },
+        originator: FOREIGN_ORIGINATOR
+      })
+      expect(requestTokenAccess).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('refuses a createSignature with no well-formed digest', async () => {
+    const { mod, requestTokenAccess } = makeModule()
+    await expect(
+      mod.onRequest({
+        method: 'createSignature',
+        args: { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: [1, 2, 3] },
+        originator: FOREIGN_ORIGINATOR
+      })
+    ).rejects.toThrow('Invalid createSignature args')
+    expect(requestTokenAccess).not.toHaveBeenCalled()
+  })
+
+  it('is reached by the real WalletPermissionsManager for the token protocol', async () => {
+    const requestTokenAccess = jest.fn().mockResolvedValue(false)
+    const { mod } = makeModule({ requestTokenAccess })
+    const underlying = {
+      getPublicKey: jest.fn().mockResolvedValue({ publicKey: 'pk' }),
+      createSignature: jest.fn().mockResolvedValue({ signature: [1] })
+    }
+    const manager = new WalletPermissionsManager(underlying as never, ADMIN_ORIGINATOR, {
+      seekPermissionsForPublicKeyRevelation: true,
+      seekProtocolPermissionsForSigning: true,
+      permissionModules: { mandala: mod }
+    } as never)
+    await expect(
+      manager.getPublicKey({ protocolID: [2, 'p mandala token'], keyID: 'k', counterparty: 'self' } as never, FOREIGN_ORIGINATOR)
+    ).resolves.toEqual({ publicKey: 'pk' })
+    await expect(
+      manager.createSignature(
+        { protocolID: [2, 'p mandala token'], keyID: 'k', counterparty: 'self', hashToDirectlySign: new Array(32).fill(3) } as never,
+        FOREIGN_ORIGINATOR
+      )
+    ).rejects.toThrow('User denied permission to sign with a Mandala token key')
+    expect(underlying.createSignature).not.toHaveBeenCalled()
+  })
+})
+
+describe('signedDigestHex', () => {
+  it('uses hashToDirectlySign as given and hashes data otherwise', () => {
+    const hash = new Array(32).fill(4)
+    expect(signedDigestHex({ hashToDirectlySign: hash, data: [1] })).toBe(Utils.toHex(hash))
+    expect(signedDigestHex({ data: [1, 2] })).toBe(Utils.toHex(Hash.sha256([1, 2])))
+    expect(signedDigestHex({ hashToDirectlySign: [256, ...new Array(31).fill(0)] })).toBeUndefined()
+    expect(signedDigestHex({})).toBeUndefined()
   })
 })
 

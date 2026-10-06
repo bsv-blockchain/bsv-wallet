@@ -71,7 +71,7 @@ function tokenTip(): { tx: Transaction; txid: string; body: Record<string, unkno
       sender: PAYER,
       senderMode: 'blinded',
       keyID: 'k',
-      protocolID: [2, 'mandala token'],
+      protocolID: [2, 'p mandala token'],
       transaction: beef.toBinaryAtomic(txid),
       outputIndex: 0,
       linkage: [],

@@ -503,7 +503,7 @@ const SETTLEMENT_PREWRITE_FAILURE = 'could not record the settlement row before 
  * derivation field to undefined, and this is the only slot that survives to
  * the day the coin is spent.
  */
-const FT_PROTOCOL_ID: [number, string] = [2, 'mandala token']
+const FT_PROTOCOL_ID: [number, string] = [2, 'p mandala token']
 
 /** What `internalizeAction` is told about one frame's output. */
 function internalizeOutput(frame: PaymentFrame): Record<string, unknown> {

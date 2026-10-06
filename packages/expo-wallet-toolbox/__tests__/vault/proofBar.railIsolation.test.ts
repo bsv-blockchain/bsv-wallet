@@ -328,7 +328,7 @@ async function fundMandalaToken(wallet: Wallet, assetId: string, amount: number)
           insertionRemittance: {
             basket: MANDALA_BASKET,
             customInstructions: JSON.stringify({
-              protocolID: [2, 'mandala token'],
+              protocolID: [2, 'p mandala token'],
               keyID: 'k',
               counterparty: 'self',
               direction: 'received'

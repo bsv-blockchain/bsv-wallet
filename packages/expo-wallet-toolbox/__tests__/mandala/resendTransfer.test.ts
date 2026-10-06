@@ -21,7 +21,7 @@ const ASSET_ID = 'ab'.repeat(32) + '_0'
 const RECIPIENT = '02' + '11'.repeat(32)
 const SENDER_BLINDED = '03' + '22'.repeat(32)
 const KEY_ID = 'cHJlZml4 c3VmZml4'
-const FT_PROTOCOL: [number, string] = [2, 'mandala token']
+const FT_PROTOCOL: [number, string] = [2, 'p mandala token']
 
 /** Fee change at 0, the payee's token output at 1 — so the index has to be read, not assumed. */
 function tokenTx(amount = 2500): { tx: Transaction; txid: string; atomic: number[] } {

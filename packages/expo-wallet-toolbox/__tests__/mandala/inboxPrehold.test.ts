@@ -42,7 +42,7 @@ function handoverBody(tx: Transaction, overrides: Record<string, unknown> = {}) 
     sender: '02'.padEnd(66, 'a'),
     senderMode: 'blinded',
     keyID: 'k',
-    protocolID: [2, 'mandala token'],
+    protocolID: [2, 'p mandala token'],
     transaction: atomicBeefOf(tx),
     outputIndex: 0,
     linkage: [],

@@ -379,6 +379,8 @@ export function deriveActive(
       description = 'wants to remove a Mandala token holding from your wallet'
     } else if (promptData.type === 'mandala_access') {
       description = 'wants to see your Mandala token balance'
+    } else if (promptData.type === 'mandala_signature') {
+      description = 'wants to sign with one of your token keys. Only approve if you just asked this app to move tokens'
     } else {
       description = 'wants to access Mandala tokens'
     }

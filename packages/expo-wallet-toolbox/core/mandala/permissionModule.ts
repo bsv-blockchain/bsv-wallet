@@ -10,11 +10,19 @@
  * via `MandalaToken.decode` from `@bsv/templates`, NOT BTMS's `PushDrop.decode`:
  * the two token formats are unrelated.
  *
- * There is no Mandala equivalent of BTMS's `createSignature`/preimage-binding
- * layer: Mandala's FT protocol (`[2, 'mandala token']`) is not `'p '`-prefixed
- * (renaming it would touch every derivation in the blinding scheme — far too
- * invasive, see offline-settlement-final.md §8.2), so `createSignature` is
- * never routed through this module. Basket-gating alone is the whole gate.
+ * Mandala's FT protocol is `[2, 'p mandala token']` (@bsv/mandala 0.4.0), so
+ * `WalletPermissionsManager` also routes every wallet call keyed on that
+ * protocol here, the same way BTMS's `[0, 'p btms']` reaches
+ * `BasicTokenModule`. For a connected app:
+ *  - `getPublicKey`/`verifySignature` pass through. A public key cannot
+ *    spend, and issuing or sending to yourself needs keys toward `self`/
+ *    your own identity key.
+ *  - `createSignature` passes only when the digest it signs is the BIP-143
+ *    sighash of an input of a transaction this module saw the user approve
+ *    (the `createAction` response, captured in `onResponse`). Any other
+ *    signature gets its own prompt and never grants a session.
+ *  - `encrypt`/`decrypt`/`createHmac`/`verifyHmac` are refused: nothing in
+ *    the Mandala lib uses them under the token protocol.
  *
  * Source of truth: offline-settlement-final.md §8.3, plus a set of
  * adversarial-review findings closed here (see the inline notes tagged
@@ -28,13 +36,62 @@
  *  4. [medium] Prompt amounts are grouped by assetId and decimal-formatted.
  *  5. [low] relinquishOutput is its own authorization class.
  */
-import { LockingScript, Transaction } from '@bsv/sdk'
+import { Hash, LockingScript, Transaction, Utils } from '@bsv/sdk'
 import type { PermissionsModule } from '@bsv/wallet-toolbox-mobile'
 import { MandalaToken } from './token'
 import { MANDALA_BASKET } from './types'
 
 const SESSION_TIMEOUT_MS = 60_000
 const SESSION_CLEANUP_INTERVAL_MS = 30_000
+/** Approved transactions remembered per originator. A token send signs right
+ * after its createAction, so a handful covers any honest app; the cap keeps
+ * a looping one from growing the map without bound. */
+const MAX_AUTHORIZED_TRANSACTIONS_PER_ORIGINATOR = 8
+
+/** Token-protocol methods the Mandala lib never calls: refused outright. */
+const REFUSED_KEY_METHODS = new Set(['encrypt', 'decrypt', 'createHmac', 'verifyHmac'])
+
+/**
+ * The digest a `createSignature` call will actually sign: `hashToDirectlySign`
+ * as given, otherwise SHA-256 of `data` (what ProtoWallet does). Undefined
+ * for anything malformed, which the caller then refuses.
+ */
+export function signedDigestHex(args: unknown): string | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const { hashToDirectlySign, data } = args as { hashToDirectlySign?: unknown; data?: unknown }
+  const bytes = (value: unknown): number[] | undefined => {
+    if (!Array.isArray(value) && !(value instanceof Uint8Array)) return undefined
+    const out = Array.from(value as ArrayLike<unknown>)
+    return out.every(b => Number.isInteger(b) && (b as number) >= 0 && (b as number) <= 255)
+      ? (out as number[])
+      : undefined
+  }
+  if (hashToDirectlySign !== undefined) {
+    const hash = bytes(hashToDirectlySign)
+    return hash !== undefined && hash.length === 32 ? Utils.toHex(hash) : undefined
+  }
+  const payload = bytes(data)
+  return payload !== undefined ? Utils.toHex(Hash.sha256(payload)) : undefined
+}
+
+/**
+ * The BIP-143 sighash (SIGHASH_ALL|FORKID, what `walletMandalaUnlock` signs
+ * by default) of every input of a signable transaction. An input whose
+ * source is not in the BEEF cannot be hashed and is skipped: it is not one
+ * the wallet can be asked to sign for anyway.
+ */
+export function authorizedSighashes(atomicBEEF: number[] | Uint8Array): Set<string> {
+  const tx = Transaction.fromAtomicBEEF(Array.from(atomicBEEF))
+  const digests = new Set<string>()
+  for (let i = 0; i < tx.inputs.length; i++) {
+    try {
+      digests.add(Utils.toHex(Hash.hash256(tx.preimage(i))))
+    } catch {
+      // No source transaction for this input.
+    }
+  }
+  return digests
+}
 
 /**
  * Normalises an outpoint the same way the SDK's own `Number(...)` coercion
@@ -345,6 +402,9 @@ export class MandalaTokenModule implements PermissionsModule {
    * adversarial-review finding (5): it is its own authorization class.
    */
   private readonly sessionAuthorizations: Map<string, number> = new Map()
+  /** Per originator: the input sighashes of each transaction the user
+   * approved through `promptForSpend`/`promptGeneric`, newest last. */
+  private readonly authorizedTransactions: Map<string, { digests: Set<string>; timestamp: number }[]> = new Map()
   private readonly cleanupTimer: ReturnType<typeof setInterval>
 
   constructor(deps: MandalaTokenModuleDeps) {
@@ -367,6 +427,16 @@ export class MandalaTokenModule implements PermissionsModule {
         this.sessionAuthorizations.delete(originator)
       }
     }
+    for (const originator of this.authorizedTransactions.keys()) this.liveAuthorizedTransactions(originator)
+  }
+
+  /** This originator's unexpired approved transactions; prunes the rest. */
+  private liveAuthorizedTransactions(originator: string): { digests: Set<string>; timestamp: number }[] {
+    const now = Date.now()
+    const live = (this.authorizedTransactions.get(originator) ?? []).filter(t => now - t.timestamp <= SESSION_TIMEOUT_MS)
+    if (live.length === 0) this.authorizedTransactions.delete(originator)
+    else this.authorizedTransactions.set(originator, live)
+    return live
   }
 
   private hasSessionAuthorization(originator: string): boolean {
@@ -429,10 +499,15 @@ export class MandalaTokenModule implements PermissionsModule {
       case 'internalizeAction':
         await this.promptForCredit(args as MandalaInternalizeActionArgsLike, originator)
         break
+      case 'createSignature':
+        await this.authorizeSignature(args, originator)
+        break
       default:
-        // No other method is ever routed here (basket-gating only covers
-        // these five) — pass through defensively rather than throw on a
-        // future manager version that adds one.
+        if (REFUSED_KEY_METHODS.has(method)) {
+          throw new Error(`Mandala token keys cannot be used for ${method}`)
+        }
+        // getPublicKey/verifySignature, and any method a future manager
+        // version routes here, pass through.
         break
     }
 
@@ -440,12 +515,43 @@ export class MandalaTokenModule implements PermissionsModule {
   }
 
   /**
-   * Mandala tokens carry no post-hoc metadata to redact and there is no
-   * preimage-binding layer here (createSignature is not P-routed for this
-   * protocol, see the class doc) — the response passes through unchanged.
+   * After an approved `createAction` (`onRequest` threw otherwise), remembers
+   * the input sighashes of the transaction the wallet built, so the app's
+   * `createSignature` calls for exactly that transaction need no second
+   * prompt. A response that cannot be hashed is passed on unchanged and
+   * simply leaves those signatures to `authorizeSignature`'s own prompt.
    */
-  async onResponse(res: unknown, _context: { method: string; originator: string }): Promise<unknown> {
+  async onResponse(res: unknown, context: { method: string; originator: string }): Promise<unknown> {
+    if (context.method !== 'createAction' || context.originator === this.deps.adminOriginator) return res
+    const tx = (res as { signableTransaction?: { tx?: number[] | Uint8Array } } | null)?.signableTransaction?.tx
+    if (tx === undefined) return res
+    let digests: Set<string>
+    try {
+      digests = authorizedSighashes(tx)
+    } catch {
+      return res
+    }
+    const live = this.liveAuthorizedTransactions(context.originator)
+    live.push({ digests, timestamp: Date.now() })
+    this.authorizedTransactions.set(context.originator, live.slice(-MAX_AUTHORIZED_TRANSACTIONS_PER_ORIGINATOR))
     return res
+  }
+
+  /**
+   * `createSignature` under the token protocol from a connected app. Signing
+   * an input of a transaction the user just approved goes ahead; anything
+   * else (an unrouted createAction, an expired approval, a digest that is not
+   * one of that transaction's) is asked about on its own. The prompt never
+   * grants a session: one approval is one signature.
+   */
+  private async authorizeSignature(args: object, originator: string): Promise<void> {
+    const digest = signedDigestHex(args)
+    if (digest === undefined) throw new Error('Invalid createSignature args')
+    if (this.liveAuthorizedTransactions(originator).some(t => t.digests.has(digest))) return
+    const approved = await this.deps.requestTokenAccess(originator, JSON.stringify({ type: 'mandala_signature' }))
+    if (!approved) {
+      throw new Error('User denied permission to sign with a Mandala token key')
+    }
   }
 
   /** listOutputs / listActions — once per 60s session, like BTMS's promptForBTMSAccess. */
