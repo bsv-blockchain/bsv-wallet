@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.14.0
+
+### Fixed
+
+- **External apps can sign under BRC-29 again.** The vault guard refused every
+  external `createSignature`, `encrypt`, `decrypt`, `createHmac`,
+  `verifyHmac`, `verifySignature` and key-linkage call under
+  `[2, '3241645161d8']` (XR-020), so payment apps that sign BRC-29 outputs
+  did not work. The namespace is no longer reserved. Because it also derives
+  this wallet's own address-rail keys, `seekProtocolPermissionsForSigning` is
+  now `true`: a connected app is asked before it first signs under a
+  security level 1 or 2 protocol (level 2 per counterparty), BRC-29
+  included. This differs from Metanet Desktop, which does not ask.
+  `[2, 'mandala token']` stays reserved, and privileged calls are still
+  refused. So are the address rail's own key IDs: a BRC-29 call from a
+  connected origin whose key ID is `base64(YYYY-MM-DD) + ' ' +
+  base64('legacy')` is refused for every key-using method and counterparty
+  (`isAddressRailKeyID`, exported from the vault guard).
+- **BRC-29 signing asks every time.** An approval under `3241645161d8` is
+  never reused: each signature gets its own prompt, and one app's concurrent
+  calls are asked one at a time so a single tap cannot approve a batch. Each
+  approval is still recorded as a permission token, tagged
+  `keyid <hex of the key ID>` (or `keyidhash <sha256>` when too long), as a
+  history of what was approved; BRC-29 tokens, cache entries and the
+  recent-grant cover are never read back. BRC-29 entries in a site's
+  manifest `groupPermissions`/`counterpartyPermissions` are ignored, so the
+  grouped sheet never offers them and is not raised again before each
+  signature. A grant is keyed by origin, protocol and counterparty, never key
+  ID, so a reused one would cover the wallet's BSV address receipts and
+  change too. Each recorded approval is a 1-satoshi token output plus its
+  transaction fee.
+- Signing under `[2, 'auth message signature']` (BRC-103 mutual auth and its
+  BRC-104 HTTP transport) is exempt from the prompt, so authenticated
+  requests never ask. Both rules live in `SigningPolicyPermissionsManager`
+  (`core/services/signingPermissionPolicy.ts`).
+- A non-privileged `verifySignature` is never prompted: it reveals nothing
+  and spends nothing.
+- The permission sheet no longer shows BRC-29 as `3241645161d8`. Its prompt
+  is titled "Payment Key Signature", says coins paid to the key (or the
+  wallet's change, for counterparty self) could be spent with the signature,
+  and its details name the protocol "Payments (BRC-29)" and show the key ID,
+  decoded from base64 when it is readable text. Other protocols are
+  unchanged.
+- `getPublicKey`, `encrypt`, `decrypt`, HMAC and key-linkage calls under
+  BRC-29 with an app's key ID are not prompted (their `seek*` flags stay
+  off).
+
 ## 0.13.0
 
 ### Breaking
