@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.15.0
+
+### Changed
+
+- **Breaking: Mandala token keys derive under `[2, 'p mandala token']`.**
+  Requires `@bsv/mandala` 0.4.0, which renamed `FT_PROTOCOL` from
+  `[2, 'mandala token']`. Every token key derivation changes; tokens held
+  under the old protocol are not migrated.
+- **Mandala token keys are gated by the `mandala` permission module, not the
+  vault guard.** The `'p '` prefix makes `WalletPermissionsManager` route
+  every call under the token protocol to `MandalaTokenModule`, the way
+  `[0, 'p btms']` reaches the BTMS module. The vault guard no longer reserves
+  the namespace, so a connected app (such as the Mandala console) can issue
+  tokens and send to itself. For a connected app:
+  - `getPublicKey` and `verifySignature` pass through, for any counterparty.
+  - `createSignature` passes without a prompt when it signs the BIP-143
+    sighash of an input of a transaction the user approved through the
+    module's `createAction` prompt within the last 60 seconds. Any other
+    signature gets its own `mandala_signature` prompt, and approving it does
+    not cover later signatures.
+  - `encrypt`, `decrypt`, `createHmac` and `verifyHmac` are refused.
+  - `revealSpecificKeyLinkage` is no longer refused and is not prompted.
+  - Privileged calls are still refused.
+
 ## 0.14.0
 
 ### Fixed
