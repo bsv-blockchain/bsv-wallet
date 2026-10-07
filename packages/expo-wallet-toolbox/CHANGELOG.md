@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.15.1
+
+### Fixed
+
+- **Connected apps can issue and send Mandala tokens.** `MandalaTokenModule`
+  forced `includeCustomInstructions` off on every `listOutputs` call from a
+  connected app, but the Mandala lib finds the issuer's admin assets and the
+  coins it can spend by the `keyID`/`counterparty` stored there, so the
+  console found nothing to issue from or send. After the token access prompt
+  the instructions are now returned as asked. The redaction dates from before
+  `createSignature` was bound to approved transactions; knowing a coin's
+  derivation no longer lets an app spend it.
+
 ## 0.15.0
 
 ### Changed

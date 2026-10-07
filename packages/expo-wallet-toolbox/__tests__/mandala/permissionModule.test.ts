@@ -160,51 +160,27 @@ describe('MandalaTokenModule', () => {
     })
   })
 
-  describe('foreign originator — listOutputs redaction (adversarial-review finding 1, critical)', () => {
-    it('forces includeCustomInstructions off even when the caller asked for it', async () => {
-      const { mod } = makeModule()
-      const result = await mod.onRequest({
-        method: 'listOutputs',
-        args: { basket: MANDALA_BASKET, includeCustomInstructions: true },
-        originator: FOREIGN_ORIGINATOR
-      })
-      expect((result.args as { includeCustomInstructions?: boolean }).includeCustomInstructions).toBe(false)
-    })
-
-    it('still forces it off when the caller did not ask for it at all (default-false stays false)', async () => {
-      const { mod } = makeModule()
-      const result = await mod.onRequest({
-        method: 'listOutputs',
-        args: { basket: MANDALA_BASKET },
-        originator: FOREIGN_ORIGINATOR
-      })
-      expect((result.args as { includeCustomInstructions?: boolean }).includeCustomInstructions).toBe(false)
-    })
-
-    it('preserves every other field on the args unchanged', async () => {
-      const { mod } = makeModule()
-      const result = await mod.onRequest({
-        method: 'listOutputs',
-        args: { basket: MANDALA_BASKET, includeCustomInstructions: true, limit: 50, includeTags: true },
-        originator: FOREIGN_ORIGINATOR
-      })
-      expect(result.args).toEqual({
-        basket: MANDALA_BASKET,
-        includeCustomInstructions: false,
-        limit: 50,
-        includeTags: true
-      })
-    })
-
-    it('the admin originator is NOT redacted — includeCustomInstructions passes through exactly as asked', async () => {
+  describe('foreign originator — listOutputs returns customInstructions (finding 1, reverted)', () => {
+    // The Mandala lib's listAdminAssets/loadFtCandidates read keyID and
+    // counterparty from customInstructions; withholding them broke issuing
+    // and sending from a connected app.
+    it('passes the args through unchanged after the access prompt', async () => {
       const { mod, requestTokenAccess } = makeModule()
-      const result = await mod.onRequest({
-        method: 'listOutputs',
-        args: { basket: MANDALA_BASKET, includeCustomInstructions: true },
-        originator: ADMIN_ORIGINATOR
-      })
-      expect(result).toEqual({ args: { basket: MANDALA_BASKET, includeCustomInstructions: true } })
-      expect(requestTokenAccess).not.toHaveBeenCalled()
+      const args = { basket: MANDALA_BASKET, includeCustomInstructions: true, limit: 50, includeTags: true }
+      const result = await mod.onRequest({ method: 'listOutputs', args, originator: FOREIGN_ORIGINATOR })
+      expect(result).toEqual({ args })
+      expect(requestTokenAccess).toHaveBeenCalledTimes(1)
+    })
+
+    it('still refuses the listing when the access prompt is denied', async () => {
+      const { mod } = makeModule({ requestTokenAccess: jest.fn().mockResolvedValue(false) })
+      await expect(
+        mod.onRequest({
+          method: 'listOutputs',
+          args: { basket: MANDALA_BASKET, includeCustomInstructions: true },
+          originator: FOREIGN_ORIGINATOR
+        })
+      ).rejects.toThrow('User denied permission to access Mandala tokens')
     })
   })
 

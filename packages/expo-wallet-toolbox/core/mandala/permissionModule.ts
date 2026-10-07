@@ -27,8 +27,13 @@
  * Source of truth: offline-settlement-final.md §8.3, plus a set of
  * adversarial-review findings closed here (see the inline notes tagged
  * "adversarial-review finding" throughout this file):
- *  1. [critical] listOutputs no longer lets a paired app read back
- *     `customInstructions` (keyID/counterparty/blinding derivation data).
+ *  1. [critical] listOutputs used to withhold `customInstructions`
+ *     (keyID/counterparty/blinding derivation data), because knowing a
+ *     coin's derivation was enough to sign a spend of it. Reverted: the
+ *     Mandala lib finds admin assets and spendable coins by those
+ *     instructions, so withholding them broke issuing and sending from a
+ *     connected app, and `createSignature` is now bound to approved
+ *     transactions (see above), so the derivation alone no longer spends.
  *  2. [medium/high] createAction that only SPENDS `'p mandala'` INPUTS (no
  *     basketed change output) is now gated too — see `anyInputIsTokenCoin`
  *     and the `wrapCreateActionForTokenInputs` wrapper below.
@@ -241,13 +246,6 @@ interface MandalaInternalizeActionArgsLike {
    * `Transaction.fromAtomicBEEF` directly. */
   tx?: number[] | Uint8Array
   outputs?: MandalaInternalizeOutputLike[]
-}
-
-/** The slice of `ListOutputsArgs` this module reads/rewrites. */
-interface MandalaListOutputsArgsLike {
-  basket?: string
-  includeCustomInstructions?: boolean
-  [key: string]: unknown
 }
 
 export interface DecodedMandalaOutput {
@@ -473,15 +471,9 @@ export class MandalaTokenModule implements PermissionsModule {
 
     switch (method) {
       case 'listOutputs': {
+        // customInstructions come back when asked for: see finding (1).
         await this.promptOnceForAccess(originator, 'listOutputs')
-        // Adversarial-review finding (1): WalletPermissionsManager forwards
-        // the ARGS THIS METHOD RETURNS to the underlying listOutputs call
-        // (delegateToPModuleIfNeeded), so redacting here genuinely prevents
-        // the underlying wallet from ever including customInstructions in
-        // its response — this is not merely filtering our own mirror of it
-        // afterward, which would be too late for a caller that reads the
-        // result directly.
-        return { args: this.redactListOutputsArgs(args as MandalaListOutputsArgsLike) }
+        break
       }
       case 'listActions':
         // Adversarial-review finding (3): same once-per-session gate as
@@ -611,16 +603,6 @@ export class MandalaTokenModule implements PermissionsModule {
     }
   }
 
-  /**
-   * Forces `includeCustomInstructions` off regardless of what the caller
-   * asked for. `customInstructions` is where a Mandala coin's `keyID`/
-   * `counterparty`/blinding derivation lives (see the module doc) — a paired
-   * app has no legitimate use for it, and no other `ListOutputsArgs` field
-   * exposes anything equivalent.
-   */
-  private redactListOutputsArgs(args: MandalaListOutputsArgsLike): MandalaListOutputsArgsLike {
-    return { ...args, includeCustomInstructions: false }
-  }
 
   /**
    * createAction with an output in `'p mandala'` — always prompts (mirrors

@@ -54,18 +54,13 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
     // The module's own access prompt fired -- proof the request reached the
     // module's logic, not just its onRequest entry point.
     expect(requestTokenAccess).toHaveBeenCalledTimes(1)
-    // And the call still reaches the underlying wallet once the module
-    // approves -- with includeCustomInstructions forced off (adversarial-
-    // review finding 1: a paired app never gets customInstructions back,
-    // even implicitly by never asking for it in the first place).
-    expect(underlying.listOutputs).toHaveBeenCalledWith(
-      { basket: MANDALA_BASKET, includeCustomInstructions: false },
-      FOREIGN_ORIGINATOR
-    )
+    // And the call reaches the underlying wallet unchanged once the module
+    // approves.
+    expect(underlying.listOutputs).toHaveBeenCalledWith({ basket: MANDALA_BASKET }, FOREIGN_ORIGINATOR)
     expect(result).toEqual({ totalOutputs: 0, outputs: [] })
   })
 
-  it('adversarial-review finding (1): a paired app that explicitly asks for includeCustomInstructions never gets it back', async () => {
+  it('a paired app that asks for includeCustomInstructions gets them back (the Mandala lib needs them to issue and send)', async () => {
     const requestTokenAccess = jest.fn().mockResolvedValue(true)
     const mandalaModule = new MandalaTokenModule({
       adminOriginator: ADMIN_ORIGINATOR,
@@ -75,9 +70,8 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
       resolveMandalaOutput: jest.fn().mockResolvedValue(null)
     })
     const underlying = {
-      // Simulates a real wallet: it WOULD include customInstructions if
-      // asked, so this only passes if the module actually rewrote the
-      // request before it reached here.
+      // Simulates a real wallet: it includes customInstructions only when
+      // asked.
       listOutputs: jest.fn().mockImplementation(async (args: { includeCustomInstructions?: boolean }) => ({
         totalOutputs: 1,
         outputs: [
@@ -98,12 +92,12 @@ describe('WalletPermissionsManager P-routing for MANDALA_BASKET', () => {
     )
 
     expect(underlying.listOutputs).toHaveBeenCalledWith(
-      expect.objectContaining({ includeCustomInstructions: false }),
+      expect.objectContaining({ includeCustomInstructions: true }),
       FOREIGN_ORIGINATOR
     )
-    expect(
-      (result as { outputs: Array<{ customInstructions?: string }> }).outputs[0].customInstructions
-    ).toBeUndefined()
+    expect((result as { outputs: Array<{ customInstructions?: string }> }).outputs[0].customInstructions).toBe(
+      'keyID:1|counterparty:02deadbeef'
+    )
   })
 
   it('throws instead of silently denying when no mandala module is registered (the pre-fix gap, guarded)', async () => {
