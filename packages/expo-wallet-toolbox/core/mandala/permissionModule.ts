@@ -221,6 +221,19 @@ export interface MandalaTokenModuleDeps {
 interface MandalaCreateActionOutputLike {
   lockingScript?: string
   basket?: string
+  customInstructions?: string
+}
+
+/** True for an output the Mandala lib marks as the payment itself
+ * (customInstructions `direction: 'sent'`). In a send to yourself that
+ * output stays in the basket, so the basket alone would show it as change. */
+function isMarkedSent(output: MandalaCreateActionOutputLike): boolean {
+  if (typeof output?.customInstructions !== 'string') return false
+  try {
+    return (JSON.parse(output.customInstructions) as { direction?: unknown })?.direction === 'sent'
+  } catch {
+    return false
+  }
 }
 /** The slice of `RelinquishOutputArgs` this module reads. */
 interface MandalaRelinquishOutputArgsLike {
@@ -714,8 +727,9 @@ export class MandalaTokenModule implements PermissionsModule {
    * assetId (adversarial-review finding 4 — a createAction touching more
    * than one asset previously collapsed every asset's amounts into one
    * running total under whichever assetId was seen first). An output that
-   * carries the `'p mandala'` basket is change (stays with us); one that
-   * does not is the recipient's (Mandala payer outputs are never basketed).
+   * carries the `'p mandala'` basket is change (stays with us) unless the lib
+   * marks it as the payment (a send to yourself); one that does not is the
+   * recipient's (Mandala payer outputs are otherwise never basketed).
    * A script that fails to decode is silently skipped, not fatal —
    * `tryDecodeMandalaOutput` never throws.
    */
@@ -728,7 +742,9 @@ export class MandalaTokenModule implements PermissionsModule {
       const decoded = tryDecodeMandalaOutput(output?.lockingScript)
       if (!decoded) continue
       const entry = totals.get(decoded.assetId) ?? { sendAmount: 0, changeAmount: 0 }
-      if (output.basket === MANDALA_BASKET) {
+      // An app can only make the prompt show MORE as sent this way, never less:
+      // an unbasketed output always counts as sent.
+      if (output.basket === MANDALA_BASKET && !isMarkedSent(output)) {
         entry.changeAmount += decoded.amount
       } else {
         entry.sendAmount += decoded.amount

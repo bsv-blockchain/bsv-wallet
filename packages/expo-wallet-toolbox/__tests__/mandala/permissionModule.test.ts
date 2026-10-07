@@ -340,6 +340,31 @@ describe('MandalaTokenModule', () => {
       expect(promptData.assetId).toBe(ASSET_ID)
     })
 
+    it('counts a basketed output the lib marks as sent (a send to yourself) as sent, not change', async () => {
+      const { mod, requestTokenAccess } = makeModule()
+      const args = {
+        outputs: [
+          {
+            lockingScript: mandalaScriptHex(700),
+            basket: MANDALA_BASKET,
+            customInstructions: JSON.stringify({ keyID: 'xfer-1', direction: 'sent' })
+          },
+          {
+            lockingScript: mandalaScriptHex(300),
+            basket: MANDALA_BASKET,
+            customInstructions: JSON.stringify({ keyID: 'change-1', direction: 'change' })
+          },
+          { lockingScript: mandalaScriptHex(50), basket: MANDALA_BASKET, customInstructions: 'not json' }
+        ]
+      }
+
+      await mod.onRequest({ method: 'createAction', args, originator: FOREIGN_ORIGINATOR })
+
+      const promptData = JSON.parse(requestTokenAccess.mock.calls[0][1])
+      expect(promptData.sendAmount).toBe(700)
+      expect(promptData.changeAmount).toBe(350)
+    })
+
     it('falls back to a generic prompt (never throws) when every output fails to decode', async () => {
       const { mod, requestTokenAccess } = makeModule()
       const args = { outputs: [{ lockingScript: NOT_MANDALA_SCRIPT_HEX }] }

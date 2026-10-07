@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.15.2
+
+### Fixed
+
+- **Sending Mandala tokens to yourself works.** Requires `@bsv/mandala`
+  0.4.1, which no longer blinds a send to the wallet's own identity key (the
+  wallet refuses the root shared secret with itself, so these sends failed
+  before `createAction`). The output is locked like change and kept in the
+  token basket; no MessageBox message is sent. This covers the in-app handle
+  rail as well as connected apps.
+- **The spend prompt shows a send to yourself as sent.** `MandalaTokenModule`
+  counted every `'p mandala'`-basketed output as change, so a send to yourself
+  read "wants to spend 0". A basketed output whose `customInstructions` mark
+  it `direction: 'sent'` now counts as sent. An unbasketed output always
+  counts as sent, so an app can only make the prompt show more, never less.
+
 ## 0.15.1
 
 ### Fixed
