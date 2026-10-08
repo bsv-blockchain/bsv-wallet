@@ -8,16 +8,19 @@
  * past — which is how a testnet wallet came to display a mainnet balance and a
  * mainnet list of payments.
  *
- * The app's chain names and the toolbox's do not match ('teratest' is 'ttn' to
- * the toolbox, and both testnets share the 'test' storage chain), so the
+ * The app's chain names and the toolbox's do not match ('teratest' is 'ttn' and
+ * 'scaletest' is 'regtest' to the toolbox), and storage records the toolbox's
+ * name — it is built with `createStorageBaseOptions(walletChain)` — so the
  * comparison goes through the same mapping the wallet build uses.
  */
 
-export type AppChain = 'main' | 'test' | 'teratest'
+import { NETWORKS, isAppChain, type AppChain } from '../networks'
+
+export type { AppChain } from '../networks'
 
 /** The storage chain an app-level network is expected to be backed by. */
-export function storageChainFor(network: AppChain | string): string {
-  return network === 'main' ? 'main' : 'test'
+export function storageChainFor(network: AppChain | string): string | undefined {
+  return isAppChain(network) ? NETWORKS[network].walletChain : undefined
 }
 
 /**

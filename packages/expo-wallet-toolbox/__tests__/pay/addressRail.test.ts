@@ -26,7 +26,7 @@ import {
   TO_ADDRESS_LABEL_PREFIX
 } from '../../core/pay/counterparty'
 
-const woc = wocConfigFor('main')
+const woc = wocConfigFor('main')!
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
 
 // A coinbase-shaped spend: one input with an empty unlocking script, one
@@ -667,16 +667,20 @@ describe('WhatsOnChain API key', () => {
         }
       })
       for (const chain of ['main', 'test', 'teratest'] as const) {
-        const config = wocConfigFor(chain)
+        const config = wocConfigFor(chain)!
         expect(config.apiKey).toBeUndefined()
         expect('apiKey' in config).toBe(false)
         expect(JSON.stringify(config)).not.toContain('-key')
       }
     })
 
+    it('answers undefined for a network with no WhatsOnChain', () => {
+      expect(wocConfigFor('scaletest')).toBeUndefined()
+    })
+
     it('does not throw before the toolbox is configured', () => {
-      expect(() => wocConfigFor('main')).not.toThrow()
-      expect(wocConfigFor('main').apiKey).toBeUndefined()
+      expect(() => wocConfigFor('main')!).not.toThrow()
+      expect(wocConfigFor('main')!.apiKey).toBeUndefined()
     })
   })
 

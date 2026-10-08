@@ -13,7 +13,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PeerPayClient } from '@bsv/message-box-client'
 import { showAlert } from '../components/ui/AlertCard'
 import { makeCreditClassifier } from '../../core/pay/creditErrors'
@@ -21,11 +20,9 @@ import { creditInboxOnce } from '../../core/pay/creditInbox'
 import { makeBeefRepair } from '../../core/pay/beefRepair'
 import {
   acceptWithRetry,
-  DEFAULT_MESSAGE_BOX_URL,
+  bindMessageBoxNetwork,
   internalizeIncoming,
-  LEGACY_MESSAGE_BOX_URL,
-  MESSAGE_BOX_URL_KEY,
-  NO_MESSAGE_BOX
+  readMessageBoxUrl
 } from '../../core/pay/rails/handle'
 import {
   derivationPrefixFor,
@@ -46,7 +43,6 @@ import { userFacingPayError } from '../../core/pay/userError'
 import { backupAttestation } from '../../core/services/vault/backupAttestation'
 import { getBackupUploadState } from '../../core/backup/status'
 import { getOnline, haptics, spacing, typography, useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
-import { profileScopedKey } from '../../core/profiles/profileStore'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -189,14 +185,16 @@ function useWalletCheckPorts(): WalletCheckPorts {
       },
       creditInbox: async () => {
         if (!wallet) return { accepted: 0 }
-        const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
-        const messageBoxUrl = !saved || saved === LEGACY_MESSAGE_BOX_URL ? DEFAULT_MESSAGE_BOX_URL : saved
-        if (!messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return { accepted: 0 }
-        const client = new PeerPayClient({
-          messageBoxHost: messageBoxUrl,
-          walletClient: wallet as never,
-          originator: adminOriginator
-        })
+        const messageBoxUrl = await readMessageBoxUrl(selectedNetwork)
+        if (!messageBoxUrl) return { accepted: 0 }
+        const client = bindMessageBoxNetwork(
+          new PeerPayClient({
+            messageBoxHost: messageBoxUrl,
+            walletClient: wallet as never,
+            originator: adminOriginator
+          }),
+          selectedNetwork
+        )
         const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
         const classify = await makeCreditClassifier({ getOnline, peekLastMissHeight })
         const outcome = await creditInboxOnce({
@@ -212,8 +210,8 @@ function useWalletCheckPorts(): WalletCheckPorts {
         return { accepted: outcome.accepted }
       },
       sweepAddresses: async () => {
-        if (!wallet) return { imported: 0 }
         const woc = wocConfigFor(selectedNetwork)
+        if (!wallet || !woc) return { imported: 0 }
         let imported = 0
         // XR-055: scan every date this device has actually issued a receive address for
         // (pay/receiveHistory.ts), not a fixed 30-day lookback — a payer who sat on a

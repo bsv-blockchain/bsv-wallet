@@ -48,7 +48,12 @@ let mockWalletBuilt = false
 const mockSendViaHandle = jest.fn()
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
   ...jest.requireActual('@bsv/expo-wallet-toolbox'),
-  useWallet: () => ({ managers: mockManagers, adminOriginator: 'admin.com', storage: mockHandleStorage }),
+  useWallet: () => ({
+    managers: mockManagers,
+    adminOriginator: 'admin.com',
+    storage: mockHandleStorage,
+    selectedNetwork: 'main'
+  }),
   useWalletManagers: () => ({ managers: mockManagers, adminOriginator: 'admin.com', storage: mockHandleStorage }),
   useWalletStatus: () => ({
     walletBuilt: mockWalletBuilt,

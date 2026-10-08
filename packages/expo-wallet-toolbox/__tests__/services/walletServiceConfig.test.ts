@@ -5,6 +5,8 @@ import {
   chaintracksUrlFor
 } from '../../core/services/walletServiceConfig'
 import { Services } from '@bsv/wallet-toolbox-mobile'
+import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
+import type { AppChain } from '../../core/networks'
 import { configureToolbox, resetToolboxConfig, type ToolboxServiceConfig } from '../../core/toolboxConfig'
 
 // The service config now comes from the host, not from process.env — see
@@ -18,6 +20,15 @@ afterEach(() => {
 })
 
 const exchangeRate = () => ({ timestamp: new Date(), base: 'USD' as const, rate: 1 })
+
+/**
+ * Scaletest's toolbox chain, 'regtest', arrives in @bsv/wallet-toolbox 2.15.0
+ * (bsv-blockchain/ts-stack#819); the installed 2.14.x refuses to build its own
+ * ChainTracks client for it. The wallet always injects its own
+ * (OfflineFirstChaintracks), so these wiring tests do the same for scaletest.
+ */
+const chaintracksFor = (network: AppChain) =>
+  network === 'scaletest' ? ({ getChain: async () => 'regtest' } as unknown as ChaintracksClientApi) : undefined
 
 // Pins the Critical fix: Services.getChainTracker() does NOT delegate to
 // options.chaintracks.isValidRootForHeight — it wraps options.chaintracks in
@@ -112,6 +123,12 @@ describe('chaintracksUrlFor', () => {
     expect(chaintracksUrlFor('main')).toBe('https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1')
     expect(chaintracksUrlFor('test')).toBe('https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1')
     expect(chaintracksUrlFor('teratest')).toBe('https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1')
+    expect(chaintracksUrlFor('scaletest')).toBe('https://arcade-tstn-us-1.bsvblockchain.tech/chaintracks/v1')
+  })
+
+  it('a host override wins', () => {
+    configureToolbox({ backupUrl: null, services: { scaletest: { chaintracksUrl: 'https://ct.example/v1' } } })
+    expect(chaintracksUrlFor('scaletest')).toBe('https://ct.example/v1')
   })
 })
 
@@ -126,9 +143,17 @@ describe('Arcade wiring', () => {
   it.each([
     ['main', 'https://arcade-v2-us-1.bsvblockchain.tech'],
     ['test', 'https://arcade-v2-testnet-us-1.bsvblockchain.tech'],
-    ['teratest', 'https://arcade-v2-ttn-us-1.bsvblockchain.tech']
+    ['teratest', 'https://arcade-v2-ttn-us-1.bsvblockchain.tech'],
+    ['scaletest', 'https://arcade-tstn-us-1.bsvblockchain.tech']
   ] as const)('%s: sets arcadeUrl to the same endpoint as arcUrl, with the monitor callback token', (network, url) => {
-    const options = createServiceOptions(network, 'callback-token', exchangeRate())
+    const options = createServiceOptions(
+      network,
+      'callback-token',
+      exchangeRate(),
+      undefined,
+      undefined,
+      chaintracksFor(network)
+    )
     expect(options.arcUrl).toBe(url)
     expect(options.arcadeUrl).toBe(url)
     expect(options.arcadeConfig?.callbackToken).toBe('callback-token')
@@ -172,5 +197,38 @@ describe('XR-066: taalApiKey must not fall back to whatsOnChainApiKey', () => {
     })
     const options = createServiceOptions('main', 'callback-token', exchangeRate())
     expect(options.taalApiKey).toBe('taal-key')
+  })
+})
+
+// A key is only ever sent to a service the network has. Teratest has no TAAL
+// ARC; scaletest has neither TAAL nor WhatsOnChain — a key configured for one
+// of those is dropped rather than handed to a provider with nowhere to go.
+describe('keys follow the services each network has', () => {
+  it('teratest takes a WhatsOnChain key but no TAAL key', () => {
+    configureToolbox({
+      backupUrl: null,
+      services: { teratest: { whatsOnChainApiKey: 'woc-key', taalApiKey: 'taal-key' } }
+    })
+    const options = createServiceOptions('teratest', 'callback-token', exchangeRate())
+    expect(options.whatsOnChainApiKey).toBe('woc-key')
+    expect(options.taalApiKey).toBe('')
+  })
+
+  it('scaletest takes neither', () => {
+    configureToolbox({
+      backupUrl: null,
+      services: { scaletest: { whatsOnChainApiKey: 'woc-key', taalApiKey: 'taal-key' } }
+    })
+    const options = createServiceOptions(
+      'scaletest',
+      'callback-token',
+      exchangeRate(),
+      undefined,
+      undefined,
+      chaintracksFor('scaletest')
+    )
+    expect(options.chain).toBe('regtest')
+    expect(options.whatsOnChainApiKey).toBe('')
+    expect(options.taalApiKey).toBe('')
   })
 })

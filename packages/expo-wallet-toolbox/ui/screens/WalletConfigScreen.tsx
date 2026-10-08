@@ -73,6 +73,7 @@ import { importWalletDatabase } from '../importDatabases'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { profileScopedKey } from '../../core/profiles/profileStore'
 import { profileLabel } from '../../core/profiles/profileLabel'
+import { NETWORKS } from '../../core/networks'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -187,7 +188,7 @@ export function WalletConfigScreen() {
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
 
   const currentCurrency = settings?.currency || 'BSV'
-  const messageBox = useMessageBoxConfig(t)
+  const messageBox = useMessageBoxConfig(t, selectedNetwork)
 
   useEffect(() => {
     if (openBackup) setAdvancedExpanded(true)
@@ -513,11 +514,16 @@ export function WalletConfigScreen() {
     await rebuildWallet()
   }
 
-  const NETWORKS: { id: AppChain; label: string; color: string }[] = [
-    { id: 'main', label: t('mainnet'), color: colors.success },
-    { id: 'test', label: t('testnet'), color: colors.warning },
-    { id: 'teratest', label: t('teratest'), color: colors.info }
-  ]
+  // A network that is not available yet is offered to nobody, but stays
+  // listed for a wallet already on it so the row can still name it.
+  const NETWORK_OPTIONS = (
+    [
+      { id: 'main', label: t('mainnet'), color: colors.success },
+      { id: 'test', label: t('testnet'), color: colors.warning },
+      { id: 'teratest', label: t('teratest'), color: colors.info },
+      { id: 'scaletest', label: t('scaletest'), color: colors.accent }
+    ] as { id: AppChain; label: string; color: string }[]
+  ).filter(n => NETWORKS[n.id].available || n.id === selectedNetwork)
 
   const handleSelectNetwork = async (target: AppChain) => {
     if (target === selectedNetwork) {
@@ -635,17 +641,17 @@ export function WalletConfigScreen() {
               value={
                 switchingNetwork
                   ? t('switching')
-                  : (NETWORKS.find(n => n.id === selectedNetwork)?.label ?? selectedNetwork)
+                  : (NETWORK_OPTIONS.find(n => n.id === selectedNetwork)?.label ?? selectedNetwork)
               }
               icon="globe-outline"
-              iconColor={NETWORKS.find(n => n.id === selectedNetwork)?.color ?? colors.success}
+              iconColor={NETWORK_OPTIONS.find(n => n.id === selectedNetwork)?.color ?? colors.success}
               onPress={() => setNetworkExpanded(e => !e)}
               showChevron={networkExpanded}
               chevronDown={networkExpanded}
             />
             {networkExpanded && (
               <View style={localStyles.networkList}>
-                {NETWORKS.map(net => {
+                {NETWORK_OPTIONS.map(net => {
                   const isActive = net.id === selectedNetwork
                   return (
                     <TouchableOpacity
@@ -667,7 +673,7 @@ export function WalletConfigScreen() {
             <ListRow
               label={t('arc_endpoint')}
               value={(() => {
-                const known = KNOWN_ARC_URLS.find(k => arcUrlInput.startsWith(k.url))
+                const known = KNOWN_ARC_URLS[selectedNetwork].find(k => arcUrlInput.startsWith(k.url))
                 return known ? known.label : arcUrlInput.replace('https://', '')
               })()}
               icon="radio-outline"
@@ -679,7 +685,7 @@ export function WalletConfigScreen() {
             />
             {arcExpanded && (
               <View style={[localStyles.networkList, { paddingTop: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }]}>
-                {KNOWN_ARC_URLS.map(preset => {
+                {KNOWN_ARC_URLS[selectedNetwork].map(preset => {
                   const isSelected = arcUrlInput.startsWith(preset.url)
                   return (
                     <TouchableOpacity
@@ -794,6 +800,7 @@ export function WalletConfigScreen() {
               <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
                 <ConfigPanel
                   urlInput={messageBox.urlInput}
+                  defaultUrl={messageBox.defaultUrl}
                   isSaving={messageBox.isSaving}
                   colors={colors}
                   t={t}

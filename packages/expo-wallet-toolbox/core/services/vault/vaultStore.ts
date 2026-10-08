@@ -10,6 +10,7 @@
 import * as SecureStore from 'expo-secure-store'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
+import { APP_CHAINS, isAppChain, type AppChain } from '../../networks'
 
 const META_KEY_PREFIX = 'vault_meta_v6'
 const ENROLLMENT_DRAFT_KEY_PREFIX = 'vault_enrollment_draft_v1'
@@ -34,12 +35,12 @@ const MAX_KEYS = 5
 const MAX_ACTIVE_KEYS = MAX_KEYS + 1
 const VAULT_SLOT = 0x82
 
-export type VaultScopeChain = 'main' | 'test' | 'teratest'
+export type VaultScopeChain = AppChain
 
 /** Every chain a vault can be namespaced under. One YubiKey is one physical
  * object, so a destructive maintenance operation has to look at all of them —
  * see `enrolledSerialsAcrossChains`. */
-const SCOPE_CHAINS: readonly VaultScopeChain[] = ['main', 'test', 'teratest']
+const SCOPE_CHAINS: readonly VaultScopeChain[] = APP_CHAINS
 
 export interface VaultStoreScope {
   /** Compressed secp256k1 wallet identity key, lowercase hex. */
@@ -174,7 +175,7 @@ function normalizeScope(scope: VaultStoreScope): VaultStoreScope {
   if (!validIdentityKey(scope.identityKey)) {
     throw new VaultError('template-invalid', 'Vault scope requires a canonical wallet identity key')
   }
-  if (scope.chain !== 'main' && scope.chain !== 'test' && scope.chain !== 'teratest') {
+  if (!isAppChain(scope.chain)) {
     throw new VaultError('template-invalid', 'Vault scope requires a supported chain')
   }
   const profileIndex = scope.profileIndex ?? 0
@@ -190,7 +191,7 @@ function scopedKey(scope = activeScope): string | null {
 }
 
 /** The shape of a captured meta storage key: `<prefix>_<chain>_<identityKey>`. */
-const SCOPE_KEY_PATTERN = /^vault_meta_v6_(main|test|teratest)_(0[23][0-9a-f]{64})$/
+const SCOPE_KEY_PATTERN = /^vault_meta_v6_(main|test|teratest|scaletest)_(0[23][0-9a-f]{64})$/
 
 function enrollmentDraftKey(token: VaultScopeToken): string {
   const match = SCOPE_KEY_PATTERN.exec(token.storageKey)

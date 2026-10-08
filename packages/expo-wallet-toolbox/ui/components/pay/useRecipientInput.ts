@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Keyboard } from 'react-native'
 import { IdentityClient } from '@bsv/sdk'
 import type { DisplayableIdentity } from '@bsv/sdk'
-import { searchIdentities } from '../../resolveIdentity'
+import { identityClientOptions, searchIdentities } from '../../resolveIdentity'
 import {
   classifyRecipientInput,
   classifyScan,
@@ -98,7 +98,7 @@ export function useRecipientInput({
   useEffect(() => {
     if (!wallet) return
     try {
-      identityClientRef.current = new IdentityClient(wallet as never, undefined, adminOriginator)
+      identityClientRef.current = new IdentityClient(wallet as never, identityClientOptions(), adminOriginator)
     } catch {
       // Identity search is decorative; a client that will not build leaves the form usable.
     }
