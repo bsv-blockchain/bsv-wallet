@@ -40,6 +40,8 @@ export { validateArcUrl } from './net/validateArcUrl'
 export * from './logging'
 export * from './diskSpace'
 export type { AppChain, WalletChain } from './config'
+export { APP_CHAINS, NETWORKS, isAppChain, hasOverlay } from './networks'
+export type { NetworkProfile, OverlayPreset, WocEndpoints } from './networks'
 export {
   toWalletChain,
   DEFAULT_WAB_URL,

@@ -174,7 +174,7 @@ export default function AddressReceive({
 
   const load = useCallback(
     async (offset: number) => {
-      if (!wallet) return
+      if (!wallet || !woc) return
       setLoading(true)
       try {
         const date = getCurrentDate(offset)
@@ -202,7 +202,7 @@ export default function AddressReceive({
         setLoading(false)
       }
     },
-    [wallet, adminOriginator, woc.network, storage, t]
+    [wallet, adminOriginator, woc?.network, storage, t]
   )
 
   useEffect(() => {
@@ -273,7 +273,7 @@ export default function AddressReceive({
    * screen precisely because they want an answer immediately.
    */
   const handleSweepNow = useCallback(async () => {
-    if (!wallet || !address) return
+    if (!wallet || !address || !woc) return
     setSweeping(true)
     try {
       const { importedSatoshis } = await sweepAddress({

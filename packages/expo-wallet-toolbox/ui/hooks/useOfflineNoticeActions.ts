@@ -1,25 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { PeerPayClient } from '@bsv/message-box-client'
-import {
-  DEFAULT_MESSAGE_BOX_URL,
-  LEGACY_MESSAGE_BOX_URL,
-  MESSAGE_BOX_URL_KEY,
-  NO_MESSAGE_BOX
-} from '@bsv/expo-wallet-toolbox'
+import { bindMessageBoxNetwork, readMessageBoxUrl } from '../../core/pay/rails/handle'
+import type { AppChain } from '../../core/networks'
 import { nackRejectedReceived, sendBouncedOfflineNack } from '../../core/peerpay/offlineNacks'
 import { updateOfflineAction, type OfflineActionRow } from '../../core/storage/methods/offlineActions'
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { showToast } from '../components/ui/Toast'
 import { offlineActionDetails } from '../components/pay/OfflineNotice'
-import { profileScopedKey } from '../../core/profiles/profileStore'
-
-async function readMessageBoxUrl(): Promise<string | undefined> {
-  const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
-  if (saved === NO_MESSAGE_BOX) return undefined
-  if (!saved || saved === LEGACY_MESSAGE_BOX_URL) return DEFAULT_MESSAGE_BOX_URL
-  return saved
-}
 
 type ClipboardModule = typeof import('@react-native-clipboard/clipboard').default
 let clipboardModule: ClipboardModule | undefined
@@ -37,27 +24,31 @@ export function useOfflineNoticeActions(args: {
   storage: StorageExpoSQLite | null | undefined
   permissionsManager: unknown
   adminOriginator: string
+  network: AppChain
   online: boolean
   rejected: OfflineActionRow[]
   t: (key: string, options?: Record<string, unknown>) => string
   reload: () => void
   pushPay: (sats?: number) => void
 }) {
-  const { storage, permissionsManager, adminOriginator, online, rejected, t, reload, pushPay } = args
+  const { storage, permissionsManager, adminOriginator, network, online, rejected, t, reload, pushPay } = args
   const rejectedRef = useRef(rejected)
   rejectedRef.current = rejected
 
   const makeClient = useCallback(async () => {
     const pm = permissionsManager
     if (!pm) return undefined
-    const url = await readMessageBoxUrl()
+    const url = await readMessageBoxUrl(network)
     if (!url) return undefined
-    return new PeerPayClient({
-      messageBoxHost: url,
-      walletClient: pm as WalletClient,
-      originator: adminOriginator
-    })
-  }, [permissionsManager, adminOriginator])
+    return bindMessageBoxNetwork(
+      new PeerPayClient({
+        messageBoxHost: url,
+        walletClient: pm as WalletClient,
+        originator: adminOriginator
+      }),
+      network
+    )
+  }, [permissionsManager, adminOriginator, network])
 
   useEffect(() => {
     if (!online || !storage || rejected.length === 0) return

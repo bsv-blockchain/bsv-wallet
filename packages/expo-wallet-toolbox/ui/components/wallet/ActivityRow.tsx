@@ -128,7 +128,8 @@ interface Props {
    * underneath it are the detail screen's overflow menu.
    */
   onOpen?: (action: ActivityAction) => void
-  onExplorer: (txid: string) => void
+  /** Absent on a network with no block explorer: the row offers no link. */
+  onExplorer?: (txid: string) => void
   onRefreshTx: (txid: string) => void
   onAbort: (reference: string, action?: ActivityAction) => void
   /** Rebuild and re-deliver a PeerPay token without waiting for a NACK. */
@@ -503,7 +504,7 @@ function ActivityRowBase({
                   onPress={() => onRefreshTx(action.txid)}
                 />
               ) : null}
-              {action.txid && !parked ? (
+              {action.txid && !parked && onExplorer ? (
                 <Chip
                   icon="link-outline"
                   label="Explorer"

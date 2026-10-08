@@ -61,10 +61,6 @@ import {
   wocConfigFor,
   getOnline,
   haptics,
-  DEFAULT_MESSAGE_BOX_URL,
-  MESSAGE_BOX_URL_KEY,
-  NO_MESSAGE_BOX,
-  LEGACY_MESSAGE_BOX_URL,
   getOutboxEntries,
   unsentEntries,
   retryDelivery,
@@ -78,6 +74,8 @@ import {
   resolveProvisioningPolicy,
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
+import { NETWORKS } from '../../core/networks'
+import { bindMessageBoxNetwork, readMessageBoxUrl } from '../../core/pay/rails/handle'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
 import { FitAmount } from '../components/wallet/FitAmount'
 import SlideOverFromRight from '../components/ui/SlideOverFromRight'
@@ -127,13 +125,6 @@ import WalletLockNotice from '../components/security/WalletLockNotice'
 import OfflineNotice from '../components/pay/OfflineNotice'
 import { useOnline } from '../hooks/useOnline'
 import { useOfflineNoticeActions } from '../hooks/useOfflineNoticeActions'
-
-async function readMessageBoxUrl(): Promise<string | undefined> {
-  const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
-  if (saved === NO_MESSAGE_BOX) return undefined
-  if (!saved || saved === LEGACY_MESSAGE_BOX_URL) return DEFAULT_MESSAGE_BOX_URL
-  return saved
-}
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -737,13 +728,16 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     const pm = managers.permissionsManager
     if (!pm || !storage) return
     try {
-      const url = await readMessageBoxUrl()
+      const url = await readMessageBoxUrl(selectedNetwork)
       if (!url) return
-      const client = new PeerPayClient({
-        messageBoxHost: url,
-        walletClient: pm as never,
-        originator: adminOriginator
-      })
+      const client = bindMessageBoxNetwork(
+        new PeerPayClient({
+          messageBoxHost: url,
+          walletClient: pm as never,
+          originator: adminOriginator
+        }),
+        selectedNetwork
+      )
       // XR-051: without this, an unauthenticated resend_request could not be
       // told apart from a legitimate one and would be surfaced (and kept
       // being surfaced) as pending forever.
@@ -753,7 +747,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       // Silent: an unreachable box must not alert on focus. The stored
       // unanswered count (if any) keeps the inline row visible.
     }
-  }, [managers.permissionsManager, storage, adminOriginator])
+  }, [managers.permissionsManager, storage, adminOriginator, selectedNetwork])
 
   useEffect(() => {
     if (!storage) return
@@ -981,20 +975,19 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   // ── per-row actions ──────────────────────────────────────────────────
 
   /** Open the transaction on a block explorer in the system browser. */
-  const onExplorer = useCallback(
+  /** A network with no block explorer (the scaling teratestnet) offers no link. */
+  const hasExplorer = NETWORKS[selectedNetwork].woc?.explorerBase !== undefined
+  const openExplorer = useCallback(
     (txid: string) => {
-      const base =
-        selectedNetwork === 'main'
-          ? 'https://whatsonchain.com'
-          : selectedNetwork === 'teratest'
-            ? 'https://woc-ttn.bsvblockchain.tech'
-            : 'https://test.whatsonchain.com'
+      const base = NETWORKS[selectedNetwork].woc?.explorerBase
+      if (!base) return
       Linking.openURL(`${base}/tx/${txid}`).catch(() => {
         showToast(t('explorer_open_failed'), { type: 'error' })
       })
     },
     [selectedNetwork, t]
   )
+  const onExplorer = hasExplorer ? openExplorer : undefined
 
   /** Copy the transaction's full BEEF (raw tx + the proofs/ancestry that make
    * it independently verifiable) as hex — what you paste into a tool or hand to
@@ -1065,16 +1058,19 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     try {
       const pm = managers.permissionsManager
       if (!pm || !storage) throw new Error(t('unknown_error'))
-      const url = await readMessageBoxUrl()
+      const url = await readMessageBoxUrl(selectedNetwork)
       if (!url) {
         showToast(t('message_box_unreachable'), { type: 'error' })
         return
       }
-      const client = new PeerPayClient({
-        messageBoxHost: url,
-        walletClient: pm as never,
-        originator: adminOriginator
-      })
+      const client = bindMessageBoxNetwork(
+        new PeerPayClient({
+          messageBoxHost: url,
+          walletClient: pm as never,
+          originator: adminOriginator
+        }),
+        selectedNetwork
+      )
       const r = await handleResendRequests({
         client,
         storage,
@@ -1122,16 +1118,19 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           if (!mandalaRuntime) throw new Error(t('unknown_error'))
           outcome = await mandalaRuntime.resendTransfer(txid, { refetch, decryptMetadata })
         } else {
-          const url = await readMessageBoxUrl()
+          const url = await readMessageBoxUrl(selectedNetwork)
           if (!url) {
             showToast(t('message_box_unreachable'), { type: 'error' })
             return
           }
-          const client = new PeerPayClient({
-            messageBoxHost: url,
-            walletClient: pm as never,
-            originator: adminOriginator
-          })
+          const client = bindMessageBoxNetwork(
+            new PeerPayClient({
+              messageBoxHost: url,
+              walletClient: pm as never,
+              originator: adminOriginator
+            }),
+            selectedNetwork
+          )
           outcome = await resendPaymentDetails({
             client,
             storage,
@@ -1204,7 +1203,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             // since opted out of a server.
             const client = makePeerPayClient({
               wallet: managers.permissionsManager as never,
-              messageBoxUrl: (await readMessageBoxUrl()) ?? entry.messageBoxUrl,
+              messageBoxUrl: (await readMessageBoxUrl(selectedNetwork)) ?? entry.messageBoxUrl,
+              network: selectedNetwork,
               originator: adminOriginator
             })
             if (!client) {
@@ -1236,7 +1236,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       const sats = Math.abs(action.satoshis)
       router.push(sats > 0 ? `/pay?sats=${sats}` : '/pay')
     },
-    [busyRow, storage, managers.permissionsManager, adminOriginator, onRefresh, t]
+    [busyRow, storage, managers.permissionsManager, adminOriginator, selectedNetwork, onRefresh, t]
   )
 
   const toggleRow = useCallback((key: string) => {
@@ -1378,6 +1378,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     storage,
     permissionsManager: managers.permissionsManager,
     adminOriginator,
+    network: selectedNetwork,
     online,
     rejected,
     t,
@@ -1585,12 +1586,12 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         onPress: () => void onRefreshTx(action.txid)
       })
     }
-    if (keys.includes('explorer')) {
+    if (keys.includes('explorer') && hasExplorer) {
       out.push({
         key: 'explorer',
         label: t('tx_action_explorer'),
         icon: 'link-outline',
-        onPress: () => onExplorer(action.txid)
+        onPress: () => openExplorer(action.txid)
       })
     }
     if (keys.includes('abort')) {

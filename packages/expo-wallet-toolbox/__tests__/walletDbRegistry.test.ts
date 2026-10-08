@@ -104,7 +104,8 @@ describe('purgeIdentityDbFiles: Delete Wallet reaches every profile on every net
     const files = {
       main: `wallet-${KEY_SUFFIX}-mainnet-1700000000.db`,
       test: `wallet-${KEY_SUFFIX}-testnet-1700000000.db`,
-      teratest: `wallet-${KEY_SUFFIX}-teratestnet-1700000000.db`
+      teratest: `wallet-${KEY_SUFFIX}-teratestnet-1700000000.db`,
+      scaletest: `wallet-${KEY_SUFFIX}-scaletestnet-1700000000.db`
     }
     for (const [chain, file] of Object.entries(files)) await registerDb(KEY_SUFFIX, chain, file)
     await registerDb('cafebabe', 'main', 'wallet-cafebabe-mainnet-1700000000.db')
@@ -210,13 +211,15 @@ describe('getAllRegisteredDbs', () => {
     await registerDb(KEY_SUFFIX, 'main', `wallet-${KEY_SUFFIX}-mainnet-1700000050.db`)
     await registerDb(KEY_SUFFIX, 'test', `wallet-${KEY_SUFFIX}-testnet-1700000000.db`)
     await registerDb(KEY_SUFFIX, 'teratest', `wallet-${KEY_SUFFIX}-teratestnet-1700000000.db`)
+    await registerDb(KEY_SUFFIX, 'scaletest', `wallet-${KEY_SUFFIX}-scaletestnet-1700000000.db`)
     await registerDb('cafebabe', 'main', 'wallet-cafebabe-mainnet-1700000000.db')
     expect((await getAllRegisteredDbs(KEY_SUFFIX)).sort()).toEqual(
       [
         `wallet-${KEY_SUFFIX}-mainnet-1700000000.db`,
         `wallet-${KEY_SUFFIX}-mainnet-1700000050.db`,
         `wallet-${KEY_SUFFIX}-testnet-1700000000.db`,
-        `wallet-${KEY_SUFFIX}-teratestnet-1700000000.db`
+        `wallet-${KEY_SUFFIX}-teratestnet-1700000000.db`,
+        `wallet-${KEY_SUFFIX}-scaletestnet-1700000000.db`
       ].sort()
     )
     expect(await getAllRegisteredDbs('00000000')).toEqual([])

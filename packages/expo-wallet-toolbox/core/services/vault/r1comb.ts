@@ -16,6 +16,7 @@
 import { Hash, LockingScript, OP, PrivateKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
+import { isAppChain, type AppChain } from '../../networks'
 
 // ───────────────────────── comb geometry and sizes (spec §2) ─────────────────────────
 export const COMB_ROWS = 6
@@ -78,7 +79,7 @@ const leToBig = (b: number[]): bigint => beToBig([...b].reverse())
 const invalid = (message: string): VaultError => new VaultError('template-invalid', message)
 
 /** Network recorded beside a Vault output and checked against wallet scope. */
-export type VaultSaltChain = 'main' | 'test' | 'teratest'
+export type VaultSaltChain = AppChain
 
 /**
  * Canonical `createHmac` data for a Vault output: the enrolled YubiKey serial
@@ -932,7 +933,7 @@ export function decodeVaultInstructionsV6(ci?: string): VaultInstructionsV6 | nu
     typeof p.saltKeyId !== 'string' ||
     !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)
   ) return null
-  if (p.chain !== 'main' && p.chain !== 'test' && p.chain !== 'teratest') return null
+  if (!isAppChain(p.chain)) return null
   const saltIndex = Number(p.saltKeyId)
   if (!positiveSafeInteger(saltIndex)) return null
   if (!positiveSafeInteger(p.revision) || !positiveSafeInteger(p.createdAt)) return null
@@ -1029,7 +1030,7 @@ export function decodeVaultInstructionsV7(ci?: string): VaultInstructionsV7 | nu
     typeof p.saltKeyId !== 'string' ||
     !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)
   ) return null
-  if (p.chain !== 'main' && p.chain !== 'test' && p.chain !== 'teratest') return null
+  if (!isAppChain(p.chain)) return null
   const saltIndex = Number(p.saltKeyId)
   if (!positiveSafeInteger(saltIndex)) return null
   if (!positiveSafeInteger(p.revision) || !positiveSafeInteger(p.createdAt)) return null

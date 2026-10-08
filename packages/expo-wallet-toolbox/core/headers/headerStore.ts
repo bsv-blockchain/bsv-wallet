@@ -24,7 +24,18 @@ import { utils as chaintracksUtils } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderCheckpoint } from './checkpoints'
 import type { HeaderFs } from './fs'
 
-const { blockHash, deserializeBaseBlockHeader, validateHeaderProofOfWork } = chaintracksUtils
+const { blockHash, deserializeBaseBlockHeader } = chaintracksUtils
+/**
+ * The toolbox's proof-of-work check, given this store's chain. From
+ * @bsv/wallet-toolbox 2.15.0 (bsv-blockchain/ts-stack#819) the chain selects
+ * the proof-of-work limit — regtest's is far higher than mainnet's — and an
+ * omitted chain keeps mainnet's. Older releases take one argument and ignore
+ * the second, which changes nothing for the chains they support.
+ */
+const validateHeaderProofOfWork = chaintracksUtils.validateHeaderProofOfWork as (
+  header: Parameters<typeof chaintracksUtils.validateHeaderProofOfWork>[0],
+  chain?: string
+) => true
 
 const HEADER_BYTES = 80
 const ROOT_BYTES = 32
@@ -218,7 +229,7 @@ export class HeaderStore {
       // header, and accepting it would let anyone mint merkle roots. Takes the
       // display-order hex hash blockHash returns, validates the compact target
       // encoding, and honours the toolbox's consensus proof-of-work exceptions.
-      validateHeaderProofOfWork({ ...parsed, height: firstHeight + i, hash })
+      validateHeaderProofOfWork({ ...parsed, height: firstHeight + i, hash }, this.chain)
       newRoots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
       prev = hash
     }

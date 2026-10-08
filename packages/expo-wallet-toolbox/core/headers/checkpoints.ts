@@ -15,7 +15,12 @@
  *  · test — height 1,697,402, about 52,560 blocks behind its 1,749,962 tip.
  *  · ttn — height 0. The whole teratest chain was 27,502 blocks (~2.2 MB), so
  *    windowing it buys nothing and starting from genesis costs nothing.
+ *  · regtest (scaletest) — height 0, the canonical regtest genesis. The chain is
+ *    short-lived and reset often, and the genesis is the one header every
+ *    reset keeps.
  */
+import type { WalletChain } from '../networks'
+
 export interface HeaderCheckpoint {
   /** Height of the last a-priori-trusted header. The window starts above it. */
   height: number
@@ -23,7 +28,7 @@ export interface HeaderCheckpoint {
   hash: string
 }
 
-export const HEADER_CHECKPOINTS: Record<'main' | 'test' | 'ttn', HeaderCheckpoint> = {
+export const HEADER_CHECKPOINTS: Record<WalletChain, HeaderCheckpoint | undefined> = {
   main: {
     height: 907324,
     hash: '00000000000000000ccc802efeef429acb6b670a6b2bac373ece30f7d2df3e26'
@@ -35,5 +40,9 @@ export const HEADER_CHECKPOINTS: Record<'main' | 'test' | 'ttn', HeaderCheckpoin
   ttn: {
     height: 0,
     hash: '000000000499eabba0a88f5b3747231c74b9191c1a4a04b2c2ea817976b7776d'
+  },
+  regtest: {
+    height: 0,
+    hash: '0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206'
   }
 }

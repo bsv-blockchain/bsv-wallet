@@ -16,12 +16,13 @@ import {
   typography,
   radii,
   isAllowedServiceOrigin,
-  DEFAULT_MESSAGE_BOX_URL,
   LEGACY_MESSAGE_BOX_URL,
   MESSAGE_BOX_URL_KEY,
   NO_MESSAGE_BOX
 } from '@bsv/expo-wallet-toolbox'
 import { profileScopedKey } from '../../../core/profiles/profileStore'
+import { defaultMessageBoxUrlFor, resolveMessageBoxUrl } from '../../../core/pay/rails/handle'
+import type { AppChain } from '../../../core/networks'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -40,9 +41,14 @@ function loadIonicons(): IoniconsComponent {
   return ioniconsComponent
 }
 
-export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next').useTranslation>['t']) {
-  const [messageBoxUrl, setMessageBoxUrl] = useState(DEFAULT_MESSAGE_BOX_URL)
-  const [urlInput, setUrlInput] = useState(DEFAULT_MESSAGE_BOX_URL)
+export function useMessageBoxConfig(
+  t: ReturnType<typeof import('react-i18next').useTranslation>['t'],
+  /** Each network has its own server: the default, and what a saved preference resolves to, follow it. */
+  selectedNetwork: AppChain
+) {
+  const defaultUrl = defaultMessageBoxUrlFor(selectedNetwork)
+  const [messageBoxUrl, setMessageBoxUrl] = useState(defaultUrl)
+  const [urlInput, setUrlInput] = useState(defaultUrl)
   const [isSaving, setIsSaving] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
 
@@ -52,15 +58,13 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
       // deliberate choice of that server — follow the new default instead.
       if (saved === LEGACY_MESSAGE_BOX_URL) {
         void AsyncStorage.removeItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
-        return
       }
-      if (saved) {
-        setMessageBoxUrl(saved)
-        setUrlInput(saved)
-        if (saved === NO_MESSAGE_BOX) setShowConfig(true)
-      }
+      const resolved = resolveMessageBoxUrl(saved, selectedNetwork) ?? NO_MESSAGE_BOX
+      setMessageBoxUrl(resolved)
+      setUrlInput(resolved)
+      if (resolved === NO_MESSAGE_BOX) setShowConfig(true)
     })
-  }, [])
+  }, [selectedNetwork])
 
   const handleSave = useCallback(
     async (input: string) => {
@@ -86,8 +90,17 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
       }
       setIsSaving(true)
       try {
-        await AsyncStorage.setItem(profileScopedKey(MESSAGE_BOX_URL_KEY), trimmed)
-        setMessageBoxUrl(trimmed)
+        // Saved the way every reader will resolve it: a network default (any
+        // network's) means "the default", so it is stored as no preference at
+        // all, and this screen shows the host the rails will actually use.
+        const resolved = resolveMessageBoxUrl(trimmed, selectedNetwork) ?? trimmed
+        if (resolved === trimmed) {
+          await AsyncStorage.setItem(profileScopedKey(MESSAGE_BOX_URL_KEY), trimmed)
+        } else {
+          await AsyncStorage.removeItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
+        }
+        setMessageBoxUrl(resolved)
+        setUrlInput(resolved)
         setShowConfig(false)
         showToast(t('message_box_saved'), { type: 'success' })
       } catch (error: any) {
@@ -96,16 +109,16 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
         setIsSaving(false)
       }
     },
-    [t]
+    [t, selectedNetwork]
   )
 
   const handleReset = useCallback(async () => {
     await AsyncStorage.removeItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
-    setMessageBoxUrl(DEFAULT_MESSAGE_BOX_URL)
-    setUrlInput(DEFAULT_MESSAGE_BOX_URL)
+    setMessageBoxUrl(defaultUrl)
+    setUrlInput(defaultUrl)
     setShowConfig(false)
     showToast(t('message_box_removed'), { type: 'success' })
-  }, [t])
+  }, [t, defaultUrl])
 
   const handleNone = useCallback(async () => {
     const noneValue = NO_MESSAGE_BOX
@@ -125,6 +138,7 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
 
   return {
     messageBoxUrl,
+    defaultUrl,
     urlInput,
     setUrlInput,
     isSaving,
@@ -138,6 +152,8 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
 
 interface ConfigPanelProps {
   readonly urlInput: string
+  /** This network's default server: the placeholder, and what "reset" returns to. */
+  readonly defaultUrl: string
   readonly isSaving: boolean
   readonly colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
@@ -147,10 +163,20 @@ interface ConfigPanelProps {
   readonly onNone: () => void
 }
 
-export function ConfigPanel({ urlInput, isSaving, colors, t, onChangeUrl, onSave, onReset, onNone }: ConfigPanelProps) {
+export function ConfigPanel({
+  urlInput,
+  defaultUrl,
+  isSaving,
+  colors,
+  t,
+  onChangeUrl,
+  onSave,
+  onReset,
+  onNone
+}: ConfigPanelProps) {
   const Ionicons = loadIonicons()
   const hasUrl = !!urlInput.trim()
-  const isNonDefault = urlInput.trim() !== DEFAULT_MESSAGE_BOX_URL && urlInput !== NO_MESSAGE_BOX
+  const isNonDefault = urlInput.trim() !== defaultUrl && urlInput !== NO_MESSAGE_BOX
   return (
     <View style={[styles.configPanel, { backgroundColor: colors.backgroundSecondary }]}>
       <Text style={[styles.configTitle, { color: colors.textPrimary }]}>{t('message_box_server')}</Text>
@@ -158,7 +184,7 @@ export function ConfigPanel({ urlInput, isSaving, colors, t, onChangeUrl, onSave
       <TextInput
         value={urlInput}
         onChangeText={onChangeUrl}
-        placeholder={DEFAULT_MESSAGE_BOX_URL}
+        placeholder={defaultUrl}
         placeholderTextColor={colors.textTertiary}
         autoCapitalize="none"
         autoCorrect={false}

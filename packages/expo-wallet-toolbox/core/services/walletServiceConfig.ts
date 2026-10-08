@@ -1,6 +1,7 @@
 import type { AppChain } from '../config'
 import { toWalletChain } from '../config'
 import { getServiceConfig } from '../toolboxConfig'
+import { NETWORKS } from '../networks'
 import { ChaintracksServiceClient, Services } from '@bsv/wallet-toolbox-mobile'
 import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { ChainTracker } from '@bsv/sdk'
@@ -15,9 +16,7 @@ import type { BsvExchangeRate, WalletServicesOptions } from '../toolboxTypes'
 export function chaintracksUrlFor(network: AppChain): string {
   const configured = getServiceConfig(network).chaintracksUrl
   if (configured != null && configured !== '') return configured
-  if (network === 'main') return 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1'
-  if (network === 'test') return 'https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1'
-  return 'https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1'
+  return `${NETWORKS[network].arcadeUrl}/chaintracks/v1`
 }
 
 /**
@@ -84,14 +83,7 @@ export function createServiceOptions(
   // monitor logged "no arcadeUrl configured; SSE disabled" on every start —
   // a nosend received while online sat unrecognised for 12 h on 2026-09-18
   // while the explorer showed it with 6 confirmations.
-  const arcadeUrl =
-    arcUrlOverride ??
-    svc.arcUrl ??
-    (network === 'main'
-      ? 'https://arcade-v2-us-1.bsvblockchain.tech'
-      : network === 'test'
-        ? 'https://arcade-v2-testnet-us-1.bsvblockchain.tech'
-        : 'https://arcade-v2-ttn-us-1.bsvblockchain.tech')
+  const arcadeUrl = arcUrlOverride ?? svc.arcUrl ?? NETWORKS[network].arcadeUrl
   const arcConfig = {
     apiKey: arcApiKeyOverride ?? svc.arcApiKey ?? '',
     // Must equal the Monitor's callbackToken so Arcade routes this wallet's
@@ -105,38 +97,15 @@ export function createServiceOptions(
   // this key as a Bearer token to arc.taal.com et al. on every ordinary
   // broadcast) — a host that scoped a key to WhatsOnChain must not have it
   // silently disclosed to TAAL just because it left taalApiKey unset.
-  if (network === 'main') {
-    return {
-      ...base,
-      ...arcade,
-      bsvUpdateMsecs: 60 * 60 * 1000,
-      fiatUpdateMsecs: 60 * 60 * 1000,
-      whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
-      taalApiKey: svc.taalApiKey ?? '',
-      chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
-    }
-  }
-
-  if (network === 'test') {
-    return {
-      ...base,
-      ...arcade,
-      bsvUpdateMsecs: 60 * 60 * 1000000,
-      fiatUpdateMsecs: 60 * 60 * 1000000,
-      whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
-      taalApiKey: svc.taalApiKey ?? '',
-      chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
-    }
-  }
-
-  // teratest
+  const updateMsecs = network === 'main' ? 60 * 60 * 1000 : 60 * 60 * 1000000
   return {
     ...base,
     ...arcade,
-    bsvUpdateMsecs: 60 * 60 * 1000000,
-    fiatUpdateMsecs: 60 * 60 * 1000000,
-    whatsOnChainApiKey: svc.whatsOnChainApiKey ?? '',
-    taalApiKey: svc.taalApiKey ?? '',
+    bsvUpdateMsecs: updateMsecs,
+    fiatUpdateMsecs: updateMsecs,
+    // A network with no WhatsOnChain gets no key: there is no host to send it to.
+    whatsOnChainApiKey: NETWORKS[network].woc ? (svc.whatsOnChainApiKey ?? '') : '',
+    taalApiKey: NETWORKS[network].taalArcUrl ? (svc.taalApiKey ?? '') : '',
     chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
   }
 }

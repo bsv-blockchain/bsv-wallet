@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
 import { arcApiTokenStorageKey } from '../constants'
 import { profileScopedKey } from '../profiles/profileStore'
+import { APP_CHAINS } from '../networks'
 
 /**
  * XR-106: the custom ARC API token a holder can configure in
@@ -55,7 +56,7 @@ export async function setArcApiToken(network: string, token: string | null): Pro
 
 /** Delete Wallet: drop one profile's token on every network, whichever profile is active. */
 export async function clearArcApiTokensForProfile(index: number): Promise<void> {
-  for (const network of ['main', 'test', 'teratest']) {
+  for (const network of APP_CHAINS) {
     const key = profileScopedKey(arcApiTokenStorageKey(network), index)
     try {
       await AsyncStorage.removeItem(key)
