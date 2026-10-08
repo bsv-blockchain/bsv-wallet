@@ -30,7 +30,7 @@ function fakeStorage() {
   }
 }
 
-const woc = wocConfigFor('main')
+const woc = wocConfigFor('main')!
 const wallet = {} as never
 
 // The watchlist's date cap is a calendar-day comparison against *now*, so a

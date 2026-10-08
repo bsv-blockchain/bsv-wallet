@@ -113,11 +113,17 @@ configureToolbox({
       url: process.env.EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL ?? ''
     }
   },
+  // Per-chain service overrides. Anything left unset uses the toolbox's
+  // built-in default for that chain (its NETWORKS table): each chain has its
+  // own Arcade, chaintracks and MessageBox server. Teratest has no TAAL ARC,
+  // so it takes no TAAL key; scaletest has no WhatsOnChain, so it takes no
+  // WoC key either.
   services: {
     main: {
       arcUrl: process.env.EXPO_PUBLIC_ARC_URL,
       arcApiKey: process.env.EXPO_PUBLIC_ARC_API_KEY,
       chaintracksUrl: process.env.EXPO_PUBLIC_CHAINTRACKS_URL,
+      messageBoxUrl: process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL,
       whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY,
       taalApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
     },
@@ -125,6 +131,7 @@ configureToolbox({
       arcUrl: process.env.EXPO_PUBLIC_TEST_ARC_URL,
       arcApiKey: process.env.EXPO_PUBLIC_TEST_ARC_API_KEY,
       chaintracksUrl: process.env.EXPO_PUBLIC_TEST_CHAINTRACKS_URL,
+      messageBoxUrl: process.env.EXPO_PUBLIC_TEST_MESSAGEBOX_URL,
       whatsOnChainApiKey: process.env.EXPO_PUBLIC_TEST_WOC_API_KEY,
       taalApiKey: process.env.EXPO_PUBLIC_TEST_TAAL_API_KEY
     },
@@ -132,8 +139,14 @@ configureToolbox({
       arcUrl: process.env.EXPO_PUBLIC_TERATEST_ARC_URL,
       arcApiKey: process.env.EXPO_PUBLIC_TERATEST_ARC_API_KEY,
       chaintracksUrl: process.env.EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL,
-      whatsOnChainApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY,
-      taalApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY
+      messageBoxUrl: process.env.EXPO_PUBLIC_TERATEST_MESSAGEBOX_URL,
+      whatsOnChainApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY
+    },
+    scaletest: {
+      arcUrl: process.env.EXPO_PUBLIC_SCALETEST_ARC_URL,
+      arcApiKey: process.env.EXPO_PUBLIC_SCALETEST_ARC_API_KEY,
+      chaintracksUrl: process.env.EXPO_PUBLIC_SCALETEST_CHAINTRACKS_URL,
+      messageBoxUrl: process.env.EXPO_PUBLIC_SCALETEST_MESSAGEBOX_URL
     }
   },
   // Payment push notifications (MessageBox device registration). The adapter

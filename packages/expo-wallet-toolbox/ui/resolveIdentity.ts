@@ -15,6 +15,8 @@
 import { IdentityClient, StorageDownloader } from '@bsv/sdk'
 import type { DisplayableIdentity, WalletInterface } from '@bsv/sdk'
 import { isPublicHttpsUrl } from '../core/net/publicDestination'
+import { NETWORKS, type OverlayPreset } from '../core/networks'
+import { getActiveProfile } from '../core/profiles/profileStore'
 
 /** Drops repeats by identityKey, keeping the first occurrence. */
 export const uniqueIdentities = (results: DisplayableIdentity[]) => {
@@ -116,11 +118,26 @@ export async function searchIdentities(
 }
 
 /**
+ * The options that point an IdentityClient at the open network's overlay.
+ *
+ * Read from the active profile, which always carries the open network (a
+ * network switch rewrites it), so every screen that builds a client gets the
+ * same answer without threading the network through.
+ */
+export function identityClientOptions(): { networkPreset: OverlayPreset } {
+  return { networkPreset: NETWORKS[getActiveProfile().network].overlayPreset }
+}
+
+/**
  * An IdentityClient for this wallet, or null if one cannot be constructed.
  *
  * Swallowing the throw is deliberate and matches the original call site: every
  * identity feature is decorative relative to the payment itself, so a client
  * that will not build must leave the screen fully usable.
+ *
+ * Lookups go to the open network's overlay. Left to itself the client asks the
+ * wallet, which reports every test chain as `testnet` — so teratest identities
+ * were looked up in testnet's overlay.
  */
 export function makeIdentityClient(
   wallet: WalletInterface | null | undefined,
@@ -128,7 +145,7 @@ export function makeIdentityClient(
 ): IdentityClient | null {
   if (!wallet) return null
   try {
-    return new IdentityClient(wallet, undefined, adminOriginator)
+    return new IdentityClient(wallet, identityClientOptions(), adminOriginator)
   } catch {
     return null
   }

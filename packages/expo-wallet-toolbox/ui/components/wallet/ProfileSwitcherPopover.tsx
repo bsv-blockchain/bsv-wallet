@@ -45,7 +45,12 @@ function loadIonicons(): IoniconsComponent {
   return ioniconsComponent
 }
 
-const NETWORK_LABEL_KEY: Record<AppChain, string> = { main: 'mainnet', test: 'testnet', teratest: 'teratest' }
+const NETWORK_LABEL_KEY: Record<AppChain, string> = {
+  main: 'mainnet',
+  test: 'testnet',
+  teratest: 'teratest',
+  scaletest: 'scaletest'
+}
 
 export interface ProfileSwitcherPopoverProps {
   visible: boolean

@@ -17,7 +17,7 @@ jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
 import { act, renderHook } from '@testing-library/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useMessageBoxConfig } from '../../ui/components/pay/MessageBoxConfig'
-import { DEFAULT_MESSAGE_BOX_URL } from '../../core/pay/rails/handle'
+import { DEFAULT_MESSAGE_BOX_URL, readMessageBoxUrl } from '../../core/pay/rails/handle'
 
 // useMessageBoxConfig's `t` param is react-i18next's branded TFunction, which
 // a plain function literal can never structurally satisfy (it carries a
@@ -31,7 +31,7 @@ beforeEach(async () => {
 })
 
 it('XR-065: refuses to save a plain http MessageBox host', async () => {
-  const { result } = renderHook(() => useMessageBoxConfig(t))
+  const { result } = renderHook(() => useMessageBoxConfig(t, 'main'))
   await act(async () => {
     await result.current.handleSave('http://mb.example.com')
   })
@@ -40,7 +40,7 @@ it('XR-065: refuses to save a plain http MessageBox host', async () => {
 })
 
 it('XR-065: refuses to save a MessageBox host carrying embedded credentials', async () => {
-  const { result } = renderHook(() => useMessageBoxConfig(t))
+  const { result } = renderHook(() => useMessageBoxConfig(t, 'main'))
   await act(async () => {
     await result.current.handleSave('https://user:pass@mb.example.com')
   })
@@ -49,7 +49,7 @@ it('XR-065: refuses to save a MessageBox host carrying embedded credentials', as
 })
 
 it('still saves an ordinary https MessageBox host', async () => {
-  const { result } = renderHook(() => useMessageBoxConfig(t))
+  const { result } = renderHook(() => useMessageBoxConfig(t, 'main'))
   await act(async () => {
     await result.current.handleSave('https://mb.example.com')
   })
@@ -58,9 +58,43 @@ it('still saves an ordinary https MessageBox host', async () => {
 })
 
 it('still saves a plain http MessageBox host on a local-dev host', async () => {
-  const { result } = renderHook(() => useMessageBoxConfig(t))
+  const { result } = renderHook(() => useMessageBoxConfig(t, 'main'))
   await act(async () => {
     await result.current.handleSave('http://localhost:9000')
   })
   expect(result.current.messageBoxUrl).toBe('http://localhost:9000')
+})
+
+describe('per-network default', () => {
+  it("starts from the open network's own server", async () => {
+    const { result } = renderHook(() => useMessageBoxConfig(t, 'teratest'))
+    await act(async () => {})
+    expect(result.current.defaultUrl).toBe('https://messagebox-ttn.bsvblockchain.tech')
+    expect(result.current.messageBoxUrl).toBe('https://messagebox-ttn.bsvblockchain.tech')
+  })
+
+  it("reads a saved mainnet default as the old default, not a choice of mainnet's server", async () => {
+    await AsyncStorage.setItem('message_box_url', DEFAULT_MESSAGE_BOX_URL)
+    const { result } = renderHook(() => useMessageBoxConfig(t, 'test'))
+    await act(async () => {})
+    expect(result.current.messageBoxUrl).toBe('https://messagebox-testnet.bsvblockchain.tech')
+  })
+
+  it('keeps a server the user chose', async () => {
+    await AsyncStorage.setItem('message_box_url', 'https://mb.example.com')
+    const { result } = renderHook(() => useMessageBoxConfig(t, 'teratest'))
+    await act(async () => {})
+    expect(result.current.messageBoxUrl).toBe('https://mb.example.com')
+  })
+
+  it("saves another network's default as no preference, so the screen and the rails agree", async () => {
+    const { result } = renderHook(() => useMessageBoxConfig(t, 'test'))
+    await act(async () => {})
+    await act(async () => {
+      await result.current.handleSave(DEFAULT_MESSAGE_BOX_URL)
+    })
+    expect(await AsyncStorage.getItem('message_box_url')).toBeNull()
+    expect(result.current.messageBoxUrl).toBe('https://messagebox-testnet.bsvblockchain.tech')
+    expect(await readMessageBoxUrl('test')).toBe(result.current.messageBoxUrl)
+  })
 })

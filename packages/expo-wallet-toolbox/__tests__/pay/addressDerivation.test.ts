@@ -72,7 +72,7 @@ describe('derivation key material', () => {
 
 describe('wocConfigFor', () => {
   it('maps mainnet', () => {
-    expect(wocConfigFor('main')).toEqual({
+    expect(wocConfigFor('main')!).toEqual({
       apiBase: 'https://api.whatsonchain.com',
       segment: 'main',
       network: 'mainnet'
@@ -80,7 +80,7 @@ describe('wocConfigFor', () => {
   })
 
   it('maps testnet', () => {
-    expect(wocConfigFor('test')).toEqual({
+    expect(wocConfigFor('test')!).toEqual({
       apiBase: 'https://api.whatsonchain.com',
       segment: 'test',
       network: 'testnet'
@@ -88,7 +88,7 @@ describe('wocConfigFor', () => {
   })
 
   it('maps teratest to its own WoC host', () => {
-    expect(wocConfigFor('teratest')).toEqual({
+    expect(wocConfigFor('teratest')!).toEqual({
       apiBase: 'https://api.woc-ttn.bsvblockchain.tech',
       segment: 'test',
       network: 'testnet'
