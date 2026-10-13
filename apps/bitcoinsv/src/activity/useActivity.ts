@@ -121,12 +121,16 @@ export function useActivity(opts: { limit?: number } = {}) {
 
   // not read from this wallet yet: still loading, not empty
   const unread = !!pm && readFrom !== pm
+  // stablecoin rows still being read: built now, a token payment would read as
+  // "+0 BSV" (and overwrite the detail route's good copy in the index). A
+  // failed read ends loading, and the rows then show without token figures.
+  const tokensPending = tokens.rows === null && tokens.loading
   const items = useMemo<ActivityItem[] | null>(() => {
-    if (!actions || unread) return null
+    if (!actions || unread || tokensPending) return null
     const list = toActivityItems(actions, { offline, tokenByTxid, contactsByKey: contacts.byKey, t })
     for (const it of list) index.set(it.id, it)
     return list
-  }, [actions, unread, offline, tokenByTxid, contacts.byKey, t])
+  }, [actions, unread, tokensPending, offline, tokenByTxid, contacts.byKey, t])
 
   const reload = useCallback(() => setNonce(n => n + 1), [])
 
