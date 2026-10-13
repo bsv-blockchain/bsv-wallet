@@ -21,9 +21,15 @@ const wallets = [
 ]
 /** the page's words, without markup: long codes are set over several lines */
 const text = (html: string) => {
-  // until nothing changes: one pass can leave a tag made of two halves
-  for (let prev = ''; prev !== html; ) [prev, html] = [html, html.replace(/<[^>]+>/g, '')]
-  return html
+  // everything outside <…>, read once (no regex pass to leave half a tag)
+  let out = ''
+  let inTag = false
+  for (const c of html) {
+    if (c === '<') inTag = true
+    else if (c === '>') inTag = false
+    else if (!inTag) out += c
+  }
+  return out
 }
 const svg = (n: number) => `<svg viewBox="0 0 1 1" data-qr="${n}"></svg>`
 
