@@ -29,7 +29,14 @@ export interface Asset {
 
 export const isDollar = (ticker: string) => /usd/i.test(ticker)
 
-export function useAssets(): { assets: Asset[]; totalFiat: number | null; totalBsv: number; loading: boolean } {
+export function useAssets(): {
+  assets: Asset[]
+  totalFiat: number | null
+  totalBsv: number
+  loading: boolean
+  /** the stablecoins have been read (or there are none on this wallet): a coin missing from `assets` isn't held */
+  known: boolean
+} {
   const home = useHomeData()
   const mandala = useMandala()
   const { usdToFiat, satoshisPerUSD } = useContext(ExchangeRateContext)
@@ -74,5 +81,7 @@ export function useAssets(): { assets: Asset[]; totalFiat: number | null; totalB
   // the same total in BSV: dollar stablecoins at the live rate
   const dollarsInBsv = satoshisPerUSD ? satoshisPerUSD / 100_000_000 : 0
   const totalBsv = bsv.amount + tokens.reduce((t, a) => t + (isDollar(a.ticker) ? a.amount * dollarsInBsv : 0), 0)
-  return { assets, totalFiat, totalBsv, loading: mandala.loading }
+  // each caller reads its own balances, null until that first read lands
+  const known = !mandala.available || mandala.balances != null
+  return { assets, totalFiat, totalBsv, loading: mandala.loading, known }
 }

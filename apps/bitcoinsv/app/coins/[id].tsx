@@ -6,10 +6,10 @@
 // Not here: the prototype's Top up, Swap and Withdraw tiles (Later), its
 // balance chart (Later), and its stablecoin issuer sheet's figures, which
 // were made up: a stablecoin opens what the shared core knows about it.
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated from 'react-native-reanimated'
-import { Redirect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard'
 import { Check, ChevronDown, ChevronRight, Copy, ExternalLink } from 'lucide-react-native'
@@ -59,11 +59,39 @@ function PickerMark({ mark, size, badge }: { mark: (size: number) => React.React
 
 export default function CoinPage() {
   const { id } = useLocalSearchParams<{ id: string }>()
-  const { assets } = useAssets()
+  const { assets, known } = useAssets()
   const asset = assets.find(a => a.id === id)
-  // a coin you no longer hold has nothing to show: back to Home
-  if (!asset) return <Redirect href="/" />
-  return <CoinDetail asset={asset} />
+  if (asset) return <CoinDetail asset={asset} />
+  // a stablecoin's balance is still being read: not gone, just not here yet
+  if (!known) return <CoinPending />
+  // a coin you no longer hold has nothing to show: back where you came from
+  return <CoinGone />
+}
+
+/** The page's frame while its stablecoin is read, so the open doesn't flash. */
+function CoinPending() {
+  const palette = usePalette()
+  const insets = useSafeAreaInsets()
+  return (
+    <View style={[styles.root, { backgroundColor: palette.background }]}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <PageHeader title="" />
+      </View>
+    </View>
+  )
+}
+
+/**
+ * Leaves for the screen below, rather than pushing Home on top of Home (what
+ * a Redirect to "/" did from a coin opened on Home).
+ */
+function CoinGone() {
+  const router = useRouter()
+  useEffect(() => {
+    if (router.canGoBack()) router.back()
+    else router.replace('/')
+  }, [router])
+  return <CoinPending />
 }
 
 function CoinDetail({ asset }: { asset: Asset }) {
