@@ -16,7 +16,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Check, Download, Pencil, Plus } from 'lucide-react-native'
 import { liveProfiles, useActiveProfileIndex, useProfiles, useWallet } from '@bsv/expo-wallet-toolbox'
 import { showToast } from '../ui/Toast'
-import { Handle } from '../ui/Handle'
 import { font, radii, usePalette } from '../theme'
 import { enter, useReducedMotion } from '../ui/motion'
 import { Avatar, CyclingAvatar, type AvatarBg, type Portrait } from '../ui/Avatar'
@@ -85,7 +84,6 @@ export function WalletCard({
 
   const wallets = useWalletList()
   const name = (index: number) => wallets.find(w => w.index === index)?.name ?? `Wallet ${index + 1}`
-  const handleOf = (index: number) => wallets.find(w => w.index === index)?.handle ?? null
 
   return (
     <Animated.View
@@ -137,14 +135,10 @@ export function WalletCard({
                 )}
               </View>
               <View style={styles.flex}>
-                {/* your own handle in full: "@vince@ [mark] bitcoinsv.com" */}
-                {handleOf(p.index) ? (
-                  <Handle handle={handleOf(p.index) as string} peer={false} style={[font(600), styles.small, { color: palette.foreground }]} />
-                ) : (
-                  <Text numberOfLines={1} style={[font(600), styles.small, { color: palette.foreground }]}>
-                    {name(p.index)}
-                  </Text>
-                )}
+                {/* its handle alone ("@vince"), or "Wallet 2" before it has one */}
+                <Text numberOfLines={1} style={[font(600), styles.small, { color: palette.foreground }]}>
+                  {name(p.index)}
+                </Text>
                 {on && totalFiat != null ? (
                   <Money amount={totalFiat} unit="usd" privacy={prefs.privacy} style={[font(400), styles.xs, { color: palette.mutedForeground }]} />
                 ) : (
