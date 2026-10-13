@@ -13,6 +13,7 @@
  */
 import { BRFC_LOOKUP, BRFC_REVERSE_LOOKUP, looksLikeDomain } from './rules'
 import { isPublicHttpsUrl } from '../../net/publicDestination'
+import { trimTrailingSlashes } from '../../net/trimTrailingSlashes'
 
 /** The domain this build's own handles live under, and the host serving it. */
 export interface RegistryPin {
@@ -216,7 +217,7 @@ export function createRegistryResolver(args: {
   const now = args.now ?? (() => Date.now())
   const dohEndpoints = args.dohEndpoints ?? DOH_ENDPOINTS
   const pinnedDomain = args.pinned?.domain.trim().toLowerCase() ?? ''
-  const pinnedOrigin = args.pinned?.url.trim().replace(/\/+$/, '') ?? ''
+  const pinnedOrigin = trimTrailingSlashes(args.pinned?.url.trim() ?? '')
   const cache = new Map<string, { at: number; value: RegistryEndpoints | null }>()
 
   const pinnedEndpoints: RegistryEndpoints | null =

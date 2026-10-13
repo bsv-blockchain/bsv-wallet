@@ -1,4 +1,5 @@
 import { PublicKey } from '@bsv/sdk'
+import { trimTrailingSlashes } from './net/trimTrailingSlashes'
 
 /**
  * BRC-125 PeerPay URI (https://bsv.brc.dev/payments/0125).
@@ -143,7 +144,7 @@ export function validatePeerPayURI(uri: string): PeerPayValidationResult {
     if (params.has('sats') && (params.has('asset') || params.has('amount'))) {
       errors.sats = 'PeerPay link mixes sats with a token request'
     }
-    const url = (params.get('url') ?? '').trim().replace(/\/+$/, '')
+    const url = trimTrailingSlashes((params.get('url') ?? '').trim())
     if (url && MESSAGE_BOX_URL_REGEX.test(url)) messageBoxUrl = url
     note = cleanPeerPayNote(params.get('note'))
   }

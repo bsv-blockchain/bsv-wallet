@@ -6,6 +6,7 @@ import { coverFromFrame, type CoverVerifier } from '../mandala/bundle'
 import { PEERPAY_PROTOCOL_ID } from './pending'
 import { isRequestableAmount } from './session'
 import type { DeclineReason } from './types'
+import { trimTrailingSlashes } from '../net/trimTrailingSlashes'
 
 // mandala's FT derivation protocol — the payer locks token outputs under it
 // with OUR payee-minted nonces as keyID, preserving the frame-to-session binding
@@ -323,7 +324,7 @@ function sameOverlay(
   token: { overlayUrl: string; overlayIdentityKey: string },
   asset: { overlayUrl: string; overlayIdentityKey: string }
 ): boolean {
-  const url = (u: string) => u.trim().replace(/\/+$/, '')
+  const url = (u: string) => trimTrailingSlashes(u.trim())
   return (
     token.overlayIdentityKey.toLowerCase() === asset.overlayIdentityKey.toLowerCase() &&
     url(token.overlayUrl) === url(asset.overlayUrl)

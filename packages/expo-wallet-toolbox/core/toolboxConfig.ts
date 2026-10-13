@@ -1,5 +1,6 @@
 import type { AppChain } from './config'
 import type { PushAdapter } from './push/types'
+import { trimTrailingSlashes } from './net/trimTrailingSlashes'
 
 /**
  * Service endpoints and API keys for one chain.
@@ -171,7 +172,7 @@ export function isAllowedServiceOrigin(parsed: URL): boolean {
 }
 
 function normalizeBackupUrl(raw: string): string {
-  const trimmed = raw.trim().replace(/\/+$/, '')
+  const trimmed = trimTrailingSlashes(raw.trim())
   if (trimmed === '') return ''
   let parsed: URL
   try {
@@ -263,9 +264,9 @@ const COMPRESSED_KEY = /^0[23][0-9a-fA-F]{64}$/
 export function getMandalaEndpoints(chain: AppChain): MandalaEndpointConfig | undefined {
   const entry = current?.mandala[chain]
   if (!entry) return undefined
-  const overlayUrl = entry.overlayUrl?.trim().replace(/\/+$/, '') ?? ''
+  const overlayUrl = trimTrailingSlashes(entry.overlayUrl?.trim() ?? '')
   const overlayIdentityKey = entry.overlayIdentityKey?.trim() ?? ''
-  const messageBoxUrl = entry.messageBoxUrl?.trim().replace(/\/+$/, '') ?? ''
+  const messageBoxUrl = trimTrailingSlashes(entry.messageBoxUrl?.trim() ?? '')
   if (overlayUrl === '' || messageBoxUrl === '') return undefined
   if (!COMPRESSED_KEY.test(overlayIdentityKey)) return undefined
   // XR-065 (SEC2-074): neither URL had a scheme policy at all before this --
@@ -309,7 +310,7 @@ export function getHandleRegistryConfig(chain: AppChain): HandleRegistryConfig |
   const entry = current?.handleRegistry[chain]
   if (!entry) return undefined
   const domain = entry.domain?.trim().toLowerCase() ?? ''
-  const url = entry.url?.trim().replace(/\/+$/, '') ?? ''
+  const url = trimTrailingSlashes(entry.url?.trim() ?? '')
   if (!REGISTRY_DOMAIN.test(domain) || url === '') return undefined
   let parsed: URL
   try {

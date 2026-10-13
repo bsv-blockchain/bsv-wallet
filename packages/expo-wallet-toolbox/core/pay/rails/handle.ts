@@ -25,6 +25,7 @@ import { cleanPeerPayNote } from '../../parsePeerPayURI'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 import type { MandalaRuntime, TokenSendResult } from '../../mandala/runtime'
+import { trimTrailingSlashes } from '../../net/trimTrailingSlashes'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.bsvblockchain.tech'
@@ -95,7 +96,7 @@ export function peerPayLinkFor(
     const amount = sats !== undefined ? Math.round(Number(sats)) : NaN
     if (Number.isFinite(amount) && amount > 0) params.push(`sats=${amount}`)
   }
-  const host = (messageBoxUrl ?? '').trim().replace(/\/+$/, '')
+  const host = trimTrailingSlashes((messageBoxUrl ?? '').trim())
   if (host && host !== NO_MESSAGE_BOX) params.push(`url=${encodeURIComponent(host)}`)
   const forWhat = cleanPeerPayNote(note)
   if (forWhat) params.push(`note=${encodeURIComponent(forWhat)}`)
