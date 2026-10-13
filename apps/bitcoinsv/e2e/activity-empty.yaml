@@ -1,5 +1,5 @@
 # Activity on a wallet with no payments yet, from Home's search bar.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Search contacts, transactions and more
 - assertVisible: Activity

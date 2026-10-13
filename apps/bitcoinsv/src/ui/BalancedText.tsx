@@ -78,6 +78,19 @@ function IosBalanced({ style, children, ...rest }: TextProps) {
       <Text {...rest} style={[style, width ? { width, maxWidth: width, alignSelf: 'center' } : null]}>
         {children}
       </Text>
+      {/* holds the room open at the text's own full width: in a parent that
+          shrink-wraps its content (alignItems: 'center'), the room would
+          otherwise follow the balanced width, and every narrowing would start
+          the search again, the text forever re-wrapping */}
+      <Text
+        {...rest}
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        style={[style, { height: 0, opacity: 0, overflow: 'hidden', marginVertical: 0, paddingVertical: 0 }]}
+      >
+        {children}
+      </Text>
       {room > 0 && probe > 0 && (
         <Text
           {...rest}

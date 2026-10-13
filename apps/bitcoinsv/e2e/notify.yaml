@@ -1,9 +1,9 @@
 # The payment-arrived toast (src/notify), on the development sample rows: a
 # payment from a contact, tapped through to its detail, then one whose row
 # can't be read yet. A real incoming payment needs a funded wallet.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
-- openLink: bitcoinsv-wallet://dev-art?notify=1
+- openLink: bsv-wallet://dev-art?notify=1
 - runFlow:
     when:
       platform: iOS
@@ -18,7 +18,7 @@ appId: com.bitcoinsv.wallet
 - tapOn: Ana paid you.*
 - assertVisible: Transaction ID
 - assertVisible: Dinner
-- openLink: bitcoinsv-wallet://dev-art?notify=2
+- openLink: bsv-wallet://dev-art?notify=2
 - runFlow:
     when:
       platform: iOS

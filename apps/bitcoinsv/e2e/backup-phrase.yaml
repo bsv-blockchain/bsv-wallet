@@ -1,7 +1,7 @@
 # Back up with the recovery phrase: briefing, reveal, writing mode, the
 # three-word check, done. Starts on Home with the wallet not backed up.
 # Ends at the device check; backup-phrase-reveal.yaml carries on.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Back up this wallet
 - assertVisible: Four ways to back up

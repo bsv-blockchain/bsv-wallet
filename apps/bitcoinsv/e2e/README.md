@@ -8,7 +8,7 @@ openjdk@17)/libexec/openjdk.jdk/Contents/Home`). Metro must be running
 
 A clean Android install without touching the emulator's own wallet: a
 second Android user (`adb shell pm create-user e2e`, then
-`pm install-existing --user <id> com.bitcoinsv.wallet` and
+`pm install-existing --user <id> org.bsvblockchain.wallet` and
 `am switch-user <id>`). Turn its keyboard's stylus handwriting off
 (`settings --user <id> put secure stylus_handwriting_enabled 0`) or its
 first-run tutorial takes the typed text. Its dev client also needs its floating Tools button off (dev
@@ -83,7 +83,7 @@ deep link raises a system "Open in Bitcoin SV Wallet?" alert outside the
 app's tree, tapped by position; a tappable row is one accessibility element
 ("Ana Silva, +0.0015 BSV, …"), so match rows with `.*`; and turn off the dev
 client's floating Tools button, which sits over the header's right button
-(`xcrun simctl spawn <udid> defaults write com.bitcoinsv.wallet EXDevMenuShowFloatingActionButton -bool NO`).
+(`xcrun simctl spawn <udid> defaults write org.bsvblockchain.wallet EXDevMenuShowFloatingActionButton -bool NO`).
 - `requests-ask.yaml` + `requests-decline.yaml`: a payment request between
   two wallets on two devices (both on Metro), no funds needed. Start the ask
   on one with the other's handle and display name (`-e HANDLE=@name -e

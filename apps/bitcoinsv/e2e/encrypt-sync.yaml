@@ -1,7 +1,7 @@
 # Encrypt & sync (decision 2: the prototype's steps, saving a placeholder):
 # password manager, 1Password, a password, connect, and the plain "not
 # available yet". Nothing is saved or recorded as backed up. Starts on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Settings
 - tapOn: "Backups, .*"

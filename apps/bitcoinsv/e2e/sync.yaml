@@ -1,6 +1,6 @@
 # Sync from Settings → Backups: its status, and the plan (free now; the paid
 # plan is a placeholder, decision 6). Starts on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Settings
 - tapOn: "Backups, .*"

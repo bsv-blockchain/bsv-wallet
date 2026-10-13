@@ -9,7 +9,7 @@ import Constants from 'expo-constants'
 import * as StoreReview from 'expo-store-review'
 import { APP_STORE_ID, PLAY_STORE_LISTED } from './config'
 
-const PACKAGE = Constants.expoConfig?.android?.package ?? 'com.bitcoinsv.wallet'
+const PACKAGE = Constants.expoConfig?.android?.package ?? 'org.bsvblockchain.wallet'
 
 /** The app is in this platform's store. */
 export const isListed = () => (Platform.OS === 'ios' ? !!APP_STORE_ID : Platform.OS === 'android' ? PLAY_STORE_LISTED : false)

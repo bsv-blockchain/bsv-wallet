@@ -1,8 +1,8 @@
 # Requests, the asked side (run while requests-ask.yaml waits): the request
 # arrives within a poll, opens with its note, and is declined.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
-- openLink: bitcoinsv-wallet://activity
+- openLink: bsv-wallet://activity
 # iOS's "Open in…?" alert, when it shows: Activity isn't up behind it yet
 - runFlow:
     when:

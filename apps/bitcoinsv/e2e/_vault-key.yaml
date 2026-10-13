@@ -1,6 +1,6 @@
 # One key in the core's enrolment wizard: its PIN twice (the fields carry no
 # label of their own, so by position), then its recovery code written down.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - extendedWaitUntil:
     visible: Choose a PIN

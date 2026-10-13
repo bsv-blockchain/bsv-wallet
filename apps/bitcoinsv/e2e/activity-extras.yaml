@@ -1,6 +1,6 @@
 # Activity's extras from Home's search bar: a search that finds a setting,
 # the filter sheet (and its count), and the header's menu. Starts on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Search contacts, transactions and more
 - inputText: dark

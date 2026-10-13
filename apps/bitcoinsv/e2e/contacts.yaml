@@ -1,8 +1,8 @@
 # Contacts: Ana (added by activity-detail.yaml) on All contacts, starred
 # into Favourites, deleted and brought back with Undo, renamed.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
-- openLink: bitcoinsv-wallet://contacts
+- openLink: bsv-wallet://contacts
 # iOS asks "Open in Bitcoin SV Wallet?" for every link: a system alert, not
 # in the app's tree, so its Open button is tapped by position
 - runFlow:

@@ -1,7 +1,7 @@
 # Settings from Home's top bar: its sections, dark mode, the display currency
 # (shown back on Home), payment alerts, the why sheet, the tour, and the
 # forget-wallet check (cancelled). Starts on Home with a wallet.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Settings
 - assertVisible: BACKUPS

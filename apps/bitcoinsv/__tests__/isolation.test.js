@@ -1,9 +1,9 @@
 /**
- * Guards for the two-app contract (docs/superpowers/2026-10-09-now-app-handover.md):
- * the Bitcoin SV Wallet app must have its own installed identity and share no
- * persisted state, links or release identity with the existing BSV Wallet app,
- * must keep the release gates decided for it, and must resolve the same shared
- * dependency versions as the existing app.
+ * Guards for the identity takeover: the Bitcoin SV Wallet app ships under the
+ * existing BSV Wallet's installed identity (bundle ID / package, EAS project,
+ * Firebase, URL schemes, store submit identity), declares no entitlement that
+ * would share wallet storage with other apps, keeps the release gates decided
+ * for it, and resolves the same shared dependency versions as the existing app.
  */
 const fs = require('fs')
 const path = require('path')
@@ -26,33 +26,46 @@ const asArray = v => (Array.isArray(v) ? v : v ? [v] : [])
 describe('installed identity', () => {
   const config = loadConfig()
 
-  test('bundle id, package, slug and name are this app’s own', () => {
-    expect(config.ios.bundleIdentifier).toBe('com.bitcoinsv.wallet')
-    expect(config.android.package).toBe('com.bitcoinsv.wallet')
-    expect(config.ios.bundleIdentifier).not.toBe(existing.ios.bundleIdentifier)
-    expect(config.android.package).not.toBe(existing.android.package)
-    expect(config.slug).not.toBe(existing.slug)
-    expect(config.name).not.toBe(existing.name)
+  test('bundle id, package, slug and owner are the existing app’s', () => {
+    expect(config.ios.bundleIdentifier).toBe('org.bsvblockchain.wallet')
+    expect(config.android.package).toBe('org.bsvblockchain.wallet')
+    expect(config.ios.bundleIdentifier).toBe(existing.ios.bundleIdentifier)
+    expect(config.android.package).toBe(existing.android.package)
+    expect(config.slug).toBe(existing.slug)
+    expect(config.owner).toBe(existing.owner)
   })
 
-  test('registers no URL scheme the existing app uses', () => {
-    const existingSchemes = new Set([
-      ...asArray(existing.scheme),
-      ...(existing.ios.infoPlist.CFBundleURLTypes ?? []).flatMap(t => t.CFBundleURLSchemes),
-      ...(existing.android.intentFilters ?? []).flatMap(f => f.data.map(d => d.scheme))
-    ])
-    const schemes = [
-      ...asArray(config.scheme),
-      ...(config.ios.infoPlist.CFBundleURLTypes ?? []).flatMap(t => t.CFBundleURLSchemes),
-      ...(config.android.intentFilters ?? []).flatMap(f => f.data.map(d => d.scheme))
-    ]
-    expect(schemes).toEqual(['bitcoinsv-wallet'])
-    for (const s of schemes) expect(existingSchemes.has(s)).toBe(false)
+  test('registers exactly the URL schemes the existing app uses', () => {
+    // With CFBundleURLTypes set, Expo ignores `scheme` on iOS.
+    const iosSchemes = c =>
+      new Set(
+        c.ios.infoPlist.CFBundleURLTypes
+          ? c.ios.infoPlist.CFBundleURLTypes.flatMap(t => t.CFBundleURLSchemes)
+          : asArray(c.scheme)
+      )
+    const androidSchemes = c =>
+      new Set([...asArray(c.scheme), ...(c.android.intentFilters ?? []).flatMap(f => f.data.map(d => d.scheme))])
+    for (const schemesOf of [iosSchemes, androidSchemes]) {
+      expect([...schemesOf(config)].sort()).toEqual([...schemesOf(existing)].sort())
+    }
   })
 
-  test('never shares the existing app’s EAS project', () => {
-    const projectId = config.extra?.eas?.projectId
-    expect(projectId).not.toBe(existing.extra.eas.projectId)
+  test('the link adapter resolves every wallet scheme the config registers', () => {
+    jest.isolateModules(() => {
+      jest.doMock('../src/links/linkDomain', () => ({ LINK_DOMAIN: '' }))
+      const { walletSchemes } = require('../app/+native-intent')
+      expect([...walletSchemes].sort()).toEqual([...asArray(config.scheme)].sort())
+    })
+  })
+
+  test('uses the existing app’s EAS project and Firebase registrations', () => {
+    expect(config.extra.eas.projectId).toBe(existing.extra.eas.projectId)
+    expect(path.resolve(appDir, config.ios.googleServicesFile)).toBe(
+      path.resolve(repoRoot, existing.ios.googleServicesFile)
+    )
+    expect(path.resolve(appDir, config.android.googleServicesFile)).toBe(
+      path.resolve(repoRoot, existing.android.googleServicesFile)
+    )
   })
 })
 
@@ -60,29 +73,13 @@ describe('no shared persisted state', () => {
   const config = loadConfig()
 
   test('no keychain access group, app group or other sharing entitlement', () => {
-    const allowed = new Set(['aps-environment'])
+    const allowed = new Set(['aps-environment', 'com.apple.developer.associated-domains'])
     for (const key of Object.keys(config.ios.entitlements ?? {})) expect(allowed.has(key)).toBe(true)
   })
 
   test('no Android shared user id and no OS cloud backup', () => {
     expect(config.android.sharedUserId).toBeUndefined()
     expect(config.android.allowBackup).toBe(false)
-  })
-
-  test('any Firebase registration belongs to this app, not the existing one', () => {
-    const plist = path.join(appDir, 'firebase/GoogleService-Info.plist')
-    const json = path.join(appDir, 'firebase/google-services.json')
-    if (fs.existsSync(plist)) {
-      const text = fs.readFileSync(plist, 'utf8')
-      expect(text).toContain('<string>com.bitcoinsv.wallet</string>')
-      expect(text).not.toContain(existing.ios.bundleIdentifier)
-    }
-    if (fs.existsSync(json)) {
-      const clients = JSON.parse(fs.readFileSync(json, 'utf8')).client ?? []
-      const packages = clients.map(c => c.client_info?.android_client_info?.package_name)
-      expect(packages).toContain('com.bitcoinsv.wallet')
-      expect(packages).not.toContain(existing.android.package)
-    }
   })
 })
 
@@ -114,9 +111,8 @@ describe('release gates', () => {
     expect(env('production').EXPO_PUBLIC_HANDLE_REGISTRY_DOMAIN).toBe('bitcoinsv.com')
   })
 
-  test('profiles are this app’s own, with no submit identity copied from the existing app', () => {
-    expect(eas.submit).toBeUndefined()
-    expect(JSON.stringify(eas)).not.toContain(existingEas.submit.production.ios.ascAppId)
+  test('submits to the existing app’s App Store listing', () => {
+    expect(eas.submit).toEqual(existingEas.submit)
   })
 })
 

@@ -2,7 +2,7 @@
 # EXPO_PUBLIC_PUSH_SIMULATE=true plays pushes (app/dev-push.tsx). A tapped
 # request push opens Activity on Requested; a tapped payment push, on All.
 # Starts on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Settings
 - scrollUntilVisible:

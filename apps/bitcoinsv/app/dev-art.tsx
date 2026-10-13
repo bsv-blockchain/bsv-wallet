@@ -1,15 +1,15 @@
 // Development builds only: one illustrated scene at a time, without a wallet,
 // for checking the motion on a simulator that can't be tapped
 // (docs/superpowers/2026-10-09-now-app-motion.md). Production redirects home.
-//   bitcoinsv-wallet://dev-art?brief=0..6   a backup briefing screen
-//   bitcoinsv-wallet://dev-art?done=1       the backed-up celebration
-//   bitcoinsv-wallet://dev-art?activity=1   activity rows (tap one for its detail)
-//   bitcoinsv-wallet://dev-art?notify=1     the payment-arrived toast, from a contact
-//   bitcoinsv-wallet://dev-art?notify=2     the same, when its row can't be read yet
-//   bitcoinsv-wallet://dev-art?cards=1      Home's small cards (a wallet with payments)
-//   bitcoinsv-wallet://dev-art?nudge=1      "Back up your keys"
-//   bitcoinsv-wallet://dev-art?tube=1       the tour video's loading tube
-//   bitcoinsv-wallet://dev-art?handles=1    handles from each wallet, with their marks
+//   bsv-wallet://dev-art?brief=0..6   a backup briefing screen
+//   bsv-wallet://dev-art?done=1       the backed-up celebration
+//   bsv-wallet://dev-art?activity=1   activity rows (tap one for its detail)
+//   bsv-wallet://dev-art?notify=1     the payment-arrived toast, from a contact
+//   bsv-wallet://dev-art?notify=2     the same, when its row can't be read yet
+//   bsv-wallet://dev-art?cards=1      Home's small cards (a wallet with payments)
+//   bsv-wallet://dev-art?nudge=1      "Back up your keys"
+//   bsv-wallet://dev-art?tube=1       the tour video's loading tube
+//   bsv-wallet://dev-art?handles=1    handles from each wallet, with their marks
 import React, { useEffect } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { Redirect, useLocalSearchParams } from 'expo-router'

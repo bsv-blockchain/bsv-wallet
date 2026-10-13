@@ -77,13 +77,15 @@ export default function SignIn() {
     setCode(r.code)
     setStage('review')
   }
-  const seeded = useRef(false)
+  // each code handed in once; a new one (a second sign-in link opened while
+  // this screen is up) is read too, never mid-sign-in
+  const seeded = useRef<string | null>(null)
   useEffect(() => {
-    if (handed && !seeded.current) {
-      seeded.current = true
+    if (handed && handed !== seeded.current && stage !== 'signing') {
+      seeded.current = handed
       read(handed)
     }
-  }, [handed])
+  }, [handed, stage])
   useEffect(() => {
     void autoApproveThreshold().then(setThreshold)
   }, [])

@@ -1,14 +1,15 @@
-// Same adapter as the existing app's app/+native-intent.ts, with this app's
-// own scheme. Imported from the specific module, not the toolbox barrel: this
-// early-startup file must not pull in native-only UI dependencies.
+// Same adapter as the existing app's app/+native-intent.ts. Imported from the
+// specific module, not the toolbox barrel: this early-startup file must not
+// pull in native-only UI dependencies.
 import { resolveNativeIntent } from '@bsv/expo-wallet-toolbox/core/pay/rails/nativeIntent'
 import { resolveWebLink } from '../src/links/webLinks'
 import { LINK_DOMAIN } from '../src/links/linkDomain'
 
-// Only this app's scheme. The existing app's bsv-wallet, bsv-browser and
-// peerpay schemes are never registered here, so their links keep opening the
-// existing app.
-const walletSchemes = ['bitcoinsv-wallet']
+// The existing app's schemes (bsv-wallet, bsv-browser), whose identity this
+// app took over (app.config.js). peerpay: is handled by resolveNativeIntent
+// itself. Kept in step with app.config.js `scheme` by
+// __tests__/isolation.test.js.
+export const walletSchemes = ['bsv-wallet', 'bsv-browser']
 
 // expo-dev-client opens a development build with
 // `<scheme>://expo-development-client/?url=<metro>`. That link is for the dev

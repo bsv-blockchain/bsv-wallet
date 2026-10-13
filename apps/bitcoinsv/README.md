@@ -11,26 +11,26 @@ A second app shell next to the existing BSV Wallet (repository root). It brings 
 - **npm workspace of the root.** `apps/*` is a workspace. A single `npm ci` at the repository root installs one copy of every dependency and applies the root `patches/` for both apps. Every dependency shared with the existing app must use the same version (`__tests__/isolation.test.js` enforces this). A different version would install a second copy of a native module.
 - **Native projects are generated.** `ios/` and `android/` are produced by `expo prebuild` from `app.config.js` and are not committed. Native build settings for the shared modules (the `expo-build-properties` and `expo-audio` entries) are read from the existing app's `app.json`, so a fix there applies to both builds.
 
-## Isolation from the existing app
+## Identity: takes over the existing app
 
-The two installed apps share no storage and no identity:
+This app ships under the existing BSV Wallet's installed identity, as an update to the same store listings. `app.config.js` reads each value from the root `app.json`, so the two cannot drift:
 
-| | Existing app | This app |
-|---|---|---|
-| Bundle ID / package | `org.bsvblockchain.wallet` | `com.bitcoinsv.wallet` |
-| URL schemes | `bsv-wallet`, `bsv-browser`, `peerpay` | `bitcoinsv-wallet` |
-| EAS project, Firebase project, App Store app | existing | its own (to be created by BSVA) |
+| | Value |
+|---|---|
+| Bundle ID / package | `org.bsvblockchain.wallet` |
+| URL schemes | `bsv-wallet`, `bsv-browser`, `peerpay` |
+| EAS project, Firebase registrations, App Store app | the existing app's |
 
-Neither app declares keychain access groups, app groups or an Android shared user ID. Their keychain items, SQLite databases, AsyncStorage and secure store are therefore private to each installation, even though the shared core uses the same internal key and service names. `__tests__/isolation.test.js` fails if any of this changes. Wire-protocol constants (Bonjour `_bsvpay._tcp`, the Nearby service ID) stay identical so the two apps can pay each other.
+Installed over the existing app, it inherits that installation's keychain items, SQLite databases, AsyncStorage and secure store (the shared core uses the same internal key and service names), so it opens on the same wallet. The two apps cannot be installed side by side. Neither declares keychain access groups, app groups or an Android shared user ID. `__tests__/isolation.test.js` fails if any of this changes.
 
 ## Release gates
 
 | Profile (`eas.json`) | Vault | Push |
 |---|---|---|
-| `development`, `dev-physical`, `preview`, `preview-apk` | on | on, once Firebase is set up |
-| `production` | **off** | on (via MessageBox), once Firebase is set up |
+| `development`, `dev-physical`, `preview`, `preview-apk` | on | on |
+| `production` | **off** | on (via MessageBox) |
 
-Push also needs this app's own Firebase registrations. Put `GoogleService-Info.plist` and `google-services.json` for `com.bitcoinsv.wallet` in `firebase/`. That folder is not committed; use EAS file secrets in CI. Without them the app builds and runs with push unavailable.
+Push uses the existing app's Firebase registrations at the repository root (`GoogleService-Info.plist`, `google-services.json`). Without them the app builds and runs with push unavailable.
 
 Production handles live under `bitcoinsv.com`. Set `EXPO_PUBLIC_HANDLE_REGISTRY_URL` (and the `TEST_` one) in the production profile once BSVA provides that registry host; until then Profile shows handles as not available. The development and preview profiles use the existing development registry (`deggen.com`).
 
@@ -78,7 +78,5 @@ npm run prebuild          # generate ios/ and android/
 npm run ios               # or: npm run android
 npm start                 # Metro for an installed development build (never with CI=1: it disables file watching)
 npm test                  # this app's guard tests
-eas build --profile development --platform ios   # after BSVA creates the EAS project
+eas build --profile development --platform ios   # the existing app's EAS project
 ```
-
-Set `BITCOINSV_EAS_PROJECT_ID` once BSVA creates this app's EAS project. Never reuse the existing app's project.

@@ -1,7 +1,7 @@
 # Where the tour lives, after it: the tour from Settings, on to its video,
 # closed; Settings with "Take the tour" lit, a tap shown on Back, and Home's
 # Settings button glowing. Starts on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Settings
 - scrollUntilVisible:

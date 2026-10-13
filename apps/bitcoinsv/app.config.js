@@ -1,15 +1,16 @@
 // Expo config for the Bitcoin SV Wallet app (Now mode).
 //
-// This is a second app shell next to the existing BSV Wallet (repo root). Both
-// shells share one wallet implementation (packages/expo-wallet-toolbox), but
-// every installed-app identity below must be this app's own, and no storage may
-// be shared: see docs/superpowers/2026-10-09-now-app-handover.md and
-// __tests__/isolation.test.js, which fails the build if any of this drifts.
+// This app takes over the existing BSV Wallet's installed identity (repo root
+// app.json): same bundle ID / package, EAS project, Firebase registrations and
+// URL schemes, so it ships as an update to the same App Store / Play listing.
+// Installed over the existing app, it inherits that app's keychain, SQLite,
+// AsyncStorage and secure store. Both shells still share one wallet
+// implementation (packages/expo-wallet-toolbox). __tests__/isolation.test.js
+// fails if this identity drifts from the root app's.
 //
-// Never add: ios.entitlements keychain-access-groups or
-// com.apple.security.application-groups, Android sharedUserId, or the existing
-// app's URL schemes (bsv-wallet, bsv-browser, peerpay). Any of those would let
-// the two installs read each other's state or receive each other's links.
+// Never add ios.entitlements keychain-access-groups or
+// com.apple.security.application-groups, or an Android sharedUserId: those
+// would expose wallet storage to other apps.
 const fs = require('fs')
 const path = require('path')
 
@@ -25,21 +26,27 @@ const rootPlugin = name => {
   return entry
 }
 
+// The existing app's identity, read from its app.json rather than copied, so
+// the two cannot drift. The URL schemes are the existing app's: bsv-wallet,
+// bsv-browser, and peerpay through CFBundleURLTypes / intentFilters.
+const rootSchemes = Array.isArray(rootApp.scheme) ? rootApp.scheme : [rootApp.scheme]
 const IDENTITY = {
   name: 'Bitcoin SV Wallet',
-  slug: 'bitcoinsv-wallet',
-  scheme: 'bitcoinsv-wallet',
-  bundleIdentifier: 'com.bitcoinsv.wallet',
-  package: 'com.bitcoinsv.wallet'
+  slug: rootApp.slug,
+  owner: rootApp.owner,
+  scheme: rootSchemes,
+  bundleIdentifier: rootApp.ios.bundleIdentifier,
+  package: rootApp.android.package,
+  easProjectId: rootApp.extra.eas.projectId
 }
 
-// Firebase (payment push) needs this app's own Firebase registrations for
-// com.bitcoinsv.wallet. Until BSVA creates them and drops the two files into
-// firebase/, the app builds without Firebase and push stays unavailable.
-const firebaseDir = path.join(__dirname, 'firebase')
-const iosFirebase = path.join(firebaseDir, 'GoogleService-Info.plist')
-const androidFirebase = path.join(firebaseDir, 'google-services.json')
+// Firebase (payment push): the existing app's registrations for the shared
+// bundle ID / package, at the repository root.
+const iosFirebase = path.join(__dirname, '../..', rootApp.ios.googleServicesFile)
+const androidFirebase = path.join(__dirname, '../..', rootApp.android.googleServicesFile)
 const hasFirebase = fs.existsSync(iosFirebase) && fs.existsSync(androidFirebase)
+const iosFirebaseFile = path.relative(__dirname, iosFirebase)
+const androidFirebaseFile = path.relative(__dirname, androidFirebase)
 
 // Website links (src/links/webLinks.ts): with EXPO_PUBLIC_LINK_DOMAIN set (e.g.
 // bitcoinsv.com), the phone hands https://<domain>/pay/… and /@… links to the
@@ -92,8 +99,10 @@ const FONT_PLUGIN = [
 module.exports = () => ({
   name: IDENTITY.name,
   slug: IDENTITY.slug,
+  owner: IDENTITY.owner,
   scheme: IDENTITY.scheme,
-  version: '0.1.0',
+  // continues the existing app's store version line
+  version: rootApp.version,
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   userInterfaceStyle: 'automatic',
@@ -102,6 +111,7 @@ module.exports = () => ({
     './plugins/withIconAliasLinks',
     './plugins/withLaunchWindowBackground',
     './plugins/withHomeLaunchScreen',
+    './plugins/withSceneLifecycle',
     // Settings → App icon (the prototype's): the default is the Bitcoin SV mark;
     // these are the others, iOS's alternate icons and Android's activity aliases
     [
@@ -109,7 +119,10 @@ module.exports = () => ({
       ['Dragon', 'Original', 'Satoshi'].map(name => ({
         name,
         ios: `./assets/images/app-icons/${name.toLowerCase()}.png`,
-        android: { foregroundImage: `./assets/images/app-icons/${name.toLowerCase()}-foreground.png`, backgroundColor: '#FFFFFF' }
+        android: {
+          foregroundImage: `./assets/images/app-icons/${name.toLowerCase()}-foreground.png`,
+          backgroundColor: '#FFFFFF'
+        }
       }))
     ],
     '../../plugins/withNfcReaderEntitlement',
@@ -164,14 +177,12 @@ module.exports = () => ({
   experiments: { typedRoutes: false },
   extra: {
     router: {},
-    // Set when BSVA creates this app's own EAS project (never the existing
-    // app's projectId). Absent until then.
-    ...(process.env.BITCOINSV_EAS_PROJECT_ID ? { eas: { projectId: process.env.BITCOINSV_EAS_PROJECT_ID } } : {}),
+    eas: { projectId: IDENTITY.easProjectId },
     pushConfigured: hasFirebase
   },
   android: {
     package: IDENTITY.package,
-    ...(hasFirebase ? { googleServicesFile: './firebase/google-services.json' } : {}),
+    ...(hasFirebase ? { googleServicesFile: androidFirebaseFile } : {}),
     // Same as the existing app: no OS cloud backup of wallet storage.
     allowBackup: false,
     adaptiveIcon: { foregroundImage: './assets/images/adaptive-icon.png', backgroundColor: '#FFFFFF' },
@@ -189,9 +200,10 @@ module.exports = () => ({
       'android.permission.POST_NOTIFICATIONS'
     ],
     blockedPermissions: ['android.permission.RECORD_AUDIO', 'android.permission.SYSTEM_ALERT_WINDOW'],
-    ...(linkDomain
-      ? {
-          intentFilters: [
+    intentFilters: [
+      ...rootApp.android.intentFilters,
+      ...(linkDomain
+        ? [
             {
               action: 'VIEW',
               autoVerify: true,
@@ -202,21 +214,25 @@ module.exports = () => ({
               category: ['BROWSABLE', 'DEFAULT']
             }
           ]
-        }
-      : {})
+        : [])
+    ]
   },
   ios: {
     supportsTablet: false,
     bundleIdentifier: IDENTITY.bundleIdentifier,
-    ...(hasFirebase ? { googleServicesFile: './firebase/GoogleService-Info.plist' } : {}),
+    ...(hasFirebase ? { googleServicesFile: iosFirebaseFile } : {}),
     entitlements: {
       ...(hasFirebase ? { 'aps-environment': apsEnvironment } : {}),
       ...(linkDomain ? { 'com.apple.developer.associated-domains': linkHosts.map(h => `applinks:${h}`) } : {})
     },
     infoPlist: {
       ...(hasFirebase ? { UIBackgroundModes: ['remote-notification'] } : {}),
+      // peerpay plus the existing app's own schemes (with CFBundleURLTypes set,
+      // Expo ignores `scheme` on iOS)
+      CFBundleURLTypes: rootApp.ios.infoPlist.CFBundleURLTypes,
       NSCameraUsageDescription: 'Bitcoin SV Wallet uses the camera to scan payment and recovery QR codes.',
-      NSPhotoLibraryAddUsageDescription: 'Bitcoin SV Wallet saves QR codes and receipts to your photo library when you ask it to.',
+      NSPhotoLibraryAddUsageDescription:
+        'Bitcoin SV Wallet saves QR codes and receipts to your photo library when you ask it to.',
       NSFaceIDUsageDescription: 'Bitcoin SV Wallet uses Face ID to protect your wallet and recovery phrase.',
       ITSAppUsesNonExemptEncryption: false,
       NSLocationWhenInUseUsageDescription:

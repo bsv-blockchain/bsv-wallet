@@ -3,7 +3,7 @@
 # in place, which can crash Expo's native views in development (see
 # docs/superpowers/2026-10-09-now-app-motion.md), so the link is used only
 # when the launcher shows (first run).
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - launchApp:
     stopApp: true
@@ -11,7 +11,7 @@ appId: com.bitcoinsv.wallet
     when:
       visible: (Development servers|Enter URL manually|DEVELOPMENT SERVERS)
     commands:
-      - openLink: exp+bitcoinsv-wallet://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081
+      - openLink: exp+bsv-wallet://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081
       # the system's "Open in Bitcoin SV Wallet?" alert, outside the app's tree
       - tapOn:
           point: 68%,54%

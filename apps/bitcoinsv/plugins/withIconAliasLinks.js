@@ -1,6 +1,6 @@
 // Android's alternate app icons (expo-alternate-app-icons) are activity
 // aliases with only the launcher's intent filter. Choosing one disables
-// MainActivity, and with it every link the app opens (bitcoinsv-wallet://,
+// MainActivity, and with it every link the app opens (bsv-wallet://,
 // pay links, the dev client's own scheme): Android finds no activity for
 // them. Each alias gets MainActivity's other intent filters too. Only one of
 // MainActivity and the aliases is ever enabled, so a link still has exactly

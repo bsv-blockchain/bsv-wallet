@@ -1,8 +1,8 @@
 # Activity rows and a payment's detail, on the development sample rows
 # (dev-art?activity=1), then adding the other side as a contact.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
-- openLink: bitcoinsv-wallet://dev-art?activity=1
+- openLink: bsv-wallet://dev-art?activity=1
 # iOS asks "Open in Bitcoin SV Wallet?" for every link: a system alert, not
 # in the app's tree, so its Open button is tapped by position
 - runFlow:

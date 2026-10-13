@@ -1,7 +1,7 @@
 # Wallets from Home's avatar: the switcher, a second wallet with its own free
 # @handle (a new profile of the same phrase), then back to the first. Starts
 # on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Your wallets
 - assertVisible: Import wallet

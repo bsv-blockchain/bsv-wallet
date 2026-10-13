@@ -3,7 +3,7 @@
 # then the core's enrolment wizard with its simulated keys (two keys, a PIN
 # each), to the overview and the core's key management. Moving money needs a
 # funded wallet (the core's minimum deposit is 100,000 satoshis).
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 # Settings' Vault button puts Vault in the quick actions
 - runFlow:

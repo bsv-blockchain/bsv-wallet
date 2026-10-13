@@ -1,7 +1,7 @@
 # Pay: find someone by @handle in the handle registry (the iOS test wallet,
 # @bumpycaterpillar52 on the dev registry), the amount step and its balance
 # guard (the test wallets hold nothing), back to who, and Scan & pay.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Pay
 - assertVisible: Pay to contact

@@ -5,9 +5,9 @@
 # where it stays in the app (the dev launcher can't start the app otherwise):
 # here, the Android steps check that, with the choice kept across a restart.
 # Starts on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
-- openLink: bitcoinsv-wallet://app-icon
+- openLink: bsv-wallet://app-icon
 - runFlow:
     when:
       platform: iOS
@@ -45,7 +45,7 @@ appId: com.bitcoinsv.wallet
       - extendedWaitUntil:
           visible: (Get set up|Total balance.*)
           timeout: 60000
-      - openLink: bitcoinsv-wallet://app-icon
+      - openLink: bsv-wallet://app-icon
 # the plate says which icon is on (a radio's checked state isn't readable on iOS)
 - assertVisible: "App icon[:,] Dragon"
 - takeScreenshot: app-icon-dragon

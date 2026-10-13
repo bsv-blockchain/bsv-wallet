@@ -1,5 +1,5 @@
 # Bring the development build to the front on the Android emulator, on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - launchApp:
     stopApp: true
@@ -7,7 +7,7 @@ appId: com.bitcoinsv.wallet
     when:
       visible: (Development servers|DEVELOPMENT SERVERS)
     commands:
-      - openLink: exp+bitcoinsv-wallet://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8081
+      - openLink: exp+bsv-wallet://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8081
 - extendedWaitUntil:
     visible:
       text: (Continue|Get set up|Total balance.*)

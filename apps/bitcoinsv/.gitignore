@@ -4,6 +4,3 @@
 /android
 .expo/
 expo-env.d.ts
-# Firebase registrations for com.bitcoinsv.wallet are provided per build
-# environment (EAS file secrets), not committed.
-/firebase/

@@ -3,9 +3,9 @@
 # see the request open in Activity. Then, once the other side has declined,
 # the Requested filter shows it declined (the 30-second poll).
 #   maestro --device <asker> test -e HANDLE=@name -e NAME="Their Name" requests-ask.yaml
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
-- openLink: bitcoinsv-wallet://contacts/add
+- openLink: bsv-wallet://contacts/add
 - runFlow:
     when:
       platform: iOS
@@ -34,7 +34,7 @@ appId: com.bitcoinsv.wallet
     visible: Request sent
     timeout: 20000
 - tapOn: Done
-- openLink: bitcoinsv-wallet://activity
+- openLink: bsv-wallet://activity
 # iOS's "Open in…?" alert, when it shows: Activity isn't up behind it yet
 - runFlow:
     when:

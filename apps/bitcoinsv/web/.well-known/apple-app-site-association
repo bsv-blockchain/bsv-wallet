@@ -2,7 +2,7 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["APPLE_TEAM_ID.com.bitcoinsv.wallet"],
+        "appIDs": ["APPLE_TEAM_ID.org.bsvblockchain.wallet"],
         "components": [
           { "/": "/pay/*", "comment": "a pay link: opens Pay with it" },
           { "/": "/@*", "comment": "a handle: opens Pay on it" }

@@ -1,7 +1,7 @@
 # Sign in on a new phone with a recovery phrase, on a fresh install: the
 # standard public BIP39 test phrase (an empty, well-known test wallet, never
 # anyone's own). A restore records the wallet as backed up (it was).
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - extendedWaitUntil:
     visible: No crypto skills needed

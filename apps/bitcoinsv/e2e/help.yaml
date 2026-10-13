@@ -1,6 +1,6 @@
 # Help from Home's top bar (quick answers, one opened), then Import wallet's
 # backup file placeholder (decision 2). Starts on Home.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - tapOn: Help & support
 - assertVisible: QUICK ANSWERS

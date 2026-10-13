@@ -3,9 +3,9 @@
 # coffee" (Contacts → them → Request); this one opens it, pays it with the
 # note carried over, and sees it paid. On the asker, Activity's Requested
 # filter then shows it paid too, and the payment arrives with the note.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
-- openLink: bitcoinsv-wallet://activity
+- openLink: bsv-wallet://activity
 - runFlow:
     when:
       platform: iOS
@@ -26,7 +26,7 @@ appId: com.bitcoinsv.wallet
     timeout: 60000
 - assertVisible: Download receipt
 - tapOn: Done
-- openLink: bitcoinsv-wallet://activity
+- openLink: bsv-wallet://activity
 - runFlow:
     when:
       platform: iOS

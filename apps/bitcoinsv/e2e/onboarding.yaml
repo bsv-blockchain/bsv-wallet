@@ -1,6 +1,6 @@
 # Welcome's three screens, then the first wallet with a free @handle.
 # Run on a fresh install (no wallet). Ends on Home, not yet backed up.
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 - extendedWaitUntil:
     visible: No crypto skills needed

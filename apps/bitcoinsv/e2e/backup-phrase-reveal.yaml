@@ -1,7 +1,7 @@
 # Back up with the recovery phrase, after the device check: reveal, writing
 # mode, the three-word check, done. On iOS the runner answers the Face ID
 # prompt between backup-phrase.yaml and this flow (see README.md).
-appId: com.bitcoinsv.wallet
+appId: org.bsvblockchain.wallet
 ---
 # the words stay hidden until a press and hold
 - extendedWaitUntil: { visible: Press and hold to reveal, timeout: 30000 }

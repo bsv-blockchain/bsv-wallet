@@ -17,11 +17,11 @@ The setting names, with development defaults, are in [`../.env.example`](../.env
 | Identity overlay (Mandala) | testnet live | mainnet overlay URL and identity key |
 | Handles (`@name`) | development registry (`deggen.com`) | the production registry URL for `bitcoinsv.com` |
 | Backup log (Sync) | live | nothing |
-| Push | built; simulated in dev | Firebase registration files; server-side push for both boxes |
+| Push | built; uses the existing app's Firebase | server-side push for both boxes |
 | Website links | built; off | the domain hosting two files; Apple team ID; Android signing fingerprints |
 | Website sign-in (pairing) | live | nothing; the website runs its own relay |
 | Feedback | built; notes wait on the phone | the feedback service (to build, below) |
-| EAS project / store apps | the app builds locally | this app's own EAS project ID, App Store and Play listings |
+| EAS project / store apps | the existing app's (identity takeover) | nothing |
 
 ## Broadcast and headers
 
@@ -98,7 +98,7 @@ What's built:
 
 What BSVA supplies:
 
-1. `GoogleService-Info.plist` and `google-services.json` for `com.bitcoinsv.wallet`, placed in `firebase/`. They are not committed; in CI they come from EAS file secrets. Without them the app builds and runs with push off.
+1. Nothing new for Firebase: the app uses the existing BSV Wallet's registrations for `org.bsvblockchain.wallet` (`GoogleService-Info.plist` and `google-services.json` at the repository root). Without them the app builds and runs with push off.
 2. MessageBox sending pushes for **both** `payment_inbox` and `payment_requests`, using the payload above.
 
 Before Firebase is set up:
@@ -168,8 +168,7 @@ Content-Type: application/json
 
 ## Builds and stores
 
-- `BITCOINSV_EAS_PROJECT_ID` is this app's own EAS project. It isn't set until BSVA creates the project.
-- The App Store and Play listings, and the `production` profile's remote credentials, come with it.
+- The app ships under the existing BSV Wallet's identity (`org.bsvblockchain.wallet`): its EAS project, App Store and Play listings, Firebase registrations and the `production` profile's remote credentials. `app.config.js` reads them from the root `app.json`.
 - Vault is on in development and preview builds only, never in production (`EXPO_PUBLIC_VAULT_ENABLED`).
 - Ratings use the store's own sheet (StoreKit on iOS, Play In-App Review on Android), with the store page as a fallback ([`src/feedback/review.ts`](../src/feedback/review.ts)). Neither works before the app is listed. Once it is, set `EXPO_PUBLIC_APP_STORE_ID` and `EXPO_PUBLIC_PLAY_STORE_LISTED=true`. Until then "I love it" says ratings come later; development builds show iOS's test sheet.
 - Google Play's In-App Review policy doesn't allow asking how someone feels before (or while) showing the rating. So on Android there's no "Enjoying Bitcoin SV Wallet?": the rating sheet comes on its own at the same moments, the tour video's prompt reads "Rate Bitcoin SV Wallet", and notes to the team come from Help → Send feedback. iOS keeps the question. Both are set by `REVIEW_FUNNEL` in [`src/feedback/config.ts`](../src/feedback/config.ts).
