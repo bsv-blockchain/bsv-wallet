@@ -1,0 +1,20 @@
+diff --git a/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp b/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
+index cb38f83..ed5957d 100644
+--- a/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
++++ b/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
+@@ -346,6 +346,15 @@ void MGLCipherHostObject::installMethods() {
+       }
+     }
+ 
++    // Node's final() throws here. Without this a GCM decipher with a wrong
++    // tag (tampered data, wrong key) returned its unauthenticated output.
++    if (!ok) {
++      EVP_CIPHER_CTX_free(ctx_);
++      ctx_ = nullptr;
++      throw jsi::JSError(runtime,
++                         "Unsupported state or unable to authenticate data");
++    }
++
+     MGLTypedArray<MGLTypedArrayKind::Uint8Array> ret(runtime, out_len);
+     if (out_len > 0) {
+       std::vector<unsigned char> vec(

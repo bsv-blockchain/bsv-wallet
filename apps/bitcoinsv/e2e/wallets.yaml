@@ -1,0 +1,36 @@
+# Wallets from Home's avatar: the switcher, a second wallet with its own free
+# @handle (a new profile of the same phrase), then back to the first. Starts
+# on Home.
+appId: org.bsvblockchain.wallet
+---
+- tapOn: Your wallets
+- assertVisible: Import wallet
+- assertVisible: Create new wallet
+- takeScreenshot: wallets-one
+- tapOn: Create new wallet
+- extendedWaitUntil:
+    visible:
+      text: Create wallet
+      enabled: true
+    timeout: 20000
+- tapOn: Create wallet
+# the sheet stays up until the new wallet is open
+- extendedWaitUntil:
+    notVisible: Its own handle, balance and history.*
+    timeout: 120000
+- extendedWaitUntil:
+    visible: Get set up
+    timeout: 30000
+- tapOn: Your wallets
+- assertVisible: "@.*, open"
+- takeScreenshot: wallets-two
+# back to the first
+- tapOn:
+    text: "Wallet 1|@.*"
+    index: 0
+- extendedWaitUntil:
+    visible: Get set up|Recent activity
+    timeout: 90000
+- tapOn: Your wallets
+- assertVisible: ".*, open"
+- takeScreenshot: wallets-back

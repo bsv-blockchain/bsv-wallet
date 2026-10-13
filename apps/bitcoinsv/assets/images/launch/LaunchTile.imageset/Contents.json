@@ -1,0 +1,84 @@
+{
+  "images": [
+    {
+      "idiom": "universal",
+      "filename": "LaunchTile@2x.png",
+      "scale": "2x",
+      "resizing": {
+        "mode": "3-part-horizontal",
+        "center": {
+          "mode": "stretch",
+          "width": 2
+        },
+        "cap-insets": {
+          "left": 40,
+          "right": 40
+        }
+      }
+    },
+    {
+      "idiom": "universal",
+      "filename": "LaunchTile@3x.png",
+      "scale": "3x",
+      "resizing": {
+        "mode": "3-part-horizontal",
+        "center": {
+          "mode": "stretch",
+          "width": 3
+        },
+        "cap-insets": {
+          "left": 60,
+          "right": 60
+        }
+      }
+    },
+    {
+      "idiom": "universal",
+      "filename": "LaunchTile-dark@2x.png",
+      "scale": "2x",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "resizing": {
+        "mode": "3-part-horizontal",
+        "center": {
+          "mode": "stretch",
+          "width": 2
+        },
+        "cap-insets": {
+          "left": 40,
+          "right": 40
+        }
+      }
+    },
+    {
+      "idiom": "universal",
+      "filename": "LaunchTile-dark@3x.png",
+      "scale": "3x",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "resizing": {
+        "mode": "3-part-horizontal",
+        "center": {
+          "mode": "stretch",
+          "width": 3
+        },
+        "cap-insets": {
+          "left": 60,
+          "right": 60
+        }
+      }
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

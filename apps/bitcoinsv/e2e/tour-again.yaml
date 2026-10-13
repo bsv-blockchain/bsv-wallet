@@ -1,0 +1,27 @@
+# Where the tour lives, after it: the tour from Settings, on to its video,
+# closed; Settings with "Take the tour" lit, a tap shown on Back, and Home's
+# Settings button glowing. Starts on Home.
+appId: org.bsvblockchain.wallet
+---
+- tapOn: Settings
+- scrollUntilVisible:
+    element: Take the tour
+- tapOn: Take the tour
+- extendedWaitUntil:
+    visible: Next
+    timeout: 8000
+- tapOn: Next
+- tapOn: Next
+- tapOn: Learn more
+- extendedWaitUntil:
+    visible: Skip
+    timeout: 10000
+- tapOn: Skip
+- extendedWaitUntil:
+    visible: Take the tour
+    timeout: 8000
+- takeScreenshot: tour-again-lit
+- extendedWaitUntil:
+    visible: "Total balance.*"
+    timeout: 10000
+- takeScreenshot: tour-again-home

@@ -30,7 +30,7 @@ export type RailId = 'nearby' | 'handle' | 'address'
  */
 export type PayTarget =
   | { kind: 'nearby'; session: Session }
-  | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string }
+  | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string; note?: string }
   | { kind: 'address'; address: string; sats?: number; network?: 'main' | 'test' }
 
 /** Six cell names. Since the universal input, `pay-*` are deep-link aliases that all open the send form; `get-*` open one receive method directly. */
@@ -131,7 +131,7 @@ export type RecipientInput =
   | { kind: 'empty' }
   | { kind: 'address'; address: string; network?: 'main' | 'test' }
   | { kind: 'invalid_address' }
-  | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string }
+  | { kind: 'handle'; identityKey: string; sats?: number; asset?: string; amount?: number; messageBoxUrl?: string; note?: string }
   | { kind: 'invalid_link'; message: string }
   | { kind: 'search'; query: string }
 
@@ -153,7 +153,8 @@ function handleFromPeerPay(result: PeerPayValidationResult): RecipientInput {
     ...(result.sats !== undefined ? { sats: result.sats } : {}),
     ...(result.asset !== undefined ? { asset: result.asset } : {}),
     ...(result.amount !== undefined ? { amount: result.amount } : {}),
-    ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
+    ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {}),
+    ...(result.note ? { note: result.note } : {})
   }
 }
 
@@ -203,7 +204,8 @@ export function classifyScan(raw: string): PayTarget | null {
       ...(result.sats !== undefined ? { sats: result.sats } : {}),
       ...(result.asset !== undefined ? { asset: result.asset } : {}),
       ...(result.amount !== undefined ? { amount: result.amount } : {}),
-      ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
+      ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {}),
+      ...(result.note ? { note: result.note } : {})
     }
   }
 

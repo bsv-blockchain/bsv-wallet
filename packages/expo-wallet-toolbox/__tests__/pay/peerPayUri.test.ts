@@ -178,3 +178,24 @@ describe('validatePeerPayURI — asset and amount', () => {
     expect(msg).toMatch(/amount/i)
   })
 })
+
+describe('the note extension', () => {
+  it('round-trips what the payee wrote, beside an amount', () => {
+    const { peerPayLinkFor } = jest.requireActual('../../core/pay/rails/handle') as typeof import('../../core/pay/rails/handle')
+    const link = peerPayLinkFor(KEY, 1500, undefined, undefined, 'Lunch & a coffee? ☕')
+    expect(link).toBe(`peerpay:${KEY}?sats=1500&note=${encodeURIComponent('Lunch & a coffee? ☕')}`)
+    expect(parsePeerPayURI(link)).toEqual({ identityKey: KEY, sats: 1500, note: 'Lunch & a coffee? ☕' })
+  })
+
+  it('keeps it to one plain line, capped, and leaves an empty one out', () => {
+    expect(validatePeerPayURI(`peerpay:${KEY}?note=${encodeURIComponent('a\nb\u0000c  ')}`).note).toBe('a b c')
+    expect(validatePeerPayURI(`peerpay:${KEY}?note=${'x'.repeat(300)}`).note).toHaveLength(120)
+    expect(validatePeerPayURI(`peerpay:${KEY}?note=%20%20`).note).toBeUndefined()
+  })
+
+  it('never makes a link invalid', () => {
+    const r = validatePeerPayURI(`peerpay:${KEY}?sats=5&note=%E0%A4%A`)
+    expect(r.errors).toEqual({})
+    expect(r.sats).toBe(5)
+  })
+})

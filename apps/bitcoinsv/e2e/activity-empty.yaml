@@ -1,0 +1,16 @@
+# Activity on a wallet with no payments yet, from Home's search bar.
+appId: org.bsvblockchain.wallet
+---
+- tapOn: Search contacts, transactions and more
+- assertVisible: Activity
+- assertVisible: No activity yet
+- tapOn: Received
+- assertVisible: No activity yet
+- tapOn: All
+- tapOn: Get paid
+- assertVisible: Receive
+- assertVisible: Link to pay you any amount
+- tapOn: Back
+- tapOn: Back
+# back on Home (its checklist only while there are steps left)
+- assertVisible: "Total balance.*"

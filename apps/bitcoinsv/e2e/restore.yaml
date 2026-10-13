@@ -1,0 +1,24 @@
+# Sign in on a new phone with a recovery phrase, on a fresh install: the
+# standard public BIP39 test phrase (an empty, well-known test wallet, never
+# anyone's own). A restore records the wallet as backed up (it was).
+appId: org.bsvblockchain.wallet
+---
+- extendedWaitUntil:
+    visible: No crypto skills needed
+    timeout: 60000
+- tapOn: .*Sign in
+- assertVisible: Bring your wallet back
+- tapOn: Recovery phrase or private key.*
+- inputText: abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
+- assertVisible: A 12-word phrase
+- takeScreenshot: restore-enter
+- tapOn: Continue
+- extendedWaitUntil:
+    visible: .* is back
+    timeout: 180000
+- takeScreenshot: restore-done
+- tapOn: Done
+- extendedWaitUntil:
+    visible: Get set up
+    timeout: 30000
+- assertVisible: 1 of 2

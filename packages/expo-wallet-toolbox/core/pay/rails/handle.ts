@@ -21,9 +21,11 @@ import {
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
 import { abbreviateKey } from '../counterparty'
+import { cleanPeerPayNote } from '../../parsePeerPayURI'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 import type { MandalaRuntime, TokenSendResult } from '../../mandala/runtime'
+import { trimTrailingSlashes } from '../../net/trimTrailingSlashes'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.bsvblockchain.tech'
@@ -81,7 +83,9 @@ export function peerPayLinkFor(
   identityKey: string,
   sats?: number,
   messageBoxUrl?: string,
-  token?: { assetId: string; baseUnits?: number }
+  token?: { assetId: string; baseUnits?: number },
+  /** what it's for: the link's `note` extension (see parsePeerPayURI.ts) */
+  note?: string
 ): string {
   const params: string[] = []
   if (token) {
@@ -92,8 +96,10 @@ export function peerPayLinkFor(
     const amount = sats !== undefined ? Math.round(Number(sats)) : NaN
     if (Number.isFinite(amount) && amount > 0) params.push(`sats=${amount}`)
   }
-  const host = (messageBoxUrl ?? '').trim().replace(/\/+$/, '')
+  const host = trimTrailingSlashes((messageBoxUrl ?? '').trim())
   if (host && host !== NO_MESSAGE_BOX) params.push(`url=${encodeURIComponent(host)}`)
+  const forWhat = cleanPeerPayNote(note)
+  if (forWhat) params.push(`note=${encodeURIComponent(forWhat)}`)
   const base = `peerpay:${identityKey.toLowerCase()}`
   return params.length ? `${base}?${params.join('&')}` : base
 }

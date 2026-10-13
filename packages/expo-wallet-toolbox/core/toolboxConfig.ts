@@ -1,5 +1,6 @@
 import type { AppChain } from './config'
 import type { PushAdapter } from './push/types'
+import { trimTrailingSlashes } from './net/trimTrailingSlashes'
 
 /**
  * Service endpoints and API keys for one chain.
@@ -102,6 +103,13 @@ export interface ToolboxConfig {
    */
   handleRegistry?: Partial<Record<AppChain, HandleRegistryConfig>>
   /**
+   * The shortest handle this host lets people register: 1, 2 or 3 characters
+   * (default 3). The rest of the format is fixed (a-z 0-9 . _ -, at most 32,
+   * starting and ending with a letter or digit). A host that lowers it must
+   * use a registry that accepts the shorter handles.
+   */
+  handleMinLength?: 1 | 2 | 3
+  /**
    * Release gate for the YubiKey vault (spec §0, D15). Default false: the home
    * button and Settings row are hidden, the vault route shows "Not available
    * yet", and no code path may enrol hardware or create a vault output. Turned
@@ -124,6 +132,7 @@ interface ResolvedConfig {
   services: Partial<Record<AppChain, ToolboxServiceConfig>>
   mandala: Partial<Record<AppChain, MandalaEndpointConfig>>
   handleRegistry: Partial<Record<AppChain, HandleRegistryConfig>>
+  handleMinLength: 1 | 2 | 3
   vaultEnabled: boolean
   push: PushAdapter | undefined
 }
@@ -163,7 +172,7 @@ export function isAllowedServiceOrigin(parsed: URL): boolean {
 }
 
 function normalizeBackupUrl(raw: string): string {
-  const trimmed = raw.trim().replace(/\/+$/, '')
+  const trimmed = trimTrailingSlashes(raw.trim())
   if (trimmed === '') return ''
   let parsed: URL
   try {
@@ -203,9 +212,18 @@ export function configureToolbox(config: ToolboxConfig): void {
     services: config.services ?? {},
     mandala: config.mandala ?? {},
     handleRegistry: config.handleRegistry ?? {},
+    handleMinLength: config.handleMinLength === 1 || config.handleMinLength === 2 ? config.handleMinLength : 3,
     vaultEnabled: config.vaultEnabled === true,
     push: config.push
   }
+}
+
+/**
+ * The shortest registrable handle (3 unless the host lowered it). Readable
+ * before configuration, so pure format checks work in tests and early code.
+ */
+export function getHandleMinLength(): 1 | 2 | 3 {
+  return current?.handleMinLength ?? 3
 }
 
 /** True once `configureToolbox` has run. For hosts that want to assert their own ordering. */
@@ -246,9 +264,9 @@ const COMPRESSED_KEY = /^0[23][0-9a-fA-F]{64}$/
 export function getMandalaEndpoints(chain: AppChain): MandalaEndpointConfig | undefined {
   const entry = current?.mandala[chain]
   if (!entry) return undefined
-  const overlayUrl = entry.overlayUrl?.trim().replace(/\/+$/, '') ?? ''
+  const overlayUrl = trimTrailingSlashes(entry.overlayUrl?.trim() ?? '')
   const overlayIdentityKey = entry.overlayIdentityKey?.trim() ?? ''
-  const messageBoxUrl = entry.messageBoxUrl?.trim().replace(/\/+$/, '') ?? ''
+  const messageBoxUrl = trimTrailingSlashes(entry.messageBoxUrl?.trim() ?? '')
   if (overlayUrl === '' || messageBoxUrl === '') return undefined
   if (!COMPRESSED_KEY.test(overlayIdentityKey)) return undefined
   // XR-065 (SEC2-074): neither URL had a scheme policy at all before this --
@@ -292,7 +310,7 @@ export function getHandleRegistryConfig(chain: AppChain): HandleRegistryConfig |
   const entry = current?.handleRegistry[chain]
   if (!entry) return undefined
   const domain = entry.domain?.trim().toLowerCase() ?? ''
-  const url = entry.url?.trim().replace(/\/+$/, '') ?? ''
+  const url = trimTrailingSlashes(entry.url?.trim() ?? '')
   if (!REGISTRY_DOMAIN.test(domain) || url === '') return undefined
   let parsed: URL
   try {

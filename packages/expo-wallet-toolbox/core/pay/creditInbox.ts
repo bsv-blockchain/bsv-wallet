@@ -93,6 +93,36 @@ async function listRawInbox(
   }
 }
 
+/**
+ * The sender's note, put back on each parsed payment. The MessageBox client
+ * rebuilds a token from the PaymentToken fields alone, so the `note` this
+ * app's sending side adds (see sendViaHandle) is dropped on the way in; the
+ * raw message still has it.
+ */
+export function withSenderNotes(
+  list: IncomingPayment[],
+  raw: { messageId: string; body: unknown }[]
+): IncomingPayment[] {
+  const notes = new Map<string, string>()
+  for (const m of raw) {
+    let body = m.body
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body)
+      } catch {
+        continue
+      }
+    }
+    const note = body && typeof body === 'object' ? (body as { note?: unknown }).note : undefined
+    if (typeof note === 'string' && note.trim()) notes.set(String(m.messageId), note)
+  }
+  if (!notes.size) return list
+  return list.map(p => {
+    const note = notes.get(String(p.messageId))
+    return note && p.token && typeof p.token === 'object' ? { ...p, token: { ...p.token, note } as typeof p.token } : p
+  })
+}
+
 function attentionCountFor(
   displayPayments: IncomingPayment[],
   damaged: DamagedInboxMessage[],
@@ -117,8 +147,8 @@ async function runCreditInbox(args: {
   accept: (payment: IncomingPayment) => Promise<void>
 }): Promise<CreditInboxResult> {
   const { client, messageBoxUrl, storage, force, classify, accept } = args
-  const list = await client.listIncomingPayments(messageBoxUrl)
   const raw = await listRawInbox(client, messageBoxUrl)
+  const list = withSenderNotes(await client.listIncomingPayments(messageBoxUrl), raw)
   const fromDiff = listDamagedInboxMessages({ raw, parsed: list })
   const byId = new Map(fromDiff.map(d => [d.messageId, d]))
   for (const p of list) {

@@ -41,6 +41,11 @@ export interface ContactRow {
   source: ContactSource
   createdAt: string
   updatedAt: string
+  /** Starred by the user. */
+  favourite: boolean
+  /** When the user took them out of the address book; set means hidden from
+   * lists and searches but kept, so it can be undone. */
+  removedAt?: string
 }
 
 interface ContactDbRow {
@@ -54,6 +59,9 @@ interface ContactDbRow {
   source: string
   created_at: string
   updated_at: string
+  // added by ensureContactsColumns; absent on a table that predates them
+  favourite?: number | null
+  removedAt?: string | null
 }
 
 function toContact(row: ContactDbRow): ContactRow {
@@ -67,15 +75,19 @@ function toContact(row: ContactDbRow): ContactRow {
     cachedCertifier: row.cachedCertifier ?? undefined,
     source: row.source as ContactSource,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    favourite: !!row.favourite,
+    removedAt: row.removedAt ?? undefined
   }
 }
 
 export interface ContactsStore {
+  /** The address book: everyone not removed. */
   listContacts(userId: number): Promise<ContactRow[]>
   /** Case-insensitive substring match on `name` and `cachedHandle`. Forgiving,
    * not scored — "fuzzy" in the design sense, not a ranked fuzzy algorithm. */
   searchContacts(userId: number, query: string): Promise<ContactRow[]>
+  /** Including a removed one (check `removedAt`): adding them again restores them. */
   getContact(userId: number, identityKey: string): Promise<ContactRow | undefined>
   /** Throws on a duplicate (userId, identityKey) — callers check `getContact` first when they need "already a contact" as a non-throwing fact. */
   createContact(args: {
@@ -96,12 +108,17 @@ export interface ContactsStore {
     cache: { cachedHandle?: string; cachedAvatarUrl?: string; cachedCertifier?: string }
   ): Promise<void>
   deleteContact(userId: number, identityKey: string): Promise<void>
+  /** Star or unstar. */
+  setFavourite(userId: number, identityKey: string, favourite: boolean): Promise<void>
+  /** Take out of the address book, keeping the row so `restoreContact` can undo it. */
+  removeContact(userId: number, identityKey: string): Promise<void>
+  restoreContact(userId: number, identityKey: string): Promise<void>
 }
 
 export function createContactsStore(db: ContactsDb): ContactsStore {
   return {
     async listContacts(userId) {
-      const rows = (await db.getAllAsync('SELECT * FROM contacts WHERE userId = ? ORDER BY name COLLATE NOCASE ASC', [
+      const rows = (await db.getAllAsync('SELECT * FROM contacts WHERE userId = ? AND removedAt IS NULL ORDER BY name COLLATE NOCASE ASC', [
         userId
       ])) as ContactDbRow[]
       return rows.map(toContact)
@@ -112,7 +129,7 @@ export function createContactsStore(db: ContactsDb): ContactsStore {
       if (query.trim() === '') return createContactsStore(db).listContacts(userId)
       const rows = (await db.getAllAsync(
         `SELECT * FROM contacts
-         WHERE userId = ?
+         WHERE userId = ? AND removedAt IS NULL
            AND (lower(name) LIKE ? OR lower(coalesce(cachedHandle, '')) LIKE ?)
          ORDER BY name COLLATE NOCASE ASC`,
         [userId, needle, needle]
@@ -178,6 +195,33 @@ export function createContactsStore(db: ContactsDb): ContactsStore {
 
     async deleteContact(userId, identityKey) {
       await db.runAsync('DELETE FROM contacts WHERE userId = ? AND identityKey = ?', [userId, identityKey])
+    },
+
+    async setFavourite(userId, identityKey, favourite) {
+      await db.runAsync('UPDATE contacts SET favourite = ?, updated_at = ? WHERE userId = ? AND identityKey = ?', [
+        favourite ? 1 : 0,
+        new Date().toISOString(),
+        userId,
+        identityKey
+      ])
+    },
+
+    async removeContact(userId, identityKey) {
+      const now = new Date().toISOString()
+      await db.runAsync('UPDATE contacts SET removedAt = ?, updated_at = ? WHERE userId = ? AND identityKey = ?', [
+        now,
+        now,
+        userId,
+        identityKey
+      ])
+    },
+
+    async restoreContact(userId, identityKey) {
+      await db.runAsync('UPDATE contacts SET removedAt = NULL, updated_at = ? WHERE userId = ? AND identityKey = ?', [
+        new Date().toISOString(),
+        userId,
+        identityKey
+      ])
     }
   }
 }

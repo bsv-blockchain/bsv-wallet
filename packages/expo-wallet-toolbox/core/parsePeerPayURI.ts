@@ -1,4 +1,5 @@
 import { PublicKey } from '@bsv/sdk'
+import { trimTrailingSlashes } from './net/trimTrailingSlashes'
 
 /**
  * BRC-125 PeerPay URI (https://bsv.brc.dev/payments/0125).
@@ -20,7 +21,21 @@ import { PublicKey } from '@bsv/sdk'
  * is ignored, not fatal — a typo in the hint must not block a payment
  * whose key is fine. Only https is accepted because the payer will
  * authenticate against whatever host this names.
+ *
+ * And `note`: what the payment is for, as the payee wrote it, for the payer's
+ * wallet to start the payment's own note with. Shown as text only; trimmed,
+ * stripped of control characters and capped at PEERPAY_NOTE_MAX. A wallet
+ * that doesn't know it ignores it (BRC-125's extension rule).
  */
+export const PEERPAY_NOTE_MAX = 120
+
+/** A note as a link may carry it: plain, single-line text, or nothing. */
+export function cleanPeerPayNote(raw: string | null | undefined): string | undefined {
+  // eslint-disable-next-line no-control-regex
+  const text = (raw ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return text ? Array.from(text).slice(0, PEERPAY_NOTE_MAX).join('') : undefined
+}
+
 export interface PeerPayParams {
   identityKey: string
   sats?: number
@@ -29,6 +44,8 @@ export interface PeerPayParams {
   /** Base units of `asset`. Never present without it. */
   amount?: number
   messageBoxUrl?: string
+  /** What it's for, as the payee wrote it (the `note` extension). */
+  note?: string
 }
 
 export interface PeerPayValidationResult {
@@ -39,6 +56,8 @@ export interface PeerPayValidationResult {
   amount?: number
   /** Present only when the link carried a usable https `url` extension. */
   messageBoxUrl?: string
+  /** Present only when the link carried a non-empty `note` extension. */
+  note?: string
   errors: {
     identityKey?: string
     sats?: string
@@ -73,7 +92,8 @@ export function parsePeerPayURI(uri: string): PeerPayParams | null {
     ...(result.sats !== undefined ? { sats: result.sats } : {}),
     ...(result.asset !== undefined ? { asset: result.asset } : {}),
     ...(result.amount !== undefined ? { amount: result.amount } : {}),
-    ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
+    ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {}),
+    ...(result.note ? { note: result.note } : {})
   }
 }
 
@@ -101,6 +121,7 @@ export function validatePeerPayURI(uri: string): PeerPayValidationResult {
   let asset: string | undefined
   let amount: number | undefined
   let messageBoxUrl: string | undefined
+  let note: string | undefined
   if (queryPart) {
     const params = new URLSearchParams(queryPart)
     if (params.has('sats')) {
@@ -123,8 +144,9 @@ export function validatePeerPayURI(uri: string): PeerPayValidationResult {
     if (params.has('sats') && (params.has('asset') || params.has('amount'))) {
       errors.sats = 'PeerPay link mixes sats with a token request'
     }
-    const url = (params.get('url') ?? '').trim().replace(/\/+$/, '')
+    const url = trimTrailingSlashes((params.get('url') ?? '').trim())
     if (url && MESSAGE_BOX_URL_REGEX.test(url)) messageBoxUrl = url
+    note = cleanPeerPayNote(params.get('note'))
   }
 
   return {
@@ -134,6 +156,7 @@ export function validatePeerPayURI(uri: string): PeerPayValidationResult {
     ...(asset !== undefined ? { asset } : {}),
     ...(amount !== undefined ? { amount } : {}),
     ...(messageBoxUrl ? { messageBoxUrl } : {}),
+    ...(note ? { note } : {}),
     errors
   }
 }

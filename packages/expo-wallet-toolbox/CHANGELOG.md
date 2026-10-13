@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The backup log carries contacts.** Each push's `appData` now includes the
+  contacts table (`core/backup/contactsBackup.ts`): every contact by identity
+  key, removed ones too, with its label, star, cached handle and avatar, and
+  its dates; never the device-local ids. A restore writes them for the
+  restoring wallet's own user, and never rolls a newer edit back; restoring
+  from more than one device keeps everyone, each as last changed. An older
+  reader ignores the new field. Like the rest of `appData`, the snapshot only
+  travels on a push that carries an entity change, so a contact edit with no
+  payment after it reaches the log with the next payment.
+
 ## 0.15.2
 
 ### Fixed

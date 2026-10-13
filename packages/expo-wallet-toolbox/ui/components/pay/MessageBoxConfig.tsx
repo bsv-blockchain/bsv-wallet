@@ -22,6 +22,7 @@ import {
   NO_MESSAGE_BOX
 } from '@bsv/expo-wallet-toolbox'
 import { profileScopedKey } from '../../../core/profiles/profileStore'
+import { trimTrailingSlashes } from '../../../core/net/trimTrailingSlashes'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -64,7 +65,7 @@ export function useMessageBoxConfig(t: ReturnType<typeof import('react-i18next')
 
   const handleSave = useCallback(
     async (input: string) => {
-      const trimmed = input.trim().replace(/\/+$/, '')
+      const trimmed = trimTrailingSlashes(input.trim())
       if (!trimmed) {
         showToast(t('enter_valid_url'), { type: 'error' })
         return

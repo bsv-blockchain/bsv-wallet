@@ -1,5 +1,6 @@
 import CoreBluetooth
 import Foundation
+import NitroModules
 import os.log
 #if canImport(CoreNFC)
 import CoreNFC

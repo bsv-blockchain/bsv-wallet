@@ -1,0 +1,17 @@
+# Forget the wallet on this device, from Settings, through the last check, to
+# Welcome. Only on a test wallet (restore.yaml's public test phrase brings it
+# back).
+appId: org.bsvblockchain.wallet
+---
+- tapOn: Settings
+- scrollUntilVisible:
+    element: Forget wallet
+- tapOn: Forget wallet
+- assertVisible: "Forget (this wallet|all .* wallets) on this device\\?"
+- tapOn: ".*I have backed up .*recovery phrase.*"
+- tapOn:
+    text: "Forget (wallet|all wallets)"
+    index: 0
+- extendedWaitUntil:
+    visible: No crypto skills needed
+    timeout: 30000

@@ -39,7 +39,7 @@ export type { WalletHomeScreenProps } from './screens/WalletHomeScreen'
 
 // Wallet-screen support utilities, moved alongside the screen (Task 20)
 export * from './txStatus'
-export { exportTransactionsAsCsv } from './exportTransactions'
+export { exportTransactionsAsCsv, listAllActions } from './exportTransactions'
 
 // Identity resolution and spendable-balance helpers, promoted here (Task 21)
 // as hard dependencies of the pay UI below — same flat-at-root treatment as

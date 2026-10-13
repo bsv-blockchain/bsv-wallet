@@ -1,0 +1,67 @@
+# Settings → App icon: the picker, a toss to Dragon, and back to the Bitcoin
+# SV mark. iOS changes the home-screen icon at once and says so in an alert;
+# Android changes it once the app is in the background (the switch closes
+# the app's screen) and says so in a toast, except in a development build,
+# where it stays in the app (the dev launcher can't start the app otherwise):
+# here, the Android steps check that, with the choice kept across a restart.
+# Starts on Home.
+appId: org.bsvblockchain.wallet
+---
+- openLink: bsv-wallet://app-icon
+- runFlow:
+    when:
+      platform: iOS
+      notVisible: App icon
+    commands:
+      - tapOn:
+          point: 68%,54%
+# a wallet with money that isn't backed up is asked to, once
+- runFlow:
+    when:
+      visible: Back up your keys
+    commands:
+      - tapOn: Not now
+- assertVisible: Your home screen shows it too.
+- tapOn: Dragon
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      # "You have changed the icon for…", outside the app's tree
+      - tapOn:
+          text: OK
+          optional: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - extendedWaitUntil:
+          visible: .*keep the home-screen icon.*
+          timeout: 5000
+      - pressKey: Home
+      # closed and opened again: the choice was kept
+      - launchApp:
+          stopApp: true
+      - extendedWaitUntil:
+          visible: (Get set up|Total balance.*)
+          timeout: 60000
+      - openLink: bsv-wallet://app-icon
+# the plate says which icon is on (a radio's checked state isn't readable on iOS)
+- assertVisible: "App icon[:,] Dragon"
+- takeScreenshot: app-icon-dragon
+- tapOn: Bitcoin SV
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: OK
+          optional: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - extendedWaitUntil:
+          visible: .*keep the home-screen icon.*
+          timeout: 5000
+      - pressKey: Home

@@ -1,0 +1,40 @@
+# Contacts: Ana (added by activity-detail.yaml) on All contacts, starred
+# into Favourites, deleted and brought back with Undo, renamed.
+appId: org.bsvblockchain.wallet
+---
+- openLink: bsv-wallet://contacts
+# iOS asks "Open in Bitcoin SV Wallet?" for every link: a system alert, not
+# in the app's tree, so its Open button is tapped by position
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          point: 68%,54%
+- assertVisible: Contacts
+- assertVisible: .*No favourites yet.*
+- tapOn: All contacts
+- assertVisible: Ana.*
+- tapOn: Add Ana to favourites
+- tapOn: Favourites
+- assertVisible: Ana.*
+- tapOn: Delete Ana
+- tapOn: Delete
+- assertVisible: Ana deleted
+- assertNotVisible:
+    text: Ana
+    index: 0
+    childOf:
+      id: contacts-list
+    optional: true
+- tapOn: Undo
+- assertVisible: Ana.*
+- tapOn: Rename Ana
+- eraseText: 10
+- inputText: Ana Silva
+- tapOn: Save
+- assertVisible: Ana Silva.*
+- tapOn: Ana Silva.*
+- assertVisible: Contact
+- assertVisible: No payments between you yet.
+- assertVisible: You sent

@@ -18,6 +18,7 @@ import {
   type MigrationResult,
   type UnlockState
 } from '../services/secrets'
+import { takeStartupSecrets } from './startupPrewarm'
 
 // The identity is shared storage, so overlapping provider mounts must share the
 // guard too. Hold it through both the existence check and the completed write.
@@ -112,7 +113,8 @@ export default function LocalStorageProvider({ children }: { children: React.Rea
     ;(async () => {
       let result: MigrationResult
       try {
-        result = await migrateLegacySecrets()
+        // begun at startup if the app prewarmed (core/context/startupPrewarm)
+        result = await (takeStartupSecrets() ?? migrateLegacySecrets())
       } catch (err) {
         console.warn('[LocalStorageProvider] migration threw', (err as Error)?.message)
         result = { outcome: 'failed', stage: 'unknown', retryable: true }

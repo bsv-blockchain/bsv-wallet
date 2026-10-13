@@ -1,0 +1,60 @@
+# Settings from Home's top bar: its sections, dark mode, the display currency
+# (shown back on Home), payment alerts, the why sheet, the tour, and the
+# forget-wallet check (cancelled). Starts on Home with a wallet.
+appId: org.bsvblockchain.wallet
+---
+- tapOn: Settings
+- assertVisible: BACKUPS
+- assertVisible: Backups, Sync .*
+- assertVisible: APPEARANCE
+- takeScreenshot: settings-top
+- tapOn: Dark mode
+- takeScreenshot: settings-dark
+- tapOn: Dark mode
+# a mainnet wallet: pounds (testnet coins have no price, so its totals stay in BSV)
+- runFlow:
+    when:
+      notVisible: "Display currency, BSV \\(testnet\\)"
+    commands:
+      - tapOn: Display currency.*
+      - assertVisible: Your total balance and conversions are shown in this currency.
+      - tapOn: British Pound, GBP
+      - assertVisible: Totals now shown in GBP
+      - assertVisible: Display currency, GBP
+- scrollUntilVisible:
+    element: Payment alerts
+- tapOn: Payment alerts
+- assertVisible: Payment alerts off
+- tapOn: Payment alerts
+- scrollUntilVisible:
+    element: Why Bitcoin SV Wallet
+- tapOn: Why Bitcoin SV Wallet
+- assertVisible: Money that moves like a message.
+- takeScreenshot: settings-about
+- swipe:
+    start: 50%,15%
+    end: 50%,95%
+- scrollUntilVisible:
+    element: Forget wallet
+- tapOn: Forget wallet
+- assertVisible: "Forget (this wallet|all .* wallets) on this device\\?"
+- takeScreenshot: settings-forget
+- tapOn: Cancel
+- tapOn: Take the tour
+- extendedWaitUntil:
+    visible: Skip
+    timeout: 8000
+- tapOn: Skip
+# skipping shows where the tour lives (Settings, its row lit), then Home again
+- extendedWaitUntil:
+    visible: "Total balance.*"
+    timeout: 15000
+- tapOn: Settings
+# Home was in pounds (mainnet); back to dollars
+- runFlow:
+    when:
+      notVisible: "Display currency, BSV \\(testnet\\)"
+    commands:
+      - tapOn: Display currency.*
+      - tapOn: US Dollar, USD
+      - assertVisible: Totals now shown in USD

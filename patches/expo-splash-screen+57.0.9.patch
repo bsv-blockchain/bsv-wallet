@@ -1,0 +1,74 @@
+diff --git a/node_modules/expo-splash-screen/ios/SplashScreenManager.swift b/node_modules/expo-splash-screen/ios/SplashScreenManager.swift
+index c6b87ba..02812a9 100644
+--- a/node_modules/expo-splash-screen/ios/SplashScreenManager.swift
++++ b/node_modules/expo-splash-screen/ios/SplashScreenManager.swift
+@@ -5,6 +5,7 @@ import UIKit
+ class SplashScreenManager: NSObject, RCTReloadListener {
+   @objc static let shared = SplashScreenManager()
+   private var loadingView: UIView?
++  private var loadingViewController: UIViewController?
+   private var rootView: UIView?
+   private var options = SplashScreenOptions()
+   var preventAutoHideCalled = false
+@@ -43,11 +44,13 @@ class SplashScreenManager: NSObject, RCTReloadListener {
+         } completion: { _ in
+           self.loadingView?.removeFromSuperview()
+           self.loadingView = nil
++          self.releaseLoadingViewController()
+         }
+       } else {
+         loadingView?.isHidden = true
+         loadingView?.removeFromSuperview()
+         loadingView = nil
++        releaseLoadingViewController()
+       }
+     }
+   }
+@@ -64,6 +67,8 @@ class SplashScreenManager: NSObject, RCTReloadListener {
+     }
+ 
+     if let vc = UIStoryboard(name: splashScreenFilename, bundle: nil).instantiateInitialViewController() {
++      releaseLoadingViewController()
++      loadingViewController = vc
+       loadingView = vc.view
+       loadingView?.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+ 
+@@ -76,9 +81,38 @@ class SplashScreenManager: NSObject, RCTReloadListener {
+         hostView.disableActivityIndicatorAutoHide(true)
+         hostView.loadingView = loadingView
+       }
++      adoptLoadingViewController()
+     }
+   }
+ 
++  // The splash view controller's view sits in the root view, but a controller
++  // that isn't the root controller's child gives its view no safe area: a
++  // storyboard laid out on the safe area (as a launch screen can be) would draw
++  // higher than the launch screen did. Made a child of the root view
++  // controller, it gets the window's safe area like any other. The root view
++  // may not have its controller yet, so this tries again for a few turns.
++  private func adoptLoadingViewController(attempt: Int = 0) {
++    guard let vc = loadingViewController, vc.parent == nil else {
++      return
++    }
++    if let parent = (rootView?.next as? UIViewController) ?? rootView?.window?.rootViewController {
++      parent.addChild(vc)
++      vc.didMove(toParent: parent)
++      return
++    }
++    if attempt < 20 {
++      DispatchQueue.main.async { [weak self] in
++        self?.adoptLoadingViewController(attempt: attempt + 1)
++      }
++    }
++  }
++
++  private func releaseLoadingViewController() {
++    loadingViewController?.willMove(toParent: nil)
++    loadingViewController?.removeFromParent()
++    loadingViewController = nil
++  }
++
+   func didReceiveReloadCommand() {
+     showSplashScreen()
+   }

@@ -1,5 +1,6 @@
 import CoreNFC
 import Foundation
+import NitroModules
 import Security
 import YubiKit
 

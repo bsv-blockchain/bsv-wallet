@@ -430,6 +430,7 @@ export * from './services/vault/chainRecovery'
 // that never trigger a haptic. useConfirmationSound.ts already requires
 // expo-audio the same way.
 export { default as connectionStore } from './stores/ConnectionStore'
+export { revokeConnection } from './services/revokeConnection'
 export type { Connection } from './stores/ConnectionStore'
 export * from './context/WalletConnectionContext'
 export * from './context/VaultContext'

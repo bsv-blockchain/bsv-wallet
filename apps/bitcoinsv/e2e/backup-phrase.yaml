@@ -1,0 +1,18 @@
+# Back up with the recovery phrase: briefing, reveal, writing mode, the
+# three-word check, done. Starts on Home with the wallet not backed up.
+# Ends at the device check; backup-phrase-reveal.yaml carries on.
+appId: org.bsvblockchain.wallet
+---
+- tapOn: Back up this wallet
+- assertVisible: Four ways to back up
+- tapOn: Show my phrase
+# seven briefing screens, each button filling for four seconds first
+- extendedWaitUntil: { visible: { text: My screen is private, enabled: true }, timeout: 8000 }
+- tapOn: My screen is private
+- repeat:
+    times: 5
+    commands:
+      - extendedWaitUntil: { visible: { text: I understand, enabled: true }, timeout: 8000 }
+      - tapOn: I understand
+- extendedWaitUntil: { visible: { text: Let’s go, enabled: true }, timeout: 8000 }
+- tapOn: Let’s go

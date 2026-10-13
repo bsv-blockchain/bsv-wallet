@@ -25,15 +25,9 @@ import {
   useWalletConnection,
   lastSeqKey
 } from '@bsv/expo-wallet-toolbox'
-import {
-  buildRelayWebSocketUrl,
-  validateMobileIdentityKey,
-  validateRelayUrl,
-  validateStoredConnectionAuthorityTag,
-  validateStoredConnectionFields,
-  validateStoredConnectionSequence
-} from '../../core/services/walletConnectionValidation'
+import { validateStoredConnectionAuthorityTag } from '../../core/services/walletConnectionValidation'
 import { computeConnectionAuthorityTag, verifyConnectionAuthorityTag } from '../../core/services/connectionAuthority'
+import { revokeConnection } from '../../core/services/revokeConnection'
 
 /**
  * expo-clipboard ships an untransformed ESM build (its Clipboard.js imports
@@ -214,61 +208,12 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
   }
 
   async function handleDisconnect(conn: Connection) {
-    // XR-018: local revocation must not depend on the peer's cooperation, or
-    // on the best-effort session_revoke send below succeeding. If this is
-    // the provider's own live socket for this session, tear it down FIRST —
-    // that's the only thing that actually stops wireSocket's onmessage from
-    // continuing to dispatch privileged RPC methods to it.
-    if (sessionMeta?.topic === conn.sessionId) disconnect()
-    connectionStore.setStatus(conn.sessionId, 'disconnected')
-
-    if (!managers.permissionsManager) return
-    try {
-      const validated = validateStoredConnectionFields(conn)
-      const relay = validateRelayUrl(conn.relay)
-      const storedSeq = await SecureStore.getItemAsync(lastSeqKey(validated.topic))
-      const initialSeq = validateStoredConnectionSequence(storedSeq)
-      const wallet = new WalletClient(
-        capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
-        validated.external.originator
-      )
-      const identityResult = await wallet.getPublicKey({ identityKey: true })
-      const currentMobileIdentityKey = validateMobileIdentityKey(identityResult.publicKey)
-      if (currentMobileIdentityKey !== validated.mobileIdentityKey) {
-        throw new Error('Stored connection belongs to a different wallet identity')
-      }
-      const ws = new WebSocket(buildRelayWebSocketUrl(relay, validated.topic))
-
-      ws.onopen = async () => {
-        try {
-          const seq = initialSeq + 1
-          const payload = JSON.stringify({
-            id: crypto.randomUUID(),
-            seq,
-            method: 'session_revoke',
-            params: {}
-          })
-          const plaintext = Array.from(new TextEncoder().encode(payload))
-          const { ciphertext } = await wallet.encrypt({
-            protocolID: validated.protocolID,
-            keyID: validated.topic,
-            counterparty: validated.backendIdentityKey,
-            plaintext
-          })
-          ws.send(
-            JSON.stringify({
-              topic: validated.topic,
-              ciphertext: Buffer.from(ciphertext).toString('base64url')
-            })
-          )
-        } finally {
-          ws.close()
-        }
-      }
-      ws.onerror = () => ws.close()
-    } catch (e) {
-      console.warn('[connections] session_revoke failed:', e)
-    }
+    await revokeConnection(
+      conn,
+      managers.permissionsManager,
+      { liveTopic: sessionMeta?.topic, disconnect },
+      { store: connectionStore, guard: guardVaultAccess, cap: capWalletArgs, adminOriginator: ADMIN_ORIGINATOR, seqKey: lastSeqKey }
+    )
   }
 
   async function handleReconnect(conn: Connection) {

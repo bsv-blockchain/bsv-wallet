@@ -61,6 +61,8 @@ interface AudioModule {
 
 let audio: AudioModule | null | undefined
 let modeSet = false
+/** The host's own "sounds" preference; on unless it says otherwise. */
+let enabled = true
 const players: Partial<Record<ToneName, Player>> = {}
 
 function warn(e: unknown): void {
@@ -85,6 +87,7 @@ function load(): AudioModule | null {
  * user-facing path ever waits on CoreAudio. One reused player per tone.
  */
 function playTone(name: ToneName): void {
+  if (!enabled) return
   const mod = load()
   if (!mod) return
   void (async () => {
@@ -136,6 +139,10 @@ export const sounds = {
   /** Funds moved out of the vault. Pairs with `haptics.success()`. */
   vaultWithdraw: () => playTone('vaultWithdraw'),
   release: releaseAll,
+  /** A host's sounds setting: off silences every tone until it's turned on again. */
+  setEnabled: (on: boolean) => {
+    enabled = on
+  },
 } as const
 
 export const useConfirmationSound = () => useMemo(() => sounds, [])

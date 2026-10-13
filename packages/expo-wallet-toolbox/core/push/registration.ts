@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { PushAdapter } from './types'
+import { trimTrailingSlashes } from '../net/trimTrailingSlashes'
 
 /**
  * What this device has registered, per identity: a JSON map from identity key to
@@ -260,7 +261,7 @@ function unregisterUrl(host: string): string {
     throw new TypeError('MessageBox host requires HTTPS except on localhost')
   }
   if (url.username || url.password || url.search || url.hash) throw new TypeError('MessageBox host is not a plain URL')
-  return `${url.origin}${url.pathname.replace(/\/+$/, '')}/unregisterDevice`
+  return `${url.origin}${trimTrailingSlashes(url.pathname)}/unregisterDevice`
 }
 
 /**

@@ -35,6 +35,8 @@
  */
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { applyAppData, mergeAppData } from './appData'
+import { applyContacts } from './contactsBackup'
+import type { ContactsDb } from '../contacts/contactsStore'
 import { BackupClient } from './client'
 import type { AppDataSnapshot } from './codec'
 import type { BackupChain } from './constants'
@@ -167,6 +169,19 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
   // (see appData.ts's applyAppData docs).
   if (appData !== undefined) {
     await applyAppData(deps.storage, appData)
+    // the contacts, for this wallet's own local user (contactsBackup.ts); a failure here
+    // costs the contacts, never the restore
+    if (appData.contacts !== undefined) {
+      try {
+        const db = deps.storage.sqliteDb
+        if (db) {
+          const { user } = await deps.storage.findOrInsertUser(deps.identityKey)
+          await applyContacts(db as unknown as ContactsDb, user.userId, appData.contacts)
+        }
+      } catch (error) {
+        console.warn('[backup] contacts could not be restored', (error as Error)?.message)
+      }
+    }
   }
 
   if (deps.validateRestoredCoins) {

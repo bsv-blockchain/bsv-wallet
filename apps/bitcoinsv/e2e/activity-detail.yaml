@@ -1,0 +1,44 @@
+# Activity rows and a payment's detail, on the development sample rows
+# (dev-art?activity=1), then adding the other side as a contact.
+appId: org.bsvblockchain.wallet
+---
+- openLink: bsv-wallet://dev-art?activity=1
+# iOS asks "Open in Bitcoin SV Wallet?" for every link: a system alert, not
+# in the app's tree, so its Open button is tapped by position
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          point: 68%,54%
+- assertVisible: Ana Silva.*
+- assertVisible: .*Dinner.*
+- assertVisible: .*\+0\.0015 BSV.*
+- assertVisible: .*Waiting to send.*
+- assertVisible: .*\+12\.50 USDsv.*
+- takeScreenshot: activity-rows
+- tapOn: Ana Silva.*
+- assertVisible: .*\+0\.0015 BSV.*
+- assertVisible: Transaction ID
+- assertVisible: Dinner
+- assertVisible: BitcoinSV \(BSV\)
+- takeScreenshot: activity-detail
+- tapOn: More
+- assertVisible: Copy transaction ID
+- assertVisible: View on WhatsOnChain
+# a wallet that has Ana already (from an earlier run) offers her page instead
+- runFlow:
+    when:
+      visible: Add to contacts
+    commands:
+      - tapOn: Add to contacts
+      - assertVisible: Add contact
+      - inputText: Ana
+      - tapOn:
+          text: Add contact
+          index: 1
+      # its toast is brief; contacts.yaml checks Ana is there
+      - extendedWaitUntil:
+          visible: .*Ana added to contacts.*
+          timeout: 3000
+          optional: true

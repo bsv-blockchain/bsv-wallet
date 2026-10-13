@@ -58,18 +58,8 @@ function csvEscapeUntrusted(v: unknown): string {
   return csvEscape(neutralizeFormula(String(v)))
 }
 
-/**
- * Exports all wallet transactions as a CSV file via the OS share dialog.
- * Columns: txid, satoshis (signed), description, status, blockHeight,
- * tags (semi-colon), labels (semi-colon), outputDescriptions (semi-colon).
- *
- * Returns the number of rows exported.
- */
-export async function exportTransactionsAsCsv(
-  wallet: WalletInterface,
-  storage: StorageExpoSQLite | null,
-  adminOriginator: string
-): Promise<number> {
+/** Every action in this wallet, page by page, with its labels and outputs. */
+export async function listAllActions(wallet: WalletInterface, adminOriginator: string): Promise<WalletAction[]> {
   const actions: WalletAction[] = []
   let offset = 0
   let total = Infinity
@@ -89,6 +79,29 @@ export async function exportTransactionsAsCsv(
     actions.push(...r.actions)
     offset += r.actions.length
   }
+  return actions
+}
+
+/**
+ * Exports all wallet transactions as a CSV file via the OS share dialog.
+ * Columns: txid, satoshis (signed), description, status, blockHeight,
+ * tags (semi-colon), labels (semi-colon), outputDescriptions (semi-colon).
+ *
+ * `select`, when given, keeps only the actions it returns true for (a period,
+ * a direction).
+ *
+ * Returns the number of rows exported.
+ */
+export async function exportTransactionsAsCsv(
+  wallet: WalletInterface,
+  storage: StorageExpoSQLite | null,
+  adminOriginator: string,
+  select?: (action: WalletAction) => boolean,
+  /** the file's name, with its .csv; bsv-transactions-<unix time>.csv when not given */
+  fileName?: string
+): Promise<number> {
+  const all = await listAllActions(wallet, adminOriginator)
+  const actions = select ? all.filter(select) : all
 
   if (actions.length === 0) return 0
 
@@ -138,7 +151,7 @@ export async function exportTransactionsAsCsv(
   const { shareAsync } = loadExpoSharing()
 
   const ts = Math.floor(Date.now() / 1000)
-  const outName = `bsv-transactions-${ts}.csv`
+  const outName = fileName ?? `bsv-transactions-${ts}.csv`
   const tempDir = new Directory(Paths.cache, 'bsv-tx-export')
   if (tempDir.exists) tempDir.delete()
   tempDir.create({ intermediates: true })
