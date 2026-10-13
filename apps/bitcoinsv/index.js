@@ -20,6 +20,32 @@ if (typeof globalThis === 'undefined') {
 // before the router (and therefore any SDK module) loads.
 globalThis.__bsvNativeCrypto = QuickCrypto
 
+// Dev canary: an AES-GCM decipher must refuse a wrong tag. react-native-quick-crypto
+// 0.7.17 returned unauthenticated output instead (patches/react-native-quick-crypto+0.7.17.patch);
+// this says so loudly if a bump brings that back.
+if (__DEV__) {
+  try {
+    const key = QuickCrypto.randomBytes(32)
+    const iv = QuickCrypto.randomBytes(32)
+    const cipher = QuickCrypto.createCipheriv('aes-256-gcm', key, iv)
+    const ct = Buffer.concat([Buffer.from(cipher.update(Buffer.from('canary'))), Buffer.from(cipher.final())])
+    const tag = Buffer.from(cipher.getAuthTag())
+    tag[0] ^= 1
+    const decipher = QuickCrypto.createDecipheriv('aes-256-gcm', key, iv)
+    decipher.setAuthTag(tag)
+    decipher.update(ct)
+    let refused = false
+    try {
+      decipher.final()
+    } catch {
+      refused = true
+    }
+    if (!refused) console.error('[Crypto Setup] AES-GCM accepted a wrong tag: decrypts are not authenticated')
+  } catch (e) {
+    console.error('[Crypto Setup] AES-GCM canary failed to run', e)
+  }
+}
+
 // The SDK's Random looks for getRandomValues on globalThis, self and window.
 if (global.crypto && typeof global.crypto.getRandomValues === 'function') {
   globalThis.crypto = global.crypto
