@@ -36,15 +36,8 @@ import { TxRowSkeleton } from '../../src/activity/TxRow'
 import { useContacts } from '../../src/contacts/useContacts'
 import { receiptFileName, receiptHtml } from '../../src/activity/receipt'
 import { sharePdf } from '../../src/ui/sharePdf'
+import { addressUrl, explorerUrl } from '../../src/links/explorer'
 
-/** WhatsOnChain for this wallet's network (the existing Home's explorer links). */
-const wocBase = (network: string) =>
-  network === 'main' ? 'https://whatsonchain.com' : network === 'teratest' ? 'https://woc-ttn.bsvblockchain.tech' : 'https://test.whatsonchain.com'
-function explorerUrl(network: string, txid: string) {
-  return `${wocBase(network)}/tx/${txid}`
-}
-/** an address's page on WhatsOnChain */
-const addressUrl = (network: string, address: string) => `${wocBase(network)}/address/${address}`
 
 const middle = (s: string, keep = 8) => (s.length > keep * 2 + 1 ? `${s.slice(0, keep)}…${s.slice(-keep)}` : s)
 /** The receipt settles in top to bottom: a short rise and fade, each part a

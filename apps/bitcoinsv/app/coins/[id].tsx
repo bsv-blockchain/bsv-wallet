@@ -11,6 +11,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import Animated from 'react-native-reanimated'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useWallet } from '@bsv/expo-wallet-toolbox'
 import * as Clipboard from 'expo-clipboard'
 import { Check, ChevronDown, ChevronRight, Copy, ExternalLink } from 'lucide-react-native'
 import { showToast } from '../../src/ui/Toast'
@@ -33,6 +34,7 @@ import { CoinFlag } from '../../src/ui/Flag'
 import { usePrefs } from '../../src/state/prefs'
 import { useDisplayCurrency } from '../../src/state/displayCurrency'
 import { coinBob, enter, useReducedMotion } from '../../src/ui/motion'
+import { explorerUrl } from '../../src/links/explorer'
 
 /** The header's crossfade between the name and the docked pill (transition-all duration-300). */
 const DOCK_MOTION = { transitionProperty: ['opacity', 'transform'] as ('opacity' | 'transform')[], transitionDuration: 300 }
@@ -107,6 +109,7 @@ function CoinDetail({ asset }: { asset: Asset }) {
   const [headerH, setHeaderH] = useState(64)
   const [heroBottom, setHeroBottom] = useState(0)
   const { assets } = useAssets()
+  const { selectedNetwork } = useWallet()
   const canSwitch = assets.length > 1
   const bsv = asset.id === 'bsv'
   const coin = bsv ? ({ kind: 'bsv' } as const) : ({ kind: 'token', ticker: asset.ticker } as const)
@@ -312,7 +315,7 @@ function CoinDetail({ asset }: { asset: Asset }) {
               </View>
             </Pressable>
             <Pressable
-              onPress={() => void Linking.openURL(`https://whatsonchain.com/tx/${asset.id.split('_')[0].split('.')[0]}`)}
+              onPress={() => void Linking.openURL(explorerUrl(selectedNetwork, asset.id.split('_')[0].split('.')[0]))}
               accessibilityRole="link"
               style={styles.link}
             >
