@@ -44,7 +44,7 @@ import { makeIdentityClient, resolveIdentity } from '../resolveIdentity'
 import { getHandleRegistryConfig } from '../../core/toolboxConfig'
 import { bindOriginator } from '../../core/mandala/createRuntime'
 import { profileLabel } from '../../core/profiles/profileLabel'
-import type { RemovalBlocker } from '../../core/profiles/assertProfileEmpty'
+import { removalProblemKeys, type RemovalProblem } from '../../core/profiles/removalProblems'
 import type { ProfileRemovalCheck, RemoveProfileResult } from '../../core/profiles/removeProfile'
 import {
   MAX_PROFILE_NAME_LENGTH,
@@ -89,18 +89,7 @@ function loadExpoRouter(): ExpoRouterModule {
 
 const HANDLE_CHECK_DEBOUNCE_MS = 400
 
-/** What can stand in the way of removing a profile, grouped the way the user is told about it. */
-const FUNDS_BLOCKERS: RemovalBlocker[] = ['spendable-outputs', 'token-balance']
-const PENDING_BLOCKERS: RemovalBlocker[] = [
-  'pending-transactions',
-  'offline-queue',
-  'token-settlements',
-  'localpay-pending',
-  'peerpay-outbox',
-  'inbox-pending'
-]
 
-type RemovalProblem = Exclude<ProfileRemovalCheck, { kind: 'ok' }> | Exclude<RemoveProfileResult, { kind: 'removed' }>
 
 /**
  * How long the switch cover takes to leave. A removal runs under it (a Modal on
@@ -113,25 +102,6 @@ type RemovalProblem = Exclude<ProfileRemovalCheck, { kind: 'ok' }> | Exclude<Rem
 export const PROFILE_COVER_FADE_MS = 500
 const untilCoverGone = () => new Promise<void>(resolve => setTimeout(resolve, PROFILE_COVER_FADE_MS))
 
-/** The i18n keys that explain a refusal or failure, one paragraph per kind of reason. */
-function removalProblemKeys(problem: RemovalProblem): string[] {
-  if (problem.kind === 'refused')
-    return [problem.reason === 'offline' ? 'profile_remove_offline' : 'profile_remove_failed']
-  if (problem.kind === 'handle-failed') return ['profile_remove_failed_handle']
-  if (problem.kind === 'blocked') {
-    const keys: string[] = []
-    const has = (group: RemovalBlocker[]) => problem.reasons.some(r => group.includes(r))
-    if (has(FUNDS_BLOCKERS)) keys.push('profile_remove_blocked_funds')
-    if (has(PENDING_BLOCKERS)) keys.push('profile_remove_blocked_pending')
-    // Funds or pending activity in the databases of its other networks, which the open one never shows.
-    if (problem.reasons.includes('other-network')) keys.push('profile_remove_blocked_network')
-    // An unfinished handle write is the same thing to the user as a handle that would not release.
-    if (problem.reasons.includes('handle-journal')) keys.push('profile_remove_failed_handle')
-    if (problem.reasons.includes('check-failed')) keys.push('profile_remove_blocked_check')
-    if (keys.length > 0) return keys
-  }
-  return ['profile_remove_failed']
-}
 
 export function ProfileScreen() {
   const { t } = useTranslation()

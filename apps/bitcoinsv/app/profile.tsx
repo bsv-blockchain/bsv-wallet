@@ -22,6 +22,8 @@ import { BalancedText } from '../src/ui/BalancedText'
 import { AvatarPicker } from '../src/onboarding/AvatarPicker'
 import { Section, SettingsRow } from '../src/settings/Rows'
 import { ForgetWalletSheet } from '../src/settings/ForgetWalletSheet'
+import { RemoveWalletSheet } from '../src/settings/RemoveWalletSheet'
+import { useWalletList } from '../src/home/useWalletList'
 import { ExportSheet } from '../src/settings/ExportSheet'
 import { BackupSheet } from '../src/backup/BackupSheet'
 import { setPref, usePrefs } from '../src/state/prefs'
@@ -33,7 +35,10 @@ export default function Profile() {
   const router = useRouter()
   const prefs = usePrefs()
   const data = useHomeData()
-  const { storage, switchingProfile } = useWallet()
+  const { storage, switchingProfile, activeProfile } = useWallet()
+  // the first wallet is the recovery phrase's own: forgetting it forgets them all
+  const thisOne = useWalletList().find(w => w.active)
+  const removable = activeProfile > 0
   const [exportOpen, setExportOpen] = useState(false)
   const [handle, setHandle] = useState<string | null>(null)
   const [name, setName] = useState<string | null>(null)
@@ -130,7 +135,7 @@ export default function Profile() {
           style={({ pressed }) => [styles.forget, { backgroundColor: palette.destructive + (pressed ? '26' : '1a') }]}
         >
           <Trash2 size={16} color={palette.destructive} />
-          <Text style={[font(600), styles.small, { color: palette.destructive }]}>Forget wallet</Text>
+          <Text style={[font(600), styles.small, { color: palette.destructive }]}>{removable ? 'Forget this wallet' : 'Forget wallet'}</Text>
         </Pressable>
       </ScrollView>
 
@@ -148,8 +153,9 @@ export default function Profile() {
       </BottomSheet>
       <BackupSheet open={backupOpen} onOpenChange={setBackupOpen} />
       <ExportSheet open={exportOpen} onOpenChange={setExportOpen} />
+      <RemoveWalletSheet open={removable && forgetOpen} onOpenChange={setForgetOpen} name={thisOne?.name ?? `Wallet ${activeProfile + 1}`} />
       <ForgetWalletSheet
-        open={forgetOpen}
+        open={!removable && forgetOpen}
         onOpenChange={setForgetOpen}
         backedUp={data.backedUp}
         onBackUp={() => {
