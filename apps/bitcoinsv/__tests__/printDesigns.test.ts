@@ -20,7 +20,11 @@ const wallets = [
   { index: 2, name: 'Wallet 3' }
 ]
 /** the page's words, without markup: long codes are set over several lines */
-const text = (html: string) => html.replace(/<[^>]+>/g, '')
+const text = (html: string) => {
+  // until nothing changes: one pass can leave a tag made of two halves
+  for (let prev = ''; prev !== html; ) [prev, html] = [html, html.replace(/<[^>]+>/g, '')]
+  return html
+}
 const svg = (n: number) => `<svg viewBox="0 0 1 1" data-qr="${n}"></svg>`
 
 const seed: NoteData = { kind: 'seed', words, phraseQr: svg(-1), walletId, walletIdQr: svg(-2), wallets }
