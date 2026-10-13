@@ -102,14 +102,17 @@ export async function refetchAtomicBeef(args: {
  *
  * `online` is consulted first so an offline device declines instead of
  * attempting a fetch that must fail — see the note at the top of this file.
+ * A network with no WhatsOnChain (`woc` undefined) has nowhere to refetch
+ * from, so it always declines.
  */
 export function makeBeefRepair(args: {
-  woc: WocConfig
+  woc: WocConfig | undefined
   online: () => Promise<boolean>
   fetchImpl?: FetchLike
 }): (txid: string) => Promise<number[] | undefined> {
+  const woc = args.woc
   return async (txid: string) => {
-    if (!(await args.online())) return undefined
-    return refetchAtomicBeef({ woc: args.woc, txid, fetchImpl: args.fetchImpl })
+    if (!woc || !(await args.online())) return undefined
+    return refetchAtomicBeef({ woc, txid, fetchImpl: args.fetchImpl })
   }
 }

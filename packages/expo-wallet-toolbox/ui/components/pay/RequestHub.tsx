@@ -28,6 +28,11 @@ export interface RequestHubProps {
   onChangeRequestSats: (v: string) => void
   onPick: (method: RequestMethod) => void
   online: boolean
+  /**
+   * Whether this network has an address rail at all. It needs WhatsOnChain to
+   * see payments arrive, and the scaling teratestnet has none. Default true.
+   */
+  addressAvailable?: boolean
   /** Held assets; empty means no picker and today's screen. */
   balances?: TokenBalance[]
   /** `null` is BSV. Chosen upstream (Home's coin switcher, or a deep link). */
@@ -55,6 +60,7 @@ export default function RequestHub({
   onChangeRequestSats,
   onPick,
   online,
+  addressAvailable = true,
   balances = [],
   selectedAssetId = null,
   assetStatus = null
@@ -113,14 +119,16 @@ export default function RequestHub({
           <PayCellRow
             title={t('pay_method_address')}
             subtitle={
-              asset
-                ? t('pay_asset_address_status', { ticker: asset.ticker })
-                : online
-                  ? t('pay_cell_address_get_sub')
-                  : t('pay_offline_needs_internet')
+              !addressAvailable
+                ? t('pay_address_unavailable_network')
+                : asset
+                  ? t('pay_asset_address_status', { ticker: asset.ticker })
+                  : online
+                    ? t('pay_cell_address_get_sub')
+                    : t('pay_offline_needs_internet')
             }
             icon="wallet-outline"
-            disabled={!online || !!asset}
+            disabled={!addressAvailable || !online || !!asset}
             onPress={() => onPick('get-address')}
           />
         </View>

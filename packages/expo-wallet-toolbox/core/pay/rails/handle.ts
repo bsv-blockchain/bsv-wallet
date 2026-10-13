@@ -9,7 +9,8 @@
  * makes a crash recoverable.
  */
 import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
-import { Beef, P2PKH, PublicKey, Random, Transaction, Utils, type AtomicBEEF } from '@bsv/sdk'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { Beef, LookupResolver, P2PKH, PublicKey, Random, Transaction, Utils, type AtomicBEEF } from '@bsv/sdk'
 import { BRC29_PROTOCOL_ID } from './address'
 import {
   getOutboxEntries,
@@ -24,14 +25,83 @@ import { abbreviateKey } from '../counterparty'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 import type { MandalaRuntime, TokenSendResult } from '../../mandala/runtime'
+import type { AppChain } from '../../config'
+import { APP_CHAINS, NETWORKS, type OverlayPreset } from '../../networks'
+import { profileScopedKey } from '../../profiles/profileStore'
+import { getMessageBoxUrlOverride } from '../../toolboxConfig'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
-export const DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.bsvblockchain.tech'
+/** Mainnet's default. Every network has its own: see `defaultMessageBoxUrlFor`. */
+export const DEFAULT_MESSAGE_BOX_URL = NETWORKS.main.messageBoxUrl
 /** The previous default. A saved preference equal to it is treated as "use the
  * default", so existing installs follow the default forward. */
 export const LEGACY_MESSAGE_BOX_URL = 'https://messagebox.babbage.systems'
 /** The sentinel the config panel writes when the user opts out of a server. */
 export const NO_MESSAGE_BOX = 'noMessageBox'
+
+/** The MessageBox server a network uses unless the user chose another. */
+export function defaultMessageBoxUrlFor(network: AppChain): string {
+  return getMessageBoxUrlOverride(network) ?? NETWORKS[network].messageBoxUrl
+}
+
+/**
+ * The MessageBox host to use, from the profile's saved preference.
+ *
+ * `undefined` means the user turned MessageBox off. Anything that is not a
+ * deliberate choice of a server follows the network's default: nothing saved,
+ * the retired default, or a default of ANY network — until each network had a
+ * server of its own every network used mainnet's, so a testnet profile's saved
+ * mainnet default is the old default, not a preference for mainnet's server.
+ */
+export function resolveMessageBoxUrl(saved: string | null | undefined, network: AppChain): string | undefined {
+  if (saved === NO_MESSAGE_BOX) return undefined
+  if (!saved || saved === LEGACY_MESSAGE_BOX_URL || isAnyNetworkDefault(saved)) {
+    return defaultMessageBoxUrlFor(network)
+  }
+  return saved
+}
+
+function isAnyNetworkDefault(url: string): boolean {
+  return APP_CHAINS.some(chain => NETWORKS[chain].messageBoxUrl === url || defaultMessageBoxUrlFor(chain) === url)
+}
+
+/** Read the active (or named) profile's MessageBox host for `network`. */
+export async function readMessageBoxUrl(network: AppChain, profileIndex?: number): Promise<string | undefined> {
+  return resolveMessageBoxUrl(await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY, profileIndex)), network)
+}
+
+/**
+ * Point a MessageBox (or PeerPay) client's overlay lookups at `network`.
+ *
+ * The client resolves a recipient's host by asking the overlay for their
+ * advertisement, and falls back to its own configured host when there is none.
+ * Left alone it asks MAINNET's overlay on every network — PeerPayClient does not
+ * pass a `networkPreset` through to MessageBoxClient at all — so a test-chain
+ * payment could be routed to a host someone advertised on mainnet.
+ *
+ * On a network with no overlay (`'local'`) there is nothing to ask: the lookup
+ * answers "no advertisements", and every message goes to the configured host.
+ * `local` would otherwise mean `http://localhost:8080`, which on a phone is
+ * nothing at all.
+ *
+ * Sets `networkPreset` and `lookupResolver`, the two fields MessageBoxClient
+ * 2.5.3 reads for routing (`queryAdvertisements`, `anointHost`). A test pins
+ * those names, so an upgrade that renames them fails loudly rather than
+ * quietly routing through mainnet again.
+ */
+export function bindMessageBoxNetwork<T extends object>(client: T, network: AppChain): T {
+  const preset = NETWORKS[network].overlayPreset
+  const target = client as unknown as { networkPreset: OverlayPreset; lookupResolver: unknown }
+  target.networkPreset = preset
+  target.lookupResolver =
+    preset === 'local' ? NO_OVERLAY_RESOLVER : new LookupResolver({ networkPreset: preset })
+  return client
+}
+
+/** The lookup for a network with no overlay: never any advertisements. */
+const NO_OVERLAY_RESOLVER = {
+  query: async () => ({ type: 'output-list' as const, outputs: [] })
+}
 
 /** The message box outbound payments are delivered into. */
 const PAYMENT_INBOX = 'payment_inbox'
@@ -40,16 +110,20 @@ const PAYMENT_INBOX = 'payment_inbox'
 export function makePeerPayClient(args: {
   wallet: ConstructorParameters<typeof PeerPayClient>[0]['walletClient'] | null | undefined
   messageBoxUrl: string | null | undefined
+  network: AppChain
   originator?: string
 }): PeerPayClient | null {
-  const { wallet, messageBoxUrl, originator } = args
+  const { wallet, messageBoxUrl, network, originator } = args
   if (!wallet || !messageBoxUrl || messageBoxUrl === NO_MESSAGE_BOX) return null
   try {
-    return new PeerPayClient({
-      messageBoxHost: messageBoxUrl,
-      walletClient: wallet,
-      originator
-    })
+    return bindMessageBoxNetwork(
+      new PeerPayClient({
+        messageBoxHost: messageBoxUrl,
+        walletClient: wallet,
+        originator
+      }),
+      network
+    )
   } catch {
     return null
   }

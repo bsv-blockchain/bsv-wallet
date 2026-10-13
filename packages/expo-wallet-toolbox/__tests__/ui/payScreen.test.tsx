@@ -81,7 +81,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     storage: mockStorage,
     txStatusVersion: 0,
     walletUserId: null,
-    runMonitorTask: mockRunMonitorTask
+    runMonitorTask: mockRunMonitorTask,
+    selectedNetwork: 'main'
   })
 }))
 

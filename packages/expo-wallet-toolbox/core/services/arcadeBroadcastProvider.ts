@@ -1,4 +1,5 @@
 import { Beef, Transaction, Utils } from '@bsv/sdk'
+import type { WocEndpoints } from '../networks'
 import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
 
 const BROADCAST_TIMEOUT_MS = 30_000
@@ -315,23 +316,12 @@ export function createGorillaPoolBroadcastService(arcUrl: string) {
 /**
  * WhatsOnChain broadcast service — raw tx hex.
  */
-export function createWocBroadcastService(chain: string, apiKey?: string) {
-  // XQ-011: `chain` here is WalletContext.tsx's un-normalized `walletChain`,
-  // which a corrupted/garbage persisted finalConfig.network value passes
-  // through unchanged (toWalletChain only special-cases the literal
-  // 'teratest'). Every sibling consumer of that same raw value —
-  // chaintracksUrlFor, the backupChain ternary that actually buckets which
-  // local DB is opened, walletDbRegistry's registry key — fails safe by
-  // collapsing any unrecognized string to a teratest/testnet bucket. This
-  // switch used to do the opposite, defaulting an unrecognized value to the
-  // live mainnet broadcast endpoint: the most privileged branch, not the
-  // least. Fail safe the same direction as every other consumer instead.
-  const baseUrl =
-    chain === 'main'
-      ? 'https://api.whatsonchain.com/v1/bsv/main'
-      : chain === 'test'
-        ? 'https://api.whatsonchain.com/v1/bsv/test'
-        : 'https://api.woc-ttn.bsvblockchain.tech/v1/bsv/test'
+export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
+  // XQ-011: this used to take the raw chain string and pick a host with a
+  // ternary, so a corrupted value needed a fail-safe branch. It now takes the
+  // network's own WhatsOnChain entry from NETWORKS: a network with no
+  // WhatsOnChain has no entry, and the caller does not register this service.
+  const baseUrl = `${woc.apiBase}/v1/bsv/${woc.segment}`
   const name = 'WhatsOnChain'
 
   return {

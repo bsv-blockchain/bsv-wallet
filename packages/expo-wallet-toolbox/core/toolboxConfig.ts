@@ -14,6 +14,11 @@ export interface ToolboxServiceConfig {
   chaintracksUrl?: string
   whatsOnChainApiKey?: string
   taalApiKey?: string
+  /**
+   * The chain's default MessageBox origin. A user's own choice in Settings
+   * still wins; this only replaces the built-in default in `NETWORKS`.
+   */
+  messageBoxUrl?: string
 }
 
 /**
@@ -227,6 +232,24 @@ export function getBackupUrl(): string {
 export function getServiceConfig(chain: AppChain): ToolboxServiceConfig {
   if (current === null) throw new Error(NOT_CONFIGURED)
   return current.services[chain] ?? {}
+}
+
+/**
+ * The host's default MessageBox origin for a chain, or undefined to use the
+ * built-in one. Never throws, like `getMandalaEndpoints`: it is read while
+ * rendering, and an unconfigured or malformed value must look like "no
+ * override" rather than crash.
+ */
+export function getMessageBoxUrlOverride(chain: AppChain): string | undefined {
+  const url = current?.services[chain]?.messageBoxUrl?.trim().replace(/\/+$/, '') ?? ''
+  if (url === '') return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return undefined
+  }
+  return isAllowedServiceOrigin(parsed) ? url : undefined
 }
 
 const COMPRESSED_KEY = /^0[23][0-9a-fA-F]{64}$/

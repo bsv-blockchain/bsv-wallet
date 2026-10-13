@@ -13,6 +13,7 @@ import React, { useCallback, useMemo, useState } from 'react'
 import { Linking, StyleSheet, Text, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { useTheme, spacing, typography, useWallet } from '@bsv/expo-wallet-toolbox'
+import { NETWORKS } from '../../../core/networks'
 import ActivityRow, { type ActivityAction } from './ActivityRow'
 import { showToast } from '../ui/Toast'
 import { useMandala } from '../../hooks/useMandala'
@@ -56,18 +57,17 @@ export default function ContactActivityList({
   const [expanded, setExpanded] = useState<string | null>(null)
   const onToggle = useCallback((key: string) => setExpanded(prev => (prev === key ? null : key)), [])
 
-  const onExplorer = useCallback(
+  /** A network with no block explorer (the scaling teratestnet) offers no link. */
+  const hasExplorer = NETWORKS[selectedNetwork].woc?.explorerBase !== undefined
+  const openExplorer = useCallback(
     (txid: string) => {
-      const base =
-        selectedNetwork === 'main'
-          ? 'https://whatsonchain.com'
-          : selectedNetwork === 'teratest'
-            ? 'https://woc-ttn.bsvblockchain.tech'
-            : 'https://test.whatsonchain.com'
+      const base = NETWORKS[selectedNetwork].woc?.explorerBase
+      if (!base) return
       Linking.openURL(`${base}/tx/${txid}`).catch(() => showToast(t('explorer_open_failed'), { type: 'error' }))
     },
     [selectedNetwork, t]
   )
+  const onExplorer = hasExplorer ? openExplorer : undefined
 
   const rows = useMemo(
     () =>

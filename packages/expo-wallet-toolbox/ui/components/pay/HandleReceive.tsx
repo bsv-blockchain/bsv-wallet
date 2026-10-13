@@ -42,6 +42,7 @@ import PressableScale from '../ui/PressableScale'
 import { showAlert } from '../ui/AlertCard'
 import { showToast } from '../ui/Toast'
 import { makeIdentityClient, resolveIdentity } from '../../resolveIdentity'
+import { bindMessageBoxNetwork } from '../../../core/pay/rails/handle'
 import { makeBeefRepair } from '../../../core/pay/beefRepair'
 import { wocConfigFor } from '../../../core/pay/rails/address'
 import { makeCreditClassifier } from '../../../core/pay/creditErrors'
@@ -418,7 +419,7 @@ export default function HandleReceive({
   const mandala = useMandala()
   const [identityError, setIdentityError] = useState(false)
   const [copied, setCopied] = useState(false)
-  const { messageBoxUrl } = useMessageBoxConfig(t)
+  const { messageBoxUrl } = useMessageBoxConfig(t, selectedNetwork)
   const isConfigured = !!messageBoxUrl && messageBoxUrl !== NO_MESSAGE_BOX
 
   const [payments, setPayments] = useState<IncomingPayment[]>([])
@@ -494,15 +495,18 @@ export default function HandleReceive({
   const newPeerPayClient = useCallback((): PeerPayClient | null => {
     if (!isConfigured || !messageBoxUrl || !wallet) return null
     try {
-      return new PeerPayClient({
-        messageBoxHost: messageBoxUrl,
-        walletClient: wallet as any,
-        originator: adminOriginator
-      })
+      return bindMessageBoxNetwork(
+        new PeerPayClient({
+          messageBoxHost: messageBoxUrl,
+          walletClient: wallet as any,
+          originator: adminOriginator
+        }),
+        selectedNetwork
+      )
     } catch {
       return null
     }
-  }, [isConfigured, messageBoxUrl, wallet, adminOriginator])
+  }, [isConfigured, messageBoxUrl, wallet, adminOriginator, selectedNetwork])
   /** The client every inbox read, accept and discard goes through. */
   const peerPayClient = useMemo(() => newPeerPayClient(), [newPeerPayClient])
 

@@ -41,6 +41,7 @@ import {
   type OfflineActionRow,
   TaskSendOffline
 } from '@bsv/expo-wallet-toolbox'
+import { NETWORKS } from '../../core/networks'
 import { getPendingCorruptNotice, readUnprocessedPending } from '../../core/localpay/pending'
 import { useAssetStatus, useMandala } from '../hooks/useMandala'
 import { formatTokenAmountWithUnit } from '../tokenFormat'
@@ -125,7 +126,8 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
     walletUserId,
     runMonitorTask,
     managers,
-    adminOriginator
+    adminOriginator,
+    selectedNetwork
   } = useWallet()
   const [queued, setQueued] = useState(0)
   const [rejected, setRejected] = useState<OfflineActionRow[]>([])
@@ -412,6 +414,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
     storage,
     permissionsManager: managers?.permissionsManager,
     adminOriginator: adminOriginator ?? '',
+    network: selectedNetwork,
     online,
     rejected,
     t,
@@ -555,6 +558,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
               onChangeRequestSats={setRequestSats}
               onPick={setMethod}
               online={online}
+              addressAvailable={NETWORKS[selectedNetwork].woc !== undefined}
               balances={balances}
               selectedAssetId={selectedAssetId}
               onSelectAsset={setSelectedAssetId}

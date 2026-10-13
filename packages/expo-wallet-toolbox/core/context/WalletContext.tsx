@@ -140,6 +140,7 @@ const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
+import { NETWORKS, isAppChain } from '../networks'
 import { getBackupUrl, getHandleRegistryConfig, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
@@ -291,11 +292,9 @@ import { spenderConsumesOutpoint } from '../walletRepair/spenderConsumesOutpoint
 import { releaseStuckReservationsOnDb } from '../walletRepair/releaseStuckReservations'
 import {
   acceptWithRetry,
-  DEFAULT_MESSAGE_BOX_URL,
+  bindMessageBoxNetwork,
   internalizeIncoming,
-  LEGACY_MESSAGE_BOX_URL,
-  MESSAGE_BOX_URL_KEY,
-  NO_MESSAGE_BOX,
+  readMessageBoxUrl,
   retryDelivery
 } from '../pay/rails/handle'
 import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
@@ -1319,7 +1318,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   const finalizeConfig = useCallback((wabConfig: WABConfig): boolean => {
     const { method, network, storageUrl } = wabConfig
-    if (!network) {
+    if (!isAppChain(network)) {
       console.error('Network selection is required')
       return false
     }
@@ -1431,10 +1430,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         const mandalaEndpoints = getMandalaEndpoints(chain)
         // Toolbox chain id ('teratest' -> 'ttn'). App keeps 'teratest' for AsyncStorage keys / env / UI.
         const walletChain = toWalletChain(chain)
+        const network = NETWORKS[chain]
         // The backup log's network name. Distinct from walletChain ('ttn' for teratest):
         // the backup derivation is frozen on the app-level names.
-        const backupChain =
-          chain === 'main' ? ('main' as const) : chain === 'test' ? ('test' as const) : ('teratest' as const)
+        const backupChain: BackupChain = chain
         // See getBackupPseudonym's own docs: this is what lets Wallet Check scope its
         // cursor lookup to THIS identity without the primary key itself leaving this scope.
         backupIdentityRef.current = { chain: backupChain, pseudonym: backupPseudonym(primaryKey, backupChain) }
@@ -1486,7 +1485,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // Replace all default broadcast providers with EF/rawtx-only services.
         // Order: Arcade → Taal → GorillaPool → WoC → Bitails. UntilSuccess stops at first success.
-        // Taal runs on main + test only, GorillaPool on main only; teratest has no public ARC.
+        // Each fallback is registered only where NETWORKS says it serves the
+        // network: Taal on main + test, GorillaPool on main, WhatsOnChain where
+        // one exists, Bitails on main + test.
         // 'ArcadeBeef' is the toolbox's own Arcade broadcaster, registered
         // because serviceOptions now carries arcadeUrl (needed for Arcade-first
         // proofs and SSE). Our createArcadeBroadcastService replaces it here so
@@ -1498,15 +1499,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         services.postBeefServices.remove('Bitails')
         services.postBeefServices.remove('WhatsOnChain')
         services.postBeefServices.add(createArcadeBroadcastService(serviceOptions.arcUrl!, callbackToken))
-        if (chain === 'main' || chain === 'test') {
-          const taalArcUrl = chain === 'main' ? 'https://arc.taal.com' : 'https://arc-test.taal.com'
-          services.postBeefServices.add(createTaalBroadcastService(taalArcUrl, serviceOptions.taalApiKey))
+        if (network.taalArcUrl) {
+          services.postBeefServices.add(createTaalBroadcastService(network.taalArcUrl, serviceOptions.taalApiKey))
         }
-        if (chain === 'main') {
-          services.postBeefServices.add(createGorillaPoolBroadcastService('https://arc.gorillapool.io'))
+        if (network.gorillaPoolArcUrl) {
+          services.postBeefServices.add(createGorillaPoolBroadcastService(network.gorillaPoolArcUrl))
         }
-        services.postBeefServices.add(createWocBroadcastService(walletChain, serviceOptions.whatsOnChainApiKey))
-        if (bitailsService) {
+        if (network.woc) {
+          services.postBeefServices.add(createWocBroadcastService(network.woc, serviceOptions.whatsOnChainApiKey))
+        }
+        if (bitailsService && network.bitails) {
           services.postBeefServices.add({ name: 'Bitails', service: bitailsService.postBeef.bind(bitailsService) })
         }
 
@@ -1515,48 +1517,45 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // Every tx this wallet sends goes through Arcade, so GET /tx/{txid}
         // there is the one lookup that can answer as soon as it is mined. WoC
         // BUMP and Bitails are re-added after it as fallbacks, in that order.
-        const wocBumpBase =
-          chain === 'main'
-            ? 'https://api.whatsonchain.com/v1/bsv/main'
-            : chain === 'test'
-              ? 'https://api.whatsonchain.com/v1/bsv/test'
-              : 'https://api.woc-ttn.bsvblockchain.tech/v1/bsv/test'
         const wocApiKey = serviceOptions.whatsOnChainApiKey
         const chaintracksClient = serviceOptions.chaintracks as any
         const getMerklePathSvc = (services as any).getMerklePathServices
         const bitailsGetMerklePath = (services as any).bitails?.getMerklePath?.bind((services as any).bitails)
         getMerklePathSvc.remove('WhatsOnChain')
         getMerklePathSvc.remove('Bitails')
-        getMerklePathSvc.add({
-          name: 'WhatsOnChain',
-          service: async (txid: string): Promise<any> => {
-            const r: any = { name: 'WhatsOnChain', notes: [] }
-            try {
-              const headers: Record<string, string> = {}
-              if (wocApiKey) headers['woc-api-key'] = wocApiKey
-              const res = await fetch(`${wocBumpBase}/tx/${txid}/proof/bump`, { headers })
-              if (res.status === 404) {
-                r.notes.push({ what: 'getMerklePathNoData', when: new Date().toISOString() })
-                return r
+        const wocBumpBase = network.woc ? `${network.woc.apiBase}/v1/bsv/${network.woc.segment}` : undefined
+        if (wocBumpBase) {
+          getMerklePathSvc.add({
+            name: 'WhatsOnChain',
+            service: async (txid: string): Promise<any> => {
+              const r: any = { name: 'WhatsOnChain', notes: [] }
+              try {
+                const headers: Record<string, string> = {}
+                if (wocApiKey) headers['woc-api-key'] = wocApiKey
+                const res = await fetch(`${wocBumpBase}/tx/${txid}/proof/bump`, { headers })
+                if (res.status === 404) {
+                  r.notes.push({ what: 'getMerklePathNoData', when: new Date().toISOString() })
+                  return r
+                }
+                if (!res.ok) {
+                  r.notes.push({ what: 'getMerklePathBadStatus', httpStatus: res.status, when: new Date().toISOString() })
+                  return r
+                }
+                const bumpHex = (await res.text()).trim()
+                r.merklePath = MerklePath.fromHex(bumpHex)
+                const height = r.merklePath.blockHeight
+                const header = await chaintracksClient.findHeaderForHeight(height)
+                if (header) r.header = { ...header, height }
+                r.notes.push({ what: 'getMerklePathSuccess', when: new Date().toISOString() })
+              } catch (eu: any) {
+                r.error = eu
+                r.notes.push({ what: 'getMerklePathError', description: eu?.message, when: new Date().toISOString() })
               }
-              if (!res.ok) {
-                r.notes.push({ what: 'getMerklePathBadStatus', httpStatus: res.status, when: new Date().toISOString() })
-                return r
-              }
-              const bumpHex = (await res.text()).trim()
-              r.merklePath = MerklePath.fromHex(bumpHex)
-              const height = r.merklePath.blockHeight
-              const header = await chaintracksClient.findHeaderForHeight(height)
-              if (header) r.header = { ...header, height }
-              r.notes.push({ what: 'getMerklePathSuccess', when: new Date().toISOString() })
-            } catch (eu: any) {
-              r.error = eu
-              r.notes.push({ what: 'getMerklePathError', description: eu?.message, when: new Date().toISOString() })
+              return r
             }
-            return r
-          }
-        })
-        if (bitailsGetMerklePath) {
+          })
+        }
+        if (bitailsGetMerklePath && network.bitails) {
           getMerklePathSvc.add({ name: 'Bitails', service: bitailsGetMerklePath })
         }
 
@@ -2047,14 +2046,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               // never touches stablecoins never opens a MessageBox connection.
               messageBox: mandalaEndpoints
                 ? async () =>
-                    new MessageBoxClient({
-                      host: mandalaEndpoints.messageBoxUrl,
-                      // The client calls getPublicKey / createSignature itself;
-                      // those must carry the admin originator or the vault guard
-                      // refuses them ("Originator is required for permission checks").
-                      walletClient: bindOriginator(newManagers.permissionsManager as object, adminOriginator) as never,
-                      enableLogging: false
-                    }) as unknown as MandalaMessageBox
+                    bindMessageBoxNetwork(
+                      new MessageBoxClient({
+                        host: mandalaEndpoints.messageBoxUrl,
+                        // The client calls getPublicKey / createSignature itself;
+                        // those must carry the admin originator or the vault guard
+                        // refuses them ("Originator is required for permission checks").
+                        walletClient: bindOriginator(newManagers.permissionsManager as object, adminOriginator) as never,
+                        enableLogging: false
+                      }),
+                      chain
+                    ) as unknown as MandalaMessageBox
                 : undefined,
               // The payer's own frames are sealed with a nearby session PSK the
               // drain never persists; this opens the ones whose session this
@@ -2114,15 +2116,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // and the push registration below, so a device token is always
           // registered on exactly the host the inbox reads. The push
           // registration names the profile it is asking about; the inbox task
-          // reads the open profile's.
-          const readMessageBoxHost = async (index?: number): Promise<string | undefined> => {
-            const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY, index))
-            return saved === NO_MESSAGE_BOX
-              ? undefined
-              : !saved || saved === LEGACY_MESSAGE_BOX_URL
-                ? DEFAULT_MESSAGE_BOX_URL
-                : saved
-          }
+          // reads the open profile's. Each network has its own server, so a
+          // profile's host follows that profile's network, not this build's.
+          const networkOfProfile = (index?: number): AppChain =>
+            index === undefined ? chain : (getProfilesState().profiles[index]?.network ?? chain)
+          const readMessageBoxHost = async (index?: number): Promise<string | undefined> =>
+            readMessageBoxUrl(networkOfProfile(index), index)
 
           // Release held offline transactions when signal returns — registered
           // BEFORE the defaults, and the order matters. Monitor.runOnce collects
@@ -2215,11 +2214,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               if (!messageBoxUrl) return { accepted: 0, attention: 0, pending: false }
               let client: PeerPayClient
               try {
-                client = new PeerPayClient({
-                  messageBoxHost: messageBoxUrl,
-                  walletClient: permissionsManager as never,
-                  originator: adminOriginator
-                })
+                client = bindMessageBoxNetwork(
+                  new PeerPayClient({
+                    messageBoxHost: messageBoxUrl,
+                    walletClient: permissionsManager as never,
+                    originator: adminOriginator
+                  }),
+                  chain
+                )
               } catch {
                 return { accepted: 0, attention: 0, pending: false }
               }
@@ -2271,11 +2273,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   return drainUnsentEntries({
                     entries,
                     retry: async entry => {
-                      const client = new PeerPayClient({
-                        messageBoxHost: entry.messageBoxUrl,
-                        walletClient: permissionsManager as never,
-                        originator: adminOriginator
-                      })
+                      const client = bindMessageBoxNetwork(
+                        new PeerPayClient({
+                          messageBoxHost: entry.messageBoxUrl,
+                          walletClient: permissionsManager as never,
+                          originator: adminOriginator
+                        }),
+                        chain
+                      )
                       await retryDelivery({
                         wallet: permissionsManager as never,
                         adminOriginator,
@@ -2556,12 +2561,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               profiles,
               retired,
               activeIndex: profileIndex,
-              readHost: readMessageBoxHost,
+              // Only a server that sends push notifications can take a
+              // registration (mainnet's, today): a profile on any other
+              // network has no host to register at.
+              readHost: async index =>
+                NETWORKS[networkOfProfile(index)].push ? readMessageBoxHost(index) : undefined,
               // Still this build's, and not removed: a removal tombstones its profile
               // right after the switch to profile 0, whose build holds the key.
               isCurrent: index => stillWanted() && !isRemoved(index),
               isRemoved,
-              makeClient: (wallet, host) => new MessageBoxClient({ host, walletClient: wallet as never }),
+              makeClient: (wallet, host) =>
+                bindMessageBoxNetwork(new MessageBoxClient({ host, walletClient: wallet as never }), chain),
               makePost: authPostFor
             })
             profilePushRef.current = profilePush
@@ -2614,7 +2624,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             // a store) that belongs to a different build.
             const stillCurrent = () => offlineChaintracksRef.current === offlineChaintracks
             try {
-              const anchor = HEADER_CHECKPOINTS[walletChain as 'main' | 'test' | 'ttn']
+              const anchor = HEADER_CHECKPOINTS[network.walletChain]
               if (!anchor) return
 
               const openStart = Date.now()
@@ -3488,13 +3498,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   useEffect(() => {
     const wallet = managers.permissionsManager
     if (!walletBuilt || !wallet || !storage) return
+    // Watching an address means asking WhatsOnChain about it; a network with
+    // no WhatsOnChain has no address rail to sweep.
+    const woc = wocConfigFor(selectedNetwork)
+    if (!woc) return
 
     let cancelled = false
     // Assume online until NetInfo says otherwise: a first pass that fails on a
     // dead network is harmless (every address stays watched), while waiting for
     // the first NetInfo event would delay the common case.
     let online = true
-    const woc = wocConfigFor(selectedNetwork)
     // Ticks still to sit out after a WhatsOnChain 429. Every tick spends one,
     // including the app-active and back-online ones, so none of them can reach
     // WhatsOnChain while the backoff is pending.
@@ -3956,11 +3969,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     async (txid: string, opts?: { neverFail?: boolean }): Promise<'confirmed' | 'pending' | 'failed'> => {
       if (!storage) throw new Error('Storage not available')
 
-      const wocBase =
-        selectedNetwork === 'teratest' ? 'https://api.woc-ttn.bsvblockchain.tech' : 'https://api.whatsonchain.com'
-      const chain = selectedNetwork === 'main' ? 'main' : 'test'
+      // With no WhatsOnChain there is no second opinion to ask: leave the
+      // transaction to the monitor's own (Arcade) proof checks.
+      const woc = NETWORKS[selectedNetwork].woc
+      if (!woc) return 'pending'
 
-      const res = await fetch(`${wocBase}/v1/bsv/${chain}/tx/${txid}/proof/bump`)
+      const res = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/proof/bump`)
 
       if (res.ok) {
         // XR-059 remainder: a compromised/misbehaving configured indexer must
@@ -4000,7 +4014,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           txid,
           proof,
           fetchRawTx: async () => {
-            const r = await fetch(`${wocBase}/v1/bsv/${chain}/tx/${txid}/hex`)
+            const r = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/hex`)
             if (!r.ok) throw new Error(`raw tx fetch failed: ${r.status}`)
             // XR-059 remainder: same unbounded-hex-decode gap as the BUMP
             // fetch above, on the raw-tx body this time. Throwing here (like
@@ -4020,7 +4034,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // unconfirmed but perfectly healthy tx also has no proof.
       let onChain = false
       try {
-        const head = await fetch(`${wocBase}/v1/bsv/${chain}/tx/hash/${txid}`)
+        const head = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/hash/${txid}`)
         onChain = head.ok
         // XR-030: any other non-OK (429/500/401/403/...) is a service
         // problem, not proof of absence — only a 404 is authoritative.
@@ -4156,12 +4170,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     const releaseResult = await releaseStuckReservations()
     const releasedNote = releaseResult === 'No stuck reservations found.' ? '' : releaseResult + '\n\n'
 
-    const wocBase =
-      selectedNetwork === 'main'
-        ? 'https://api.whatsonchain.com/v1/bsv/main'
-        : selectedNetwork === 'test'
-          ? 'https://api.whatsonchain.com/v1/bsv/test'
-          : 'https://api.woc-ttn.bsvblockchain.tech/v1/bsv/test'
+    const woc = NETWORKS[selectedNetwork].woc
+    if (!woc) return releasedNote + 'Spendability check needs WhatsOnChain, which this network does not have.'
+    const wocBase = `${woc.apiBase}/v1/bsv/${woc.segment}`
 
     // Rate limit: max 3 requests/sec (WoC limit ~1 per 0.34s)
     const WOC_INTERVAL = 340
