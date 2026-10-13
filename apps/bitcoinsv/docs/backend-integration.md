@@ -169,6 +169,6 @@ Content-Type: application/json
 ## Builds and stores
 
 - The app ships under the existing BSV Wallet's identity (`org.bsvblockchain.wallet`): its EAS project, App Store and Play listings, Firebase registrations and the `production` profile's remote credentials. `app.config.js` reads them from the root `app.json`.
-- Vault is on in development and preview builds only, never in production (`EXPO_PUBLIC_VAULT_ENABLED`).
+- Vault is on in every build profile, production included from build 61 (`EXPO_PUBLIC_VAULT_ENABLED`).
 - Ratings use the store's own sheet (StoreKit on iOS, Play In-App Review on Android), with the store page as a fallback ([`src/feedback/review.ts`](../src/feedback/review.ts)). Neither works before the app is listed. Once it is, set `EXPO_PUBLIC_APP_STORE_ID` and `EXPO_PUBLIC_PLAY_STORE_LISTED=true`. Until then "I love it" says ratings come later; development builds show iOS's test sheet.
 - Google Play's In-App Review policy doesn't allow asking how someone feels before (or while) showing the rating. So on Android there's no "Enjoying Bitcoin SV Wallet?": the rating sheet comes on its own at the same moments, the tour video's prompt reads "Rate Bitcoin SV Wallet", and notes to the team come from Help → Send feedback. iOS keeps the question. Both are set by `REVIEW_FUNNEL` in [`src/feedback/config.ts`](../src/feedback/config.ts).

@@ -91,11 +91,11 @@ describe('release gates', () => {
     return { ...parent, ...(profile.env ?? {}) }
   }
 
-  test('Vault is on in development and preview builds only', () => {
-    for (const p of ['development', 'dev-physical', 'preview', 'preview-apk']) {
+  // Decision 2026-10-13: Vault on in production too, from build 61.
+  test('Vault is on in every profile', () => {
+    for (const p of Object.keys(eas.build).filter(p => p !== 'base')) {
       expect(env(p).EXPO_PUBLIC_VAULT_ENABLED).toBe('true')
     }
-    expect(env('production').EXPO_PUBLIC_VAULT_ENABLED).not.toBe('true')
   })
 
   // Decision 13 (2026-10-09): production push via MessageBox. It only wires in

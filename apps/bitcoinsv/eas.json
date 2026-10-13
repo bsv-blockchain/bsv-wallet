@@ -72,7 +72,7 @@
       "env": {
         "APS_ENVIRONMENT": "production",
         "EXPO_PUBLIC_DEFAULT_CHAIN": "main",
-        "EXPO_PUBLIC_VAULT_ENABLED": "false",
+        "EXPO_PUBLIC_VAULT_ENABLED": "true",
         "EXPO_PUBLIC_PUSH_ENABLED": "true",
         "EXPO_PUBLIC_HANDLE_REGISTRY_DOMAIN": "bitcoinsv.com",
         "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN": "bitcoinsv.com"

@@ -28,7 +28,7 @@ Installed over the existing app, it inherits that installation's keychain items,
 | Profile (`eas.json`) | Vault | Push |
 |---|---|---|
 | `development`, `dev-physical`, `preview`, `preview-apk` | on | on |
-| `production` | **off** | on (via MessageBox) |
+| `production` | on (from build 61) | on (via MessageBox) |
 
 Push uses the existing app's Firebase registrations at the repository root (`GoogleService-Info.plist`, `google-services.json`). Without them the app builds and runs with push unavailable.
 
