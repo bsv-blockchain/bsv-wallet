@@ -17,6 +17,8 @@
  */
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { captureAppDataSnapshot, isEmptyAppData } from './appData'
+import { captureContacts } from './contactsBackup'
+import type { ContactsDb } from '../contacts/contactsStore'
 import { BackupClient, BackupHttpError, ERR_SEQ_CONFLICT } from './client'
 import { encodeChunk, estimateAppDataBytes, estimateEncodedBytes, isEmptyChunk, type BackupSeal } from './codec'
 import { GENERATION_CHUNK_THRESHOLD, MAX_ITEMS, MAX_ROUGH_SIZE, type BackupChain } from './constants'
@@ -180,6 +182,18 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   // when there is nothing app-owned to add, so a chunk with an empty queue serialises
   // byte-for-byte as the pre-appData envelope (see encodeChunk's own docs).
   const appData = await captureAppDataSnapshot(deps.storage)
+  // the contacts too (contactsBackup.ts): a read that fails leaves them out of this push
+  // rather than failing it
+  try {
+    const db = deps.storage.sqliteDb
+    if (db) {
+      const { user } = await deps.storage.findOrInsertUser(deps.identityKey)
+      const contacts = await captureContacts(db as unknown as ContactsDb, user.userId)
+      if (contacts !== undefined) appData.contacts = contacts
+    }
+  } catch {
+    // contacts wait for the next push
+  }
   const appDataToSend = isEmptyAppData(appData) ? undefined : appData
 
   // Bail BEFORE the expensive part when the chunk cannot possibly be accepted.

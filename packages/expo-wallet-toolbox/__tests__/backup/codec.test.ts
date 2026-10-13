@@ -245,6 +245,14 @@ describe('XR-011: backup chunk appData', () => {
     receiveIssuedDates: ['2026-08-01', '2026-09-01']
   }
 
+  it('round-trips the contacts in appData, encrypted with the rest', async () => {
+    const w = deriveBackupWallet(KEY, 'main')
+    const withContacts = { ...appData, contacts: '[{"identityKey":"02aa","name":"Ana","source":"pay","favourite":true,"createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-02T00:00:00Z"}]' }
+    const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', undefined, withContacts)
+    const decoded = await decodeEntry(w, ciphertext, 'main')
+    expect(decoded.appData).toEqual(withContacts)
+  })
+
   it('round-trips appData in the same envelope as the chunk', async () => {
     const w = deriveBackupWallet(KEY, 'main')
     const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', undefined, appData)

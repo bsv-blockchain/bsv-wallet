@@ -1,0 +1,29 @@
+# Back up with the recovery phrase, after the device check: reveal, writing
+# mode, the three-word check, done. On iOS the runner answers the Face ID
+# prompt between backup-phrase.yaml and this flow (see README.md).
+appId: com.bitcoinsv.wallet
+---
+# the words stay hidden until a press and hold
+- extendedWaitUntil: { visible: Press and hold to reveal, timeout: 30000 }
+- longPressOn: Press and hold to reveal
+- extendedWaitUntil: { visible: Hide again, timeout: 5000 }
+- takeScreenshot: backup-revealed
+- tapOn: Write them down, 4 at a time
+- assertVisible: Words 1–4 of 12
+- tapOn: Next 4 words
+- assertVisible: Words 5–8 of 12
+- tapOn: Next 4 words
+- assertVisible: Words 9–12 of 12
+- tapOn: Done, I wrote all 12
+- assertVisible: Pick the right words to prove you securely saved your phrase.
+# a wrong pick is caught
+- tapOn: { id: "quiz-.*-wrong", index: 0 }
+- assertVisible: { text: "That’s not word #.*" }
+- tapOn: { id: "quiz-.*-right", index: 0 }
+- tapOn: { id: "quiz-.*-right", index: 1 }
+- tapOn: { id: "quiz-.*-right", index: 2 }
+- tapOn: Confirm backup
+- extendedWaitUntil: { visible: Wallet backed up, timeout: 15000 }
+- takeScreenshot: backup-done
+- tapOn: Done
+- assertVisible: 1 of 2

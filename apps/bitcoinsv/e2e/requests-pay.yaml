@@ -1,0 +1,38 @@
+# Requests, paying one (two devices, real coins: the funded testnet wallets).
+# The other wallet asks this one for 0.0001 BSV with the note "Testnet
+# coffee" (Contacts → them → Request); this one opens it, pays it with the
+# note carried over, and sees it paid. On the asker, Activity's Requested
+# filter then shows it paid too, and the payment arrives with the note.
+appId: com.bitcoinsv.wallet
+---
+- openLink: bitcoinsv-wallet://activity
+- runFlow:
+    when:
+      platform: iOS
+      notVisible: Requested
+    commands:
+      - tapOn:
+          point: 68%,54%
+- extendedWaitUntil:
+    visible: .*Waiting · Testnet coffee.*
+    timeout: 60000
+- tapOn: .*Waiting · Testnet coffee.*
+- tapOn: Pay 0.0001 BSV
+- tapOn: Review payment
+- assertVisible: Testnet coffee
+- tapOn: Send Payment
+- extendedWaitUntil:
+    visible: Done
+    timeout: 60000
+- assertVisible: Download receipt
+- tapOn: Done
+- openLink: bitcoinsv-wallet://activity
+- runFlow:
+    when:
+      platform: iOS
+      notVisible: Requested
+    commands:
+      - tapOn:
+          point: 68%,54%
+- tapOn: Requested
+- assertVisible: .*Paid · Testnet coffee.*

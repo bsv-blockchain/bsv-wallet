@@ -48,6 +48,7 @@ import { OUTBOX_KEY } from '../peerpay/outbox'
 import { PENDING_KEY } from '../localpay/pending'
 import { getIssuedDates, setIssuedDates } from '../pay/receiveHistory'
 import type { AppDataSnapshot } from './codec'
+import { mergeContacts } from './contactsBackup'
 
 export interface KVStorage {
   getKeyValue (k: string): Promise<string | undefined>
@@ -63,6 +64,7 @@ export function isEmptyAppData (appData: AppDataSnapshot | undefined): boolean {
     appData == null ||
     (appData.localpayPending === undefined &&
       appData.peerpayOutbox === undefined &&
+      appData.contacts === undefined &&
       (appData.receiveIssuedDates?.length ?? 0) === 0)
   )
 }
@@ -152,6 +154,8 @@ export function mergeAppData (a: AppDataSnapshot | undefined, b: AppDataSnapshot
     receiveIssuedDates:
       a?.receiveIssuedDates === undefined && b?.receiveIssuedDates === undefined
         ? undefined
-        : [...new Set([...(a?.receiveIssuedDates ?? []), ...(b?.receiveIssuedDates ?? [])])].sort()
+        : [...new Set([...(a?.receiveIssuedDates ?? []), ...(b?.receiveIssuedDates ?? [])])].sort(),
+    // everyone either device knew, each as they were last changed (contactsBackup.ts)
+    contacts: mergeContacts(a?.contacts, b?.contacts)
   }
 }

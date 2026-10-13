@@ -1,0 +1,10 @@
+# A coin from Home's rows: BitcoinSV's page, its price line and, on a wallet
+# with no payments, where money in it comes from. Starts on Home.
+appId: com.bitcoinsv.wallet
+---
+- tapOn: "BitcoinSV, .*"
+- assertVisible: Price moves with the market
+- assertVisible: No BSV activity yet
+- takeScreenshot: coin-bsv
+- tapOn: Get paid
+- assertVisible: .*Anyone with this code can pay you.*

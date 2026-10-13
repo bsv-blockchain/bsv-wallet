@@ -12,6 +12,7 @@
  * as a rail — a handle is the local part of a `handle@domain` paymail.
  */
 import { Utils } from '@bsv/sdk'
+import { getHandleMinLength } from '../../toolboxConfig'
 
 /** base64(SHA-256("public profile lookup")) — the profile certificate's type. */
 export const PROFILE_CERT_TYPE = 'SbatVXXssDW3AO0J9bxIljkHGbPBGCVAXg94gXFf0cE='
@@ -44,7 +45,7 @@ export const MAX_SEARCH_QUERY_LENGTH = 32
  */
 export const MAX_SEARCH_RESULTS = 10
 
-const HANDLE_FORMAT = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/
+const HANDLE_FORMAT = /^[a-z0-9](?:[a-z0-9._-]{0,30}[a-z0-9])?$/
 const DOMAIN_FORMAT = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/
 const SEARCH_QUERY_FORMAT = /^[a-z0-9._-]+$/
 
@@ -60,9 +61,12 @@ const SEARCH_QUERY_FORMAT = /^[a-z0-9._-]+$/
  */
 const RESERVED_QUERY_PATHS = new Set(['available', '..'])
 
-/** 3-32 characters of a-z 0-9 . _ - beginning and ending with a letter or digit. */
+/**
+ * a-z 0-9 . _ -, beginning and ending with a letter or digit, at most 32
+ * characters and at least the host's minimum (3 unless configured lower).
+ */
 export function isValidHandleFormat(handle: string): boolean {
-  return HANDLE_FORMAT.test(handle)
+  return handle.length >= getHandleMinLength() && HANDLE_FORMAT.test(handle)
 }
 
 /** A dotted, all-lowercase domain. Says nothing about whether it resolves. */

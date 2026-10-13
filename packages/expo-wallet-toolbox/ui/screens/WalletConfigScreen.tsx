@@ -132,7 +132,11 @@ const NEXT_MOCK_KEY: Record<MockPresentKey, MockPresentKey> = {
   'MOCK-DEV-3': 'MOCK-DEV-1'
 }
 
-export function WalletConfigScreen() {
+/**
+ * `hideLogout`: for an app that forgets wallets its own way (and shows this
+ * screen only as developer tools), the Log Out row is left out.
+ */
+export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolean } = {}) {
   const versionLabel = useMemo(() => appVersionLabel(), [])
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -1004,57 +1008,59 @@ export function WalletConfigScreen() {
         )}
 
         {/* ── Account ── */}
-        <GroupedSection>
-          <ListRow
-            label={t('log_out')}
-            icon="log-out-outline"
-            iconColor={colors.error}
-            onPress={async () => {
-              if (loggingOut) return
-              const choice = await showAlert({
-                title: t('delete_wallet_warning_title'),
-                message: t('delete_wallet_warning_body'),
-                buttons: [
-                  { text: t('cancel'), style: 'cancel', key: 'cancel' },
-                  { text: t('delete_wallet_confirm'), style: 'destructive', key: 'delete' },
-                ],
-              })
-              if (choice !== 'delete') return
-              setLoggingOut(true)
-              // No artificial yield before this call, unlike the wallet-creation
-              // spinner: logout()'s synchronous prefix (which stops the
-              // background monitor's task loop) still runs before its first
-              // await, exactly as before — a gap here let the monitor's own
-              // pending tick sneak in a fresh task run against storage that
-              // was about to be torn down (WERR_UNKNOWN "Database not
-              // initialized" from a task caught mid-flight). Awaiting the
-              // result below only affects what happens AFTER that teardown.
-              //
-              // XR-107: logout() now resolves to whether the secrets layer
-              // verified every legacy plaintext item erased. A persistent
-              // SecureStore delete failure must be reported, not silently
-              // treated as a completed "Delete Wallet" — the user needs to
-              // know and be able to retry, rather than being navigated away
-              // as though nothing were left behind.
-              const erased = await logout()
-              if (!erased) {
-                setLoggingOut(false)
-                await showAlert({
-                  title: t('delete_wallet_failed_title'),
-                  message: t('delete_wallet_failed_body'),
-                  buttons: [{ text: t('vault_ok'), key: 'ok' }],
+        {!hideLogout && (
+          <GroupedSection>
+            <ListRow
+              label={t('log_out')}
+              icon="log-out-outline"
+              iconColor={colors.error}
+              onPress={async () => {
+                if (loggingOut) return
+                const choice = await showAlert({
+                  title: t('delete_wallet_warning_title'),
+                  message: t('delete_wallet_warning_body'),
+                  buttons: [
+                    { text: t('cancel'), style: 'cancel', key: 'cancel' },
+                    { text: t('delete_wallet_confirm'), style: 'destructive', key: 'delete' },
+                  ],
                 })
-              }
-              // On success logout() has already navigated away — the screen
-              // that owns `loggingOut` is gone, so there is nothing left to
-              // reset here.
-            }}
-            destructive
-            showChevron={false}
-            trailing={loggingOut ? <ActivityIndicator size="small" color={colors.error} /> : undefined}
-            isLast
-          />
-        </GroupedSection>
+                if (choice !== 'delete') return
+                setLoggingOut(true)
+                // No artificial yield before this call, unlike the wallet-creation
+                // spinner: logout()'s synchronous prefix (which stops the
+                // background monitor's task loop) still runs before its first
+                // await, exactly as before — a gap here let the monitor's own
+                // pending tick sneak in a fresh task run against storage that
+                // was about to be torn down (WERR_UNKNOWN "Database not
+                // initialized" from a task caught mid-flight). Awaiting the
+                // result below only affects what happens AFTER that teardown.
+                //
+                // XR-107: logout() now resolves to whether the secrets layer
+                // verified every legacy plaintext item erased. A persistent
+                // SecureStore delete failure must be reported, not silently
+                // treated as a completed "Delete Wallet" — the user needs to
+                // know and be able to retry, rather than being navigated away
+                // as though nothing were left behind.
+                const erased = await logout()
+                if (!erased) {
+                  setLoggingOut(false)
+                  await showAlert({
+                    title: t('delete_wallet_failed_title'),
+                    message: t('delete_wallet_failed_body'),
+                    buttons: [{ text: t('vault_ok'), key: 'ok' }],
+                  })
+                }
+                // On success logout() has already navigated away — the screen
+                // that owns `loggingOut` is gone, so there is nothing left to
+                // reset here.
+              }}
+              destructive
+              showChevron={false}
+              trailing={loggingOut ? <ActivityIndicator size="small" color={colors.error} /> : undefined}
+              isLast
+            />
+          </GroupedSection>
+        )}
 
         {/* The number we ask people to quote when something goes wrong, so it is
             always to hand without being something to read. Quiet on purpose:

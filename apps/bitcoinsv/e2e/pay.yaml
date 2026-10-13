@@ -1,0 +1,26 @@
+# Pay: find someone by @handle in the handle registry (the iOS test wallet,
+# @bumpycaterpillar52 on the dev registry), the amount step and its balance
+# guard (the test wallets hold nothing), back to who, and Scan & pay.
+appId: com.bitcoinsv.wallet
+---
+- tapOn: Pay
+- assertVisible: Pay to contact
+- assertVisible: Scan & pay
+- tapOn: Who to pay
+- inputText: "@bumpycaterpillar52"
+- extendedWaitUntil:
+    visible: .*bumpycaterpillar52@deggen.com.*
+    timeout: 20000
+- takeScreenshot: pay-who
+- tapOn: .*bumpycaterpillar52@deggen.com.*
+- assertVisible: Pay .*
+- assertVisible: "Available: .*"
+- inputText: "0.0001"
+- assertVisible: Not enough balance
+- takeScreenshot: pay-amount
+- tapOn: Back
+- assertVisible: Pay to contact
+- tapOn: Scan & pay
+- assertVisible: Scan to pay
+- tapOn: Scan to pay
+- takeScreenshot: pay-scanner

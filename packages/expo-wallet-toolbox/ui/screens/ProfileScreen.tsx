@@ -53,6 +53,7 @@ import {
 } from '../../core/profiles/profileStore'
 import { isValidHandleFormat, parsePaymail } from '../../core/identity/handleRegistry/rules'
 import type { ProfileSigner } from '../../core/identity/handleRegistry/profileCert'
+import { DISPLAY_NAME_KV_KEY, HANDLE_KV_KEY } from '../../core/identity/handleRegistry/profileKeys'
 import { createHandleRegistryClient, type AvailabilityReason } from '../../core/identity/handleRegistry/client'
 import {
   changeHandle,
@@ -86,15 +87,6 @@ function loadExpoRouter(): ExpoRouterModule {
   return expoRouterMod
 }
 
-/** The full `handle@domain`, cached for a cold start. The registry decides. */
-const HANDLE_KV_KEY = 'profile_registered_handle'
-/**
- * The display name lives here on this device, and — once a handle is
- * registered — as a PUBLIC plaintext field of the profile certificate
- * (2026-09-18 ruling). The identity overlay's `name` is only a fallback for a
- * wallet that has never set one.
- */
-const DISPLAY_NAME_KV_KEY = 'profile_display_name'
 const HANDLE_CHECK_DEBOUNCE_MS = 400
 
 /** What can stand in the way of removing a profile, grouped the way the user is told about it. */

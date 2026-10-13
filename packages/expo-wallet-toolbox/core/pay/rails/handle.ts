@@ -21,6 +21,7 @@ import {
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
 import { abbreviateKey } from '../counterparty'
+import { cleanPeerPayNote } from '../../parsePeerPayURI'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 import type { MandalaRuntime, TokenSendResult } from '../../mandala/runtime'
@@ -81,7 +82,9 @@ export function peerPayLinkFor(
   identityKey: string,
   sats?: number,
   messageBoxUrl?: string,
-  token?: { assetId: string; baseUnits?: number }
+  token?: { assetId: string; baseUnits?: number },
+  /** what it's for: the link's `note` extension (see parsePeerPayURI.ts) */
+  note?: string
 ): string {
   const params: string[] = []
   if (token) {
@@ -94,6 +97,8 @@ export function peerPayLinkFor(
   }
   const host = (messageBoxUrl ?? '').trim().replace(/\/+$/, '')
   if (host && host !== NO_MESSAGE_BOX) params.push(`url=${encodeURIComponent(host)}`)
+  const forWhat = cleanPeerPayNote(note)
+  if (forWhat) params.push(`note=${encodeURIComponent(forWhat)}`)
   const base = `peerpay:${identityKey.toLowerCase()}`
   return params.length ? `${base}?${params.join('&')}` : base
 }

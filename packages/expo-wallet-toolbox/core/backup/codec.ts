@@ -113,7 +113,7 @@ export function estimateEncodedBytes (chunk: SyncChunk): number {
  */
 export function estimateAppDataBytes (appData: AppDataSnapshot | undefined): number {
   if (appData == null) return 0
-  let bytes = (appData.localpayPending?.length ?? 0) + (appData.peerpayOutbox?.length ?? 0)
+  let bytes = (appData.localpayPending?.length ?? 0) + (appData.peerpayOutbox?.length ?? 0) + (appData.contacts?.length ?? 0)
   for (const d of appData.receiveIssuedDates ?? []) bytes += d.length
   return bytes
 }
@@ -173,6 +173,8 @@ export interface AppDataSnapshot {
   peerpayOutbox?: string
   /** Every YYYY-MM-DD a conventional-receive address has been issued for, deduplicated. */
   receiveIssuedDates?: string[]
+  /** The contacts table, as JSON (backup/contactsBackup.ts). */
+  contacts?: string
 }
 
 /**
@@ -275,7 +277,7 @@ export async function decodeEntry (
  * restore, not quietly disappear (same failure posture as a malformed seal, above). */
 function decodeAppData (raw: unknown): AppDataSnapshot | undefined {
   if (raw == null) return undefined
-  const a = raw as { localpayPending?: unknown, peerpayOutbox?: unknown, receiveIssuedDates?: unknown }
+  const a = raw as { localpayPending?: unknown, peerpayOutbox?: unknown, receiveIssuedDates?: unknown, contacts?: unknown }
   if (a.localpayPending !== undefined && typeof a.localpayPending !== 'string') {
     throw new Error('backup appData.localpayPending is malformed')
   }
@@ -288,10 +290,14 @@ function decodeAppData (raw: unknown): AppDataSnapshot | undefined {
   ) {
     throw new Error('backup appData.receiveIssuedDates is malformed')
   }
+  if (a.contacts !== undefined && typeof a.contacts !== 'string') {
+    throw new Error('backup appData.contacts is malformed')
+  }
   return {
     localpayPending: a.localpayPending as string | undefined,
     peerpayOutbox: a.peerpayOutbox as string | undefined,
-    receiveIssuedDates: a.receiveIssuedDates as string[] | undefined
+    receiveIssuedDates: a.receiveIssuedDates as string[] | undefined,
+    ...(a.contacts !== undefined ? { contacts: a.contacts as string } : {})
   }
 }
 

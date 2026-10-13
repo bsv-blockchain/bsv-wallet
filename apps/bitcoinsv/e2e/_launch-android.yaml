@@ -1,0 +1,41 @@
+# Bring the development build to the front on the Android emulator, on Home.
+appId: com.bitcoinsv.wallet
+---
+- launchApp:
+    stopApp: true
+- runFlow:
+    when:
+      visible: (Development servers|DEVELOPMENT SERVERS)
+    commands:
+      - openLink: exp+bitcoinsv-wallet://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8081
+- extendedWaitUntil:
+    visible:
+      text: (Continue|Get set up|Total balance.*)
+    timeout: 90000
+# the dev client explains its menu over the app on a first run, once the
+# bundle has loaded
+- extendedWaitUntil:
+    visible: This is the developer menu.*
+    timeout: 4000
+    optional: true
+- runFlow:
+    when:
+      visible: This is the developer menu.*
+    commands:
+      - tapOn: Continue
+      - runFlow:
+          when:
+            visible: Toggle performance monitor
+          commands:
+            - back
+# and its menu can open over the app on launch
+- extendedWaitUntil:
+    visible: Toggle performance monitor
+    timeout: 6000
+    optional: true
+- runFlow:
+    when:
+      visible: Toggle performance monitor
+    commands:
+      - tapOn: Close
+      - waitForAnimationToEnd

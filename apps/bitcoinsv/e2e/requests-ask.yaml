@@ -1,0 +1,52 @@
+# Requests, the asking side (two devices; requests-decline.yaml is the other):
+# add the other wallet by its handle, ask it for 0.0001 BSV with a note, and
+# see the request open in Activity. Then, once the other side has declined,
+# the Requested filter shows it declined (the 30-second poll).
+#   maestro --device <asker> test -e HANDLE=@name -e NAME="Their Name" requests-ask.yaml
+appId: com.bitcoinsv.wallet
+---
+- openLink: bitcoinsv-wallet://contacts/add
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          point: 68%,54%
+- tapOn: Search handles
+- inputText: ${HANDLE}
+- extendedWaitUntil:
+    visible: .*${NAME}.*
+    timeout: 20000
+- tapOn: .*${NAME}.*
+- runFlow:
+    when:
+      visible: Only you see this name.
+    commands:
+      - tapOn:
+          text: Add contact
+          index: 1
+- tapOn: Request
+- inputText: "0.0001"
+- tapOn: Note
+- inputText: Lunch on Friday
+- tapOn: Request 0.0001 BSV
+- extendedWaitUntil:
+    visible: Request sent
+    timeout: 20000
+- tapOn: Done
+- openLink: bitcoinsv-wallet://activity
+# iOS's "Open in…?" alert, when it shows: Activity isn't up behind it yet
+- runFlow:
+    when:
+      platform: iOS
+      notVisible: Requested
+    commands:
+      - tapOn:
+          point: 68%,54%
+- assertVisible: You requested from ${NAME}.*
+- tapOn: Requested
+# none still waiting: this one too, not just an earlier run's
+- extendedWaitUntil:
+    notVisible: .*Waiting · Lunch on Friday.*
+    timeout: 90000
+- assertVisible: .*Declined · Lunch on Friday.*

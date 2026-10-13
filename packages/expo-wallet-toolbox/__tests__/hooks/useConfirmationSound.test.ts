@@ -31,6 +31,17 @@ describe('payment tones', () => {
     expect(audio.__calls.played).toBe(1)
   })
 
+  it('a host that turns sounds off gets silence until it turns them back on', async () => {
+    sounds.setEnabled(false)
+    sounds.paymentReceive()
+    await settle()
+    expect(audio.__calls.played).toBe(0)
+    sounds.setEnabled(true)
+    sounds.paymentReceive()
+    await settle()
+    expect(audio.__calls.played).toBe(1)
+  })
+
   it('paymentSend plays the bundled tone', async () => {
     sounds.paymentSend()
     await settle()

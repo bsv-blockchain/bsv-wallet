@@ -1,0 +1,22 @@
+# Activity's extras from Home's search bar: a search that finds a setting,
+# the filter sheet (and its count), and the header's menu. Starts on Home.
+appId: com.bitcoinsv.wallet
+---
+- tapOn: Search contacts, transactions and more
+- inputText: dark
+- assertVisible: SETTINGS
+- assertVisible: Dark mode
+- takeScreenshot: activity-search-settings
+- eraseText: 10
+- hideKeyboard
+- tapOn: Filters
+- assertVisible: WHEN
+- tapOn: Last 7 days
+- assertVisible: Completed.*
+- takeScreenshot: activity-filters
+- tapOn: (Show \d+ payments?|No payments match)
+- assertVisible: Filters, 1 on
+- tapOn: Activity settings
+- assertVisible: Export for accounting
+- tapOn: Help & support
+- assertVisible: QUICK ANSWERS

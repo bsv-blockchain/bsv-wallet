@@ -206,6 +206,7 @@ import {
   combineEmpty,
   type DatabasesEmptyDeps
 } from '../profiles/assertProfileEmpty'
+import { takeStartupConfig } from './startupPrewarm'
 import { purgeProfile, purgeRemovedProfiles, type PurgeProfileIo } from '../profiles/purgeProfile'
 import {
   checkProfileRemoval as runProfileRemovalCheck,
@@ -1356,13 +1357,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // The active profile picks the network, keys and database, so it must be in
       // memory before anything builds. Per-profile caches that were read at import
       // or mount time (before this resolved) are re-read for the profile it names.
-      await loadProfiles()
+      // begun at startup if the app prewarmed (core/context/startupPrewarm)
+      const warm = takeStartupConfig()
+      await (warm ? warm.profiles : loadProfiles())
       // A removal that stopped between its tombstone and its purge (a crash, a
       // locked store) still has its history on disk: purge it again. Idempotent,
       // best effort, and never in the way of startup.
       void purgeRemovedProfiles(getProfilesState().profiles, profilePurgeIo).catch(() => {})
       await reloadProfileCaches()
-      const storedConfig = await getItem('finalConfig')
+      const storedConfig = warm ? await warm.config : await getItem('finalConfig')
       if (storedConfig) {
         try {
           const config = JSON.parse(storedConfig)

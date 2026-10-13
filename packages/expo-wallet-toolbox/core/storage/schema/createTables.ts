@@ -394,6 +394,9 @@ export async function createTables(db: SQLiteDatabase): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_unique ON contacts(userId, identityKey);
     CREATE INDEX IF NOT EXISTS idx_contacts_userId ON contacts(userId);
   `)
+  // Favourites and soft remove (Bitcoin SV Wallet, decision 10): additive,
+  // with defaults, so an existing row reads back not-favourite and present.
+  await ensureContactsColumns(db)
 
   await createMandalaSettlementTables(db)
 }
@@ -569,6 +572,27 @@ const TRANSACTIONS_COLUMNS: { name: string; ddl: string }[] = [
     ddl: 'ALTER TABLE transactions ADD COLUMN noSendExpiryReclaimSatoshis INTEGER'
   }
 ]
+
+/**
+ * The same doctrine for `contacts`: columns added after it shipped, each
+ * with a default that means "as before" (not a favourite, not removed), so
+ * the existing app, which never sets them, sees its address book unchanged.
+ */
+const CONTACTS_COLUMNS: { name: string; ddl: string }[] = [
+  { name: 'favourite', ddl: 'ALTER TABLE contacts ADD COLUMN favourite INTEGER NOT NULL DEFAULT 0' },
+  { name: 'removedAt', ddl: 'ALTER TABLE contacts ADD COLUMN removedAt TEXT' }
+]
+
+export async function ensureContactsColumns(db: {
+  getAllAsync(sql: string, params: BindValue[]): Promise<unknown[]>
+  execAsync(sql: string): Promise<unknown>
+}): Promise<void> {
+  const info = (await db.getAllAsync('PRAGMA table_info(contacts)', [])) as { name: string }[]
+  const have = new Set(info.map(c => c.name))
+  for (const col of CONTACTS_COLUMNS) {
+    if (!have.has(col.name)) await db.execAsync(col.ddl)
+  }
+}
 
 export async function ensureTransactionsColumns(db: {
   getAllAsync(sql: string, params: BindValue[]): Promise<unknown[]>

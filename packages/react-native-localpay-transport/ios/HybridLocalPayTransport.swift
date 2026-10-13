@@ -1,4 +1,5 @@
 import Foundation
+import NitroModules
 import Network
 
 final class HybridLocalPayTransport: HybridLocalPayTransportSpec {
