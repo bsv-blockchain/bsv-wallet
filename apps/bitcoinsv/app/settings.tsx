@@ -295,21 +295,19 @@ export default function Settings() {
         </Section>
 
         <View onLayout={e => setTourRowY(e.nativeEvent.layout.y)}>
-        {/* development builds: the prototype's Developer tools (the network here; the rest is the core's configuration screen) */}
-        {__DEV__ && (
-          <Section title="Advanced">
-            <SettingsRow
-              icon={Code}
-              label="Network"
-              value={selectedNetwork === 'test' ? 'Testnet' : 'Mainnet'}
-              onPress={() => setNetworkOpen(true)}
-            />
-            <SettingsRow icon={Wrench} label="Developer tools" value="ARC, message box, trust, logs" onPress={() => router.push('/developer')} />
-            {process.env.EXPO_PUBLIC_PUSH_SIMULATE === 'true' && (
-              <SettingsRow icon={BellRing} label="Push simulator" onPress={() => router.push('/dev-push')} />
-            )}
-          </Section>
-        )}
+        {/* the prototype's Developer tools: the network here, the rest the core's configuration screen */}
+        <Section title="Advanced">
+          <SettingsRow
+            icon={Code}
+            label="Network"
+            value={selectedNetwork === 'test' ? 'Testnet' : 'Mainnet'}
+            onPress={() => setNetworkOpen(true)}
+          />
+          <SettingsRow icon={Wrench} label="Developer tools" value="ARC, message box, trust, logs" onPress={() => router.push('/developer')} />
+          {process.env.EXPO_PUBLIC_PUSH_SIMULATE === 'true' && (
+            <SettingsRow icon={BellRing} label="Push simulator" onPress={() => router.push('/dev-push')} />
+          )}
+        </Section>
 
         <Section title="Support">
           <SettingsRow icon={CircleHelp} label="Help & support" onPress={() => setHelpOpen(true)} />
@@ -384,34 +382,32 @@ export default function Settings() {
       <AboutSheet open={aboutOpen} onOpenChange={setAboutOpen} />
       <HelpSheet open={helpOpen} onOpenChange={setHelpOpen} />
       <ExportSheet open={exportOpen} onOpenChange={setExportOpen} />
-      {__DEV__ && (
-        <BottomSheet open={networkOpen} onOpenChange={setNetworkOpen} title="Network" description="Testnet coins have no value: for trying payments out.">
-          <View style={styles.list}>
-            {(
-              [
-                { id: 'main', label: 'Mainnet' },
-                { id: 'test', label: 'Testnet' }
-              ] as const
-            ).map(n => {
-              const on = selectedNetwork === n.id
-              return (
-                <Pressable
-                  key={n.id}
-                  onPress={() => {
-                    setNetworkOpen(false)
-                    if (!on) void switchNetwork(n.id).then(() => showToast(`On ${n.label.toLowerCase()} now`, { type: 'success' }))
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  style={({ pressed }) => [styles.currency, on ? { boxShadow: `0 0 0 2px ${palette.ink}` } : pressed && { backgroundColor: palette.secondary + '99' }]}
-                >
-                  <Text style={[font(500), styles.small, styles.flex, { color: palette.foreground }]}>{n.label}</Text>
-                </Pressable>
-              )
-            })}
-          </View>
-        </BottomSheet>
-      )}
+      <BottomSheet open={networkOpen} onOpenChange={setNetworkOpen} title="Network" description="Testnet coins have no value: for trying payments out.">
+        <View style={styles.list}>
+          {(
+            [
+              { id: 'main', label: 'Mainnet' },
+              { id: 'test', label: 'Testnet' }
+            ] as const
+          ).map(n => {
+            const on = selectedNetwork === n.id
+            return (
+              <Pressable
+                key={n.id}
+                onPress={() => {
+                  setNetworkOpen(false)
+                  if (!on) void switchNetwork(n.id).then(() => showToast(`On ${n.label.toLowerCase()} now`, { type: 'success' }))
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                style={({ pressed }) => [styles.currency, on ? { boxShadow: `0 0 0 2px ${palette.ink}` } : pressed && { backgroundColor: palette.secondary + '99' }]}
+              >
+                <Text style={[font(500), styles.small, styles.flex, { color: palette.foreground }]}>{n.label}</Text>
+              </Pressable>
+            )
+          })}
+        </View>
+      </BottomSheet>
       <ForgetWalletSheet
         open={forgetOpen}
         onOpenChange={setForgetOpen}
