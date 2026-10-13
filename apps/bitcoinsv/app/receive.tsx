@@ -158,6 +158,10 @@ export default function Receive() {
   }
   // once BSVA hosts the domain: the website link, which opens the app or the site
   const shared = toWebLink(link, LINK_DOMAIN)
+  // what the pill shows: the key, shortened, without the message box host and
+  // the rest of the query (copying and sharing still give the whole link)
+  const shownLink =
+    identityKey && shared.startsWith('peerpay:') ? `peerpay:${identityKey.slice(0, 8)}…${identityKey.slice(-6)}` : shared
   const copyLink = async () => {
     if (!link) return
     await Clipboard.setStringAsync(shared)
@@ -276,7 +280,7 @@ export default function Receive() {
                   ellipsizeMode="middle"
                   style={[font(400), styles.linkText, { color: palette.mutedForeground }]}
                 >
-                  {shared || '…'}
+                  {shownLink || '…'}
                 </Text>
                 <Copy size={14} color={palette.mutedForeground} />
               </Pressable>
