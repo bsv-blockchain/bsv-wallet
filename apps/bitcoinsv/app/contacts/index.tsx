@@ -6,7 +6,8 @@
 //
 // Not here, unlike the prototype: Invite (no invite link service yet).
 import React, { useMemo, useState } from 'react'
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../../src/ui/TextInput'
 import Animated, { cubicBezier } from 'react-native-reanimated'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

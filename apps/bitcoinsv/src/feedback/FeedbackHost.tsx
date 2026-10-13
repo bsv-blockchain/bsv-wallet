@@ -5,7 +5,8 @@
 // whether it asks is src/feedback/feedback.ts. The prototype's RatingSheet is
 // a stand-in for the store's own sheet, which is what this opens.
 import React, { useEffect, useState } from 'react'
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import Animated from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { X } from 'lucide-react-native'

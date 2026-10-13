@@ -17,7 +17,8 @@
 //   this sheet steps aside first (it would sit on top of it).
 // Confirmations are the phone's own alerts, which show above a sheet.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import { ArrowDownToLine, ArrowRight, ArrowUpFromLine } from 'lucide-react-native'
 import {
   R1C_LOCK_LEN,

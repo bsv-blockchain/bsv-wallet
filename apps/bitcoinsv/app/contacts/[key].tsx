@@ -3,7 +3,8 @@
 // with them, day by day. Request asks them for an amount in their own wallet
 // (src/requests), or shares the pay link when there's no message box.
 import React, { useMemo, useState } from 'react'
-import { ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ScrollView, Share, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../../src/ui/TextInput'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ArrowUpRight, HandCoins, Star } from 'lucide-react-native'

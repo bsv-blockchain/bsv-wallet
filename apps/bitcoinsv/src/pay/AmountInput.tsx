@@ -5,7 +5,8 @@
 // transparent, taking the typing (and the keypad). The caret is drawn too,
 // always at the end, blinking as the prototype's (caret 1s steps(1)).
 import React, { useState } from 'react'
-import { StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native'
+import { StyleSheet, Text, View, type TextStyle } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import Animated, { css, steps } from 'react-native-reanimated'
 import { font, usePalette } from '../theme'
 import { useReducedMotion } from '../ui/motion'

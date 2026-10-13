@@ -10,7 +10,8 @@
 // made on the phone instead), the support agent (Later), per-payment export
 // exclusion, and network fee / block facts the core doesn't keep per action.
 import React, { useEffect, useState } from 'react'
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../../src/ui/TextInput'
 import Animated from 'react-native-reanimated'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

@@ -10,7 +10,8 @@
 // ?to=<identityKey> starts at the amount for that person (a contact's Send),
 // ?link=<pay link> for a scanned or pasted code, which can carry the amount.
 import React, { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../src/ui/TextInput'
 import Animated from 'react-native-reanimated'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

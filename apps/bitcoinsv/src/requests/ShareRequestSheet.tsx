@@ -8,7 +8,8 @@
 // Not here, unlike the prototype: an @handle that isn't a contact (add them
 // in Contacts first).
 import React, { useEffect, useMemo, useState } from 'react'
-import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native'
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import Animated from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Check, Search } from 'lucide-react-native'

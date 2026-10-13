@@ -7,7 +7,8 @@
 // nothing is encrypted, uploaded or recorded as backed up, and the sheet says
 // so plainly rather than pretending.
 import React, { useEffect, useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import Animated, { css, cubicBezier } from 'react-native-reanimated'
 import { Check, ChevronRight, CloudUpload, Eye, EyeOff, Info } from 'lucide-react-native'
 import { font, radii, useIsDark, usePalette } from '../theme'

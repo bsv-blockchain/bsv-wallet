@@ -10,7 +10,8 @@
 // wallets' phrases and paths, a Sync recovery key and a backup file (their
 // specs aren't settled: decisions 2 and 6).
 import React, { useEffect, useMemo, useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View, Platform } from 'react-native'
+import { Pressable, StyleSheet, Text, View, Platform } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import Animated, { cubicBezier } from 'react-native-reanimated'
 import { CircleAlert, Eye, EyeOff, FileLock2, KeyRound, Puzzle } from 'lucide-react-native'
 import { useLocalStorage, useRecoveryDeps, useWallet } from '@bsv/expo-wallet-toolbox'

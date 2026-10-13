@@ -15,7 +15,8 @@
 // /@handle page (no server for them yet). The link shared is the pay link
 // itself.
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../src/ui/TextInput'
 import Animated from 'react-native-reanimated'
 import { useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

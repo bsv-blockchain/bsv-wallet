@@ -4,7 +4,8 @@
 // by length; an image; Create wallet. Clearing the field goes back to the
 // generated handle. The registry is asked whether a handle is free.
 import React, { useEffect, useRef, useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import Animated from 'react-native-reanimated'
 import { Check, Dices } from 'lucide-react-native'
 import { font, radii, usePalette } from '../theme'

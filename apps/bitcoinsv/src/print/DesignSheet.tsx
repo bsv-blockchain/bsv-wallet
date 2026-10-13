@@ -12,7 +12,8 @@
 //   label printer, shared as a PDF (src/print/labels.ts). One template, so the
 //   designs make way for its preview.
 import React, { useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../ui/TextInput'
 import { Image } from 'expo-image'
 import Animated from 'react-native-reanimated'
 import { Check, Printer } from 'lucide-react-native'

@@ -15,7 +15,8 @@
 // Not here, unlike the prototype: Deposited, Withdrawn and Swapped (Later),
 // and the support agent (Later).
 import React, { useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../../src/ui/TextInput'
 import Animated, { cubicBezier } from 'react-native-reanimated'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

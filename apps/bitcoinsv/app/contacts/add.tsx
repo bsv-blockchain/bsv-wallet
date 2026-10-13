@@ -3,7 +3,8 @@
 // payment's identity key (?identityKey=, from a payment's detail). The name
 // is yours to choose; adding someone you'd taken out puts them back.
 import React, { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { TextInput } from '../../src/ui/TextInput'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Search } from 'lucide-react-native'
