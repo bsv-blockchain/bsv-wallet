@@ -59,6 +59,25 @@ describe('toActivityItems', () => {
     expect(row).toMatchObject({ incoming: true, createdAt: '2026-10-09T11:00:00.000Z' })
   })
 
+  it("a stablecoin's rail wording is not shown as a note", () => {
+    const txid = 'ee'.repeat(32)
+    const tok = {
+      txid,
+      role: 'received',
+      asset: { assetId: 'usd1', label: 'Dollar', ticker: 'USDX', decimals: 2, overlayUrl: '', overlayIdentityKey: '' },
+      baseUnits: 1250,
+      counterpartyKey: KEY,
+      status: 'settled',
+      at: '2026-10-09T11:00:00.000Z'
+    }
+    const [row] = toActivityItems(
+      [action({ txid, labels: ['mandala', 'receive'], description: 'Receive 1250 of usd1', isOutgoing: false, satoshis: 1 })],
+      ctx({ tokenByTxid: new Map([[txid, tok as never]]) })
+    )
+    expect(row.title).toBe('USDX received')
+    expect(row.note).toBeUndefined()
+  })
+
   it('a row with no txid yet is keyed by its reference', () => {
     const [row] = toActivityItems([action({ txid: '', reference: 'ref-1', status: 'unsigned' })], ctx())
     expect(row.id).toBe('ref-1')

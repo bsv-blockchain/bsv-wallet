@@ -85,7 +85,9 @@ export function toActivityItems(
       contact?.name ?? contact?.cachedHandle ?? tokenTitle ?? (incoming ? 'Payment received' : 'Payment sent')
     // the core describes a payment by the other side's shortened key when it has nothing better: not a note
     const keyOnly = /^[0-9a-f]{4,}(…|\.\.\.)[0-9a-f]{4,}$/i.test(description)
-    const note = description && !GENERIC.test(description) && !keyOnly && description !== title ? description : undefined
+    // a token row's description is the rail's own wording unless tokenRowTitle took it as the sender's note (then it's the title)
+    const note =
+      !tok && description && !GENERIC.test(description) && !keyOnly && description !== title ? description : undefined
     return {
       id,
       txid: a.txid || undefined,
