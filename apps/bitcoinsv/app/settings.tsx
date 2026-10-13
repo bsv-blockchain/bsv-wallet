@@ -158,12 +158,14 @@ export default function Settings() {
 
   return (
     <View style={[styles.root, { backgroundColor: palette.background, paddingTop: insets.top }]}>
-      <PageHeader
-        title="Settings"
-        onBack={() => router.back()}
-        backRef={backButton}
-        action={<ViewInfo about="Settings" text="Mission control. Theme, alerts and security all live here. Poke around, nothing bites." />}
-      />
+      <View style={styles.headerPad}>
+        <PageHeader
+          title="Settings"
+          onBack={() => router.back()}
+          backRef={backButton}
+          action={<ViewInfo about="Settings" text="Mission control. Theme, alerts and security all live here. Poke around, nothing bites." />}
+        />
+      </View>
       <SettingsSearch.Provider value={search}>
       <ScrollView ref={scroller} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
         {/* the profile: name, then the handle under it */}
@@ -425,6 +427,8 @@ export default function Settings() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // the other pages' px-4 around their header
+  headerPad: { paddingHorizontal: 16 },
   content: { paddingHorizontal: 16, gap: 16, paddingTop: 8 },
   bleed: { marginHorizontal: -8 },
   profile: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12, paddingVertical: 12, borderRadius: radii.xl },

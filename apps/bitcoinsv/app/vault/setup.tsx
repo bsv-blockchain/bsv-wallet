@@ -19,7 +19,9 @@ export default function VaultSetup() {
   if (!isVaultEnabled()) return <Redirect href="/" />
   return (
     <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: insets.top, paddingBottom: insets.bottom }}>
-      <PageHeader title="Set up your vault" onBack={() => router.back()} />
+      <View style={{ paddingHorizontal: 16 }}>
+        <PageHeader title="Set up your vault" onBack={() => router.back()} />
+      </View>
       <EnrollWizard mode="enroll" onDone={() => router.back()} onCancel={() => router.back()} />
       {__DEV__ && (
         <View style={{ paddingHorizontal: 16 }}>

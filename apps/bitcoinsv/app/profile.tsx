@@ -67,11 +67,13 @@ export default function Profile() {
 
   return (
     <View style={[styles.root, { backgroundColor: palette.background, paddingTop: insets.top }]}>
-      <PageHeader
-        title={bare ? `@${bare}` : 'Your profile'}
-        onBack={() => router.back()}
-        action={<ViewInfo about="Your profile" text="This is you, as your friends see you. Your photo and @handle. Make it lovely." />}
-      />
+      <View style={styles.headerPad}>
+        <PageHeader
+          title={bare ? `@${bare}` : 'Your profile'}
+          onBack={() => router.back()}
+          action={<ViewInfo about="Your profile" text="This is you, as your friends see you. Your photo and @handle. Make it lovely." />}
+        />
+      </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
         <View style={styles.head}>
           <Pressable onPress={() => setAvatarOpen(true)} accessibilityRole="button" accessibilityLabel="Edit picture" style={styles.avatarWrap}>
@@ -161,6 +163,8 @@ export default function Profile() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // the other pages' px-4 around their header
+  headerPad: { paddingHorizontal: 16 },
   // gap-5
   content: { paddingHorizontal: 16, gap: 20, paddingTop: 8 },
   head: { alignItems: 'center', gap: 10, paddingTop: 8 },

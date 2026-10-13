@@ -84,11 +84,13 @@ function Shell({ info, children }: { info: string; children: React.ReactNode }) 
   const router = useRouter()
   return (
     <View style={[styles.root, { backgroundColor: palette.background, paddingTop: insets.top }]}>
-      <PageHeader
-        title="Vault"
-        onBack={() => router.back()}
-        action={<ViewInfo about="Vault" text={info} />}
-      />
+      <View style={styles.headerPad}>
+        <PageHeader
+          title="Vault"
+          onBack={() => router.back()}
+          action={<ViewInfo about="Vault" text={info} />}
+        />
+      </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 16 }]} showsVerticalScrollIndicator={false}>
         {children}
       </ScrollView>
@@ -232,6 +234,8 @@ function VaultOverview() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // the other pages' px-4 around their header
+  headerPad: { paddingHorizontal: 16 },
   content: { flexGrow: 1, paddingHorizontal: 16, gap: 24, paddingTop: 8 },
   setup: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 20, paddingVertical: 24 },
   setupText: { alignItems: 'center', gap: 8, minHeight: 128 },
