@@ -78,6 +78,8 @@ interface Recipient {
   amount?: number
   /** what the payee's link says it's for */
   note?: string
+  /** an address for the other network: said on its row, as the existing app's Pay does */
+  otherNetwork?: string
 }
 
 const short = (s: string) => (s.length > 17 ? `${s.slice(0, 8)}…${s.slice(-8)}` : s)
@@ -110,7 +112,7 @@ export default function Send() {
   const wallets = useWalletList()
   const payingFrom = wallets.find(w => w.active)
   const [fromOpen, setFromOpen] = useState(false)
-  const { switchProfile, storage } = useWallet()
+  const { switchProfile, storage, selectedNetwork } = useWallet()
   // your display name, for the review's "from" side
   const [myName, setMyName] = useState<string | null>(null)
   useEffect(() => {
@@ -147,14 +149,14 @@ export default function Send() {
   }, [params.to, contacts.byKey, recipient])
   useEffect(() => {
     if (!params.link || recipient) return
-    const r = fromInput(params.link, contacts.byKey)
+    const r = fromInput(params.link, contacts.byKey, selectedNetwork)
     if (r) {
       setRecipient(r)
       if (r.sats) setRaw(bsvFigure(r.sats))
       // what the payee's link says it's for starts the payment's note
       if (r.note && !params.note) setNote(r.note)
     } else setStep('who')
-  }, [params.link, contacts.byKey, recipient])
+  }, [params.link, contacts.byKey, recipient, selectedNetwork])
   // a link that asks for a stablecoin picks it, if you hold it
   useEffect(() => {
     if (!recipient?.assetId) return
@@ -449,6 +451,12 @@ export default function Send() {
               </View>
             ))}
           </View>
+          {recipient.otherNetwork && (
+            <View style={[styles.failure, { backgroundColor: palette.destructive + '14' }]}>
+              <Text style={[font(600), styles.small, { color: palette.destructive }]}>Different network</Text>
+              <Text style={[font(400), styles.small, { color: palette.foreground }]}>{recipient.otherNetwork}</Text>
+            </View>
+          )}
           {outcome?.kind === 'failed' && (
             <View style={[styles.failure, { backgroundColor: palette.destructive + '14' }]}>
               <Text style={[font(600), styles.small, { color: palette.destructive }]}>
@@ -624,9 +632,16 @@ export default function Send() {
 }
 
 /** A recipient from something typed, pasted or scanned: a pay link, an address or a key. */
-function fromInput(text: string, byKey: Map<string, { name: string; cachedHandle?: string }>): Recipient | null {
+const NETWORK_NAME = { main: 'mainnet', test: 'testnet' } as const
+
+function fromInput(text: string, byKey: Map<string, { name: string; cachedHandle?: string }>, network: string): Recipient | null {
   const r = classifyRecipientInput(text)
-  if (r.kind === 'address') return { target: { kind: 'address', address: r.address }, name: short(r.address), detail: `Address · ${short(r.address)}` }
+  if (r.kind === 'address') {
+    const ours = network === 'main' ? 'main' : 'test'
+    const otherNetwork =
+      r.network && r.network !== ours ? `A ${NETWORK_NAME[r.network]} address. This wallet is on ${NETWORK_NAME[ours]}.` : undefined
+    return { target: { kind: 'address', address: r.address }, name: short(r.address), detail: `Address · ${short(r.address)}`, otherNetwork }
+  }
   if (r.kind === 'handle') {
     const c = byKey.get(r.identityKey.toLowerCase())
     return {
@@ -675,7 +690,15 @@ function WhoStep({ onPick, initialQuery = '' }: { onPick: (r: Recipient) => void
   const [searching, setSearching] = useState(false)
   const ring = useFocusRing(palette)
 
-  const direct = useMemo(() => (query.trim() ? fromInput(query.trim(), contacts.byKey) : null), [query, contacts.byKey])
+  const direct = useMemo(
+    () => (query.trim() ? fromInput(query.trim(), contacts.byKey, selectedNetwork) : null),
+    [query, contacts.byKey, selectedNetwork]
+  )
+  // an address or pay link that doesn't read: say so, rather than "no one by that name"
+  const unreadable = useMemo(() => {
+    const r = classifyRecipientInput(query.trim())
+    return r.kind === 'invalid_address' ? 'That address isn’t valid. Check it and try again.' : r.kind === 'invalid_link' ? r.message : null
+  }, [query])
   const q = query.trim().toLowerCase()
   const own = useOwnDomains()
   // by name, or handle in any form, with or without its @ (src/contacts/handles.ts)
@@ -754,7 +777,7 @@ function WhoStep({ onPick, initialQuery = '' }: { onPick: (r: Recipient) => void
             'direct',
             <RecipientFace recipient={direct} size={40} />,
             direct.name,
-            direct.target.kind === 'address' ? 'Pay this address' : direct.detail,
+            direct.target.kind === 'address' ? (direct.otherNetwork ?? 'Pay this address') : direct.detail,
             () => onPick(direct)
           )}
         {shownContacts.length > 0 && <Text style={[font(600), styles.eyebrow, { color: palette.mutedForeground }]}>{q ? 'CONTACTS' : 'YOUR PEOPLE'}</Text>}
@@ -783,7 +806,9 @@ function WhoStep({ onPick, initialQuery = '' }: { onPick: (r: Recipient) => void
           )
         )}
         {!direct && !found.length && !searching && q.length > 0 && !mine.length && (
-          <Text style={[font(400), styles.small, styles.center, styles.none, { color: palette.mutedForeground }]}>No one by that name or handle.</Text>
+          <Text style={[font(400), styles.small, styles.center, styles.none, { color: palette.mutedForeground }]}>
+            {unreadable ?? 'No one by that name or handle.'}
+          </Text>
         )}
         {!q && !(contacts.list ?? []).length && (
           <Animated.View style={[styles.hint, enter({ opacity: 0, duration: 300 })]}>
