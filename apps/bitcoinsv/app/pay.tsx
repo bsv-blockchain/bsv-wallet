@@ -10,6 +10,7 @@
 // corners. Tapping it plays the sweep line and opens the camera. Not here,
 // unlike the prototype: "or hold near a phone" (a nearby payment starts from
 // the till's or phone's code, scanned here).
+import { POS_PREFIX, decodePaymentRequest } from '../../../packages/expo-wallet-toolbox/core/pos/protocol'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import Animated, { css } from 'react-native-reanimated'
@@ -80,7 +81,13 @@ export default function ScanAndPay() {
 
   if (nearby) return <NearbyFlow role="payer" initialSession={nearby} onExit={() => setNearby(null)} dismissTo="/" />
 
-  const onScan = (data: string) => {
+  const onScan = async (data: string) => {
+    if (data.startsWith(POS_PREFIX)) {
+      setScanning(false)
+      try { setNearby(await decodePaymentRequest(data)) }
+      catch { showToast('Invalid or expired merchant payment request.', { type: 'error' }) }
+      return
+    }
     // a website's sign-in code: on to Sign in with it
     if (isSignInCode(data)) {
       setScanning(false)

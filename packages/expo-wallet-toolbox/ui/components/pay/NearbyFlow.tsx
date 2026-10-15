@@ -93,6 +93,7 @@
  *             easings.out. Nothing eases in; nothing starts from scale(0).
  */
 
+import { POS_PREFIX, decodePaymentRequest } from '../../../core/pos/protocol'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -1512,6 +1513,10 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
     (data: string) => {
       if (scanLatchRef.current) return
       scanLatchRef.current = true
+      if (data.startsWith(POS_PREFIX)) {
+        void decodePaymentRequest(data).then(adoptSession).catch(() => fail('generic', t('invalid_qr_code')))
+        return
+      }
       let session: Session
       try {
         session = decodeSession(data)
@@ -1755,6 +1760,19 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
     if (!wallet) {
       fail('generic', t('wallet_not_ready'))
       return
+    }
+    if (session.merchantChain) {
+      try {
+        const network = await wallet.getNetwork({})
+        const expected = session.merchantChain === 'main' ? 'mainnet' : 'testnet'
+        if (network.network !== expected || !session.merchantExpires || session.merchantExpires <= Date.now()) {
+          fail('generic', 'Merchant request expired or uses a different network.')
+          return
+        }
+      } catch {
+        fail('generic', 'Could not verify the merchant payment network.')
+        return
+      }
     }
     setPhase('send_working')
 
@@ -2849,8 +2867,8 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
             </PayField>
 
             <RecipientSummary
-              name={peerName ?? abbreviateKey(scannedSession.identityKey)}
-              detail={peerName ? abbreviateKey(scannedSession.identityKey) : undefined}
+              name={peerName ?? scannedSession.merchantName ?? abbreviateKey(scannedSession.identityKey)}
+              detail={scannedSession.merchantName ? `Merchant · ${abbreviateKey(scannedSession.identityKey)}` : peerName ? abbreviateKey(scannedSession.identityKey) : undefined}
             />
 
             <View style={styles.gapLg} />

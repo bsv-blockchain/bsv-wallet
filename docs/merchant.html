@@ -1,0 +1,2164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#173d32" />
+    <meta
+      name="description"
+      content="BSV Merchant: nearby bitcoin payments for independent shops. Learn how customers pay the merchant directly, cashiers use their own identities, and an online Go wallet service confirms every sale."
+    />
+    <title>BSV Merchant — A better way to pay at the counter</title>
+    <style>
+      :root {
+        --paper: #f6f4ec;
+        --white: #fffef9;
+        --ink: #192e28;
+        --muted: #59665d;
+        --green: #173d32;
+        --lime: #d7edaa;
+        --line: #d7dbcd;
+        --orange: #af4c2b;
+        --soft: #e9ecdf;
+        --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+        --sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 100px;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 16px/1.65 var(--sans);
+      }
+      a {
+        color: inherit;
+        text-underline-offset: 4px;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+      button {
+        cursor: pointer;
+      }
+      a:focus-visible,
+      button:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid var(--orange);
+        outline-offset: 5px;
+      }
+      ::selection {
+        background: var(--lime);
+        color: var(--ink);
+      }
+      .wrap {
+        width: min(1180px, calc(100% - 64px));
+        margin-inline: auto;
+      }
+      .skip {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 100;
+        transform: translateY(-150%);
+        padding: 10px 20px;
+        background: var(--white);
+      }
+      .skip:focus {
+        transform: none;
+      }
+      .top {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        background: rgba(246, 244, 236, 0.96);
+        border-bottom: 1px solid var(--line);
+      }
+      .nav {
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        text-decoration: none;
+        font-size: 19px;
+        font-weight: 750;
+        letter-spacing: -0.7px;
+      }
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        background: var(--green);
+        color: var(--lime);
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        font-size: 22px;
+        line-height: 1;
+      }
+      .navlinks {
+        display: flex;
+        align-items: center;
+        gap: 30px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .navlinks a {
+        text-decoration: none;
+      }
+      .navlinks a:hover {
+        color: var(--orange);
+      }
+      .navlinks .nav-cta {
+        border: 1px solid var(--ink);
+        padding: 9px 16px;
+        border-radius: 4px;
+      }
+      .eyebrow {
+        font: 11px/1.5 var(--mono);
+        letter-spacing: 1.7px;
+        text-transform: uppercase;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        background: var(--orange);
+        border-radius: 50%;
+        display: inline-block;
+        flex-shrink: 0;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: clamp(48px, 5.9vw, 78px);
+        letter-spacing: -4px;
+        line-height: 1.04;
+        font-weight: 650;
+        margin: 25px 0;
+      }
+      h2 {
+        font-size: clamp(34px, 4vw, 52px);
+        font-weight: 600;
+        letter-spacing: -2px;
+        line-height: 1.12;
+      }
+      h3 {
+        font-size: 21px;
+        line-height: 1.3;
+        letter-spacing: -0.5px;
+        font-weight: 650;
+      }
+      .serif {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-style: italic;
+        font-weight: 400;
+      }
+      .lead {
+        font-size: 18px;
+        line-height: 1.7;
+        color: var(--muted);
+        max-width: 490px;
+      }
+      .hero {
+        padding: 74px 0 58px;
+        display: grid;
+        grid-template-columns: 1.04fr 1fr;
+        gap: 60px;
+        align-items: center;
+      }
+      .hero h1 span {
+        color: #497246;
+      }
+      .actions {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 29px;
+      }
+      .button {
+        display: inline-flex;
+        gap: 16px;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        border-radius: 4px;
+        background: var(--green);
+        color: var(--white);
+        font-size: 13px;
+        font-weight: 650;
+        padding: 14px 20px;
+        border: 1px solid var(--green);
+      }
+      .button:hover {
+        background: #2b5345;
+      }
+      .button.secondary {
+        background: transparent;
+        color: var(--ink);
+        border-color: var(--line);
+      }
+      .button.secondary:hover {
+        background: var(--soft);
+      }
+      .hero-note {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 20px;
+      }
+      .hero-art {
+        height: 472px;
+        position: relative;
+        background: #e5e8d8;
+        border-radius: 7px;
+        overflow: hidden;
+        background-image: radial-gradient(#c2cbb7 0.7px, transparent 0.7px);
+        background-size: 17px 17px;
+        border: 1px solid #d5dccb;
+      }
+      .art-label {
+        position: absolute;
+        left: 25px;
+        top: 22px;
+        font: 10px var(--mono);
+        letter-spacing: 1px;
+        color: #4b6051;
+      }
+      .orbit {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        border: 1px solid #c4cdb7;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        width: 350px;
+        height: 350px;
+      }
+      .orbit.second {
+        width: 470px;
+        height: 470px;
+      }
+      .receipt {
+        position: absolute;
+        left: 50%;
+        top: 48%;
+        transform: translate(-50%, -50%) rotate(-5deg);
+        background: var(--white);
+        width: 258px;
+        padding: 28px 27px 34px;
+        box-shadow: 0 20px 45px #253d2225;
+        clip-path: polygon(
+          0 0,
+          100% 0,
+          100% 98%,
+          96% 100%,
+          92% 98%,
+          88% 100%,
+          84% 98%,
+          80% 100%,
+          76% 98%,
+          72% 100%,
+          68% 98%,
+          64% 100%,
+          60% 98%,
+          56% 100%,
+          52% 98%,
+          48% 100%,
+          44% 98%,
+          40% 100%,
+          36% 98%,
+          32% 100%,
+          28% 98%,
+          24% 100%,
+          20% 98%,
+          16% 100%,
+          12% 98%,
+          8% 100%,
+          4% 98%,
+          0 100%
+        );
+      }
+      .receipt-symbol {
+        font-size: 32px;
+        text-align: center;
+        color: var(--green);
+        line-height: 1;
+      }
+      .receipt h3 {
+        text-align: center;
+        font-family: Georgia, serif;
+        font-weight: 500;
+        font-size: 27px;
+        margin-top: 9px;
+      }
+      .receipt small {
+        display: block;
+        text-align: center;
+        font: 9px var(--mono);
+        color: var(--muted);
+        margin: 8px 0 20px;
+      }
+      .receipt-line {
+        display: flex;
+        justify-content: space-between;
+        font: 11px var(--mono);
+        padding: 8px 0;
+      }
+      .receipt-total {
+        border-top: 1px dashed #b8c0b0;
+        margin-top: 10px;
+        padding-top: 14px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .receipt-paid {
+        margin-top: 22px;
+        text-align: center;
+        background: var(--lime);
+        padding: 8px;
+        font: 10px var(--mono);
+        font-weight: 700;
+      }
+      .art-chip {
+        position: absolute;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        background: var(--white);
+        border: 1px solid #cdd5c4;
+        border-radius: 5px;
+        padding: 12px 15px;
+        font-size: 11px;
+        box-shadow: 0 6px 20px #1c3c2410;
+      }
+      .art-chip strong {
+        display: block;
+        font-size: 12px;
+      }
+      .chip-icon {
+        width: 29px;
+        height: 29px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--soft);
+        font-size: 15px;
+      }
+      .chip-one {
+        top: 82px;
+        right: 20px;
+        transform: rotate(3deg);
+      }
+      .chip-two {
+        bottom: 68px;
+        left: 20px;
+        transform: rotate(3deg);
+      }
+      .art-foot {
+        position: absolute;
+        bottom: 20px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font: 9px var(--mono);
+        color: var(--muted);
+      }
+      .principles {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 38px;
+        border-block: 1px solid var(--line);
+        padding: 28px 0 31px;
+      }
+      .principle {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      .principle .num {
+        color: var(--orange);
+        font: 11px var(--mono);
+        padding-top: 5px;
+      }
+      .principle h3 {
+        font-size: 15px;
+        margin-bottom: 5px;
+        letter-spacing: -0.2px;
+      }
+      .principle p {
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      section.section {
+        padding: 88px 0;
+      }
+      .section-heading {
+        display: flex;
+        justify-content: space-between;
+        gap: 45px;
+        align-items: end;
+        margin-bottom: 36px;
+      }
+      .section-heading h2 {
+        max-width: 620px;
+        margin-top: 15px;
+      }
+      .section-heading > p {
+        max-width: 350px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .roles {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .role {
+        padding: 31px;
+        background: var(--white);
+      }
+      .role + .role {
+        border-left: 1px solid var(--line);
+      }
+      .role-icon {
+        width: 45px;
+        height: 45px;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        margin-bottom: 24px;
+        font-size: 22px;
+      }
+      .role .tag {
+        font: 10px var(--mono);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .role p {
+        font-size: 14px;
+        color: var(--muted);
+        margin-top: 12px;
+      }
+      .role-bottom {
+        margin-top: 22px;
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.6;
+      }
+      .flow-section {
+        background: var(--green);
+        color: var(--white);
+      }
+      .flow-section .eyebrow {
+        color: var(--lime);
+      }
+      .flow-section .section-heading > p {
+        color: #c3d0c1;
+      }
+      .flow-shell {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        border: 1px solid #587061;
+        border-radius: 7px;
+        overflow: hidden;
+      }
+      .flow-steps {
+        padding: 14px;
+        border-right: 1px solid #587061;
+      }
+      .step {
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        border: 0;
+        color: #c3d0c1;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        padding: 17px 14px;
+        border-radius: 4px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .step .step-no {
+        font: 10px var(--mono);
+        opacity: 0.8;
+      }
+      .step.active {
+        background: var(--lime);
+        color: var(--ink);
+      }
+      .step:hover:not(.active) {
+        background: #ffffff0c;
+      }
+      .flow-stage {
+        padding: 34px 38px;
+        min-width: 0;
+      }
+      .stage-top {
+        display: flex;
+        justify-content: space-between;
+        font: 10px var(--mono);
+        letter-spacing: 0.7px;
+        color: #c3d0c1;
+      }
+      .diagram {
+        display: grid;
+        grid-template-columns: 1fr 45px 1fr 45px 1fr;
+        align-items: center;
+        gap: 4px;
+        margin: 35px 0 25px;
+      }
+      .endpoint {
+        text-align: center;
+        opacity: 0.48;
+        transition: opacity 0.2s;
+      }
+      .endpoint.lit {
+        opacity: 1;
+      }
+      .endpoint-icon {
+        height: 78px;
+        display: grid;
+        place-items: center;
+        margin-bottom: 10px;
+      }
+      .device {
+        width: 42px;
+        height: 70px;
+        border: 2px solid currentColor;
+        border-radius: 9px;
+        position: relative;
+        background: #ffffff06;
+      }
+      .device:after {
+        content: '';
+        position: absolute;
+        bottom: 5px;
+        left: 15px;
+        width: 8px;
+        height: 2px;
+        background: currentColor;
+      }
+      .device:before {
+        content: '';
+        position: absolute;
+        left: 11px;
+        top: 15px;
+        width: 15px;
+        height: 21px;
+        border: 1px solid #c2d8b1;
+        background: linear-gradient(45deg, transparent 44%, #c2d8b1 45%, #c2d8b1 52%, transparent 53%);
+      }
+      .cloud {
+        width: 72px;
+        height: 45px;
+        border: 2px solid currentColor;
+        border-radius: 10px;
+        position: relative;
+        display: grid;
+        place-items: center;
+        font-size: 18px;
+      }
+      .cloud:before {
+        content: '';
+        position: absolute;
+        width: 21px;
+        height: 10px;
+        background: var(--green);
+        border: 2px solid currentColor;
+        border-bottom: 0;
+        left: 21px;
+        top: -12px;
+        border-radius: 10px 10px 0 0;
+      }
+      .endpoint b {
+        font-size: 11px;
+        display: block;
+      }
+      .endpoint small {
+        font-size: 10px;
+        color: #c3d0c1;
+      }
+      .connector {
+        font-size: 23px;
+        text-align: center;
+        color: #8caa8a;
+        opacity: 0.35;
+      }
+      .connector.lit {
+        opacity: 1;
+        color: var(--lime);
+      }
+      .flow-stage h3 {
+        font-size: 25px;
+        letter-spacing: -0.6px;
+        margin-bottom: 10px;
+      }
+      .flow-stage p {
+        color: #d2ddcf;
+        font-size: 14px;
+        max-width: 610px;
+        min-height: 90px;
+      }
+      .stage-detail {
+        border-top: 1px solid #587061;
+        padding-top: 15px;
+        margin-top: 20px;
+        color: var(--lime);
+        font: 11px/1.7 var(--mono);
+      }
+      .flow-next {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--lime);
+        margin-top: 21px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .flow-next:hover {
+        text-decoration: underline;
+      }
+      .caption {
+        font-size: 11px;
+        color: #c3d0c1;
+        margin-top: 18px;
+      }
+      .flow-transcript {
+        margin-top: 20px;
+        color: #c3d0c1;
+        font-size: 12px;
+      }
+      .flow-transcript summary {
+        cursor: pointer;
+      }
+      .flow-transcript li {
+        margin-top: 9px;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 75px;
+        align-items: start;
+      }
+      .split h2 {
+        margin: 15px 0 21px;
+      }
+      .split p {
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .key-diagram {
+        background: var(--white);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 30px;
+      }
+      .key-track {
+        padding: 20px 0;
+      }
+      .key-track + .key-track {
+        border-top: 1px dashed var(--line);
+      }
+      .key-track label {
+        font: 10px var(--mono);
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 13px;
+      }
+      .key-path {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .key-line {
+        flex: 1;
+        border-top: 2px solid var(--green);
+        position: relative;
+        min-width: 25px;
+      }
+      .key-line:after {
+        content: '';
+        border-left: 6px solid var(--green);
+        border-top: 4px solid transparent;
+        border-bottom: 4px solid transparent;
+        position: absolute;
+        right: 0;
+        top: -5px;
+      }
+      .key-track p {
+        font-size: 12px;
+        line-height: 1.6;
+        margin-top: 12px;
+      }
+      .key-note {
+        margin-top: 15px;
+        font-size: 11px !important;
+      }
+      .reason-list {
+        margin-top: 26px;
+      }
+      .reason {
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 13px;
+        border-top: 1px solid var(--line);
+        padding: 19px 0;
+      }
+      .reason span {
+        font: 11px var(--mono);
+        color: var(--orange);
+        padding-top: 3px;
+      }
+      .reason h3 {
+        font-size: 16px;
+        margin-bottom: 5px;
+      }
+      .reason p {
+        font-size: 13px;
+      }
+      .connectivity {
+        background: var(--soft);
+        padding: 38px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+      }
+      .connectivity h3 {
+        font-size: 24px;
+        margin: 10px 0 8px;
+      }
+      .connectivity > p {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .switch-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 18px;
+        border-bottom: 1px solid #cad1bf;
+        padding: 20px 0;
+      }
+      .switch-row span {
+        display: block;
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .switch-row small {
+        display: block;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .switch {
+        display: inline-flex;
+        align-items: center;
+        position: relative;
+        flex-shrink: 0;
+      }
+      .switch input {
+        position: absolute;
+        opacity: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        cursor: pointer;
+      }
+      .switch-track {
+        width: 43px;
+        height: 25px;
+        border-radius: 20px;
+        background: #9da795;
+        transition: background 0.2s;
+        pointer-events: none;
+      }
+      .switch-track:after {
+        content: '';
+        display: block;
+        width: 17px;
+        height: 17px;
+        position: absolute;
+        top: 4px;
+        left: 4px;
+        border-radius: 50%;
+        background: var(--white);
+        transition: transform 0.2s;
+      }
+      .switch input:checked + .switch-track {
+        background: var(--green);
+      }
+      .switch input:checked + .switch-track:after {
+        transform: translateX(18px);
+      }
+      .switch input:focus-visible + .switch-track {
+        outline: 3px solid var(--orange);
+        outline-offset: 4px;
+      }
+      .status-box {
+        margin-top: 23px;
+        padding: 19px;
+        background: var(--white);
+        border-left: 3px solid var(--green);
+      }
+      .status-box b {
+        display: block;
+        font-size: 14px;
+      }
+      .status-box p {
+        font-size: 12px;
+        margin-top: 7px;
+        color: var(--muted);
+      }
+      .status-box.pending {
+        border-left-color: var(--orange);
+      }
+      .demo-label {
+        font: 10px var(--mono);
+        letter-spacing: 0.4px;
+        color: var(--muted);
+        margin-top: 17px;
+      }
+      .setup {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+      .setup-panel {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 32px;
+        background: var(--white);
+      }
+      .setup-panel header {
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 23px;
+        margin-bottom: 25px;
+      }
+      .setup-label {
+        font: 10px var(--mono);
+        color: var(--muted);
+        letter-spacing: 1px;
+      }
+      .setup ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: setup;
+      }
+      .setup li {
+        position: relative;
+        padding-left: 36px;
+        margin-top: 22px;
+        counter-increment: setup;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .setup li:before {
+        content: counter(setup, decimal-leading-zero);
+        position: absolute;
+        left: 0;
+        top: 2px;
+        color: var(--orange);
+        font: 10px var(--mono);
+      }
+      .setup li strong {
+        display: block;
+        color: var(--ink);
+        margin-bottom: 4px;
+        font-size: 14px;
+      }
+      .rationale {
+        border-top: 1px solid var(--line);
+      }
+      .decision {
+        display: grid;
+        grid-template-columns: 1fr 1.35fr 1.25fr;
+        gap: 35px;
+        border-bottom: 1px solid var(--line);
+        padding: 23px 0;
+        font-size: 13px;
+      }
+      .decision h3 {
+        font-size: 16px;
+      }
+      .decision p {
+        color: var(--muted);
+      }
+      .decision.head {
+        font: 10px var(--mono);
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 14px 0;
+      }
+      .roadmap {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 36px;
+      }
+      .roadmap-column {
+        padding-top: 22px;
+        border-top: 2px solid var(--green);
+      }
+      .roadmap-column.later {
+        border-top-color: #a8b19c;
+      }
+      .roadmap .eyebrow {
+        margin-bottom: 20px;
+      }
+      .roadmap li {
+        padding: 11px 0 11px 24px;
+        border-bottom: 1px solid var(--line);
+        position: relative;
+        font-size: 14px;
+        list-style: none;
+      }
+      .roadmap ul {
+        margin: 0;
+        padding: 0;
+      }
+      .roadmap li:before {
+        content: '✓';
+        position: absolute;
+        left: 0;
+        color: #436940;
+      }
+      .roadmap .later li:before {
+        content: '↗';
+        color: var(--muted);
+      }
+      .pilot-note {
+        padding: 19px 23px;
+        border: 1px solid var(--line);
+        margin-top: 28px;
+        font-size: 12px;
+        color: var(--muted);
+        border-radius: 4px;
+      }
+      .faq {
+        max-width: 850px;
+        margin-inline: auto;
+      }
+      .faq h2 {
+        margin: 15px 0 32px;
+      }
+      .faq details {
+        border-top: 1px solid var(--line);
+        padding: 19px 0;
+      }
+      .faq details:last-child {
+        border-bottom: 1px solid var(--line);
+      }
+      .faq summary {
+        cursor: pointer;
+        font-size: 15px;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        list-style: none;
+      }
+      .faq summary::-webkit-details-marker {
+        display: none;
+      }
+      .faq summary:after {
+        content: '+';
+        font-size: 19px;
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .faq details[open] summary:after {
+        content: '−';
+      }
+      .faq details p {
+        font-size: 14px;
+        color: var(--muted);
+        margin-top: 13px;
+        max-width: 730px;
+      }
+      .closing {
+        padding: 54px;
+        background: var(--lime);
+        border-radius: 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 35px;
+        margin-bottom: 70px;
+      }
+      .closing h2 {
+        font-size: 36px;
+        max-width: 520px;
+      }
+      .closing p {
+        font-size: 13px;
+        margin-top: 15px;
+        max-width: 530px;
+      }
+      .closing .button {
+        flex-shrink: 0;
+      }
+      .footer {
+        border-top: 1px solid var(--line);
+        padding: 27px 0 35px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .footer .wrap {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: center;
+      }
+      .footer-links {
+        display: flex;
+        gap: 22px;
+      }
+      .footer a {
+        text-decoration: none;
+      }
+      .footer a:hover {
+        text-decoration: underline;
+      }
+      .small-heading {
+        font-size: 13px;
+        font-weight: 650;
+        letter-spacing: 0.1px;
+      }
+      .section-tinted {
+        background: #eeeee3;
+      }
+      noscript p {
+        background: var(--lime);
+        color: var(--ink);
+        padding: 15px;
+        font-size: 13px;
+      }
+      @media (min-width: 1500px) {
+        .hero {
+          padding-top: 95px;
+          padding-bottom: 75px;
+        }
+      }
+      @media (max-width: 1000px) {
+        .hero {
+          gap: 28px;
+        }
+        .hero-art {
+          height: 430px;
+        }
+        h1 {
+          letter-spacing: -3px;
+        }
+        .chip-one {
+          right: 9px;
+          top: 64px;
+        }
+        .chip-two {
+          left: 9px;
+          bottom: 57px;
+        }
+        .principles {
+          gap: 24px;
+        }
+        .role {
+          padding: 25px;
+        }
+        .split {
+          gap: 35px;
+        }
+        .flow-shell {
+          grid-template-columns: 245px 1fr;
+        }
+        .flow-stage {
+          padding: 30px 25px;
+        }
+        .diagram {
+          grid-template-columns: 1fr 24px 1fr 24px 1fr;
+        }
+        .section-heading > p {
+          max-width: 300px;
+        }
+        .decision {
+          gap: 22px;
+        }
+      }
+      @media (max-width: 760px) {
+        .wrap {
+          width: calc(100% - 36px);
+        }
+        .nav {
+          height: 68px;
+          gap: 16px;
+        }
+        .brand {
+          font-size: 17px;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        .navlinks {
+          gap: 18px;
+        }
+        .navlinks > a:not(.nav-cta) {
+          display: none;
+        }
+        .hero {
+          grid-template-columns: 1fr;
+          padding: 45px 0 36px;
+          gap: 36px;
+        }
+        h1 {
+          font-size: 60px;
+          max-width: 530px;
+          letter-spacing: -3px;
+        }
+        .lead {
+          font-size: 16px;
+        }
+        .hero-art {
+          height: 410px;
+          max-width: 570px;
+          width: 100%;
+        }
+        .principles {
+          grid-template-columns: 1fr;
+          gap: 22px;
+          padding: 25px 0;
+        }
+        .principle p {
+          max-width: 480px;
+        }
+        .section-heading {
+          display: block;
+          margin-bottom: 27px;
+        }
+        .section-heading > p {
+          margin-top: 18px;
+          max-width: 530px;
+        }
+        section.section {
+          padding: 58px 0;
+        }
+        .roles {
+          grid-template-columns: 1fr;
+        }
+        .role {
+          padding: 27px;
+        }
+        .role + .role {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+        .role-icon {
+          float: right;
+          margin: 0 0 15px 20px;
+        }
+        .role-bottom {
+          margin-top: 17px;
+        }
+        .flow-shell {
+          grid-template-columns: 1fr;
+        }
+        .flow-steps {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+          border-right: 0;
+          border-bottom: 1px solid #587061;
+          padding: 10px;
+        }
+        .step {
+          width: calc(50% - 3px);
+          padding: 11px 8px;
+          gap: 9px;
+          font-size: 11px;
+        }
+        .step .step-no {
+          font-size: 9px;
+        }
+        .flow-stage {
+          padding: 25px 21px;
+        }
+        .flow-stage p {
+          min-height: 0;
+        }
+        .diagram {
+          margin: 25px 0;
+          grid-template-columns: 1fr 25px 1fr 25px 1fr;
+        }
+        .split {
+          grid-template-columns: 1fr;
+          gap: 32px;
+        }
+        .key-diagram {
+          padding: 24px;
+        }
+        .setup {
+          grid-template-columns: 1fr;
+          gap: 18px;
+        }
+        .setup-panel {
+          padding: 26px;
+        }
+        .decision.head {
+          display: none;
+        }
+        .decision {
+          grid-template-columns: 1fr;
+          gap: 11px;
+          padding: 24px 0;
+        }
+        .decision p {
+          font-size: 14px;
+        }
+        .decision p:last-child:before {
+          content: 'The tradeoff: ';
+          font-weight: 650;
+          color: var(--ink);
+        }
+        .roadmap {
+          grid-template-columns: 1fr;
+          gap: 35px;
+        }
+        .closing {
+          padding: 30px;
+          display: block;
+          margin-bottom: 45px;
+        }
+        .closing h2 {
+          font-size: 31px;
+        }
+        .closing .button {
+          margin-top: 25px;
+        }
+        .footer .wrap {
+          align-items: start;
+          flex-direction: column;
+          gap: 20px;
+        }
+        .connectivity {
+          padding: 26px;
+        }
+        .footer-links {
+          flex-wrap: wrap;
+          gap: 14px 24px;
+        }
+      }
+      @media (max-width: 380px) {
+        h1 {
+          font-size: 51px;
+        }
+        .hero-art {
+          height: 370px;
+        }
+        .receipt {
+          width: 225px;
+          padding: 25px;
+        }
+        .art-chip {
+          padding: 9px 10px;
+          font-size: 9px;
+        }
+        .art-chip strong {
+          font-size: 10px;
+        }
+        .chip-one {
+          top: 53px;
+        }
+        .chip-two {
+          bottom: 45px;
+        }
+        .key-path {
+          font-size: 11px;
+          gap: 8px;
+        }
+        .navlinks .nav-cta {
+          padding: 8px 10px;
+          font-size: 11px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        *,
+        *:before,
+        *:after {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
+      .art-label {
+        max-width: 74px;
+        line-height: 1.6;
+      }
+      .chip-one {
+        top: 18px;
+      }
+      .chip-two {
+        bottom: 14px;
+        transform: none;
+      }
+      .art-foot {
+        display: none;
+      }
+      @media (max-width: 380px) {
+        .chip-one {
+          top: 8px;
+        }
+        .chip-two {
+          display: none;
+        }
+      }
+      @media (max-width: 380px) {
+        .brand {
+          font-size: 16px;
+          gap: 8px;
+          white-space: nowrap;
+        }
+        .brand-mark {
+          width: 28px;
+          height: 28px;
+          font-size: 19px;
+          flex-shrink: 0;
+        }
+        .nav {
+          gap: 12px;
+        }
+        .navlinks .nav-cta {
+          padding: 8px;
+          font-size: 10px;
+        }
+      }
+      @media print {
+        .top,
+        .actions,
+        .flow-next,
+        .switch-row,
+        .closing .button,
+        .footer-links {
+          display: none;
+        }
+        body {
+          background: white;
+        }
+        .wrap {
+          width: 100%;
+        }
+        .hero {
+          padding-top: 20px;
+        }
+        .hero-art {
+          height: 350px;
+        }
+        section.section {
+          padding: 30px 0;
+        }
+        .flow-section {
+          background: #f2f4eb;
+          color: #192e28;
+        }
+        .flow-section p,
+        .flow-section .eyebrow,
+        .flow-section .caption,
+        .flow-section .flow-transcript {
+          color: #192e28;
+        }
+        .flow-steps {
+          display: none;
+        }
+        .flow-shell {
+          display: block;
+        }
+        .flow-stage {
+          display: none;
+        }
+        .flow-transcript {
+          display: block;
+        }
+        .flow-transcript > ol {
+          display: block !important;
+        }
+        .flow-transcript summary {
+          display: none;
+        }
+        .role,
+        .setup-panel,
+        .key-diagram,
+        .connectivity {
+          break-inside: avoid;
+        }
+        .closing {
+          margin-bottom: 15px;
+        }
+        .top {
+          position: static;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="top">
+      <div class="wrap nav">
+        <a class="brand" href="#" aria-label="BSV Merchant home"
+          ><span class="brand-mark" aria-hidden="true">₿</span>BSV Merchant</a
+        >
+        <nav class="navlinks" aria-label="Main navigation">
+          <a href="#how-it-works">How it works</a><a href="#why">The design</a><a href="#roadmap">The pilot</a
+          ><a class="nav-cta" href="#get-started">Explore the solution ↗</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <div class="wrap">
+        <section class="hero" aria-labelledby="hero-title">
+          <div>
+            <div class="eyebrow"><span class="dot"></span>Nearby payments. Built for the counter.</div>
+            <h1 id="hero-title">
+              Your shop.<br />Your team.<br /><span>Your <em class="serif">bitcoin.</em></span>
+            </h1>
+            <p class="lead">Let your cashier take a BSV payment without handing them the keys to your business.</p>
+            <p style="margin-top: 16px; color: var(--muted); font-size: 15px; max-width: 470px">
+              A dedicated merchant app connects the customer at your counter to your online wallet service. The customer
+              pays your business directly—even when their phone has no internet.
+            </p>
+            <div class="actions">
+              <a class="button" href="#how-it-works">See a payment unfold <span aria-hidden="true">↓</span></a
+              ><a class="button secondary" href="#why">Why we built it this way</a>
+            </div>
+            <p class="hero-note">First technical version · Testnet pilot · For independent shops and cafés</p>
+          </div>
+          <div
+            class="hero-art"
+            role="img"
+            aria-label="Illustration of a café receipt: 250 satoshis paid directly to the merchant, with a cashier using their own identity. Not an app screenshot or real sale."
+          >
+            <div class="art-label">ILLUSTRATIVE CHECKOUT</div>
+            <div class="orbit"></div>
+            <div class="orbit second"></div>
+            <div class="receipt">
+              <div class="receipt-symbol">✳</div>
+              <h3>The corner café</h3>
+              <small>ILLUSTRATIVE TESTNET SALE</small>
+              <div class="receipt-line"><span>Coffee</span><span>150 sats</span></div>
+              <div class="receipt-line"><span>Something sweet</span><span>100 sats</span></div>
+              <div class="receipt-line receipt-total"><span>Total</span><span>250 sats</span></div>
+              <div class="receipt-paid">✓ MERCHANT-CONFIRMED PAYMENT</div>
+            </div>
+            <div class="art-chip chip-one">
+              <span class="chip-icon" aria-hidden="true">↗</span>
+              <div><strong>Straight to the business</strong>No cashier wallet in between</div>
+            </div>
+            <div class="art-chip chip-two">
+              <span class="chip-icon" aria-hidden="true">⌁</span>
+              <div><strong>Their phone. Their identity.</strong>Merchant keys stay off cashier devices</div>
+            </div>
+            <div class="art-foot">CONCEPT ILLUSTRATION · AMOUNTS ARE SATOSHIS, NOT FIAT QUOTES</div>
+          </div>
+        </section>
+        <div class="principles" aria-label="Three core principles">
+          <div class="principle">
+            <span class="num">01 /</span>
+            <div>
+              <h3>Cashier access, without custody</h3>
+              <p>Approve each cashier’s own identity. They can facilitate sales without receiving your merchant key.</p>
+            </div>
+          </div>
+          <div class="principle">
+            <span class="num">02 /</span>
+            <div>
+              <h3>A nearby customer can be offline</h3>
+              <p>
+                A funded, prepared customer wallet can hand over the payment through the encrypted nearby connection.
+              </p>
+            </div>
+          </div>
+          <div class="principle">
+            <span class="num">03 /</span>
+            <div>
+              <h3>“Paid” comes from the merchant</h3>
+              <p>The cashier app waits for a matching, signed acceptance receipt from your online service.</p>
+            </div>
+          </div>
+        </div>
+        <section class="section" aria-labelledby="roles-title">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">One sale. Three distinct roles.</div>
+              <h2 id="roles-title">Everyone has a part.<br />Only one is the payee.</h2>
+            </div>
+            <p>Separating who serves the customer from who receives the money is the foundation of the system.</p>
+          </div>
+          <div class="roles">
+            <article class="role">
+              <div class="role-icon" aria-hidden="true">◎</div>
+              <div class="tag">The customer</div>
+              <h3>Pay with the familiar wallet.</h3>
+              <p>
+                Scan the merchant request in the BSV Wallet’s nearby payment flow. Check the merchant and amount, then
+                pay directly to the business.
+              </p>
+              <div class="role-bottom">
+                Keeps their own spending keys.<br />Needs a wallet version that supports merchant requests.
+              </div>
+            </article>
+            <article class="role">
+              <div class="role-icon" aria-hidden="true">↔</div>
+              <div class="tag">The cashier</div>
+              <h3>Run the sale from a phone.</h3>
+              <p>
+                Use the BSV Merchant app with a personal cashier identity. Present the invoice, receive the encrypted
+                payment, and relay it for confirmation.
+              </p>
+              <div class="role-bottom">
+                Has an approved cashier identity.<br />Never receives the merchant’s private key.
+              </div>
+            </article>
+            <article class="role">
+              <div class="role-icon" aria-hidden="true">⌂</div>
+              <div class="tag">The merchant</div>
+              <h3>Receive and confirm the funds.</h3>
+              <p>
+                The merchant-controlled service holds the signing identity, checks incoming payments, and connects to
+                the cloud wallet storage provider.
+              </p>
+              <div class="role-bottom">
+                Controls the receiving identity and cashier approvals.<br />The signing service and storage must be
+                trusted and operated securely.
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+      <section class="section flow-section" id="how-it-works" aria-labelledby="flow-title">
+        <div class="wrap">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Follow the payment</div>
+              <h2 id="flow-title">Nearby at the counter.<br />Confirmed by the business.</h2>
+            </div>
+            <p>Choose a step to see what moves between the devices—and what stays with the merchant.</p>
+          </div>
+          <div class="flow-shell">
+            <div class="flow-steps" role="group" aria-label="Payment walkthrough steps">
+              <button class="step active" data-step="0" aria-pressed="true" aria-controls="flow-copy">
+                <span class="step-no">01</span>Request a signed invoice</button
+              ><button class="step" data-step="1" aria-pressed="false" aria-controls="flow-copy">
+                <span class="step-no">02</span>Scan and check the request</button
+              ><button class="step" data-step="2" aria-pressed="false" aria-controls="flow-copy">
+                <span class="step-no">03</span>Pay the merchant directly</button
+              ><button class="step" data-step="3" aria-pressed="false" aria-controls="flow-copy">
+                <span class="step-no">04</span>Relay the saved payment</button
+              ><button class="step" data-step="4" aria-pressed="false" aria-controls="flow-copy">
+                <span class="step-no">05</span>Validate and accept</button
+              ><button class="step" data-step="5" aria-pressed="false" aria-controls="flow-copy">
+                <span class="step-no">06</span>Confirm with a signed receipt
+              </button>
+            </div>
+            <div class="flow-stage">
+              <div class="stage-top"><span>THE PAYMENT PATH</span><span id="step-counter">01 / 06</span></div>
+              <div class="diagram" aria-hidden="true">
+                <div class="endpoint" id="node-customer">
+                  <div class="endpoint-icon"><div class="device"></div></div>
+                  <b>Customer</b><small>BSV Wallet</small>
+                </div>
+                <div class="connector" id="link-nearby">↔</div>
+                <div class="endpoint lit" id="node-cashier">
+                  <div class="endpoint-icon"><div class="device"></div></div>
+                  <b>Cashier</b><small>BSV Merchant</small>
+                </div>
+                <div class="connector lit" id="link-service">↔</div>
+                <div class="endpoint lit" id="node-service">
+                  <div class="endpoint-icon"><div class="cloud">✓</div></div>
+                  <b>Merchant service</b><small>Go Wallet Toolbox</small>
+                </div>
+              </div>
+              <div id="flow-copy" aria-live="polite" aria-atomic="true">
+                <h3 id="step-title">The cashier requests the sale.</h3>
+                <p id="step-body">
+                  The cashier enters the amount in satoshis. The online service checks that cashier’s approval and signs
+                  an invoice binding the merchant, amount-bearing nearby session, network, cashier and expiry.
+                </p>
+                <div class="stage-detail" id="step-detail">Cashier → merchant service · Signed invoice → cashier</div>
+              </div>
+              <button class="flow-next" id="next-step">Next step →</button>
+            </div>
+          </div>
+          <p class="caption">
+            An explanatory walkthrough, not a live transaction. The customer-to-cashier handoff is encrypted; the
+            cashier-to-service connection uses HTTPS and signed requests.
+          </p>
+          <details class="flow-transcript" id="transcript">
+            <summary>Read all six steps</summary>
+            <ol>
+              <li>
+                <strong>Request:</strong> an approved cashier requests an invoice. The merchant service signs the
+                receiving identity, amount-bearing session, cashier, network and expiry.
+              </li>
+              <li>
+                <strong>Check:</strong> the customer scans the signed request. Their wallet verifies the signature and
+                shows the merchant and amount.
+              </li>
+              <li>
+                <strong>Pay:</strong> the customer creates a BRC-29 output for the merchant and sends the payment
+                through the encrypted nearby transport.
+              </li>
+              <li>
+                <strong>Relay:</strong> the cashier saves the exact received transaction, then forwards it to the online
+                merchant service.
+              </li>
+              <li>
+                <strong>Accept:</strong> the service checks authorization, invoice binding, amount, destination and
+                transaction evidence through the wallet, then checks acceptance status.
+              </li>
+              <li>
+                <strong>Confirm:</strong> only a matching merchant-signed receipt makes the cashier sale show Paid. A
+                radio acknowledgment follows merchant confirmation when the connection remains available.
+              </li>
+            </ol>
+          </details>
+          <noscript
+            ><p>
+              The interactive walkthrough requires JavaScript. All six steps are available in “Read all six steps”
+              above.
+            </p></noscript
+          >
+        </div>
+      </section>
+      <div class="wrap">
+        <section class="section" aria-labelledby="separation-title">
+          <div class="split">
+            <div>
+              <div class="eyebrow">The important distinction</div>
+              <h2 id="separation-title">The phone you talk to<br />isn’t the wallet you pay.</h2>
+              <p>
+                A nearby connection and a payment destination serve different purposes. We keep them separate so a
+                cashier can help take a payment without becoming the recipient.
+              </p>
+              <div class="reason-list">
+                <div class="reason">
+                  <span>01</span>
+                  <div>
+                    <h3>Encrypt the handoff to the cashier.</h3>
+                    <p>
+                      The QR-paired nearby session protects data between the customer’s and cashier’s devices. Existing
+                      nearby radios or an encrypted animated QR carry the payment.
+                    </p>
+                  </div>
+                </div>
+                <div class="reason">
+                  <span>02</span>
+                  <div>
+                    <h3>Derive the output for the merchant.</h3>
+                    <p>
+                      BRC-29 is the wallet payment protocol used to create the merchant’s receiving output. The customer
+                      uses the merchant’s public identity, not the cashier’s identity, as the counterparty.
+                    </p>
+                  </div>
+                </div>
+                <div class="reason">
+                  <span>03</span>
+                  <div>
+                    <h3>Let the merchant validate the destination.</h3>
+                    <p>
+                      The merchant signing service has the private derivation capability needed to check the expected
+                      output. The cashier does not have that capability.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="key-diagram">
+              <div class="eyebrow">Two relationships, one checkout</div>
+              <div class="key-track">
+                <label>Communication / encrypted nearby session</label>
+                <div class="key-path">
+                  <span>Customer device</span><span class="key-line" aria-hidden="true"></span
+                  ><span>Cashier device</span>
+                </div>
+                <p>The paired devices exchange the payment data. A secure handoff does not change the recipient.</p>
+              </div>
+              <div class="key-track">
+                <label>Payment / merchant BRC-29 output</label>
+                <div class="key-path">
+                  <span>Customer wallet</span><span class="key-line" aria-hidden="true"></span
+                  ><span>Merchant wallet</span>
+                </div>
+                <p>The money is directed to the business. It does not pass through the cashier’s personal wallet.</p>
+              </div>
+              <p class="key-note">
+                The merchant’s private key stays on the merchant signing service. Cloud storage is a separate component;
+                storage alone cannot derive the receiving keys.
+              </p>
+            </div>
+          </div>
+        </section>
+        <section class="section" style="padding-top: 0" aria-labelledby="offline-title">
+          <div class="split">
+            <div>
+              <div class="eyebrow">Offline means one side, not every side</div>
+              <h2 id="offline-title">No signal for the customer?<br /><em class="serif">That’s the idea.</em></h2>
+              <p>
+                A customer with a funded, prepared wallet can create and hand over the payment locally. The cashier is
+                the bridge to the online merchant service.
+              </p>
+              <p style="margin-top: 18px">
+                If the cashier loses service access or the merchant service goes down, the sale cannot be confirmed. A
+                received payment stays pending until the merchant can validate it.
+              </p>
+              <p style="margin-top: 18px">
+                A timeout is an uncertain result. Save the original payment, check its status, and retry the same
+                transaction against the same invoice—do not ask the customer to pay again.
+              </p>
+            </div>
+            <div class="connectivity">
+              <div class="eyebrow">Try the connectivity model</div>
+              <h3>Who needs to be online?</h3>
+              <p>Change a connection to see how confirmation behaves.</p>
+              <div class="switch-row">
+                <div>
+                  <span>Customer internet</span><small>The nearby device link stays available in this example.</small>
+                </div>
+                <label class="switch"
+                  ><input type="checkbox" id="customer-online" aria-label="Customer internet connected" /><span
+                    class="switch-track"
+                    aria-hidden="true"
+                  ></span
+                ></label>
+              </div>
+              <div class="switch-row">
+                <div>
+                  <span>Cashier access to merchant service</span
+                  ><small>Includes the service and cloud wallet being available.</small>
+                </div>
+                <label class="switch"
+                  ><input
+                    type="checkbox"
+                    id="service-online"
+                    aria-label="Cashier can reach the available merchant service"
+                    checked /><span class="switch-track" aria-hidden="true"></span
+                ></label>
+              </div>
+              <div class="status-box" id="connection-result" role="status" aria-live="polite" aria-atomic="true">
+                <b id="connection-title">Customer offline. Payment can proceed.</b>
+                <p id="connection-body">
+                  The customer hands over the transaction locally. The cashier relays it online. Paid still requires
+                  successful validation and a signed receipt.
+                </p>
+              </div>
+              <p class="demo-label">ILLUSTRATIVE MODEL · ASSUMES A PREPARED WALLET AND VALID PAYMENT</p>
+              <noscript
+                ><p>
+                  The customer can be offline. The cashier must reach the merchant service to create and confirm a sale.
+                </p></noscript
+              >
+            </div>
+          </div>
+        </section>
+        <section class="section" id="get-started" style="padding-top: 0" aria-labelledby="setup-title">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">A separate app. Two setup routes.</div>
+              <h2 id="setup-title">Set up the business.<br />Then bring in your people.</h2>
+            </div>
+            <p>
+              Merchant administration belongs in the merchant app. Customers keep the simple wallet experience they
+              already know.
+            </p>
+          </div>
+          <div class="setup">
+            <article class="setup-panel">
+              <header>
+                <h3>For the merchant</h3>
+                <span class="setup-label">OWNER SETUP</span>
+              </header>
+              <ol>
+                <li>
+                  <strong>Connect the merchant identity.</strong>Use the wallet identity registered with your gateway,
+                  choose the matching network, and enter the service’s HTTPS address.
+                </li>
+                <li>
+                  <strong>Create an enrollment QR.</strong>The service signs a short-lived invitation. Show it to the
+                  cashier you want to enroll.
+                </li>
+                <li>
+                  <strong>Approve the cashier.</strong>Check the name and identity on their request. Approve access,
+                  inspect sales, and revoke access when needed.
+                </li>
+              </ol>
+            </article>
+            <article class="setup-panel">
+              <header>
+                <h3>For the cashier</h3>
+                <span class="setup-label">TEAM SETUP</span>
+              </header>
+              <ol>
+                <li>
+                  <strong>Use your own wallet identity.</strong>Create or import the cashier wallet in BSV Merchant. No
+                  merchant recovery phrase or signing key is shared.
+                </li>
+                <li>
+                  <strong>Scan and request approval.</strong>Scan the merchant’s invitation, check the merchant and
+                  network, and wait for approval.
+                </li>
+                <li>
+                  <strong>Start taking nearby payments.</strong>Enter the satoshi amount, present the signed invoice,
+                  and keep the sale open until the merchant confirms it.
+                </li>
+              </ol>
+            </article>
+          </div>
+        </section>
+        <section class="section" id="why" style="padding-top: 0" aria-labelledby="why-title">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Why this architecture</div>
+              <h2 id="why-title">Built around the way<br />a small shop actually works.</h2>
+            </div>
+            <p>Owners, staff and customers need different things. The design makes those boundaries explicit.</p>
+          </div>
+          <div class="rationale">
+            <div class="decision head" aria-hidden="true">
+              <span>The choice</span><span>What it gives you</span><span>The tradeoff</span>
+            </div>
+            <article class="decision">
+              <h3>A dedicated merchant app</h3>
+              <p>
+                Merchant enrollment, cashier approvals and sale recovery have a home without adding a POS mode to every
+                customer’s wallet.
+              </p>
+              <p>A second app to operate, with shared wallet and nearby-transport components underneath.</p>
+            </article>
+            <article class="decision">
+              <h3>Individual cashier identities</h3>
+              <p>
+                Staff can be approved and revoked without distributing the business’s private key. Requests are bound to
+                the authorized cashier.
+              </p>
+              <p>
+                Enrollment is a deliberate owner task. Revocation also blocks cashier retries; outstanding sales may
+                need merchant intervention.
+              </p>
+            </article>
+            <article class="decision">
+              <h3>An online merchant authority</h3>
+              <p>
+                The service can derive the expected receiving output and validate the transaction before issuing an
+                acceptance receipt.
+              </p>
+              <p>
+                The business needs an available, securely operated signing service and cloud wallet. Full
+                merchant-offline acceptance is outside this flow.
+              </p>
+            </article>
+            <article class="decision">
+              <h3>Saved transactions and signed receipts</h3>
+              <p>
+                The same submitted payment can be checked and retried after a lost response. A different transaction
+                cannot reuse a submitted invoice.
+              </p>
+              <p>
+                Uncertain results stay pending. Wallet acceptance is not a promise that the payment has already been
+                mined into a block.
+              </p>
+            </article>
+            <article class="decision">
+              <h3>Go as the primary service</h3>
+              <p>
+                The gateway builds on Go Wallet Toolbox signing, wallet acceptance and authenticated cloud storage. The
+                app uses TypeScript and Expo.
+              </p>
+              <p>
+                The first service runs one process per merchant with durable state. Multiple replicas need transactional
+                storage and coordinated locking.
+              </p>
+            </article>
+          </div>
+        </section>
+      </div>
+      <section class="section section-tinted" id="roadmap" aria-labelledby="roadmap-title">
+        <div class="wrap">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Start at the corner store</div>
+              <h2 id="roadmap-title">A focused first version.<br />A practical path to the till.</h2>
+            </div>
+            <p>
+              Independent cafés, corner stores and owner-operated businesses come first. Pilot in the US, then evaluate
+              EU markets locally.
+            </p>
+          </div>
+          <div class="roadmap">
+            <div class="roadmap-column">
+              <div class="eyebrow"><span class="dot"></span>Implemented for the technical pilot</div>
+              <ul>
+                <li>Separate merchant and cashier setup in an Expo app</li>
+                <li>Signed enrollment, cashier approval and revocation</li>
+                <li>Manual amount entry in whole satoshis</li>
+                <li>Signed invoices and encrypted nearby payment transport</li>
+                <li>Go service validation and merchant-signed acceptance receipts</li>
+                <li>Persistent pending payments and retry of the original transaction</li>
+              </ul>
+            </div>
+            <div class="roadmap-column later">
+              <div class="eyebrow">Next, informed by merchant pilots</div>
+              <ul>
+                <li>Local-currency totals and explicit, expiring BSV quotes</li>
+                <li>EPOS handoff of amount, currency and sale reference</li>
+                <li>Reporting accepted payments back to the originating till</li>
+                <li>Refunds, partial payments and store/till management</li>
+                <li>Receipt QR or reconnection after a nearby session ends</li>
+                <li>Stronger shared storage for multiple service instances</li>
+              </ul>
+            </div>
+          </div>
+          <div class="pilot-note">
+            <strong>Pilot status:</strong> this is a first technical version for testnet. Physical-device enrollment,
+            nearby handoff, recovery and acceptance testing are required before a merchant pilot. The customer wallet
+            must include support for signed POS requests. A local-currency total must never be entered as if it were a
+            satoshi amount.
+          </div>
+          <div style="margin-top: 30px; max-width: 840px">
+            <h3 style="font-size: 19px; margin-bottom: 9px">
+              The EPOS integration should remove retyping, not add another total.
+            </h3>
+            <p style="font-size: 14px; color: var(--muted)">
+              The intended adapter sends the amount, currency and sale reference from the existing till into the payment
+              flow, then returns the merchant-confirmed result to that same sale. A QR can carry the handoff if the EPOS
+              supports it; scanning a total alone does not reconcile the order. Square and Clover are candidates to
+              investigate with local US merchants. The first partner will be chosen for actual merchant use and
+              integration access, not an assumed global market-share ranking.
+            </p>
+          </div>
+        </div>
+      </section>
+      <div class="wrap">
+        <section class="section faq" aria-labelledby="faq-title">
+          <div class="eyebrow">A few fair questions</div>
+          <h2 id="faq-title">The details that matter<br />before the first sale.</h2>
+          <details>
+            <summary>Does the cashier ever receive the business’s money?</summary>
+            <p>
+              The customer creates a receiving output for the merchant’s BRC-29 identity. The cashier relays the payment
+              data and uses their own identity for authorization. This flow does not route the funds through the
+              cashier’s wallet.
+            </p>
+          </details>
+          <details>
+            <summary>Is the cloud storage provider the merchant signing wallet?</summary>
+            <p>
+              They are separate roles. The Go gateway operates the merchant signing wallet and connects to authenticated
+              cloud storage. Storage alone does not have the private derivation capability needed for merchant
+              destination checks. Deploy and protect the signing identity as a merchant credential.
+            </p>
+          </details>
+          <details>
+            <summary>What happens if the response disappears after payment?</summary>
+            <p>
+              The cashier app and service preserve the exact submitted transaction. Check status and retry that
+              transaction against its invoice. If acceptance already produced a receipt, the service returns the stored
+              receipt. Do not treat a timeout as rejection or request another payment. Revoked-cashier recovery may
+              require merchant intervention.
+            </p>
+          </details>
+          <details>
+            <summary>Does “Paid” mean a mined blockchain confirmation?</summary>
+            <p>
+              No. It means the merchant service has validated the transaction and its destination and amount, obtained
+              wallet acceptance, and checked the action status before issuing a signed receipt. The first version
+              accepts the wallet’s unproven or completed states; sending and failed states do not produce a paid
+              receipt. This is the wallet’s network-acceptance policy, not block-confirmed finality.
+            </p>
+          </details>
+          <details>
+            <summary>Will the offline customer always get the final receipt?</summary>
+            <p>
+              Not if the original nearby connection has already timed out. The cashier can resolve the persisted sale,
+              but a dedicated receipt QR or reconnection flow is still planned. A radio acknowledgment is sent after
+              merchant confirmation while the session remains available; the animated QR fallback retains the wallet’s
+              manual handoff confirmation behavior.
+            </p>
+          </details>
+          <details>
+            <summary>Can this plug straight into my existing EPOS?</summary>
+            <p>
+              Not in this version. The first app accepts manual whole-satoshi entry. An EPOS adapter must both transfer
+              the correct sale total and reconcile the confirmed payment with the till. Provider APIs, external-payment
+              rules, device support and approval requirements need validation before promising a plugin.
+            </p>
+          </details>
+          <details>
+            <summary>Does the customer need the Merchant app too?</summary>
+            <p>
+              No. The customer uses BSV Wallet with support for the signed merchant request. Merchant and cashier setup
+              stay in BSV Merchant. Older customer wallet builds will need an update to recognize these POS codes.
+            </p>
+          </details>
+        </section>
+        <section class="closing" aria-labelledby="closing-title">
+          <div>
+            <div class="eyebrow" style="margin-bottom: 14px">Built in the open</div>
+            <h2 id="closing-title">A simpler counter.<br />A clear chain of responsibility.</h2>
+            <p>
+              Explore the Go gateway and protocol, or review the deployment design. The first goal is a dependable
+              nearby payment at a real independent shop.
+            </p>
+          </div>
+          <a class="button" href="https://github.com/bsv-blockchain/go-wallet-toolbox/pull/1065"
+            >Explore the Go implementation <span aria-hidden="true">↗</span></a
+          >
+        </section>
+      </div>
+    </main>
+    <footer class="footer">
+      <div class="wrap">
+        <div>
+          <strong>BSV Merchant</strong> · A merchant solution built on BSV Wallet and Go Wallet Toolbox.<br />Technical
+          pilot explainer · October 2026
+        </div>
+        <div class="footer-links">
+          <a href="index.html">BSV Wallet</a
+          ><a href="https://github.com/bsv-blockchain/go-wallet-toolbox/pull/1065">Service &amp; protocol</a
+          ><a href="https://github.com/bsv-blockchain/bsva-infra-flux/pull/418">Deployment design</a
+          ><a href="#main">Back to top ↑</a>
+        </div>
+      </div>
+    </footer>
+    <script>
+      ;(() => {
+        'use strict'
+        const steps = [
+          {
+            title: 'The cashier requests the sale.',
+            body: 'The cashier enters the amount in satoshis. The online service checks that cashier’s approval and signs an invoice binding the merchant, amount-bearing nearby session, network, cashier and expiry.',
+            detail: 'Cashier → merchant service · Signed invoice → cashier',
+            nodes: ['cashier', 'service'],
+            links: ['service']
+          },
+          {
+            title: 'The customer checks who they are paying.',
+            body: 'The customer scans the request in BSV Wallet. The wallet verifies the merchant signature, network and expiry, and displays the merchant and amount. The signature binds the request to that merchant identity; it is not independent proof of a business’s real-world identity.',
+            detail: 'Signed invoice → customer · Merchant and amount shown before payment',
+            nodes: ['customer', 'cashier'],
+            links: ['nearby']
+          },
+          {
+            title: 'The output pays the merchant, directly.',
+            body: 'The funded, prepared customer wallet derives a BRC-29 receiving output for the merchant identity. It sends the payment data over the encrypted nearby session to the cashier’s device. The customer does not need internet for this local handoff.',
+            detail: 'Customer → merchant output · Encrypted data → cashier',
+            nodes: ['customer', 'cashier'],
+            links: ['nearby']
+          },
+          {
+            title: 'The cashier saves, then relays.',
+            body: 'The cashier app preserves the exact received payment before forwarding it over HTTPS in a signed request. The service checks authorization and invoice binding and persists the submitted bytes before wallet acceptance. A lost response can be recovered without a second charge.',
+            detail: 'Saved transaction → merchant service · Same invoice, same transaction on retry',
+            nodes: ['cashier', 'service'],
+            links: ['service']
+          },
+          {
+            title: 'The merchant verifies and accepts.',
+            body: 'The signing service derives the expected merchant output and checks destination and amount. Go Wallet Toolbox validates the transaction evidence and internalizes the payment. The service requires wallet acceptance and an unproven or completed action status; pending broadcasts and failed actions cannot produce a paid receipt.',
+            detail: 'Merchant signing wallet + cloud storage · Validation before confirmation',
+            nodes: ['service'],
+            links: []
+          },
+          {
+            title: 'A signed receipt makes the sale Paid.',
+            body: 'The service signs a receipt binding the original invoice, transaction and amount. The cashier app verifies it before showing Paid, then acknowledges the nearby payment while the session is still connected. Acceptance is not the same as a mined block confirmation.',
+            detail: 'Merchant receipt → cashier · Acknowledgment → customer if still connected',
+            nodes: ['customer', 'cashier', 'service'],
+            links: ['nearby', 'service']
+          }
+        ]
+        let current = 0
+        const buttons = [...document.querySelectorAll('[data-step]')]
+        function showStep(index) {
+          current = index
+          const s = steps[index]
+          buttons.forEach((button, i) => {
+            button.classList.toggle('active', i === index)
+            button.setAttribute('aria-pressed', String(i === index))
+          })
+          document.getElementById('step-counter').textContent = String(index + 1).padStart(2, '0') + ' / 06'
+          document.getElementById('step-title').textContent = s.title
+          document.getElementById('step-body').textContent = s.body
+          document.getElementById('step-detail').textContent = s.detail
+          ;['customer', 'cashier', 'service'].forEach(n =>
+            document.getElementById('node-' + n).classList.toggle('lit', s.nodes.includes(n))
+          )
+          ;['nearby', 'service'].forEach(n =>
+            document.getElementById('link-' + n).classList.toggle('lit', s.links.includes(n))
+          )
+          document.getElementById('next-step').textContent =
+            index === steps.length - 1 ? 'Start again ↺' : 'Next step →'
+        }
+        buttons.forEach(button => button.addEventListener('click', () => showStep(Number(button.dataset.step))))
+        document.getElementById('next-step').addEventListener('click', () => showStep((current + 1) % steps.length))
+        const customer = document.getElementById('customer-online'),
+          service = document.getElementById('service-online')
+        function updateConnectivity() {
+          const up = service.checked
+          document.getElementById('connection-result').classList.toggle('pending', !up)
+          document.getElementById('connection-title').textContent = up
+            ? customer.checked
+              ? 'Both connected. Payment can proceed.'
+              : 'Customer offline. Payment can proceed.'
+            : 'Merchant unreachable. Keep the sale pending.'
+          document.getElementById('connection-body').textContent = up
+            ? customer.checked
+              ? 'The same nearby flow applies. Internet on the customer’s phone does not replace merchant validation: Paid still requires the matching signed receipt.'
+              : 'The customer hands over the transaction locally. The cashier relays it online. Paid still requires successful validation and a signed receipt.'
+            : 'A new sale needs the service to issue an invoice. If a payment was already received, preserve it and check status or retry the same transaction when access returns. Never show Paid or request a second payment just because confirmation timed out.'
+        }
+        customer.addEventListener('change', updateConnectivity)
+        service.addEventListener('change', updateConnectivity)
+        window.addEventListener('beforeprint', () => {
+          document.getElementById('transcript').open = true
+        })
+      })()
+    </script>
+  </body>
+</html>

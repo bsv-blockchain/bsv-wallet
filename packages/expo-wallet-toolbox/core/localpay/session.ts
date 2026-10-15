@@ -72,6 +72,10 @@ export interface SessionAsset {
 }
 
 export interface Session {
+  /** Verified host display metadata; never encoded into the base pairing QR. */
+  merchantName?: string
+  merchantChain?: string
+  merchantExpires?: number
   version: number
   caps: number
   sessionId: Uint8Array

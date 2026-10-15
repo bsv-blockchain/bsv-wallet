@@ -1,0 +1,32 @@
+{
+  "cli": {
+    "version": ">=24.5.0",
+    "appVersionSource": "remote",
+    "promptToConfigurePushNotifications": false
+  },
+  "build": {
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "ios": {
+        "credentialsSource": "remote",
+        "image": "latest"
+      },
+      "env": {
+        "EXPO_PUBLIC_DEFAULT_CHAIN": "test",
+        "RCT_USE_PREBUILT_RNCORE": "0"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascApiKeyPath": "/Users/personal/Certificates/AuthKey_23GZFDBWMS.p8",
+        "ascApiKeyId": "23GZFDBWMS",
+        "ascApiKeyIssuerId": "296a2a8a-ed8d-466f-967c-6c8e59100f5e",
+        "ascAppId": "6822867195",
+        "appleTeamId": "SV8SWTHA2H"
+      }
+    }
+  }
+}

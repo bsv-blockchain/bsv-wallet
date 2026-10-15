@@ -47,3 +47,7 @@ BSV Browser is a mobile browser with a self-custodial BSV wallet that provides:
 - 10 languages supported
 
 Built by the BSV Association team.
+
+## Merchant solution explainer
+
+Open [merchant.html](merchant.html) for the BSV Merchant landing page: a visual payment walkthrough, merchant/cashier setup, the transport-versus-payee distinction, an interactive connectivity model, architecture decisions, pilot scope and EPOS roadmap. It is self-contained, works without external assets, and uses no backend or analytics. Its interactive examples are explanatory only.
