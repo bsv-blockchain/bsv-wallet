@@ -454,6 +454,77 @@ function assetUnits(asset: SessionAsset, held?: { ticker: string; decimals: numb
 
 // ── Screen ──
 
+/**
+ * Everything the payer's confirm step shows and does, for a host that draws
+ * it in its own style (NearbyFlowProps.renderConfirm). The logic stays here:
+ * the host only renders these values and calls these actions.
+ */
+export interface NearbyConfirm {
+  session: Session
+  /** The payee's own figure, which the payer cannot change; undefined is an open request. */
+  fixedAmount?: number
+  /** What will be paid: satoshis, or base units of `asset`. 0 until usable. */
+  amount: number
+  /** Open request only: set the payer's figure (satoshis or base units); undefined clears it. */
+  setAmount: (units: number | undefined) => void
+  /** Token session: the unit every figure is in. Undefined on BSV. */
+  asset?: { ticker: string; decimals: number }
+  /** Token session: this wallet's holding of it, in base units. */
+  holding?: number
+  note: string
+  setNote: (note: string) => void
+  recipient: { name: string; detail?: string }
+  /** A merchant's sale + tip breakdown, as a sentence. */
+  tipText?: string
+  /** The nearby link's state, as the presence row would say it. */
+  presence: { state: PresenceState; label: string } | null
+  /** Plain sentences the confirm must show (why it's on the QR code, over balance, unknown unit). */
+  advisories: string[]
+  /** Set when the fix is in Settings (Bluetooth permission denied). */
+  openSettings?: () => void
+  canSend: boolean
+  send: () => void
+  cancel: () => void
+}
+
+/** The payer's "Delivering…" step, while the radio carries the payment. */
+export interface NearbySending {
+  /** Satoshis, or base units of `asset`. */
+  amount: number
+  asset?: { ticker: string; decimals: number }
+  recipient: { name: string; detail?: string }
+  presence: { state: PresenceState; label: string } | null
+}
+
+/** The payer's fallback: the payment itself as a code the payee scans. */
+export interface NearbyShowCode {
+  /** The payment code at `size` points: an animated fountain when it spans several frames. */
+  code: (size: number) => React.ReactNode
+  /** True when the code cycles through frames. */
+  animated: boolean
+  amount: number
+  asset?: { ticker: string; decimals: number }
+  recipient: { name: string; detail?: string }
+  presence: { state: PresenceState; label: string } | null
+  /** Why it fell back to a code, when a radio was tried first. */
+  notice?: { text: string; tone: 'success' | 'info' | 'warning' }
+  /** The payee has scanned it: keep the payment and finish. */
+  done: () => void
+  /** Leave without confirming: the payment is kept exactly as Done keeps it. */
+  back: () => void
+}
+
+/** The payer's finish: the payment went. */
+export interface NearbyDone {
+  /** Satoshis; with `amountText` set it's a token payment and that is the figure. */
+  amount: number
+  amountText?: string
+  statusNote?: string
+  recipientName?: string
+  /** Back to the wallet; ends the flow. */
+  dismiss: () => void
+}
+
 export interface NearbyFlowProps {
   /** Which side of the exchange this device is on. Set by the cell that mounted it. */
   role: 'payer' | 'payee'
@@ -472,9 +543,41 @@ export interface NearbyFlowProps {
   initialRequest?: { sats?: number; asset?: SessionAsset }
   /** Where the post-payment overlay and an exited QR flow send the user. Defaults to `/`. */
   dismissTo?: DismissTarget
+  /**
+   * Payee with `initialRequest` only: render inline inside a host screen
+   * instead of taking it over. While the request is live (minting, waiting,
+   * the payer's-code scanner, saving, the paid overlay) only the pairing code
+   * and its status show, sized `qrSize`; the host already shows the amount.
+   * A failed or already-paid outcome opens full screen in a modal, and its
+   * Cancel calls `onExit` — the host remounts for a fresh request.
+   *
+   * `onBusy` reports when a payment is in hand (the payer's-code scanner,
+   * saving, the paid overlay, a failure): the host must not remount or
+   * unmount the flow then — no new amount, no switching away.
+   */
+  embedded?: { qrSize?: number; onBusy?: (busy: boolean) => void }
+  /**
+   * Payer only: draw these steps yourself, in the host's own style. Each is
+   * optional; a step without one shows the built-in screen. The logic stays
+   * here — the host renders the values and calls the actions it is handed.
+   */
+  renderPayer?: {
+    confirm?: (confirm: NearbyConfirm) => React.ReactNode
+    sending?: (sending: NearbySending) => React.ReactNode
+    showCode?: (showCode: NearbyShowCode) => React.ReactNode
+    done?: (done: NearbyDone) => React.ReactNode
+  }
 }
 
-function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest, dismissTo = '/' }: NearbyFlowProps) {
+function NearbyFlow({
+  role: initialRole,
+  onExit,
+  initialSession,
+  initialRequest,
+  dismissTo = '/',
+  embedded,
+  renderPayer
+}: NearbyFlowProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -2571,8 +2674,7 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
     )
   }
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
+  const flowBody = (
       <ScrollView
         style={{ flex: 1, backgroundColor: colors.background }}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xxxl }]}
@@ -3094,6 +3196,222 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           </Animated.View>
         )}
       </ScrollView>
+  )
+
+  /**
+   * Embedded (see NearbyFlowProps.embedded): every phase of a live request
+   * stays inline, so the scanner and the paid overlay — both modals of their
+   * own — never stack on a second one. Only the outcomes that need the full
+   * failure copy and its buttons open full screen.
+   */
+  const inlinePhase =
+    phase === 'entry' ||
+    phase === 'receive_minting' ||
+    phase === 'receive_wait' ||
+    phase === 'receive_scan' ||
+    phase === 'receive_settling' ||
+    phase === 'done'
+  const embeddedQrSize = embedded?.qrSize ?? 196
+  const onBusy = embedded?.onBusy
+  const busy = !(phase === 'entry' || phase === 'receive_minting' || phase === 'receive_wait')
+  useEffect(() => {
+    onBusy?.(busy)
+  }, [onBusy, busy])
+  useEffect(() => () => onBusy?.(false), [onBusy])
+
+  const inlineBody = (
+    <View style={styles.embedded}>
+      {phase === 'receive_wait' && hostedSession && sessionQr && !sessionQrBroken ? (
+        <View style={[styles.qrCard, { shadowColor: colors.textPrimary }]}>
+          <View style={styles.qrPlate}>
+            <QRCode
+              value={sessionQr}
+              size={embeddedQrSize}
+              ecl="M"
+              color="#000"
+              backgroundColor="#fff"
+              onError={onSessionQrError}
+            />
+          </View>
+        </View>
+      ) : phase === 'receive_wait' && hostedSession ? (
+        <View
+          style={[styles.qrError, { width: embeddedQrSize, height: embeddedQrSize, backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
+          accessibilityRole="alert"
+        >
+          <Ionicons name="alert-circle-outline" size={28} color={colors.error} />
+          <View style={styles.gapSm} />
+          <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_qr_unavailable')}</Text>
+        </View>
+      ) : (
+        // the code's own footprint, so the host's layout does not jump
+        <View
+          style={[styles.embeddedPending, { width: embeddedQrSize + spacing.lg * 2, height: embeddedQrSize + spacing.lg * 2 }]}
+          accessibilityRole="progressbar"
+          accessibilityLabel={phase === 'receive_settling' ? t('local_pay_saving') : t('local_pay_preparing')}
+        >
+          <ActivityIndicator size="large" color={colors.textSecondary} />
+          <View style={styles.gapMd} />
+          {supportText(phase === 'receive_settling' ? t('local_pay_saving') : t('local_pay_preparing'))}
+        </View>
+      )}
+      <View style={styles.gapMd} />
+      {presenceBlock}
+      {phase === 'receive_wait' && sessionMismatch && (
+        <>
+          <View style={styles.gapMd} />
+          {notice ? (
+            noticeBlock(notice)
+          ) : (
+            <View
+              style={[styles.notice, { backgroundColor: colors.error + '15', borderColor: colors.error + '40' }]}
+              accessibilityRole="alert"
+            >
+              <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+              <Text style={[styles.noticeText, { color: colors.error }]}>{t('local_pay_wrong_session')}</Text>
+            </View>
+          )}
+        </>
+      )}
+      {phase === 'receive_wait' &&
+        radioFailures.map(([kind, err]) => (
+          <React.Fragment key={kind}>
+            <View style={styles.gapMd} />
+            <View style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+              <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
+                {err.networkDenied
+                  ? t('local_pay_network_denied')
+                  : kind === 'ble'
+                    ? t('local_pay_ble_unavailable')
+                    : t('local_pay_nearby_unavailable')}
+              </Text>
+            </View>
+          </React.Fragment>
+        ))}
+      {phase === 'receive_wait' && radioFailures.some(([, err]) => err.networkDenied) && (
+        <>
+          <View style={styles.gapMd} />
+          <SecondaryButton
+            styles={styles}
+            colors={colors}
+            icon="settings-outline"
+            label={t('open_settings')}
+            onPress={() => void Linking.openSettings()}
+          />
+        </>
+      )}
+      {/* the payer's radios failed and it shows its own code instead */}
+      {phase === 'receive_wait' && (
+        <>
+          <View style={styles.gapMd} />
+          <PressableScale
+            onPress={() => openScanner('receive_scan')}
+            haptic="tap"
+            style={styles.embeddedScan}
+            accessibilityRole="button"
+            accessibilityLabel={t('local_pay_scan_payer_qr')}
+          >
+            <Ionicons name="scan-outline" size={16} color={colors.textSecondary} />
+            <Text style={[styles.embeddedScanText, { color: colors.textSecondary }]}>{t('local_pay_scan_payer_qr')}</Text>
+          </PressableScale>
+        </>
+      )}
+    </View>
+  )
+
+  const payerRecipient = scannedSession
+    ? {
+        name: peerName ?? scannedSession.merchantName ?? abbreviateKey(scannedSession.identityKey),
+        detail: scannedSession.merchantName
+          ? `Merchant · ${abbreviateKey(scannedSession.identityKey)}`
+          : peerName
+            ? abbreviateKey(scannedSession.identityKey)
+            : undefined
+      }
+    : { name: '' }
+  // wrapped, so a host that renders nothing still replaces the built-in step
+  const hosted: { node: React.ReactNode } | null =
+    role !== 'payer' || !renderPayer
+      ? null
+      : phase === 'send_confirm' && scannedSession && renderPayer.confirm
+        ? { node: <Hosted render={renderPayer.confirm} value={{
+            session: scannedSession,
+            fixedAmount: scannedSession.amount,
+            amount: payAmount,
+            setAmount: units => setSendAmount(units !== undefined && units > 0 ? String(Math.round(units)) : ''),
+            asset: scannedAssetUnits,
+            holding: scannedHolding && !unitsUnknown ? scannedHolding.baseUnits : undefined,
+            note,
+            setNote,
+            recipient: payerRecipient,
+            tipText: scannedSession.merchantTip
+              ? t('merchant_tip_breakdown', {
+                  defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
+                  subtotal: scannedSession.merchantSubtotal?.toLocaleString(),
+                  tip: scannedSession.merchantTip.toLocaleString()
+                })
+              : undefined,
+            presence,
+            advisories: [
+              ...(floorReason !== 'none' ? [t(FLOOR_KEYS[floorReason])] : []),
+              ...(overHolding && scannedAssetUnits && !unitsUnknown
+                ? [t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker })]
+                : []),
+              ...(unitsUnknown ? [t('pay_asset_unidentified')] : [])
+            ],
+            openSettings: floorReason === 'local_ble_denied' ? () => void Linking.openSettings() : undefined,
+            canSend,
+            send: () => void executeSend(),
+            cancel: reset
+          }} /> }
+        : phase === 'send_working' && renderPayer.sending
+          ? { node: <Hosted render={renderPayer.sending} value={{ amount: payAmount, asset: scannedAssetUnits, recipient: payerRecipient, presence }} /> }
+          : phase === 'send_qr' && paymentQr && renderPayer.showCode
+            ? { node: <Hosted render={renderPayer.showCode} value={{
+                code: size => <PaymentQrDisplay frameQr={paymentQr} size={size} onError={onPaymentQrError} />,
+                animated: paymentQrBlocks > 1,
+                amount: payAmount,
+                asset: scannedAssetUnits,
+                recipient: payerRecipient,
+                presence,
+                notice: notice ?? undefined,
+                done: () => void completeQrDelivery(),
+                back: () => void handleSendQrExit(false)
+              }} /> }
+            : phase === 'done' && renderPayer.done
+              ? { node: <Hosted render={renderPayer.done} value={{
+                  amount: settledAmount,
+                  amountText: settledTokenText ?? undefined,
+                  statusNote: settledStatusNote ?? undefined,
+                  recipientName:
+                    peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined),
+                  dismiss: () => {
+                    goBack()
+                    router.dismissTo(dismissTo)
+                  }
+                }} /> }
+              : null
+
+  return (
+    <View
+      style={
+        hosted ? styles.container : embedded ? undefined : [styles.container, { backgroundColor: colors.backgroundSecondary }]
+      }
+    >
+      {hosted ? (
+        hosted.node
+      ) : !embedded ? (
+        flowBody
+      ) : inlinePhase ? (
+        inlineBody
+      ) : (
+        <Modal visible animationType="slide" onRequestClose={reset} statusBarTranslucent>
+          <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
+            {flowBody}
+          </View>
+        </Modal>
+      )}
 
       {/* ══ Scanner ══ */}
       <Modal visible={scannerOpen} animationType="slide" onRequestClose={closeScanner} statusBarTranslucent>
@@ -3124,7 +3442,7 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
           the write cannot be lost at that point, and background internalizing
           catches up on its own; surfacing that separately (if it ever fails)
           is a job for the activity list, not for withholding this screen. */}
-      {phase === 'done' && (
+      {phase === 'done' && !hosted && (
         <ReceivedOverlay
           amount={settledAmount}
           amountText={settledTokenText ?? undefined}
@@ -3150,6 +3468,11 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
       )}
     </View>
   )
+}
+
+/** A host's own drawing of one payer step (NearbyFlowProps.renderPayer), run in its own render. */
+function Hosted<T>({ render, value }: { render: (value: T) => React.ReactNode; value: T }) {
+  return <>{render(value)}</>
 }
 
 // ── Small components ──
@@ -3270,6 +3593,10 @@ function CancelButton({
 function makeStyles() {
   return StyleSheet.create({
     container: { flex: 1 },
+    embedded: { alignItems: 'center', alignSelf: 'stretch' },
+    embeddedPending: { alignItems: 'center', justifyContent: 'center' },
+    embeddedScan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12 },
+    embeddedScanText: { fontSize: 13, lineHeight: 18 },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

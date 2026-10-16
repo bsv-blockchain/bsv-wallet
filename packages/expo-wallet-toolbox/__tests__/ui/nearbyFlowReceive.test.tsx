@@ -308,3 +308,59 @@ describe('NearbyFlow — payee receive verification (P1-1)', () => {
     expect(mockSavePending).not.toHaveBeenCalled()
   })
 })
+
+// Embedded (a host screen's own code slot, e.g. Bitcoin SV Wallet's Receive):
+// the live request renders inline with no title or Cancel, a payment in hand
+// is reported through onBusy, and only a failure opens full screen.
+describe('NearbyFlow — embedded payee', () => {
+  const { Modal } = jest.requireActual('react-native') as typeof import('react-native')
+
+  it('renders only the code, its status and the payer-code link while waiting', async () => {
+    const s = wrap(
+      <NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} embedded={{ qrSize: 180 }} />
+    )
+    await waitFor(() => expect(s.getByText('local_pay_scan_payer_qr')).toBeTruthy())
+    expect(s.UNSAFE_getAllByType('QRCode' as never)[0].props.size).toBe(180)
+    expect(s.queryByText('local_pay_show_qr')).toBeNull()
+    expect(s.queryByText('cancel')).toBeNull()
+    expect(s.UNSAFE_queryAllByType(Modal).filter(m => m.props.visible)).toHaveLength(0)
+  })
+
+  it('reports busy from the payer-code scan through the paid overlay', async () => {
+    const onBusy = jest.fn()
+    const s = wrap(
+      <NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} embedded={{ onBusy }} />
+    )
+    await waitFor(() => expect(s.getByText('local_pay_scan_payer_qr')).toBeTruthy())
+    expect(onBusy).toHaveBeenLastCalledWith(false)
+    await act(async () => {
+      fireEvent.press(s.getByText('local_pay_scan_payer_qr'))
+    })
+    expect(onBusy).toHaveBeenLastCalledWith(true)
+    await waitFor(() => expect(mockScanHandler).toBeTruthy())
+    await act(async () => {
+      mockScanHandler!('bsvpayf1:stub-part')
+    })
+    await settle()
+    await waitFor(() => expect(s.getByText('local_pay_added')).toBeTruthy())
+    expect(onBusy).toHaveBeenLastCalledWith(true)
+    expect(mockClaimAndSavePending).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens a failure full screen in a modal, with its own way out', async () => {
+    mockCreateNonce.mockReset()
+    mockCreateNonce.mockRejectedValue(new Error('nonce boom'))
+    const onExit = jest.fn()
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={onExit} embedded={{}} />)
+    await waitFor(() => expect(s.getByText('retry')).toBeTruthy())
+    expect(s.UNSAFE_queryAllByType(Modal).filter(m => m.props.visible).length).toBeGreaterThan(0)
+    expect(s.queryByText('local_pay_scan_payer_qr')).toBeNull()
+  })
+
+  it('leaves the full-screen flow unchanged without embedded', async () => {
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await waitFor(() => expect(s.getByText('local_pay_show_qr')).toBeTruthy())
+    expect(s.getByText('cancel')).toBeTruthy()
+    expect(s.UNSAFE_getAllByType('QRCode' as never)[0].props.size).toBe(288)
+  })
+})

@@ -343,3 +343,35 @@ describe('XR-097: a double-tap cannot build two independent payments', () => {
     })
   })
 })
+
+// A host drawing the payer's steps itself (Bitcoin SV Wallet): its confirm
+// replaces the built-in one, and the actions it is handed run the same send.
+describe('renderPayer', () => {
+  it('hands the confirm to the host and sends through the shared path', async () => {
+    mockAwdlSend.mockResolvedValue({ ok: true })
+    let confirm: import('../../ui/components/pay/NearbyFlow').NearbyConfirm | undefined
+    const s = wrap(
+      <NearbyFlow
+        role="payer"
+        initialSession={session()}
+        onExit={jest.fn()}
+        renderPayer={{
+          confirm: c => {
+            confirm = c
+            return null
+          }
+        }}
+      />
+    )
+    await settle()
+    expect(confirm?.fixedAmount).toBe(2500)
+    expect(confirm?.canSend).toBe(true)
+    expect(s.queryByLabelText('local_pay_send')).toBeNull()
+    await act(async () => {
+      confirm!.send()
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(mockAwdlSend).toHaveBeenCalledTimes(1)
+    expect(mockFinalizeDelivery).toHaveBeenCalledTimes(1)
+  })
+})
