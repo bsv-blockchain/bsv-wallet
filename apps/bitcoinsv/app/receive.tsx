@@ -11,6 +11,12 @@
 // A note (what it's for) goes in the code and the link: the pay link's `note`
 // extension, which starts the payer's own note.
 //
+// "Nearby | Remote" switches the share cluster: Remote is the link above;
+// Nearby hands the amount to the core's NearbyFlow as payee, which shows its
+// own pairing code and takes the payment over AWDL, BLE or the QR fountain,
+// with no internet needed (the note stays with the link — a nearby session
+// has no field for it).
+//
 // Not here, unlike the prototype: the bitcoinsv.com request link and public
 // /@handle page (no server for them yet). The link shared is the pay link
 // itself.
@@ -22,7 +28,7 @@ import { useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, Ellipsis, Send, Tag, Wallet } from 'lucide-react-native'
+import { Check, Copy, Ellipsis, Link2, Radio, Send, Tag, Wallet } from 'lucide-react-native'
 import {
   NO_MESSAGE_BOX,
   TaskCreditInbox,
@@ -30,11 +36,14 @@ import {
   useWallet
 } from '@bsv/expo-wallet-toolbox'
 import {
+  NearbyAdvisoryModal,
+  NearbyFlow,
   formatTokenAmountWithUnit,
   parseTokenAmount,
   useMandala,
   useMessageBoxConfig
 } from '@bsv/expo-wallet-toolbox/ui'
+import { nearbyAdvisory } from '@bsv/expo-wallet-toolbox/core/localpay/nearbyAdvisory'
 import { showToast } from '../src/ui/Toast'
 import type { TokenAssetInfo } from '@bsv/expo-wallet-toolbox/core/mandala/runtime'
 import { DISPLAY_NAME_KV_KEY, HANDLE_KV_KEY } from '@bsv/expo-wallet-toolbox/core/identity/handleRegistry/profileKeys'
@@ -60,6 +69,11 @@ import { useRequests } from '../src/requests/useRequests'
 import { useDisplayCurrency } from '../src/state/displayCurrency'
 
 const SATS_PER_BSV = 100_000_000
+const WAYS = [
+  { key: 'nearby', label: 'Nearby', icon: Radio },
+  { key: 'remote', label: 'Remote', icon: Link2 }
+] as const
+type Way = (typeof WAYS)[number]['key']
 /** How often to ask the inbox task to look while this screen is open (HandleReceive's poll). */
 const LOOK_MS = 5000
 
@@ -88,6 +102,20 @@ export default function Receive() {
   const [picking, setPicking] = useState(false)
   const [sharing, setSharing] = useState(false)
   const requests = useRequests()
+  // in person over the radios, or the link for anyone anywhere
+  const [way, setWay] = useState<Way>('remote')
+  const [nearbyOpen, setNearbyOpen] = useState(false)
+  // the one-time heads-up before the OS's Local Network / Bluetooth prompts;
+  // null until read, so a returning user never sees it flash
+  const [advisorySeen, setAdvisorySeen] = useState<boolean | null>(null)
+  const [advising, setAdvising] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void nearbyAdvisory.get().then(seen => alive && setAdvisorySeen(seen))
+    return () => {
+      alive = false
+    }
+  }, [])
   // the note field shows its ring only while you're in it
   const noteRing = useFocusRing(palette, '0 0 0 1px transparent')
 
@@ -172,6 +200,40 @@ export default function Receive() {
     if (!link) return
     // dismissing the share sheet rejects on some platforms
     void Share.share({ message: shared }).catch(() => {})
+  }
+  const startNearby = () => {
+    if (advisorySeen === null) return
+    if (advisorySeen) setNearbyOpen(true)
+    else setAdvising(true)
+  }
+
+  // the core's flow takes the whole screen; leaving it comes back here
+  if (nearbyOpen) {
+    return (
+      // the flow has no header of its own, so it starts below the status bar
+      <View style={[styles.root, { backgroundColor: palette.background, paddingTop: insets.top }]}>
+        <NearbyFlow
+          role="payee"
+          initialRequest={{
+            sats: requested,
+            ...(asset
+              ? {
+                  asset: {
+                    id: asset.assetId,
+                    label: asset.label,
+                    ticker: asset.ticker,
+                    decimals: asset.decimals,
+                    overlayUrl: asset.overlayUrl,
+                    overlayIdentityKey: asset.overlayIdentityKey
+                  }
+                }
+              : {})
+          }}
+          onExit={() => setNearbyOpen(false)}
+          dismissTo="/"
+        />
+      </View>
+    )
   }
 
   return (
@@ -261,45 +323,87 @@ export default function Receive() {
           </View>
 
           <View style={styles.linkBlock}>
-            {/* a link for this request: who, which currency, how much, what for */}
-            <Text style={[font(600), styles.xs, styles.linkLabel, { color: palette.mutedForeground }]}>
-              {requested ? 'Link for one payment' : 'Link to pay you any amount'}
-            </Text>
-            <View style={styles.linkRow}>
-              {/* tap copies; a long press hands it to the share sheet */}
-              <Pressable
-                onPress={copyLink}
-                onLongPress={share}
-                accessibilityRole="button"
-                accessibilityLabel="Copy your pay link"
-                accessibilityHint="Long press to share it"
-                style={({ pressed }) => [styles.linkPill, { backgroundColor: pressed ? palette.accent : palette.secondary }]}
-              >
-                <Text
-                  numberOfLines={1}
-                  ellipsizeMode="middle"
-                  style={[font(400), styles.linkText, { color: palette.mutedForeground }]}
-                >
-                  {shownLink || '…'}
-                </Text>
-                <Copy size={14} color={palette.mutedForeground} />
-              </Pressable>
-              {/* or straight to people in the app */}
-              <PressScale
-                scale={0.95}
-                onPress={() => (requests.ready && link && !refusal ? setSharing(true) : share())}
-                accessibilityRole="button"
-                accessibilityLabel={requested ? 'Send this request to people' : 'Send your link to people'}
-                style={[styles.send, { backgroundColor: palette.ink }]}
-              >
-                <Send size={14} color={palette.inkForeground} />
-                <Text style={[font(600), styles.small, { color: palette.inkForeground }]}>Send</Text>
-              </PressScale>
+            {/* in person, or anywhere */}
+            <View accessibilityRole="tablist" accessibilityLabel="How to get paid" style={[styles.ways, { backgroundColor: palette.secondary }]}>
+              {WAYS.map(({ key, label, icon: Icon }) => {
+                const on = key === way
+                return (
+                  <Pressable
+                    key={key}
+                    onPress={() => setWay(key)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: on }}
+                    style={[styles.wayTab, on && { backgroundColor: palette.ink }]}
+                  >
+                    <Icon size={16} color={on ? palette.inkForeground : palette.mutedForeground} />
+                    <Text style={[font(600), styles.wayText, { color: on ? palette.inkForeground : palette.mutedForeground }]}>{label}</Text>
+                  </Pressable>
+                )
+              })}
             </View>
-            {/* any other app: the phone's share sheet */}
-            <Pressable onPress={share} accessibilityRole="button" hitSlop={8} style={styles.shareOther}>
-              <Text style={[font(400), styles.shareOtherText, { color: palette.mutedForeground }]}>Share the link another way</Text>
-            </Pressable>
+            {way === 'nearby' ? (
+              <>
+                <Text style={[font(600), styles.xs, styles.linkLabel, { color: palette.mutedForeground }]}>
+                  {requested ? 'Get paid in person' : 'Get paid any amount in person'}
+                </Text>
+                <PressScale
+                  scale={0.95}
+                  onPress={startNearby}
+                  disabled={!!refusal || !identityKey}
+                  accessibilityRole="button"
+                  accessibilityLabel={requested ? 'Show a nearby code for this request' : 'Show a nearby code'}
+                  style={[styles.send, { backgroundColor: palette.ink, opacity: refusal || !identityKey ? 0.5 : 1 }]}
+                >
+                  <Radio size={14} color={palette.inkForeground} />
+                  <Text style={[font(600), styles.small, { color: palette.inkForeground }]}>Show nearby code</Text>
+                </PressScale>
+                <BalancedText style={[font(400), styles.shareOtherText, styles.center, styles.wide, styles.shareOther, { color: palette.mutedForeground }]}>
+                  They scan it and pay phone to phone, over Wi‑Fi or Bluetooth. No internet needed.
+                </BalancedText>
+              </>
+            ) : (
+              <>
+                {/* a link for this request: who, which currency, how much, what for */}
+                <Text style={[font(600), styles.xs, styles.linkLabel, { color: palette.mutedForeground }]}>
+                  {requested ? 'Link for one payment' : 'Link to pay you any amount'}
+                </Text>
+                <View style={styles.linkRow}>
+                  {/* tap copies; a long press hands it to the share sheet */}
+                  <Pressable
+                    onPress={copyLink}
+                    onLongPress={share}
+                    accessibilityRole="button"
+                    accessibilityLabel="Copy your pay link"
+                    accessibilityHint="Long press to share it"
+                    style={({ pressed }) => [styles.linkPill, { backgroundColor: pressed ? palette.accent : palette.secondary }]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      ellipsizeMode="middle"
+                      style={[font(400), styles.linkText, { color: palette.mutedForeground }]}
+                    >
+                      {shownLink || '…'}
+                    </Text>
+                    <Copy size={14} color={palette.mutedForeground} />
+                  </Pressable>
+                  {/* or straight to people in the app */}
+                  <PressScale
+                    scale={0.95}
+                    onPress={() => (requests.ready && link && !refusal ? setSharing(true) : share())}
+                    accessibilityRole="button"
+                    accessibilityLabel={requested ? 'Send this request to people' : 'Send your link to people'}
+                    style={[styles.send, { backgroundColor: palette.ink }]}
+                  >
+                    <Send size={14} color={palette.inkForeground} />
+                    <Text style={[font(600), styles.small, { color: palette.inkForeground }]}>Send</Text>
+                  </PressScale>
+                </View>
+                {/* any other app: the phone's share sheet */}
+                <Pressable onPress={share} accessibilityRole="button" hitSlop={8} style={styles.shareOther}>
+                  <Text style={[font(400), styles.shareOtherText, { color: palette.mutedForeground }]}>Share the link another way</Text>
+                </Pressable>
+              </>
+            )}
             {requestedText && (
               <BalancedText style={[font(600), styles.small, styles.center, styles.wide, { color: palette.positive, marginTop: 8 }]}>
                 This code requests {requestedText}
@@ -392,6 +496,16 @@ export default function Receive() {
         asset={asset ? { assetId: asset.assetId, ticker: asset.ticker, decimals: asset.decimals } : undefined}
         link={link}
       />
+      <NearbyAdvisoryModal
+        visible={advising}
+        onCancel={() => setAdvising(false)}
+        onContinue={() => {
+          void nearbyAdvisory.set()
+          setAdvisorySeen(true)
+          setAdvising(false)
+          setNearbyOpen(true)
+        }}
+      />
       <NotifyPrompt />
     </View>
   )
@@ -403,6 +517,9 @@ const styles = StyleSheet.create({
   note: { paddingHorizontal: 16, paddingVertical: 6, fontSize: 14, lineHeight: 20, textAlign: 'center' },
   amountBlock: { alignItems: 'center', gap: 4, paddingTop: 8, alignSelf: 'stretch' },
   linkLabel: { paddingBottom: 8 },
+  ways: { flexDirection: 'row', gap: 4, borderRadius: 999, padding: 4, marginBottom: 14, alignSelf: 'stretch' },
+  wayTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8 },
+  wayText: { fontSize: 13, lineHeight: 18 },
   shareOther: { marginTop: 10 },
   shareOtherText: { fontSize: 13, lineHeight: 18 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
