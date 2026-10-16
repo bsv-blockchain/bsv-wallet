@@ -26,7 +26,7 @@ The TypeScript code under `service/` is a protocol/reference implementation, wit
 
 ## Setup and payment flow
 
-1. Merchant administrator imports the identity registered with the merchant gateway, chooses the matching network, and connects its HTTPS address. This administrator identity is privileged; only the merchant uses it.
+1. Merchant administrator imports the identity registered with the merchant gateway, chooses the matching network, and connects the preconfigured prototype service at `https://merchant-pos-us-1.bsvblockchain.tech`. No URL entry is required. This administrator identity is privileged; only the merchant uses it.
 2. The merchant creates a signed enrollment QR, valid for ten minutes.
 3. A cashier creates or imports their own wallet, selects the matching network, scans the enrollment code and requests approval. The merchant checks the name and identity and approves that cashier. Enrollment can be resumed after app restart.
 4. The cashier enters an amount. The online service checks cashier access and signs an invoice containing the exact merchant destination, amount-bearing nearby session, cashier, network and expiry.
@@ -67,3 +67,13 @@ The capability-sync environment flag preserves the registered Apple capabilities
 Select testnet using the setup screen’s network selector for initial enrollment and payment tests. The shared wallet currently defaults to mainnet; the build-profile environment variable does not override that shared default. A deployed merchant gateway is still required for end-to-end payment acceptance.
 
 The merchant app excludes the optional YubiKey module from native autolinking because vault functionality is disabled. Nearby transport and native crypto remain linked. Its app icon reuses the existing opaque wallet icon for this first test build.
+
+## Counter and merchant views
+
+The counter uses a large satoshi keypad with No tip, 10%, 20%, and custom whole-satoshi tips. Percentage tips round to the nearest satoshi; the grand total is guarded against integer overflow. The charge action stays visible below the scrollable checkout. Cashiers confirm the tip with the customer before requesting payment. Tips go to the merchant wallet with the sale; staff distribution is not automated.
+
+The merchant overview shows accepted sales, recorded tips, average sale and totals per cashier identity. Sales support status and cashier filters, invoice/transaction search, and receipt details. Pending, expired and unpaid invoices do not count as revenue. All totals use verified signed invoices and matching merchant receipts.
+
+The new tip breakdown requires the matching Go service image. Older invoices without a breakdown still display correctly; a gateway that drops the requested tip metadata cannot create a tipped sale in the new app. The default service URL is a prototype convenience, not a replacement for merchant identity and network checks.
+
+Design references were inspected in Chrome at Scrip’s counter, sales detail and merchant/team views. Stablecoin, card, cash, treasury and tax tooling are not included. No source or sample sales data from Scrip is used in the app.

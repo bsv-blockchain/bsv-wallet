@@ -35,13 +35,17 @@ import {
   type Receipt
 } from '../../../packages/expo-wallet-toolbox/core/pos/protocol'
 import { usePos } from '../src/context'
-import { Button, Field, Page, styles } from '../src/ui'
+import { Button, Page, styles } from '../src/ui'
+import { CounterEntry } from '../src/CounterEntry'
+import { checkoutTotal, formatSats, type TipChoice } from '../src/checkout'
 export default function SaleScreen() {
   const { width } = useWindowDimensions()
   const pos = usePos(),
     router = useRouter(),
     { selectedNetwork } = useWallet()
   const [amount, setAmount] = useState(''),
+    [tipChoice, setTipChoice] = useState<TipChoice>('none'),
+    [customTip, setCustomTip] = useState(''),
     [request, setRequest] = useState<Signed<MerchantRequest> | null>(null),
     [session, setSession] = useState<Session | null>(null),
     [receipt, setReceipt] = useState<Receipt | null>(null),
@@ -97,11 +101,15 @@ export default function SaleScreen() {
       await pos.savePending(pending)
       saved = true
       const result = await pos.accept(pending)
-      await confirm?.(true)
       if (mounted.current) {
         setReceipt(result)
         setRequest(null)
         setSession(null)
+      }
+      try {
+        await confirm?.(true)
+      } catch {
+        if (mounted.current) setError('Payment accepted. The customer connection closed before acknowledgment.')
       }
     } catch {
       if (!saved) {
@@ -122,9 +130,9 @@ export default function SaleScreen() {
     claimed.current = false
     try {
       if (!pos.config || selectedNetwork !== pos.config.chain) throw new Error('Merchant and wallet networks differ')
-      const n = Number(amount)
-      if (!/^\d+$/.test(amount) || !Number.isSafeInteger(n) || n < 1)
-        throw new Error('Enter a positive whole number of satoshis')
+      const breakdown = checkoutTotal(amount, tipChoice, customTip)
+      const n = breakdown.total
+      if (breakdown.subtotal < 1) throw new Error('Enter a positive sale amount')
       const nearby = localSupportsNearby() && (await requestNearbyPermissions())
       const ble =
         localSupportsBle() &&
@@ -141,7 +149,11 @@ export default function SaleScreen() {
         supportsBleScan: ble && Platform.OS === 'ios',
         os: Platform.OS === 'ios' ? 'ios' : 'android'
       })
-      const invoice = await pos.rpc<Signed<MerchantRequest>>('invoice', { session: encodeSession(current) })
+      const invoice = await pos.rpc<Signed<MerchantRequest>>('invoice', {
+        session: encodeSession(current),
+        subtotal: breakdown.subtotal,
+        tip: breakdown.tip
+      })
       const checked = await decodePos(encodePos(invoice))
       if (!mounted.current) return
       if (
@@ -150,6 +162,8 @@ export default function SaleScreen() {
         key(checked.identityKey) !== key(pos.config.merchant)
       )
         throw new Error('Merchant request did not match this sale')
+      if ((checked.payload.tip ?? 0) !== breakdown.tip || (checked.payload.subtotal ?? n) !== breakdown.subtotal)
+        throw new Error('Merchant service does not support this tip breakdown yet')
       setSession(current)
       setRequest(invoice)
       const abort = new AbortController()
@@ -200,13 +214,44 @@ export default function SaleScreen() {
         onClose={() => setScanning(false)}
       />
     )
+  let entryTotal = 0,
+    validEntry = false
+  try {
+    const value = checkoutTotal(amount, tipChoice, customTip)
+    entryTotal = value.total
+    validEntry = value.subtotal > 0
+  } catch {
+    /* The entry component displays the validation error. */
+  }
+  const clearEntry = () => {
+    setAmount('')
+    setTipChoice('none')
+    setCustomTip('')
+  }
   return (
-    <Page title={receipt ? 'Payment received' : 'New sale'} back={!busy && !pos.pending}>
+    <Page
+      title={receipt ? 'Payment received' : request || pos.pending ? 'Collect payment' : 'Counter'}
+      back={!busy && !pos.pending}
+      footer={
+        !request && !pos.pending && !receipt ? (
+          <View style={{ paddingHorizontal: 22, paddingVertical: 12, gap: 12, flexDirection: 'row' }}>
+            <Button secondary title="Clear" disabled={busy} onPress={clearEntry} />
+            <View style={{ flex: 1 }}>
+              <Button
+                title={busy ? 'Preparing…' : `Charge ${formatSats(entryTotal)} sats`}
+                disabled={busy || !validEntry}
+                onPress={() => void start()}
+              />
+            </View>
+          </View>
+        ) : undefined
+      }
+    >
       <Text style={styles.body}>{pos.config?.name}</Text>
       {receipt ? (
         <>
           <Text style={styles.paid}>Paid</Text>
-          <Text style={styles.amount}>{receipt.amount} sats</Text>
+          <Text style={styles.amount}>{formatSats(receipt.amount)} sats</Text>
           <Text style={styles.body}>Your merchant wallet accepted this payment.</Text>
           <Text selectable style={styles.body}>
             {receipt.txid}
@@ -216,7 +261,11 @@ export default function SaleScreen() {
             onPress={() => {
               claimed.current = false
               setReceipt(null)
+              setRequest(null)
+              setSession(null)
               setAmount('')
+              setTipChoice('none')
+              setCustomTip('')
               controller.current?.abort()
             }}
           />
@@ -224,7 +273,7 @@ export default function SaleScreen() {
         </>
       ) : pos.pending ? (
         <>
-          <Text style={styles.amount}>{pos.pending.amount} sats</Text>
+          <Text style={styles.amount}>{formatSats(pos.pending.amount)} sats</Text>
           <Text style={styles.body}>
             Awaiting merchant confirmation. The customer should keep their payment available. Check this sale before
             taking another payment.
@@ -238,8 +287,17 @@ export default function SaleScreen() {
               void pos
                 .accept(pos.pending!)
                 .then(async result => {
-                  await heldConfirm.current?.(true)
-                  if (mounted.current) setReceipt(result)
+                  if (mounted.current) {
+                    setReceipt(result)
+                    setRequest(null)
+                    setSession(null)
+                  }
+                  try {
+                    await heldConfirm.current?.(true)
+                  } catch {
+                    if (mounted.current)
+                      setError('Payment accepted. The customer connection closed before acknowledgment.')
+                  }
                 })
                 .catch(() => setError('Merchant confirmation is still unavailable. This sale is not marked paid.'))
                 .finally(() => setBusy(false))
@@ -248,9 +306,11 @@ export default function SaleScreen() {
         </>
       ) : request && session ? (
         <>
-          <Text style={styles.amount}>{session.amount} sats</Text>
+          <Text style={styles.amount}>{formatSats(session.amount!)} sats</Text>
           <View style={styles.card}>
-            <QRCode value={encodePos(request)} size={Math.min(260, width - 96)} />
+            <View style={{ backgroundColor: 'white', padding: 16, alignSelf: 'center', borderRadius: 18 }}>
+              <QRCode value={encodePos(request)} size={Math.min(260, width - 128)} />
+            </View>
             <Text style={styles.body}>
               Customer scans with Bitcoin SV Wallet. Funds go directly to {pos.config?.name}.
             </Text>
@@ -270,11 +330,16 @@ export default function SaleScreen() {
         </>
       ) : (
         <>
-          <Field label="Amount in satoshis" value={amount} onChange={setAmount} numeric />
-          <Button
-            title={busy ? 'Preparing sale…' : 'Request payment'}
-            disabled={busy || !amount}
-            onPress={() => void start()}
+          <CounterEntry
+            showActions={false}
+            amount={amount}
+            onAmount={setAmount}
+            tipChoice={tipChoice}
+            onTipChoice={setTipChoice}
+            customTip={customTip}
+            onCustomTip={setCustomTip}
+            busy={busy}
+            onCharge={() => void start()}
           />
           <Text style={styles.body}>Your merchant service must be online to accept a payment.</Text>
         </>

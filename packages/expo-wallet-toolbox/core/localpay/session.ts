@@ -76,6 +76,8 @@ export interface Session {
   merchantName?: string
   merchantChain?: string
   merchantExpires?: number
+  merchantSubtotal?: number
+  merchantTip?: number
   version: number
   caps: number
   sessionId: Uint8Array

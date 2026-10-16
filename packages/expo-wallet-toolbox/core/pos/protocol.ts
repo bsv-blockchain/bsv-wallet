@@ -27,6 +27,8 @@ export interface MerchantRequest {
   chain: string
   expires: number
   session: string
+  subtotal?: number
+  tip?: number
 }
 export interface Rpc {
   version: 1
@@ -140,12 +142,22 @@ export async function decodePos(text: string): Promise<Signed<Invite | MerchantR
     const session = decodeSession(p.session)
     if (key(session.identityKey) !== key(p.merchant) || !session.amount || session.asset)
       throw new Error('Merchant request has an invalid destination')
+    if (p.subtotal !== undefined || p.tip !== undefined) {
+      const tip = p.tip ?? 0
+      if (
+        !Number.isSafeInteger(p.subtotal) ||
+        p.subtotal! < 1 ||
+        !Number.isSafeInteger(tip) ||
+        tip < 0 ||
+        tip > session.amount ||
+        p.subtotal !== session.amount - tip
+      )
+        throw new Error('Merchant request has an invalid tip breakdown')
+    }
   }
   return value
 }
-export async function decodePaymentRequest(
-  text: string
-): Promise<Session & { merchantName?: string; merchantChain?: string; merchantExpires?: number }> {
+export async function decodePaymentRequest(text: string): Promise<Session> {
   if (!text.startsWith(POS_PREFIX)) return decodeSession(text)
   const { payload } = await decodePos(text)
   if (payload.kind !== 'payment') throw new Error('This code enrolls a cashier; it is not a payment request')
@@ -153,6 +165,8 @@ export async function decodePaymentRequest(
     ...decodeSession(payload.session),
     merchantName: payload.name,
     merchantChain: payload.chain,
-    merchantExpires: payload.expires
+    merchantExpires: payload.expires,
+    merchantSubtotal: payload.subtotal,
+    merchantTip: payload.tip
   }
 }

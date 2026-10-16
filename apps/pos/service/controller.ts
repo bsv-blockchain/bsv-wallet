@@ -155,6 +155,18 @@ export class PosService {
         session = decodeSession(sessionText)
       if (key(session.identityKey) !== key(this.deps.merchant) || !session.amount || session.asset)
         throw new Error('Invalid merchant payment session')
+      const { subtotal, tip } = p.body
+      if (subtotal !== undefined || tip !== undefined) {
+        if (
+          !Number.isSafeInteger(subtotal) ||
+          (subtotal as number) < 1 ||
+          !Number.isSafeInteger(tip) ||
+          (tip as number) < 0 ||
+          (tip as number) > session.amount ||
+          subtotal !== session.amount - (tip as number)
+        )
+          throw new Error('Invalid sale and tip breakdown')
+      }
       const id = randomId()
       const request = await sign(this.deps.wallet, {
         kind: 'payment' as const,
@@ -164,7 +176,8 @@ export class PosService {
         invoice: id,
         chain: this.deps.chain,
         expires: Date.now() + 5 * 60000,
-        session: sessionText
+        session: sessionText,
+        ...(subtotal !== undefined ? { subtotal: subtotal as number, tip: tip as number } : {})
       })
       state.sales[id] = { request }
       return save(request)

@@ -6,7 +6,53 @@ import { createNewWallet } from '@bsv/expo-wallet-toolbox/core/recovery/createWa
 import { restoreWallet } from '@bsv/expo-wallet-toolbox/core/recovery/restoreWallet'
 import { classifyImportInput } from '@bsv/expo-wallet-toolbox/core/recovery/secret'
 import { usePos } from '../src/context'
-import { Page, Button, Field, styles } from '../src/ui'
+import { Page, Button, Field, Navigation, styles } from '../src/ui'
+import { SalesOverview } from '../src/SalesOverview'
+import { useSales } from '../src/useSales'
+import { shortKey } from '../src/sales'
+
+function ConnectedHome() {
+  const pos = usePos(),
+    router = useRouter(),
+    report = useSales()
+  const config = pos.config!
+  const names = Object.fromEntries(report.cashiers.map(c => [c.identity.toLowerCase(), c.name]))
+  return (
+    <Page title={config.name} back={false} footer={<Navigation role={config.role} />}>
+      <View style={styles.row}>
+        <Text style={styles.label}>{config.role === 'merchant' ? 'Merchant overview' : 'Your counter'}</Text>
+        <Text style={styles.tag}>{config.chain === 'test' ? 'TESTNET' : config.chain.toUpperCase()}</Text>
+      </View>
+      {pos.pending ? (
+        <Button title="Resolve pending payment" onPress={() => router.push('/sale')} />
+      ) : config.enrollment ? (
+        <Button title="Check cashier approval" onPress={() => router.push('/cashier')} />
+      ) : config.role === 'cashier' ? (
+        <Button title="Take a payment" onPress={() => router.push('/sale')} />
+      ) : null}
+      {!config.enrollment && report.loaded && (
+        <SalesOverview sales={report.sales} names={names} showCashiers={config.role === 'merchant'} />
+      )}
+      {report.busy && <Text style={styles.caption}>Refreshing verified sales…</Text>}
+      {report.error ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {report.error}
+        </Text>
+      ) : null}
+      <Button secondary title="All sales & receipts" onPress={() => router.push('/receipts')} />
+      {config.role === 'merchant' && (
+        <Button secondary title="Manage team & enrollment" onPress={() => router.push('/merchant')} />
+      )}
+      <View style={styles.card}>
+        <Text style={styles.label}>Connected merchant service</Text>
+        <Text selectable style={styles.caption}>
+          {config.service}
+        </Text>
+        <Text style={styles.caption}>Merchant identity {shortKey(config.merchant)}</Text>
+      </View>
+    </Page>
+  )
+}
 export default function Home() {
   const router = useRouter(),
     deps = useRecoveryDeps(),
@@ -33,8 +79,9 @@ export default function Home() {
         <Text style={styles.body}>Loading your setup…</Text>
       </Page>
     )
+  if (walletBuilt && !words && pos.config) return <ConnectedHome />
   return (
-    <Page title="Point of sale" back={false}>
+    <Page title="Welcome to your counter" back={false}>
       <Text style={styles.body}>Take nearby payments directly into your merchant wallet.</Text>
       {!walletBuilt ? (
         <View style={styles.card}>

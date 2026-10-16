@@ -1,3 +1,4 @@
+import { verifiedSales } from '../src/sales'
 import { PrivateKey, ProtoWallet } from '@bsv/sdk'
 import {
   sign,
@@ -97,7 +98,15 @@ test('approval, revocation, exact payment binding, persistence and retry protect
   await rpc(service, cashier, 'enroll', { invite: invitation.payload.id, name: 'Sam' })
   await expect(rpc(service, cashier, 'invoice', { session: encodeSession(session()) })).rejects.toThrow()
   await rpc(service, owner, 'approve', { cashier: cashierKey })
-  const invoice = (await rpc(service, cashier, 'invoice', { session: encodeSession(session()) })) as any
+  await expect(
+    rpc(service, cashier, 'invoice', { session: encodeSession(session()), subtotal: 100, tip: 24 })
+  ).rejects.toThrow()
+  const invoice = (await rpc(service, cashier, 'invoice', {
+    session: encodeSession(session()),
+    subtotal: 100,
+    tip: 23
+  })) as any
+  expect(invoice.payload).toMatchObject({ subtotal: 100, tip: 23 })
   const frame = {
     version: 5,
     kind: 'bsv',
@@ -122,4 +131,40 @@ test('approval, revocation, exact payment binding, persistence and retry protect
   await expect(rpc(service, cashier, 'settle', { ...args, frame: { ...frame, transaction: [4] } })).rejects.toThrow()
   await rpc(service, owner, 'revoke', { cashier: cashierKey })
   await expect(rpc(service, cashier, 'invoice', { session: encodeSession(session()) })).rejects.toThrow()
+})
+
+test('signed tip breakdown survives customer decoding and cannot disagree with the amount', async () => {
+  const request = {
+    kind: 'payment' as const,
+    merchant,
+    name: 'Cafe',
+    cashier: cashierKey,
+    invoice: randomId(),
+    chain: 'test',
+    expires: Date.now() + 60000,
+    session: encodeSession(session()),
+    subtotal: 100,
+    tip: 23
+  }
+  const envelope = await sign(owner, request)
+  const decoded = await decodePaymentRequest(encodePos(envelope))
+  expect(decoded.amount).toBe(123)
+  expect(decoded.merchantSubtotal).toBe(100)
+  expect(decoded.merchantTip).toBe(23)
+  await expect(decodePos(encodePos(await sign(owner, { ...request, tip: 24 })))).rejects.toThrow('tip breakdown')
+  const receipt = await sign(owner, {
+    invoice: request.invoice,
+    txid: 'a'.repeat(64),
+    amount: 123,
+    status: 'accepted' as const
+  })
+  const sales = await verifiedSales([{ request: envelope, receipt }], merchant, 'test')
+  expect(sales[0]).toMatchObject({ status: 'paid', subtotal: 100, tip: 23, total: 123, cashier: cashierKey })
+  await expect(
+    verifiedSales(
+      [{ request: envelope, receipt: await sign(owner, { ...receipt.payload, amount: 124 }) }],
+      merchant,
+      'test'
+    )
+  ).rejects.toThrow('receipt')
 })

@@ -2871,6 +2871,10 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
               detail={scannedSession.merchantName ? `Merchant · ${abbreviateKey(scannedSession.identityKey)}` : peerName ? abbreviateKey(scannedSession.identityKey) : undefined}
             />
 
+            {!!scannedSession.merchantTip && supportText(t('merchant_tip_breakdown', {
+              defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
+              subtotal: scannedSession.merchantSubtotal?.toLocaleString(), tip: scannedSession.merchantTip.toLocaleString()
+            }))}
             <View style={styles.gapLg} />
             {presenceBlock}
             {floorReason !== 'none' && (

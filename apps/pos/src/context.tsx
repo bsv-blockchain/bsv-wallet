@@ -14,6 +14,7 @@ import {
   type Rpc,
   type Invite
 } from '../../../packages/expo-wallet-toolbox/core/pos/protocol'
+import { DEFAULT_MERCHANT_SERVICE } from './config'
 import type { SerializedFrame } from '../service/controller'
 export interface Config {
   role: 'merchant' | 'cashier'
@@ -81,7 +82,7 @@ export function PosProvider({ children }: { children: React.ReactNode }) {
     async <T,>(method: string, body: Record<string, unknown> = {}, target?: string): Promise<T> => {
       const wallet = managers.permissionsManager as Signer | undefined
       if (!wallet) throw new Error('Unlock your wallet first')
-      const url = serviceUrl(target ?? config?.service)
+      const url = serviceUrl(target ?? config?.service ?? DEFAULT_MERCHANT_SERVICE)
       const request = await sign(
         wallet,
         { version: 1, method, nonce: randomId(), time: Date.now(), body } as Rpc,
