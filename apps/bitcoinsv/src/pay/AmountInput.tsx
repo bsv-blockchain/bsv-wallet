@@ -4,8 +4,10 @@
 // so the figure is drawn as Text and the real TextInput sits over it,
 // transparent, taking the typing (and the keypad). The caret is drawn too,
 // always at the end, blinking as the prototype's (caret 1s steps(1)).
-import React, { useState } from 'react'
-import { StyleSheet, Text, View, type TextStyle } from 'react-native'
+// iOS never hit-tests a view under 1% opacity, so the hidden field can't take
+// a tap itself: the figure is a Pressable that focuses it.
+import React, { useRef, useState } from 'react'
+import { Pressable, StyleSheet, Text, View, type TextInput as RNTextInput, type TextStyle } from 'react-native'
 import { TextInput } from '../ui/TextInput'
 import Animated, { css, steps } from 'react-native-reanimated'
 import { font, usePalette } from '../theme'
@@ -42,6 +44,7 @@ export function AmountInput({
   const palette = usePalette()
   const still = useReducedMotion()
   const [focused, setFocused] = useState(false)
+  const input = useRef<RNTextInput>(null)
   const empty = value === ''
   const [whole, decimals] = value.split('.')
   const hasDot = value.includes('.')
@@ -52,7 +55,7 @@ export function AmountInput({
   const small = size * 0.5
 
   return (
-    <View style={styles.row}>
+    <Pressable style={styles.row} onPress={() => input.current?.focus()} accessible={false}>
       <View style={styles.row} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <Text style={[font(800), figure, { fontSize: size, lineHeight: size * LEAD, letterSpacing: -size * 0.025 }]}>{empty ? '0' : whole || '0'}</Text>
         {hasDot && (
@@ -70,6 +73,7 @@ export function AmountInput({
         )}
       </View>
       <TextInput
+        ref={input}
         value={value}
         onChangeText={onChange}
         onFocus={() => setFocused(true)}
@@ -83,13 +87,13 @@ export function AmountInput({
         accessibilityLabel={accessibilityLabel}
         style={[StyleSheet.absoluteFill, styles.input]}
       />
-    </View>
+    </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-start' },
-  // unseen but still touchable and focusable: Android draws a TextInput's
-  // text even when its colour is transparent
+  // unseen and focusable (Android draws a TextInput's text even when its
+  // colour is transparent); taps reach it through the Pressable above
   input: { color: 'transparent', opacity: 0, padding: 0, fontSize: 16 }
 })
