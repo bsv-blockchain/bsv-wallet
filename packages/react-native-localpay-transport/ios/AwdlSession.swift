@@ -1,9 +1,42 @@
+import Darwin
 import Foundation
 import Network
+import os.log
 import Security
+
+private let awdlLog = OSLog(subsystem: "org.bsvblockchain.wallet", category: "LocalPayAwdl")
 
 enum AwdlSession {
   static let serviceType = "_bsvpay._tcp"
+
+  /// Whether the Wi-Fi radio is up enough for AWDL to carry a connection.
+  ///
+  /// iOS has no public API (and no entitlement) for "is the Wi-Fi radio on".
+  /// The nearest observable fact is the `awdl0` interface: iOS takes it down
+  /// when Wi-Fi is switched off in Settings and keeps it up while Wi-Fi is on,
+  /// joined to a network or not. Undocumented, so it fails OPEN: no `awdl0`
+  /// entry at all (renamed or hidden by a future iOS) reports true and leaves
+  /// the old behaviour — try AWDL, fall to the QR fountain on failure. Only an
+  /// interface that exists and is not IFF_UP reports false, which is what lets
+  /// a payee stop minting CAP_AWDL and a payer skip a send that would wait out
+  /// SEND_TIMEOUT_MS before the fountain.
+  static func radioUp() -> Bool {
+    var head: UnsafeMutablePointer<ifaddrs>?
+    guard getifaddrs(&head) == 0, let first = head else { return true }
+    defer { freeifaddrs(head) }
+    var found = false
+    var up = false
+    var cursor: UnsafeMutablePointer<ifaddrs>? = first
+    while let entry = cursor {
+      if String(cString: entry.pointee.ifa_name) == "awdl0" {
+        found = true
+        if (entry.pointee.ifa_flags & UInt32(IFF_UP)) != 0 { up = true }
+      }
+      cursor = entry.pointee.ifa_next
+    }
+    os_log("awdl0 found=%d up=%d", log: awdlLog, type: .default, found ? 1 : 0, up ? 1 : 0)
+    return !found || up
+  }
 
   /// TCP over AWDL, authenticated and encrypted with a pre-shared key.
   /// Only a peer that saw the pairing QR holds the PSK, so this is mutual auth.

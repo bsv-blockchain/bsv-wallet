@@ -150,6 +150,8 @@ import {
   frameBytesFromQr,
   holdSentPaymentOffline,
   parkSentPaymentOffline,
+  failedBeforeConnect,
+  fallbackRadio,
   isAirGapPart,
   isDeclineReason,
   localSupportsAwdl,
@@ -1906,7 +1908,19 @@ function NearbyFlow({ role: initialRole, onExit, initialSession, initialRequest,
         if (sendKind === 'ble' && Platform.OS === 'android' && !(await requestBlePermissions())) {
           throw new Error('bluetooth permission not granted')
         }
-        ack = await radio.send(session, built.frame, controller.signal)
+        try {
+          ack = await radio.send(session, built.frame, controller.signal)
+        } catch (e) {
+          // Graceful degradation, AWDL → BLE → QR. Only a failure that proves
+          // the frame never left this device (the link never came up) may try
+          // the next radio; anything later — a lost ack — may already have
+          // delivered, and goes to the fountain below exactly as before
+          // (failedBeforeConnect explains why a second radio would be unsafe).
+          const next = controller.signal.aborted || !failedBeforeConnect(e) ? null : fallbackRadio(session, sendKind)
+          if (next !== 'ble') throw e
+          console.warn('[localpay] awdl never connected, trying BLE:', messageOf(e))
+          ack = await bleTransport.send(session, built.frame, controller.signal)
+        }
       } catch (e) {
         if (controller.signal.aborted) {
           // XR-096: the screen blurred or unmounted while this native send

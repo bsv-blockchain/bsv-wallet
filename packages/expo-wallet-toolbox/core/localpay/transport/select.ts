@@ -57,13 +57,49 @@ export function localSupportsBle(): boolean {
  * the peer's AWDL/Nearby bits can never match local ability. `session.os` is
  * metadata and is deliberately not read here (see Session.os). QR is the
  * floor every pair can reach — and the automatic fallback when a chosen radio
- * fails at send time (see NearbyFlow's executeSend).
+ * fails at send time (see NearbyFlow's executeSend), after fallbackRadio()
+ * below when the first radio never connected.
  */
 export function selectTransport(session: Session): TransportKind {
   if ((session.caps & CAP_AWDL) !== 0 && localSupportsAwdl()) return 'awdl'
   if ((session.caps & CAP_NEARBY) !== 0 && localSupportsNearby()) return 'nearby'
   if ((session.caps & CAP_BLE) !== 0 && localSupportsBle()) return 'ble'
   return 'qr'
+}
+
+/**
+ * The text every native connect-phase failure carries: the code-14 connect
+ * timeout, and (AWDL) any `.failed`/`.cancelled` that landed before the link
+ * reached `.ready` — see HybridLocalPayTransport.swift `neverConnected`.
+ */
+export const NEVER_CONNECTED_MARKER = 'no route to peer'
+
+/**
+ * True when a radio send failed before its link came up, so not one byte of
+ * the frame left this device. Only then may the payer try a second radio: a
+ * failure after the link was up (a lost ack, a timeout waiting for the payee's
+ * save) may already have delivered the frame, and delivering it again on
+ * another radio would land in a payee race that is already settled — which
+ * answers with a decline the payer would act on by releasing inputs the payee
+ * now holds a signed transaction for. Those failures go to the QR fountain.
+ */
+export function failedBeforeConnect(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes(NEVER_CONNECTED_MARKER)
+}
+
+/**
+ * The radio to try after `failed` never connected, or null for "go to QR".
+ * Graceful degradation on iOS is AWDL (fastest, ~300 ms) → BLE → QR: AWDL can
+ * fail for reasons this device cannot see in advance (the peer's Wi-Fi radio,
+ * Local Network permission, the two phones on different Wi-Fi channels), and
+ * BLE is only offered when the payee minted CAP_BLE with its radio powered on.
+ * Only AWDL has a fallback rung — its native side is the one that proves a
+ * failure happened before `.ready` (see failedBeforeConnect).
+ */
+export function fallbackRadio(session: Session, failed: TransportKind): TransportKind | null {
+  if (failed === 'awdl' && (session.caps & CAP_BLE) !== 0 && localSupportsBle()) return 'ble'
+  return null
 }
 
 /** The GATT role THIS device takes as payer once the ladder chose 'ble'. */

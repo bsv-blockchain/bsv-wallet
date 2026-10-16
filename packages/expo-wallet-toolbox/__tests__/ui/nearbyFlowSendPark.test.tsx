@@ -81,6 +81,8 @@ const mockBuildPaymentFrame = jest.fn()
 const mockParkSentPaymentOffline = jest.fn().mockResolvedValue(undefined)
 const mockSealFrame = jest.fn(() => new Uint8Array(4))
 const mockAwdlSend = jest.fn()
+const mockBleSend = jest.fn()
+const mockFallbackRadio = jest.fn((..._args: unknown[]): string | null => null)
 
 function mockWallet() {
   return {
@@ -112,7 +114,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     // Forces the radio (not QR) branch every test in this file exercises.
     selectTransport: jest.fn(() => 'awdl'),
     awdlTransport: { kind: 'awdl', send: (...args: unknown[]) => mockAwdlSend(...args) },
-    bleTransport: { kind: 'ble', send: jest.fn(async () => ({ ok: true })) },
+    bleTransport: { kind: 'ble', send: (...args: unknown[]) => mockBleSend(...args) },
+    fallbackRadio: (...args: unknown[]) => mockFallbackRadio(...args),
     nearbyTransport: { kind: 'nearby', send: jest.fn(async () => ({ ok: true })) },
     buildPaymentFrame: (...args: unknown[]) => mockBuildPaymentFrame(...args),
     sealFrame: () => mockSealFrame(),
@@ -171,6 +174,8 @@ beforeEach(() => {
   })
   mockParkSentPaymentOffline.mockResolvedValue(undefined)
   mockSealFrame.mockReturnValue(new Uint8Array(4))
+  mockFallbackRadio.mockReturnValue(null)
+  mockBleSend.mockResolvedValue({ ok: true })
 })
 
 describe('XR-096: a screen blur/unmount mid-send parks the payment', () => {
@@ -238,6 +243,69 @@ describe('XR-096: a radio failure with no representable QR fallback parks the pa
       expect.objectContaining({ txid: 'd'.repeat(64), framePayload: 'bsvpayf1:stub' })
     )
     expect(mockFinalizeDelivery).not.toHaveBeenCalled()
+  })
+})
+
+// Graceful degradation AWDL → BLE → QR. The second radio is only ever tried
+// when the first provably never connected; a failure after the link came up
+// may already have delivered the frame, so it must go to the fountain.
+describe('AWDL → BLE → QR fallback', () => {
+  const pressSend = async (s: ReturnType<typeof wrap>) => {
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+  }
+
+  it('delivers over BLE when AWDL never connected', async () => {
+    mockAwdlSend.mockRejectedValue(new Error('connect timeout: no route to peer'))
+    mockFallbackRadio.mockReturnValue('ble')
+
+    const s = wrap(<NearbyFlow role="payer" initialSession={session()} onExit={jest.fn()} />)
+    await settle()
+    await pressSend(s)
+
+    expect(mockBleSend).toHaveBeenCalledTimes(1)
+    expect(mockFinalizeDelivery).toHaveBeenCalledTimes(1)
+    expect(s.queryByText('local_pay_radio_fallback')).toBeNull()
+  })
+
+  it('falls to QR when BLE also fails', async () => {
+    mockAwdlSend.mockRejectedValue(new Error('no route to peer: connection cancelled'))
+    mockFallbackRadio.mockReturnValue('ble')
+    mockBleSend.mockRejectedValue(new Error('connect timeout: no route to peer'))
+
+    const s = wrap(<NearbyFlow role="payer" initialSession={session()} onExit={jest.fn()} />)
+    await settle()
+    await pressSend(s)
+
+    expect(mockBleSend).toHaveBeenCalledTimes(1)
+    expect(mockFinalizeDelivery).not.toHaveBeenCalled()
+    expect(s.getByText('local_pay_radio_fallback')).toBeTruthy()
+  })
+
+  it('never tries BLE after AWDL connected and then lost the ack — straight to QR', async () => {
+    mockAwdlSend.mockRejectedValue(new Error('timed out waiting for peer'))
+    mockFallbackRadio.mockReturnValue('ble')
+
+    const s = wrap(<NearbyFlow role="payer" initialSession={session()} onExit={jest.fn()} />)
+    await settle()
+    await pressSend(s)
+
+    expect(mockBleSend).not.toHaveBeenCalled()
+    expect(mockFinalizeDelivery).not.toHaveBeenCalled()
+    expect(s.getByText('local_pay_radio_fallback')).toBeTruthy()
+  })
+
+  it('goes to QR when there is no fallback radio', async () => {
+    mockAwdlSend.mockRejectedValue(new Error('connect timeout: no route to peer'))
+
+    const s = wrap(<NearbyFlow role="payer" initialSession={session()} onExit={jest.fn()} />)
+    await settle()
+    await pressSend(s)
+
+    expect(mockBleSend).not.toHaveBeenCalled()
+    expect(s.getByText('local_pay_radio_fallback')).toBeTruthy()
   })
 })
 

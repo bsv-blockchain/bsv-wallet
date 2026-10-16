@@ -6,11 +6,14 @@ Console.app filter used on each iPhone: `subsystem:org.bsvblockchain.wallet cate
 
 | Date | Payee device / OS | Payer device / OS | Pairing | maxUpdate (payee) | maxWriteLen (payer) | scan hit ms | subscribed ms | frame bytes | frame written ms | ack verified ms (total) | Result | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-09-02 | — | — | iOS→iOS | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect `ok` |
-| 2026-09-02 | — | — | iOS→iOS (Wi-Fi off both) | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect `ok`; proves BLE carries the payment with no Wi-Fi at all |
-| 2026-09-02 | — | — | iOS→iOS (payer BT off) | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect `bluetooth unavailable` then fountain |
+| 2026-09-02 | — | — | iOS→iOS | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect `ok` over AWDL (ladder since 2026-10-15: AWDL → BLE only if AWDL never connected → QR) |
+| 2026-09-02 | — | — | iOS→iOS (Wi-Fi off both) | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect `ok` over BLE with no AWDL wait: both log `awdl0 found=1 up=0`, payee mints no CAP_AWDL, payer picks BLE directly. Proves BLE carries the payment with no Wi-Fi at all |
+| 2026-09-02 | — | — | iOS→iOS (payer BT off) | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect `ok` over AWDL (BLE is only the fallback rung) |
 | 2026-09-02 | — | — | iOS→iOS (payee locked mid-wait) | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect payer `connect timeout: no route to peer` within 6 s |
 | 2026-09-02 | — | — | iOS→iOS (second payer, same QR) | — | — | — | — | — | — | — | pending — requires two iPhones; not run in the implementation session | expect second payer refused at FRAME (no ack, falls to fountain) |
+| 2026-10-15 | — | — | iOS→iOS (BT off both, payee Wi-Fi off in Settings) | — | — | — | — | — | — | — | pending — needs two iPhones | expect payee log `awdl0 found=1 up=0` (category `LocalPayAwdl`), no CAP_AWDL minted, payer on fountain at once (no 4 s wait). If `found=0`, the heuristic is blind on this iOS and falls open |
+| 2026-10-15 | — | — | iOS→iOS (BT off both, Wi-Fi on but joined to no network) | — | — | — | — | — | — | — | pending — needs two iPhones | expect `awdl0 found=1 up=1` on both and AWDL delivers; `up=0` here means the heuristic wrongly blocks AWDL — revert `AwdlSession.radioUp()` |
+| 2026-10-15 | — | — | iOS→iOS (BT on both, payee Local Network permission denied) | — | — | — | — | — | — | — | pending — needs two iPhones | expect payer console `awdl never connected, trying BLE: no route to peer…` then `ok` over BLE, total ≈ 4 s AWDL connect budget + BLE time. Time it: this is the AWDL→BLE fallback cost |
 
 Column sources: `maxUpdate` from the payee's `central connected ... maxUpdate=N` line; `maxWriteLen` from the payer's `connected ... maxWriteLen=N` line; the `ms` columns are the `ms=` field of the payer's `scan hit`, `subscribed`, `frame written` and `ack verified` lines (`frame written ms` is measured from the first frame write, the others from `sendFrame` entry).
 

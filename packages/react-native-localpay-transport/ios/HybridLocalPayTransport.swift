@@ -91,7 +91,12 @@ final class HybridLocalPayTransport: HybridLocalPayTransportSpec {
   /// if the parameter combination can't be realized on this device, so a real
   /// failure (unlike the old check) is observable here. This probe never touches
   /// `listener`/`live`/`hasAccepted`, so it needs no queue confinement.
+  ///
+  /// The listener constructs fine with the Wi-Fi radio off, so that alone
+  /// reported AWDL on a phone that could never use it. `AwdlSession.radioUp()`
+  /// is checked first (and is the cheaper of the two).
   func isSupported() throws -> Bool {
+    guard AwdlSession.radioUp() else { return false }
     let probePsk = Data(repeating: 0, count: 32)
     guard let probeIdentity = "probe".data(using: .utf8) else { return false }
     let params = AwdlSession.parameters(psk: probePsk, identity: probeIdentity)
@@ -428,15 +433,27 @@ final class HybridLocalPayTransport: HybridLocalPayTransportSpec {
           }
         })
       case .failed(let error):
-        settle(.failure(error))
+        settle(.failure(becameReady ? error : Self.neverConnected(error)))
       case .cancelled:
-        settle(.failure(NSError(domain: "LocalPayTransport", code: 13,
-          userInfo: [NSLocalizedDescriptionKey: "connection cancelled"])))
+        let cancelled = NSError(domain: "LocalPayTransport", code: 13,
+          userInfo: [NSLocalizedDescriptionKey: "connection cancelled"])
+        settle(.failure(becameReady ? cancelled : Self.neverConnected(cancelled)))
       default:
         break
       }
     }
     conn.start(queue: queue)
     return promise
+  }
+
+  /// A failure that landed before `.ready`. The payload is only ever written
+  /// inside `.ready`, so these prove zero frame bytes left this device and the
+  /// payer may try another radio (core/localpay/transport/select.ts
+  /// `failedBeforeConnect` matches "no route to peer", the same text as the
+  /// code-14 connect timeout). The original text is kept after the marker so
+  /// NearbyFlow's Local Network denial heuristic still sees it.
+  static func neverConnected(_ error: Error) -> NSError {
+    NSError(domain: "LocalPayTransport", code: 14,
+      userInfo: [NSLocalizedDescriptionKey: "no route to peer: \(error.localizedDescription)"])
   }
 }

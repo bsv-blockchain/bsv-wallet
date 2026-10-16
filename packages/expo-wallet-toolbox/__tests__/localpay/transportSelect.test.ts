@@ -1,6 +1,12 @@
 import { PermissionsAndroid, Platform } from 'react-native'
 import type { Permission, PermissionStatus } from 'react-native'
-import { bleRole, localSupportsBle, selectTransport } from '../../core/localpay/transport/select'
+import {
+  bleRole,
+  failedBeforeConnect,
+  fallbackRadio,
+  localSupportsBle,
+  selectTransport
+} from '../../core/localpay/transport/select'
 import { mintSession, CAP_AWDL, CAP_BLE, CAP_BLE_SCAN, CAP_NEARBY, type Session } from '../../core/localpay/session'
 import { requestNearbyPermissions } from '../../core/localpay/nearbyPermissions'
 
@@ -85,6 +91,7 @@ describe('transport selection', () => {
     [CAP_AWDL | CAP_BLE, 'android', true, true, 'ble'], // iOS payee, Android payer → BLE
     [CAP_NEARBY | CAP_BLE, 'ios', true, true, 'ble'], // Android payee, iOS payer → BLE
     [CAP_AWDL | CAP_NEARBY | CAP_BLE, 'ios', true, true, 'awdl'], // same-OS keeps the faster radio
+    [CAP_AWDL | CAP_BLE, 'ios', true, true, 'awdl'], // iOS↔iOS: AWDL first, BLE only as fallbackRadio
     [CAP_AWDL | CAP_NEARBY | CAP_BLE, 'android', true, true, 'nearby'],
     [CAP_BLE, 'ios', true, false, 'qr'], // peer advertises BLE but this device cannot
     [CAP_AWDL | CAP_BLE, 'ios', false, true, 'ble'] // AWDL native unsupported → falls to BLE
@@ -98,6 +105,48 @@ describe('transport selection', () => {
       mockBleSupported = nativeBle
       const session: Session = { ...mintSession({ ...base, supportsAwdl: false }), caps }
       expect(selectTransport(session)).toBe(expected)
+    }
+  )
+})
+
+describe('fallbackRadio (AWDL → BLE → QR)', () => {
+  afterEach(() => {
+    Platform.OS = 'ios'
+    mockBleSupported = true
+  })
+  const withCaps = (caps: number): Session => ({ ...mintSession({ ...base, supportsAwdl: false }), caps })
+
+  it('offers BLE after AWDL when the payee minted CAP_BLE and this device has BLE', () => {
+    expect(fallbackRadio(withCaps(CAP_AWDL | CAP_BLE), 'awdl')).toBe('ble')
+  })
+
+  it('goes to QR when the payee has no BLE rung', () => {
+    expect(fallbackRadio(withCaps(CAP_AWDL), 'awdl')).toBeNull()
+  })
+
+  it('goes to QR when this device cannot do BLE', () => {
+    mockBleSupported = false
+    expect(fallbackRadio(withCaps(CAP_AWDL | CAP_BLE), 'awdl')).toBeNull()
+  })
+
+  it.each(['ble', 'nearby', 'qr'] as const)('has no rung after %s', kind => {
+    expect(fallbackRadio(withCaps(CAP_AWDL | CAP_NEARBY | CAP_BLE), kind)).toBeNull()
+  })
+})
+
+describe('failedBeforeConnect', () => {
+  it.each([
+    'connect timeout: no route to peer',
+    'no route to peer: The operation couldn’t be completed. (Network.NWError error -65570.)',
+    'no route to peer: connection cancelled'
+  ])('is true for the native pre-ready failure %p', message => {
+    expect(failedBeforeConnect(new Error(message))).toBe(true)
+  })
+
+  it.each(['timed out waiting for peer', 'short header', 'connection cancelled', 'bad ack'])(
+    'is false for %p, which may follow a delivered frame',
+    message => {
+      expect(failedBeforeConnect(new Error(message))).toBe(false)
     }
   )
 })

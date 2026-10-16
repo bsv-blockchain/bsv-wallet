@@ -114,7 +114,7 @@ export * from './localpay/nearbyPermissions'
 // surface now that the screen holds LocalPaymentTransport[] (spec §6) and
 // callers need to tell an AckError (radio failure → fountain) from a decline.
 export { AckError, QrHandoffRequired, type Ack, type LocalPaymentTransport, type ReceivedFrame } from './localpay/types'
-export { selectTransport } from './localpay/transport/select'
+export { selectTransport, fallbackRadio, failedBeforeConnect } from './localpay/transport/select'
 export * from './peerpay/outbox'
 export * from './peerpay/control'
 export * from './peerpay/handleResendRequests'
