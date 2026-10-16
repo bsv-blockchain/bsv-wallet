@@ -2,7 +2,8 @@
 // pay link (exchanges, faucets). The shared core's address rail, as the
 // existing app's AddressReceive uses it: today's address (a new one each day),
 // watched by the core's background sweep, which brings what lands there into
-// this wallet; "Check now" sweeps it at once.
+// this wallet; "Check now" sweeps it at once. AddressReceive is the body, for
+// Receive's own "To a BSV address" view; AddressSheet wraps it in a sheet.
 import React, { useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
@@ -28,6 +29,16 @@ import { BalancedText } from '../ui/BalancedText'
 import { bsvFigure } from '../activity/format'
 
 export function AddressSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <BottomSheet open={open} onOpenChange={onOpenChange} title="Your BSV address" description="For a wallet or service that can’t use your pay link.">
+      <AddressReceive active={open} />
+    </BottomSheet>
+  )
+}
+
+/** Today's address, its QR and "Check now"; made and watched while `active`. */
+export function AddressReceive({ active }: { active: boolean }) {
+  const open = active
   const palette = usePalette()
   const { managers, adminOriginator, selectedNetwork, storage } = useWallet()
   const wallet = managers.permissionsManager
@@ -89,7 +100,7 @@ export function AddressSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   }
 
   return (
-    <BottomSheet open={open} onOpenChange={onOpenChange} title="Your BSV address" description="For a wallet or service that can’t use your pay link.">
+    <View style={styles.body}>
       <View style={styles.qr}>
         {address ? <PayQr value={address} size={196} center={<BsvMark size={40} />} /> : <ActivityIndicator color={palette.mutedForeground} />}
       </View>
@@ -122,11 +133,12 @@ export function AddressSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         disabled={!address || checking}
         onPress={() => void checkNow()}
       />
-    </BottomSheet>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  body: { gap: 16, alignSelf: 'stretch' },
   qr: { alignItems: 'center', justifyContent: 'center', minHeight: 220 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10 },
   address: { flex: 1, fontSize: 13, lineHeight: 18 },
