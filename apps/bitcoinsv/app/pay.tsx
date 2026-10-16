@@ -7,7 +7,8 @@
 // unchanged, so its screens are its own.
 //
 // The idle screen is the prototype's: the dark scanner tile with its gold
-// corners. Tapping it plays the sweep line and opens the camera. Not here,
+// corners. Arriving plays the sweep line and opens the camera; the tile opens
+// it again after it was closed. Not here,
 // unlike the prototype: "or hold near a phone" (a nearby payment starts from
 // the till's or phone's code, scanned here).
 import { POS_PREFIX, decodePaymentRequest } from '../../../packages/expo-wallet-toolbox/core/pos/protocol'
@@ -78,6 +79,16 @@ export default function ScanAndPay() {
       setScanning(true)
     }, OPEN_AFTER)
   }
+
+  // arriving here (the Scan & pay tab, the home scan button) is asking for the
+  // camera, so it opens at once; closing it leaves the tile to tap again
+  const opened = useRef(false)
+  useEffect(() => {
+    if (opened.current) return
+    opened.current = true
+    startScan()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, [])
 
   if (nearby) return <NearbyFlow role="payer" initialSession={nearby} onExit={() => setNearby(null)} dismissTo="/" />
 
