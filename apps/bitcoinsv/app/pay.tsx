@@ -27,6 +27,8 @@ import { ViewInfo } from '../src/ui/ViewInfo'
 import { showToast } from '../src/ui/Toast'
 import { useReducedMotion } from '../src/ui/motion'
 import { PayTabs } from '../src/pay/PayTabs'
+import { NearbyConfirm } from '../src/pay/NearbyConfirm'
+import { NearbyDoneScreen, NearbySendingScreen, NearbyShowCodeScreen } from '../src/pay/NearbyPayScreens'
 import { isSignInCode } from '../src/signin/code'
 
 /** The tile's size: aspect-square w-full max-w-[260px]. */
@@ -90,7 +92,21 @@ export default function ScanAndPay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, [])
 
-  if (nearby) return <NearbyFlow role="payer" initialSession={nearby} onExit={() => setNearby(null)} dismissTo="/" />
+  if (nearby)
+    return (
+      <NearbyFlow
+        role="payer"
+        initialSession={nearby}
+        onExit={() => setNearby(null)}
+        dismissTo="/"
+        renderPayer={{
+          confirm: c => <NearbyConfirm c={c} />,
+          sending: x => <NearbySendingScreen s={x} />,
+          showCode: x => <NearbyShowCodeScreen q={x} />,
+          done: x => <NearbyDoneScreen d={x} />
+        }}
+      />
+    )
 
   const onScan = async (data: string) => {
     if (data.startsWith(POS_PREFIX)) {
