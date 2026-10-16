@@ -17,7 +17,7 @@
     <section class="privacy">
         <div class="container">
             <h1 data-i18n="page.title">Privacy Policy</h1>
-            <h3 data-i18n="page.last_updated">Last Updated: August 23, 2026</h3>
+            <h3 data-i18n="page.last_updated">Last Updated: October 16, 2026</h3>
             <p data-i18n-html="data_we_collect.intro">This Privacy Policy (the "Policy") explains how BSV Association ("BSV Association", the "Company", "we", "us" or "our") collects, uses, and shares data in connection with the BSV Association web browser app <a href="mobile.bsvb.tech">mobile.bsvb.tech</a>, <a href="desktop.bsvb.tech">desktop.bsvb.tech</a> and all of our other related properties, products, and services (the "Services"). Your use of the Services is subject to this Policy as well as our Terms of Service.</p>
 
             <h2 data-i18n="data_we_collect.heading">Data We Collect</h2>
@@ -65,6 +65,11 @@
                 <li data-i18n="wallet_backup.control_li3">Deleting your wallet from the app does not by itself delete a backup already held by the service. If you want the server copy removed, delete the backup first.</li>
             </ul>
             <p data-i18n="wallet_backup.retention">We retain an account's encrypted backup until it is deleted, either by you or by the app superseding older copies with a more recent one in the ordinary course of keeping the backup current.</p>
+
+            <h2 id="message-box" data-i18n="message_box.heading">Message Box</h2>
+            <p data-i18n="message_box.encryption">This wallet encrypts message content end to end before it reaches the Message Box host, so the host operator cannot read what you send. Private keys never leave your wallet, and the server returns messages only after it authenticates the recipient's identity key.</p>
+            <p data-i18n="message_box.metadata">To deliver messages, the operator can still see some metadata: when messages are sent and received, the size of each message, and which identity keys (pseudonyms) exchange messages with each other. Identity keys are not names, but repeated use can link activity over time.</p>
+            <p data-i18n="message_box.balance">This balance keeps delivery simple and reliable while keeping content private. If unlinkability matters to you, use separate identity keys for each context or run your own Message Box server.</p>
 
             <h2 data-i18n="how_we_use.heading">How We Use Data</h2>
             <p data-i18n="how_we_use.intro">We use the data we collect in accordance with your instructions, including any applicable terms in our Terms of Service, and as required by law. We may also use data for the following purposes:</p>
