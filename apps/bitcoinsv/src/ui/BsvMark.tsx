@@ -4,6 +4,8 @@
 //
 // With another app icon chosen (Settings → App icon), that icon's coin takes
 // the mark's place everywhere; DefaultBsvMark is always the Bitcoin SV one.
+// The default BSV Wallet icon keeps the drawn mark too: its dark tile reads as
+// an app icon, not as a coin beside an amount.
 import React from 'react'
 import { Image } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
@@ -14,7 +16,7 @@ import { COIN_IMAGES, useAppIcon } from '../settings/appIcons'
 
 export function BsvMark({ size, ink = false }: { size: number; ink?: boolean }) {
   const icon = useAppIcon()
-  if (icon !== 'classic')
+  if (icon !== 'classic' && icon !== 'wallet')
     return <Image source={COIN_IMAGES[icon]} style={{ width: size, height: size }} accessibilityLabel="BitcoinSV" />
   return <DefaultBsvMark size={size} ink={ink} />
 }

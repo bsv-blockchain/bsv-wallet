@@ -112,11 +112,12 @@ module.exports = () => ({
     './plugins/withLaunchWindowBackground',
     './plugins/withHomeLaunchScreen',
     './plugins/withSceneLifecycle',
-    // Settings → App icon (the prototype's): the default is the Bitcoin SV mark;
-    // these are the others, iOS's alternate icons and Android's activity aliases
+    // Settings → App icon (the prototype's): the default is BSV Wallet's icon
+    // (lifted from the root app); these are the others, iOS's alternate icons
+    // and Android's activity aliases. Classic is the earlier Bitcoin SV mark.
     [
       'expo-alternate-app-icons',
-      ['Dragon', 'Original', 'Satoshi'].map(name => ({
+      ['Classic', 'Dragon', 'Original', 'Satoshi'].map(name => ({
         name,
         ios: `./assets/images/app-icons/${name.toLowerCase()}.png`,
         android: {
@@ -185,7 +186,7 @@ module.exports = () => ({
     ...(hasFirebase ? { googleServicesFile: androidFirebaseFile } : {}),
     // Same as the existing app: no OS cloud backup of wallet storage.
     allowBackup: false,
-    adaptiveIcon: { foregroundImage: './assets/images/adaptive-icon.png', backgroundColor: '#FFFFFF' },
+    adaptiveIcon: { foregroundImage: './assets/images/adaptive-icon.png', backgroundColor: '#e5af35' },
     permissions: [
       'android.permission.INTERNET',
       'android.permission.CAMERA',

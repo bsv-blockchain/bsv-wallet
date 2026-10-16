@@ -1,5 +1,6 @@
 // The app icons to choose from (the prototype's components/brand/app-icons.tsx):
-// the Bitcoin SV mark (the default icon), the Bitcoin SV dragon, Bitcoin's
+// BSV Wallet's icon (the default, lifted from the root app), the Bitcoin SV
+// mark (Classic, the earlier default), the Bitcoin SV dragon, Bitcoin's
 // original "BC" coin and Satoshi's ₿ coin. The real home-screen icon changes
 // through expo-alternate-app-icons (iOS alternate icons, Android activity
 // aliases; app.config.js names them).
@@ -28,10 +29,11 @@ function icons(): IconsModule | null {
   return mod
 }
 
-export type AppIconId = 'classic' | 'dragon' | 'original' | 'satoshi'
+export type AppIconId = 'wallet' | 'classic' | 'dragon' | 'original' | 'satoshi'
 
 export const APP_ICONS: { id: AppIconId; name: string; native: string | null }[] = [
-  { id: 'classic', name: 'Bitcoin SV', native: null },
+  { id: 'wallet', name: 'BSV Wallet', native: null },
+  { id: 'classic', name: 'Bitcoin SV', native: 'Classic' },
   { id: 'dragon', name: 'Dragon', native: 'Dragon' },
   { id: 'original', name: 'Original', native: 'Original' },
   { id: 'satoshi', name: 'Satoshi', native: 'Satoshi' }
@@ -39,6 +41,7 @@ export const APP_ICONS: { id: AppIconId; name: string; native: string | null }[]
 
 /** The coin each icon shows, cut out round (the Bitcoin SV mark is drawn). */
 export const COIN_IMAGES: Record<Exclude<AppIconId, 'classic'>, number> = {
+  wallet: require('../../assets/images/app-icons/wallet-coin.png'),
   dragon: require('../../assets/images/app-icons/dragon-coin.png'),
   original: require('../../assets/images/app-icons/original-coin.png'),
   satoshi: require('../../assets/images/app-icons/satoshi-coin.png')
@@ -50,7 +53,8 @@ let waiting: { remove(): void } | null = null
 
 /** The whole icon, as the home screen shows it (Settings' About). */
 export const ICON_IMAGES: Record<AppIconId, number> = {
-  classic: require('../../assets/images/icon.png'),
+  wallet: require('../../assets/images/icon.png'),
+  classic: require('../../assets/images/app-icons/classic.png'),
   dragon: require('../../assets/images/app-icons/dragon.png'),
   original: require('../../assets/images/app-icons/original.png'),
   satoshi: require('../../assets/images/app-icons/satoshi.png')
@@ -79,9 +83,9 @@ export function currentAppIcon(): AppIconId {
   if (pending) return pending
   try {
     const name = icons()?.getAppIconName() ?? null
-    return APP_ICONS.find(i => i.native === name)?.id ?? 'classic'
+    return APP_ICONS.find(i => i.native === name)?.id ?? 'wallet'
   } catch {
-    return 'classic'
+    return 'wallet'
   }
 }
 

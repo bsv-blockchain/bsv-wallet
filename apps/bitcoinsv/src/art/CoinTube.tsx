@@ -146,7 +146,7 @@ export function CoinTube({ width = 112, loop = false, onDark = false }: { width?
   const still = useReducedMotion()
   // the coins wear the chosen app icon (Settings → App icon)
   const icon = useAppIcon()
-  const face = icon === 'classic' ? undefined : COIN_IMAGES[icon]
+  const face = icon === 'classic' || icon === 'wallet' ? undefined : COIN_IMAGES[icon]
   const [n, setN] = useState(0)
   useEffect(() => {
     if (!loop || still) return
