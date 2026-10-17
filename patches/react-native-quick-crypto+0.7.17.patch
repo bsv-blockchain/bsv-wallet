@@ -1,8 +1,36 @@
 diff --git a/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp b/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
-index cb38f83..ed5957d 100644
+index cb38f83..d273dab 100644
 --- a/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
 +++ b/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
-@@ -346,6 +346,15 @@ void MGLCipherHostObject::installMethods() {
+@@ -85,7 +85,12 @@ MGLCipherHostObject::MGLCipherHostObject(
+     std::shared_ptr<DispatchQueue::dispatch_queue> workerQueue)
+     : MGLSmartHostObject(jsCallInvoker, workerQueue),
+       isCipher_(isCipher),
+-      pending_auth_failed_(false) {
++      pending_auth_failed_(false),
++      // Node initialises these; left out here, setAuthTag read a heap-garbage
++      // state and silently ignored the tag, so GCM decrypts failed at random.
++      auth_tag_state_(kAuthTagUnknown),
++      auth_tag_len_(kNoAuthTagLength),
++      max_message_size_(0) {
+   // TODO(osp) is this needed on the SSL version we are using?
+   // #if OPENSSL_VERSION_MAJOR >= 3
+   //    if (EVP_default_properties_is_fips_enabled(nullptr)) {
+@@ -138,7 +143,12 @@ MGLCipherHostObject::MGLCipherHostObject(
+     std::shared_ptr<DispatchQueue::dispatch_queue> workerQueue)
+     : MGLSmartHostObject(jsCallInvoker, workerQueue),
+       isCipher_(isCipher),
+-      pending_auth_failed_(false) {
++      pending_auth_failed_(false),
++      // Node initialises these; left out here, setAuthTag read a heap-garbage
++      // state and silently ignored the tag, so GCM decrypts failed at random.
++      auth_tag_state_(kAuthTagUnknown),
++      auth_tag_len_(kNoAuthTagLength),
++      max_message_size_(0) {
+   // TODO(osp) is this needed on the SSL version we are using?
+   // #if OPENSSL_VERSION_MAJOR >= 3
+   //    if (EVP_default_properties_is_fips_enabled(nullptr)) {
+@@ -346,6 +356,15 @@ void MGLCipherHostObject::installMethods() {
        }
      }
  

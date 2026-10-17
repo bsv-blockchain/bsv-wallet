@@ -41,6 +41,45 @@ if (__DEV__) {
       refused = true
     }
     if (!refused) console.error('[Crypto Setup] AES-GCM accepted a wrong tag: decrypts are not authenticated')
+    // ...and must accept the right one, every time: an uninitialised auth-tag
+    // state in the same file made good decrypts fail at random (patched too).
+    let failures = 0
+    for (let i = 0; i < 64; i++) {
+      const k = QuickCrypto.randomBytes(32)
+      const n = QuickCrypto.randomBytes(32)
+      const c = QuickCrypto.createCipheriv('aes-256-gcm', k, n)
+      const body = Buffer.concat([Buffer.from(c.update(Buffer.from('canary ' + i))), Buffer.from(c.final())])
+      const d = QuickCrypto.createDecipheriv('aes-256-gcm', k, n)
+      d.setAuthTag(Buffer.from(c.getAuthTag()))
+      try {
+        d.update(body)
+        d.final()
+      } catch {
+        failures += 1
+      }
+    }
+    if (failures) console.error(`[Crypto Setup] AES-GCM refused ${failures}/64 good tags: decrypts fail at random`)
+    // Again once the app has been running: an uninitialised field reads 0 on
+    // fresh memory (iOS zero-fills it) but garbage on reused heap (Android),
+    // so only a check after real allocation churn catches it on a device.
+    setTimeout(() => {
+      let late = 0
+      for (let i = 0; i < 300; i++) {
+        const k = QuickCrypto.randomBytes(32)
+        const n = QuickCrypto.randomBytes(32)
+        const c = QuickCrypto.createCipheriv('aes-256-gcm', k, n)
+        const body = Buffer.concat([Buffer.from(c.update(QuickCrypto.randomBytes(16 + (i % 400)))), Buffer.from(c.final())])
+        const d = QuickCrypto.createDecipheriv('aes-256-gcm', k, n)
+        d.setAuthTag(Buffer.from(c.getAuthTag()))
+        try {
+          d.update(body)
+          d.final()
+        } catch {
+          late += 1
+        }
+      }
+      if (late) console.error(`[Crypto Setup] AES-GCM refused ${late}/300 good tags after startup: decrypts fail at random`)
+    }, 15_000)
   } catch (e) {
     console.error('[Crypto Setup] AES-GCM canary failed to run', e)
   }
