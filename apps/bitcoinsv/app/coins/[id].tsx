@@ -21,7 +21,7 @@ import { BottomSheet } from '../../src/ui/BottomSheet'
 import { GlassButton } from '../../src/ui/GlassButton'
 import { CoinMark } from '../../src/ui/CoinMark'
 import { Coin } from '../../src/ui/Coin'
-import { Money, formatAmount } from '../../src/ui/Money'
+import { Money, formatBsvAmount } from '../../src/ui/Money'
 import { RaisedAmount } from '../../src/ui/RollingAmount'
 import { BsvMark } from '../../src/ui/BsvMark'
 import { SoftEllipse } from '../../src/ui/Soft'
@@ -163,7 +163,7 @@ function CoinDetail({ asset }: { asset: Asset }) {
             {prefs.privacy ? (
               <Text style={[font(800), styles.big, { color: palette.foreground }]}>••••</Text>
             ) : (
-              <RaisedAmount figure={bsv ? formatAmount(asset.amount) : (asset.figure ?? '0')} unit={asset.ticker} size={36} color={palette.foreground} />
+              <RaisedAmount figure={bsv ? formatBsvAmount(asset.amount) : (asset.figure ?? '0')} unit={asset.ticker} size={36} color={palette.foreground} />
             )}
           </Animated.View>
           {showFiat && (

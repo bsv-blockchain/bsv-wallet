@@ -1,5 +1,6 @@
 // Money figures as the prototype's components/money.tsx and
-// animated-money.tsx: en-GB grouping, two decimals, the display currency's
+// animated-money.tsx: en-GB grouping, two decimals (BSV: two to eight, so a
+// balance is exact to the satoshi), the display currency's
 // symbol ("$" before dollars, "zł" after złoty), the BitcoinSV mark after BSV,
 // "••••" in privacy mode, and on hero figures the cents set small and
 // top-aligned. A 'usd' figure is in the display currency (Settings), already
@@ -10,6 +11,7 @@ import Animated from 'react-native-reanimated'
 import { BsvMark } from './BsvMark'
 import { enter } from './motion'
 import { DISPLAY_CURRENCIES, currentDisplayCurrency, useDisplayCurrency } from '../state/displayCurrency'
+import { formatAmount, formatBsvAmount } from './moneyFormat'
 
 /**
  * 'usd': the display currency (BSV when that's BitcoinSV); 'bsv': BitcoinSV;
@@ -18,19 +20,17 @@ import { DISPLAY_CURRENCIES, currentDisplayCurrency, useDisplayCurrency } from '
  */
 export type Unit = 'usd' | 'bsv' | 'dollars'
 
-export function formatAmount(amount: number, decimals = 2): string {
-  return amount.toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
-}
+export { formatAmount, formatBsvAmount }
 
 /** A fiat figure shown in BSV when BitcoinSV is the display currency. */
 const shownAs = (unit: Unit): Unit => (unit === 'usd' && currentDisplayCurrency().code === 'BSV' ? 'bsv' : unit)
 
 const USD = DISPLAY_CURRENCIES.find(c => c.code === 'USD')!
 
-/** "$1,846.20" in the display currency, "12.50" (the mark follows) for BSV. */
+/** "$1,846.20" in the display currency, "12.50" or "0.00999977" (the mark follows) for BSV. */
 export function formatMoney(amount: number, unit: Unit): string {
   const sign = amount < 0 ? '−' : ''
-  if (shownAs(unit) === 'bsv') return `${sign}${formatAmount(Math.abs(amount))}`
+  if (shownAs(unit) === 'bsv') return `${sign}${formatBsvAmount(Math.abs(amount))}`
   const c = unit === 'dollars' ? USD : currentDisplayCurrency()
   const abs = formatAmount(Math.abs(amount), c.decimals)
   return c.after ? `${sign}${abs}${c.symbol}` : `${sign}${c.symbol}${abs}`
