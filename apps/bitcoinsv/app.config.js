@@ -103,6 +103,7 @@ module.exports = () => ({
   scheme: IDENTITY.scheme,
   // continues the existing app's store version line
   version: rootApp.version,
+  // phones stay portrait; an iPad turns any way (ios.infoPlist below)
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   userInterfaceStyle: 'automatic',
@@ -219,7 +220,9 @@ module.exports = () => ({
     ]
   },
   ios: {
-    supportsTablet: false,
+    // a real iPad app, as the existing app on this listing was: the App Store
+    // won't take an update that drops iPad support
+    supportsTablet: true,
     bundleIdentifier: IDENTITY.bundleIdentifier,
     ...(hasFirebase ? { googleServicesFile: iosFirebaseFile } : {}),
     entitlements: {
@@ -228,6 +231,13 @@ module.exports = () => ({
     },
     infoPlist: {
       ...(hasFirebase ? { UIBackgroundModes: ['remote-notification'] } : {}),
+      // iPad only: every orientation (iPhone keeps `orientation` above)
+      'UISupportedInterfaceOrientations~ipad': [
+        'UIInterfaceOrientationPortrait',
+        'UIInterfaceOrientationPortraitUpsideDown',
+        'UIInterfaceOrientationLandscapeLeft',
+        'UIInterfaceOrientationLandscapeRight'
+      ],
       // peerpay plus the existing app's own schemes (with CFBundleURLTypes set,
       // Expo ignores `scheme` on iOS)
       CFBundleURLTypes: rootApp.ios.infoPlist.CFBundleURLTypes,
