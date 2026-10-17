@@ -4,7 +4,9 @@
 // on WhatsOnChain. The menu makes a PDF receipt on the phone, copies the id,
 // opens the explorer, adds or takes the other side out of contacts, and
 // cancels a payment parked offline through the core's own chain-checked
-// cancel (cancelParkedPayment).
+// cancel (cancelParkedPayment). For a payment you sent it also checks its
+// status with the network, shows a nearby payment's code again, and sends it
+// to them again over their message box (src/activity/paymentHelp.ts).
 //
 // Not here, unlike the prototype: hosted receipts (decision 11; the PDF is
 // made on the phone instead), the support agent (Later), per-payment export
@@ -16,13 +18,17 @@ import Animated from 'react-native-reanimated'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard'
-import { ArrowDownLeft, ArrowUpRight, Ban, Copy, Ellipsis, ExternalLink, FileDown, Star, UserMinus, UserPlus, type LucideIcon } from 'lucide-react-native'
+import { ArrowDownLeft, ArrowUpRight, Ban, Copy, Ellipsis, ExternalLink, FileDown, QrCode, RefreshCw, Send, Star, UserMinus, UserPlus, type LucideIcon } from 'lucide-react-native'
 import { useWallet } from '@bsv/expo-wallet-toolbox'
+import { PaymentQrDisplay, useMandala, useMessageBoxConfig } from '@bsv/expo-wallet-toolbox/ui'
+import { useTranslation } from 'react-i18next'
+import { BalancedText } from '../../src/ui/BalancedText'
+import { RESEND_FAILED, canResend, resendPayment, storedPaymentCode } from '../../src/activity/paymentHelp'
 import { showToast } from '../../src/ui/Toast'
 import { Handle } from '../../src/ui/Handle'
 import { cancelParkedPayment, runCancelParkedFlow } from '@bsv/expo-wallet-toolbox/core/offline/cancelParked'
 import { font, radii, usePalette } from '../../src/theme'
-import { BottomSheet } from '../../src/ui/BottomSheet'
+import { BottomSheet, afterSheetCloses } from '../../src/ui/BottomSheet'
 import { GlassButton } from '../../src/ui/GlassButton'
 import { Coin } from '../../src/ui/Coin'
 import { CoinMark } from '../../src/ui/CoinMark'
@@ -52,7 +58,15 @@ export default function TransactionDetail() {
   const router = useRouter()
   const { id } = useLocalSearchParams<{ id: string }>()
   // a cancel writes storage, which bumps the core's txStatusVersion: the list re-reads itself
-  const { storage, managers, adminOriginator, selectedNetwork, mandalaSettlement } = useWallet()
+  const { storage, managers, adminOriginator, selectedNetwork, mandalaSettlement, refreshProof } = useWallet()
+  const { t } = useTranslation()
+  const { messageBoxUrl } = useMessageBoxConfig(t)
+  const mandala = useMandala()
+  // they didn't get it: send again, show the code again, check with the network
+  const [resending, setResending] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [code, setCode] = useState<string | null>(null)
+  const [showingCode, setShowingCode] = useState(false)
   const contacts = useContacts()
   const [menu, setMenu] = useState(false)
   // motion-reduce:animate-none
@@ -71,6 +85,15 @@ export default function TransactionDetail() {
   useEffect(() => {
     if (!tx && items && more && !loadingMore) void loadMore()
   }, [tx, items, more, loadingMore, loadMore])
+  // a nearby payment's code, if this wallet kept it
+  const sentTxid = tx && !tx.incoming ? tx.txid : undefined
+  useEffect(() => {
+    let alive = true
+    void storedPaymentCode(storage, sentTxid).then(c => alive && setCode(c))
+    return () => {
+      alive = false
+    }
+  }, [storage, sentTxid])
 
   if (!tx) {
     return (
@@ -150,6 +173,48 @@ export default function TransactionDetail() {
     }
   }
 
+  const sendAgain = async () => {
+    if (resending) return
+    setResending(true)
+    try {
+      const outcome = await resendPayment({
+        tx,
+        permissionsManager: managers.permissionsManager,
+        storage,
+        adminOriginator,
+        network: selectedNetwork === 'test' ? 'test' : 'main',
+        messageBoxUrl,
+        mandalaRuntime: mandala.runtime as never
+      })
+      if (outcome.ok) showToast('Sent to them again', { type: 'success', description: 'If they already had it, nothing changes.' })
+      else showToast(RESEND_FAILED[outcome.reason], { type: 'error' })
+    } catch {
+      showToast('It couldn’t be sent again. Try again in a moment.', { type: 'error' })
+    } finally {
+      setResending(false)
+    }
+  }
+
+  const checkStatus = async () => {
+    if (!tx.txid || checking) return
+    setChecking(true)
+    try {
+      const result = await refreshProof(tx.txid)
+      showToast(
+        {
+          confirmed: 'Confirmed on the network.',
+          pending: 'The network has it, not confirmed yet.',
+          failed: 'The network doesn’t have this payment. Send it to them again, or cancel it.'
+        }[result],
+        { type: result === 'confirmed' ? 'success' : result === 'failed' ? 'error' : 'info' }
+      )
+    } catch {
+      showToast('Its status couldn’t be checked. Try again when you’re online.', { type: 'error' })
+    } finally {
+      setChecking(false)
+    }
+  }
+
   // a receipt made on the phone (decision 11: no hosted receipts)
   const downloadReceipt = async () => {
     try {
@@ -166,6 +231,9 @@ export default function TransactionDetail() {
     { icon: FileDown, label: 'Download receipt (PDF)', run: () => void downloadReceipt() },
     ...(tx.txid ? [{ icon: Copy, label: 'Copy transaction ID', run: () => void copyTxid() }] : []),
     ...(tx.txid && !parked ? [{ icon: ExternalLink, label: 'View on WhatsOnChain', run: openExplorer }] : []),
+    ...(!tx.incoming && tx.txid ? [{ icon: RefreshCw, label: checking ? 'Checking…' : 'Check payment status', run: () => void checkStatus() }] : []),
+    ...(code ? [{ icon: QrCode, label: 'Show the payment code again', run: () => afterSheetCloses(() => setShowingCode(true)) }] : []),
+    ...(canResend(tx) ? [{ icon: Send, label: resending ? 'Sending…' : 'Send it to them again', run: () => void sendAgain() }] : []),
     ...(key
       ? contact
         ? [
@@ -342,6 +410,34 @@ export default function TransactionDetail() {
           </Pressable>
         ))}
       </BottomSheet>
+      {/* the payee scans it again, if their request is still open */}
+      {code && (
+        <BottomSheet
+          open={showingCode}
+          onOpenChange={setShowingCode}
+          title="Show the payment code"
+          description="They scan it on the request they showed you, if it’s still open on their phone."
+        >
+          <View style={styles.code}>
+            <View style={styles.codePlate}>
+              <PaymentQrDisplay frameQr={code} size={244} />
+            </View>
+          </View>
+          <BalancedText style={[font(400), styles.small, styles.right, { color: palette.mutedForeground, textAlign: 'center' }]}>
+            If they’ve closed that request, the code can’t be read any more. Send it to them again instead: it goes to their wallet over the internet.
+          </BalancedText>
+          {canResend(tx) && (
+            <GlassButton
+              size="lg"
+              variant="outline"
+              label={resending ? 'Sending…' : 'Send it to them again'}
+              icon={<Send size={16} color={palette.foreground} />}
+              disabled={resending}
+              onPress={() => void sendAgain()}
+            />
+          )}
+        </BottomSheet>
+      )}
       {key && !contact && (
         <BottomSheet
           open={adding}
@@ -375,6 +471,8 @@ const styles = StyleSheet.create({
   pad: { paddingHorizontal: 16 },
   content: { paddingHorizontal: 16 },
   round: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  code: { alignItems: 'center' },
+  codePlate: { backgroundColor: '#ffffff', borderRadius: 24, padding: 16 },
   who: { alignItems: 'flex-start', gap: 4, paddingTop: 16 },
   title: { paddingTop: 16, fontSize: 24, lineHeight: 32, letterSpacing: -0.6 },
   small: { fontSize: 14, lineHeight: 20 },
