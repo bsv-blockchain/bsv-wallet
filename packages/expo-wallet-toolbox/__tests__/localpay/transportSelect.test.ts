@@ -7,7 +7,17 @@ import {
   localSupportsBle,
   selectTransport
 } from '../../core/localpay/transport/select'
-import { mintSession, CAP_AWDL, CAP_BLE, CAP_BLE_SCAN, CAP_NEARBY, type Session } from '../../core/localpay/session'
+import {
+  mintSession,
+  CAP_AWDL,
+  CAP_BLE,
+  CAP_BLE_SCAN,
+  CAP_NEARBY,
+  HINT_NET,
+  HINT_ONLINE_KNOWN,
+  HINT_WIFI,
+  type Session
+} from '../../core/localpay/session'
 import { requestNearbyPermissions } from '../../core/localpay/nearbyPermissions'
 
 let mockIsSupported = true
@@ -107,6 +117,29 @@ describe('transport selection', () => {
       expect(selectTransport(session)).toBe(expected)
     }
   )
+})
+
+describe('payee off Wi-Fi (hint bits)', () => {
+  afterEach(() => {
+    Platform.OS = 'ios'
+    mockIsSupported = true
+    mockBleSupported = true
+  })
+  const withCaps = (caps: number): Session => ({ ...mintSession({ ...base, supportsAwdl: false }), caps })
+
+  it('skips AWDL when the payee knew it was not on Wi-Fi', () => {
+    expect(selectTransport(withCaps(CAP_AWDL | HINT_NET))).toBe('qr')
+    expect(selectTransport(withCaps(CAP_AWDL | HINT_ONLINE_KNOWN))).toBe('qr')
+    expect(selectTransport(withCaps(CAP_AWDL | CAP_BLE | HINT_NET))).toBe('ble')
+  })
+
+  it('keeps AWDL when the payee was on Wi-Fi', () => {
+    expect(selectTransport(withCaps(CAP_AWDL | HINT_NET | HINT_WIFI))).toBe('awdl')
+  })
+
+  it('keeps AWDL when the payee could not tell (no probe answer, or an older code)', () => {
+    expect(selectTransport(withCaps(CAP_AWDL))).toBe('awdl')
+  })
 })
 
 describe('fallbackRadio (AWDL → BLE → QR)', () => {

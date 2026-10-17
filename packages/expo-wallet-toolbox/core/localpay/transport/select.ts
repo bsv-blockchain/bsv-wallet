@@ -1,6 +1,17 @@
 import { Platform } from 'react-native'
 import { getLocalPayBleTransport, getLocalPayTransport } from '@bsv/react-native-localpay-transport'
-import { CAP_AWDL, CAP_BLE, CAP_BLE_SCAN, CAP_NEARBY, HINT_BT, RUNG_MASK, type Session } from '../session'
+import {
+  CAP_AWDL,
+  CAP_BLE,
+  CAP_BLE_SCAN,
+  CAP_NEARBY,
+  HINT_BT,
+  HINT_NET,
+  HINT_ONLINE_KNOWN,
+  HINT_WIFI,
+  RUNG_MASK,
+  type Session
+} from '../session'
 import type { BluetoothState } from '../deviceCaps'
 
 export type TransportKind = 'awdl' | 'nearby' | 'ble' | 'qr'
@@ -61,7 +72,7 @@ export function localSupportsBle(): boolean {
  * below when the first radio never connected.
  */
 export function selectTransport(session: Session): TransportKind {
-  if ((session.caps & CAP_AWDL) !== 0 && localSupportsAwdl()) return 'awdl'
+  if ((session.caps & CAP_AWDL) !== 0 && !peerKnownOffWifi(session) && localSupportsAwdl()) return 'awdl'
   if ((session.caps & CAP_NEARBY) !== 0 && localSupportsNearby()) return 'nearby'
   if ((session.caps & CAP_BLE) !== 0 && localSupportsBle()) return 'ble'
   return 'qr'
@@ -100,6 +111,20 @@ export function failedBeforeConnect(error: unknown): boolean {
 export function fallbackRadio(session: Session, failed: TransportKind): TransportKind | null {
   if (failed === 'awdl' && (session.caps & CAP_BLE) !== 0 && localSupportsBle()) return 'ble'
   return null
+}
+
+/**
+ * The payee's QR says, from a network probe that answered, that it was not on
+ * a Wi-Fi network when it made the code. Its AWDL bit can still be set then —
+ * Control Center's Wi-Fi toggle only disconnects, so the radio (and awdl0)
+ * stays up — but AWDL between phones off a network fails in practice and
+ * costs the payer the whole connect timeout before the next rung. So the
+ * payer does not try it. Unknown (no probe answer, or an older code with no
+ * hint bits) is not "off": the AWDL rung stays as it was.
+ */
+export function peerKnownOffWifi(session: Session): boolean {
+  const known = (session.caps & (HINT_ONLINE_KNOWN | HINT_NET)) !== 0
+  return known && (session.caps & HINT_WIFI) === 0
 }
 
 /** The GATT role THIS device takes as payer once the ladder chose 'ble'. */
