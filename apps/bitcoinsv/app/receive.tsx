@@ -62,6 +62,7 @@ import { formatMoney } from '../src/ui/Money'
 import { BalancedText } from '../src/ui/BalancedText'
 import { NotifyPrompt } from '../src/notify/NotifyPrompt'
 import { AddressReceive } from '../src/receive/AddressSheet'
+import { NearbyReceivedScreen } from '../src/pay/NearbyPayScreens'
 import { StickerSheet } from '../src/print/StickerSheet'
 import { toWebLink } from '../src/links/webLinks'
 import { LINK_DOMAIN } from '../src/links/linkDomain'
@@ -404,6 +405,7 @@ export default function Receive() {
                   key={nearbyEpoch}
                   role="payee"
                   embedded={nearbyEmbed}
+                  renderReceived={r => <NearbyReceivedScreen r={r} />}
                   initialRequest={nearbyInitial}
                   onExit={() => setNearbyEpoch(n => n + 1)}
                   dismissTo="/"

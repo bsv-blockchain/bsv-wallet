@@ -1,14 +1,15 @@
 // The nearby payer's steps after Confirm, in this app's own style (Send
 // Payment's screens, app/send.tsx): sending over the radio, the show-a-code
-// fallback, and done. The core's NearbyFlow owns the payment and hands each
-// one its figures and actions (NearbySending, NearbyShowCode, NearbyDone).
+// fallback, and done; and the payee's "payment received". The core's
+// NearbyFlow owns the payment and hands each one its figures and actions
+// (NearbySending, NearbyShowCode, NearbyDone, NearbyReceived).
 import React, { useEffect } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Check, Radio, User } from 'lucide-react-native'
+import { Check, Clock, Radio, TriangleAlert, User } from 'lucide-react-native'
 import { sounds } from '@bsv/expo-wallet-toolbox'
-import type { NearbyDone, NearbySending, NearbyShowCode } from '@bsv/expo-wallet-toolbox/ui'
+import type { NearbyDone, NearbyReceived, NearbySending, NearbyShowCode } from '@bsv/expo-wallet-toolbox/ui'
 import { font, usePalette } from '../theme'
 import { PageHeader } from '../ui/PageHeader'
 import { GlassButton } from '../ui/GlassButton'
@@ -156,6 +157,75 @@ export function NearbyDoneScreen({ d }: { d: NearbyDone }) {
         </View>
       </ScrollView>
     </View>
+  )
+}
+
+/** Paid: in your wallet (or on its way there), shown full screen over Receive. */
+export function NearbyReceivedScreen({ r }: { r: NearbyReceived }) {
+  const palette = usePalette()
+  const insets = useSafeAreaInsets()
+  const still = useReducedMotion()
+  useEffect(() => {
+    sounds.paymentReceive()
+    return () => sounds.release()
+  }, [])
+  const at = r.amountText?.lastIndexOf(' ') ?? -1
+  const figure = r.amountText ? (at > 0 ? r.amountText.slice(0, at) : r.amountText) : bsvFigure(r.amount)
+  const unit = r.amountText && at > 0 ? r.amountText.slice(at + 1) : undefined
+  // the wallet credits it a moment later: a clock until then, a warning if it didn't
+  const done = r.verification === 'verified'
+  const failed = r.verification === 'not-credited'
+  const line = failed
+    ? 'Not in your wallet yet. Check Activity before handing anything over.'
+    : done
+      ? r.broadcast === false
+        ? 'In your wallet. Received offline, so it goes to the network once you’re online.'
+        : 'In your wallet.'
+      : 'Adding it to your wallet…'
+  return (
+    <Modal visible animationType="fade" statusBarTranslucent onRequestClose={r.dismiss}>
+      <View style={[styles.root, { backgroundColor: palette.background, paddingTop: insets.top }]}>
+        <View style={styles.pad}>
+          <Text accessibilityRole="header" style={[font(700), styles.title, { color: palette.foreground }]}>
+            Payment received
+          </Text>
+        </View>
+        <ScrollView contentContainerStyle={[styles.doneBody, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={styles.done}>
+            <View>
+              <Face size={64} />
+              <View
+                style={[
+                  styles.doneBadge,
+                  { backgroundColor: failed ? palette.destructive : done ? palette.positive : palette.ink, boxShadow: `0 0 0 2px ${palette.background}` }
+                ]}
+              >
+                <Animated.View style={still ? null : enter({ scale: 0.5, opacity: 1, duration: 300 })}>
+                  {failed ? (
+                    <TriangleAlert size={13} color="#ffffff" strokeWidth={2.8} />
+                  ) : done ? (
+                    <Check size={14} color="#ffffff" strokeWidth={3.2} />
+                  ) : (
+                    <Clock size={14} color="#ffffff" strokeWidth={2.8} />
+                  )}
+                </Animated.View>
+              </View>
+            </View>
+            <View style={styles.doneAmount}>
+              <RaisedAmount figure={figure} unit={unit} sign="+" mark={unit ? undefined : m => <BsvMark size={m} />} size={36} color={palette.positive} />
+            </View>
+            {!!r.payerName && <Text style={[font(400), styles.small, styles.center, { color: palette.mutedForeground }]}>from {r.payerName}</Text>}
+          </View>
+          <BalancedText style={[font(500), styles.small, styles.center, { color: failed ? palette.destructive : palette.foreground }]}>{line}</BalancedText>
+          {!!r.statusNote && (
+            <BalancedText style={[font(400), styles.small, styles.center, { color: palette.mutedForeground }]}>{r.statusNote}</BalancedText>
+          )}
+          <View style={styles.doneButtons}>
+            <GlassButton size="lg" label="Done" onPress={r.dismiss} />
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
   )
 }
 

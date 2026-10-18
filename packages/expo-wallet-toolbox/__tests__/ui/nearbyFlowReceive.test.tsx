@@ -364,3 +364,27 @@ describe('NearbyFlow — embedded payee', () => {
     expect(s.UNSAFE_getAllByType('QRCode' as never)[0].props.size).toBe(288)
   })
 })
+
+describe('NearbyFlow — host-drawn payment received', () => {
+  it('hands the received moment to the host instead of the built-in overlay', async () => {
+    mockProcessPending.mockResolvedValue([{ success: true }])
+    const seen: { verification: string; amount: number }[] = []
+    const s = wrap(
+      <NearbyFlow
+        role="payee"
+        initialRequest={{ sats: 5000 }}
+        onExit={jest.fn()}
+        renderReceived={r => {
+          seen.push({ verification: r.verification, amount: r.amount })
+          return null
+        }}
+      />
+    )
+    await scanPayerFrame(s)
+    await settle()
+    await waitFor(() => expect(seen.some(v => v.verification === 'verified')).toBe(true))
+    expect(seen[seen.length - 1].amount).toBe(5000)
+    expect(s.queryByText('local_pay_added')).toBeNull()
+    expect(mockClaimAndSavePending).toHaveBeenCalledTimes(1)
+  })
+})

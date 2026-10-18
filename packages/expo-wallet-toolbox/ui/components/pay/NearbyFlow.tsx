@@ -525,6 +525,22 @@ export interface NearbyDone {
   dismiss: () => void
 }
 
+/** The payee's finish: a nearby payment arrived and is durably queued. */
+export interface NearbyReceived {
+  /** Satoshis; with `amountText` set it's a token payment and that is the figure. */
+  amount: number
+  amountText?: string
+  statusNote?: string
+  /** False when it was accepted offline and no broadcaster has seen it yet. */
+  broadcast?: boolean
+  /** 'pending' while the wallet credits it, then 'verified' or 'not-credited'. */
+  verification: 'pending' | 'verified' | 'not-credited'
+  /** Who paid, when their name is known. */
+  payerName?: string
+  /** Back to the wallet; ends the flow. */
+  dismiss: () => void
+}
+
 export interface NearbyFlowProps {
   /** Which side of the exchange this device is on. Set by the cell that mounted it. */
   role: 'payer' | 'payee'
@@ -567,6 +583,12 @@ export interface NearbyFlowProps {
     showCode?: (showCode: NearbyShowCode) => React.ReactNode
     done?: (done: NearbyDone) => React.ReactNode
   }
+  /**
+   * Payee only: draw the "payment received" moment yourself instead of the
+   * built-in overlay. It is shown in place of that overlay, so the host
+   * presents it full screen (a Modal) and plays its own sound.
+   */
+  renderReceived?: (received: NearbyReceived) => React.ReactNode
 }
 
 function NearbyFlow({
@@ -576,7 +598,8 @@ function NearbyFlow({
   initialRequest,
   dismissTo = '/',
   embedded,
-  renderPayer
+  renderPayer,
+  renderReceived
 }: NearbyFlowProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -3442,7 +3465,24 @@ function NearbyFlow({
           the write cannot be lost at that point, and background internalizing
           catches up on its own; surfacing that separately (if it ever fails)
           is a job for the activity list, not for withholding this screen. */}
-      {phase === 'done' && !hosted && (
+      {phase === 'done' && !hosted && role === 'payee' && renderReceived && (
+        <Hosted
+          render={renderReceived}
+          value={{
+            amount: settledAmount,
+            amountText: settledTokenText ?? undefined,
+            statusNote: settledStatusNote ?? undefined,
+            broadcast: settledTokenText ? undefined : receivedBroadcast,
+            verification: receivedVerification,
+            payerName: peerName ?? undefined,
+            dismiss: () => {
+              goBack()
+              router.dismissTo(dismissTo)
+            }
+          }}
+        />
+      )}
+      {phase === 'done' && !hosted && !(role === 'payee' && renderReceived) && (
         <ReceivedOverlay
           amount={settledAmount}
           amountText={settledTokenText ?? undefined}
