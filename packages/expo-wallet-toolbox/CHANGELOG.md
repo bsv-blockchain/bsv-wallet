@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
 ### Added
 
@@ -13,6 +13,150 @@
   reader ignores the new field. Like the rest of `appData`, the snapshot only
   travels on a push that carries an entity change, so a contact edit with no
   payment after it reaches the log with the next payment.
+- **Point-of-sale payment requests.** `core/pos/protocol.ts` is the wire
+  standard for a merchant's nearby payment: a signed `bsvpos1:` code that
+  either enrolls a cashier (`Invite`) or asks for one payment
+  (`MerchantRequest`: merchant, cashier, invoice, chain, expiry, the pairing
+  `session`, and optionally a `subtotal` and `tip` that must add up to the
+  session's amount). `sign`/`verify` use the `[2, 'bsv pos authorization']`
+  protocol, `encodePos`/`decodePos` do the framing and every field check, and
+  `decodePaymentRequest` turns a `bsvpos1:` code or a plain pairing code into
+  a `Session`. A merchant code fills the new `Session.merchantName`,
+  `merchantChain`, `merchantExpires`, `merchantSubtotal` and `merchantTip`
+  (verified display data, never part of the base pairing QR). `NearbyFlow`'s
+  payer scanner accepts these codes, names the merchant on the confirm step,
+  shows "sale + tip" when there is a tip, and refuses a request that has
+  expired or is for another network than the wallet's. Apps import it from
+  `core/pos/protocol` (not re-exported from `core/index.ts`).
+- **`NearbyFlow` can be drawn by the host.** Three optional props, all
+  unset by default so the built-in screens are unchanged:
+  - `embedded` (payee with `initialRequest`): render inline inside a host
+    screen. While the request is live only the pairing code and its status
+    show, sized `qrSize`; a failure or an already-paid outcome opens full
+    screen in a modal, and its Cancel calls `onExit`. `onBusy` reports when a
+    payment is in hand, so the host does not remount or unmount the flow.
+  - `renderPayer` (payer): `confirm`, `sending`, `showCode` and `done`
+    renderers, each optional, handed the values and actions of that step
+    (`NearbyConfirm`, `NearbySending`, `NearbyShowCode`, `NearbyDone`, now
+    exported from `ui/index.ts`). The logic stays in the flow; a step without
+    a renderer keeps its built-in screen.
+  - `renderReceived` (payee): draw the "payment received" moment yourself
+    (`NearbyReceived`: amount, `amountText` for tokens, `broadcast`,
+    `verification`, `payerName`, `dismiss`). It replaces the built-in
+    overlay, so present it full screen and play your own sound.
+- **`revokeConnection` is exported.** Signing a paired site out (stop serving
+  it at once, then tell it over the relay with a best-effort
+  `session_revoke`) moved out of `ConnectionsScreen` into
+  `core/services/revokeConnection.ts`, exported from `core/index.ts`, so an
+  app's own sign-ins screen revokes the same way. It takes the connection,
+  the permissions manager, `{ liveTopic, disconnect }` and optional `deps`
+  for tests; `ConnectionsScreen` behaves as before.
+- **Contacts can be starred and removed.** `ContactRow` has `favourite` and
+  `removedAt`, and `ContactsStore` has `setFavourite`, `removeContact` and
+  `restoreContact`. A removed contact is hidden from `listContacts` and
+  `searchContacts` but kept, so adding the person again (or
+  `restoreContact`) brings them back; `getContact` still returns it, with
+  `removedAt` set. `deleteContact` still deletes the row.
+- **The `contacts` table gains `favourite` and `removedAt`.**
+  `createTables` adds both through `ensureContactsColumns`: additive, with
+  defaults that mean "as before" (`favourite INTEGER NOT NULL DEFAULT 0`,
+  `removedAt TEXT`), so an existing database upgrades on the next open and an
+  app that never sets them sees its address book unchanged.
+- **Start-up reads can begin before the app renders.**
+  `prewarmStartup()` in `core/context/startupPrewarm.ts` starts the secrets
+  migration and the profile and stored-config reads from the app's entry file
+  (once the crypto seams are installed). `LocalStorageProvider` and
+  `WalletContextProvider` take the reads in flight instead of starting them
+  in effects after the first screen has committed. An app that does not call
+  it behaves as before, and each prewarmed read is used once; a later run
+  (after logout) does its own.
+- **A host-configurable minimum handle length.** `configureToolbox({
+  handleMinLength: 1 | 2 | 3 })` (default 3) sets the shortest handle
+  `isValidHandleFormat` accepts; `getHandleMinLength()` reads it. The rest of
+  the format is unchanged (a-z 0-9 . _ -, at most 32, starting and ending
+  with a letter or digit). A host that lowers it must use a registry that
+  accepts the shorter handles.
+- **Payment links carry a note.** `peerpay:` links may carry a `note`
+  extension (BRC-125's extension rule, so other wallets ignore it).
+  `parsePeerPayURI`, `validatePeerPayURI`, `classifyScan` and the `handle`
+  pay target return it as `note`, cleaned by the new `cleanPeerPayNote`
+  (single line, control characters stripped, at most `PEERPAY_NOTE_MAX` = 120
+  characters), and `peerPayLinkFor` takes a trailing `note` argument to write
+  one.
+- **A handle payment's note reaches the receiver.** The MessageBox client
+  rebuilds a payment from its token fields alone, which dropped the `note`
+  the sending side adds. `creditInbox` now puts the sender's note back on each
+  parsed payment (`withSenderNotes`) from the raw message.
+- **A host sounds switch.** `sounds.setEnabled(false)` in
+  `core/hooks/useConfirmationSound.ts` silences every tone until it is turned
+  back on (on by default).
+- **Export a chosen set of transactions.** `exportTransactionsAsCsv` takes an
+  optional `select(action)` filter (a period, a direction) and an optional
+  `fileName`, and the paging helper behind it is exported as
+  `listAllActions(wallet, adminOriginator)`. The existing three-argument call
+  is unchanged.
+- **Shared helpers for host screens.** `core/profiles/removalProblems.ts`
+  (`removalProblemKeys`) maps a refused or failed profile removal to the
+  `profile_remove_*` i18n keys, so every app's Profile screen explains it the
+  same way; `core/identity/handleRegistry/profileKeys.ts` exports
+  `HANDLE_KV_KEY` and `DISPLAY_NAME_KV_KEY`, the storage keys of a wallet's
+  own profile, so a host that registers a handle itself reads and writes the
+  same entries as `ProfileScreen`; `core/net/trimTrailingSlashes.ts` is a
+  linear-time replacement for `s.replace(/\/+$/, '')`.
+- **`WalletConfigScreen` takes `hideLogout`.** An app that forgets wallets its
+  own way and shows the screen only as developer tools can leave the Log Out
+  row out. Default false.
+
+### Changed
+
+- **iOS nearby payments step down AWDL, then BLE, then the QR code.** When
+  the AWDL link never came up, the payer now tries Bluetooth (if the payee's
+  code offered it and this device can) before showing the payment as a code.
+  Only a failure that proves not one byte left the device qualifies
+  (`failedBeforeConnect`, matching the native "no route to peer" text), so a
+  lost ack or a timeout after the link was up still goes straight to the QR
+  fountain: a second radio could deliver the frame twice into a payee race
+  that has already settled. `fallbackRadio(session, failed)` and
+  `failedBeforeConnect(error)` are exported from `core/index.ts` next to
+  `selectTransport`.
+- **The payer skips AWDL when the payee was off Wi-Fi.** A payee that made
+  its code with a network probe that answered and found no Wi-Fi advertises
+  AWDL anyway (turning Wi-Fi off in Control Center leaves the radio up), but
+  AWDL between phones off a network fails in practice and cost the whole
+  connect timeout. `selectTransport` now passes over it in that case
+  (`peerKnownOffWifi` in `core/localpay/transport/select.ts`). A code with no
+  probe answer, or an older one with no hint bits, is not "off" and keeps the
+  AWDL rung.
+- **Contacts come back from the address book without removed ones.**
+  `listContacts` and `searchContacts` leave out contacts with `removedAt` set
+  (see Added). `ContactRow.favourite` is a required boolean, so code that
+  builds a `ContactRow` or implements `ContactsStore` itself must supply it
+  and the three new methods.
+- **Handle format check is length-driven.** `isValidHandleFormat` now tests
+  the length against `getHandleMinLength()` and the character shape
+  separately; with the default configuration it accepts exactly the same
+  3-32 character handles as before.
+- **Trailing-slash trimming on URLs no longer backtracks.** Every
+  `replace(/\/+$/, '')` on a URL that can arrive from a link, QR code or other
+  app (backup, push, MessageBox, overlay, registry, `peerpay:` and
+  token-overlay comparison) now uses `trimTrailingSlashes`, removing a
+  quadratic-time pattern (CodeQL `js/polynomial-redos`). Results are
+  identical.
+- **`ProfileScreen` and `ConnectionsScreen` use the shared helpers** above
+  instead of local copies; what they show is unchanged.
+
+### Fixed
+
+- **Short payment notes no longer fail the send.** A wallet action's
+  description must be at least 5 bytes and the validator does not trim, so a
+  note like "ok" made `createAction` fail on the nearby (BSV and token) and
+  address rails. The description is now space-padded to 5
+  (`core/localpay/build.ts`, `core/pay/rails/address.ts`). The padding is
+  also needed where the note goes through `@bsv/mandala` (its send and
+  receive notes); that is in the mandala package, not here. Until mandala
+  fixes it, apps must carry a `patch-package` patch for `@bsv/mandala` 0.4.1
+  that pads the description the same way.
+
 
 ## 0.15.2
 
