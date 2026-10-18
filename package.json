@@ -154,9 +154,6 @@
     "@react-native/virtualized-lists": "0.86.3"
   },
   "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
   "expo": {
     "doctor": {
       "reactNativeDirectoryCheck": {

@@ -24,7 +24,7 @@ From an inventory of the prototype's Now screens:
 
 | Prototype technique | Native implementation | Status |
 |---|---|---|
-| CSS `@keyframes`, `animation-*` | Reanimated 4 CSS animations (`css.keyframes`, `animationName`, `animationDuration`, `animationTimingFunction`, `cubicBezier`). Keyframes, durations and curves are copied verbatim into `apps/bitcoinsv/src/ui/motion.ts`. They run on the UI thread on both platforms. | In use on Home |
+| CSS `@keyframes`, `animation-*` | Reanimated 4 CSS animations (`css.keyframes`, `animationName`, `animationDuration`, `animationTimingFunction`, `cubicBezier`). Keyframes, durations and curves are copied verbatim into `src/ui/motion.ts` ([bsv-blockchain/bitcoin-sv-wallet](https://github.com/bsv-blockchain/bitcoin-sv-wallet)). They run on the UI thread on both platforms. | In use on Home |
 | CSS transitions | Reanimated 4 CSS transitions (`transitionProperty`, `transitionDuration`, `transitionTimingFunction`) | In use (card stack, checklist progress, pager, press) |
 | CSS 3D poses (`perspective` + `rotateX/Y/Z`) | RN `transform: [{perspective}, {rotateX}, {rotateY}, {rotateZ}]`, the same values | In use (tour phone, seed paper) |
 | `preserve-3d` + `translateZ` thickness layers | RN has neither. `edgeOffset()` in `src/ui/Soft.tsx` projects each `translateZ(-k)` through the same rotation matrix and draws the layer flat at that offset inside the rotated view, so it lands where CSS puts it. | In use |

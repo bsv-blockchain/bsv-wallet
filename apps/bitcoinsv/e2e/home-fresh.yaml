@@ -1,8 +1,0 @@
-# Home for a wallet that was just made: nothing set up yet.
-appId: org.bsvblockchain.wallet
----
-- assertVisible: Get set up
-- assertVisible: 0 of 2
-- assertVisible:
-    text: Back up this wallet
-    checked: false
