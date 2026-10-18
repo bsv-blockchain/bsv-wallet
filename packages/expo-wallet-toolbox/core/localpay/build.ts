@@ -313,8 +313,9 @@ export async function buildPaymentFrame(
       // what happened. Not the payee's key: the row draws the counterparty as
       // a sigil from the label below, and an abbreviated key as a title told
       // the user nothing about a blinded transfer (2026-09-16). A payer's note
-      // overrides this fixed wording, same as the message-box rail.
-      description: note?.trim() || 'Sent BSV',
+      // overrides this fixed wording, same as the message-box rail, space-padded:
+      // a description must be at least 5 bytes and the validator doesn't trim.
+      description: (note?.trim() || 'Sent BSV').padEnd(5),
       // The payee's identity key rides as a label, and the derivation data as
       // the output's customInstructions — exactly what the handle rail writes.
       // Both rails derive to BRC-29 (`counterparty: identityKey`, keyID
@@ -642,7 +643,7 @@ async function buildTokenPaymentFrame(
       // and without it a nearby token payment rendered as a BSV row — the
       // payee's key over "+0 sats" (2026-09-16). The payee key stays on as a
       // label for the resend path.
-      description: note?.trim() || 'Sent token',
+      description: (note?.trim() || 'Sent token').padEnd(5),
       labels: [PEERPAY_LABEL, session.identityKey, MANDALA_ACTION_LABEL, MANDALA_TOKEN_SPEND_LABEL],
       inputBEEF: sourceBeef.toBinary(),
       inputs: selected.map(coin => ({

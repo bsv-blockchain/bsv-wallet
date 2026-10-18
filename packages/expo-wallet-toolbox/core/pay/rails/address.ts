@@ -535,8 +535,9 @@ export async function sendToAddress(args: {
     {
       // The recipient's address is the description so the activity list has a
       // name for the row without a lookup; the to: label is what lets it draw
-      // a face. A sender's own note overrides it, same as the other rails.
-      description: note?.trim() || abbreviateKey(address),
+      // a face. A sender's own note overrides it, same as the other rails,
+      // space-padded to the 5-byte minimum a description must have.
+      description: (note?.trim() || abbreviateKey(address)).padEnd(5),
       outputs: [{ lockingScript, satoshis: sats, outputDescription: 'BSV for recipient address' }],
       labels: ['legacy', 'outbound', addressLabel(TO_ADDRESS_LABEL_PREFIX, address)],
       ...(isSendMax ? { options: { randomizeOutputs: false } } : {})

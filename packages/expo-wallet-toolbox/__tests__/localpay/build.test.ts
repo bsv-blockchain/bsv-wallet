@@ -72,6 +72,15 @@ describe('buildPaymentFrame', () => {
     expect(w.createAction.mock.calls[0][0].description).toBe('lunch split')
   })
 
+  it('pads a short note to the 5-byte minimum a description must have', async () => {
+    const w = walletStub()
+    await buildPaymentFrame(w as never, session(), 'admin.com', 777, undefined, 'ab')
+    expect(w.createAction.mock.calls[0][0].description).toBe('ab   ')
+    const one = walletStub()
+    await buildPaymentFrame(one as never, session(), 'admin.com', 777, undefined, '  x  ')
+    expect(one.createAction.mock.calls[0][0].description).toBe('x    ')
+  })
+
   it('carries the note on the frame so the payee can show it too', async () => {
     const { frame } = await buildPaymentFrame(
       walletStub() as never,
