@@ -12,7 +12,11 @@
  *
  * Addresses are checked with regexes, not `URL`: `URL.hostname` is unreliable on Hermes. A relay
  * must be `wss://` (desktop also allows `ws://` for localhost; a phone has no local relay, so
- * there is no exception here), and an address with credentials in it is refused.
+ * there is no exception here), and an address with `user:password@` in it is refused. A token in
+ * the query string cannot be told from any other query, so that is not.
+ *
+ * The TURN credential is stored as plain JSON beside the other settings, and AsyncStorage is
+ * not encrypted: do not give it a secret that matters beyond this one relay.
  */
 import type { KVStorage } from '../localpay/pending'
 import type { DirectPaySettings, DirectPayTurn } from './types'
@@ -22,18 +26,34 @@ export const DIRECT_PAY_SETTINGS_KEY = 'direct_pay_settings_v1'
 /** The public WebRTPay relay, the default way wallets find each other. */
 export const DEFAULT_RELAY_URL = 'wss://webrtpay-relay-us-1.bsvblockchain.tech'
 
-/** Never mutate it: `loadDirectPaySettings` hands out copies of `stunUrls`. */
-export const DEFAULT_DIRECT_PAY_SETTINGS: Readonly<DirectPaySettings> = {
+/** The default `stunUrls` is frozen; `loadDirectPaySettings` hands out copies of it. */
+export const DEFAULT_DIRECT_PAY_SETTINGS: Readonly<Omit<DirectPaySettings, 'stunUrls'>> & {
+  readonly stunUrls: readonly string[]
+} = {
   receiveEnabled: true,
   signaling: 'relay',
   relayUrl: DEFAULT_RELAY_URL,
-  stunUrls: ['stun:stun-us-1.bsvb.tech:3478', 'stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478']
+  stunUrls: Object.freeze([
+    'stun:stun-us-1.bsvb.tech:3478',
+    'stun:stun.l.google.com:19302',
+    'stun:stun.cloudflare.com:3478'
+  ])
 }
 
-/** wss:// then a host (no credentials), then an optional path, query or fragment, with no spaces. */
-const RELAY_URL = /^wss:\/\/[^\s/?#@]+(?:[/?#]\S*)?$/
-const STUN_URL = /^stuns?:\S+$/
-const TURN_URL = /^turns?:\S+$/
+// A host is a name or IPv4 address that starts and ends with a letter or digit, or a bracketed
+// IPv6 address, then an optional port. No credentials, and nothing else before the path.
+const HOST = String.raw`(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?`
+/** wss:// then a host, then an optional path, query or fragment, with no spaces. */
+const RELAY_URL = new RegExp(String.raw`^wss://${HOST}(?:[/?#]\S*)?$`)
+/** stun:/stuns:/turn:/turns: then a host, then an optional query such as `?transport=udp`. */
+const STUN_URL = new RegExp(String.raw`^stuns?:${HOST}(?:\?\S*)?$`)
+const TURN_URL = new RegExp(String.raw`^turns?:${HOST}(?:\?\S*)?$`)
+
+/** Whether `text` is a relay address as written: `wss://`, a host, no credentials. Nothing is trimmed. */
+export const isRelayUrl = (text: string): boolean => RELAY_URL.test(text)
+
+/** Whether `text` is a `stun:` / `stuns:` server as written. Nothing is trimmed. */
+export const isStunUrl = (text: string): boolean => STUN_URL.test(text)
 
 /** Which setting a {@link DirectPaySettingsError} is about. */
 export type DirectPaySettingsField = keyof DirectPaySettings
@@ -84,10 +104,10 @@ function checkRelayUrl(value: unknown): string {
   }
   const text = value.trim()
   if (text === '') return ''
-  if (!RELAY_URL.test(text)) {
+  if (!isRelayUrl(text)) {
     throw new DirectPaySettingsError(
       'relay_invalid',
-      'relayUrl must be a wss:// address without credentials',
+      'relayUrl must be a wss:// address (a host, then an optional port and path) without user:password@',
       'relayUrl'
     )
   }
@@ -103,7 +123,7 @@ function checkStunUrls(value: unknown): string[] {
   for (const entry of value) {
     const text = typeof entry === 'string' ? entry.trim() : null
     if (text === '') continue
-    if (text === null || !STUN_URL.test(text)) {
+    if (text === null || !isStunUrl(text)) {
       throw new DirectPaySettingsError(
         'stun_invalid',
         `STUN server "${String(entry)}" must start with stun: or stuns:`,
@@ -160,7 +180,7 @@ export async function loadDirectPaySettings(storage: KVStorage): Promise<DirectP
     }
   }
 
-  return withTurn(
+  const settings = withTurn(
     {
       receiveEnabled: field(checkReceiveEnabled, stored.receiveEnabled, defaults.receiveEnabled),
       signaling: field(checkSignaling, stored.signaling, defaults.signaling),
@@ -169,6 +189,9 @@ export async function loadDirectPaySettings(storage: KVStorage): Promise<DirectP
     },
     field(checkTurn, stored.turn, undefined)
   )
+  // `saveDirectPaySettings` never stores relay signaling with no relay; a store edited by hand might.
+  if (settings.signaling === 'relay' && !settings.relayUrl) settings.relayUrl = defaults.relayUrl
+  return settings
 }
 
 /**
@@ -216,7 +239,7 @@ export interface IceServer {
 }
 
 /** The ICE servers for a connection: the STUN list, then TURN with its credentials. */
-export function iceServersFrom(settings: Pick<DirectPaySettings, 'stunUrls' | 'turn'>): IceServer[] {
+export function iceServersFrom(settings: { stunUrls: readonly string[]; turn?: DirectPayTurn }): IceServer[] {
   const servers: IceServer[] = []
   if (settings.stunUrls.length > 0) servers.push({ urls: [...settings.stunUrls] })
   if (settings.turn) {

@@ -52,15 +52,16 @@ describe('payIdentity: the message box fallback', () => {
     }
   )
 
-  it('says so, and nothing was spent, when there is no message box to fall back to', async () => {
-    expect(await payIdentity({ direct: stopsBeforePaying('offline'), name: 'Alice' })).toEqual({
+  it.each<[DialFailure, string]>([
+    ['offline', 'direct_pay_failed_offline'],
+    ['rejected', 'direct_pay_failed_offline'],
+    ['timeout', 'direct_pay_failed_link'],
+    ['unknown', 'direct_pay_failed_link']
+  ])('says so, and nothing was spent, when %s and there is no message box to fall back to', async (failure, key) => {
+    expect(await payIdentity({ direct: stopsBeforePaying(failure), name: 'Alice' })).toEqual({
       kind: 'failed',
-      key: 'direct_pay_failed_offline',
-      params: { name: 'Alice' }
-    })
-    expect(await payIdentity({ direct: stopsBeforePaying('timeout'), name: 'Alice' })).toEqual({
-      kind: 'failed',
-      key: 'direct_pay_failed_link',
+      spent: 'no',
+      key,
       params: { name: 'Alice' }
     })
   })
@@ -71,18 +72,45 @@ describe('payIdentity: the message box fallback', () => {
     expect(messageBox).toHaveBeenCalledTimes(1)
   })
 
-  it('reports a message box that fails, with its own words for the log', async () => {
+  // The message box route makes the payment before it delivers it, so a failure it does not
+  // call a NotSentError may come after the payment was made.
+  it('says the payment may have been sent when the message box fails, with its own words for the log', async () => {
     const outcome = await payIdentity({
       messageBox: async () => {
         throw new Error('host is down')
       },
       name: 'Alice'
     })
-    expect(outcome).toEqual({ kind: 'failed', key: 'unknown_error', detail: 'host is down' })
+    expect(outcome).toEqual({
+      kind: 'failed',
+      spent: 'maybe',
+      key: 'direct_pay_failed_maybe_sent',
+      params: { name: 'Alice' },
+      detail: 'host is down'
+    })
+  })
+
+  it('says nothing was spent when the message box stops before making the payment', async () => {
+    const outcome = await payIdentity({
+      messageBox: async () => {
+        throw new NotSentError('This request has changed or expired.', 'expired')
+      },
+      name: 'Alice'
+    })
+    expect(outcome).toEqual({
+      kind: 'failed',
+      spent: 'no',
+      key: 'direct_pay_failed_not_sent',
+      detail: 'expired'
+    })
   })
 
   it('fails with no route at all when neither route is given', async () => {
-    expect(await payIdentity({ name: 'Alice' })).toEqual({ kind: 'failed', key: 'direct_pay_failed_no_message_box' })
+    expect(await payIdentity({ name: 'Alice' })).toEqual({
+      kind: 'failed',
+      spent: 'no',
+      key: 'direct_pay_failed_no_message_box'
+    })
   })
 })
 
@@ -94,8 +122,7 @@ describe('payIdentity: failures that must not offer the message box', () => {
   ])('%s fails outright, even with a message box', async (failure, key) => {
     const messageBox = jest.fn(async () => {})
     const outcome = await payIdentity({ direct: stopsBeforePaying(failure), messageBox, name: 'Alice' })
-    expect(outcome.kind).toBe('failed')
-    expect((outcome as { key: string }).key).toBe(key)
+    expect(outcome).toMatchObject({ kind: 'failed', spent: 'no', key })
     expect(messageBox).not.toHaveBeenCalled()
   })
 
@@ -106,13 +133,21 @@ describe('payIdentity: failures that must not offer the message box', () => {
     expect(await payIdentity({ direct: stopsBeforePaying('unavailable'), name: 'Alice' })).not.toHaveProperty('params')
   })
 
-  it('does not ask to fall back for a stop with no dial failure behind it', async () => {
+  it('does not ask to fall back for a stop with no dial failure behind it, and says nothing was spent', async () => {
     const outcome = await payIdentity({
       direct: stopsBeforePaying(undefined),
       messageBox: async () => {},
       name: 'Alice'
     })
-    expect(outcome).toEqual({ kind: 'failed', key: 'unknown_error', detail: 'because' })
+    expect(outcome).toEqual({ kind: 'failed', spent: 'no', key: 'direct_pay_failed_not_sent', detail: 'because' })
+  })
+
+  it('keeps the reason of such a stop for the log, falling back to the error message', async () => {
+    const outcome = await payIdentity({
+      direct: async () => Promise.reject(new NotSentError('too large to deliver directly')),
+      name: 'Alice'
+    })
+    expect(outcome).toMatchObject({ key: 'direct_pay_failed_not_sent', detail: 'too large to deliver directly' })
   })
 
   // The live payment was made, and may have been delivered: a second route would build a second
@@ -127,10 +162,19 @@ describe('payIdentity: failures that must not offer the message box', () => {
       const outcome = await payIdentity({ direct: lostAck, messageBox, name: 'Alice' })
       expect(outcome).toEqual({
         kind: 'failed',
-        key: 'unknown_error',
+        spent: 'maybe',
+        key: 'direct_pay_failed_maybe_sent',
+        params: { name: 'Alice' },
         detail: "The recipient's wallet did not confirm the payment before the connection ended."
       })
       expect(messageBox).not.toHaveBeenCalled()
+    })
+
+    it('says so in words, so the user does not pay again by hand', async () => {
+      const outcome = await payIdentity({ direct: lostAck, name: 'Alice' })
+      expect(say(outcome as DirectPayMessage)).toBe(
+        'Your payment to Alice may already have been sent. Check Activity before paying again.'
+      )
     })
 
     it.each(['peer_unreachable', 'rejected', 'timeout', 'closed'])(
@@ -142,7 +186,7 @@ describe('payIdentity: failures that must not offer the message box', () => {
           messageBox: async () => {},
           name: 'Alice'
         })
-        expect(outcome.kind).toBe('failed')
+        expect(outcome).toMatchObject({ kind: 'failed', spent: 'maybe' })
       }
     )
 
@@ -153,7 +197,7 @@ describe('payIdentity: failures that must not offer the message box', () => {
           messageBox: async () => {},
           name: 'Alice'
         })
-        expect(outcome).toMatchObject({ kind: 'failed', key: 'unknown_error' })
+        expect(outcome).toMatchObject({ kind: 'failed', spent: 'maybe', key: 'direct_pay_failed_maybe_sent' })
       }
     })
   })
@@ -189,6 +233,11 @@ describe('fallbackPrompt', () => {
     const prompt = fallbackPrompt('link_failed', 'Alice')
     expect(prompt).toEqual({ key: 'direct_pay_fallback_link_failed', params: { name: 'Alice' } })
     expect(say(prompt)).toBe("Couldn't connect to Alice directly. Send it to their message box instead?")
+  })
+
+  it('says in English that nothing was spent when a stop has no dial failure', async () => {
+    const outcome = await payIdentity({ direct: stopsBeforePaying(undefined), name: 'Alice' })
+    expect(say(outcome as DirectPayMessage)).toBe('The payment could not be sent. Nothing was spent.')
   })
 
   it('is what the failures without a message box say, in English', async () => {

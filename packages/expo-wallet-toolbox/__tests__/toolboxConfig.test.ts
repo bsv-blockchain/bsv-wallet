@@ -308,8 +308,7 @@ describe('push adapter seam', () => {
   })
 })
 
-// The host owns the WebRTC implementation; nothing reads this yet, so a host that states
-// nothing must see no change.
+// The host owns the WebRTC implementation, and a host that states nothing must see no change.
 describe('direct pay seam', () => {
   it('is undefined when the toolbox is not configured', () => {
     expect(getDirectPayConfig()).toBeUndefined()
@@ -342,5 +341,49 @@ describe('direct pay seam', () => {
     configureToolbox({ backupUrl: 'https://backup.example.com' })
     expect(getBackupUrl()).toBe('https://backup.example.com')
     expect(getDirectPayConfig()).toBeUndefined()
+  })
+
+  it('takes each address on its own: a host may state the relay without the STUN servers', () => {
+    configureToolbox({ backupUrl: null, directPay: { relayUrl: 'wss://relay.example.com' } })
+    expect(getDirectPayConfig()).toEqual({ relayUrl: 'wss://relay.example.com' })
+    configureToolbox({ backupUrl: null, directPay: { stunUrls: [] } })
+    expect(getDirectPayConfig()).toEqual({ stunUrls: [] })
+  })
+
+  describe('checks the addresses it is given, by the rules of the user settings', () => {
+    it.each([
+      ['ws://relay.example.com', 'plain ws'],
+      ['https://relay.example.com', 'https'],
+      ['wss://user:secret@relay.example.com', 'credentials'],
+      ['wss://:443', 'no host'],
+      [' wss://relay.example.com', 'untrimmed'],
+      ['', 'empty, which would mean no relay']
+    ])('refuses the relay %j (%s)', (relayUrl, _why) => {
+      expect(() => configureToolbox({ backupUrl: null, directPay: { relayUrl } })).toThrow(/directPay\.relayUrl/)
+    })
+
+    it('refuses a relay that is not a string', () => {
+      const relayUrl = 42 as unknown as string
+      expect(() => configureToolbox({ backupUrl: null, directPay: { relayUrl } })).toThrow(/directPay\.relayUrl/)
+    })
+
+    it.each([
+      [['http://stun.example.com']],
+      [['stun:stun.example.com:3478', 'turn:turn.example.com:3478']],
+      [['stun://x']],
+      [[' stun:stun.example.com:3478']],
+      [[42]],
+      ['stun:stun.example.com:3478'],
+      [null]
+    ])('refuses the STUN servers %j', stunUrls => {
+      const directPay = { stunUrls: stunUrls as unknown as string[] }
+      expect(() => configureToolbox({ backupUrl: null, directPay })).toThrow(/directPay\.stunUrls/)
+    })
+
+    it('leaves the earlier configuration in place when it refuses', () => {
+      configureToolbox({ backupUrl: 'https://backup.example.com' })
+      expect(() => configureToolbox({ backupUrl: null, directPay: { relayUrl: 'ws://nope' } })).toThrow()
+      expect(getBackupUrl()).toBe('https://backup.example.com')
+    })
   })
 })

@@ -4,10 +4,19 @@
  * (own properties kept, prototype lost) is read the same.
  *
  * The codes are those `DirectPayClient.connect` rejects with:
- * `peer_unreachable` (no reply in the presence window), `rejected` (the recipient refused;
- * `reason` is `busy`, `not_receiving` or `wrong_network`, or whatever else it said),
- * `unavailable` (the signal could not be posted), `timeout` (it replied but the link did not
- * come up), and `closed` (the channel closed; `Dial cancelled` when the caller's signal aborted).
+ * `peer_unreachable` (no reply in the presence window, or the relay socket could not be
+ * opened or closed on the dial), `rejected` (the recipient refused; `reason` is `busy`,
+ * `not_receiving` or `wrong_network`, or whatever else it said), `unavailable` (the signaling
+ * service could not do its part: the relay had no TURN credentials, or MessageBox could not
+ * deliver the signal), `timeout` (it replied but the link did not come up), and `closed` (the
+ * channel closed; `Dial cancelled` when the caller's signal aborted).
+ *
+ * Two things for the caller that dials. `peer_unreachable` is also what a payer with no
+ * network on relay signaling gets, so check this wallet's own relay connection before taking
+ * `offline` to mean the recipient is away. And a cancelled dial is told apart by that message
+ * text alone (or an abort error): the dial's catch should check its own `signal.aborted` and
+ * throw `NotSentError(..., 'aborted')` itself, so a reworded message cannot turn Cancel into
+ * an offer to use the message box.
  */
 import type { DialFailure } from './types'
 

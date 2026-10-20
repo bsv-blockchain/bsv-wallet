@@ -1234,6 +1234,9 @@ const resources = {
       direct_pay_failed_network: "Couldn't reach the payment network — check your connection.",
       direct_pay_failed_wrong_network: '{{name}} is on a different network. Nothing was spent.',
       direct_pay_failed_cancelled: 'Cancelled. Nothing was spent.',
+      direct_pay_failed_maybe_sent:
+        'Your payment to {{name}} may already have been sent. Check Activity before paying again.',
+      direct_pay_failed_not_sent: 'The payment could not be sent. Nothing was spent.',
       direct_pay_failed_no_message_box: 'Connect your message box in Settings to pay a wallet identity.'
     }
   },
@@ -2274,6 +2277,8 @@ const resources = {
       direct_pay_failed_network: '无法连接支付网络，请检查网络连接。',
       direct_pay_failed_wrong_network: '{{name}} 在另一个网络上。未花费任何款项。',
       direct_pay_failed_cancelled: '已取消。未花费任何款项。',
+      direct_pay_failed_maybe_sent: '你向 {{name}} 的付款可能已经发出。再次付款前，请先查看“活动”。',
+      direct_pay_failed_not_sent: '无法发送付款。未花费任何款项。',
       direct_pay_failed_no_message_box: '请在设置中连接消息箱，以便向钱包身份付款。'
     }
   },
@@ -3391,6 +3396,9 @@ const resources = {
       direct_pay_failed_network: 'भुगतान नेटवर्क तक नहीं पहुँच सके — अपना कनेक्शन जाँचें।',
       direct_pay_failed_wrong_network: '{{name}} किसी दूसरे नेटवर्क पर हैं। कुछ भी खर्च नहीं हुआ।',
       direct_pay_failed_cancelled: 'रद्द किया गया। कुछ भी खर्च नहीं हुआ।',
+      direct_pay_failed_maybe_sent:
+        '{{name}} को आपका भुगतान शायद पहले ही भेजा जा चुका है। दोबारा भुगतान करने से पहले गतिविधि देखें।',
+      direct_pay_failed_not_sent: 'भुगतान भेजा नहीं जा सका। कुछ भी खर्च नहीं हुआ।',
       direct_pay_failed_no_message_box:
         'किसी वॉलेट आइडेंटिटी को भुगतान करने के लिए सेटिंग्स में अपना मैसेज बॉक्स जोड़ें।'
     }
@@ -4526,6 +4534,9 @@ const resources = {
       direct_pay_failed_network: 'No se pudo llegar a la red de pagos. Revisa tu conexión.',
       direct_pay_failed_wrong_network: '{{name}} está en otra red. No se gastó nada.',
       direct_pay_failed_cancelled: 'Cancelado. No se gastó nada.',
+      direct_pay_failed_maybe_sent:
+        'Es posible que tu pago a {{name}} ya se haya enviado. Revisa Actividad antes de volver a pagar.',
+      direct_pay_failed_not_sent: 'No se pudo enviar el pago. No se gastó nada.',
       direct_pay_failed_no_message_box:
         'Conecta tu buzón de mensajes en Ajustes para pagar a una identidad de billetera.'
     }
@@ -5653,30 +5664,33 @@ const resources = {
       direct_pay_status_on_relay:
         'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via le relais.',
       direct_pay_status_on_messagebox:
-        'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via la boîte de messages.',
+        'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via la boîte aux lettres.',
       direct_pay_status_on_fallback:
-        'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via la boîte de messages (relais injoignable).',
+        'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via la boîte aux lettres (relais injoignable).',
       direct_pay_status_connecting_title: 'Connexion…',
       direct_pay_status_connecting_body: 'Préparation à la réception de paiements en direct.',
       direct_pay_status_off_title: 'Les paiements en direct sont désactivés',
       direct_pay_status_off_body:
         'Activez-les dans les réglages pour que les gens puissent vous payer directement tant que cette app est ouverte.',
       direct_pay_status_not_set_up_body:
-        'Les paiements en direct atteignent les autres portefeuilles via la boîte de messages. Connectez une boîte de messages dans les réglages, ou utilisez un serveur relais.',
+        'Les paiements en direct atteignent les autres portefeuilles via la boîte aux lettres. Connectez une boîte aux lettres dans les réglages, ou utilisez un serveur relais.',
       direct_pay_status_error_title: 'Les paiements en direct ne fonctionnent pas pour le moment',
       direct_pay_status_error_body: 'Impossible de recevoir des paiements en direct pour le moment.',
       direct_pay_fallback_offline:
-        "{{name}} n'est pas en ligne pour le moment. L'envoyer dans sa boîte de messages ? Le paiement lui parviendra à la prochaine ouverture de son portefeuille.",
+        "{{name}} n'est pas en ligne pour le moment. L'envoyer dans sa boîte aux lettres ? Le paiement lui parviendra à la prochaine ouverture de son portefeuille.",
       direct_pay_fallback_link_failed:
-        "Impossible de se connecter directement à {{name}}. L'envoyer plutôt dans sa boîte de messages ?",
+        "Impossible de se connecter directement à {{name}}. L'envoyer plutôt dans sa boîte aux lettres ?",
       direct_pay_failed_offline:
-        "{{name}} n'est pas en ligne pour le moment. Rien n'a été dépensé. Connectez une boîte de messages dans les réglages pour payer les personnes hors ligne.",
+        "{{name}} n'est pas en ligne pour le moment. Rien n'a été dépensé. Connectez une boîte aux lettres dans les réglages pour payer les personnes hors ligne.",
       direct_pay_failed_link: "Impossible de se connecter directement à {{name}}. Rien n'a été dépensé.",
       direct_pay_failed_network: 'Impossible de joindre le réseau de paiement — vérifiez votre connexion.',
       direct_pay_failed_wrong_network: "{{name}} est sur un autre réseau. Rien n'a été dépensé.",
       direct_pay_failed_cancelled: "Annulé. Rien n'a été dépensé.",
+      direct_pay_failed_maybe_sent:
+        'Votre paiement à {{name}} a peut-être déjà été envoyé. Consultez Activité avant de payer à nouveau.',
+      direct_pay_failed_not_sent: "Le paiement n'a pas pu être envoyé. Rien n'a été dépensé.",
       direct_pay_failed_no_message_box:
-        'Connectez votre boîte de messages dans les réglages pour payer une identité de portefeuille.'
+        'Connectez votre boîte aux lettres dans les réglages pour payer une identité de portefeuille.'
     }
   },
   ar: {
@@ -6752,6 +6766,8 @@ const resources = {
       direct_pay_failed_network: 'تعذّر الوصول إلى شبكة الدفع — تحقق من اتصالك.',
       direct_pay_failed_wrong_network: '{{name}} على شبكة مختلفة. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_cancelled: 'تم الإلغاء. لم يتم إنفاق أي مبلغ.',
+      direct_pay_failed_maybe_sent: 'ربما تم إرسال دفعتك إلى {{name}} بالفعل. تحقق من النشاط قبل الدفع مرة أخرى.',
+      direct_pay_failed_not_sent: 'تعذّر إرسال الدفعة. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_no_message_box: 'اربط صندوق رسائلك من الإعدادات للدفع إلى هوية محفظة.'
     }
   },
@@ -7885,6 +7901,9 @@ const resources = {
       direct_pay_failed_network: 'Não foi possível alcançar a rede de pagamentos — verifique sua conexão.',
       direct_pay_failed_wrong_network: '{{name}} está em outra rede. Nada foi gasto.',
       direct_pay_failed_cancelled: 'Cancelado. Nada foi gasto.',
+      direct_pay_failed_maybe_sent:
+        'Seu pagamento para {{name}} pode já ter sido enviado. Confira Atividade antes de pagar novamente.',
+      direct_pay_failed_not_sent: 'Não foi possível enviar o pagamento. Nada foi gasto.',
       direct_pay_failed_no_message_box:
         'Conecte sua caixa de mensagens em Configurações para pagar uma identidade de carteira.'
     }
@@ -8998,6 +9017,9 @@ const resources = {
       direct_pay_failed_network: 'পেমেন্ট নেটওয়ার্কে পৌঁছানো যায়নি — আপনার সংযোগ পরীক্ষা করুন।',
       direct_pay_failed_wrong_network: '{{name}} অন্য একটি নেটওয়ার্কে আছেন। কিছুই খরচ হয়নি।',
       direct_pay_failed_cancelled: 'বাতিল করা হয়েছে। কিছুই খরচ হয়নি।',
+      direct_pay_failed_maybe_sent:
+        '{{name}}-এর কাছে আপনার পেমেন্ট হয়তো ইতিমধ্যে পাঠানো হয়ে গেছে। আবার পেমেন্ট করার আগে কার্যকলাপ দেখুন।',
+      direct_pay_failed_not_sent: 'পেমেন্ট পাঠানো যায়নি। কিছুই খরচ হয়নি।',
       direct_pay_failed_no_message_box: 'ওয়ালেট আইডেন্টিটিকে পেমেন্ট করতে সেটিংসে আপনার মেসেজ বক্স যুক্ত করুন।'
     }
   },
@@ -10127,6 +10149,9 @@ const resources = {
       direct_pay_failed_network: 'Не удалось связаться с платёжной сетью — проверьте подключение.',
       direct_pay_failed_wrong_network: '{{name}} находится в другой сети. Ничего не потрачено.',
       direct_pay_failed_cancelled: 'Отменено. Ничего не потрачено.',
+      direct_pay_failed_maybe_sent:
+        'Ваш платёж для {{name}}, возможно, уже отправлен. Проверьте «Активность», прежде чем платить снова.',
+      direct_pay_failed_not_sent: 'Не удалось отправить платёж. Ничего не потрачено.',
       direct_pay_failed_no_message_box:
         'Подключите почтовый ящик в настройках, чтобы платить по идентификатору кошелька.'
     }
@@ -11255,6 +11280,9 @@ const resources = {
       direct_pay_failed_network: 'Tidak dapat menjangkau jaringan pembayaran — periksa koneksi Anda.',
       direct_pay_failed_wrong_network: '{{name}} berada di jaringan lain. Tidak ada dana yang terpakai.',
       direct_pay_failed_cancelled: 'Dibatalkan. Tidak ada dana yang terpakai.',
+      direct_pay_failed_maybe_sent:
+        'Pembayaran Anda ke {{name}} mungkin sudah terkirim. Periksa Aktivitas sebelum membayar lagi.',
+      direct_pay_failed_not_sent: 'Pembayaran tidak dapat dikirim. Tidak ada dana yang terpakai.',
       direct_pay_failed_no_message_box: 'Hubungkan kotak pesan Anda di Pengaturan untuk membayar identitas dompet.'
     }
   },
@@ -12381,6 +12409,9 @@ const resources = {
       direct_pay_failed_network: '支払いネットワークに接続できませんでした。接続を確認してください。',
       direct_pay_failed_wrong_network: '{{name}}は別のネットワークにいます。何も使われていません。',
       direct_pay_failed_cancelled: 'キャンセルしました。何も使われていません。',
+      direct_pay_failed_maybe_sent:
+        '{{name}}への支払いはすでに送信されている可能性があります。もう一度支払う前に、アクティビティを確認してください。',
+      direct_pay_failed_not_sent: '支払いを送信できませんでした。何も使われていません。',
       direct_pay_failed_no_message_box: 'ウォレットIDに支払うには、設定でメッセージボックスを接続してください。'
     }
   },
@@ -13533,6 +13564,9 @@ const resources = {
       direct_pay_failed_network: 'Nie udało się połączyć z siecią płatności — sprawdź połączenie.',
       direct_pay_failed_wrong_network: '{{name}} jest w innej sieci. Nic nie wydano.',
       direct_pay_failed_cancelled: 'Anulowano. Nic nie wydano.',
+      direct_pay_failed_maybe_sent:
+        'Twoja płatność dla {{name}} mogła już zostać wysłana. Sprawdź Aktywność, zanim zapłacisz ponownie.',
+      direct_pay_failed_not_sent: 'Nie udało się wysłać płatności. Nic nie wydano.',
       direct_pay_failed_no_message_box:
         'Połącz swoją skrzynkę wiadomości w ustawieniach, aby płacić tożsamości portfela.'
     }

@@ -41,10 +41,11 @@ export interface DirectPaySettings {
 /**
  * Why dialing a recipient failed, for choosing what to offer the user (see `payIdentity`):
  *
- * - `offline`: no reply within the presence window.
+ * - `offline`: no reply within the presence window, or the signaling relay could not be
+ *   reached at all (the package raises `peer_unreachable` for both).
  * - `rejected`: their wallet answered and is not taking direct payments, or is busy.
- * - `unavailable`: the signal could not be posted (this side is offline, or the signaling
- *   service is down).
+ * - `unavailable`: the signaling service answered but could not do its part (the relay could
+ *   not issue TURN credentials, or MessageBox could not deliver the signal).
  * - `timeout`: they answered, but the link or its identity handshake did not come up in time.
  * - `wrong_network`: the two wallets are on different networks.
  * - `aborted`: the dial was cancelled.
@@ -64,7 +65,13 @@ export type FallbackReason = 'offline' | 'link_failed'
 /** Paying stopped, and nothing more is offered. */
 export interface PayFailure extends DirectPayMessage {
   kind: 'failed'
-  /** The error's own words, when there is no better wording than "Unknown error". For logs and diagnosis. */
+  /**
+   * Whether money may have left the wallet. `no`: the attempt stopped before any payment was
+   * made (a `NotSentError`). `maybe`: the payment was made and may have been delivered, so the
+   * caller must not start a second one; the wording says so.
+   */
+  spent: 'no' | 'maybe'
+  /** The error's own words (English), when the wording cannot carry them. For logs and diagnosis. */
   detail?: string
 }
 

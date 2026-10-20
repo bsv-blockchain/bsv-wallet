@@ -4,6 +4,8 @@ import {
   DIRECT_PAY_SETTINGS_KEY,
   DirectPaySettingsError,
   iceServersFrom,
+  isRelayUrl,
+  isStunUrl,
   loadDirectPaySettings,
   saveDirectPaySettings
 } from '../../core/directpay'
@@ -44,6 +46,11 @@ describe('defaults', () => {
 
   it('is stored under one device-level key', () => {
     expect(DIRECT_PAY_SETTINGS_KEY).toBe('direct_pay_settings_v1')
+  })
+
+  it('cannot have its STUN list changed by a caller', () => {
+    expect(Object.isFrozen(DEFAULT_DIRECT_PAY_SETTINGS.stunUrls)).toBe(true)
+    expect(() => (DEFAULT_DIRECT_PAY_SETTINGS.stunUrls as string[]).push('stun:x.example.com')).toThrow(TypeError)
   })
 })
 
@@ -103,6 +110,24 @@ describe('loadDirectPaySettings', () => {
 
     const partly = await loadDirectPaySettings(stored({ receiveEnabled: false, relayUrl: 'https://relay.example.com' }))
     expect(partly).toEqual({ ...DEFAULT_DIRECT_PAY_SETTINGS, receiveEnabled: false })
+  })
+
+  // saveDirectPaySettings refuses this; only a store edited by hand can hold it.
+  it('does not load relay signaling with no relay: it takes the default relay', async () => {
+    expect(await loadDirectPaySettings(stored({ signaling: 'relay', relayUrl: '' }))).toEqual(
+      DEFAULT_DIRECT_PAY_SETTINGS
+    )
+    expect(await loadDirectPaySettings(stored({ relayUrl: '   ' }))).toMatchObject({
+      signaling: 'relay',
+      relayUrl: DEFAULT_RELAY_URL
+    })
+  })
+
+  it('keeps an empty relay when the message box does the signaling', async () => {
+    expect(await loadDirectPaySettings(stored({ signaling: 'messagebox', relayUrl: '' }))).toMatchObject({
+      signaling: 'messagebox',
+      relayUrl: ''
+    })
   })
 
   it('drops an incomplete TURN server rather than half using it', async () => {
@@ -171,7 +196,11 @@ describe('saveDirectPaySettings', () => {
       'wss://relay.example.com:8443/pay?room=1',
       'wss://relay.example.com#top',
       'wss://[::1]:8443',
-      'wss://10.0.0.5:9000'
+      'wss://10.0.0.5:9000',
+      'wss://relay.example.com:443',
+      'wss://relay-1.example.com',
+      'wss://localhost',
+      'wss://a'
     ])('accepts %s', async relayUrl => {
       expect((await saveDirectPaySettings(fakeStorage(), { relayUrl })).relayUrl).toBe(relayUrl)
     })
@@ -187,7 +216,20 @@ describe('saveDirectPaySettings', () => {
       ['wss:///pay', 'no host before the path'],
       ['wss://user:secret@relay.example.com', 'credentials in the address'],
       ['wss://relay.example.com/a b', 'a space'],
-      ['wss://relay example.com', 'a space in the host']
+      ['wss://relay example.com', 'a space in the host'],
+      ['wss://:443', 'a port with no host'],
+      ['wss://:', 'a colon with no host'],
+      ['wss://[', 'an unclosed IPv6 bracket'],
+      ['wss://[]', 'an empty IPv6 address'],
+      ['wss://-', 'a host that starts with a hyphen'],
+      ['wss://.', 'a host that is a dot'],
+      ['wss://relay.example.com-', 'a host that ends with a hyphen'],
+      ['wss://relay.example.com:abc', 'a port that is not a number'],
+      ['wss://relay.example.com:123456', 'a port with too many digits'],
+      ['wss://relay.example.com:', 'a colon with no port'],
+      ['wss://relay.example.com\\pay', 'a backslash'],
+      ['wss://user:123@relay.example.com', 'credentials with a numeric password'],
+      ['wss://@relay.example.com', 'an empty credential']
     ])('refuses %s (%s)', async relayUrl => {
       const error = await refusal({ relayUrl })
       expect(error).toBeInstanceOf(DirectPaySettingsError)
@@ -196,6 +238,19 @@ describe('saveDirectPaySettings', () => {
 
     it('refuses what is not a string', async () => {
       expect(await refusal({ relayUrl: 42 as unknown as string })).toMatchObject({ code: 'relay_invalid' })
+    })
+
+    // A token in the query string looks like any other query, so only user:password@ is caught.
+    it('does not read a query as credentials', async () => {
+      const relayUrl = 'wss://relay.example.com/pay?room=1&token=abc'
+      expect((await saveDirectPaySettings(fakeStorage(), { relayUrl })).relayUrl).toBe(relayUrl)
+    })
+
+    it('isRelayUrl judges the text as written, without trimming', () => {
+      expect(isRelayUrl('wss://relay.example.com')).toBe(true)
+      expect(isRelayUrl(' wss://relay.example.com')).toBe(false)
+      expect(isRelayUrl('wss://relay.example.com ')).toBe(false)
+      expect(isRelayUrl('')).toBe(false)
     })
 
     // URL.hostname is unreliable on Hermes, so a relay is judged by regex alone.
@@ -248,9 +303,30 @@ describe('saveDirectPaySettings', () => {
       'stun.example.com:3478',
       'stun: example.com',
       'turn:turn.example.com:3478',
-      'STUN:a.example.com'
+      'STUN:a.example.com',
+      'stun://x',
+      'stuns://stun.example.com:5349',
+      'stun:',
+      'stuns:?',
+      'stun::3478',
+      'stun:stun.example.com:abc',
+      'stun:stun.example.com:',
+      'stun:-'
     ])('refuses %s', async url => {
       expect(await refusal({ stunUrls: [url] })).toMatchObject({ code: 'stun_invalid', field: 'stunUrls' })
+    })
+
+    it.each(['stun:stun.example.com', 'stuns:stun.example.com:5349', 'stun:192.0.2.1:3478', 'stun:[2001:db8::1]:3478'])(
+      'accepts %s',
+      async url => {
+        expect((await saveDirectPaySettings(fakeStorage(), { stunUrls: [url] })).stunUrls).toEqual([url])
+        expect(isStunUrl(url)).toBe(true)
+      }
+    )
+
+    it('isStunUrl judges the text as written, without trimming', () => {
+      expect(isStunUrl(' stun:stun.example.com')).toBe(false)
+      expect(isStunUrl('')).toBe(false)
     })
 
     it('refuses a list that is not a list, or an entry that is not a string', async () => {
@@ -282,6 +358,13 @@ describe('saveDirectPaySettings', () => {
         field: 'turn'
       })
       expect(await refusal({ turn: { ...turn, urls: '' } })).toMatchObject({ code: 'turn_invalid' })
+      expect(await refusal({ turn: { ...turn, urls: 'turn://x' } })).toMatchObject({ code: 'turn_invalid' })
+      expect(await refusal({ turn: { ...turn, urls: 'turn:' } })).toMatchObject({ code: 'turn_invalid' })
+    })
+
+    it('takes a transport query', async () => {
+      const urls = 'turn:turn.example.com:3478?transport=udp'
+      expect((await saveDirectPaySettings(fakeStorage(), { turn: { ...turn, urls } })).turn?.urls).toBe(urls)
     })
 
     it('needs both a username and a credential', async () => {
