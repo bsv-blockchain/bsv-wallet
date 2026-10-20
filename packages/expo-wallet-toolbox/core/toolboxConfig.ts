@@ -1,6 +1,7 @@
 import type { AppChain } from './config'
 import type { PushAdapter } from './push/types'
 import { trimTrailingSlashes } from './net/trimTrailingSlashes'
+import { isRelayUrl, isStunUrl } from './directpay/settings'
 
 /**
  * Service endpoints and API keys for one chain.
@@ -43,6 +44,35 @@ export interface HandleRegistryConfig {
   domain: string
   /** Origin of the registry that serves that domain — no path, query or fragment. */
   url: string
+}
+
+/**
+ * What the host states about direct (push) payments, the live WebRTC link tried before the
+ * message box. Every field is optional, and the whole entry is: a host that states nothing
+ * here keeps today's behaviour. The package never imports a WebRTC implementation itself —
+ * the native module would have to be linked by every host that merely installs it — so the
+ * host that ships one passes it in.
+ *
+ * `relayUrl` and `stunUrls` are checked when the toolbox is configured, by the same rules as
+ * the user's own settings (`isRelayUrl`, `isStunUrl`). They are this build's defaults: they
+ * stand in for the built-in ones, and what the user saves in `DirectPaySettings` wins over both.
+ */
+export interface DirectPayHostConfig {
+  /**
+   * Whether this build offers direct payments at all, as `vaultEnabled` gates the vault. The
+   * user's own receive switch is a separate setting (`DirectPaySettings.receiveEnabled`).
+   * Unset means off.
+   */
+  enabled?: boolean
+  /** This build's signaling relay, `wss://` only, a host with no credentials. Unset means the built-in one. */
+  relayUrl?: string
+  /** This build's `stun:` / `stuns:` servers, as written (none is trimmed). Unset means the built-in ones. */
+  stunUrls?: string[]
+  /**
+   * The host's `RTCPeerConnection` constructor (e.g. from react-native-webrtc). Typed
+   * `unknown` because this package ships no WebRTC types and must not depend on any.
+   */
+  RTCPeerConnection?: unknown
 }
 
 /**
@@ -125,6 +155,11 @@ export interface ToolboxConfig {
    * states it here, like the URLs above.
    */
   push?: PushAdapter
+  /**
+   * Direct (push) payments. Optional, and unset by default: a host that omits it sees no
+   * change.
+   */
+  directPay?: DirectPayHostConfig
 }
 
 interface ResolvedConfig {
@@ -135,6 +170,7 @@ interface ResolvedConfig {
   handleMinLength: 1 | 2 | 3
   vaultEnabled: boolean
   push: PushAdapter | undefined
+  directPay: DirectPayHostConfig | undefined
 }
 
 let current: ResolvedConfig | null = null
@@ -197,6 +233,20 @@ function normalizeBackupUrl(raw: string): string {
   return trimmed
 }
 
+/** Throws unless the host's direct pay addresses are acceptable; unset fields are fine. */
+function checkDirectPayHostConfig(directPay: DirectPayHostConfig | undefined): void {
+  if (directPay === undefined) return
+  const { relayUrl, stunUrls } = directPay
+  if (relayUrl !== undefined && !(typeof relayUrl === 'string' && isRelayUrl(relayUrl))) {
+    throw new Error(`configureToolbox: directPay.relayUrl must be a wss:// address without credentials: ${relayUrl}`)
+  }
+  if (stunUrls !== undefined && !(Array.isArray(stunUrls) && stunUrls.every(url => isStunUrl(url)))) {
+    throw new Error(
+      `configureToolbox: directPay.stunUrls must be a list of stun: or stuns: addresses: ${JSON.stringify(stunUrls)}`
+    )
+  }
+}
+
 /**
  * Install the host's runtime configuration. Call once, at app entry, before
  * anything from this package renders or builds a wallet.
@@ -207,6 +257,7 @@ export function configureToolbox(config: ToolboxConfig): void {
   if (config == null || !('backupUrl' in config)) {
     throw new Error('configureToolbox: backupUrl is required. Pass null to disable backup.')
   }
+  checkDirectPayHostConfig(config.directPay)
   current = {
     backupUrl: config.backupUrl == null ? '' : normalizeBackupUrl(config.backupUrl),
     services: config.services ?? {},
@@ -214,7 +265,8 @@ export function configureToolbox(config: ToolboxConfig): void {
     handleRegistry: config.handleRegistry ?? {},
     handleMinLength: config.handleMinLength === 1 || config.handleMinLength === 2 ? config.handleMinLength : 3,
     vaultEnabled: config.vaultEnabled === true,
-    push: config.push
+    push: config.push,
+    directPay: config.directPay
   }
 }
 
@@ -357,6 +409,16 @@ export function isVaultEnabled(): boolean {
  */
 export function getPushAdapter(): PushAdapter | undefined {
   return current?.push
+}
+
+/**
+ * What the host stated about direct payments, or undefined when it stated nothing.
+ *
+ * Deliberately NOT throwing when unconfigured, like `getPushAdapter`: it is read while
+ * building the wallet, and "unconfigured" must look like "not stated".
+ */
+export function getDirectPayConfig(): DirectPayHostConfig | undefined {
+  return current?.directPay
 }
 
 /**

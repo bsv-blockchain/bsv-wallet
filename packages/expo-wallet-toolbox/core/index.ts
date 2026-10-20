@@ -59,13 +59,20 @@ export {
   getMandalaEndpoints,
   getHandleRegistryConfig,
   getPushAdapter,
+  getDirectPayConfig,
   isAllowedServiceOrigin,
   isMandalaAvailable,
   isVaultEnabled,
   isVaultAvailable,
   resetToolboxConfig
 } from './toolboxConfig'
-export type { ToolboxConfig, ToolboxServiceConfig, MandalaEndpointConfig, HandleRegistryConfig } from './toolboxConfig'
+export type {
+  ToolboxConfig,
+  ToolboxServiceConfig,
+  MandalaEndpointConfig,
+  HandleRegistryConfig,
+  DirectPayHostConfig
+} from './toolboxConfig'
 export type { PushAdapter, PushPermission, PushOpenedEvent } from './push/types'
 
 // Theme tokens and providers
@@ -115,6 +122,9 @@ export * from './localpay/nearbyPermissions'
 // callers need to tell an AckError (radio failure → fountain) from a decline.
 export { AckError, QrHandoffRequired, type Ack, type LocalPaymentTransport, type ReceivedFrame } from './localpay/types'
 export { selectTransport, fallbackRadio, failedBeforeConnect } from './localpay/transport/select'
+// Direct (push) payments: settings, pay flow and status, as pure functions. The WebRTC
+// manager and the screens that use them are separate changes.
+export * from './directpay'
 export * from './peerpay/outbox'
 export * from './peerpay/control'
 export * from './peerpay/handleResendRequests'
