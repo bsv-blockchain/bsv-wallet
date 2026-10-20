@@ -31,6 +31,12 @@ let mockSecretsReady = false
 const mockGetMnemonic = jest.fn<Promise<string | null>, []>()
 const mockGetRecoveredKey = jest.fn<Promise<string | null>, []>()
 const mockRestore = jest.fn()
+/**
+ * Restores still running. A test that fails early (its switch stopped waiting)
+ * leaves its build going; afterEach lets it finish before the next test, or its
+ * profile-store and registry writes land in that test's state.
+ */
+const mockRestoresInFlight = new Set<Promise<unknown>>()
 const mockListBackups = jest.fn(async () => [] as unknown[])
 /** Registered database names by `${keySuffix}-${chain}`, as walletDbRegistry keeps them. */
 let mockDbs: Record<string, string[]> = {}
@@ -66,7 +72,12 @@ jest.mock('expo-router', () => ({
 jest.mock('react-native-sse', () => ({ __esModule: true, default: class {} }))
 jest.mock('@bsv/btms-permission-module', () => ({ createBtmsModule: () => ({}) }), { virtual: true })
 jest.mock('../../core/backup/restoreOnImport', () => ({
-  restoreOnImport: (...args: unknown[]) => mockRestore(...args)
+  restoreOnImport: (...args: unknown[]) => {
+    const running = Promise.resolve(mockRestore(...args))
+    mockRestoresInFlight.add(running)
+    void running.finally(() => mockRestoresInFlight.delete(running)).catch(() => {})
+    return running
+  }
 }))
 // Profile discovery probes the server through this; every probe counts as asking it.
 jest.mock('../../core/backup/restore', () => ({
@@ -258,6 +269,14 @@ beforeEach(async () => {
   ;(globalThis as any).__jsStallWatchdog = true
 })
 afterEach(async () => {
+  // Bounded: a restore a test deliberately left hanging must not hang the suite.
+  await act(async () => {
+    await Promise.race([
+      Promise.allSettled([...mockRestoresInFlight]),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ])
+  })
+  await settle()
   await act(async () => renderer?.unmount())
   resetToolboxConfig()
   jest.restoreAllMocks()
@@ -419,7 +438,7 @@ describe('an imported wallet switching network', () => {
     // must keep waiting while the restore reports its other steps.
     const slowStepsSwitch = async (restore: (deps: any) => Promise<unknown>) => {
       await importSeed('main')
-      let switchResolvedDuringRestore = false
+      let switchResolvedDuringRestore: boolean | undefined
       let switchResolved = false
       mockRestore.mockImplementation(async (deps: any) => {
         const result = await restore(deps)
@@ -432,6 +451,8 @@ describe('an imported wallet switching network', () => {
         })
       })
       await settle()
+      // The slow restore ran to its end (the switch reached it), and the switch was still waiting then.
+      expect(restores().map(([chain]) => chain)).toEqual(['main', 'test'])
       expect(switchResolvedDuringRestore).toBe(false)
       expect(onToast).not.toHaveBeenCalled()
       expect(wallet.selectedNetwork).toBe('test')

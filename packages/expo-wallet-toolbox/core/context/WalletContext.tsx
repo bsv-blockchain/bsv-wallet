@@ -990,11 +990,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // walletBuiltRef flips — a large history can legitimately take far longer
     // than the timeout. So the deadline restarts whenever the restore reports
     // anything: a phase change, a chunk, or a step between chunks (ranking a
-    // candidate generation, reconciling proofs, before the app data and the coin
-    // review; see restoreActivityRef). The timeout then ends the wait only when
-    // no single step reports for that long: a stuck build, or one request or
-    // coin review that alone outlasts it. The generation check is what bounds
-    // this to a superseded rebuild.
+    // candidate generation, before and during proof reconciliation, and before
+    // the coin review; see restoreActivityRef). The timeout then ends the wait
+    // only when no single step reports for that long: a stuck build, or one
+    // request or coin review that alone outlasts it. The generation check is
+    // what bounds this to a superseded rebuild.
     let deadline = Date.now() + timeoutMs
     let seen = backupRestoreRef.current
     let seenActivity = restoreActivityRef.current
