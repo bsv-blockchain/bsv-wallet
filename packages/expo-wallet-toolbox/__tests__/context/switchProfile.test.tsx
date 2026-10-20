@@ -375,7 +375,7 @@ it('replays the backup only on the build that activates a profile awaiting resto
   // A failed restore leaves the profile waiting, so its next activation retries,
   // and the switch falls back to the profile the user came from — whose own
   // build replays nothing.
-  expect(getProfilesState().profiles[1].needsRestore).toBe(true)
+  expect(getProfilesState().profiles[1].restorePending).toContain('main')
   expect(wallet.activeProfile).toBe(0)
   expect(lastProfileIndexBuilt()).toBe(0)
   expect(wallet.switchingProfile).toBe(false)
@@ -413,6 +413,8 @@ describe('the failed-switch toast', () => {
 
   it('names the profile by its private name', async () => {
     const onToast = await failToOpen('Savings')
+    // One message for the failed switch: not the build's generic toast as well.
+    expect(onToast).toHaveBeenCalledTimes(1)
     expect(onToast).toHaveBeenCalledWith('profile_switch_failed:Savings', { type: 'error' })
     expect(wallet.activeProfile).toBe(0)
   })

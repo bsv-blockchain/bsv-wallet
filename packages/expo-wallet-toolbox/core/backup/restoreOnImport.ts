@@ -63,6 +63,12 @@ export interface RestoreOnImportDeps {
    */
   onProgress?: (chunks: number, total: number) => void
   /**
+   * Called whenever the restore finishes a step that is not a chunk: each candidate it
+   * ranks, before and during proof reconciliation, and before the coin review.
+   * See RestoreDeps.onActivity.
+   */
+  onActivity?: () => void
+  /**
    * After a successful replay, check that restored coins are still spendable.
    * Awaited before this function resolves, but best-effort: a failure is logged and
    * never fails the restore (the monitor and Check Wallet rerun it). Absent on a
@@ -112,7 +118,7 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
   // manifest — the overwhelming common case — restores exactly as before.
   const wallet = deriveBackupWallet(deps.primaryKey, deps.chain)
   const settings = await deps.storage.makeAvailable()
-  const primary = await pickTarget(devices, client, wallet, deps.chain, settings)
+  const primary = await pickTarget(devices, client, wallet, deps.chain, settings, undefined, undefined, deps.onActivity)
 
   const primaryResult = await restoreFromBackup({
     storage: deps.storage,
@@ -123,7 +129,8 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
     manifest: devices,
     deviceId: primary.deviceId,
     generation: primary.generation,
-    onProgress: deps.onProgress
+    onProgress: deps.onProgress,
+    onActivity: deps.onActivity
   })
 
   let chunks = primaryResult.chunks
@@ -144,7 +151,7 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
   // rather than blindly taking its newest generation.
   const otherDeviceIds = [...new Set(devices.map(d => d.deviceId))].filter(id => id !== primary.deviceId)
   for (const deviceId of otherDeviceIds) {
-    const target = await pickTarget(devices, client, wallet, deps.chain, settings, deviceId)
+    const target = await pickTarget(devices, client, wallet, deps.chain, settings, deviceId, undefined, deps.onActivity)
     const result = await restoreFromBackup({
       storage: deps.storage,
       primaryKey: deps.primaryKey,
@@ -154,7 +161,8 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
       manifest: devices,
       deviceId: target.deviceId,
       generation: target.generation,
-      onProgress: deps.onProgress
+      onProgress: deps.onProgress,
+      onActivity: deps.onActivity
     })
     chunks += result.chunks
     verified = verified && result.verified
@@ -185,6 +193,7 @@ export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<Resto
   }
 
   if (deps.validateRestoredCoins) {
+    deps.onActivity?.()
     try {
       await deps.validateRestoredCoins()
     } catch (error) {
