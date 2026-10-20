@@ -7,16 +7,8 @@
  */
 import { Beef } from '@bsv/sdk'
 import { type IncomingPayment, type PeerPayClient } from '@bsv/message-box-client'
-import {
-  isPaymentTokenShape,
-  listDamagedInboxMessages,
-  type DamagedInboxMessage
-} from './damagedInbox'
-import {
-  autoAcceptInbox,
-  needsAttention,
-  type InboxAttempt
-} from './rails/handle'
+import { isPaymentTokenShape, listDamagedInboxMessages, type DamagedInboxMessage } from './damagedInbox'
+import { autoAcceptInbox, needsAttention, type CreditOutcome, type InboxAttempt } from './rails/handle'
 import type { CreditFailureKind } from './creditErrors'
 import { sendControlMessage } from '../peerpay/control'
 import { loadInboxAttempts, saveInboxAttempts } from '../peerpay/inboxAttempts'
@@ -144,7 +136,7 @@ async function runCreditInbox(args: {
   storage?: StorageLike
   force?: string[]
   classify?: (e: unknown) => CreditFailureKind
-  accept: (payment: IncomingPayment) => Promise<void>
+  accept: (payment: IncomingPayment) => Promise<void | CreditOutcome>
 }): Promise<CreditInboxResult> {
   const { client, messageBoxUrl, storage, force, classify, accept } = args
   const raw = await listRawInbox(client, messageBoxUrl)
@@ -214,7 +206,8 @@ export async function creditInboxOnce(args: {
   storage?: StorageLike
   force?: string[]
   classify?: (e: unknown) => CreditFailureKind
-  accept: (payment: IncomingPayment) => Promise<void>
+  /** See `autoAcceptInbox`: `'duplicate'` leaves the box but is not counted as accepted. */
+  accept: (payment: IncomingPayment) => Promise<void | CreditOutcome>
 }): Promise<CreditInboxResult> {
   const force = args.force ?? []
   if (inFlight && force.length === 0) return inFlight

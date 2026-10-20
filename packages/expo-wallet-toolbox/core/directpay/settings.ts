@@ -159,11 +159,34 @@ function withTurn(settings: Omit<DirectPaySettings, 'turn'>, turn: DirectPayTurn
 }
 
 /**
- * The stored settings, with the default for each field that is missing or no longer valid.
- * Never throws: unreadable or corrupt storage gives the defaults.
+ * This build's own relay and STUN servers (`ToolboxConfig.directPay`), which stand in for the
+ * built-in ones. Checked by `configureToolbox` with the same rules as the user's settings.
  */
-export async function loadDirectPaySettings(storage: KVStorage): Promise<DirectPaySettings> {
-  const defaults = DEFAULT_DIRECT_PAY_SETTINGS
+export interface DirectPayHostDefaults {
+  relayUrl?: string
+  stunUrls?: readonly string[]
+}
+
+/** The defaults with this build's relay and STUN servers in place of the built-in ones. */
+function defaultsWith(host: DirectPayHostDefaults | undefined): typeof DEFAULT_DIRECT_PAY_SETTINGS {
+  if (!host?.relayUrl && !host?.stunUrls) return DEFAULT_DIRECT_PAY_SETTINGS
+  return {
+    ...DEFAULT_DIRECT_PAY_SETTINGS,
+    ...(host.relayUrl ? { relayUrl: host.relayUrl } : {}),
+    ...(host.stunUrls ? { stunUrls: Object.freeze([...host.stunUrls]) } : {})
+  }
+}
+
+/**
+ * The stored settings, with the default for each field that is missing or no longer valid.
+ * Never throws: unreadable or corrupt storage gives the defaults. `host` replaces the
+ * built-in relay and STUN defaults; what the user saved wins over both.
+ */
+export async function loadDirectPaySettings(
+  storage: KVStorage,
+  host?: DirectPayHostDefaults
+): Promise<DirectPaySettings> {
+  const defaults = defaultsWith(host)
   let stored: Record<string, unknown> = {}
   try {
     const parsed: unknown = JSON.parse((await storage.getKeyValue(DIRECT_PAY_SETTINGS_KEY)) ?? 'null')
@@ -195,15 +218,17 @@ export async function loadDirectPaySettings(storage: KVStorage): Promise<DirectP
 }
 
 /**
- * Validates and stores the settings. Fields left out take their defaults, so the argument
- * describes the whole stored state. Throws a {@link DirectPaySettingsError} and stores nothing
- * when a value is not acceptable; relay signaling needs a relay URL.
+ * Validates and stores the settings. Fields left out take their defaults (`host`'s relay and
+ * STUN servers in place of the built-in ones), so the argument describes the whole stored
+ * state. Throws a {@link DirectPaySettingsError} and stores nothing when a value is not
+ * acceptable; relay signaling needs a relay URL.
  */
 export async function saveDirectPaySettings(
   storage: KVStorage,
-  input: Partial<DirectPaySettings>
+  input: Partial<DirectPaySettings>,
+  host?: DirectPayHostDefaults
 ): Promise<DirectPaySettings> {
-  const defaults = DEFAULT_DIRECT_PAY_SETTINGS
+  const defaults = defaultsWith(host)
   const settings = withTurn(
     {
       receiveEnabled: checkReceiveEnabled(input.receiveEnabled ?? defaults.receiveEnabled),

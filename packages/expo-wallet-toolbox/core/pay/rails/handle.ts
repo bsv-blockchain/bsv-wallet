@@ -26,6 +26,7 @@ import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 import type { MandalaRuntime, TokenSendResult } from '../../mandala/runtime'
 import { trimTrailingSlashes } from '../../net/trimTrailingSlashes'
+import { paymentKey } from '../../directpay/paymentKey'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.bsvblockchain.tech'
@@ -105,6 +106,20 @@ export function peerPayLinkFor(
 }
 
 /**
+ * Which payments this wallet already credited, by `paymentKey`
+ * (`core/directpay/paymentKey.ts`): the seen store direct payments share with the
+ * inbox, so one payment that arrives both live and through the message box is
+ * credited, and announced, once. `@bsv/webrtpay`'s `SeenStore` has this shape.
+ */
+export interface CreditSeenStore {
+  has(key: string): boolean | Promise<boolean>
+  add(key: string): void | Promise<void>
+}
+
+/** What crediting an inbox payment came to: newly credited, or already credited (live). */
+export type CreditOutcome = 'credited' | 'duplicate'
+
+/**
  * Credit an incoming payment, then acknowledge it. Never acknowledge first.
  *
  * The recorded description is the note the sender attached to the token or,
@@ -119,22 +134,27 @@ export function peerPayLinkFor(
  * "The tx parameter must be valid AtomicBEEF", which reads like a malformed
  * payment and is nothing of the kind. Given a repair function, one failure is
  * retried with a proof re-fetched by txid. Omit it and behaviour is unchanged.
+ *
+ * `seen` is the direct-pay seen store. A payment it already has (taken live,
+ * or credited from the inbox before) is acknowledged without crediting it again
+ * and comes back `duplicate`, so the caller does not announce it twice; one
+ * credited here is added to it. Omit it and every payment is credited, as before.
  */
 export async function internalizeIncoming(
   wallet: InternalizingWallet,
   client: Pick<PeerPayClient, 'acknowledgeMessage'>,
   adminOriginator: string,
   payment: IncomingPayment,
-  repairBeef?: (txid: string) => Promise<number[] | undefined>
-): Promise<void> {
-  // A note the sender attached to the token becomes the description the
-  // recipient's wallet records, the same field the sender's action carries.
-  const note = (payment.token as { note?: unknown }).note
-  const noted = typeof note === 'string' && note.trim().length > 0 ? note.trim().slice(0, 500) : undefined
-  // Same rule as the sender's side: the note verbatim, space-padded to the
-  // 5-byte validation floor when it is shorter. The abbreviated key is 13
-  // characters, so it never needs padding.
-  const description = noted ? noted.padEnd(5) : abbreviateKey(payment.sender)
+  repairBeef?: (txid: string) => Promise<number[] | undefined>,
+  seen?: CreditSeenStore
+): Promise<CreditOutcome> {
+  const key = seen ? inboxPaymentKey(payment) : undefined
+  if (seen && key && (await isSeen(seen, key))) {
+    await acknowledgeCredited(client, String(payment.messageId))
+    return 'duplicate'
+  }
+
+  const description = creditDescription((payment.token as { note?: unknown }).note, payment.sender)
 
   const argsFor = (tx: number[] | typeof payment.token.transaction) => ({
     tx,
@@ -168,7 +188,48 @@ export async function internalizeIncoming(
     await wallet.internalizeAction(argsFor(repaired), adminOriginator)
   }
 
+  if (seen && key) {
+    try {
+      await seen.add(key)
+    } catch {
+      // The wallet has the payment. A lost record only means a live copy that
+      // arrives later is offered to the wallet again, which keeps the output it has.
+    }
+  }
   await acknowledgeCredited(client, String(payment.messageId))
+  return 'credited'
+}
+
+/**
+ * The description a received payment is recorded with. A note the sender
+ * attached becomes the description, the same field the sender's action
+ * carries: verbatim, space-padded to the 5-byte validation floor when it is
+ * shorter. Without one, the sender's abbreviated key (13 characters, so it
+ * never needs padding). One rule for the inbox and for direct payments.
+ */
+export function creditDescription(note: unknown, sender: string): string {
+  const noted = typeof note === 'string' && note.trim().length > 0 ? note.trim().slice(0, 500) : undefined
+  return noted ? noted.padEnd(5) : abbreviateKey(sender)
+}
+
+/**
+ * The `paymentKey` of an inbox payment, or undefined when its AtomicBEEF does
+ * not parse (such a payment is never a duplicate: it cannot be credited at all).
+ */
+export function inboxPaymentKey(payment: Pick<IncomingPayment, 'token'>): string | undefined {
+  const txid = payment.token?.transaction ? safeAtomicTxid(payment.token.transaction) : undefined
+  const derivation = payment.token?.customInstructions
+  if (!txid || !derivation) return undefined
+  return paymentKey(txid, payment.token.outputIndex ?? 0, derivation.derivationPrefix, derivation.derivationSuffix)
+}
+
+/** A seen store that cannot be read counts as not seen: the wallet keeps an output it already has. */
+async function isSeen(seen: CreditSeenStore, key: string): Promise<boolean> {
+  try {
+    return (await seen.has(key)) === true
+  } catch {
+    return false
+  }
 }
 
 /** Inbox ids whose credit succeeded but whose ack did not. Retry, do not NACK. */
@@ -210,18 +271,18 @@ function safeAtomicTxid(tx: AtomicBEEF): string | undefined {
  * Retry the same payment object once. Do not relist the inbox — a pass of N
  * failures would otherwise listIncomingPayments per payment.
  */
-export async function acceptWithRetry(
+export async function acceptWithRetry<R = void>(
   client: Pick<PeerPayClient, 'listIncomingPayments'>,
   messageBoxUrl: string,
   payment: IncomingPayment,
-  internalize: (p: IncomingPayment) => Promise<void>
-): Promise<void> {
+  internalize: (p: IncomingPayment) => Promise<R>
+): Promise<R> {
   void client
   void messageBoxUrl
   try {
-    await internalize(payment)
+    return await internalize(payment)
   } catch {
-    await internalize(payment)
+    return await internalize(payment)
   }
 }
 
@@ -268,7 +329,12 @@ export function needsAttention(state: InboxAttempt | undefined): boolean {
 export async function autoAcceptInbox<T extends { messageId: string | number }>(args: {
   payments: T[]
   attempts: Record<string, InboxAttempt>
-  accept: (payment: T) => Promise<void>
+  /**
+   * Credits one payment. `'duplicate'` means it was already credited (it arrived
+   * live first): it leaves the box like any other, but is not counted in
+   * `accepted`, so it is not announced twice.
+   */
+  accept: (payment: T) => Promise<void | CreditOutcome>
   /** Message ids to attempt even though they had given up — a user pressed Retry. */
   force?: string[]
   /** When omitted, every failure counts as structural (increments attempts). */
@@ -293,8 +359,7 @@ export async function autoAcceptInbox<T extends { messageId: string | number }>(
     }
 
     try {
-      await accept(payment)
-      accepted++
+      if ((await accept(payment)) !== 'duplicate') accepted++
       // Success clears the history: the payment is credited and acknowledged, so
       // there is nothing left to show or retry.
     } catch (e) {
@@ -374,7 +439,7 @@ export interface HandleRailWallet {
  * failure path leaves the outbox entry unsent and retryable rather than
  * marking a possibly-still-reserved transaction as sent.
  */
-async function broadcastNoSend(
+export async function broadcastNoSend(
   wallet: Pick<HandleRailWallet, 'createAction'>,
   adminOriginator: string,
   txid: string
@@ -406,7 +471,7 @@ async function broadcastNoSend(
  * the result keeps that row (and the reservation) in place until an abort
  * actually lands.
  */
-async function abortPeerPayNosend(
+export async function abortPeerPayNosend(
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>,
   adminOriginator: string,
   txid: string
@@ -452,15 +517,81 @@ export async function sendViaHandle(args: {
    */
   recipientHost?: string
 }): Promise<{ outboxId: string; satoshis: number }> {
-  const { wallet, adminOriginator, client, storage, recipient, messageBoxUrl, recipientName, recipientHost } = args
-  const sats = Math.round(Number(args.satoshis))
-  if (!Number.isFinite(sats) || sats <= 0) throw new Error('Invalid amount')
+  const { wallet, adminOriginator, client, storage, recipient, messageBoxUrl, recipientHost } = args
   // No advertisement check. Anointing a host costs a transaction, so someone
   // receiving BSV for the first time cannot have one — refusing to send to them
   // would make an empty wallet unpayable. The client resolves the recipient's
   // advertised host when there is one and otherwise falls back to the host this
   // wallet is configured for, which is where both parties' apps look by default.
+  const minted = await mintPeerPayToken(args)
+  const { txid, token, satoshis: paid } = minted
+  let outboxId: string | undefined
+  try {
+    outboxId = await saveOutboxEntry(storage, { recipient, token, messageBoxUrl, txid, recipientHost })
+  } catch (e) {
+    try {
+      await abortPeerPayNosend(wallet, adminOriginator, txid)
+    } catch (abortErr) {
+      console.warn('[peerpay] abortPeerPayNosend failed:', abortErr instanceof Error ? abortErr.message : abortErr)
+    }
+    throw e
+  }
+  try {
+    // Checkpoint before the box round-trip: if we crash after the box accepted
+    // the token, cancel must not abort a payment the recipient may already hold.
+    await updateOutboxEntry(storage, outboxId, { delivering: true })
+    await client.sendMessage(
+      {
+        recipient,
+        messageBox: PAYMENT_INBOX,
+        body: JSON.stringify(token)
+      },
+      recipientHost
+    )
+    // Delivered is persisted before the broadcast is attempted: from here the
+    // recipient holds the token, so a retry must never re-mint or cancel-abort —
+    // only the broadcast is still outstanding.
+    await updateOutboxEntry(storage, outboxId, { delivered: true })
+    await broadcastNoSend(wallet, adminOriginator, txid)
+    await markOutboxSent(storage, outboxId)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    await updateOutboxEntry(storage, outboxId, {
+      lastAttemptAt: new Date().toISOString(),
+      lastError: message
+    })
+    TaskDrainOutbox.noteEnqueued()
+    throw e
+  }
+  return { outboxId, satoshis: paid }
+}
 
+/** A payment minted with noSend: signed, saved by the caller, not yet broadcast. */
+export interface MintedPeerPayToken {
+  txid: string
+  token: OutboxEntry['token']
+  /** What output 0 pays the recipient, read off the transaction (covers send-max). */
+  satoshis: number
+}
+
+/**
+ * Step 1 of a handle (or direct) payment: mint the BRC-29 token with noSend, so
+ * nothing reaches the network yet. Shared by `sendViaHandle` and the direct
+ * rail (`rails/direct.ts`), so one payment is minted the same way whichever
+ * way it is delivered, and a direct payment's token can go to the message box
+ * as it is.
+ */
+export async function mintPeerPayToken(args: {
+  wallet: Pick<HandleRailWallet, 'getPublicKey' | 'createAction'>
+  adminOriginator: string
+  recipient: string
+  satoshis: number
+  note?: string
+  recipientName?: string
+}): Promise<MintedPeerPayToken> {
+  const { wallet, adminOriginator, recipient, recipientName } = args
+  const sats = Math.round(Number(args.satoshis))
+  if (!Number.isFinite(sats) || sats <= 0) throw new Error('Invalid amount')
   // The note IS the description when one was given, verbatim; otherwise the
   // recipient's name, or their abbreviated key. No "Pay" prefix: the activity
   // row already shows the direction, and the receive side records the sender
@@ -517,45 +648,7 @@ export async function sendViaHandle(args: {
     // ignore it — and this app's receive side shows it as the description.
     ...(note ? { note } : {})
   }
-  let outboxId: string | undefined
-  try {
-    outboxId = await saveOutboxEntry(storage, { recipient, token, messageBoxUrl, txid: car.txid, recipientHost })
-  } catch (e) {
-    try {
-      await abortPeerPayNosend(wallet, adminOriginator, car.txid)
-    } catch (abortErr) {
-      console.warn('[peerpay] abortPeerPayNosend failed:', abortErr instanceof Error ? abortErr.message : abortErr)
-    }
-    throw e
-  }
-  try {
-    // Checkpoint before the box round-trip: if we crash after the box accepted
-    // the token, cancel must not abort a payment the recipient may already hold.
-    await updateOutboxEntry(storage, outboxId, { delivering: true })
-    await client.sendMessage(
-      {
-        recipient,
-        messageBox: PAYMENT_INBOX,
-        body: JSON.stringify(token)
-      },
-      recipientHost
-    )
-    // Delivered is persisted before the broadcast is attempted: from here the
-    // recipient holds the token, so a retry must never re-mint or cancel-abort —
-    // only the broadcast is still outstanding.
-    await updateOutboxEntry(storage, outboxId, { delivered: true })
-    await broadcastNoSend(wallet, adminOriginator, car.txid)
-    await markOutboxSent(storage, outboxId)
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    await updateOutboxEntry(storage, outboxId, {
-      lastAttemptAt: new Date().toISOString(),
-      lastError: message
-    })
-    TaskDrainOutbox.noteEnqueued()
-    throw e
-  }
-  return { outboxId, satoshis: paid }
+  return { txid: car.txid, token, satoshis: paid }
 }
 
 /**

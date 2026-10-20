@@ -162,7 +162,7 @@ describe('internalizeIncoming', () => {
   it('does not fail the credit when acknowledgeMessage throws after internalizeAction succeeds', async () => {
     const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
     const client = { acknowledgeMessage: jest.fn().mockRejectedValue(new Error('offline')) }
-    await expect(internalizeIncoming(wallet as never, client as never, 'admin.com', payment)).resolves.toBeUndefined()
+    await expect(internalizeIncoming(wallet as never, client as never, 'admin.com', payment)).resolves.toBe('credited')
     expect(wallet.internalizeAction).toHaveBeenCalled()
     expect(client.acknowledgeMessage).toHaveBeenCalled()
   })

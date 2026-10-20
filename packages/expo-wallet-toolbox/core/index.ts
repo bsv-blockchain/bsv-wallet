@@ -266,6 +266,7 @@ export * from './pay/patp'
 export * from './pay/counterparty'
 export * from './pay/rails/address'
 export * from './pay/rails/handle'
+export * from './pay/rails/direct'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)
 // and @bsv/air-gap; only its genuinely new names are re-exported here by hand —
 // a blanket `export *` would collide (TS2308) with the localpay/offline exports
