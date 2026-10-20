@@ -273,7 +273,7 @@ import { pushOnce } from '../backup/push'
 import { BACKUP_PUSH_ENABLED_KEY } from '../backup/preference'
 import { restoreOnImport } from '../backup/restoreOnImport'
 import { backupPseudonym } from '../backup/derive'
-import type { BackupChain } from '../backup/constants'
+import { BACKUP_CHAINS, type BackupChain } from '../backup/constants'
 import { processOfflineActions } from '../storage/methods/processOfflineActions'
 import { findOfflineActions } from '../storage/methods/offlineActions'
 import { boundedHexResponse, isChainAbsenceConfirmed, shouldFailUnprovenTx } from '../pay/refreshProofGuard'
@@ -787,6 +787,9 @@ async function probeForLegacyDb(legacyName: string): Promise<boolean> {
     return false
   }
 }
+
+/** The i18n key naming each network to the user. */
+const NETWORK_LABEL_KEYS: Record<AppChain, string> = { main: 'mainnet', test: 'testnet', teratest: 'teratest' }
 
 /**
  * Minimal shape of the app's toast function. `core` must never import a `ui`
@@ -1624,6 +1627,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // discovered on disk). Only true in the "fresh user" branch — see its use at
           // the restore-failure cleanup further down (XR-017 review follow-up).
           let dbWasFreshlyCreatedThisAttempt = false
+          // A pre-registry database file was found for this chain: an existing local
+          // wallet, which a pending restore must never replay over.
+          let adoptedLegacyDb = false
 
           if (knownDbs.length === 0) {
             // First launch after update or fresh user.
@@ -1633,6 +1639,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             if (hasLegacy) {
               await registerDb(keySuffix, chainStr, legacyName)
               knownDbs = [legacyName]
+              adoptedLegacyDb = true
               console.log(`[WalletContext] Registered legacy DB: ${legacyName}`)
             } else {
               // Fresh user — create a timestamped database
@@ -1662,16 +1669,48 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
           console.log('[WalletContext] Local SQLite storage initialized successfully')
 
-          // ── Import-time restore ────────────────────────────────────────────
+          // ── Restore ─────────────────────────────────────────────────────────
           //
           // Deliberately HERE: the database is migrated and empty, nothing has been
           // published to the app yet, and the monitor (with its backup push task) does
           // not exist — so this device cannot have written a log of its own that the
           // restore would then pick as the newest. See utils/backup/restoreOnImport.ts.
           //
+          // Two triggers. An import asks for it (restoreIntentRef) on the network it
+          // runs on. And each network a profile still has pending (see
+          // ProfileRecord.restorePending) replays the first time this device builds
+          // the profile there: the networks an import did not run on, those a
+          // discovered profile was found backed up on, and every network of an added
+          // profile. A wallet created on this device has nothing pending, so it never
+          // asks the backup server. A network is only ever pending while it has no
+          // local database, or the one its own interrupted replay created (an import
+          // leaves out every network that already has one): a restore never replays
+          // over a wallet that has been in use.
+          //
           // A failure throws, which aborts the whole build: the import screen reports it
-          // and lets the user retry or continue without history. Presenting a
-          // half-replayed database as a working wallet is the one outcome to avoid.
+          // and lets the user retry or continue without history, and a network switch
+          // returns to the network it came from. Presenting a half-replayed database as
+          // a working wallet is the one outcome to avoid.
+          const pendingOf = () => getProfilesState().profiles[profileIndex]?.restorePending ?? []
+          /** This network's restore has run, or must not: it is no longer pending. */
+          const settleRestore = async () => {
+            if (pendingOf().includes(chainStr)) {
+              await updateProfile(profileIndex, { restorePending: pendingOf().filter(c => c !== chainStr) })
+            }
+          }
+          const restoreRequested = restoreIntentRef.current
+          const restorePending = pendingOf().includes(chainStr) && !adoptedLegacyDb
+          if (adoptedLegacyDb) await settleRestore()
+          if (restoreRequested) {
+            // An import: the other networks restore when they are first built, except
+            // one that already has a local wallet.
+            const others: BackupChain[] = []
+            for (const c of BACKUP_CHAINS) {
+              if (c !== chainStr && (await getRegisteredDbs(keySuffix, c)).length === 0) others.push(c)
+            }
+            await updateProfile(profileIndex, { restorePending: [...pendingOf(), ...others] })
+          }
+
           let localStorageAdded = false
           const addLocalStorage = async () => {
             if (localStorageAdded) return
@@ -1679,7 +1718,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             localStorageAdded = true
           }
 
-          if (restoreIntentRef.current) {
+          if (restoreRequested || restorePending) {
             restoreIntentRef.current = false
             setBackupRestore({ phase: 'checking', chunks: 0, total: 0 })
             try {
@@ -1712,6 +1751,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 `[WalletContext] backup restore · restored=${String(restored.restored)} · ` +
                   `chunks=${restored.chunks} · reason=${restored.reason ?? 'none'}`
               )
+              await settleRestore()
               // See P1-backup-incomplete-generation: restoreOnImport.pickTarget falls back to
               // an unverified (no seal) target rather than blocking the import, so this is a
               // warning rather than a thrown error — but it must not pass silently, since the
@@ -2657,8 +2697,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
         vaultStore.configureScope({ identityKey: keyDeriver.identityKey, chain: backupChain, profileIndex })
         // The identity is public; Delete Wallet needs it to find this profile's
-        // databases. Any restore this profile was waiting for has now run.
-        void updateProfile(profileIndex, { identityKey: keyDeriver.identityKey, needsRestore: false })
+        // databases.
+        void updateProfile(profileIndex, { identityKey: keyDeriver.identityKey })
         updateManagers(m => ({ ...m, ...newManagers }))
         logWithTimestamp(F, 'Wallet build completed successfully')
 
@@ -2702,7 +2742,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const buildFromMnemonicRef = useRef<((m?: string, o?: WalletBuildOptions) => Promise<void>) | null>(null)
 
   /** After a seed import, find the other profiles it backed up (see core/profiles/discovery).
-   * Fire-and-forget: only the probe runs now; each profile restores on first switch. */
+   * Fire-and-forget: only the probe runs now; each profile restores each of its
+   * networks the first time it is built there. */
   const discoverProfilesRef = useRef<((mnemonic: string) => void) | null>(null)
   discoverProfilesRef.current = (mnemonic: string) => {
     const baseUrl = getBackupUrl()
@@ -2717,9 +2758,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       probe: async (primaryKey, chain) => stillOwned() && (await backupProbe(baseUrl)(primaryKey, chain)),
       // A profile removed on this device stays removed (and does not end the search).
       skip: index => !!getProfilesState().profiles[index]?.deleted,
-      register: async (index, network) => {
+      register: async (index, network, chains) => {
         // Idempotent: a second import of the same seed must not duplicate profiles.
-        if (stillOwned()) await registerDiscoveredProfile(index, network)
+        if (stillOwned()) await registerDiscoveredProfile(index, network, chains)
       }
     })
       .then(n => {
@@ -2810,9 +2851,6 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // allows the import screen to continue without restoring on retry.
         if (opts !== undefined) restoreIntentRef.current = opts.restoreFromBackup === true
         if (opts !== undefined) reviewImportedCoinsRef.current = opts.reviewImportedCoins === true
-        // A profile found by restore discovery, or just added, replays its own
-        // remote backup on its first build — on whichever launch that happens.
-        if (getProfilesState().profiles[profileIndex]?.needsRestore) restoreIntentRef.current = true
         // Captured before buildWallet consumes it: an import of profile 0 is what
         // triggers discovery of the other profiles this seed has backed up.
         const wantedRestore = restoreIntentRef.current
@@ -2909,9 +2947,18 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       try {
         const recoveredKey = PrivateKey.fromWif(wif)
         const primaryKey = recoveredKey.toArray()
-        // A recovered key is a single wallet: no seed, so no other profiles.
+        // A recovered key is a single wallet: no seed, so no other profiles. Nor
+        // does it inherit profile 0's record (and its pending restores) from
+        // another wallet.
         setProfilesSupported(false)
-        if (getProfilesState().profiles.length > 1 || getActiveProfileIndex() !== 0) await resetProfiles()
+        const recordedIdentity = getProfilesState().profiles[0]?.identityKey
+        if (
+          getProfilesState().profiles.length > 1 ||
+          getActiveProfileIndex() !== 0 ||
+          (recordedIdentity !== undefined && recordedIdentity !== recoveredKey.toPublicKey().toString())
+        ) {
+          await resetProfiles()
+        }
 
         // The recovered key doubles as the privileged key — there is no seed to
         // derive a separate one from. guardVaultAccess is what keeps non-admin
@@ -3056,11 +3103,18 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   // Switch network: tear down wallet, update config, and rebuild on new chain.
   // The network belongs to the active profile, so this changes that profile's.
+  //
+  // Resolves once the new network's build has settled. If it fails (typically:
+  // the network's first restore could not reach the backup server), the
+  // previous network is rebuilt and the failure is reported, so a switch never
+  // strands the user on an unusable wallet. Switching again retries.
   const switchNetwork = useCallback(
-    async (network: AppChain) => {
-      if (network === selectedNetwork || switchInFlightRef.current) return
-      logWithTimestamp(F, `Switching network from ${selectedNetwork} to ${network}`)
-      buildGenRef.current.bump()
+    async (network: AppChain, opts: { fallback?: boolean } = {}) => {
+      // The ref, not the state: the fallback below runs inside the same call.
+      const from = selectedNetworkRef.current
+      if (network === from || switchInFlightRef.current) return
+      logWithTimestamp(F, `Switching network from ${from} to ${network}`)
+      const token = buildGenRef.current.bump()
       // Same hold-off as switchProfile: no build may start on the old network
       // between teardown's walletBuilt flip and finalizeConfig below.
       profileTransitionRef.current = true
@@ -3073,15 +3127,26 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         await setItem('finalConfig', JSON.stringify(newConfig))
 
         // Re-finalize with new network — the request below triggers the auto-build effect
+        pendingAutoBuildRef.current = true
         finalizeConfig(newConfig)
       } finally {
         profileTransitionRef.current = false
       }
       setAutoBuildRequest(r => r + 1)
       logWithTimestamp(F, `Network switched to ${network}`)
+      await waitForRebuild(token)
+      if (walletBuiltRef.current || !buildGenRef.current.isCurrent(token)) return
+
+      if (opts.fallback !== false) {
+        logWithTimestamp(F, `${network} failed to build; returning to ${from}`)
+        onToast?.(t('profile_switch_failed', { profile: t(NETWORK_LABEL_KEYS[network]) }), { type: 'error' })
+        await switchNetworkRef.current?.(from, { fallback: false })
+      }
     },
-    [selectedNetwork, setItem, teardownBuiltWallet, finalizeConfig]
+    [setItem, teardownBuiltWallet, finalizeConfig, waitForRebuild, onToast, t]
   )
+  const switchNetworkRef = useRef<typeof switchNetwork | null>(null)
+  switchNetworkRef.current = switchNetwork
 
   /**
    * Switch to wallet profile `n`: its own keys (m/0'/n', m/1'/n'), database,
@@ -3181,11 +3246,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   switchProfileRef.current = switchProfile
 
   /** Append the next profile on mainnet and switch to it. If this seed already
-   * backed that profile up (a profile discovery missed), its history comes back. */
+   * backed that profile up (a profile discovery missed), its history comes back,
+   * on each network the first time the profile is built there. */
   const addProfile = useCallback(async () => {
     if (!profilesSupported) return
     await runProfileTransition(async () => {
-      const record = await appendProfile('main', { needsRestore: true })
+      const record = await appendProfile('main', { restorePending: BACKUP_CHAINS })
       await switchProfileImpl(record.index)
     })
   }, [profilesSupported, runProfileTransition, switchProfileImpl])

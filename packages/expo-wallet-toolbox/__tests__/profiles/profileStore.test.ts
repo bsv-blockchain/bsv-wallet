@@ -70,6 +70,38 @@ describe('parseProfilesState', () => {
     })
     expect(parseProfilesState(raw).profiles[0]).toEqual({ index: 0, network: 'main', identityKey: 'ab' })
   })
+
+  test('pending restores: known networks only, once each; none is no field', () => {
+    const raw = JSON.stringify({
+      active: 0,
+      profiles: [
+        { index: 0, network: 'main', restorePending: ['teratest', 'moon', 'main', 'teratest'] },
+        { index: 1, network: 'main', restorePending: [] },
+        { index: 2, network: 'main', restorePending: 'main' }
+      ]
+    })
+    expect(parseProfilesState(raw).profiles).toEqual([
+      { index: 0, network: 'main', restorePending: ['main', 'teratest'] },
+      { index: 1, network: 'main' },
+      { index: 2, network: 'main' }
+    ])
+  })
+
+  test('a record from before per-network restores: needsRestore leaves every network pending', () => {
+    const raw = JSON.stringify({
+      active: 0,
+      profiles: [
+        { index: 0, network: 'main', identityKey: 'ab' },
+        { index: 1, network: 'test', needsRestore: true },
+        { index: 2, network: 'main', needsRestore: false }
+      ]
+    })
+    expect(parseProfilesState(raw).profiles).toEqual([
+      { index: 0, network: 'main', identityKey: 'ab' },
+      { index: 1, network: 'test', restorePending: ['main', 'test', 'teratest'] },
+      { index: 2, network: 'main' }
+    ])
+  })
 })
 
 describe('parseProfilesState: name and tombstone', () => {
@@ -141,7 +173,7 @@ describe('normalizeProfileName', () => {
 
 describe('store', () => {
   test('append numbers sequentially and persists; load round-trips', async () => {
-    const a = await appendProfile('test', { needsRestore: true })
+    const a = await appendProfile('test', { restorePending: ['test'] })
     const b = await appendProfile()
     expect([a.index, b.index]).toEqual([1, 2])
     await setActiveProfile(1)
@@ -149,7 +181,7 @@ describe('store', () => {
     const loaded = await loadProfiles()
     expect(loaded.active).toBe(1)
     expect(loaded.profiles.map(p => p.network)).toEqual(['main', 'test', 'main'])
-    expect(getActiveProfile()).toEqual({ index: 1, network: 'test', needsRestore: true })
+    expect(getActiveProfile()).toEqual({ index: 1, network: 'test', restorePending: ['test'] })
   })
 
   test('setActiveProfile rejects an unknown index', async () => {
@@ -157,9 +189,16 @@ describe('store', () => {
     expect(getActiveProfileIndex()).toBe(0)
   })
 
-  test('updateProfile patches and clears needsRestore', async () => {
-    await appendProfile('main', { needsRestore: true })
-    await updateProfile(1, { identityKey: '02ab', needsRestore: false })
+  test('updateProfile patches and clears pending restores', async () => {
+    await appendProfile('main', { restorePending: ['main', 'test'] })
+    await updateProfile(1, { identityKey: '02ab', restorePending: ['test'] })
+    expect(getProfilesState().profiles[1]).toEqual({
+      index: 1,
+      network: 'main',
+      identityKey: '02ab',
+      restorePending: ['test']
+    })
+    await updateProfile(1, { restorePending: [] })
     expect(getProfilesState().profiles[1]).toEqual({ index: 1, network: 'main', identityKey: '02ab' })
     await updateProfile(9, { network: 'test' })
     expect(getProfilesState().profiles).toHaveLength(2)

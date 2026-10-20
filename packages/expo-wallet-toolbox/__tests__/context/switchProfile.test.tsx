@@ -375,7 +375,7 @@ it('replays the backup only on the build that activates a profile awaiting resto
   // A failed restore leaves the profile waiting, so its next activation retries,
   // and the switch falls back to the profile the user came from — whose own
   // build replays nothing.
-  expect(getProfilesState().profiles[1].needsRestore).toBe(true)
+  expect(getProfilesState().profiles[1].restorePending).toContain('main')
   expect(wallet.activeProfile).toBe(0)
   expect(lastProfileIndexBuilt()).toBe(0)
   expect(wallet.switchingProfile).toBe(false)

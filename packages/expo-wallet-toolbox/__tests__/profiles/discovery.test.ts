@@ -33,16 +33,18 @@ async function run(
 ) {
   const { probe, asked } = fakeProbe(backups, opts.failAt)
   const registered: Array<[number, string]> = []
+  const chains: BackupChain[][] = []
   const count = await discoverProfiles({
     mnemonic: MNEMONIC,
     probe,
-    register: async (i, net) => {
+    register: async (i, net, found) => {
       registered.push([i, net])
+      chains.push(found)
     },
     maxProfiles: opts.maxProfiles,
     skip: opts.skip
   })
-  return { count, registered, asked }
+  return { count, registered, chains, asked }
 }
 
 test('registers consecutive backed-up profiles and stops at the first miss', async () => {
@@ -55,9 +57,13 @@ test('registers consecutive backed-up profiles and stops at the first miss', asy
   expect(r.asked).toEqual([1, 2, 3])
 })
 
-test('prefers mainnet when a profile has backups on several networks', async () => {
-  expect((await run({ 1: ['teratest', 'main'] })).registered).toEqual([[1, 'main']])
-  expect((await run({ 1: ['teratest', 'test'] })).registered).toEqual([[1, 'test']])
+test('a profile with backups on several networks opens on mainnet if it has one, and every network is registered', async () => {
+  const both = await run({ 1: ['teratest', 'main'] })
+  expect(both.registered).toEqual([[1, 'main']])
+  expect(both.chains).toEqual([['main', 'teratest']])
+  const noMain = await run({ 1: ['teratest', 'test'] })
+  expect(noMain.registered).toEqual([[1, 'test']])
+  expect(noMain.chains).toEqual([['test', 'teratest']])
 })
 
 test('nothing backed up → nothing registered', async () => {
@@ -99,14 +105,14 @@ describe('registerDiscoveredProfile', () => {
     await AsyncStorage.clear()
   })
 
-  test('appends the next index as a profile awaiting restore', async () => {
-    await registerDiscoveredProfile(1, 'test')
-    expect(getProfilesState().profiles[1]).toEqual({ index: 1, network: 'test', needsRestore: true })
+  test('appends the next index with a restore pending on each network it was found on', async () => {
+    await registerDiscoveredProfile(1, 'main', ['main', 'test'])
+    expect(getProfilesState().profiles[1]).toEqual({ index: 1, network: 'main', restorePending: ['main', 'test'] })
   })
 
   test('is idempotent: an index already registered is left as it is', async () => {
     await registerDiscoveredProfile(1, 'test')
-    await updateProfile(1, { needsRestore: false, network: 'main' })
+    await updateProfile(1, { restorePending: [], network: 'main' })
     await registerDiscoveredProfile(1, 'test')
     expect(getProfilesState().profiles).toHaveLength(2)
     expect(getProfilesState().profiles[1]).toEqual({ index: 1, network: 'main' })
@@ -129,7 +135,7 @@ describe('registerDiscoveredProfile', () => {
       [1, true],
       [2, false]
     ])
-    expect(getProfilesState().profiles[2].needsRestore).toBe(true)
+    expect(getProfilesState().profiles[2].restorePending).toEqual(['main'])
   })
 
   test('an index beyond the next slot is not registered (the list stays dense)', async () => {
