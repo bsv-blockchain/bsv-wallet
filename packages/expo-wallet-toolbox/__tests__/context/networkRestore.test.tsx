@@ -303,7 +303,12 @@ describe('an imported wallet switching network', () => {
   it('a failed restore discards the new database, returns to the previous network, says so, and retries next time', async () => {
     await importSeed('main')
     mockRestore.mockRejectedValue(new Error('backup unavailable'))
-    await switchNetwork('test')
+    await act(async () => {
+      await wallet.switchNetwork('test')
+    })
+    // The switch resolves once the user is back on a built wallet, not before.
+    expect(wallet.walletBuilt).toBe(true)
+    await settle()
 
     expect(restores().map(([chain]) => chain)).toEqual(['main', 'test'])
     // The fresh testnet database is gone, so nothing half-replayed is ever opened.
@@ -315,6 +320,8 @@ describe('an imported wallet switching network', () => {
     expect(wallet.selectedNetwork).toBe('main')
     expect(getProfilesState().profiles[0].network).toBe('main')
     expect(wallet.walletBuilt).toBe(true)
+    // One message, the switch's own: the build's generic failure toast is not shown as well.
+    expect(onToast).toHaveBeenCalledTimes(1)
     expect(onToast).toHaveBeenCalledWith('profile_switch_failed:testnet', { type: 'error' })
     expect(wallet.getBackupRestore()).toMatchObject({ phase: 'failed', error: 'backup unavailable' })
 
@@ -360,6 +367,101 @@ describe('an imported wallet switching network', () => {
     expect(restores().map(([chain]) => chain)).toEqual(['test'])
     expect(wallet.walletBuilt).toBe(true)
     expect(getProfilesState().profiles[0].restorePending).toEqual(['teratest'])
+  })
+})
+
+describe('a cold start on a network still waiting for its restore', () => {
+  // Imported on mainnet, switched to testnet, and the app was killed while
+  // testnet was replaying: testnet is still pending, and the profile now
+  // starts on it.
+  const WIF_IDENTITY = WIF_KEY.toPublicKey().toString()
+  const killedMidSwitch = async (kind: 'mnemonic' | 'recovered key' = 'mnemonic') => {
+    const identityKey = kind === 'mnemonic' ? P[0].identityKey : WIF_IDENTITY
+    mockDbs[`${identityKey.slice(-8)}-main`] = ['wallet-main-mainnet-1700000000.db']
+    await AsyncStorage.setItem(
+      PROFILES_STORAGE_KEY,
+      JSON.stringify({
+        active: 0,
+        profiles: [
+          {
+            index: 0,
+            network: 'test',
+            identityKey,
+            lastBuiltNetwork: 'main',
+            restorePending: ['test', 'teratest']
+          }
+        ]
+      })
+    )
+    mockSecretsReady = true
+    if (kind === 'mnemonic') mockGetMnemonic.mockResolvedValue(MNEMONIC)
+    else mockGetRecoveredKey.mockResolvedValue(WIF_KEY.toWif())
+    return identityKey
+  }
+
+  it.each(['mnemonic', 'recovered key'] as const)(
+    '%s wallet offline: opens the network it last built instead, says so, and keeps the restore pending',
+    async kind => {
+      const identityKey = await killedMidSwitch(kind)
+      mockRestore.mockRejectedValue(new Error('backup unavailable'))
+      await renderProvider()
+      await settle()
+
+      expect(restores().map(([chain]) => chain)).toEqual(['test'])
+      expect(wallet.walletBuilt).toBe(true)
+      expect(wallet.selectedNetwork).toBe('main')
+      expect(getProfilesState().profiles[0].network).toBe('main')
+      expect(onToast).toHaveBeenCalledTimes(1)
+      expect(onToast).toHaveBeenCalledWith('profile_switch_failed:testnet', { type: 'error' })
+      expect(getProfilesState().profiles[0].restorePending).toEqual(['test', 'teratest'])
+      // Mainnet has its own database and nothing pending: nothing was replayed over it.
+      expect(dbsOf(identityKey, 'main')).toEqual(['wallet-main-mainnet-1700000000.db'])
+
+      // Back online, testnet restores the next time it is chosen.
+      mockRestore.mockImplementation(restoredOk)
+      await switchNetwork('test')
+      expect(restores().map(([chain]) => chain)).toEqual(['test', 'test'])
+      expect(wallet.selectedNetwork).toBe('test')
+      expect(wallet.walletBuilt).toBe(true)
+    }
+  )
+
+  it('never falls back to a network that is itself waiting for its restore', async () => {
+    await killedMidSwitch()
+    const stored = JSON.parse((await AsyncStorage.getItem(PROFILES_STORAGE_KEY))!)
+    stored.profiles[0].restorePending = ['main', 'test']
+    await AsyncStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(stored))
+    mockRestore.mockRejectedValue(new Error('backup unavailable'))
+    await renderProvider()
+    await settle()
+
+    // Opening mainnet would replay its backup over the database it has.
+    expect(restores().map(([chain]) => chain)).toEqual(['test'])
+    expect(wallet.selectedNetwork).toBe('test')
+    expect(wallet.walletBuilt).toBe(false)
+  })
+
+  it('with no wallet secret on the device, does not fall back or report a failed network', async () => {
+    await killedMidSwitch()
+    mockGetMnemonic.mockResolvedValue(null)
+    await renderProvider()
+    await settle()
+
+    expect(mockRestore).not.toHaveBeenCalled()
+    expect(onToast).not.toHaveBeenCalled()
+    expect(wallet.selectedNetwork).toBe('test')
+  })
+
+  it('online, restores the network it starts on', async () => {
+    await killedMidSwitch()
+    await renderProvider()
+    await settle()
+
+    expect(restores().map(([chain]) => chain)).toEqual(['test'])
+    expect(wallet.selectedNetwork).toBe('test')
+    expect(wallet.walletBuilt).toBe(true)
+    expect(onToast).not.toHaveBeenCalled()
+    expect(getProfilesState().profiles[0]).toMatchObject({ lastBuiltNetwork: 'test', restorePending: ['teratest'] })
   })
 })
 

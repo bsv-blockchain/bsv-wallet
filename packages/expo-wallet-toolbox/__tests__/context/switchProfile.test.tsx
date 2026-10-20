@@ -413,6 +413,8 @@ describe('the failed-switch toast', () => {
 
   it('names the profile by its private name', async () => {
     const onToast = await failToOpen('Savings')
+    // One message for the failed switch: not the build's generic toast as well.
+    expect(onToast).toHaveBeenCalledTimes(1)
     expect(onToast).toHaveBeenCalledWith('profile_switch_failed:Savings', { type: 'error' })
     expect(wallet.activeProfile).toBe(0)
   })

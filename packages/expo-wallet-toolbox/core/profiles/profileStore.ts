@@ -49,6 +49,11 @@ export interface ProfileRecord {
    */
   restorePending?: AppChain[]
   /**
+   * The network of this profile's last successful build on this device: where a
+   * cold start falls back to when its own network cannot finish its restore.
+   */
+  lastBuiltNetwork?: AppChain
+  /**
    * Private label, device-only (not backed up, never published). Trimmed, at most
    * MAX_PROFILE_NAME_LENGTH characters; absent = the default `profile<n+1>`.
    */
@@ -125,6 +130,7 @@ export function parseProfilesState(raw: string | null): ProfilesState {
       network: CHAINS.includes(r.network as AppChain) ? (r.network as AppChain) : DEFAULT_CHAIN,
       ...(typeof r.identityKey === 'string' ? { identityKey: r.identityKey } : {}),
       ...(restorePending ? { restorePending } : {}),
+      ...(CHAINS.includes(r.lastBuiltNetwork as AppChain) ? { lastBuiltNetwork: r.lastBuiltNetwork as AppChain } : {}),
       ...(name ? { name } : {}),
       // Profile 0 anchors the seed (vault, discovery, the bare keys): it is never a tombstone.
       ...(r.deleted === true && r.index !== 0 ? { deleted: true as const } : {})
@@ -232,6 +238,7 @@ export async function updateProfile(n: number, patch: Partial<Omit<ProfileRecord
   else delete next.name
   if (
     next.network === current.network &&
+    next.lastBuiltNetwork === current.lastBuiltNetwork &&
     next.identityKey === current.identityKey &&
     next.name === current.name &&
     !!next.deleted === !!current.deleted &&

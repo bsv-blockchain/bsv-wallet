@@ -87,6 +87,20 @@ describe('parseProfilesState', () => {
     ])
   })
 
+  test('the last built network is kept only when it names a known network', () => {
+    const raw = JSON.stringify({
+      active: 0,
+      profiles: [
+        { index: 0, network: 'test', lastBuiltNetwork: 'main' },
+        { index: 1, network: 'main', lastBuiltNetwork: 'moon' }
+      ]
+    })
+    expect(parseProfilesState(raw).profiles).toEqual([
+      { index: 0, network: 'test', lastBuiltNetwork: 'main' },
+      { index: 1, network: 'main' }
+    ])
+  })
+
   test('a record from before per-network restores: needsRestore leaves every network pending', () => {
     const raw = JSON.stringify({
       active: 0,

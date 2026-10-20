@@ -1313,6 +1313,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   const profileTransitionRef = useRef(false)
   /** A whole switch or add, from the tap until its build lands (see runProfileTransition). */
   const switchInFlightRef = useRef(false)
+  /**
+   * Set while the code that started a build has its own fallback and reports a
+   * failure itself (a network or profile switch, or a cold start falling back to
+   * another network): the build's generic failure toast would be a second
+   * message for one event, and no other fallback may act on it.
+   */
+  const buildFailureReportedRef = useRef(false)
+  /** Tell the user `network` could not be opened. A ref: the auto-build effect must not re-run on a new toast or t. */
+  const reportNetworkFailedRef = useRef<(network: AppChain) => void>(() => {})
+  reportNetworkFailedRef.current = network =>
+    onToast?.(t('profile_switch_failed', { profile: t(NETWORK_LABEL_KEYS[network]) }), { type: 'error' })
   const [switchingProfile, setSwitchingProfile] = useState(false)
   /** The profile a removal is working on, for the cover's label; null the rest of the time. */
   const [removingProfile, setRemovingProfile] = useState<number | null>(null)
@@ -2697,15 +2708,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
         vaultStore.configureScope({ identityKey: keyDeriver.identityKey, chain: backupChain, profileIndex })
         // The identity is public; Delete Wallet needs it to find this profile's
-        // databases.
-        void updateProfile(profileIndex, { identityKey: keyDeriver.identityKey })
+        // databases. The network is where a cold start falls back to (see the
+        // auto-build effect).
+        void updateProfile(profileIndex, { identityKey: keyDeriver.identityKey, lastBuiltNetwork: chain })
         updateManagers(m => ({ ...m, ...newManagers }))
         logWithTimestamp(F, 'Wallet build completed successfully')
 
         return permissionsManager
       } catch (error: any) {
         console.error('Error building wallet:', error)
-        onToast?.('Failed to build wallet: ' + error.message, { type: 'error' })
+        if (!buildFailureReportedRef.current) onToast?.('Failed to build wallet: ' + error.message, { type: 'error' })
         logWithTimestamp(F, 'Error building wallet', error.message)
         // SimpleWalletManager authenticates whenever its builder resolves,
         // even to null. Reject so a failed restore cannot mark a wallet built.
@@ -3118,32 +3130,38 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // Same hold-off as switchProfile: no build may start on the old network
       // between teardown's walletBuilt flip and finalizeConfig below.
       profileTransitionRef.current = true
+      // The fallback below reports a failure; a revert (no fallback) leaves it to the build.
+      buildFailureReportedRef.current = opts.fallback !== false
       const newConfig = { wabUrl: 'noWAB', method: 'mnemonic', network, storageUrl: 'local' }
       try {
-        await teardownBuiltWallet()
+        try {
+          await teardownBuiltWallet()
 
-        // Persist new config
-        await updateProfile(getActiveProfileIndex(), { network })
-        await setItem('finalConfig', JSON.stringify(newConfig))
+          // Persist new config
+          await updateProfile(getActiveProfileIndex(), { network })
+          await setItem('finalConfig', JSON.stringify(newConfig))
 
-        // Re-finalize with new network — the request below triggers the auto-build effect
-        pendingAutoBuildRef.current = true
-        finalizeConfig(newConfig)
+          // Re-finalize with new network — the request below triggers the auto-build effect
+          pendingAutoBuildRef.current = true
+          finalizeConfig(newConfig)
+        } finally {
+          profileTransitionRef.current = false
+        }
+        setAutoBuildRequest(r => r + 1)
+        logWithTimestamp(F, `Network switched to ${network}`)
+        await waitForRebuild(token)
       } finally {
-        profileTransitionRef.current = false
+        buildFailureReportedRef.current = false
       }
-      setAutoBuildRequest(r => r + 1)
-      logWithTimestamp(F, `Network switched to ${network}`)
-      await waitForRebuild(token)
       if (walletBuiltRef.current || !buildGenRef.current.isCurrent(token)) return
 
       if (opts.fallback !== false) {
         logWithTimestamp(F, `${network} failed to build; returning to ${from}`)
-        onToast?.(t('profile_switch_failed', { profile: t(NETWORK_LABEL_KEYS[network]) }), { type: 'error' })
+        reportNetworkFailedRef.current(network)
         await switchNetworkRef.current?.(from, { fallback: false })
       }
     },
-    [setItem, teardownBuiltWallet, finalizeConfig, waitForRebuild, onToast, t]
+    [setItem, teardownBuiltWallet, finalizeConfig, waitForRebuild]
   )
   const switchNetworkRef = useRef<typeof switchNetwork | null>(null)
   switchNetworkRef.current = switchNetwork
@@ -3176,32 +3194,39 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const token = buildGenRef.current.bump()
       restoreIntentRef.current = false
       reviewImportedCoinsRef.current = false
-      // Pairings belong to the departing identity.
-      disconnectActivePairedSession()
-      profileTransitionRef.current = true
+      const fallback = opts.fallback !== false && from !== n
+      buildFailureReportedRef.current = fallback
+      let __tBuild = 0
       try {
-        await teardownBuiltWallet()
-        const __tTeardown = performance.now()
-        await setActiveProfile(n)
-        await reloadProfileCaches()
-        await setItem(
-          'finalConfig',
-          JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: record.network, storageUrl: 'local' })
-        )
-        if (__DEV__) {
-          console.warn(
-            `[perf] switchProfile teardown ${(__tTeardown - __t0).toFixed(0)}ms, ` +
-              `store+caches ${(performance.now() - __tTeardown).toFixed(0)}ms`
+        // Pairings belong to the departing identity.
+        disconnectActivePairedSession()
+        profileTransitionRef.current = true
+        try {
+          await teardownBuiltWallet()
+          const __tTeardown = performance.now()
+          await setActiveProfile(n)
+          await reloadProfileCaches()
+          await setItem(
+            'finalConfig',
+            JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: record.network, storageUrl: 'local' })
           )
+          if (__DEV__) {
+            console.warn(
+              `[perf] switchProfile teardown ${(__tTeardown - __t0).toFixed(0)}ms, ` +
+                `store+caches ${(performance.now() - __tTeardown).toFixed(0)}ms`
+            )
+          }
+          pendingAutoBuildRef.current = true
+          finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: record.network, storageUrl: 'local' })
+        } finally {
+          profileTransitionRef.current = false
         }
-        pendingAutoBuildRef.current = true
-        finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: record.network, storageUrl: 'local' })
+        setAutoBuildRequest(r => r + 1)
+        __tBuild = performance.now()
+        await waitForRebuild(token)
       } finally {
-        profileTransitionRef.current = false
+        buildFailureReportedRef.current = false
       }
-      setAutoBuildRequest(r => r + 1)
-      const __tBuild = performance.now()
-      await waitForRebuild(token)
       if (__DEV__) {
         console.warn(
           `[perf] switchProfile build ${(performance.now() - __tBuild).toFixed(0)}ms, ` +
@@ -3210,7 +3235,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       }
       if (walletBuiltRef.current || !buildGenRef.current.isCurrent(token)) return true
 
-      if (opts.fallback !== false && from !== n) {
+      if (fallback) {
         logWithTimestamp(F, `Profile ${n} failed to build; returning to profile ${from}`)
         onToast?.(t('profile_switch_failed', { profile: profileLabel(record, t) }), { type: 'error' })
         await switchProfileImplRef.current?.(from, { fallback: false })
@@ -3407,20 +3432,56 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // walletBuildingRef synchronously, in this same tick) — waitForRebuild can
     // stop treating this generation as "not yet started".
     pendingAutoBuildRef.current = false
+    // A build on a network still waiting for its restore fails when the restore
+    // cannot run (offline, the server down) — typically a cold start after the
+    // app was killed during a switch's restore. A switch has its own fallback
+    // (buildFailureReportedRef); anything else opens the network this profile
+    // last built instead, which has its own database and nothing pending, so
+    // nothing replays over it. The network stays pending, so the restore is
+    // retried the next time it is built.
+    const network = selectedNetworkRef.current
+    const profile = getActiveProfile()
+    const fallbackNetwork =
+      !buildFailureReportedRef.current &&
+      profile.restorePending?.includes(network) &&
+      profile.lastBuiltNetwork !== undefined &&
+      profile.lastBuiltNetwork !== network &&
+      !profile.restorePending.includes(profile.lastBuiltNetwork)
+        ? profile.lastBuiltNetwork
+        : undefined
+    const buildToken = buildGenRef.current.current()
     ;(async () => {
-      // Try mnemonic-based build first (calls getMnemonic internally)
-      await buildWalletFromMnemonic()
-      // Only missing mnemonic material allows a recovered-key fallback. A
-      // restore failure must remain failed so the import screen can offer a
-      // retry; a leftover WIF must not build over that partial replay.
-      if (mnemonicMissingRef.current && !walletBuiltRef.current && !walletBuildingRef.current) {
-        const recoveredWif = await getRecoveredKey()
-        if (recoveredWif) {
-          await buildWalletFromRecoveredKey(recoveredWif)
-        } else {
-          // No mnemonic and no recovered key — genuinely no wallet to build
-          setWalletBuilding(false)
+      if (fallbackNetwork) buildFailureReportedRef.current = true
+      try {
+        // Try mnemonic-based build first (calls getMnemonic internally)
+        await buildWalletFromMnemonic()
+        // Only missing mnemonic material allows a recovered-key fallback. A
+        // restore failure must remain failed so the import screen can offer a
+        // retry; a leftover WIF must not build over that partial replay.
+        if (mnemonicMissingRef.current && !walletBuiltRef.current && !walletBuildingRef.current) {
+          const recoveredWif = await getRecoveredKey()
+          if (recoveredWif) {
+            await buildWalletFromRecoveredKey(recoveredWif)
+          } else {
+            // No mnemonic and no recovered key — genuinely no wallet to build
+            setWalletBuilding(false)
+          }
         }
+      } finally {
+        if (fallbackNetwork) buildFailureReportedRef.current = false
+      }
+      if (
+        fallbackNetwork &&
+        !walletBuiltRef.current &&
+        !walletBuildingRef.current &&
+        // The pending network's restore is what failed (a network it is
+        // pending on always runs one), not a missing secret.
+        backupRestoreRef.current.phase === 'failed' &&
+        buildGenRef.current.isCurrent(buildToken)
+      ) {
+        logWithTimestamp(F, `${network} failed to build; opening ${fallbackNetwork}`)
+        reportNetworkFailedRef.current(network)
+        await switchNetworkRef.current?.(fallbackNetwork, { fallback: false })
       }
     })()
   }, [
