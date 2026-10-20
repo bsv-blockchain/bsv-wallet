@@ -403,6 +403,34 @@ describe('saveDirectPaySettings', () => {
   })
 })
 
+describe("the host's relay and STUN servers", () => {
+  const host = { relayUrl: 'wss://relay.host.example', stunUrls: ['stun:stun.host.example:3478'] }
+
+  it('stand in for the built-in defaults when nothing is stored', async () => {
+    const settings = await loadDirectPaySettings(fakeStorage(), host)
+    expect(settings.relayUrl).toBe(host.relayUrl)
+    expect(settings.stunUrls).toEqual(host.stunUrls)
+  })
+
+  it('give way to what the user saved', async () => {
+    const storage = stored({ relayUrl: 'wss://mine.example', stunUrls: ['stun:mine.example'] })
+    const settings = await loadDirectPaySettings(storage, host)
+    expect(settings.relayUrl).toBe('wss://mine.example')
+    expect(settings.stunUrls).toEqual(['stun:mine.example'])
+  })
+
+  it('fill the fields a save leaves out', async () => {
+    const saved = await saveDirectPaySettings(fakeStorage(), { receiveEnabled: false }, host)
+    expect(saved).toMatchObject({ receiveEnabled: false, relayUrl: host.relayUrl, stunUrls: host.stunUrls })
+  })
+
+  it('leave the frozen built-in list alone', async () => {
+    await loadDirectPaySettings(fakeStorage(), host)
+    expect(DEFAULT_DIRECT_PAY_SETTINGS.relayUrl).toBe(DEFAULT_RELAY_URL)
+    expect(Object.isFrozen(DEFAULT_DIRECT_PAY_SETTINGS.stunUrls)).toBe(true)
+  })
+})
+
 describe('iceServersFrom', () => {
   it('lists the STUN servers together, then TURN with its credentials', () => {
     expect(
