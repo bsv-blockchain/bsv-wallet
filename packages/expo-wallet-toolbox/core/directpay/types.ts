@@ -3,8 +3,9 @@
  * failed, how paying a wallet identity ended, and what the Receive card shows.
  *
  * Direct payments are a live link between two wallets (WebRTC), tried before the message box.
- * Nothing in this folder imports `@bsv/webrtpay` or a native module; the pieces that do arrive
- * in later changes and are handed to these functions as plain dependencies.
+ * Nothing in this folder imports `@bsv/webrtpay` or a native module: `webrtpay.ts` requires the
+ * package lazily, and the rest is handed it (and the host's `RTCPeerConnection`) as plain
+ * dependencies.
  */
 import type { TranslationKey } from '../i18n/translations'
 
