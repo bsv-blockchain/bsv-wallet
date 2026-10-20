@@ -19,6 +19,7 @@ import { WalletContextProvider, useWallet } from '../../core/context/WalletConte
 import { configureToolbox, resetToolboxConfig } from '../../core/toolboxConfig'
 import { deriveProfileKeys, hdFromMnemonic } from '../../core/mnemonicWallet'
 import { __resetProfilesForTests, getProfilesState, PROFILES_STORAGE_KEY } from '../../core/profiles/profileStore'
+import { registerDiscoveredProfile } from '../../core/profiles/discovery'
 import type { AppChain } from '../../core/config'
 
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
@@ -37,6 +38,12 @@ const mockUnregisterDb = jest.fn(async (s: string, c: string, filename: string) 
   mockDbs[`${s}-${c}`] = (mockDbs[`${s}-${c}`] ?? []).filter(f => f !== filename)
 })
 const mockDeleteDatabaseAsync = jest.fn(async (_name: string) => {})
+/** Opening a database file by name; by default no legacy (pre-registry) file exists. */
+const mockOpenDatabase = jest.fn(async (_name: string): Promise<unknown> => {
+  throw new Error('expo-sqlite is native')
+})
+/** Migrating the database a build opens, by file name. */
+const mockMigrate = jest.fn(async (_databaseName: string) => {})
 
 const mockT = (key: string, opts?: Record<string, unknown>) => (opts?.profile ? `${key}:${opts.profile}` : key)
 jest.mock('react-i18next', () => ({
@@ -105,19 +112,22 @@ jest.mock('../../core/walletDbRegistry', () => ({
   selectLatestDb: (names: string[]) => jest.requireActual('../../core/walletDbRegistry').selectLatestDb(names)
 }))
 jest.mock('expo-sqlite', () => ({
-  // No legacy (pre-registry) database files exist.
-  openDatabaseAsync: async () => {
-    throw new Error('expo-sqlite is native')
-  },
+  openDatabaseAsync: (...args: [string]) => mockOpenDatabase(...args),
   deleteDatabaseAsync: (...args: [string]) => mockDeleteDatabaseAsync(...args)
 }))
 jest.mock('../../core/storage', () => ({
   StorageExpoSQLite: class {
     db = {}
     sqliteDb = { getFirstAsync: async () => null }
+    databaseName: string
+    constructor(options: { databaseName: string }) {
+      this.databaseName = options.databaseName
+    }
     setServices() {}
     setVaultAdminOriginator() {}
-    async migrate() {}
+    async migrate() {
+      await mockMigrate(this.databaseName)
+    }
     async findOutputBaskets() {
       return []
     }
@@ -235,6 +245,10 @@ beforeEach(async () => {
   mockGetRecoveredKey.mockResolvedValue(null)
   mockRestore.mockImplementation(restoredOk)
   mockListBackups.mockResolvedValue([])
+  mockOpenDatabase.mockImplementation(async () => {
+    throw new Error('expo-sqlite is native')
+  })
+  mockMigrate.mockImplementation(async () => {})
   await AsyncStorage.clear()
   __resetProfilesForTests()
   configureToolbox({ backupUrl: 'https://backup.example.com' })
@@ -346,6 +360,114 @@ describe('an imported wallet switching network', () => {
     expect(dbsOf(P[0].identityKey, 'test')).toEqual(['wallet-existing-testnet-1700000000.db'])
   })
 
+  it('a network whose database predates the registry (a legacy file) is never restored over, and stops waiting', async () => {
+    const legacy = `wallet-${P[0].identityKey.slice(-8)}-testnet.db`
+    mockOpenDatabase.mockImplementation(async (name: string) => {
+      if (name !== legacy) throw new Error('expo-sqlite is native')
+      return { getFirstAsync: async () => ({ storageIdentityKey: P[0].identityKey }), closeAsync: async () => {} }
+    })
+    await importSeed('main')
+    expect(getProfilesState().profiles[0].restorePending).toEqual(['test', 'teratest'])
+
+    await switchNetwork('test')
+
+    expect(restores().map(([chain]) => chain)).toEqual(['main'])
+    expect(dbsOf(P[0].identityKey, 'test')).toEqual([legacy])
+    expect(getProfilesState().profiles[0].restorePending).toEqual(['teratest'])
+    expect(wallet.selectedNetwork).toBe('test')
+    expect(wallet.walletBuilt).toBe(true)
+  })
+
+  describe('a restore that runs longer than the switch would wait for a stuck build', () => {
+    // waitForRebuild gives up on a build after 300 s without progress. The
+    // clock is moved past that while the replay is running.
+    let clock = 0
+    beforeEach(() => {
+      clock = Date.now()
+      jest.spyOn(Date, 'now').mockImplementation(() => clock)
+    })
+    const pause = () => new Promise(resolve => setTimeout(resolve, 120))
+
+    it('still replaying: the switch waits for it, does not revert and says nothing', async () => {
+      await importSeed('main')
+      let switchResolvedDuringRestore = false
+      let switchResolved = false
+      mockRestore.mockImplementation(async (deps: any) => {
+        for (let chunk = 1; chunk <= 3; chunk++) {
+          deps.onProgress(chunk, 3)
+          clock += 301_000
+          await pause()
+        }
+        switchResolvedDuringRestore = switchResolved
+        return { restored: true, chunks: 3, verified: true }
+      })
+      await act(async () => {
+        await wallet.switchNetwork('test').then(() => {
+          switchResolved = true
+        })
+      })
+      await settle()
+
+      expect(switchResolvedDuringRestore).toBe(false)
+      expect(onToast).not.toHaveBeenCalled()
+      expect(wallet.selectedNetwork).toBe('test')
+      expect(wallet.walletBuilt).toBe(true)
+      expect(wallet.getBackupRestore().phase).toBe('restored')
+    })
+
+    it('stalled: the switch stops waiting but does not call it a failure or build another network over it', async () => {
+      await importSeed('main')
+      let releaseRestore!: () => void
+      mockRestore.mockImplementation(async () => {
+        // The switch has seen the restore start; then nothing for over 300 s.
+        await pause()
+        clock += 301_000
+        await new Promise<void>(resolve => (releaseRestore = resolve))
+        return { restored: true, chunks: 3, verified: true }
+      })
+      await act(async () => {
+        await wallet.switchNetwork('test')
+      })
+      // The switch gave up waiting; the restore is still running.
+      expect(onToast).not.toHaveBeenCalled()
+      expect(wallet.selectedNetwork).toBe('test')
+
+      await act(async () => releaseRestore())
+      await settle()
+      expect(onToast).not.toHaveBeenCalled()
+      expect(wallet.selectedNetwork).toBe('test')
+      expect(wallet.walletBuilt).toBe(true)
+      expect(restores().map(([chain]) => chain)).toEqual(['main', 'test'])
+    })
+  })
+
+  it('a profile switch whose restore stalls stops waiting without calling it a failure or going back', async () => {
+    let clock = Date.now()
+    jest.spyOn(Date, 'now').mockImplementation(() => clock)
+    await importSeed('main')
+    await act(async () => {
+      await registerDiscoveredProfile(1, 'main', ['main'])
+    })
+    let releaseRestore!: () => void
+    mockRestore.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 120))
+      clock += 301_000
+      await new Promise<void>(resolve => (releaseRestore = resolve))
+      return { restored: true, chunks: 1, verified: true }
+    })
+    await act(async () => {
+      await wallet.switchProfile(1)
+    })
+    expect(onToast).not.toHaveBeenCalled()
+    expect(wallet.activeProfile).toBe(1)
+
+    await act(async () => releaseRestore())
+    await settle()
+    expect(onToast).not.toHaveBeenCalled()
+    expect(wallet.activeProfile).toBe(1)
+    expect(wallet.walletBuilt).toBe(true)
+  })
+
   it('a replay cut short (the app was killed) is replayed again into the database it started', async () => {
     // Imported on mainnet; the switch to testnet created its database and began
     // replaying, then the app died. Testnet is still waiting for its restore.
@@ -426,6 +548,22 @@ describe('a cold start on a network still waiting for its restore', () => {
     }
   )
 
+  it('a build that fails before its restore still falls back, with one message', async () => {
+    await killedMidSwitch()
+    mockMigrate.mockImplementation(async name => {
+      if (name.includes('testnet')) throw new Error('disk I/O error')
+    })
+    await renderProvider()
+    await settle()
+
+    expect(mockRestore).not.toHaveBeenCalled()
+    expect(onToast).toHaveBeenCalledTimes(1)
+    expect(onToast).toHaveBeenCalledWith('profile_switch_failed:testnet', { type: 'error' })
+    expect(wallet.selectedNetwork).toBe('main')
+    expect(wallet.walletBuilt).toBe(true)
+    expect(getProfilesState().profiles[0].restorePending).toEqual(['test', 'teratest'])
+  })
+
   it('never falls back to a network that is itself waiting for its restore', async () => {
     await killedMidSwitch()
     const stored = JSON.parse((await AsyncStorage.getItem(PROFILES_STORAGE_KEY))!)
@@ -462,6 +600,25 @@ describe('a cold start on a network still waiting for its restore', () => {
     expect(wallet.walletBuilt).toBe(true)
     expect(onToast).not.toHaveBeenCalled()
     expect(getProfilesState().profiles[0]).toMatchObject({ lastBuiltNetwork: 'test', restorePending: ['teratest'] })
+  })
+})
+
+describe('a build that fails with no fallback of its own', () => {
+  it('shows the generic failure toast, once', async () => {
+    mockDbs[`${P[0].identityKey.slice(-8)}-main`] = ['wallet-main-mainnet-1700000000.db']
+    await AsyncStorage.setItem(
+      PROFILES_STORAGE_KEY,
+      JSON.stringify({ active: 0, profiles: [{ index: 0, network: 'main', identityKey: P[0].identityKey }] })
+    )
+    mockMigrate.mockRejectedValue(new Error('disk I/O error'))
+    mockSecretsReady = true
+    mockGetMnemonic.mockResolvedValue(MNEMONIC)
+    await renderProvider()
+    await settle()
+
+    expect(wallet.walletBuilt).toBe(false)
+    expect(onToast).toHaveBeenCalledTimes(1)
+    expect(onToast).toHaveBeenCalledWith('Failed to build wallet: disk I/O error', { type: 'error' })
   })
 })
 

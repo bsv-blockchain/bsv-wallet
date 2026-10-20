@@ -974,18 +974,30 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * rebuildWallet bumped to; a later teardown (another rebuild, a network
    * switch) bumps past it and this returns immediately rather than waiting on
    * a build nothing still wants.
+   *
+   * Resolves true once the build has settled (built or failed), false when it
+   * was superseded or is still running at the deadline. Only a settled build
+   * may be judged: a false result is never a failure to fall back from.
    */
-  const waitForRebuild = useCallback(async (token: number, timeoutMs = 300000): Promise<void> => {
+  const waitForRebuild = useCallback(async (token: number, timeoutMs = 300000): Promise<boolean> => {
     // A restore replays the encrypted backup log INSIDE the build, before
-    // walletBuiltRef flips — a large history can legitimately take minutes.
-    // The timeout is a safety net against a build that never settles, not a
-    // normal-path budget; the generation check is what actually bounds this
-    // to a superseded rebuild.
-    const start = Date.now()
-    while (buildGenRef.current.isCurrent(token) && Date.now() - start < timeoutMs) {
-      if (!pendingAutoBuildRef.current && !walletBuildingRef.current) return
+    // walletBuiltRef flips — a large history can legitimately take far longer
+    // than the timeout. So the deadline restarts whenever the restore reports
+    // progress (each phase change and each chunk), and the timeout only ends
+    // the wait on a build that has stopped making any. The generation check is
+    // what bounds this to a superseded rebuild.
+    let deadline = Date.now() + timeoutMs
+    let seen = backupRestoreRef.current
+    while (buildGenRef.current.isCurrent(token)) {
+      if (!pendingAutoBuildRef.current && !walletBuildingRef.current) return true
+      if (backupRestoreRef.current !== seen) {
+        seen = backupRestoreRef.current
+        if (seen.phase === 'checking' || seen.phase === 'restoring') deadline = Date.now() + timeoutMs
+      }
+      if (Date.now() >= deadline) return false
       await new Promise(resolve => setTimeout(resolve, 40))
     }
+    return false
   }, [])
   const [localPayNotification, setLocalPayNotification] = useState<{
     message: string
@@ -1317,9 +1329,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * Set while the code that started a build has its own fallback and reports a
    * failure itself (a network or profile switch, or a cold start falling back to
    * another network): the build's generic failure toast would be a second
-   * message for one event, and no other fallback may act on it.
+   * message for one event, and no other fallback may act on it. Each owner
+   * holds its own token and releases only that, so a later owner keeps its
+   * claim when an earlier one finishes.
    */
-  const buildFailureReportedRef = useRef(false)
+  const buildFailureReportedRef = useRef<object | null>(null)
+  /** Set by buildWallet when it throws; cleared by whoever starts a build and judges its outcome. */
+  const buildThrewRef = useRef(false)
   /** Tell the user `network` could not be opened. A ref: the auto-build effect must not re-run on a new toast or t. */
   const reportNetworkFailedRef = useRef<(network: AppChain) => void>(() => {})
   reportNetworkFailedRef.current = network =>
@@ -1693,10 +1709,17 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // the profile there: the networks an import did not run on, those a
           // discovered profile was found backed up on, and every network of an added
           // profile. A wallet created on this device has nothing pending, so it never
-          // asks the backup server. A network is only ever pending while it has no
-          // local database, or the one its own interrupted replay created (an import
-          // leaves out every network that already has one): a restore never replays
-          // over a wallet that has been in use.
+          // asks the backup server. An import leaves out every network that already
+          // has a local database, and a pre-registry (legacy) file is settled, not
+          // replayed. A pending network that does have a database is normally the one
+          // its own interrupted replay created. The exception: the profile store can be
+          // reset (a replacing import) while the database registry survives, so after
+          // a re-import of the original seed, discovery or Add profile can mark a
+          // profile's network pending over a database that was in use. That replay
+          // is the same as re-importing a seed over its own wallet: wallet records
+          // merge by identity (newer wins), and the backup's app-data snapshot
+          // (pending local payments, outbox, issued receive dates) is written over
+          // the local one.
           //
           // A failure throws, which aborts the whole build: the import screen reports it
           // and lets the user retry or continue without history, and a network switch
@@ -2717,6 +2740,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         return permissionsManager
       } catch (error: any) {
         console.error('Error building wallet:', error)
+        buildThrewRef.current = true
         if (!buildFailureReportedRef.current) onToast?.('Failed to build wallet: ' + error.message, { type: 'error' })
         logWithTimestamp(F, 'Error building wallet', error.message)
         // SimpleWalletManager authenticates whenever its builder resolves,
@@ -3131,7 +3155,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // between teardown's walletBuilt flip and finalizeConfig below.
       profileTransitionRef.current = true
       // The fallback below reports a failure; a revert (no fallback) leaves it to the build.
-      buildFailureReportedRef.current = opts.fallback !== false
+      const owner = opts.fallback !== false ? {} : null
+      if (owner) buildFailureReportedRef.current = owner
+      let settled = false
       const newConfig = { wabUrl: 'noWAB', method: 'mnemonic', network, storageUrl: 'local' }
       try {
         try {
@@ -3149,11 +3175,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
         setAutoBuildRequest(r => r + 1)
         logWithTimestamp(F, `Network switched to ${network}`)
-        await waitForRebuild(token)
+        settled = await waitForRebuild(token)
       } finally {
-        buildFailureReportedRef.current = false
+        if (owner && buildFailureReportedRef.current === owner) buildFailureReportedRef.current = null
       }
-      if (walletBuiltRef.current || !buildGenRef.current.isCurrent(token)) return
+      // Still building (a restore that stopped reporting progress): not a
+      // failure, and nothing may be built over it. Its outcome reports itself.
+      if (walletBuiltRef.current || !buildGenRef.current.isCurrent(token) || !settled) return
 
       if (opts.fallback !== false) {
         logWithTimestamp(F, `${network} failed to build; returning to ${from}`)
@@ -3195,7 +3223,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       restoreIntentRef.current = false
       reviewImportedCoinsRef.current = false
       const fallback = opts.fallback !== false && from !== n
-      buildFailureReportedRef.current = fallback
+      const owner = fallback ? {} : null
+      if (owner) buildFailureReportedRef.current = owner
+      let settled = false
       let __tBuild = 0
       try {
         // Pairings belong to the departing identity.
@@ -3223,9 +3253,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
         setAutoBuildRequest(r => r + 1)
         __tBuild = performance.now()
-        await waitForRebuild(token)
+        settled = await waitForRebuild(token)
       } finally {
-        buildFailureReportedRef.current = false
+        if (owner && buildFailureReportedRef.current === owner) buildFailureReportedRef.current = null
       }
       if (__DEV__) {
         console.warn(
@@ -3234,6 +3264,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         )
       }
       if (walletBuiltRef.current || !buildGenRef.current.isCurrent(token)) return true
+      // Still building: not a failure to fall back from (see switchNetwork).
+      if (!settled) return false
 
       if (fallback) {
         logWithTimestamp(F, `Profile ${n} failed to build; returning to profile ${from}`)
@@ -3450,8 +3482,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         ? profile.lastBuiltNetwork
         : undefined
     const buildToken = buildGenRef.current.current()
+    const owner = fallbackNetwork ? {} : null
     ;(async () => {
-      if (fallbackNetwork) buildFailureReportedRef.current = true
+      if (owner) buildFailureReportedRef.current = owner
+      buildThrewRef.current = false
       try {
         // Try mnemonic-based build first (calls getMnemonic internally)
         await buildWalletFromMnemonic()
@@ -3468,15 +3502,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           }
         }
       } finally {
-        if (fallbackNetwork) buildFailureReportedRef.current = false
+        if (owner && buildFailureReportedRef.current === owner) buildFailureReportedRef.current = null
       }
       if (
         fallbackNetwork &&
         !walletBuiltRef.current &&
         !walletBuildingRef.current &&
-        // The pending network's restore is what failed (a network it is
-        // pending on always runs one), not a missing secret.
-        backupRestoreRef.current.phase === 'failed' &&
+        // The build ran and threw, whatever the step (its restore, migrate, the
+        // registry): this owner suppressed the generic toast, so it reports
+        // every such failure. Not a missing secret, where no build ran.
+        buildThrewRef.current &&
         buildGenRef.current.isCurrent(buildToken)
       ) {
         logWithTimestamp(F, `${network} failed to build; opening ${fallbackNetwork}`)
