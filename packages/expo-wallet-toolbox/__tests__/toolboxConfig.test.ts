@@ -1,6 +1,7 @@
 import {
   configureToolbox,
   getBackupUrl,
+  getDirectPayConfig,
   getHandleRegistryConfig,
   getMandalaEndpoints,
   getPushAdapter,
@@ -304,5 +305,42 @@ describe('push adapter seam', () => {
     configureToolbox({ backupUrl: null, push: adapter })
     configureToolbox({ backupUrl: null })
     expect(getPushAdapter()).toBeUndefined()
+  })
+})
+
+// The host owns the WebRTC implementation; nothing reads this yet, so a host that states
+// nothing must see no change.
+describe('direct pay seam', () => {
+  it('is undefined when the toolbox is not configured', () => {
+    expect(getDirectPayConfig()).toBeUndefined()
+  })
+
+  it('is undefined by default: a host that states nothing sees no change', () => {
+    configureToolbox({ backupUrl: null })
+    expect(getDirectPayConfig()).toBeUndefined()
+  })
+
+  it('hands back what the host stated', () => {
+    class FakePeerConnection {}
+    const directPay = {
+      enabled: true,
+      relayUrl: 'wss://relay.example.com',
+      stunUrls: ['stun:stun.example.com:3478'],
+      RTCPeerConnection: FakePeerConnection
+    }
+    configureToolbox({ backupUrl: null, directPay })
+    expect(getDirectPayConfig()).toBe(directPay)
+  })
+
+  it('does not carry over a previous configuration', () => {
+    configureToolbox({ backupUrl: null, directPay: { enabled: true } })
+    configureToolbox({ backupUrl: null })
+    expect(getDirectPayConfig()).toBeUndefined()
+  })
+
+  it('does not change what a host configured without it', () => {
+    configureToolbox({ backupUrl: 'https://backup.example.com' })
+    expect(getBackupUrl()).toBe('https://backup.example.com')
+    expect(getDirectPayConfig()).toBeUndefined()
   })
 })

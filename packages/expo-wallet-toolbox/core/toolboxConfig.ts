@@ -46,6 +46,31 @@ export interface HandleRegistryConfig {
 }
 
 /**
+ * What the host states about direct (push) payments, the live WebRTC link tried before the
+ * message box. Every field is optional, and the whole entry is: a host that states nothing
+ * here keeps today's behaviour. The package never imports a WebRTC implementation itself —
+ * the native module would have to be linked by every host that merely installs it — so the
+ * host that ships one passes it in.
+ */
+export interface DirectPayHostConfig {
+  /**
+   * Whether this build offers direct payments at all, as `vaultEnabled` gates the vault. The
+   * user's own receive switch is a separate setting (`DirectPaySettings.receiveEnabled`).
+   * Unset means off.
+   */
+  enabled?: boolean
+  /** This build's signaling relay, `wss://` only. Unset means the built-in one. */
+  relayUrl?: string
+  /** This build's `stun:` / `stuns:` servers. Unset means the built-in ones. */
+  stunUrls?: string[]
+  /**
+   * The host's `RTCPeerConnection` constructor (e.g. from react-native-webrtc). Typed
+   * `unknown` because this package ships no WebRTC types and must not depend on any.
+   */
+  RTCPeerConnection?: unknown
+}
+
+/**
  * Runtime configuration supplied by the host app.
  *
  * The toolbox reads no `process.env` of its own. Expo's Babel preset refuses to
@@ -125,6 +150,11 @@ export interface ToolboxConfig {
    * states it here, like the URLs above.
    */
   push?: PushAdapter
+  /**
+   * Direct (push) payments. Optional, and unset by default: no direct-payment code reads it
+   * yet, and a host that omits it sees no change.
+   */
+  directPay?: DirectPayHostConfig
 }
 
 interface ResolvedConfig {
@@ -135,6 +165,7 @@ interface ResolvedConfig {
   handleMinLength: 1 | 2 | 3
   vaultEnabled: boolean
   push: PushAdapter | undefined
+  directPay: DirectPayHostConfig | undefined
 }
 
 let current: ResolvedConfig | null = null
@@ -214,7 +245,8 @@ export function configureToolbox(config: ToolboxConfig): void {
     handleRegistry: config.handleRegistry ?? {},
     handleMinLength: config.handleMinLength === 1 || config.handleMinLength === 2 ? config.handleMinLength : 3,
     vaultEnabled: config.vaultEnabled === true,
-    push: config.push
+    push: config.push,
+    directPay: config.directPay
   }
 }
 
@@ -357,6 +389,16 @@ export function isVaultEnabled(): boolean {
  */
 export function getPushAdapter(): PushAdapter | undefined {
   return current?.push
+}
+
+/**
+ * What the host stated about direct payments, or undefined when it stated nothing.
+ *
+ * Deliberately NOT throwing when unconfigured, like `getPushAdapter`: it is read while
+ * building the wallet, and "unconfigured" must look like "not stated".
+ */
+export function getDirectPayConfig(): DirectPayHostConfig | undefined {
+  return current?.directPay
 }
 
 /**
