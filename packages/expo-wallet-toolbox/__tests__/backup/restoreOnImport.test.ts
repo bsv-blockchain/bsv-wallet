@@ -29,18 +29,18 @@ const summary = (over: Partial<DeviceSummary>): DeviceSummary => ({
 
 /** Same digest RemoteSyncReader now checks a downloaded blob against — kept alongside the
  * fixtures below so every fake index entry's sha256/size genuinely describes its blob. */
-function sha256Hex (bytes: number[]): string {
+function sha256Hex(bytes: number[]): string {
   return Utils.toHex(Hash.sha256(bytes))
 }
 
-function chunkWithTx (txid: string): SyncChunk {
+function chunkWithTx(txid: string): SyncChunk {
   const c = emptyChunk('a', 'b', 'user') as unknown as Record<string, unknown[]>
   c.provenTxs = [{ provenTxId: 1, txid, rawTx: [1, 2, 3] }]
   return c as unknown as SyncChunk
 }
 
 /** Server stand-in: a manifest plus per-(device, generation) logs. */
-function fakeClient (
+function fakeClient(
   devices: DeviceSummary[],
   logs: Record<string, number[][]> = {},
   indexOverride?: Record<string, LogEntry[]>
@@ -75,7 +75,7 @@ function fakeClient (
  * txid actually handed to it is recorded, across every device, so a test can assert on
  * what ended up in "storage" instead of only on call counts.
  */
-function fakeStorage (): any {
+function fakeStorage(): any {
   const receivedTxids: string[] = []
   const kv = new Map<string, string>()
   const s: any = {
@@ -139,7 +139,10 @@ describe('restoreOnImport', () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const logs = {
       [`${OLD_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('old'), 'main')],
-      [`${NEW_DEVICE}/2`]: [await encodeChunk(w, chunkWithTx('new1'), 'main'), await encodeChunk(w, chunkWithTx('new2'), 'main')]
+      [`${NEW_DEVICE}/2`]: [
+        await encodeChunk(w, chunkWithTx('new1'), 'main'),
+        await encodeChunk(w, chunkWithTx('new2'), 'main')
+      ]
     }
     const client = fakeClient(
       [
@@ -175,7 +178,7 @@ describe('restoreOnImport', () => {
     expect(storage.receivedTxids.sort()).toEqual(['new1', 'new2', 'old'])
   })
 
-  it('seeds the user row and the source device\'s syncState before the first chunk', async () => {
+  it("seeds the user row and the source device's syncState before the first chunk", async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const client = fakeClient([summary({ deviceId: NEW_DEVICE, generation: 1 })], {
       [`${NEW_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('only'), 'main')]
@@ -311,6 +314,77 @@ describe('restoreOnImport', () => {
 })
 
 // ── XR-011: restore replays app-owned recovery-critical rows ─────────────────
+describe('restoreOnImport reports the steps between chunks', () => {
+  /** Everything a restore does that a waiting caller can see, in order. */
+  async function timeline(devices: DeviceSummary[], logs: Record<string, number[][]>): Promise<string[]> {
+    const events: string[] = []
+    const client = fakeClient(devices, logs)
+    const index = client.index.getMockImplementation()
+    client.index.mockImplementation(async (d: string, g: number) => {
+      events.push(`index ${d.slice(0, 1)}/${g}`)
+      return await index(d, g)
+    })
+    const storage = fakeStorage()
+    storage.findProvenTxReqs.mockImplementation(async () => {
+      events.push('reconcile')
+      return []
+    })
+    await restoreOnImport(
+      deps({
+        storage,
+        client,
+        onProgress: () => events.push('chunk'),
+        onActivity: () => events.push('activity'),
+        validateRestoredCoins: async () => {
+          events.push('coin review')
+        }
+      })
+    )
+    return events
+  }
+
+  it('after each candidate generation it ranks', async () => {
+    // Three candidates, none sealed: ranking reads every one before falling back.
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const events = await timeline(
+      [
+        summary({ deviceId: OLD_DEVICE, generation: 1, updatedAt: '2026-08-01T00:00:00Z' }),
+        summary({ deviceId: NEW_DEVICE, generation: 1, updatedAt: '2026-08-08T00:00:00Z' }),
+        summary({ deviceId: NEW_DEVICE, generation: 2, updatedAt: '2026-08-09T00:00:00Z' })
+      ],
+      {
+        [`${OLD_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('old'), 'main')],
+        [`${NEW_DEVICE}/1`]: [await encodeChunk(w, chunkWithTx('new0'), 'main')],
+        [`${NEW_DEVICE}/2`]: [await encodeChunk(w, chunkWithTx('new1'), 'main')]
+      }
+    )
+    const firstChunkOrEnd = events.indexOf('chunk') === -1 ? events.length : events.indexOf('chunk')
+    const ranking = events.slice(0, firstChunkOrEnd)
+    // Every index read is followed by an activity before the next read.
+    ranking.forEach((e, i) => {
+      if (e.startsWith('index')) expect(ranking[i + 1]).toBe('activity')
+    })
+    expect(ranking.filter(e => e.startsWith('index')).length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('after the last chunk, before proof reconciliation, and again before the coin review', async () => {
+    const w = deriveBackupWallet(PRIMARY, 'main')
+    const events = await timeline([summary({ deviceId: NEW_DEVICE, generation: 1 })], {
+      [`${NEW_DEVICE}/1`]: [
+        await encodeChunk(w, chunkWithTx('a'), 'main'),
+        await encodeChunk(w, chunkWithTx('b'), 'main')
+      ]
+    })
+    const lastChunk = events.lastIndexOf('chunk')
+    const reconcile = events.indexOf('reconcile')
+    const review = events.indexOf('coin review')
+    expect(lastChunk).toBeGreaterThan(-1)
+    expect(reconcile).toBeGreaterThan(lastChunk)
+    expect(events.slice(lastChunk + 1, reconcile)).toContain('activity')
+    expect(events.slice(reconcile + 1, review)).toContain('activity')
+  })
+})
+
 describe('XR-011: restoreOnImport replays appData', () => {
   it('restores a receiver-side acknowledged, not-yet-internalized localpay pending frame', async () => {
     // The ledger's own concrete scenario: an acknowledged Nearby/QR PaymentFrame that never

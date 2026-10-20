@@ -415,6 +415,60 @@ describe('an imported wallet switching network', () => {
       expect(wallet.getBackupRestore().phase).toBe('restored')
     })
 
+    // A restore that is working but sends no chunk for over 300 s: the switch
+    // must keep waiting while the restore reports its other steps.
+    const slowStepsSwitch = async (restore: (deps: any) => Promise<unknown>) => {
+      await importSeed('main')
+      let switchResolvedDuringRestore = false
+      let switchResolved = false
+      mockRestore.mockImplementation(async (deps: any) => {
+        const result = await restore(deps)
+        switchResolvedDuringRestore = switchResolved
+        return result
+      })
+      await act(async () => {
+        await wallet.switchNetwork('test').then(() => {
+          switchResolved = true
+        })
+      })
+      await settle()
+      expect(switchResolvedDuringRestore).toBe(false)
+      expect(onToast).not.toHaveBeenCalled()
+      expect(wallet.selectedNetwork).toBe('test')
+      expect(wallet.walletBuilt).toBe(true)
+    }
+
+    it('ranking generations for longer than 300 s in total, candidate by candidate, does not end the wait', async () => {
+      await slowStepsSwitch(async deps => {
+        // Each candidate takes 150 s to check; three of them, no chunk yet.
+        for (let candidate = 0; candidate < 3; candidate++) {
+          await pause()
+          clock += 150_000
+          deps.onActivity()
+        }
+        await pause()
+        deps.onProgress(1, 1)
+        return { restored: true, chunks: 1, verified: true }
+      })
+    })
+
+    it('reconciling and reviewing coins for longer than 300 s after the last chunk does not end the wait', async () => {
+      await slowStepsSwitch(async deps => {
+        await pause()
+        deps.onProgress(1, 1)
+        // Proof reconciliation, then the coin review: 150 s each, after the last chunk.
+        for (const step of ['reconcile', 'coin review']) {
+          void step
+          await pause()
+          deps.onActivity()
+          clock += 150_000
+          await pause()
+          clock += 100_000
+        }
+        return { restored: true, chunks: 1, verified: true }
+      })
+    })
+
     it('stalled: the switch stops waiting but does not call it a failure or build another network over it', async () => {
       await importSeed('main')
       let releaseRestore!: () => void

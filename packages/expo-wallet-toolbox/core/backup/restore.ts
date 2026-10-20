@@ -37,6 +37,13 @@ export interface RestoreDeps {
    * first chunk arrives.
    */
   onProgress?: (chunks: number, total: number) => void
+  /**
+   * Called whenever the restore finishes a step that is not a chunk: ranking a candidate
+   * generation, and each page of the post-replay proof reconciliation. Carries nothing; it
+   * only says the restore is still working, so a caller waiting on it can tell a slow
+   * restore from a stuck one.
+   */
+  onActivity?: () => void
 }
 
 export interface RestoreResult {
@@ -92,7 +99,16 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
   }
 
   const settings = await deps.storage.makeAvailable()
-  const chosen = await pickTarget(devices, client, wallet, deps.chain, settings, deps.deviceId, deps.generation)
+  const chosen = await pickTarget(
+    devices,
+    client,
+    wallet,
+    deps.chain,
+    settings,
+    deps.deviceId,
+    deps.generation,
+    deps.onActivity
+  )
 
   // processSyncChunk's preconditions, which a fresh, just-migrated database does
   // not meet: it does verifyTruthy(findUserByIdentityKey(identityKey)) and then
@@ -144,7 +160,8 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
     if (chunks > reader.length) throw new Error('Backup replay did not acknowledge completion')
   }
 
-  await reconcileRestoredProofs(deps.storage)
+  deps.onActivity?.()
+  await reconcileRestoredProofs(deps.storage, deps.onActivity)
   return {
     chunks,
     deviceId: chosen.deviceId,
@@ -162,9 +179,10 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
  * which also reconciles notification IDs and preserves completed transactions.
  * Run only after the entire log lands, before the wallet/monitor is published.
  */
-async function reconcileRestoredProofs (storage: StorageExpoSQLite): Promise<void> {
+async function reconcileRestoredProofs (storage: StorageExpoSQLite, onActivity?: () => void): Promise<void> {
   const limit = 1
   for (let offset = 0; ; offset += limit) {
+    if (offset > 0) onActivity?.()
     // Page over every status so completing a request cannot shift the next
     // page's offsets. A request may contain a large expanded inputBEEF, so
     // retain only one request at a time while completion reloads its proof.
@@ -229,7 +247,9 @@ export async function pickTarget (
   chain: BackupChain,
   settings: TableSettings,
   deviceId?: string,
-  generation?: number
+  generation?: number,
+  /** Called after each candidate is checked, readable or not (see RestoreDeps.onActivity). */
+  onActivity?: () => void
 ): Promise<PickedTarget> {
   const candidates = deviceId != null ? devices.filter(d => d.deviceId === deviceId) : devices
   if (candidates.length === 0) {
@@ -244,6 +264,7 @@ export async function pickTarget (
     if (exact == null) throw new Error(`No backup found for generation ${generation}`)
     const reader = readerFor(exact)
     const verified = await reader.verifiedComplete()
+    onActivity?.()
     return { deviceId: exact.deviceId, generation: exact.generation, verified, reader }
   }
 
@@ -262,6 +283,7 @@ export async function pickTarget (
       // and was never going to be chosen anyway — it is simply not verified.
       verified = false
     }
+    onActivity?.()
     if (verified) return { deviceId: candidate.deviceId, generation: candidate.generation, verified: true, reader }
   }
 

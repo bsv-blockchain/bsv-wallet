@@ -919,6 +919,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     setBackupRestoreState(next)
   }, [])
   const getBackupRestore = useCallback((): BackupRestoreState => backupRestoreRef.current, [])
+  /**
+   * Counts the restore's steps between chunks (restoreOnImport's onActivity). Only
+   * waitForRebuild reads it, to tell a slow restore from a stuck one; a ref, so a
+   * restore reconciling thousands of proofs does not re-render the app per step.
+   */
+  const restoreActivityRef = useRef(0)
   const getWalletBuilt = useCallback((): boolean => walletBuiltRef.current, [])
   /**
    * Set once buildWallet resolves this build's backup chain/pseudonym, so a screen (Wallet
@@ -983,15 +989,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // A restore replays the encrypted backup log INSIDE the build, before
     // walletBuiltRef flips — a large history can legitimately take far longer
     // than the timeout. So the deadline restarts whenever the restore reports
-    // progress (each phase change and each chunk), and the timeout only ends
-    // the wait on a build that has stopped making any. The generation check is
-    // what bounds this to a superseded rebuild.
+    // anything: a phase change, a chunk, or a step between chunks (ranking a
+    // candidate generation, reconciling proofs, before the app data and the coin
+    // review; see restoreActivityRef). The timeout then ends the wait only when
+    // no single step reports for that long: a stuck build, or one request or
+    // coin review that alone outlasts it. The generation check is what bounds
+    // this to a superseded rebuild.
     let deadline = Date.now() + timeoutMs
     let seen = backupRestoreRef.current
+    let seenActivity = restoreActivityRef.current
     while (buildGenRef.current.isCurrent(token)) {
       if (!pendingAutoBuildRef.current && !walletBuildingRef.current) return true
-      if (backupRestoreRef.current !== seen) {
+      if (backupRestoreRef.current !== seen || restoreActivityRef.current !== seenActivity) {
         seen = backupRestoreRef.current
+        seenActivity = restoreActivityRef.current
         if (seen.phase === 'checking' || seen.phase === 'restoring') deadline = Date.now() + timeoutMs
       }
       if (Date.now() >= deadline) return false
@@ -1717,9 +1728,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // a re-import of the original seed, discovery or Add profile can mark a
           // profile's network pending over a database that was in use. That replay
           // is the same as re-importing a seed over its own wallet: wallet records
-          // merge by identity (newer wins), and the backup's app-data snapshot
-          // (pending local payments, outbox, issued receive dates) is written over
-          // the local one.
+          // and contacts merge by identity (newer wins), while three app-data rows
+          // (pending local payments, outbox, issued receive dates) are written over
+          // with the backup's snapshot.
           //
           // A failure throws, which aborts the whole build: the import screen reports it
           // and lets the user retry or continue without history, and a network switch
@@ -1763,6 +1774,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 identityKey,
                 baseUrl: getBackupUrl(),
                 onProgress: (chunks, total) => setBackupRestore({ phase: 'restoring', chunks, total }),
+                onActivity: () => {
+                  restoreActivityRef.current++
+                },
                 // reviewSpendableOutputs talks to Services through the Wallet, which
                 // needs this storage attached first. Attach here (idempotent with the
                 // call below) so the post-restore pass actually sees the replayed coins.
@@ -3180,7 +3194,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         if (owner && buildFailureReportedRef.current === owner) buildFailureReportedRef.current = null
       }
       // Still building (a restore that stopped reporting progress): not a
-      // failure, and nothing may be built over it. Its outcome reports itself.
+      // failure, and nothing may be built over it, so no revert. Its outcome
+      // reports itself: a wallet, or the generic failure toast.
       if (walletBuiltRef.current || !buildGenRef.current.isCurrent(token) || !settled) return
 
       if (opts.fallback !== false) {
