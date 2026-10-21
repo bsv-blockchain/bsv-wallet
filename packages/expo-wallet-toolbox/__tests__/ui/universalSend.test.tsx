@@ -72,6 +72,26 @@ jest.mock('../../ui/resolveIdentity', () => ({
   ...jest.requireActual('../../ui/resolveIdentity'),
   searchIdentities: jest.fn(async () => [])
 }))
+/** Whether this wallet can pay live, and the live attempt itself. Off by
+ * default, which is what the real context reports with no provider mounted. */
+let mockCanSendDirect = false
+const mockSendDirect = jest.fn()
+jest.mock('../../core/directpay/DirectPayProvider', () => {
+  const actual = jest.requireActual('../../core/directpay/DirectPayProvider')
+  return {
+    ...actual,
+    useDirectPay: () => ({
+      ...actual.useDirectPay(),
+      canSendDirect: mockCanSendDirect,
+      sendDirect: mockSendDirect
+    })
+  }
+})
+const mockShowAlert = jest.fn()
+jest.mock('../../ui/components/ui/AlertCard', () => ({
+  ...jest.requireActual('../../ui/components/ui/AlertCard'),
+  showAlert: (...args: unknown[]) => mockShowAlert(...args)
+}))
 const mockSendViaHandle = jest.fn()
 // XR-061: a bare jest.fn() spy on the address rail's send call, so the
 // double-activation regression test can count how many times a value-moving
@@ -156,6 +176,9 @@ describe('UniversalSend', () => {
     mockRegistrySearch.mockReset()
     mockRouterPush.mockReset()
     mockSendViaHandle.mockReset()
+    mockCanSendDirect = false
+    mockSendDirect.mockReset()
+    mockShowAlert.mockReset()
     mockSendViaHandle.mockResolvedValue({ satoshis: 2500 })
     mockSendToAddress.mockReset()
     mockSendToAddress.mockResolvedValue({ paidSatoshis: 500 })
@@ -286,7 +309,51 @@ describe('UniversalSend', () => {
   it('XR-053: review shows no delivery-host row for a handle with no linked host', () => {
     const s = draw({ initialTarget: { kind: 'handle', identityKey: KEY }, initialSats: 500 })
     fireEvent.press(s.getByText('pay_step_continue'))
-    expect(s.queryByText('pay_review_delivery_host')).toBeNull()
+    expect(s.queryByText(/pay_review_delivery_host/)).toBeNull()
+  })
+
+  // A live payment dials the recipient's identity key; a link-named host is
+  // never used for it, so review says "live" rather than naming that host.
+  it('review says the payment goes live, not to the linked host, when this wallet can pay live', () => {
+    mockCanSendDirect = true
+    const s = draw({
+      initialTarget: { kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' },
+      initialSats: 500
+    })
+    fireEvent.press(s.getByText('pay_step_continue'))
+    expect(s.getByText('pay_review_route_live')).toBeTruthy()
+    expect(s.queryByText(/mb\.example/)).toBeNull()
+  })
+
+  // A scanned or pasted key is neither a contact nor registered, and there is
+  // nothing the payer could check: no warning line for it.
+  it('review shows no trust line for a bare identity key', () => {
+    const s = draw({ initialTarget: { kind: 'handle', identityKey: KEY }, initialSats: 500 })
+    fireEvent.press(s.getByText('pay_step_continue'))
+    expect(s.queryByText('pay_trust_unverified')).toBeNull()
+    expect(s.queryByText('pay_trust_contact')).toBeNull()
+    expect(s.queryByText('pay_trust_handle_attested')).toBeNull()
+  })
+
+  // XR-053 after live-first: the linked host is only used once the payer
+  // accepts the message-box fallback, so that prompt names it.
+  it('XR-053: the message-box fallback prompt names the linked host', async () => {
+    const { NotSentError } = jest.requireActual('../../core/directpay/payFlow')
+    mockCanSendDirect = true
+    mockSendDirect.mockRejectedValue(new NotSentError('offline', '', 'offline'))
+    mockShowAlert.mockResolvedValue('cancel')
+    mockManagers = { permissionsManager: {} }
+    mockStorage = { getKeyValue: async () => undefined, setKeyValue: async () => {} }
+    const s = draw({
+      initialTarget: { kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://evil.example' },
+      initialSats: 500
+    })
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByLabelText('send').props.accessibilityState.disabled).toBe(false))
+    fireEvent.press(s.getByLabelText('send'))
+    await waitFor(() => expect(mockShowAlert).toHaveBeenCalled())
+    expect(mockShowAlert.mock.calls[0][0].message).toContain('direct_pay_fallback_host')
+    expect(mockSendViaHandle).not.toHaveBeenCalled()
   })
 
   it('never shows the message-box server bar', () => {

@@ -897,9 +897,14 @@ function UniversalSendInner(
       let outcome: PayOutcome = await payIdentity({ direct: viaDirect, messageBox: viaMessageBox, name })
       if (outcome.kind === 'ask_fallback') {
         const prompt = fallbackPrompt(outcome.reason, name)
+        // XR-053: accepting this is what sends to a link-named host, so the
+        // host is named here, where the payer chooses the message box.
+        const message = to.messageBoxUrl
+          ? `${t(prompt.key, prompt.params)}\n\n${t('direct_pay_fallback_host', { host: to.messageBoxUrl })}`
+          : t(prompt.key, prompt.params)
         const choice = await showAlert({
           title: t('direct_pay_fallback_title'),
-          message: t(prompt.key, prompt.params),
+          message,
           buttons: [
             { text: t('cancel'), key: 'cancel', style: 'cancel' },
             { text: t('direct_pay_fallback_send'), key: 'send' }
@@ -1379,21 +1384,36 @@ function UniversalSendInner(
         ? pickedHandle.handle
         : abbreviateKey(target.identityKey)
       : undefined
+  // Only a positive fact earns a line. A key that is neither a contact nor
+  // registered (a scanned or pasted Identifier) gets nothing: there is no
+  // check the payer could run here, so a warning would only cry wolf.
   const reviewTrust = targetIsContact
-    ? { icon: 'person-circle-outline', color: colors.textSecondary, text: t('pay_trust_contact') }
+    ? { icon: 'person-circle-outline', text: t('pay_trust_contact') }
     : recipient.selectedIdentity
-      ? { icon: 'shield-checkmark-outline', color: colors.textSecondary, text: t('pay_trust_handle_attested') }
-      : { icon: 'alert-circle-outline', color: colors.warning, text: t('pay_trust_unverified') }
+      ? { icon: 'shield-checkmark-outline', text: t('pay_trust_handle_attested') }
+      : undefined
   const showNoteRow = isHandle || (isAddress && !asset)
+  // How a handle payment will travel. Live first whenever this wallet can pay
+  // live (BSV only; a token send always takes its own rail): the dial goes to the recipient's identity key and never uses a
+  // link-named host, so naming that host here would be untrue.
+  //
   // XR-053: a `peerpay:` link's `url` extension silently overrides normal
   // recipient-host resolution (the overlay/advertisement lookup) with no
-  // binding to the recipient's identity. Surfacing the resolved host on the
-  // last screen before Send is the local, backwards-compatible hardening —
-  // the payer can catch a substituted/unexpected host before committing;
-  // full closure (a recipient-signed delivery receipt) is a wire-protocol
-  // change out of scope here.
+  // binding to the recipient's identity. That host is only used by the
+  // message box, so it is surfaced wherever the message box is chosen: here
+  // when it is the only route, otherwise in the fallback prompt the payer
+  // must accept (sendHandle). Full closure (a recipient-signed delivery
+  // receipt) is a wire-protocol change out of scope here.
   const linkHost = target?.kind === 'handle' ? target.messageBoxUrl : undefined
-  const showHostRow = !!linkHost
+  const reviewRoute =
+    target?.kind !== 'handle'
+      ? undefined
+      : directPay.canSendDirect && !asset
+        ? { icon: 'flash-outline', text: t('pay_review_route_live') }
+        : linkHost
+          ? { icon: 'mail-outline', text: t('pay_review_delivery_host'), host: linkHost }
+          : undefined
+  const showRouteRow = !!reviewRoute
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -1544,10 +1564,10 @@ function UniversalSendInner(
                     </Text>
                   )}
                 </View>
-                {target.kind === 'handle' && (
+                {target.kind === 'handle' && reviewTrust && (
                   <View style={styles.reviewTrustRow}>
-                    <Ionicons name={reviewTrust.icon as never} size={12} color={reviewTrust.color} />
-                    <Text style={[styles.reviewTrust, { color: reviewTrust.color }]} numberOfLines={1}>
+                    <Ionicons name={reviewTrust.icon as never} size={12} color={colors.textSecondary} />
+                    <Text style={[styles.reviewTrust, { color: colors.textSecondary }]} numberOfLines={1}>
                       {reviewTrust.text}
                     </Text>
                   </View>
@@ -1558,7 +1578,7 @@ function UniversalSendInner(
             <View
               style={[
                 styles.reviewRow,
-                !showNoteRow && !showHostRow && styles.reviewRowLast,
+                !showNoteRow && !showRouteRow && styles.reviewRowLast,
                 { borderBottomColor: colors.separator }
               ]}
             >
@@ -1584,10 +1604,10 @@ function UniversalSendInner(
               </View>
             </View>
 
-            {/* A link-named host is never silent (XR-053): the review screen is the
-                last stop before Send, and Send is the only confirmation this
-                narrow fix adds — no separate dialog to build or maintain. */}
-            {showHostRow && (
+            {/* Information, not a warning: the route the payment will take. A
+                link-named host shows here only when the message box is the
+                route (XR-053, see reviewRoute). */}
+            {reviewRoute && (
               <View
                 style={[
                   styles.reviewRow,
@@ -1595,9 +1615,15 @@ function UniversalSendInner(
                   { borderBottomColor: colors.separator }
                 ]}
               >
-                <Ionicons name="alert-circle-outline" size={16} color={colors.warning} />
-                <Text style={[styles.reviewHostText, { color: colors.warning }]} numberOfLines={2}>
-                  {t('pay_review_delivery_host')} <Text style={{ fontWeight: '600' }}>{linkHost}</Text>
+                <Ionicons name={reviewRoute.icon as never} size={16} color={colors.textSecondary} />
+                <Text style={[styles.reviewHostText, { color: colors.textSecondary }]} numberOfLines={2}>
+                  {reviewRoute.text}
+                  {!!reviewRoute.host && (
+                    <>
+                      {' '}
+                      <Text style={{ fontWeight: '600' }}>{reviewRoute.host}</Text>
+                    </>
+                  )}
                 </Text>
               </View>
             )}

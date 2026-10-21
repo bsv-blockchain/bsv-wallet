@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.19.1
+
+### Changed
+
+- **`UniversalSend` review no longer warns about a live payment's route.**
+  When the wallet can pay live, review says "Pays live, straight to their
+  wallet, when they're online" (`pay_review_route_live`) instead of a
+  warning-toned "Delivering to {host}". A link-named host (XR-053) now
+  appears in the message-box fallback prompt (`direct_pay_fallback_host`),
+  where the payer chooses that route. When live payments aren't available it
+  still shows on review, as information rather than a warning.
+- **No "Not verified" line for a bare identity key.** Review shows a trust
+  line only for a contact or a registered handle. `pay_trust_unverified` is
+  removed.
+
 ## 0.19.0
 
 ### Added

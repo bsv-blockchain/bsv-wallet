@@ -1191,7 +1191,7 @@ const resources = {
       pay_trust_contact: 'Your contact',
       pay_trust_handle_attested: 'Registered',
       pay_trust_handle_domain_attested: 'Verified by {{domain}}',
-      pay_trust_unverified: 'Not verified. Double-check this Identifier.',
+      pay_review_route_live: "Pays live, straight to their wallet, when they're online",
       pay_address_network_mismatch: 'This address belongs to a different network from the one you are using.',
       contacts_your_contacts: 'Your contacts',
       contacts_other_people: 'Other people',
@@ -1245,6 +1245,7 @@ const resources = {
       direct_pay_failed_no_message_box: 'Connect your message box in Settings to pay a wallet identity.',
       direct_pay_fallback_title: 'Not online right now',
       direct_pay_fallback_send: 'Send to message box',
+      direct_pay_fallback_host: 'Their message box: {{host}}',
       direct_pay_sent_live: "Paid live: it's already in their wallet.",
       direct_pay_kept_needs_attention:
         'A direct payment of {{amount}} sats from {{name}} needs attention: your wallet could not add it. It stays on this device.'
@@ -2251,7 +2252,7 @@ const resources = {
       pay_trust_contact: '您的联系人',
       pay_trust_handle_attested: '已注册',
       pay_trust_handle_domain_attested: '已由 {{domain}} 验证',
-      pay_trust_unverified: '未验证。请仔细核对此标识符。',
+      pay_review_route_live: '对方在线时，直接实时付款到其钱包',
       pay_address_network_mismatch: '此地址属于与您当前使用的网络不同的网络。',
       contacts_your_contacts: '你的联系人',
       contacts_other_people: '其他人',
@@ -2299,6 +2300,7 @@ const resources = {
       direct_pay_failed_no_message_box: '请在设置中连接消息箱，以便向钱包身份付款。',
       direct_pay_fallback_title: '对方当前不在线',
       direct_pay_fallback_send: '发送到消息箱',
+      direct_pay_fallback_host: '对方的消息箱：{{host}}',
       direct_pay_sent_live: '已实时付款：款项已到对方钱包。',
       direct_pay_kept_needs_attention:
         '来自 {{name}} 的 {{amount}} sats 直接付款需要处理：你的钱包无法添加它。它仍保存在此设备上。'
@@ -3377,7 +3379,7 @@ const resources = {
       pay_trust_contact: 'आपका संपर्क',
       pay_trust_handle_attested: 'पंजीकृत',
       pay_trust_handle_domain_attested: '{{domain}} द्वारा सत्यापित',
-      pay_trust_unverified: 'सत्यापित नहीं। कृपया इस पहचानकर्ता की दोबारा जांच करें।',
+      pay_review_route_live: 'जब वे ऑनलाइन हों, तो सीधे उनके वॉलेट में लाइव भुगतान',
       pay_address_network_mismatch: 'यह पता आपके द्वारा उपयोग किए जा रहे नेटवर्क से अलग नेटवर्क का है।',
       contacts_your_contacts: 'आपके संपर्क',
       contacts_other_people: 'अन्य लोग',
@@ -3433,6 +3435,7 @@ const resources = {
         'किसी वॉलेट आइडेंटिटी को भुगतान करने के लिए सेटिंग्स में अपना मैसेज बॉक्स जोड़ें।',
       direct_pay_fallback_title: 'अभी ऑनलाइन नहीं',
       direct_pay_fallback_send: 'मैसेज बॉक्स में भेजें',
+      direct_pay_fallback_host: 'उनका मैसेज बॉक्स: {{host}}',
       direct_pay_sent_live: 'लाइव भुगतान हो गया: यह पहले से उनके वॉलेट में है।',
       direct_pay_kept_needs_attention:
         '{{name}} से {{amount}} sats के सीधे भुगतान पर ध्यान देना ज़रूरी है: आपका वॉलेट इसे जोड़ नहीं सका। यह इसी डिवाइस पर रखा है।'
@@ -4526,7 +4529,7 @@ const resources = {
       pay_trust_contact: 'Tu contacto',
       pay_trust_handle_attested: 'Registrado',
       pay_trust_handle_domain_attested: 'Verificado por {{domain}}',
-      pay_trust_unverified: 'No verificado. Verifica bien este identificador.',
+      pay_review_route_live: 'Paga en vivo, directo a su billetera, cuando esté en línea',
       pay_address_network_mismatch: 'Esta dirección pertenece a una red distinta de la que estás usando.',
       contacts_your_contacts: 'Tus contactos',
       contacts_other_people: 'Otras personas',
@@ -4585,6 +4588,7 @@ const resources = {
         'Conecta tu buzón de mensajes en Ajustes para pagar a una identidad de billetera.',
       direct_pay_fallback_title: 'No está en línea ahora',
       direct_pay_fallback_send: 'Enviar al buzón de mensajes',
+      direct_pay_fallback_host: 'Su buzón de mensajes: {{host}}',
       direct_pay_sent_live: 'Pagado en vivo: ya está en su billetera.',
       direct_pay_kept_needs_attention:
         'Un pago directo de {{amount}} sats de {{name}} necesita atención: tu billetera no pudo añadirlo. Se conserva en este dispositivo.'
@@ -5694,7 +5698,7 @@ const resources = {
       pay_trust_contact: 'Votre contact',
       pay_trust_handle_attested: 'Enregistré',
       pay_trust_handle_domain_attested: 'Vérifié par {{domain}}',
-      pay_trust_unverified: 'Non vérifié. Vérifiez bien cet identifiant.',
+      pay_review_route_live: 'Paiement en direct, droit dans son portefeuille, quand il est en ligne',
       pay_address_network_mismatch: 'Cette adresse appartient à un réseau différent de celui que vous utilisez.',
       contacts_your_contacts: 'Vos contacts',
       contacts_other_people: 'Autres personnes',
@@ -5753,6 +5757,7 @@ const resources = {
         'Connectez votre boîte aux lettres dans les réglages pour payer une identité de portefeuille.',
       direct_pay_fallback_title: 'Pas en ligne pour le moment',
       direct_pay_fallback_send: 'Envoyer à la boîte aux lettres',
+      direct_pay_fallback_host: 'Sa boîte aux lettres : {{host}}',
       direct_pay_sent_live: "Payé en direct : c'est déjà dans son portefeuille.",
       direct_pay_kept_needs_attention:
         "Un paiement direct de {{amount}} sats de {{name}} demande votre attention : votre portefeuille n'a pas pu l'ajouter. Il reste sur cet appareil."
@@ -6787,7 +6792,7 @@ const resources = {
       pay_trust_contact: 'جهة اتصالك',
       pay_trust_handle_attested: 'مسجَّل',
       pay_trust_handle_domain_attested: 'موثّق بواسطة {{domain}}',
-      pay_trust_unverified: 'غير موثّق. تحقق جيدًا من هذا المعرّف.',
+      pay_review_route_live: 'يُدفع مباشرة إلى محفظته عندما يكون متصلًا',
       pay_address_network_mismatch: 'هذا العنوان ينتمي إلى شبكة مختلفة عن الشبكة التي تستخدمها.',
       contacts_your_contacts: 'جهات اتصالك',
       contacts_other_people: 'أشخاص آخرون',
@@ -6842,6 +6847,7 @@ const resources = {
       direct_pay_failed_no_message_box: 'اربط صندوق رسائلك من الإعدادات للدفع إلى هوية محفظة.',
       direct_pay_fallback_title: 'غير متصل الآن',
       direct_pay_fallback_send: 'أرسل إلى صندوق الرسائل',
+      direct_pay_fallback_host: 'صندوق رسائله: {{host}}',
       direct_pay_sent_live: 'تم الدفع مباشرة: المبلغ في محفظته بالفعل.',
       direct_pay_kept_needs_attention:
         'دفعة مباشرة بقيمة {{amount}} sats من {{name}} تحتاج إلى انتباهك: لم تتمكن محفظتك من إضافتها. تبقى محفوظة على هذا الجهاز.'
@@ -7934,7 +7940,7 @@ const resources = {
       pay_trust_contact: 'Seu contato',
       pay_trust_handle_attested: 'Registrado',
       pay_trust_handle_domain_attested: 'Verificado por {{domain}}',
-      pay_trust_unverified: 'Não verificado. Confira bem este identificador.',
+      pay_review_route_live: 'Paga ao vivo, direto na carteira da pessoa, quando ela estiver online',
       pay_address_network_mismatch: 'Este endereço pertence a uma rede diferente da que você está usando.',
       contacts_your_contacts: 'Seus contatos',
       contacts_other_people: 'Outras pessoas',
@@ -7993,6 +7999,7 @@ const resources = {
         'Conecte sua caixa de mensagens em Configurações para pagar uma identidade de carteira.',
       direct_pay_fallback_title: 'Não está online agora',
       direct_pay_fallback_send: 'Enviar para a caixa de mensagens',
+      direct_pay_fallback_host: 'Caixa de mensagens da pessoa: {{host}}',
       direct_pay_sent_live: 'Pago ao vivo: já está na carteira da pessoa.',
       direct_pay_kept_needs_attention:
         'Um pagamento direto de {{amount}} sats de {{name}} precisa de atenção: sua carteira não conseguiu adicioná-lo. Ele continua neste dispositivo.'
@@ -9064,7 +9071,7 @@ const resources = {
       pay_trust_contact: 'আপনার পরিচিতি',
       pay_trust_handle_attested: 'নিবন্ধিত',
       pay_trust_handle_domain_attested: '{{domain}} দ্বারা যাচাইকৃত',
-      pay_trust_unverified: 'যাচাই করা হয়নি। এই শনাক্তকারীটি ভালোভাবে যাচাই করুন।',
+      pay_review_route_live: 'তারা অনলাইনে থাকলে সরাসরি তাদের ওয়ালেটে লাইভ পেমেন্ট',
       pay_address_network_mismatch:
         'এই ঠিকানাটি আপনি যে নেটওয়ার্ক ব্যবহার করছেন তার থেকে ভিন্ন একটি নেটওয়ার্কের অন্তর্গত।',
       contacts_your_contacts: 'আপনার পরিচিতি',
@@ -9121,6 +9128,7 @@ const resources = {
       direct_pay_failed_no_message_box: 'ওয়ালেট আইডেন্টিটিকে পেমেন্ট করতে সেটিংসে আপনার মেসেজ বক্স যুক্ত করুন।',
       direct_pay_fallback_title: 'এখন অনলাইনে নেই',
       direct_pay_fallback_send: 'মেসেজ বক্সে পাঠান',
+      direct_pay_fallback_host: 'তাদের মেসেজ বক্স: {{host}}',
       direct_pay_sent_live: 'সরাসরি পেমেন্ট হয়েছে: এটি ইতিমধ্যে তাদের ওয়ালেটে আছে।',
       direct_pay_kept_needs_attention:
         '{{name}}-এর কাছ থেকে {{amount}} sats-এর একটি সরাসরি পেমেন্টে মনোযোগ প্রয়োজন: আপনার ওয়ালেট এটি যোগ করতে পারেনি। এটি এই ডিভাইসেই রাখা আছে।'
@@ -10210,7 +10218,7 @@ const resources = {
       pay_trust_contact: 'Ваш контакт',
       pay_trust_handle_attested: 'Зарегистрирован',
       pay_trust_handle_domain_attested: 'Подтверждено {{domain}}',
-      pay_trust_unverified: 'Не проверено. Внимательно проверьте этот идентификатор.',
+      pay_review_route_live: 'Платёж напрямую в кошелёк получателя, когда он в сети',
       pay_address_network_mismatch: 'Этот адрес принадлежит другой сети, отличной от той, которую вы используете.',
       contacts_your_contacts: 'Ваши контакты',
       contacts_other_people: 'Другие люди',
@@ -10269,6 +10277,7 @@ const resources = {
         'Подключите почтовый ящик в настройках, чтобы платить по идентификатору кошелька.',
       direct_pay_fallback_title: 'Сейчас не в сети',
       direct_pay_fallback_send: 'Отправить в почтовый ящик',
+      direct_pay_fallback_host: 'Почтовый ящик получателя: {{host}}',
       direct_pay_sent_live: 'Оплачено напрямую: деньги уже в кошельке получателя.',
       direct_pay_kept_needs_attention:
         'Прямой платёж на {{amount}} sats от {{name}} требует внимания: кошелёк не смог его добавить. Он сохранён на этом устройстве.'
@@ -11357,7 +11366,7 @@ const resources = {
       pay_trust_contact: 'Kontak Anda',
       pay_trust_handle_attested: 'Terdaftar',
       pay_trust_handle_domain_attested: 'Diverifikasi oleh {{domain}}',
-      pay_trust_unverified: 'Belum diverifikasi. Periksa kembali Identifier ini.',
+      pay_review_route_live: 'Bayar langsung ke dompetnya saat dia sedang online',
       pay_address_network_mismatch: 'Alamat ini berasal dari jaringan yang berbeda dari yang sedang Anda gunakan.',
       contacts_your_contacts: 'Kontak Anda',
       contacts_other_people: 'Orang lain',
@@ -11414,6 +11423,7 @@ const resources = {
       direct_pay_failed_no_message_box: 'Hubungkan kotak pesan Anda di Pengaturan untuk membayar identitas dompet.',
       direct_pay_fallback_title: 'Sedang tidak online',
       direct_pay_fallback_send: 'Kirim ke kotak pesan',
+      direct_pay_fallback_host: 'Kotak pesannya: {{host}}',
       direct_pay_sent_live: 'Dibayar langsung: sudah masuk ke dompet mereka.',
       direct_pay_kept_needs_attention:
         'Pembayaran langsung {{amount}} sats dari {{name}} perlu perhatian: dompet Anda tidak dapat menambahkannya. Pembayaran ini tetap tersimpan di perangkat ini.'
@@ -12506,7 +12516,7 @@ const resources = {
       pay_trust_contact: 'あなたの連絡先',
       pay_trust_handle_attested: '登録済み',
       pay_trust_handle_domain_attested: '{{domain}} により確認済み',
-      pay_trust_unverified: '未確認です。この識別子をよく確認してください。',
+      pay_review_route_live: '相手がオンラインなら、ウォレットへ直接ライブで支払います',
       pay_address_network_mismatch: 'このアドレスは、現在使用中のネットワークとは異なるネットワークのものです。',
       contacts_your_contacts: 'あなたの連絡先',
       contacts_other_people: 'その他の人',
@@ -12562,6 +12572,7 @@ const resources = {
       direct_pay_failed_no_message_box: 'ウォレットIDに支払うには、設定でメッセージボックスを接続してください。',
       direct_pay_fallback_title: '現在オンラインではありません',
       direct_pay_fallback_send: 'メッセージボックスに送る',
+      direct_pay_fallback_host: '相手のメッセージボックス：{{host}}',
       direct_pay_sent_live: 'ライブで支払い済み：すでに相手のウォレットに入っています。',
       direct_pay_kept_needs_attention:
         '{{name}} からの {{amount}} sats のダイレクト支払いに対応が必要です。ウォレットに追加できませんでした。この端末に保存されています。'
@@ -13673,7 +13684,7 @@ const resources = {
       pay_trust_contact: 'Twój kontakt',
       pay_trust_handle_attested: 'Zarejestrowany',
       pay_trust_handle_domain_attested: 'Zweryfikowane przez {{domain}}',
-      pay_trust_unverified: 'Niezweryfikowane. Dokładnie sprawdź ten identyfikator.',
+      pay_review_route_live: 'Płatność na żywo, prosto do portfela odbiorcy, gdy jest online',
       pay_address_network_mismatch: 'Ten adres należy do innej sieci niż ta, z której obecnie korzystasz.',
       contacts_your_contacts: 'Twoje kontakty',
       contacts_other_people: 'Inne osoby',
@@ -13732,6 +13743,7 @@ const resources = {
         'Połącz swoją skrzynkę wiadomości w ustawieniach, aby płacić tożsamości portfela.',
       direct_pay_fallback_title: 'Teraz nie jest online',
       direct_pay_fallback_send: 'Wyślij do skrzynki wiadomości',
+      direct_pay_fallback_host: 'Skrzynka wiadomości odbiorcy: {{host}}',
       direct_pay_sent_live: 'Zapłacono na żywo: środki są już w jego portfelu.',
       direct_pay_kept_needs_attention:
         'Płatność bezpośrednia {{amount}} sats od {{name}} wymaga uwagi: portfel nie mógł jej dodać. Pozostaje na tym urządzeniu.'
