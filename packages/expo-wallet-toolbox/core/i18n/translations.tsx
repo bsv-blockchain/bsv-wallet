@@ -1237,7 +1237,9 @@ const resources = {
       direct_pay_failed_maybe_sent:
         'Your payment to {{name}} may already have been sent. Check Activity before paying again.',
       direct_pay_failed_not_sent: 'The payment could not be sent. Nothing was spent.',
-      direct_pay_failed_no_message_box: 'Connect your message box in Settings to pay a wallet identity.'
+      direct_pay_failed_no_message_box: 'Connect your message box in Settings to pay a wallet identity.',
+      direct_pay_kept_needs_attention:
+        'A direct payment of {{amount}} sats from {{name}} needs attention: your wallet could not add it. It stays on this device.'
     }
   },
   zh: {
@@ -2279,7 +2281,8 @@ const resources = {
       direct_pay_failed_cancelled: '已取消。未花费任何款项。',
       direct_pay_failed_maybe_sent: '你向 {{name}} 的付款可能已经发出。再次付款前，请先查看“活动”。',
       direct_pay_failed_not_sent: '无法发送付款。未花费任何款项。',
-      direct_pay_failed_no_message_box: '请在设置中连接消息箱，以便向钱包身份付款。'
+      direct_pay_failed_no_message_box: '请在设置中连接消息箱，以便向钱包身份付款。',
+      direct_pay_kept_needs_attention: '来自 {{name}} 的 {{amount}} sats 直接付款需要处理：你的钱包无法添加它。它仍保存在此设备上。'
     }
   },
   hi: {
@@ -3400,7 +3403,9 @@ const resources = {
         '{{name}} को आपका भुगतान शायद पहले ही भेजा जा चुका है। दोबारा भुगतान करने से पहले गतिविधि देखें।',
       direct_pay_failed_not_sent: 'भुगतान भेजा नहीं जा सका। कुछ भी खर्च नहीं हुआ।',
       direct_pay_failed_no_message_box:
-        'किसी वॉलेट आइडेंटिटी को भुगतान करने के लिए सेटिंग्स में अपना मैसेज बॉक्स जोड़ें।'
+        'किसी वॉलेट आइडेंटिटी को भुगतान करने के लिए सेटिंग्स में अपना मैसेज बॉक्स जोड़ें।',
+      direct_pay_kept_needs_attention:
+        '{{name}} से {{amount}} sats के सीधे भुगतान पर ध्यान देना ज़रूरी है: आपका वॉलेट इसे जोड़ नहीं सका। यह इसी डिवाइस पर रखा है।'
     }
   },
   es: {
@@ -4538,7 +4543,9 @@ const resources = {
         'Es posible que tu pago a {{name}} ya se haya enviado. Revisa Actividad antes de volver a pagar.',
       direct_pay_failed_not_sent: 'No se pudo enviar el pago. No se gastó nada.',
       direct_pay_failed_no_message_box:
-        'Conecta tu buzón de mensajes en Ajustes para pagar a una identidad de billetera.'
+        'Conecta tu buzón de mensajes en Ajustes para pagar a una identidad de billetera.',
+      direct_pay_kept_needs_attention:
+        'Un pago directo de {{amount}} sats de {{name}} necesita atención: tu billetera no pudo añadirlo. Se conserva en este dispositivo.'
     }
   },
   fr: {
@@ -5690,7 +5697,9 @@ const resources = {
         'Votre paiement à {{name}} a peut-être déjà été envoyé. Consultez Activité avant de payer à nouveau.',
       direct_pay_failed_not_sent: "Le paiement n'a pas pu être envoyé. Rien n'a été dépensé.",
       direct_pay_failed_no_message_box:
-        'Connectez votre boîte aux lettres dans les réglages pour payer une identité de portefeuille.'
+        'Connectez votre boîte aux lettres dans les réglages pour payer une identité de portefeuille.',
+      direct_pay_kept_needs_attention:
+        "Un paiement direct de {{amount}} sats de {{name}} demande votre attention : votre portefeuille n'a pas pu l'ajouter. Il reste sur cet appareil."
     }
   },
   ar: {
@@ -6768,7 +6777,9 @@ const resources = {
       direct_pay_failed_cancelled: 'تم الإلغاء. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_maybe_sent: 'ربما تم إرسال دفعتك إلى {{name}} بالفعل. تحقق من النشاط قبل الدفع مرة أخرى.',
       direct_pay_failed_not_sent: 'تعذّر إرسال الدفعة. لم يتم إنفاق أي مبلغ.',
-      direct_pay_failed_no_message_box: 'اربط صندوق رسائلك من الإعدادات للدفع إلى هوية محفظة.'
+      direct_pay_failed_no_message_box: 'اربط صندوق رسائلك من الإعدادات للدفع إلى هوية محفظة.',
+      direct_pay_kept_needs_attention:
+        'دفعة مباشرة بقيمة {{amount}} sats من {{name}} تحتاج إلى انتباهك: لم تتمكن محفظتك من إضافتها. تبقى محفوظة على هذا الجهاز.'
     }
   },
   pt: {
@@ -7905,7 +7916,9 @@ const resources = {
         'Seu pagamento para {{name}} pode já ter sido enviado. Confira Atividade antes de pagar novamente.',
       direct_pay_failed_not_sent: 'Não foi possível enviar o pagamento. Nada foi gasto.',
       direct_pay_failed_no_message_box:
-        'Conecte sua caixa de mensagens em Configurações para pagar uma identidade de carteira.'
+        'Conecte sua caixa de mensagens em Configurações para pagar uma identidade de carteira.',
+      direct_pay_kept_needs_attention:
+        'Um pagamento direto de {{amount}} sats de {{name}} precisa de atenção: sua carteira não conseguiu adicioná-lo. Ele continua neste dispositivo.'
     }
   },
   bn: {
@@ -9020,7 +9033,9 @@ const resources = {
       direct_pay_failed_maybe_sent:
         '{{name}}-এর কাছে আপনার পেমেন্ট হয়তো ইতিমধ্যে পাঠানো হয়ে গেছে। আবার পেমেন্ট করার আগে কার্যকলাপ দেখুন।',
       direct_pay_failed_not_sent: 'পেমেন্ট পাঠানো যায়নি। কিছুই খরচ হয়নি।',
-      direct_pay_failed_no_message_box: 'ওয়ালেট আইডেন্টিটিকে পেমেন্ট করতে সেটিংসে আপনার মেসেজ বক্স যুক্ত করুন।'
+      direct_pay_failed_no_message_box: 'ওয়ালেট আইডেন্টিটিকে পেমেন্ট করতে সেটিংসে আপনার মেসেজ বক্স যুক্ত করুন।',
+      direct_pay_kept_needs_attention:
+        '{{name}}-এর কাছ থেকে {{amount}} sats-এর একটি সরাসরি পেমেন্টে মনোযোগ প্রয়োজন: আপনার ওয়ালেট এটি যোগ করতে পারেনি। এটি এই ডিভাইসেই রাখা আছে।'
     }
   },
   ru: {
@@ -10153,7 +10168,9 @@ const resources = {
         'Ваш платёж для {{name}}, возможно, уже отправлен. Проверьте «Активность», прежде чем платить снова.',
       direct_pay_failed_not_sent: 'Не удалось отправить платёж. Ничего не потрачено.',
       direct_pay_failed_no_message_box:
-        'Подключите почтовый ящик в настройках, чтобы платить по идентификатору кошелька.'
+        'Подключите почтовый ящик в настройках, чтобы платить по идентификатору кошелька.',
+      direct_pay_kept_needs_attention:
+        'Прямой платёж на {{amount}} sats от {{name}} требует внимания: кошелёк не смог его добавить. Он сохранён на этом устройстве.'
     }
   },
   id: {
@@ -11283,7 +11300,9 @@ const resources = {
       direct_pay_failed_maybe_sent:
         'Pembayaran Anda ke {{name}} mungkin sudah terkirim. Periksa Aktivitas sebelum membayar lagi.',
       direct_pay_failed_not_sent: 'Pembayaran tidak dapat dikirim. Tidak ada dana yang terpakai.',
-      direct_pay_failed_no_message_box: 'Hubungkan kotak pesan Anda di Pengaturan untuk membayar identitas dompet.'
+      direct_pay_failed_no_message_box: 'Hubungkan kotak pesan Anda di Pengaturan untuk membayar identitas dompet.',
+      direct_pay_kept_needs_attention:
+        'Pembayaran langsung {{amount}} sats dari {{name}} perlu perhatian: dompet Anda tidak dapat menambahkannya. Pembayaran ini tetap tersimpan di perangkat ini.'
     }
   },
   ja: {
@@ -12412,7 +12431,8 @@ const resources = {
       direct_pay_failed_maybe_sent:
         '{{name}}への支払いはすでに送信されている可能性があります。もう一度支払う前に、アクティビティを確認してください。',
       direct_pay_failed_not_sent: '支払いを送信できませんでした。何も使われていません。',
-      direct_pay_failed_no_message_box: 'ウォレットIDに支払うには、設定でメッセージボックスを接続してください。'
+      direct_pay_failed_no_message_box: 'ウォレットIDに支払うには、設定でメッセージボックスを接続してください。',
+      direct_pay_kept_needs_attention: '{{name}} からの {{amount}} sats のダイレクト支払いに対応が必要です。ウォレットに追加できませんでした。この端末に保存されています。'
     }
   },
   pl: {
@@ -13568,7 +13588,9 @@ const resources = {
         'Twoja płatność dla {{name}} mogła już zostać wysłana. Sprawdź Aktywność, zanim zapłacisz ponownie.',
       direct_pay_failed_not_sent: 'Nie udało się wysłać płatności. Nic nie wydano.',
       direct_pay_failed_no_message_box:
-        'Połącz swoją skrzynkę wiadomości w ustawieniach, aby płacić tożsamości portfela.'
+        'Połącz swoją skrzynkę wiadomości w ustawieniach, aby płacić tożsamości portfela.',
+      direct_pay_kept_needs_attention:
+        'Płatność bezpośrednia {{amount}} sats od {{name}} wymaga uwagi: portfel nie mógł jej dodać. Pozostaje na tym urządzeniu.'
     }
   }
 }

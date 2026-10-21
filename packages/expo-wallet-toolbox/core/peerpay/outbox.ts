@@ -71,6 +71,13 @@ export interface OutboxEntry {
    * retry re-sends (HMAC message id is idempotent).
    */
   delivering?: boolean
+  /**
+   * `'direct'`: minted for a live (WebRTC) payment (`rails/direct.ts`). The
+   * same token goes to the message box when the link could not finish it, so
+   * a retry, cancel or drain treats the row exactly like a handle-rail one.
+   * Absent for a payment sent through the message box from the start.
+   */
+  via?: 'direct'
 }
 
 interface StorageLike {
@@ -158,9 +165,10 @@ export async function saveOutboxEntry(
     messageBoxUrl: string
     txid?: string
     recipientHost?: string
+    via?: OutboxEntry['via']
   }
 ): Promise<string> {
-  const { recipient, token, messageBoxUrl, txid, recipientHost } = params
+  const { recipient, token, messageBoxUrl, txid, recipientHost, via } = params
   const id = `${Date.now()}_${recipient.slice(0, 8)}`
   const entry: OutboxEntry = {
     id,
@@ -170,7 +178,8 @@ export async function saveOutboxEntry(
     messageBoxUrl,
     status: 'unsent',
     ...(txid ? { txid } : {}),
-    ...(recipientHost ? { recipientHost } : {})
+    ...(recipientHost ? { recipientHost } : {}),
+    ...(via ? { via } : {})
   }
   return withOutboxLock(storage, async () => {
     const all = await readEntries(storage)

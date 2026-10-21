@@ -48,6 +48,7 @@ import { makeCreditClassifier } from '../../../core/pay/creditErrors'
 import { satoshisFromToken } from '../../../core/pay/tokenAmount'
 import { userFacingPayError } from '../../../core/pay/userError'
 import { creditInboxOnce, type CreditInboxResult } from '../../../core/pay/creditInbox'
+import { inboxSeenStore } from '../../../core/directpay/receive'
 import { setReceiveInboxFocused } from '../../../core/pay/receiveFocus'
 import { TaskCreditInbox } from '../../../core/monitor/TaskCreditInbox'
 import { useOnline } from '../../hooks/useOnline'
@@ -547,16 +548,20 @@ export default function HandleReceive({
     [selectedNetwork]
   )
 
+  // With direct payments on, a payment that arrived live as well is credited,
+  // and celebrated, once (see core/directpay/receive.ts).
+  const seen = useMemo(() => inboxSeenStore(identityKey, selectedNetwork), [identityKey, selectedNetwork])
+
   const internalize = useCallback(
     async (payment: IncomingPayment) => {
       const client = peerPayClient
       if (!client || !wallet) throw new Error(t('wallet_not_ready'))
-      await internalizeIncoming(wallet as any, client, adminOriginator, payment, repairBeef)
+      return await internalizeIncoming(wallet as any, client, adminOriginator, payment, repairBeef, seen)
     },
-    [peerPayClient, wallet, adminOriginator, t, repairBeef]
+    [peerPayClient, wallet, adminOriginator, t, repairBeef, seen]
   )
 
-  const applyCreditResult = useCallback((outcome: CreditInboxResult) => {
+  const applyCreditResult = useCallback((outcome: CreditInboxResult, duplicates: ReadonlySet<string> = new Set()) => {
     TaskCreditInbox.lastAttentionCount = outcome.attentionCount
     attemptsRef.current = outcome.attempts
     setAttempts(outcome.attempts)
@@ -568,7 +573,10 @@ export default function HandleReceive({
       // looked at — and whether it landed is the one thing a payee must never
       // be left unsure about. Everything not left in the attempt map was
       // credited, so that is what the figure sums.
-      const credited = outcome.payments.filter(p => !outcome.attempts[String(p.messageId)])
+      // A duplicate (taken live first) left the box but was celebrated then.
+      const credited = outcome.payments.filter(
+        p => !outcome.attempts[String(p.messageId)] && !duplicates.has(String(p.messageId))
+      )
       setReceived({
         amount: credited.reduce((sum, p) => sum + (satoshisFromToken(p.token)?.satoshis ?? 0), 0),
         count: outcome.accepted
@@ -584,15 +592,20 @@ export default function HandleReceive({
         getOnline: () => online,
         peekLastMissHeight
       })
+      const duplicates = new Set<string>()
       const outcome = await creditInboxOnce({
         client,
         messageBoxUrl,
         storage: storage ?? undefined,
         force,
         classify,
-        accept: payment => acceptWithRetry(client, messageBoxUrl, payment, internalize)
+        accept: async payment => {
+          const credited = await acceptWithRetry(client, messageBoxUrl, payment, internalize)
+          if (credited === 'duplicate') duplicates.add(String(payment.messageId))
+          return credited
+        }
       })
-      applyCreditResult(outcome)
+      applyCreditResult(outcome, duplicates)
       return outcome
     },
     [peerPayClient, messageBoxUrl, storage, online, peekLastMissHeight, internalize, applyCreditResult]

@@ -131,6 +131,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@bsv/webrtpay": "^0.2.1",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^29.5.14",
     "@types/react": "~19.2.10",
@@ -182,7 +183,7 @@
       "^@react-native-async-storage/async-storage$": "<rootDir>/node_modules/@react-native-async-storage/async-storage/jest/async-storage-mock.js"
     },
     "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox|@bsv/mandala|@bsv/react-native-localpay-transport)/)",
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox|@bsv/mandala|@bsv/react-native-localpay-transport|@bsv/webrtpay)/)",
       "/node_modules/react-native-reanimated/plugin/"
     ]
   }

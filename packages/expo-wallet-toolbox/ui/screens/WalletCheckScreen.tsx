@@ -18,6 +18,7 @@ import { PeerPayClient } from '@bsv/message-box-client'
 import { showAlert } from '../components/ui/AlertCard'
 import { makeCreditClassifier } from '../../core/pay/creditErrors'
 import { creditInboxOnce } from '../../core/pay/creditInbox'
+import { inboxSeenStore } from '../../core/directpay/receive'
 import { makeBeefRepair } from '../../core/pay/beefRepair'
 import {
   acceptWithRetry,
@@ -199,6 +200,12 @@ function useWalletCheckPorts(): WalletCheckPorts {
         })
         const repairBeef = makeBeefRepair({ woc: wocConfigFor(selectedNetwork), online: getOnline })
         const classify = await makeCreditClassifier({ getOnline, peekLastMissHeight })
+        // With direct payments on, one that arrived live as well is credited once.
+        const identity = await wallet
+          .getPublicKey({ identityKey: true }, adminOriginator)
+          .then(r => r.publicKey)
+          .catch(() => undefined)
+        const seen = inboxSeenStore(identity, selectedNetwork)
         const outcome = await creditInboxOnce({
           client,
           messageBoxUrl,
@@ -206,7 +213,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
           classify,
           accept: payment =>
             acceptWithRetry(client, messageBoxUrl, payment, p =>
-              internalizeIncoming(wallet as never, client, adminOriginator, p, repairBeef)
+              internalizeIncoming(wallet as never, client, adminOriginator, p, repairBeef, seen)
             )
         })
         return { accepted: outcome.accepted }
