@@ -8,6 +8,7 @@ import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../mandala/bundle'
 import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../mandala/permissionModule'
 import type { AdmissionEntryWire } from '../mandala/types'
 import { isRetriableInternalizeFailure } from '../mandala/drain'
+import { failedPostReason } from '../pay/creditErrors'
 
 export const PENDING_KEY = 'localpay_pending'
 /**
@@ -665,7 +666,7 @@ export async function processPending(
         }
       }
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e)
+      const error = failedPostReason(e) ?? (e instanceof Error ? e.message : String(e))
       await updateStatus(storage, p.id, 'failed', error)
       results.push({ id: p.id, success: false, error })
     }

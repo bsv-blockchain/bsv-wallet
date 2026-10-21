@@ -19,6 +19,15 @@ import {
 } from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import { Transaction, Beef, LockingScript } from '@bsv/sdk'
+import { sdk } from '@bsv/wallet-toolbox-mobile'
+
+/** What internalizeAction throws when its post of the payment fails. */
+const failedPost = (status: 'serviceError' | 'doubleSpend' | 'invalidTx') =>
+  new sdk.WERR_REVIEW_ACTIONS(
+    [{ txid: '00'.repeat(32), status }],
+    [{ txid: '00'.repeat(32), status: 'failed' }],
+    '00'.repeat(32)
+  )
 
 function fakeStorage() {
   const map = new Map<string, string>()
@@ -609,6 +618,30 @@ describe('pending queue attempt ceiling', () => {
     }
     expect(await readUnprocessedPending(s)).toEqual({ count: 0, stuck: 1, corrupt: false })
   })
+
+  it('does not burn an attempt when no broadcaster could take the payment', async () => {
+    const s = store()
+    await savePending(s, frame())
+    const wallet = { internalizeAction: jest.fn().mockRejectedValue(failedPost('serviceError')) }
+    for (let i = 0; i < MAX_PENDING_ATTEMPTS; i++) await processPending(wallet as never, s, 'admin.com')
+    const [entry] = await getPending(s)
+    expect(entry.failureReason).toMatch(/no broadcaster could be reached/)
+    expect(entry.attempts ?? 0).toBe(0)
+    expect(await getRetryable(s)).toHaveLength(1)
+  })
+
+  it.each(['doubleSpend', 'invalidTx'] as const)(
+    'burns an attempt, with a reason, when the network reports %s',
+    async status => {
+      const s = store()
+      await savePending(s, frame())
+      const wallet = { internalizeAction: jest.fn().mockRejectedValue(failedPost(status)) }
+      await processPending(wallet as never, s, 'admin.com')
+      const [entry] = await getPending(s)
+      expect(entry.failureReason).toMatch(/^The payment could not be broadcast: the network/)
+      expect(entry.attempts).toBe(1)
+    }
+  )
 
   it('does not burn an attempt merely for starting one', async () => {
     const s = store()
