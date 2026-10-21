@@ -60,6 +60,27 @@
   address rail, sweep, BEEF repair or explorer link; Pay shows the address
   option as unavailable.
 
+### Changed
+
+- **The receiving wallet broadcasts an incoming payment as it takes it in.**
+  The `@bsv/wallet-toolbox-mobile` peer is now `^2.14.9`. Up to 2.14.6,
+  `internalizeAction` was meant to post an unproven payment that is new to the
+  wallet, but the step was gated on an `isNew` flag storage never set, so it
+  never ran: the payee only queued the transaction and the payer's and
+  payee's monitors each sent it later. Now a live payment is posted before
+  it is acknowledged, and a nearby payment right after the "got it" reply.
+  Offline, `StorageExpoSQLite` still parks the post (`holdReqsOffline`), so
+  the payment is credited and sent when the device is back online.
+  - A post that no broadcaster could take is environmental:
+    `classifyCreditError` reads the `WERR_REVIEW_ACTIONS` results, so a live
+    payment is kept and acknowledged as received, an inbox payment does not
+    use up its tries, and a nearby payment does not use up its attempts. A
+    double spend is `double_spend`; an invalid transaction is `structural`.
+  - New `failedPostReason(error)` gives the reason in words for callers that
+    keep only a message.
+  - The app's `patches/@bsv+wallet-toolbox-mobile` patch is rebased onto
+    2.14.9 unchanged.
+
 ## 0.19.0
 
 ### Added
