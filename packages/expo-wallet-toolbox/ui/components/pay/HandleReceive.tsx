@@ -25,6 +25,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native'
+import { useDirectPay } from '../../../core/directpay/DirectPayProvider'
 import { useTranslation } from 'react-i18next'
 import { PeerPayClient, type IncomingPayment } from '@bsv/message-box-client'
 import { type DisplayableIdentity } from '@bsv/sdk'
@@ -408,6 +409,7 @@ export default function HandleReceive({
 }: HandleReceiveProps = {}) {
   const { t } = useTranslation()
   const { colors } = useTheme()
+  const directPay = useDirectPay()
   const Ionicons = loadIonicons()
   const QRCode = loadQRCode()
   const { useFocusEffect } = loadExpoRouter()
@@ -948,6 +950,34 @@ export default function HandleReceive({
     // Scrolls, because a 240pt QR plus the inbox overflows a small screen and a
     // note being edited puts the keyboard over the row that owns it.
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      {/* Live payments: whether this wallet can be paid directly while the app is open. Only in a
+          build that offers them, and only for BSV (a token always arrives by message box). */}
+      {directPay.available && !asset && (
+        <View
+          style={[styles.liveCard, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
+          accessibilityLiveRegion="polite"
+        >
+          <View
+            style={[
+              styles.liveDot,
+              {
+                backgroundColor:
+                  directPay.live.tone === 'on'
+                    ? colors.success
+                    : directPay.live.tone === 'error'
+                      ? colors.error
+                      : directPay.live.tone === 'connecting'
+                        ? colors.warning
+                        : colors.separator
+              }
+            ]}
+          />
+          <View style={styles.liveText}>
+            <Text style={[styles.liveTitle, { color: colors.textPrimary }]}>{t(directPay.live.titleKey)}</Text>
+            <Text style={[styles.liveBody, { color: colors.textSecondary }]}>{t(directPay.live.bodyKey)}</Text>
+          </View>
+        </View>
+      )}
       {/* Your handle. The QR is the focal element — it is the thing physically
           held up to another device. */}
       {/* The figure the code asks for, as its price. Only when one was named. */}
@@ -1071,6 +1101,19 @@ export default function HandleReceive({
 }
 
 const styles = StyleSheet.create({
+  liveCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 16
+  },
+  liveDot: { width: 10, height: 10, borderRadius: 5, marginTop: 5 },
+  liveText: { flex: 1 },
+  liveTitle: { fontSize: 15, fontWeight: '600' },
+  liveBody: { fontSize: 13, marginTop: 2 },
   container: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg

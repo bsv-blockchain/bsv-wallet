@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0
+
+### Added
+
+- **The pay and receive screens use live payments.** These changes only
+  apply in a host that mounts `DirectPayProvider` with `directPay.enabled`
+  and `@bsv/webrtpay` installed. Without it, both screens behave as before.
+  - **`UniversalSend` pays live first.** For a handle or identity key, the
+    payment is delivered live when `canSendDirect`. When the recipient isn't
+    online, or the link can't come up and nothing was spent, it asks "X isn't
+    online right now. Send it to their message box?" and then uses the
+    message box rail. The success screen says when a payment was delivered
+    live.
+  - **`HandleReceive` shows a live status card.** "Open to live payments",
+    plus connecting, off and error states, for BSV receives.
+  - **New strings** `direct_pay_fallback_title`, `direct_pay_fallback_send`
+    and `direct_pay_sent_live`, in all 12 locales.
+
 ## 0.18.0
 
 ### Added
