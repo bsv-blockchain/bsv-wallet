@@ -12,7 +12,8 @@
  * dropped before the ack, so it sent the same token there) is credited, and announced, once.
  *
  * Kept. A failure `classifyCreditError` calls environmental (offline, headers behind, a locked
- * database) keeps the payment on this device and answers `received`: by then the payer may
+ * database, or no broadcaster could take the payment when internalizeAction posted it) keeps
+ * the payment on this device and answers `received`: by then the payer may
  * broadcast it, so it is better kept than refused. Anything else is refused (`rejected`), which
  * is safe at that point because the payer still has the payment and sends it through the
  * message box instead. A kept payment was acknowledged, so its payer will not send it again,
