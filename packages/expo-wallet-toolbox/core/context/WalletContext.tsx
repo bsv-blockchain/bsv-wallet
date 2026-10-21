@@ -789,7 +789,12 @@ async function probeForLegacyDb(legacyName: string): Promise<boolean> {
 }
 
 /** The i18n key naming each network to the user. */
-const NETWORK_LABEL_KEYS: Record<AppChain, string> = { main: 'mainnet', test: 'testnet', teratest: 'teratest' }
+const NETWORK_LABEL_KEYS: Record<AppChain, string> = {
+  main: 'mainnet',
+  test: 'testnet',
+  teratest: 'teratest',
+  scaletest: 'scaletest'
+}
 
 /**
  * Minimal shape of the app's toast function. `core` must never import a `ui`

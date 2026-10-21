@@ -386,13 +386,13 @@ describe('an imported wallet switching network', () => {
       return { getFirstAsync: async () => ({ storageIdentityKey: P[0].identityKey }), closeAsync: async () => {} }
     })
     await importSeed('main')
-    expect(getProfilesState().profiles[0].restorePending).toEqual(['test', 'teratest'])
+    expect(getProfilesState().profiles[0].restorePending).toEqual(['test', 'teratest', 'scaletest'])
 
     await switchNetwork('test')
 
     expect(restores().map(([chain]) => chain)).toEqual(['main'])
     expect(dbsOf(P[0].identityKey, 'test')).toEqual([legacy])
-    expect(getProfilesState().profiles[0].restorePending).toEqual(['teratest'])
+    expect(getProfilesState().profiles[0].restorePending).toEqual(['teratest', 'scaletest'])
     expect(wallet.selectedNetwork).toBe('test')
     expect(wallet.walletBuilt).toBe(true)
   })
