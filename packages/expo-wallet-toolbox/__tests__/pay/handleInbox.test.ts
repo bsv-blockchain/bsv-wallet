@@ -70,6 +70,16 @@ describe('needsAttention', () => {
 })
 
 describe('autoAcceptInbox', () => {
+  it('does not count a payment already credited live (duplicate) as accepted, and keeps no attempt', async () => {
+    const accept = jest.fn(async (p: { messageId: string }) =>
+      p.messageId === 'a' ? ('duplicate' as const) : ('credited' as const)
+    )
+    const result = await autoAcceptInbox({ payments: [payment('a'), payment('b')], attempts: {}, accept })
+    expect(accept).toHaveBeenCalledTimes(2)
+    expect(result.accepted).toBe(1)
+    expect(result.attempts).toEqual({})
+  })
+
   it('accepts every listed payment with no user action', async () => {
     const accept = accepter()
     const result = await autoAcceptInbox({

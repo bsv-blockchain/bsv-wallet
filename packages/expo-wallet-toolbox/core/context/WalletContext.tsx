@@ -141,6 +141,7 @@ const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 import type { AppChain } from '../config'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
 import { getBackupUrl, getHandleRegistryConfig, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
+import { inboxSeenStore } from '../directpay/receive'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
   AUTO_APPROVE_COOLDOWN_MS,
@@ -2319,6 +2320,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 getOnline,
                 peekLastMissHeight: () => offlineChaintracks.peekLastMissHeight()
               })
+              // With direct payments on, a payment that arrived live as well is
+              // credited, and announced, once (see core/directpay/receive.ts).
+              const seen = inboxSeenStore(keyDeriver.identityKey, chain)
               const r = await creditInboxOnce({
                 client,
                 messageBoxUrl,
@@ -2326,7 +2330,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 classify,
                 accept: payment =>
                   acceptWithRetry(client, messageBoxUrl, payment, p =>
-                    internalizeIncoming(permissionsManager as never, client, adminOriginator, p, repairBeef)
+                    internalizeIncoming(permissionsManager as never, client, adminOriginator, p, repairBeef, seen)
                   )
               })
               // The SAME rail, a second box. A handle-rail token payment

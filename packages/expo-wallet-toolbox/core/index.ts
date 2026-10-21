@@ -122,9 +122,14 @@ export * from './localpay/nearbyPermissions'
 // callers need to tell an AckError (radio failure → fountain) from a decline.
 export { AckError, QrHandoffRequired, type Ack, type LocalPaymentTransport, type ReceivedFrame } from './localpay/types'
 export { selectTransport, fallbackRadio, failedBeforeConnect } from './localpay/transport/select'
-// Direct (push) payments: settings, pay flow and status, as pure functions. The WebRTC
-// manager and the screens that use them are separate changes.
+// Direct (push) payments: settings, pay flow and status as pure functions, and the
+// @bsv/webrtpay shapes with its lazy loader. The screens that use them are a separate change.
 export * from './directpay'
+// The runtime half of direct payments: see the note in './directpay/index'.
+export * from './directpay/deviceStore'
+export * from './directpay/receive'
+export * from './directpay/DirectPayManager'
+export * from './directpay/DirectPayProvider'
 export * from './peerpay/outbox'
 export * from './peerpay/control'
 export * from './peerpay/handleResendRequests'
@@ -266,6 +271,7 @@ export * from './pay/patp'
 export * from './pay/counterparty'
 export * from './pay/rails/address'
 export * from './pay/rails/handle'
+export * from './pay/rails/direct'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)
 // and @bsv/air-gap; only its genuinely new names are re-exported here by hand —
 // a blanket `export *` would collide (TS2308) with the localpay/offline exports
