@@ -11,6 +11,13 @@ import { Hash, Utils, type KeyDeriver } from '@bsv/sdk'
  * Instead derive a BRC-42 private key under a fixed protocol/keyID for
  * counterparty 'self' and hash it. Deterministic per wallet build, but only
  * this wallet's root key can compute it — unlike the public identity key.
+ *
+ * This derivation is shared with BSV Desktop (deriveArcadeCallbackToken in
+ * bsv-desktop src/lib/services/createServices.ts), so a wallet open in both
+ * apps hears one Arcade status stream. Change it in both or neither: the
+ * known-answer vectors in __tests__/services/callbackToken.test.ts are the
+ * same ones bsv-desktop's test/arcade.test.ts checks. The private key is
+ * hashed unpadded, so one with a leading zero byte hashes as 31 bytes.
  */
 export function deriveCallbackToken(keyDeriver: Pick<KeyDeriver, 'derivePrivateKey'>): string {
   const priv = keyDeriver.derivePrivateKey([2, 'arcade callback token'], '1', 'self')

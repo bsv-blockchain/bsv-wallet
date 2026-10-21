@@ -369,6 +369,7 @@ export * from './constants'
 // type-only import, which is erased at compile time).
 export * from './services/walletServiceConfig'
 export * from './services/arcadeBroadcastProvider'
+export { deriveCallbackToken } from './services/callbackToken'
 export * from './services/walletArgLimits'
 export * from './services/capWalletArgs'
 export * from './services/externalOrigin'

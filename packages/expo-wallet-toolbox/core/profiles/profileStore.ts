@@ -41,8 +41,18 @@ export interface ProfileRecord {
   network: AppChain
   /** Recorded after this profile's first successful build on this device. Public. */
   identityKey?: string
-  /** Replay this profile's remote backup on its next build (set by discovery / add). */
-  needsRestore?: boolean
+  /**
+   * The networks whose remote backup this profile still has to replay. Set when the
+   * profile is imported, discovered or added; a network leaves the list once its
+   * restore has run (or found nothing). Each one restores the first time this
+   * device builds the profile there. A profile created on this device has none.
+   */
+  restorePending?: AppChain[]
+  /**
+   * The network of this profile's last successful build on this device: where a
+   * cold start falls back to when its own network cannot finish its restore.
+   */
+  lastBuiltNetwork?: AppChain
   /**
    * Private label, device-only (not backed up, never published). Trimmed, at most
    * MAX_PROFILE_NAME_LENGTH characters; absent = the default `profile<n+1>`.
@@ -58,6 +68,13 @@ export interface ProfilesState {
 }
 
 const CHAINS: readonly AppChain[] = ['main', 'test', 'teratest']
+
+/** Known networks only, once each, in CHAINS order; undefined when none is left. */
+export function normalizeRestorePending(raw: unknown): AppChain[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const chains = CHAINS.filter(c => raw.includes(c))
+  return chains.length > 0 ? chains : undefined
+}
 
 export function defaultProfilesState(): ProfilesState {
   return { active: 0, profiles: [{ index: 0, network: DEFAULT_CHAIN }] }
@@ -103,11 +120,17 @@ export function parseProfilesState(raw: string | null): ProfilesState {
     if (!r || !Number.isInteger(r.index) || (r.index as number) < 0 || (r.index as number) >= MAX_PROFILES) continue
     if (byIndex.has(r.index as number)) continue
     const name = normalizeProfileName(r.name)
+    // A record written before restores were per network carries `needsRestore: true`
+    // for a profile that has not been built since it was found: every network waits.
+    const restorePending = normalizeRestorePending(
+      (r as { needsRestore?: unknown }).needsRestore === true ? CHAINS : r.restorePending
+    )
     byIndex.set(r.index as number, {
       index: r.index as number,
       network: CHAINS.includes(r.network as AppChain) ? (r.network as AppChain) : DEFAULT_CHAIN,
       ...(typeof r.identityKey === 'string' ? { identityKey: r.identityKey } : {}),
-      ...(r.needsRestore === true ? { needsRestore: true } : {}),
+      ...(restorePending ? { restorePending } : {}),
+      ...(CHAINS.includes(r.lastBuiltNetwork as AppChain) ? { lastBuiltNetwork: r.lastBuiltNetwork as AppChain } : {}),
       ...(name ? { name } : {}),
       // Profile 0 anchors the seed (vault, discovery, the bare keys): it is never a tombstone.
       ...(r.deleted === true && r.index !== 0 ? { deleted: true as const } : {})
@@ -185,11 +208,12 @@ export async function setActiveProfile(n: number): Promise<void> {
 /** Append the next profile (index = current count). Does not activate it. */
 export async function appendProfile(
   network: AppChain = DEFAULT_CHAIN,
-  opts: { needsRestore?: boolean } = {}
+  opts: { restorePending?: readonly AppChain[] } = {}
 ): Promise<ProfileRecord> {
   const index = state.profiles.length
   if (index >= MAX_PROFILES) throw new Error('Too many profiles')
-  const record: ProfileRecord = { index, network, ...(opts.needsRestore ? { needsRestore: true } : {}) }
+  const restorePending = normalizeRestorePending(opts.restorePending)
+  const record: ProfileRecord = { index, network, ...(restorePending ? { restorePending } : {}) }
   publish({ ...state, profiles: [...state.profiles, record] })
   await persist()
   return record
@@ -205,17 +229,20 @@ export async function updateProfile(n: number, patch: Partial<Omit<ProfileRecord
     if (n === state.active) throw new Error('The active profile cannot be removed')
   }
   const next: ProfileRecord = { ...current, ...patch, index: n }
-  if (!next.needsRestore) delete next.needsRestore
+  const restorePending = normalizeRestorePending(next.restorePending)
+  if (restorePending) next.restorePending = restorePending
+  else delete next.restorePending
   if (!next.deleted) delete next.deleted
   const name = normalizeProfileName(next.name)
   if (name) next.name = name
   else delete next.name
   if (
     next.network === current.network &&
+    next.lastBuiltNetwork === current.lastBuiltNetwork &&
     next.identityKey === current.identityKey &&
     next.name === current.name &&
     !!next.deleted === !!current.deleted &&
-    !!next.needsRestore === !!current.needsRestore
+    String(next.restorePending ?? '') === String(current.restorePending ?? '')
   ) {
     return
   }
