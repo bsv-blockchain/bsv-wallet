@@ -25,6 +25,9 @@ import AmountDisplay from '../wallet/AmountDisplay'
 import { showAlert } from '../ui/AlertCard'
 import { showChoiceSheet } from '../ui/ChoiceSheet'
 import { promptCheckWallet } from '../../screens/WalletCheckScreen'
+import { useDirectPay } from '../../../core/directpay/DirectPayProvider'
+import { fallbackPrompt, payIdentity } from '../../../core/directpay/payFlow'
+import type { PayOutcome } from '../../../core/directpay/types'
 import { userFacingPayError } from '../../../core/pay/userError'
 import PressableScale from '../ui/PressableScale'
 import { showToast } from '../ui/Toast'
@@ -848,23 +851,64 @@ function UniversalSendInner(
     [t]
   )
 
+  const directPay = useDirectPay()
+
   const sendHandle = useCallback(
     async (to: Extract<RecipientTarget, { kind: 'handle' }>, sats: number) => {
       const client = peerPayClient
       if (!client) throw new Error(t('message_box_off_hint'))
       if (!storage || !wallet) throw new Error(t('wallet_not_ready'))
-      const { satoshis: paidSats } = await sendViaHandle({
-        wallet: wallet as any,
-        adminOriginator,
-        client,
-        storage,
-        recipient: to.identityKey,
-        recipientHost: to.messageBoxUrl,
-        satoshis: sats,
-        messageBoxUrl,
-        note,
-        recipientName: recipient.selectedIdentity?.name
-      })
+      const recipientName = recipient.selectedIdentity?.name
+      const name = recipientName || abbreviateKey(to.identityKey)
+      let paidSats = sats
+      const viaMessageBox = async () => {
+        const result = await sendViaHandle({
+          wallet: wallet as any,
+          adminOriginator,
+          client,
+          storage,
+          recipient: to.identityKey,
+          recipientHost: to.messageBoxUrl,
+          satoshis: sats,
+          messageBoxUrl,
+          note,
+          recipientName
+        })
+        paidSats = result.satoshis
+      }
+      // Live first when this build and wallet can pay directly; the message box is the fallback,
+      // offered only when the live attempt proved nothing was spent (see payIdentity).
+      const viaDirect = directPay.canSendDirect
+        ? async () => {
+            const result = await directPay.sendDirect({
+              recipient: to.identityKey,
+              satoshis: sats,
+              note,
+              recipientName,
+              recipientHost: to.messageBoxUrl
+            })
+            paidSats = result.satoshis
+            return result
+          }
+        : undefined
+      let outcome: PayOutcome = await payIdentity({ direct: viaDirect, messageBox: viaMessageBox, name })
+      if (outcome.kind === 'ask_fallback') {
+        const prompt = fallbackPrompt(outcome.reason, name)
+        const choice = await showAlert({
+          title: t('direct_pay_fallback_title'),
+          message: t(prompt.key, prompt.params),
+          buttons: [
+            { text: t('cancel'), key: 'cancel', style: 'cancel' },
+            { text: t('direct_pay_fallback_send'), key: 'send' }
+          ]
+        })
+        if (choice !== 'send') throw new Error(t('direct_pay_failed_cancelled'))
+        outcome = await payIdentity({ messageBox: viaMessageBox, name })
+      }
+      if (outcome.kind === 'failed') {
+        if (outcome.detail) console.warn('[pay] direct pay failed:', outcome.key, outcome.detail)
+        throw new Error(t(outcome.key, outcome.params))
+      }
       await loadOutbox()
       // The overlay stages its own haptic (inside Celebration) and tone; firing
       // haptics.success() here would double the beat. Only a human-readable
@@ -876,11 +920,12 @@ function UniversalSendInner(
         // The handle rail always drops the payment in the recipient's message
         // box rather than handing it over in person — worth saying explicitly
         // here, since it is the one thing an in-person (Nearby) payer never
-        // has to wonder about (ux §4.2/§8 "Success / arrival").
-        statusNote: t('pay_sent_handed_to_wallet')
+        // has to wonder about (ux §4.2/§8 "Success / arrival"). A live payment is already in
+        // the recipient's wallet, so it says that instead.
+        statusNote: outcome.kind === 'paid_live' ? t('direct_pay_sent_live') : t('pay_sent_handed_to_wallet')
       })
     },
-    [peerPayClient, storage, wallet, adminOriginator, messageBoxUrl, note, recipient.selectedIdentity, loadOutbox, t]
+    [peerPayClient, storage, wallet, adminOriginator, messageBoxUrl, note, recipient.selectedIdentity, loadOutbox, t, directPay]
   )
 
   const sendAddress = useCallback(
